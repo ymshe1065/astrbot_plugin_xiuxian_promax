@@ -82,6 +82,76 @@ class CombatManager:
         total_atk = int(base_atk * (1 + practice_bonus + atk_buff) * class_multiplier) + physical_damage + magic_damage
         
         return max(total_atk, 1)  # 至少为1
+
+    @staticmethod
+    def calculate_equipment_bonus(player, config_manager) -> Dict:
+        """计算武器/防具对战斗面板的加成（与实战 _calculate_equipment_bonus 一致）"""
+        bonus = {"atk": 0, "defense": 0}
+        if player.weapon and player.weapon in config_manager.weapons_data:
+            data = config_manager.weapons_data[player.weapon]
+            bonus["atk"] += (
+                data.get("atk", 0)
+                + data.get("physical_damage", 0)
+                + data.get("magic_damage", 0)
+            )
+        if player.armor and player.armor in config_manager.items_data:
+            data = config_manager.items_data[player.armor]
+            bonus["defense"] += data.get("physical_defense", 0)
+        return bonus
+
+    @staticmethod
+    def build_combat_panel(
+        player,
+        pill_multipliers: Optional[dict],
+        impart_info,
+        config_manager,
+        effects: Optional[dict] = None,
+    ) -> Dict:
+        """构建与实战一致的气血/灵气/攻击/防御/暴击面板。"""
+        pill_multipliers = pill_multipliers or {}
+        effects = effects or {}
+
+        hp_buff = impart_info.impart_hp_per if impart_info else 0.0
+        mp_buff = impart_info.impart_mp_per if impart_info else 0.0
+        atk_buff = impart_info.impart_atk_per if impart_info else 0.0
+
+        base_hp, base_mp = CombatManager.calculate_hp_mp(
+            player.experience, hp_buff, mp_buff
+        )
+        dmg_mult = max(
+            pill_multipliers.get("physical_damage", 1.0),
+            pill_multipliers.get("magic_damage", 1.0),
+        )
+        hp = int(base_hp * dmg_mult)
+        mp = int(base_mp)
+
+        base_atk = CombatManager.calculate_atk(
+            player.experience,
+            player.atkpractice,
+            atk_buff,
+            player.physical_damage,
+            player.magic_damage,
+            player.cultivation_type,
+        )
+        equip = CombatManager.calculate_equipment_bonus(player, config_manager)
+        atk = int(base_atk * dmg_mult) + equip["atk"]
+        defense = int(
+            equip["defense"]
+            * max(
+                pill_multipliers.get("physical_defense", 1.0),
+                pill_multipliers.get("magic_defense", 1.0),
+            )
+        ) + int(effects.get("defense_bonus", 0))
+
+        return {
+            "hp": hp, "max_hp": hp,
+            "mp": mp, "max_mp": mp,
+            "atk": atk, "defense": defense,
+            "crit_rate": effects.get("crit_rate", 0),
+            "crit_damage": effects.get("crit_damage", 1.5),
+            "lifesteal": effects.get("lifesteal", 0),
+            "counter_damage": effects.get("counter_damage", 0),
+        }
     
     @staticmethod
     def apply_damage_reduction(damage: int, defense: int = 0) -> int:
@@ -100,6 +170,14 @@ class CombatManager:
         
         # 1. 基础伤害
         damage = int(round(random.uniform(0.95, 1.05), 2) * attacker.atk)
+
+        # 功法/词条的物伤/法伤倍率（取较高的一项，避免双倍叠加）
+        damage_mult = max(
+            effects.get("physical_damage_multiplier", 1.0),
+            effects.get("magic_damage_multiplier", 1.0),
+        )
+        if damage_mult != 1.0:
+            damage = int(damage * damage_mult)
 
         # 1.5 五行克制倍率（克制+30%，被克-20%）
         elem_mult = cls.element_multiplier(attacker.element, defender.element)
@@ -146,6 +224,51 @@ class CombatManager:
         # ==========================
 
         return final_damage, logs, heal_amount
+
+    @classmethod
+    def _shorten_combat_log(cls, combat_log, round_num, winner, player1, player2):
+        """只保留前 5 回合、后 5 回合和最终结果，避免长战报触发合并转发。"""
+        if winner == player1.user_id:
+            win_name = player1.name
+        elif winner == player2.user_id:
+            win_name = player2.name
+        else:
+            win_name = "平局"
+
+        result_lines = [
+            "",
+            "☆━━━━ 战斗结束 ━━━━☆",
+            f"胜者：{win_name}",
+            f"回合数：{round_num}",
+            f"{player1.name} 剩余 HP：{max(0, player1.hp)} | "
+            f"{player2.name} 剩余 HP：{max(0, player2.hp)}",
+        ]
+
+        if round_num <= 10:
+            return combat_log + result_lines
+
+        markers = [
+            i for i, line in enumerate(combat_log)
+            if line.startswith("-- 第 ") and line.endswith(" 回合 --")
+        ]
+        if len(markers) <= 10:
+            return combat_log + result_lines
+
+        header = combat_log[:markers[0]]
+        blocks = []
+        for idx, start in enumerate(markers):
+            end = markers[idx + 1] if idx + 1 < len(markers) else len(combat_log)
+            blocks.append(combat_log[start:end])
+
+        omitted = len(blocks) - 10
+        shortened = list(header)
+        for block in blocks[:5]:
+            shortened.extend(block)
+        shortened.append(f"……（中间省略 {omitted} 回合）……")
+        for block in blocks[-5:]:
+            shortened.extend(block)
+        shortened.extend(result_lines)
+        return shortened
 
     @classmethod
     def player_vs_player(cls, player1: CombatStats, player2: CombatStats, combat_type: int = 1) -> Dict:
@@ -220,6 +343,9 @@ class CombatManager:
             p1_hp = max(1, real_p1_hp) if real_p1_hp > 0 else 1
             p2_hp = max(1, real_p2_hp) if real_p2_hp > 0 else 1
             
+        combat_log = cls._shorten_combat_log(
+            combat_log, round_num, winner, player1, player2
+        )
         return {
             "winner": winner, "combat_log": combat_log, "rounds": round_num,
             "player1_final_hp": p1_hp, "player1_final_mp": player1.mp,
@@ -303,7 +429,10 @@ class CombatManager:
             if player1.hp > player2.hp: winner = player1.user_id
             elif player2.hp > player1.hp: winner = player2.user_id
             else: winner = "平局"
-        
+
+        combat_log = cls._shorten_combat_log(
+            combat_log, round_num, winner, player1, player2
+        )
         return {
             "winner": winner, 
             "combat_log": combat_log, 

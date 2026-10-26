@@ -9,6 +9,7 @@ from typing import Tuple, List, Optional, Dict, TYPE_CHECKING
 from ..data.data_manager import DataBase
 from ..models_extended import Rift, UserStatus
 from ..models import Player
+from .task_penalty import calc_abandon_penalty, charge_abandon_penalty
 
 if TYPE_CHECKING:
     from ..core import StorageRingManager
@@ -41,6 +42,20 @@ class RiftManager:
             {"name": "功法残页", "weight": 20, "min": 1, "max": 2},
             {"name": "天材地宝", "weight": 15, "min": 1, "max": 1},
         ],
+        4: [  # 玄冰地宫
+            {"name": "星辰石", "weight": 25, "min": 4, "max": 8},
+            {"name": "灵兽内丹", "weight": 20, "min": 2, "max": 4},
+            {"name": "天材地宝", "weight": 20, "min": 1, "max": 2},
+            {"name": "功法残页", "weight": 20, "min": 2, "max": 3},
+            {"name": "玄铁", "weight": 15, "min": 4, "max": 8},
+        ],
+        5: [  # 上古遗迹
+            {"name": "天材地宝", "weight": 25, "min": 2, "max": 3},
+            {"name": "灵兽内丹", "weight": 22, "min": 2, "max": 5},
+            {"name": "星辰石", "weight": 20, "min": 5, "max": 10},
+            {"name": "功法残页", "weight": 20, "min": 2, "max": 4},
+            {"name": "秘境精华", "weight": 13, "min": 3, "max": 6},
+        ],
     }
     
     # 秘境稀有丹药掉落表（按秘境等级分组，低概率掉落通用增益丹）
@@ -59,6 +74,18 @@ class RiftManager:
             {"name": "六品破境增益丹", "weight": 20, "min": 1, "max": 1},
             {"name": "七品化神增益丹", "weight": 10, "min": 1, "max": 1},
         ],
+        4: [  # 玄冰地宫 - 12%概率掉落
+            {"name": "五品渡劫增益丹", "weight": 30, "min": 1, "max": 1},
+            {"name": "六品破境增益丹", "weight": 30, "min": 1, "max": 1},
+            {"name": "七品化神增益丹", "weight": 25, "min": 1, "max": 1},
+            {"name": "四品破境增益丹", "weight": 15, "min": 1, "max": 1},
+        ],
+        5: [  # 上古遗迹 - 15%概率掉落
+            {"name": "六品破境增益丹", "weight": 30, "min": 1, "max": 1},
+            {"name": "七品化神增益丹", "weight": 35, "min": 1, "max": 1},
+            {"name": "五品渡劫增益丹", "weight": 20, "min": 1, "max": 1},
+            {"name": "四品破境增益丹", "weight": 15, "min": 1, "max": 1},
+        ],
     }
     
     # 秘境丹药掉落概率（百分比）
@@ -66,6 +93,8 @@ class RiftManager:
         1: 3,   # 低级秘境 3%
         2: 5,   # 中级秘境 5%
         3: 10,  # 高级秘境 10%
+        4: 12,  # 玄冰地宫 12%
+        5: 15,  # 上古遗迹 15%
     }
     
     def __init__(self, db: DataBase, config_manager=None, storage_ring_manager: "StorageRingManager" = None):
@@ -323,10 +352,34 @@ class RiftManager:
         if not user_cd or user_cd.type != UserStatus.EXPLORING:
             return False, "❌ 你当前不在探索秘境！"
         
-        # 3. 清除CD状态
+        # 3. 按秘境最低灵石奖励的 80% 收违约金
+        try:
+            extra = user_cd.get_extra_data() if hasattr(user_cd, "get_extra_data") else {}
+        except Exception:
+            extra = {}
+        rift_id = int((extra or {}).get("rift_id", 0) or 0)
+        rift = await self.db.ext.get_rift_by_id(rift_id) if rift_id else None
+        gold_reward = 0
+        if rift:
+            try:
+                gold_range = rift.get_rewards().get("gold", [0, 0])
+                gold_reward = int(min(gold_range[0], gold_range[1]))
+            except Exception:
+                gold_reward = 0
+
+        cost, currency = calc_abandon_penalty(gold_reward)
+        currency_label = "灵气" if currency == "qi" else "灵石"
+        ok, msg = await charge_abandon_penalty(player, self.db, cost, currency)
+        if not ok:
+            return False, msg
+
+        # 4. 清除CD状态
         await self.db.ext.set_user_free(user_id)
         
-        return True, "✅ 你已退出秘境，本次探索未获得任何奖励。"
+        return True, (
+            "✅ 你已退出秘境，本次探索未获得任何奖励。\n"
+            f"向秘境支付违约金：{cost:,} {currency_label}"
+        )
     
     def _is_pill_item(self, item_name: str) -> bool:
         """检查物品是否为丹药"""

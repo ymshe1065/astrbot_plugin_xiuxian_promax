@@ -28,6 +28,43 @@ class DailyTaskHandlers:
         yield event.plain_result(msg)
 
     @player_required
+    async def handle_abandon_task(self, player: Player, event: AstrMessageEvent, task_id: str = ""):
+        """放弃进行中的任务"""
+        if not task_id or not task_id.strip():
+            tasks = await self.db.ext.get_user_active_tasks(player.user_id)
+            if not tasks:
+                yield event.plain_result("❌ 你当前没有进行中的任务，无需放弃。")
+                return
+
+            lines = [
+                "🗑️ 放弃任务",
+                "用法：/放弃任务 <编号>",
+                "━━━━━━━━━━━━━━━",
+            ]
+            for t in tasks:
+                lines.append(
+                    f"[#{t['id']}] [{t['task_level']}阶] {t['title']}"
+                    f"（{t['current_progress']}/{t['target_count']}）"
+                )
+            lines.append("💡 编号来自 /任务榜，也可以直接照上面填写。")
+            yield event.plain_result("\n".join(lines))
+            return
+
+        raw = task_id.strip().lstrip("#")
+        try:
+            tid = int(raw)
+        except ValueError:
+            yield event.plain_result("❌ 任务编号必须是数字，例如：/放弃任务 12")
+            return
+
+        if tid <= 0:
+            yield event.plain_result("❌ 任务编号必须大于 0。")
+            return
+
+        success, msg = await self.task_mgr.abandon_task(player, tid)
+        yield event.plain_result(msg)
+
+    @player_required
     async def handle_claim_reward(self, player: Player, event: AstrMessageEvent):
         """领取奖励"""
         success, msg, items = await self.task_mgr.claim_rewards(player)

@@ -321,8 +321,14 @@ class BreakthroughManager:
             import time
             now = int(time.time())
             days_borrowed = max(1, (now - loan["borrowed_at"]) // 86400)
-            interest = int(loan["principal"] * loan["interest_rate"] * days_borrowed)
-            total_due = loan["principal"] + interest
+            accrued_interest = int(
+                loan["principal"] * loan["interest_rate"] * days_borrowed
+            )
+            paid_interest = int(loan.get("paid_interest", 0) or 0)
+            paid_principal = int(loan.get("paid_principal", 0) or 0)
+            interest_due = max(0, accrued_interest - paid_interest)
+            principal_due = max(0, int(loan["principal"]) - paid_principal)
+            total_due = principal_due + interest_due
             
             if player.gold >= total_due:
                 player.gold -= total_due
@@ -333,14 +339,14 @@ class BreakthroughManager:
                 balance = bank_data["balance"] if bank_data else 0
                 await self.db.ext.add_bank_transaction(
                     player.user_id, "auto_repay", -total_due, balance,
-                    f"突破成功自动还款：本金{loan['principal']:,}+利息{interest:,}", now
+                    f"突破成功自动还款：本金{principal_due:,}+利息{interest_due:,}", now
                 )
                 
                 return (
                     f"💰 突破贷款自动还款成功！\n"
                     f"━━━━━━━━━━━━━━━\n"
-                    f"已还本金：{loan['principal']:,} 灵石\n"
-                    f"已还利息：{interest:,} 灵石\n"
+                    f"已还本金：{principal_due:,} 灵石\n"
+                    f"已还利息：{interest_due:,} 灵石\n"
                     f"当前持有：{player.gold:,} 灵石"
                 )
             else:

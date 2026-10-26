@@ -111,6 +111,12 @@
         "default": 100,
         "hint": "闭关修炼时，每分钟获得的基础修为值（会受灵根倍率影响）。"
       },
+      "LEVEL_EXP_BONUS_PER_LEVEL": {
+        "description": "境界修为加成（每级）",
+        "type": "float",
+        "default": 0.1,
+        "hint": "每提升一个境界等级，闭关修为收益增加的比例。0.1 表示每级 +10%。"
+      },
       "CHECK_IN_GOLD_MIN": {
         "description": "签到灵石奖励（最小值）",
         "type": "int",

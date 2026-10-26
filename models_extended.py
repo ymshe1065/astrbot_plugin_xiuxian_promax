@@ -51,6 +51,11 @@ class Sect:
     secbuff: str = "0"
     elixir_room_level: int = 0
     buildings: str = "{}"  # 宗门建筑等级 (JSON)
+    sect_level: int = 1
+    sect_exp: int = 0
+    sect_war_cd_until: int = 0
+    sect_war_protect_until: int = 0
+    sect_tournament_cd_until: int = 0
     
     def get_mainbuff_list(self) -> List[int]:
         try:
@@ -162,7 +167,7 @@ class DailyTask:
     target_count: int
     current_progress: int
     rewards_json: str
-    status: int  # 1进行中, 2已完成, 3已领奖
+    status: int  # 1进行中, 2已完成, 3已领奖/过期, 4已放弃
     expire_time: int
 
 @dataclass

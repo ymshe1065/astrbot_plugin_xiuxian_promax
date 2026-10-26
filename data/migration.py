@@ -5,7 +5,7 @@ from typing import Dict, Callable, Awaitable
 from astrbot.api import logger
 from ..config_manager import ConfigManager
 
-LATEST_DB_VERSION = 29  # v29: NPC道侣（仙灵结缘）
+LATEST_DB_VERSION = 31  # v31: NPC道侣 + 宗门等级/命令/大比/宗门战
 
 MIGRATION_TASKS: Dict[int, Callable[[aiosqlite.Connection, ConfigManager], Awaitable[None]]] = {}
 
@@ -25,15 +25,65 @@ async def _add_column_if_missing(conn: aiosqlite.Connection, table: str, column:
     await conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl_type}")
 
 
-async def _ensure_latest_columns(conn: aiosqlite.Connection):
-    """终极兜底：无论哪条建库路径（全新建表/旧库升级/已是最新），确保 v27-v29 新增列/表全部存在。"""
-    await _add_column_if_missing(conn, "players", "karma", "INTEGER NOT NULL DEFAULT 0")
-    await _add_column_if_missing(conn, "players", "life_skill", "TEXT NOT NULL DEFAULT ''")
-    await _add_column_if_missing(conn, "spirit_farms", "fertility", "INTEGER NOT NULL DEFAULT 100")
-    await _add_column_if_missing(conn, "blessed_lands", "furniture", "TEXT NOT NULL DEFAULT '[]'")
-    await _add_column_if_missing(conn, "sects", "buildings", "TEXT NOT NULL DEFAULT '{}'")
-    await _add_column_if_missing(conn, "players", "virtue_points", "INTEGER NOT NULL DEFAULT 0")
-    # v29 表
+async def _ensure_sect_v30_tables(conn: aiosqlite.Connection):
+    """创建 v30 宗门拓展表（新库/旧库共用）。"""
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS sect_orders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sect_id INTEGER NOT NULL,
+            issuer_id TEXT NOT NULL,
+            target_id TEXT NOT NULL,
+            order_type TEXT NOT NULL,
+            target_value INTEGER NOT NULL DEFAULT 0,
+            progress INTEGER NOT NULL DEFAULT 0,
+            penalty_gold INTEGER NOT NULL DEFAULT 500,
+            created_at INTEGER NOT NULL DEFAULT 0,
+            deadline INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'active',
+            origin TEXT NOT NULL DEFAULT ''
+        )
+    """)
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_sect_orders_target ON sect_orders(target_id, status)")
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_sect_orders_deadline ON sect_orders(status, deadline)")
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS sect_tournaments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sect_id INTEGER NOT NULL,
+            host_id TEXT NOT NULL,
+            origin TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'registering',
+            registration_end INTEGER NOT NULL DEFAULT 0,
+            started_at INTEGER NOT NULL DEFAULT 0,
+            finished_at INTEGER NOT NULL DEFAULT 0,
+            winner_id TEXT NOT NULL DEFAULT '',
+            bracket_json TEXT NOT NULL DEFAULT '[]'
+        )
+    """)
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_sect_tournaments_status ON sect_tournaments(status, registration_end)")
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS sect_tournament_entries (
+            tournament_id INTEGER NOT NULL,
+            user_id TEXT NOT NULL,
+            seed INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (tournament_id, user_id)
+        )
+    """)
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS sect_wars (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            attacker_id INTEGER NOT NULL,
+            defender_id INTEGER NOT NULL,
+            winner_id INTEGER NOT NULL DEFAULT 0,
+            gold_taken INTEGER NOT NULL DEFAULT 0,
+            log_json TEXT NOT NULL DEFAULT '[]',
+            created_at INTEGER NOT NULL DEFAULT 0,
+            origin TEXT NOT NULL DEFAULT ''
+        )
+    """)
+
+
+async def _ensure_npc_v29_tables(conn: aiosqlite.Connection):
+    """创建 v29 NPC 道侣/师徒表（新库/旧库共用）。"""
     await conn.execute("""
         CREATE TABLE IF NOT EXISTS npc_partners (
             user_id TEXT PRIMARY KEY,
@@ -53,6 +103,26 @@ async def _ensure_latest_columns(conn: aiosqlite.Connection):
         )
     """)
     await conn.execute("CREATE INDEX IF NOT EXISTS idx_master_relations_master ON master_relations(master_id)")
+
+
+async def _ensure_latest_columns(conn: aiosqlite.Connection):
+    """终极兜底：确保 NPC、宗门、贷款等最新增量列/表齐全。"""
+    await _add_column_if_missing(conn, "players", "karma", "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(conn, "players", "life_skill", "TEXT NOT NULL DEFAULT ''")
+    await _add_column_if_missing(conn, "players", "sect_debt", "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(conn, "spirit_farms", "fertility", "INTEGER NOT NULL DEFAULT 100")
+    await _add_column_if_missing(conn, "blessed_lands", "furniture", "TEXT NOT NULL DEFAULT '[]'")
+    await _add_column_if_missing(conn, "sects", "buildings", "TEXT NOT NULL DEFAULT '{}'")
+    await _add_column_if_missing(conn, "players", "virtue_points", "INTEGER NOT NULL DEFAULT 0")
+    await _ensure_npc_v29_tables(conn)
+    await _add_column_if_missing(conn, "sects", "sect_level", "INTEGER NOT NULL DEFAULT 1")
+    await _add_column_if_missing(conn, "sects", "sect_exp", "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(conn, "sects", "sect_war_cd_until", "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(conn, "sects", "sect_war_protect_until", "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(conn, "sects", "sect_tournament_cd_until", "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(conn, "bank_loans", "paid_interest", "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(conn, "bank_loans", "paid_principal", "INTEGER NOT NULL DEFAULT 0")
+    await _ensure_sect_v30_tables(conn)
     await conn.commit()
 
 class MigrationManager:
@@ -964,25 +1034,52 @@ async def _migrate_to_v28(conn: aiosqlite.Connection, config_manager: ConfigMana
 async def _migrate_to_v29(conn: aiosqlite.Connection, config_manager: ConfigManager):
     """迁移到v29 - NPC道侣（仙灵结缘）+ 师徒系统"""
     logger.info("开始迁移到v29：NPC道侣/师徒系统")
-    await conn.execute("""
-        CREATE TABLE IF NOT EXISTS npc_partners (
-            user_id TEXT PRIMARY KEY,
-            npc_id TEXT NOT NULL,
-            bond INTEGER NOT NULL DEFAULT 0,
-            daily_time INTEGER NOT NULL DEFAULT 0,
-            created_at INTEGER NOT NULL DEFAULT 0
-        )
-    """)
-    await conn.execute("""
-        CREATE TABLE IF NOT EXISTS master_relations (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            master_id TEXT NOT NULL,
-            disciple_id TEXT NOT NULL UNIQUE,
-            created_at INTEGER NOT NULL DEFAULT 0,
-            graduated INTEGER NOT NULL DEFAULT 0
-        )
-    """)
-    await conn.execute("CREATE INDEX IF NOT EXISTS idx_master_relations_master ON master_relations(master_id)")
     await _add_column_if_missing(conn, "players", "virtue_points", "INTEGER NOT NULL DEFAULT 0")
+    await _ensure_npc_v29_tables(conn)
     await conn.commit()
     logger.info("v29迁移完成")
+
+@migration(30)
+async def _migrate_to_v30(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """迁移到 v30 - 宗门等级/命令/大比/宗门战 + 贷款部分还款"""
+    logger.info("开始迁移到 v30：宗门功能拓展")
+    await _add_column_if_missing(conn, "players", "sect_debt", "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(conn, "sects", "sect_level", "INTEGER NOT NULL DEFAULT 1")
+    await _add_column_if_missing(conn, "sects", "sect_exp", "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(conn, "sects", "sect_war_cd_until", "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(conn, "sects", "sect_war_protect_until", "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(conn, "sects", "sect_tournament_cd_until", "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(conn, "bank_loans", "paid_interest", "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(conn, "bank_loans", "paid_principal", "INTEGER NOT NULL DEFAULT 0")
+    await _ensure_sect_v30_tables(conn)
+
+    # 老宗门按建设度折算经验，避免全部掉回 1 级；已有建筑等级不回收
+    await conn.execute("UPDATE sects SET sect_exp = MIN(sect_scale, 100000) WHERE sect_exp = 0")
+    await conn.execute("""
+        UPDATE sects SET sect_level = CASE
+            WHEN sect_exp >= 100000 THEN 5
+            WHEN sect_exp >= 60000 THEN 4
+            WHEN sect_exp >= 30000 THEN 3
+            WHEN sect_exp >= 10000 THEN 2
+            ELSE 1 END
+    """)
+    await conn.commit()
+    logger.info("v30迁移完成")
+
+@migration(31)
+async def _migrate_to_v31(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """v31 兼容：已经到 v30 的本地库补上 NPC/宗门/贷款字段。"""
+    logger.info("开始迁移到 v31：兼容 NPC/宗门/贷款字段")
+    await _add_column_if_missing(conn, "players", "virtue_points", "INTEGER NOT NULL DEFAULT 0")
+    await _ensure_npc_v29_tables(conn)
+    await _add_column_if_missing(conn, "players", "sect_debt", "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(conn, "sects", "sect_level", "INTEGER NOT NULL DEFAULT 1")
+    await _add_column_if_missing(conn, "sects", "sect_exp", "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(conn, "sects", "sect_war_cd_until", "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(conn, "sects", "sect_war_protect_until", "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(conn, "sects", "sect_tournament_cd_until", "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(conn, "bank_loans", "paid_interest", "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(conn, "bank_loans", "paid_principal", "INTEGER NOT NULL DEFAULT 0")
+    await _ensure_sect_v30_tables(conn)
+    await conn.commit()
+    logger.info("v31迁移完成")

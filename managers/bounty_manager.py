@@ -11,6 +11,7 @@ from astrbot.api import logger
 
 from ..data import DataBase
 from ..models import Player
+from .task_penalty import calc_abandon_penalty, charge_abandon_penalty
 
 if TYPE_CHECKING:
     from ..core import StorageRingManager
@@ -404,10 +405,34 @@ class BountyManager:
         if not active:
             return False, "你当前没有进行中的悬赏任务。"
 
+        try:
+            rewards = json.loads(active.get("rewards") or "{}")
+        except Exception:
+            rewards = {}
+        cost, currency = calc_abandon_penalty(
+            int(rewards.get("stone", 0) or 0),
+            int(rewards.get("spiritual_qi", 0) or 0),
+        )
+        currency_label = "灵气" if currency == "qi" else "灵石"
+
+        fresh = await self.db.get_player_by_id(player.user_id)
+        if not fresh:
+            return False, "❌ 玩家数据不存在。"
+
+        ok, msg = await charge_abandon_penalty(fresh, self.db, cost, currency)
+        if not ok:
+            return False, msg
+
         await self.db.ext.cancel_bounty(player.user_id)
         abandon_cooldown = int(time.time()) + 1800
-        await self.db.ext.set_system_config(f"bounty_abandon_cd_{player.user_id}", str(abandon_cooldown))
-        return True, f"已放弃悬赏：{active['bounty_name']}\n⚠️ 30分钟内无法接取新悬赏"
+        await self.db.ext.set_system_config(
+            f"bounty_abandon_cd_{player.user_id}", str(abandon_cooldown)
+        )
+        return True, (
+            f"已放弃悬赏：{active['bounty_name']}\n"
+            f"扣除违约金：{cost:,} {currency_label}\n"
+            "⚠️ 30分钟内无法接取新悬赏"
+        )
 
     # -------- 进度与奖励 --------
 

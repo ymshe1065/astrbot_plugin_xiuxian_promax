@@ -1,0 +1,27 @@
+{
+  "create_cost": 10000,
+  "create_level_required": 3,
+  "positions": {
+    "0": {
+      "name": "宗主",
+      "permission": 10
+    },
+    "1": {
+      "name": "长老",
+      "permission": 8
+    },
+    "2": {
+      "name": "亲传弟子",
+      "permission": 5
+    },
+    "3": {
+      "name": "内门弟子",
+      "permission": 2
+    },
+    "4": {
+      "name": "外门弟子",
+      "permission": 1
+    }
+  },
+  "scale_ratio": 10
+}

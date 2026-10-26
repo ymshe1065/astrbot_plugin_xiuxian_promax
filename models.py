@@ -103,6 +103,7 @@ class Player:
     sect_contribution: int = 0  # 宗门贡献度
     sect_task: int = 0  # 宗门任务完成次数
     sect_elixir_get: int = 0  # 宗门丹药领取标记（0未领取，1已领取）
+    sect_debt: int = 0  # 宗门命令欠款（灵石）
 
     # 洞天福地系统
     blessed_spot_flag: int = 0  # 是否开启洞天福地（0未开启，1已开启）
@@ -223,6 +224,7 @@ class Player:
             "exp_multiplier": 0.0,
         }
 
+        seen_techniques = set()
         for item in equipped_items:
             total["magic_damage"] += item.magic_damage
             total["physical_damage"] += item.physical_damage
@@ -230,7 +232,11 @@ class Player:
             total["physical_defense"] += item.physical_defense
             total["mental_power"] += item.mental_power
 
-            if item.item_type == "main_technique":
+            if (
+                item.item_type in ("main_technique", "technique")
+                and item.name not in seen_techniques
+            ):
+                seen_techniques.add(item.name)
                 total["exp_multiplier"] += item.exp_multiplier
                 total["max_spiritual_qi"] += item.spiritual_qi
                 total["max_blood_qi"] += item.blood_qi

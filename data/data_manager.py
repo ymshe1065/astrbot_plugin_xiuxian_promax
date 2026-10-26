@@ -324,6 +324,37 @@ class DataBase:
                 sql_preview = sql.strip().split(" ")[0]
                 logger.warning(f"[delete_player_cascade] 忽略执行 {sql_preview}: {e}")
 
+        # 如果该玩家是宗主，先把宗门传给职位最高/贡献最高的成员；没人就解散
+        try:
+            async with self.conn.execute(
+                "SELECT sect_id FROM sects WHERE sect_owner = ?", (user_id,)
+            ) as cursor:
+                owned = await cursor.fetchone()
+            if owned:
+                sect_id = owned[0]
+                async with self.conn.execute(
+                    "SELECT user_id FROM players "
+                    "WHERE sect_id = ? AND user_id != ? "
+                    "ORDER BY sect_position ASC, sect_contribution DESC LIMIT 1",
+                    (sect_id, user_id),
+                ) as cursor:
+                    successor = await cursor.fetchone()
+                if successor:
+                    await self.conn.execute(
+                        "UPDATE sects SET sect_owner = ? WHERE sect_id = ?",
+                        (successor[0], sect_id),
+                    )
+                    await self.conn.execute(
+                        "UPDATE players SET sect_position = 0 WHERE user_id = ?",
+                        (successor[0],),
+                    )
+                else:
+                    await self.conn.execute(
+                        "DELETE FROM sects WHERE sect_id = ?", (sect_id,)
+                    )
+        except Exception as e:
+            logger.warning(f"[delete_player_cascade] 宗门交接失败: {e}")
+
         statements = [
             ("UPDATE spirit_eyes SET owner_id = NULL, owner_name = NULL, claim_time = NULL WHERE owner_id = ?", (user_id,)),
             ("DELETE FROM blessed_lands WHERE user_id = ?", (user_id,)),
@@ -338,7 +369,14 @@ class DataBase:
             ("DELETE FROM impart_info WHERE user_id = ?", (user_id,)),
             ("DELETE FROM combat_cooldowns WHERE user_id = ?", (user_id,)),
             ("DELETE FROM pending_gifts WHERE sender_id = ? OR receiver_id = ?", (user_id, user_id)),
-            ("DELETE FROM player_pets WHERE user_id = ?", (user_id,)), 
+            ("DELETE FROM player_pets WHERE user_id = ?", (user_id,)),
+            ("DELETE FROM daily_tasks WHERE user_id = ?", (user_id,)),
+            ("DELETE FROM world_boss_damage WHERE user_id = ?", (user_id,)),
+            ("DELETE FROM auction_items WHERE seller_id = ?", (user_id,)),
+            ("DELETE FROM sect_tournament_entries WHERE user_id = ?", (user_id,)),
+            ("UPDATE sect_orders SET status = 'cancelled' WHERE status = 'active' AND (issuer_id = ? OR target_id = ?)", (user_id, user_id)),
+            # 清理用户专属冷却/次数，但保留重修冷却键（随后会写入新的时间）
+            ("DELETE FROM system_config WHERE key LIKE ? AND key != ?", (f"%{user_id}%", f"rebirth_last_{user_id}")),
         ]
 
         for sql, params in statements:

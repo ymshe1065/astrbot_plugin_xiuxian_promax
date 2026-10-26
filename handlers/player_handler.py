@@ -10,7 +10,7 @@ from ..models import Player
 from ..models_extended import UserStatus
 from ..config_manager import ConfigManager
 from ..managers.tutorial_manager import TutorialManager
-from .utils import player_required
+from .utils import player_required, with_player_lock, _loan_identity
 
 CMD_START_XIUXIAN = "我要修仙"
 CMD_PLAYER_INFO = "我的信息"
@@ -201,10 +201,32 @@ class PlayerHandler:
         )
         total_attrs = player.get_total_attributes(equipped_items, pill_multipliers)
 
-        combat_power = (
-            int(total_attrs['physical_damage']) + int(total_attrs['magic_damage']) +
-            int(total_attrs['physical_defense']) + int(total_attrs['magic_defense']) +
-            int(total_attrs['mental_power']) // 10
+        from ..managers.combat_manager import CombatManager
+        impart_info = await self.db.ext.get_impart_info(player.user_id)
+        effects = equipment_manager.get_combat_effects(player)
+        try:
+            from ..managers.pet_manager import PetManager
+            pet_mgr = PetManager(self.db)
+            pet = await pet_mgr.get_pet(player.user_id)
+            if pet:
+                for k, v in pet_mgr.get_pet_combat_effects(pet).items():
+                    effects[k] = effects.get(k, 0) + v
+        except Exception:
+            pass
+
+        combat_panel = CombatManager.build_combat_panel(
+            player, pill_multipliers, impart_info, self.config_manager, effects
+        )
+        combat_power = int(
+            combat_panel["hp"] / 10
+            + combat_panel["atk"]
+            + combat_panel["defense"]
+            + int(total_attrs["mental_power"]) // 10
+        )
+        element_name = (
+            self.config_manager.get_item_element(player.main_technique)
+            or self.config_manager.get_item_element(player.weapon)
+            or "无"
         )
         
         sect_name = "无宗门"
@@ -227,6 +249,14 @@ class PlayerHandler:
         display_title = f"【{player.title}】" if player.title else ""
         full_name = f"{display_title}{dao_hao}"
 
+        # 状态以 user_cd 为准（闭关/历练/押镖/秘境/宗门任务等都会写这里），
+        # player.state 只在闭关时维护，不能作为唯一来源。
+        user_cd = await self.db.ext.get_user_cd(player.user_id)
+        if user_cd:
+            status_text = UserStatus.get_name(user_cd.type)
+        else:
+            status_text = player.state or "空闲"
+
         reply_msg = (
             f"📋 道友 {full_name} 的信息\n"
             f"━━━━━━━━━━━━━━━\n"
@@ -239,7 +269,7 @@ class PlayerHandler:
             f"  灵根：{player.spiritual_root}\n"
             f"【修炼属性】\n"
             f"  修炼方式：{player.cultivation_type}\n"
-            f"  状态：{player.state}\n"
+            f"  状态：{status_text}\n"
             f"  寿命：{player.lifespan}\n"
             f"  精神力：{total_attrs['mental_power']}\n"
         )
@@ -258,6 +288,16 @@ class PlayerHandler:
             )
         
         reply_msg += (
+            f"【战斗属性】\n"
+            f"  气血：{combat_panel['hp']:,}/{combat_panel['max_hp']:,}\n"
+            f"  灵气：{combat_panel['mp']:,}/{combat_panel['max_mp']:,}\n"
+            f"  攻击：{combat_panel['atk']:,} | 防御：{combat_panel['defense']:,}\n"
+            f"  暴击：{combat_panel['crit_rate']:.1f}% | 暴伤：{combat_panel['crit_damage'] * 100:.1f}%\n"
+            f"  吸血：{combat_panel['lifesteal']:.1f}% | 反伤：{combat_panel['counter_damage']:.1f}%\n"
+            f"  五行：{element_name}\n"
+        )
+
+        reply_msg += (
             f"【装备与宗门】\n"
             f"  主修心法：{technique_name}\n"
             f"  法器：{weapon_name} | 防具：{armor_name}\n"
@@ -271,8 +311,14 @@ class PlayerHandler:
             remaining_days = remaining_seconds // 86400
             remaining_hours = (remaining_seconds % 86400) // 3600
             days_borrowed = max(1, (now - loan["borrowed_at"]) // 86400)
-            interest = int(loan["principal"] * loan["interest_rate"] * days_borrowed)
-            total_due = loan["principal"] + interest
+            accrued_interest = int(
+                loan["principal"] * loan["interest_rate"] * days_borrowed
+            )
+            paid_interest = int(loan.get("paid_interest", 0) or 0)
+            paid_principal = int(loan.get("paid_principal", 0) or 0)
+            interest_due = max(0, accrued_interest - paid_interest)
+            principal_due = max(0, int(loan["principal"]) - paid_principal)
+            total_due = principal_due + interest_due
             loan_type_name = "突破贷款" if loan["loan_type"] == "breakthrough" else "普通贷款"
             
             if remaining_seconds <= 0: time_str = "⚠️ 已逾期！"
@@ -280,12 +326,24 @@ class PlayerHandler:
             elif remaining_days <= 1: time_str = f"🟠 {remaining_days}天{remaining_hours}小时"
             else: time_str = f"🟡 {remaining_days}天"
             
+            identity_label, purchase_blocked = _loan_identity(
+                total_due, max(0, remaining_days)
+            )
             reply_msg += (
-                f"\n【贷款信息】💰\n"
+                f"\n🏷️ 身份：{identity_label}（欠款 {total_due:,} 灵石）\n"
+                f"【贷款信息】💰\n"
                 f"  类型：{loan_type_name}\n"
                 f"  应还：{total_due:,} 灵石\n"
                 f"  剩余：{time_str}\n"
-                f"  💀 逾期将被追杀致死！\n"
+            )
+            if purchase_blocked:
+                reply_msg += "  🚫 欠款过多，购买类功能已暂停。\n"
+
+        if getattr(player, "sect_debt", 0) > 0:
+            reply_msg += (
+                f"\n【宗门欠款】\n"
+                f"  欠款：{player.sect_debt:,} 灵石\n"
+                f"  有灵石时会自动偿还；欠款未清前不能退出宗门。\n"
             )
         
         reply_msg += "━━━━━━━━━━━━━━━"
@@ -314,10 +372,7 @@ class PlayerHandler:
                             ("灵根", player.spiritual_root),
                             ("功德/业力", f"{getattr(player, 'karma', 0) or 0:+d}"),
                             ("生活职业", getattr(player, "life_skill", "") or "无"),
-                            ("五行属性",
-                             (self.config_manager.get_item_element(player.main_technique)
-                              or self.config_manager.get_item_element(player.weapon)
-                              or "无")),
+                            ("五行属性", element_name),
                             ("化身", self._avatar_status(player)),
                         ]},
                         {"name": "属性", "rows": [
@@ -325,8 +380,16 @@ class PlayerHandler:
                             ("物伤/法伤", f"{total_attrs['physical_damage']}/{total_attrs['magic_damage']}"),
                             ("物防/法防", f"{total_attrs['physical_defense']}/{total_attrs['magic_defense']}"),
                             ("精神力", f"{total_attrs['mental_power']}"),
-                            ("状态", player.state),
+                            ("状态", status_text),
                             ("寿命", f"{player.lifespan}"),
+                        ]},
+                        {"name": "战斗", "rows": [
+                            ("气血", f"{combat_panel['hp']:,}/{combat_panel['max_hp']:,}"),
+                            ("灵气", f"{combat_panel['mp']:,}/{combat_panel['max_mp']:,}"),
+                            ("攻击/防御", f"{combat_panel['atk']:,}/{combat_panel['defense']:,}"),
+                            ("暴击/暴伤", f"{combat_panel['crit_rate']:.1f}%/{combat_panel['crit_damage'] * 100:.1f}%"),
+                            ("吸血/反伤", f"{combat_panel['lifesteal']:.1f}%/{combat_panel['counter_damage']:.1f}%"),
+                            ("五行", element_name),
                         ]},
                         {"name": "装备与宗门", "rows": [
                             ("法器", weapon_name),
@@ -350,10 +413,10 @@ class PlayerHandler:
     @player_required
     async def handle_start_cultivation(self, player: Player, event: AstrMessageEvent):
         """处理闭关指令"""
-        if player.state == "修炼中":
+        user_cd = await self.db.ext.get_user_cd(player.user_id)
+        if user_cd and user_cd.type == UserStatus.CULTIVATING:
             yield event.plain_result("道友已在闭关中，请勿重复进入。")
             return
-        user_cd = await self.db.ext.get_user_cd(player.user_id)
         if user_cd and user_cd.type != UserStatus.IDLE:
             yield event.plain_result(f"❌ 道友当前正{UserStatus.get_name(user_cd.type)}，无法闭关！")
             return
@@ -365,10 +428,15 @@ class PlayerHandler:
 
         yield event.plain_result(f"🧘 道友已进入闭关状态\n💡 发送「{CMD_END_CULTIVATION}」结束闭关")
 
-    @player_required
-    async def handle_end_cultivation(self, player: Player, event: AstrMessageEvent):
-        """处理出关指令"""
-        if player.state != "修炼中":
+    @with_player_lock
+    async def handle_end_cultivation(self, event: AstrMessageEvent):
+        """处理出关指令（不走忙碌状态拦截，保证任何时候都能出关）"""
+        player = await self.db.get_player_by_id(event.get_sender_id())
+        if not player:
+            yield event.plain_result("道友尚未踏入仙途，请发送「我要修仙」开启你的旅程。")
+            return
+        user_cd = await self.db.ext.get_user_cd(player.user_id)
+        if not user_cd or user_cd.type != UserStatus.CULTIVATING:
             yield event.plain_result("道友当前并未闭关，无需出关。")
             return
         if player.cultivation_start_time == 0:
@@ -393,16 +461,22 @@ class PlayerHandler:
         pill_multipliers = self.pill_manager.calculate_pill_attribute_effects(player)
 
         technique_bonus = 0.0
-        if player.main_technique:
+        try:
             from ..core import EquipmentManager
             equipment_manager = EquipmentManager(self.db, self.config_manager)
             equipped_items = equipment_manager.get_equipped_items(
                 player, self.config_manager.items_data, self.config_manager.weapons_data
             )
+            seen_techniques = set()
             for item in equipped_items:
-                if item.item_type == "main_technique":
-                    technique_bonus = item.exp_multiplier
-                    break
+                if (
+                    item.item_type in ("main_technique", "technique")
+                    and item.name not in seen_techniques
+                ):
+                    seen_techniques.add(item.name)
+                    technique_bonus += item.exp_multiplier
+        except Exception:
+            technique_bonus = 0.0
 
         gained_exp = self.cultivation_manager.calculate_cultivation_exp(
             player, effective_minutes, technique_bonus, pill_multipliers
@@ -588,10 +662,6 @@ class PlayerHandler:
         if user_cd and user_cd.type != UserStatus.IDLE:
             status_name = UserStatus.get_name(user_cd.type)
             yield event.plain_result(f"❌ 你当前正在「{status_name}」，无法弃道重修。")
-            return
-
-        if player.state != "空闲":
-            yield event.plain_result("❌ 只有处于空闲状态时才能弃道重修。请先结束闭关/历练等活动。")
             return
 
         loan = await self.db.ext.get_active_loan(player.user_id)

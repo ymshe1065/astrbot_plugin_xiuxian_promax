@@ -25,17 +25,36 @@ class WorldBossHandlers:
                 yield event.plain_result("👹 当前没有存活的世界Boss，请等待天道降临。")
                 return
             boss = dict(row)
-            
+
+        now = int(time.time())
+        remaining = boss["expire_time"] - now
+        if remaining <= 0:
+            # 过期 Boss 可能还没来得及被清理，查询时顺手标记为已逃遁
+            try:
+                await self.db.conn.execute(
+                    "UPDATE world_boss SET status = 3 WHERE boss_id = ? AND status = 1",
+                    (boss["boss_id"],),
+                )
+                await self.db.conn.commit()
+            except Exception:
+                pass
+            yield event.plain_result(
+                f"👹 世界Boss【{boss['boss_name']}】已逃遁，等待天道下次降临。"
+            )
+            return
+
         hp_percent = (boss["current_hp"] / boss["max_hp"]) * 100
-        
+        remaining_hours = remaining // 3600
+        remaining_minutes = (remaining % 3600) // 60
+
         msg = [
             f"👹 世界Boss：{boss['boss_name']}",
             f"━━━━━━━━━━━━━━━",
             f"❤️ 血量：{boss['current_hp']:,} / {boss['max_hp']:,} ({hp_percent:.1f}%)",
             f"⚔️ 攻击：{boss['atk']:,}",
-            f"⏳ 剩余存活时间：{(boss['expire_time'] - int(time.time())) // 3600} 小时",
+            f"⏳ 剩余存活时间：{remaining_hours} 小时 {remaining_minutes} 分",
             f"━━━━━━━━━━━━━━━",
-            f"💡 发送 /挑战世界Boss 参与讨伐（单次伤害上限3%）"
+            f"💡 发送 /挑战世界Boss 参与讨伐（单次伤害上限20%，每日不限次数）"
         ]
 
         # ===== 图片卡片：成功只发图，失败/关闭降级为纯文本 =====
@@ -56,8 +75,8 @@ class WorldBossHandlers:
                             ("剩余时间", f"{remaining // 3600}小时{(remaining % 3600) // 60}分"),
                         ]},
                         {"name": "讨伐规则", "lines": [
-                            "· 每日可挑战 3 次，每次间隔 5 分钟",
-                            "· 单次伤害保底 0.5%，上限 3%",
+                            "· 每日挑战不限次数，每次间隔 5 分钟",
+                            "· 单次伤害保底 0.5%，上限 20%",
                             "· 尾刀斩杀者获唯一称号【灭世魔神】",
                         ]},
                     ],

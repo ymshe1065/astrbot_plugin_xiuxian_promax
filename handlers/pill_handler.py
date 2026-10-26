@@ -38,35 +38,60 @@ class PillHandler:
         return " / ".join(names)
 
     @player_required
-    async def handle_use_pill(self, player: Player, event: AstrMessageEvent, pill_name: str = ""):
-        """处理服用丹药指令
-
-        Args:
-            player: 玩家对象
-            event: 事件对象
-            pill_name: 丹药名称
-        """
+    async def handle_use_pill(self, player: Player, event: AstrMessageEvent, args: str = ""):
+        """处理服用丹药指令：/服用丹药 <丹药名> [数量]"""
         # 检查是否提供了丹药名称
-        if not pill_name or pill_name.strip() == "":
+        if not args or args.strip() == "":
             yield event.plain_result(
                 "请指定要服用的丹药名称！\n"
-                f"💡 使用方法：{CMD_USE_PILL} [丹药名称]\n"
-                f"💡 例如：{CMD_USE_PILL} 炼气丹"
+                f"💡 使用方法：{CMD_USE_PILL} <丹药名称> [数量]\n"
+                f"💡 例如：{CMD_USE_PILL} 炼气丹 或 {CMD_USE_PILL} 炼气丹 3"
             )
             return
 
-        pill_name = pill_name.strip()
+        raw = args.strip()
+        parts = raw.rsplit(" ", 1)
+        if len(parts) == 2 and parts[1].isdigit():
+            pill_name = parts[0].strip()
+            count = int(parts[1])
+        else:
+            pill_name = raw
+            count = 1
+
+        if not pill_name:
+            yield event.plain_result("❌ 未识别到丹药名称，请检查格式。")
+            return
+        if count <= 0:
+            yield event.plain_result("❌ 数量必须大于 0。")
+            return
+
+        # 安全上限，避免误输入 9999 时循环过久
+        count = min(count, 100)
 
         # 先更新临时效果（移除过期的）
         await self.pill_manager.update_temporary_effects(player)
 
-        # 使用丹药
-        success, message = await self.pill_manager.use_pill(player, pill_name)
+        used = 0
+        last_message = ""
+        for _ in range(count):
+            success, message = await self.pill_manager.use_pill(player, pill_name)
+            if not success:
+                if used == 0:
+                    yield event.plain_result(f"❌ {message}")
+                else:
+                    yield event.plain_result(
+                        f"✅ 已服用【{pill_name}】x{used}，之后停止：{message}"
+                    )
+                return
+            used += 1
+            last_message = message
 
-        if success:
-            yield event.plain_result(message)
+        if count == 1:
+            yield event.plain_result(last_message)
         else:
-            yield event.plain_result(f"❌ {message}")
+            yield event.plain_result(
+                f"✅ 已服用【{pill_name}】x{used}。\n{last_message}"
+            )
 
     @player_required
     async def handle_show_pills(self, player: Player, event: AstrMessageEvent):

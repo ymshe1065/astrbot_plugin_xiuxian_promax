@@ -53,8 +53,8 @@ class BankHandlers:
             "  /存灵石 <数量>",
             "  /取灵石 <数量>",
             "  /领取利息",
-            "  /贷款 <数量>",
-            "  /还款",
+            "  /贷款 <数量>（大额需持有贷款额20%，最低5000）",
+            "  /还款 [金额]（不填则全额还清）",
             "  /银行流水",
         ])
         
@@ -101,6 +101,7 @@ class BankHandlers:
                 "   日利率：0.5%\n"
                 "   期限：7天\n"
                 "   额度：1,000 - 1,000,000 灵石\n"
+                "   大额门槛：超过1万需持有贷款额20%（最低5000）\n"
                 "━━━━━━━━━━━━━━━\n"
                 "💀 逾期后果：被银行追杀致死！\n"
                 "   所有修为和装备将化为虚无\n"
@@ -114,9 +115,16 @@ class BankHandlers:
         yield event.plain_result(msg)
     
     @player_required
-    async def handle_repay(self, player: Player, event: AstrMessageEvent):
-        """还款"""
-        success, msg = await self.bank_mgr.repay(player)
+    async def handle_repay(self, player: Player, event: AstrMessageEvent, amount: str = ""):
+        """还款；不填金额则全额还清。"""
+        amount_int = None
+        if amount and amount.strip():
+            try:
+                amount_int = int(amount.strip())
+            except ValueError:
+                yield event.plain_result("❌ 还款金额必须是整数，例如：/还款 1000")
+                return
+        success, msg = await self.bank_mgr.repay(player, amount_int)
         yield event.plain_result(msg)
     
     @player_required
@@ -169,6 +177,7 @@ class BankHandlers:
                 "   日利率：0.8%（较高）\n"
                 "   期限：3天（较短）\n"
                 "   额度：1,000 - 1,000,000 灵石\n"
+                "   大额门槛：超过1万需持有贷款额20%（最低5000）\n"
                 "━━━━━━━━━━━━━━━\n"
                 "✨ 突破成功后自动还款\n"
                 "━━━━━━━━━━━━━━━\n"

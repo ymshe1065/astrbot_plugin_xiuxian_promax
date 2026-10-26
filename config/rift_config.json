@@ -1,0 +1,44 @@
+{
+  "default_duration": 1800,
+  "rifts": [
+    {
+      "id": 1,
+      "name": "青云秘境",
+      "level": 2,
+      "exp_range": [
+        100,
+        500
+      ],
+      "gold_range": [
+        50,
+        200
+      ]
+    },
+    {
+      "id": 2,
+      "name": "幽冥鬼域",
+      "level": 5,
+      "exp_range": [
+        500,
+        2000
+      ],
+      "gold_range": [
+        200,
+        800
+      ]
+    },
+    {
+      "id": 3,
+      "name": "太古遗迹",
+      "level": 10,
+      "exp_range": [
+        5000,
+        10000
+      ],
+      "gold_range": [
+        1000,
+        5000
+      ]
+    }
+  ]
+}

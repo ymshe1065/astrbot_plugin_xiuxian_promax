@@ -18,6 +18,11 @@ DEFAULT_MIN_LOAN_AMOUNT = 1000  # 最小贷款额度 1000
 DEFAULT_BREAKTHROUGH_LOAN_RATE = 0.008  # 突破贷款日利率 0.8%（更高风险）
 DEFAULT_BREAKTHROUGH_LOAN_DURATION = 3  # 突破贷款期限 3天
 
+# 大额贷款持有门槛：贷款超过免费额度后，至少持有贷款额的 20%（最低 5000）
+DEFAULT_LOAN_HOLD_RATIO = 0.20
+DEFAULT_LOAN_HOLD_MIN = 5000
+DEFAULT_LOAN_HOLD_FREE_LIMIT = 10000
+
 
 class BankManager:
     """灵石银行管理器"""
@@ -36,7 +41,16 @@ class BankManager:
         self.min_loan_amount = bank_config.get("MIN_LOAN_AMOUNT", DEFAULT_MIN_LOAN_AMOUNT)
         self.breakthrough_loan_rate = bank_config.get("BREAKTHROUGH_LOAN_RATE", DEFAULT_BREAKTHROUGH_LOAN_RATE)
         self.breakthrough_loan_duration = bank_config.get("BREAKTHROUGH_LOAN_DURATION", DEFAULT_BREAKTHROUGH_LOAN_DURATION)
+        self.loan_hold_ratio = bank_config.get("LOAN_HOLD_RATIO", DEFAULT_LOAN_HOLD_RATIO)
+        self.loan_hold_min = bank_config.get("LOAN_HOLD_MIN", DEFAULT_LOAN_HOLD_MIN)
+        self.loan_hold_free_limit = bank_config.get("LOAN_HOLD_FREE_LIMIT", DEFAULT_LOAN_HOLD_FREE_LIMIT)
     
+    def _required_holdings(self, amount: int) -> int:
+        """大额贷款要求的最低持有金额。"""
+        if amount <= self.loan_hold_free_limit:
+            return 0
+        return max(int(self.loan_hold_min), int(amount * self.loan_hold_ratio))
+
     # ===== 存款相关 =====
     
     async def get_bank_info(self, player: Player) -> dict:
@@ -216,16 +230,29 @@ class BankManager:
         days_borrowed = (now - loan["borrowed_at"]) // 86400
         days_remaining = max(0, (loan["due_at"] - now) // 86400)
         
-        interest = int(loan["principal"] * loan["interest_rate"] * max(1, days_borrowed))
-        total_due = loan["principal"] + interest
-        
+        principal = int(loan["principal"])
+        paid_interest = int(loan.get("paid_interest", 0) or 0)
+        paid_principal = int(loan.get("paid_principal", 0) or 0)
+
+        # 利息始终按原始本金计算；部分还款只抵扣“已产生的利息/本金”
+        accrued_interest = int(
+            principal * loan["interest_rate"] * max(1, days_borrowed)
+        )
+        interest_due = max(0, accrued_interest - paid_interest)
+        principal_due = max(0, principal - paid_principal)
+        total_due = principal_due + interest_due
+
         is_overdue = now > loan["due_at"]
-        
+
         return {
             **loan,
             "days_borrowed": days_borrowed,
             "days_remaining": days_remaining,
-            "current_interest": interest,
+            "accrued_interest": accrued_interest,
+            "current_interest": interest_due,
+            "remaining_principal": principal_due,
+            "paid_interest": paid_interest,
+            "paid_principal": paid_principal,
             "total_due": total_due,
             "is_overdue": is_overdue
         }
@@ -245,6 +272,21 @@ class BankManager:
             if existing_loan:
                 await self.db.conn.rollback()
                 return False, "你已有未还清的贷款，请先还款后再申请新贷款。"
+
+            # 大额贷款需要一定的持有金额（灵石 + 银行存款）
+            required_holdings = self._required_holdings(amount)
+            if required_holdings > 0:
+                bank_data = await self.db.ext.get_bank_account(player.user_id)
+                bank_balance = int(bank_data["balance"]) if bank_data else 0
+                holdings = int(player.gold) + bank_balance
+                if holdings < required_holdings:
+                    await self.db.conn.rollback()
+                    return False, (
+                        "❌ 持有金额不足，无法申请大额贷款！\n"
+                        f"贷款金额：{amount:,} 灵石\n"
+                        f"需要持有：{required_holdings:,} 灵石\n"
+                        f"当前持有：{holdings:,}（灵石 {player.gold:,} + 存款 {bank_balance:,}）"
+                    )
             
             if loan_type == "breakthrough":
                 interest_rate = self.breakthrough_loan_rate
@@ -287,7 +329,8 @@ class BankManager:
                 f"日利率：{interest_rate:.1%}\n"
                 f"还款期限：{duration_days} 天\n"
                 f"到期应还：约 {total_due:,} 灵石\n"
-                f"━━━━━━━━━━━━━━━\n"
+                + (f"持有门槛：{required_holdings:,} 灵石（已满足）\n" if required_holdings > 0 else "")
+                + f"━━━━━━━━━━━━━━━\n"
                 f"当前持有：{player.gold:,} 灵石\n"
                 f"💀 逾期将被银行追杀致死！"
             )
@@ -295,8 +338,8 @@ class BankManager:
             await self.db.conn.rollback()
             raise
     
-    async def repay(self, player: Player) -> Tuple[bool, str]:
-        """还款"""
+    async def repay(self, player: Player, amount: Optional[int] = None) -> Tuple[bool, str]:
+        """还款；amount 为空时全额还清，否则先还利息再还本金。"""
         await self.db.conn.execute("BEGIN IMMEDIATE")
         try:
             player = await self.db.get_player_by_id(player.user_id)
@@ -304,44 +347,102 @@ class BankManager:
             if not loan_info:
                 await self.db.conn.rollback()
                 return False, "你当前没有需要偿还的贷款。"
-            
-            total_due = loan_info["total_due"]
-            
-            if player.gold < total_due:
+
+            total_due = int(loan_info["total_due"])
+            if total_due <= 0:
+                await self.db.conn.execute(
+                    "UPDATE bank_loans SET status = 'closed' WHERE id = ?",
+                    (loan_info["id"],),
+                )
+                await self.db.conn.commit()
+                return True, "✅ 贷款余额已清零，贷款已关闭。"
+
+            if amount is None:
+                pay = total_due
+            else:
+                try:
+                    pay = int(amount)
+                except (TypeError, ValueError):
+                    await self.db.conn.rollback()
+                    return False, "❌ 还款金额必须是整数。"
+                if pay <= 0:
+                    await self.db.conn.rollback()
+                    return False, "❌ 还款金额必须大于 0。"
+                pay = min(pay, total_due)
+
+            if player.gold < pay:
                 await self.db.conn.rollback()
                 return False, (
                     f"灵石不足！\n"
-                    f"应还金额：{total_due:,} 灵石\n"
-                    f"（本金 {loan_info['principal']:,} + 利息 {loan_info['current_interest']:,}）\n"
+                    f"本次计划还款：{pay:,} 灵石\n"
                     f"当前持有：{player.gold:,} 灵石\n"
-                    f"还差：{total_due - player.gold:,} 灵石"
+                    f"还差：{pay - player.gold:,} 灵石"
                 )
-            
-            player.gold -= total_due
+
+            interest_due = int(loan_info["current_interest"])
+            principal_due = int(loan_info["remaining_principal"])
+            pay_interest = min(pay, interest_due)
+            pay_principal = min(pay - pay_interest, principal_due)
+            remainder = pay - pay_interest - pay_principal
+            # 理论上不会出现余数；若出现，补到本金
+            if remainder > 0:
+                pay_principal += remainder
+
+            remaining = max(0, total_due - pay)
+            status = "closed" if remaining <= 0 else "active"
+            new_paid_interest = int(loan_info["paid_interest"]) + pay_interest
+            new_paid_principal = int(loan_info["paid_principal"]) + pay_principal
+
+            player.gold -= pay
             await self.db.update_player(player, commit=False)
-            
-            # 直接底层 SQL 关闭贷款
-            await self.db.conn.execute("UPDATE bank_loans SET status = 'closed' WHERE id = ?", (loan_info["id"],))
-            
+
+            await self.db.conn.execute(
+                "UPDATE bank_loans SET paid_interest = ?, paid_principal = ?, status = ? "
+                "WHERE id = ?",
+                (new_paid_interest, new_paid_principal, status, loan_info["id"]),
+            )
+
             bank_data = await self.db.ext.get_bank_account(player.user_id)
             balance = bank_data["balance"] if bank_data else 0
             now = int(time.time())
-            
+            desc = (
+                f"还款：利息{pay_interest:,}+本金{pay_principal:,}"
+                if status == "closed"
+                else f"部分还款：利息{pay_interest:,}+本金{pay_principal:,}，剩余{remaining:,}"
+            )
             await self.db.conn.execute(
                 "INSERT INTO bank_transactions (user_id, trans_type, amount, balance_after, description, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (player.user_id, "repay", -total_due, balance, f"还款：本金{loan_info['principal']:,}+利息{loan_info['current_interest']:,}", now)
+                (player.user_id, "repay", -pay, balance, desc, now),
             )
-            
-            loan_type_name = "突破贷款" if loan_info["loan_type"] == "breakthrough" else "普通贷款"
-            
+
+            loan_type_name = (
+                "突破贷款" if loan_info["loan_type"] == "breakthrough" else "普通贷款"
+            )
             await self.db.conn.commit()
+
+            if status == "closed":
+                return True, (
+                    f"✅ 还款成功，贷款已结清！\n"
+                    f"━━━━━━━━━━━━━━━\n"
+                    f"贷款类型：{loan_type_name}\n"
+                    f"本次还利息：{pay_interest:,} 灵石\n"
+                    f"本次还本金：{pay_principal:,} 灵石\n"
+                    f"本次支付：{pay:,} 灵石\n"
+                    f"━━━━━━━━━━━━━━━\n"
+                    f"当前持有：{player.gold:,} 灵石"
+                )
+
             return True, (
-                f"✅ 还款成功！\n"
+                f"✅ 部分还款成功！\n"
                 f"━━━━━━━━━━━━━━━\n"
                 f"贷款类型：{loan_type_name}\n"
-                f"已还本金：{loan_info['principal']:,} 灵石\n"
-                f"已还利息：{loan_info['current_interest']:,} 灵石\n"
-                f"合计支付：{total_due:,} 灵石\n"
+                f"本次还利息：{pay_interest:,} 灵石\n"
+                f"本次还本金：{pay_principal:,} 灵石\n"
+                f"本次支付：{pay:,} 灵石\n"
+                f"剩余应还：{remaining:,} 灵石\n"
+                f"（剩余本金 {max(0, principal_due - pay_principal):,} + "
+                f"剩余利息 {max(0, interest_due - pay_interest):,}）\n"
+                f"贷款状态：active（未结清）\n"
                 f"━━━━━━━━━━━━━━━\n"
                 f"当前持有：{player.gold:,} 灵石"
             )

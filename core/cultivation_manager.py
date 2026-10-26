@@ -171,14 +171,29 @@ class CultivationManager:
             pass
         # ======================================
 
-        # 计算总修为倍率：灵根倍率 * (1 + 心法倍率) * 丹药倍率 * 仙缘倍率
-        total_multiplier = root_speed * (1.0 + technique_bonus) * cultivation_pill_bonus * global_mult
+        # 境界越高，每分钟基础收益越高（默认每级 +10%）
+        try:
+            level_bonus_per_level = float(
+                self.config.get("VALUES", {}).get("LEVEL_EXP_BONUS_PER_LEVEL", 0.10)
+            )
+        except (TypeError, ValueError):
+            level_bonus_per_level = 0.10
+        level_mult = 1.0 + max(0, player.level_index) * level_bonus_per_level
+
+        # 计算总修为倍率：灵根倍率 * (1 + 功法倍率) * 丹药倍率 * 仙缘倍率 * 境界倍率
+        total_multiplier = (
+            root_speed
+            * (1.0 + technique_bonus)
+            * cultivation_pill_bonus
+            * global_mult
+            * level_mult
+        )
         total_exp = int(base_exp * minutes * total_multiplier)
 
         logger.info(
             f"玩家 {player.user_id} 闭关 {minutes} 分钟，"
             f"基础修为 {base_exp}，灵根倍率 {root_speed}，"
-            f"心法加成 {technique_bonus:.2%}，丹药倍率 {cultivation_pill_bonus:.2f}，"
-            f"仙缘倍率 {global_mult:.2f}，获得修为 {total_exp}"
+            f"功法加成 {technique_bonus:.2%}，丹药倍率 {cultivation_pill_bonus:.2f}，"
+            f"仙缘倍率 {global_mult:.2f}，境界倍率 {level_mult:.2f}，获得修为 {total_exp}"
         )
         return total_exp

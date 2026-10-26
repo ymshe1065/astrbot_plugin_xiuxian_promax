@@ -46,6 +46,9 @@ from .pet_handlers import PetHandlers
 # v6.6 交易坊市
 from .auction_handlers import AuctionHandlers
 
+# 宗门贡献商店
+from .sect_shop_handler import SectShopHandler
+
 __all__ = [
     "PlayerHandler", "MiscHandler", "EquipmentHandler", "BreakthroughHandler", 
     "PillHandler", "ShopHandler", "StorageRingHandler", "SectHandlers", 
@@ -55,5 +58,5 @@ __all__ = [
     "SpiritFarmHandlers", "DualCultivationHandlers", "SpiritEyeHandlers", 
     "DailyTaskHandlers", "WorldBossHandlers", "RobberyHandlers", "ReincarnationHandlers", 
     "GambleHandlers", "ForgeHandlers", "DemonInvasionHandlers", "PetHandlers",
-    "AuctionHandlers"
+    "AuctionHandlers", "SectShopHandler"
 ]

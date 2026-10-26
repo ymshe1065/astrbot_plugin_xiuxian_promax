@@ -120,7 +120,12 @@ class PetManager:
         await self.db.update_player(player)
         await self.db.conn.commit()
         
-        return True, f"✨ 喂养成功！灵兽当前等级：Lv.{new_level} (经验：{new_exp}/{new_level*500})"
+        return True, (
+            f"✨ 喂养成功！\n"
+            f"消耗灵石：{cost_gold:,}\n"
+            f"剩余灵石：{player.gold:,}\n"
+            f"灵兽当前等级：Lv.{new_level} (经验：{new_exp}/{new_level*500})"
+        )
 
     def get_pet_combat_effects(self, pet: Optional[Dict]) -> dict:
         """获取灵兽提供的战斗特效"""

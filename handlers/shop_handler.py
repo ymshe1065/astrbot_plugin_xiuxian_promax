@@ -326,7 +326,24 @@ class ShopHandler:
                 return
 
             # ===== 核心修复1：极其健壮的类型兼容映射 =====
-            item_type = norm_type  # 已在事务前归一化
+            if item_type in ['weapon', '武器', '法器']:
+                item_type = 'weapon'
+            elif item_type in ['armor', '防具']:
+                item_type = 'armor'
+            elif item_type in ['main_technique', 'technique', '心法', '功法']:
+                item_type = 'technique'
+            elif item_type in ['pill', 'exp_pill', 'utility_pill']:
+                # 破境丹/修为丹/功能丹：购买后放入丹药背包，由 /服用丹药 使用
+                item_type = 'inventory_pill'
+            elif item_type in ['丹药', 'legacy_pill']:
+                # items.json 旧丹药：带 effect_type 的（如 temporary）走丹药背包，
+                # 只有旧 effect 字典的才保持“购买后立即生效”
+                if target_item.get('data', {}).get('effect_type'):
+                    item_type = 'inventory_pill'
+                else:
+                    item_type = 'legacy_pill'
+            elif item_type in ['material', '材料', '符箓', '杂物']:
+                item_type = 'material'
 
             # ===== 门槛防线（前置检查已拦截，此处仅事务内兜底）=====
             if item_type in ['weapon', 'armor', 'technique']:
@@ -348,6 +365,15 @@ class ShopHandler:
                     result_lines.append(f"成功购买【{target_item['name']}】x{quantity}。")
                     result_lines.append(f"⚠️ 存入储物戒失败：{msg}")
             
+            elif item_type == 'inventory_pill':
+                inventory = player.get_pills_inventory()
+                inventory[target_item['name']] = inventory.get(target_item['name'], 0) + quantity
+                player.set_pills_inventory(inventory)
+                result_lines.append(
+                    f"成功购买丹药【{target_item['name']}】x{quantity}，已放入丹药背包。"
+                )
+                result_lines.append(f"💡 使用 /服用丹药 {target_item['name']} [数量]")
+
             elif item_type == 'legacy_pill':
                 success, message = await self._apply_legacy_pill_effects(player, target_item, quantity)
                 if not success:

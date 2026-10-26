@@ -107,8 +107,7 @@ class WorldBossManager:
             record = await cursor.fetchone()
             if record:
                 rec = dict(record)
-                if rec["attack_count"] >= 3:
-                    return False, "❌ 你今日的挑战次数已用尽（每日限3次）。"
+                # 每日挑战次数不设上限，只保留 5 分钟冷却
                 if now - rec["last_attack_time"] < 300: # 5分钟CD
                     return False, f"❌ 调息中，请 {300 - (now - rec['last_attack_time'])} 秒后再来。"
             else:
@@ -125,8 +124,8 @@ class WorldBossManager:
         
         damage_percent = (base_damage / boss["max_hp"]) * 100
 
-        # 强制限制在 0.5% ~ 3.0% 之间
-        damage_percent = max(0.5, min(3.0, damage_percent))
+        # 强制限制在 0.5% ~ 20% 之间
+        damage_percent = max(0.5, min(20.0, damage_percent))
         final_damage = int(boss["max_hp"] * (damage_percent / 100))
         
         if final_damage > boss["current_hp"]:

@@ -9,6 +9,7 @@ from ..data.data_manager import DataBase
 from ..models import Player
 from ..models_extended import UserStatus
 from .combat_manager import CombatManager, CombatStats
+from .task_penalty import calc_abandon_penalty, charge_abandon_penalty
 
 __all__ = ["EscortManager"]
 
@@ -114,12 +115,32 @@ class EscortManager:
         )
 
     async def quit_escort(self, player: Player) -> Tuple[bool, str]:
-        """放弃押镖（无收益）"""
+        """放弃押镖：支付镖银 80% 作为违约金，本次无收益。"""
         user_cd = await self.db.ext.get_user_cd(player.user_id)
         if not user_cd or user_cd.type != UserStatus.DELIVERING:
             return False, "❌ 你当前没有在押镖！"
+
+        try:
+            extra = user_cd.get_extra_data() if hasattr(user_cd, "get_extra_data") else {}
+        except Exception:
+            extra = {}
+        escort_gold = int((extra or {}).get("escort_gold", 0) or 0)
+        cost, currency = calc_abandon_penalty(escort_gold)
+        currency_label = "灵气" if currency == "qi" else "灵石"
+
+        fresh = await self.db.get_player_by_id(player.user_id)
+        if not fresh:
+            return False, "❌ 玩家数据不存在。"
+        ok, msg = await charge_abandon_penalty(fresh, self.db, cost, currency)
+        if not ok:
+            return False, msg
+
         await self.db.ext.set_user_free(player.user_id)
-        return True, "🏃 你扔下镖车跑路了...镖局震怒，本次押镖无任何收益。"
+        return True, (
+            "🏃 你扔下镖车跑路了...\n"
+            f"向镖局支付违约金：{cost:,} {currency_label}\n"
+            "本次押镖无任何收益。"
+        )
 
     async def rob_escort(self, attacker: Player, target_id: str) -> Tuple[bool, str]:
         """劫镖：消耗迷神香，与押镖人强制PVP，胜者抢走部分镖银"""

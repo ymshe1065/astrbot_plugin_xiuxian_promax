@@ -24,6 +24,7 @@ class EquipmentManager:
             "crit_damage": 1.5,             # 暴击伤害倍率
             "lifesteal": 0,                 # 吸血百分比
             "counter_damage": 0,            # 反伤百分比
+            "defense_bonus": 0,             # 功法提供的额外防御
             "combo_rate": 0,                # 连击/追加伤害概率
             "physical_damage_multiplier": 1.0,
             "magic_damage_multiplier": 1.0

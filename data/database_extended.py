@@ -7,8 +7,21 @@ import aiosqlite
 import json
 from typing import List, Optional
 from ..models_extended import (
-    Sect, BuffInfo, Boss, Rift, ImpartInfo, UserCd
+    Sect, BuffInfo, Boss, Rift, ImpartInfo, UserCd, UserStatus
 )
+
+# players.state 的展示文案：闭关沿用既有的“修炼中”，其余用 UserStatus 名称
+_STATE_TEXT = {
+    UserStatus.IDLE: "空闲",
+    UserStatus.CULTIVATING: "修炼中",
+    UserStatus.ADVENTURING: "历练中",
+    UserStatus.EXPLORING: "探索秘境中",
+    UserStatus.SECT_TASK: "宗门任务中",
+    UserStatus.TRIBULATION: "渡劫中",
+    UserStatus.DELIVERING: "押镖中",
+    UserStatus.RAIDING: "掠夺中",
+    UserStatus.SECT_BATTLE: "宗门大比中",
+}
 
 
 class DatabaseExtended:
@@ -82,7 +95,8 @@ class DatabaseExtended:
             UPDATE sects SET
                 sect_name = ?, sect_owner = ?, sect_scale = ?, sect_used_stone = ?,
                 sect_fairyland = ?, sect_materials = ?, mainbuff = ?, secbuff = ?,
-                elixir_room_level = ?, buildings = ?
+                elixir_room_level = ?, buildings = ?, sect_level = ?, sect_exp = ?,
+                sect_war_cd_until = ?, sect_war_protect_until = ?, sect_tournament_cd_until = ?
             WHERE sect_id = ?
             """,
             (
@@ -90,15 +104,65 @@ class DatabaseExtended:
                 sect.sect_used_stone, sect.sect_fairyland, sect.sect_materials,
                 sect.mainbuff, sect.secbuff, sect.elixir_room_level,
                 getattr(sect, "buildings", "{}"),
+                getattr(sect, "sect_level", 1), getattr(sect, "sect_exp", 0),
+                getattr(sect, "sect_war_cd_until", 0),
+                getattr(sect, "sect_war_protect_until", 0),
+                getattr(sect, "sect_tournament_cd_until", 0),
                 sect.sect_id
             )
         )
         await self.conn.commit()
     
     async def delete_sect(self, sect_id: int):
-        """删除宗门"""
-        await self.conn.execute("DELETE FROM sects WHERE sect_id = ?", (sect_id,))
-        await self.conn.commit()
+        """解散宗门：清理成员归属、宗门任务、命令、大比、战争、商店和宗门行。"""
+        await self.conn.execute("BEGIN IMMEDIATE")
+        try:
+            async with self.conn.execute(
+                "SELECT user_id FROM players WHERE sect_id = ?", (sect_id,)
+            ) as cursor:
+                member_ids = [row[0] for row in await cursor.fetchall()]
+
+            if member_ids:
+                placeholders = ",".join("?" for _ in member_ids)
+                # 只释放正在做宗门任务的成员，其它闭关/历练状态不打断
+                await self.conn.execute(
+                    f"UPDATE players SET state = '空闲' WHERE user_id IN ({placeholders}) "
+                    "AND user_id IN (SELECT user_id FROM user_cd WHERE type = ?)",
+                    (*member_ids, int(UserStatus.SECT_TASK)),
+                )
+                await self.conn.execute(
+                    f"UPDATE user_cd SET type = 0, create_time = 0, scheduled_time = 0, "
+                    f"extra_data = '{{}}' WHERE user_id IN ({placeholders}) AND type = ?",
+                    (*member_ids, int(UserStatus.SECT_TASK)),
+                )
+                await self.conn.execute(
+                    f"UPDATE players SET sect_id = 0, sect_position = 0, "
+                    f"sect_contribution = 0, sect_debt = 0 "
+                    f"WHERE user_id IN ({placeholders})",
+                    member_ids,
+                )
+
+            await self.conn.execute("DELETE FROM sect_orders WHERE sect_id = ?", (sect_id,))
+            await self.conn.execute(
+                "DELETE FROM sect_tournament_entries WHERE tournament_id IN "
+                "(SELECT id FROM sect_tournaments WHERE sect_id = ?)", (sect_id,)
+            )
+            await self.conn.execute("DELETE FROM sect_tournaments WHERE sect_id = ?", (sect_id,))
+            await self.conn.execute(
+                "DELETE FROM sect_wars WHERE attacker_id = ? OR defender_id = ?",
+                (sect_id, sect_id),
+            )
+            await self.conn.execute(
+                "DELETE FROM shop WHERE shop_id = ?", (f"sect_shop_{sect_id}",)
+            )
+            await self.conn.execute(
+                "DELETE FROM system_config WHERE key = ?", (f"sect_score_{sect_id}",)
+            )
+            await self.conn.execute("DELETE FROM sects WHERE sect_id = ?", (sect_id,))
+            await self.conn.commit()
+        except Exception:
+            await self.conn.rollback()
+            raise
     
     async def get_all_sects(self) -> List[Sect]:
         """获取所有宗门"""
@@ -382,8 +446,8 @@ class DatabaseExtended:
         )
         await self.conn.commit()
     
-    async def set_user_busy(self, user_id: str, busy_type: int, scheduled_time: int = 0, extra_data: dict = None):
-        """设置用户忙碌状态（防呆版）"""
+    async def set_user_busy(self, user_id: str, busy_type: int, scheduled_time: int = 0, extra_data: dict = None, commit: bool = True):
+        """设置用户忙碌状态（防呆版）。commit=False 用于外层事务。"""
         import time
         import json
         extra_json = json.dumps(extra_data or {}, ensure_ascii=False)
@@ -400,11 +464,18 @@ class DatabaseExtended:
             """,
             (user_id, busy_type, int(time.time()), scheduled_time, extra_json)
         )
-        await self.conn.commit()
+        # 同步 players.state，保证“我的信息”等界面显示真实状态
+        state_text = _STATE_TEXT.get(busy_type, "忙碌中")
+        await self.conn.execute(
+            "UPDATE players SET state = ? WHERE user_id = ?",
+            (state_text, user_id),
+        )
+        if commit:
+            await self.conn.commit()
     
-    async def set_user_free(self, user_id: str):
+    async def set_user_free(self, user_id: str, commit: bool = True):
         """设置用户为空闲状态"""
-        await self.set_user_busy(user_id, 0, 0)
+        await self.set_user_busy(user_id, 0, 0, commit=commit)
     
     # ===== Player扩展字段更新方法 =====
     
@@ -424,6 +495,41 @@ class DatabaseExtended:
         )
         await self.conn.commit()
     
+    async def settle_sect_debt(self, user_id: str) -> int:
+        """用当前灵石自动偿还宗门欠款，返回实际还款额。"""
+        # 用 SQL 直接处理，避免依赖上层 DataBase 实例
+        async with self.conn.execute(
+            "SELECT gold, sect_debt, sect_id FROM players WHERE user_id = ?", (user_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+        if not row:
+            return 0
+        gold, debt, sect_id = int(row[0] or 0), int(row[1] or 0), int(row[2] or 0)
+        if debt <= 0 or gold <= 0 or sect_id <= 0:
+            return 0
+        pay = min(gold, debt)
+        await self.conn.execute(
+            "UPDATE players SET gold = gold - ?, sect_debt = sect_debt - ? WHERE user_id = ?",
+            (pay, pay, user_id),
+        )
+        await self.conn.execute(
+            "UPDATE sects SET sect_used_stone = sect_used_stone + ? WHERE sect_id = ?",
+            (pay, sect_id),
+        )
+        await self.conn.commit()
+        return pay
+
+    async def settle_all_sect_debts(self) -> int:
+        """扫描并偿还所有宗门欠款，返回总还款额。"""
+        async with self.conn.execute(
+            "SELECT user_id FROM players WHERE sect_debt > 0 AND gold > 0 AND sect_id > 0"
+        ) as cursor:
+            rows = await cursor.fetchall()
+        total = 0
+        for row in rows:
+            total += await self.settle_sect_debt(row[0])
+        return total
+
     async def update_player_sect_contribution(self, user_id: str, contribution: int):
         """更新玩家宗门贡献度"""
         await self.conn.execute(
@@ -867,6 +973,16 @@ class DatabaseExtended:
             rows = await cursor.fetchall()
             return [dict(row) for row in rows]
 
+    async def count_daily_tasks_today(self, user_id: str, task_level: str, expire_time: int) -> int:
+        """统计今天该品阶已接取的任务数（包含已完成/已放弃，防止靠放弃无限刷新）。"""
+        async with self.conn.execute(
+            "SELECT COUNT(*) FROM daily_tasks "
+            "WHERE user_id = ? AND task_level = ? AND expire_time = ?",
+            (user_id, task_level, expire_time)
+        ) as cursor:
+            row = await cursor.fetchone()
+            return int(row[0]) if row else 0
+
     async def create_daily_task(self, user_id: str, task_level: str, title: str, 
                                 target_type: str, target_count: int, rewards_json: str, expire_time: int) -> int:
         """创建接取任务"""
@@ -909,4 +1025,23 @@ class DatabaseExtended:
             "UPDATE daily_tasks SET status = 3 WHERE id = ? AND user_id = ? AND status = 2",
             (task_id, user_id)
         )
-        await self.conn.commit()     
+        await self.conn.commit()
+
+    async def abandon_daily_task(self, task_id: int, user_id: str) -> bool:
+        """放弃一个进行中的任务（status=4），返回是否真的更新成功。"""
+        cursor = await self.conn.execute(
+            "UPDATE daily_tasks SET status = 4 "
+            "WHERE id = ? AND user_id = ? AND status = 1",
+            (task_id, user_id)
+        )
+        await self.conn.commit()
+        return cursor.rowcount > 0
+
+    async def get_daily_task(self, task_id: int, user_id: str) -> Optional[dict]:
+        """按编号获取用户自己的日常任务。"""
+        async with self.conn.execute(
+            "SELECT * FROM daily_tasks WHERE id = ? AND user_id = ?",
+            (task_id, user_id)
+        ) as cursor:
+            row = await cursor.fetchone()
+            return dict(row) if row else None

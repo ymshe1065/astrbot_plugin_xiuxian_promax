@@ -58,6 +58,20 @@
                 {"name": "灵兽内丹", "weight": 20, "min": 1, "max": 2},
                 {"name": "功法残页", "weight": 20, "min": 1, "max": 2},
                 {"name": "天材地宝", "weight": 15, "min": 1, "max": 1}
+            ],
+            "4": [
+                {"name": "星辰石", "weight": 25, "min": 4, "max": 8},
+                {"name": "灵兽内丹", "weight": 20, "min": 2, "max": 4},
+                {"name": "天材地宝", "weight": 20, "min": 1, "max": 2},
+                {"name": "功法残页", "weight": 20, "min": 2, "max": 3},
+                {"name": "玄铁", "weight": 15, "min": 4, "max": 8}
+            ],
+            "5": [
+                {"name": "天材地宝", "weight": 25, "min": 2, "max": 3},
+                {"name": "灵兽内丹", "weight": 22, "min": 2, "max": 5},
+                {"name": "星辰石", "weight": 20, "min": 5, "max": 10},
+                {"name": "功法残页", "weight": 20, "min": 2, "max": 4},
+                {"name": "秘境精华", "weight": 13, "min": 3, "max": 6}
             ]
         },
         "pill_drop_tables": {
@@ -74,12 +88,26 @@
                 {"name": "五品渡劫增益丹", "weight": 30, "min": 1, "max": 1},
                 {"name": "六品破境增益丹", "weight": 20, "min": 1, "max": 1},
                 {"name": "七品化神增益丹", "weight": 10, "min": 1, "max": 1}
+            ],
+            "4": [
+                {"name": "五品渡劫增益丹", "weight": 30, "min": 1, "max": 1},
+                {"name": "六品破境增益丹", "weight": 30, "min": 1, "max": 1},
+                {"name": "七品化神增益丹", "weight": 25, "min": 1, "max": 1},
+                {"name": "四品破境增益丹", "weight": 15, "min": 1, "max": 1}
+            ],
+            "5": [
+                {"name": "六品破境增益丹", "weight": 30, "min": 1, "max": 1},
+                {"name": "七品化神增益丹", "weight": 35, "min": 1, "max": 1},
+                {"name": "五品渡劫增益丹", "weight": 20, "min": 1, "max": 1},
+                {"name": "四品破境增益丹", "weight": 15, "min": 1, "max": 1}
             ]
         },
         "pill_drop_chance": {
             "1": 3,
             "2": 5,
-            "3": 10
+            "3": 10,
+            "4": 12,
+            "5": 15
         },
         "comment": "秘境配置：探索时长（秒）、掉落表、丹药掉落概率"
     }

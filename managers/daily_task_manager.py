@@ -5,6 +5,7 @@ import json
 from typing import Tuple, List, Dict
 from ..data import DataBase
 from ..models import Player
+from .task_penalty import calc_abandon_penalty, charge_abandon_penalty
 
 class DailyTaskManager:
     """日常任务管理器"""
@@ -116,16 +117,21 @@ class DailyTaskManager:
         if level not in self.LEVEL_LIMITS:
             return False, "❌ 无效的任务品阶，请选择 黄/玄/地/天。"
 
-        # 检查同类任务上限
-        active_tasks = await self.db.ext.get_user_active_tasks(player.user_id)
-        current_level_count = sum(1 for t in active_tasks if t["task_level"] == level)
-        max_limit = self.LEVEL_LIMITS[level]["max"]
+        # 计算过期时间（今天 23:59:59）
+        now = int(time.time())
+        today_end = int(time.mktime(time.localtime(now)[:3] + (23, 59, 59, 0, 0, 0)))
 
+        # 今日接取上限：已完成/已放弃也计入，防止靠放弃无限刷新
+        max_limit = self.LEVEL_LIMITS[level]["max"]
+        current_level_count = await self.db.ext.count_daily_tasks_today(
+            player.user_id, level, today_end
+        )
         if current_level_count >= max_limit:
             return False, f"❌ 你今日的【{level}阶】任务接取次数已用尽（上限 {max_limit} 次）。"
 
         # 从今日随机池中抽取（去掉已在进行中的同名任务）
         daily_pool = self.get_daily_pool(player.user_id, level)
+        active_tasks = await self.db.ext.get_user_active_tasks(player.user_id)
         doing_titles = {t["title"] for t in active_tasks}
         candidates = [(i, tpl) for i, tpl in daily_pool if tpl["title"] not in doing_titles]
         if not candidates:
@@ -136,11 +142,22 @@ class DailyTaskManager:
         
         # 动态计算奖励
         rewards = self._scale_reward(player, level)
+
+        # 宗门任务堂：日常任务修为/灵石 +3%/级
+        try:
+            if player.sect_id:
+                sect = await self.db.ext.get_sect_by_id(player.sect_id)
+                if sect:
+                    levels = json.loads(getattr(sect, "buildings", "{}") or "{}")
+                    task_hall_lv = int(levels.get("任务堂", 0))
+                    if task_hall_lv > 0:
+                        mult = 1 + 0.03 * min(5, task_hall_lv)
+                        rewards["exp"] = int(rewards.get("exp", 0) * mult)
+                        rewards["gold"] = int(rewards.get("gold", 0) * mult)
+        except Exception:
+            pass
+
         rewards_json = json.dumps(rewards, ensure_ascii=False)
-        
-        # 计算过期时间（今天 23:59:59）
-        now = int(time.time())
-        today_end = int(time.mktime(time.localtime(now)[:3] + (23, 59, 59, 0, 0, 0)))
         
         await self.db.ext.create_daily_task(
             user_id=player.user_id,
@@ -153,6 +170,60 @@ class DailyTaskManager:
         )
         
         return True, f"✅ 已接取【{level}阶】任务：{template['title']}\n目标：{template['desc']}"
+
+    async def abandon_task(self, player: Player, task_id: int) -> Tuple[bool, str]:
+        """放弃一个进行中的日常任务；已完成的任务必须先领奖。"""
+        task = await self.db.ext.get_daily_task(task_id, player.user_id)
+        if not task:
+            return False, "❌ 没有找到这个任务，请用 /任务榜 查看编号。"
+
+        if task["status"] == 2:
+            return False, "❌ 该任务已完成，请先 /领取任务奖励，不能放弃。"
+        if task["status"] != 1:
+            return False, "❌ 该任务已结束或已放弃。"
+        if task["expire_time"] <= int(time.time()):
+            return False, "❌ 该任务已过期。"
+
+        rewards = json.loads(task.get("rewards_json") or "{}")
+        cost, currency = calc_abandon_penalty(
+            int(rewards.get("gold", 0) or 0),
+            int(rewards.get("spiritual_qi", 0) or 0),
+        )
+        currency_label = "灵气" if currency == "qi" else "灵石"
+
+        await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            fresh = await self.db.get_player_by_id(player.user_id)
+            if not fresh:
+                await self.db.conn.rollback()
+                return False, "❌ 玩家数据不存在。"
+
+            ok, charge_msg = await charge_abandon_penalty(
+                fresh, self.db, cost, currency, commit=False
+            )
+            if not ok:
+                await self.db.conn.rollback()
+                return False, charge_msg
+
+            cursor = await self.db.conn.execute(
+                "UPDATE daily_tasks SET status = 4 "
+                "WHERE id = ? AND user_id = ? AND status = 1",
+                (task_id, player.user_id),
+            )
+            if cursor.rowcount == 0:
+                await self.db.conn.rollback()
+                return False, "❌ 放弃失败，任务状态已变化，请重试。"
+
+            await self.db.conn.commit()
+        except Exception:
+            await self.db.conn.rollback()
+            raise
+
+        return True, (
+            f"🗑️ 已放弃【{task['task_level']}阶】任务：{task['title']}\n"
+            f"扣除违约金：{cost:,} {currency_label}\n"
+            "本次进度作废，且不返还今日接取次数。"
+        )
 
     async def claim_rewards(self, player: Player) -> Tuple[bool, str, list]:
         """结算所有已完成的任务（加入事务防并发卡双倍奖励）"""

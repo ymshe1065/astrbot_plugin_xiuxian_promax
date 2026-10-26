@@ -369,7 +369,7 @@ class AlchemyManager:
 火候：{fire_cfg['label']}
 {tribulation_msg}
 
-💡 使用 /服用丹药 {pill_name} 可服用此丹药
+💡 使用 /服用丹药 {pill_name} [数量] 可服用此丹药
 💡 使用 /丹药背包 查看所有丹药
                 """.strip()
 

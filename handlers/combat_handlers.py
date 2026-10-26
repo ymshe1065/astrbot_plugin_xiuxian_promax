@@ -143,8 +143,14 @@ class CombatHandlers:
             triggered, log_msg, mult = await pet_mgr.pet_coop_attack(pet)
             if triggered: effects["pet_damage_mult"] = mult
                 
-        final_defense = int(equip_bonus["defense"] * max(pill_multipliers.get("physical_defense", 1.0), pill_multipliers.get("magic_defense", 1.0)))
-        final_defense += title_def_bonus
+        # 防御力受丹药倍率、功法和称号加成
+        final_defense = int(
+            equip_bonus["defense"]
+            * max(
+                pill_multipliers.get("physical_defense", 1.0),
+                pill_multipliers.get("magic_defense", 1.0),
+            )
+        ) + int(effects.get("defense_bonus", 0)) + title_def_bonus
         final_atk += title_magic
         
         player.hp = hp

@@ -14,6 +14,7 @@ from astrbot.api import logger
 from ..data.data_manager import DataBase
 from ..models import Player
 from ..models_extended import UserStatus
+from .task_penalty import calc_abandon_penalty, charge_abandon_penalty
 
 if TYPE_CHECKING:
     from ..core import StorageRingManager
@@ -320,9 +321,9 @@ class AdventureManager:
             player.experience += rewards["exp"]
             player.gold += rewards["gold"]
             
-            # 一次更新玩家对象
-            await self.db.update_player(player)
-            await self.db.ext.set_user_free(user_id)
+            # 一次更新玩家对象；不要在外层事务里提前 commit
+            await self.db.update_player(player, commit=False)
+            await self.db.ext.set_user_free(user_id, commit=False)
             await self.db.conn.commit()
         except Exception:
             await self.db.conn.rollback()
@@ -368,6 +369,40 @@ class AdventureManager:
             "bounty_progress": max(1, route.get("bounty_progress", 1) + event.get("bonus_progress", 0))
         }
         return True, msg, reward_data
+
+    async def abandon_adventure(self, user_id: str) -> Tuple[bool, str]:
+        """放弃历练：按预计灵石奖励的 80% 支付违约金。"""
+        player = await self.db.get_player_by_id(user_id)
+        if not player:
+            return False, "❌ 你还未踏入修仙之路！"
+
+        user_cd = await self.db.ext.get_user_cd(user_id)
+        if not user_cd or user_cd.type != UserStatus.ADVENTURING:
+            return False, "❌ 你当前不在历练中！"
+
+        try:
+            extra = user_cd.get_extra_data() if hasattr(user_cd, "get_extra_data") else {}
+        except Exception:
+            extra = {}
+        route = self.routes.get((extra or {}).get("route_key", self.default_route_key))
+        if not route:
+            return False, "❌ 未找到历练路线配置，请联系管理员。"
+
+        scheduled_duration = max(1, user_cd.scheduled_time - user_cd.create_time)
+        rewards = self._calculate_rewards(player, route, scheduled_duration, {})
+        cost, currency = calc_abandon_penalty(int(rewards.get("gold", 0) or 0))
+        currency_label = "灵气" if currency == "qi" else "灵石"
+
+        ok, msg = await charge_abandon_penalty(player, self.db, cost, currency)
+        if not ok:
+            return False, msg
+
+        await self.db.ext.set_user_free(user_id)
+        return True, (
+            f"🏳️ 你放弃了历练路线「{route.get('name', '未知')}」。\n"
+            f"支付违约金：{cost:,} {currency_label}\n"
+            "本次历练无任何收益。"
+        )
 
     async def check_adventure_status(self, user_id: str) -> Tuple[bool, str]:
         """查看历练状态"""
