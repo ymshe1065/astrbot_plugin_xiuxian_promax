@@ -114,6 +114,10 @@ class RecoveryManager:
         return result
 
     async def apply_lazy_recovery(self, player: Player, now: Optional[int] = None) -> Player:
+        # 没有配置管理器时无法可靠计算境界气血上限；宁可不结算，
+        # 也不能用回退模板把玩家当前气血压到错误上限。
+        if self.config_manager is None:
+            return player
         now = int(now or time.time())
         cd = await self._get_cd(player.user_id)
         extra = self._extra(cd)
