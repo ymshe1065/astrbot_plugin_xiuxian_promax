@@ -45,6 +45,11 @@ class CombatStats:
     element: str = ""  # 五行属性（金木水火土，空为无属性）
     pet: Optional[PetCombatState] = None  # 主战灵兽
     support_pets: Optional[List[PetCombatState]] = None  # 辅助出战灵兽
+    # 物法双轨面板；未显式设置时由 atk/defense 按 50/50 回退
+    physical_atk: int = 0
+    magic_atk: int = 0
+    physical_defense: int = 0
+    magic_defense: int = 0
 
 
 class CombatManager:
@@ -54,6 +59,88 @@ class CombatManager:
     ELEMENT_OVERCOMES = {"金": "木", "木": "土", "土": "水", "水": "火", "火": "金"}
     ELEMENT_ADVANTAGE_MULT = 1.3   # 克制方伤害 +30%
     ELEMENT_DISADVANTAGE_MULT = 0.8 # 被克制方伤害 -20%
+
+    # 同一次攻击的物法两部分共用同一个浮动系数
+    DAMAGE_VARIANCE_MIN = 0.70
+    DAMAGE_VARIANCE_MAX = 1.30
+
+    # 基础攻击的物法占比：职业只决定基础盘，物伤/法伤仍全额计入对应分轨
+    ATTACK_PROFILES = {
+        "体修": (0.8, 0.2),
+        "剑修": (0.8, 0.2),
+        "鬼修": (0.2, 0.8),
+        "灵修": (0.3, 0.7),
+        "魔修": (0.5, 0.5),
+        "佛修": (0.4, 0.6),
+        "御兽": (0.5, 0.5),
+    }
+
+    @classmethod
+    def get_attack_profile(cls, cultivation_type: str = "") -> Tuple[float, float]:
+        """返回 (物理占比, 法术占比)，未知职业默认均衡。"""
+        return cls.ATTACK_PROFILES.get(cultivation_type, (0.5, 0.5))
+
+    @classmethod
+    def calculate_attack_components(
+        cls,
+        experience: int,
+        atkpractice: int = 0,
+        atk_buff: float = 0.0,
+        physical_damage: int = 0,
+        magic_damage: int = 0,
+        cultivation_type: str = "灵修",
+    ) -> Dict[str, int]:
+        """按职业占比拆分基础攻击，并叠加物伤/法伤。
+
+        物攻 + 法攻仍等于原 calculate_atk 的总攻击，保证战力口径稳定。
+        """
+        base_atk = int(experience) // 10
+        practice_bonus = int(atkpractice or 0) * 0.04
+
+        class_multiplier = 1.0
+        if cultivation_type == "剑修":
+            class_multiplier = 1.5
+        elif cultivation_type == "魔修":
+            class_multiplier = 1.3
+        elif cultivation_type == "佛修":
+            class_multiplier = 0.6
+
+        base_total = int(
+            base_atk * (1 + practice_bonus + float(atk_buff or 0)) * class_multiplier
+        )
+        physical_share, magic_share = cls.get_attack_profile(cultivation_type)
+        physical_base = int(base_total * physical_share)
+        magic_base = base_total - physical_base
+
+        physical_atk = max(0, physical_base + int(physical_damage or 0))
+        magic_atk = max(0, magic_base + int(magic_damage or 0))
+        return {
+            "physical_atk": physical_atk,
+            "magic_atk": magic_atk,
+            "atk": physical_atk + magic_atk,
+        }
+
+    @staticmethod
+    def resolve_attack_components(stats: CombatStats) -> Tuple[int, int]:
+        """读取攻击分轨；旧对象只有总攻击时按 50/50 回退。"""
+        physical = max(0, int(getattr(stats, "physical_atk", 0) or 0))
+        magic = max(0, int(getattr(stats, "magic_atk", 0) or 0))
+        total = max(0, int(getattr(stats, "atk", 0) or 0))
+        if physical <= 0 and magic <= 0 and total > 0:
+            physical = total // 2
+            magic = total - physical
+        return physical, magic
+
+    @staticmethod
+    def resolve_defense_components(stats: CombatStats) -> Tuple[int, int]:
+        """读取防御分轨；旧对象只有总防御时按 50/50 回退。"""
+        physical = max(0, int(getattr(stats, "physical_defense", 0) or 0))
+        magic = max(0, int(getattr(stats, "magic_defense", 0) or 0))
+        total = max(0, int(getattr(stats, "defense", 0) or 0))
+        if physical <= 0 and magic <= 0 and total > 0:
+            physical = total // 2
+            magic = total - physical
+        return physical, magic
 
     @staticmethod
     def get_element_from_name(name: str) -> str:
@@ -109,7 +196,14 @@ class CombatManager:
     @staticmethod
     def calculate_equipment_bonus(player, config_manager) -> Dict:
         """计算武器/防具对战斗面板的加成，兼容两套装备配置与装备实例品质。"""
-        bonus = {"atk": 0, "defense": 0}
+        bonus = {
+            "atk": 0,
+            "defense": 0,
+            "physical_atk": 0,
+            "magic_atk": 0,
+            "physical_defense": 0,
+            "magic_defense": 0,
+        }
         if not config_manager:
             return bonus
         weapons_data = getattr(config_manager, "weapons_data", {}) or {}
@@ -126,19 +220,32 @@ class CombatManager:
             inst = im.get_instance(player, player.get_equipped_instances().get(slot, 0))
             return im.quality_multiplier(inst.get("quality", "一般")) if inst else 1.0
 
+        physical_share, magic_share = CombatManager.get_attack_profile(
+            getattr(player, "cultivation_type", "")
+        )
         if player.weapon:
             data = weapons_data.get(player.weapon) or items_data.get(player.weapon) or {}
-            bonus["atk"] += int((
-                data.get("atk", 0)
-                + data.get("physical_damage", 0)
-                + data.get("magic_damage", 0)
-            ) * quality_mult("weapon"))
+            q = quality_mult("weapon")
+            generic_atk = int(data.get("atk", 0) or 0) * q
+            physical = int(generic_atk * physical_share) + int(
+                data.get("physical_damage", 0) or 0
+            ) * q
+            magic = int(generic_atk * magic_share) + int(
+                data.get("magic_damage", 0) or 0
+            ) * q
+            physical = int(physical)
+            magic = int(magic)
+            bonus["physical_atk"] += physical
+            bonus["magic_atk"] += magic
+            bonus["atk"] += physical + magic
         if player.armor:
             data = items_data.get(player.armor) or weapons_data.get(player.armor) or {}
-            bonus["defense"] += int((
-                data.get("physical_defense", 0)
-                + data.get("magic_defense", 0)
-            ) * quality_mult("armor"))
+            q = quality_mult("armor")
+            physical = int(int(data.get("physical_defense", 0) or 0) * q)
+            magic = int(int(data.get("magic_defense", 0) or 0) * q)
+            bonus["physical_defense"] += physical
+            bonus["magic_defense"] += magic
+            bonus["defense"] += physical + magic
         return bonus
 
     @staticmethod
@@ -194,14 +301,13 @@ class CombatManager:
         base_hp, base_mp = CombatManager.calculate_hp_mp(
             player.experience, hp_buff, mp_buff
         )
-        dmg_mult = max(
-            pill_multipliers.get("physical_damage", 1.0),
-            pill_multipliers.get("magic_damage", 1.0),
-        )
-        hp = int(base_hp * dmg_mult)
+        physical_mult = float(pill_multipliers.get("physical_damage", 1.0) or 1.0)
+        magic_mult = float(pill_multipliers.get("magic_damage", 1.0) or 1.0)
+        hp_mult = max(physical_mult, magic_mult)  # 保留旧版气血倍率口径
+        hp = int(base_hp * hp_mult)
         mp = int(base_mp)
 
-        base_atk = CombatManager.calculate_atk(
+        components = CombatManager.calculate_attack_components(
             player.experience,
             player.atkpractice,
             atk_buff,
@@ -210,33 +316,50 @@ class CombatManager:
             player.cultivation_type,
         )
         equip = CombatManager.calculate_equipment_bonus(player, config_manager)
-        atk = int(base_atk * dmg_mult) + equip["atk"]
-        # 防御必须包含角色本体的物防/法防，否则体修、突破与永久丹药的防御加成全部失效
-        base_defense = int(getattr(player, "physical_defense", 0) or 0) + int(
-            getattr(player, "magic_defense", 0) or 0
+        physical_atk = int(components["physical_atk"] * physical_mult) + int(
+            equip.get("physical_atk", 0)
         )
-        defense = int(
-            (equip["defense"] + base_defense)
-            * max(
-                pill_multipliers.get("physical_defense", 1.0),
-                pill_multipliers.get("magic_defense", 1.0),
-            )
-        ) + int(effects.get("defense_bonus", 0))
+        magic_atk = int(components["magic_atk"] * magic_mult) + int(
+            equip.get("magic_atk", 0)
+        )
+
+        # 防御必须包含角色本体的物防/法防，否则体修、突破与永久丹药的防御加成全部失效
+        physical_def = int(
+            (int(getattr(player, "physical_defense", 0) or 0)
+             + int(equip.get("physical_defense", 0)))
+            * float(pill_multipliers.get("physical_defense", 1.0) or 1.0)
+        )
+        magic_def = int(
+            (int(getattr(player, "magic_defense", 0) or 0)
+             + int(equip.get("magic_defense", 0)))
+            * float(pill_multipliers.get("magic_defense", 1.0) or 1.0)
+        )
+        generic_defense = int(effects.get("defense_bonus", 0) or 0)
+        physical_def += generic_defense // 2
+        magic_def += generic_defense - generic_defense // 2
 
         title = CombatManager.get_title_combat_bonus(player)
-        atk += int(title.get("atk", 0) or 0) + int(title.get("magic", 0) or 0)
-        defense += int(title.get("phys_def", 0) or 0) + int(title.get("magic_def", 0) or 0)
+        physical_atk += int(title.get("atk", 0) or 0)
+        magic_atk += int(title.get("magic", 0) or 0)
+        physical_def += int(title.get("phys_def", 0) or 0)
+        magic_def += int(title.get("magic_def", 0) or 0)
         effects["crit_rate"] = effects.get("crit_rate", 0) + int(title.get("crit", 0) or 0)
         effects["lifesteal"] = effects.get("lifesteal", 0) + int(title.get("lifesteal", 0) or 0)
 
         forge_mult = CombatManager.get_forge_multiplier(player)
-        atk = int(atk * forge_mult)
-        defense = int(defense * forge_mult)
+        physical_atk = int(physical_atk * forge_mult)
+        magic_atk = int(magic_atk * forge_mult)
+        physical_def = int(physical_def * forge_mult)
+        magic_def = int(magic_def * forge_mult)
+        atk = max(1, physical_atk + magic_atk)
+        defense = max(0, physical_def + magic_def)
 
         return {
             "hp": hp, "max_hp": hp,
             "mp": mp, "max_mp": mp,
             "atk": atk, "defense": defense,
+            "physical_atk": physical_atk, "magic_atk": magic_atk,
+            "physical_defense": physical_def, "magic_defense": magic_def,
             "crit_rate": effects.get("crit_rate", 0),
             "crit_damage": effects.get("crit_damage", 1.5),
             "lifesteal": effects.get("lifesteal", 0),
@@ -386,32 +509,55 @@ class CombatManager:
                 or cls.get_element_from_name(player.weapon)
             )
 
-        dmg_mult = max(
-            float(pill_multipliers.get("physical_damage", 1.0) or 1.0),
-            float(pill_multipliers.get("magic_damage", 1.0) or 1.0),
+        physical_mult = float(pill_multipliers.get("physical_damage", 1.0) or 1.0)
+        magic_mult = float(pill_multipliers.get("magic_damage", 1.0) or 1.0)
+        hp_mult = max(physical_mult, magic_mult)
+        hp = int(hp * hp_mult)
+
+        components = cls.calculate_attack_components(
+            player.experience,
+            player.atkpractice,
+            atk_buff,
+            player.physical_damage,
+            player.magic_damage,
+            player.cultivation_type,
         )
-        def_mult = max(
-            float(pill_multipliers.get("physical_defense", 1.0) or 1.0),
-            float(pill_multipliers.get("magic_defense", 1.0) or 1.0),
+        physical_atk = int(components["physical_atk"] * physical_mult) + int(
+            equip.get("physical_atk", 0)
         )
-        hp = int(hp * dmg_mult)
-        base_defense = int(getattr(player, "physical_defense", 0) or 0) + int(
-            getattr(player, "magic_defense", 0) or 0
+        magic_atk = int(components["magic_atk"] * magic_mult) + int(
+            equip.get("magic_atk", 0)
         )
-        defense = int((int(equip.get("defense", 0)) + base_defense) * def_mult) + int(
-            effects.get("defense_bonus", 0)
+
+        physical_def = int(
+            (int(getattr(player, "physical_defense", 0) or 0)
+             + int(equip.get("physical_defense", 0)))
+            * float(pill_multipliers.get("physical_defense", 1.0) or 1.0)
         )
-        final_atk = int(int(atk) * dmg_mult) + int(equip.get("atk", 0))
+        magic_def = int(
+            (int(getattr(player, "magic_defense", 0) or 0)
+             + int(equip.get("magic_defense", 0)))
+            * float(pill_multipliers.get("magic_defense", 1.0) or 1.0)
+        )
+        generic_defense = int(effects.get("defense_bonus", 0) or 0)
+        physical_def += generic_defense // 2
+        magic_def += generic_defense - generic_defense // 2
 
         title = cls.get_title_combat_bonus(player)
-        final_atk += int(title.get("atk", 0) or 0) + int(title.get("magic", 0) or 0)
-        defense += int(title.get("phys_def", 0) or 0) + int(title.get("magic_def", 0) or 0)
+        physical_atk += int(title.get("atk", 0) or 0)
+        magic_atk += int(title.get("magic", 0) or 0)
+        physical_def += int(title.get("phys_def", 0) or 0)
+        magic_def += int(title.get("magic_def", 0) or 0)
         effects["crit_rate"] = effects.get("crit_rate", 0) + int(title.get("crit", 0) or 0)
         effects["lifesteal"] = effects.get("lifesteal", 0) + int(title.get("lifesteal", 0) or 0)
 
         forge_mult = cls.get_forge_multiplier(player)
-        final_atk = int(final_atk * forge_mult)
-        defense = int(defense * forge_mult)
+        physical_atk = int(physical_atk * forge_mult)
+        magic_atk = int(magic_atk * forge_mult)
+        physical_def = int(physical_def * forge_mult)
+        magic_def = int(magic_def * forge_mult)
+        final_atk = max(1, physical_atk + magic_atk)
+        defense = max(0, physical_def + magic_def)
 
         return CombatStats(
             user_id=player.user_id,
@@ -426,6 +572,10 @@ class CombatManager:
             exp=player.experience,
             effects=effects,
             element=element or "",
+            physical_atk=physical_atk,
+            magic_atk=magic_atk,
+            physical_defense=physical_def,
+            magic_defense=magic_def,
         )
 
     @staticmethod
@@ -466,42 +616,62 @@ class CombatManager:
         if dodge > 0 and random.randint(1, 100) <= dodge:
             return 0, [f"{defender.name} 身形一闪，避开了攻击"], 0
 
-        # 1. 基础伤害
-        damage = int(round(random.uniform(0.95, 1.05), 2) * attacker.atk)
-
-        # 功法/词条的物伤/法伤倍率（取较高的一项，避免双倍叠加）
-        damage_mult = max(
-            effects.get("physical_damage_multiplier", 1.0),
-            effects.get("magic_damage_multiplier", 1.0),
+        # 1. 物法双轨基础伤害：同一次攻击共用一个 70%~130% 浮动系数
+        physical_atk, magic_atk = cls.resolve_attack_components(attacker)
+        physical_def, magic_def = cls.resolve_defense_components(defender)
+        variance = random.uniform(
+            cls.DAMAGE_VARIANCE_MIN, cls.DAMAGE_VARIANCE_MAX
         )
-        if damage_mult != 1.0:
-            damage = int(damage * damage_mult)
+        physical_damage = (
+            variance * physical_atk
+            * float(effects.get("physical_damage_multiplier", 1.0) or 1.0)
+        )
+        magic_damage = (
+            variance * magic_atk
+            * float(effects.get("magic_damage_multiplier", 1.0) or 1.0)
+        )
 
-        # 1.5 五行克制倍率（克制+30%，被克-20%）
+        # 五行克制对一次攻击的物法两部分同时生效
         elem_mult = cls.element_multiplier(attacker.element, defender.element)
         if elem_mult != 1.0:
-            damage = int(damage * elem_mult)
-        
-        # 2. 暴击判定
+            physical_damage *= elem_mult
+            magic_damage *= elem_mult
+
+        # 2. 一次攻击只判定一次暴击；暴击时物法两部分同时暴击
         base_crit = attacker.crit_rate
         bonus_crit = effects.get("crit_rate", 0)
-        is_crit = random.randint(0, 100) <= (base_crit + bonus_crit)
-        
-        if is_crit:
+        if random.randint(0, 100) <= (base_crit + bonus_crit):
             crit_mult = effects.get("crit_damage", 1.5)
-            damage = int(damage * crit_mult)
+            physical_damage *= crit_mult
+            magic_damage *= crit_mult
             logs.append(f"💥 {attacker.name} 触发会心一击！")
-            
-        # 3. 连击/追加伤害判定
+
+        # 3. 一次攻击只判定一次连击；连击时物法两部分同时追加
         combo_rate = effects.get("combo_rate", 0)
         if random.randint(0, 100) <= combo_rate:
-            extra_dmg = int(damage * 0.5)
-            damage += extra_dmg
-            logs.append(f"⚡ {attacker.name} 触发功法连击，追加 {extra_dmg} 伤害！")
-            
-        # 4. 防御减伤
-        final_damage = cls.apply_damage_reduction(damage, defender.defense)
-        logs.append(f"🗡️ {attacker.name} 造成 {final_damage} 点伤害")
+            physical_damage *= 1.5
+            magic_damage *= 1.5
+            logs.append(f"⚡ {attacker.name} 触发功法连击，物法两部分同时增强！")
+
+        # 4. 物理按物防、法术按法防分别减伤
+        physical_final = (
+            cls.apply_damage_reduction(int(physical_damage), physical_def)
+            if physical_damage > 0 else 0
+        )
+        magic_final = (
+            cls.apply_damage_reduction(int(magic_damage), magic_def)
+            if magic_damage > 0 else 0
+        )
+        final_damage = physical_final + magic_final
+        if physical_final > 0 and magic_final > 0:
+            logs.append(
+                f"🗡️ {attacker.name} 造成 {final_damage} 点伤害"
+                f"（物理 {physical_final} / 法术 {magic_final}）"
+            )
+        elif physical_final > 0:
+            logs.append(f"🗡️ {attacker.name} 造成 {physical_final} 点物理伤害")
+        elif magic_final > 0:
+            logs.append(f"✨ {attacker.name} 造成 {magic_final} 点法术伤害")
 
         # 5. 灵兽每回合协战
         attacker_pets = []
@@ -515,7 +685,7 @@ class CombatManager:
             pet_factor = 1.0 / (1 + 0.4 * (pet_count - 1))
             for pet in attacker_pets:
                 pet_damage = int(round(random.uniform(0.95, 1.05), 2) * pet.atk * pet_factor)
-                pet_damage = cls.apply_damage_reduction(pet_damage, defender.defense)
+                pet_damage = cls.apply_damage_reduction(pet_damage, physical_def)
                 if pet.mechanic == "burn":
                     burn = max(1, int(pet.atk * pet_factor * 0.3))
                     pet_damage += burn
@@ -715,9 +885,14 @@ class CombatManager:
         p2_atk_bonus = max(0, p2_orig_atk - (p2_orig_hp * 0.1))
         player2.atk = 500 + int(p2_atk_bonus * 0.2)
         
-        # 双方防御力也拉平
+        # 双方防御力也拉平；天道压制下物法各占一半，保证双轨公平
         player1.defense = 100
         player2.defense = 100
+        for stats in (player1, player2):
+            stats.physical_atk = stats.atk // 2
+            stats.magic_atk = stats.atk - stats.physical_atk
+            stats.physical_defense = 50
+            stats.magic_defense = 50
 
         for stats in (player1, player2):
             all_pets = []

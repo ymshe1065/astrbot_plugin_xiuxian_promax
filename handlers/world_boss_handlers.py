@@ -57,6 +57,7 @@ class WorldBossHandlers:
         tier_label = self.wb_mgr._tier_meta.get(tier, {}).get("label", f"{tier}阶")
         drop_names = "、".join(item.get("name", "") for item in self.wb_mgr._drop_tables.get(type_cfg.get("drop_table", "low"), []))
         min_level = int(type_cfg.get("min_level", self.wb_mgr.min_level) or self.wb_mgr.min_level)
+        physical_resist, magic_resist = self.wb_mgr.get_resists(boss)
 
         msg = [
             f"{type_cfg.get('icon', '👹')} 世界Boss：{boss['boss_name']}",
@@ -64,7 +65,7 @@ class WorldBossHandlers:
             f"🏷️ 种类：{tier_label} · {type_cfg.get('element') or '无'}属性",
             f"📖 {type_cfg.get('desc', '')}",
             f"❤️ 血量：{boss['current_hp']:,} / {boss['max_hp']:,} ({hp_percent:.1f}%)",
-            f"⚔️ 攻击：{boss['atk']:,} · 门槛境界：{min_level}",
+            f"🛡️ 物抗：{physical_resist:.0f}% | 法抗：{magic_resist:.0f}% · 门槛境界：{min_level}",
             f"🎁 掉落：{drop_names}",
             f"⏳ 剩余存活时间：{remaining_hours} 小时 {remaining_minutes} 分",
             f"━━━━━━━━━━━━━━━",
@@ -86,7 +87,7 @@ class WorldBossHandlers:
                             ("种类", f"{tier_label} · {type_cfg.get('element') or '无'}属性"),
                             ("血量", f"{boss['current_hp']:,} / {boss['max_hp']:,}"),
                             ("血量百分比", f"{hp_percent:.1f}%"),
-                            ("攻击力", f"{boss['atk']:,}"),
+                            ("物抗/法抗", f"{physical_resist:.0f}% / {magic_resist:.0f}%"),
                             ("门槛境界", f"{min_level}"),
                             ("剩余时间", f"{remaining // 3600}小时{(remaining % 3600) // 60}分"),
                         ]},

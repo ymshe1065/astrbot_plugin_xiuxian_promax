@@ -57,6 +57,10 @@ class SectShopHandler:
     async def _get_shop(self, sect_id: int, player: Player = None):
         shop_id = f"sect_shop_{sect_id}"
         last_refresh, items = await self.db.get_shop_data(shop_id)
+        if items:
+            changed = self.shop_manager.refresh_item_data(items)
+            if changed:
+                await self.db.update_shop_data(shop_id, last_refresh, items)
         hours = self._refresh_hours()
         if not items or self.shop_manager.should_refresh_shop(last_refresh, hours):
             pool = self.shop_manager.get_all_items_for_display(9999)

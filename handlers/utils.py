@@ -218,7 +218,10 @@ def player_required(func: Callable[..., Coroutine[any, any, AsyncGenerator[any, 
                 and loan_warning.get("warning_message")
                 and not command_text.startswith(LOAN_SELF_DISPLAY_COMMANDS)
             ):
-                yield event.plain_result(loan_warning["warning_message"])
+                # 指令可能已还款；只有当前仍然存在贷款时才追加提醒，避免显示还款前的旧状态
+                current_loan = await self.db.ext.get_active_loan(user_id)
+                if current_loan:
+                    yield event.plain_result(loan_warning["warning_message"])
 
     return wrapper
 
@@ -234,7 +237,7 @@ PURCHASE_BLOCKED_COMMANDS = (
 )
 
 # 这些指令自身已展示贷款身份/欠款信息，不再追加重复的还款提醒
-LOAN_SELF_DISPLAY_COMMANDS = ("我的信息",)
+LOAN_SELF_DISPLAY_COMMANDS = ("我的信息", "银行", "还款")
 
 
 def _loan_identity(total_due: int, remaining_days: int) -> tuple[str, bool]:

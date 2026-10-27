@@ -75,27 +75,13 @@ class PillHandler:
         # 先更新临时效果（移除过期的）
         await self.pill_manager.update_temporary_effects(player)
 
-        used = 0
-        last_message = ""
-        for _ in range(count):
-            success, message = await self.pill_manager.use_pill(player, pill_name, quality)
-            if not success:
-                if used == 0:
-                    yield event.plain_result(f"❌ {message}")
-                else:
-                    yield event.plain_result(
-                        f"✅ 已服用【{pill_name}】x{used}，之后停止：{message}"
-                    )
-                return
-            used += 1
-            last_message = message
-
-        if count == 1:
-            yield event.plain_result(last_message)
-        else:
-            yield event.plain_result(
-                f"✅ 已服用【{pill_name}】x{used}。\n{last_message}"
-            )
+        success, used, message = await self.pill_manager.use_pill_batch(
+            player, pill_name, quality, count
+        )
+        if not success:
+            yield event.plain_result(message if str(message).startswith(("❌", "⚠️")) else f"❌ {message}")
+            return
+        yield event.plain_result(message)
 
     @player_required
     async def handle_show_pills(self, player: Player, event: AstrMessageEvent):

@@ -252,11 +252,29 @@ class PlayerHandler:
                 for pet in [main_pet] + list(support_pets or []):
                     if pet and getattr(pet, "hp", 0) > 0:
                         pet_atk += int(pet.atk)
-                combat_panel["atk"] = int(owner_atk) + pet_atk
+                new_atk = int(owner_atk) + pet_atk
+                delta = new_atk - int(combat_panel["atk"])
+                combat_panel["physical_atk"] = int(
+                    combat_panel.get("physical_atk", 0)
+                ) + max(0, delta)
+                combat_panel["atk"] = (
+                    int(combat_panel.get("physical_atk", 0))
+                    + int(combat_panel.get("magic_atk", 0))
+                )
                 for k, v in (pet_effects or {}).items():
                     if k in combat_panel and isinstance(v, (int, float)):
                         combat_panel[k] = combat_panel.get(k, 0) + v
-                combat_panel["defense"] += int((pet_effects or {}).get("defense_bonus", 0) or 0)
+                bonus_def = int((pet_effects or {}).get("defense_bonus", 0) or 0)
+                combat_panel["physical_defense"] = int(
+                    combat_panel.get("physical_defense", 0)
+                ) + bonus_def // 2
+                combat_panel["magic_defense"] = int(
+                    combat_panel.get("magic_defense", 0)
+                ) + (bonus_def - bonus_def // 2)
+                combat_panel["defense"] = (
+                    int(combat_panel.get("physical_defense", 0))
+                    + int(combat_panel.get("magic_defense", 0))
+                )
         except Exception:
             pass
 
@@ -342,6 +360,8 @@ class PlayerHandler:
             f"  气血：{combat_panel['hp']:,}/{combat_panel['max_hp']:,}\n"
             f"  灵气：{combat_panel['mp']:,}/{combat_panel['max_mp']:,}\n"
             f"  攻击：{combat_panel['atk']:,} | 防御：{combat_panel['defense']:,}\n"
+            f"  物攻：{combat_panel.get('physical_atk', 0):,} | 法攻：{combat_panel.get('magic_atk', 0):,}\n"
+            f"  物防：{combat_panel.get('physical_defense', 0):,} | 法防：{combat_panel.get('magic_defense', 0):,}\n"
             f"  暴击：{combat_panel['crit_rate']:.1f}% | 暴伤：{combat_panel['crit_damage'] * 100:.1f}%\n"
             f"  吸血：{combat_panel['lifesteal']:.1f}% | 反伤：{combat_panel['counter_damage']:.1f}%\n"
             f"  五行：{element_name}\n"

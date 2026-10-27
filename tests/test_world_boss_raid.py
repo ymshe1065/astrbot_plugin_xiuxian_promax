@@ -111,6 +111,8 @@ class TestWorldBossRaid(unittest.IsolatedAsyncioTestCase):
         ok, msg = await self.world_boss.challenge_boss(player)
         self.assertTrue(ok, msg)
         self.assertIn("击杀", msg)
+        self.assertIn("世界Boss战斗结果", msg)
+        self.assertNotIn("第 1 回合", msg)
 
         first_gold = (await self.db.get_player_by_id("u1")).gold
         self.assertGreater(first_gold, 0)

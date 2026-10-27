@@ -6,7 +6,7 @@ from typing import Dict, Callable, Awaitable
 from astrbot.api import logger
 from ..config_manager import ConfigManager
 
-LATEST_DB_VERSION = 42  # v42: 装备实例回填
+LATEST_DB_VERSION = 43  # v43: Boss 物法流派
 
 MIGRATION_TASKS: Dict[int, Callable[[aiosqlite.Connection, ConfigManager], Awaitable[None]]] = {}
 
@@ -216,6 +216,7 @@ async def _ensure_latest_columns(conn: aiosqlite.Connection):
     await _add_column_if_missing(conn, "players", "equipment_instances", "TEXT NOT NULL DEFAULT '[]'")
     await _add_column_if_missing(conn, "players", "equipped_instances", "TEXT NOT NULL DEFAULT '{}'")
     await _add_column_if_missing(conn, "players", "luck", "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(conn, "boss", "archetype", "TEXT NOT NULL DEFAULT 'balanced'")
     await _ensure_trade_v39(conn)
     await _ensure_npc_v29_tables(conn)
     await _add_column_if_missing(conn, "sects", "sect_level", "INTEGER NOT NULL DEFAULT 1")
@@ -568,7 +569,8 @@ async def _create_all_tables_v2(conn: aiosqlite.Connection):
             defense INTEGER NOT NULL DEFAULT 0,
             stone_reward INTEGER NOT NULL DEFAULT 0,
             create_time INTEGER NOT NULL DEFAULT 0,
-            status INTEGER NOT NULL DEFAULT 1
+            status INTEGER NOT NULL DEFAULT 1,
+            archetype TEXT NOT NULL DEFAULT 'balanced'
         )
     """)
     await conn.execute("CREATE INDEX IF NOT EXISTS idx_boss_status ON boss(status, create_time DESC)")
@@ -857,7 +859,8 @@ async def _migrate_to_v12(conn: aiosqlite.Connection, config_manager: ConfigMana
         CREATE TABLE IF NOT EXISTS boss (
             boss_id INTEGER PRIMARY KEY AUTOINCREMENT, boss_name TEXT NOT NULL, boss_level TEXT NOT NULL,
             hp INTEGER NOT NULL, max_hp INTEGER NOT NULL, atk INTEGER NOT NULL, defense INTEGER NOT NULL DEFAULT 0,
-            stone_reward INTEGER NOT NULL DEFAULT 0, create_time INTEGER NOT NULL DEFAULT 0, status INTEGER NOT NULL DEFAULT 1
+            stone_reward INTEGER NOT NULL DEFAULT 0, create_time INTEGER NOT NULL DEFAULT 0, status INTEGER NOT NULL DEFAULT 1,
+            archetype TEXT NOT NULL DEFAULT 'balanced'
         )
     """)
     await conn.execute("CREATE INDEX IF NOT EXISTS idx_boss_status ON boss(status, create_time DESC)")
@@ -1545,3 +1548,14 @@ async def _migrate_to_v42(conn: aiosqlite.Connection, config_manager: ConfigMana
     logger.info("开始迁移到 v42：装备实例回填")
     await _migrate_to_v40(conn, config_manager)
     logger.info("v42迁移完成：装备实例与溢出字段已确认")
+
+
+@migration(43)
+async def _migrate_to_v43(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """迁移到 v43 - Boss 物法流派字段。"""
+    logger.info("开始迁移到 v43：Boss 物法流派")
+    await _add_column_if_missing(
+        conn, "boss", "archetype", "TEXT NOT NULL DEFAULT 'balanced'"
+    )
+    await conn.commit()
+    logger.info("v43迁移完成：Boss 流派字段已添加")

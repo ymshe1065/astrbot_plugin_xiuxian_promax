@@ -58,6 +58,52 @@
       "reward_mult": 6.0
     }
   ],
+  "archetypes": {
+    "warrior": {
+      "name": "狂战型",
+      "weight": 30,
+      "atk_mult": 1.1,
+      "defense_mult": 0.9,
+      "physical_atk_share": 0.8,
+      "magic_atk_share": 0.2,
+      "physical_defense_share": 0.7,
+      "magic_defense_share": 0.3,
+      "defense_flat": 30
+    },
+    "mage": {
+      "name": "法尊型",
+      "weight": 30,
+      "atk_mult": 1.1,
+      "defense_mult": 0.8,
+      "physical_atk_share": 0.2,
+      "magic_atk_share": 0.8,
+      "physical_defense_share": 0.3,
+      "magic_defense_share": 0.7,
+      "defense_flat": 20
+    },
+    "tank": {
+      "name": "铁壁型",
+      "weight": 20,
+      "atk_mult": 0.8,
+      "defense_mult": 1.4,
+      "physical_atk_share": 0.4,
+      "magic_atk_share": 0.6,
+      "physical_defense_share": 0.8,
+      "magic_defense_share": 0.2,
+      "defense_flat": 80
+    },
+    "balanced": {
+      "name": "均衡型",
+      "weight": 20,
+      "atk_mult": 1.0,
+      "defense_mult": 1.0,
+      "physical_atk_share": 0.5,
+      "magic_atk_share": 0.5,
+      "physical_defense_share": 0.5,
+      "magic_defense_share": 0.5,
+      "defense_flat": 40
+    }
+  },
   "world_boss": {
     "min_level": 3,
     "cooldown": 300,

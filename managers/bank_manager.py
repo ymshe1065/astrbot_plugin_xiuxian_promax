@@ -458,6 +458,7 @@ class BankManager:
                     f"当前持有：{player.gold:,} 灵石"
                 )
 
+            status_label = "overdue（逾期）" if status == "overdue" else "active（未结清）"
             return True, (
                 f"✅ 部分还款成功！\n"
                 f"━━━━━━━━━━━━━━━\n"
@@ -468,7 +469,7 @@ class BankManager:
                 f"剩余应还：{remaining:,} 灵石\n"
                 f"（剩余本金 {max(0, principal_due - pay_principal):,} + "
                 f"剩余利息 {max(0, interest_due - pay_interest):,}）\n"
-                f"贷款状态：active（未结清）\n"
+                f"贷款状态：{status_label}\n"
                 f"━━━━━━━━━━━━━━━\n"
                 f"当前持有：{player.gold:,} 灵石"
             )

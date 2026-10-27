@@ -280,13 +280,13 @@ class DatabaseExtended:
             """
             INSERT INTO boss (
                 boss_name, boss_level, hp, max_hp, atk, defense,
-                stone_reward, create_time, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                stone_reward, create_time, status, archetype
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 boss.boss_name, boss.boss_level, boss.hp, boss.max_hp,
                 boss.atk, boss.defense, boss.stone_reward,
-                boss.create_time, boss.status
+                boss.create_time, boss.status, getattr(boss, "archetype", "balanced")
             )
         )
         await self.conn.commit()
@@ -322,13 +322,13 @@ class DatabaseExtended:
             """
             UPDATE boss SET
                 boss_name = ?, boss_level = ?, hp = ?, max_hp = ?, atk = ?,
-                defense = ?, stone_reward = ?, status = ?
+                defense = ?, stone_reward = ?, status = ?, archetype = ?
             WHERE boss_id = ?
             """,
             (
                 boss.boss_name, boss.boss_level, boss.hp, boss.max_hp,
                 boss.atk, boss.defense, boss.stone_reward, boss.status,
-                boss.boss_id
+                getattr(boss, "archetype", "balanced"), boss.boss_id
             )
         )
         await self.conn.commit()

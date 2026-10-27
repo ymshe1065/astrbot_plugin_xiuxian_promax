@@ -107,6 +107,7 @@ class Boss:
     stone_reward: int = 0
     create_time: int = 0
     status: int = 1
+    archetype: str = "balanced"
 
 @dataclass
 class Rift:

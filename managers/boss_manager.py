@@ -35,6 +35,33 @@ class BossManager:
         "异兽", "凶兽", "妖尊", "魔尊", "邪帝",
         "天魔", "地魔", "魔神", "妖神", "邪神"
     ]
+
+    DEFAULT_ARCHETYPES = {
+        "warrior": {
+            "name": "狂战型", "weight": 30, "atk_mult": 1.1, "defense_mult": 0.9,
+            "physical_atk_share": 0.8, "magic_atk_share": 0.2,
+            "physical_defense_share": 0.7, "magic_defense_share": 0.3,
+            "defense_flat": 30,
+        },
+        "mage": {
+            "name": "法尊型", "weight": 30, "atk_mult": 1.1, "defense_mult": 0.8,
+            "physical_atk_share": 0.2, "magic_atk_share": 0.8,
+            "physical_defense_share": 0.3, "magic_defense_share": 0.7,
+            "defense_flat": 20,
+        },
+        "tank": {
+            "name": "铁壁型", "weight": 20, "atk_mult": 0.8, "defense_mult": 1.4,
+            "physical_atk_share": 0.4, "magic_atk_share": 0.6,
+            "physical_defense_share": 0.8, "magic_defense_share": 0.2,
+            "defense_flat": 80,
+        },
+        "balanced": {
+            "name": "均衡型", "weight": 20, "atk_mult": 1.0, "defense_mult": 1.0,
+            "physical_atk_share": 0.5, "magic_atk_share": 0.5,
+            "physical_defense_share": 0.5, "magic_defense_share": 0.5,
+            "defense_flat": 40,
+        },
+    }
     
     BOSS_DROP_TABLE = {
         "low": [
@@ -64,6 +91,7 @@ class BossManager:
         self.storage_ring_manager = storage_ring_manager
         self.config = config_manager.boss_config if config_manager else {}
         self.levels = self.config.get("levels", self.BOSS_LEVELS)
+        self.archetypes = self.config.get("archetypes") or self.DEFAULT_ARCHETYPES
         self._battle_lock = None
     
     def _get_battle_lock(self) -> asyncio.Lock:
@@ -80,6 +108,53 @@ class BossManager:
             if explicit:
                 return explicit
         return self.combat_mgr.get_element_from_name(item_name)
+
+    def get_archetype(self, key: str) -> dict:
+        cfg = dict(self.archetypes.get(key) or self.archetypes.get("balanced") or {})
+        base = dict(self.DEFAULT_ARCHETYPES.get("balanced", {}))
+        base.update(cfg)
+        return base
+
+    def pick_archetype(self) -> str:
+        keys = list(self.archetypes.keys())
+        if not keys:
+            return "balanced"
+        weights = [max(1, int(self.get_archetype(k).get("weight", 1) or 1)) for k in keys]
+        return random.choices(keys, weights=weights, k=1)[0]
+
+    def build_boss_combat_stats(self, boss: Boss, element: str = "") -> CombatStats:
+        """按 Boss 流派把总 atk/defense 拆成物法双轨。"""
+        cfg = self.get_archetype(getattr(boss, "archetype", "balanced"))
+        atk_total = int(boss.atk) * float(cfg.get("atk_mult", 1.0) or 1.0)
+        physical_atk = int(atk_total * float(cfg.get("physical_atk_share", 0.5) or 0.5))
+        magic_atk = int(atk_total * float(cfg.get("magic_atk_share", 0.5) or 0.5))
+
+        defense_total = (int(boss.defense) + int(cfg.get("defense_flat", 0) or 0)) * float(
+            cfg.get("defense_mult", 1.0) or 1.0
+        )
+        physical_defense = int(
+            defense_total * float(cfg.get("physical_defense_share", 0.5) or 0.5)
+        )
+        magic_defense = int(
+            defense_total * float(cfg.get("magic_defense_share", 0.5) or 0.5)
+        )
+        return CombatStats(
+            user_id=str(boss.boss_id),
+            name=boss.boss_name,
+            hp=boss.hp,
+            max_hp=boss.max_hp,
+            mp=boss.max_hp,
+            max_mp=boss.max_hp,
+            atk=max(1, physical_atk + magic_atk),
+            defense=max(0, physical_defense + magic_defense),
+            physical_atk=physical_atk,
+            magic_atk=magic_atk,
+            physical_defense=physical_defense,
+            magic_defense=magic_defense,
+            crit_rate=30,
+            exp=boss.stone_reward,
+            element=element or "",
+        )
 
     async def spawn_boss(
         self,
@@ -106,7 +181,9 @@ class BossManager:
         defense = 0
         if level_config["level_index"] >= 15:
             defense = random.randint(40, 90)
-        
+        archetype = self.pick_archetype()
+        archetype_cfg = self.get_archetype(archetype)
+
         boss = Boss(
             boss_id=0,
             boss_name=boss_name,
@@ -117,12 +194,14 @@ class BossManager:
             defense=defense,
             stone_reward=stone_reward,
             create_time=int(time.time()),
-            status=1
+            status=1,
+            archetype=archetype,
         )
-        
+
+        preview = self.build_boss_combat_stats(boss, "")
         boss_id = await self.db.ext.create_boss(boss)
         boss.boss_id = boss_id
-        
+
         msg = f"""
 👹 Boss降临
 ━━━━━━━━━━━━━━━
@@ -130,9 +209,10 @@ class BossManager:
 {boss_name}降临世间！
 
 境界：{level_config["name"]}
+流派：{archetype_cfg.get('name', archetype)}
 HP：{max_hp}
-ATK：{atk}
-防御：{defense}%减伤
+物攻：{preview.physical_atk:,} | 法攻：{preview.magic_atk:,}
+物防：{preview.physical_defense:,} | 法防：{preview.magic_defense:,}
 奖励：{stone_reward}灵石
 
 快来挑战吧！
@@ -222,7 +302,14 @@ ATK：{atk}
             user_id, player_stats.max_hp, player_stats.atk,
             player_stats.defense, player.cultivation_type,
         )
-        player_stats.atk = atk
+        old_atk = int(player_stats.atk)
+        if atk != old_atk:
+            player_stats.physical_atk = max(
+                0, int(getattr(player_stats, "physical_atk", 0)) + int(atk - old_atk)
+            )
+            player_stats.atk = player_stats.physical_atk + int(
+                getattr(player_stats, "magic_atk", 0)
+            )
         player_stats.pet = main_pet
         player_stats.support_pets = support_pets
         merged_effects = dict(player_stats.effects or {})
@@ -235,20 +322,7 @@ ATK：{atk}
 
         # Boss 随机获得一种五行属性，构成克制关系
         boss_element = random.choice(["金", "木", "水", "火", "土"])
-
-        boss_stats = CombatStats(
-            user_id=str(boss.boss_id),
-            name=boss.boss_name,
-            hp=boss.hp,
-            max_hp=boss.max_hp,
-            mp=boss.max_hp,
-            max_mp=boss.max_hp,
-            atk=boss.atk,
-            defense=boss.defense,
-            crit_rate=30,
-            exp=boss.stone_reward,
-            element=boss_element
-        )
+        boss_stats = self.build_boss_combat_stats(boss, boss_element)
         
         battle_result = self.combat_mgr.player_vs_boss(player_stats, boss_stats)
         winner = battle_result["winner"]

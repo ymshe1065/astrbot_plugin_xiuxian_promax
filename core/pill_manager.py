@@ -39,6 +39,14 @@ class PillManager:
         quality = str(quality).strip()
         return quality if quality in self.QUALITY_ORDER else None
 
+    def format_pill_display_name(self, base_name: str, quality: Optional[str] = None) -> str:
+        """显示丹药名；默认品质不追加后缀，避免“固基丹·中·一般”。"""
+        name = str(base_name or "")
+        q = self.normalize_quality(quality)
+        if not q or q == self.DEFAULT_QUALITY:
+            return name
+        return f"{name}（{q}）"
+
     def get_quality_info(self, quality: str) -> dict:
         try:
             return self.config_manager.get_pill_quality(quality) or {}
@@ -276,6 +284,88 @@ class PillManager:
             if pill_data.get("daily_limit"):
                 await self.db.update_player(player)
         return result
+
+    # ===== 批量服用与累计效果 =====
+    def _pill_snapshot(self, player: Player) -> dict:
+        attr_keys = (
+            "experience", "spiritual_qi", "max_spiritual_qi",
+            "blood_qi", "max_blood_qi", "lifespan", "mental_power",
+            "physical_damage", "magic_damage",
+            "physical_defense", "magic_defense",
+            "has_resurrection_pill",
+        )
+        attrs = {}
+        for key in attr_keys:
+            value = getattr(player, key, 0)
+            attrs[key] = bool(value) if key == "has_resurrection_pill" else int(value or 0)
+        effect_names = []
+        for effect in player.get_active_pill_effects():
+            if isinstance(effect, dict):
+                name = effect.get("pill_name") or effect.get("name")
+                if name and name not in effect_names:
+                    effect_names.append(str(name))
+        return {"attrs": attrs, "effects": tuple(sorted(effect_names))}
+
+    def _format_batch_effect(self, before: dict, after: dict, last_message: str) -> str:
+        labels = (
+            ("experience", "修为"),
+            ("spiritual_qi", "灵气"),
+            ("max_spiritual_qi", "灵气上限"),
+            ("blood_qi", "气血"),
+            ("max_blood_qi", "气血上限"),
+            ("lifespan", "寿命"),
+            ("mental_power", "精神力"),
+            ("physical_damage", "物伤"),
+            ("magic_damage", "法伤"),
+            ("physical_defense", "物防"),
+            ("magic_defense", "法防"),
+        )
+        lines = []
+        for key, label in labels:
+            delta = int(after["attrs"].get(key, 0)) - int(before["attrs"].get(key, 0))
+            if delta:
+                lines.append(f"{label} {delta:+,}")
+        new_effects = sorted(set(after["effects"]) - set(before["effects"]))
+        if new_effects:
+            lines.append("新增临时效果：" + "、".join(new_effects[:6]))
+        if after["attrs"].get("has_resurrection_pill") and not before["attrs"].get("has_resurrection_pill"):
+            lines.append("获得回生效果")
+        return "\n".join(lines) if lines else last_message
+
+    async def use_pill_batch(
+        self, player: Player, pill_name: str, quality: Optional[str], count: int
+    ) -> Tuple[bool, int, str]:
+        """连续服用丹药，返回实际数量和累计效果，而不是最后一颗的单颗效果。"""
+        count = max(0, int(count or 0))
+        if count <= 0:
+            return False, 0, "❌ 服用数量必须大于 0。"
+
+        before = self._pill_snapshot(player)
+        used = 0
+        last_message = ""
+        error_message = ""
+        for _ in range(count):
+            success, message = await self.use_pill(player, pill_name, quality)
+            if not success:
+                error_message = message
+                break
+            used += 1
+            last_message = message
+
+        if used <= 0:
+            return False, 0, error_message or "❌ 服用失败。"
+
+        after = self._pill_snapshot(player)
+        effect_text = self._format_batch_effect(before, after, last_message)
+        display_name = self.format_pill_display_name(pill_name, quality)
+        if error_message:
+            header = (
+                f"⚠️ 已服用【{display_name}】x{used}，后续停止："
+                f"{error_message}"
+            )
+        else:
+            header = f"✅ 已服用【{display_name}】x{used}"
+        return True, used, f"{header}\n━━━━━━━━━━━━━━━\n{effect_text}"
 
     async def _use_exp_pill(self, player: Player, pill_key: str, pill_data: dict, quality: str) -> Tuple[bool, str]:
         """使用修为丹"""

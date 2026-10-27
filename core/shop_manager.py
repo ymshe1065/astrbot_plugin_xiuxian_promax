@@ -21,6 +21,55 @@ class ShopManager:
         values = self.config.get("VALUES", {}) or {}
         return values.get(key, self.config.get(key, default))
 
+    def resolve_current_item_data(self, item: Dict) -> Optional[Dict]:
+        """按缓存物品的 id/名称查找当前配置，避免继续使用旧效果快照。"""
+        if not isinstance(item, dict):
+            return None
+        data = item.get("data") or {}
+        if not isinstance(data, dict):
+            data = {}
+        target_id = str(data.get("id") or item.get("id") or "")
+        target_name = str(item.get("name") or data.get("name") or "")
+        sources = []
+        for attr in (
+            "items_data", "weapons_data", "pills_data",
+            "exp_pills_data", "utility_pills_data",
+        ):
+            source = getattr(self.config_manager, attr, None)
+            if isinstance(source, dict):
+                sources.extend(source.values())
+        for current in sources:
+            if not isinstance(current, dict):
+                continue
+            current_id = str(current.get("id") or "")
+            current_name = str(current.get("name") or "")
+            if target_id and current_id and current_id == target_id:
+                return dict(current)
+            if target_name and current_name == target_name:
+                return dict(current)
+        return None
+
+    def refresh_item_data(self, items: List[Dict]) -> bool:
+        """用当前配置回填商店缓存；保留价格、库存和折扣。"""
+        changed = False
+        for item in items or []:
+            if not isinstance(item, dict):
+                continue
+            current = self.resolve_current_item_data(item)
+            if not current:
+                continue
+            old = item.get("data")
+            if old != current:
+                item["data"] = current
+                changed = True
+            if current.get("name") and item.get("name") != current["name"]:
+                item["name"] = current["name"]
+                changed = True
+            if current.get("rank") and item.get("rank") != current["rank"]:
+                item["rank"] = current["rank"]
+                changed = True
+        return changed
+
     def _format_required_level(self, level_index: int) -> str:
         """同时展示灵修/体修的需求境界名称"""
         names = []
@@ -444,7 +493,7 @@ class ShopManager:
 
     def _get_item_effect_short(self, item: Dict) -> str:
         """获取物品效果的简短描述"""
-        data = item.get('data', {})
+        data = self.resolve_current_item_data(item) or item.get('data', {})
         item_type = item.get('type', '')
         effects = []
         
@@ -520,7 +569,7 @@ class ShopManager:
             物品详细描述
         """
         item_type = item_data.get('type', '')
-        data = item_data.get('data', {})
+        data = self.resolve_current_item_data(item_data) or item_data.get('data', {})
 
         details = [f"名称: {item_data['name']}"]
         details.append(f"品级: {item_data['rank']}")

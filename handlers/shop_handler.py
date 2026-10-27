@@ -59,6 +59,7 @@ class ShopHandler:
         last_refresh_time, current_items = await self.db.get_shop_data(pavilion_id)
         if current_items:
             updated = self.shop_manager.ensure_items_have_stock(current_items)
+            updated = self.shop_manager.refresh_item_data(current_items) or updated
             if updated:
                 await self.db.update_shop_data(pavilion_id, last_refresh_time, current_items)
         refresh_hours = self._cfg("PAVILION_REFRESH_HOURS", 1)
@@ -83,6 +84,10 @@ class ShopHandler:
         for pavilion_id, name, getter, cnt in jobs:
             try:
                 last_refresh, items = await self.db.get_shop_data(pavilion_id)
+                if items:
+                    data_changed = self.shop_manager.refresh_item_data(items)
+                    if data_changed:
+                        await self.db.update_shop_data(pavilion_id, last_refresh, items)
                 refresh_hours = self._cfg("PAVILION_REFRESH_HOURS", 1)
                 due = self.shop_manager.should_refresh_shop(last_refresh, refresh_hours)
                 if not items:
@@ -215,8 +220,11 @@ class ShopHandler:
     async def _find_item_in_pavilions(self, item_name: str):
         """在所有阁楼中查找物品"""
         for pavilion_id in ["pill_pavilion", "recipe_pavilion", "material_pavilion", "weapon_pavilion", "treasure_pavilion"]:
-            _, items = await self.db.get_shop_data(pavilion_id)
+            last_refresh, items = await self.db.get_shop_data(pavilion_id)
             if items:
+                changed = self.shop_manager.refresh_item_data(items)
+                if changed:
+                    await self.db.update_shop_data(pavilion_id, last_refresh, items)
                 for item in items:
                     if item['name'] == item_name and item.get('stock', 0) > 0:
                         return pavilion_id, item

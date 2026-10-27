@@ -63,6 +63,34 @@ class WorldBossManager:
         },
     }
 
+    # 世界 Boss 的攻击物法占比
+    ATTACK_PROFILES: Dict[str, tuple] = {
+        "abyss_dragon": (0.8, 0.2),
+        "ancient_demon": (0.2, 0.8),
+        "nether_king": (0.5, 0.5),
+        "sky_devourer": (0.8, 0.2),
+        "blood_ancestor": (0.4, 0.6),
+        "flame_phoenix": (0.2, 0.8),
+        "frost_python": (0.7, 0.3),
+        "golden_ape": (0.8, 0.2),
+        "venom_queen": (0.3, 0.7),
+        "thunder_qilin": (0.5, 0.5),
+    }
+
+    # 世界 Boss 的物法抗性：突出不同 Boss 的攻略差异
+    RESIST_PROFILES: Dict[str, tuple] = {
+        "abyss_dragon": (60, 20),     # 物抗高，法伤好打
+        "ancient_demon": (20, 60),    # 法抗高，物伤好打
+        "nether_king": (40, 40),      # 均衡
+        "sky_devourer": (60, 20),     # 物抗高
+        "blood_ancestor": (40, 60),   # 法抗高
+        "flame_phoenix": (20, 60),    # 法抗高
+        "frost_python": (60, 30),     # 物抗高
+        "golden_ape": (60, 20),       # 物抗高
+        "venom_queen": (30, 60),      # 法抗高
+        "thunder_qilin": (40, 40),    # 均衡
+    }
+
     TIER_META: Dict[int, dict] = {
         1: {"label": "灭世级", "weight": 60},
         2: {"label": "灾厄级", "weight": 30},
@@ -142,6 +170,156 @@ class WorldBossManager:
                 result[key] = item
             return result
         return {k: dict(v) for k, v in self.BOSS_TYPES.items()}
+
+    def get_resists(self, boss: dict) -> tuple:
+        """返回 (物抗%, 法抗%)；优先类型配置，其次内置抗性表。"""
+        key = str((boss or {}).get("boss_type") or "")
+        cfg = self._types.get(key, {}) or {}
+        default_p, default_m = self.RESIST_PROFILES.get(key, (0, 0))
+        try:
+            physical = float(cfg.get("physical_resist_pct", default_p) or 0)
+        except (TypeError, ValueError):
+            physical = float(default_p)
+        try:
+            magic = float(cfg.get("magic_resist_pct", default_m) or 0)
+        except (TypeError, ValueError):
+            magic = float(default_m)
+        return max(0.0, min(90.0, physical)), max(0.0, min(90.0, magic))
+
+    def get_attack_profile(self, boss: dict) -> tuple:
+        key = str((boss or {}).get("boss_type") or "")
+        cfg = self._types.get(key, {}) or {}
+        default_p, default_m = self.ATTACK_PROFILES.get(key, (0.5, 0.5))
+        try:
+            physical = float(cfg.get("physical_atk_share", default_p) or default_p)
+        except (TypeError, ValueError):
+            physical = float(default_p)
+        try:
+            magic = float(cfg.get("magic_atk_share", default_m) or default_m)
+        except (TypeError, ValueError):
+            magic = float(default_m)
+        total = physical + magic
+        if total <= 0:
+            return 0.5, 0.5
+        return physical / total, magic / total
+
+    @staticmethod
+    def _defense_from_resist(resist_pct: float) -> int:
+        """把抗性百分比换算成 PVP 防御值，保证同样减伤率。"""
+        pct = max(0.0, min(90.0, float(resist_pct or 0)))
+        if pct <= 0:
+            return 0
+        return max(0, int(round(100.0 * pct / (100.0 - pct))))
+
+    def build_world_boss_combat_stats(self, boss: dict, type_cfg: dict):
+        """构建世界 Boss 的 PVP 战斗面板（只用于无战报模拟）。"""
+        from .combat_manager import CombatStats
+
+        max_hp = max(1, int(boss.get("max_hp") or 1))
+        current_hp = max(0, int(boss.get("current_hp") or 0))
+        atk = max(1, int(boss.get("atk") or max(1, int(max_hp * 0.001))))
+        p_share, m_share = self.get_attack_profile(boss)
+        physical_atk = int(atk * p_share)
+        magic_atk = max(0, int(atk * m_share))
+        p_res, m_res = self.get_resists(boss)
+        return CombatStats(
+            user_id=str(boss.get("boss_id") or "world_boss"),
+            name=str(boss.get("boss_name") or type_cfg.get("name") or "世界Boss"),
+            hp=current_hp,
+            max_hp=max_hp,
+            mp=max_hp,
+            max_mp=max_hp,
+            atk=max(1, physical_atk + magic_atk),
+            defense=self._defense_from_resist(p_res) + self._defense_from_resist(m_res),
+            physical_atk=physical_atk,
+            magic_atk=magic_atk,
+            physical_defense=self._defense_from_resist(p_res),
+            magic_defense=self._defense_from_resist(m_res),
+            crit_rate=30,
+            exp=0,
+            element=str(type_cfg.get("element") or boss.get("element") or ""),
+        )
+
+    async def build_player_boss_stats(self, player: Player):
+        """构建世界 Boss 用的玩家面板，并接入灵兽协战。"""
+        from .combat_manager import CombatManager
+        from .pet_manager import PetManager
+
+        cm = CombatManager()
+        impart = None
+        try:
+            impart = await self.db.ext.get_impart_info(player.user_id)
+        except Exception:
+            impart = None
+        stats = cm.build_player_combat_stats(
+            player,
+            self.config_manager,
+            db=self.db,
+            hp_buff=impart.impart_hp_per if impart else 0.0,
+            mp_buff=impart.impart_mp_per if impart else 0.0,
+            atk_buff=impart.impart_atk_per if impart else 0.0,
+            crit_rate=int((impart.impart_know_per if impart else 0.0) * 100),
+            crit_damage_bonus=impart.impart_burst_per if impart else 0.0,
+        )
+        try:
+            pet_mgr = PetManager(self.db)
+            main_pet, support_pets, pet_effects, owner_atk = await pet_mgr.build_pet_lineup(
+                player.user_id,
+                stats.max_hp,
+                stats.atk,
+                stats.defense,
+                player.cultivation_type,
+                persist=False,
+            )
+            old_atk = int(stats.atk)
+            if owner_atk != old_atk:
+                stats.physical_atk = max(
+                    0, int(stats.physical_atk) + int(owner_atk - old_atk)
+                )
+            stats.atk = int(stats.physical_atk) + int(stats.magic_atk)
+            stats.pet = main_pet
+            stats.support_pets = support_pets
+            effects = dict(stats.effects or {})
+            for key, value in (pet_effects or {}).items():
+                if isinstance(value, (int, float)):
+                    effects[key] = effects.get(key, 0) + value
+                else:
+                    effects[key] = value
+            stats.effects = effects
+        except Exception:
+            pass
+        return stats
+
+    async def simulate_battle(self, player: Player, boss: dict, type_cfg: dict) -> dict:
+        """PVP 规则 5 回合模拟世界 Boss，只返回结果，不返回逐回合战报。"""
+        from .combat_manager import CombatManager
+
+        player_stats = await self.build_player_boss_stats(player)
+        boss_stats = self.build_world_boss_combat_stats(boss, type_cfg)
+        start_hp = int(boss_stats.hp)
+        result = CombatManager.player_vs_player(
+            player_stats, boss_stats, combat_type=2
+        )
+        raw_damage = max(0, start_hp - max(0, int(boss_stats.hp)))
+        max_hp = max(1, int(boss.get("max_hp") or 1))
+        damage_percent = (raw_damage / max_hp) * 100
+        if raw_damage > 0:
+            damage_percent = max(self.damage_floor_pct, min(self.damage_cap_pct, damage_percent))
+        else:
+            damage_percent = 0.0
+        final_damage = int(max_hp * damage_percent / 100)
+        if final_damage <= 0 and raw_damage <= 0:
+            final_damage = 0
+        return {
+            "damage": max(0, final_damage),
+            "raw_damage": max(0, raw_damage),
+            "damage_percent": damage_percent,
+            "player_element": self.player_element(player),
+            "killed": int(boss_stats.hp) <= 0,
+            "boss_remaining": max(0, int(boss_stats.hp)),
+            "player_remaining": max(0, int(player_stats.hp)),
+            "rounds": int(result.get("rounds", 0) or 0),
+        }
 
     def _load_tier_meta(self) -> Dict[int, dict]:
         raw = self._world_cfg.get("tiers")
@@ -303,6 +481,7 @@ class WorldBossManager:
         max_hp = max(500_000, min(max_hp, 12_000_000_000))
         expire_time = now + self.expire_hours * 3600
         tier_label = self._tier_meta.get(tier, {}).get("label", f"{tier}阶")
+        physical_resist, magic_resist = self.get_resists({"boss_type": boss_key})
 
         await self.db.conn.execute("BEGIN IMMEDIATE")
         try:
@@ -330,6 +509,7 @@ class WorldBossManager:
             f"👹 名称：{boss_name}\n"
             f"🏷️ 种类：{tier_label} · {element or '无'}属性\n"
             f"🚪 门槛境界：{int(type_cfg.get('min_level', self.min_level) or self.min_level)}\n"
+            f"🛡️ 物抗：{physical_resist:.0f}% | 法抗：{magic_resist:.0f}%\n"
             f"💀 血量：{max_hp:,} （基于全服 {p_count} 名活跃修士战力生成）\n"
             f"⏳ 存活时间：{self.expire_hours}小时\n"
             f"📖 {type_cfg.get('desc', '')}\n"
@@ -356,8 +536,8 @@ class WorldBossManager:
             or ""
         )
 
-    async def calculate_realtime_atk(self, player: Player) -> int:
-        """统一战斗属性 + 灵兽协战攻击（Boss/团本为单次伤害，不消耗灵兽精力）。"""
+    async def calculate_realtime_components(self, player: Player) -> tuple:
+        """返回 (物攻, 法攻, 总攻击)；灵兽协战按物理攻击计入。"""
         from .combat_manager import CombatManager
         from .pet_manager import PetManager
         cm = CombatManager()
@@ -376,6 +556,8 @@ class WorldBossManager:
             crit_rate=int((impart.impart_know_per if impart else 0.0) * 100),
             crit_damage_bonus=impart.impart_burst_per if impart else 0.0,
         )
+        physical_atk = int(getattr(stats, "physical_atk", 0) or 0)
+        magic_atk = int(getattr(stats, "magic_atk", 0) or 0)
         total_atk = int(stats.atk)
         try:
             pet_mgr = PetManager(self.db)
@@ -387,13 +569,21 @@ class WorldBossManager:
                 player.cultivation_type,
                 persist=False,
             )
-            total_atk = int(owner_atk)
+            if owner_atk != stats.atk:
+                physical_atk += int(owner_atk - stats.atk)
             for pet in [main_pet] + list(support_pets or []):
                 if pet and getattr(pet, "hp", 0) > 0:
-                    total_atk += int(pet.atk)
+                    physical_atk += int(pet.atk)
+            total_atk = physical_atk + magic_atk
         except Exception:
             total_atk = int(stats.atk)
-        return max(1, total_atk)
+        if total_atk <= 0:
+            total_atk = 1
+        return max(0, physical_atk), max(0, magic_atk), max(1, total_atk)
+
+    async def calculate_realtime_atk(self, player: Player) -> int:
+        """兼容旧入口：返回物攻+法攻总值。"""
+        return (await self.calculate_realtime_components(player))[2]
 
     async def calculate_damage(
         self,
@@ -403,12 +593,27 @@ class WorldBossManager:
         floor_pct: Optional[float] = None,
         cap_pct: Optional[float] = None,
         extra_mult: float = 1.0,
+        boss: Optional[dict] = None,
     ) -> Tuple[int, float, str]:
-        """计算对Boss的单次伤害，返回 (伤害, 百分比, 玩家五行)"""
+        """计算对Boss的单次伤害，物法分别应用抗性后合计。"""
         floor_pct = self.damage_floor_pct if floor_pct is None else float(floor_pct)
         cap_pct = self.damage_cap_pct if cap_pct is None else float(cap_pct)
         player_element = self.player_element(player)
-        base_damage = int(await self.calculate_realtime_atk(player) * 100 + player.experience * 0.1)
+        physical_atk, magic_atk, total_atk = await self.calculate_realtime_components(player)
+
+        total_base = total_atk * 100 + player.experience * 0.1
+        physical_share = physical_atk / total_atk if total_atk > 0 else 0.5
+        base_physical = total_base * physical_share
+        base_magic = total_base * (1 - physical_share)
+
+        if boss:
+            physical_resist, magic_resist = self.get_resists(boss)
+        else:
+            physical_resist, magic_resist = 0.0, 0.0
+        base_damage = int(
+            base_physical * (1 - physical_resist / 100)
+            + base_magic * (1 - magic_resist / 100)
+        )
         try:
             from .combat_manager import CombatManager
             elem_mult = CombatManager.element_multiplier(player_element, boss_element or "")
@@ -489,9 +694,13 @@ class WorldBossManager:
             remaining = self.cooldown - (now - int(rec.get("last_attack_time") or 0))
             return False, f"❌ 调息中，请 {remaining} 秒后再来。"
 
-        final_damage, damage_percent, player_element = await self.calculate_damage(
-            player, int(boss["max_hp"]), type_cfg.get("element", "")
-        )
+        battle = await self.simulate_battle(player, boss, type_cfg)
+        final_damage = int(battle["damage"])
+        damage_percent = float(battle["damage_percent"])
+        player_element = battle["player_element"]
+        battle_killed = bool(battle["killed"])
+        battle_rounds = int(battle.get("rounds", 0) or 0)
+        player_remaining = int(battle.get("player_remaining", 0) or 0)
 
         await self.db.conn.execute("BEGIN IMMEDIATE")
         try:
@@ -512,7 +721,10 @@ class WorldBossManager:
                 await self.db.conn.commit()
                 return False, "❌ Boss已逃遁，请等待下次降临。"
 
-            final_damage = min(final_damage, int(fresh["current_hp"]))
+            if battle_killed:
+                final_damage = int(fresh["current_hp"])
+            else:
+                final_damage = min(final_damage, int(fresh["current_hp"]))
             if final_damage <= 0:
                 await self.db.conn.rollback()
                 return False, "❌ Boss已无剩余血量。"
@@ -564,22 +776,15 @@ class WorldBossManager:
         self.last_challenge_ok = True
 
         msg = [
-            f"⚔️ 你对【{fresh['boss_name']}】造成了 {final_damage:,} 点伤害！",
-            f"━━━━━━━━━━━━━━━",
-            f"🏷️ 种类：{type_cfg.get('name', '')} · {type_cfg.get('element', '') or '无'}属性",
-            f"📊 伤害占比：{damage_percent:.2f}%",
-            f"❤️ Boss剩余血量：{new_hp:,} / {int(fresh['max_hp']):,}",
+            "⚔️ 世界Boss战斗结果",
+            "━━━━━━━━━━━━━━━",
+            f"Boss：{fresh['boss_name']}",
+            f"结果：{'击杀成功' if is_kill else 'Boss未击杀'}",
+            f"战斗回合：{battle_rounds}",
+            f"造成伤害：{final_damage:,}（{damage_percent:.2f}%）",
+            f"Boss剩余：{new_hp:,} / {int(fresh['max_hp']):,}",
+            f"你的剩余气血：{player_remaining:,}",
         ]
-        if player_element:
-            try:
-                from .combat_manager import CombatManager
-                mult = CombatManager.element_multiplier(player_element, type_cfg.get("element", ""))
-                if mult > 1:
-                    msg.append(f"✨ 五行克制！你的【{player_element}】属性对Boss造成额外伤害。")
-                elif mult < 1:
-                    msg.append(f"⚠️ 五行受制！你的【{player_element}】属性被Boss压制。")
-            except Exception:
-                pass
 
         if is_kill:
             settle_msg = await self.settle_boss_kill(boss["boss_id"], player.user_id)
