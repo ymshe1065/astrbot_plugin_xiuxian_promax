@@ -269,10 +269,10 @@ class TestAutoProxy(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue((await self.manager.enable("u1", "umo://group", "押镖"))[0])
         results = await self._handle_disable("押镖")
-        self.assertIn("全部关闭", results[0])
+        self.assertIn("自动代理已关闭", results[0])
         self.assertEqual((await self.db.ext.get_auto_proxy("u1"))["enabled"], 0)
 
-    async def test_disable_escort_also_stops_farm(self):
+    async def test_disable_escort_keeps_farm(self):
         self.assertTrue((await self.manager.enable("u1", "umo://group", "押镖"))[0])
         row = await self.db.ext.get_auto_proxy("u1")
         config = self.manager._load_config(row)
@@ -282,10 +282,35 @@ class TestAutoProxy(unittest.IsolatedAsyncioTestCase):
         )
 
         results = await self._handle_disable("押镖")
-        self.assertIn("全部关闭", results[0])
+        self.assertIn("灵田自动代理继续运行", results[0])
         row = await self.db.ext.get_auto_proxy("u1")
-        self.assertEqual(row["enabled"], 0)
-        self.assertFalse(self.manager._load_config(row)["farm"]["enabled"])
+        self.assertEqual(row["enabled"], 1)
+        self.assertTrue(self.manager._load_config(row)["farm"]["enabled"])
+        self.assertEqual(row["task_type"], "")
+
+    async def test_disabled_primary_does_not_renew_current_task(self):
+        self.assertTrue((await self.manager.enable("u1", "umo://group", "押镖"))[0])
+        row = await self.db.ext.get_auto_proxy("u1")
+        config = self.manager._load_config(row)
+        config["farm"]["enabled"] = True
+        await self.manager._write_state(
+            "u1", True, "escort", "umo://group", "", config
+        )
+        await self.db.ext.set_user_busy(
+            "u1", self.UserStatus.DELIVERING, 0,
+            {"escort_gold": 100, "escort_exp": 50},
+        )
+
+        ok, _ = await self.manager.disable_primary("u1", "manual_close")
+        self.assertTrue(ok)
+        await self.manager.process_due()
+
+        self.assertEqual(self.escort.finished, 0)
+        self.assertEqual(self.escort.started, 1)
+        row = await self.db.ext.get_auto_proxy("u1")
+        self.assertEqual(row["enabled"], 1)
+        self.assertEqual(row["task_type"], "")
+        self.assertTrue(self.manager._load_config(row)["farm"]["enabled"])
 
     async def test_auto_proxy_off_alias_closes_all(self):
         self.assertTrue((await self.manager.enable("u1", "umo://group", "押镖"))[0])

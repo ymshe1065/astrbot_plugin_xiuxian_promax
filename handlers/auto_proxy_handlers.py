@@ -62,15 +62,9 @@ class AutoProxyHandlers:
             yield event.plain_result(msg)
             return
         if self.proxy_mgr.normalize_task(raw) in (TASK_ESCORT, TASK_SECT):
-            # 手动关闭押镖/宗门代理时一并关闭灵田代理，确保“关闭代理”真正停止后台续接
-            was_enabled = await self.proxy_mgr.disable(user_id, "manual_close")
-            if was_enabled:
-                yield event.plain_result(
-                    "🛑 自动代理已全部关闭（含灵田代理）。\n"
-                    "押镖/宗门任务不会中断；灵田成熟作物需手动 /收获。"
-                )
-            else:
-                yield event.plain_result("💡 自动代理当前未开启。")
+            # 只关闭押镖/宗门任务代理；灵田代理继续运行
+            ok, msg = await self.proxy_mgr.disable_primary(user_id, "manual_close")
+            yield event.plain_result(msg)
             return
         yield event.plain_result(usage)
 

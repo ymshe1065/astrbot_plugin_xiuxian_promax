@@ -230,7 +230,7 @@ class AutoProxyManager:
             tip = "押镖/宗门任务代理已关闭" if had_primary else "押镖/宗门任务代理未开启"
             return True, (
                 f"🛑 {tip}；灵田自动代理继续运行。\n"
-                "💡 发送 /关闭代理 灵田 可停止灵田代理。"
+                "💡 发送 /关闭代理 灵田 可停止灵田代理；发送 /关闭代理 可全部停止。"
             )
         return True, (
             "🛑 自动代理已关闭。\n"
@@ -862,6 +862,10 @@ class AutoProxyManager:
         farm_on = bool(farm_cfg.get("enabled"))
 
         if current:
+            # 只开启灵田代理时，不接管玩家手动开始/尚未结算的押镖、宗门任务；
+            # 否则“关闭押镖代理”后，当前这轮结束又会被自动续接。
+            if not row.get("task_type"):
+                return handled
             if cd and cd.scheduled_time and now < cd.scheduled_time:
                 return handled
 
