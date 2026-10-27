@@ -1102,11 +1102,12 @@ class SectManager:
                 pets.extend(stats_item.support_pets or [])
                 for pet in pets:
                     await pet_mgr.save_pet_combat_state(pet)
-            try:
-                await self.db.update_player_fields(uid1, hp=max(1, p1.hp), mp=max(0, p1.mp))
-                await self.db.update_player_fields(uid2, hp=max(1, p2.hp), mp=max(0, p2.mp))
-            except Exception:
-                pass
+            if not balanced:
+                try:
+                    await self.db.update_player_fields(uid1, hp=max(1, p1.hp), mp=max(0, p1.mp))
+                    await self.db.update_player_fields(uid2, hp=max(1, p2.hp), mp=max(0, p2.mp))
+                except Exception:
+                    pass
         return result
 
     async def finish_due_tournaments(self) -> List[Tuple[str, str]]:
