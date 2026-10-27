@@ -303,7 +303,7 @@ class CombatManager:
         base_atk_total = max(1, base_phys + base_magic)
         physical_mult = float(pill_multipliers.get("physical_damage", 1.0) or 1.0)
         magic_mult = float(pill_multipliers.get("magic_damage", 1.0) or 1.0)
-        max_hp = max(1, int(base.get("max_hp", 1)))
+        max_hp = max(1, int(int(base.get("max_hp", 1)) * (1 + max(-.5, min(.5, hp_buff)))))
         max_mp = max(0, int(getattr(player, "max_spiritual_qi", 0) or 0))
         raw_hp = int(getattr(player, "hp", 0) or 0)
         raw_mp = int(getattr(player, "spiritual_qi", 0) or 0)
@@ -327,8 +327,16 @@ class CombatManager:
                 ) - 1 + forge_bonus,
             ),
         )
+        permanent_pill_limit = 0.30
+        try:
+            import json
+            bonus_data = json.loads(player.permanent_bonus) if player.permanent_bonus else {}
+            if isinstance(bonus_data, dict):
+                permanent_pill_limit += max(0.0, min(0.50, float(bonus_data.get("permanent_pill_limit_bonus", 0) or 0)))
+        except Exception:
+            pass
         permanent_total = min(
-            int(base_atk_total * .20),
+            int(base_atk_total * permanent_pill_limit),
             max(0, int(player.physical_damage or 0) + int(player.magic_damage or 0)),
         )
         perm_phys = int(permanent_total * base_phys / base_atk_total)
@@ -344,7 +352,7 @@ class CombatManager:
         physical_def = int(base_pdef * (1 + defense_bonus)) + int(equip.get("physical_defense", 0))
         magic_def = int(base_mdef * (1 + defense_bonus)) + int(equip.get("magic_defense", 0))
         permanent_def_total = min(
-            int((base_pdef + base_mdef) * .20),
+            int((base_pdef + base_mdef) * permanent_pill_limit),
             max(0, int(player.physical_defense or 0) + int(player.magic_defense or 0)),
         )
         pdef_share = base_pdef / max(1, base_pdef + base_mdef)
@@ -790,11 +798,11 @@ class CombatManager:
 
         # 4. 物理按物防、法术按法防分别减伤
         physical_final = (
-            cls.apply_damage_reduction(int(physical_damage), physical_def)
+            cls.apply_damage_reduction(int(physical_damage), physical_def, defender.defense_scale)
             if physical_damage > 0 else 0
         )
         magic_final = (
-            cls.apply_damage_reduction(int(magic_damage), magic_def)
+            cls.apply_damage_reduction(int(magic_damage), magic_def, defender.defense_scale)
             if magic_damage > 0 else 0
         )
         final_damage = physical_final + magic_final
@@ -820,7 +828,7 @@ class CombatManager:
             pet_factor = 1.0 / (1 + 0.4 * (pet_count - 1))
             for pet in attacker_pets:
                 pet_damage = int(round(random.uniform(0.95, 1.05), 2) * pet.atk * pet_factor)
-                pet_damage = cls.apply_damage_reduction(pet_damage, physical_def)
+                pet_damage = cls.apply_damage_reduction(pet_damage, physical_def, defender.defense_scale)
                 if pet.mechanic == "burn":
                     burn = max(1, int(pet.atk * pet_factor * 0.3))
                     pet_damage += burn
