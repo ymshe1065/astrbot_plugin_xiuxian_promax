@@ -151,7 +151,7 @@ class AlchemyManager:
     async def learn_recipe(self, player: Player, identifier: str) -> Tuple[bool, str]:
         recipe = self.get_recipe_by_identifier(identifier)
         if not recipe:
-            return False, f"❌ 未找到丹方【{identifier}】。发送 /丹方 查看可用丹方。"
+            return False, f"❌ 未找到丹方【{identifier}】。发送 /丹方 查看已学丹方；/丹阁 丹方 查看可购买丹方。"
 
         learned = await self.ensure_learned_recipes(player)
         recipe_id = int(recipe.get("id"))
@@ -571,17 +571,26 @@ class AlchemyManager:
             return False, "❌ 你还未踏入修仙之路！"
 
         learned = await self.ensure_learned_recipes(player)
-        lines = ["📜 丹方列表", "━━━━━━━━━━━━━━━"]
-        if not self.recipes:
-            lines.append("当前没有可用丹方。")
+        lines = ["📜 已学丹方列表", "━━━━━━━━━━━━━━━"]
+        # 这里只列出已学习丹方；未学习丹方请到 /丹阁 丹方 购买卷轴后学习。
+        learned_ids = []
+        for value in learned:
+            try:
+                recipe_id = int(value)
+            except (TypeError, ValueError):
+                continue
+            if recipe_id in self.recipes and recipe_id not in learned_ids:
+                learned_ids.append(recipe_id)
+
+        if not learned_ids:
+            lines.append("你还没有学习任何丹方。")
+            lines.append("💡 前往 /丹阁 丹方 购买丹方卷轴，再使用 /学习丹方。")
             return True, "\n".join(lines)
 
-        for recipe_id in sorted(self.recipes):
+        for recipe_id in sorted(learned_ids):
             recipe = self.recipes[recipe_id]
             level_required = int(recipe.get("level_required", 0) or 0)
-            if recipe_id not in learned:
-                status = "未学习"
-            elif player.level_index < level_required:
+            if player.level_index < level_required:
                 status = f"需境界 {level_required}"
             else:
                 status = "可炼制"
@@ -642,7 +651,7 @@ class AlchemyManager:
                     f"出炉：{recipe.get('output_pill', '')}\n"
                     f"所需材料：\n{requirements}\n"
                     f"━━━━━━━━━━━━━━━\n"
-                    f"💡 补齐材料后再发送 /炼丹 {pill_id}；可用 /丹药配方 查看全部丹方"
+                    f"💡 补齐材料后再发送 /炼丹 {pill_id}；可用 /丹药配方 查看已学丹方"
                 ), None
             return await self.start_fire_control(
                 user_id,
