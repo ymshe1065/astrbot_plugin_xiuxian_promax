@@ -12,9 +12,9 @@ class PetHandlers:
         self.pet_mgr = pet_mgr
 
     def _owner_stats(self, player: Player):
-        owner_hp = max(1, int(player.hp or 0), player.experience // 2)
-        owner_atk = max(1, int(player.atk or 0), player.experience // 10)
-        return owner_hp, owner_atk
+        from ..core.equipment_balance import realm_attributes
+        base = realm_attributes(player)
+        return base["max_hp"], base["physical_damage"] + base["magic_damage"]
 
     def _pet_status(self, pet, max_hp: int, now: int) -> str:
         dead_until = int(pet.get("dead_until") or 0)

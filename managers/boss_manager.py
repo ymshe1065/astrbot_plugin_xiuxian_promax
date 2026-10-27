@@ -190,21 +190,6 @@ ATK：{atk}
         crit_rate_buff = impart_info.impart_know_per if impart_info else 0.0
         crit_damage_buff = impart_info.impart_burst_per if impart_info else 0.0
         
-        hp, mp = 0, 0
-        atk = 1
-        try:
-            hp, mp = self.combat_mgr.calculate_hp_mp(player.experience, hp_buff, mp_buff)
-            # 补全了参数，包括 player.cultivation_type
-            atk = self.combat_mgr.calculate_atk(player.experience, player.atkpractice, atk_buff, player.physical_damage, player.magic_damage, player.cultivation_type)
-        except Exception:
-            pass
-        player.hp = hp if hp > 0 else max(1, player.experience // 2)
-        player.mp = mp if mp > 0 else max(1, player.experience)
-        player.atk = atk if atk > 0 else max(1, player.experience // 10)
-        if player.experience < 0: player.experience = 0
-        if player.atkpractice < 0: player.atkpractice = 0
-        await self.db.update_player(player)
-
         player_stats = self.combat_mgr.build_player_combat_stats(
             player,
             self.config_manager,
@@ -215,6 +200,9 @@ ATK：{atk}
             crit_rate=int(crit_rate_buff * 100),
             crit_damage_bonus=crit_damage_buff,
         )
+
+        player.hp, player.mp, player.atk = player_stats.hp, player_stats.mp, player_stats.atk
+        await self.db.update_player(player)
 
         from .pet_manager import PetManager
         pet_mgr = PetManager(self.db)
@@ -380,7 +368,8 @@ ATK：{boss.atk}
             level_config = self.levels[0]
             base_exp = 50000
         else:
-            total_exp = sum(p.experience for p in all_players)
+            from ..core.equipment_balance import realm_attributes
+            total_exp = sum(realm_attributes(p, self.config_manager)["defense_scale"] * 10 for p in all_players)
             avg_exp = total_exp // len(all_players) if all_players else 50000
             for config in reversed(self.levels):
                 if avg_exp >= config.get("level_index", 0) * 10000:

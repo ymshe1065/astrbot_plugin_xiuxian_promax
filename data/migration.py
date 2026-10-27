@@ -6,7 +6,7 @@ from typing import Dict, Callable, Awaitable
 from astrbot.api import logger
 from ..config_manager import ConfigManager
 
-LATEST_DB_VERSION = 43  # v43: 装备部位迁移
+LATEST_DB_VERSION = 44  # v44: 装备平衡版本与货架失效
 
 MIGRATION_TASKS: Dict[int, Callable[[aiosqlite.Connection, ConfigManager], Awaitable[None]]] = {}
 
@@ -1578,3 +1578,13 @@ async def _migrate_to_v43(conn: aiosqlite.Connection, config_manager: ConfigMana
             "UPDATE players SET equipment_instances=?, equipped_instances=?, armor=? WHERE user_id=?",
             (json.dumps(instances, ensure_ascii=False), json.dumps(mapping), armor, user_id),
         )
+
+
+@migration(44)
+async def _migrate_to_v44(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """保留角色与装备实例；清除旧价系统货架，过期旧NPC报价。
+
+    装备数值从现行配置读取，无需改写实例ID、品质、词条或玩家挂单价格。
+    """
+    await conn.execute("DELETE FROM shop")
+    await conn.execute("UPDATE auction_npc_offers SET status='expired' WHERE status='pending'")

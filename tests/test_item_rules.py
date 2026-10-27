@@ -112,14 +112,17 @@ class TestCombatHelper(unittest.TestCase):
         player.permanent_bonus = "{}"
 
         stats = CombatManager.build_player_combat_stats(player, Config())
-        self.assertGreater(stats.atk, 1000)
-        self.assertGreaterEqual(stats.defense, 700)
+        bare = CombatManager.build_player_combat_stats(Player(user_id="bare", experience=10000), Config())
+        self.assertGreater(stats.atk, bare.atk)
+        self.assertLess(stats.atk, bare.atk * 1.4)
+        self.assertGreater(stats.defense, bare.defense)
+        self.assertLess(stats.defense, bare.defense * 1.35)
         self.assertEqual(stats.effects.get("crit_rate"), 5)
 
         player.weapon = "测试伞"
         player.set_techniques_list(["测试功法"])
         stats2 = CombatManager.build_player_combat_stats(player, Config())
-        self.assertGreaterEqual(stats2.atk, 777)
+        self.assertEqual(stats2.atk, stats.atk)  # 同部位旧固定值统一转为百分比预算
         self.assertEqual(stats2.effects.get("combo_rate"), 10)
 
 class TestStorageCategorization(unittest.TestCase):

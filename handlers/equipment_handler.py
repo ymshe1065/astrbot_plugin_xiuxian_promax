@@ -62,30 +62,35 @@ class EquipmentHandler:
         else:
             equipment_lines.append("  未装备\n")
 
-        # 总属性加成
-        if equipped_items:
-            equipment_lines.append("\n--- 装备属性加成 ---\n")
-            total_attrs = player.get_total_attributes(equipped_items, pill_multipliers)
+        # 总属性加成：相对境界基础的绝对增量，并附带百分比以便理解新规则
+        rates = self.equipment_manager.get_equipment_rates(player)
+        if equipped_items or rates:
+            equipment_lines.append("\n--- 装备属性加成（境界基础×百分比）---\n")
+            total_attrs = player.get_total_attributes(equipped_items, pill_multipliers, self.equipment_manager.get_base_attributes(player))
 
-            # 计算加成值（总属性 - 基础属性）
-            magic_damage_bonus = total_attrs["magic_damage"] - player.magic_damage
-            physical_damage_bonus = total_attrs["physical_damage"] - player.physical_damage
-            magic_defense_bonus = total_attrs["magic_defense"] - player.magic_defense
-            physical_defense_bonus = total_attrs["physical_defense"] - player.physical_defense
-            mental_power_bonus = total_attrs["mental_power"] - player.mental_power
+            base = self.equipment_manager.get_base_attributes(player)
+            magic_damage_bonus = total_attrs["magic_damage"] - base["magic_damage"]
+            physical_damage_bonus = total_attrs["physical_damage"] - base["physical_damage"]
+            magic_defense_bonus = total_attrs["magic_defense"] - base["magic_defense"]
+            physical_defense_bonus = total_attrs["physical_defense"] - base["physical_defense"]
+            mental_power_bonus = total_attrs["mental_power"] - base["mental_power"]
             max_spiritual_qi_bonus = total_attrs["max_spiritual_qi"] - player.max_spiritual_qi
             exp_multiplier = total_attrs["exp_multiplier"]
 
-            if magic_damage_bonus > 0:
-                equipment_lines.append(f"⚔️ 法伤 +{magic_damage_bonus}\n")
-            if physical_damage_bonus > 0:
-                equipment_lines.append(f"🗡️ 物伤 +{physical_damage_bonus}\n")
-            if magic_defense_bonus > 0:
-                equipment_lines.append(f"🛡️ 法防 +{magic_defense_bonus}\n")
-            if physical_defense_bonus > 0:
-                equipment_lines.append(f"🪨 物防 +{physical_defense_bonus}\n")
-            if mental_power_bonus > 0:
-                equipment_lines.append(f"🧠 精神力 +{mental_power_bonus}\n")
+            def _line(label: str, bonus: int, rate_key: str) -> str:
+                rate = rates.get(rate_key, 0)
+                return f"{label} +{bonus}" + (f"（+{rate:.1%}）\n" if rate else "\n")
+
+            if physical_damage_bonus > 0 or rates.get("physical_damage"):
+                equipment_lines.append(_line("🗡️ 物伤", physical_damage_bonus, "physical_damage"))
+            if magic_damage_bonus > 0 or rates.get("magic_damage"):
+                equipment_lines.append(_line("⚔️ 法伤", magic_damage_bonus, "magic_damage"))
+            if physical_defense_bonus > 0 or rates.get("physical_defense"):
+                equipment_lines.append(_line("🪨 物防", physical_defense_bonus, "physical_defense"))
+            if magic_defense_bonus > 0 or rates.get("magic_defense"):
+                equipment_lines.append(_line("🛡️ 法防", magic_defense_bonus, "magic_defense"))
+            if mental_power_bonus > 0 or rates.get("mental_power"):
+                equipment_lines.append(_line("🧠 精神力", mental_power_bonus, "mental_power"))
             if max_spiritual_qi_bonus > 0:
                 equipment_lines.append(f"✨ 灵气容量 +{max_spiritual_qi_bonus}\n")
             if exp_multiplier > 0:
@@ -113,12 +118,12 @@ class EquipmentHandler:
                         {"name": "装备栏", "rows": equip_rows},
                         {"name": "功法", "lines": tech_lines},
                         {"name": "加成总览", "lines": [
-                            f"物伤 +{physical_damage_bonus} · 法伤 +{magic_damage_bonus}",
-                            f"物防 +{physical_defense_bonus} · 法防 +{magic_defense_bonus}",
+                            f"物伤 +{physical_damage_bonus}（+{rates.get('physical_damage', 0):.1%}）· 法伤 +{magic_damage_bonus}（+{rates.get('magic_damage', 0):.1%}）",
+                            f"物防 +{physical_defense_bonus}（+{rates.get('physical_defense', 0):.1%}）· 法防 +{magic_defense_bonus}（+{rates.get('magic_defense', 0):.1%}）",
                             f"精神力 +{mental_power_bonus} · 修为倍率 +{exp_multiplier:.1%}",
                         ]},
                     ],
-                    footer="装备 <物品名> [序号] [部位] · 卸下 <武器/头饰/甲胄/手套/靴子/戒指1/戒指2/护符/心法/功法名>",
+                    footer="装备按境界基础百分比加成，同属性加法叠加 · 装备 <物品名> [序号] [部位]",
                 )
                 if card_path:
                     yield event.image_result(card_path)

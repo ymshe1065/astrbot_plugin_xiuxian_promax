@@ -117,7 +117,7 @@ class TestPillQuality(unittest.IsolatedAsyncioTestCase):
                           spiritual_qi=500, max_spiritual_qi=500),
             self.config_manager, db=_FakeDBExt(models.Player(user_id="u2")),
         )
-        self.assertGreater(boosted.max_hp, plain.max_hp)
+        self.assertEqual(boosted.max_hp, plain.max_hp)  # 增伤丹不再同时放大气血
         self.assertGreater(boosted.atk, plain.atk)
 
     def test_recipe_scrolls_injected(self):

@@ -45,6 +45,7 @@ class CombatStats:
     element: str = ""  # 五行属性（金木水火土，空为无属性）
     pet: Optional[PetCombatState] = None  # 主战灵兽
     support_pets: Optional[List[PetCombatState]] = None  # 辅助出战灵兽
+    defense_scale: int = 0  # 攻击方境界基础尺度，不受暴击/装备影响
 
 
 class CombatManager:
@@ -78,51 +79,28 @@ class CombatManager:
     
     @staticmethod
     def calculate_hp_mp(experience: int, hp_buff: float = 0.0, mp_buff: float = 0.0) -> Tuple[int, int]:
-        """根据修为计算HP和MP"""
-        base_hp = experience // 2
-        base_mp = experience
-        
-        hp = int(base_hp * (1 + hp_buff))
-        mp = int(base_mp * (1 + mp_buff))
-        
-        return hp, mp
-    
+        """兼容旧调用：实战气血/灵气请使用 build_player_combat_stats（境界基础）。"""
+        base_hp = max(1, int(experience) // 2) if experience else 80
+        base_mp = max(1, int(experience) if experience else 100)
+        return int(base_hp * (1 + hp_buff)), int(base_mp * (1 + mp_buff))
+
     @staticmethod
     def calculate_atk(experience: int, atkpractice: int = 0, atk_buff: float = 0.0, physical_damage: int = 0, magic_damage: int = 0, cultivation_type: str = "灵修") -> int:
-        """根据修为、攻击修炼等级和物伤/法伤计算攻击力（加入了职业分化）"""
-        base_atk = experience // 10
-        practice_bonus = atkpractice * 0.04  # 每级4%加成
-        
-        # 职业专属攻击加成
-        class_multiplier = 1.0
-        if cultivation_type == "剑修":
-            class_multiplier = 1.5 # 剑修伤害提升 50%
-        elif cultivation_type == "魔修":
-            class_multiplier = 1.3 # 魔修伤害提升 30%
-        elif cultivation_type == "佛修":
-            class_multiplier = 0.6 # 佛修伤害降低 40%
-            
-        total_atk = int(base_atk * (1 + practice_bonus + atk_buff) * class_multiplier) + physical_damage + magic_damage
-        
-        return max(total_atk, 1)  # 至少为1
+        """兼容旧调用：实战攻击请使用 build_player_combat_stats（境界基础 + 装备百分比）。"""
+        class_multiplier = {"剑修": 1.15, "魔修": 1.10, "佛修": 0.85}.get(cultivation_type, 1.0)
+        practice_bonus = min(0.20, max(0, int(atkpractice or 0)) * 0.01)
+        base = max(1, int((experience or 0) // 10 * class_multiplier * (1 + practice_bonus + atk_buff)))
+        return max(1, base + int(physical_damage or 0) + int(magic_damage or 0))
 
     @staticmethod
     def calculate_equipment_bonus(player, config_manager) -> Dict:
-        """计算武器/防具对战斗面板的加成，兼容两套装备配置与装备实例品质。"""
-        bonus = {"atk": 0, "defense": 0}
-        if not config_manager:
-            return bonus
+        """百分比仅作用于固定境界基础，所有槽位先加总再取整。"""
         from ..core.equipment_manager import EquipmentManager
         manager = EquipmentManager(None, config_manager)
-        for name, inst in manager.get_gear_slots(player).values():
-            item = manager.parse_item_from_name(name, config_manager.items_data, config_manager.weapons_data, inst)
-            if not item:
-                continue
-            cfg = config_manager.items_data.get(name) or config_manager.weapons_data.get(name, {})
-            quality = manager.instance_manager.quality_multiplier(inst.get("quality")) if inst else 1.0
-            bonus["atk"] += item.physical_damage + item.magic_damage + int(cfg.get("atk", 0) * quality)
-            bonus["defense"] += item.physical_defense + item.magic_defense
-        return bonus
+        base = manager.get_base_attributes(player)
+        rates = manager.get_equipment_rates(player)
+        return {"atk": sum(int(base[k] * rates.get(k, 0)) for k in ("physical_damage", "magic_damage")),
+                "defense": sum(int(base[k] * rates.get(k, 0)) for k in ("physical_defense", "magic_defense"))}
 
     @staticmethod
     def get_permanent_bonus_data(player) -> dict:
@@ -160,71 +138,28 @@ class CombatManager:
         config_manager,
         effects: Optional[dict] = None,
     ) -> Dict:
-        """构建与实战一致的气血/灵气/攻击/防御/暴击面板。"""
-        pill_multipliers = pill_multipliers or {}
-        effects = effects or {}
-        try:
-            from .talisman_manager import TalismanManager
-            for key, value in TalismanManager.collect_active_combat_effects(player).items():
-                effects[key] = effects.get(key, 0) + value
-        except Exception:
-            pass
-
-        hp_buff = impart_info.impart_hp_per if impart_info else 0.0
-        mp_buff = impart_info.impart_mp_per if impart_info else 0.0
-        atk_buff = impart_info.impart_atk_per if impart_info else 0.0
-
-        base_hp, base_mp = CombatManager.calculate_hp_mp(
-            player.experience, hp_buff, mp_buff
+        """名片、排行榜和实战共用唯一构建入口；不修改传入特效。"""
+        stats = CombatManager.build_player_combat_stats(
+            player, config_manager, pill_multipliers=pill_multipliers,
+            hp_buff=impart_info.impart_hp_per if impart_info else 0.0,
+            mp_buff=impart_info.impart_mp_per if impart_info else 0.0,
+            atk_buff=impart_info.impart_atk_per if impart_info else 0.0,
+            crit_rate=int(getattr(impart_info, "impart_know_per", 0) * 100) if impart_info else 0,
+            crit_damage_bonus=getattr(impart_info, "impart_burst_per", 0) if impart_info else 0,
         )
-        dmg_mult = max(
-            pill_multipliers.get("physical_damage", 1.0),
-            pill_multipliers.get("magic_damage", 1.0),
-        )
-        hp = int(base_hp * dmg_mult)
-        mp = int(base_mp)
+        return {"hp": stats.hp, "max_hp": stats.max_hp, "mp": stats.mp, "max_mp": stats.max_mp,
+                "atk": stats.atk, "defense": stats.defense,
+                "crit_rate": min(50, stats.crit_rate + stats.effects.get("crit_rate", 0)),
+                **{k: stats.effects.get(k, 1.5 if k == "crit_damage" else 0)
+                   for k in ("crit_damage", "lifesteal", "counter_damage")}}
 
-        base_atk = CombatManager.calculate_atk(
-            player.experience,
-            player.atkpractice,
-            atk_buff,
-            player.physical_damage,
-            player.magic_damage,
-            player.cultivation_type,
-        )
-        equip = CombatManager.calculate_equipment_bonus(player, config_manager)
-        atk = int(base_atk * dmg_mult) + equip["atk"]
-        # 防御必须包含角色本体的物防/法防，否则体修、突破与永久丹药的防御加成全部失效
-        base_defense = int(getattr(player, "physical_defense", 0) or 0) + int(
-            getattr(player, "magic_defense", 0) or 0
-        )
-        defense = int(
-            (equip["defense"] + base_defense)
-            * max(
-                pill_multipliers.get("physical_defense", 1.0),
-                pill_multipliers.get("magic_defense", 1.0),
-            )
-        ) + int(effects.get("defense_bonus", 0))
-
-        title = CombatManager.get_title_combat_bonus(player)
-        atk += int(title.get("atk", 0) or 0) + int(title.get("magic", 0) or 0)
-        defense += int(title.get("phys_def", 0) or 0) + int(title.get("magic_def", 0) or 0)
-        effects["crit_rate"] = effects.get("crit_rate", 0) + int(title.get("crit", 0) or 0)
-        effects["lifesteal"] = effects.get("lifesteal", 0) + int(title.get("lifesteal", 0) or 0)
-
-        forge_mult = CombatManager.get_forge_multiplier(player)
-        atk = int(atk * forge_mult)
-        defense = int(defense * forge_mult)
-
-        return {
-            "hp": hp, "max_hp": hp,
-            "mp": mp, "max_mp": mp,
-            "atk": atk, "defense": defense,
-            "crit_rate": effects.get("crit_rate", 0),
-            "crit_damage": effects.get("crit_damage", 1.5),
-            "lifesteal": effects.get("lifesteal", 0),
-            "counter_damage": effects.get("counter_damage", 0),
-        }
+    @staticmethod
+    def clamp_effects(effects):
+        from ..core.equipment_balance import GLOBAL_EFFECT_CAPS
+        result = dict(effects or {})
+        for key, cap in GLOBAL_EFFECT_CAPS.items():
+            result[key] = max(0, min(cap, float(result.get(key, 1.5 if key == "crit_damage" else 1.0 if key.endswith("_multiplier") else 0))))
+        return result
 
     @staticmethod
     def collect_combat_effects(player, config_manager) -> dict:
@@ -264,35 +199,10 @@ class CombatManager:
         except Exception:
             pass
         from ..core.equipment_manager import EquipmentManager
-        weapons_data = getattr(config_manager, "weapons_data", {}) or {}
-        for name, _ in EquipmentManager(None, config_manager).get_gear_slots(player).values():
-            cfg = items_data.get(name) or weapons_data.get(name, {})
-            for key, value in cfg.get("effects", {}).items():
-                if key in effects:
-                    effects[key] += value
-
-        try:
-            from ..core.item_instance_manager import ItemInstanceManager
-            im = ItemInstanceManager(None, config_manager)
-            for instance_id in player.get_equipped_instances().values():
-                inst = im.get_instance(player, instance_id)
-                if not inst:
-                    continue
-                for affix in inst.get("affixes", []) or []:
-                    key = affix.get("key")
-                    value = affix.get("value", 0)
-                    if key in effects:
-                        effects[key] += value
-        except Exception:
-            pass
-        # 防御脏配置/旧生成器数据：百分比类词条统一钳制到 0-100，避免 500% 暴击/吸血
-        for rate_key in ("crit_rate", "lifesteal", "combo_rate", "counter_damage", "dodge"):
-            if rate_key in effects:
-                try:
-                    effects[rate_key] = max(0.0, min(100.0, float(effects[rate_key])))
-                except (TypeError, ValueError):
-                    effects[rate_key] = 0
-        return effects
+        for key, value in EquipmentManager(None, config_manager).get_gear_effects(player).items():
+            if key in effects:
+                effects[key] += value
+        return CombatManager.clamp_effects(effects)
 
     @classmethod
     def build_player_combat_stats(
@@ -310,16 +220,11 @@ class CombatManager:
         pill_multipliers: Optional[dict] = None,
     ) -> "CombatStats":
         """统一构建玩家战斗属性，确保所有战斗入口读取装备、词条与丹药。"""
-        hp, mp = cls.calculate_hp_mp(player.experience, hp_buff, mp_buff)
-        atk = cls.calculate_atk(
-            player.experience,
-            player.atkpractice,
-            atk_buff,
-            player.physical_damage,
-            player.magic_damage,
-            player.cultivation_type,
-        )
-
+        from ..core.equipment_balance import realm_attributes
+        base = realm_attributes(player, config_manager)
+        base_atk = base["physical_damage"] + base["magic_damage"]
+        base_def = base["physical_defense"] + base["magic_defense"]
+        hp, mp = base["max_hp"], base["max_mp"]
         equip = {"atk": 0, "defense": 0}
         effects = {}
         if config_manager is not None:
@@ -371,25 +276,24 @@ class CombatManager:
             float(pill_multipliers.get("physical_defense", 1.0) or 1.0),
             float(pill_multipliers.get("magic_defense", 1.0) or 1.0),
         )
-        hp = int(hp * dmg_mult)
-        base_defense = int(getattr(player, "physical_defense", 0) or 0) + int(
-            getattr(player, "magic_defense", 0) or 0
-        )
-        defense = int((int(equip.get("defense", 0)) + base_defense) * def_mult) + int(
-            effects.get("defense_bonus", 0)
-        )
-        final_atk = int(int(atk) * dmg_mult) + int(equip.get("atk", 0))
-
+        # 所有非装备增益作用于同一基础，且有明确上限，避免多层相乘。
         title = cls.get_title_combat_bonus(player)
-        final_atk += int(title.get("atk", 0) or 0) + int(title.get("magic", 0) or 0)
-        defense += int(title.get("phys_def", 0) or 0) + int(title.get("magic_def", 0) or 0)
-        effects["crit_rate"] = effects.get("crit_rate", 0) + int(title.get("crit", 0) or 0)
-        effects["lifesteal"] = effects.get("lifesteal", 0) + int(title.get("lifesteal", 0) or 0)
-
-        forge_mult = cls.get_forge_multiplier(player)
-        final_atk = int(final_atk * forge_mult)
-        defense = int(defense * forge_mult)
-
+        forge_bonus = cls.get_forge_multiplier(player) - 1.0
+        attack_bonus = max(-.5, min(.50, dmg_mult - 1 + atk_buff + min(.20, max(0, player.atkpractice) * .01) + forge_bonus))
+        defense_bonus = max(-.5, min(.50, def_mult - 1 + forge_bonus))
+        # 永久丹药/先天随机属性保留为有上限的附加值，不作为装备基数。
+        permanent_atk = min(int(base_atk * .20), max(0, player.physical_damage + player.magic_damage))
+        permanent_def = min(int(base_def * .20), max(0, player.physical_defense + player.magic_defense))
+        title_atk = min(int(base_atk * .10), max(0, title.get("atk", 0) + title.get("magic", 0)))
+        title_def = min(int(base_def * .10), max(0, title.get("phys_def", 0) + title.get("magic_def", 0)))
+        final_atk = max(1, int(base_atk * (1 + attack_bonus)) + equip["atk"] + permanent_atk + title_atk)
+        defense = max(0, int(base_def * (1 + defense_bonus)) + equip["defense"] + permanent_def + title_def
+                      + min(int(base_def * .10), max(0, int(effects.get("defense_bonus", 0)))))
+        hp = max(1, int(hp * (1 + max(-.5, min(.5, hp_buff)))))
+        mp = max(1, int(mp * (1 + max(-.5, min(.5, mp_buff)))))
+        effects["crit_rate"] = effects.get("crit_rate", 0) + title.get("crit", 0)
+        effects["lifesteal"] = effects.get("lifesteal", 0) + title.get("lifesteal", 0)
+        effects = cls.clamp_effects(effects)
         return CombatStats(
             user_id=player.user_id,
             name=player.user_name or player.user_id,
@@ -403,6 +307,7 @@ class CombatManager:
             exp=player.experience,
             effects=effects,
             element=element or "",
+            defense_scale=base["defense_scale"],
         )
 
     @staticmethod
@@ -420,11 +325,13 @@ class CombatManager:
         )
     
     @staticmethod
-    def apply_damage_reduction(damage: int, defense: int = 0) -> int:
+    def apply_damage_reduction(damage: int, defense: int = 0, scale: int = 0) -> int:
         """应用伤害减免（使用递减公式）"""
         if defense <= 0:
             return damage
-        reduction_rate = defense / (defense + 100)
+        # 使用攻击方未加成的境界尺度；同尺度整体放大不改变减伤比例。
+        reference = max(1, scale or damage)
+        reduction_rate = min(.75, defense / (defense + reference))
         final_damage = int(damage * (1 - reduction_rate))
         return max(1, final_damage)
     
@@ -432,8 +339,8 @@ class CombatManager:
     def _execute_attack(cls, attacker: CombatStats, defender: CombatStats) -> Tuple[int, List[str], int]:
         """执行一次攻击，返回 (最终伤害, 战斗日志列表, 吸血量)"""
         logs = []
-        effects = attacker.effects or {}
-        defender_effects = defender.effects or {}
+        effects = cls.clamp_effects(attacker.effects)
+        defender_effects = cls.clamp_effects(defender.effects)
 
         # 0. 闪避（符箓/词条）
         try:
@@ -462,7 +369,7 @@ class CombatManager:
         # 2. 暴击判定
         base_crit = attacker.crit_rate
         bonus_crit = effects.get("crit_rate", 0)
-        is_crit = random.randint(0, 100) <= (base_crit + bonus_crit)
+        is_crit = random.random() * 100 < min(50, max(0, base_crit + bonus_crit))
         
         if is_crit:
             crit_mult = effects.get("crit_damage", 1.5)
@@ -471,13 +378,13 @@ class CombatManager:
             
         # 3. 连击/追加伤害判定
         combo_rate = effects.get("combo_rate", 0)
-        if random.randint(0, 100) <= combo_rate:
+        if random.random() * 100 < combo_rate:
             extra_dmg = int(damage * 0.5)
             damage += extra_dmg
             logs.append(f"⚡ {attacker.name} 触发功法连击，追加 {extra_dmg} 伤害！")
             
         # 4. 防御减伤
-        final_damage = cls.apply_damage_reduction(damage, defender.defense)
+        final_damage = cls.apply_damage_reduction(damage, defender.defense, attacker.defense_scale or attacker.atk)
         logs.append(f"🗡️ {attacker.name} 造成 {final_damage} 点伤害")
 
         # 5. 灵兽每回合协战
@@ -492,7 +399,7 @@ class CombatManager:
             pet_factor = 1.0 / (1 + 0.4 * (pet_count - 1))
             for pet in attacker_pets:
                 pet_damage = int(round(random.uniform(0.95, 1.05), 2) * pet.atk * pet_factor)
-                pet_damage = cls.apply_damage_reduction(pet_damage, defender.defense)
+                pet_damage = cls.apply_damage_reduction(pet_damage, defender.defense, attacker.defense_scale or attacker.atk)
                 if pet.mechanic == "burn":
                     burn = max(1, int(pet.atk * pet_factor * 0.3))
                     pet_damage += burn
@@ -515,7 +422,7 @@ class CombatManager:
             incoming = int(final_damage * defender_pet.guard_rate)
             if incoming > 0:
                 protected = min(incoming, defender_pet.hp)
-                pet_loss = cls.apply_damage_reduction(incoming, defender_pet.defense)
+                pet_loss = cls.apply_damage_reduction(incoming, defender_pet.defense, attacker.defense_scale or attacker.atk)
                 pet_loss = min(defender_pet.hp, max(1, pet_loss))
                 defender_pet.hp -= pet_loss
                 final_damage -= protected
@@ -601,7 +508,7 @@ class CombatManager:
             combat_log.append(f"{player2.name} 剩余 HP: {max(0, player2.hp)}")
             
             # 反伤判定（针对玩家2的功法）
-            counter = (player2.effects or {}).get("counter_damage", 0)
+            counter = min(25, max(0, (player2.effects or {}).get("counter_damage", 0)))
             if counter > 0:
                 reflect_dmg = int(dmg1 * (counter / 100))
                 player1.hp -= reflect_dmg
@@ -618,7 +525,7 @@ class CombatManager:
             combat_log.append(f"{player1.name} 剩余 HP: {max(0, player1.hp)}")
             
             # 反伤判定（针对玩家1的功法）
-            counter1 = (player1.effects or {}).get("counter_damage", 0)
+            counter1 = min(25, max(0, (player1.effects or {}).get("counter_damage", 0)))
             if counter1 > 0:
                 reflect_dmg = int(dmg2 * (counter1 / 100))
                 player2.hp -= reflect_dmg
@@ -685,16 +592,13 @@ class CombatManager:
         player1.hp = player1.max_hp = 10000
         player2.hp = player2.max_hp = int(10000 * (1 + max(0.0, player2_hp_bonus)))
         
-        # 攻击力压制 (基础500，并且只保留原装备/词条 20% 的纯附加值优势)
-        p1_atk_bonus = max(0, p1_orig_atk - (p1_orig_hp * 0.1))
-        player1.atk = 500 + int(p1_atk_bonus * 0.2)
-        
-        p2_atk_bonus = max(0, p2_orig_atk - (p2_orig_hp * 0.1))
-        player2.atk = 500 + int(p2_atk_bonus * 0.2)
-        
-        # 双方防御力也拉平
-        player1.defense = 100
-        player2.defense = 100
+        # 只保留相对境界基础的有限优势，禁止把高境界绝对数值带入压制赛。
+        for stats, original_atk, original_hp in ((player1, p1_orig_atk, p1_orig_hp), (player2, p2_orig_atk, p2_orig_hp)):
+            reference = max(1, stats.defense_scale or original_hp / 8)
+            relative_bonus = min(.40, max(0, original_atk / reference - 1))
+            stats.atk = int(500 * (1 + relative_bonus * .20))
+            stats.defense = 100
+            stats.defense_scale = 300
 
         for stats in (player1, player2):
             all_pets = []
@@ -730,7 +634,7 @@ class CombatManager:
             combat_log.append(f"{player2.name} 剩余 HP: {max(0, player2.hp)}")
             
             # 反伤
-            counter = (player2.effects or {}).get("counter_damage", 0)
+            counter = min(25, max(0, (player2.effects or {}).get("counter_damage", 0)))
             if counter > 0:
                 reflect_dmg = int(dmg1 * (counter / 100))
                 player1.hp -= reflect_dmg
@@ -746,7 +650,7 @@ class CombatManager:
             combat_log.append(f"{player1.name} 剩余 HP: {max(0, player1.hp)}")
             
             # 反伤
-            counter1 = (player1.effects or {}).get("counter_damage", 0)
+            counter1 = min(25, max(0, (player1.effects or {}).get("counter_damage", 0)))
             if counter1 > 0:
                 reflect_dmg = int(dmg2 * (counter1 / 100))
                 player2.hp -= reflect_dmg

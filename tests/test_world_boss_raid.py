@@ -134,6 +134,9 @@ class TestWorldBossRaid(unittest.IsolatedAsyncioTestCase):
 
         self.raid.cooldown = 0
         self.raid.damage_cap_pct = 100.0
+        # 该用例验证阶段结算，不依赖旧版“囤修为直接增伤”的数值。
+        from unittest.mock import AsyncMock
+        self.world_boss.calculate_damage = AsyncMock(return_value=(10**12, 100.0, "火"))
         p1 = await self.db.get_player_by_id("u1")
         ok, msg = await self.raid.challenge_raid(p1)
         self.assertTrue(ok, msg)

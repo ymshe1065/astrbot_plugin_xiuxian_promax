@@ -226,7 +226,7 @@ class PlayerHandler:
         equipped_items = equipment_manager.get_equipped_items(
             player, self.config_manager.items_data, self.config_manager.weapons_data
         )
-        total_attrs = player.get_total_attributes(equipped_items, pill_multipliers)
+        total_attrs = player.get_total_attributes(equipped_items, pill_multipliers, equipment_manager.get_base_attributes(player))
 
         from ..managers.combat_manager import CombatManager
         impart_info = await self.db.ext.get_impart_info(player.user_id)

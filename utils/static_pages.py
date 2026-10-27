@@ -6,8 +6,8 @@ import hashlib
 import json
 from typing import Any, Dict, List
 
-HELP_VERSION = "v6.32.6"
-HELP_HEADER = f"📖 修仙指令大全 {HELP_VERSION} (悬赏任务 + 历练事件 + 全服团本 + 符箓体系)"
+HELP_VERSION = "v6.32.7"
+HELP_HEADER = f"📖 修仙指令大全 {HELP_VERSION} (境界主导装备百分比 + 八部位 + 全服团本)"
 HELP_HINT = "💡 提示：所有指令均可带 / 前缀使用"
 HELP_TITLE = "修仙指令大全"
 HELP_SUBTITLE = f"📖 {HELP_VERSION} · 所有指令均可带 / 前缀使用"
@@ -84,6 +84,7 @@ HELP_SECTIONS: List[Dict[str, Any]] = [
             "/购买 <物> [数]（别名 /购买物品 <物> [数]）",
             "/物品信息 <名> /装备 <物名> [序号] [部位] /卸下 <部位/心法/功法名>",
             "装备部位：武器/头饰/甲胄/手套/靴子/戒指1/戒指2/护符（防具=甲胄）",
+            "装备主属性=境界基础×百分比（同属性加法叠加；低阶跨境界衰减）",
             "/储物戒 (卡片) /丢弃 <物> [数] /搜索物品 <词> /领取溢出",
             "/赠予 @人 <物/丹> [品质] [数]",
             "/接收 /拒绝",

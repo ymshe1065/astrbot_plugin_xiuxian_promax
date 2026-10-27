@@ -203,7 +203,9 @@ class WorldBossManager:
         active_powers = []
         for p in players:
             if p.experience > 1000:
-                power = p.experience + p.physical_damage + p.magic_damage
+                from ..core.equipment_balance import realm_attributes
+                base = realm_attributes(p, self.config_manager)
+                power = (base["physical_damage"] + base["magic_damage"]) * 10
                 active_powers.append(power)
 
         if not active_powers:
@@ -408,7 +410,7 @@ class WorldBossManager:
         floor_pct = self.damage_floor_pct if floor_pct is None else float(floor_pct)
         cap_pct = self.damage_cap_pct if cap_pct is None else float(cap_pct)
         player_element = self.player_element(player)
-        base_damage = int(await self.calculate_realtime_atk(player) * 100 + player.experience * 0.1)
+        base_damage = int(await self.calculate_realtime_atk(player) * 100)
         try:
             from .combat_manager import CombatManager
             elem_mult = CombatManager.element_multiplier(player_element, boss_element or "")

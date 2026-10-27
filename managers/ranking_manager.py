@@ -134,7 +134,7 @@ class RankingManager:
                 self.config_manager.items_data,
                 self.config_manager.weapons_data
             )
-            total_attrs = player.get_total_attributes(equipped_items, pill_multipliers)
+            total_attrs = player.get_total_attributes(equipped_items, pill_multipliers, self.equipment_manager.get_base_attributes(player))
             
             impart_info = impart_map.get(player.user_id)
             effects = self.equipment_manager.get_combat_effects(player)
