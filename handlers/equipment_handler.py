@@ -98,7 +98,7 @@ class EquipmentHandler:
             if life.get("drop_bonus"):
                 life_parts.append(f"掉落几率+{life['drop_bonus']:.1%}")
             if life.get("cooldown_reduction"):
-                life_parts.append(f"调息缩减{life['cooldown_reduction']:.1%}")
+                life_parts.append(f"冷却缩减{life['cooldown_reduction']:.1%}")
             if life.get("luck_bonus"):
                 life_parts.append(f"气运+{int(life['luck_bonus'])}")
             if life_parts:

@@ -21,7 +21,7 @@ LIFE_EFFECT_CAPS = {
 LIFE_EFFECT_LABELS = {
     "gold_bonus": "灵石收益",
     "drop_bonus": "掉落几率",
-    "cooldown_reduction": "调息缩减",
+    "cooldown_reduction": "冷却缩减",
     "luck_bonus": "气运",
     "exp_multiplier": "修炼效率",
 }
