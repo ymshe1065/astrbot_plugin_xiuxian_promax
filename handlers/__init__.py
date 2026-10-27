@@ -2,6 +2,7 @@
 
 # 基础指令
 from .player_handler import PlayerHandler
+from .recovery_handler import RecoveryHandler
 from .misc_handler import MiscHandler
 from .equipment_handler import EquipmentHandler
 from .breakthrough_handler import BreakthroughHandler
@@ -54,7 +55,7 @@ from .sect_shop_handler import SectShopHandler
 from .auto_proxy_handlers import AutoProxyHandlers
 
 __all__ = [
-    "PlayerHandler", "MiscHandler", "EquipmentHandler", "BreakthroughHandler", 
+    "PlayerHandler", "RecoveryHandler", "MiscHandler", "EquipmentHandler", "BreakthroughHandler",
     "PillHandler", "ShopHandler", "StorageRingHandler", "SectHandlers", 
     "BossHandlers", "CombatHandlers", "RankingHandlers", "RiftHandlers", 
     "AdventureHandlers", "AlchemyHandlers", "ImpartHandlers", "NicknameHandler", 

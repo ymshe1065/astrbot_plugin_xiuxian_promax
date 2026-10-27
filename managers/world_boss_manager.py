@@ -310,6 +310,16 @@ class WorldBossManager:
         final_damage = int(max_hp * damage_percent / 100)
         if final_damage <= 0 and raw_damage <= 0:
             final_damage = 0
+        try:
+            await self.db.update_player_fields(
+                player.user_id,
+                hp=max(1, int(player_stats.hp)),
+                mp=max(0, int(player_stats.mp)),
+            )
+            player.hp = max(1, int(player_stats.hp))
+            player.mp = max(0, int(player_stats.mp))
+        except Exception:
+            pass
         return {
             "damage": max(0, final_damage),
             "raw_damage": max(0, raw_damage),

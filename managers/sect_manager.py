@@ -26,6 +26,7 @@ SECT_BUILDINGS: Dict[str, dict] = {
     "商堂": {"max_level": 5, "base_cost": 6000, "unlock_level": 2, "desc": "宗门贡献商店价格-2%/级"},
     "任务堂": {"max_level": 5, "base_cost": 6000, "unlock_level": 3, "desc": "日常任务修为/灵石奖励+3%/级"},
     "护山大阵": {"max_level": 5, "base_cost": 10000, "unlock_level": 4, "desc": "宗门战被掠夺灵石-5%/级"},
+    "疗养殿": {"max_level": 5, "base_cost": 8000, "unlock_level": 2, "desc": "自然恢复+10%/级，调息恢复+5%/级"},
 }
 
 SECT_LEVEL_THRESHOLDS = [(1, 0), (2, 10000), (3, 30000), (4, 60000), (5, 100000)]
@@ -1101,6 +1102,11 @@ class SectManager:
                 pets.extend(stats_item.support_pets or [])
                 for pet in pets:
                     await pet_mgr.save_pet_combat_state(pet)
+            try:
+                await self.db.update_player_fields(uid1, hp=max(1, p1.hp), mp=max(0, p1.mp))
+                await self.db.update_player_fields(uid2, hp=max(1, p2.hp), mp=max(0, p2.mp))
+            except Exception:
+                pass
         return result
 
     async def finish_due_tournaments(self) -> List[Tuple[str, str]]:

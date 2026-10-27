@@ -248,21 +248,6 @@ HP：{max_hp}
         if user_cd.type != UserStatus.IDLE:
             return False, "❌ 你当前正忙，无法挑战Boss！", None
         
-        if player.hp <= 1:
-            import json
-            cooldown_time = 10 * 60
-            try:
-                extra_data = json.loads(user_cd.extra_data) if user_cd.extra_data else {}
-                last_defeat_time = extra_data.get('last_boss_defeat_time', 0)
-                if last_defeat_time:
-                    if int(time.time()) - last_defeat_time < cooldown_time:
-                        remaining_time = cooldown_time - (int(time.time()) - last_defeat_time)
-                        minutes = remaining_time // 60
-                        seconds = remaining_time % 60
-                        return False, f"❌ 你当前血量过低，需要休息一段时间才能再次挑战Boss！\n\n💡 剩余冷却时间：{minutes}分{seconds}秒", None
-            except Exception:
-                pass
-        
         impart_info = await self.db.ext.get_impart_info(user_id)
         hp_buff = impart_info.impart_hp_per if impart_info else 0.0
         mp_buff = impart_info.impart_mp_per if impart_info else 0.0
@@ -278,8 +263,10 @@ HP：{max_hp}
             atk = self.combat_mgr.calculate_atk(player.experience, player.atkpractice, atk_buff, player.physical_damage, player.magic_damage, player.cultivation_type)
         except Exception:
             pass
-        player.hp = hp if hp > 0 else max(1, player.experience // 2)
-        player.mp = mp if mp > 0 else max(1, player.experience)
+        if int(player.hp or 0) <= 0:
+            player.hp = hp if hp > 0 else max(1, player.experience // 2)
+        if int(player.mp or 0) <= 0:
+            player.mp = mp if mp > 0 else max(1, player.experience)
         player.atk = atk if atk > 0 else max(1, player.experience // 10)
         if player.experience < 0: player.experience = 0
         if player.atkpractice < 0: player.atkpractice = 0
@@ -389,16 +376,6 @@ HP：{battle_result['player_final_hp']}/{player_stats.max_hp}
         player.hp = battle_result["player_final_hp"]
         player.mp = battle_result["player_final_mp"]
         await self.db.update_player(player)
-        
-        if battle_result["winner"] != user_id and player.hp <= 1:
-            import json
-            try:
-                extra_data = json.loads(user_cd.extra_data) if user_cd.extra_data else {}
-                extra_data['last_boss_defeat_time'] = int(time.time())
-                user_cd.extra_data = json.dumps(extra_data)
-                await self.db.ext.update_user_cd(user_cd)
-            except Exception:
-                pass
         
         combat_log = "\n".join(battle_result["combat_log"])
         full_msg = combat_log + "\n\n" + result_msg

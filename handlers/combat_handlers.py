@@ -122,8 +122,10 @@ class CombatHandlers:
             stats, main_pet, support_pets, pet_effects, final_atk
         )
         
-        player.hp = stats.max_hp
-        player.mp = stats.max_mp
+        if int(player.hp or 0) <= 0:
+            player.hp = stats.max_hp
+        if int(player.mp or 0) <= 0:
+            player.mp = stats.max_mp
         player.atk = stats.atk
         await self.db.update_player(player)
 
@@ -209,8 +211,8 @@ class CombatHandlers:
         set_event_flag(event, "duel_result", result)
         await self._save_pet_states(p1_stats, p2_stats)
         
-        await self.db.ext.update_player_hp_mp(user_id, p1_stats.max_hp, p1_stats.max_mp)
-        await self.db.ext.update_player_hp_mp(target_id, p2_stats.max_hp, p2_stats.max_mp)
+        await self.db.ext.update_player_hp_mp(user_id, max(1, p1_stats.hp), max(0, p1_stats.mp))
+        await self.db.ext.update_player_hp_mp(target_id, max(1, p2_stats.hp), max(0, p2_stats.mp))
         await self._update_combat_cooldown(user_id, "duel")
         
         log_lines = result['combat_log']
@@ -276,8 +278,8 @@ class CombatHandlers:
         set_event_flag(event, "spar_fought", True)
         await self._save_pet_states(p1_stats, p2_stats)
         
-        await self.db.ext.update_player_hp_mp(user_id, p1_stats.max_hp, p1_stats.max_mp)
-        await self.db.ext.update_player_hp_mp(target_id, p2_stats.max_hp, p2_stats.max_mp)
+        await self.db.ext.update_player_hp_mp(user_id, max(1, p1_stats.hp), max(0, p1_stats.mp))
+        await self.db.ext.update_player_hp_mp(target_id, max(1, p2_stats.hp), max(0, p2_stats.mp))
         await self._update_combat_cooldown(user_id, "spar")
         
         log_lines = result['combat_log']

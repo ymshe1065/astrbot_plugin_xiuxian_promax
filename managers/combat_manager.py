@@ -303,8 +303,12 @@ class CombatManager:
         )
         physical_mult = float(pill_multipliers.get("physical_damage", 1.0) or 1.0)
         magic_mult = float(pill_multipliers.get("magic_damage", 1.0) or 1.0)
-        hp = int(base_hp)
-        mp = int(base_mp)
+        max_hp = max(1, int(base_hp))
+        max_mp = max(0, int(base_mp))
+        raw_hp = int(getattr(player, "hp", 0) or 0)
+        raw_mp = int(getattr(player, "mp", 0) or 0)
+        hp = min(max_hp, raw_hp) if raw_hp > 0 else max_hp
+        mp = min(max_mp, max(0, raw_mp)) if raw_mp > 0 else max_mp
 
         components = CombatManager.calculate_attack_components(
             player.experience,
@@ -354,8 +358,8 @@ class CombatManager:
         defense = max(0, physical_def + magic_def)
 
         return {
-            "hp": hp, "max_hp": hp,
-            "mp": mp, "max_mp": mp,
+            "hp": hp, "max_hp": max_hp,
+            "mp": mp, "max_mp": max_mp,
             "atk": atk, "defense": defense,
             "physical_atk": physical_atk, "magic_atk": magic_atk,
             "physical_defense": physical_def, "magic_defense": magic_def,
@@ -456,6 +460,12 @@ class CombatManager:
     ) -> "CombatStats":
         """统一构建玩家战斗属性，确保所有战斗入口读取装备、词条与丹药。"""
         hp, mp = cls.calculate_hp_mp(player.experience, hp_buff, mp_buff)
+        max_hp = max(1, int(hp))
+        max_mp = max(0, int(mp))
+        raw_hp = int(getattr(player, "hp", 0) or 0)
+        raw_mp = int(getattr(player, "mp", 0) or 0)
+        hp = min(max_hp, raw_hp) if raw_hp > 0 else max_hp
+        mp = min(max_mp, max(0, raw_mp)) if raw_mp > 0 else max_mp
         atk = cls.calculate_atk(
             player.experience,
             player.atkpractice,
@@ -560,9 +570,9 @@ class CombatManager:
             user_id=player.user_id,
             name=player.user_name or player.user_id,
             hp=hp,
-            max_hp=hp,
+            max_hp=max_hp,
             mp=mp,
-            max_mp=mp,
+            max_mp=max_mp,
             atk=final_atk,
             defense=defense,
             crit_rate=int(crit_rate or 0),

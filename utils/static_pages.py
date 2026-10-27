@@ -6,7 +6,7 @@ import hashlib
 import json
 from typing import Any, Dict, List
 
-HELP_VERSION = "v6.32.5"
+HELP_VERSION = "v6.32.6"
 HELP_HEADER = f"📖 修仙指令大全 {HELP_VERSION} (悬赏任务 + 历练事件 + 全服团本 + 符箓体系)"
 HELP_HINT = "💡 提示：所有指令均可带 / 前缀使用"
 HELP_TITLE = "修仙指令大全"
@@ -20,6 +20,7 @@ HELP_SECTIONS: List[Dict[str, Any]] = [
         "lines": [
             "/我要修仙 [职业] (灵/体/魔/剑/鬼/佛/御兽)",
             "/我的信息 (卡片) /我的装备 (卡片) /修仙帮助",
+            "/调息 (每分钟恢复5%气血/真元) /收功 (结束调息)",
             "/签到 (节日大奖+卡片) /一键日常 /解卡",
             "/改道号 /弃道重修 确认 (需空闲/无贷款) /行善 (积功德)",
             "/选择生活职业 <炼器师/符箓师/阵法师/炼丹师> /制符 [符名] [数量]",

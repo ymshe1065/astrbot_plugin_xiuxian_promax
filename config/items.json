@@ -1912,7 +1912,11 @@
         "price": 88,
         "volume": 1,
         "description": "这是一件黄阶级别的功法，蕴含着天地之力。",
-        "exp_multiplier": 0.02
+        "exp_multiplier": 0.02,
+        "effects": {
+            "natural_hp_regen_bonus": 0.1,
+            "natural_mp_regen_bonus": 0.1
+        }
     },
     "1166": {
         "name": "八卦鞭",
@@ -17146,33 +17150,54 @@
         "physical_damage": 41
     },
     "9001": {
-        "name": "护府令",
-        "type": "材料",
+        "id": "9001",
+        "name": "回春杖",
+        "type": "法器",
         "rank": "玄阶",
-        "shop_weight": 100,
-        "price": 10000,
-        "volume": 1,
-        "description": "开启后免疫偷窃（阵法师36小时、产出惩罚10%），但洞天与灵田产出降低20%。"
+        "shop_weight": 200,
+        "price": 9000,
+        "volume": 5,
+        "description": "杖头蕴着回春灵光，调息时气血恢复更快。",
+        "subtype": "武器",
+        "physical_damage": 300,
+        "effects": {
+            "natural_hp_regen_bonus": 0.1,
+            "rest_hp_regen_bonus": 0.15
+        }
     },
     "9002": {
-        "name": "迷神香",
-        "type": "材料",
+        "id": "9002",
+        "name": "回春甲",
+        "type": "法器",
         "rank": "玄阶",
-        "shop_weight": 50000,
-        "stock_cap": 2,
-        "black_market_weight": 300,
-        "price": 5000,
-        "volume": 1,
-        "description": "潜入洞府偷窃的必备道具。"
+        "shop_weight": 200,
+        "price": 8000,
+        "volume": 5,
+        "description": "刻有回春符文的护甲，自然与调息气血恢复提升。",
+        "subtype": "防具",
+        "physical_defense": 300,
+        "magic_defense": 300,
+        "effects": {
+            "natural_hp_regen_bonus": 0.15,
+            "rest_hp_regen_bonus": 0.2
+        }
     },
     "9003": {
-        "name": "照妖镜",
-        "type": "材料",
+        "id": "9003",
+        "name": "聚灵袍",
+        "type": "法器",
         "rank": "玄阶",
-        "shop_weight": 100,
-        "price": 20000,
-        "volume": 1,
-        "description": "用于查验修士是否被天魔附体，使用后无论结果如何都会消耗。"
+        "shop_weight": 200,
+        "price": 8000,
+        "volume": 5,
+        "description": "聚灵法袍，真元自然回复和调息恢复更快。",
+        "subtype": "防具",
+        "physical_defense": 200,
+        "magic_defense": 400,
+        "effects": {
+            "natural_mp_regen_bonus": 0.15,
+            "rest_mp_regen_bonus": 0.2
+        }
     },
     "9998": {
         "name": "强化石",
@@ -17272,5 +17297,58 @@
         "price": 6000,
         "volume": 1,
         "description": "九叶轮生的珍稀灵芝，是高阶丹药的重要灵植。"
+    },
+    "9004": {
+        "id": "9004",
+        "name": "长春冠",
+        "type": "法器",
+        "rank": "地阶",
+        "shop_weight": 150,
+        "price": 20000,
+        "volume": 5,
+        "description": "长春之气流转，气血与真元恢复皆有所增益。",
+        "subtype": "防具",
+        "physical_defense": 500,
+        "magic_defense": 500,
+        "effects": {
+            "natural_hp_regen_bonus": 0.1,
+            "natural_mp_regen_bonus": 0.1,
+            "rest_hp_regen_bonus": 0.1,
+            "rest_mp_regen_bonus": 0.1
+        }
+    },
+    "9005": {
+        "id": "9005",
+        "name": "灵泉法衣",
+        "type": "法器",
+        "rank": "天阶",
+        "shop_weight": 80,
+        "price": 80000,
+        "volume": 5,
+        "description": "灵泉织成的法衣，恢复速度大幅提升。",
+        "subtype": "防具",
+        "physical_defense": 1000,
+        "magic_defense": 1000,
+        "effects": {
+            "natural_hp_regen_bonus": 0.2,
+            "natural_mp_regen_bonus": 0.2,
+            "rest_hp_regen_bonus": 0.2,
+            "rest_mp_regen_bonus": 0.2
+        }
+    },
+    "9006": {
+        "id": "9006",
+        "name": "回元心经",
+        "type": "功法",
+        "rank": "地阶",
+        "shop_weight": 150,
+        "price": 25000,
+        "volume": 1,
+        "description": "专修回元之法，调息时气血与真元恢复更快。",
+        "exp_multiplier": 0.07,
+        "effects": {
+            "rest_hp_regen_bonus": 0.2,
+            "rest_mp_regen_bonus": 0.2
+        }
     }
 }

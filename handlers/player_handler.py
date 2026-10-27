@@ -304,6 +304,12 @@ class PlayerHandler:
         else:
             status_text = player.state or "空闲"
 
+        if (
+            combat_panel.get("max_hp", 0) > 0
+            and combat_panel.get("hp", 0) / combat_panel["max_hp"] <= 0.20
+        ):
+            status_text = "受伤（气血不足20%）"
+
         reply_msg = (
             f"📋 道友 {full_name} 的信息\n"
             f"━━━━━━━━━━━━━━━\n"

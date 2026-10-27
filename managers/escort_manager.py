@@ -287,6 +287,15 @@ class EscortManager:
             pets.extend(stats_item.support_pets or [])
             for pet in pets:
                 await pet_mgr.save_pet_combat_state(pet)
+        try:
+            await self.db.update_player_fields(
+                attacker.user_id, hp=max(1, attacker_stats.hp), mp=max(0, attacker_stats.mp)
+            )
+            await self.db.update_player_fields(
+                target.user_id, hp=max(1, target_stats.hp), mp=max(0, target_stats.mp)
+            )
+        except Exception:
+            pass
 
         extra = target_cd.get_extra_data() if hasattr(target_cd, "get_extra_data") else {}
         escort_gold = int(extra.get("escort_gold", 2000))

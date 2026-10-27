@@ -13,6 +13,8 @@ FURNITURES: Dict[str, dict] = {
     "聚灵蒲团": {"price": 20000, "desc": "打坐修炼效率+5%（闭关收益）", "effect": "cultivation"},
     "灵兽窝":   {"price": 3000, "desc": "喂养灵兽消耗-20%", "effect": "pet_feed"},
     "灵泉假山": {"price": 50000, "desc": "洞天灵石产出+10%", "effect": "income"},
+    "回春榻": {"price": 15000, "desc": "自然气血恢复+15%，调息气血恢复+10%", "effect": "recovery"},
+    "聚灵池": {"price": 15000, "desc": "自然真元恢复+15%，调息真元恢复+10%", "effect": "recovery"},
 }
 
 # 洞天配置

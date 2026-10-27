@@ -12,7 +12,7 @@ from .data import DataBase, MigrationManager
 from .config_manager import ConfigManager
 from .handlers.utils import with_player_lock, idle_player_lock, get_player_lock, get_event_flag
 from .handlers import (
-    MiscHandler, PlayerHandler, EquipmentHandler, BreakthroughHandler, 
+    MiscHandler, PlayerHandler, RecoveryHandler, EquipmentHandler, BreakthroughHandler,
     PillHandler, ShopHandler, StorageRingHandler,
     SectHandlers, BossHandlers, CombatHandlers, RankingHandlers,
     RiftHandlers, AdventureHandlers, AlchemyHandlers, ImpartHandlers,
@@ -51,6 +51,8 @@ def require_whitelist(func):
 CMD_HELP = "修仙帮助"
 CMD_START_XIUXIAN = "我要修仙"
 CMD_PLAYER_INFO = "我的信息"
+CMD_REST = "调息"
+CMD_STOP_REST = "收功"
 CMD_START_CULTIVATION = "闭关"
 CMD_END_CULTIVATION = "出关"
 CMD_CHECK_IN = "签到"
@@ -259,6 +261,7 @@ class XiuXianPlugin(Star):
         # v6.5 灵兽系统
         self.pet_mgr = PetManager(self.db)
         self.pet_handlers = PetHandlers(self.db, self.pet_mgr, self.config_manager)
+        self.recovery_handler = RecoveryHandler(self.db, self.config_manager)
 
         # v6.6 交易坊市
         self.auction_mgr = AuctionManager(self.db, self.storage_ring_mgr, self.config)
@@ -869,6 +872,16 @@ class XiuXianPlugin(Star):
     @require_whitelist
     async def handle_player_info(self, event: AstrMessageEvent):
         async for r in self.player_handler.handle_player_info(event): yield r
+
+    @filter.command(CMD_REST, "调息恢复气血和真元")
+    @require_whitelist
+    async def handle_rest(self, event: AstrMessageEvent):
+        async for r in self.recovery_handler.handle_rest(event): yield r
+
+    @filter.command(CMD_STOP_REST, "结束调息")
+    @require_whitelist
+    async def handle_stop_rest(self, event: AstrMessageEvent):
+        async for r in self.recovery_handler.handle_stop_rest(event): yield r
 
     @filter.command(CMD_REBIRTH, "弃道重修（7天一次）")
     @require_whitelist

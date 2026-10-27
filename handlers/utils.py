@@ -67,7 +67,18 @@ BUSY_STATE_ALLOWED_COMMANDS = [
 
     # v6.26 自动代理（忙碌中也必须能查看/关闭/改绑）
     "自动代理", "关闭代理", "代理状态",
+
+    # 调息/收功与恢复
+    "调息", "收功", "服用丹药", "丹药背包",
 ]
+
+# 受伤时禁止行动类指令
+INJURED_BLOCKED_COMMANDS = (
+    "押镖", "劫镖", "切磋", "决斗", "挑战Boss", "挑战世界Boss",
+    "历练", "开始历练", "探索秘境", "开始探索", "进入秘境",
+    "宗门任务", "接取宗门任务", "宗门大比", "报名宗门大比", "团本",
+    "传承挑战", "闭关",
+)
 
 # 这些是“退出/放弃当前状态”的指令，无论处于什么忙碌状态都必须放行
 BUSY_BYPASS_COMMANDS = (
@@ -102,6 +113,24 @@ def with_player_lock(func: Callable[..., Coroutine[any, any, AsyncGenerator[any,
             if not player:
                 yield event.plain_result(f"道友尚未踏入仙途，请发送「{CMD_START_XIUXIAN}」开启你的旅程。")
                 return
+            try:
+                from ..managers.recovery_manager import RecoveryManager
+                recovery = RecoveryManager(
+                    self.db, getattr(self, "config_manager", None)
+                )
+                await recovery.apply_lazy_recovery(player)
+                command_text = _normalize_command_text(event.get_message_str())
+                if (
+                    command_text.startswith(INJURED_BLOCKED_COMMANDS)
+                    and await recovery.is_injured(player)
+                ):
+                    yield event.plain_result(
+                        "❌ 你当前身受重伤，气血不足 20%，无法进行此项行动。\n"
+                        "💡 请先 /调息 或服用回春散恢复气血。"
+                    )
+                    return
+            except Exception:
+                pass
             async for result in func(self, event, *args, **kwargs):
                 yield result
 
@@ -119,6 +148,13 @@ def idle_player_lock(func: Callable[..., Coroutine[any, any, AsyncGenerator[any,
             if not player:
                 yield event.plain_result(f"道友尚未踏入仙途，请发送「{CMD_START_XIUXIAN}」开启你的旅程。")
                 return
+            try:
+                from ..managers.recovery_manager import RecoveryManager
+                await RecoveryManager(
+                    self.db, getattr(self, "config_manager", None)
+                ).apply_lazy_recovery(player)
+            except Exception:
+                pass
             user_cd = await self.db.ext.get_user_cd(player.user_id)
             busy = (user_cd and user_cd.type != UserStatus.IDLE) or (
                 (not user_cd or user_cd.type == UserStatus.IDLE)
@@ -151,6 +187,17 @@ def player_required(func: Callable[..., Coroutine[any, any, AsyncGenerator[any, 
                 yield event.plain_result(f"道友尚未踏入仙途，请发送「{CMD_START_XIUXIAN}」开启你的旅程。")
                 return
 
+            injured = False
+            try:
+                from ..managers.recovery_manager import RecoveryManager
+                recovery = RecoveryManager(
+                    self.db, getattr(self, "config_manager", None)
+                )
+                await recovery.apply_lazy_recovery(player)
+                injured = await recovery.is_injured(player)
+            except Exception:
+                pass
+
             # 检查贷款状态并处理逾期
             loan_warning = await _check_loan_status(self.db, player)
             if loan_warning:
@@ -171,6 +218,14 @@ def player_required(func: Callable[..., Coroutine[any, any, AsyncGenerator[any, 
             message_text = event.get_message_str().strip()
             command_text = _normalize_command_text(message_text)
             bypass_busy = command_text.startswith(BUSY_BYPASS_COMMANDS)
+
+            # 低气血受伤状态：禁止行动类指令
+            if injured and command_text.startswith(INJURED_BLOCKED_COMMANDS):
+                yield event.plain_result(
+                    "❌ 你当前身受重伤，气血不足 20%，无法进行此项行动。\n"
+                    "💡 请先 /调息 或服用回春散恢复气血。"
+                )
+                return
 
             # 欠款过多：暂停购买/消费类指令
             if (

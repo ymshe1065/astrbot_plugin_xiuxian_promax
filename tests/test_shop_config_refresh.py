@@ -99,7 +99,7 @@ class TestShopConfigRefresh(unittest.TestCase):
             low, high = price_range[rank]
             self.assertGreaterEqual(int(item.get("price", 0)), low)
             self.assertLessEqual(int(item.get("price", 0)), high)
-        self.assertEqual(count, 154)
+        self.assertEqual(count, 155)
 
 
 if __name__ == "__main__":

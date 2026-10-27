@@ -22,6 +22,7 @@ _STATE_TEXT = {
     UserStatus.DELIVERING: "押镖中",
     UserStatus.RAIDING: "掠夺中",
     UserStatus.SECT_BATTLE: "宗门大比中",
+    UserStatus.RESTING: "调息中",
 }
 
 

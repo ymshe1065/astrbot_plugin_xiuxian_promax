@@ -20,6 +20,7 @@ class UserStatus(IntEnum):
     DELIVERING = 6     # 押镖中 (新增)
     RAIDING = 7        # 掠夺中 (新增)
     SECT_BATTLE = 8    # 宗门大比中 (新增)
+    RESTING = 9        # 调息中
 
     @classmethod
     def get_name(cls, status: int) -> str:
@@ -34,6 +35,7 @@ class UserStatus(IntEnum):
             cls.DELIVERING: "押镖中",
             cls.RAIDING: "掠夺中",
             cls.SECT_BATTLE: "宗门大比中",
+            cls.RESTING: "调息中",
         }
         return names.get(status, "忙碌中")
 
