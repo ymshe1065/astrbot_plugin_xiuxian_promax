@@ -7,7 +7,7 @@
         "subtype": "exp",
         "required_level_index": 0,
         "exp_gain": 500,
-        "price": 50,
+        "price": 520,
         "shop_weight": 1000
     },
     {
@@ -18,7 +18,7 @@
         "subtype": "exp",
         "required_level_index": 0,
         "exp_gain": 1000,
-        "price": 100,
+        "price": 1100,
         "shop_weight": 1000
     },
     {
@@ -29,7 +29,7 @@
         "subtype": "exp",
         "required_level_index": 0,
         "exp_gain": 1500,
-        "price": 150,
+        "price": 1800,
         "shop_weight": 1000
     },
     {
@@ -40,7 +40,7 @@
         "subtype": "exp",
         "required_level_index": 3,
         "exp_gain": 2500,
-        "price": 250,
+        "price": 3400,
         "shop_weight": 500
     },
     {
@@ -62,7 +62,7 @@
         "subtype": "exp",
         "required_level_index": 5,
         "exp_gain": 5000,
-        "price": 500,
+        "price": 16000,
         "shop_weight": 500
     },
     {
