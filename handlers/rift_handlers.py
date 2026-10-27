@@ -2,6 +2,7 @@
 from astrbot.api.event import AstrMessageEvent
 from ..managers.rift_manager import RiftManager
 from ..data.data_manager import DataBase
+from .utils import set_event_flag
 
 class RiftHandlers:
     def __init__(self, db: DataBase, rift_mgr: RiftManager):

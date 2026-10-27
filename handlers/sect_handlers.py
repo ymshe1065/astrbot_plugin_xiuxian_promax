@@ -4,6 +4,7 @@ from astrbot.api.all import At
 from ..managers.sect_manager import SectManager
 from ..data.data_manager import DataBase
 from ..models_extended import UserStatus
+from .utils import set_event_flag
 
 class SectHandlers:
     def __init__(self, db: DataBase, sect_mgr: SectManager):
@@ -131,8 +132,10 @@ class SectHandlers:
 
     async def handle_sect_task(self, event: AstrMessageEvent):
         """执行宗门任务"""
+        set_event_flag(event, "sect_task_started", False)
         user_id = event.get_sender_id()
         success, msg = await self.sect_mgr.perform_sect_task(user_id)
+        set_event_flag(event, "sect_task_started", success)
         yield event.plain_result(msg)
 
     async def handle_finish_sect_task(self, event: AstrMessageEvent):

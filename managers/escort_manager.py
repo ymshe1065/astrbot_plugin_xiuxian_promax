@@ -134,6 +134,15 @@ class EscortManager:
         escort_gold = int(extra.get("escort_gold", 2000))
         escort_exp = int(extra.get("escort_exp", 1000))
 
+        # 称号「灵石%」加成真正生效（镖行新秀/金牌镖师/天下第一镖等）
+        try:
+            from .title_manager import TitleManager
+            gold_pct = float(TitleManager(None).get_active_bonus(player).get("gold_pct", 0) or 0)
+            if gold_pct:
+                escort_gold = int(escort_gold * (1 + gold_pct))
+        except Exception:
+            pass
+
         player.gold += escort_gold
         player.experience += escort_exp
         player.karma = (getattr(player, "karma", 0) or 0) + 1  # 护镖有功，功德+1
@@ -231,14 +240,26 @@ class EscortManager:
             return False, "❌ 消耗迷神香失败。"
         await self.db.ext.set_system_config(cd_key, str(now_ts + self.ROB_COOLDOWN))
 
-        # 用天道压制引擎快速构建双方战斗属性
-        def build_stats(p: Player) -> CombatStats:
+        # 用天道压制引擎快速构建双方战斗属性（接入传承加成）
+        async def build_stats(p: Player) -> CombatStats:
+            impart = None
+            try:
+                impart = await self.db.ext.get_impart_info(p.user_id)
+            except Exception:
+                impart = None
             return self.combat_mgr.build_player_combat_stats(
-                p, self.config_manager, db=self.db
+                p,
+                self.config_manager,
+                db=self.db,
+                hp_buff=impart.impart_hp_per if impart else 0.0,
+                mp_buff=impart.impart_mp_per if impart else 0.0,
+                atk_buff=impart.impart_atk_per if impart else 0.0,
+                crit_rate=int((impart.impart_know_per if impart else 0.0) * 100),
+                crit_damage_bonus=impart.impart_burst_per if impart else 0.0,
             )
 
-        attacker_stats = build_stats(attacker)
-        target_stats = build_stats(target)
+        attacker_stats = await build_stats(attacker)
+        target_stats = await build_stats(target)
 
         from .pet_manager import PetManager
         pet_mgr = PetManager(self.db)

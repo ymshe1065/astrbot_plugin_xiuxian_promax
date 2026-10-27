@@ -211,8 +211,12 @@ class CombatManager:
         )
         equip = CombatManager.calculate_equipment_bonus(player, config_manager)
         atk = int(base_atk * dmg_mult) + equip["atk"]
+        # 防御必须包含角色本体的物防/法防，否则体修、突破与永久丹药的防御加成全部失效
+        base_defense = int(getattr(player, "physical_defense", 0) or 0) + int(
+            getattr(player, "magic_defense", 0) or 0
+        )
         defense = int(
-            equip["defense"]
+            (equip["defense"] + base_defense)
             * max(
                 pill_multipliers.get("physical_defense", 1.0),
                 pill_multipliers.get("magic_defense", 1.0),
@@ -304,6 +308,13 @@ class CombatManager:
                         effects[key] += value
         except Exception:
             pass
+        # 防御脏配置/旧生成器数据：百分比类词条统一钳制到 0-100，避免 500% 暴击/吸血
+        for rate_key in ("crit_rate", "lifesteal", "combo_rate", "counter_damage", "dodge"):
+            if rate_key in effects:
+                try:
+                    effects[rate_key] = max(0.0, min(100.0, float(effects[rate_key])))
+                except (TypeError, ValueError):
+                    effects[rate_key] = 0
         return effects
 
     @classmethod
@@ -316,6 +327,7 @@ class CombatManager:
         mp_buff: float = 0.0,
         atk_buff: float = 0.0,
         crit_rate: int = 0,
+        crit_damage_bonus: float = 0.0,
         extra_effects: Optional[dict] = None,
         element: Optional[str] = None,
         pill_multipliers: Optional[dict] = None,
@@ -343,6 +355,8 @@ class CombatManager:
             except Exception:
                 pill_multipliers = {}
         pill_multipliers = pill_multipliers or {}
+        if crit_damage_bonus:
+            effects["crit_damage"] = effects.get("crit_damage", 1.5) + float(crit_damage_bonus)
         if extra_effects:
             for key, value in extra_effects.items():
                 if isinstance(value, (int, float)):
@@ -381,7 +395,12 @@ class CombatManager:
             float(pill_multipliers.get("magic_defense", 1.0) or 1.0),
         )
         hp = int(hp * dmg_mult)
-        defense = int(int(equip.get("defense", 0)) * def_mult) + int(effects.get("defense_bonus", 0))
+        base_defense = int(getattr(player, "physical_defense", 0) or 0) + int(
+            getattr(player, "magic_defense", 0) or 0
+        )
+        defense = int((int(equip.get("defense", 0)) + base_defense) * def_mult) + int(
+            effects.get("defense_bonus", 0)
+        )
         final_atk = int(int(atk) * dmg_mult) + int(equip.get("atk", 0))
 
         title = cls.get_title_combat_bonus(player)

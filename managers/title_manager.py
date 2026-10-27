@@ -128,7 +128,14 @@ class TitleManager:
                     met = pet_level >= cond
                 elif how == "land_level":
                     met = land_level >= cond
-                
+                elif how == "furnace_max":
+                    # 补偿历史满级玩家：升级命令在满级时会直接失败，无法再触发补发
+                    try:
+                        bonus = json.loads(player.permanent_bonus) if player.permanent_bonus else {}
+                    except Exception:
+                        bonus = {}
+                    met = int(bonus.get("alchemy_furnace", 0) or 0) >= cond
+
                 # 外部事件累进类：读 system_config
                 elif how not in ("manual", "furnace_max"):
                     ck = f"title_cnt_{how}_{player.user_id}"

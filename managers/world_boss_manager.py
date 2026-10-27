@@ -361,7 +361,21 @@ class WorldBossManager:
         from .combat_manager import CombatManager
         from .pet_manager import PetManager
         cm = CombatManager()
-        stats = cm.build_player_combat_stats(player, self.config_manager, db=self.db)
+        impart = None
+        try:
+            impart = await self.db.ext.get_impart_info(player.user_id)
+        except Exception:
+            impart = None
+        stats = cm.build_player_combat_stats(
+            player,
+            self.config_manager,
+            db=self.db,
+            hp_buff=impart.impart_hp_per if impart else 0.0,
+            mp_buff=impart.impart_mp_per if impart else 0.0,
+            atk_buff=impart.impart_atk_per if impart else 0.0,
+            crit_rate=int((impart.impart_know_per if impart else 0.0) * 100),
+            crit_damage_bonus=impart.impart_burst_per if impart else 0.0,
+        )
         total_atk = int(stats.atk)
         try:
             pet_mgr = PetManager(self.db)

@@ -2,6 +2,7 @@
 from astrbot.api.event import AstrMessageEvent
 from ..managers.adventure_manager import AdventureManager
 from ..data.data_manager import DataBase
+from .utils import set_event_flag
 
 class AdventureHandlers:
     def __init__(self, db: DataBase, adv_mgr: AdventureManager):

@@ -512,18 +512,21 @@ class SectManager:
             await self.db.ext.create_user_cd(user_id)
             user_cd = await self.db.ext.get_user_cd(user_id)
 
-        if user_cd.type not in (UserStatus.IDLE, UserStatus.SECT_TASK):
+        if user_cd.type != UserStatus.IDLE:
+            if user_cd.type == UserStatus.SECT_TASK:
+                current_time = int(time.time())
+                if user_cd.scheduled_time and current_time < user_cd.scheduled_time:
+                    return False, f"❌ 宗门任务进行中！还需 {(user_cd.scheduled_time - current_time)//60} 分钟。"
+                return False, (
+                    "❌ 你已完成当前宗门任务，请先使用 /完成宗门任务 领取贡献，"
+                    "或使用 /放弃宗门任务 结束本轮。"
+                )
             return False, (
                 f"❌ 你当前正{UserStatus.get_name(user_cd.type)}，无法执行宗门任务！\n"
                 "💡 请先完成或放弃当前活动。"
             )
-            
-        current_time = int(time.time())
-        if user_cd.type == UserStatus.SECT_TASK and user_cd.scheduled_time and current_time < user_cd.scheduled_time:
-            return False, f"❌ 宗门任务冷却中！还需 {(user_cd.scheduled_time - current_time)//60} 分钟。"
-        elif user_cd.type == UserStatus.SECT_TASK:
-            await self.db.ext.set_user_free(user_id)
 
+        current_time = int(time.time())
         await self.db.ext.set_user_busy(user_id, UserStatus.SECT_TASK, current_time + 3600)
         return True, "✨ 你开始执行宗门任务！任务需要1小时完成，请在完成后使用 /完成宗门任务 领取奖励。"
 
@@ -814,25 +817,40 @@ class SectManager:
                 await self.db.conn.commit()
                 continue
 
-            loss = min(max(0, int(target.gold)), SECT_ORDER_PENALTY)
-            debt = SECT_ORDER_PENALTY - loss
-            target.gold -= loss
-            target.sect_debt = int(getattr(target, "sect_debt", 0)) + debt
-            await self.db.update_player(target)
-            # 单独写欠款，避免全字段覆盖把自动还款写回旧值
-            await self.db.conn.execute(
-                "UPDATE players SET sect_debt = ? WHERE user_id = ?",
-                (target.sect_debt, target.user_id),
-            )
-            await self.db.conn.execute(
-                "UPDATE sects SET sect_used_stone = sect_used_stone + ? WHERE sect_id = ?",
-                (loss, order["sect_id"]),
-            )
-            await self.db.conn.execute(
-                "UPDATE sect_orders SET status = 'failed' WHERE id = ?",
-                (order["id"],),
-            )
-            await self.db.conn.commit()
+            # 事务内重读目标并只更新金/欠款字段，避免定时任务用旧快照覆盖玩家并发操作
+            await self.db.conn.execute("BEGIN IMMEDIATE")
+            try:
+                target = await self.db.get_player_by_id(order["target_id"])
+                if not target or target.sect_id != order["sect_id"]:
+                    await self.db.conn.execute(
+                        "UPDATE sect_orders SET status = 'cancelled' WHERE id = ?",
+                        (order["id"],),
+                    )
+                    await self.db.conn.commit()
+                    continue
+
+                loss = min(max(0, int(target.gold)), SECT_ORDER_PENALTY)
+                debt = SECT_ORDER_PENALTY - loss
+                target.gold -= loss
+                target.sect_debt = int(getattr(target, "sect_debt", 0)) + debt
+                await self.db.update_player_fields(
+                    target.user_id,
+                    gold=target.gold,
+                    sect_debt=target.sect_debt,
+                    commit=False,
+                )
+                await self.db.conn.execute(
+                    "UPDATE sects SET sect_used_stone = sect_used_stone + ? WHERE sect_id = ?",
+                    (loss, order["sect_id"]),
+                )
+                await self.db.conn.execute(
+                    "UPDATE sect_orders SET status = 'failed' WHERE id = ?",
+                    (order["id"],),
+                )
+                await self.db.conn.commit()
+            except Exception:
+                await self.db.conn.rollback()
+                raise
 
             target_name = target.user_name or order["target_id"]
             text = (
@@ -1036,7 +1054,21 @@ class SectManager:
         if not player:
             return None
         cm = CombatManager()
-        stats = cm.build_player_combat_stats(player, self.config_manager, db=self.db)
+        impart = None
+        try:
+            impart = await self.db.ext.get_impart_info(user_id)
+        except Exception:
+            impart = None
+        stats = cm.build_player_combat_stats(
+            player,
+            self.config_manager,
+            db=self.db,
+            hp_buff=impart.impart_hp_per if impart else 0.0,
+            mp_buff=impart.impart_mp_per if impart else 0.0,
+            atk_buff=impart.impart_atk_per if impart else 0.0,
+            crit_rate=int((impart.impart_know_per if impart else 0.0) * 100),
+            crit_damage_bonus=impart.impart_burst_per if impart else 0.0,
+        )
         effects = stats.effects or {}
         pet_mgr = PetManager(self.db)
         main_pet, support_pets, pet_effects, atk = await pet_mgr.build_pet_lineup(

@@ -127,10 +127,14 @@ class BankManager:
             
             player.gold -= amount
             await self.db.update_player(player, commit=False)
-            
-            new_balance = current_balance + amount
+
             now = int(time.time())
-            interest_time = now if current_balance == 0 else bank_data["last_interest_time"]
+            # 先结算旧余额已产生的利息，再重置计息起点；防止临领取前大额存入套取历史利息
+            pending_interest = self._calculate_interest(
+                current_balance, bank_data["last_interest_time"] if bank_data else 0
+            )
+            new_balance = current_balance + pending_interest + amount
+            interest_time = now
             
             # 直接底层 SQL 更新账户
             await self.db.conn.execute(
@@ -159,17 +163,22 @@ class BankManager:
         try:
             player = await self.db.get_player_by_id(player.user_id)
             bank_data = await self.db.ext.get_bank_account(player.user_id)
-            if not bank_data or bank_data["balance"] < amount:
-                await self.db.conn.rollback()
-                current = bank_data["balance"] if bank_data else 0
-                return False, f"余额不足！当前余额：{current:,} 灵石。"
-            
-            new_balance = bank_data["balance"] - amount
+
             now = int(time.time())
+            # 取款同样先结算利息并重置计息起点，保证存取款前后的利息归属清晰
+            pending_interest = self._calculate_interest(
+                bank_data["balance"], bank_data["last_interest_time"]
+            ) if bank_data else 0
+            available = (bank_data["balance"] if bank_data else 0) + pending_interest
+            if not bank_data or available < amount:
+                await self.db.conn.rollback()
+                return False, f"余额不足！当前可取出：{available:,} 灵石。"
+
+            new_balance = available - amount
             
             await self.db.conn.execute(
                 "INSERT INTO bank_accounts (user_id, balance, last_interest_time) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET balance = excluded.balance, last_interest_time = excluded.last_interest_time",
-                (player.user_id, new_balance, bank_data["last_interest_time"])
+                (player.user_id, new_balance, now)
             )
             
             player.gold += amount

@@ -98,6 +98,8 @@ class CombatHandlers:
         hp_buff = impart_info.impart_hp_per if impart_info else 0.0
         mp_buff = impart_info.impart_mp_per if impart_info else 0.0
         atk_buff = impart_info.impart_atk_per if impart_info else 0.0
+        crit_rate_buff = impart_info.impart_know_per if impart_info else 0.0
+        crit_damage_buff = impart_info.impart_burst_per if impart_info else 0.0
 
         stats = self.combat_mgr.build_player_combat_stats(
             player,
@@ -106,6 +108,8 @@ class CombatHandlers:
             hp_buff=hp_buff,
             mp_buff=mp_buff,
             atk_buff=atk_buff,
+            crit_rate=int(crit_rate_buff * 100),
+            crit_damage_bonus=crit_damage_buff,
             pill_multipliers=pill_multipliers,
         )
 

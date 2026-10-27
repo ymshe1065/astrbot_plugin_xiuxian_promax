@@ -188,6 +188,7 @@ ATK：{atk}
         mp_buff = impart_info.impart_mp_per if impart_info else 0.0
         atk_buff = impart_info.impart_atk_per if impart_info else 0.0
         crit_rate_buff = impart_info.impart_know_per if impart_info else 0.0
+        crit_damage_buff = impart_info.impart_burst_per if impart_info else 0.0
         
         hp, mp = 0, 0
         atk = 1
@@ -212,6 +213,7 @@ ATK：{atk}
             mp_buff=mp_buff,
             atk_buff=atk_buff,
             crit_rate=int(crit_rate_buff * 100),
+            crit_damage_bonus=crit_damage_buff,
         )
 
         from .pet_manager import PetManager

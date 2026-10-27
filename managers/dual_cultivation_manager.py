@@ -27,10 +27,10 @@ class DualCultivationManager:
         now = int(time.time())
         expires_at = now + DUAL_CULT_REQUEST_EXPIRE
         
-        # 先清理该目标的旧请求
+        # 先清理该目标的旧请求，并保证同一发起者同时只有一个待处理请求
         await self.db.conn.execute(
-            "DELETE FROM dual_cultivation_requests WHERE target_id = ?",
-            (target_id,)
+            "DELETE FROM dual_cultivation_requests WHERE target_id = ? OR from_id = ?",
+            (target_id, from_id)
         )
         
         await self.db.conn.execute(
@@ -169,11 +169,25 @@ class DualCultivationManager:
         if not request:
             return False, "❌ 没有待处理的双修请求。"
         
+        # 锁内重新读档，避免请求期间双方状态/修为发生变化
         initiator = await self.db.get_player_by_id(request["from_id"])
-        if not initiator:
+        acceptor = await self.db.get_player_by_id(acceptor.user_id)
+        if not initiator or not acceptor:
             await self._delete_request(request["id"])
-            return False, "❌ 请求发起者数据异常。"
-        
+            return False, "❌ 双修双方数据异常。"
+
+        # 请求可能已过期/被处理，先清理过期项
+        if int(request.get("expires_at", 0) or 0) <= int(time.time()):
+            await self._delete_request(request["id"])
+            return False, "❌ 双修请求已过期。"
+
+        # 再次检查双方忙碌状态（请求期间可能已开始闭关/押镖/历练）
+        for uid, label in ((initiator.user_id, "对方"), (acceptor.user_id, "你")):
+            cd = await self.db.ext.get_user_cd(uid)
+            if cd and cd.type != UserStatus.IDLE:
+                await self._delete_request(request["id"])
+                return False, f"❌ {label}当前正{UserStatus.get_name(cd.type)}，本次双修取消。"
+
         # 再次检查修为差距
         exp_ratio = max(initiator.experience, acceptor.experience) / max(min(initiator.experience, acceptor.experience), 1)
         if exp_ratio > DUAL_CULT_MAX_EXP_RATIO:
@@ -198,20 +212,31 @@ class DualCultivationManager:
         # 计算双修收益
         init_exp_gain = int(acceptor.experience * DUAL_CULT_EXP_BONUS)
         accept_exp_gain = int(initiator.experience * DUAL_CULT_EXP_BONUS)
-        
-        # 应用收益
-        initiator.experience += init_exp_gain
-        acceptor.experience += accept_exp_gain
-        await self.db.update_player(initiator)
-        await self.db.update_player(acceptor)
-        
-        # 记录冷却
-        await self._set_last_dual_time(initiator.user_id, now)
-        await self._set_last_dual_time(acceptor.user_id, now)
-        
-        # 清除请求
-        await self._delete_request(request["id"])
-        
+
+        # 事务内原子结算：条件删除请求 + 修为增量 + 冷却写入
+        await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            cursor = await self.db.conn.execute(
+                "DELETE FROM dual_cultivation_requests WHERE id = ? AND target_id = ?",
+                (request["id"], acceptor.user_id),
+            )
+            if cursor.rowcount == 0:
+                await self.db.conn.rollback()
+                return False, "❌ 该双修请求已被处理，请重新发起。"
+
+            await self.db.add_player_exp(initiator.user_id, init_exp_gain, commit=False)
+            await self.db.add_player_exp(acceptor.user_id, accept_exp_gain, commit=False)
+            for uid in (initiator.user_id, acceptor.user_id):
+                await self.db.conn.execute(
+                    "INSERT INTO dual_cultivation (user_id, last_dual_time) VALUES (?, ?) "
+                    "ON CONFLICT(user_id) DO UPDATE SET last_dual_time = excluded.last_dual_time",
+                    (uid, now),
+                )
+            await self.db.conn.commit()
+        except Exception:
+            await self.db.conn.rollback()
+            raise
+
         return True, (
             f"💕 双修成功！\n"
             f"━━━━━━━━━━━━━━━\n"

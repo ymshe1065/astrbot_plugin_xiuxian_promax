@@ -34,12 +34,26 @@ class ImpartPkManager:
         attacker_impart = await self.db.ext.get_impart_info(attacker.user_id)
         defender_impart = await self.db.ext.get_impart_info(defender.user_id)
         
-        # 准备战斗属性
+        # 准备战斗属性（接入双方传承加成，和决斗/切磋保持一致）
         atk_stats = self.combat_mgr.build_player_combat_stats(
-            attacker, self.config_manager, db=self.db
+            attacker,
+            self.config_manager,
+            db=self.db,
+            hp_buff=attacker_impart.impart_hp_per if attacker_impart else 0.0,
+            mp_buff=attacker_impart.impart_mp_per if attacker_impart else 0.0,
+            atk_buff=attacker_impart.impart_atk_per if attacker_impart else 0.0,
+            crit_rate=int((attacker_impart.impart_know_per if attacker_impart else 0.0) * 100),
+            crit_damage_bonus=attacker_impart.impart_burst_per if attacker_impart else 0.0,
         )
         def_stats = self.combat_mgr.build_player_combat_stats(
-            defender, self.config_manager, db=self.db
+            defender,
+            self.config_manager,
+            db=self.db,
+            hp_buff=defender_impart.impart_hp_per if defender_impart else 0.0,
+            mp_buff=defender_impart.impart_mp_per if defender_impart else 0.0,
+            atk_buff=defender_impart.impart_atk_per if defender_impart else 0.0,
+            crit_rate=int((defender_impart.impart_know_per if defender_impart else 0.0) * 100),
+            crit_damage_bonus=defender_impart.impart_burst_per if defender_impart else 0.0,
         )
         if not atk_stats.name:
             atk_stats.name = "挑战者"

@@ -302,8 +302,9 @@ class SpiritFarmManager:
         
         msg_lines.append("━━━━━━━━━━━━━━━")
         msg_lines.append(f"剩余种植：{len(remaining_crops)} 株")
-        
-        return True, "\n".join(msg_lines)
+
+        # 只有清理枯萎、没有实际收获时，不应被上层视为“收获成功”
+        return bool(mature_crops), "\n".join(msg_lines)
     
     async def fertilize(self, player: Player) -> Tuple[bool, str]:
         """施肥：消耗灵石恢复土壤肥力"""

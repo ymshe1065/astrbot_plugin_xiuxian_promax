@@ -19,7 +19,7 @@ class ForgeHandlers:
         yield event.plain_result(msg)
 
     @player_required
-    async def handle_wash(self, player: Player, event: AstrMessageEvent):
-        success, msg = await self.forge_mgr.wash_equipment(player)
+    async def handle_wash(self, player: Player, event: AstrMessageEvent, slot: str = ""):
+        success, msg = await self.forge_mgr.wash_equipment(player, slot)
         set_event_flag(event, "wash_success", bool(success))
         yield event.plain_result(msg)

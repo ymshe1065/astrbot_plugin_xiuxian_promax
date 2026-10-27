@@ -95,11 +95,13 @@ def with_player_lock(func: Callable[..., Coroutine[any, any, AsyncGenerator[any,
 
     @wraps(func)
     async def wrapper(self, event: AstrMessageEvent, *args, **kwargs):
-        player = await self.db.get_player_by_id(event.get_sender_id())
-        if not player:
-            yield event.plain_result(f"道友尚未踏入仙途，请发送「{CMD_START_XIUXIAN}」开启你的旅程。")
-            return
-        async with get_player_lock(player.user_id):
+        user_id = event.get_sender_id()
+        # 先占锁再读档：避免锁外旧快照在锁内被整字段回写，覆盖其他指令的并发修改
+        async with get_player_lock(user_id):
+            player = await self.db.get_player_by_id(user_id)
+            if not player:
+                yield event.plain_result(f"道友尚未踏入仙途，请发送「{CMD_START_XIUXIAN}」开启你的旅程。")
+                return
             async for result in func(self, event, *args, **kwargs):
                 yield result
 
@@ -111,11 +113,12 @@ def idle_player_lock(func: Callable[..., Coroutine[any, any, AsyncGenerator[any,
 
     @wraps(func)
     async def wrapper(self, event: AstrMessageEvent, *args, **kwargs):
-        player = await self.db.get_player_by_id(event.get_sender_id())
-        if not player:
-            yield event.plain_result(f"道友尚未踏入仙途，请发送「{CMD_START_XIUXIAN}」开启你的旅程。")
-            return
-        async with get_player_lock(player.user_id):
+        user_id = event.get_sender_id()
+        async with get_player_lock(user_id):
+            player = await self.db.get_player_by_id(user_id)
+            if not player:
+                yield event.plain_result(f"道友尚未踏入仙途，请发送「{CMD_START_XIUXIAN}」开启你的旅程。")
+                return
             user_cd = await self.db.ext.get_user_cd(player.user_id)
             busy = (user_cd and user_cd.type != UserStatus.IDLE) or (
                 (not user_cd or user_cd.type == UserStatus.IDLE)
@@ -140,13 +143,14 @@ def player_required(func: Callable[..., Coroutine[any, any, AsyncGenerator[any, 
     @wraps(func)
     async def wrapper(self, event: AstrMessageEvent, *args, **kwargs):
         # self 是 Handler 类的实例 (e.g., PlayerHandler)
-        player = await self.db.get_player_by_id(event.get_sender_id())
+        user_id = event.get_sender_id()
+        async with get_player_lock(user_id):
+            # 锁内重新读档，避免旧快照覆盖并发修改
+            player = await self.db.get_player_by_id(user_id)
+            if not player:
+                yield event.plain_result(f"道友尚未踏入仙途，请发送「{CMD_START_XIUXIAN}」开启你的旅程。")
+                return
 
-        if not player:
-            yield event.plain_result(f"道友尚未踏入仙途，请发送「{CMD_START_XIUXIAN}」开启你的旅程。")
-            return
-
-        async with get_player_lock(player.user_id):
             # 检查贷款状态并处理逾期
             loan_warning = await _check_loan_status(self.db, player)
             if loan_warning:

@@ -388,11 +388,11 @@ class ShopHandler:
 
             elif item_type == 'material':
                 success, msg = await self.storage_ring_manager.store_item(player, target_item['name'], quantity, external_transaction=True)
-                if success:
-                    result_lines.append(f"成功购买材料【{target_item['name']}】x{quantity}，已存入储物戒。")
-                else:
-                    result_lines.append(f"成功购买材料【{target_item['name']}】x{quantity}。")
-                    result_lines.append(f"⚠️ 存入储物戒失败：{msg}")
+                if not success:
+                    await self.db.conn.rollback()
+                    yield event.plain_result(f"❌ 材料存入储物戒失败：{msg}\n本次未扣除灵石。")
+                    return
+                result_lines.append(f"成功购买材料【{target_item['name']}】x{quantity}，已存入储物戒。")
             else:
                 await self.db.conn.rollback()
                 yield event.plain_result(f"未知的物品类型：{item_type}")

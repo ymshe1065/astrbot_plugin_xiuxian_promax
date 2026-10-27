@@ -6,7 +6,7 @@ import hashlib
 import json
 from typing import Any, Dict, List
 
-HELP_VERSION = "v6.32.4"
+HELP_VERSION = "v6.32.5"
 HELP_HEADER = f"📖 修仙指令大全 {HELP_VERSION} (悬赏任务 + 历练事件 + 全服团本 + 符箓体系)"
 HELP_HINT = "💡 提示：所有指令均可带 / 前缀使用"
 HELP_TITLE = "修仙指令大全"
@@ -61,7 +61,7 @@ HELP_SECTIONS: List[Dict[str, Any]] = [
             "/挑战团本 (多阶段团本,10分钟CD,伤害0.3%-8%)",
             "/团本状态 /世界团本 /团本排行 (阶段/进度/伤害榜)",
             "/传承挑战 @人 /传承信息 /传承排行",
-            "/世界Boss /世界boss /挑战Boss (旧版别名)",
+            "/世界Boss /世界boss (动态Boss状态; /挑战Boss 为旧版Boss，已不推荐)",
         ],
     },
     {
@@ -74,7 +74,7 @@ HELP_SECTIONS: List[Dict[str, Any]] = [
             "/我的坊市 (个人上架+NPC问价) /坊市我的",
             "/坊市购买 <ID> /坊市下架 <ID>",
             "/坊市卖出 <问价ID> /坊市等待 <问价ID>",
-            "/切原石 /黑市 (每小时刷新) /黑市购买 <编号> /强化 /洗练",
+            "/切原石 /黑市 (每小时刷新) /黑市购买 <编号> /强化 /洗练 [武器/防具]",
         ],
     },
     {

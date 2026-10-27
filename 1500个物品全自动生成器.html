@@ -109,7 +109,7 @@
                     if (cat === '武器') {
                         item.subtype = '武器';
                         item.physical_damage = Math.floor(Math.random() * 40 + 10) * mult;
-                        if (rank === '地阶' || rank === '天阶') item.effects = { crit_rate: 5 * mult, lifesteal: 2 * mult };
+                        if (rank === '地阶' || rank === '天阶') item.effects = { crit_rate: 5, lifesteal: 2 };
                     } else if (cat === '防具') {
                         item.subtype = '防具';
                         item.physical_defense = Math.floor(Math.random() * 25 + 5) * mult;
@@ -125,7 +125,7 @@
                             item.physical_damage_multiplier = 0.1 * mult;
                         }
                     } else if (cat === '功法') {
-                        item.exp_multiplier = 0.02 * mult;
+                        item.exp_multiplier = 0.02;
                         if (rank === '天阶') item.effects = { crit_rate: 15, combo_rate: 10 };
                     } else if (cat === '符箓') {
                         item.effects = { magic_damage: Math.floor(Math.random() * 150 + 50) * mult };

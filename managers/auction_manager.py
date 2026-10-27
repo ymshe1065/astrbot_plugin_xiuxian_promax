@@ -99,6 +99,9 @@ class AuctionManager:
         if price <= 0:
             return False, "❌ 单价必须大于 0。"
 
+        # 锁内重读最新角色，避免旧快照导致同一份物品被重复上架
+        player = await self.db.get_player_by_id(player.user_id) or player
+
         pm = self._pill_manager()
         pill_key = None
         if pm:
@@ -149,7 +152,8 @@ class AuctionManager:
                 return False, f"❌ 你的储物戒中没有可上架的【{item_name}】装备实例。"
             inst = sorted(insts, key=lambda x: int(x.get("id", 0) or 0))[0]
             quality = inst.get("quality", "一般")
-            im.move(player, int(inst["id"]), "auction")
+            if not im.move(player, int(inst["id"]), "auction"):
+                return False, "❌ 装备实例状态异常，上架失败。"
             await self.db.update_player(player)
 
             now = int(time.time())
@@ -454,6 +458,8 @@ class AuctionManager:
                 return False, "❌ 该问价不存在或已结束。"
             offer = dict(row)
 
+            player = await self.db.get_player_by_id(player.user_id) or player
+
             if offer["seller_id"] != player.user_id:
                 await self.db.conn.rollback()
                 return False, "❌ 只能处理自己的NPC问价。"
@@ -487,9 +493,10 @@ class AuctionManager:
 
             if item.get("item_kind") == "equipment":
                 im = self._instance_manager()
-                if im:
-                    im.remove(player, int(item.get("instance_id", 0) or 0))
-                    await self.db.update_player(player, commit=False)
+                if not im or not im.remove(player, int(item.get("instance_id", 0) or 0)):
+                    await self.db.conn.rollback()
+                    return False, "❌ 装备实例已不存在，交易取消，请联系管理员。"
+                await self.db.update_player(player, commit=False)
 
             total = offer["offer_price"] * item["count"]
             await self.db.add_player_gold(player.user_id, total, commit=False)
@@ -578,6 +585,12 @@ class AuctionManager:
                 await self.db.conn.rollback()
                 return False, "❌ 不能购买自己上架的物品，如需撤回请使用下架功能。"
 
+            # 事务内重读买家，避免旧快照在并发购买时被重复使用（灵石凭空多付）
+            buyer = await self.db.get_player_by_id(buyer.user_id)
+            if not buyer:
+                await self.db.conn.rollback()
+                return False, "❌ 买家数据不存在，交易取消。"
+
             total_price = item_data["price"] * item_data["count"]
             if buyer.gold < total_price:
                 await self.db.conn.rollback()
@@ -626,12 +639,9 @@ class AuctionManager:
             buyer.gold -= total_price
             await self.db.update_player(buyer, commit=False)
 
-            # 4. 给卖家打款（扣除 5% 交易税）
-            seller = await self.db.get_player_by_id(item_data["seller_id"])
-            if seller:
-                seller_income = int(total_price * (1 - self.TAX_RATE))
-                seller.gold += seller_income
-                await self.db.update_player(seller, commit=False)
+            # 4. 给卖家打款（扣除 5% 交易税）；原子增量，避免覆盖卖家并发修改
+            seller_income = int(total_price * (1 - self.TAX_RATE))
+            await self.db.add_player_gold(item_data["seller_id"], seller_income, commit=False)
 
             # 5. 从坊市和NPC问价中移除该记录
             await self.db.conn.execute("DELETE FROM auction_npc_offers WHERE auction_id = ?", (auction_id,))
@@ -651,6 +661,7 @@ class AuctionManager:
         """下架物品"""
         await self.db.conn.execute("BEGIN IMMEDIATE")
         try:
+            player = await self.db.get_player_by_id(player.user_id) or player
             async with self.db.conn.execute("SELECT * FROM auction_items WHERE id = ?", (auction_id,)) as cursor:
                 row = await cursor.fetchone()
                 if not row:

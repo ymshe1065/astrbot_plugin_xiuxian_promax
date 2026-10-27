@@ -689,6 +689,23 @@ class PillManager:
         player.max_blood_qi = kept(player.max_blood_qi)
         player.blood_qi = player.max_blood_qi
 
+        # 永久丹药增益记录同步缩放，否则复活后旧记录仍占满 30% 上限，无法继续吃永久丹
+        try:
+            permanent_gains = player.get_permanent_pill_gains()
+            for gains in permanent_gains.values():
+                if not isinstance(gains, dict):
+                    continue
+                for attr_key in (
+                    "physical_damage", "magic_damage", "physical_defense",
+                    "magic_defense", "mental_power", "lifespan",
+                    "max_spiritual_qi", "max_blood_qi",
+                ):
+                    if attr_key in gains:
+                        gains[attr_key] = kept(int(gains.get(attr_key, 0) or 0))
+            player.set_permanent_pill_gains(permanent_gains)
+        except Exception:
+            pass
+
         self._ensure_non_negative_attributes(player)
         await self.db.update_player(player)
         return True
@@ -912,4 +929,5 @@ class PillManager:
                 gain["death_protection_multiplier"] = 1.0
 
         player.set_permanent_pill_gains({})
+        self._ensure_non_negative_attributes(player)
         return changed

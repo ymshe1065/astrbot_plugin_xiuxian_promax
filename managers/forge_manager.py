@@ -79,23 +79,39 @@ class ForgeManager:
             await self.db.update_player(player)
             return False, f"💥 炼器失败！由于火候不佳，消耗了材料和灵石，但等级未提升（当前 +{current_level}）。{skill_note}"
 
-    async def wash_equipment(self, player: Player) -> Tuple[bool, str]:
-        """洗练装备词条（优先绑定当前武器/防具实例）"""
+    async def wash_equipment(self, player: Player, slot: str = "") -> Tuple[bool, str]:
+        """洗练装备词条（可用 slot 指定武器/防具，默认优先武器）"""
         data = self._get_bonus_data(player)
         im = ItemInstanceManager(self.db, self.config_manager)
         equipped_map = player.get_equipped_instances()
+
+        normalized_slot = (slot or "").strip().lower()
+        slot_aliases = {
+            "武器": "weapon", "weapon": "weapon",
+            "防具": "armor", "armor": "armor",
+        }
+        if normalized_slot and normalized_slot not in slot_aliases:
+            return False, "❌ 请指定洗练部位：/洗练 武器 或 /洗练 防具"
+        requested_slot = slot_aliases.get(normalized_slot)
+        slots = [requested_slot] if requested_slot else ["weapon", "armor"]
+
         target_instance = None
-        for slot in ("weapon", "armor"):
-            inst = im.get_instance(player, equipped_map.get(slot, 0))
+        for slot_key in slots:
+            inst = im.get_instance(player, equipped_map.get(slot_key, 0))
             if inst:
                 target_instance = inst
                 break
-        
+
+        if requested_slot and not target_instance:
+            return False, "❌ 该部位没有已装备的装备实例，无法洗练。"
+
         # 每次洗练消耗一个洗练石
         if not self.storage_ring_mgr.has_item(player, "洗练石", 1):
             return False, "❌ 你的储物戒里没有【洗练石】。"
             
-        await self.storage_ring_mgr.retrieve_item(player, "洗练石", 1)
+        ok, msg = await self.storage_ring_mgr.retrieve_item(player, "洗练石", 1)
+        if not ok:
+            return False, f"❌ 扣除洗练石失败：{msg}"
         
         # 随机抽取一个新词条
         new_affix = random.choice(self.AFFIX_POOL).copy()

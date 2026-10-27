@@ -217,7 +217,10 @@ class SectShopHandler:
             pill_key = f"{item_name}|一般"
             inventory[pill_key] = inventory.get(pill_key, 0) + 1
             player.set_pills_inventory(inventory)
-            await self.db.update_player(player)
+            # 只写丹药字段，避免用旧快照把刚原子扣除的贡献回滚
+            await self.db.update_player_fields(
+                player.user_id, pills_inventory=player.pills_inventory
+            )
             set_event_flag(event, "sect_shop_buy", True)
             yield event.plain_result(
                 f"✅ 兑换成功：{item_name}·一般 x1，已放入丹药背包。\n"

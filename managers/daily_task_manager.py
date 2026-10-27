@@ -2,6 +2,7 @@
 import random
 import time
 import json
+import hashlib
 from typing import Tuple, List, Dict
 from ..data import DataBase
 from ..models import Player
@@ -62,7 +63,8 @@ class DailyTaskManager:
         pool = self.TASK_POOL.get(level, [])
         if not pool:
             return []
-        rng = _random.Random(self._daily_seed(user_id) + hash(level) % 10000)
+        level_seed = int(hashlib.md5(level.encode()).hexdigest()[:8], 16)
+        rng = _random.Random(self._daily_seed(user_id) + level_seed)
         idx = rng.sample(range(len(pool)), min(picks, len(pool)))
         return [(i, pool[i]) for i in idx]
 
@@ -217,10 +219,11 @@ class DailyTaskManager:
         # 开启事务锁
         await self.db.conn.execute("BEGIN IMMEDIATE")
         try:
-            # 事务内重新查询任务状态，确保是最新的
+            now = int(time.time())
+            # 事务内重新查询任务状态，确保是最新的；过期任务不允许结算
             async with self.db.conn.execute(
-                "SELECT * FROM daily_tasks WHERE user_id = ? AND status = 2", 
-                (player.user_id,)
+                "SELECT * FROM daily_tasks WHERE user_id = ? AND status = 2 AND expire_time >= ?",
+                (player.user_id, now)
             ) as cursor:
                 completed_tasks = [dict(r) for r in await cursor.fetchall()]
             
@@ -235,8 +238,8 @@ class DailyTaskManager:
             for task in completed_tasks:
                 # 更新任务状态，并校验是否真的更新成功（防止其他协程抢先修改）
                 cursor_update = await self.db.conn.execute(
-                    "UPDATE daily_tasks SET status = 3 WHERE id = ? AND status = 2", 
-                    (task["id"],)
+                    "UPDATE daily_tasks SET status = 3 WHERE id = ? AND status = 2 AND expire_time >= ?",
+                    (task["id"], now)
                 )
                 if cursor_update.rowcount == 0:
                     # 如果受影响行数为0，说明在事务期间状态被改了（极端并发情况）

@@ -100,15 +100,16 @@ class RobberyManager:
             attacker.karma = (getattr(attacker, "karma", 0) or 0) - 1  # 行窃增加业力
             await self.db.update_player(attacker)
 
-            # ===== 只扣掉被偷走的那部分产出 =====
-            # 目标损失 rob_amount 灵石：等价于把收取时间往回拨 rob_amount/gold_per_hour 小时，
-            # 其余挂机产出保留。若剩余不足1小时则直接置为当前时间（损失不超过1小时产出）。
+            # ===== 只扣掉被偷走的那部分可领取产出 =====
+            # 洞天最多累计 24 小时：若目标已挂机超过 24 小时，超出部分本来就会溢出，
+            # 必须从“可领取窗口”里扣除，否则偷窃相当于凭空印钞。
             effective_rate = gold_per_hour * output_mult
             stolen_hours = rob_amount / effective_rate if effective_rate > 0 else 0
-            if stolen_hours >= hours_passed:
-                new_collect_time = now
-            else:
-                new_collect_time = int(last_collect + stolen_hours * 3600)
+            remaining_hours = max(0.0, pending_hours - stolen_hours)
+            new_collect_time = max(
+                int(last_collect + stolen_hours * 3600),
+                int(now - remaining_hours * 3600),
+            )
             await self.db.conn.execute(
                 "UPDATE blessed_lands SET last_collect_time = ? WHERE user_id = ?",
                 (new_collect_time, target_id)

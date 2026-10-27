@@ -209,7 +209,6 @@ class AdventureManager:
             lines.append(f"💡 共 {len(available)} 条路线可用（全服共 {len(self.routes)} 条）")
             lines.append("💡 使用 /开始历练 <路线名> 出发（如 /开始历练 云游四方）")
             return False, "\n".join(lines)
-            return False, "\n".join(lines)
 
         route_key = self._resolve_route(route_token)
         route = self.routes.get(route_key)
@@ -464,7 +463,8 @@ class AdventureManager:
         if not token:
             return self.default_route_key
         normalized = token.strip().lower()
-        return self.route_alias_index.get(normalized, self.default_route_key)
+        # 未知路线返回空值，由调用方报错；不要静默回退到默认路线
+        return self.route_alias_index.get(normalized, "")
 
     def _trigger_route_event(self, route: dict) -> dict:
         weights = route.get("event_weights", {})

@@ -408,8 +408,8 @@ class StorageRingHandler:
 
         await self.db.conn.execute("BEGIN IMMEDIATE")
         try:
-            # 事务内重新获取请求
-            gift = await self.db.ext.get_pending_gift(user_id)
+            # 事务内重新获取请求（不触发内部 commit 的过期清理）
+            gift = await self.db.ext.get_pending_gift(user_id, cleanup=False)
             if not gift:
                 await self.db.conn.rollback()
                 yield event.plain_result("你没有待接收的赠予物品")

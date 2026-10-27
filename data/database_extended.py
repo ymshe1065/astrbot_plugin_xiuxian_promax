@@ -844,13 +844,16 @@ class DatabaseExtended:
             row = await cursor.fetchone()
             return row[0] if row else None
     
-    async def get_pending_gift(self, receiver_id: str) -> Optional[dict]:
-        """获取接收者的待处理赠予请求（最新的一个）"""
+    async def get_pending_gift(self, receiver_id: str, cleanup: bool = True) -> Optional[dict]:
+        """获取接收者的待处理赠予请求（最新的一个）。
+
+        cleanup=False 用于外层已开启事务的接收流程，避免过期清理内部 commit 破坏原子性。
+        """
         import time
         now = int(time.time())
         
-        # 先清理过期的请求
-        await self.cleanup_expired_gifts()
+        if cleanup:
+            await self.cleanup_expired_gifts()
         
         async with self.conn.execute(
             """
@@ -1010,18 +1013,18 @@ class DatabaseExtended:
         if rows:
             await self.conn.commit()
 
-    async def return_gifts_for_receiver(self, receiver_id: str):
+    async def return_gifts_for_receiver(self, receiver_id: str, commit: bool = True):
         """接收者被删除/弃道前，把待接收赠予退回发送者。"""
         async with self.conn.execute(
             "SELECT id, sender_id, item_name, count, item_kind, item_quality, instance_id "
             "FROM pending_gifts WHERE receiver_id = ?",
-            (receiver_id,),
+            (receiver_id,)
         ) as cursor:
             rows = [dict(r) for r in await cursor.fetchall()]
         for gift in rows:
             await self._return_gift_to_sender(gift)
             await self.conn.execute("DELETE FROM pending_gifts WHERE id = ?", (gift["id"],))
-        if rows:
+        if rows and commit:
             await self.conn.commit()
     
     # ===== Phase 3: 银行贷款系统 CRUD =====
@@ -1189,9 +1192,11 @@ class DatabaseExtended:
 
     async def add_task_progress(self, user_id: str, target_type: str, count: int = 1):
         """增加任务进度（供其他 Manager 调用的接口）"""
+        import time as _time
+        now = int(_time.time())
         async with self.conn.execute(
-            "SELECT * FROM daily_tasks WHERE user_id = ? AND target_type = ? AND status = 1",
-            (user_id, target_type)
+            "SELECT * FROM daily_tasks WHERE user_id = ? AND target_type = ? AND status = 1 AND expire_time >= ?",
+            (user_id, target_type, now)
         ) as cursor:
             tasks = await cursor.fetchall()
             

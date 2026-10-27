@@ -416,6 +416,17 @@ class RaidManager:
         if not damages:
             return "🏯 团本已通关，但无人造成有效伤害，奖励作废。"
 
+        # 断线补结算时没有传 killer：以最后一次攻击者作为尾刀者，避免斩首奖励丢失
+        if not killer_id:
+            async with self.db.conn.execute(
+                "SELECT user_id FROM world_boss_raid_damage WHERE raid_id = ? "
+                "ORDER BY last_attack_time DESC LIMIT 1",
+                (raid_id,),
+            ) as cursor:
+                killer_row = await cursor.fetchone()
+            if killer_row:
+                killer_id = str(killer_row[0])
+
         type_cfg = self._type_cfg(raid)
         diff = int(raid.get("difficulty") or type_cfg.get("difficulty", 1) or 1)
         reward_cfg = self._rewards.get(diff, self._rewards.get(1, {}))
