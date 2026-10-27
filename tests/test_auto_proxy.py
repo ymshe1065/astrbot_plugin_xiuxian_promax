@@ -244,14 +244,38 @@ class TestAutoProxy(unittest.IsolatedAsyncioTestCase):
             results.append(result)
         return results
 
-    async def test_disable_requires_explicit_scope(self):
+    async def _handle_enable(self, task: str):
+        handlers = _imp("handlers.auto_proxy_handlers").AutoProxyHandlers(self.db, self.manager)
+
+        class FakeEvent:
+            unified_msg_origin = "umo://group"
+
+            def get_sender_id(self):
+                return "u1"
+
+            def plain_result(self, text):
+                return text
+
+        results = []
+        async for result in handlers.handle_enable(FakeEvent(), task):
+            results.append(result)
+        return results
+
+    async def test_disable_without_scope_closes_all(self):
         self.assertTrue((await self.manager.enable("u1", "umo://group", "押镖"))[0])
         results = await self._handle_disable("")
-        self.assertIn("请指定", results[0])
-        self.assertEqual((await self.db.ext.get_auto_proxy("u1"))["enabled"], 1)
+        self.assertIn("全部关闭", results[0])
+        self.assertEqual((await self.db.ext.get_auto_proxy("u1"))["enabled"], 0)
 
+        self.assertTrue((await self.manager.enable("u1", "umo://group", "押镖"))[0])
         results = await self._handle_disable("押镖")
         self.assertIn("自动代理已关闭", results[0])
+        self.assertEqual((await self.db.ext.get_auto_proxy("u1"))["enabled"], 0)
+
+    async def test_auto_proxy_off_alias_closes_all(self):
+        self.assertTrue((await self.manager.enable("u1", "umo://group", "押镖"))[0])
+        results = await self._handle_enable("关闭")
+        self.assertIn("全部关闭", results[0])
         self.assertEqual((await self.db.ext.get_auto_proxy("u1"))["enabled"], 0)
 
     async def test_finish_side_effects(self):

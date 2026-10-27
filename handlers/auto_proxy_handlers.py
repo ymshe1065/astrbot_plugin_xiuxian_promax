@@ -23,7 +23,7 @@ class AutoProxyHandlers:
         raw = (task or "").strip()
 
         if raw.lower() in ("关闭", "停止", "off", "stop"):
-            async for r in self.handle_disable(event):
+            async for r in self.handle_disable(event, "全部"):
                 yield r
             return
         if raw.lower() in ("状态", "status"):
@@ -34,19 +34,17 @@ class AutoProxyHandlers:
         yield event.plain_result(msg)
 
     async def handle_disable(self, event: AstrMessageEvent, args: str = ""):
-        """关闭自动代理；必须指定押镖/宗门任务/灵田/全部"""
+        """关闭自动代理；不填默认全部关闭，也可指定押镖/宗门任务/灵田。"""
         user_id = event.get_sender_id()
-        raw = (args or "").strip()
+        raw = (args or "").strip() or "全部"
         usage = (
-            "❌ 请指定要关闭的代理内容。\n"
+            "❌ 无法识别要关闭的代理内容。\n"
+            "💡 /关闭代理（不填=全部关闭）\n"
             "💡 /关闭代理 押镖\n"
             "💡 /关闭代理 宗门任务\n"
             "💡 /关闭代理 灵田 [格号...]\n"
             "💡 /关闭代理 全部"
         )
-        if not raw:
-            yield event.plain_result(usage)
-            return
         if raw.lower() in ("全部", "所有", "all"):
             was_enabled = await self.proxy_mgr.disable(user_id, "manual_close")
             if was_enabled:
