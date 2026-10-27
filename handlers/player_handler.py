@@ -288,8 +288,10 @@ class PlayerHandler:
                 elif player.sect_position == 3: position_name = "内门弟子"
                 else: position_name = "外门弟子"
         
-        weapon_name = player.weapon if player.weapon else "无"
-        armor_name = player.armor if player.armor else "无"
+        from ..core.item_rules import ItemRules
+        gear_rows = [(ItemRules.SLOT_LABELS[slot], name or "无")
+                     for slot, (name, _) in equipment_manager.get_gear_slots(player).items()]
+        gear_text = "".join(f"  {label}：{name}\n" for label, name in gear_rows)
         technique_name = player.main_technique if player.main_technique else "无"
         
         dao_hao = player.user_name if player.user_name else display_name
@@ -355,7 +357,7 @@ class PlayerHandler:
         reply_msg += (
             f"【装备与宗门】\n"
             f"  主修心法：{technique_name}\n"
-            f"  法器：{weapon_name} | 防具：{armor_name}\n"
+            f"{gear_text}"
             f"  宗门：{sect_name} | 职位：{position_name}\n"
         )
         
@@ -459,8 +461,7 @@ class PlayerHandler:
                             ("五行", element_name),
                         ]},
                         {"name": "装备与宗门", "rows": [
-                            ("法器", weapon_name),
-                            ("防具", armor_name),
+                            *gear_rows,
                             ("主修心法", technique_name),
                             ("宗门", sect_name),
                             ("职位", position_name),

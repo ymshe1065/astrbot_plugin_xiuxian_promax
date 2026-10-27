@@ -116,20 +116,11 @@ class GambleManager:
         }.get(item_type, item_type or "物品")
 
     def _black_market_effect(self, data: dict) -> str:
-        desc = data.get("description") or ""
-        if desc:
-            return desc[:50] + ("..." if len(desc) > 50 else "")
-        attrs = []
-        for key, label in (
-            ("physical_damage", "物伤"),
-            ("magic_damage", "法伤"),
-            ("physical_defense", "物防"),
-            ("magic_defense", "法防"),
-            ("mental_power", "精神力"),
-        ):
-            if data.get(key, 0):
-                attrs.append(f"{label}+{data[key]}")
-        return "、".join(attrs[:4])
+        from ..core.shop_manager import ShopManager
+        return "；".join(ShopManager({}, self.config_manager).get_trade_details({
+            "name": data.get("name", "未知物品"), "data": data,
+            "price": data.get("price", 0), "rank": data.get("rank", "凡品"),
+        }))
 
     def _get_black_market_items(self):
         """按小时生成黑市商品；同一小时展示与购买一致。"""

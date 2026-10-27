@@ -82,10 +82,17 @@ class RecoveryManager:
                 names = list(player.get_techniques_list()) if hasattr(player, "get_techniques_list") else []
                 if getattr(player, "main_technique", ""):
                     names.append(player.main_technique)
-                if getattr(player, "weapon", ""):
-                    names.append(player.weapon)
-                if getattr(player, "armor", ""):
-                    names.append(player.armor)
+                try:
+                    from ..core.equipment_manager import EquipmentManager
+                    manager = EquipmentManager(None, self.config_manager)
+                    for name, _inst in manager.get_gear_slots(player).values():
+                        if name:
+                            names.append(name)
+                except Exception:
+                    if getattr(player, "weapon", ""):
+                        names.append(player.weapon)
+                    if getattr(player, "armor", ""):
+                        names.append(player.armor)
                 for name in dict.fromkeys(names):
                     data = techniques_data.get(name) or items_data.get(name) or weapons_data.get(name) or {}
                     effects = data.get("effects") or {}

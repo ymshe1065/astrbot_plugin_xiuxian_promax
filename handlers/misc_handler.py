@@ -11,13 +11,15 @@ except ImportError:
     import logging
     logger = logging.getLogger("xiuxian.misc_handler")
 
-from ..utils.static_pages import build_help_text
+from ..utils.static_pages import build_help_text, HELP_VERSION
 from .utils import player_required, with_player_lock, set_event_flag
 
 __all__ = ["MiscHandler"]
 
 class MiscHandler:
     """杂项指令处理器 - 提供帮助信息、一键日常与强制解卡"""
+
+    VERSION = HELP_VERSION  # v6.32.6：交易详情与八部位装备
 
     def __init__(self, db: DataBase, config: dict = None):
         self.db = db

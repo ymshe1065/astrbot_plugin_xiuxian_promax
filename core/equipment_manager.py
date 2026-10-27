@@ -61,19 +61,12 @@ class EquipmentManager:
         except Exception:
             pass
 
-        # 4. 读取武器自带特效
-        if player.weapon:
-            weapon_config = self.config_manager.weapons_data.get(player.weapon) or self.config_manager.items_data.get(player.weapon)
-            if weapon_config and "effects" in weapon_config:
-                for k, v in weapon_config["effects"].items():
-                    if k in effects: effects[k] += v
-                        
-        # 5. 读取防具自带特效
-        if player.armor:
-            armor_config = self.config_manager.items_data.get(player.armor) or self.config_manager.weapons_data.get(player.armor)
-            if armor_config and "effects" in armor_config:
-                for k, v in armor_config["effects"].items():
-                    if k in effects: effects[k] += v
+        # 每个穿戴部位的固有特效都参与战斗。
+        for name, _ in self.get_gear_slots(player).values():
+            cfg = items_data.get(name) or (getattr(self.config_manager, "weapons_data", {}) or {}).get(name, {})
+            for key, value in cfg.get("effects", {}).items():
+                if key in effects:
+                    effects[key] += value
 
         # 6. 装备实例词条
         for instance_id in player.get_equipped_instances().values():
@@ -124,18 +117,23 @@ class EquipmentManager:
             spiritual_qi=item_config.get("spiritual_qi", 0), blood_qi=item_config.get("blood_qi", 0)
         )
 
+    def get_gear_slots(self, player: Player) -> dict:
+        """槽位以实例映射为准；兼容旧武器、防具名称字段。"""
+        result = {}
+        mapping = player.get_equipped_instances()
+        for slot in ItemRules.SLOT_LABELS:
+            inst = self.instance_manager.get_instance(player, mapping.get(slot, 0))
+            name = inst.get("name", "") if inst else getattr(player, slot, "") if slot in ("weapon", "armor") else ""
+            result[slot] = (name, inst)
+        return result
+
     def get_equipped_items(self, player: Player, items_data: dict, weapons_data: dict = None) -> List[Item]:
-        """获取玩家所有已装备的物品"""
+        """汇总八个装备槽位、主修心法和功法。"""
         equipped = []
-        equipped_map = player.get_equipped_instances()
-        if player.weapon:
-            inst = self.instance_manager.get_instance(player, equipped_map.get("weapon", 0))
-            item = self.parse_item_from_name(player.weapon, items_data, weapons_data, inst)
-            if item: equipped.append(item)
-        if player.armor:
-            inst = self.instance_manager.get_instance(player, equipped_map.get("armor", 0))
-            item = self.parse_item_from_name(player.armor, items_data, weapons_data, inst)
-            if item: equipped.append(item)
+        for name, inst in self.get_gear_slots(player).values():
+            item = self.parse_item_from_name(name, items_data, weapons_data, inst)
+            if item:
+                equipped.append(item)
         if player.main_technique:
             item = self.parse_item_from_name(player.main_technique, self.config_manager.techniques_data, items_data)
             if item: equipped.append(item)
@@ -173,38 +171,46 @@ class EquipmentManager:
             return f"境界{level_index}"
         return " / ".join(names)
 
-    async def equip_item(self, player: Player, item: Item, instance_id: int = 0) -> tuple[bool, str]:
+    async def equip_item(self, player: Player, item: Item, instance_id: int = 0, target_slot: str = "") -> tuple[bool, str]:
         """装备物品（支持装备实例）"""
         can_equip, error_msg = self.check_equipment_level_requirement(player, item)
         if not can_equip:
             return False, error_msg
 
-        if item.item_type in ("weapon", "armor"):
-            slot = "weapon" if item.item_type == "weapon" else "armor"
-            field = "weapon" if slot == "weapon" else "armor"
-            old_item = getattr(player, field)
-            equipped_map = player.get_equipped_instances()
-            old_instance_id = equipped_map.get(slot, 0)
-            if old_instance_id:
-                self.instance_manager.move(player, old_instance_id, "storage")
+        if item.item_type in ItemRules.GEAR_TYPES:
+            slot = ItemRules.SLOT_BY_TYPE[item.item_type]
+            slot = "armor" if slot == "body" else slot
+            mapping = player.get_equipped_instances()
+            if item.item_type == "ring" and not target_slot:
+                slot = next((key for key in ("ring1", "ring2") if not mapping.get(key)), "ring1")
+            if target_slot:
+                requested = ItemRules.SLOT_ALIASES.get(target_slot)
+                allowed = ("ring1", "ring2") if item.item_type == "ring" else (slot,)
+                if requested not in allowed:
+                    return False, "装备与指定部位不匹配。"
+                slot = requested
+            # 先验证新实例，避免失败时把旧装备移走。
+            inst = self.instance_manager.get_instance(player, instance_id) if instance_id else None
+            if instance_id and (not inst or inst.get("name") != item.name or inst.get("location") != "storage"):
+                return False, "❌ 装备实例不可用，已取消换装。"
+            old_item, old_inst = self.get_gear_slots(player)[slot]
+            if old_inst:
+                self.instance_manager.move(player, old_inst["id"], "storage")
             elif old_item:
-                store_ok, store_fail_msg = await self._try_store_old_equipment(player, old_item)
-                if not store_ok:
-                    return False, f"储物戒空间不足，无法回收旧装备【{old_item}】，已取消换装。请先清理储物戒。\n{store_fail_msg}"
-            setattr(player, field, item.name)
-            if instance_id:
-                if not self.instance_manager.move(player, instance_id, "equipped", slot):
-                    return False, "❌ 装备实例不存在，已取消换装。"
-                equipped_map = player.get_equipped_instances()
-                equipped_map[slot] = int(instance_id)
-            else:
-                equipped_map.pop(slot, None)
-            player.set_equipped_instances(equipped_map)
+                ok, msg = await self._try_store_old_equipment(player, old_item)
+                if not ok:
+                    return False, msg
+            if not inst:
+                inst = self.instance_manager.create_instances(player, item.name)[0]
+            self.instance_manager.move(player, inst["id"], "equipped", slot)
+            mapping[slot] = int(inst["id"])
+            player.set_equipped_instances(mapping)
+            if slot in ("weapon", "armor"):
+                setattr(player, slot, item.name)
             await self.db.update_player(player)
-            label = "武器" if slot == "weapon" else "防具"
-            if old_item:
-                return True, f"已将【{old_item}】替换为【{item.name}】（{item.rank}）\n旧装备已存入储物戒\n已装备{label}【{item.name}】"
-            return True, f"已装备{label}【{item.name}】（{item.rank}）"
+            label = ItemRules.SLOT_LABELS[slot]
+            prefix = f"旧装备【{old_item}】已存入储物戒\n" if old_item else ""
+            return True, f"{prefix}已装备{label}【{item.name}】（{item.rank}）"
 
         elif item.item_type == "main_technique":
             old_item = player.main_technique
@@ -233,28 +239,26 @@ class EquipmentManager:
 
     async def unequip_item(self, player: Player, slot_or_name: str) -> tuple[bool, str]:
         """卸下装备"""
-        if slot_or_name in ["武器", "weapon"]:
-            if not player.weapon: return False, "未装备武器"
-            item_name = player.weapon
-            equipped_map = player.get_equipped_instances()
-            inst_id = equipped_map.pop("weapon", 0)
-            if inst_id:
-                self.instance_manager.move(player, inst_id, "storage")
-                player.set_equipped_instances(equipped_map)
-            player.weapon = ""
+        slot = ItemRules.SLOT_ALIASES.get(slot_or_name)
+        if not slot:
+            slot = next((key for key, (name, _) in self.get_gear_slots(player).items() if name == slot_or_name), None)
+        if slot:
+            name, inst = self.get_gear_slots(player)[slot]
+            if not name:
+                return False, f"未装备{ItemRules.SLOT_LABELS[slot]}"
+            if inst:
+                self.instance_manager.move(player, inst["id"], "storage")
+            else:
+                ok, msg = await self._try_store_old_equipment(player, name)
+                if not ok:
+                    return False, msg
+            mapping = player.get_equipped_instances()
+            mapping.pop(slot, None)
+            player.set_equipped_instances(mapping)
+            if slot in ("weapon", "armor"):
+                setattr(player, slot, "")
             await self.db.update_player(player)
-            return True, f"已卸下武器【{item_name}】"
-        elif slot_or_name in ["防具", "armor"]:
-            if not player.armor: return False, "未装备防具"
-            item_name = player.armor
-            equipped_map = player.get_equipped_instances()
-            inst_id = equipped_map.pop("armor", 0)
-            if inst_id:
-                self.instance_manager.move(player, inst_id, "storage")
-                player.set_equipped_instances(equipped_map)
-            player.armor = ""
-            await self.db.update_player(player)
-            return True, f"已卸下防具【{item_name}】"
+            return True, f"已卸下{ItemRules.SLOT_LABELS[slot]}【{name}】，已存入储物戒"
         elif slot_or_name in ["主修心法", "心法", "main_technique"]:
             if not player.main_technique: return False, "未装备主修心法"
             item_name = player.main_technique

@@ -6,7 +6,7 @@ from typing import Dict, Callable, Awaitable
 from astrbot.api import logger
 from ..config_manager import ConfigManager
 
-LATEST_DB_VERSION = 43  # v43: Boss 物法流派
+LATEST_DB_VERSION = 44  # v43: Boss 物法流派 + 装备部位迁移；v44: 双分支合并兜底
 
 MIGRATION_TASKS: Dict[int, Callable[[aiosqlite.Connection, ConfigManager], Awaitable[None]]] = {}
 
@@ -1550,12 +1550,64 @@ async def _migrate_to_v42(conn: aiosqlite.Connection, config_manager: ConfigMana
     logger.info("v42迁移完成：装备实例与溢出字段已确认")
 
 
-@migration(43)
-async def _migrate_to_v43(conn: aiosqlite.Connection, config_manager: ConfigManager):
-    """迁移到 v43 - Boss 物法流派字段。"""
-    logger.info("开始迁移到 v43：Boss 物法流派")
+async def _migrate_boss_archetype_v43(conn: aiosqlite.Connection):
+    """补齐 Boss 物法流派字段（幂等）。"""
     await _add_column_if_missing(
         conn, "boss", "archetype", "TEXT NOT NULL DEFAULT 'balanced'"
     )
+
+
+async def _migrate_equipment_slots_v43(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """将旧防具实例归入具体部位，保持 ID、品质、词条及所有权不变。"""
+    from ..core.item_rules import ItemRules
+    items_data = getattr(config_manager, "items_data", {}) or {}
+    weapons_data = getattr(config_manager, "weapons_data", {}) or {}
+    async with conn.execute(
+        "SELECT user_id, equipment_instances, equipped_instances, armor FROM players"
+    ) as cursor:
+        rows = await cursor.fetchall()
+    for user_id, raw_instances, raw_mapping, armor in rows:
+        instances = json.loads(raw_instances or "[]")
+        mapping = json.loads(raw_mapping or "{}")
+        for inst in instances:
+            cfg = items_data.get(inst.get("name")) or weapons_data.get(inst.get("name"))
+            if cfg:
+                inst["type"] = ItemRules.normalize_equipment_type(cfg)
+        # armor 是历史字段，继续用于甲胄；新部位仅存在 JSON 映射中。
+        old_id = mapping.get("armor")
+        inst = next((x for x in instances if x.get("id") == old_id), None)
+        if inst:
+            slot = ItemRules.SLOT_BY_TYPE.get(inst.get("type"), "body")
+            slot = "armor" if slot == "body" else slot
+            if slot != "armor":
+                mapping.pop("armor", None)
+                armor = ""
+                if mapping.get(slot):
+                    inst.update(location="storage", slot="")
+                else:
+                    mapping[slot] = inst["id"]
+                    inst.update(location="equipped", slot=slot)
+        await conn.execute(
+            "UPDATE players SET equipment_instances=?, equipped_instances=?, armor=? WHERE user_id=?",
+            (json.dumps(instances, ensure_ascii=False), json.dumps(mapping), armor, user_id),
+        )
+
+
+@migration(43)
+async def _migrate_to_v43(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """v43：Boss 物法流派 + 装备部位迁移。"""
+    logger.info("开始迁移到 v43：Boss 流派与装备部位")
+    await _migrate_boss_archetype_v43(conn)
+    await _migrate_equipment_slots_v43(conn, config_manager)
     await conn.commit()
-    logger.info("v43迁移完成：Boss 流派字段已添加")
+    logger.info("v43迁移完成：Boss 流派与装备部位已处理")
+
+
+@migration(44)
+async def _migrate_to_v44(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """v44：双分支合并后的幂等兜底，兼容已经到 v43 的任一分支。"""
+    logger.info("开始迁移到 v44：Boss 流派与装备部位兜底")
+    await _migrate_boss_archetype_v43(conn)
+    await _migrate_equipment_slots_v43(conn, config_manager)
+    await conn.commit()
+    logger.info("v44迁移完成：Boss 流派与装备部位已确认")

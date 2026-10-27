@@ -19,6 +19,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 14,
         "magic_defense": 15
     },
@@ -61,6 +62,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 24,
         "magic_defense": 21
     },
@@ -94,6 +96,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 17,
         "magic_defense": 6
     },
@@ -106,6 +109,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 29,
         "magic_defense": 25
     },
@@ -137,6 +141,7 @@
         "volume": 5,
         "description": "这是一件天阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 25000,
         "magic_defense": 22000,
         "effects": {
@@ -152,6 +157,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 200,
         "magic_defense": 160
     },
@@ -246,6 +252,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 140,
         "magic_defense": 50
     },
@@ -282,6 +289,7 @@
         "volume": 5,
         "description": "这是一件地阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 700,
         "magic_defense": 2400
     },
@@ -330,6 +338,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 7,
         "magic_defense": 9
     },
@@ -342,6 +351,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 21,
         "magic_defense": 28
     },
@@ -560,6 +570,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 25,
         "magic_defense": 27
     },
@@ -619,6 +630,7 @@
         "volume": 5,
         "description": "这是一件地阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 1200,
         "magic_defense": 2700
     },
@@ -642,6 +654,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 8,
         "magic_defense": 24
     },
@@ -700,6 +713,7 @@
         "volume": 5,
         "description": "这是一件天阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 27000,
         "magic_defense": 18000,
         "effects": {
@@ -726,6 +740,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 23,
         "magic_defense": 10
     },
@@ -750,6 +765,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 160,
         "magic_defense": 50
     },
@@ -774,6 +790,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 27,
         "magic_defense": 7
     },
@@ -835,6 +852,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 7,
         "magic_defense": 17
     },
@@ -925,6 +943,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 70,
         "magic_defense": 110
     },
@@ -973,6 +992,7 @@
         "volume": 5,
         "description": "这是一件天阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 28000,
         "magic_defense": 18000,
         "effects": {
@@ -1019,6 +1039,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 29,
         "magic_defense": 10
     },
@@ -1031,6 +1052,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 180,
         "magic_defense": 210
     },
@@ -1043,6 +1065,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 10,
         "magic_defense": 23
     },
@@ -1055,6 +1078,7 @@
         "volume": 5,
         "description": "这是一件地阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 1700,
         "magic_defense": 1200
     },
@@ -1136,6 +1160,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 19,
         "magic_defense": 11
     },
@@ -1160,6 +1185,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 28,
         "magic_defense": 28
     },
@@ -1261,6 +1287,7 @@
         "volume": 5,
         "description": "这是一件地阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 2600,
         "magic_defense": 700
     },
@@ -1300,6 +1327,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 180,
         "magic_defense": 250
     },
@@ -1312,6 +1340,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 11,
         "magic_defense": 8
     },
@@ -1345,6 +1374,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 13,
         "magic_defense": 29
     },
@@ -1512,6 +1542,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 29,
         "magic_defense": 23
     },
@@ -1533,6 +1564,7 @@
         "volume": 5,
         "description": "这是一件地阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 800,
         "magic_defense": 2800
     },
@@ -1556,6 +1588,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 200,
         "magic_defense": 190
     },
@@ -1671,6 +1704,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 23,
         "magic_defense": 19
     },
@@ -1710,6 +1744,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 290,
         "magic_defense": 160
     },
@@ -1839,6 +1874,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 20,
         "magic_defense": 12
     },
@@ -1863,6 +1899,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 220,
         "magic_defense": 190
     },
@@ -1875,6 +1912,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 21,
         "magic_defense": 9
     },
@@ -1887,6 +1925,7 @@
         "volume": 5,
         "description": "这是一件天阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 23000,
         "magic_defense": 19000,
         "effects": {
@@ -2110,6 +2149,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 290,
         "magic_defense": 270
     },
@@ -2170,6 +2210,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 14,
         "magic_defense": 6
     },
@@ -2193,6 +2234,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 16,
         "magic_defense": 8
     },
@@ -2217,6 +2259,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 15,
         "magic_defense": 12
     },
@@ -2229,6 +2272,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 60,
         "magic_defense": 60
     },
@@ -2334,6 +2378,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 240,
         "magic_defense": 280
     },
@@ -2357,6 +2402,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 270,
         "magic_defense": 140
     },
@@ -2369,6 +2415,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 11,
         "magic_defense": 19
     },
@@ -2496,6 +2543,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 6,
         "magic_defense": 7
     },
@@ -2520,6 +2568,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 28,
         "magic_defense": 21
     },
@@ -2553,6 +2602,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 60,
         "magic_defense": 160
     },
@@ -2597,6 +2647,7 @@
         "volume": 5,
         "description": "这是一件地阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 600,
         "magic_defense": 1200
     },
@@ -2621,6 +2672,7 @@
         "volume": 5,
         "description": "这是一件地阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 1700,
         "magic_defense": 2500
     },
@@ -2633,6 +2685,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 130,
         "magic_defense": 130
     },
@@ -2690,6 +2743,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 12,
         "magic_defense": 29
     },
@@ -2748,6 +2802,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 230,
         "magic_defense": 290
     },
@@ -2760,6 +2815,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 17,
         "magic_defense": 9
     },
@@ -2772,6 +2828,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 25,
         "magic_defense": 24
     },
@@ -2784,6 +2841,7 @@
         "volume": 5,
         "description": "这是一件地阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 800,
         "magic_defense": 2000
     },
@@ -2807,6 +2865,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 7,
         "magic_defense": 10
     },
@@ -2920,6 +2979,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 11,
         "magic_defense": 23
     },
@@ -2932,6 +2992,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 200,
         "magic_defense": 250
     },
@@ -3032,6 +3093,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 140,
         "magic_defense": 90
     },
@@ -3044,6 +3106,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 90,
         "magic_defense": 110
     },
@@ -3056,6 +3119,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 18,
         "magic_defense": 22
     },
@@ -3078,6 +3142,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 15,
         "magic_defense": 7
     },
@@ -3189,6 +3254,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 13,
         "magic_defense": 24
     },
@@ -3336,6 +3402,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 26,
         "magic_defense": 9
     },
@@ -3379,6 +3446,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 8,
         "magic_defense": 27
     },
@@ -3426,6 +3494,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 5,
         "magic_defense": 24
     },
@@ -3481,6 +3550,7 @@
         "volume": 5,
         "description": "这是一件天阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 18000,
         "magic_defense": 9000,
         "effects": {
@@ -3550,6 +3620,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 6,
         "magic_defense": 12
     },
@@ -3574,6 +3645,7 @@
         "volume": 5,
         "description": "这是一件地阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 2500,
         "magic_defense": 2600
     },
@@ -3586,6 +3658,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 8,
         "magic_defense": 8
     },
@@ -3662,6 +3735,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 90,
         "magic_defense": 180
     },
@@ -3697,6 +3771,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 21,
         "magic_defense": 14
     },
@@ -3778,6 +3853,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 70,
         "magic_defense": 70
     },
@@ -3892,6 +3968,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 12,
         "magic_defense": 9
     },
@@ -3953,6 +4030,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 24,
         "magic_defense": 17
     },
@@ -3975,6 +4053,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 230,
         "magic_defense": 190
     },
@@ -4080,6 +4159,7 @@
         "volume": 5,
         "description": "这是一件地阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 1100,
         "magic_defense": 1200
     },
@@ -4103,6 +4183,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 200,
         "magic_defense": 130
     },
@@ -4115,6 +4196,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 20,
         "magic_defense": 17
     },
@@ -4192,6 +4274,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 100,
         "magic_defense": 80
     },
@@ -4341,6 +4424,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 290,
         "magic_defense": 150
     },
@@ -4374,6 +4458,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 80,
         "magic_defense": 90
     },
@@ -4487,6 +4572,7 @@
         "volume": 5,
         "description": "这是一件地阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 1000,
         "magic_defense": 1100
     },
@@ -4578,6 +4664,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 80,
         "magic_defense": 70
     },
@@ -4622,6 +4709,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 29,
         "magic_defense": 14
     },
@@ -4634,6 +4722,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 180,
         "magic_defense": 50
     },
@@ -4646,6 +4735,7 @@
         "volume": 5,
         "description": "这是一件地阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 2300,
         "magic_defense": 2600
     },
@@ -4658,6 +4748,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 220,
         "magic_defense": 230
     },
@@ -4679,6 +4770,7 @@
         "volume": 5,
         "description": "这是一件天阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 7000,
         "magic_defense": 16000,
         "effects": {
@@ -4738,6 +4830,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 14,
         "magic_defense": 9
     },
@@ -4761,6 +4854,7 @@
         "volume": 5,
         "description": "这是一件天阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 16000,
         "magic_defense": 16000,
         "effects": {
@@ -4872,6 +4966,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 210,
         "magic_defense": 70
     },
@@ -4905,6 +5000,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 22,
         "magic_defense": 23
     },
@@ -4917,6 +5013,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 21,
         "magic_defense": 15
     },
@@ -4963,6 +5060,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 150,
         "magic_defense": 170
     },
@@ -4997,6 +5095,7 @@
         "volume": 5,
         "description": "这是一件地阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 1600,
         "magic_defense": 1800
     },
@@ -5063,6 +5162,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 24,
         "magic_defense": 19
     },
@@ -5105,6 +5205,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 11,
         "magic_defense": 13
     },
@@ -5140,6 +5241,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 17,
         "magic_defense": 24
     },
@@ -5174,6 +5276,7 @@
         "volume": 5,
         "description": "这是一件地阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 2100,
         "magic_defense": 1100
     },
@@ -5242,6 +5345,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 23,
         "magic_defense": 10
     },
@@ -5308,6 +5412,7 @@
         "volume": 5,
         "description": "这是一件地阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 2500,
         "magic_defense": 600
     },
@@ -5320,6 +5425,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 11,
         "magic_defense": 18
     },
@@ -5344,6 +5450,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 24,
         "magic_defense": 23
     },
@@ -5455,6 +5562,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 17,
         "magic_defense": 14
     },
@@ -5467,6 +5575,7 @@
         "volume": 5,
         "description": "这是一件地阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 2700,
         "magic_defense": 1100
     },
@@ -5592,6 +5701,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 160,
         "magic_defense": 210
     },
@@ -5657,6 +5767,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 5,
         "magic_defense": 6
     },
@@ -5669,6 +5780,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 28,
         "magic_defense": 26
     },
@@ -5690,6 +5802,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 20,
         "magic_defense": 7
     },
@@ -5733,6 +5846,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 80,
         "magic_defense": 200
     },
@@ -5818,6 +5932,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 21,
         "magic_defense": 18
     },
@@ -5876,6 +5991,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 100,
         "magic_defense": 70
     },
@@ -5888,6 +6004,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 160,
         "magic_defense": 190
     },
@@ -6035,6 +6152,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 200,
         "magic_defense": 50
     },
@@ -6207,6 +6325,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 160,
         "magic_defense": 190
     },
@@ -6242,6 +6361,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 180,
         "magic_defense": 60
     },
@@ -6277,6 +6397,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 15,
         "magic_defense": 13
     },
@@ -6379,6 +6500,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 240,
         "magic_defense": 250
     },
@@ -6414,6 +6536,7 @@
         "volume": 5,
         "description": "这是一件地阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 1000,
         "magic_defense": 700
     },
@@ -6438,6 +6561,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 10,
         "magic_defense": 21
     },
@@ -6450,6 +6574,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 10,
         "magic_defense": 13
     },
@@ -6462,6 +6587,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 7,
         "magic_defense": 29
     },
@@ -6508,6 +6634,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 21,
         "magic_defense": 27
     },
@@ -6520,6 +6647,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 170,
         "magic_defense": 220
     },
@@ -6568,6 +6696,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 5,
         "magic_defense": 17
     },
@@ -6604,6 +6733,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 14,
         "magic_defense": 10
     },
@@ -6616,6 +6746,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 22,
         "magic_defense": 17
     },
@@ -6729,6 +6860,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 11,
         "magic_defense": 7
     },
@@ -6741,6 +6873,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 280,
         "magic_defense": 90
     },
@@ -6762,6 +6895,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 19,
         "magic_defense": 16
     },
@@ -6808,6 +6942,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 23,
         "magic_defense": 29
     },
@@ -6820,6 +6955,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 180,
         "magic_defense": 110
     },
@@ -6853,6 +6989,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 18,
         "magic_defense": 28
     },
@@ -6876,6 +7013,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 200,
         "magic_defense": 210
     },
@@ -6900,6 +7038,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 8,
         "magic_defense": 12
     },
@@ -6912,6 +7051,7 @@
         "volume": 5,
         "description": "这是一件地阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 2400,
         "magic_defense": 1200
     },
@@ -6970,6 +7110,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 180,
         "magic_defense": 190
     },
@@ -7008,6 +7149,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 200,
         "magic_defense": 100
     },
@@ -7020,6 +7162,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 130,
         "magic_defense": 240
     },
@@ -7090,6 +7233,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 15,
         "magic_defense": 13
     },
@@ -7160,6 +7304,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 8,
         "magic_defense": 21
     },
@@ -7196,6 +7341,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 8,
         "magic_defense": 26
     },
@@ -7577,6 +7723,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 13,
         "magic_defense": 5
     },
@@ -7640,6 +7787,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 70,
         "magic_defense": 200
     },
@@ -7673,6 +7821,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 22,
         "magic_defense": 15
     },
@@ -7685,6 +7834,7 @@
         "volume": 5,
         "description": "这是一件地阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 2600,
         "magic_defense": 2800
     },
@@ -7721,6 +7871,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 23,
         "magic_defense": 22
     },
@@ -7733,6 +7884,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 22,
         "magic_defense": 12
     },
@@ -7767,6 +7919,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 18,
         "magic_defense": 6
     },
@@ -7822,6 +7975,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 280,
         "magic_defense": 50
     },
@@ -7834,6 +7988,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 14,
         "magic_defense": 14
     },
@@ -7878,6 +8033,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 220,
         "magic_defense": 270
     },
@@ -7926,6 +8082,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 17,
         "magic_defense": 19
     },
@@ -8002,6 +8159,7 @@
         "volume": 5,
         "description": "这是一件地阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 2500,
         "magic_defense": 500
     },
@@ -8073,6 +8231,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 260,
         "magic_defense": 160
     },
@@ -8108,6 +8267,7 @@
         "volume": 5,
         "description": "这是一件地阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 2800,
         "magic_defense": 2400
     },
@@ -8250,6 +8410,7 @@
         "volume": 5,
         "description": "这是一件天阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 16000,
         "magic_defense": 19000,
         "effects": {
@@ -8309,6 +8470,7 @@
         "volume": 5,
         "description": "这是一件地阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 2400,
         "magic_defense": 2300
     },
@@ -8378,6 +8540,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 26,
         "magic_defense": 13
     },
@@ -8439,6 +8602,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 5,
         "magic_defense": 22
     },
@@ -8552,6 +8716,7 @@
         "volume": 5,
         "description": "这是一件地阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 1500,
         "magic_defense": 1100
     },
@@ -8636,6 +8801,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 25,
         "magic_defense": 13
     },
@@ -8766,6 +8932,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 27,
         "magic_defense": 5
     },
@@ -8778,6 +8945,7 @@
         "volume": 5,
         "description": "这是一件地阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 2900,
         "magic_defense": 1600
     },
@@ -8847,6 +9015,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 280,
         "magic_defense": 120
     },
@@ -8936,6 +9105,7 @@
         "volume": 5,
         "description": "这是一件天阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 28000,
         "magic_defense": 14000,
         "effects": {
@@ -8960,6 +9130,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 250,
         "magic_defense": 150
     },
@@ -8983,6 +9154,7 @@
         "volume": 5,
         "description": "这是一件天阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 13000,
         "magic_defense": 21000,
         "effects": {
@@ -8998,6 +9170,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 17,
         "magic_defense": 7
     },
@@ -9044,6 +9217,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 23,
         "magic_defense": 26
     },
@@ -9091,6 +9265,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 120,
         "magic_defense": 130
     },
@@ -9124,6 +9299,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 21,
         "magic_defense": 12
     },
@@ -9172,6 +9348,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 260,
         "magic_defense": 290
     },
@@ -9208,6 +9385,7 @@
         "volume": 5,
         "description": "这是一件天阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 14000,
         "magic_defense": 21000,
         "effects": {
@@ -9345,6 +9523,7 @@
         "volume": 5,
         "description": "这是一件地阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 1100,
         "magic_defense": 900
     },
@@ -9367,6 +9546,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 180,
         "magic_defense": 170
     },
@@ -9379,6 +9559,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 140,
         "magic_defense": 130
     },
@@ -9469,6 +9650,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 16,
         "magic_defense": 27
     },
@@ -9518,6 +9700,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 23,
         "magic_defense": 10
     },
@@ -9622,6 +9805,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 29,
         "magic_defense": 5
     },
@@ -9671,6 +9855,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 22,
         "magic_defense": 11
     },
@@ -9705,6 +9890,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 7,
         "magic_defense": 10
     },
@@ -9717,6 +9903,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 190,
         "magic_defense": 190
     },
@@ -9729,6 +9916,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 170,
         "magic_defense": 120
     },
@@ -9741,6 +9929,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 11,
         "magic_defense": 23
     },
@@ -9829,6 +10018,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 24,
         "magic_defense": 26
     },
@@ -9898,6 +10088,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 290,
         "magic_defense": 70
     },
@@ -9992,6 +10183,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 110,
         "magic_defense": 230
     },
@@ -10085,6 +10277,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 23,
         "magic_defense": 6
     },
@@ -10138,6 +10331,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 110,
         "magic_defense": 170
     },
@@ -10184,6 +10378,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 9,
         "magic_defense": 7
     },
@@ -10273,6 +10468,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 8,
         "magic_defense": 26
     },
@@ -10306,6 +10502,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 13,
         "magic_defense": 24
     },
@@ -10399,6 +10596,7 @@
         "volume": 5,
         "description": "这是一件天阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 23000,
         "magic_defense": 10000,
         "effects": {
@@ -10455,6 +10653,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 220,
         "magic_defense": 160
     },
@@ -10467,6 +10666,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 9,
         "magic_defense": 27
     },
@@ -10521,6 +10721,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 14,
         "magic_defense": 9
     },
@@ -10542,6 +10743,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 9,
         "magic_defense": 8
     },
@@ -10577,6 +10779,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 11,
         "magic_defense": 20
     },
@@ -10672,6 +10875,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 19,
         "magic_defense": 18
     },
@@ -10731,6 +10935,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 23,
         "magic_defense": 21
     },
@@ -10777,6 +10982,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 20,
         "magic_defense": 24
     },
@@ -10967,6 +11173,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 10,
         "magic_defense": 23
     },
@@ -11085,6 +11292,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 9,
         "magic_defense": 7
     },
@@ -11097,6 +11305,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 16,
         "magic_defense": 29
     },
@@ -11146,6 +11355,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 50,
         "magic_defense": 200
     },
@@ -11226,6 +11436,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 14,
         "magic_defense": 12
     },
@@ -11238,6 +11449,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 90,
         "magic_defense": 80
     },
@@ -11310,6 +11522,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 27,
         "magic_defense": 28
     },
@@ -11343,6 +11556,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 19,
         "magic_defense": 9
     },
@@ -11516,6 +11730,7 @@
         "volume": 5,
         "description": "这是一件天阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 7000,
         "magic_defense": 10000,
         "effects": {
@@ -11531,6 +11746,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 220,
         "magic_defense": 280
     },
@@ -11543,6 +11759,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 110,
         "magic_defense": 180
     },
@@ -11576,6 +11793,7 @@
         "volume": 5,
         "description": "这是一件地阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 2700,
         "magic_defense": 1500
     },
@@ -11588,6 +11806,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 80,
         "magic_defense": 250
     },
@@ -11704,6 +11923,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 20,
         "magic_defense": 27
     },
@@ -11728,6 +11948,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 14,
         "magic_defense": 11
     },
@@ -11760,6 +11981,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 11,
         "magic_defense": 7
     },
@@ -11807,6 +12029,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 7,
         "magic_defense": 17
     },
@@ -11838,6 +12061,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 21,
         "magic_defense": 21
     },
@@ -11861,6 +12085,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 160,
         "magic_defense": 160
     },
@@ -11873,6 +12098,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 25,
         "magic_defense": 26
     },
@@ -11897,6 +12123,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 240,
         "magic_defense": 100
     },
@@ -11909,6 +12136,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 23,
         "magic_defense": 25
     },
@@ -12043,6 +12271,7 @@
         "volume": 5,
         "description": "这是一件地阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 2700,
         "magic_defense": 600
     },
@@ -12076,6 +12305,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 22,
         "magic_defense": 23
     },
@@ -12088,6 +12318,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 27,
         "magic_defense": 6
     },
@@ -12110,6 +12341,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 13,
         "magic_defense": 7
     },
@@ -12146,6 +12378,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 150,
         "magic_defense": 140
     },
@@ -12189,6 +12422,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 19,
         "magic_defense": 18
     },
@@ -12299,6 +12533,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 10,
         "magic_defense": 12
     },
@@ -12344,6 +12579,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 22,
         "magic_defense": 20
     },
@@ -12379,6 +12615,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 23,
         "magic_defense": 27
     },
@@ -12479,6 +12716,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 26,
         "magic_defense": 14
     },
@@ -12515,6 +12753,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 19,
         "magic_defense": 6
     },
@@ -12551,6 +12790,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 180,
         "magic_defense": 240
     },
@@ -12655,6 +12895,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 11,
         "magic_defense": 28
     },
@@ -12667,6 +12908,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 230,
         "magic_defense": 170
     },
@@ -12691,6 +12933,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 27,
         "magic_defense": 17
     },
@@ -12806,6 +13049,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 190,
         "magic_defense": 190
     },
@@ -12851,6 +13095,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 8,
         "magic_defense": 29
     },
@@ -12915,6 +13160,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 14,
         "magic_defense": 23
     },
@@ -13004,6 +13250,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 24,
         "magic_defense": 18
     },
@@ -13016,6 +13263,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 24,
         "magic_defense": 26
     },
@@ -13028,6 +13276,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 250,
         "magic_defense": 150
     },
@@ -13085,6 +13334,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 12,
         "magic_defense": 8
     },
@@ -13164,6 +13414,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 21,
         "magic_defense": 27
     },
@@ -13196,6 +13447,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 280,
         "magic_defense": 250
     },
@@ -13219,6 +13471,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 15,
         "magic_defense": 22
     },
@@ -13321,6 +13574,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 14,
         "magic_defense": 9
     },
@@ -13344,6 +13598,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 190,
         "magic_defense": 210
     },
@@ -13453,6 +13708,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 90,
         "magic_defense": 250
     },
@@ -13619,6 +13875,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 90,
         "magic_defense": 50
     },
@@ -13642,6 +13899,7 @@
         "volume": 5,
         "description": "这是一件地阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 2600,
         "magic_defense": 2200
     },
@@ -13665,6 +13923,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 140,
         "magic_defense": 100
     },
@@ -13750,6 +14009,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 25,
         "magic_defense": 10
     },
@@ -13840,6 +14100,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 13,
         "magic_defense": 20
     },
@@ -13864,6 +14125,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 11,
         "magic_defense": 10
     },
@@ -13899,6 +14161,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 13,
         "magic_defense": 19
     },
@@ -13971,6 +14234,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 24,
         "magic_defense": 26
     },
@@ -14177,6 +14441,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 130,
         "magic_defense": 280
     },
@@ -14222,6 +14487,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 25,
         "magic_defense": 6
     },
@@ -14255,6 +14521,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 26,
         "magic_defense": 17
     },
@@ -14291,6 +14558,7 @@
         "volume": 5,
         "description": "这是一件地阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 2700,
         "magic_defense": 2600
     },
@@ -14373,6 +14641,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 130,
         "magic_defense": 180
     },
@@ -14385,6 +14654,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 290,
         "magic_defense": 100
     },
@@ -14397,6 +14667,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 9,
         "magic_defense": 11
     },
@@ -14418,6 +14689,7 @@
         "volume": 5,
         "description": "这是一件天阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 29000,
         "magic_defense": 19000,
         "effects": {
@@ -14433,6 +14705,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 160,
         "magic_defense": 130
     },
@@ -14537,6 +14810,7 @@
         "volume": 5,
         "description": "这是一件地阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 2300,
         "magic_defense": 600
     },
@@ -14561,6 +14835,7 @@
         "volume": 5,
         "description": "这是一件地阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 600,
         "magic_defense": 2400
     },
@@ -14573,6 +14848,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 17,
         "magic_defense": 5
     },
@@ -14595,6 +14871,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 29,
         "magic_defense": 16
     },
@@ -14616,6 +14893,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 23,
         "magic_defense": 26
     },
@@ -14742,6 +15020,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 20,
         "magic_defense": 24
     },
@@ -14754,6 +15033,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 22,
         "magic_defense": 5
     },
@@ -14766,6 +15046,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 7,
         "magic_defense": 27
     },
@@ -14801,6 +15082,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 29,
         "magic_defense": 14
     },
@@ -14836,6 +15118,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 120,
         "magic_defense": 90
     },
@@ -14848,6 +15131,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 290,
         "magic_defense": 140
     },
@@ -14893,6 +15177,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 27,
         "magic_defense": 25
     },
@@ -15108,6 +15393,7 @@
         "volume": 5,
         "description": "这是一件地阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 1200,
         "magic_defense": 1500
     },
@@ -15120,6 +15406,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 28,
         "magic_defense": 24
     },
@@ -15162,6 +15449,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 23,
         "magic_defense": 28
     },
@@ -15230,6 +15518,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 240,
         "magic_defense": 220
     },
@@ -15367,6 +15656,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 110,
         "magic_defense": 90
     },
@@ -15391,6 +15681,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 27,
         "magic_defense": 8
     },
@@ -15446,6 +15737,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 10,
         "magic_defense": 5
     },
@@ -15536,6 +15828,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 13,
         "magic_defense": 17
     },
@@ -15601,6 +15894,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 27,
         "magic_defense": 13
     },
@@ -15613,6 +15907,7 @@
         "volume": 5,
         "description": "这是一件地阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 2900,
         "magic_defense": 1700
     },
@@ -15636,6 +15931,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 15,
         "magic_defense": 28
     },
@@ -15648,6 +15944,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 140,
         "magic_defense": 230
     },
@@ -15839,6 +16136,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 18,
         "magic_defense": 6
     },
@@ -15863,6 +16161,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 190,
         "magic_defense": 180
     },
@@ -15875,6 +16174,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 9,
         "magic_defense": 13
     },
@@ -15898,6 +16198,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 230,
         "magic_defense": 230
     },
@@ -15910,6 +16211,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 90,
         "magic_defense": 130
     },
@@ -15922,6 +16224,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 19,
         "magic_defense": 25
     },
@@ -15965,6 +16268,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 27,
         "magic_defense": 14
     },
@@ -16106,6 +16410,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 22,
         "magic_defense": 8
     },
@@ -16165,6 +16470,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 130,
         "magic_defense": 80
     },
@@ -16177,6 +16483,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 160,
         "magic_defense": 170
     },
@@ -16189,6 +16496,7 @@
         "volume": 5,
         "description": "这是一件地阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 1400,
         "magic_defense": 2000
     },
@@ -16313,6 +16621,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 200,
         "magic_defense": 120
     },
@@ -16325,6 +16634,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 110,
         "magic_defense": 220
     },
@@ -16383,6 +16693,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 20,
         "magic_defense": 21
     },
@@ -16407,6 +16718,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 18,
         "magic_defense": 8
     },
@@ -16430,6 +16742,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 5,
         "magic_defense": 29
     },
@@ -16491,6 +16804,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 29,
         "magic_defense": 14
     },
@@ -16548,6 +16862,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 8,
         "magic_defense": 17
     },
@@ -16584,6 +16899,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 270,
         "magic_defense": 230
     },
@@ -16627,6 +16943,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 21,
         "magic_defense": 15
     },
@@ -16764,6 +17081,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 13,
         "magic_defense": 6
     },
@@ -16922,6 +17240,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "boots",
         "physical_defense": 15,
         "magic_defense": 24
     },
@@ -16976,6 +17295,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 17,
         "magic_defense": 12
     },
@@ -16988,6 +17308,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 5,
         "magic_defense": 19
     },
@@ -17000,6 +17321,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "amulet",
         "physical_defense": 12,
         "magic_defense": 22
     },
@@ -17012,6 +17334,7 @@
         "volume": 5,
         "description": "这是一件黄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "body",
         "physical_defense": 5,
         "magic_defense": 27
     },
@@ -17105,6 +17428,7 @@
         "volume": 5,
         "description": "这是一件玄阶级别的防具，蕴含着天地之力。",
         "subtype": "防具",
+        "equip_slot": "head",
         "physical_defense": 240,
         "magic_defense": 290
     },
@@ -17163,7 +17487,8 @@
         "effects": {
             "natural_hp_regen_bonus": 0.1,
             "rest_hp_regen_bonus": 0.15
-        }
+        },
+        "equip_slot": "weapon"
     },
     "9002": {
         "id": "9002",
@@ -17174,13 +17499,14 @@
         "price": 8000,
         "volume": 5,
         "description": "刻有回春符文的护甲，自然与调息气血恢复提升。",
-        "subtype": "防具",
+        "subtype": "甲胄",
         "physical_defense": 300,
         "magic_defense": 300,
         "effects": {
             "natural_hp_regen_bonus": 0.15,
             "rest_hp_regen_bonus": 0.2
-        }
+        },
+        "equip_slot": "body"
     },
     "9003": {
         "id": "9003",
@@ -17191,13 +17517,14 @@
         "price": 8000,
         "volume": 5,
         "description": "聚灵法袍，真元自然回复和调息恢复更快。",
-        "subtype": "防具",
+        "subtype": "甲胄",
         "physical_defense": 200,
         "magic_defense": 400,
         "effects": {
             "natural_mp_regen_bonus": 0.15,
             "rest_mp_regen_bonus": 0.2
-        }
+        },
+        "equip_slot": "body"
     },
     "9998": {
         "name": "强化石",
@@ -17298,6 +17625,116 @@
         "volume": 1,
         "description": "九叶轮生的珍稀灵芝，是高阶丹药的重要灵植。"
     },
+    "gear_slot_0_0": {
+        "name": "地阶·灵纹手套",
+        "type": "gloves",
+        "rank": "地阶",
+        "shop_weight": 900,
+        "price": 1700,
+        "volume": 5,
+        "description": "地阶灵纹手套，可装备于独立手套槽位。",
+        "subtype": "手套",
+        "physical_defense": 1100,
+        "magic_defense": 900,
+        "equip_slot": "gloves"
+    },
+    "gear_slot_0_1": {
+        "name": "地阶·灵纹戒指",
+        "type": "ring",
+        "rank": "地阶",
+        "shop_weight": 900,
+        "price": 1700,
+        "volume": 5,
+        "description": "地阶灵纹戒指，可装备于独立戒指槽位。",
+        "subtype": "戒指",
+        "physical_defense": 1100,
+        "magic_defense": 900,
+        "equip_slot": "ring"
+    },
+    "gear_slot_1_0": {
+        "name": "天阶·灵纹手套",
+        "type": "gloves",
+        "rank": "天阶",
+        "shop_weight": 1,
+        "price": 19000,
+        "volume": 5,
+        "description": "天阶灵纹手套，可装备于独立手套槽位。",
+        "subtype": "手套",
+        "physical_defense": 28000,
+        "magic_defense": 14000,
+        "effects": {
+            "counter_damage": 20
+        },
+        "equip_slot": "gloves"
+    },
+    "gear_slot_1_1": {
+        "name": "天阶·灵纹戒指",
+        "type": "ring",
+        "rank": "天阶",
+        "shop_weight": 1,
+        "price": 19000,
+        "volume": 5,
+        "description": "天阶灵纹戒指，可装备于独立戒指槽位。",
+        "subtype": "戒指",
+        "physical_defense": 28000,
+        "magic_defense": 14000,
+        "effects": {
+            "counter_damage": 20
+        },
+        "equip_slot": "ring"
+    },
+    "gear_slot_2_0": {
+        "name": "玄阶·灵纹手套",
+        "type": "gloves",
+        "rank": "玄阶",
+        "shop_weight": 990,
+        "price": 100,
+        "volume": 5,
+        "description": "玄阶灵纹手套，可装备于独立手套槽位。",
+        "subtype": "手套",
+        "physical_defense": 170,
+        "magic_defense": 220,
+        "equip_slot": "gloves"
+    },
+    "gear_slot_2_1": {
+        "name": "玄阶·灵纹戒指",
+        "type": "ring",
+        "rank": "玄阶",
+        "shop_weight": 990,
+        "price": 100,
+        "volume": 5,
+        "description": "玄阶灵纹戒指，可装备于独立戒指槽位。",
+        "subtype": "戒指",
+        "physical_defense": 170,
+        "magic_defense": 220,
+        "equip_slot": "ring"
+    },
+    "gear_slot_3_0": {
+        "name": "黄阶·灵纹手套",
+        "type": "gloves",
+        "rank": "黄阶",
+        "shop_weight": 999,
+        "price": 10,
+        "volume": 5,
+        "description": "黄阶灵纹手套，可装备于独立手套槽位。",
+        "subtype": "手套",
+        "physical_defense": 8,
+        "magic_defense": 29,
+        "equip_slot": "gloves"
+    },
+    "gear_slot_3_1": {
+        "name": "黄阶·灵纹戒指",
+        "type": "ring",
+        "rank": "黄阶",
+        "shop_weight": 999,
+        "price": 10,
+        "volume": 5,
+        "description": "黄阶灵纹戒指，可装备于独立戒指槽位。",
+        "subtype": "戒指",
+        "physical_defense": 8,
+        "magic_defense": 29,
+        "equip_slot": "ring"
+    },
     "9004": {
         "id": "9004",
         "name": "长春冠",
@@ -17307,7 +17744,7 @@
         "price": 20000,
         "volume": 5,
         "description": "长春之气流转，气血与真元恢复皆有所增益。",
-        "subtype": "防具",
+        "subtype": "头饰",
         "physical_defense": 500,
         "magic_defense": 500,
         "effects": {
@@ -17315,7 +17752,8 @@
             "natural_mp_regen_bonus": 0.1,
             "rest_hp_regen_bonus": 0.1,
             "rest_mp_regen_bonus": 0.1
-        }
+        },
+        "equip_slot": "head"
     },
     "9005": {
         "id": "9005",
@@ -17326,7 +17764,7 @@
         "price": 80000,
         "volume": 5,
         "description": "灵泉织成的法衣，恢复速度大幅提升。",
-        "subtype": "防具",
+        "subtype": "甲胄",
         "physical_defense": 1000,
         "magic_defense": 1000,
         "effects": {
@@ -17334,7 +17772,8 @@
             "natural_mp_regen_bonus": 0.2,
             "rest_hp_regen_bonus": 0.2,
             "rest_mp_regen_bonus": 0.2
-        }
+        },
+        "equip_slot": "body"
     },
     "9006": {
         "id": "9006",

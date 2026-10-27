@@ -206,46 +206,30 @@ class CombatManager:
         }
         if not config_manager:
             return bonus
+        from ..core.equipment_manager import EquipmentManager
         weapons_data = getattr(config_manager, "weapons_data", {}) or {}
         items_data = getattr(config_manager, "items_data", {}) or {}
-        try:
-            from ..core.item_instance_manager import ItemInstanceManager
-            im = ItemInstanceManager(None, config_manager)
-        except Exception:
-            im = None
-
-        def quality_mult(slot):
-            if not im:
-                return 1.0
-            inst = im.get_instance(player, player.get_equipped_instances().get(slot, 0))
-            return im.quality_multiplier(inst.get("quality", "一般")) if inst else 1.0
-
+        manager = EquipmentManager(None, config_manager)
         physical_share, magic_share = CombatManager.get_attack_profile(
             getattr(player, "cultivation_type", "")
         )
-        if player.weapon:
-            data = weapons_data.get(player.weapon) or items_data.get(player.weapon) or {}
-            q = quality_mult("weapon")
-            generic_atk = int(data.get("atk", 0) or 0) * q
-            physical = int(generic_atk * physical_share) + int(
-                data.get("physical_damage", 0) or 0
-            ) * q
-            magic = int(generic_atk * magic_share) + int(
-                data.get("magic_damage", 0) or 0
-            ) * q
-            physical = int(physical)
-            magic = int(magic)
+        for name, inst in manager.get_gear_slots(player).values():
+            if not name:
+                continue
+            item = manager.parse_item_from_name(name, items_data, weapons_data, inst)
+            if not item:
+                continue
+            cfg = items_data.get(name) or weapons_data.get(name, {})
+            quality = manager.instance_manager.quality_multiplier(inst.get("quality", "一般")) if inst else 1.0
+            generic_atk = int(cfg.get("atk", 0) or 0) * quality
+            physical = int(generic_atk * physical_share) + int(item.physical_damage or 0)
+            magic = int(generic_atk * magic_share) + int(item.magic_damage or 0)
             bonus["physical_atk"] += physical
             bonus["magic_atk"] += magic
             bonus["atk"] += physical + magic
-        if player.armor:
-            data = items_data.get(player.armor) or weapons_data.get(player.armor) or {}
-            q = quality_mult("armor")
-            physical = int(int(data.get("physical_defense", 0) or 0) * q)
-            magic = int(int(data.get("magic_defense", 0) or 0) * q)
-            bonus["physical_defense"] += physical
-            bonus["magic_defense"] += magic
-            bonus["defense"] += physical + magic
+            bonus["physical_defense"] += item.physical_defense
+            bonus["magic_defense"] += item.magic_defense
+            bonus["defense"] += item.physical_defense + item.magic_defense
         return bonus
 
     @staticmethod
@@ -406,19 +390,13 @@ class CombatManager:
                     effects[key] += value
         except Exception:
             pass
+        from ..core.equipment_manager import EquipmentManager
         weapons_data = getattr(config_manager, "weapons_data", {}) or {}
-        if player.weapon:
-            weapon_config = weapons_data.get(player.weapon) or items_data.get(player.weapon)
-            if weapon_config and "effects" in weapon_config:
-                for key, value in weapon_config["effects"].items():
-                    if key in effects:
-                        effects[key] += value
-        if player.armor:
-            armor_config = items_data.get(player.armor) or weapons_data.get(player.armor)
-            if armor_config and "effects" in armor_config:
-                for key, value in armor_config["effects"].items():
-                    if key in effects:
-                        effects[key] += value
+        for name, _ in EquipmentManager(None, config_manager).get_gear_slots(player).values():
+            cfg = items_data.get(name) or weapons_data.get(name, {})
+            for key, value in cfg.get("effects", {}).items():
+                if key in effects:
+                    effects[key] += value
 
         try:
             from ..core.item_instance_manager import ItemInstanceManager

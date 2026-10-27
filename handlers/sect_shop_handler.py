@@ -126,7 +126,7 @@ class SectShopHandler:
                     f"{idx}. [{rank}] {item['name']}（{type_label}）"
                     f" - {price_text}（{status}）"
                 )
-                effect = self.shop_manager._get_item_effect_short(item)
+                effect = "；".join(self.shop_manager.get_trade_details(item))
                 if effect:
                     lines.append(f"   效果：{effect}")
         lines.append("━━━━━━━━━━━━━━━")
@@ -232,7 +232,7 @@ class SectShopHandler:
             )
             return
 
-        if item_type in ("weapon", "armor", "accessory", "technique", "material", "recipe", "符箓", "杂物"):
+        if item_type in ItemRules.EQUIPPABLE_TYPES | {"material", "recipe", "符箓", "杂物"}:
             ok, msg = await self.storage_ring_mgr.store_item(
                 player, item_name, 1, silent=True
             )
