@@ -85,13 +85,13 @@ class Player:
 
     # 战斗属性（HP/MP/ATK系统）
     hp: int = 0  # 当前气血值
-    mp: int = 0  # 当前真元值
+    mp: int = 0  # 灵气兼容别名，正式数据为 spiritual_qi
     atk: int = 0  # 攻击力
     atkpractice: int = 0  # 攻击修炼等级，每级提升4%攻击力
 
     # 灵修/体修专用属性
-    spiritual_qi: int = 100  # 当前灵气（灵修专用）
-    max_spiritual_qi: int = 1000  # 最大灵气容量（灵修专用）
+    spiritual_qi: int = 100  # 当前灵气（统一资源）
+    max_spiritual_qi: int = 1000  # 最大灵气容量
     blood_qi: int = 0  # 当前气血（体修专用）
     max_blood_qi: int = 0  # 最大气血容量（体修专用）
     magic_damage: int = 10  # 法伤

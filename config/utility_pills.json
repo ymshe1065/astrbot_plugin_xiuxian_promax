@@ -1948,61 +1948,61 @@
     {
         "id": "util_149",
         "name": "聚灵散·凡",
-        "description": "恢复10%最大真元",
+        "description": "恢复10%最大灵气",
         "rank": "凡品",
         "subtype": "recovery",
         "required_level_index": 0,
         "price": 1000,
         "effect_type": "instant",
-        "restore_mp_percent": 0.1,
-        "shop_weight": 300
+        "shop_weight": 300,
+        "restore_qi_percent": 0.1
     },
     {
         "id": "util_150",
         "name": "聚灵散·黄",
-        "description": "恢复20%最大真元",
+        "description": "恢复20%最大灵气",
         "rank": "黄阶",
         "subtype": "recovery",
         "required_level_index": 3,
         "price": 3000,
         "effect_type": "instant",
-        "restore_mp_percent": 0.2,
-        "shop_weight": 200
+        "shop_weight": 200,
+        "restore_qi_percent": 0.2
     },
     {
         "id": "util_151",
         "name": "聚灵散·玄",
-        "description": "恢复30%最大真元",
+        "description": "恢复30%最大灵气",
         "rank": "玄阶",
         "subtype": "recovery",
         "required_level_index": 6,
         "price": 10000,
         "effect_type": "instant",
-        "restore_mp_percent": 0.3,
-        "shop_weight": 100
+        "shop_weight": 100,
+        "restore_qi_percent": 0.3
     },
     {
         "id": "util_152",
         "name": "聚灵散·地",
-        "description": "恢复45%最大真元",
+        "description": "恢复45%最大灵气",
         "rank": "地阶",
         "subtype": "recovery",
         "required_level_index": 9,
         "price": 50000,
         "effect_type": "instant",
-        "restore_mp_percent": 0.45,
-        "shop_weight": 50
+        "shop_weight": 50,
+        "restore_qi_percent": 0.45
     },
     {
         "id": "util_153",
         "name": "聚灵散·天",
-        "description": "恢复100%最大真元",
+        "description": "恢复100%最大灵气",
         "rank": "天阶",
         "subtype": "recovery",
         "required_level_index": 12,
         "price": 200000,
         "effect_type": "instant",
-        "restore_mp_percent": 1.0,
-        "shop_weight": 20
+        "shop_weight": 20,
+        "restore_qi_percent": 1.0
     }
 ]

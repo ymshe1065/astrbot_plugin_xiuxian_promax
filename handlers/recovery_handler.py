@@ -32,7 +32,7 @@ class RecoveryHandler:
         if int(cd.type) == int(UserStatus.RESTING):
             yield event.plain_result(
                 "🧘 你正在调息中。\n"
-                "💡 发送 /收功 可以结束调息；气血和真元满时会自动结束。"
+                "💡 发送 /收功 可以结束调息；气血和灵气满时会自动结束。"
             )
             return
         if int(cd.type) != int(UserStatus.IDLE):
@@ -43,8 +43,8 @@ class RecoveryHandler:
         stats = CombatManager.build_player_combat_stats(
             player, self.config_manager, db=self.db
         )
-        if player.hp >= stats.max_hp and player.mp >= stats.max_mp:
-            yield event.plain_result("✅ 你的气血和真元已满，无需调息。")
+        if player.hp >= stats.max_hp and player.spiritual_qi >= stats.max_mp:
+            yield event.plain_result("✅ 你的气血和灵气已满，无需调息。")
             return
 
         now = int(time.time())
@@ -59,8 +59,8 @@ class RecoveryHandler:
         yield event.plain_result(
             "🧘 开始调息\n"
             "━━━━━━━━━━━━━━━\n"
-            "每分钟恢复 5% 最大气血和真元\n"
-            "气血/真元满时自动结束，不设冷却\n"
+            "每分钟恢复 5% 最大气血和灵气\n"
+            "气血/灵气满时自动结束，不设冷却\n"
             "💡 发送 /收功 可提前结束"
         )
 

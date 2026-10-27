@@ -289,7 +289,7 @@ class PillManager:
     def _pill_snapshot(self, player: Player) -> dict:
         attr_keys = (
             "experience", "spiritual_qi", "max_spiritual_qi",
-            "hp", "mp",
+            "hp",
             "blood_qi", "max_blood_qi", "lifespan", "mental_power",
             "physical_damage", "magic_damage",
             "physical_defense", "magic_defense",
@@ -311,7 +311,6 @@ class PillManager:
         labels = (
             ("experience", "修为"),
             ("hp", "战斗气血"),
-            ("mp", "战斗真元"),
             ("spiritual_qi", "灵气"),
             ("max_spiritual_qi", "灵气上限"),
             ("blood_qi", "气血"),
@@ -602,8 +601,12 @@ class PillManager:
                 current_energy = player.blood_qi
                 max_energy = player.max_blood_qi
 
-        # 战斗气血/真元恢复
-        if "restore_hp_percent" in pill_data or "restore_mp_percent" in pill_data:
+        # 战斗气血/灵气恢复
+        if (
+            "restore_hp_percent" in pill_data
+            or "restore_qi_percent" in pill_data
+            or "restore_mp_percent" in pill_data
+        ):
             from ..managers.combat_manager import CombatManager
             stats = CombatManager.build_player_combat_stats(
                 player, self.config_manager, db=self.db
@@ -615,13 +618,18 @@ class PillManager:
                 player.hp = new
                 msg_parts.append(f"🌟 恢复气血：+{max(0, new - old)}")
                 msg_parts.append(f"🩸 当前气血：{player.hp}/{stats.max_hp}")
-            if "restore_mp_percent" in pill_data:
-                pct = max(0.0, min(1.0, float(pill_data.get("restore_mp_percent", 0) or 0) * mult))
-                old = max(0, int(player.mp or 0))
+            qi_percent = pill_data.get("restore_qi_percent")
+            if qi_percent is None:
+                # 兼容旧版“真元”字段
+                qi_percent = pill_data.get("restore_mp_percent")
+            if qi_percent is not None:
+                pct = max(0.0, min(1.0, float(qi_percent or 0) * mult))
+                old = max(0, int(player.spiritual_qi or 0))
                 new = stats.max_mp if pct >= 1.0 else min(stats.max_mp, old + int(stats.max_mp * pct))
+                player.spiritual_qi = new
                 player.mp = new
-                msg_parts.append(f"💠 恢复真元：+{max(0, new - old)}")
-                msg_parts.append(f"💫 当前真元：{player.mp}/{stats.max_mp}")
+                msg_parts.append(f"💠 恢复灵气：+{max(0, new - old)}")
+                msg_parts.append(f"💫 当前灵气：{player.spiritual_qi}/{stats.max_mp}")
 
         if energy_restore is not None:
             if energy_restore == -1:
@@ -639,6 +647,7 @@ class PillManager:
                 msg_parts.append(f"🩸 当前气血：{player.blood_qi}/{player.max_blood_qi}")
             else:
                 player.spiritual_qi = current_energy
+                player.mp = current_energy
                 msg_parts.append(f"🌟 恢复灵气：+{actual_restore}")
                 msg_parts.append(f"💫 当前灵气：{player.spiritual_qi}/{player.max_spiritual_qi}")
 

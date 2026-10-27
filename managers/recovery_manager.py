@@ -1,5 +1,5 @@
 # managers/recovery_manager.py
-"""惰性气血/真元恢复：不启动定时任务，在玩家下一条指令时结算。"""
+"""惰性气血/灵气恢复：不启动定时任务，在玩家下一条指令时结算。"""
 import json
 import time
 from typing import Optional
@@ -37,8 +37,10 @@ class RecoveryManager:
     async def get_bonuses(self, player: Player) -> dict:
         result = {
             "natural_hp_regen_bonus": 0.0,
-            "natural_mp_regen_bonus": 0.0,
+            "natural_qi_regen_bonus": 0.0,
             "rest_hp_regen_bonus": 0.0,
+            "rest_qi_regen_bonus": 0.0,
+            "natural_mp_regen_bonus": 0.0,
             "rest_mp_regen_bonus": 0.0,
         }
         # 宗门疗养殿
@@ -50,9 +52,9 @@ class RecoveryManager:
                     level = int((buildings or {}).get("疗养殿", 0) or 0)
                     if level:
                         result["natural_hp_regen_bonus"] += 0.10 * level
-                        result["natural_mp_regen_bonus"] += 0.10 * level
+                        result["natural_qi_regen_bonus"] += 0.10 * level
                         result["rest_hp_regen_bonus"] += 0.05 * level
-                        result["rest_mp_regen_bonus"] += 0.05 * level
+                        result["rest_qi_regen_bonus"] += 0.05 * level
         except Exception:
             pass
 
@@ -68,8 +70,8 @@ class RecoveryManager:
                     result["natural_hp_regen_bonus"] += 0.15
                     result["rest_hp_regen_bonus"] += 0.10
                 if "聚灵池" in furniture:
-                    result["natural_mp_regen_bonus"] += 0.15
-                    result["rest_mp_regen_bonus"] += 0.10
+                    result["natural_qi_regen_bonus"] += 0.15
+                    result["rest_qi_regen_bonus"] += 0.10
         except Exception:
             pass
 
@@ -93,14 +95,20 @@ class RecoveryManager:
                         names.append(player.weapon)
                     if getattr(player, "armor", ""):
                         names.append(player.armor)
+                aliases = {
+                    "natural_mp_regen_bonus": "natural_qi_regen_bonus",
+                    "rest_mp_regen_bonus": "rest_qi_regen_bonus",
+                }
                 for name in dict.fromkeys(names):
                     data = techniques_data.get(name) or items_data.get(name) or weapons_data.get(name) or {}
                     effects = data.get("effects") or {}
-                    for key in result:
-                        try:
-                            result[key] += float(effects.get(key, 0) or 0)
-                        except (TypeError, ValueError):
-                            pass
+                    for key, value in effects.items():
+                        target = aliases.get(key, key)
+                        if target in result:
+                            try:
+                                result[target] += float(value or 0)
+                            except (TypeError, ValueError):
+                                pass
             except Exception:
                 pass
         return result
@@ -119,18 +127,16 @@ class RecoveryManager:
         bonuses = await self.get_bonuses(player)
 
         hp = int(player.hp or 0)
-        mp = int(player.mp or 0)
+        mp = int(player.spiritual_qi or 0)
         if hp <= 0:
             hp = max_hp
-        if mp <= 0:
-            mp = max_mp
 
         # 自然恢复
         last_natural = int(extra.get("last_natural_regen") or now)
         intervals = max(0, (now - last_natural) // self.NATURAL_INTERVAL)
         if intervals:
             hp = min(max_hp, hp + int(max_hp * self.NATURAL_RATE * intervals * (1 + bonuses["natural_hp_regen_bonus"])))
-            mp = min(max_mp, mp + int(max_mp * self.NATURAL_RATE * intervals * (1 + bonuses["natural_mp_regen_bonus"])))
+            mp = min(max_mp, mp + int(max_mp * self.NATURAL_RATE * intervals * (1 + bonuses["natural_qi_regen_bonus"])))
             extra["last_natural_regen"] = last_natural + intervals * self.NATURAL_INTERVAL
         elif not extra.get("last_natural_regen"):
             extra["last_natural_regen"] = now
@@ -141,7 +147,7 @@ class RecoveryManager:
             minutes = max(0, (now - last_rest) // self.REST_INTERVAL)
             if minutes:
                 hp = min(max_hp, hp + int(max_hp * self.REST_RATE * minutes * (1 + bonuses["rest_hp_regen_bonus"])))
-                mp = min(max_mp, mp + int(max_mp * self.REST_RATE * minutes * (1 + bonuses["rest_mp_regen_bonus"])))
+                mp = min(max_mp, mp + int(max_mp * self.REST_RATE * minutes * (1 + bonuses["rest_qi_regen_bonus"])))
                 extra["rest_last_tick"] = last_rest + minutes * self.REST_INTERVAL
             if hp >= max_hp and mp >= max_mp:
                 extra.pop("rest_last_tick", None)
@@ -159,9 +165,10 @@ class RecoveryManager:
             )
 
         player.hp = min(max_hp, max(1, hp))
-        player.mp = min(max_mp, max(0, mp))
+        player.spiritual_qi = min(max_mp, max(0, mp))
+        player.mp = player.spiritual_qi
         await self.db.update_player_fields(
-            player.user_id, hp=player.hp, mp=player.mp
+            player.user_id, hp=player.hp, spiritual_qi=player.spiritual_qi, mp=player.mp
         )
         return player
 

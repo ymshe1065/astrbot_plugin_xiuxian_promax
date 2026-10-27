@@ -1104,8 +1104,12 @@ class SectManager:
                     await pet_mgr.save_pet_combat_state(pet)
             if not balanced:
                 try:
-                    await self.db.update_player_fields(uid1, hp=max(1, p1.hp), mp=max(0, p1.mp))
-                    await self.db.update_player_fields(uid2, hp=max(1, p2.hp), mp=max(0, p2.mp))
+                    await self.db.update_player_fields(
+                        uid1, hp=max(1, p1.hp), mp=max(0, p1.mp), spiritual_qi=max(0, p1.mp)
+                    )
+                    await self.db.update_player_fields(
+                        uid2, hp=max(1, p2.hp), mp=max(0, p2.mp), spiritual_qi=max(0, p2.mp)
+                    )
                 except Exception:
                     pass
         return result

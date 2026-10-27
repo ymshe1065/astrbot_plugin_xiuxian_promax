@@ -568,10 +568,10 @@ class DatabaseExtended:
     # ===== Player扩展字段更新方法 =====
     
     async def update_player_hp_mp(self, user_id: str, hp: int, mp: int):
-        """更新玩家HP和MP"""
+        """更新玩家气血和灵气；mp 为灵气兼容别名。"""
         await self.conn.execute(
-            "UPDATE players SET hp = ?, mp = ? WHERE user_id = ?",
-            (hp, mp, user_id)
+            "UPDATE players SET hp = ?, mp = ?, spiritual_qi = ? WHERE user_id = ?",
+            (hp, mp, mp, user_id)
         )
         await self.conn.commit()
     

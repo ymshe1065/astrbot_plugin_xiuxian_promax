@@ -6,7 +6,7 @@ from typing import Dict, Callable, Awaitable
 from astrbot.api import logger
 from ..config_manager import ConfigManager
 
-LATEST_DB_VERSION = 44  # v43: Boss 物法流派 + 装备部位迁移；v44: 双分支合并兜底
+LATEST_DB_VERSION = 45  # v45: 灵气与 mp 兼容同步
 
 MIGRATION_TASKS: Dict[int, Callable[[aiosqlite.Connection, ConfigManager], Awaitable[None]]] = {}
 
@@ -1611,3 +1611,12 @@ async def _migrate_to_v44(conn: aiosqlite.Connection, config_manager: ConfigMana
     await _migrate_equipment_slots_v43(conn, config_manager)
     await conn.commit()
     logger.info("v44迁移完成：Boss 流派与装备部位已确认")
+
+
+@migration(45)
+async def _migrate_to_v45(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """v45：灵气统一后同步 mp 兼容字段，不删除旧列。"""
+    logger.info("开始迁移到 v45：灵气与 mp 同步")
+    await conn.execute("UPDATE players SET mp = COALESCE(spiritual_qi, 0)")
+    await conn.commit()
+    logger.info("v45迁移完成：mp 已同步为 spiritual_qi")

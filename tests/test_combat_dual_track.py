@@ -62,6 +62,24 @@ class TestCombatDualTrack(unittest.TestCase):
             )
             self.assertEqual(components["atk"], old, cultivation)
 
+    def test_effective_experience_overflow_segments(self):
+        cm = self.CombatManager
+        cap = 350_000
+        self.assertEqual(cm.calculate_effective_experience(cap, cap), cap)
+        self.assertEqual(
+            cm.calculate_effective_experience(471_391, cap),
+            cap + int(121_391 * 0.30),
+        )
+        self.assertEqual(
+            cm.calculate_effective_experience(1_000_000, cap),
+            cap + int(350_000 * 0.30) + int(300_000 * 0.15),
+        )
+        self.assertEqual(
+            cm.calculate_effective_experience(2_000_000, cap),
+            cap + int(350_000 * 0.30) + int(350_000 * 0.15)
+            + int(950_000 * 0.05),
+        )
+
     def test_physical_defense_only_reduces_physical(self):
         cm = self.CombatManager
         attacker = self.CombatStats(

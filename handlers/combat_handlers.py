@@ -124,8 +124,7 @@ class CombatHandlers:
         
         if int(player.hp or 0) <= 0:
             player.hp = stats.max_hp
-        if int(player.mp or 0) <= 0:
-            player.mp = stats.max_mp
+        player.mp = int(player.spiritual_qi or 0)
         player.atk = stats.atk
         await self.db.update_player(player)
 

@@ -1954,7 +1954,7 @@
         "exp_multiplier": 0.02,
         "effects": {
             "natural_hp_regen_bonus": 0.1,
-            "natural_mp_regen_bonus": 0.1
+            "natural_qi_regen_bonus": 0.1
         }
     },
     "1166": {
@@ -17516,13 +17516,13 @@
         "shop_weight": 200,
         "price": 8000,
         "volume": 5,
-        "description": "聚灵法袍，真元自然回复和调息恢复更快。",
+        "description": "聚灵法袍，灵气自然回复和调息恢复更快。",
         "subtype": "甲胄",
         "physical_defense": 200,
         "magic_defense": 400,
         "effects": {
-            "natural_mp_regen_bonus": 0.15,
-            "rest_mp_regen_bonus": 0.2
+            "natural_qi_regen_bonus": 0.15,
+            "rest_qi_regen_bonus": 0.2
         },
         "equip_slot": "body"
     },
@@ -17743,15 +17743,15 @@
         "shop_weight": 150,
         "price": 20000,
         "volume": 5,
-        "description": "长春之气流转，气血与真元恢复皆有所增益。",
+        "description": "长春之气流转，气血与灵气恢复皆有所增益。",
         "subtype": "头饰",
         "physical_defense": 500,
         "magic_defense": 500,
         "effects": {
             "natural_hp_regen_bonus": 0.1,
-            "natural_mp_regen_bonus": 0.1,
             "rest_hp_regen_bonus": 0.1,
-            "rest_mp_regen_bonus": 0.1
+            "natural_qi_regen_bonus": 0.1,
+            "rest_qi_regen_bonus": 0.1
         },
         "equip_slot": "head"
     },
@@ -17769,9 +17769,9 @@
         "magic_defense": 1000,
         "effects": {
             "natural_hp_regen_bonus": 0.2,
-            "natural_mp_regen_bonus": 0.2,
             "rest_hp_regen_bonus": 0.2,
-            "rest_mp_regen_bonus": 0.2
+            "natural_qi_regen_bonus": 0.2,
+            "rest_qi_regen_bonus": 0.2
         },
         "equip_slot": "body"
     },
@@ -17783,11 +17783,11 @@
         "shop_weight": 150,
         "price": 25000,
         "volume": 1,
-        "description": "专修回元之法，调息时气血与真元恢复更快。",
+        "description": "专修回元之法，调息时气血与灵气恢复更快。",
         "exp_multiplier": 0.07,
         "effects": {
             "rest_hp_regen_bonus": 0.2,
-            "rest_mp_regen_bonus": 0.2
+            "rest_qi_regen_bonus": 0.2
         }
     }
 }

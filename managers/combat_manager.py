@@ -35,8 +35,8 @@ class CombatStats:
     name: str  # 道号
     hp: int  # 当前气血
     max_hp: int  # 最大气血
-    mp: int  # 当前真元值
-    max_mp: int  # 最大真元值
+    mp: int  # 当前灵气（兼容字段）
+    max_mp: int  # 最大灵气（兼容字段）
     atk: int  # 攻击力
     defense: int = 0  # 防御力
     crit_rate: int = 0  # 会心率（百分比）
@@ -79,6 +79,31 @@ class CombatManager:
     def get_attack_profile(cls, cultivation_type: str = "") -> Tuple[float, float]:
         """返回 (物理占比, 法术占比)，未知职业默认均衡。"""
         return cls.ATTACK_PROFILES.get(cultivation_type, (0.5, 0.5))
+
+    @staticmethod
+    def calculate_effective_experience(experience: int, cap: int) -> int:
+        """境界内修为全额生效，超出部分按 30%/15%/5% 分段衰减。"""
+        exp = max(0, int(experience or 0))
+        cap = max(0, int(cap or 0))
+        if cap <= 0 or exp <= cap:
+            return exp
+        overflow = exp - cap
+        first = min(overflow, cap)
+        second = min(max(overflow - cap, 0), cap)
+        third = max(overflow - cap * 2, 0)
+        return cap + int(first * 0.30 + second * 0.15 + third * 0.05)
+
+    @classmethod
+    def get_effective_experience(cls, player, config_manager) -> int:
+        """读取当前境界承载上限，返回用于战斗属性的有效修为。"""
+        cap = 0
+        try:
+            cap = int(player.get_required_exp(config_manager) or 0)
+        except Exception:
+            cap = 0
+        return cls.calculate_effective_experience(
+            getattr(player, "experience", 0), cap
+        )
 
     @classmethod
     def calculate_attack_components(
@@ -282,20 +307,23 @@ class CombatManager:
         mp_buff = impart_info.impart_mp_per if impart_info else 0.0
         atk_buff = impart_info.impart_atk_per if impart_info else 0.0
 
-        base_hp, base_mp = CombatManager.calculate_hp_mp(
-            player.experience, hp_buff, mp_buff
+        effective_exp = CombatManager.get_effective_experience(
+            player, config_manager
+        )
+        base_hp, _ = CombatManager.calculate_hp_mp(
+            effective_exp, hp_buff, mp_buff
         )
         physical_mult = float(pill_multipliers.get("physical_damage", 1.0) or 1.0)
         magic_mult = float(pill_multipliers.get("magic_damage", 1.0) or 1.0)
         max_hp = max(1, int(base_hp))
-        max_mp = max(0, int(base_mp))
+        max_mp = max(0, int(getattr(player, "max_spiritual_qi", 0) or 0))
         raw_hp = int(getattr(player, "hp", 0) or 0)
-        raw_mp = int(getattr(player, "mp", 0) or 0)
+        raw_mp = int(getattr(player, "spiritual_qi", 0) or 0)
         hp = min(max_hp, raw_hp) if raw_hp > 0 else max_hp
-        mp = min(max_mp, max(0, raw_mp)) if raw_mp > 0 else max_mp
+        mp = min(max_mp, max(0, raw_mp))
 
         components = CombatManager.calculate_attack_components(
-            player.experience,
+            effective_exp,
             player.atkpractice,
             atk_buff,
             player.physical_damage,
@@ -311,13 +339,18 @@ class CombatManager:
         )
 
         # 防御必须包含角色本体的物防/法防，否则体修、突破与永久丹药的防御加成全部失效
+        exp_def = max(0, int(effective_exp / 200))
+        exp_phys_def = exp_def // 2
+        exp_magic_def = exp_def - exp_phys_def
         physical_def = int(
             (int(getattr(player, "physical_defense", 0) or 0)
+             + exp_phys_def
              + int(equip.get("physical_defense", 0)))
             * float(pill_multipliers.get("physical_defense", 1.0) or 1.0)
         )
         magic_def = int(
             (int(getattr(player, "magic_defense", 0) or 0)
+             + exp_magic_def
              + int(equip.get("magic_defense", 0)))
             * float(pill_multipliers.get("magic_defense", 1.0) or 1.0)
         )
@@ -437,15 +470,16 @@ class CombatManager:
         pill_multipliers: Optional[dict] = None,
     ) -> "CombatStats":
         """统一构建玩家战斗属性，确保所有战斗入口读取装备、词条与丹药。"""
-        hp, mp = cls.calculate_hp_mp(player.experience, hp_buff, mp_buff)
+        effective_exp = cls.get_effective_experience(player, config_manager)
+        hp, _ = cls.calculate_hp_mp(effective_exp, hp_buff, mp_buff)
         max_hp = max(1, int(hp))
-        max_mp = max(0, int(mp))
+        max_mp = max(0, int(getattr(player, "max_spiritual_qi", 0) or 0))
         raw_hp = int(getattr(player, "hp", 0) or 0)
-        raw_mp = int(getattr(player, "mp", 0) or 0)
+        raw_mp = int(getattr(player, "spiritual_qi", 0) or 0)
         hp = min(max_hp, raw_hp) if raw_hp > 0 else max_hp
-        mp = min(max_mp, max(0, raw_mp)) if raw_mp > 0 else max_mp
+        mp = min(max_mp, max(0, raw_mp))
         atk = cls.calculate_atk(
-            player.experience,
+            effective_exp,
             player.atkpractice,
             atk_buff,
             player.physical_damage,
@@ -500,7 +534,7 @@ class CombatManager:
         magic_mult = float(pill_multipliers.get("magic_damage", 1.0) or 1.0)
 
         components = cls.calculate_attack_components(
-            player.experience,
+            effective_exp,
             player.atkpractice,
             atk_buff,
             player.physical_damage,
@@ -514,13 +548,18 @@ class CombatManager:
             equip.get("magic_atk", 0)
         )
 
+        exp_def = max(0, int(effective_exp / 200))
+        exp_phys_def = exp_def // 2
+        exp_magic_def = exp_def - exp_phys_def
         physical_def = int(
             (int(getattr(player, "physical_defense", 0) or 0)
+             + exp_phys_def
              + int(equip.get("physical_defense", 0)))
             * float(pill_multipliers.get("physical_defense", 1.0) or 1.0)
         )
         magic_def = int(
             (int(getattr(player, "magic_defense", 0) or 0)
+             + exp_magic_def
              + int(equip.get("magic_defense", 0)))
             * float(pill_multipliers.get("magic_defense", 1.0) or 1.0)
         )

@@ -287,7 +287,7 @@ class EscortManager:
             pets.extend(stats_item.support_pets or [])
             for pet in pets:
                 await pet_mgr.save_pet_combat_state(pet)
-        # 劫镖使用天道压制面板，气血/真元会被临时拉平；
+        # 劫镖使用天道压制面板，气血/灵气会被临时拉平；
         # 这里不能把平衡面板的残余值写回玩家真实状态。
         extra = target_cd.get_extra_data() if hasattr(target_cd, "get_extra_data") else {}
         escort_gold = int(extra.get("escort_gold", 2000))

@@ -328,25 +328,19 @@ class PlayerHandler:
             f"  状态：{status_text}\n"
             f"  寿命：{player.lifespan}\n"
             f"  精神力：{total_attrs['mental_power']}\n"
+            f"  基础物伤：{player.physical_damage} | 基础法伤：{player.magic_damage}\n"
+            f"  基础物防：{player.physical_defense} | 基础法防：{player.magic_defense}\n"
         )
-        
+
         if player.cultivation_type == "体修":
             reply_msg += (
-                f"  气血：{player.blood_qi}/{total_attrs.get('max_blood_qi', 0)}\n"
-                f"  基础物伤：{total_attrs['physical_damage']} | 基础法伤：{total_attrs['magic_damage']}\n"
-                f"  装备后物防：{total_attrs['physical_defense']} | 装备后法防：{total_attrs['magic_defense']}\n"
+                f"  体修气血：{player.blood_qi}/{total_attrs.get('max_blood_qi', 0)}\n"
             )
-        else:
-            reply_msg += (
-                f"  修炼灵气：{player.spiritual_qi}/{total_attrs.get('max_spiritual_qi', 0)}\n"
-                f"  基础法伤：{total_attrs['magic_damage']} | 基础物伤：{total_attrs['physical_damage']}\n"
-                f"  装备后法防：{total_attrs['magic_defense']} | 装备后物防：{total_attrs['physical_defense']}\n"
-            )
-        
+
         reply_msg += (
             f"【战斗属性】\n"
             f"  气血：{combat_panel['hp']:,}/{combat_panel['max_hp']:,}\n"
-            f"  真元：{combat_panel['mp']:,}/{combat_panel['max_mp']:,}\n"
+            f"  灵气：{combat_panel['mp']:,}/{combat_panel['max_mp']:,}\n"
             f"  物攻：{combat_panel.get('physical_atk', 0):,} | 法攻：{combat_panel.get('magic_atk', 0):,}\n"
             f"  物防：{combat_panel.get('physical_defense', 0):,} | 法防：{combat_panel.get('magic_defense', 0):,}\n"
             f"  暴击：{combat_panel['crit_rate']:.1f}% | 暴伤：{combat_panel['crit_damage'] * 100:.1f}%\n"
@@ -420,10 +414,18 @@ class PlayerHandler:
             from ..utils.image_generator import render_card_async, card_enabled
             card_path = None
             if card_enabled("CARD_INFO"):
+                attribute_rows = []
                 if player.cultivation_type == "体修":
-                    energy_row = ("气血", f"{player.blood_qi}/{total_attrs.get('max_blood_qi', 0)}")
-                else:
-                    energy_row = ("修炼灵气", f"{player.spiritual_qi}/{total_attrs.get('max_spiritual_qi', 0)}")
+                    attribute_rows.append(
+                        ("体修气血", f"{player.blood_qi}/{total_attrs.get('max_blood_qi', 0)}")
+                    )
+                attribute_rows.extend([
+                    ("基础物伤/法伤", f"{player.physical_damage}/{player.magic_damage}"),
+                    ("基础物防/法防", f"{player.physical_defense}/{player.magic_defense}"),
+                    ("精神力", f"{total_attrs['mental_power']}"),
+                    ("状态", status_text),
+                    ("寿命", f"{player.lifespan}"),
+                ])
 
                 card_path = await render_card_async(
                     "info",
@@ -443,17 +445,10 @@ class PlayerHandler:
                             ("五行属性", element_name),
                             ("化身", self._avatar_status(player)),
                         ]},
-                        {"name": "属性", "rows": [
-                            energy_row,
-                            ("基础物伤/法伤", f"{total_attrs['physical_damage']}/{total_attrs['magic_damage']}"),
-                            ("装备后物防/法防", f"{total_attrs['physical_defense']}/{total_attrs['magic_defense']}"),
-                            ("精神力", f"{total_attrs['mental_power']}"),
-                            ("状态", status_text),
-                            ("寿命", f"{player.lifespan}"),
-                        ]},
+                        {"name": "属性", "rows": attribute_rows},
                         {"name": "战斗", "rows": [
                             ("气血", f"{combat_panel['hp']:,}/{combat_panel['max_hp']:,}"),
-                            ("真元", f"{combat_panel['mp']:,}/{combat_panel['max_mp']:,}"),
+                            ("灵气", f"{combat_panel['mp']:,}/{combat_panel['max_mp']:,}"),
                             ("物攻/法攻", f"{combat_panel.get('physical_atk', 0):,}/{combat_panel.get('magic_atk', 0):,}"),
                             ("物防/法防", f"{combat_panel.get('physical_defense', 0):,}/{combat_panel.get('magic_defense', 0):,}"),
                             ("暴击/暴伤", f"{combat_panel['crit_rate']:.1f}%/{combat_panel['crit_damage'] * 100:.1f}%"),

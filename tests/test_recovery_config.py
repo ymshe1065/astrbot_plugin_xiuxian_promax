@@ -20,7 +20,7 @@ class TestRecoveryConfig(unittest.TestCase):
         found = {}
         for item in data:
             if item.get("name") in expected:
-                key = "restore_hp_percent" if item["name"].startswith("回春散") else "restore_mp_percent"
+                key = "restore_hp_percent" if item["name"].startswith("回春散") else "restore_qi_percent"
                 found[item["name"]] = (float(item[key]), int(item["price"]))
         self.assertEqual(found, expected)
 

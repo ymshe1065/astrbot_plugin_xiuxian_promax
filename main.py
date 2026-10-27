@@ -873,7 +873,7 @@ class XiuXianPlugin(Star):
     async def handle_player_info(self, event: AstrMessageEvent):
         async for r in self.player_handler.handle_player_info(event): yield r
 
-    @filter.command(CMD_REST, "调息恢复气血和真元")
+    @filter.command(CMD_REST, "调息恢复气血和灵气")
     @require_whitelist
     async def handle_rest(self, event: AstrMessageEvent):
         async for r in self.recovery_handler.handle_rest(event): yield r

@@ -315,9 +315,11 @@ class WorldBossManager:
                 player.user_id,
                 hp=max(1, int(player_stats.hp)),
                 mp=max(0, int(player_stats.mp)),
+                spiritual_qi=max(0, int(player_stats.mp)),
             )
             player.hp = max(1, int(player_stats.hp))
-            player.mp = max(0, int(player_stats.mp))
+            player.spiritual_qi = max(0, int(player_stats.mp))
+            player.mp = player.spiritual_qi
         except Exception:
             pass
         return {

@@ -255,18 +255,20 @@ HP：{max_hp}
         crit_rate_buff = impart_info.impart_know_per if impart_info else 0.0
         crit_damage_buff = impart_info.impart_burst_per if impart_info else 0.0
         
-        hp, mp = 0, 0
+        hp = 0
         atk = 1
         try:
-            hp, mp = self.combat_mgr.calculate_hp_mp(player.experience, hp_buff, mp_buff)
+            effective_exp = self.combat_mgr.get_effective_experience(
+                player, self.config_manager
+            )
+            hp, _ = self.combat_mgr.calculate_hp_mp(effective_exp, hp_buff, mp_buff)
             # 补全了参数，包括 player.cultivation_type
-            atk = self.combat_mgr.calculate_atk(player.experience, player.atkpractice, atk_buff, player.physical_damage, player.magic_damage, player.cultivation_type)
+            atk = self.combat_mgr.calculate_atk(effective_exp, player.atkpractice, atk_buff, player.physical_damage, player.magic_damage, player.cultivation_type)
         except Exception:
             pass
         if int(player.hp or 0) <= 0:
             player.hp = hp if hp > 0 else max(1, player.experience // 2)
-        if int(player.mp or 0) <= 0:
-            player.mp = mp if mp > 0 else max(1, player.experience)
+        player.mp = int(player.spiritual_qi or 0)
         player.atk = atk if atk > 0 else max(1, player.experience // 10)
         if player.experience < 0: player.experience = 0
         if player.atkpractice < 0: player.atkpractice = 0
@@ -374,7 +376,8 @@ HP：{battle_result['player_final_hp']}/{player_stats.max_hp}
                 player.gold += reward
         
         player.hp = battle_result["player_final_hp"]
-        player.mp = battle_result["player_final_mp"]
+        player.spiritual_qi = max(0, int(battle_result.get("player_final_mp", 0) or 0))
+        player.mp = player.spiritual_qi
         await self.db.update_player(player)
         
         combat_log = "\n".join(battle_result["combat_log"])
