@@ -152,11 +152,13 @@ class RankingManager:
                         combat_panel["defense"],
                         player.cultivation_type,
                     )
-                    combat_panel["atk"] = int(owner_atk) + int(pet_atk)
-                    combat_panel["defense"] += int(pet_def)
-                    for k, v in (pet_effects or {}).items():
-                        if k in combat_panel and isinstance(v, (int, float)):
-                            combat_panel[k] = combat_panel.get(k, 0) + v
+                    pet_effect_data = dict(pet_effects or {})
+                    if "defense_bonus" not in pet_effect_data:
+                        pet_effect_data["defense_bonus"] = int(pet_def or 0)
+                    CombatManager.apply_pet_lineup(
+                        combat_panel, None, [], pet_effect_data,
+                        int(owner_atk) + int(pet_atk),
+                    )
             except Exception:
                 pass
             combat_power = CombatManager.calculate_combat_power(

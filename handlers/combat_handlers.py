@@ -118,17 +118,9 @@ class CombatHandlers:
         main_pet, support_pets, pet_effects, final_atk = await pet_mgr.build_pet_lineup(
             user_id, stats.max_hp, stats.atk, stats.defense, player.cultivation_type
         )
-        merged_effects = dict(stats.effects or {})
-        for k, v in (pet_effects or {}).items():
-            if isinstance(v, (int, float)):
-                merged_effects[k] = merged_effects.get(k, 0) + v
-            else:
-                merged_effects[k] = v
-        stats.atk = final_atk
-        stats.effects = merged_effects
-        stats.defense += int((pet_effects or {}).get("defense_bonus", 0) or 0)
-        stats.pet = main_pet
-        stats.support_pets = support_pets
+        self.combat_mgr.apply_pet_lineup(
+            stats, main_pet, support_pets, pet_effects, final_atk
+        )
         
         player.hp = stats.max_hp
         player.mp = stats.max_mp

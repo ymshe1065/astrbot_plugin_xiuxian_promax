@@ -23,6 +23,18 @@ class EquipmentHandler:
         self.equipment_manager = EquipmentManager(db, config_manager, self.storage_ring_manager)
         self.pill_manager = PillManager(db, config_manager)
 
+    async def _refresh_combat_cache(self, player: Player):
+        """装备变化后刷新 player.atk 缓存，供灵兽等旧调用方使用。"""
+        try:
+            from ..managers.combat_manager import CombatManager
+            stats = CombatManager.build_player_combat_stats(
+                player, self.config_manager, db=self.db
+            )
+            player.atk = int(stats.atk)
+            await self.db.update_player_fields(player.user_id, atk=player.atk)
+        except Exception:
+            pass
+
     @player_required
     async def handle_show_equipment(self, player: Player, event: AstrMessageEvent):
         """显示玩家当前装备"""
@@ -198,6 +210,7 @@ class EquipmentHandler:
             success, message = await self.equipment_manager.equip_item(player, item)
 
         if success:
+            await self._refresh_combat_cache(player)
             # 显示属性加成
             attr_display = item.get_attribute_display()
             result_msg = (
@@ -256,6 +269,7 @@ class EquipmentHandler:
         success, message = await self.equipment_manager.unequip_item(player, slot_or_name)
 
         if success:
+            await self._refresh_combat_cache(player)
             storage_msg = ""
             # 武器/防具实例由 EquipmentManager 直接移回实例仓库；心法/功法仍按名称存取
             needs_store = unequipped_item_name and (

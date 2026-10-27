@@ -268,16 +268,9 @@ class EscortManager:
                 p.user_id, stats_item.max_hp, stats_item.atk,
                 stats_item.defense, p.cultivation_type,
             )
-            stats_item.atk = atk
-            stats_item.pet = main_pet
-            stats_item.support_pets = support_pets
-            merged_effects = dict(stats_item.effects or {})
-            for key, value in (pet_effects or {}).items():
-                if isinstance(value, (int, float)):
-                    merged_effects[key] = merged_effects.get(key, 0) + value
-                else:
-                    merged_effects[key] = value
-            stats_item.effects = merged_effects
+            self.combat_mgr.apply_pet_lineup(
+                stats_item, main_pet, support_pets, pet_effects, atk
+            )
 
         # 天道压制：拉平修为面板，护镖方获得气血加成，平局判护镖方守住
         result = self.combat_mgr.player_vs_player_balanced(

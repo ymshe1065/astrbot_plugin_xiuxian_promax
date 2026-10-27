@@ -1075,12 +1075,9 @@ class SectManager:
             user_id, stats.hp, stats.atk, stats.defense,
             player.cultivation_type, persist=persist_pets,
         )
-        for k, v in pet_effects.items():
-            effects[k] = effects.get(k, 0) + v
-        stats.effects = effects
-        stats.atk = atk
-        stats.pet = main_pet
-        stats.support_pets = support_pets
+        CombatManager.apply_pet_lineup(
+            stats, main_pet, support_pets, pet_effects, atk
+        )
         return stats
 
     async def _run_duel(self, uid1: str, uid2: str, balanced: bool = False, persist_pets: bool = True) -> Optional[dict]:

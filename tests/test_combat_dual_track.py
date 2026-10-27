@@ -154,6 +154,24 @@ class TestCombatDualTrack(unittest.TestCase):
         self.assertEqual(min_damage, 1400)
         self.assertEqual(uniform.call_count, 1)
 
+    def test_pet_lineup_syncs_components(self):
+        cm = self.CombatManager
+        panel = {
+            "physical_atk": 1000, "magic_atk": 2000, "atk": 3000,
+            "physical_defense": 100, "magic_defense": 200, "defense": 300,
+            "crit_rate": 0, "lifesteal": 0,
+        }
+        cm.apply_pet_lineup(
+            panel, None, [], {"defense_bonus": 60, "crit_rate": 5}, 3400
+        )
+        self.assertEqual(panel["physical_atk"], 1400)
+        self.assertEqual(panel["magic_atk"], 2000)
+        self.assertEqual(panel["atk"], 3400)
+        self.assertEqual(panel["physical_defense"], 130)
+        self.assertEqual(panel["magic_defense"], 230)
+        self.assertEqual(panel["defense"], 360)
+        self.assertEqual(panel["crit_rate"], 5)
+
     def test_legacy_stats_fallback_split(self):
         cm = self.CombatManager
         old = self.CombatStats(

@@ -303,8 +303,7 @@ class CombatManager:
         )
         physical_mult = float(pill_multipliers.get("physical_damage", 1.0) or 1.0)
         magic_mult = float(pill_multipliers.get("magic_damage", 1.0) or 1.0)
-        hp_mult = max(physical_mult, magic_mult)  # 保留旧版气血倍率口径
-        hp = int(base_hp * hp_mult)
+        hp = int(base_hp)
         mp = int(base_mp)
 
         components = CombatManager.calculate_attack_components(
@@ -511,8 +510,6 @@ class CombatManager:
 
         physical_mult = float(pill_multipliers.get("physical_damage", 1.0) or 1.0)
         magic_mult = float(pill_multipliers.get("magic_damage", 1.0) or 1.0)
-        hp_mult = max(physical_mult, magic_mult)
-        hp = int(hp * hp_mult)
 
         components = cls.calculate_attack_components(
             player.experience,
@@ -592,6 +589,80 @@ class CombatManager:
             + int(mental_power or 0) // 10
         )
     
+    @classmethod
+    def apply_pet_lineup(
+        cls,
+        stats,
+        main_pet=None,
+        support_pets=None,
+        pet_effects=None,
+        final_owner_atk: Optional[int] = None,
+    ):
+        """把灵兽/主人加成同步到物法双轨面板，兼容 CombatStats 和 dict 面板。"""
+        def get(name, default=0):
+            if isinstance(stats, dict):
+                return int(stats.get(name, default) or default)
+            return int(getattr(stats, name, default) or default)
+
+        def set_value(name, value):
+            if isinstance(stats, dict):
+                stats[name] = int(value)
+            else:
+                setattr(stats, name, int(value))
+
+        physical = max(0, get("physical_atk", 0))
+        magic = max(0, get("magic_atk", 0))
+        total = max(0, get("atk", 0))
+        if physical <= 0 and magic <= 0 and total > 0:
+            physical, magic = total // 2, total - total // 2
+
+        target_atk = int(final_owner_atk) if final_owner_atk is not None else total
+        delta = target_atk - (physical + magic)
+        if delta:
+            physical += delta
+            if physical < 0:
+                magic = max(0, magic + physical)
+                physical = 0
+        physical = max(0, physical)
+        magic = max(0, magic)
+
+        p_def = max(0, get("physical_defense", 0))
+        m_def = max(0, get("magic_defense", 0))
+        total_def = max(0, get("defense", 0))
+        if p_def <= 0 and m_def <= 0 and total_def > 0:
+            p_def, m_def = total_def // 2, total_def - total_def // 2
+
+        effects = pet_effects or {}
+        bonus_def = int(effects.get("defense_bonus", 0) or 0)
+        if bonus_def:
+            p_def += bonus_def // 2
+            m_def += bonus_def - bonus_def // 2
+
+        set_value("physical_atk", physical)
+        set_value("magic_atk", magic)
+        set_value("physical_defense", p_def)
+        set_value("magic_defense", m_def)
+        set_value("atk", physical + magic)
+        set_value("defense", p_def + m_def)
+
+        if isinstance(stats, dict):
+            for key, value in effects.items():
+                if key in stats and isinstance(value, (int, float)):
+                    stats[key] = stats.get(key, 0) + value
+            stats["pet"] = main_pet
+            stats["support_pets"] = support_pets or []
+        else:
+            merged = dict(getattr(stats, "effects", None) or {})
+            for key, value in effects.items():
+                if isinstance(value, (int, float)):
+                    merged[key] = merged.get(key, 0) + value
+                else:
+                    merged[key] = value
+            stats.effects = merged
+            stats.pet = main_pet
+            stats.support_pets = support_pets or []
+        return stats
+
     @staticmethod
     def apply_damage_reduction(damage: int, defense: int = 0) -> int:
         """应用伤害减免（使用递减公式）"""

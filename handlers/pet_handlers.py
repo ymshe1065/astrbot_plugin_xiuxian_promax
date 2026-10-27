@@ -7,11 +7,21 @@ from ..models import Player
 from .utils import player_required
 
 class PetHandlers:
-    def __init__(self, db: DataBase, pet_mgr: PetManager):
+    def __init__(self, db: DataBase, pet_mgr: PetManager, config_manager=None):
         self.db = db
         self.pet_mgr = pet_mgr
+        self.config_manager = config_manager
 
-    def _owner_stats(self, player: Player):
+    async def _owner_stats(self, player: Player):
+        if self.config_manager is not None:
+            try:
+                from ..managers.combat_manager import CombatManager
+                stats = CombatManager.build_player_combat_stats(
+                    player, self.config_manager, db=self.db
+                )
+                return max(1, int(stats.max_hp)), max(1, int(stats.atk))
+            except Exception:
+                pass
         owner_hp = max(1, int(player.hp or 0), player.experience // 2)
         owner_atk = max(1, int(player.atk or 0), player.experience // 10)
         return owner_hp, owner_atk
@@ -33,7 +43,7 @@ class PetHandlers:
             yield event.plain_result("🐾 你当前没有携带任何灵兽。\n💡 发送 `/孵化灵兽 <名字>` 契约一只。")
             return
 
-        owner_hp, owner_atk = self._owner_stats(player)
+        owner_hp, owner_atk = await self._owner_stats(player)
         slots = self.pet_mgr.get_pet_slots(player)
         now = int(time.time())
         sections = []

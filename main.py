@@ -258,7 +258,7 @@ class XiuXianPlugin(Star):
         
         # v6.5 灵兽系统
         self.pet_mgr = PetManager(self.db)
-        self.pet_handlers = PetHandlers(self.db, self.pet_mgr)
+        self.pet_handlers = PetHandlers(self.db, self.pet_mgr, self.config_manager)
 
         # v6.6 交易坊市
         self.auction_mgr = AuctionManager(self.db, self.storage_ring_mgr, self.config)
