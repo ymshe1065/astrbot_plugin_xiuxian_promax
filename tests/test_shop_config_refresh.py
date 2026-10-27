@@ -80,6 +80,32 @@ class TestShopConfigRefresh(unittest.TestCase):
         self.assertIn("修炼效率+5%", text)
         self.assertNotIn("200%", text)
 
+    def test_stale_recipe_price_is_updated(self):
+        recipe = next(
+            item for item in self.cm.items_data.values()
+            if item.get("type") == "丹方"
+        )
+        old_data = dict(recipe)
+        old_data["price"] = 99999
+        item = {
+            "name": recipe["name"],
+            "type": "recipe",
+            "rank": recipe.get("rank", "灵品"),
+            "price": 79999,
+            "original_price": 99999,
+            "discount": 0.8,
+            "stock": 3,
+            "data": old_data,
+        }
+
+        changed = self.sm.refresh_item_data([item])
+
+        self.assertTrue(changed)
+        self.assertEqual(item["original_price"], recipe["price"])
+        self.assertEqual(item["price"], int(recipe["price"] * 0.8))
+        self.assertEqual(item["data"]["price"], recipe["price"])
+        self.assertEqual(item["stock"], 3)
+
     def test_technique_config_integrity(self):
         count = 0
         for item in self.cm.items_data.values():

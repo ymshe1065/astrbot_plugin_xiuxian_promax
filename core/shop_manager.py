@@ -69,6 +69,24 @@ class ShopManager:
             if current.get("rank") and item.get("rank") != current["rank"]:
                 item["rank"] = current["rank"]
                 changed = True
+            # 旧货架缓存的价格是上架时快照；配置改价后必须同步，
+            # 同时保留原有折扣和库存。旧数据没有价格字段时不强行改价。
+            old_price = old.get("price") if isinstance(old, dict) else None
+            new_price = current.get("price")
+            if old_price is not None and new_price is not None:
+                try:
+                    original = int(new_price)
+                    old_original = int(item.get("original_price", old_price) or 0)
+                    if original != old_original:
+                        item["original_price"] = original
+                        try:
+                            discount = float(item.get("discount", 1.0) or 1.0)
+                        except (TypeError, ValueError):
+                            discount = 1.0
+                        item["price"] = int(original * discount)
+                        changed = True
+                except (TypeError, ValueError):
+                    pass
         return changed
 
     def _format_required_level(self, level_index: int) -> str:
