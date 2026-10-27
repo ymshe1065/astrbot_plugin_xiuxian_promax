@@ -62,6 +62,19 @@ class TestWorldBossDualTrack(unittest.IsolatedAsyncioTestCase):
         self.assertGreater(dragon[0], dragon[1])
         self.assertGreater(demon[1], demon[0])
 
+    def test_world_boss_attack_and_defense_are_dual(self):
+        mgr = self._manager()
+        boss = {
+            "boss_id": 1, "boss_name": "深渊魔龙", "max_hp": 1_000_000,
+            "current_hp": 1_000_000, "atk": 100_000, "defense": 50,
+            "boss_type": "abyss_dragon", "element": "水",
+        }
+        stats = mgr.build_world_boss_combat_stats(boss, {"element": "水"})
+        self.assertGreater(stats.physical_atk, stats.magic_atk)
+        self.assertGreater(stats.physical_defense, stats.magic_defense)
+        self.assertEqual(stats.atk, stats.physical_atk + stats.magic_atk)
+        self.assertEqual(stats.defense, stats.physical_defense + stats.magic_defense)
+
     async def test_damage_uses_boss_resistance(self):
         mgr = self._manager()
         player = SimpleNamespace(user_id="u1", experience=100000)

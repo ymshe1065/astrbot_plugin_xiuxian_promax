@@ -503,13 +503,28 @@ class WorldBossManager:
             logger.error(f"世界Boss生成异常: {e}")
             return False, "❌ 世界Boss生成失败，请稍后再试。"
 
+        preview = self.build_world_boss_combat_stats(
+            {
+                "boss_id": 0,
+                "boss_name": boss_name,
+                "max_hp": max_hp,
+                "current_hp": max_hp,
+                "atk": max(1, int(max_hp * 0.001)),
+                "defense": 50,
+                "boss_type": boss_key,
+                "element": element,
+            },
+            type_cfg,
+        )
         return True, (
             f"{type_cfg.get('icon', '👹')} 【天道警示】世界Boss降临！\n"
             f"━━━━━━━━━━━━━━━\n"
             f"👹 名称：{boss_name}\n"
             f"🏷️ 种类：{tier_label} · {element or '无'}属性\n"
             f"🚪 门槛境界：{int(type_cfg.get('min_level', self.min_level) or self.min_level)}\n"
-            f"🛡️ 物抗：{physical_resist:.0f}% | 法抗：{magic_resist:.0f}%\n"
+            f"⚔️ 物攻：{preview.physical_atk:,} | 法攻：{preview.magic_atk:,}\n"
+            f"🛡️ 物防：{preview.physical_defense:,}（物抗 {physical_resist:.0f}%）| "
+            f"法防：{preview.magic_defense:,}（法抗 {magic_resist:.0f}%）\n"
             f"💀 血量：{max_hp:,} （基于全服 {p_count} 名活跃修士战力生成）\n"
             f"⏳ 存活时间：{self.expire_hours}小时\n"
             f"📖 {type_cfg.get('desc', '')}\n"
