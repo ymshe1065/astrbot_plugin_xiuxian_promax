@@ -5,7 +5,6 @@ import json
 from typing import Tuple, List, Dict
 from ..data import DataBase
 from ..models import Player
-from .task_penalty import calc_abandon_penalty, charge_abandon_penalty
 
 class DailyTaskManager:
     """日常任务管理器"""
@@ -184,27 +183,8 @@ class DailyTaskManager:
         if task["expire_time"] <= int(time.time()):
             return False, "❌ 该任务已过期。"
 
-        rewards = json.loads(task.get("rewards_json") or "{}")
-        cost, currency = calc_abandon_penalty(
-            int(rewards.get("gold", 0) or 0),
-            int(rewards.get("spiritual_qi", 0) or 0),
-        )
-        currency_label = "灵气" if currency == "qi" else "灵石"
-
         await self.db.conn.execute("BEGIN IMMEDIATE")
         try:
-            fresh = await self.db.get_player_by_id(player.user_id)
-            if not fresh:
-                await self.db.conn.rollback()
-                return False, "❌ 玩家数据不存在。"
-
-            ok, charge_msg = await charge_abandon_penalty(
-                fresh, self.db, cost, currency, commit=False
-            )
-            if not ok:
-                await self.db.conn.rollback()
-                return False, charge_msg
-
             cursor = await self.db.conn.execute(
                 "UPDATE daily_tasks SET status = 4 "
                 "WHERE id = ? AND user_id = ? AND status = 1",
@@ -221,8 +201,7 @@ class DailyTaskManager:
 
         return True, (
             f"🗑️ 已放弃【{task['task_level']}阶】任务：{task['title']}\n"
-            f"扣除违约金：{cost:,} {currency_label}\n"
-            "本次进度作废，且不返还今日接取次数。"
+            "本次进度作废，不扣灵石/灵气，但会占用今日接取次数。"
         )
 
     async def claim_rewards(self, player: Player) -> Tuple[bool, str, list]:
@@ -268,6 +247,15 @@ class DailyTaskManager:
                 return False, "❌ 玩家不存在。", []
                 
             # 发放基础奖励
+            try:
+                from .pet_manager import PetManager
+                pet_mgr = PetManager(self.db)
+                pet = await pet_mgr.get_pet(fresh_player.user_id, apply_regen=False)
+                gold_bonus = pet_mgr.get_gold_bonus(pet)
+                if gold_bonus > 0:
+                    total_gold = int(total_gold * (1 + gold_bonus))
+            except Exception:
+                pass
             fresh_player.experience += total_exp
             fresh_player.gold += total_gold
             await self.db.update_player(fresh_player, commit=False)

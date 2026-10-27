@@ -276,12 +276,13 @@ class SectHandlers:
             hp, mp = cm.calculate_hp_mp(p.experience)
             atk = cm.calculate_atk(p.experience, p.atkpractice, 0, p.physical_damage, p.magic_damage, p.cultivation_type)
             effects = em.get_combat_effects(p)
-            pet = await pet_mgr.get_pet(uid)
-            if pet:
-                pet_eff = pet_mgr.get_pet_combat_effects(pet)
-                for k, v in pet_eff.items(): effects[k] = effects.get(k, 0) + v
+            main_pet, support_pets, pet_effects, atk = await pet_mgr.build_pet_lineup(
+                uid, hp, atk, 0, p.cultivation_type
+            )
+            for k, v in pet_effects.items(): effects[k] = effects.get(k, 0) + v
             return CombatStats(user_id=uid, name=p.user_name or uid, hp=hp, max_hp=hp, mp=mp, max_mp=mp, atk=atk, effects=effects,
-                               element=(cm.get_element_from_name(p.main_technique) or cm.get_element_from_name(p.weapon)))
+                               element=(cm.get_element_from_name(p.main_technique) or cm.get_element_from_name(p.weapon)),
+                               pet=main_pet, support_pets=support_pets)
 
         p1_stats = await get_stats(user_id)
         p2_stats = await get_stats(target_id)
@@ -315,6 +316,13 @@ class SectHandlers:
 
         # 进行天道压制战斗
         result = cm.player_vs_player_balanced(p1_stats, p2_stats)
+        for stats_item in (p1_stats, p2_stats):
+            pets = []
+            if stats_item.pet:
+                pets.append(stats_item.pet)
+            pets.extend(stats_item.support_pets or [])
+            for pet in pets:
+                await pet_mgr.save_pet_combat_state(pet)
         log = "\n".join(result['combat_log'])
         if note_msg:
             log = note_msg + "\n\n" + log

@@ -6,7 +6,7 @@ from typing import Tuple
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api import AstrBotConfig, logger
 from ..data import DataBase
-from ..core import ShopManager, EquipmentManager, PillManager, StorageRingManager
+from ..core import ShopManager, EquipmentManager, PillManager, StorageRingManager, ItemRules
 from ..models import Player
 from ..config_manager import ConfigManager
 from .utils import player_required
@@ -255,35 +255,14 @@ class ShopHandler:
             )
             return
 
-        item_type = target_item['type']
         result_lines = []
-
-        # ===== 品阶→境界门槛（与事务内判断共用一张表）=====
-        RANK_REQ_LEVEL = {
-            "玄阶": 3, "地阶": 9, "天阶": 18,
-            "灵品": 3, "地品": 9, "天品": 18, "皇品": 24,
-            "帝品": 30, "道品": 36, "仙品": 42, "混元先天": 48,
-        }
-
-        def _norm_type(t: str) -> str:
-            if t in ['weapon', '武器', '法器']:
-                return 'weapon'
-            if t in ['armor', '防具']:
-                return 'armor'
-            if t in ['main_technique', 'technique', '心法', '功法']:
-                return 'technique'
-            if t in ['pill', 'exp_pill', 'utility_pill', '丹药']:
-                return 'legacy_pill'
-            if t in ['material', '材料', '符箓', '杂物']:
-                return 'material'
-            return t
-
-        norm_type = _norm_type(item_type)
+        norm_type = ItemRules.normalize_shop_type(target_item)
+        equippable_types = {'weapon', 'armor', 'accessory', 'main_technique', 'technique'}
 
         # ===== 门槛前置检查（事务前，无任何扣除，附当前可买清单）=====
-        if norm_type in ['weapon', 'armor', 'technique']:
+        if norm_type in equippable_types:
             rank = target_item.get('rank', '黄阶')
-            req_level = RANK_REQ_LEVEL.get(rank, 0)
+            req_level = ItemRules.get_required_level(target_item)
             if player.level_index < req_level:
                 # 收集同一阁楼中玩家当前买得起的同类物品
                 _, shelf_items = await self.db.get_shop_data(pavilion_id)
@@ -291,9 +270,9 @@ class ShopHandler:
                 for it in (shelf_items or []):
                     if it.get('stock', 0) <= 0:
                         continue
-                    if _norm_type(it.get('type', '')) != norm_type:
+                    if ItemRules.normalize_shop_type(it) != norm_type:
                         continue
-                    it_req = RANK_REQ_LEVEL.get(it.get('rank', ''), 0)
+                    it_req = ItemRules.get_required_level(it)
                     if player.level_index >= it_req:
                         affordable.append(f"【{it['name']}】({it.get('rank', '')} · {it['price']:,}灵石)")
                 affordable_text = "\n".join(f"  · {a}" for a in affordable[:8]) if affordable else "  · 暂无（等货架刷新或先提升境界）"
@@ -325,30 +304,12 @@ class ShopHandler:
                 yield event.plain_result(f"【{item_name}】已售罄，请等待刷新。")
                 return
 
-            # ===== 核心修复1：极其健壮的类型兼容映射 =====
-            if item_type in ['weapon', '武器', '法器']:
-                item_type = 'weapon'
-            elif item_type in ['armor', '防具']:
-                item_type = 'armor'
-            elif item_type in ['main_technique', 'technique', '心法', '功法']:
-                item_type = 'technique'
-            elif item_type in ['pill', 'exp_pill', 'utility_pill']:
-                # 破境丹/修为丹/功能丹：购买后放入丹药背包，由 /服用丹药 使用
-                item_type = 'inventory_pill'
-            elif item_type in ['丹药', 'legacy_pill']:
-                # items.json 旧丹药：带 effect_type 的（如 temporary）走丹药背包，
-                # 只有旧 effect 字典的才保持“购买后立即生效”
-                if target_item.get('data', {}).get('effect_type'):
-                    item_type = 'inventory_pill'
-                else:
-                    item_type = 'legacy_pill'
-            elif item_type in ['material', '材料', '符箓', '杂物']:
-                item_type = 'material'
+            item_type = ItemRules.normalize_shop_type(target_item)
 
             # ===== 门槛防线（前置检查已拦截，此处仅事务内兜底）=====
-            if item_type in ['weapon', 'armor', 'technique']:
+            if item_type in equippable_types:
                 rank = target_item.get('rank', '黄阶')
-                req_level = RANK_REQ_LEVEL.get(rank, 0)
+                req_level = ItemRules.get_required_level(target_item)
 
                 if player.level_index < req_level:
                     await self.db.conn.rollback()
@@ -356,10 +317,13 @@ class ShopHandler:
                     return
             # ==========================================
 
-            if item_type in ['weapon', 'armor', 'technique']:
+            if item_type in equippable_types:
                 success, msg = await self.storage_ring_manager.store_item(player, target_item['name'], quantity, external_transaction=True)
                 if success:
-                    type_name = {"weapon": "武器", "armor": "防具", "technique": "功法"}.get(item_type, "装备")
+                    type_name = {
+                        "weapon": "武器", "armor": "防具", "accessory": "饰品",
+                        "main_technique": "心法", "technique": "功法",
+                    }.get(item_type, "装备")
                     result_lines.append(f"成功购买{type_name}【{target_item['name']}】x{quantity}，已存入储物戒。")
                 else:
                     result_lines.append(f"成功购买【{target_item['name']}】x{quantity}。")

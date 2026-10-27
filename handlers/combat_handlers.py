@@ -134,24 +134,24 @@ class CombatHandlers:
                 effects["lifesteal"] = effects.get("lifesteal", 0) + int(tstats.get("lifesteal", 0))
         except Exception: pass
 
-        from ..managers.pet_manager import PetManager
-        pet_mgr = PetManager(self.db)
-        pet = await pet_mgr.get_pet(user_id)
-        if pet:
-            pet_effects = pet_mgr.get_pet_combat_effects(pet)
-            for k, v in pet_effects.items(): effects[k] = effects.get(k, 0) + v
-            triggered, log_msg, mult = await pet_mgr.pet_coop_attack(pet)
-            if triggered: effects["pet_damage_mult"] = mult
-                
-        # 防御力受丹药倍率、功法和称号加成
-        final_defense = int(
+        final_atk += title_magic
+        base_defense = int(
             equip_bonus["defense"]
             * max(
                 pill_multipliers.get("physical_defense", 1.0),
                 pill_multipliers.get("magic_defense", 1.0),
             )
-        ) + int(effects.get("defense_bonus", 0)) + title_def_bonus
-        final_atk += title_magic
+        ) + title_def_bonus
+
+        from ..managers.pet_manager import PetManager
+        pet_mgr = PetManager(self.db)
+        main_pet, support_pets, pet_effects, final_atk = await pet_mgr.build_pet_lineup(
+            user_id, hp, final_atk, base_defense, player.cultivation_type
+        )
+        for k, v in pet_effects.items():
+            effects[k] = effects.get(k, 0) + v
+
+        final_defense = base_defense + int(effects.get("defense_bonus", 0))
         
         player.hp = hp
         player.mp = mp
@@ -162,7 +162,8 @@ class CombatHandlers:
             user_id=user_id, name=player.user_name if player.user_name else f"道友{user_id}",
             hp=hp, max_hp=hp, mp=mp, max_mp=mp, atk=final_atk, defense=final_defense,
             exp=player.experience, effects=effects,
-            element=(self._get_element_of(player.main_technique) or self._get_element_of(player.weapon))
+            element=(self._get_element_of(player.main_technique) or self._get_element_of(player.weapon)),
+            pet=main_pet, support_pets=support_pets,
         )
 
     def _get_element_of(self, item_name: str) -> str:
@@ -171,6 +172,34 @@ class CombatHandlers:
             explicit = self.config_manager.get_item_element(item_name)
             if explicit: return explicit
         return self.combat_mgr.get_element_from_name(item_name)
+
+    async def _save_pet_states(self, *stats_list):
+        from ..managers.pet_manager import PetManager
+        pet_mgr = PetManager(self.db)
+        for stats_item in stats_list:
+            pets = []
+            if getattr(stats_item, "pet", None):
+                pets.append(stats_item.pet)
+            pets.extend(getattr(stats_item, "support_pets", None) or [])
+            for pet in pets:
+                await pet_mgr.save_pet_combat_state(pet)
+
+    @staticmethod
+    def _pet_status_line(stats_item) -> str:
+        pets = []
+        if getattr(stats_item, "pet", None):
+            pets.append(stats_item.pet)
+        pets.extend(getattr(stats_item, "support_pets", None) or [])
+        if not pets:
+            return ""
+        lines = []
+        for index, pet in enumerate(pets):
+            tag = "主战" if index == 0 else "辅助"
+            if pet.hp <= 0:
+                lines.append(f"🐾 【{pet.name}】({tag}) 力竭倒下，需时间复活。")
+            else:
+                lines.append(f"🐾 【{pet.name}】({tag}) 精力：{pet.hp}/{pet.max_hp}")
+        return "\n" + "\n".join(lines)
 
     async def handle_duel(self, event: AstrMessageEvent, target: str):
         user_id = event.get_sender_id()
@@ -202,6 +231,7 @@ class CombatHandlers:
 
         result = self.combat_mgr.player_vs_player(p1_stats, p2_stats, combat_type=2)
         self.last_duel_result = result
+        await self._save_pet_states(p1_stats, p2_stats)
         
         await self.db.ext.update_player_hp_mp(user_id, p1_stats.max_hp, p1_stats.max_mp)
         await self.db.ext.update_player_hp_mp(target_id, p2_stats.max_hp, p2_stats.max_mp)
@@ -221,6 +251,8 @@ class CombatHandlers:
         else:
             final_log += f"\n\n🏆 决斗结束，平局！\n(剩余血量: {p1_hp_pct}% vs {p2_hp_pct}%)"
 
+        final_log += self._pet_status_line(p1_stats)
+        final_log += self._pet_status_line(p2_stats)
         yield event.plain_result(final_log)
 
     async def handle_spar(self, event: AstrMessageEvent, target: str):
@@ -253,6 +285,7 @@ class CombatHandlers:
 
         result = self.combat_mgr.player_vs_player(p1_stats, p2_stats, combat_type=1)
         self.last_spar_fought = True
+        await self._save_pet_states(p1_stats, p2_stats)
         
         await self.db.ext.update_player_hp_mp(user_id, p1_stats.max_hp, p1_stats.max_mp)
         await self.db.ext.update_player_hp_mp(target_id, p2_stats.max_hp, p2_stats.max_mp)
@@ -272,4 +305,6 @@ class CombatHandlers:
         else:
             final_log += f"\n\n🏆 切磋结束，平局！\n(剩余血量: {p1_hp_pct}% vs {p2_hp_pct}%)"
 
+        final_log += self._pet_status_line(p1_stats)
+        final_log += self._pet_status_line(p2_stats)
         yield event.plain_result(final_log)

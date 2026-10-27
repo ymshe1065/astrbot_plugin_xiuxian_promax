@@ -4,7 +4,7 @@ from astrbot.api.event import AstrMessageEvent
 from astrbot.api import logger
 from astrbot.api.all import At, Plain
 from ..data import DataBase
-from ..core import StorageRingManager
+from ..core import StorageRingManager, ItemRules
 from ..config_manager import ConfigManager
 from ..models import Player
 from .utils import player_required
@@ -452,15 +452,24 @@ class StorageRingHandler:
             # 根据配置判断物品类型
             if not categorized:
                 item_config = self.config_manager.items_data.get(item_name, {})
-                item_type = item_config.get("type", "")
-                
-                if item_type in ["weapon", "武器"]:
+                if not item_config:
+                    item_config = self.config_manager.weapons_data.get(item_name, {})
+                if not item_config and hasattr(self.config_manager, "techniques_data"):
+                    item_config = self.config_manager.techniques_data.get(item_name, {})
+
+                item_type = ItemRules.normalize_equipment_type(item_config)
+                if not item_type:
+                    raw_type = str(item_config.get("type", "") or "")
+                    if raw_type in ("材料", "material"):
+                        item_type = "material"
+                    elif raw_type in ("丹药", "pill", "exp_pill", "utility_pill"):
+                        item_type = "pill"
+
+                if item_type in {"weapon", "armor", "head", "body", "boots", "gloves", "ring", "amulet", "accessory"}:
                     result["装备"].append((item_name, count))
-                elif item_type in ["armor", "防具"]:
-                    result["装备"].append((item_name, count))
-                elif item_type in ["technique", "功法", "main_technique"]:
+                elif item_type in {"technique", "main_technique"}:
                     result["功法"].append((item_name, count))
-                elif item_type in ["material", "材料"]:
+                elif item_type == "material":
                     result["材料"].append((item_name, count))
                 else:
                     result["其他"].append((item_name, count))

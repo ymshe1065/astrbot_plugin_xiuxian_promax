@@ -21,9 +21,9 @@ CMD_CHECK_IN = "签到"
 # 忙碌状态下允许执行的命令白名单（只能查信息、收菜、领奖）
 BUSY_STATE_ALLOWED_COMMANDS = [
     # 基础信息查看
-    CMD_PLAYER_INFO, "我的信息", "我的装备", "我的灵兽", "我的洞天", "我的灵田", "我的宗门",
+    CMD_PLAYER_INFO, "我的信息", "我的装备", "我的灵兽", "孵化灵兽", "喂养灵兽", "灵兽出战", "灵兽改名", "放生灵兽", "吞噬灵兽", "我的洞天", "我的灵田", "我的宗门",
     "银行", "储物戒", "丹药背包", "修仙帮助", "物品信息", "黑市", "天魔状态", "世界Boss状态", "灵眼信息",
-    "宗门商店", "宗门兑换",
+    "宗门商店", "宗门兑换", "我的坊市", "坊市我的", "坊市卖出", "坊市等待",
     
     # 收菜与领奖（不打架，纯收益）
     CMD_CHECK_IN, "签到", "领取利息", "洞天收取", "收获", "灵眼收取", 
@@ -156,8 +156,12 @@ def player_required(func: Callable[..., Coroutine[any, any, AsyncGenerator[any, 
             async for result in func(self, player, event, *args, **kwargs):
                 yield result
 
-            # 如果有贷款警告，在指令执行完后显示
-            if loan_warning and loan_warning.get("warning_message"):
+            # 如果有贷款警告，在指令执行完后显示（自身已展示欠款信息的指令除外）
+            if (
+                loan_warning
+                and loan_warning.get("warning_message")
+                and not command_text.startswith(LOAN_SELF_DISPLAY_COMMANDS)
+            ):
                 yield event.plain_result(loan_warning["warning_message"])
 
     return wrapper
@@ -172,6 +176,9 @@ LOAN_IDENTITY_BLOCK = 100_000
 PURCHASE_BLOCKED_COMMANDS = (
     "购买", "坊市购买", "黑市购买", "宗门兑换", "切原石",
 )
+
+# 这些指令自身已展示贷款身份/欠款信息，不再追加重复的还款提醒
+LOAN_SELF_DISPLAY_COMMANDS = ("我的信息",)
 
 
 def _loan_identity(total_due: int, remaining_days: int) -> tuple[str, bool]:

@@ -172,7 +172,7 @@ class XiuXianPlugin(Star):
         self.db = DataBase(str(db_path))
 
         # ===== 基础管理器与处理器 =====
-        self.misc_handler = MiscHandler(self.db)
+        self.misc_handler = MiscHandler(self.db, self.config)
         self.player_handler = PlayerHandler(self.db, self.config, self.config_manager)
         self.equipment_handler = EquipmentHandler(self.db, self.config_manager)
         self.breakthrough_handler = BreakthroughHandler(self.db, self.config_manager, self.config)
@@ -212,7 +212,7 @@ class XiuXianPlugin(Star):
         self.bank_handlers = BankHandlers(self.db, self.bank_mgr)
         self.bounty_handlers = BountyHandlers(self.db, self.bounty_mgr)
         
-        self.impart_pk_mgr = ImpartPkManager(self.db, self.combat_mgr)
+        self.impart_pk_mgr = ImpartPkManager(self.db, self.combat_mgr, self.config_manager)
         self.impart_pk_handlers = ImpartPkHandlers(self.db, self.impart_pk_mgr)
         
         self.blessed_land_mgr = BlessedLandManager(self.db)
@@ -251,11 +251,11 @@ class XiuXianPlugin(Star):
         self.pet_handlers = PetHandlers(self.db, self.pet_mgr)
 
         # v6.6 交易坊市
-        self.auction_mgr = AuctionManager(self.db, self.storage_ring_mgr)
+        self.auction_mgr = AuctionManager(self.db, self.storage_ring_mgr, self.config)
         self.auction_handlers = AuctionHandlers(self.db, self.auction_mgr)
 
         # v6.8 押镖劫道 & 奇遇
-        self.escort_mgr = EscortManager(self.db, self.combat_mgr, self.storage_ring_mgr)
+        self.escort_mgr = EscortManager(self.db, self.combat_mgr, self.storage_ring_mgr, self.config_manager)
         self.encounter_mgr = EncounterManager(self.db, self.storage_ring_mgr)
 
         # v6.10 生活职业 & 魔潮天灾
@@ -279,6 +279,8 @@ class XiuXianPlugin(Star):
             card_cfg = dict(self.config.get("IMAGE_CARDS", {}) or {})
             card_cfg["__enabled__"] = card_cfg.pop("ENABLED", True)
             _ig.set_card_flags(card_cfg)
+            from .utils import static_image_generator as _sig
+            _sig.set_static_image_config(self.config)
         except Exception as e:
             logger.warning(f"卡片配置注入失败（将全部启用）: {e}")
         
@@ -288,6 +290,7 @@ class XiuXianPlugin(Star):
         self.spirit_eye_task = None
         self.bounty_check_task = None
         self.demon_check_task = None
+        self.market_npc_task = None
 
         access_control_config = self.config.get("ACCESS_CONTROL", {})
         self.whitelist_groups = [str(g) for g in access_control_config.get("WHITELIST_GROUPS", [])]
@@ -336,6 +339,8 @@ class XiuXianPlugin(Star):
         # v6.17 商店自动上货
         self.restock_task = asyncio.create_task(self._schedule_restock())
         self.sect_event_task = asyncio.create_task(self._schedule_sect_events())
+        # v6.22 坊市NPC问价
+        self.market_npc_task = asyncio.create_task(self._schedule_market_npc_offers())
         
         logger.info("【修仙插件】已加载。")
 
@@ -344,7 +349,8 @@ class XiuXianPlugin(Star):
                      self.bounty_check_task, self.demon_check_task,
                      getattr(self, "tide_check_task", None),
                      getattr(self, "restock_task", None),
-                     getattr(self, "sect_event_task", None)):
+                     getattr(self, "sect_event_task", None),
+                     getattr(self, "market_npc_task", None)):
             if task: task.cancel()
         await self.db.close()
         logger.info("【修仙插件】已卸载。")
@@ -372,12 +378,12 @@ class XiuXianPlugin(Star):
                     await self.db.ext.set_system_config("boss_next_spawn_time", str(next_spawn_time))
                     await asyncio.sleep(interval)
                 
-                # 清理过期未击杀的旧世界Boss
-                async with self.db.conn.execute("SELECT boss_id FROM world_boss WHERE status=1 AND expire_time < ?", (current_time,)) as cur:
-                    if await cur.fetchone():
-                        await self.db.conn.execute("UPDATE world_boss SET status=3 WHERE status=1 AND expire_time < ?", (current_time,))
-                        await self.db.conn.commit()
-                        logger.info("【修仙插件】清理了超时未击杀的旧世界Boss")
+                # 清理过期未击杀的旧世界Boss（睡醒后必须用当前时间，不能用 sleep 前的旧时间）
+                now = int(time.time())
+                if self.world_boss_mgr:
+                    expired = await self.world_boss_mgr.expire_bosses(now)
+                    if expired:
+                        logger.info(f"【修仙插件】清理了 {expired} 个超时未击杀的旧世界Boss")
 
                 # 检查并生成新Boss
                 if self.world_boss_mgr:
@@ -486,6 +492,23 @@ class XiuXianPlugin(Star):
             except Exception as e:
                 logger.error(f"自动上货任务异常: {e}")
                 await asyncio.sleep(120)
+
+    async def _schedule_market_npc_offers(self):
+        """v6.22 坊市NPC问价：按随机间隔生成问价，并清理过期问价"""
+        while True:
+            try:
+                await self.db.ensure_connection()
+                await asyncio.sleep(self.auction_mgr.npc_check_interval)
+                generated, expired = await self.auction_mgr.process_npc_offers()
+                if generated or expired:
+                    logger.info(
+                        f"【修仙插件】坊市NPC问价：新增 {generated} 条，过期 {expired} 条"
+                    )
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"坊市NPC问价任务异常: {e}")
+                await asyncio.sleep(60)
 
     async def _broadcast_world_boss_spawn(self, msg: str):
         """广播动态世界Boss降临/天魔结算"""
@@ -1773,7 +1796,7 @@ class XiuXianPlugin(Star):
     async def handle_demon_status(self, event: AstrMessageEvent):
         async for r in self.demon_handlers.handle_status(event): yield r
 
-    # ===== v6.5 灵兽系统 =====
+    # ===== v6.25 灵兽系统（多宠/修为共享/御兽联动） =====
     @filter.command("我的灵兽", "查看当前携带的灵兽")
     @require_whitelist
     async def handle_my_pet(self, event: AstrMessageEvent):
@@ -1786,33 +1809,39 @@ class XiuXianPlugin(Star):
 
     @filter.command("喂养灵兽", "消耗资源提升灵兽等级")
     @require_whitelist
-    async def handle_feed_pet(self, event: AstrMessageEvent):
-        before = None
-        p0 = await self.db.get_player_by_id(event.get_sender_id())
-        if p0:
-            pet0 = await self.pet_mgr.get_pet(p0.user_id)
-            before = pet0["level"] if pet0 else 0
-        async for r in self.pet_handlers.handle_feed(event): yield r
-        # 称号：灵兽等级
+    async def handle_feed_pet(self, event: AstrMessageEvent, args: GreedyStr = ""):
+        uid = event.get_sender_id()
+        before = await self.pet_mgr.get_max_pet_level(uid)
+        async for r in self.pet_handlers.handle_feed(event, args): yield r
         try:
-            p1 = await self.db.get_player_by_id(event.get_sender_id())
-            pet1 = await self.pet_mgr.get_pet(p1.user_id) if p1 else None
-            if pet1 and before is not None and pet1["level"] > before:
-                tmsg = await self.title_hooks.bump_value(p1, "pet_level", pet1["level"])
+            p1 = await self.db.get_player_by_id(uid)
+            after = await self.pet_mgr.get_max_pet_level(uid)
+            if p1 and before is not None and after > before:
+                tmsg = await self.title_hooks.bump_value(p1, "pet_level", after)
                 if tmsg: yield event.plain_result(tmsg)
         except Exception:
             pass
 
-    # ===== v6.5.1 新增：放生与吞噬 =====
-    @filter.command("放生灵兽", "清空当前灵兽，以便契约新的")
+    @filter.command("灵兽出战", "设置出战的主战灵兽")
     @require_whitelist
-    async def handle_release_pet(self, event: AstrMessageEvent):
-        async for r in self.pet_handlers.handle_release(event): yield r
+    async def handle_set_main_pet(self, event: AstrMessageEvent, args: GreedyStr = ""):
+        async for r in self.pet_handlers.handle_set_main(event, args): yield r
 
-    @filter.command("吞噬灵兽", "吞噬当前灵兽，返还部分资源")
+    @filter.command("灵兽改名", "给灵兽改一个名字")
     @require_whitelist
-    async def handle_devour_pet(self, event: AstrMessageEvent):
-        async for r in self.pet_handlers.handle_devour(event): yield r
+    async def handle_rename_pet(self, event: AstrMessageEvent, args: GreedyStr = ""):
+        async for r in self.pet_handlers.handle_rename(event, args): yield r
+
+    # ===== v6.5.1 新增：放生与吞噬 =====
+    @filter.command("放生灵兽", "放生指定灵兽")
+    @require_whitelist
+    async def handle_release_pet(self, event: AstrMessageEvent, args: GreedyStr = ""):
+        async for r in self.pet_handlers.handle_release(event, args): yield r
+
+    @filter.command("吞噬灵兽", "吞噬指定灵兽，返还部分资源")
+    @require_whitelist
+    async def handle_devour_pet(self, event: AstrMessageEvent, args: GreedyStr = ""):
+        async for r in self.pet_handlers.handle_devour(event, args): yield r
 
     # ===== v6.6 宗门大比 =====
     @filter.command("开启宗门大比", "管理员开启活动")
@@ -1836,7 +1865,7 @@ class XiuXianPlugin(Star):
     async def handle_sect_battle(self, event: AstrMessageEvent, target: str = ""):
         yield event.plain_result("ℹ️ 旧版大比切磋已下线，请由宗主使用 /宗门大比开启，成员用 /宗门大比报名。")
 
-    # ===== v6.7 交易坊市 =====
+    # ===== v6.7 交易坊市 / v6.22 NPC问价 =====
     @filter.command("坊市", "查看玩家交易坊市")
     @require_whitelist
     async def handle_market_list(self, event: AstrMessageEvent):
@@ -1856,6 +1885,26 @@ class XiuXianPlugin(Star):
     @require_whitelist
     async def handle_market_cancel(self, event: AstrMessageEvent, auction_id: str = "0"):
         async for r in self.auction_handlers.handle_cancel(event, auction_id): yield r
+
+    @filter.command("我的坊市", "查看我的坊市上架与NPC问价")
+    @require_whitelist
+    async def handle_my_market(self, event: AstrMessageEvent):
+        async for r in self.auction_handlers.handle_my_market(event): yield r
+
+    @filter.command("坊市我的", "查看我的坊市上架与NPC问价")
+    @require_whitelist
+    async def handle_my_market_alias(self, event: AstrMessageEvent):
+        async for r in self.auction_handlers.handle_my_market(event): yield r
+
+    @filter.command("坊市卖出", "接受NPC问价并卖出商品")
+    @require_whitelist
+    async def handle_market_accept_offer(self, event: AstrMessageEvent, offer_id: str = "0"):
+        async for r in self.auction_handlers.handle_accept_offer(event, offer_id): yield r
+
+    @filter.command("坊市等待", "拒绝本次NPC问价，继续等待")
+    @require_whitelist
+    async def handle_market_decline_offer(self, event: AstrMessageEvent, offer_id: str = "0"):
+        async for r in self.auction_handlers.handle_decline_offer(event, offer_id): yield r
 
     # ===== v6.8 灵田扩展：施肥与杂交 =====
     @filter.command("施肥", "消耗灵石恢复灵田肥力")
@@ -2557,7 +2606,7 @@ class XiuXianPlugin(Star):
                 f"生活职业：{getattr(target, 'life_skill', '') or '无'}\n"
                 f"状态：{status} / {target.state}\n"
                 f"转生次数：{target.reincarnation_count}\n"
-                f"贷款：{('本金 ' + format(loan['principal'], ',') + ' 灵石') if loan else '无'}"
+                f"贷款：{('未还本金 ' + format(max(0, loan['principal'] - loan.get('paid_principal', 0)), ',') + ' 灵石') if loan else '无'}"
             )
             return
 

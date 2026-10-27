@@ -16,6 +16,18 @@ class WorldBossManager:
         self.config_manager = config_manager
         self.storage_ring_mgr = storage_ring_mgr
 
+    async def expire_bosses(self, now: int = None) -> int:
+        """将已到期的存活Boss标记为逃遁，返回本次清理数量。"""
+        if now is None:
+            now = int(time.time())
+        async with self.db.conn.execute(
+            "UPDATE world_boss SET status = 3 WHERE status = 1 AND expire_time <= ?",
+            (now,),
+        ) as cursor:
+            changed = cursor.rowcount
+        await self.db.conn.commit()
+        return changed
+
     async def calculate_dynamic_hp(self) -> Tuple[int, int]:
         """动态水位评估：计算全服活跃玩家战力，返回 (目标血量, 参与人数基数)"""
         players = await self.db.get_all_players()
@@ -47,6 +59,7 @@ class WorldBossManager:
 
     async def spawn_boss(self) -> Tuple[bool, str]:
         """生成世界Boss"""
+        await self.expire_bosses()
         async with self.db.conn.execute("SELECT * FROM world_boss WHERE status = 1") as cursor:
             if await cursor.fetchone():
                 return False, "❌ 当前已有世界Boss存活！"
@@ -77,6 +90,7 @@ class WorldBossManager:
     async def challenge_boss(self, player: Player) -> Tuple[bool, str]:
         """挑战世界Boss"""
         now = int(time.time())
+        await self.expire_bosses(now)
 
         # 0. 境界门槛：境界3（炼气四层）以上才能参与，防小号白嫖全服奖励
         MIN_BOSS_LEVEL = 3
@@ -96,7 +110,7 @@ class WorldBossManager:
                 return False, "❌ 当前没有存活的世界Boss。"
             boss = dict(row)
 
-        if now > boss["expire_time"]:
+        if now >= boss["expire_time"]:
             return False, "❌ Boss已逃遁，请等待下次降临。"
 
         # 2. 检查个人挑战次数与冷却

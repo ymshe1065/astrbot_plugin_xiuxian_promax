@@ -4,6 +4,7 @@ import json
 from typing import Optional, List, Dict, TYPE_CHECKING
 from ..models import Player, Item
 from ..data import DataBase
+from .item_rules import ItemRules
 
 if TYPE_CHECKING:
     from ..config_manager import ConfigManager
@@ -78,7 +79,7 @@ class EquipmentManager:
         if not item_config and weapons_data: item_config = weapons_data.get(item_name)
         if not item_config: return None
 
-        item_type = item_config.get("type", "")
+        item_type = ItemRules.normalize_equipment_type(item_config)
         physical_damage = item_config.get("physical_damage", 0)
         physical_defense = item_config.get("physical_defense", 0)
         magic_damage = item_config.get("magic_damage", 0)
@@ -90,20 +91,10 @@ class EquipmentManager:
             if "attack" in ee: physical_damage = ee["attack"]
             if "defense" in ee: physical_defense = ee["defense"]
 
-        # ===== 核心兼容：处理生成器的中文类型 =====
-        if item_type in ["法器", "武器", "防具", "饰品"]:
-            subtype = item_config.get("subtype", "")
-            if subtype == "武器" or item_type == "武器": item_type = "weapon"
-            elif subtype == "防具" or item_type == "防具": item_type = "armor"
-            elif subtype == "饰品" or item_type == "饰品": item_type = "accessory"
-            elif item_type == "法器": item_type = "weapon" 
-        elif item_type in ["功法", "心法"]:
-            item_type = "technique"
-
         return Item(
             item_id=item_config.get("id", item_name), name=item_name, item_type=item_type,
             description=item_config.get("description", ""), rank=item_config.get("rank", ""),
-            required_level_index=item_config.get("required_level_index", 0), weapon_category=item_config.get("weapon_category", ""),
+            required_level_index=ItemRules.get_required_level(item_config), weapon_category=item_config.get("weapon_category", ""),
             magic_damage=magic_damage, physical_damage=physical_damage, magic_defense=magic_defense, physical_defense=physical_defense,
             mental_power=mental_power, exp_multiplier=item_config.get("exp_multiplier", 0.0),
             spiritual_qi=item_config.get("spiritual_qi", 0), blood_qi=item_config.get("blood_qi", 0)
@@ -126,20 +117,13 @@ class EquipmentManager:
             if item: equipped.append(item)
         return equipped
 
-    # 品阶→境界门槛（兼容 items.json 与 weapons.json 两套品阶体系）
-    RANK_REQ_LEVEL = {
-        "玄阶": 3, "地阶": 9, "天阶": 18,
-        "灵品": 3, "地品": 9, "天品": 18, "皇品": 24,
-        "帝品": 30, "道品": 36, "仙品": 42, "混元先天": 48,
-    }
+    RANK_REQ_LEVEL = ItemRules.RANK_REQ_LEVEL
 
     def check_equipment_level_requirement(self, player: Player, item: Item) -> tuple[bool, str]:
-        """检查玩家是否满足装备的境界要求（修复天阶装备0级可穿戴漏洞）"""
+        """检查玩家是否满足装备的境界要求。"""
         req_level = item.required_level_index
-
-        # 如果配置里显式写了等级要求则优先；否则按品阶推断
         if req_level <= 0:
-            req_level = self.RANK_REQ_LEVEL.get(item.rank, 0)
+            req_level = ItemRules.RANK_REQ_LEVEL.get(item.rank, 0)
 
         if player.level_index < req_level:
             required_level_name = self._format_required_level(req_level)

@@ -13,9 +13,10 @@ __all__ = ["ImpartPkManager"]
 class ImpartPkManager:
     """传承PK管理器 - 玩家间争夺传承的战斗"""
     
-    def __init__(self, db: DataBase, combat_mgr: CombatManager):
+    def __init__(self, db: DataBase, combat_mgr: CombatManager, config_manager=None):
         self.db = db
         self.combat_mgr = combat_mgr
+        self.config_manager = config_manager
     
     async def challenge_impart(self, attacker: Player, defender: Player) -> Tuple[bool, str, dict]:
         """发起传承挑战
@@ -32,48 +33,41 @@ class ImpartPkManager:
         defender_impart = await self.db.ext.get_impart_info(defender.user_id)
         
         # 准备战斗属性
-        atk_hp, atk_mp = self.combat_mgr.calculate_hp_mp(attacker.experience)
-        atk_atk = self.combat_mgr.calculate_atk(attacker.experience, attacker.atkpractice)
-        atk_stats = CombatStats(
-            user_id=attacker.user_id, name=attacker.user_name or "挑战者",
-            hp=atk_hp, max_hp=atk_hp, mp=atk_mp, max_mp=atk_mp, atk=atk_atk
+        atk_stats = self.combat_mgr.build_player_combat_stats(
+            attacker, self.config_manager, db=self.db
         )
-        
-        def_hp, def_mp = self.combat_mgr.calculate_hp_mp(defender.experience)
-        def_atk = self.combat_mgr.calculate_atk(defender.experience, defender.atkpractice)
-        def_stats = CombatStats(
-            user_id=defender.user_id, name=defender.user_name or "防守者",
-            hp=def_hp, max_hp=def_hp, mp=def_mp, max_mp=def_mp, atk=def_atk
+        def_stats = self.combat_mgr.build_player_combat_stats(
+            defender, self.config_manager, db=self.db
         )
-        
+        if not atk_stats.name:
+            atk_stats.name = "挑战者"
+        if not def_stats.name:
+            def_stats.name = "防守者"
+
         # 战斗模拟
-        atk_hp = atk_stats.hp
-        def_hp = def_stats.hp
-        
         rounds = 0
         max_rounds = 20
         battle_log = []
-        
-        while atk_hp > 0 and def_hp > 0 and rounds < max_rounds:
+
+        while atk_stats.hp > 0 and def_stats.hp > 0 and rounds < max_rounds:
             rounds += 1
-            
-            # 攻击者出手
-            damage = max(1, atk_stats.atk - def_stats.defense // 2)
-            damage = int(damage * random.uniform(0.8, 1.2))
-            def_hp -= damage
-            battle_log.append(f"第{rounds}回合: {attacker.user_name or attacker.user_id} 造成 {damage} 伤害")
-            
-            if def_hp <= 0:
+            battle_log.append(f"-- 第 {rounds} 回合 --")
+
+            damage, logs, heal = self.combat_mgr._execute_attack(atk_stats, def_stats)
+            def_stats.hp -= damage
+            atk_stats.hp = min(atk_stats.max_hp, atk_stats.hp + heal)
+            battle_log.extend(logs)
+
+            if def_stats.hp <= 0:
                 break
-            
-            # 防守者反击
-            counter_damage = max(1, def_stats.atk - atk_stats.defense // 2)
-            counter_damage = int(counter_damage * random.uniform(0.8, 1.2))
-            atk_hp -= counter_damage
-            battle_log.append(f"第{rounds}回合: {defender.user_name or defender.user_id} 反击 {counter_damage}")
-        
+
+            damage, logs, heal = self.combat_mgr._execute_attack(def_stats, atk_stats)
+            atk_stats.hp -= damage
+            def_stats.hp = min(def_stats.max_hp, def_stats.hp + heal)
+            battle_log.extend(logs)
+
         # 判定胜负
-        attacker_wins = def_hp <= 0 or (atk_hp > 0 and atk_hp >= def_hp)
+        attacker_wins = def_stats.hp <= 0 or (atk_stats.hp > 0 and atk_stats.hp >= def_stats.hp)
         
         rewards = {}
         if attacker_wins:

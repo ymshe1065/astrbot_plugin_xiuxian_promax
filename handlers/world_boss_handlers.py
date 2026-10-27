@@ -19,6 +19,7 @@ class WorldBossHandlers:
 
     async def handle_query(self, event: AstrMessageEvent):
         """查询世界Boss信息"""
+        await self.wb_mgr.expire_bosses()
         async with self.db.conn.execute("SELECT * FROM world_boss WHERE status = 1") as cursor:
             row = await cursor.fetchone()
             if not row:
@@ -27,9 +28,9 @@ class WorldBossHandlers:
             boss = dict(row)
 
         now = int(time.time())
-        remaining = boss["expire_time"] - now
+        remaining = max(0, boss["expire_time"] - now)
         if remaining <= 0:
-            # 过期 Boss 可能还没来得及被清理，查询时顺手标记为已逃遁
+            # 兜底：刚好跨过到期秒时，顺手标记为已逃遁
             try:
                 await self.db.conn.execute(
                     "UPDATE world_boss SET status = 3 WHERE boss_id = ? AND status = 1",

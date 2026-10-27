@@ -59,6 +59,7 @@ class BossManager:
     def __init__(self, db: DataBase, combat_mgr: CombatManager, config_manager=None, storage_ring_manager: "StorageRingManager" = None):
         self.db = db
         self.combat_mgr = combat_mgr
+        self.config_manager = config_manager
         self.storage_ring_manager = storage_ring_manager
         self.config = config_manager.boss_config if config_manager else {}
         self.levels = self.config.get("levels", self.BOSS_LEVELS)
@@ -188,20 +189,25 @@ ATK：{atk}
         if player.atkpractice < 0: player.atkpractice = 0
         await self.db.update_player(player)
 
-        player_stats = CombatStats(
-            user_id=user_id,
-            name=player.user_name if player.user_name else f"道友{user_id[:6]}",
-            hp=player.hp,
-            max_hp=hp if hp > 0 else max(1, player.experience // 2),
-            mp=player.mp,
-            max_mp=mp if mp > 0 else max(1, player.experience),
-            atk=player.atk,
-            defense=0,
+        player_stats = self.combat_mgr.build_player_combat_stats(
+            player,
+            self.config_manager,
+            db=self.db,
+            hp_buff=hp_buff,
+            atk_buff=atk_buff,
             crit_rate=int(crit_rate_buff * 100),
-            exp=player.experience,
-            # 玩家五行：优先配置显式标注（主修心法 > 武器），其次名称推断
-            element=self._get_element_of(player.main_technique) or self._get_element_of(player.weapon)
         )
+
+        from .pet_manager import PetManager
+        pet_mgr = PetManager(self.db)
+        main_pet, support_pets, pet_effects, atk = await pet_mgr.build_pet_lineup(
+            user_id, player_stats.max_hp, player_stats.atk,
+            player_stats.defense, player.cultivation_type,
+        )
+        player_stats.atk = atk
+        player_stats.pet = main_pet
+        player_stats.support_pets = support_pets
+        player_stats.effects = pet_effects
 
         # Boss 随机获得一种五行属性，构成克制关系
         boss_element = random.choice(["金", "木", "水", "火", "土"])
@@ -223,6 +229,13 @@ ATK：{atk}
         battle_result = self.combat_mgr.player_vs_boss(player_stats, boss_stats)
         winner = battle_result["winner"]
         reward = battle_result["reward"]
+
+        pet_states = []
+        if player_stats.pet:
+            pet_states.append(player_stats.pet)
+        pet_states.extend(player_stats.support_pets or [])
+        for pet_state in pet_states:
+            await pet_mgr.save_pet_combat_state(pet_state)
         
         if winner == user_id:
             boss.status = 0

@@ -8,6 +8,27 @@ from typing import Tuple, Dict, Optional, List
 from dataclasses import dataclass
 
 @dataclass
+class PetCombatState:
+    """灵兽独立战斗状态"""
+    user_id: str
+    name: str
+    pet_type: str
+    level: int
+    hp: int
+    max_hp: int
+    atk: int
+    defense: int = 0
+    guard_rate: float = 0.15
+    mechanic: str = ""
+    pet_id: int = 0
+    revive_mult: float = 1.0
+
+    @property
+    def alive(self) -> bool:
+        return self.hp > 0
+
+
+@dataclass
 class CombatStats:
     """战斗属性"""
     user_id: str
@@ -22,6 +43,8 @@ class CombatStats:
     exp: int = 0  # 修为（用于计算攻击力）
     effects: dict = None # 战斗特效（功法/词条/灵兽）
     element: str = ""  # 五行属性（金木水火土，空为无属性）
+    pet: Optional[PetCombatState] = None  # 主战灵兽
+    support_pets: Optional[List[PetCombatState]] = None  # 辅助出战灵兽
 
 
 class CombatManager:
@@ -152,6 +175,138 @@ class CombatManager:
             "lifesteal": effects.get("lifesteal", 0),
             "counter_damage": effects.get("counter_damage", 0),
         }
+
+    @staticmethod
+    def collect_combat_effects(player, config_manager) -> dict:
+        """收集功法/装备/全局词条特效，保持与装备管理器一致。"""
+        effects = {
+            "crit_rate": 0,
+            "crit_damage": 1.5,
+            "lifesteal": 0,
+            "counter_damage": 0,
+            "defense_bonus": 0,
+            "combo_rate": 0,
+            "physical_damage_multiplier": 1.0,
+            "magic_damage_multiplier": 1.0,
+        }
+        techniques_data = getattr(config_manager, "techniques_data", {}) or {}
+        for tech_name in player.get_techniques_list():
+            tech_config = techniques_data.get(tech_name)
+            if tech_config and "effects" in tech_config:
+                for key, value in tech_config["effects"].items():
+                    if key in effects:
+                        effects[key] += value
+        if player.main_technique:
+            main_config = techniques_data.get(player.main_technique)
+            if main_config and "effects" in main_config:
+                for key, value in main_config["effects"].items():
+                    if key in effects:
+                        effects[key] += value
+        try:
+            import json
+            bonus_data = json.loads(player.permanent_bonus) if player.permanent_bonus else {}
+            for affix in bonus_data.get("affixes", []):
+                key = affix.get("key")
+                value = affix.get("value", 0)
+                if key in effects:
+                    effects[key] += value
+        except Exception:
+            pass
+        items_data = getattr(config_manager, "items_data", {}) or {}
+        weapons_data = getattr(config_manager, "weapons_data", {}) or {}
+        if player.weapon:
+            weapon_config = weapons_data.get(player.weapon) or items_data.get(player.weapon)
+            if weapon_config and "effects" in weapon_config:
+                for key, value in weapon_config["effects"].items():
+                    if key in effects:
+                        effects[key] += value
+        if player.armor:
+            armor_config = items_data.get(player.armor) or weapons_data.get(player.armor)
+            if armor_config and "effects" in armor_config:
+                for key, value in armor_config["effects"].items():
+                    if key in effects:
+                        effects[key] += value
+        return effects
+
+    @classmethod
+    def build_player_combat_stats(
+        cls,
+        player,
+        config_manager=None,
+        db=None,
+        hp_buff: float = 0.0,
+        mp_buff: float = 0.0,
+        atk_buff: float = 0.0,
+        crit_rate: int = 0,
+        extra_effects: Optional[dict] = None,
+        element: Optional[str] = None,
+    ) -> "CombatStats":
+        """统一构建玩家战斗属性，确保所有战斗入口读取装备与词条。"""
+        hp, mp = cls.calculate_hp_mp(player.experience, hp_buff, mp_buff)
+        atk = cls.calculate_atk(
+            player.experience,
+            player.atkpractice,
+            atk_buff,
+            player.physical_damage,
+            player.magic_damage,
+            player.cultivation_type,
+        )
+
+        equip = {"atk": 0, "defense": 0}
+        effects = {}
+        if config_manager is not None:
+            equip = cls.calculate_equipment_bonus(player, config_manager)
+            effects = cls.collect_combat_effects(player, config_manager)
+        if extra_effects:
+            for key, value in extra_effects.items():
+                if isinstance(value, (int, float)):
+                    effects[key] = effects.get(key, 0) + value
+                else:
+                    effects[key] = value
+
+        if element is None and config_manager is not None:
+            try:
+                element = (
+                    config_manager.get_item_element(player.main_technique)
+                    or config_manager.get_item_element(player.weapon)
+                )
+            except Exception:
+                element = ""
+        if not element:
+            element = (
+                cls.get_element_from_name(player.main_technique)
+                or cls.get_element_from_name(player.weapon)
+            )
+
+        defense = int(equip.get("defense", 0)) + int(effects.get("defense_bonus", 0))
+        return CombatStats(
+            user_id=player.user_id,
+            name=player.user_name or player.user_id,
+            hp=hp,
+            max_hp=hp,
+            mp=mp,
+            max_mp=mp,
+            atk=int(atk) + int(equip.get("atk", 0)),
+            defense=defense,
+            crit_rate=int(crit_rate or 0),
+            exp=player.experience,
+            effects=effects,
+            element=element or "",
+        )
+
+    @staticmethod
+    def calculate_combat_power(panel: Dict, mental_power: int = 0) -> int:
+        """统一战力公式：气血/10 + 攻击 + 防御 + 精神力/10
+
+        玩家名片、战力排行等所有展示入口都必须调用此方法，
+        避免各自维护公式导致同一玩家显示不同战力。
+        """
+        return int(
+            panel.get("hp", 0) / 10
+            + panel.get("atk", 0)
+            + panel.get("defense", 0)
+            + int(mental_power or 0) // 10
+        )
     
     @staticmethod
     def apply_damage_reduction(damage: int, defense: int = 0) -> int:
@@ -203,25 +358,62 @@ class CombatManager:
             
         # 4. 防御减伤
         final_damage = cls.apply_damage_reduction(damage, defender.defense)
-        
-        # 5. 吸血计算
+        logs.append(f"🗡️ {attacker.name} 造成 {final_damage} 点伤害")
+
+        # 5. 灵兽每回合协战
+        attacker_pets = []
+        if getattr(attacker, "pet", None) and attacker.pet.alive:
+            attacker_pets.append(attacker.pet)
+        for support in (getattr(attacker, "support_pets", None) or []):
+            if support and support.alive:
+                attacker_pets.append(support)
+        if attacker_pets:
+            pet_count = len(attacker_pets)
+            pet_factor = 1.0 / (1 + 0.4 * (pet_count - 1))
+            for pet in attacker_pets:
+                pet_damage = int(round(random.uniform(0.95, 1.05), 2) * pet.atk * pet_factor)
+                pet_damage = cls.apply_damage_reduction(pet_damage, defender.defense)
+                if pet.mechanic == "burn":
+                    burn = max(1, int(pet.atk * pet_factor * 0.3))
+                    pet_damage += burn
+                    logs.append(f"🔥 【{pet.name}】喷吐灵火，追加灼烧 {burn} 点伤害！")
+                if pet_damage > 0:
+                    final_damage += pet_damage
+                    logs.append(f"🐾 【{pet.name}】协同攻击，追加 {pet_damage} 点伤害！")
+                if pet.mechanic == "dragon" and pet_damage > 0:
+                    heal_pet = max(1, int(pet_damage * 0.2))
+                    attacker.hp = min(attacker.max_hp, attacker.hp + heal_pet)
+                    logs.append(f"🐉 【{pet.name}】龙息反哺，{attacker.name} 恢复 {heal_pet} 点气血！")
+
+        # 6. 防守方主战灵兽护主承伤
+        defender_pets = []
+        if getattr(defender, "pet", None):
+            defender_pets.append(defender.pet)
+        defender_pets.extend(getattr(defender, "support_pets", None) or [])
+        defender_pet = next((p for p in defender_pets if p and p.alive), None)
+        if defender_pet and final_damage > 0:
+            incoming = int(final_damage * defender_pet.guard_rate)
+            if incoming > 0:
+                protected = min(incoming, defender_pet.hp)
+                pet_loss = cls.apply_damage_reduction(incoming, defender_pet.defense)
+                pet_loss = min(defender_pet.hp, max(1, pet_loss))
+                defender_pet.hp -= pet_loss
+                final_damage -= protected
+                logs.append(
+                    f"🛡️ 【{defender_pet.name}】替 {defender.name} 挡下 {protected} 点伤害"
+                    f"（自身损耗 {pet_loss} 点精力）！"
+                )
+                if defender_pet.hp <= 0:
+                    defender_pet.hp = 0
+                    logs.append(f"💀 【{defender_pet.name}】力竭倒下，本场战斗无法继续协战！")
+
+        # 7. 吸血计算
         lifesteal_percent = effects.get("lifesteal", 0)
         heal_amount = 0
         if lifesteal_percent > 0:
             heal_amount = int(final_damage * (lifesteal_percent / 100))
             if heal_amount > 0:
                 logs.append(f"🩸 {attacker.name} 吸取了 {heal_amount} 点气血！")
-                
-        logs.append(f"🗡️ {attacker.name} 造成 {final_damage} 点伤害")
-        
-        # 6. ===== 灵兽协战判定 =====
-        pet_damage_mult = effects.get("pet_damage_mult", 0)
-        if pet_damage_mult > 0:
-            pet_damage = int(attacker.atk * pet_damage_mult)
-            pet_damage = cls.apply_damage_reduction(pet_damage, defender.defense)
-            final_damage += pet_damage
-            logs.append(f"🐾 {attacker.name} 的灵兽发起协同攻击，造成额外 {pet_damage} 点伤害！")
-        # ==========================
 
         return final_damage, logs, heal_amount
 
@@ -373,7 +565,17 @@ class CombatManager:
         # 双方防御力也拉平
         player1.defense = 100
         player2.defense = 100
-        
+
+        for stats in (player1, player2):
+            all_pets = []
+            if stats.pet:
+                all_pets.append(stats.pet)
+            all_pets.extend(stats.support_pets or [])
+            for pet in all_pets:
+                if pet.hp > 0:
+                    pet.atk = 100 + pet.level * 2
+                    pet.defense = 50
+
         combat_log = [
             f"⚖️ 【天道压制】双方基础属性已被强制拉平！",
             f"（但保留了功法、装备、灵兽的特殊加成）",

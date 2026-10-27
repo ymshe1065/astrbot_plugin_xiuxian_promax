@@ -25,10 +25,11 @@ class EscortManager:
     ROB_WIN_CUT = 0.3               # 劫镖成功可抢走镖银的 30%
     ROB_COOLDOWN = 600              # 劫镖冷却（秒）
 
-    def __init__(self, db: DataBase, combat_mgr: CombatManager, storage_ring_mgr):
+    def __init__(self, db: DataBase, combat_mgr: CombatManager, storage_ring_mgr, config_manager=None):
         self.db = db
         self.combat_mgr = combat_mgr
         self.storage_ring_mgr = storage_ring_mgr
+        self.config_manager = config_manager
         self._social = None
 
     async def _companion_bonus(self, user_id: str, perk_type: str) -> float:
@@ -176,20 +177,35 @@ class EscortManager:
 
         # 用天道压制引擎快速构建双方战斗属性
         def build_stats(p: Player) -> CombatStats:
-            hp, mp = self.combat_mgr.calculate_hp_mp(p.experience)
-            atk = self.combat_mgr.calculate_atk(p.experience, p.atkpractice, 0, p.physical_damage, p.magic_damage, p.cultivation_type)
-            return CombatStats(
-                user_id=p.user_id, name=p.user_name or p.user_id[:8],
-                hp=hp, max_hp=hp, mp=mp, max_mp=mp, atk=atk,
-                element=(self.combat_mgr.get_element_from_name(p.main_technique)
-                         or self.combat_mgr.get_element_from_name(p.weapon)),
+            return self.combat_mgr.build_player_combat_stats(
+                p, self.config_manager, db=self.db
             )
 
         attacker_stats = build_stats(attacker)
         target_stats = build_stats(target)
 
+        from .pet_manager import PetManager
+        pet_mgr = PetManager(self.db)
+        for p, stats_item in ((attacker, attacker_stats), (target, target_stats)):
+            main_pet, support_pets, pet_effects, atk = await pet_mgr.build_pet_lineup(
+                p.user_id, stats_item.max_hp, stats_item.atk,
+                stats_item.defense, p.cultivation_type,
+            )
+            stats_item.atk = atk
+            stats_item.pet = main_pet
+            stats_item.support_pets = support_pets
+            stats_item.effects = pet_effects
+
         # v6.12 平衡：公平满血对决，劫镖方不再享有先手压制
         result = self.combat_mgr.player_vs_player(attacker_stats, target_stats, combat_type=2)
+
+        for stats_item in (attacker_stats, target_stats):
+            pets = []
+            if stats_item.pet:
+                pets.append(stats_item.pet)
+            pets.extend(stats_item.support_pets or [])
+            for pet in pets:
+                await pet_mgr.save_pet_combat_state(pet)
 
         extra = target_cd.get_extra_data() if hasattr(target_cd, "get_extra_data") else {}
         escort_gold = int(extra.get("escort_gold", 2000))

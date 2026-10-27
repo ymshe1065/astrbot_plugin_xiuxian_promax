@@ -9,6 +9,18 @@
         "default": true,
         "hint": "关闭后所有界面只发文本，不再生成磨砂玻璃图片卡片。"
       },
+      "CARD_HELP": {
+        "description": "修仙帮助图片",
+        "type": "bool",
+        "default": true,
+        "hint": "/修仙帮助 发送预生成的指令大全图片，图片不可用时自动降级为文本。"
+      },
+      "STATIC_AUTO_REGEN": {
+        "description": "固定页面自动重生成",
+        "type": "bool",
+        "default": true,
+        "hint": "帮助等固定页面文案或版本变化时自动重绘图片；关闭后仅运行生成脚本时更新。"
+      },
       "CARD_INFO": {
         "description": "我的信息卡片",
         "type": "bool",
@@ -68,6 +80,54 @@
         "type": "bool",
         "default": true,
         "hint": "/我的装备 追加图片卡片。"
+      }
+    }
+  },
+  "MARKET_NPC": {
+    "description": "坊市NPC问价",
+    "type": "object",
+    "items": {
+      "ENABLED": {
+        "description": "启用NPC问价",
+        "type": "bool",
+        "default": true,
+        "hint": "玩家上架坊市后，NPC会按随机间隔发来问价。"
+      },
+      "MIN_INTERVAL": {
+        "description": "最短问价间隔（秒）",
+        "type": "int",
+        "default": 3000,
+        "hint": "每个商品两次NPC问价之间的最短随机间隔，默认3000秒（50分钟）。"
+      },
+      "MAX_INTERVAL": {
+        "description": "最长问价间隔（秒）",
+        "type": "int",
+        "default": 4200,
+        "hint": "每个商品两次NPC问价之间的最长随机间隔，默认4200秒（70分钟）。"
+      },
+      "MIN_RATE": {
+        "description": "问价下限比例",
+        "type": "float",
+        "default": 0.8,
+        "hint": "NPC问价相对玩家定价的最低比例，0.8表示最低八折（定价50可能问40）。"
+      },
+      "MAX_RATE": {
+        "description": "问价上限比例",
+        "type": "float",
+        "default": 1.2,
+        "hint": "NPC问价相对玩家定价的最高比例，1.2表示最高加价两成（定价50可能问60）。"
+      },
+      "OFFER_EXPIRE": {
+        "description": "问价有效期（秒）",
+        "type": "int",
+        "default": 1800,
+        "hint": "NPC问价超过该时间未处理会自动过期，玩家需继续等待下一次问价。默认1800秒。"
+      },
+      "CHECK_INTERVAL": {
+        "description": "问价检查周期（秒）",
+        "type": "int",
+        "default": 60,
+        "hint": "后台扫描并生成NPC问价的周期，默认60秒。"
       }
     }
   },

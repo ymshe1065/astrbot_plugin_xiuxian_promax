@@ -16,7 +16,11 @@ try:
 except ImportError:
     HAS_PIL = False
 
-from astrbot.api import logger
+try:
+    from astrbot.api import logger
+except ImportError:  # 允许脱离 AstrBot 运行生成脚本/离线测试
+    import logging
+    logger = logging.getLogger("xiuxian.image_generator")
 
 # ===== 资源路径 =====
 RES_DIR = Path(__file__).resolve().parents[1] / "resources"
@@ -292,6 +296,37 @@ def _mixed_width(text: str, font, emoji_px: int) -> float:
     return w
 
 
+def _wrap_mixed(text: str, font, max_width: float, emoji_px: int = 30) -> List[str]:
+    """按像素宽度折行（中文逐字、emoji 整体、保留显式换行），用于长列表页"""
+    text = str(text)
+    if not text:
+        return [""]
+    if max_width <= 0:
+        return [text]
+    lines: List[str] = []
+    for paragraph in text.split("\n"):
+        if paragraph == "":
+            lines.append("")
+            continue
+        cur = ""
+        for part, is_emoji in _split_emoji(paragraph):
+            if is_emoji:
+                token_w = emoji_px * 1.18
+                if cur and _mixed_width(cur, font, emoji_px) + token_w > max_width:
+                    lines.append(cur)
+                    cur = ""
+                cur += part
+                continue
+            for ch in part:
+                if cur and _mixed_width(cur + ch, font, emoji_px) > max_width:
+                    lines.append(cur)
+                    cur = ch
+                else:
+                    cur += ch
+        lines.append(cur)
+    return lines or [""]
+
+
 def render_card(
     bg_name: str,
     title: str,
@@ -330,6 +365,7 @@ def render_card(
         VALUE_RATIO_MAX = 0.62   # 数值列最多占内容宽 62%
         LABEL_RATIO_MIN = 0.24   # 字段列最少 24%
         content_w = width - pad * 2 - inner * 2 - 40
+        line_w = width - pad * 2 - inner * 2 - 10
         body_height = 0
         max_value_w = 0.0
         for sec in sections:
@@ -339,7 +375,8 @@ def render_card(
                 vw = _font_textlen(f_value, str(value))
                 max_value_w = max(max_value_w, vw, lw + 30)
             body_height += row_h * len(sec.get("rows", []))
-            body_height += row_h * len(sec.get("lines", []))
+            for line in sec.get("lines", []):
+                body_height += row_h * max(1, len(_wrap_mixed(str(line), f_value, line_w, 30)))
             body_height += section_gap
         # 数值列宽 = min(最长数值, 上限)，且保证字段列 >= 最低占比
         value_col = int(min(max(max_value_w, content_w * 0.40), content_w * VALUE_RATIO_MAX))
@@ -436,10 +473,10 @@ def render_card(
                 y_cursor += row_h
 
             for line in sec.get("lines", []):
-                line_s = _trunc(draw, str(line), f_value, width - pad * 2 - inner * 2 - 10)
-                _draw_mixed(canvas, (label_x + 6, y_cursor), line_s, f_value, emoji_px_val, INK_TEXT)
-                draw = ImageDraw.Draw(canvas)
-                y_cursor += row_h
+                for seg in _wrap_mixed(str(line), f_value, line_w, emoji_px_val):
+                    _draw_mixed(canvas, (label_x + 6, y_cursor), seg, f_value, emoji_px_val, INK_TEXT)
+                    draw = ImageDraw.Draw(canvas)
+                    y_cursor += row_h
 
             y_cursor += section_gap
 

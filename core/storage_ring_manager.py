@@ -86,10 +86,15 @@ class StorageRingManager:
         item_config = self.config_manager.items_data.get(item_name)
         if not item_config:
             item_config = self.config_manager.weapons_data.get(item_name)
-            
+        if not item_config and hasattr(self.config_manager, "techniques_data"):
+            item_config = self.config_manager.techniques_data.get(item_name)
+
         if item_config:
             vol = item_config.get("volume", item_config.get("weight", 1))
-            return max(1, int(vol))
+            try:
+                return max(1, int(vol))
+            except (TypeError, ValueError):
+                return 1
         return 1
 
     def get_used_slots(self, player: Player) -> int:

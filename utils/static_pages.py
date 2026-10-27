@@ -1,0 +1,218 @@
+# utils/static_pages.py
+"""固定接口列表页内容源（文本与图片共用，避免图文不一致）"""
+from __future__ import annotations
+
+import hashlib
+import json
+from typing import Any, Dict, List
+
+HELP_VERSION = "v6.25.0"
+HELP_HEADER = f"📖 修仙指令大全 {HELP_VERSION} (多灵兽槽位 + 修为共享 + 御兽联动)"
+HELP_HINT = "💡 提示：所有指令均可带 / 前缀使用"
+HELP_TITLE = "修仙指令大全"
+HELP_SUBTITLE = f"📖 {HELP_VERSION} · 所有指令均可带 / 前缀使用"
+HELP_FOOTER = "仙途漫漫 · 输入 /修仙帮助 随时查阅"
+DIVIDER = "━━━━━━━━━━━━━━━"
+
+HELP_SECTIONS: List[Dict[str, Any]] = [
+    {
+        "name": "🌟 入门与基础",
+        "lines": [
+            "/我要修仙 [职业] (灵/体/魔/剑/鬼/佛/御兽)",
+            "/我的信息 (卡片) /我的装备 (卡片) /修仙帮助",
+            "/签到 (节日大奖+卡片) /一键日常 /解卡",
+            "/改道号 /弃道重修 确认 (需空闲/无贷款) /行善 (积功德)",
+            "/选择生活职业 <炼器/符箓/阵法> /制符",
+            "/仙灵结缘 [名] (NPC道侣) /仙灵共修 /仙灵代收 /仙灵解除",
+            "/拜师 @人 /师徒 /出师 @人 /逐出师门 @人 /师德兑换 <编号>",
+            "/称号图鉴 /佩戴称号 <名> /我的称号 (110称号六品阶)",
+        ],
+    },
+    {
+        "name": "🧘 修炼与突破",
+        "lines": [
+            "/闭关 /出关 (境界越高收益越高;受家具/宗门/魔潮/化身影响)",
+            "/突破信息 (含资费与功德修正) /突破 [破境丹]",
+            "/升级丹炉 /激活化身 (30天闭关+20%)",
+        ],
+    },
+    {
+        "name": "💊 丹药与炼丹",
+        "lines": [
+            "/丹药背包 /丹药信息 <名> /服用丹药 <名> [数量]",
+            "/丹药配方 /炼丹 <ID> (投料后 /火候 <1-3> 控火)",
+        ],
+    },
+    {
+        "name": "⚔️ 战斗与竞技",
+        "note": "(功法/武器带五行克制)",
+        "lines": [
+            "/切磋 @人 /决斗 @人 (均有冷却)",
+            "/挑战世界Boss (5分钟CD,单次0.5%-20%,每日不限次)",
+            "/世界Boss状态 (血量/规则/剩余时间)",
+            "/传承挑战 @人 /传承信息 /传承排行",
+            "/挑战Boss /世界boss (旧版)",
+        ],
+    },
+    {
+        "name": "🏪 经济与交易",
+        "lines": [
+            "/银行 /存灵石 /取灵石 /领取利息",
+            "/贷款 /突破贷款 (大额需持有20%,最低5000)",
+            "/还款 [金额] (先息后本;不填全额) /银行流水",
+            "/坊市 (卡片) /坊市上架 <物> <数> <价>",
+            "/我的坊市 (个人上架+NPC问价) /坊市我的",
+            "/坊市购买 <ID> /坊市下架 <ID>",
+            "/坊市卖出 <问价ID> /坊市等待 <问价ID>",
+            "/切原石 /黑市 (每小时刷新) /黑市购买 <编号> /强化 /洗练",
+        ],
+    },
+    {
+        "name": "🛍️ 商店与资产",
+        "lines": [
+            "/丹阁 /器阁 /百宝阁 (卡片货架，自动补货)",
+            "/购买 <物> [数] 或 购买物品<物> [数]",
+            "/物品信息 <名>",
+            "/储物戒 (卡片) /取出 <物> [数] /丢弃 <物> [数]",
+            "/搜索物品 <词> /取出所有 <分类> /赠予 @人 <物> [数]",
+            "/接收 /拒绝 /卸下 <武器/防具/心法/功法名>",
+            "/更换储物戒 <名> /储物戒附魔 [数]",
+        ],
+    },
+    {
+        "name": "🏔️ 洞天·灵田·灵眼",
+        "lines": [
+            "/我的洞天 /购买洞天 1 /升级洞天 /洞天收取",
+            "/洞天装修 <家具> /进阶洞天 <编号>",
+            "/我的灵田 (卡片) /开垦灵田 /种植 <草> [数]",
+            "/收获 /施肥 /杂交 <草A> <草B> /升级灵田 /季节",
+            "/灵眼信息 /抢占灵眼 <ID> /灵眼收取 /释放灵眼",
+            "/我的灵兽 (卡片·多宠/精力) /孵化灵兽 <名> /喂养灵兽 [序号/名]",
+            "/灵兽出战 <序号/名> /灵兽改名 <序号/名> <新名>",
+            "/放生灵兽 [序号/名] /吞噬灵兽 [序号/名] (每回合协战·精力耗尽需复活)",
+        ],
+    },
+    {
+        "name": "📜 任务与冒险",
+        "lines": [
+            "/任务榜 (今日随机任务+进度) /接取任务 <黄/玄/地/天>",
+            "/放弃任务 <编号> (不扣资源,计入次数) /领取任务奖励",
+            "/悬赏令 /接取悬赏 <ID> /悬赏状态 /完成悬赏 /放弃悬赏",
+            "/历练信息 /开始历练 <路线> /历练状态 /完成历练 /放弃历练",
+            "/秘境列表 /探索秘境 <ID> /完成探索 /退出秘境",
+            "/奇遇选择 <编号> (110种事件三选一)",
+        ],
+    },
+    {
+        "name": "🛡️ 押镖与劫道",
+        "lines": [
+            "/押镖 (高额镖银+功德,30分钟)",
+            "/完成押镖 /放弃押镖 /劫镖 @人 (10分钟CD)",
+        ],
+    },
+    {
+        "name": "🏛️ 宗门",
+        "lines": [
+            "/创建宗门 /加入宗门 /退出宗门 /解散宗门 确认 /我的宗门 /宗门列表",
+            "/宗门捐献 <数> /宗门任务 /完成宗门任务 /放弃宗门任务",
+            "/宗门建筑 /升级建筑 <名称>",
+            "/宗门商店 (贡献随机5件,1小时刷新) /宗门兑换 <编号>",
+            "/宗门命令 @人 捐献 1000 24 /宗门命令列表 /宗门命令撤销 <编号>",
+            "/宗门大比开启 /宗门大比报名 /宗门大比状态",
+            "/宗门宣战 <宗门名> /宗门战争状态",
+            "/踢出成员 @人 /宗主传位 @人 /职位变更 @人 <0-4>",
+            "/双修 @人 /接受双修 /拒绝双修",
+            "/开启护府 /潜入洞府 @人",
+        ],
+    },
+    {
+        "name": "🌑 天道天灾与活动",
+        "lines": [
+            "/仙界日历 (季节+事件预告)",
+            "/魔潮状态 /抵御魔潮 <灵石> /天魔状态 /查验天魔 @人",
+        ],
+    },
+    {
+        "name": "📊 排行榜",
+        "lines": [
+            "/境界排行 /战力排行 /灵石排行 /存款排行",
+            "/宗门排行 /贡献排行 /功德榜 /气运榜 /师德榜",
+        ],
+    },
+    {
+        "name": "✨ 飞升转生",
+        "lines": [
+            "/飞升 [封印装备名] /解封传家宝",
+            "/仙缘商店 /仙缘兑换 <编号>",
+        ],
+    },
+    {
+        "name": "管理员",
+        "icon": "🛠️",
+        "note": "(需配置BOSS_ADMINS)",
+        "divider_before": True,
+        "lines": [
+            "/仙界管理 (查玩家/发灵石/重置状态/公告)",
+            "/生成世界Boss /生成Boss /开启魔潮",
+            "/开启天魔入侵（旧版宗门大比已由宗主开启）",
+        ],
+    },
+]
+
+
+def _section_header(sec: Dict[str, Any]) -> str:
+    icon = sec.get("icon", "")
+    prefix = f"{icon}" if icon else ""
+    return f"{prefix}【{sec['name']}】{sec.get('note', '')}"
+
+
+def build_help_text() -> str:
+    """由统一内容源生成帮助文本（图片不可用时的降级输出）"""
+    chunks: List[str] = []
+    for sec in HELP_SECTIONS:
+        if sec.get("divider_before"):
+            chunks.append(DIVIDER)
+        lines = [_section_header(sec)] + [f"  {line}" for line in sec.get("lines", [])]
+        chunks.append("\n".join(lines))
+    return "\n".join([HELP_HEADER, HELP_HINT, DIVIDER]) + "\n" + "\n\n".join(chunks)
+
+
+def build_help_image_sections() -> List[Dict[str, Any]]:
+    """转换为 render_card 的 sections 结构"""
+    sections: List[Dict[str, Any]] = []
+    for sec in HELP_SECTIONS:
+        icon = sec.get("icon", "")
+        name = f"{icon} {sec['name']}" if icon else sec["name"]
+        note = sec.get("note", "")
+        if note:
+            name = f"{name} {note}"
+        sections.append({"name": name, "lines": list(sec.get("lines", []))})
+    return sections
+
+
+PAGES: Dict[str, Dict[str, Any]] = {
+    "help": {
+        "title": HELP_TITLE,
+        "subtitle": HELP_SUBTITLE,
+        "footer": HELP_FOOTER,
+        "background": "info",
+        "width": 1200,
+        "sections": build_help_image_sections(),
+        "text_builder": build_help_text,
+    },
+}
+
+
+def page_fingerprint(page_key: str) -> str:
+    """页面内容指纹：文案/标题/版本任一变化都会触发图片重生成"""
+    spec = PAGES[page_key]
+    payload = {
+        "title": spec.get("title", ""),
+        "subtitle": spec.get("subtitle", ""),
+        "footer": spec.get("footer", ""),
+        "background": spec.get("background", "default"),
+        "width": spec.get("width", 1000),
+        "sections": spec.get("sections", []),
+    }
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()

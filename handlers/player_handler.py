@@ -217,11 +217,8 @@ class PlayerHandler:
         combat_panel = CombatManager.build_combat_panel(
             player, pill_multipliers, impart_info, self.config_manager, effects
         )
-        combat_power = int(
-            combat_panel["hp"] / 10
-            + combat_panel["atk"]
-            + combat_panel["defense"]
-            + int(total_attrs["mental_power"]) // 10
+        combat_power = CombatManager.calculate_combat_power(
+            combat_panel, total_attrs["mental_power"]
         )
         element_name = (
             self.config_manager.get_item_element(player.main_technique)
@@ -305,6 +302,7 @@ class PlayerHandler:
         )
         
         loan = await self.db.ext.get_active_loan(player.user_id)
+        loan_card_rows = []
         if loan:
             now = int(time.time())
             remaining_seconds = loan["due_at"] - now
@@ -338,6 +336,15 @@ class PlayerHandler:
             )
             if purchase_blocked:
                 reply_msg += "  🚫 欠款过多，购买类功能已暂停。\n"
+
+            loan_card_rows = [
+                ("身份", identity_label),
+                ("类型", loan_type_name),
+                ("应还", f"{total_due:,} 灵石"),
+                ("剩余", time_str),
+            ]
+            if purchase_blocked:
+                loan_card_rows.append(("提示", "🚫 购买类功能已暂停"))
 
         if getattr(player, "sect_debt", 0) > 0:
             reply_msg += (
@@ -398,7 +405,7 @@ class PlayerHandler:
                             ("宗门", sect_name),
                             ("职位", position_name),
                         ]},
-                    ],
+                    ] + ([{"name": "贷款", "rows": loan_card_rows}] if loan_card_rows else []),
                     footer="模拟修仙 · 发送 /修仙帮助 查看全部指令",
                 )
             if card_path:
@@ -584,6 +591,15 @@ class PlayerHandler:
             check_in_gold_min, check_in_gold_max = check_in_gold_max, check_in_gold_min
 
         check_in_gold = random.randint(check_in_gold_min, check_in_gold_max)
+        try:
+            from ..managers.pet_manager import PetManager
+            pet_mgr = PetManager(self.db)
+            pet = await pet_mgr.get_pet(player.user_id)
+            gold_bonus = pet_mgr.get_gold_bonus(pet)
+            if gold_bonus > 0:
+                check_in_gold = int(check_in_gold * (1 + gold_bonus))
+        except Exception:
+            pass
         player.gold += check_in_gold
         player.last_check_in_date = today
         

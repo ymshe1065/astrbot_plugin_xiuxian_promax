@@ -4,6 +4,14 @@ from astrbot.api.event import AstrMessageEvent
 from ..data import DataBase
 from ..models import Player
 from ..models_extended import UserStatus
+
+try:
+    from astrbot.api import logger
+except ImportError:
+    import logging
+    logger = logging.getLogger("xiuxian.misc_handler")
+
+from ..utils.static_pages import build_help_text
 from .utils import player_required, with_player_lock
 
 __all__ = ["MiscHandler"]
@@ -11,110 +19,31 @@ __all__ = ["MiscHandler"]
 class MiscHandler:
     """杂项指令处理器 - 提供帮助信息、一键日常与强制解卡"""
 
-    def __init__(self, db: DataBase):
+    def __init__(self, db: DataBase, config: dict = None):
         self.db = db
+        self.config = config or {}
 
     async def handle_help(self, event: AstrMessageEvent):
-        """显示 v6.15 修订版的修仙指令大全"""
-        help_text = (
-            "📖 修仙指令大全 v6.18 (万象更新版 + 宗门拓展)\n"
-            "💡 提示：所有指令均可带 / 前缀使用\n"
-            "━━━━━━━━━━━━━━━\n"
-            "【🌟 入门与基础】\n"
-            "  /我要修仙 [职业] (灵/体/魔/剑/鬼/佛/御兽)\n"
-            "  /我的信息 (卡片) /我的装备 (卡片) /修仙帮助\n"
-            "  /签到 (节日大奖+卡片) /一键日常 /解卡\n"
-            "  /改道号 /弃道重修 确认 (需空闲/无贷款) /行善 (积功德)\n"
-            "  /选择生活职业 <炼器/符箓/阵法> /制符\n"
-            "  /仙灵结缘 [名] (NPC道侣) /仙灵共修 /仙灵代收 /仙灵解除\n"
-            "  /拜师 @人 /师徒 /出师 @人 /逐出师门 @人 /师德兑换 <编号>\n"
-            "  /称号图鉴 /佩戴称号 <名> /我的称号 (110称号六品阶)\n"
-            "\n"
-            "【🧘 修炼与突破】\n"
-            "  /闭关 /出关 (境界越高收益越高;受家具/宗门/魔潮/化身影响)\n"
-            "  /突破信息 (含资费与功德修正) /突破 [破境丹]\n"
-            "  /升级丹炉 /激活化身 (30天闭关+20%)\n"
-            "\n"
-            "【💊 丹药与炼丹】\n"
-            "  /丹药背包 /丹药信息 <名> /服用丹药 <名> [数量]\n"
-            "  /丹药配方 /炼丹 <ID> (投料后 /火候 <1-3> 控火)\n"
-            "\n"
-            "【⚔️ 战斗与竞技】(功法/武器带五行克制)\n"
-            "  /切磋 @人 /决斗 @人 (均有冷却)\n"
-            "  /挑战世界Boss (5分钟CD,单次0.5%-20%,每日不限次)\n"
-            "  /世界Boss状态 (血量/规则/剩余时间)\n"
-            "  /传承挑战 @人 /传承信息 /传承排行\n"
-            "  /挑战Boss /世界boss (旧版)\n"
-            "\n"
-            "【🏪 经济与交易】\n"
-            "  /银行 /存灵石 /取灵石 /领取利息\n"
-            "  /贷款 /突破贷款 (大额需持有20%,最低5000)\n"
-            "  /还款 [金额] (先息后本;不填全额) /银行流水\n"
-            "  /坊市 (卡片) /坊市上架 <物> <数> <价>\n"
-            "  /坊市购买 <ID> /坊市下架 <ID>\n"
-            "  /切原石 /黑市 (每小时刷新) /黑市购买 <编号> /强化 /洗练\n"
-            "\n"
-            "【🛍️ 商店与资产】\n"
-            "  /丹阁 /器阁 /百宝阁 (卡片货架，自动补货)\n"
-            "  /购买 <物> [数] 或 购买物品<物> [数]\n"
-            "  /物品信息 <名>\n"
-            "  /储物戒 (卡片) /取出 <物> [数] /丢弃 <物> [数]\n"
-            "  /搜索物品 <词> /取出所有 <分类> /赠予 @人 <物> [数]\n"
-            "  /接收 /拒绝 /卸下 <武器/防具/心法/功法名>\n"
-            "  /更换储物戒 <名> /储物戒附魔 [数]\n"
-            "\n"
-            "【🏔️ 洞天·灵田·灵眼】\n"
-            "  /我的洞天 /购买洞天 1 /升级洞天 /洞天收取\n"
-            "  /洞天装修 <家具> /进阶洞天 <编号>\n"
-            "  /我的灵田 (卡片) /开垦灵田 /种植 <草> [数]\n"
-            "  /收获 /施肥 /杂交 <草A> <草B> /升级灵田 /季节\n"
-            "  /灵眼信息 /抢占灵眼 <ID> /灵眼收取 /释放灵眼\n"
-            "  /我的灵兽 (卡片) /孵化灵兽 <名> /喂养灵兽\n"
-            "  /放生灵兽 /吞噬灵兽\n"
-            "\n"
-            "【📜 任务与冒险】\n"
-            "  /任务榜 (今日随机任务+进度) /接取任务 <黄/玄/地/天>\n"
-            "  /放弃任务 <编号> /领取任务奖励\n"
-            "  /悬赏令 /接取悬赏 <ID> /悬赏状态 /完成悬赏 /放弃悬赏\n"
-            "  /历练信息 /开始历练 <路线> /历练状态 /完成历练 /放弃历练\n"
-            "  /秘境列表 /探索秘境 <ID> /完成探索 /退出秘境\n"
-            "  /奇遇选择 <编号> (110种事件三选一)\n"
-            "\n"
-            "【🛡️ 押镖与劫道】\n"
-            "  /押镖 (高额镖银+功德,30分钟)\n"
-            "  /完成押镖 /放弃押镖 /劫镖 @人 (10分钟CD)\n"
-            "\n"
-            "【🏛️ 宗门】\n"
-            "  /创建宗门 /加入宗门 /退出宗门 /解散宗门 确认 /我的宗门 /宗门列表\n"
-            "  /宗门捐献 <数> /宗门任务 /完成宗门任务 /放弃宗门任务\n"
-            "  /宗门建筑 /升级建筑 <名称>\n"
-            "  /宗门商店 (贡献随机5件,1小时刷新) /宗门兑换 <编号>\n"
-            "  /宗门命令 @人 捐献 1000 24 /宗门命令列表 /宗门命令撤销 <编号>\n"
-            "  /宗门大比开启 /宗门大比报名 /宗门大比状态\n"
-            "  /宗门宣战 <宗门名> /宗门战争状态\n"
-            "  /踢出成员 @人 /宗主传位 @人 /职位变更 @人 <0-4>\n"
-            "  /双修 @人 /接受双修 /拒绝双修\n"
-            "  /开启护府 /潜入洞府 @人\n"
-            "\n"
-            "【🌑 天道天灾与活动】\n"
-            "  /仙界日历 (季节+事件预告)\n"
-            "  /魔潮状态 /抵御魔潮 <灵石> /天魔状态 /查验天魔 @人\n"
-            "\n"
-            "【📊 排行榜】\n"
-            "  /境界排行 /战力排行 /灵石排行 /存款排行\n"
-            "  /宗门排行 /贡献排行 /功德榜 /气运榜 /师德榜\n"
-            "\n"
-            "【✨ 飞升转生】\n"
-            "  /飞升 [封印装备名] /解封传家宝\n"
-            "  /仙缘商店 /仙缘兑换 <编号>\n"
-            "\n"
-            "━━━━━━━━━━━━━━━\n"
-            "🛠️【管理员】(需配置BOSS_ADMINS)\n"
-            "  /仙界管理 (查玩家/发灵石/重置状态/公告)\n"
-            "  /生成世界Boss /生成Boss /开启魔潮\n"
-            "  /开启天魔入侵（旧版宗门大比已由宗主开启）"
-        )
-        yield event.plain_result(help_text)
+        """显示修仙指令大全：优先发送预生成图片，失败自动降级文本"""
+        image = await self._help_image()
+        if image:
+            yield event.image_result(image)
+            return
+        yield event.plain_result(build_help_text())
+
+    async def _help_image(self):
+        try:
+            from ..utils.image_generator import card_enabled
+            from ..utils.static_image_generator import ensure_page
+
+            if not card_enabled("CARD_HELP"):
+                return None
+            cards = self.config.get("IMAGE_CARDS", {}) or {}
+            auto_regen = bool(cards.get("STATIC_AUTO_REGEN", True))
+            return await ensure_page("help", allow_generate=auto_regen)
+        except Exception as e:
+            logger.warning(f"【修仙插件】帮助图片获取失败，降级为文本: {e}")
+            return None
 
     @player_required
     async def handle_daily_helper(self, player: Player, event: AstrMessageEvent):

@@ -1,4 +1,5 @@
 # handlers/pet_handlers.py
+import time
 from astrbot.api.event import AstrMessageEvent
 from ..data import DataBase
 from ..managers.pet_manager import PetManager
@@ -10,42 +11,78 @@ class PetHandlers:
         self.db = db
         self.pet_mgr = pet_mgr
 
+    def _owner_stats(self, player: Player):
+        owner_hp = max(1, int(player.hp or 0), player.experience // 2)
+        owner_atk = max(1, int(player.atk or 0), player.experience // 10)
+        return owner_hp, owner_atk
+
+    def _pet_status(self, pet, max_hp: int, now: int) -> str:
+        dead_until = int(pet.get("dead_until") or 0)
+        if dead_until > now:
+            remain = dead_until - now
+            return f"💀 复活中（{remain // 60} 分 {remain % 60} 秒）"
+        hp = int(pet.get("hp") or 0)
+        if hp < max_hp:
+            return "🌙 恢复中"
+        return "✨ 精神饱满"
+
     @player_required
     async def handle_my_pet(self, player: Player, event: AstrMessageEvent):
-        pet = await self.pet_mgr.get_pet(player.user_id)
-        if not pet:
+        pets = await self.pet_mgr.get_pets(player.user_id)
+        if not pets:
             yield event.plain_result("🐾 你当前没有携带任何灵兽。\n💡 发送 `/孵化灵兽 <名字>` 契约一只。")
             return
-            
-        pet_info = self.pet_mgr.PET_TYPES.get(pet["pet_type"], {"desc": "未知"})
-        msg = (
-            f"🐾 你的灵兽：{pet['pet_name']}\n"
-            f"━━━━━━━━━━━━━━━\n"
-            f"等级：Lv.{pet['level']} ({pet['exp']}/{pet['level']*500})\n"
-            f"特性：{pet_info['desc']}\n"
-            f"协战概率：{int((0.2 + pet['level'] * 0.01) * 100)}%\n"
-            f"━━━━━━━━━━━━━━━\n"
-            f"💡 发送 `/喂养灵兽` 提升等级"
-        )
 
-        # ===== 图片卡片：成功只发图，失败/关闭降级为纯文本 =====
+        owner_hp, owner_atk = self._owner_stats(player)
+        slots = self.pet_mgr.get_pet_slots(player)
+        now = int(time.time())
+        sections = []
+        lines = [
+            f"🐾 你的灵兽（{len(pets)}/{slots}）",
+            "━━━━━━━━━━━━━━━",
+        ]
+        for index, pet in enumerate(pets, 1):
+            pet = await self.pet_mgr.sync_pet_stats(pet, owner_hp, owner_atk, 0)
+            pet = await self.pet_mgr.refresh_pet(pet)
+            stats = self.pet_mgr.get_pet_stats(pet, owner_hp, owner_atk, 0)
+            max_hp = stats["max_hp"]
+            hp = int(pet.get("hp") or 0)
+            hp_pct = int(hp / max_hp * 100) if max_hp else 0
+            status = self._pet_status(pet, max_hp, now)
+            is_main = int(pet.get("is_main") or 0) == 1
+            main_tag = " [主战]" if is_main else ""
+            lines.append(f"{index}. 【{pet['pet_name']}】{main_tag}")
+            lines.append(f"   Lv.{pet['level']} · {status}")
+            lines.append(f"   精力 {hp}/{max_hp} ({hp_pct}%) · 攻 {stats['atk']} · 防 {stats['defense']}")
+            sections.append({
+                "name": f"{index}. {pet['pet_name']}{main_tag}",
+                "rows": [
+                    ("等级", f"Lv.{pet['level']}"),
+                    ("经验", f"{pet['exp']}/{pet['level'] * 500}"),
+                    ("精力", f"{hp}/{max_hp} ({hp_pct}%)"),
+                    ("状态", status),
+                    ("攻击", str(stats["atk"])),
+                    ("防御", str(stats["defense"])),
+                ],
+            })
+        lines.append("━━━━━━━━━━━━━━━")
+        if getattr(player, "cultivation_type", "") == "御兽":
+            lines.append("🐾 御兽：喂养-20% · 复活-30% · 修为共享30% · 兽群指挥")
+        else:
+            lines.append("🐾 修为共享10% · 主战宠提供主人被动")
+        lines.append("💡 /灵兽出战 切换主战 · /喂养灵兽 培养 · 每回合协战")
+        msg = "\n".join(lines)
+
         try:
             from ..utils.image_generator import render_card_async, card_enabled
             card_path = None
             if card_enabled("CARD_PET"):
                 card_path = await render_card_async(
                     "pet",
-                    f"灵兽 · {pet['pet_name']}",
-                    pet_info.get("desc", ""),
-                    sections=[
-                        {"name": "状态", "rows": [
-                            ("等级", f"Lv.{pet['level']}"),
-                            ("经验", f"{pet['exp']}/{pet['level'] * 500}"),
-                            ("协战概率", f"{int((0.2 + pet['level'] * 0.01) * 100)}%"),
-                            ("类型", pet.get("pet_type", "未知")),
-                        ]},
-                    ],
-                    footer="/喂养灵兽 提升等级 · 协战等级越高触发越频繁",
+                    f"灵兽 · {len(pets)}只",
+                    f"槽位 {len(pets)}/{slots} · 主战灵兽提供主人被动",
+                    sections=sections,
+                    footer="/灵兽出战 切换主战 · 每回合协战，精力耗尽后需时间复活",
                 )
             if card_path:
                 yield event.image_result(card_path)
@@ -56,17 +93,22 @@ class PetHandlers:
 
     @player_required
     async def handle_adopt(self, player: Player, event: AstrMessageEvent, pet_name: str = ""):
+        pets = await self.pet_mgr.get_pets(player.user_id)
+        slots = self.pet_mgr.get_pet_slots(player)
         if not pet_name:
             available = "\n".join([f"· {k}：{v['desc']}" for k, v in self.pet_mgr.PET_TYPES.items()])
-            yield event.plain_result(f"请指定你要契约的灵兽名称（消耗10万灵石）：\n{available}")
+            free_note = "（御兽职业首次契约免费）" if getattr(player, "cultivation_type", "") == "御兽" and not pets else ""
+            yield event.plain_result(
+                f"请指定你要契约的灵兽名称{free_note}：\n{available}\n"
+                f"当前槽位：{len(pets)}/{slots}\n💡 发送 `/孵化灵兽 <名字>` 契约一只。"
+            )
             return
-            
+
         success, msg = await self.pet_mgr.adopt_pet(player, pet_name)
         yield event.plain_result(msg)
 
     @player_required
-    async def handle_feed(self, player: Player, event: AstrMessageEvent):
-        # 灵兽窝：洞天家具，喂养消耗-20%
+    async def handle_feed(self, player: Player, event: AstrMessageEvent, pet_selector: str = ""):
         cost_mult = 1.0
         try:
             async with self.db.conn.execute(
@@ -77,17 +119,70 @@ class PetHandlers:
                 cost_mult = 0.8
         except Exception:
             pass
-        success, msg = await self.pet_mgr.feed_pet(player, cost_mult)
+        success, msg = await self.pet_mgr.feed_pet(player, pet_selector, cost_mult)
         if success and cost_mult < 1.0:
             msg += "\n🛋️ 灵兽窝生效：喂养消耗-20%"
         yield event.plain_result(msg)
 
     @player_required
-    async def handle_release(self, player: Player, event: AstrMessageEvent):
-        success, msg = await self.pet_mgr.release_pet(player)
+    async def handle_set_main(self, player: Player, event: AstrMessageEvent, pet_selector: str = ""):
+        pets = await self.pet_mgr.get_pets(player.user_id)
+        if not pets:
+            yield event.plain_result("❌ 你还没有灵兽。")
+            return
+        if not pet_selector:
+            lines = ["请指定要出战的主战灵兽（序号或名字）："]
+            for index, pet in enumerate(pets, 1):
+                main_tag = " [当前主战]" if int(pet.get("is_main") or 0) == 1 else ""
+                lines.append(f"{index}. {pet['pet_name']}{main_tag}")
+            yield event.plain_result("\n".join(lines))
+            return
+        pet, error = self.pet_mgr._select_pet(pets, pet_selector)
+        if not pet:
+            yield event.plain_result(error)
+            return
+        success, msg = await self.pet_mgr.set_main_pet(player.user_id, pet["id"])
         yield event.plain_result(msg)
 
     @player_required
-    async def handle_devour(self, player: Player, event: AstrMessageEvent):
-        success, msg = await self.pet_mgr.devour_pet(player)
+    async def handle_rename(self, player: Player, event: AstrMessageEvent, args: str = ""):
+        args = (args or "").strip()
+        if not args:
+            yield event.plain_result("用法：/灵兽改名 <序号或名字> <新名字>\n💡 默认名字如「火灵狐 1」，建议直接用序号。")
+            return
+        pets = await self.pet_mgr.get_pets(player.user_id)
+        if not pets:
+            yield event.plain_result("❌ 你还没有灵兽。")
+            return
+
+        selector = ""
+        new_name = ""
+        for pet in sorted(pets, key=lambda p: len(p.get("pet_name", "")), reverse=True):
+            name = pet.get("pet_name", "")
+            if name and args.startswith(name) and len(args) > len(name) and args[len(name)].isspace():
+                selector = name
+                new_name = args[len(name):].strip()
+                break
+        if not new_name:
+            parts = args.split(None, 1)
+            if len(parts) < 2:
+                yield event.plain_result("用法：/灵兽改名 <序号或名字> <新名字>")
+                return
+            selector, new_name = parts[0], parts[1].strip()
+
+        pet, error = self.pet_mgr._select_pet(pets, selector)
+        if not pet:
+            yield event.plain_result(error)
+            return
+        success, msg = await self.pet_mgr.rename_pet(player.user_id, pet["id"], new_name)
+        yield event.plain_result(msg)
+
+    @player_required
+    async def handle_release(self, player: Player, event: AstrMessageEvent, pet_selector: str = ""):
+        success, msg = await self.pet_mgr.release_pet(player, pet_selector)
+        yield event.plain_result(msg)
+
+    @player_required
+    async def handle_devour(self, player: Player, event: AstrMessageEvent, pet_selector: str = ""):
+        success, msg = await self.pet_mgr.devour_pet(player, pet_selector)
         yield event.plain_result(msg)

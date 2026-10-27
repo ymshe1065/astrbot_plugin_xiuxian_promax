@@ -2,7 +2,7 @@
 
 from astrbot.api.event import AstrMessageEvent
 from ..data import DataBase
-from ..core import EquipmentManager, PillManager, StorageRingManager
+from ..core import EquipmentManager, PillManager, StorageRingManager, ItemRules
 from ..config_manager import ConfigManager
 from ..models import Player
 from .utils import player_required
@@ -134,29 +134,20 @@ class EquipmentHandler:
 
         item_name = item_name.strip()
 
-        # 检查物品是否存在于配置中（先查items再查weapons）
+        # 检查物品是否存在于配置中（items -> weapons -> techniques）
         item_config = self.config_manager.items_data.get(item_name)
         if not item_config:
             item_config = self.config_manager.weapons_data.get(item_name)
+        if not item_config and hasattr(self.config_manager, "techniques_data"):
+            item_config = self.config_manager.techniques_data.get(item_name)
 
         if not item_config:
             yield event.plain_result(f"未找到物品：{item_name}")
             return
 
-        # 检查物品类型是否可装备
-        item_type = item_config.get("type", "")
+        item_type = ItemRules.normalize_equipment_type(item_config)
         equippable_types = ["weapon", "armor", "main_technique", "technique"]
-        
-        # 兼容旧格式
-        if item_type == "法器":
-            subtype = item_config.get("subtype", "")
-            if subtype == "武器":
-                item_type = "weapon"
-            elif subtype == "防具":
-                item_type = "armor"
-        elif item_type == "功法":
-            item_type = "technique"
-        
+
         if item_type not in equippable_types:
             yield event.plain_result(f"【{item_name}】不是可装备的物品类型")
             return
@@ -183,7 +174,7 @@ class EquipmentHandler:
             item_type=item_type,
             description=item_config.get("description", ""),
             rank=item_config.get("rank", ""),
-            required_level_index=item_config.get("required_level_index", 0),
+            required_level_index=ItemRules.get_required_level(item_config),
             weapon_category=item_config.get("weapon_category", ""),
             magic_damage=item_config.get("magic_damage", 0),
             physical_damage=item_config.get("physical_damage", 0),

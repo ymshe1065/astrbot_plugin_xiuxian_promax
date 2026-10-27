@@ -23,39 +23,70 @@ class GambleManager:
             return False, f"❌ 灵石不足！切 {count} 块原石需要 {total_cost:,} 灵石。"
 
         player.gold -= total_cost
-        
+
         # ===== 修复点：动态获取可用物品池，防止出现配置里没有的“幽灵物品” =====
-        all_items = list(self.config_manager.items_data.values())
-        
-        def get_random_by_rank(rank):
-            pool = [i for i in all_items if i.get("rank") == rank]
-            return random.choice(pool)["name"] if pool else "精铁"
+        # 只从可存入储物戒的物品中抽取（排除丹药/储物戒），避免切出后静默丢失
+        all_items = [
+            item for item in self.config_manager.items_data.values()
+            if isinstance(item, dict) and item.get("name")
+        ]
+
+        def get_random_by_rank(rank: str, types: tuple = ()):
+            pool = []
+            for item in all_items:
+                if item.get("rank") != rank:
+                    continue
+                if types and item.get("type") not in types:
+                    continue
+                can_store, _ = self.storage_ring_mgr.can_store_item(item["name"])
+                if can_store:
+                    pool.append(item["name"])
+            if not pool:
+                # 指定类型缺失时退回该品阶所有可存物品；仍为空则放弃本次掉落
+                return get_random_by_rank(rank) if types else None
+            return random.choice(pool)
+
+        async def award(name: str, qty: int, prefix: str, suffix: str = "") -> str:
+            if not name:
+                return f"{prefix}一团碎屑，一无所获（可掉落物品池为空）"
+            label = f"{prefix}【{name}】" + (f"x{qty}" if qty > 1 else "") + suffix
+            success, reason = await self.storage_ring_mgr.store_item(
+                player, name, qty, silent=True, external_transaction=True
+            )
+            if success:
+                return label
+            return f"{label}\n   ⚠️ 未能存入储物戒：{reason}"
 
         results = []
-        for _ in range(count):
-            roll = random.random()
-            if roll < 0.80:
-                # 80% 废料 (黄阶)
-                item_name = get_random_by_rank("黄阶")
-                results.append(f"切出了【{item_name}】（废料）")
-                await self.storage_ring_mgr.store_item(player, item_name, 5, silent=True)
-            elif roll < 0.95:
-                # 15% 稀有材料 (玄阶)
-                item_name = get_random_by_rank("玄阶")
-                results.append(f"✨ 切出了【{item_name}】！")
-                await self.storage_ring_mgr.store_item(player, item_name, 1, silent=True)
-            elif roll < 0.999:
-                # 4.9% 地阶/天阶法宝
-                rank_pool = "天阶" if random.random() < 0.2 else "地阶"
-                item_name = get_random_by_rank(rank_pool)
-                results.append(f"🎉 金光四射！切出了【{item_name}】！")
-                await self.storage_ring_mgr.store_item(player, item_name, 1, silent=True)
-            else:
-                # 0.1% 极其稀有的彩蛋
-                results.append("🌌 天地异象！你切出了传说中的【护府令】x3！")
-                await self.storage_ring_mgr.store_item(player, "护府令", 3, silent=True)
+        # 扣费与所有掉落放入同一事务，避免中途异常时灵石被扣而物品丢失
+        await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            for _ in range(count):
+                roll = random.random()
+                if roll < 0.80:
+                    # 80% 废料 (黄阶材料；材料体积为1，确保能放入基础储物戒)
+                    item_name = get_random_by_rank("黄阶", ("材料",))
+                    results.append(await award(item_name, 5, "切出了", "（废料）"))
+                elif roll < 0.95:
+                    # 15% 稀有材料 (玄阶)
+                    item_name = get_random_by_rank("玄阶", ("材料",))
+                    results.append(await award(item_name, 1, "✨ 切出了", "！"))
+                elif roll < 0.999:
+                    # 4.9% 地阶/天阶法宝
+                    rank_pool = "天阶" if random.random() < 0.2 else "地阶"
+                    item_name = get_random_by_rank(rank_pool, ("法器",))
+                    results.append(await award(item_name, 1, "🎉 金光四射！切出了", "！"))
+                else:
+                    # 0.1% 极其稀有的彩蛋
+                    results.append(
+                        await award("护府令", 3, "🌌 天地异象！你切出了传说中的", "！")
+                    )
 
-        await self.db.update_player(player)
+            await self.db.update_player(player, commit=False)
+            await self.db.conn.commit()
+        except Exception:
+            await self.db.conn.rollback()
+            raise
         
         msg = [
             f"⛏️ 你花费了 {total_cost:,} 灵石，切开了 {count} 块原石：",

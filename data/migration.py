@@ -5,7 +5,7 @@ from typing import Dict, Callable, Awaitable
 from astrbot.api import logger
 from ..config_manager import ConfigManager
 
-LATEST_DB_VERSION = 31  # v31: NPC道侣 + 宗门等级/命令/大比/宗门战
+LATEST_DB_VERSION = 34  # v34: 多灵兽槽位/主战/改名
 
 MIGRATION_TASKS: Dict[int, Callable[[aiosqlite.Connection, ConfigManager], Awaitable[None]]] = {}
 
@@ -105,6 +105,29 @@ async def _ensure_npc_v29_tables(conn: aiosqlite.Connection):
     await conn.execute("CREATE INDEX IF NOT EXISTS idx_master_relations_master ON master_relations(master_id)")
 
 
+async def _ensure_auction_npc_v32(conn: aiosqlite.Connection):
+    """创建 v32 坊市 NPC 问价表，并补齐上架商品的问价调度列（新库/旧库共用）。"""
+    await _add_column_if_missing(conn, "auction_items", "next_offer_time", "INTEGER NOT NULL DEFAULT 0")
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS auction_npc_offers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            auction_id INTEGER NOT NULL,
+            seller_id TEXT NOT NULL,
+            item_name TEXT NOT NULL,
+            count INTEGER NOT NULL,
+            listed_price INTEGER NOT NULL,
+            offer_price INTEGER NOT NULL,
+            npc_name TEXT NOT NULL,
+            create_time INTEGER NOT NULL,
+            expire_time INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            responded_time INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_npc_offer_auction ON auction_npc_offers(auction_id, status)")
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_npc_offer_seller ON auction_npc_offers(seller_id, status)")
+
+
 async def _ensure_latest_columns(conn: aiosqlite.Connection):
     """终极兜底：确保 NPC、宗门、贷款等最新增量列/表齐全。"""
     await _add_column_if_missing(conn, "players", "karma", "INTEGER NOT NULL DEFAULT 0")
@@ -123,6 +146,13 @@ async def _ensure_latest_columns(conn: aiosqlite.Connection):
     await _add_column_if_missing(conn, "bank_loans", "paid_interest", "INTEGER NOT NULL DEFAULT 0")
     await _add_column_if_missing(conn, "bank_loans", "paid_principal", "INTEGER NOT NULL DEFAULT 0")
     await _ensure_sect_v30_tables(conn)
+    await _ensure_auction_npc_v32(conn)
+    await _add_column_if_missing(conn, "player_pets", "max_hp", "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(conn, "player_pets", "hp", "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(conn, "player_pets", "last_regen_time", "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(conn, "player_pets", "dead_until", "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(conn, "player_pets", "slot", "INTEGER NOT NULL DEFAULT 1")
+    await _add_column_if_missing(conn, "player_pets", "is_main", "INTEGER NOT NULL DEFAULT 1")
     await conn.commit()
 
 class MigrationManager:
@@ -661,11 +691,18 @@ async def _create_all_tables_v2(conn: aiosqlite.Connection):
     await conn.execute("""
         CREATE TABLE IF NOT EXISTS player_pets (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id TEXT NOT NULL UNIQUE,
+            user_id TEXT NOT NULL,
             pet_name TEXT NOT NULL,
             pet_type TEXT NOT NULL,
             level INTEGER NOT NULL DEFAULT 1,
-            exp INTEGER NOT NULL DEFAULT 0
+            exp INTEGER NOT NULL DEFAULT 0,
+            max_hp INTEGER NOT NULL DEFAULT 0,
+            hp INTEGER NOT NULL DEFAULT 0,
+            last_regen_time INTEGER NOT NULL DEFAULT 0,
+            dead_until INTEGER NOT NULL DEFAULT 0,
+            slot INTEGER NOT NULL DEFAULT 1,
+            is_main INTEGER NOT NULL DEFAULT 1,
+            UNIQUE(user_id, slot)
         )
     """)
     await conn.execute("""
@@ -975,8 +1012,12 @@ async def _migrate_to_v24(conn: aiosqlite.Connection, config_manager: ConfigMana
     """迁移到v24 - 灵兽系统"""
     await conn.execute("""
         CREATE TABLE IF NOT EXISTS player_pets (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL UNIQUE, pet_name TEXT NOT NULL,
-            pet_type TEXT NOT NULL, level INTEGER NOT NULL DEFAULT 1, exp INTEGER NOT NULL DEFAULT 0
+            id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, pet_name TEXT NOT NULL,
+            pet_type TEXT NOT NULL, level INTEGER NOT NULL DEFAULT 1, exp INTEGER NOT NULL DEFAULT 0,
+            max_hp INTEGER NOT NULL DEFAULT 0, hp INTEGER NOT NULL DEFAULT 0,
+            last_regen_time INTEGER NOT NULL DEFAULT 0, dead_until INTEGER NOT NULL DEFAULT 0,
+            slot INTEGER NOT NULL DEFAULT 1, is_main INTEGER NOT NULL DEFAULT 1,
+            UNIQUE(user_id, slot)
         )
     """)
 
@@ -1083,3 +1124,66 @@ async def _migrate_to_v31(conn: aiosqlite.Connection, config_manager: ConfigMana
     await _ensure_sect_v30_tables(conn)
     await conn.commit()
     logger.info("v31迁移完成")
+
+@migration(32)
+async def _migrate_to_v32(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """迁移到 v32 - 坊市 NPC 随机问价机制。"""
+    logger.info("开始迁移到 v32：坊市 NPC 问价")
+    await _ensure_auction_npc_v32(conn)
+    await conn.commit()
+    logger.info("v32迁移完成：坊市 NPC 问价表已建立")
+
+@migration(33)
+async def _migrate_to_v33(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """迁移到 v33 - 灵兽独立精力、脱战恢复与死亡复活。"""
+    logger.info("开始迁移到 v33：灵兽独立精力/复活机制")
+    await _add_column_if_missing(conn, "player_pets", "max_hp", "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(conn, "player_pets", "hp", "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(conn, "player_pets", "last_regen_time", "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(conn, "player_pets", "dead_until", "INTEGER NOT NULL DEFAULT 0")
+    await conn.commit()
+    logger.info("v33迁移完成：灵兽精力字段已补齐")
+
+@migration(34)
+async def _migrate_to_v34(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """迁移到 v34 - 多灵兽槽位、主战标记与自定义名称。"""
+    logger.info("开始迁移到 v34：多灵兽槽位")
+    async with conn.execute("PRAGMA table_info(player_pets)") as cursor:
+        old_cols = {row[1] for row in await cursor.fetchall()}
+    if not old_cols:
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS player_pets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, pet_name TEXT NOT NULL,
+                pet_type TEXT NOT NULL, level INTEGER NOT NULL DEFAULT 1, exp INTEGER NOT NULL DEFAULT 0,
+                max_hp INTEGER NOT NULL DEFAULT 0, hp INTEGER NOT NULL DEFAULT 0,
+                last_regen_time INTEGER NOT NULL DEFAULT 0, dead_until INTEGER NOT NULL DEFAULT 0,
+                slot INTEGER NOT NULL DEFAULT 1, is_main INTEGER NOT NULL DEFAULT 1,
+                UNIQUE(user_id, slot)
+            )
+        """)
+        await conn.commit()
+        return
+
+    slot_expr = "slot" if "slot" in old_cols else "1"
+    main_expr = "is_main" if "is_main" in old_cols else "1"
+    await conn.execute("ALTER TABLE player_pets RENAME TO player_pets_v33")
+    await conn.execute("""
+        CREATE TABLE player_pets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, pet_name TEXT NOT NULL,
+            pet_type TEXT NOT NULL, level INTEGER NOT NULL DEFAULT 1, exp INTEGER NOT NULL DEFAULT 0,
+            max_hp INTEGER NOT NULL DEFAULT 0, hp INTEGER NOT NULL DEFAULT 0,
+            last_regen_time INTEGER NOT NULL DEFAULT 0, dead_until INTEGER NOT NULL DEFAULT 0,
+            slot INTEGER NOT NULL DEFAULT 1, is_main INTEGER NOT NULL DEFAULT 1,
+            UNIQUE(user_id, slot)
+        )
+    """)
+    await conn.execute(f"""
+        INSERT INTO player_pets
+        (id, user_id, pet_name, pet_type, level, exp, max_hp, hp, last_regen_time, dead_until, slot, is_main)
+        SELECT id, user_id, pet_name, pet_type, level, exp, max_hp, hp, last_regen_time, dead_until, {slot_expr}, {main_expr}
+        FROM player_pets_v33
+    """)
+    await conn.execute("DROP TABLE player_pets_v33")
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_player_pets_user ON player_pets(user_id)")
+    await conn.commit()
+    logger.info("v34迁移完成：多灵兽槽位已建立")

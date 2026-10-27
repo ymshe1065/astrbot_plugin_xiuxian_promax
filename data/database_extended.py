@@ -393,6 +393,15 @@ class DatabaseExtended:
             if row:
                 return ImpartInfo(**dict(row))
             return None
+
+    async def get_all_impart_info(self) -> dict:
+        """批量获取所有传承信息（排行榜等全服遍历场景，避免逐玩家查询）"""
+        result = {}
+        async with self.conn.execute("SELECT * FROM impart_info") as cursor:
+            async for row in cursor:
+                info = ImpartInfo(**dict(row))
+                result[info.user_id] = info
+        return result
     
     async def update_impart_info(self, impart: ImpartInfo):
         """更新用户传承信息"""
@@ -841,7 +850,8 @@ class DatabaseExtended:
     async def get_active_loan(self, user_id: str) -> Optional[dict]:
         """获取用户当前活跃的贷款"""
         async with self.conn.execute(
-            """SELECT id, user_id, principal, interest_rate, borrowed_at, due_at, status, loan_type
+            """SELECT id, user_id, principal, interest_rate, borrowed_at, due_at, status, loan_type,
+                      paid_interest, paid_principal
                FROM bank_loans WHERE user_id = ? AND status = 'active'""",
             (user_id,)
         ) as cursor:
@@ -855,7 +865,9 @@ class DatabaseExtended:
                     "borrowed_at": row[4],
                     "due_at": row[5],
                     "status": row[6],
-                    "loan_type": row[7]
+                    "loan_type": row[7],
+                    "paid_interest": row[8] or 0,
+                    "paid_principal": row[9] or 0
                 }
             return None
     

@@ -372,6 +372,7 @@ class DataBase:
             ("DELETE FROM player_pets WHERE user_id = ?", (user_id,)),
             ("DELETE FROM daily_tasks WHERE user_id = ?", (user_id,)),
             ("DELETE FROM world_boss_damage WHERE user_id = ?", (user_id,)),
+            ("DELETE FROM auction_npc_offers WHERE seller_id = ?", (user_id,)),
             ("DELETE FROM auction_items WHERE seller_id = ?", (user_id,)),
             ("DELETE FROM sect_tournament_entries WHERE user_id = ?", (user_id,)),
             ("UPDATE sect_orders SET status = 'cancelled' WHERE status = 'active' AND (issuer_id = ? OR target_id = ?)", (user_id, user_id)),

@@ -73,8 +73,13 @@ class RankingManager:
         if not all_players:
             return False, "❌ 暂无数据！"
         
-        # 按修为排序
-        sorted_players = sorted(all_players, key=lambda p: p.experience, reverse=True)[:limit]
+        # 境界由 level_index 决定，修为只是突破门槛的累积值；
+        # 仅按修为排序会出现「炼气期排在筑基期前面」的情况，须以境界优先、修为次之。
+        sorted_players = sorted(
+            all_players,
+            key=lambda p: (p.level_index or 0, p.experience or 0),
+            reverse=True,
+        )[:limit]
         
         msg = "📊 境界排行榜\n"
         msg += "━━━━━━━━━━━━━━━\n"
@@ -82,17 +87,22 @@ class RankingManager:
         for idx, player in enumerate(sorted_players, 1):
             name = _safe_name(player, player.user_id)
             level_name = player.get_level(self.config_manager)
+            required_exp = player.get_required_exp(self.config_manager)
             msg += f"{idx}. {name}\n"
-            msg += f"   境界：{level_name} | 修为：{player.experience:,}\n\n"
+            msg += (
+                f"   境界：{level_name} | "
+                f"修为：{int(player.experience):,}/{int(required_exp):,}\n\n"
+            )
         
         return True, msg
     
     async def get_power_ranking(self, limit: int = 10) -> Tuple[bool, str]:
         """
-        战力排行榜（基于综合属性）
+        战力排行榜（与「我的信息」名片使用同一套战斗面板与战力公式）
         
-        战力计算公式：物伤 + 法伤 + 物防 + 法防 + 精神力/10
-        与玩家信息显示的战力保持一致
+        战力计算公式：气血/10 + 攻击 + 防御 + 精神力/10
+        战斗面板完整计入装备、临时丹药、传承与灵兽加成，
+        确保排行显示的战力与玩家名片完全一致。
         
         Args:
             limit: 显示数量
@@ -105,24 +115,42 @@ class RankingManager:
         if not all_players:
             return False, "❌ 暂无数据！"
         
-        # 计算战力（综合属性）
+        from ..core import PillManager
+        from ..managers.pet_manager import PetManager
+        
+        pill_manager = PillManager(self.db, self.config_manager)
+        pet_manager = PetManager(self.db)
+        impart_map = await self.db.ext.get_all_impart_info()
+        pet_map = await pet_manager.get_all_pets()
+        
+        # 计算战力（与玩家名片完全一致的战斗面板）
         player_power = []
         for player in all_players:
-            # 获取装备加成
+            # 临时丹药效果（过期效果会被 calculate 自动忽略，不写库）
+            pill_multipliers = pill_manager.calculate_pill_attribute_effects(player)
+            
             equipped_items = self.equipment_manager.get_equipped_items(
                 player,
                 self.config_manager.items_data,
                 self.config_manager.weapons_data
             )
+            total_attrs = player.get_total_attributes(equipped_items, pill_multipliers)
             
-            # 排行榜显示基础战力，不含临时丹药效果（更公平）
-            total_attrs = player.get_total_attributes(equipped_items, None)
+            impart_info = impart_map.get(player.user_id)
+            effects = self.equipment_manager.get_combat_effects(player)
+            try:
+                pet = pet_map.get(player.user_id)
+                if pet:
+                    for k, v in pet_manager.get_pet_combat_effects(pet).items():
+                        effects[k] = effects.get(k, 0) + v
+            except Exception:
+                pass
             
-            # 战力 = 物伤 + 法伤 + 物防 + 法防 + 精神力/10
-            combat_power = (
-                int(total_attrs['physical_damage']) + int(total_attrs['magic_damage']) +
-                int(total_attrs['physical_defense']) + int(total_attrs['magic_defense']) +
-                int(total_attrs['mental_power']) // 10
+            combat_panel = CombatManager.build_combat_panel(
+                player, pill_multipliers, impart_info, self.config_manager, effects
+            )
+            combat_power = CombatManager.calculate_combat_power(
+                combat_panel, total_attrs["mental_power"]
             )
             player_power.append((player, combat_power, total_attrs))
         
@@ -325,7 +353,8 @@ class RankingManager:
         medals = ["🥇", "🥈", "🥉"]
         for idx, (p, luck) in enumerate(top, 1):
             medal = medals[idx - 1] if idx <= 3 else f"{idx}."
-            msg += f"{medal} {_safe_name(p, p.user_id)} 气运 {luck}（境界{p.level_index}·转生{p.reincarnation_count}·功德{max(0, p.karma or 0)}）\n"
+            level_name = p.get_level(self.config_manager)
+            msg += f"{medal} {_safe_name(p, p.user_id)} 气运 {luck}（境界{level_name}·转生{p.reincarnation_count}·功德{max(0, p.karma or 0)}）\n"
         msg += "━━━━━━━━━━━━━━━\n💡 气运 = 功德×3 + 转生×20 + 境界。多行善、多历练！"
         return True, msg
 

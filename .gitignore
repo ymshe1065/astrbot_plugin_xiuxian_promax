@@ -9,6 +9,9 @@ __pycache__/
 *.db-journal
 data/
 
+# 自动生成的固定页图片（首次调用/脚本/测试时生成）
+resources/generated/
+
 # IDE
 .idea/
 .vscode/
@@ -18,3 +21,6 @@ data/
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# 临时规划文档（仅本地持久化，不提交）
+_planning_tmp/

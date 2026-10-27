@@ -32,7 +32,7 @@ class AuctionHandlers:
                         "🏪 玩家交易坊市",
                         f"在售 {len(items)} 件 · 交易税 5%",
                         sections=[{"name": "最新上架", "lines": lines}],
-                        footer="/坊市购买 <编号> · /坊市上架 <物> <数> <价>",
+                        footer="/坊市购买 <编号> · /我的坊市 查看NPC问价",
                     )
                     if card_path:
                         yield event.image_result(card_path)
@@ -77,6 +77,48 @@ class AuctionHandlers:
             return
 
         success, msg = await self.auction_mgr.list_item(player, item_name, count, price)
+        yield event.plain_result(msg)
+
+    @player_required
+    async def handle_my_market(self, player: Player, event: AstrMessageEvent):
+        """查看个人坊市与NPC问价"""
+        msg = await self.auction_mgr.get_player_market(player)
+        yield event.plain_result(msg)
+
+    @player_required
+    async def handle_accept_offer(self, player: Player, event: AstrMessageEvent, offer_id: str = "0"):
+        """接受NPC问价并卖出"""
+        try:
+            oid = int(offer_id)
+        except ValueError:
+            yield event.plain_result(
+                "❌ 请输入正确的问价编号！例如：/坊市卖出 1\n"
+                "💡 先发送 /我的坊市 查看NPC问价。"
+            )
+            return
+        if oid <= 0:
+            yield event.plain_result("❌ 问价编号必须大于 0。")
+            return
+
+        success, msg = await self.auction_mgr.accept_offer(player, oid)
+        yield event.plain_result(msg)
+
+    @player_required
+    async def handle_decline_offer(self, player: Player, event: AstrMessageEvent, offer_id: str = "0"):
+        """拒绝本次NPC问价，继续等待"""
+        try:
+            oid = int(offer_id)
+        except ValueError:
+            yield event.plain_result(
+                "❌ 请输入正确的问价编号！例如：/坊市等待 1\n"
+                "💡 先发送 /我的坊市 查看NPC问价。"
+            )
+            return
+        if oid <= 0:
+            yield event.plain_result("❌ 问价编号必须大于 0。")
+            return
+
+        success, msg = await self.auction_mgr.decline_offer(player, oid)
         yield event.plain_result(msg)
 
     @player_required

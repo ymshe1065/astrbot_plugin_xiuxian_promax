@@ -5,6 +5,7 @@
 
 import json
 import random
+import time
 from typing import Tuple, List, Dict, Optional, TYPE_CHECKING
 from ..data.data_manager import DataBase
 from ..models import Player
@@ -83,6 +84,57 @@ class AlchemyManager:
         if hasattr(self.config_manager, 'pills_data') and name in self.config_manager.pills_data:
             return self.config_manager.pills_data[name]
         return None
+
+    def _iter_materials(self, materials):
+        if isinstance(materials, dict):
+            for name, count in materials.items():
+                yield str(name), int(count or 0)
+            return
+        if isinstance(materials, list):
+            for material in materials:
+                if not isinstance(material, dict):
+                    continue
+                name = material.get("name") or material.get("category") or "材料"
+                if material.get("tier"):
+                    name = f"{name}·{material['tier']}"
+                yield str(name), int(material.get("count", 0) or 0)
+
+    async def get_available_recipes(self, user_id: str) -> Tuple[bool, str]:
+        """查看当前可炼制/未解锁的丹方。"""
+        player = await self.db.get_player_by_id(user_id) if self.db else None
+        if not player:
+            return False, "❌ 你还未踏入修仙之路！"
+
+        lines = ["📜 丹方列表", "━━━━━━━━━━━━━━━"]
+        if not self.recipes:
+            lines.append("当前没有可用丹方。")
+            return True, "\n".join(lines)
+
+        for recipe_id in sorted(self.recipes):
+            recipe = self.recipes[recipe_id]
+            level_required = int(recipe.get("level_required", 0) or 0)
+            if player.level_index < level_required:
+                status = f"需境界 {level_required}"
+            else:
+                status = "可炼制"
+
+            material_parts = []
+            for name, count in self._iter_materials(recipe.get("materials", {})):
+                if name == "灵石":
+                    material_parts.append(f"灵石x{count}")
+                    continue
+                have = self.storage_ring_manager.get_item_count(player, name) if self.storage_ring_manager else 0
+                mark = "✓" if have >= count else f"缺{count - have}"
+                material_parts.append(f"{name}x{count}({mark})")
+
+            lines.append(
+                f"[{recipe_id}] {recipe['name']}（{status}，成功率 {recipe.get('success_rate', 0)}%）"
+            )
+            if material_parts:
+                lines.append("   材料：" + "、".join(material_parts))
+        lines.append("━━━━━━━━━━━━━━━")
+        lines.append("💡 使用 /炼丹 <ID> 开始炼制")
+        return True, "\n".join(lines)
     
     def _get_bonus_data(self, player: Player) -> dict:
         """安全读取玩家永久加成数据"""
@@ -206,7 +258,6 @@ class AlchemyManager:
             fire_cfg = self.FIRE_OPTIONS["3"]  # 未选火候或不匹配，按守中处理
 
         await self.db.conn.execute("BEGIN IMMEDIATE")
-        await self.db.conn.execute("BEGIN IMMEDIATE")
         try:
             # 事务内重新获取玩家对象，确保数据是最新的
             player = await self.db.get_player_by_id(user_id)
@@ -283,10 +334,8 @@ class AlchemyManager:
             except Exception:
                 comp_bonus_pct = 0
             final_success_rate = min(95, max(5, success_rate + level_bonus + furnace_bonus + sect_bonus + comp_bonus_pct + fire_cfg["rate_bonus"]))
-            # 极品判定：火候影响极品概率，极品丹效果x1.5
-            perfect = (random.randint(1, 100) <= max(2, 10 + fire_cfg["perfect_bonus"])) if is_success else False
-            
             is_success = random.randint(1, 100) <= final_success_rate
+            perfect = (random.randint(1, 100) <= max(2, 10 + fire_cfg["perfect_bonus"])) if is_success else False
             
             # 构建消耗描述
             cost_lines = []

@@ -41,7 +41,7 @@ class BankHandlers:
                 msg_lines.extend([
                     "━━━━━━━━━━━━━━━",
                     f"📋 当前贷款（{loan_type_name}）",
-                    f"   本金：{loan_info['principal']:,} 灵石",
+                    f"   剩余本金：{loan_info['remaining_principal']:,} 灵石",
                     f"   当前利息：{loan_info['current_interest']:,} 灵石",
                     f"   应还总额：{loan_info['total_due']:,} 灵石",
                     f"   状态：{status}",

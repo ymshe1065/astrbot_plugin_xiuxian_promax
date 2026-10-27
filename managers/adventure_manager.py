@@ -318,6 +318,15 @@ class AdventureManager:
                 comp_bonus = 0.0
             if comp_bonus > 0:
                 rewards["exp"] = int(rewards["exp"] * (1 + comp_bonus))
+            try:
+                from .pet_manager import PetManager
+                pet_mgr = PetManager(self.db)
+                pet = await pet_mgr.get_pet(user_id, apply_regen=False)
+                gold_bonus = pet_mgr.get_gold_bonus(pet)
+                if gold_bonus > 0:
+                    rewards["gold"] = int(rewards["gold"] * (1 + gold_bonus))
+            except Exception:
+                pass
             player.experience += rewards["exp"]
             player.gold += rewards["gold"]
             

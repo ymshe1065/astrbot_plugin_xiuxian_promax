@@ -1,30 +1,86 @@
 # managers/auction_manager.py
+import asyncio
+import math
+import random
 import time
+from functools import wraps
 from typing import Tuple
 from astrbot.api import logger
 from ..data import DataBase
 from ..models import Player
 
+
+def _serialized(func):
+    @wraps(func)
+    async def wrapper(self, *args, **kwargs):
+        async with self._lock:
+            return await func(self, *args, **kwargs)
+    return wrapper
+
+
 class AuctionManager:
     """玩家交易坊市管理器"""
-    
+
     TAX_RATE = 0.05 # 系统收取 5% 的交易税，用于回收灵石
 
-    def __init__(self, db: DataBase, storage_ring_mgr):
+    NPC_NAMES = (
+        "青阳散修", "坊市掌柜", "游方道人", "万宝阁执事", "蒙面客",
+        "炼器铺老板", "药铺先生", "行脚商人", "拍卖行鉴宝师", "白衣剑客",
+    )
+
+    def __init__(self, db: DataBase, storage_ring_mgr, config: dict = None):
         self.db = db
         self.storage_ring_mgr = storage_ring_mgr
+        self.config = config or {}
+        self._lock = asyncio.Lock()
 
+        cfg = {}
+        try:
+            cfg = self.config.get("MARKET_NPC", {}) or {}
+        except Exception:
+            cfg = {}
+
+        self.npc_enabled = bool(cfg.get("ENABLED", True))
+        self.npc_min_interval = max(1, self._as_int(cfg.get("MIN_INTERVAL"), 3000))
+        self.npc_max_interval = max(self.npc_min_interval, self._as_int(cfg.get("MAX_INTERVAL"), 4200))
+        self.npc_offer_expire = max(60, self._as_int(cfg.get("OFFER_EXPIRE"), 1800))
+        self.npc_check_interval = max(5, self._as_int(cfg.get("CHECK_INTERVAL"), 60))
+        self.npc_min_rate = self._as_float(cfg.get("MIN_RATE"), 0.80)
+        self.npc_max_rate = self._as_float(cfg.get("MAX_RATE"), 1.20)
+        self.npc_min_rate = min(10.0, max(0.01, self.npc_min_rate))
+        self.npc_max_rate = min(10.0, max(0.01, self.npc_max_rate))
+        if self.npc_max_rate < self.npc_min_rate:
+            self.npc_min_rate, self.npc_max_rate = self.npc_max_rate, self.npc_min_rate
+
+    @staticmethod
+    def _as_int(value, default: int) -> int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _as_float(value, default: float) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    def _next_offer_delay(self) -> int:
+        return random.randint(self.npc_min_interval, self.npc_max_interval)
+
+    @_serialized
     async def list_item(self, player: Player, item_name: str, count: int, price: int) -> Tuple[bool, str]:
         """上架物品"""
         if count <= 0:
             return False, "❌ 上架数量必须大于 0。"
         if price <= 0:
             return False, "❌ 单价必须大于 0。"
-            
+
         # 检查物品是否真实存在于配置中（防止上架幽灵物品）
         if not self.storage_ring_mgr.has_item(player, item_name, count):
             return False, f"❌ 你的储物戒中没有足够的【{item_name}】。"
-   
+
          # ===== 修复点：检查物品是否绑定 =====
         items_data = player.get_storage_ring_items()
         item_info = items_data.get(item_name)
@@ -38,14 +94,16 @@ class AuctionManager:
 
         # 写入坊市表
         now = int(time.time())
+        next_offer_time = now + self._next_offer_delay() if self.npc_enabled else 0
         await self.db.conn.execute(
-            "INSERT INTO auction_items (seller_id, item_name, count, price, create_time) VALUES (?, ?, ?, ?, ?)",
-            (player.user_id, item_name, count, price, now)
+            "INSERT INTO auction_items (seller_id, item_name, count, price, create_time, next_offer_time) VALUES (?, ?, ?, ?, ?, ?)",
+            (player.user_id, item_name, count, price, now, next_offer_time)
         )
         await self.db.conn.commit()
-        
+
         total = price * count
-        return True, f"✅ 上架成功！\n物品：【{item_name}】x{count}\n单价：{price:,} 灵石\n总价：{total:,} 灵石"
+        tip = "\n💬 坊市NPC可能稍后发来问价，使用 /我的坊市 查看。" if self.npc_enabled else ""
+        return True, f"✅ 上架成功！\n物品：【{item_name}】x{count}\n单价：{price:,} 灵石\n总价：{total:,} 灵石{tip}"
 
     async def get_market_list(self) -> str:
         """查看坊市列表"""
@@ -76,6 +134,8 @@ class AuctionManager:
         msg.append(f"💡 购买：/坊市购买 <编号> (系统收取 {self.TAX_RATE:.0%} 交易税)")
         msg.append("💡 上架：/坊市上架 <物品名> <数量> <单价>")
         msg.append("💡 下架：/坊市下架 <编号>")
+        if self.npc_enabled:
+            msg.append("💡 NPC问价：/我的坊市 查看并选择卖出或继续等待")
         return "\n".join(msg)
 
     async def get_market_items(self, limit: int = 10) -> list:
@@ -85,6 +145,299 @@ class AuctionManager:
         ) as cursor:
             return [dict(r) for r in await cursor.fetchall()]
 
+    @_serialized
+    async def process_npc_offers(self, now: int = None) -> Tuple[int, int]:
+        """生成/过期NPC问价，返回（新生成数, 过期数）"""
+        if not self.npc_enabled:
+            return 0, 0
+        if getattr(self.db.conn, "in_transaction", False):
+            return 0, 0
+        now = int(now or time.time())
+        await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            expired = 0
+            async with self.db.conn.execute(
+                "SELECT id, auction_id FROM auction_npc_offers WHERE status = 'pending' AND expire_time <= ?",
+                (now,)
+            ) as cursor:
+                expired_rows = [dict(r) for r in await cursor.fetchall()]
+            for row in expired_rows:
+                await self.db.conn.execute(
+                    "UPDATE auction_npc_offers SET status = 'expired', responded_time = ? WHERE id = ? AND status = 'pending'",
+                    (now, row["id"]),
+                )
+                await self._schedule_next_offer(row["auction_id"], now)
+                expired += 1
+
+            async with self.db.conn.execute(
+                "SELECT id FROM auction_items WHERE next_offer_time = 0"
+            ) as cursor:
+                legacy_ids = [r[0] for r in await cursor.fetchall()]
+            for auction_id in legacy_ids:
+                await self.db.conn.execute(
+                    "UPDATE auction_items SET next_offer_time = ? WHERE id = ?",
+                    (now + self._next_offer_delay(), auction_id),
+                )
+
+            async with self.db.conn.execute(
+                "SELECT * FROM auction_items WHERE next_offer_time > 0 AND next_offer_time <= ? ORDER BY id",
+                (now,)
+            ) as cursor:
+                due_items = [dict(r) for r in await cursor.fetchall()]
+
+            generated = 0
+            for item in due_items:
+                async with self.db.conn.execute(
+                    "SELECT 1 FROM auction_npc_offers WHERE auction_id = ? AND status = 'pending' LIMIT 1",
+                    (item["id"],)
+                ) as cursor:
+                    if await cursor.fetchone():
+                        await self.db.conn.execute(
+                            "UPDATE auction_items SET next_offer_time = -1 WHERE id = ?", (item["id"],)
+                        )
+                        continue
+
+                async with self.db.conn.execute(
+                    "SELECT 1 FROM players WHERE user_id = ?", (item["seller_id"],)
+                ) as cursor:
+                    if not await cursor.fetchone():
+                        await self.db.conn.execute(
+                            "UPDATE auction_items SET next_offer_time = 0 WHERE id = ?", (item["id"],)
+                        )
+                        continue
+
+                rate = random.uniform(self.npc_min_rate, self.npc_max_rate)
+                offer_price = max(1, int(round(item["price"] * rate)))
+                npc_name = random.choice(self.NPC_NAMES)
+                await self.db.conn.execute(
+                    """INSERT INTO auction_npc_offers
+                       (auction_id, seller_id, item_name, count, listed_price, offer_price,
+                        npc_name, create_time, expire_time, status, responded_time)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0)""",
+                    (
+                        item["id"], item["seller_id"], item["item_name"], item["count"],
+                        item["price"], offer_price, npc_name, now, now + self.npc_offer_expire,
+                    ),
+                )
+                await self.db.conn.execute(
+                    "UPDATE auction_items SET next_offer_time = -1 WHERE id = ?", (item["id"],)
+                )
+                generated += 1
+
+            await self.db.conn.execute(
+                "DELETE FROM auction_npc_offers WHERE status <> 'pending' AND create_time < ?",
+                (now - 86400,),
+            )
+            await self.db.conn.commit()
+            return generated, expired
+        except Exception:
+            await self.db.conn.rollback()
+            raise
+
+    async def _schedule_next_offer(self, auction_id: int, now: int):
+        await self.db.conn.execute(
+            """UPDATE auction_items SET next_offer_time = ?
+               WHERE id = ? AND NOT EXISTS (
+                   SELECT 1 FROM auction_npc_offers WHERE auction_id = ? AND status = 'pending'
+               )""",
+            (now + self._next_offer_delay(), auction_id, auction_id),
+        )
+
+    async def _expire_seller_offers(self, seller_id: str, now: int):
+        if getattr(self.db.conn, "in_transaction", False):
+            return
+        async with self.db.conn.execute(
+            "SELECT id, auction_id FROM auction_npc_offers "
+            "WHERE seller_id = ? AND status = 'pending' AND expire_time <= ?",
+            (seller_id, now)
+        ) as cursor:
+            rows = [dict(r) for r in await cursor.fetchall()]
+        if not rows:
+            return
+        for row in rows:
+            await self.db.conn.execute(
+                "UPDATE auction_npc_offers SET status = 'expired', responded_time = ? WHERE id = ? AND status = 'pending'",
+                (now, row["id"]),
+            )
+            await self._schedule_next_offer(row["auction_id"], now)
+        await self.db.conn.commit()
+
+    @_serialized
+    async def get_player_market(self, player: Player) -> str:
+        """查看个人坊市：上架商品与NPC问价"""
+        now = int(time.time())
+        await self._expire_seller_offers(player.user_id, now)
+
+        async with self.db.conn.execute(
+            "SELECT * FROM auction_items WHERE seller_id = ? ORDER BY id DESC",
+            (player.user_id,)
+        ) as cursor:
+            listings = [dict(r) for r in await cursor.fetchall()]
+
+        async with self.db.conn.execute(
+            "SELECT * FROM auction_npc_offers WHERE seller_id = ? AND status = 'pending' AND expire_time > ? ORDER BY id",
+            (player.user_id, now)
+        ) as cursor:
+            offers = [dict(r) for r in await cursor.fetchall()]
+
+        if not listings:
+            return "🕊️ 你当前没有在坊市上架任何商品。\n💡 上架：/坊市上架 <物品名> <数量> <单价>"
+
+        offers_by_auction = {o["auction_id"]: o for o in offers}
+        msg = ["🏪 我的坊市", "━━━━━━━━━━━━━━━"]
+        for item in listings:
+            total = item["price"] * item["count"]
+            msg.append(f"[坊市#{item['id']}] {item['item_name']} x{item['count']}")
+            msg.append(f"  └ 定价：{item['price']:,}/件 · 总价 {total:,} 灵石")
+            offer = offers_by_auction.get(item["id"])
+            if offer:
+                remaining = max(0, offer["expire_time"] - now)
+                remain_min = max(1, math.ceil(remaining / 60))
+                offer_total = offer["offer_price"] * offer["count"]
+                diff = offer["offer_price"] - item["price"]
+                sign = "+" if diff >= 0 else ""
+                msg.append(
+                    f"  💬 问价[#{offer['id']}] {offer['npc_name']}："
+                    f"{offer['offer_price']:,}/件（总价 {offer_total:,}，{sign}{diff:,}）"
+                )
+                msg.append(f"     ⏳ 剩余 {remain_min} 分钟")
+            elif item.get("next_offer_time", 0) > now:
+                eta_min = max(1, math.ceil((item["next_offer_time"] - now) / 60))
+                msg.append(f"  ⏳ 等待NPC问价（约 {eta_min} 分钟后）")
+            elif item.get("next_offer_time", 0) == -1:
+                msg.append("  ⏳ NPC正在考虑，请稍候")
+            else:
+                msg.append("  ⏳ 等待NPC问价")
+
+        msg.append("━━━━━━━━━━━━━━━")
+        if offers:
+            msg.append("💡 /坊市卖出 <问价ID> 接受问价并卖出")
+            msg.append("💡 /坊市等待 <问价ID> 放弃本次问价，继续等待")
+        msg.append("💡 /坊市下架 <坊市ID> 撤回商品")
+        if self.npc_enabled:
+            msg.append(
+                f"📈 NPC问价区间：{self.npc_min_rate:.0%} ~ {self.npc_max_rate:.0%} 定价，"
+                f"每 {self.npc_min_interval}~{self.npc_max_interval} 秒可能来问一次"
+            )
+        return "\n".join(msg)
+
+    @_serialized
+    async def accept_offer(self, player: Player, offer_id: int) -> Tuple[bool, str]:
+        """接受NPC问价，按问价卖出整件商品"""
+        now = int(time.time())
+        await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            async with self.db.conn.execute(
+                "SELECT * FROM auction_npc_offers WHERE id = ?", (offer_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+            if not row:
+                await self.db.conn.rollback()
+                return False, "❌ 该问价不存在或已结束。"
+            offer = dict(row)
+
+            if offer["seller_id"] != player.user_id:
+                await self.db.conn.rollback()
+                return False, "❌ 只能处理自己的NPC问价。"
+            if offer["status"] != "pending":
+                await self.db.conn.rollback()
+                return False, "❌ 该问价已失效，请查看 /我的坊市。"
+            if offer["expire_time"] <= now:
+                await self.db.conn.execute(
+                    "UPDATE auction_npc_offers SET status = 'expired', responded_time = ? WHERE id = ?",
+                    (now, offer_id),
+                )
+                await self._schedule_next_offer(offer["auction_id"], now)
+                await self.db.conn.commit()
+                return False, "⏰ 该NPC问价已过期，已继续等待下一位买家。"
+
+            async with self.db.conn.execute(
+                "SELECT * FROM auction_items WHERE id = ?", (offer["auction_id"],)
+            ) as cursor:
+                row = await cursor.fetchone()
+            if not row:
+                await self.db.conn.execute(
+                    "DELETE FROM auction_npc_offers WHERE auction_id = ?", (offer["auction_id"],)
+                )
+                await self.db.conn.commit()
+                return False, "❌ 该商品已不在坊市，问价自动取消。"
+            item = dict(row)
+
+            if item["seller_id"] != player.user_id:
+                await self.db.conn.rollback()
+                return False, "❌ 商品归属异常，无法交易。"
+
+            total = offer["offer_price"] * item["count"]
+            await self.db.add_player_gold(player.user_id, total, commit=False)
+            await self.db.conn.execute(
+                "DELETE FROM auction_npc_offers WHERE auction_id = ?", (offer["auction_id"],)
+            )
+            await self.db.conn.execute(
+                "DELETE FROM auction_items WHERE id = ?", (offer["auction_id"],)
+            )
+            await self.db.conn.commit()
+
+            return True, (
+                f"✅ NPC交易达成！\n"
+                f"━━━━━━━━━━━━━━━\n"
+                f"买家：{offer['npc_name']}\n"
+                f"商品：【{item['item_name']}】x{item['count']}\n"
+                f"成交价：{offer['offer_price']:,}/件（定价 {item['price']:,}）\n"
+                f"获得灵石：{total:,}（NPC收购免税）"
+            )
+        except Exception as e:
+            await self.db.conn.rollback()
+            logger.error(f"坊市NPC问价卖出异常: {e}")
+            return False, "❌ 交易异常，已取消，请稍后再试。"
+
+    @_serialized
+    async def decline_offer(self, player: Player, offer_id: int) -> Tuple[bool, str]:
+        """拒绝本次NPC问价，继续等待下一次"""
+        now = int(time.time())
+        await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            async with self.db.conn.execute(
+                "SELECT * FROM auction_npc_offers WHERE id = ?", (offer_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+            if not row:
+                await self.db.conn.rollback()
+                return False, "❌ 该问价不存在或已结束。"
+            offer = dict(row)
+
+            if offer["seller_id"] != player.user_id:
+                await self.db.conn.rollback()
+                return False, "❌ 只能处理自己的NPC问价。"
+            if offer["status"] != "pending":
+                await self.db.conn.rollback()
+                return False, "❌ 该问价已失效，请查看 /我的坊市。"
+
+            if offer["expire_time"] <= now:
+                await self.db.conn.execute(
+                    "UPDATE auction_npc_offers SET status = 'expired', responded_time = ? WHERE id = ?",
+                    (now, offer_id),
+                )
+                await self._schedule_next_offer(offer["auction_id"], now)
+                await self.db.conn.commit()
+                return False, "⏰ 该NPC问价已过期，已继续等待下一位买家。"
+
+            await self.db.conn.execute(
+                "UPDATE auction_npc_offers SET status = 'rejected', responded_time = ? WHERE id = ?",
+                (now, offer_id),
+            )
+            await self._schedule_next_offer(offer["auction_id"], now)
+            await self.db.conn.commit()
+
+            return True, (
+                f"🤝 已婉拒【{offer['npc_name']}】的问价。\n"
+                f"商品继续留在坊市，等待下一位NPC问价。"
+            )
+        except Exception as e:
+            await self.db.conn.rollback()
+            logger.error(f"坊市NPC问价等待异常: {e}")
+            return False, "❌ 操作异常，请稍后再试。"
+
+    @_serialized
     async def buy_item(self, buyer: Player, auction_id: int) -> Tuple[bool, str]:
         """购买物品（带事务与防并发处理）"""
         await self.db.conn.execute("BEGIN IMMEDIATE")
@@ -126,7 +479,8 @@ class AuctionManager:
                 seller.gold += seller_income
                 await self.db.update_player(seller, commit=False)
 
-            # 5. 从坊市删除该记录
+            # 5. 从坊市和NPC问价中移除该记录
+            await self.db.conn.execute("DELETE FROM auction_npc_offers WHERE auction_id = ?", (auction_id,))
             await self.db.conn.execute("DELETE FROM auction_items WHERE id = ?", (auction_id,))
             await self.db.conn.commit()
             
@@ -137,6 +491,7 @@ class AuctionManager:
             logger.error(f"坊市购买异常: {e}")
             return False, "❌ 交易异常，已取消购买，请联系管理员。"
 
+    @_serialized
     async def cancel_item(self, player: Player, auction_id: int) -> Tuple[bool, str]:
         """下架物品"""
         await self.db.conn.execute("BEGIN IMMEDIATE")
@@ -161,6 +516,7 @@ class AuctionManager:
                 await self.db.conn.rollback()
                 return False, f"❌ 储物戒已满，无法下架退回物品。请清理背包后再试。"
 
+            await self.db.conn.execute("DELETE FROM auction_npc_offers WHERE auction_id = ?", (auction_id,))
             await self.db.conn.execute("DELETE FROM auction_items WHERE id = ?", (auction_id,))
             await self.db.conn.commit()
             

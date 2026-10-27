@@ -944,42 +944,49 @@ class SectManager:
             return True, f"🏆 上届宗门大比冠军：{winner_name}\n冠军奖励：10,000 灵石"
         return True, f"⚔️ 宗门大比状态：{t['status']}"
 
-    async def _build_combat_stats(self, user_id: str):
-        from .combat_manager import CombatManager, CombatStats
-        from ..core import EquipmentManager
+    async def _build_combat_stats(self, user_id: str, persist_pets: bool = True):
+        from .combat_manager import CombatManager
         from .pet_manager import PetManager
         player = await self.db.get_player_by_id(user_id)
         if not player:
             return None
         cm = CombatManager()
-        hp, mp = cm.calculate_hp_mp(player.experience)
-        atk = cm.calculate_atk(
-            player.experience, player.atkpractice, 0,
-            player.physical_damage, player.magic_damage, player.cultivation_type,
+        stats = cm.build_player_combat_stats(player, self.config_manager, db=self.db)
+        effects = stats.effects or {}
+        pet_mgr = PetManager(self.db)
+        main_pet, support_pets, pet_effects, atk = await pet_mgr.build_pet_lineup(
+            user_id, stats.hp, stats.atk, stats.defense,
+            player.cultivation_type, persist=persist_pets,
         )
-        em = EquipmentManager(self.db, self.config_manager)
-        effects = em.get_combat_effects(player)
-        pet = await PetManager(self.db).get_pet(user_id)
-        if pet:
-            for k, v in PetManager(self.db).get_pet_combat_effects(pet).items():
-                effects[k] = effects.get(k, 0) + v
-        return CombatStats(
-            user_id=user_id, name=player.user_name or user_id,
-            hp=hp, max_hp=hp, mp=mp, max_mp=mp, atk=atk, effects=effects,
-            element=(cm.get_element_from_name(player.main_technique)
-                     or cm.get_element_from_name(player.weapon)),
-        )
+        for k, v in pet_effects.items():
+            effects[k] = effects.get(k, 0) + v
+        stats.effects = effects
+        stats.atk = atk
+        stats.pet = main_pet
+        stats.support_pets = support_pets
+        return stats
 
-    async def _run_duel(self, uid1: str, uid2: str, balanced: bool = False) -> Optional[dict]:
+    async def _run_duel(self, uid1: str, uid2: str, balanced: bool = False, persist_pets: bool = True) -> Optional[dict]:
         from .combat_manager import CombatManager
-        p1 = await self._build_combat_stats(uid1)
-        p2 = await self._build_combat_stats(uid2)
+        from .pet_manager import PetManager
+        p1 = await self._build_combat_stats(uid1, persist_pets=persist_pets)
+        p2 = await self._build_combat_stats(uid2, persist_pets=persist_pets)
         if not p1 or not p2:
             return None
         cm = CombatManager()
         if balanced:
-            return cm.player_vs_player_balanced(p1, p2)
-        return cm.player_vs_player(p1, p2)
+            result = cm.player_vs_player_balanced(p1, p2)
+        else:
+            result = cm.player_vs_player(p1, p2)
+        pet_mgr = PetManager(self.db)
+        for stats_item in (p1, p2):
+            pets = []
+            if stats_item.pet:
+                pets.append(stats_item.pet)
+            pets.extend(stats_item.support_pets or [])
+            for pet in pets:
+                await pet_mgr.save_pet_combat_state(pet, commit=persist_pets)
+        return result
 
     async def finish_due_tournaments(self) -> List[Tuple[str, str]]:
         now = int(time.time())
@@ -1154,7 +1161,7 @@ class SectManager:
             while a_idx < len(a_members) and d_idx < len(d_members):
                 a = a_members[a_idx]
                 d = d_members[d_idx]
-                result = await self._run_duel(a.user_id, d.user_id, balanced=False)
+                result = await self._run_duel(a.user_id, d.user_id, balanced=False, persist_pets=False)
                 if not result:
                     a_idx += 1
                     d_idx += 1

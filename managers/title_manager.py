@@ -91,9 +91,9 @@ class TitleManager:
         land_level = 0
         
         try:
-            async with self.db.conn.execute("SELECT level FROM player_pets WHERE user_id = ?", (player.user_id,)) as cur:
+            async with self.db.conn.execute("SELECT MAX(level) FROM player_pets WHERE user_id = ?", (player.user_id,)) as cur:
                 row = await cur.fetchone()
-                if row: pet_level = row[0]
+                if row and row[0]: pet_level = row[0]
         except Exception: pass
         
         try:
