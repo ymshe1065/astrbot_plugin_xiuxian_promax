@@ -628,7 +628,7 @@ class WorldBossManager:
         player_element = self.player_element(player)
         physical_atk, magic_atk, total_atk = await self.calculate_realtime_components(player)
 
-        total_base = total_atk * 100 + player.experience * 0.1
+        total_base = total_atk * 100
         physical_share = physical_atk / total_atk if total_atk > 0 else 0.5
         base_physical = total_base * physical_share
         base_magic = total_base * (1 - physical_share)

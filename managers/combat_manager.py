@@ -50,6 +50,7 @@ class CombatStats:
     magic_atk: int = 0
     physical_defense: int = 0
     magic_defense: int = 0
+    defense_scale: int = 0
 
 
 class CombatManager:
@@ -232,29 +233,15 @@ class CombatManager:
         if not config_manager:
             return bonus
         from ..core.equipment_manager import EquipmentManager
-        weapons_data = getattr(config_manager, "weapons_data", {}) or {}
-        items_data = getattr(config_manager, "items_data", {}) or {}
         manager = EquipmentManager(None, config_manager)
-        physical_share, magic_share = CombatManager.get_attack_profile(
-            getattr(player, "cultivation_type", "")
-        )
-        for name, inst in manager.get_gear_slots(player).values():
-            if not name:
-                continue
-            item = manager.parse_item_from_name(name, items_data, weapons_data, inst)
-            if not item:
-                continue
-            cfg = items_data.get(name) or weapons_data.get(name, {})
-            quality = manager.instance_manager.quality_multiplier(inst.get("quality", "一般")) if inst else 1.0
-            generic_atk = int(cfg.get("atk", 0) or 0) * quality
-            physical = int(generic_atk * physical_share) + int(item.physical_damage or 0)
-            magic = int(generic_atk * magic_share) + int(item.magic_damage or 0)
-            bonus["physical_atk"] += physical
-            bonus["magic_atk"] += magic
-            bonus["atk"] += physical + magic
-            bonus["physical_defense"] += item.physical_defense
-            bonus["magic_defense"] += item.magic_defense
-            bonus["defense"] += item.physical_defense + item.magic_defense
+        base = manager.get_base_attributes(player)
+        rates = manager.get_equipment_rates(player)
+        bonus["physical_atk"] = int(base.get("physical_damage", 0) * rates.get("physical_damage", 0))
+        bonus["magic_atk"] = int(base.get("magic_damage", 0) * rates.get("magic_damage", 0))
+        bonus["physical_defense"] = int(base.get("physical_defense", 0) * rates.get("physical_defense", 0))
+        bonus["magic_defense"] = int(base.get("magic_defense", 0) * rates.get("magic_defense", 0))
+        bonus["atk"] = bonus["physical_atk"] + bonus["magic_atk"]
+        bonus["defense"] = bonus["physical_defense"] + bonus["magic_defense"]
         return bonus
 
     @staticmethod
@@ -307,70 +294,70 @@ class CombatManager:
         mp_buff = impart_info.impart_mp_per if impart_info else 0.0
         atk_buff = impart_info.impart_atk_per if impart_info else 0.0
 
-        effective_exp = CombatManager.get_effective_experience(
-            player, config_manager
-        )
-        base_hp, _ = CombatManager.calculate_hp_mp(
-            effective_exp, hp_buff, mp_buff
-        )
+        from ..core.equipment_balance import realm_attributes
+        base = realm_attributes(player, config_manager)
+        base_phys = int(base.get("physical_damage", 0))
+        base_magic = int(base.get("magic_damage", 0))
+        base_pdef = int(base.get("physical_defense", 0))
+        base_mdef = int(base.get("magic_defense", 0))
+        base_atk_total = max(1, base_phys + base_magic)
         physical_mult = float(pill_multipliers.get("physical_damage", 1.0) or 1.0)
         magic_mult = float(pill_multipliers.get("magic_damage", 1.0) or 1.0)
-        max_hp = max(1, int(base_hp))
+        max_hp = max(1, int(base.get("max_hp", 1)))
         max_mp = max(0, int(getattr(player, "max_spiritual_qi", 0) or 0))
         raw_hp = int(getattr(player, "hp", 0) or 0)
         raw_mp = int(getattr(player, "spiritual_qi", 0) or 0)
         hp = min(max_hp, raw_hp) if raw_hp > 0 else max_hp
         mp = min(max_mp, max(0, raw_mp))
 
-        components = CombatManager.calculate_attack_components(
-            effective_exp,
-            player.atkpractice,
-            atk_buff,
-            player.physical_damage,
-            player.magic_damage,
-            player.cultivation_type,
-        )
         equip = CombatManager.calculate_equipment_bonus(player, config_manager)
-        physical_atk = int(components["physical_atk"] * physical_mult) + int(
-            equip.get("physical_atk", 0)
-        )
-        magic_atk = int(components["magic_atk"] * magic_mult) + int(
-            equip.get("magic_atk", 0)
-        )
-
-        # 防御必须包含角色本体的物防/法防，否则体修、突破与永久丹药的防御加成全部失效
-        exp_def = max(0, int(effective_exp / 200))
-        exp_phys_def = exp_def // 2
-        exp_magic_def = exp_def - exp_phys_def
-        physical_def = int(
-            (int(getattr(player, "physical_defense", 0) or 0)
-             + exp_phys_def
-             + int(equip.get("physical_defense", 0)))
-            * float(pill_multipliers.get("physical_defense", 1.0) or 1.0)
-        )
-        magic_def = int(
-            (int(getattr(player, "magic_defense", 0) or 0)
-             + exp_magic_def
-             + int(equip.get("magic_defense", 0)))
-            * float(pill_multipliers.get("magic_defense", 1.0) or 1.0)
-        )
-        generic_defense = int(effects.get("defense_bonus", 0) or 0)
-        physical_def += generic_defense // 2
-        magic_def += generic_defense - generic_defense // 2
 
         title = CombatManager.get_title_combat_bonus(player)
-        physical_atk += int(title.get("atk", 0) or 0)
-        magic_atk += int(title.get("magic", 0) or 0)
-        physical_def += int(title.get("phys_def", 0) or 0)
-        magic_def += int(title.get("magic_def", 0) or 0)
+        forge_bonus = CombatManager.get_forge_multiplier(player) - 1.0
+        practice_bonus = min(0.20, max(0, int(player.atkpractice or 0)) * 0.01)
+        phys_attack_bonus = max(-.5, min(.5, physical_mult - 1 + atk_buff + practice_bonus + forge_bonus))
+        magic_attack_bonus = max(-.5, min(.5, magic_mult - 1 + atk_buff + practice_bonus + forge_bonus))
+        defense_bonus = max(
+            -.5,
+            min(
+                .5,
+                max(
+                    float(pill_multipliers.get("physical_defense", 1.0) or 1.0),
+                    float(pill_multipliers.get("magic_defense", 1.0) or 1.0),
+                ) - 1 + forge_bonus,
+            ),
+        )
+        permanent_total = min(
+            int(base_atk_total * .20),
+            max(0, int(player.physical_damage or 0) + int(player.magic_damage or 0)),
+        )
+        perm_phys = int(permanent_total * base_phys / base_atk_total)
+        perm_magic = permanent_total - perm_phys
+        title_total = min(
+            int(base_atk_total * .10),
+            max(0, int(title.get("atk", 0) or 0) + int(title.get("magic", 0) or 0)),
+        )
+        title_phys = int(title_total * base_phys / base_atk_total)
+        title_magic = title_total - title_phys
+        physical_atk = int(base_phys * (1 + phys_attack_bonus)) + int(equip.get("physical_atk", 0)) + perm_phys + title_phys
+        magic_atk = int(base_magic * (1 + magic_attack_bonus)) + int(equip.get("magic_atk", 0)) + perm_magic + title_magic
+        physical_def = int(base_pdef * (1 + defense_bonus)) + int(equip.get("physical_defense", 0))
+        magic_def = int(base_mdef * (1 + defense_bonus)) + int(equip.get("magic_defense", 0))
+        permanent_def_total = min(
+            int((base_pdef + base_mdef) * .20),
+            max(0, int(player.physical_defense or 0) + int(player.magic_defense or 0)),
+        )
+        pdef_share = base_pdef / max(1, base_pdef + base_mdef)
+        physical_def += int(permanent_def_total * pdef_share)
+        magic_def += permanent_def_total - int(permanent_def_total * pdef_share)
+        title_def_total = min(
+            int((base_pdef + base_mdef) * .10),
+            max(0, int(title.get("phys_def", 0) or 0) + int(title.get("magic_def", 0) or 0)),
+        )
+        physical_def += int(title_def_total * pdef_share)
+        magic_def += title_def_total - int(title_def_total * pdef_share)
         effects["crit_rate"] = effects.get("crit_rate", 0) + int(title.get("crit", 0) or 0)
         effects["lifesteal"] = effects.get("lifesteal", 0) + int(title.get("lifesteal", 0) or 0)
-
-        forge_mult = CombatManager.get_forge_multiplier(player)
-        physical_atk = int(physical_atk * forge_mult)
-        magic_atk = int(magic_atk * forge_mult)
-        physical_def = int(physical_def * forge_mult)
-        magic_def = int(magic_def * forge_mult)
         atk = max(1, physical_atk + magic_atk)
         defense = max(0, physical_def + magic_def)
 
@@ -380,6 +367,7 @@ class CombatManager:
             "atk": atk, "defense": defense,
             "physical_atk": physical_atk, "magic_atk": magic_atk,
             "physical_defense": physical_def, "magic_defense": magic_def,
+            "defense_scale": int(base.get("defense_scale", 0)),
             "crit_rate": effects.get("crit_rate", 0),
             "crit_damage": effects.get("crit_damage", 1.5),
             "lifesteal": effects.get("lifesteal", 0),
@@ -419,6 +407,8 @@ class CombatManager:
             for affix in bonus_data.get("affixes", []):
                 key = affix.get("key")
                 value = affix.get("value", 0)
+                if key in ("physical_damage_multiplier", "magic_damage_multiplier"):
+                    continue
                 if key in effects:
                     effects[key] += value
         except Exception:
@@ -427,12 +417,20 @@ class CombatManager:
         weapons_data = getattr(config_manager, "weapons_data", {}) or {}
         for name, _ in EquipmentManager(None, config_manager).get_gear_slots(player).values():
             cfg = items_data.get(name) or weapons_data.get(name, {})
+            from ..core.equipment_balance import GEAR_EFFECT_CAPS
             for key, value in cfg.get("effects", {}).items():
+                if key in ("physical_damage_multiplier", "magic_damage_multiplier"):
+                    continue
                 if key in effects:
+                    try:
+                        value = min(float(GEAR_EFFECT_CAPS.get(key, value)), float(value or 0))
+                    except (TypeError, ValueError):
+                        value = 0
                     effects[key] += value
 
         try:
             from ..core.item_instance_manager import ItemInstanceManager
+            from ..core.equipment_balance import GEAR_EFFECT_CAPS
             im = ItemInstanceManager(None, config_manager)
             for instance_id in player.get_equipped_instances().values():
                 inst = im.get_instance(player, instance_id)
@@ -441,7 +439,13 @@ class CombatManager:
                 for affix in inst.get("affixes", []) or []:
                     key = affix.get("key")
                     value = affix.get("value", 0)
+                    if key in ("physical_damage_multiplier", "magic_damage_multiplier"):
+                        continue
                     if key in effects:
+                        try:
+                            value = min(float(GEAR_EFFECT_CAPS.get(key, value)), float(value or 0))
+                        except (TypeError, ValueError):
+                            value = 0
                         effects[key] += value
         except Exception:
             pass
@@ -452,7 +456,31 @@ class CombatManager:
                     effects[rate_key] = max(0.0, min(100.0, float(effects[rate_key])))
                 except (TypeError, ValueError):
                     effects[rate_key] = 0
-        return effects
+        # 装备特效按部位总上限收敛，避免多槽位重复叠满。
+        try:
+            from ..core.equipment_balance import GEAR_EFFECT_CAPS
+            for key, cap in GEAR_EFFECT_CAPS.items():
+                if key in effects:
+                    effects[key] = min(float(effects[key]), float(cap))
+        except Exception:
+            pass
+        # 装备增伤已进入装备百分比池，特效层不再二次放大。
+        effects["physical_damage_multiplier"] = 1.0
+        effects["magic_damage_multiplier"] = 1.0
+        return CombatManager.clamp_effects(effects)
+
+    @staticmethod
+    def clamp_effects(effects: dict) -> dict:
+        """统一限制战斗特效上限，避免装备/词条/符箓叠加失控。"""
+        from ..core.equipment_balance import GLOBAL_EFFECT_CAPS
+        result = dict(effects or {})
+        for key, cap in GLOBAL_EFFECT_CAPS.items():
+            if key in result:
+                try:
+                    result[key] = max(0, min(float(cap), float(result[key] or 0)))
+                except (TypeError, ValueError):
+                    result[key] = 0
+        return result
 
     @classmethod
     def build_player_combat_stats(
@@ -470,22 +498,19 @@ class CombatManager:
         pill_multipliers: Optional[dict] = None,
     ) -> "CombatStats":
         """统一构建玩家战斗属性，确保所有战斗入口读取装备、词条与丹药。"""
-        effective_exp = cls.get_effective_experience(player, config_manager)
-        hp, _ = cls.calculate_hp_mp(effective_exp, hp_buff, mp_buff)
-        max_hp = max(1, int(hp))
+        from ..core.equipment_balance import realm_attributes
+        base = realm_attributes(player, config_manager)
+        base_phys = int(base.get("physical_damage", 0))
+        base_magic = int(base.get("magic_damage", 0))
+        base_pdef = int(base.get("physical_defense", 0))
+        base_mdef = int(base.get("magic_defense", 0))
+        base_atk_total = max(1, base_phys + base_magic)
+        max_hp = max(1, int(int(base.get("max_hp", 1)) * (1 + max(-.5, min(.5, hp_buff)))))
         max_mp = max(0, int(getattr(player, "max_spiritual_qi", 0) or 0))
         raw_hp = int(getattr(player, "hp", 0) or 0)
         raw_mp = int(getattr(player, "spiritual_qi", 0) or 0)
         hp = min(max_hp, raw_hp) if raw_hp > 0 else max_hp
         mp = min(max_mp, max(0, raw_mp))
-        atk = cls.calculate_atk(
-            effective_exp,
-            player.atkpractice,
-            atk_buff,
-            player.physical_damage,
-            player.magic_damage,
-            player.cultivation_type,
-        )
 
         equip = {"atk": 0, "defense": 0}
         effects = {}
@@ -532,54 +557,52 @@ class CombatManager:
 
         physical_mult = float(pill_multipliers.get("physical_damage", 1.0) or 1.0)
         magic_mult = float(pill_multipliers.get("magic_damage", 1.0) or 1.0)
-
-        components = cls.calculate_attack_components(
-            effective_exp,
-            player.atkpractice,
-            atk_buff,
-            player.physical_damage,
-            player.magic_damage,
-            player.cultivation_type,
-        )
-        physical_atk = int(components["physical_atk"] * physical_mult) + int(
-            equip.get("physical_atk", 0)
-        )
-        magic_atk = int(components["magic_atk"] * magic_mult) + int(
-            equip.get("magic_atk", 0)
-        )
-
-        exp_def = max(0, int(effective_exp / 200))
-        exp_phys_def = exp_def // 2
-        exp_magic_def = exp_def - exp_phys_def
-        physical_def = int(
-            (int(getattr(player, "physical_defense", 0) or 0)
-             + exp_phys_def
-             + int(equip.get("physical_defense", 0)))
-            * float(pill_multipliers.get("physical_defense", 1.0) or 1.0)
-        )
-        magic_def = int(
-            (int(getattr(player, "magic_defense", 0) or 0)
-             + exp_magic_def
-             + int(equip.get("magic_defense", 0)))
-            * float(pill_multipliers.get("magic_defense", 1.0) or 1.0)
-        )
-        generic_defense = int(effects.get("defense_bonus", 0) or 0)
-        physical_def += generic_defense // 2
-        magic_def += generic_defense - generic_defense // 2
-
         title = cls.get_title_combat_bonus(player)
-        physical_atk += int(title.get("atk", 0) or 0)
-        magic_atk += int(title.get("magic", 0) or 0)
-        physical_def += int(title.get("phys_def", 0) or 0)
-        magic_def += int(title.get("magic_def", 0) or 0)
+        forge_bonus = cls.get_forge_multiplier(player) - 1.0
+        practice_bonus = min(0.20, max(0, int(player.atkpractice or 0)) * 0.01)
+        phys_attack_bonus = max(-.5, min(.5, physical_mult - 1 + atk_buff + practice_bonus + forge_bonus))
+        magic_attack_bonus = max(-.5, min(.5, magic_mult - 1 + atk_buff + practice_bonus + forge_bonus))
+        defense_bonus = max(
+            -.5,
+            min(
+                .5,
+                max(
+                    float(pill_multipliers.get("physical_defense", 1.0) or 1.0),
+                    float(pill_multipliers.get("magic_defense", 1.0) or 1.0),
+                ) - 1 + forge_bonus,
+            ),
+        )
+        permanent_total = min(
+            int(base_atk_total * .20),
+            max(0, int(player.physical_damage or 0) + int(player.magic_damage or 0)),
+        )
+        perm_phys = int(permanent_total * base_phys / base_atk_total)
+        perm_magic = permanent_total - perm_phys
+        title_total = min(
+            int(base_atk_total * .10),
+            max(0, int(title.get("atk", 0) or 0) + int(title.get("magic", 0) or 0)),
+        )
+        title_phys = int(title_total * base_phys / base_atk_total)
+        title_magic = title_total - title_phys
+        physical_atk = int(base_phys * (1 + phys_attack_bonus)) + int(equip.get("physical_atk", 0)) + perm_phys + title_phys
+        magic_atk = int(base_magic * (1 + magic_attack_bonus)) + int(equip.get("magic_atk", 0)) + perm_magic + title_magic
+        physical_def = int(base_pdef * (1 + defense_bonus)) + int(equip.get("physical_defense", 0))
+        magic_def = int(base_mdef * (1 + defense_bonus)) + int(equip.get("magic_defense", 0))
+        permanent_def_total = min(
+            int((base_pdef + base_mdef) * .20),
+            max(0, int(player.physical_defense or 0) + int(player.magic_defense or 0)),
+        )
+        pdef_share = base_pdef / max(1, base_pdef + base_mdef)
+        physical_def += int(permanent_def_total * pdef_share)
+        magic_def += permanent_def_total - int(permanent_def_total * pdef_share)
+        title_def_total = min(
+            int((base_pdef + base_mdef) * .10),
+            max(0, int(title.get("phys_def", 0) or 0) + int(title.get("magic_def", 0) or 0)),
+        )
+        physical_def += int(title_def_total * pdef_share)
+        magic_def += title_def_total - int(title_def_total * pdef_share)
         effects["crit_rate"] = effects.get("crit_rate", 0) + int(title.get("crit", 0) or 0)
         effects["lifesteal"] = effects.get("lifesteal", 0) + int(title.get("lifesteal", 0) or 0)
-
-        forge_mult = cls.get_forge_multiplier(player)
-        physical_atk = int(physical_atk * forge_mult)
-        magic_atk = int(magic_atk * forge_mult)
-        physical_def = int(physical_def * forge_mult)
-        magic_def = int(magic_def * forge_mult)
         final_atk = max(1, physical_atk + magic_atk)
         defense = max(0, physical_def + magic_def)
 
@@ -600,6 +623,7 @@ class CombatManager:
             magic_atk=magic_atk,
             physical_defense=physical_def,
             magic_defense=magic_def,
+            defense_scale=int(base.get("defense_scale", 0)),
         )
 
     @staticmethod
@@ -691,11 +715,14 @@ class CombatManager:
         return stats
 
     @staticmethod
-    def apply_damage_reduction(damage: int, defense: int = 0) -> int:
-        """应用伤害减免（使用递减公式）"""
+    def apply_damage_reduction(damage: int, defense: int = 0, defense_scale: int = 0) -> int:
+        """应用伤害减免；有境界尺度时使用同尺度递减，避免数值膨胀。"""
         if defense <= 0:
             return damage
-        reduction_rate = defense / (defense + 100)
+        if defense_scale and defense_scale > 0:
+            reduction_rate = min(0.75, defense / (defense + defense_scale))
+        else:
+            reduction_rate = defense / (defense + 100)
         final_damage = int(damage * (1 - reduction_rate))
         return max(1, final_damage)
     

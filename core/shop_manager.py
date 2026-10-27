@@ -550,6 +550,7 @@ class ShopManager:
             parsed = manager.parse_item_from_name(item["name"], {item["name"]: data}, instance=instance)
             lines = [line for line in lines if not line.startswith(("属性:", "需求境界:"))]
             lines.append("属性: " + parsed.get_attribute_display())
+            lines.append("同属性加法叠加；每落后3级效率×80%，最低20%")
             slot = ItemRules.get_equip_slot(data)
             label = "戒指（两个槽位）" if slot == "ring1" else ItemRules.SLOT_LABELS.get("armor" if slot == "body" else slot, slot)
             lines.append(f"部位: {label} · 需求境界: {self._format_required_level(ItemRules.get_required_level(data))}")
@@ -589,17 +590,9 @@ class ShopManager:
 
         # 武器/防具/饰品属性
         if item_type in ItemRules.GEAR_TYPES:
-            attrs = []
-            if data.get('magic_damage', 0) > 0:
-                attrs.append(f"法伤+{data['magic_damage']}")
-            if data.get('physical_damage', 0) > 0:
-                attrs.append(f"物伤+{data['physical_damage']}")
-            if data.get('magic_defense', 0) > 0:
-                attrs.append(f"法防+{data['magic_defense']}")
-            if data.get('physical_defense', 0) > 0:
-                attrs.append(f"物防+{data['physical_defense']}")
-            if data.get('mental_power', 0) > 0:
-                attrs.append(f"精神力+{data['mental_power']}")
+            from .equipment_balance import equipment_rates, ATTRIBUTE_LABELS
+            attrs = [f"境界基础{ATTRIBUTE_LABELS[k]}+{v:.1%}" for k, v in equipment_rates(data).items() if v]
+
             if attrs:
                 details.append(f"属性: {', '.join(attrs)}")
             if 'required_level_index' in data:

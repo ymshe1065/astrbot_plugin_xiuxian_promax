@@ -22,7 +22,7 @@ class TestSlots(unittest.IsolatedAsyncioTestCase):
 
     async def test_all_slots_persist_and_contribute_to_combat(self):
         p = await self._player()
-        p.level_index = 100
+        p.level_index = 0
         expected_def = expected_atk = 0
         for slot, kind in [("weapon", "weapon"), ("armor", "body"), ("head", "head"), ("gloves", "gloves"),
                            ("boots", "boots"), ("ring1", "ring"), ("ring2", "ring"), ("amulet", "amulet")]:
@@ -35,20 +35,22 @@ class TestSlots(unittest.IsolatedAsyncioTestCase):
         p = await self.db.get_player_by_id(p.user_id)
         self.assertEqual(set(p.get_equipped_instances()), set(self.core.ItemRules.SLOT_LABELS))
         combat = _imp("managers.combat_manager").CombatManager
-        self.assertEqual(
-            combat.calculate_equipment_bonus(p, self.cm),
-            {
-                "atk": expected_atk,
-                "physical_atk": expected_atk,
-                "magic_atk": 0,
-                "defense": expected_def,
-                "physical_defense": 0,
-                "magic_defense": expected_def,
-            },
-        )
+        base = self.em.get_base_attributes(p)
+        rates = self.em.get_equipment_rates(p)
+        self.assertAlmostEqual(rates["physical_damage"], .34)
+        self.assertAlmostEqual(rates["physical_defense"], .26)
+        expected_bonus = {
+            "physical_atk": int(base["physical_damage"] * .34),
+            "magic_atk": int(base["magic_damage"] * .34),
+            "physical_defense": int(base["physical_defense"] * .26),
+            "magic_defense": int(base["magic_defense"] * .26),
+        }
+        expected_bonus["atk"] = expected_bonus["physical_atk"] + expected_bonus["magic_atk"]
+        expected_bonus["defense"] = expected_bonus["physical_defense"] + expected_bonus["magic_defense"]
+        self.assertEqual(combat.calculate_equipment_bonus(p, self.cm), expected_bonus)
         self.assertEqual(combat.collect_combat_effects(p, self.cm)["crit_rate"], 8)
         self.assertEqual(self.em.get_combat_effects(p)["crit_rate"], 8)
-        self.assertEqual(len(self.em.get_equipped_items(p, self.cm.items_data, self.cm.weapons_data)), 8)
+        self.assertEqual(len(self.em.get_equipped_items(p, self.cm.items_data, self.cm.weapons_data)), 1)
         for slot in self.core.ItemRules.SLOT_LABELS:
             ok, msg = await self.em.unequip_item(p, slot)
             self.assertTrue(ok, msg)
@@ -115,8 +117,8 @@ class TestSlots(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(cards), 5)
         lines = "\n".join(line for call in render.call_args_list for line in call.kwargs["sections"][0]["lines"])
         self.assertIn("商品24", lines)
-        self.assertIn("物伤+11", lines)
-        self.assertIn("法防+22", lines)
+        self.assertIn("境界基础物防+6.0%", lines)
+        self.assertIn("境界基础法防+6.0%", lines)
         self.assertIn("暴击率 +5%", lines)
         self.assertIn("部位: 头饰", lines)
         with patch.object(image_module, "card_enabled", return_value=True), patch.object(image_module, "render_card_async", new_callable=AsyncMock, side_effect=["ok", None]):
@@ -130,7 +132,7 @@ class TestSlots(unittest.IsolatedAsyncioTestCase):
         await self.db.update_player(p)
         auction = self.AuctionManager(self.db, self.ring, {})
         details = "\n".join(await auction.get_trade_details({"item_name": name, "item_kind": "equipment", "seller_id": p.user_id, "instance_id": inst["id"]}))
-        self.assertIn("物伤+160", details)
+        self.assertIn("境界基础物伤+2.3%", details)
         self.assertIn("暴击率 +5%", details)
 
     async def test_empty_equipment_card_and_ring_handler(self):

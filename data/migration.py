@@ -6,7 +6,7 @@ from typing import Dict, Callable, Awaitable
 from astrbot.api import logger
 from ..config_manager import ConfigManager
 
-LATEST_DB_VERSION = 45  # v45: 灵气与 mp 兼容同步
+LATEST_DB_VERSION = 45  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步
 
 MIGRATION_TASKS: Dict[int, Callable[[aiosqlite.Connection, ConfigManager], Awaitable[None]]] = {}
 
@@ -1605,12 +1605,14 @@ async def _migrate_to_v43(conn: aiosqlite.Connection, config_manager: ConfigMana
 
 @migration(44)
 async def _migrate_to_v44(conn: aiosqlite.Connection, config_manager: ConfigManager):
-    """v44：双分支合并后的幂等兜底，兼容已经到 v43 的任一分支。"""
-    logger.info("开始迁移到 v44：Boss 流派与装备部位兜底")
+    """v44：装备平衡版本，清理旧价货架与过期 NPC 报价。"""
+    logger.info("开始迁移到 v44：装备平衡货架失效")
+    await conn.execute("DELETE FROM shop")
+    await conn.execute("UPDATE auction_npc_offers SET status='expired' WHERE status='pending'")
     await _migrate_boss_archetype_v43(conn)
     await _migrate_equipment_slots_v43(conn, config_manager)
     await conn.commit()
-    logger.info("v44迁移完成：Boss 流派与装备部位已确认")
+    logger.info("v44迁移完成：货架已失效，装备部位已确认")
 
 
 @migration(45)

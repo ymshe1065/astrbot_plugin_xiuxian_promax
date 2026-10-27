@@ -11,7 +11,7 @@ __all__ = ["ItemInstanceManager"]
 
 
 class ItemInstanceManager:
-    QUALITY_MULTIPLIER = {"一般": 1.0, "良好": 1.15, "极佳": 1.35, "大师": 1.6}
+    QUALITY_MULTIPLIER = {"一般": 1.0, "良好": 1.05, "极佳": 1.10, "大师": 1.15}
 
     def __init__(self, db: DataBase = None, config_manager=None):
         self.db = db

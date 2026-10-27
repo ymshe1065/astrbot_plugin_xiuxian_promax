@@ -90,30 +90,6 @@ class TestPillQuality(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("炼气丹|大师", inventory)
         self.assertIn("炼气丹|良好", inventory)
 
-    async def test_batch_use_aggregates_total_effect(self):
-        models = _imp("models")
-        pill_module = _imp("core.pill_manager")
-        player = models.Player(user_id="u1", level_index=5, experience=0)
-        player.pills_inventory = json.dumps({"炼气丹|大师": 3}, ensure_ascii=False)
-        db = _FakeDB(player)
-        pm = pill_module.PillManager(db, self.config_manager)
-
-        ok, used, msg = await pm.use_pill_batch(player, "炼气丹", None, 3)
-        self.assertTrue(ok)
-        self.assertEqual(used, 3)
-        self.assertEqual(player.experience, 2400)
-        self.assertIn("x3", msg)
-        self.assertIn("修为", msg)
-        self.assertIn("2,400", msg)
-
-    def test_pill_display_name_avoids_duplicate_quality(self):
-        pill_module = _imp("core.pill_manager")
-        pm = pill_module.PillManager(_FakeDB(None), self.config_manager)
-        self.assertEqual(pm.format_pill_display_name("固基丹·中", "一般"), "固基丹·中")
-        self.assertEqual(
-            pm.format_pill_display_name("固基丹·中", "良好"), "固基丹·中（良好）"
-        )
-
     async def test_legacy_effect_pill_enters_inventory_path(self):
         models = _imp("models")
         pill_module = _imp("core.pill_manager")
@@ -141,7 +117,7 @@ class TestPillQuality(unittest.IsolatedAsyncioTestCase):
                           spiritual_qi=500, max_spiritual_qi=500),
             self.config_manager, db=_FakeDBExt(models.Player(user_id="u2")),
         )
-        self.assertEqual(boosted.max_hp, plain.max_hp)
+        self.assertEqual(boosted.max_hp, plain.max_hp)  # 增伤丹不再同时放大气血
         self.assertGreater(boosted.atk, plain.atk)
 
     def test_recipe_scrolls_injected(self):

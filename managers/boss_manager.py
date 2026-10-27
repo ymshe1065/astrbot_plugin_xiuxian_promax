@@ -258,18 +258,24 @@ HP：{max_hp}
         hp = 0
         atk = 1
         try:
-            effective_exp = self.combat_mgr.get_effective_experience(
-                player, self.config_manager
+            preview = self.combat_mgr.build_player_combat_stats(
+                player,
+                self.config_manager,
+                db=self.db,
+                hp_buff=hp_buff,
+                mp_buff=mp_buff,
+                atk_buff=atk_buff,
+                crit_rate=int(crit_rate_buff * 100),
+                crit_damage_bonus=crit_damage_buff,
             )
-            hp, _ = self.combat_mgr.calculate_hp_mp(effective_exp, hp_buff, mp_buff)
-            # 补全了参数，包括 player.cultivation_type
-            atk = self.combat_mgr.calculate_atk(effective_exp, player.atkpractice, atk_buff, player.physical_damage, player.magic_damage, player.cultivation_type)
+            hp = preview.max_hp
+            atk = preview.atk
         except Exception:
             pass
         if int(player.hp or 0) <= 0:
-            player.hp = hp if hp > 0 else max(1, player.experience // 2)
+            player.hp = hp if hp > 0 else 1
         player.mp = int(player.spiritual_qi or 0)
-        player.atk = atk if atk > 0 else max(1, player.experience // 10)
+        player.atk = atk if atk > 0 else 1
         if player.experience < 0: player.experience = 0
         if player.atkpractice < 0: player.atkpractice = 0
         await self.db.update_player(player)

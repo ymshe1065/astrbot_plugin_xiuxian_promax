@@ -270,6 +270,13 @@ class PetManager:
             "defense": max(0, int(info["def_base"] + info["def_growth"] * level)),
         }
 
+    @staticmethod
+    def _owner_realm_stats(player) -> tuple:
+        """灵兽成长只跟随境界基础，不跟囤积修为或穿戴装备。"""
+        from ..core.equipment_balance import realm_attributes
+        base = realm_attributes(player)
+        return base["max_hp"], base["physical_damage"] + base["magic_damage"]
+
     def get_pet_stats(
         self,
         pet: Dict,
@@ -420,8 +427,7 @@ class PetManager:
             display_name = f"{pet_name} {suffix}"
 
         level = 1
-        owner_hp = max(1, int(player.hp or 0), player.experience // 2)
-        owner_atk = max(1, int(player.atk or 0), player.experience // 10)
+        owner_hp, owner_atk = self._owner_realm_stats(player)
         stats = self.get_pet_stats(
             {"level": level, "pet_type": pet_name}, owner_hp, owner_atk, 0
         )
@@ -567,8 +573,7 @@ class PetManager:
         if new_level >= self.MAX_PET_LEVEL:
             new_exp = 0
 
-        owner_hp = max(1, int(player.hp or 0), player.experience // 2)
-        owner_atk = max(1, int(player.atk or 0), player.experience // 10)
+        owner_hp, owner_atk = self._owner_realm_stats(player)
         stats = self.get_pet_stats(
             {"level": new_level, "pet_type": pet["pet_type"]}, owner_hp, owner_atk, 0
         )

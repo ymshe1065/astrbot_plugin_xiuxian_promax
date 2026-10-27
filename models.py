@@ -1,6 +1,6 @@
 # models.py
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, List, Optional
 import json
 
@@ -36,8 +36,13 @@ class Item:
     spiritual_qi: int = 0  # 灵气加成（仅心法有效，灵修）
     blood_qi: int = 0  # 气血加成（仅心法有效，体修）
 
+    equipment_rates: dict = field(default_factory=dict)  # 装备主属性百分比
+
     def get_attribute_display(self) -> str:
         """获取属性加成的显示文本"""
+        if self.equipment_rates:
+            from .core.equipment_balance import ATTRIBUTE_LABELS
+            return "、".join(f"境界基础{ATTRIBUTE_LABELS.get(k, k)}+{v:.1%}" for k, v in self.equipment_rates.items() if v)
         attrs = []
         if self.magic_damage > 0:
             attrs.append(f"法伤+{self.magic_damage}")
@@ -264,7 +269,7 @@ class Player:
     def set_equipped_instances(self, mapping: dict):
         self.equipped_instances = json.dumps(mapping, ensure_ascii=False)
 
-    def get_total_attributes(self, equipped_items: List[Item], pill_multipliers: Optional[dict] = None) -> dict:
+    def get_total_attributes(self, equipped_items: List[Item], pill_multipliers: Optional[dict] = None, base_attributes: Optional[dict] = None) -> dict:
         """计算包含装备加成和丹药效果的总属性"""
         total = {
             "spiritual_qi": self.spiritual_qi,
@@ -279,6 +284,9 @@ class Player:
             "exp_multiplier": 0.0,
         }
 
+        if base_attributes:
+            for key in ("physical_damage", "magic_damage", "physical_defense", "magic_defense", "mental_power"):
+                total[key] = base_attributes[key]
         seen_techniques = set()
         for item in equipped_items:
             total["magic_damage"] += item.magic_damage

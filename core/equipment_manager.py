@@ -6,6 +6,7 @@ from ..models import Player, Item
 from ..data import DataBase
 from .item_rules import ItemRules
 from .item_instance_manager import ItemInstanceManager
+from .equipment_balance import equipment_rates, effective_rates, realm_attributes, RATE_CAPS, GEAR_EFFECT_CAPS, QUALITY
 
 if TYPE_CHECKING:
     from ..config_manager import ConfigManager
@@ -21,64 +22,40 @@ class EquipmentManager:
         self.instance_manager = ItemInstanceManager(db, config_manager)
 
     def get_combat_effects(self, player: Player) -> dict:
-        """获取玩家所有功法/装备/炼器提供的特效加成"""
-        effects = {
-            "crit_rate": 0,                 # 暴击率
-            "crit_damage": 1.5,             # 暴击伤害倍率
-            "lifesteal": 0,                 # 吸血百分比
-            "counter_damage": 0,            # 反伤百分比
-            "defense_bonus": 0,             # 功法提供的额外防御
-            "combo_rate": 0,                # 连击/追加伤害概率
-            "physical_damage_multiplier": 1.0,
-            "magic_damage_multiplier": 1.0
-        }
-        
-        # 1. 遍历已装备的功法
-        items_data = getattr(self.config_manager, "items_data", {}) or {}
-        techniques_data = getattr(self.config_manager, "techniques_data", {}) or {}
-        techniques_list = player.get_techniques_list()
-        for tech_name in techniques_list:
-            tech_config = techniques_data.get(tech_name) or items_data.get(tech_name)
-            if tech_config and "effects" in tech_config:
-                for k, v in tech_config["effects"].items():
-                    if k in effects: effects[k] += v
+        """统一使用战斗入口的特效汇总，避免面板与实战分叉。"""
+        from ..managers.combat_manager import CombatManager
+        return CombatManager.collect_combat_effects(player, self.config_manager)
 
-        # 2. 主修心法特效
-        if player.main_technique:
-            main_config = techniques_data.get(player.main_technique) or items_data.get(player.main_technique)
-            if main_config and "effects" in main_config:
-                for k, v in main_config["effects"].items():
-                    if k in effects: effects[k] += v
+    def get_gear_effects(self, player: Player) -> dict:
+        effects = {}
+        for name, inst in self.get_gear_slots(player).values():
+            cfg = (getattr(self.config_manager, "items_data", {}) or {}).get(name) or (getattr(self.config_manager, "weapons_data", {}) or {}).get(name, {})
+            sources = list(cfg.get("effects", {}).items())
+            sources += [(a.get("key"), a.get("value", 0)) for a in (inst or {}).get("affixes", [])]
+            for key, value in sources:
+                if key in GEAR_EFFECT_CAPS and key not in ("physical_damage_multiplier", "magic_damage_multiplier"):
+                    effects[key] = effects.get(key, 0) + max(0, value)
+        return {key: min(value, GEAR_EFFECT_CAPS[key]) for key, value in effects.items()}
 
-        # 3. 读取永久炼器与洗练词条特效
-        try:
-            bonus_data = json.loads(player.permanent_bonus)
-            affixes = bonus_data.get("affixes", [])
-            for affix in affixes:
-                k = affix.get("key")
-                v = affix.get("value", 0)
-                if k in effects: effects[k] += v
-        except Exception:
-            pass
+    def get_base_attributes(self, player: Player) -> dict:
+        return realm_attributes(player, self.config_manager)
 
-        # 每个穿戴部位的固有特效都参与战斗。
-        for name, _ in self.get_gear_slots(player).values():
-            cfg = items_data.get(name) or (getattr(self.config_manager, "weapons_data", {}) or {}).get(name, {})
-            for key, value in cfg.get("effects", {}).items():
-                if key in effects:
-                    effects[key] += value
-
-        # 6. 装备实例词条
-        for instance_id in player.get_equipped_instances().values():
-            inst = self.instance_manager.get_instance(player, instance_id)
-            if not inst:
+    def get_equipment_rates(self, player: Player) -> dict:
+        rates = {}
+        for name, inst in self.get_gear_slots(player).values():
+            cfg = (getattr(self.config_manager, "items_data", {}) or {}).get(name) or (getattr(self.config_manager, "weapons_data", {}) or {}).get(name, {})
+            if not cfg:
                 continue
-            for affix in inst.get("affixes", []) or []:
-                key = affix.get("key")
-                value = affix.get("value", 0)
-                if key in effects:
-                    effects[key] += value
-        return effects
+            for key, value in effective_rates(cfg, player.level_index, (inst or {}).get("quality", "一般")).items():
+                rates[key] = rates.get(key, 0) + value
+            # 装备增伤词条并入主属性加法池，不能再乘一次最终攻击。
+            sources = list(cfg.get("effects", {}).items())
+            sources += [(a.get("key"), a.get("value", 0)) for a in (inst or {}).get("affixes", [])]
+            for key, value in sources:
+                attr = {"physical_damage_multiplier": "physical_damage", "magic_damage_multiplier": "magic_damage"}.get(key)
+                if attr:
+                    rates[attr] = rates.get(attr, 0) + min(.10, max(0, value))
+        return {key: min(value, RATE_CAPS[key]) for key, value in rates.items()}
 
     def parse_item_from_name(self, item_name: str, items_data: dict, weapons_data: dict = None, instance: dict = None) -> Optional[Item]:
         """从物品名称解析为Item对象"""
@@ -108,7 +85,14 @@ class EquipmentManager:
             physical_defense = int(physical_defense * quality_mult)
             mental_power = int(mental_power * quality_mult)
 
+        rates = {}
+        if item_type in ItemRules.GEAR_TYPES:
+            rates = {key: value * QUALITY.get((instance or {}).get("quality", "一般"), 1.0)
+                     for key, value in equipment_rates(item_config).items()}
+            physical_damage = magic_damage = physical_defense = magic_defense = mental_power = 0
+
         return Item(
+            equipment_rates=rates,
             item_id=item_config.get("id", item_name), name=item_name, item_type=item_type,
             description=item_config.get("description", ""), rank=item_config.get("rank", ""),
             required_level_index=ItemRules.get_required_level(item_config), weapon_category=item_config.get("weapon_category", ""),
@@ -130,10 +114,12 @@ class EquipmentManager:
     def get_equipped_items(self, player: Player, items_data: dict, weapons_data: dict = None) -> List[Item]:
         """汇总八个装备槽位、主修心法和功法。"""
         equipped = []
-        for name, inst in self.get_gear_slots(player).values():
-            item = self.parse_item_from_name(name, items_data, weapons_data, inst)
-            if item:
-                equipped.append(item)
+        # 汇总后统一取整及封顶，避免多槽位舍入、品质或自定义配置绕过预算。
+        base = self.get_base_attributes(player)
+        rates = self.get_equipment_rates(player)
+        if rates:
+            equipped.append(Item(item_id="equipped_gear", name="装备合计", item_type="gear_total",
+                                 **{key: int(base[key] * rate) for key, rate in rates.items()}))
         if player.main_technique:
             item = self.parse_item_from_name(player.main_technique, self.config_manager.techniques_data, items_data)
             if item: equipped.append(item)
@@ -147,8 +133,6 @@ class EquipmentManager:
     def check_equipment_level_requirement(self, player: Player, item: Item) -> tuple[bool, str]:
         """检查玩家是否满足装备的境界要求。"""
         req_level = item.required_level_index
-        if req_level <= 0:
-            req_level = ItemRules.RANK_REQ_LEVEL.get(item.rank, 0)
 
         if player.level_index < req_level:
             required_level_name = self._format_required_level(req_level)
