@@ -269,8 +269,23 @@ class TestAutoProxy(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue((await self.manager.enable("u1", "umo://group", "押镖"))[0])
         results = await self._handle_disable("押镖")
-        self.assertIn("自动代理已关闭", results[0])
+        self.assertIn("全部关闭", results[0])
         self.assertEqual((await self.db.ext.get_auto_proxy("u1"))["enabled"], 0)
+
+    async def test_disable_escort_also_stops_farm(self):
+        self.assertTrue((await self.manager.enable("u1", "umo://group", "押镖"))[0])
+        row = await self.db.ext.get_auto_proxy("u1")
+        config = self.manager._load_config(row)
+        config["farm"]["enabled"] = True
+        await self.manager._write_state(
+            "u1", True, "escort", "umo://group", "", config
+        )
+
+        results = await self._handle_disable("押镖")
+        self.assertIn("全部关闭", results[0])
+        row = await self.db.ext.get_auto_proxy("u1")
+        self.assertEqual(row["enabled"], 0)
+        self.assertFalse(self.manager._load_config(row)["farm"]["enabled"])
 
     async def test_auto_proxy_off_alias_closes_all(self):
         self.assertTrue((await self.manager.enable("u1", "umo://group", "押镖"))[0])
