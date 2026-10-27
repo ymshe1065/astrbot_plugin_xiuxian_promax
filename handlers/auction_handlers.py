@@ -3,7 +3,7 @@ from astrbot.api.event import AstrMessageEvent
 from ..data import DataBase
 from ..managers.auction_manager import AuctionManager
 from ..models import Player
-from .utils import player_required
+from .utils import player_required, set_event_flag
 
 class AuctionHandlers:
     """玩家交易坊市处理器"""
@@ -11,6 +11,7 @@ class AuctionHandlers:
     def __init__(self, db: DataBase, auction_mgr: AuctionManager):
         self.db = db
         self.auction_mgr = auction_mgr
+        self.last_sell_success = False
 
     async def handle_list(self, event: AstrMessageEvent):
         """查看坊市"""
@@ -45,19 +46,21 @@ class AuctionHandlers:
     @player_required
     async def handle_list_item(self, player: Player, event: AstrMessageEvent, args: str = ""):
         """上架物品到坊市"""
+        set_event_flag(event, "market_sell_success", False)
         if not args or not args.strip():
             yield event.plain_result(
                 "🏪 上架物品说明\n"
                 "━━━━━━━━━━━━━━━\n"
-                "用法：/坊市上架 <物品名> <数量> <单价>\n"
-                "示例：/坊市上架 天阶·诛仙剑 1 50000"
+                "用法：/坊市上架 <物品名> [品质] <数量> <单价>\n"
+                "示例：/坊市上架 天阶·诛仙剑 1 50000\n"
+                "示例：/坊市上架 筑基丹 良好 1 8000"
             )
             return
 
         # 考虑到物品名称可能带空格，从右侧切分最后两个参数
         parts = args.strip().rsplit(" ", 2)
         if len(parts) < 3:
-            yield event.plain_result("❌ 参数不足！请确保包含：物品名、数量、单价。\n示例：/坊市上架 极品灵草 5 1000")
+            yield event.plain_result("❌ 参数不足！请确保包含：物品名/丹药名、数量、单价。\n示例：/坊市上架 极品灵草 5 1000")
             return
 
         item_name = parts[0].strip()
@@ -67,16 +70,32 @@ class AuctionHandlers:
         except ValueError:
             yield event.plain_result(
                 "❌ 数量和单价必须是纯数字！\n"
-                "正确格式：/坊市上架 <物品名> <数量> <单价>\n"
+                "正确格式：/坊市上架 <物品名或丹药名> [品质] <数量> <单价>\n"
                 "示例：/坊市上架 玄铁 5 1000"
             )
             return
+
+        quality = ""
+        try:
+            pm = self.auction_mgr._pill_manager()
+        except Exception:
+            pm = None
+        if pm:
+            tokens = item_name.split()
+            if len(tokens) >= 2 and tokens[-1] in pm.QUALITY_ORDER:
+                quality = tokens.pop()
+                item_name = " ".join(tokens)
+            elif "|" in item_name:
+                base_name, embedded_quality = pm.split_pill_key(item_name)
+                item_name = base_name
+                quality = embedded_quality
 
         if count <= 0 or price <= 0:
             yield event.plain_result("❌ 数量和单价必须大于 0。\n示例：/坊市上架 玄铁 5 1000")
             return
 
-        success, msg = await self.auction_mgr.list_item(player, item_name, count, price)
+        success, msg = await self.auction_mgr.list_item(player, item_name, count, price, quality)
+        set_event_flag(event, "market_sell_success", bool(success))
         yield event.plain_result(msg)
 
     @player_required

@@ -19,7 +19,10 @@ class ImpartManager:
         """获取传承信息"""
         impart_info = await self.db.ext.get_impart_info(user_id)
         if not impart_info:
-            return False, "❌ 你还未开启传承系统！", None
+            await self.db.ext.ensure_impart_info(user_id)
+            impart_info = await self.db.ext.get_impart_info(user_id)
+        if not impart_info:
+            return False, "❌ 传承系统初始化失败，请稍后再试！", None
         
         msg = f"""
 ✨ 传承信息

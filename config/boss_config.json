@@ -57,5 +57,21 @@
       "atk_mult": 3.5,
       "reward_mult": 6.0
     }
-  ]
+  ],
+  "world_boss": {
+    "min_level": 3,
+    "cooldown": 300,
+    "damage_floor_pct": 0.5,
+    "damage_cap_pct": 20.0,
+    "expire_hours": 24
+  },
+  "raid": {
+    "enabled": true,
+    "auto_spawn_interval": 21600,
+    "expire_hours": 48,
+    "cooldown": 600,
+    "damage_floor_pct": 0.3,
+    "damage_cap_pct": 8.0,
+    "min_players": 2
+  }
 }

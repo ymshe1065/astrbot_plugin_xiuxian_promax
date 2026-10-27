@@ -6,7 +6,7 @@ from astrbot.api.all import *
 from ..managers.combat_manager import CombatManager, CombatStats
 from ..data.data_manager import DataBase
 from ..core import EquipmentManager, PillManager
-from .utils import player_required
+from .utils import player_required, set_event_flag
 from ..models import Player
 from ..models_extended import UserStatus
 
@@ -85,15 +85,7 @@ class CombatHandlers:
         return None
 
     def _calculate_equipment_bonus(self, player) -> dict:
-        bonus = {"atk": 0, "defense": 0}
-        if not self.config_manager: return bonus
-        if player.weapon and player.weapon in self.config_manager.weapons_data:
-            data = self.config_manager.weapons_data[player.weapon]
-            bonus["atk"] += data.get("atk", 0) + data.get("physical_damage", 0) + data.get("magic_damage", 0)
-        if player.armor and player.armor in self.config_manager.items_data:
-            data = self.config_manager.items_data[player.armor]
-            bonus["defense"] += data.get("physical_defense", 0) + data.get("magic_defense", 0)
-        return bonus
+        return self.combat_mgr.calculate_equipment_bonus(player, self.config_manager)
 
     async def _prepare_combat_stats(self, user_id: str) -> CombatStats:
         player = await self.db.get_player_by_id(user_id)
@@ -106,65 +98,40 @@ class CombatHandlers:
         hp_buff = impart_info.impart_hp_per if impart_info else 0.0
         mp_buff = impart_info.impart_mp_per if impart_info else 0.0
         atk_buff = impart_info.impart_atk_per if impart_info else 0.0
-        
-        base_hp, base_mp = self.combat_mgr.calculate_hp_mp(player.experience, hp_buff, mp_buff)
-        hp = int(base_hp * max(pill_multipliers.get("physical_damage", 1.0), pill_multipliers.get("magic_damage", 1.0)))
-        mp = base_mp
-        
-        base_atk = self.combat_mgr.calculate_atk(player.experience, player.atkpractice, atk_buff, player.physical_damage, player.magic_damage, player.cultivation_type)
-        final_atk_multiplier = max(pill_multipliers.get("physical_damage", 1.0), pill_multipliers.get("magic_damage", 1.0))
-        base_atk = int(base_atk * final_atk_multiplier)
-        
-        equip_bonus = self._calculate_equipment_bonus(player)
-        final_atk = base_atk + equip_bonus["atk"]
-        
-        effects = self.equipment_mgr.get_combat_effects(player)
 
-        title_magic = 0
-        title_def_bonus = 0
-        try:
-            from ..managers.title_manager import TitleManager
-            tm = TitleManager(self.db)
-            tstats = tm.get_active_bonus(player)
-            if tstats:
-                final_atk += int(tstats.get("atk", 0))
-                title_magic = int(tstats.get("magic", 0))
-                title_def_bonus = int(tstats.get("phys_def", 0)) + int(tstats.get("magic_def", 0))
-                effects["crit_rate"] = effects.get("crit_rate", 0) + int(tstats.get("crit", 0))
-                effects["lifesteal"] = effects.get("lifesteal", 0) + int(tstats.get("lifesteal", 0))
-        except Exception: pass
-
-        final_atk += title_magic
-        base_defense = int(
-            equip_bonus["defense"]
-            * max(
-                pill_multipliers.get("physical_defense", 1.0),
-                pill_multipliers.get("magic_defense", 1.0),
-            )
-        ) + title_def_bonus
+        stats = self.combat_mgr.build_player_combat_stats(
+            player,
+            self.config_manager,
+            db=self.db,
+            hp_buff=hp_buff,
+            mp_buff=mp_buff,
+            atk_buff=atk_buff,
+            pill_multipliers=pill_multipliers,
+        )
 
         from ..managers.pet_manager import PetManager
         pet_mgr = PetManager(self.db)
         main_pet, support_pets, pet_effects, final_atk = await pet_mgr.build_pet_lineup(
-            user_id, hp, final_atk, base_defense, player.cultivation_type
+            user_id, stats.max_hp, stats.atk, stats.defense, player.cultivation_type
         )
-        for k, v in pet_effects.items():
-            effects[k] = effects.get(k, 0) + v
-
-        final_defense = base_defense + int(effects.get("defense_bonus", 0))
+        merged_effects = dict(stats.effects or {})
+        for k, v in (pet_effects or {}).items():
+            if isinstance(v, (int, float)):
+                merged_effects[k] = merged_effects.get(k, 0) + v
+            else:
+                merged_effects[k] = v
+        stats.atk = final_atk
+        stats.effects = merged_effects
+        stats.defense += int((pet_effects or {}).get("defense_bonus", 0) or 0)
+        stats.pet = main_pet
+        stats.support_pets = support_pets
         
-        player.hp = hp
-        player.mp = mp
-        player.atk = final_atk
+        player.hp = stats.max_hp
+        player.mp = stats.max_mp
+        player.atk = stats.atk
         await self.db.update_player(player)
 
-        return CombatStats(
-            user_id=user_id, name=player.user_name if player.user_name else f"道友{user_id}",
-            hp=hp, max_hp=hp, mp=mp, max_mp=mp, atk=final_atk, defense=final_defense,
-            exp=player.experience, effects=effects,
-            element=(self._get_element_of(player.main_technique) or self._get_element_of(player.weapon)),
-            pet=main_pet, support_pets=support_pets,
-        )
+        return stats
 
     def _get_element_of(self, item_name: str) -> str:
         if not item_name: return ""
@@ -201,7 +168,9 @@ class CombatHandlers:
                 lines.append(f"🐾 【{pet.name}】({tag}) 精力：{pet.hp}/{pet.max_hp}")
         return "\n" + "\n".join(lines)
 
-    async def handle_duel(self, event: AstrMessageEvent, target: str):
+    @player_required
+    async def handle_duel(self, player: Player, event: AstrMessageEvent, target: str):
+        set_event_flag(event, "duel_result", None)
         user_id = event.get_sender_id()
         target_id = await self._get_target_id(event, target)
         if not target_id:
@@ -222,6 +191,17 @@ class CombatHandlers:
         if not target_player:
             yield event.plain_result(f"❌ 对方（识别到ID: {target_id}）尚未踏入仙途，请先发送 /我要修仙。")
             return
+        target_cd = await self.db.ext.get_user_cd(target_id)
+        target_busy = (target_cd and target_cd.type != UserStatus.IDLE) or (
+            (not target_cd or target_cd.type == UserStatus.IDLE)
+            and (getattr(target_player, "state", "") or "") == "修炼中"
+        )
+        if target_busy:
+            status_name = UserStatus.get_name(target_cd.type) if target_cd and target_cd.type != UserStatus.IDLE else target_player.state
+            yield event.plain_result(
+                f"❌ 对方当前正{status_name}，无法接受切磋/决斗。"
+            )
+            return
 
         p1_stats = await self._prepare_combat_stats(user_id)
         p2_stats = await self._prepare_combat_stats(target_id)
@@ -230,7 +210,7 @@ class CombatHandlers:
             return
 
         result = self.combat_mgr.player_vs_player(p1_stats, p2_stats, combat_type=2)
-        self.last_duel_result = result
+        set_event_flag(event, "duel_result", result)
         await self._save_pet_states(p1_stats, p2_stats)
         
         await self.db.ext.update_player_hp_mp(user_id, p1_stats.max_hp, p1_stats.max_mp)
@@ -255,7 +235,9 @@ class CombatHandlers:
         final_log += self._pet_status_line(p2_stats)
         yield event.plain_result(final_log)
 
-    async def handle_spar(self, event: AstrMessageEvent, target: str):
+    @player_required
+    async def handle_spar(self, player: Player, event: AstrMessageEvent, target: str):
+        set_event_flag(event, "spar_fought", False)
         user_id = event.get_sender_id()
         target_id = await self._get_target_id(event, target)
         if not target_id:
@@ -276,6 +258,17 @@ class CombatHandlers:
         if not target_player:
             yield event.plain_result(f"❌ 对方（识别到ID: {target_id}）尚未踏入仙途，请先发送 /我要修仙。")
             return
+        target_cd = await self.db.ext.get_user_cd(target_id)
+        target_busy = (target_cd and target_cd.type != UserStatus.IDLE) or (
+            (not target_cd or target_cd.type == UserStatus.IDLE)
+            and (getattr(target_player, "state", "") or "") == "修炼中"
+        )
+        if target_busy:
+            status_name = UserStatus.get_name(target_cd.type) if target_cd and target_cd.type != UserStatus.IDLE else target_player.state
+            yield event.plain_result(
+                f"❌ 对方当前正{status_name}，无法接受切磋/决斗。"
+            )
+            return
 
         p1_stats = await self._prepare_combat_stats(user_id)
         p2_stats = await self._prepare_combat_stats(target_id)
@@ -284,7 +277,7 @@ class CombatHandlers:
             return
 
         result = self.combat_mgr.player_vs_player(p1_stats, p2_stats, combat_type=1)
-        self.last_spar_fought = True
+        set_event_flag(event, "spar_fought", True)
         await self._save_pet_states(p1_stats, p2_stats)
         
         await self.db.ext.update_player_hp_mp(user_id, p1_stats.max_hp, p1_stats.max_mp)

@@ -34,6 +34,7 @@ from .spirit_eye_handlers import SpiritEyeHandlers
 # v6.1 核心扩展
 from .daily_task_handlers import DailyTaskHandlers
 from .world_boss_handlers import WorldBossHandlers
+from .raid_handlers import RaidHandlers
 from .robbery_handlers import RobberyHandlers
 from .reincarnation_handlers import ReincarnationHandlers
 
@@ -49,6 +50,9 @@ from .auction_handlers import AuctionHandlers
 # 宗门贡献商店
 from .sect_shop_handler import SectShopHandler
 
+# v6.26 自动代理
+from .auto_proxy_handlers import AutoProxyHandlers
+
 __all__ = [
     "PlayerHandler", "MiscHandler", "EquipmentHandler", "BreakthroughHandler", 
     "PillHandler", "ShopHandler", "StorageRingHandler", "SectHandlers", 
@@ -56,7 +60,7 @@ __all__ = [
     "AdventureHandlers", "AlchemyHandlers", "ImpartHandlers", "NicknameHandler", 
     "BankHandlers", "BountyHandlers", "ImpartPkHandlers", "BlessedLandHandlers", 
     "SpiritFarmHandlers", "DualCultivationHandlers", "SpiritEyeHandlers", 
-    "DailyTaskHandlers", "WorldBossHandlers", "RobberyHandlers", "ReincarnationHandlers", 
+    "DailyTaskHandlers", "WorldBossHandlers", "RaidHandlers", "RobberyHandlers", "ReincarnationHandlers",
     "GambleHandlers", "ForgeHandlers", "DemonInvasionHandlers", "PetHandlers",
-    "AuctionHandlers", "SectShopHandler"
+    "AuctionHandlers", "SectShopHandler", "AutoProxyHandlers"
 ]

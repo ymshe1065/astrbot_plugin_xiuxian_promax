@@ -11,7 +11,7 @@ __all__ = ["BlessedLandManager"]
 # 洞天装修家具配置：效果分别为 闭关加成 / 喂养折扣 / 洞天产出加成
 FURNITURES: Dict[str, dict] = {
     "聚灵蒲团": {"price": 20000, "desc": "打坐修炼效率+5%（闭关收益）", "effect": "cultivation"},
-    "灵兽窝":   {"price": 30000, "desc": "喂养灵兽消耗-20%", "effect": "pet_feed"},
+    "灵兽窝":   {"price": 3000, "desc": "喂养灵兽消耗-20%", "effect": "pet_feed"},
     "灵泉假山": {"price": 50000, "desc": "洞天灵石产出+10%", "effect": "income"},
 }
 
@@ -209,9 +209,12 @@ class BlessedLandManager:
         
         # 计算产出（最多24小时；灵泉假山使灵石产出+10%）
         hours = min(24, int(hours_passed))
+        credit_start = max(last_collect, now - hours * 3600)
+        output_mult = player.shield_output_multiplier(credit_start, now)
         gold_income = land["gold_per_hour"] * hours
         if self.has_furniture(land, "灵泉假山"):
             gold_income = int(gold_income * 1.10)
+        gold_income = int(gold_income * output_mult)
         
         # 计算修为收益，并限制上限防止高修为玩家收益无限增长
         land_type = land["land_type"]
@@ -219,6 +222,12 @@ class BlessedLandManager:
         max_exp_per_hour = config.get("max_exp_per_hour", 5000)
         exp_income = int(player.experience * land["exp_bonus"] * hours * 0.01)
         exp_income = min(exp_income, max_exp_per_hour * hours)
+        exp_income = int(exp_income * output_mult)
+        try:
+            from .title_manager import TitleManager
+            exp_income = int(exp_income * (1 + TitleManager.get_exp_bonus(player)))
+        except Exception:
+            pass
         
         player.gold += gold_income
         player.experience += exp_income
@@ -230,12 +239,18 @@ class BlessedLandManager:
         )
         await self.db.conn.commit()
         
+        shield_penalty_pct = 10 if getattr(player, "life_skill", "") == "阵法师" else 20
+        shield_note = (
+            f"\n⚠️ 护府大阵生效期间，洞天产出降低{shield_penalty_pct}%。"
+            if output_mult < 1.0 else ""
+        )
         return True, (
             f"✅ 洞天收取成功！\n"
             f"━━━━━━━━━━━━━━━\n"
             f"累计时长：{hours} 小时\n"
             f"获得灵石：+{gold_income:,}\n"
             f"获得修为：+{exp_income:,}\n"
+            f"{shield_note}"
             f"━━━━━━━━━━━━━━━\n"
             f"当前灵石：{player.gold:,}"
         )
@@ -266,44 +281,66 @@ class BlessedLandManager:
         if existing["level"] < current_config["max_level"]:
             return False, f"❌ 你的{existing['land_name']}需要达到满级 {current_config['max_level']} 才能进阶。"
         
-        # 计算进阶成本（新洞天价格 × 0.3）
         target_config = BLESSED_LANDS[target_type]
-        advance_cost = int(target_config["price"])
-        
+        advance_cost = int(target_config["price"] * 0.3)
+
         if player.gold < advance_cost:
             return False, f"❌ 灵石不足！进阶需要 {advance_cost:,} 灵石。"
-        
-        # 扣除灵石
+
+        now = int(time.time())
+        furniture = existing.get("furniture_list") or []
+        hours_passed = (now - existing["last_collect_time"]) / 3600
+        pending_hours = min(24, int(hours_passed)) if hours_passed >= 1 else 0
+        pending_gold = 0
+        pending_exp = 0
+        if pending_hours > 0:
+            credit_start = max(existing["last_collect_time"], now - pending_hours * 3600)
+            output_mult = player.shield_output_multiplier(credit_start, now)
+            furniture_mult = 1.10 if "灵泉假山" in furniture else 1.0
+            pending_gold = int(existing["gold_per_hour"] * pending_hours * furniture_mult * output_mult)
+            max_exp_per_hour = current_config.get("max_exp_per_hour", 5000)
+            pending_exp = min(
+                int(player.experience * existing["exp_bonus"] * pending_hours * 0.01),
+                max_exp_per_hour * pending_hours,
+            )
+            pending_exp = int(pending_exp * output_mult)
+            player.gold += pending_gold
+            player.experience += pending_exp
+
         player.gold -= advance_cost
         await self.db.update_player(player)
-        
-        # 取消等级保留，每次进阶后从1级开始
         initial_level = 1
-        
-        # 删除原洞天，创建新洞天
+
         await self.db.conn.execute(
             "DELETE FROM blessed_lands WHERE user_id = ?",
             (player.user_id,)
         )
         await self.db.conn.execute(
             """
-            INSERT INTO blessed_lands (user_id, land_type, land_name, level, exp_bonus, 
-                                       gold_per_hour, last_collect_time)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO blessed_lands (user_id, land_type, land_name, level, exp_bonus,
+                                       gold_per_hour, last_collect_time, furniture)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (player.user_id, target_type, target_config["name"], initial_level, 
-             target_config["exp_bonus"], target_config["gold_per_hour"], int(time.time()))
+            (player.user_id, target_type, target_config["name"], initial_level,
+             target_config["exp_bonus"], target_config["gold_per_hour"], now,
+             json.dumps(furniture, ensure_ascii=False))
         )
         await self.db.conn.commit()
-        
+
+        settled = ""
+        if pending_gold or pending_exp:
+            settled = f"\n进阶前已结算：+{pending_gold:,} 灵石 / +{pending_exp:,} 修为"
+        furniture_note = f"\n已继承家具：{'、'.join(furniture)}" if furniture else ""
         return True, (
             f"✨ 恭喜进阶到【{target_config['name']}】！\n"
             f"━━━━━━━━━━━━━━━\n"
             f"初始等级：Lv.{initial_level}\n"
             f"修炼加成：+{target_config['exp_bonus']:.0%}\n"
-            f"每小时产出：{target_config['gold_per_hour']} 灵石\n"
+            f"每小时产出：{target_config['gold_per_hour']} 灵石"
+            f"{settled}{furniture_note}\n"
             f"━━━━━━━━━━━━━━━\n"
-            f"花费：{advance_cost:,} 灵石"
+            f"花费：{advance_cost:,} 灵石\n"
+            f"💡 仙灵道侣随洞天迁移，无需重新结缘"
         )
     
     async def get_blessed_land_info(self, user_id: str) -> str:
@@ -314,28 +351,42 @@ class BlessedLandManager:
                 "🏔️ 洞天福地\n"
                 "━━━━━━━━━━━━━━━\n"
                 "你还没有洞天！\n\n"
-                "可购买的洞天：\n"
-                "  1. 小洞天 - 10,000灵石\n"
-                "  2. 中洞天 - 50,000灵石\n"
-                "  3. 大洞天 - 200,000灵石\n"
-                "  4. 福地 - 500,000灵石\n"
-                "  5. 洞天福地 - 1,000,000灵石\n\n"
-                "💡 使用 /购买洞天 <编号>"
+                f"可直接购买：小洞天 - {BLESSED_LANDS[1]['price']:,} 灵石\n"
+                "后续品质：中洞天 → 大洞天 → 福地 → 洞天福地\n"
+                "（满级后使用 /进阶洞天 提升，进阶费用为新洞天价格的 30%）\n\n"
+                "💡 使用 /购买洞天 1\n"
+                "💡 仙灵需栖息于洞天，先开辟洞天才能结缘"
             )
-        
+
         now = int(time.time())
         hours_since = (now - land["last_collect_time"]) / 3600
-        pending_gold = int(min(24, hours_since) * land["gold_per_hour"])
+        hours = min(24, int(hours_since)) if hours_since >= 1 else 0
+        credit_start = max(land["last_collect_time"], now - hours * 3600)
+        player = await self.db.get_player_by_id(user_id)
+        output_mult = player.shield_output_multiplier(credit_start, now) if player else 1.0
         furniture = land.get("furniture_list") or []
-
-        # 检查是否可以进阶
+        furniture_mult = 1.10 if "灵泉假山" in furniture else 1.0
+        pending_gold = int(hours * land["gold_per_hour"] * furniture_mult * output_mult)
         current_config = BLESSED_LANDS[land["land_type"]]
+        max_exp_per_hour = current_config.get("max_exp_per_hour", 5000)
+        pending_exp = 0
+        if player:
+            pending_exp = min(
+                int(player.experience * land["exp_bonus"] * hours * 0.01),
+                max_exp_per_hour * hours,
+            )
+            pending_exp = int(pending_exp * output_mult)
+
         can_advance = land["level"] >= current_config["max_level"] and land["land_type"] < 5
         advance_hint = "\n💡 已达满级，可使用 /进阶洞天 <类型> 提升洞天品质" if can_advance else ""
 
         furniture_lines = ""
         if furniture:
             furniture_lines = "\n已布置：" + "、".join(furniture)
+        shield_line = ""
+        if output_mult < 1.0:
+            penalty_pct = 10 if getattr(player, "life_skill", "") == "阵法师" else 20
+            shield_line = f"\n⚠️ 护府大阵生效中：当前产出按 -{penalty_pct}% 折算"
 
         return (
             f"🏔️ {land['land_name']} (Lv.{land['level']})\n"
@@ -343,8 +394,8 @@ class BlessedLandManager:
             f"修炼加成：+{land['exp_bonus']:.1%}\n"
             f"每小时产出：{land['gold_per_hour']} 灵石\n"
             f"━━━━━━━━━━━━━━━\n"
-            f"待收取：约 {pending_gold:,} 灵石"
-            f"{furniture_lines}\n"
+            f"待收取：约 {pending_gold:,} 灵石 / {pending_exp:,} 修为"
+            f"{furniture_lines}{shield_line}\n"
             f"━━━━━━━━━━━━━━━\n"
             f"💡 /升级洞天 | /洞天收取 | /洞天装修 <家具名>{advance_hint}"
         )

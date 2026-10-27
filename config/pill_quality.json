@@ -1,0 +1,45 @@
+{
+  "qualities": {
+    "一般": {
+      "order": 0,
+      "effect_multiplier": 1.0,
+      "breakthrough_multiplier": 1.0,
+      "resurrection_keep": 0.5,
+      "weight": 55
+    },
+    "良好": {
+      "order": 1,
+      "effect_multiplier": 1.15,
+      "breakthrough_multiplier": 1.1,
+      "resurrection_keep": 0.6,
+      "weight": 30
+    },
+    "极佳": {
+      "order": 2,
+      "effect_multiplier": 1.35,
+      "breakthrough_multiplier": 1.25,
+      "resurrection_keep": 0.7,
+      "weight": 12
+    },
+    "大师": {
+      "order": 3,
+      "effect_multiplier": 1.6,
+      "breakthrough_multiplier": 1.4,
+      "resurrection_keep": 0.8,
+      "weight": 3
+    }
+  },
+  "fire_modifiers": {
+    "1": {"一般": -8, "良好": 0, "极佳": 5, "大师": 3},
+    "2": {"一般": 8, "良好": 0, "极佳": -5, "大师": -3},
+    "3": {"一般": 0, "良好": 0, "极佳": 0, "大师": 0}
+  },
+  "furnace_per_level": {"一般": -1, "良好": 0, "极佳": 0.5, "大师": 0.5},
+  "sect_per_level": {"一般": -0.5, "良好": 0, "极佳": 0.3, "大师": 0.2},
+  "root_bonus": {
+    "木": {"success_rate": 5, "perfect_rate": 0, "cap": 10},
+    "火": {"success_rate": 0, "perfect_rate": 15, "cap": 20}
+  },
+  "temporary_effect_cap": 3.0,
+  "default_daily_limit": 0
+}

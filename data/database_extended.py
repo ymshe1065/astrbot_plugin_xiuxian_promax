@@ -5,6 +5,7 @@
 
 import aiosqlite
 import json
+import time
 from typing import List, Optional
 from ..models_extended import (
     Sect, BuffInfo, Boss, Rift, ImpartInfo, UserCd, UserStatus
@@ -115,7 +116,14 @@ class DatabaseExtended:
     
     async def delete_sect(self, sect_id: int):
         """解散宗门：清理成员归属、宗门任务、命令、大比、战争、商店和宗门行。"""
-        await self.conn.execute("BEGIN IMMEDIATE")
+        try:
+            await self.ensure_system_config_table()
+        except Exception:
+            pass
+        started_transaction = False
+        if not self.conn.in_transaction:
+            await self.conn.execute("BEGIN IMMEDIATE")
+            started_transaction = True
         try:
             async with self.conn.execute(
                 "SELECT user_id FROM players WHERE sect_id = ?", (sect_id,)
@@ -159,9 +167,11 @@ class DatabaseExtended:
                 "DELETE FROM system_config WHERE key = ?", (f"sect_score_{sect_id}",)
             )
             await self.conn.execute("DELETE FROM sects WHERE sect_id = ?", (sect_id,))
-            await self.conn.commit()
+            if started_transaction:
+                await self.conn.commit()
         except Exception:
-            await self.conn.rollback()
+            if started_transaction:
+                await self.conn.rollback()
             raise
     
     async def get_all_sects(self) -> List[Sect]:
@@ -382,6 +392,19 @@ class DatabaseExtended:
             (user_id,)
         )
         await self.conn.commit()
+
+    async def ensure_impart_info(self, user_id: str) -> None:
+        """幂等确保传承记录存在（兼容旧库与新角色）。"""
+        await self.conn.execute(
+            """
+            INSERT OR IGNORE INTO impart_info (
+                user_id, impart_hp_per, impart_mp_per, impart_atk_per,
+                impart_know_per, impart_burst_per
+            ) VALUES (?, 0.0, 0.0, 0.0, 0.0, 0.0)
+            """,
+            (user_id,)
+        )
+        await self.conn.commit()
     
     async def get_impart_info(self, user_id: str) -> Optional[ImpartInfo]:
         """获取用户传承信息"""
@@ -485,7 +508,62 @@ class DatabaseExtended:
     async def set_user_free(self, user_id: str, commit: bool = True):
         """设置用户为空闲状态"""
         await self.set_user_busy(user_id, 0, 0, commit=commit)
-    
+
+    # ===== v6.26 自动代理 =====
+
+    async def get_auto_proxy(self, user_id: str) -> Optional[dict]:
+        """获取玩家的自动代理配置"""
+        async with self.conn.execute(
+            "SELECT * FROM auto_proxy WHERE user_id = ?",
+            (user_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+
+    async def upsert_auto_proxy(
+        self,
+        user_id: str,
+        enabled: int,
+        task_type: str = "",
+        origin: str = "",
+        last_error: str = "",
+        commit: bool = True,
+    ):
+        """写入自动代理配置（不存在则插入）"""
+        await self.conn.execute(
+            """
+            INSERT INTO auto_proxy (user_id, enabled, task_type, origin, last_error, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                enabled = excluded.enabled,
+                task_type = excluded.task_type,
+                origin = excluded.origin,
+                last_error = excluded.last_error,
+                updated_at = excluded.updated_at
+            """,
+            (user_id, int(enabled), task_type or "", origin or "", last_error or "", int(time.time())),
+        )
+        if commit:
+            await self.conn.commit()
+
+    async def list_enabled_auto_proxies(self) -> List[dict]:
+        """列出所有已开启的代理，并附带当前 user_cd 状态"""
+        async with self.conn.execute(
+            """
+            SELECT ap.*, uc.type AS cd_type, uc.scheduled_time AS cd_scheduled_time
+            FROM auto_proxy ap
+            LEFT JOIN user_cd uc ON uc.user_id = ap.user_id
+            WHERE ap.enabled = 1
+            ORDER BY ap.updated_at ASC
+            """
+        ) as cursor:
+            return [dict(row) for row in await cursor.fetchall()]
+
+    async def delete_auto_proxy(self, user_id: str):
+        """删除代理记录（玩家数据被清理时使用）"""
+        await self.conn.execute("DELETE FROM auto_proxy WHERE user_id = ?", (user_id,))
+        await self.conn.commit()
+
     # ===== Player扩展字段更新方法 =====
     
     async def update_player_hp_mp(self, user_id: str, hp: int, mp: int):
@@ -690,6 +768,10 @@ class DatabaseExtended:
         """确保系统配置表存在（仅首次执行 DDL，避免隐式 commit 破坏外层事务）"""
         if getattr(self, "_system_config_ensured", False):
             return
+        started_transaction = False
+        if not self.conn.in_transaction:
+            await self.conn.execute("BEGIN IMMEDIATE")
+            started_transaction = True
         await self.conn.execute("""
             CREATE TABLE IF NOT EXISTS system_config (
                 key TEXT PRIMARY KEY,
@@ -697,7 +779,8 @@ class DatabaseExtended:
                 updated_at INTEGER DEFAULT 0
             )
         """)
-        await self.conn.commit()
+        if started_transaction:
+            await self.conn.commit()
         self._system_config_ensured = True
     
     async def get_system_config(self, key: str) -> Optional[str]:
@@ -726,7 +809,9 @@ class DatabaseExtended:
     # ===== 赠予请求系统 CRUD =====
     
     async def create_pending_gift(self, receiver_id: str, sender_id: str, sender_name: str,
-                                   item_name: str, count: int, expires_hours: int = 24) -> int:
+                                   item_name: str, count: int, expires_hours: int = 24,
+                                   item_kind: str = "item", item_quality: str = "",
+                                   instance_id: int = 0) -> int:
         """创建赠予请求
         
         Args:
@@ -747,10 +832,11 @@ class DatabaseExtended:
         await self.conn.execute(
             """
             INSERT INTO pending_gifts (
-                receiver_id, sender_id, sender_name, item_name, count, created_at, expires_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                receiver_id, sender_id, sender_name, item_name, count, created_at, expires_at,
+                item_kind, item_quality, instance_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (receiver_id, sender_id, sender_name, item_name, count, now, expires_at)
+            (receiver_id, sender_id, sender_name, item_name, count, now, expires_at, item_kind, item_quality, instance_id)
         )
         await self.conn.commit()
         
@@ -768,7 +854,8 @@ class DatabaseExtended:
         
         async with self.conn.execute(
             """
-            SELECT id, receiver_id, sender_id, sender_name, item_name, count, created_at, expires_at
+            SELECT id, receiver_id, sender_id, sender_name, item_name, count, created_at, expires_at,
+                   item_kind, item_quality, instance_id
             FROM pending_gifts 
             WHERE receiver_id = ? AND expires_at > ?
             ORDER BY created_at DESC 
@@ -786,7 +873,10 @@ class DatabaseExtended:
                     "item_name": row[4],
                     "count": row[5],
                     "created_at": row[6],
-                    "expires_at": row[7]
+                    "expires_at": row[7],
+                    "item_kind": row[8] if len(row) > 8 else "item",
+                    "item_quality": row[9] if len(row) > 9 else "",
+                    "instance_id": row[10] if len(row) > 10 else 0
                 }
             return None
     
@@ -797,7 +887,8 @@ class DatabaseExtended:
         
         async with self.conn.execute(
             """
-            SELECT id, receiver_id, sender_id, sender_name, item_name, count, created_at, expires_at
+            SELECT id, receiver_id, sender_id, sender_name, item_name, count, created_at, expires_at,
+                   item_kind, item_quality, instance_id
             FROM pending_gifts 
             WHERE receiver_id = ? AND expires_at > ?
             ORDER BY created_at DESC
@@ -814,7 +905,10 @@ class DatabaseExtended:
                     "item_name": row[4],
                     "count": row[5],
                     "created_at": row[6],
-                    "expires_at": row[7]
+                    "expires_at": row[7],
+                    "item_kind": row[8] if len(row) > 8 else "item",
+                    "item_quality": row[9] if len(row) > 9 else "",
+                    "instance_id": row[10] if len(row) > 10 else 0
                 }
                 for row in rows
             ]
@@ -835,15 +929,100 @@ class DatabaseExtended:
         )
         await self.conn.commit()
     
+    async def _return_gift_to_sender(self, gift: dict):
+        """把赠予请求中的物品退回发送者，避免过期/清理时资产消失。"""
+        sender_id = gift.get("sender_id")
+        item_name = gift.get("item_name")
+        try:
+            count = int(gift.get("count", 0) or 0)
+        except (TypeError, ValueError):
+            count = 0
+        if not sender_id or not item_name or count <= 0:
+            return
+        async with self.conn.execute(
+            "SELECT pills_inventory, storage_ring_items FROM players WHERE user_id = ?",
+            (sender_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+        if not row:
+            return
+        try:
+            pills = json.loads(row[0]) if row[0] else {}
+        except Exception:
+            pills = {}
+        try:
+            storage = json.loads(row[1]) if row[1] else {}
+        except Exception:
+            storage = {}
+        if not isinstance(pills, dict):
+            pills = {}
+        if not isinstance(storage, dict):
+            storage = {}
+        equipment_instances = None
+        if gift.get("item_kind") == "pill":
+            quality = gift.get("item_quality") or "一般"
+            key = f"{item_name}|{quality}"
+            pills[key] = int(pills.get(key, 0) or 0) + count
+        elif gift.get("item_kind") == "equipment":
+            async with self.conn.execute(
+                "SELECT equipment_instances FROM players WHERE user_id = ?", (sender_id,)
+            ) as cursor:
+                eq_row = await cursor.fetchone()
+            try:
+                equipment_instances = json.loads(eq_row[0]) if eq_row and eq_row[0] else []
+            except Exception:
+                equipment_instances = []
+            if not isinstance(equipment_instances, list):
+                equipment_instances = []
+            for inst in equipment_instances:
+                if isinstance(inst, dict) and int(inst.get("id", 0) or 0) == int(gift.get("instance_id", 0) or 0):
+                    # 过期赠予退回溢出位置，避免直接塞满储物戒；玩家可用 /领取溢出 取回
+                    inst["location"] = "overflow"
+                    inst["slot"] = ""
+                    break
+        else:
+            storage[item_name] = int(storage.get(item_name, 0) or 0) + count
+        if equipment_instances is not None:
+            await self.conn.execute(
+                "UPDATE players SET pills_inventory = ?, storage_ring_items = ?, equipment_instances = ? WHERE user_id = ?",
+                (json.dumps(pills, ensure_ascii=False), json.dumps(storage, ensure_ascii=False),
+                 json.dumps(equipment_instances, ensure_ascii=False), sender_id),
+            )
+        else:
+            await self.conn.execute(
+                "UPDATE players SET pills_inventory = ?, storage_ring_items = ? WHERE user_id = ?",
+                (json.dumps(pills, ensure_ascii=False), json.dumps(storage, ensure_ascii=False), sender_id),
+            )
+
     async def cleanup_expired_gifts(self):
-        """清理过期的赠予请求"""
+        """清理过期赠予请求：物品退回发送者，而不是直接删除。"""
         import time
         now = int(time.time())
-        await self.conn.execute(
-            "DELETE FROM pending_gifts WHERE expires_at < ?",
-            (now,)
-        )
-        await self.conn.commit()
+        async with self.conn.execute(
+            "SELECT id, sender_id, item_name, count, item_kind, item_quality, instance_id "
+            "FROM pending_gifts WHERE expires_at < ?",
+            (now,),
+        ) as cursor:
+            rows = [dict(r) for r in await cursor.fetchall()]
+        for gift in rows:
+            await self._return_gift_to_sender(gift)
+            await self.conn.execute("DELETE FROM pending_gifts WHERE id = ?", (gift["id"],))
+        if rows:
+            await self.conn.commit()
+
+    async def return_gifts_for_receiver(self, receiver_id: str):
+        """接收者被删除/弃道前，把待接收赠予退回发送者。"""
+        async with self.conn.execute(
+            "SELECT id, sender_id, item_name, count, item_kind, item_quality, instance_id "
+            "FROM pending_gifts WHERE receiver_id = ?",
+            (receiver_id,),
+        ) as cursor:
+            rows = [dict(r) for r in await cursor.fetchall()]
+        for gift in rows:
+            await self._return_gift_to_sender(gift)
+            await self.conn.execute("DELETE FROM pending_gifts WHERE id = ?", (gift["id"],))
+        if rows:
+            await self.conn.commit()
     
     # ===== Phase 3: 银行贷款系统 CRUD =====
     
@@ -852,7 +1031,7 @@ class DatabaseExtended:
         async with self.conn.execute(
             """SELECT id, user_id, principal, interest_rate, borrowed_at, due_at, status, loan_type,
                       paid_interest, paid_principal
-               FROM bank_loans WHERE user_id = ? AND status = 'active'""",
+               FROM bank_loans WHERE user_id = ? AND status IN ('active', 'overdue')""",
             (user_id,)
         ) as cursor:
             row = await cursor.fetchone()
@@ -905,7 +1084,7 @@ class DatabaseExtended:
         loans = []
         async with self.conn.execute(
             """SELECT id, user_id, principal, interest_rate, borrowed_at, due_at, loan_type
-               FROM bank_loans WHERE status = 'active' AND due_at < ?""",
+               FROM bank_loans WHERE status IN ('active', 'overdue') AND due_at < ?""",
             (current_time,)
         ) as cursor:
             async for row in cursor:

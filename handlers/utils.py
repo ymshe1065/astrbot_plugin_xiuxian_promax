@@ -11,6 +11,23 @@ from astrbot.api.event import AstrMessageEvent
 from ..models import Player
 from ..models_extended import UserStatus
 
+
+
+def set_event_flag(event: AstrMessageEvent, key: str, value=True) -> None:
+    """按事件保存本次指令结果，避免 Handler 实例变量在并发用户间串线。"""
+    flags = getattr(event, "_xiuxian_flags", None)
+    if not isinstance(flags, dict):
+        flags = {}
+        setattr(event, "_xiuxian_flags", flags)
+    flags[key] = value
+
+
+def get_event_flag(event: AstrMessageEvent, key: str, default=False):
+    flags = getattr(event, "_xiuxian_flags", None)
+    if isinstance(flags, dict) and key in flags:
+        return flags[key]
+    return default
+
 # 指令常量
 CMD_START_XIUXIAN = "我要修仙"
 CMD_PLAYER_INFO = "我的信息"
@@ -22,12 +39,12 @@ CMD_CHECK_IN = "签到"
 BUSY_STATE_ALLOWED_COMMANDS = [
     # 基础信息查看
     CMD_PLAYER_INFO, "我的信息", "我的装备", "我的灵兽", "孵化灵兽", "喂养灵兽", "灵兽出战", "灵兽改名", "放生灵兽", "吞噬灵兽", "我的洞天", "我的灵田", "我的宗门",
-    "银行", "储物戒", "丹药背包", "修仙帮助", "物品信息", "黑市", "天魔状态", "世界Boss状态", "灵眼信息",
+    "银行", "储物戒", "丹药背包", "修仙帮助", "物品信息", "黑市", "天魔状态", "查验天魔", "世界Boss", "世界boss", "世界Boss状态", "灵眼信息",
     "宗门商店", "宗门兑换", "我的坊市", "坊市我的", "坊市卖出", "坊市等待",
     
     # 收菜与领奖（不打架，纯收益）
     CMD_CHECK_IN, "签到", "领取利息", "洞天收取", "收获", "灵眼收取", 
-    "领取任务奖励", "放弃任务", "放弃历练", "放弃宗门任务",
+    "领取任务奖励", "放弃任务", "放弃历练", "放弃宗门任务", "仙灵代收",
     "完成悬赏", "完成探索", "完成历练", "完成宗门任务",
     
     # 榜单与状态
@@ -47,6 +64,9 @@ BUSY_STATE_ALLOWED_COMMANDS = [
 
     # 全服事件查询（魔潮肆虐时也该能看进度）
     "魔潮状态", "抵御魔潮",
+
+    # v6.26 自动代理（忙碌中也必须能查看/关闭/改绑）
+    "自动代理", "关闭代理", "代理状态",
 ]
 
 # 这些是“退出/放弃当前状态”的指令，无论处于什么忙碌状态都必须放行
@@ -55,6 +75,7 @@ BUSY_BYPASS_COMMANDS = (
     "完成历练", "完成悬赏", "放弃悬赏", "完成探索", "退出秘境",
     "完成宗门任务", "完成押镖", "放弃押镖",
     "放弃任务", "放弃历练", "放弃宗门任务",
+    "自动代理", "关闭代理", "代理状态",
 )
 
 # 每个玩家一把状态锁：把“检查状态 → 修改状态”串行化，避免并发开始闭关/历练时互相覆盖
@@ -79,6 +100,31 @@ def with_player_lock(func: Callable[..., Coroutine[any, any, AsyncGenerator[any,
             yield event.plain_result(f"道友尚未踏入仙途，请发送「{CMD_START_XIUXIAN}」开启你的旅程。")
             return
         async with get_player_lock(player.user_id):
+            async for result in func(self, event, *args, **kwargs):
+                yield result
+
+    return wrapper
+
+
+def idle_player_lock(func: Callable[..., Coroutine[any, any, AsyncGenerator[any, None]]]):
+    """给内联写状态指令加玩家锁，并要求玩家处于空闲状态。"""
+
+    @wraps(func)
+    async def wrapper(self, event: AstrMessageEvent, *args, **kwargs):
+        player = await self.db.get_player_by_id(event.get_sender_id())
+        if not player:
+            yield event.plain_result(f"道友尚未踏入仙途，请发送「{CMD_START_XIUXIAN}」开启你的旅程。")
+            return
+        async with get_player_lock(player.user_id):
+            user_cd = await self.db.ext.get_user_cd(player.user_id)
+            busy = (user_cd and user_cd.type != UserStatus.IDLE) or (
+                (not user_cd or user_cd.type == UserStatus.IDLE)
+                and (getattr(player, "state", "") or "") == "修炼中"
+            )
+            if busy:
+                status_name = UserStatus.get_name(user_cd.type) if user_cd and user_cd.type != UserStatus.IDLE else player.state
+                yield event.plain_result(f"❌ 道友当前正「{status_name}」，无法进行此操作。")
+                return
             async for result in func(self, event, *args, **kwargs):
                 yield result
 
@@ -145,12 +191,18 @@ def player_required(func: Callable[..., Coroutine[any, any, AsyncGenerator[any, 
                     yield event.plain_result(f"❌ 道友当前正在「{status_name}」，无法分心他顾。\n💡 可使用「我的信息」「签到」「银行」等基础指令。")
                     return
 
-            # 状态检查：有 user_cd 时以 user_cd 为准，player.state 只做缺失时的兜底
-            if not bypass_busy and not user_cd and player.state == "修炼中":
-                is_allowed = _is_command_allowed(message_text, BUSY_STATE_ALLOWED_COMMANDS)
-                if not is_allowed:
-                    yield event.plain_result(f"❌ 道友当前正在「{player.state}」中，无法分心他顾。\n💡 可使用「出关」「我的信息」「签到」等基础指令。")
-                    return
+            # 状态检查：user_cd 缺失或为空闲时，用 player.state 兜底（兼容异常中断的闭关记录）
+            if (
+                not bypass_busy
+                and (not user_cd or user_cd.type == UserStatus.IDLE)
+                and player.state == "修炼中"
+            ):
+                # 允许闭关/出关自救，避免 user_cd 丢失后既不能重新闭关也不能出关
+                if not command_text.startswith((CMD_START_CULTIVATION, CMD_END_CULTIVATION)):
+                    is_allowed = _is_command_allowed(message_text, BUSY_STATE_ALLOWED_COMMANDS)
+                    if not is_allowed:
+                        yield event.plain_result(f"❌ 道友当前正在「{player.state}」中，无法分心他顾。\n💡 可使用「出关」「我的信息」「签到」等基础指令。")
+                        return
 
             # 将 player 对象作为第一个参数传递给原始函数
             async for result in func(self, player, event, *args, **kwargs):
@@ -209,10 +261,12 @@ def _normalize_command_text(message_text: str) -> str:
 
 
 def _is_command_allowed(message_text: str, allowed_commands: list) -> bool:
-    """检查命令是否在允许列表中（兼容 @、空白、零宽字符和前缀斜杠）"""
+    """检查命令是否在允许列表中（完全匹配或“命令 + 空格”，避免黑市放行黑市购买）。"""
     clean_text = _normalize_command_text(message_text)
     for cmd in allowed_commands:
-        if clean_text.startswith(cmd):
+        if clean_text == cmd:
+            return True
+        if clean_text.startswith(cmd + " ") or clean_text.startswith(cmd + "\u3000"):
             return True
     return False
 
@@ -232,9 +286,9 @@ async def _check_loan_status(db, player: Player) -> dict:
             # 使用事务保护，防止并发删除
             await db.conn.execute("BEGIN IMMEDIATE")
             try:
-                # 重新检查贷款状态
+                # 重新检查贷款状态（overdue 同样属于未结清贷款）
                 loan = await db.ext.get_active_loan(player.user_id)
-                if not loan or loan["status"] != "active":
+                if not loan or loan["status"] not in ("active", "overdue"):
                     await db.conn.rollback()
                     return None
                 
@@ -246,9 +300,7 @@ async def _check_loan_status(db, player: Player) -> dict:
                 
                 # 删除玩家（级联删除所有关联数据）
                 await db.delete_player_cascade(player.user_id)
-                
-                # 标记贷款逾期
-                await db.ext.mark_loan_overdue(loan["id"])
+                # 级联删除已将未结清贷款标记为 bad_debt，无需再改回 overdue
                 
                 # 记录流水
                 await db.ext.add_bank_transaction(

@@ -1,11 +1,12 @@
 # data/migration.py
 
 import aiosqlite
+import json
 from typing import Dict, Callable, Awaitable
 from astrbot.api import logger
 from ..config_manager import ConfigManager
 
-LATEST_DB_VERSION = 34  # v34: 多灵兽槽位/主战/改名
+LATEST_DB_VERSION = 42  # v42: 装备实例回填
 
 MIGRATION_TASKS: Dict[int, Callable[[aiosqlite.Connection, ConfigManager], Awaitable[None]]] = {}
 
@@ -128,15 +129,94 @@ async def _ensure_auction_npc_v32(conn: aiosqlite.Connection):
     await conn.execute("CREATE INDEX IF NOT EXISTS idx_npc_offer_seller ON auction_npc_offers(seller_id, status)")
 
 
+async def _ensure_auto_proxy_v35(conn: aiosqlite.Connection):
+    """创建 v35 自动代理表（新库/旧库共用）。"""
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS auto_proxy (
+            user_id TEXT PRIMARY KEY,
+            enabled INTEGER NOT NULL DEFAULT 0,
+            task_type TEXT NOT NULL DEFAULT '',
+            origin TEXT NOT NULL DEFAULT '',
+            last_error TEXT NOT NULL DEFAULT '',
+            updated_at INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_auto_proxy_enabled ON auto_proxy(enabled)")
+
+
+async def _ensure_world_boss_v38(conn: aiosqlite.Connection):
+    """创建/补齐 v38 世界Boss与团本相关表列（新库/旧库共用）。"""
+    await _add_column_if_missing(conn, "world_boss", "boss_type", "TEXT NOT NULL DEFAULT ''")
+    await _add_column_if_missing(conn, "world_boss", "element", "TEXT NOT NULL DEFAULT ''")
+    await _add_column_if_missing(conn, "world_boss", "settled", "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(conn, "world_boss", "killer_id", "TEXT NOT NULL DEFAULT ''")
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS world_boss_raids (
+            raid_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            boss_name TEXT NOT NULL,
+            boss_type TEXT NOT NULL DEFAULT '',
+            element TEXT NOT NULL DEFAULT '',
+            difficulty INTEGER NOT NULL DEFAULT 1,
+            max_hp INTEGER NOT NULL,
+            current_hp INTEGER NOT NULL,
+            phase INTEGER NOT NULL DEFAULT 1,
+            total_phases INTEGER NOT NULL DEFAULT 1,
+            phase_max_hp INTEGER NOT NULL,
+            min_level INTEGER NOT NULL DEFAULT 6,
+            min_players INTEGER NOT NULL DEFAULT 2,
+            status INTEGER NOT NULL DEFAULT 1,
+            spawn_time INTEGER NOT NULL,
+            expire_time INTEGER NOT NULL,
+            settled INTEGER NOT NULL DEFAULT 0,
+            total_damage INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_world_boss_raids_status ON world_boss_raids(status, expire_time)"
+    )
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS world_boss_raid_damage (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            raid_id INTEGER NOT NULL,
+            user_id TEXT NOT NULL,
+            total_damage INTEGER NOT NULL DEFAULT 0,
+            attack_count INTEGER NOT NULL DEFAULT 0,
+            last_attack_time INTEGER NOT NULL,
+            UNIQUE(raid_id, user_id)
+        )
+    """)
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_raid_damage ON world_boss_raid_damage(raid_id)"
+    )
+
+
+async def _ensure_trade_v39(conn: aiosqlite.Connection):
+    """v39：坊市/赠予支持丹药，记录物品类型与品质。"""
+    await _add_column_if_missing(conn, "auction_items", "item_kind", "TEXT NOT NULL DEFAULT 'item'")
+    await _add_column_if_missing(conn, "auction_items", "item_quality", "TEXT NOT NULL DEFAULT ''")
+    await _add_column_if_missing(conn, "auction_items", "instance_id", "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(conn, "pending_gifts", "item_kind", "TEXT NOT NULL DEFAULT 'item'")
+    await _add_column_if_missing(conn, "pending_gifts", "item_quality", "TEXT NOT NULL DEFAULT ''")
+    await _add_column_if_missing(conn, "pending_gifts", "instance_id", "INTEGER NOT NULL DEFAULT 0")
+
+
 async def _ensure_latest_columns(conn: aiosqlite.Connection):
     """终极兜底：确保 NPC、宗门、贷款等最新增量列/表齐全。"""
     await _add_column_if_missing(conn, "players", "karma", "INTEGER NOT NULL DEFAULT 0")
     await _add_column_if_missing(conn, "players", "life_skill", "TEXT NOT NULL DEFAULT ''")
+    await _add_column_if_missing(conn, "players", "shield_start_time", "INTEGER NOT NULL DEFAULT 0")
     await _add_column_if_missing(conn, "players", "sect_debt", "INTEGER NOT NULL DEFAULT 0")
     await _add_column_if_missing(conn, "spirit_farms", "fertility", "INTEGER NOT NULL DEFAULT 100")
     await _add_column_if_missing(conn, "blessed_lands", "furniture", "TEXT NOT NULL DEFAULT '[]'")
     await _add_column_if_missing(conn, "sects", "buildings", "TEXT NOT NULL DEFAULT '{}'")
     await _add_column_if_missing(conn, "players", "virtue_points", "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(conn, "players", "learned_recipes", "TEXT NOT NULL DEFAULT '[]'")
+    await _add_column_if_missing(conn, "players", "resurrection_pill_quality", "TEXT NOT NULL DEFAULT '一般'")
+    await _add_column_if_missing(conn, "players", "overflow_items", "TEXT NOT NULL DEFAULT '{}'")
+    await _add_column_if_missing(conn, "players", "equipment_instances", "TEXT NOT NULL DEFAULT '[]'")
+    await _add_column_if_missing(conn, "players", "equipped_instances", "TEXT NOT NULL DEFAULT '{}'")
+    await _add_column_if_missing(conn, "players", "luck", "INTEGER NOT NULL DEFAULT 0")
+    await _ensure_trade_v39(conn)
     await _ensure_npc_v29_tables(conn)
     await _add_column_if_missing(conn, "sects", "sect_level", "INTEGER NOT NULL DEFAULT 1")
     await _add_column_if_missing(conn, "sects", "sect_exp", "INTEGER NOT NULL DEFAULT 0")
@@ -147,6 +227,8 @@ async def _ensure_latest_columns(conn: aiosqlite.Connection):
     await _add_column_if_missing(conn, "bank_loans", "paid_principal", "INTEGER NOT NULL DEFAULT 0")
     await _ensure_sect_v30_tables(conn)
     await _ensure_auction_npc_v32(conn)
+    await _ensure_auto_proxy_v35(conn)
+    await _ensure_world_boss_v38(conn)
     await _add_column_if_missing(conn, "player_pets", "max_hp", "INTEGER NOT NULL DEFAULT 0")
     await _add_column_if_missing(conn, "player_pets", "hp", "INTEGER NOT NULL DEFAULT 0")
     await _add_column_if_missing(conn, "player_pets", "last_regen_time", "INTEGER NOT NULL DEFAULT 0")
@@ -420,6 +502,7 @@ async def _create_all_tables_v2(conn: aiosqlite.Connection):
             
             daily_pill_usage TEXT NOT NULL DEFAULT '{}',
             last_daily_reset TEXT NOT NULL DEFAULT '',
+            shield_start_time INTEGER NOT NULL DEFAULT 0,
             shield_expire_time INTEGER NOT NULL DEFAULT 0,
             tutorial_step INTEGER NOT NULL DEFAULT 0,
             reincarnation_count INTEGER NOT NULL DEFAULT 0,
@@ -427,6 +510,7 @@ async def _create_all_tables_v2(conn: aiosqlite.Connection):
             permanent_bonus TEXT NOT NULL DEFAULT '{}',
             title TEXT NOT NULL DEFAULT '',
             karma INTEGER NOT NULL DEFAULT 0,
+            luck INTEGER NOT NULL DEFAULT 0,
             life_skill TEXT NOT NULL DEFAULT ''
         )
     """)
@@ -1076,6 +1160,8 @@ async def _migrate_to_v29(conn: aiosqlite.Connection, config_manager: ConfigMana
     """迁移到v29 - NPC道侣（仙灵结缘）+ 师徒系统"""
     logger.info("开始迁移到v29：NPC道侣/师徒系统")
     await _add_column_if_missing(conn, "players", "virtue_points", "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(conn, "players", "learned_recipes", "TEXT NOT NULL DEFAULT '[]'")
+    await _add_column_if_missing(conn, "players", "resurrection_pill_quality", "TEXT NOT NULL DEFAULT '一般'")
     await _ensure_npc_v29_tables(conn)
     await conn.commit()
     logger.info("v29迁移完成")
@@ -1112,6 +1198,8 @@ async def _migrate_to_v31(conn: aiosqlite.Connection, config_manager: ConfigMana
     """v31 兼容：已经到 v30 的本地库补上 NPC/宗门/贷款字段。"""
     logger.info("开始迁移到 v31：兼容 NPC/宗门/贷款字段")
     await _add_column_if_missing(conn, "players", "virtue_points", "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(conn, "players", "learned_recipes", "TEXT NOT NULL DEFAULT '[]'")
+    await _add_column_if_missing(conn, "players", "resurrection_pill_quality", "TEXT NOT NULL DEFAULT '一般'")
     await _ensure_npc_v29_tables(conn)
     await _add_column_if_missing(conn, "players", "sect_debt", "INTEGER NOT NULL DEFAULT 0")
     await _add_column_if_missing(conn, "sects", "sect_level", "INTEGER NOT NULL DEFAULT 1")
@@ -1187,3 +1275,273 @@ async def _migrate_to_v34(conn: aiosqlite.Connection, config_manager: ConfigMana
     await conn.execute("CREATE INDEX IF NOT EXISTS idx_player_pets_user ON player_pets(user_id)")
     await conn.commit()
     logger.info("v34迁移完成：多灵兽槽位已建立")
+
+@migration(35)
+async def _migrate_to_v35(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """迁移到 v35 - 自动代理状态表。"""
+    logger.info("开始迁移到 v35：自动代理")
+    await _ensure_auto_proxy_v35(conn)
+    await conn.commit()
+    logger.info("v35迁移完成：自动代理表已建立")
+
+@migration(36)
+async def _migrate_to_v36(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """迁移到 v36 - 护府大阵生效起始时间。"""
+    logger.info("开始迁移到 v36：护府大阵起止时间")
+    await _add_column_if_missing(conn, "players", "shield_start_time", "INTEGER NOT NULL DEFAULT 0")
+    await conn.execute("""
+        UPDATE players
+        SET shield_start_time = shield_expire_time - CASE
+            WHEN life_skill = '阵法师' THEN 129600
+            ELSE 86400
+        END
+        WHERE shield_expire_time > 0 AND shield_start_time = 0
+    """)
+    await conn.commit()
+    logger.info("v36迁移完成：护府大阵起止时间已补齐")
+
+
+async def _ensure_pill_v37(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """v37：丹药品质背包 key、丹方学习、回生丹品质，并清理历史丹药卡单。"""
+    await _add_column_if_missing(conn, "players", "learned_recipes", "TEXT NOT NULL DEFAULT '[]'")
+    await _add_column_if_missing(conn, "players", "resurrection_pill_quality", "TEXT NOT NULL DEFAULT '一般'")
+
+    default_recipes = []
+    pill_names = set()
+    try:
+        recipes = getattr(config_manager, "pill_recipes_data", {}) or {}
+        default_recipes = [str(rid) for rid in sorted(recipes)[:3]]
+        pill_names = set(config_manager.get_all_pill_names())
+    except Exception:
+        default_recipes = []
+        pill_names = set()
+
+    def parse_json(raw, fallback):
+        try:
+            value = json.loads(raw) if raw else fallback
+        except Exception:
+            return fallback
+        return value if isinstance(value, type(fallback)) else fallback
+
+    async with conn.execute(
+        "SELECT user_id, pills_inventory, learned_recipes, storage_ring_items FROM players"
+    ) as cursor:
+        rows = await cursor.fetchall()
+
+    state = {}
+    for row in rows:
+        user_id = row[0]
+        inventory = parse_json(row[1], {})
+        learned = parse_json(row[2], [])
+        storage = parse_json(row[3], {})
+        migrated = {}
+        for key, count in inventory.items():
+            clean_key = str(key)
+            base_name = clean_key.split("|", 1)[0]
+            quality = clean_key.rsplit("|", 1)[1] if "|" in clean_key else "一般"
+            if quality not in ("一般", "良好", "极佳", "大师"):
+                quality = "一般"
+            new_key = f"{base_name}|{quality}"
+            migrated[new_key] = int(count or 0) + migrated.get(new_key, 0)
+
+        if isinstance(storage, dict):
+            for item_name, count in list(storage.items()):
+                base_name = str(item_name).split("|", 1)[0]
+                if base_name in pill_names:
+                    key = f"{base_name}|一般"
+                    migrated[key] = int(count or 0) + migrated.get(key, 0)
+                    del storage[item_name]
+
+        if not learned and default_recipes:
+            learned = default_recipes
+        state[user_id] = [migrated, learned, storage]
+
+    # 历史坊市丹药：退回卖家丹药背包，删除卡单
+    try:
+        async with conn.execute("SELECT id, seller_id, item_name, count FROM auction_items") as cursor:
+            auction_rows = await cursor.fetchall()
+        for row in auction_rows:
+            auction_id, seller_id, item_name, count = row[0], row[1], row[2], row[3]
+            base_name = str(item_name).split("|", 1)[0]
+            if base_name not in pill_names:
+                continue
+            if seller_id in state:
+                key = f"{base_name}|一般"
+                state[seller_id][0][key] = int(count or 0) + state[seller_id][0].get(key, 0)
+            await conn.execute("DELETE FROM auction_npc_offers WHERE auction_id = ?", (auction_id,))
+            await conn.execute("DELETE FROM auction_items WHERE id = ?", (auction_id,))
+    except Exception:
+        pass
+
+    # 历史赠予丹药：退回发送者丹药背包并取消赠予
+    try:
+        async with conn.execute("SELECT id, sender_id, item_name, count FROM pending_gifts") as cursor:
+            gift_rows = await cursor.fetchall()
+        for row in gift_rows:
+            gift_id, sender_id, item_name, count = row[0], row[1], row[2], row[3]
+            base_name = str(item_name).split("|", 1)[0]
+            if base_name not in pill_names:
+                continue
+            if sender_id in state:
+                key = f"{base_name}|一般"
+                state[sender_id][0][key] = int(count or 0) + state[sender_id][0].get(key, 0)
+            await conn.execute("DELETE FROM pending_gifts WHERE id = ?", (gift_id,))
+    except Exception:
+        pass
+
+    for user_id, (inventory, learned, storage) in state.items():
+        await conn.execute(
+            "UPDATE players SET pills_inventory = ?, learned_recipes = ?, storage_ring_items = ? WHERE user_id = ?",
+            (
+                json.dumps(inventory, ensure_ascii=False),
+                json.dumps(learned, ensure_ascii=False),
+                json.dumps(storage, ensure_ascii=False),
+                user_id,
+            ),
+        )
+
+
+@migration(37)
+async def _migrate_to_v37(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """迁移到 v37 - 丹药品质、丹方学习与回生丹品质。"""
+    logger.info("开始迁移到 v37：丹药品质与丹方")
+    await _ensure_pill_v37(conn, config_manager)
+    logger.info("v37迁移完成：丹药品质 key、默认丹方与回生丹品质已建立")
+
+
+@migration(38)
+async def _migrate_to_v38(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """迁移到 v38 - 世界Boss种类、防重复结算与团本系统。"""
+    logger.info("开始迁移到 v38：世界Boss种类与团本")
+    await _ensure_world_boss_v38(conn)
+    await conn.execute("UPDATE world_boss SET settled = 1 WHERE status = 2")
+    await conn.commit()
+    logger.info("v38迁移完成：世界Boss种类字段与团本表已建立")
+
+
+@migration(39)
+async def _migrate_to_v39(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """迁移到 v39 - 丹药进入坊市与赠予交易。"""
+    logger.info("开始迁移到 v39：丹药交易字段")
+    await _ensure_trade_v39(conn)
+    logger.info("v39迁移完成：坊市/赠予已支持丹药品质")
+
+
+@migration(40)
+async def _migrate_to_v40(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """迁移到 v40 - 溢出仓库与装备实例化。"""
+    logger.info("开始迁移到 v40：溢出仓库与装备实例")
+    await _add_column_if_missing(conn, "players", "overflow_items", "TEXT NOT NULL DEFAULT '{}'")
+    await _add_column_if_missing(conn, "players", "equipment_instances", "TEXT NOT NULL DEFAULT '[]'")
+    await _add_column_if_missing(conn, "players", "equipped_instances", "TEXT NOT NULL DEFAULT '{}'")
+
+    from ..core.item_rules import ItemRules
+    gear_types = {"weapon", "armor", "head", "body", "boots", "gloves", "ring", "amulet", "accessory"}
+    items_data = getattr(config_manager, "items_data", {}) or {}
+    weapons_data = getattr(config_manager, "weapons_data", {}) or {}
+
+    def item_type(name: str) -> str:
+        cfg = items_data.get(name) or weapons_data.get(name) or {}
+        return ItemRules.normalize_equipment_type(cfg)
+
+    async with conn.execute(
+        "SELECT user_id, storage_ring_items, equipment_instances, equipped_instances, weapon, armor, permanent_bonus FROM players"
+    ) as cursor:
+        rows = await cursor.fetchall()
+
+    for row in rows:
+        user_id = row[0]
+        try:
+            storage = json.loads(row[1]) if row[1] else {}
+        except Exception:
+            storage = {}
+        try:
+            instances = json.loads(row[2]) if row[2] else []
+        except Exception:
+            instances = []
+        try:
+            equipped = json.loads(row[3]) if row[3] else {}
+        except Exception:
+            equipped = {}
+        if not isinstance(storage, dict):
+            storage = {}
+        if not isinstance(instances, list):
+            instances = []
+        if not isinstance(equipped, dict):
+            equipped = {}
+
+        next_id = 1 + max([int(x.get("id", 0) or 0) for x in instances if isinstance(x, dict)] or [0])
+
+        def add_instance(name: str, location: str, slot: str = "") -> int:
+            nonlocal next_id
+            inst = {
+                "id": next_id, "name": name, "type": item_type(name),
+                "quality": "一般", "affixes": [], "location": location, "slot": slot,
+            }
+            instances.append(inst)
+            next_id += 1
+            return inst["id"]
+
+        for name, count in list(storage.items()):
+            if item_type(name) not in gear_types:
+                continue
+            try:
+                count = int(count or 0)
+            except Exception:
+                count = 0
+            for _ in range(max(0, count)):
+                add_instance(name, "storage")
+            storage.pop(name, None)
+
+        for slot, field in (("weapon", "weapon"), ("armor", "armor")):
+            name = row[4] if slot == "weapon" else row[5]
+            if not name or item_type(name) not in gear_types:
+                continue
+            existing = equipped.get(slot)
+            valid = any(isinstance(x, dict) and int(x.get("id", 0) or 0) == int(existing or 0) for x in instances)
+            if not valid:
+                equipped[slot] = add_instance(name, "equipped", slot)
+
+        # 旧版全局洗练词条迁移到已装备武器/防具实例
+        try:
+            bonus = json.loads(row[6]) if row[6] else {}
+        except Exception:
+            bonus = {}
+        if isinstance(bonus, dict):
+            affixes = bonus.get("affixes") or []
+            if affixes:
+                target_id = equipped.get("weapon") or equipped.get("armor")
+                for inst in instances:
+                    if int(inst.get("id", 0) or 0) == int(target_id or 0):
+                        inst["affixes"] = affixes
+                        bonus["affixes"] = []
+                        break
+
+        await conn.execute(
+            "UPDATE players SET storage_ring_items = ?, equipment_instances = ?, equipped_instances = ?, permanent_bonus = ? WHERE user_id = ?",
+            (
+                json.dumps(storage, ensure_ascii=False),
+                json.dumps(instances, ensure_ascii=False),
+                json.dumps(equipped, ensure_ascii=False),
+                json.dumps(bonus, ensure_ascii=False),
+                user_id,
+            ),
+        )
+    logger.info("v40迁移完成：溢出仓库与装备实例已建立")
+
+
+@migration(41)
+async def _migrate_to_v41(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """迁移到 v41 - 气运系统。"""
+    logger.info("开始迁移到 v41：气运系统")
+    await _add_column_if_missing(conn, "players", "luck", "INTEGER NOT NULL DEFAULT 0")
+    await conn.commit()
+    logger.info("v41迁移完成：气运字段已添加")
+
+
+@migration(42)
+async def _migrate_to_v42(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """迁移到 v42 - 已到 v40/41 的库补齐装备实例与溢出字段。"""
+    logger.info("开始迁移到 v42：装备实例回填")
+    await _migrate_to_v40(conn, config_manager)
+    logger.info("v42迁移完成：装备实例与溢出字段已确认")

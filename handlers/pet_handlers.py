@@ -66,6 +66,8 @@ class PetHandlers:
                 ],
             })
         lines.append("━━━━━━━━━━━━━━━")
+        if len(pets) > slots:
+            lines.append(f"⚠️ 当前境界仅允许 {slots} 只灵兽出战，超出槽位的灵兽不会参战")
         if getattr(player, "cultivation_type", "") == "御兽":
             lines.append("🐾 御兽：喂养-20% · 复活-30% · 修为共享30% · 兽群指挥")
         else:

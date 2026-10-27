@@ -121,7 +121,7 @@ class RankingManager:
         pill_manager = PillManager(self.db, self.config_manager)
         pet_manager = PetManager(self.db)
         impart_map = await self.db.ext.get_all_impart_info()
-        pet_map = await pet_manager.get_all_pets()
+        pet_map = await pet_manager.get_all_pets_grouped()
         
         # 计算战力（与玩家名片完全一致的战斗面板）
         player_power = []
@@ -138,17 +138,27 @@ class RankingManager:
             
             impart_info = impart_map.get(player.user_id)
             effects = self.equipment_manager.get_combat_effects(player)
-            try:
-                pet = pet_map.get(player.user_id)
-                if pet:
-                    for k, v in pet_manager.get_pet_combat_effects(pet).items():
-                        effects[k] = effects.get(k, 0) + v
-            except Exception:
-                pass
-            
             combat_panel = CombatManager.build_combat_panel(
                 player, pill_multipliers, impart_info, self.config_manager, effects
             )
+            try:
+                pets = pet_map.get(player.user_id, [])
+                if pets:
+                    owner_atk, pet_atk, pet_effects, pet_def = pet_manager.summarize_lineup(
+                        player,
+                        pets,
+                        combat_panel["hp"],
+                        combat_panel["atk"],
+                        combat_panel["defense"],
+                        player.cultivation_type,
+                    )
+                    combat_panel["atk"] = int(owner_atk) + int(pet_atk)
+                    combat_panel["defense"] += int(pet_def)
+                    for k, v in (pet_effects or {}).items():
+                        if k in combat_panel and isinstance(v, (int, float)):
+                            combat_panel[k] = combat_panel.get(k, 0) + v
+            except Exception:
+                pass
             combat_power = CombatManager.calculate_combat_power(
                 combat_panel, total_attrs["mental_power"]
             )
@@ -334,28 +344,30 @@ class RankingManager:
         return True, msg
 
     async def get_luck_ranking(self, limit: int = 10) -> Tuple[bool, str]:
-        """气运榜：功德+转生+境界的综合气运值"""
+        """气运榜：按玩家真实气运总值排序（本体+称号+词条+符箓）"""
+        from .luck_manager import LuckManager
+
         all_players = await self.db.get_all_players()
         if not all_players:
             return False, "❌ 暂无数据！"
 
         scored = []
         for p in all_players:
-            luck = max(0, (p.karma or 0)) * 3 + (p.reincarnation_count or 0) * 20 + p.level_index
+            luck = LuckManager.get_total_luck(p)
             if luck > 0:
                 scored.append((p, luck))
         scored.sort(key=lambda x: x[1], reverse=True)
         top = scored[:limit]
         if not top:
-            return False, "❌ 暂无数据！"
+            return False, "🍀 气运榜暂无数据。\n💡 触发奇遇、佩戴气运称号、洗练气运词条或使用神符可积累气运。"
 
         msg = "🍀 气运榜（气运之子）\n━━━━━━━━━━━━━━━\n"
         medals = ["🥇", "🥈", "🥉"]
         for idx, (p, luck) in enumerate(top, 1):
             medal = medals[idx - 1] if idx <= 3 else f"{idx}."
             level_name = p.get_level(self.config_manager)
-            msg += f"{medal} {_safe_name(p, p.user_id)} 气运 {luck}（境界{level_name}·转生{p.reincarnation_count}·功德{max(0, p.karma or 0)}）\n"
-        msg += "━━━━━━━━━━━━━━━\n💡 气运 = 功德×3 + 转生×20 + 境界。多行善、多历练！"
+            msg += f"{medal} {_safe_name(p, p.user_id)} 气运 {luck}（境界{level_name}）\n"
+        msg += "━━━━━━━━━━━━━━━\n💡 气运来自奇遇、称号、装备词条与神符。发送 /气运 查看明细"
         return True, msg
 
     async def get_virtue_ranking(self, limit: int = 10) -> Tuple[bool, str]:

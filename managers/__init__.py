@@ -22,6 +22,7 @@ from .spirit_eye_manager import SpiritEyeManager
 # v6.1 系统
 from .daily_task_manager import DailyTaskManager
 from .world_boss_manager import WorldBossManager
+from .raid_manager import RaidManager
 from .robbery_manager import RobberyManager
 from .tutorial_manager import TutorialManager
 from .reincarnation_manager import ReincarnationManager
@@ -29,6 +30,7 @@ from .reincarnation_manager import ReincarnationManager
 # v6.2 - v6.5 系统
 from .gamble_manager import GambleManager
 from .forge_manager import ForgeManager
+from .global_event_manager import GlobalEventManager
 from .demon_invasion_manager import DemonInvasionManager
 from .pet_manager import PetManager
 
@@ -41,15 +43,22 @@ from .escort_manager import EscortManager
 from .encounter_manager import EncounterManager
 # v6.10 生活职业
 from .life_skill_manager import LifeSkillManager
+# 气运系统
+from .luck_manager import LuckManager
+# 符箓体系
+from .talisman_manager import TalismanManager
 # v6.10 魔潮天灾
 from .calamity_manager import CalamityManager
+# v6.26 自动代理
+from .auto_proxy_manager import AutoProxyManager
 
 __all__ = [
     "CombatManager", "CombatStats", "SectManager", "BossManager", "RiftManager",
     "RankingManager", "AdventureManager", "AlchemyManager", "ImpartManager",
     "BankManager", "BountyManager", "ImpartPkManager",
     "BlessedLandManager", "SpiritFarmManager", "DualCultivationManager", "SpiritEyeManager",
-    "DailyTaskManager", "WorldBossManager", "RobberyManager", "TutorialManager", "ReincarnationManager",
-    "GambleManager", "ForgeManager", "DemonInvasionManager", "PetManager",
-    "AuctionManager", "EscortManager", "EncounterManager", "LifeSkillManager", "CalamityManager"
+    "DailyTaskManager", "WorldBossManager", "RaidManager", "RobberyManager", "TutorialManager", "ReincarnationManager",
+    "GambleManager", "ForgeManager", "GlobalEventManager", "DemonInvasionManager", "PetManager",
+    "AuctionManager", "EscortManager", "EncounterManager", "LifeSkillManager", "TalismanManager", "CalamityManager", "LuckManager",
+    "AutoProxyManager"
 ]

@@ -44,7 +44,9 @@ class BreakthroughManager:
         self,
         player: Player,
         pill_name: Optional[str] = None,
-        temp_bonus: float = 0.0
+        temp_bonus: float = 0.0,
+        pill_quality: Optional[str] = None,
+        quality_multiplier: float = 1.0,
     ) -> Tuple[float, str]:
         """计算突破成功率"""
         level_data = self.config_manager.get_level_data(player.cultivation_type)
@@ -62,6 +64,7 @@ class BreakthroughManager:
 
         # 功德/业力修正：每点 ±1%，上限 ±10%
         karma = getattr(player, "karma", 0) or 0
+        karma_bonus = 0.0
         if karma != 0:
             karma_bonus = max(-0.10, min(0.10, karma * 0.01))
             final_rate += karma_bonus
@@ -70,13 +73,25 @@ class BreakthroughManager:
             else:
                 info_lines.append(f"业力缠身：{karma_bonus:+.1%}（业力 {karma}，多行善可消解）")
 
+        # 气运修正：每点 +0.2%，上限 +10%
+        from ..managers.luck_manager import LuckManager
+        luck_bonus = LuckManager.percent_bonus(player, per_point=0.2, cap=10.0) / 100.0
+        if luck_bonus:
+            final_rate += luck_bonus
+            info_lines.append(f"气运加持：{luck_bonus:+.1%}（气运 {LuckManager.get_total_luck(player)}）")
+
         if pill_name:
-            pill_data = self.config_manager.pills_data.get(pill_name)
+            base_name = pill_name.split("|", 1)[0]
+            pill_data = self.config_manager.pills_data.get(base_name)
             if pill_data and pill_data.get("subtype") == "breakthrough":
-                breakthrough_bonus = pill_data.get("breakthrough_bonus", 0)
+                breakthrough_bonus = float(pill_data.get("breakthrough_bonus", 0)) * float(quality_multiplier or 1.0)
                 max_rate = pill_data.get("max_success_rate", 1.0)
-                final_rate = min(base_success_rate + temp_bonus + breakthrough_bonus, max_rate)
-                info_lines.append(f"破境丹加成：+{breakthrough_bonus:.1%}")
+                final_rate = min(
+                    base_success_rate + temp_bonus + karma_bonus + luck_bonus + breakthrough_bonus,
+                    max_rate,
+                )
+                quality_label = f"·{pill_quality}" if pill_quality else ""
+                info_lines.append(f"破境丹【{base_name}{quality_label}】加成：+{breakthrough_bonus:.1%}")
                 info_lines.append(f"最大成功率限制：{max_rate:.1%}")
             else:
                 logger.warning(f"无效的破境丹：{pill_name}")
@@ -91,13 +106,14 @@ class BreakthroughManager:
         player: Player,
         pill_name: Optional[str] = None,
         temp_bonus: float = 0.0,
-        death_rate_multiplier: float = 1.0
-    ) -> Tuple[bool, str, bool]:
-        """执行突破"""
+        death_rate_multiplier: float = 1.0,
+        pill_quality: Optional[str] = None,
+    ) -> Tuple[bool, str, bool, bool]:
+        """执行突破。返回 (是否成功, 消息, 是否死亡, 是否真正发起突破)"""
         # 1. 检查突破条件
         can_breakthrough, error_msg = self.check_breakthrough_requirements(player)
         if not can_breakthrough:
-            return False, error_msg, False
+            return False, error_msg, False, False
 
         # ===== 经济回收：突破需缴纳灵石（境界越高越贵）=====
         breakthrough_cost = 1000 + player.level_index * 800
@@ -105,31 +121,41 @@ class BreakthroughManager:
             return False, (
                 f"❌ 突破需要缴纳 {breakthrough_cost:,} 灵石作为闭关资费（当前持有 {player.gold:,}）。\n"
                 f"💡 无论成败资费皆消耗，请做好万全准备再闯关。"
-            ), False
+            ), False, False
 
-        # ===== 核心修复：扣除玩家背包里的破境丹 =====
+        # ===== 扣除玩家背包里的破境丹（支持品质）=====
+        actual_pill_key = None
+        quality_multiplier = 1.0
         if pill_name:
-            # 先校验丹药配置，防止扣了丹却没有任何加成
-            pill_data = self.config_manager.pills_data.get(pill_name)
+            from .pill_manager import PillManager
+            pm = PillManager(self.db, self.config_manager)
+            actual_pill_key = pm.select_pill_key(player.get_pills_inventory(), pill_name, pill_quality)
+            if not actual_pill_key:
+                quality_hint = f"（{pill_quality}）" if pill_quality else ""
+                return False, f"❌ 你的背包中没有【{pill_name}】{quality_hint}，无法使用！", False, False
+            base_name, actual_quality = pm.split_pill_key(actual_pill_key)
+            pill_data = self.config_manager.pills_data.get(base_name)
             if not pill_data or pill_data.get("subtype") != "breakthrough":
-                return False, f"❌ 【{pill_name}】不是有效的破境丹，已中止突破（未消耗丹药）！", False
+                return False, f"❌ 【{base_name}】不是有效的破境丹，已中止突破（未消耗丹药）！", False, False
             target_level = pill_data.get("target_level_index", -1)
             if target_level != player.level_index + 1:
-                return False, f"❌ 【{pill_name}】不适用于本次突破（它用于突破到第{target_level + 1}境界），已中止（未消耗丹药）！", False
+                return False, f"❌ 【{base_name}·{actual_quality}】不适用于本次突破（它用于突破到第{target_level + 1}境界），已中止（未消耗丹药）！", False, False
 
+            quality_multiplier = pm.get_breakthrough_multiplier(actual_quality)
             inventory = player.get_pills_inventory()
-            if pill_name in inventory and inventory[pill_name] > 0:
-                inventory[pill_name] -= 1
-                if inventory[pill_name] <= 0:
-                    del inventory[pill_name]
-                player.set_pills_inventory(inventory)
-                await self.db.update_player(player)
-            else:
-                return False, f"❌ 你的背包中没有【{pill_name}】，无法使用！", False
+            inventory[actual_pill_key] = int(inventory[actual_pill_key]) - 1
+            if inventory[actual_pill_key] <= 0:
+                del inventory[actual_pill_key]
+            player.set_pills_inventory(inventory)
+            await self.db.update_player(player)
+            pill_name = base_name
+            pill_quality = actual_quality
         # =========================================
 
         # 2. 计算成功率
-        success_rate, rate_info = self.calculate_breakthrough_success_rate(player, pill_name, temp_bonus)
+        success_rate, rate_info = self.calculate_breakthrough_success_rate(
+            player, pill_name, temp_bonus, pill_quality, quality_multiplier
+        )
 
         level_data = self.config_manager.get_level_data(player.cultivation_type)
 
@@ -232,7 +258,9 @@ class BreakthroughManager:
 
             if loan_msg:
                 success_msg += f"\n\n{loan_msg}"
-            success_msg += cost_note
+            success_msg += (
+                f"\n💰 突破资费：-{breakthrough_cost:,} 灵石（剩余 {player.gold:,}）"
+            )
 
             # 师徒联动：弟子突破，师父得师德（v6.16）
             try:
@@ -244,12 +272,14 @@ class BreakthroughManager:
             except Exception:
                 pass
 
-            return True, success_msg, False
+            return True, success_msg, False, True
 
         else:
             # ===== 突破失败 =====
-            death_probability_range = self.config.get("VALUES", {}).get("BREAKTHROUGH_DEATH_PROBABILITY", [0.01, 0.1])
-            death_rate = random.uniform(death_probability_range[0], death_probability_range[1])
+            death_low, death_high = self._get_death_probability_range()
+            death_rate = random.uniform(death_low, death_high)
+            if player.cultivation_type == "体修":
+                death_rate *= self._get_body_death_multiplier()
             death_rate = max(0.0, min(1.0, death_rate * death_rate_multiplier))
             died = random.random() < death_rate
 
@@ -257,6 +287,11 @@ class BreakthroughManager:
                 # 死亡逻辑
                 from .pill_manager import PillManager
                 pill_manager = PillManager(self.db, self.config_manager)
+                res_quality = (
+                    getattr(player, "resurrection_pill_quality", pill_manager.DEFAULT_QUALITY)
+                    or pill_manager.DEFAULT_QUALITY
+                )
+                res_keep = pill_manager.get_resurrection_keep(res_quality)
                 resurrected = await pill_manager.handle_resurrection(player)
 
                 if resurrected:
@@ -270,13 +305,14 @@ class BreakthroughManager:
                         f"⚡ 回生丹效果触发！⚡\n"
                         f"━━━━━━━━━━━━━━━\n"
                         f"🌟 你涅槃重生了！\n"
-                        f"⚠️ 但所有属性降低到之前的一半\n"
+                        f"⚠️ 你的永久属性保留 {res_keep:.0%}（{res_quality}回生丹）\n"
                         f"💊 回生丹效果已消耗\n"
                         f"━━━━━━━━━━━━━━━\n"
                         f"请继续修炼，重回巅峰！"
                     )
+                    resurrection_msg += cost_note
                     logger.info(f"玩家 {player.user_id} 突破失败触发回生丹，成功复活")
-                    return False, resurrection_msg, False
+                    return False, resurrection_msg, False, True
 
                 # 真死
                 await self.db.delete_player_cascade(player.user_id)
@@ -290,7 +326,7 @@ class BreakthroughManager:
                     f"若想重新修仙，请使用'我要修仙'命令重新开始"
                 )
                 logger.info(f"玩家 {player.user_id} 突破失败并死亡：{current_level_name} -> {next_level_name}，死亡概率 {death_rate:.2%}")
-                return False, death_msg, True
+                return False, death_msg, True, True
 
             else:
                 # 失败但未死
@@ -305,12 +341,41 @@ class BreakthroughManager:
                     f"━━━━━━━━━━━━━━━\n"
                     f"突破【{next_level_name}】失败，但幸运地保住了性命\n"
                     f"修为受损，损失了 {exp_penalty} 点修为\n"
-                    f"当前修为：{player.experience}\n"
-                    f"请继续修炼，再接再厉！"
+                    f"当前修为：{player.experience}"
                 )
+                fail_msg += cost_note
+                fail_msg += "\n请继续修炼，再接再厉！"
                 logger.info(f"玩家 {player.user_id} 突破失败：{current_level_name} -> {next_level_name}，损失修为 {exp_penalty}")
-                return False, fail_msg, False
+                return False, fail_msg, False, True
     
+    def _get_death_probability_range(self) -> Tuple[float, float]:
+        """读取并校验突破失败死亡概率区间，异常配置回退到 1%~10%。"""
+        values = self.config.get("VALUES", {}) or {}
+        raw = values.get("BREAKTHROUGH_DEATH_PROBABILITY", [0.01, 0.1])
+        try:
+            if isinstance(raw, (list, tuple)) and len(raw) >= 2:
+                low, high = float(raw[0]), float(raw[1])
+            elif isinstance(raw, (int, float)) and not isinstance(raw, bool):
+                low = high = float(raw)
+            else:
+                low, high = 0.01, 0.1
+        except (TypeError, ValueError):
+            low, high = 0.01, 0.1
+        low = max(0.0, min(1.0, low))
+        high = max(0.0, min(1.0, high))
+        if low > high:
+            low, high = high, low
+        return low, high
+
+    def _get_body_death_multiplier(self) -> float:
+        """体修突破失败的额外死亡风险倍率。"""
+        values = self.config.get("VALUES", {}) or {}
+        try:
+            multiplier = float(values.get("BODY_BREAKTHROUGH_DEATH_MULTIPLIER", 1.5))
+        except (TypeError, ValueError):
+            multiplier = 1.5
+        return max(0.0, multiplier)
+
     async def _handle_breakthrough_loan_repay(self, player: Player) -> str:
         """处理突破贷款自动还款"""
         try:
@@ -354,7 +419,10 @@ class BreakthroughManager:
                 # 设定惩罚：如果钱不够，直接扣除所有灵石，并且血量减半（走火入魔）
                 penalty_gold = player.gold
                 player.gold = 0
-                player.hp = max(1, player.hp // 2)
+                if player.cultivation_type == "体修":
+                    player.blood_qi = max(1, player.blood_qi // 2)
+                else:
+                    player.hp = max(1, player.hp // 2)
                 await self.db.update_player(player)
                 
                 # 将贷款标记为逾期

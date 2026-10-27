@@ -23,6 +23,22 @@ class BountyManager:
     """悬赏令管理器"""
 
     BOUNTY_CACHE_DURATION = 600  # 任务列表缓存10分钟
+    # 当前版本所有能产生悬赏进度的活动标签，配置校验与扩展时以此为准
+    TRIGGERABLE_TAGS = {
+        "adventure_scout",
+        "adventure_roam",
+        "adventure_hunt",
+        "adventure_peril",
+        "rift",
+        "escort",
+        "craft",
+        "spar",
+        "pvp",
+        "tide",
+        "boss_damage",
+        "harvest",
+        "sect",
+    }
     CONFIG_FILE = Path(__file__).resolve().parents[1] / "config" / "bounty_templates.json"
     ADVENTURE_CONFIG_FILE = Path(__file__).resolve().parents[1] / "config" / "adventure_config.json"
     DEFAULT_CONFIG = {
@@ -72,13 +88,72 @@ class BountyManager:
         self.item_tables = config.get("item_tables", self.DEFAULT_CONFIG["item_tables"])
         self.templates_by_id = {}
         self.templates_by_diff = {}
-        for tpl in config.get("templates", []):
-            tpl_copy = dict(tpl)
-            tpl_copy["progress_tags"] = [str(tag).lower() for tag in tpl_copy.get("progress_tags", [])]
+        for tpl_copy in self._sanitize_templates(config.get("templates", [])):
             self.templates_by_id[tpl_copy["id"]] = tpl_copy
             self.templates_by_diff.setdefault(tpl_copy["difficulty"], []).append(tpl_copy)
+        self._bounty_cache.clear()
         logger.info(f"悬赏配置加载完成：{len(self.templates_by_id)} 条模板")
         self._load_adventure_meta()
+
+    def _sanitize_templates(self, templates: list) -> List[dict]:
+        """过滤冲突或残缺的模板，避免列表展示后无法接取/推进。"""
+        cleaned: List[dict] = []
+        seen_ids = set()
+        for raw in templates:
+            try:
+                tpl = dict(raw)
+                template_id = int(tpl["id"])
+                name = str(tpl.get("name", "")).strip()
+                difficulty = str(tpl.get("difficulty", "")).strip()
+                if not name or difficulty not in self.difficulties:
+                    logger.warning(f"悬赏模板 {template_id} 名称或难度无效，已跳过")
+                    continue
+                if template_id in seen_ids:
+                    logger.warning(f"悬赏模板 ID 重复：{template_id}，已跳过后者")
+                    continue
+
+                min_target = max(1, int(tpl.get("min_target", 1)))
+                max_target = max(min_target, int(tpl.get("max_target", min_target)))
+                progress_tags = [
+                    str(tag).strip().lower()
+                    for tag in tpl.get("progress_tags", [])
+                    if str(tag).strip()
+                ]
+                if not progress_tags:
+                    logger.warning(f"悬赏模板 {template_id} 缺少可推进标签，已跳过")
+                    continue
+                unknown_tags = set(progress_tags) - self.TRIGGERABLE_TAGS
+                if unknown_tags:
+                    logger.warning(
+                        f"悬赏模板 {template_id} 含未知进度标签 {sorted(unknown_tags)}，"
+                        "该标签不会产生进度"
+                    )
+
+                item_table = str(tpl.get("item_table", "gather") or "gather")
+                if item_table not in self.item_tables:
+                    logger.warning(
+                        f"悬赏模板 {template_id} 的奖励表 {item_table} 不存在，回退为 gather"
+                    )
+                    item_table = "gather"
+
+                tpl.update(
+                    {
+                        "id": template_id,
+                        "name": name,
+                        "difficulty": difficulty,
+                        "min_target": min_target,
+                        "max_target": max_target,
+                        "progress_tags": progress_tags,
+                        "item_table": item_table,
+                        "weight": max(1, int(tpl.get("weight", 1))),
+                        "time_limit": max(60, int(tpl.get("time_limit", 3600))),
+                    }
+                )
+                seen_ids.add(template_id)
+                cleaned.append(tpl)
+            except Exception as exc:
+                logger.warning(f"悬赏模板配置异常，已跳过：{exc}")
+        return cleaned
 
     def _load_config_file(self) -> dict:
         if self.CONFIG_FILE.exists():
@@ -110,21 +185,26 @@ class BountyManager:
 
     # -------- 列表 & 缓存 --------
 
-    def _get_cached_bounties(self, user_id: str) -> Optional[List[dict]]:
+    def _get_cached_bounties(
+        self, user_id: str, level_index: Optional[int] = None
+    ) -> Optional[List[dict]]:
         cache = self._bounty_cache.get(user_id)
-        if cache and cache["expire_time"] > int(time.time()):
-            return cache["bounties"]
-        return None
+        if not cache or cache["expire_time"] <= int(time.time()):
+            return None
+        if level_index is not None and cache.get("level_index") != level_index:
+            return None
+        return cache["bounties"]
 
-    def _set_cached_bounties(self, user_id: str, bounties: List[dict]):
+    def _set_cached_bounties(self, user_id: str, bounties: List[dict], level_index: int):
         self._bounty_cache[user_id] = {
             "bounties": bounties,
+            "level_index": level_index,
             "expire_time": int(time.time()) + self.BOUNTY_CACHE_DURATION
         }
 
     async def get_bounty_list(self, player: Player) -> List[dict]:
-        """获取悬赏列表"""
-        cached = self._get_cached_bounties(player.user_id)
+        """获取悬赏列表（境界变化后立即重算，避免接取到未解锁等级）"""
+        cached = self._get_cached_bounties(player.user_id, player.level_index)
         if cached:
             return cached
 
@@ -135,16 +215,18 @@ class BountyManager:
             if entry:
                 bounties.append(entry)
 
-        self._set_cached_bounties(player.user_id, bounties)
+        self._set_cached_bounties(player.user_id, bounties, player.level_index)
         return bounties
 
     def _get_difficulty_plan(self, level_index: int) -> List[str]:
-        plan = ["easy", "normal"]
-        if level_index >= 7:
-            plan.append("hard")
-        if level_index >= 12:
-            plan.append("elite")
-        return [diff for diff in plan if diff in self.difficulties]
+        """按配置中的 min_level 解锁难度，避免硬编码与配置冲突。"""
+        plan = [
+            diff
+            for diff, cfg in self.difficulties.items()
+            if level_index >= int(cfg.get("min_level", 0) or 0)
+        ]
+        plan.sort(key=lambda diff: int(self.difficulties[diff].get("min_level", 0) or 0))
+        return plan
 
     def _pick_template(self, difficulty: str) -> Optional[dict]:
         templates = self.templates_by_diff.get(difficulty)
@@ -228,7 +310,12 @@ class BountyManager:
 
         diff_key = template.get("difficulty", "easy")
         diff_cfg = self.difficulties.get(diff_key, {})
-        cached_bounties = self._get_cached_bounties(player.user_id)
+        if diff_key not in self._get_difficulty_plan(player.level_index):
+            return False, (
+                f"❌ 你的境界尚不足以接取【{diff_cfg.get('name', diff_key)}】悬赏，"
+                "请提升境界后再来。"
+            )
+        cached_bounties = self._get_cached_bounties(player.user_id, player.level_index)
         cached = None
         if cached_bounties:
             cached = next((b for b in cached_bounties if b["id"] == bounty_id), None)
@@ -353,6 +440,11 @@ class BountyManager:
             rewards = json.loads(active["rewards"])
             stone_reward = rewards.get("stone", 0)
             exp_reward = rewards.get("exp", 0)
+            try:
+                from .title_manager import TitleManager
+                exp_reward = int(exp_reward * (1 + TitleManager.get_exp_bonus(player)))
+            except Exception:
+                pass
 
             await self.db.conn.execute(
                 "UPDATE bounty_tasks SET status = 2 WHERE user_id = ? AND status = 1",

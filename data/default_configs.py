@@ -3,14 +3,6 @@
 SECT_CONFIG = {
     "create_cost": 10000,
     "create_level_required": 3, # 筑基
-    "positions": {
-        "0": {"name": "宗主", "permission": 10},
-        "1": {"name": "长老", "permission": 8},
-        "2": {"name": "亲传弟子", "permission": 5},
-        "3": {"name": "内门弟子", "permission": 2},
-        "4": {"name": "外门弟子", "permission": 1}
-    },
-    "scale_ratio": 10, # 1灵石 = 10建设度
 }
 
 BOSS_CONFIG = {
@@ -24,7 +16,23 @@ BOSS_CONFIG = {
         {"name": "炼虚", "level_index": 15, "hp_mult": 4.0, "atk_mult": 2.5, "reward_mult": 4.0},
         {"name": "合体", "level_index": 18, "hp_mult": 5.0, "atk_mult": 3.0, "reward_mult": 5.0},
         {"name": "大乘", "level_index": 21, "hp_mult": 6.0, "atk_mult": 3.5, "reward_mult": 6.0},
-    ]
+    ],
+    "world_boss": {
+        "min_level": 3,
+        "cooldown": 300,
+        "damage_floor_pct": 0.5,
+        "damage_cap_pct": 20.0,
+        "expire_hours": 24,
+    },
+    "raid": {
+        "enabled": True,
+        "auto_spawn_interval": 21600,
+        "expire_hours": 48,
+        "cooldown": 600,
+        "damage_floor_pct": 0.3,
+        "damage_cap_pct": 8.0,
+        "min_players": 2,
+    },
 }
 
 RIFT_CONFIG = {

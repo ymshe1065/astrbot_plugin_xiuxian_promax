@@ -3,6 +3,7 @@
 宗门系统管理器 - 处理宗门创建、管理、捐献、任务等逻辑
 """
 
+import asyncio
 import json
 import random
 import time
@@ -11,6 +12,7 @@ from ..data.data_manager import DataBase
 from ..models_extended import Sect, UserStatus
 from ..models import Player
 from .task_penalty import calc_abandon_penalty, charge_abandon_penalty
+from .title_hooks import TitleHooks
 
 SECT_NAME_MIN_LENGTH = 2
 SECT_NAME_MAX_LENGTH = 12
@@ -58,6 +60,19 @@ class SectManager:
         self.db = db
         self.config_manager = config_manager
         self.config = config_manager.sect_config if config_manager else {}
+        self._sect_lock = None
+
+    def _get_sect_lock(self) -> asyncio.Lock:
+        if self._sect_lock is None:
+            self._sect_lock = asyncio.Lock()
+        return self._sect_lock
+
+    async def _idle_guard(self, user_id: str, action: str) -> str:
+        """宗门管理操作统一忙闲校验，返回空字符串表示可执行。"""
+        user_cd = await self.db.ext.get_user_cd(user_id)
+        if user_cd and user_cd.type != UserStatus.IDLE:
+            return f"❌ 你当前正{UserStatus.get_name(user_cd.type)}，无法{action}！"
+        return ""
     
     def _validate_sect_name(self, name: str) -> Tuple[bool, str]:
         """验证宗门名称"""
@@ -101,6 +116,10 @@ class SectManager:
         return old_level, new_level, new_level > old_level
 
     async def add_sect_exp(self, sect_id: int, amount: int) -> Tuple[int, int, bool]:
+        async with self._get_sect_lock():
+            return await self._add_sect_exp_locked(sect_id, amount)
+
+    async def _add_sect_exp_locked(self, sect_id: int, amount: int) -> Tuple[int, int, bool]:
         sect = await self.db.ext.get_sect_by_id(sect_id)
         if not sect:
             return 0, 0, False
@@ -118,16 +137,6 @@ class SectManager:
         suffix = f"，解锁：{'、'.join(unlocked)}" if unlocked else ""
         return f"\n🎉 宗门等级提升：Lv.{old_level} → Lv.{new_level}{suffix}"
 
-    async def get_sect_building_bonus(self, user_id: str, name: str) -> int:
-        """获取某玩家所在宗门指定建筑的等级（无宗门返回0）"""
-        player = await self.db.get_player_by_id(user_id)
-        if not player or player.sect_id == 0:
-            return 0
-        sect = await self.db.ext.get_sect_by_id(player.sect_id)
-        if not sect:
-            return 0
-        return self.get_building_level(sect, name)
-
     async def show_buildings(self, user_id: str) -> Tuple[bool, str]:
         """查看宗门建筑面板"""
         player = await self.db.get_player_by_id(user_id)
@@ -144,6 +153,7 @@ class SectManager:
             f"🏛️ 【{sect.sect_name}】宗门建筑",
             f"宗门等级：Lv.{sect_level}（经验 {self.get_sect_exp(sect):,}）",
             f"宗门资金：{sect.sect_used_stone:,} 灵石",
+            f"宗门资材：{sect.sect_materials:,}",
             f"当前建筑上限：Lv.{building_limit}",
             "━━━━━━━━━━━━━━━",
         ]
@@ -161,15 +171,24 @@ class SectManager:
             elif lv >= building_limit:
                 status = f"需提升宗门等级（当前上限 Lv.{building_limit}）"
             else:
-                status = f"升级需 {next_cost:,} 资金"
+                material_cap = next_cost // 2
+                material_discount = min(int(sect.sect_materials or 0), material_cap)
+                status = (
+                    f"升级需 {next_cost:,} 资金"
+                    f"（可用资材抵扣 {material_discount:,}，最多 {material_cap:,}）"
+                )
             lines.append(f"【{name}】Lv.{lv}/{cfg['max_level']} - {cfg['desc']}")
             lines.append(f"  └ {status}")
         lines.append("━━━━━━━━━━━━━━━")
-        lines.append("💡 宗主/长老发送 /升级建筑 <名称>（消耗宗门资金）")
+        lines.append("💡 宗主/长老发送 /升级建筑 <名称>（消耗宗门资金与资材）")
         return True, "\n".join(lines)
 
     async def upgrade_building(self, operator_id: str, name: str) -> Tuple[bool, str]:
         """升级宗门建筑（宗主/长老操作，消耗宗门资金）"""
+        async with self._get_sect_lock():
+            return await self._upgrade_building_locked(operator_id, name)
+
+    async def _upgrade_building_locked(self, operator_id: str, name: str) -> Tuple[bool, str]:
         cfg = SECT_BUILDINGS.get(name)
         if not cfg:
             listing = "\n".join(
@@ -183,6 +202,9 @@ class SectManager:
         operator = await self.db.get_player_by_id(operator_id)
         if not operator or operator.sect_id == 0:
             return False, "❌ 你还未加入宗门！"
+        busy_msg = await self._idle_guard(operator_id, "升级宗门建筑")
+        if busy_msg:
+            return False, busy_msg
         if operator.sect_position not in (0, 1):
             return False, "❌ 只有宗主和长老才能升级建筑！"
 
@@ -203,10 +225,17 @@ class SectManager:
             return False, f"❌ 【{name}】受宗门等级限制，当前最高只能升到 Lv.{building_limit}。"
 
         cost = cfg["base_cost"] * (lv + 1)
-        if sect.sect_used_stone < cost:
-            return False, f"❌ 宗门资金不足！升级【{name}】需要 {cost:,} 灵石（当前 {sect.sect_used_stone:,}），请号召成员 /宗门捐献。"
+        materials_used = min(int(sect.sect_materials or 0), cost // 2)
+        fund_cost = cost - materials_used
+        if sect.sect_used_stone < fund_cost:
+            return False, (
+                f"❌ 宗门资金不足！升级【{name}】需要 {fund_cost:,} 灵石"
+                f"（原价 {cost:,}，资材抵扣 {materials_used:,}；当前资金 {sect.sect_used_stone:,}），"
+                "请号召成员 /宗门捐献。"
+            )
 
-        sect.sect_used_stone -= cost
+        sect.sect_used_stone -= fund_cost
+        sect.sect_materials -= materials_used
         levels[name] = lv + 1
         sect.buildings = json.dumps(levels, ensure_ascii=False)
         await self.db.ext.update_sect(sect)
@@ -215,7 +244,8 @@ class SectManager:
             f"━━━━━━━━━━━━━━━\n"
             f"【{name}】Lv.{lv} → Lv.{lv + 1}\n"
             f"效果：{cfg['desc']}\n"
-            f"消耗宗门资金：{cost:,} 灵石"
+            f"消耗宗门资金：{fund_cost:,} 灵石\n"
+            f"消耗宗门资材：{materials_used:,}"
         )
 
     async def create_sect(self, user_id: str, sect_name: str, required_stone: int = None, required_level: int = None) -> Tuple[bool, str]:
@@ -225,6 +255,8 @@ class SectManager:
             
         player = await self.db.get_player_by_id(user_id)
         if not player: return False, "❌ 你还未踏入修仙之路！"
+        busy_msg = await self._idle_guard(user_id, "创建宗门")
+        if busy_msg: return False, busy_msg
         if player.sect_id != 0: return False, "❌ 你已经加入了宗门，无法创建新宗门！"
         if player.level_index < required_level: return False, f"❌ 创建宗门需要达到境界等级 {required_level}！"
         if player.gold < required_stone: return False, f"❌ 创建宗门需要 {required_stone} 灵石！"
@@ -254,6 +286,8 @@ class SectManager:
         """加入宗门"""
         player = await self.db.get_player_by_id(user_id)
         if not player: return False, "❌ 你还未踏入修仙之路！"
+        busy_msg = await self._idle_guard(user_id, "加入宗门")
+        if busy_msg: return False, busy_msg
         if player.sect_id != 0: return False, "❌ 你已经加入了宗门！请先退出当前宗门。"
         
         sect = await self.db.ext.get_sect_by_name(sect_name)
@@ -269,6 +303,8 @@ class SectManager:
         player = await self.db.get_player_by_id(user_id)
         if not player: return False, "❌ 你还未踏入修仙之路！"
         if player.sect_id == 0: return False, "❌ 你还未加入任何宗门！"
+        busy_msg = await self._idle_guard(user_id, "退出宗门")
+        if busy_msg: return False, busy_msg
         if getattr(player, "sect_debt", 0) > 0:
             return False, f"❌ 你还有 {player.sect_debt:,} 灵石宗门欠款，还清后才能退出宗门。"
         
@@ -291,6 +327,9 @@ class SectManager:
             return False, "❌ 你还未踏入修仙之路！"
         if player.sect_id == 0:
             return False, "❌ 你还未加入任何宗门！"
+        busy_msg = await self._idle_guard(user_id, "解散宗门")
+        if busy_msg:
+            return False, busy_msg
         sect = await self.db.ext.get_sect_by_id(player.sect_id)
         if not sect:
             return False, "❌ 宗门信息异常！"
@@ -318,14 +357,20 @@ class SectManager:
         """宗门捐献"""
         player = await self.db.get_player_by_id(user_id)
         if not player or player.sect_id == 0: return False, "❌ 你还未加入宗门！"
+        busy_msg = await self._idle_guard(user_id, "捐献宗门")
+        if busy_msg: return False, busy_msg
         if stone_amount <= 0: return False, "❌ 捐献数量必须大于0！"
         if player.gold < stone_amount: return False, f"❌ 你的灵石不足！当前拥有 {player.gold} 灵石。"
         
-        # 原子增减：避免全字段覆盖回滚其他并发修改
-        await self.db.conn.execute(
-            "UPDATE players SET gold = MAX(0, gold - ?), sect_contribution = sect_contribution + ? WHERE user_id = ?",
-            (stone_amount, stone_amount, user_id)
+        # 原子增减：余额校验放进 UPDATE，避免并发捐献透支后仍增加贡献
+        cursor = await self.db.conn.execute(
+            "UPDATE players SET gold = gold - ?, sect_contribution = sect_contribution + ? "
+            "WHERE user_id = ? AND gold >= ?",
+            (stone_amount, stone_amount, user_id, stone_amount)
         )
+        if cursor.rowcount == 0:
+            await self.db.conn.rollback()
+            return False, f"❌ 你的灵石不足！当前拥有 {player.gold} 灵石。"
         await self.db.conn.commit()
         # 同步内存对象，供后续消息展示
         player.gold -= stone_amount
@@ -358,10 +403,11 @@ class SectManager:
             f"宗门名称：{sect.sect_name}\n宗主：{owner_name}\n"
             f"宗门等级：Lv.{self.get_sect_level(sect)}（经验 {self.get_sect_exp(sect):,}）\n"
             f"建设度：{sect.sect_scale}\n"
-            f"宗门灵石：{sect.sect_used_stone}\n宗门资材：{sect.sect_materials}\n丹房等级：{sect.elixir_room_level}\n"
+            f"宗门灵石：{sect.sect_used_stone}\n宗门资材：{sect.sect_materials}\n"
             f"成员数量：{len(members)}人\n"
             f"\n你的职位：{self.POSITIONS.get(player.sect_position, '未知')}\n"
             f"你的贡献：{player.sect_contribution}\n"
+            f"累计宗门任务：{int(getattr(player, 'sect_task', 0) or 0)} 次\n"
             f"你的宗门欠款：{getattr(player, 'sect_debt', 0):,} 灵石"
         )
         return True, info_msg, {"sect": sect, "player_position": player.sect_position, "player_contribution": player.sect_contribution, "member_count": len(members)}
@@ -387,6 +433,8 @@ class SectManager:
         """变更宗门职位"""
         operator = await self.db.get_player_by_id(operator_id)
         if not operator or operator.sect_id == 0: return False, "❌ 你还未加入宗门！"
+        busy_msg = await self._idle_guard(operator_id, "变更职位")
+        if busy_msg: return False, busy_msg
         if operator.sect_position != 0: return False, "❌ 只有宗主才能变更职位！"
         
         target = await self.db.get_player_by_id(target_id)
@@ -400,8 +448,14 @@ class SectManager:
     
     async def transfer_ownership(self, current_owner_id: str, new_owner_id: str) -> Tuple[bool, str]:
         """宗主传位"""
+        async with self._get_sect_lock():
+            return await self._transfer_ownership_locked(current_owner_id, new_owner_id)
+
+    async def _transfer_ownership_locked(self, current_owner_id: str, new_owner_id: str) -> Tuple[bool, str]:
         current_owner = await self.db.get_player_by_id(current_owner_id)
         if not current_owner or current_owner.sect_id == 0: return False, "❌ 你还未加入宗门！"
+        busy_msg = await self._idle_guard(current_owner_id, "宗主传位")
+        if busy_msg: return False, busy_msg
         
         sect = await self.db.ext.get_sect_by_id(current_owner.sect_id)
         if not sect or sect.sect_owner != current_owner_id: return False, "❌ 你不是宗主！"
@@ -421,6 +475,8 @@ class SectManager:
         """踢出宗门成员"""
         operator = await self.db.get_player_by_id(operator_id)
         if not operator or operator.sect_id == 0: return False, "❌ 你还未加入宗门！"
+        busy_msg = await self._idle_guard(operator_id, "踢出成员")
+        if busy_msg: return False, busy_msg
         if operator.sect_position not in [0, 1]: return False, "❌ 只有宗主和长老才能踢出成员！"
         
         target = await self.db.get_player_by_id(target_id)
@@ -432,10 +488,19 @@ class SectManager:
             return False, f"❌ 目标还有 {target.sect_debt:,} 灵石宗门欠款，不能踢出。"
         
         await self._cancel_orders_on_leave(target_id, operator.sect_id)
-        await self.db.ext.update_player_sect_info(target_id, 0, 0)  # 与主动退宗保持一致：无宗门时职位归零
-        target.sect_contribution = 0
-        await self.db.update_player(target)
-        return True, f"✨ 已将 {target.user_name or target_id} 踢出宗门！"
+        await self.db.conn.execute(
+            "UPDATE players SET sect_id = 0, sect_position = 0, sect_contribution = 0 "
+            "WHERE user_id = ?",
+            (target_id,),
+        )
+        await self.db.conn.commit()
+        target_cd = await self.db.ext.get_user_cd(target_id)
+        if target_cd and target_cd.type == UserStatus.SECT_TASK:
+            await self.db.ext.set_user_free(target_id)
+        return True, (
+            f"✨ 已将 {target.user_name or target_id} 踢出宗门！"
+            "其进行中的宗门任务已取消。"
+        )
 
     async def perform_sect_task(self, user_id: str) -> Tuple[bool, str]:
         """执行宗门任务"""
@@ -446,6 +511,12 @@ class SectManager:
         if not user_cd:
             await self.db.ext.create_user_cd(user_id)
             user_cd = await self.db.ext.get_user_cd(user_id)
+
+        if user_cd.type not in (UserStatus.IDLE, UserStatus.SECT_TASK):
+            return False, (
+                f"❌ 你当前正{UserStatus.get_name(user_cd.type)}，无法执行宗门任务！\n"
+                "💡 请先完成或放弃当前活动。"
+            )
             
         current_time = int(time.time())
         if user_cd.type == UserStatus.SECT_TASK and user_cd.scheduled_time and current_time < user_cd.scheduled_time:
@@ -459,53 +530,59 @@ class SectManager:
     async def finish_sect_task(self, user_id: str) -> Tuple[bool, str]:
         """完成宗门任务"""
         player = await self.db.get_player_by_id(user_id)
-        if not player or player.sect_id == 0: return False, "❌ 你还未加入宗门！"
+        if not player: return False, "❌ 你还未踏入修仙之路！"
 
         user_cd = await self.db.ext.get_user_cd(user_id)
-        if not user_cd: return False, "❌ 你当前不在宗门任务中！"
+        if not user_cd or user_cd.type != UserStatus.SECT_TASK:
+            return False, "❌ 你当前不在宗门任务中！"
 
-        if user_cd.type == UserStatus.SECT_TASK:
-            now = int(time.time())
-            if user_cd.scheduled_time and now < user_cd.scheduled_time:
-                return False, f"❌ 宗门任务尚未完成！还需 {(user_cd.scheduled_time - now)//60} 分。"
-
-            contribution_gain = random.randint(10, 30)
-
-            # 演武场：宗门建筑，宗门任务奖励+10%/级
-            arena_note = ""
-            sect = None
-            try:
-                sect = await self.db.ext.get_sect_by_id(player.sect_id)
-                levels = self.get_buildings(sect) if sect else {}
-                arena_lv = int(levels.get("演武场", 0))
-                if arena_lv > 0:
-                    contribution_gain = int(contribution_gain * (1 + 0.10 * arena_lv))
-                    arena_note = f"\n🏟️ 演武场 Lv.{arena_lv} 生效：奖励+{10 * arena_lv}%"
-            except Exception:
-                pass
-
-            player.sect_contribution += contribution_gain
-            await self.db.update_player(player)
-
-            level_msg = ""
-            if sect:
-                old_level, new_level, leveled = self.apply_sect_exp(
-                    sect, contribution_gain * 10
-                )
-                sect.sect_materials += contribution_gain * 10
-                await self.db.ext.update_sect(sect)
-                if leveled:
-                    level_msg = self.get_level_up_text(old_level, new_level)
-
-            order_msg = await self.record_order_progress(user_id, "task", 1)
+        if player.sect_id == 0:
             await self.db.ext.set_user_free(user_id)
-            return True, (
-                f"✨ 宗门任务完成！\n获得贡献：{contribution_gain}\n"
-                f"宗门资材：+{contribution_gain * 10}{arena_note}{level_msg}{order_msg}"
+            return False, "✅ 你已不在宗门中，本次宗门任务已取消。"
+
+        now = int(time.time())
+        if user_cd.scheduled_time and now < user_cd.scheduled_time:
+            return False, f"❌ 宗门任务尚未完成！还需 {(user_cd.scheduled_time - now)//60} 分。"
+
+        contribution_gain = random.randint(10, 30)
+
+        # 演武场：宗门建筑，宗门任务奖励+10%/级
+        arena_note = ""
+        sect = None
+        try:
+            sect = await self.db.ext.get_sect_by_id(player.sect_id)
+            levels = self.get_buildings(sect) if sect else {}
+            arena_lv = int(levels.get("演武场", 0))
+            if arena_lv > 0:
+                contribution_gain = int(contribution_gain * (1 + 0.10 * arena_lv))
+                arena_note = f"\n🏟️ 演武场 Lv.{arena_lv} 生效：奖励+{10 * arena_lv}%"
+        except Exception:
+            pass
+
+        player.sect_contribution += contribution_gain
+        player.sect_task = int(getattr(player, "sect_task", 0) or 0) + 1
+        await self.db.update_player(player)
+
+        level_msg = ""
+        if sect:
+            old_level, new_level, leveled = await self.add_sect_exp(
+                player.sect_id, contribution_gain * 10
             )
-        else:
-            await self.db.ext.set_user_free(user_id)
-            return True, "✅ 状态异常已修复！你的状态已恢复正常。"
+            await self.db.conn.execute(
+                "UPDATE sects SET sect_materials = sect_materials + ? WHERE sect_id = ?",
+                (contribution_gain * 10, player.sect_id),
+            )
+            await self.db.conn.commit()
+            if leveled:
+                level_msg = self.get_level_up_text(old_level, new_level)
+
+        order_msg = await self.record_order_progress(user_id, "task", 1)
+        await self.db.ext.set_user_free(user_id)
+        return True, (
+            f"✨ 宗门任务完成！\n获得贡献：{contribution_gain}\n"
+            f"累计完成任务：{player.sect_task} 次\n"
+            f"宗门资材：+{contribution_gain * 10}{arena_note}{level_msg}{order_msg}"
+        )
 
     async def abandon_sect_task(self, user_id: str) -> Tuple[bool, str]:
         """放弃宗门任务：宗门任务只给贡献，按固定灵石违约金处理。"""
@@ -549,6 +626,9 @@ class SectManager:
         target = await self.db.get_player_by_id(target_id)
         if not operator or operator.sect_id == 0:
             return False, "❌ 你还未加入宗门！"
+        busy_msg = await self._idle_guard(issuer_id, "下达宗门命令")
+        if busy_msg:
+            return False, busy_msg
         if not target or target.sect_id != operator.sect_id:
             return False, "❌ 目标不在你的宗门！"
         if issuer_id == target_id:
@@ -765,93 +845,19 @@ class SectManager:
             results.append((order.get("origin", ""), text))
         return results
 
-    async def handle_owner_death(self, sect_id: int, dead_owner_id: str) -> Tuple[bool, str]:
-        """处理宗主死亡，自动传位或解散宗门"""
-        members = await self.db.ext.get_sect_members(sect_id)
-        remaining = [m for m in members if m.user_id != dead_owner_id]
-        
-        if not remaining:
-            await self.db.ext.delete_sect(sect_id)
-            return True, "宗门已解散"
-        
-        remaining.sort(key=lambda m: (m.sect_position, -m.sect_contribution))
-        new_owner = remaining[0]
-        
-        sect = await self.db.ext.get_sect_by_id(sect_id)
-        if sect:
-            sect.sect_owner = new_owner.user_id
-            await self.db.ext.update_sect(sect)
-            await self.db.ext.update_player_sect_info(new_owner.user_id, sect_id, 0)
-        
-        return True, f"宗主之位已传给{new_owner.user_name or new_owner.user_id}"
-
-    # ===== v6.6 宗门大比 =====
-    async def start_sect_battle(self) -> Tuple[bool, str]:
-        """开启宗门大比"""
-        is_active = await self.db.ext.get_system_config("sect_battle_active")
-        if is_active == "1":
-            return False, "❌ 宗门大比正在进行中。"
-        await self.db.ext.set_system_config("sect_battle_active", "1")
-        return True, "⚔️ 宗门大比正式开启！所有修士可通过 /大比切磋 @某人 争夺荣誉！"
-
-    async def end_sect_battle(self) -> Tuple[bool, str]:
-        """结束宗门大比并结算"""
-        is_active = await self.db.ext.get_system_config("sect_battle_active")
-        if is_active != "1":
-            return False, "❌ 当前没有进行中的大比。"
-        await self.db.ext.set_system_config("sect_battle_active", "0")
-        return True, "🏁 宗门大比结束！天道压制解除，全服已恢复正常状态。"
-
-    async def record_battle_result(self, user_id: str, is_winner: bool = True) -> str:
-        """记录大比结果，胜利者发称号，失败/平局发保底"""
-        player = await self.db.get_player_by_id(user_id)
-        if not player or player.sect_id == 0:
-            return ""
-        
-        title_msg = ""
-        
-        if is_winner:
-            # ===== 胜者逻辑 =====
-            win_key = f"sect_battle_wins_{user_id}"
-            current_wins_str = await self.db.ext.get_system_config(win_key)
-            current_wins = int(current_wins_str) if current_wins_str and current_wins_str.isdigit() else 0
-            current_wins += 1
-            await self.db.ext.set_system_config(win_key, str(current_wins))
-
-            if current_wins == 1 and not player.title:
-                player.title = "初露锋芒"
-                title_msg = "\n👑 恭喜你！赢得大比首胜，获得荣誉称号【初露锋芒】！"
-            elif current_wins >= 3 and player.title not in ["一代宗师", "灭世魔神"]:
-                player.title = "一代宗师"
-                title_msg = "\n👑 恭喜你！累计胜场达到 3 场，获得荣誉称号【一代宗师】！"
-
-            player.sect_contribution += 100
-            # 给宗门加积分
-            score_key = f"sect_score_{player.sect_id}"
-            current_score = await self.db.ext.get_system_config(score_key)
-            new_score = int(current_score) + 10 if current_score else 10
-            await self.db.ext.set_system_config(score_key, str(new_score))
-            
-            await self.db.update_player(player)
-            return f"\n🏅 你为大比赢得一场胜利！宗门贡献+100，宗门积分+10。{title_msg}"
-            
-        else:
-            # ===== 败者/平局保底逻辑 =====
-            player.sect_contribution += 20
-            score_key = f"sect_score_{player.sect_id}"
-            current_score = await self.db.ext.get_system_config(score_key)
-            new_score = int(current_score) + 2 if current_score else 2
-            await self.db.ext.set_system_config(score_key, str(new_score))
-            
-            await self.db.update_player(player)
-            return "" # 败者不弹额外提示，避免刷屏
-
     # ===== 宗门大比（宗主开启，30分钟报名） =====
 
     async def start_tournament(self, user_id: str, origin: str = "") -> Tuple[bool, str]:
+        async with self._get_sect_lock():
+            return await self._start_tournament_locked(user_id, origin)
+
+    async def _start_tournament_locked(self, user_id: str, origin: str = "") -> Tuple[bool, str]:
         player = await self.db.get_player_by_id(user_id)
         if not player or player.sect_id == 0:
             return False, "❌ 你还未加入宗门！"
+        busy_msg = await self._idle_guard(user_id, "开启宗门大比")
+        if busy_msg:
+            return False, busy_msg
         if player.sect_position != 0:
             return False, "❌ 只有宗主才能开启宗门大比！"
         sect = await self.db.ext.get_sect_by_id(player.sect_id)
@@ -886,6 +892,9 @@ class SectManager:
         player = await self.db.get_player_by_id(user_id)
         if not player or player.sect_id == 0:
             return False, "❌ 你还未加入宗门！"
+        busy_msg = await self._idle_guard(user_id, "报名宗门大比")
+        if busy_msg:
+            return False, busy_msg
         async with self.db.conn.execute(
             "SELECT * FROM sect_tournaments WHERE sect_id = ? AND status = 'registering' "
             "ORDER BY id DESC LIMIT 1",
@@ -941,8 +950,84 @@ class SectManager:
         if t["status"] == "finished":
             winner = await self.db.get_player_by_id(t["winner_id"])
             winner_name = winner.user_name if winner and winner.user_name else t["winner_id"]
-            return True, f"🏆 上届宗门大比冠军：{winner_name}\n冠军奖励：10,000 灵石"
+            lines = [
+                f"🏆 上届宗门大比冠军：{winner_name}",
+                "冠军奖励：10,000 灵石",
+            ]
+            bracket = self._parse_json_list(t.get("bracket_json"))
+            if bracket:
+                lines.append("━━━━━━━━━━━━━━━")
+                lines.append("对战记录：")
+                for round_info in bracket:
+                    lines.append(f"第 {round_info.get('round', '?')} 轮")
+                    for match in round_info.get("matches", []):
+                        lines.append(f"  · {match}")
+            return True, "\n".join(lines)
+        if t["status"] == "cancelled":
+            return True, "⚔️ 宗门大比因报名人数不足已取消。"
         return True, f"⚔️ 宗门大比状态：{t['status']}"
+
+    @staticmethod
+    def _parse_json_list(raw) -> List:
+        try:
+            data = json.loads(raw) if isinstance(raw, str) else raw
+            return data if isinstance(data, list) else []
+        except Exception:
+            return []
+
+    async def get_war_report(self, user_id: str, war_id: str = "") -> Tuple[bool, str]:
+        """查看本宗门最近或指定编号的宗门战报。"""
+        player = await self.db.get_player_by_id(user_id)
+        if not player or player.sect_id == 0:
+            return False, "❌ 你还未加入宗门！"
+        sect = await self.db.ext.get_sect_by_id(player.sect_id)
+        if not sect:
+            return False, "❌ 宗门信息异常！"
+
+        raw_id = str(war_id or "").strip().lstrip("#")
+        if raw_id:
+            try:
+                target_id = int(raw_id)
+            except ValueError:
+                return False, "❌ 战报编号必须是数字，例如：/宗门战报 3"
+            sql = "SELECT * FROM sect_wars WHERE id = ? AND (attacker_id = ? OR defender_id = ?)"
+            params = (target_id, player.sect_id, player.sect_id)
+        else:
+            sql = (
+                "SELECT * FROM sect_wars WHERE attacker_id = ? OR defender_id = ? "
+                "ORDER BY id DESC LIMIT 1"
+            )
+            params = (player.sect_id, player.sect_id)
+
+        async with self.db.conn.execute(sql, params) as cursor:
+            row = await cursor.fetchone()
+        if not row:
+            return False, "📭 没有找到对应的宗门战报。"
+        war = dict(row)
+
+        attacker = await self.db.ext.get_sect_by_id(war["attacker_id"])
+        defender = await self.db.ext.get_sect_by_id(war["defender_id"])
+        winner = await self.db.ext.get_sect_by_id(war["winner_id"])
+        attacker_name = attacker.sect_name if attacker else "未知宗门"
+        defender_name = defender.sect_name if defender else "未知宗门"
+        winner_name = winner.sect_name if winner else "未知宗门"
+        created = time.strftime("%Y-%m-%d %H:%M", time.localtime(int(war.get("created_at", 0) or 0)))
+
+        lines = [
+            f"⚔️ 宗门战报 #{war['id']}",
+            f"{attacker_name} VS {defender_name}",
+            f"时间：{created}",
+            f"胜者：{winner_name}",
+            f"掠夺灵石：{war.get('gold_taken', 0):,}",
+            "━━━━━━━━━━━━━━━",
+        ]
+        logs = self._parse_json_list(war.get("log_json"))
+        if not logs:
+            lines.append("本场战报没有详细对战记录。")
+        else:
+            for idx, match in enumerate(logs, 1):
+                lines.append(f"{idx}. {match}")
+        return True, "\n".join(lines)
 
     async def _build_combat_stats(self, user_id: str, persist_pets: bool = True):
         from .combat_manager import CombatManager
@@ -978,14 +1063,15 @@ class SectManager:
             result = cm.player_vs_player_balanced(p1, p2)
         else:
             result = cm.player_vs_player(p1, p2)
-        pet_mgr = PetManager(self.db)
-        for stats_item in (p1, p2):
-            pets = []
-            if stats_item.pet:
-                pets.append(stats_item.pet)
-            pets.extend(stats_item.support_pets or [])
-            for pet in pets:
-                await pet_mgr.save_pet_combat_state(pet, commit=persist_pets)
+        if persist_pets:
+            pet_mgr = PetManager(self.db)
+            for stats_item in (p1, p2):
+                pets = []
+                if stats_item.pet:
+                    pets.append(stats_item.pet)
+                pets.extend(stats_item.support_pets or [])
+                for pet in pets:
+                    await pet_mgr.save_pet_combat_state(pet)
         return result
 
     async def finish_due_tournaments(self) -> List[Tuple[str, str]]:
@@ -1017,6 +1103,18 @@ class SectManager:
             await self.db.conn.commit()
             return tournament.get("origin", ""), "⚔️ 宗门大比报名人数不足 2 人，已取消。"
 
+        participant_count = len(entrants)
+        names = {}
+        for uid in entrants:
+            member = await self.db.get_player_by_id(uid)
+            if member:
+                names[uid] = member.user_name or uid
+
+        def display(uid: str) -> str:
+            return names.get(uid, uid)
+
+        title_hooks = TitleHooks(self.db)
+        title_notices = []
         random.shuffle(entrants)
         bracket = []
         round_no = 1
@@ -1028,21 +1126,26 @@ class SectManager:
             while i < len(entrants):
                 if i + 1 >= len(entrants):
                     next_round.append(entrants[i])
-                    round_logs.append(f"{entrants[i]} 轮空")
+                    round_logs.append(f"{display(entrants[i])} 轮空")
                     i += 1
                     continue
                 a, b = entrants[i], entrants[i + 1]
                 result = await self._run_duel(a, b, balanced=True)
                 if not result:
                     next_round.append(a)
-                    round_logs.append(f"{a} 因对手数据异常晋级")
+                    round_logs.append(f"{display(a)} 因对手数据异常晋级")
                     i += 2
                     continue
                 winner = result["winner"]
                 if winner == "平局":
                     winner = random.choice([a, b])
                 next_round.append(winner)
-                round_logs.append(f"{a} vs {b} → {winner}")
+                round_logs.append(f"{display(a)} vs {display(b)} → {display(winner)}")
+                winner_player = await self.db.get_player_by_id(winner)
+                if winner_player:
+                    title_msg = await title_hooks.bump(winner_player, "sect_battle_win", 1)
+                    if title_msg:
+                        title_notices.append(f"{display(winner)}：{title_msg.strip()}")
                 i += 2
             bracket.append({"round": round_no, "matches": round_logs})
             entrants = next_round
@@ -1064,12 +1167,15 @@ class SectManager:
         )
         await self.db.conn.commit()
 
-        await self.add_sect_exp(tournament["sect_id"], 50 * len(entrants) + 500)
+        await self.add_sect_exp(tournament["sect_id"], 50 * participant_count + 500)
         winner = await self.db.get_player_by_id(winner_id)
         winner_name = winner.user_name if winner and winner.user_name else winner_id
+        title_msg = ""
+        if title_notices:
+            title_msg = "\n称号获取：\n" + "\n".join(title_notices)
         return tournament.get("origin", ""), (
             f"🏆 宗门大比结束！\n冠军：{winner_name}\n奖励：10,000 灵石\n"
-            f"共 {len(bracket)} 轮，详细战报已记录。"
+            f"共 {len(bracket)} 轮，详细战报已记录。{title_msg}"
         )
 
     # ===== 宗门战争 =====
@@ -1117,6 +1223,9 @@ class SectManager:
         operator = await self.db.get_player_by_id(user_id)
         if not operator or operator.sect_id == 0:
             return False, "❌ 你还未加入宗门！"
+        busy_msg = await self._idle_guard(user_id, "宣战")
+        if busy_msg:
+            return False, busy_msg
         if operator.sect_position != 0:
             return False, "❌ 只有宗主才能宣战！"
         attacker = await self.db.ext.get_sect_by_id(operator.sect_id)
@@ -1167,7 +1276,13 @@ class SectManager:
                     d_idx += 1
                     continue
                 w = result["winner"]
-                logs.append(f"{a.user_name or a.user_id} vs {d.user_name or d.user_id} → {w}")
+                if w == a.user_id:
+                    winner_name = a.user_name or a.user_id
+                elif w == d.user_id:
+                    winner_name = d.user_name or d.user_id
+                else:
+                    winner_name = "平局"
+                logs.append(f"{a.user_name or a.user_id} vs {d.user_name or d.user_id} → {winner_name}")
                 if w == a.user_id:
                     d_idx += 1
                 elif w == d.user_id:

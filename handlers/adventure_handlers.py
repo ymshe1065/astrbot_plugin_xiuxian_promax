@@ -49,6 +49,8 @@ class AdventureHandlers:
 
     async def handle_abandon_adventure(self, event: AstrMessageEvent):
         """放弃历练"""
+        set_event_flag(event, "adventure_abandon_success", False)
         user_id = event.get_sender_id()
         success, msg = await self.adv_mgr.abandon_adventure(user_id)
+        set_event_flag(event, "adventure_abandon_success", success)
         yield event.plain_result(msg)

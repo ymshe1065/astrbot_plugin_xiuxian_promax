@@ -7,6 +7,9 @@ import json
 if TYPE_CHECKING:
     from .config_manager import ConfigManager
 
+SHIELD_OUTPUT_PENALTY = 0.2
+ARRAY_MASTER_SHIELD_OUTPUT_PENALTY = 0.1
+
 @dataclass
 class Item:
     """装备物品模型"""
@@ -101,8 +104,8 @@ class Player:
     sect_id: int = 0  # 宗门ID（0表示未加入宗门）
     sect_position: int = 4  # 宗门职位：0宗主、1长老、2亲传、3内门、4外门
     sect_contribution: int = 0  # 宗门贡献度
-    sect_task: int = 0  # 宗门任务完成次数
-    sect_elixir_get: int = 0  # 宗门丹药领取标记（0未领取，1已领取）
+    sect_task: int = 0  # 宗门任务累计完成次数
+    sect_elixir_get: int = 0  # 旧版宗门丹药领取标记（兼容旧库，当前玩法未使用）
     sect_debt: int = 0  # 宗门命令欠款（灵石）
 
     # 洞天福地系统
@@ -113,18 +116,24 @@ class Player:
     active_pill_effects: str = "[]"  # 当前生效的临时丹药效果（JSON字符串）
     permanent_pill_gains: str = "{}"  # 永久丹药累积增益（JSON字符串）
     has_resurrection_pill: bool = False  # 是否拥有回生丹效果
+    resurrection_pill_quality: str = "一般"  # 回生丹品质（决定复活后属性保留比例）
     has_debuff_shield: bool = False  # 是否拥有一次负面效果免疫
-    pills_inventory: str = "{}"  # 丹药背包（JSON字符串，格式：{pill_id: count}）
+    pills_inventory: str = "{}"  # 丹药背包（JSON字符串，格式：{"丹药名|品质": count}）
+    learned_recipes: str = "[]"  # 已学习丹方ID（JSON数组）
 
     # 储物戒系统字段
     storage_ring: str = "基础储物戒"  # 当前装备的储物戒名称
-    storage_ring_items: str = "{}"  # 储物戒中的物品（JSON字符串，格式：{item_name: {count, bound}}）
+    storage_ring_items: str = "{}"  # 储物戒中的物品（JSON字符串，格式：{item_name: count}）
+    overflow_items: str = "{}"  # 储物戒满时暂存的溢出物品（JSON字符串，格式：{item_name: count}）
+    equipment_instances: str = "[]"  # 装备实例列表（JSON数组）
+    equipped_instances: str = "{}"  # 已装备实例槽位映射（JSON对象）
 
     # Phase 1: 每日限制系统
     daily_pill_usage: str = "{}"  # 每日丹药使用次数（JSON字符串，格式：{pill_id: count}）
     last_daily_reset: str = ""  # 上次每日重置日期（格式：YYYY-MM-DD）
 
     # 护府令过期时间（Unix时间戳，0表示未开启）
+    shield_start_time: int = 0
     shield_expire_time: int = 0
 
     # 新手引导与转生
@@ -135,10 +144,22 @@ class Player:
 
     # v6.10 功德因果与生活职业
     karma: int = 0  # 功德/业力（正为功德，负为业力）
+    luck: int = 0  # 气运（本体气运，可来自奇遇/称号/词条/符箓）
     life_skill: str = ""  # 生活职业：炼器师/符箓师/阵法师
 
     # v6.16 师徒系统
     virtue_points: int = 0  # 师德点（徒弟突破时获得，可兑换奖励）
+
+    def shield_output_multiplier(self, period_start: int, period_end: int) -> float:
+        """护府大阵生效期间产出系数（按时间重叠比例计算）"""
+        if self.shield_expire_time <= 0 or self.shield_start_time <= 0:
+            return 1.0
+        penalty = ARRAY_MASTER_SHIELD_OUTPUT_PENALTY if self.life_skill == "阵法师" else SHIELD_OUTPUT_PENALTY
+        overlap_start = max(int(period_start), int(self.shield_start_time))
+        overlap_end = min(int(period_end), int(self.shield_expire_time))
+        overlap = max(0, overlap_end - overlap_start)
+        duration = max(1, int(period_end) - int(period_start))
+        return max(1.0 - penalty, 1.0 - penalty * overlap / duration)
 
     def get_level(self, config_manager: "ConfigManager") -> str:
         """获取境界名称"""
@@ -208,6 +229,40 @@ class Player:
     def set_storage_ring_items(self, items: dict):
         """设置储物戒物品"""
         self.storage_ring_items = json.dumps(items, ensure_ascii=False)
+
+    def get_overflow_items(self) -> dict:
+        """获取溢出仓库物品"""
+        try:
+            data = json.loads(self.overflow_items)
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    def set_overflow_items(self, items: dict):
+        """设置溢出仓库物品"""
+        self.overflow_items = json.dumps(items, ensure_ascii=False)
+
+    def get_equipment_instances(self) -> list:
+        """获取装备实例列表"""
+        try:
+            data = json.loads(self.equipment_instances)
+            return data if isinstance(data, list) else []
+        except Exception:
+            return []
+
+    def set_equipment_instances(self, instances: list):
+        self.equipment_instances = json.dumps(instances, ensure_ascii=False)
+
+    def get_equipped_instances(self) -> dict:
+        """获取槽位 -> 实例ID映射"""
+        try:
+            data = json.loads(self.equipped_instances)
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    def set_equipped_instances(self, mapping: dict):
+        self.equipped_instances = json.dumps(mapping, ensure_ascii=False)
 
     def get_total_attributes(self, equipped_items: List[Item], pill_multipliers: Optional[dict] = None) -> dict:
         """计算包含装备加成和丹药效果的总属性"""

@@ -27,12 +27,25 @@ DEFAULT_LOAN_HOLD_FREE_LIMIT = 10000
 class BankManager:
     """灵石银行管理器"""
     
-    def __init__(self, db: DataBase, config: dict = None):
+    def __init__(self, db: DataBase, config: dict = None, config_manager=None):
         self.db = db
         self.config = config or {}
+        self.config_manager = config_manager
         
-        # 从配置读取，使用默认值作为后备
-        bank_config = self.config.get("BANK", {})
+        # 从配置读取，使用默认值作为后备（兼容根键、VALUES 层与 game_config）
+        bank_config = self.config.get("BANK") or (self.config.get("VALUES") or {}).get("BANK") or {}
+        if not bank_config and config_manager is not None:
+            game_bank = (getattr(config_manager, "game_config", {}) or {}).get("bank", {}) or {}
+            bank_config = {
+                "DAILY_INTEREST_RATE": game_bank.get("daily_interest_rate", DEFAULT_DAILY_INTEREST_RATE),
+                "MAX_DEPOSIT": game_bank.get("max_deposit", DEFAULT_MAX_DEPOSIT),
+                "LOAN_INTEREST_RATE": game_bank.get("loan_interest_rate", DEFAULT_LOAN_INTEREST_RATE),
+                "LOAN_DURATION_DAYS": game_bank.get("loan_duration_days", DEFAULT_LOAN_DURATION_DAYS),
+                "MAX_LOAN_AMOUNT": game_bank.get("max_loan_amount", DEFAULT_MAX_LOAN_AMOUNT),
+                "MIN_LOAN_AMOUNT": game_bank.get("min_loan_amount", DEFAULT_MIN_LOAN_AMOUNT),
+                "BREAKTHROUGH_LOAN_RATE": game_bank.get("breakthrough_loan_rate", DEFAULT_BREAKTHROUGH_LOAN_RATE),
+                "BREAKTHROUGH_LOAN_DURATION": game_bank.get("breakthrough_loan_duration", DEFAULT_BREAKTHROUGH_LOAN_DURATION),
+            }
         self.daily_interest_rate = bank_config.get("DAILY_INTEREST_RATE", DEFAULT_DAILY_INTEREST_RATE)
         self.max_deposit = bank_config.get("MAX_DEPOSIT", DEFAULT_MAX_DEPOSIT)
         self.loan_interest_rate = bank_config.get("LOAN_INTEREST_RATE", DEFAULT_LOAN_INTEREST_RATE)
@@ -389,7 +402,11 @@ class BankManager:
                 pay_principal += remainder
 
             remaining = max(0, total_due - pay)
-            status = "closed" if remaining <= 0 else "active"
+            if remaining <= 0:
+                status = "closed"
+            else:
+                # 部分还款不抹除逾期状态，避免变相逃避银行追杀
+                status = "overdue" if loan_info.get("status") == "overdue" else "active"
             new_paid_interest = int(loan_info["paid_interest"]) + pay_interest
             new_paid_principal = int(loan_info["paid_principal"]) + pay_principal
 
@@ -459,13 +476,16 @@ class BankManager:
         for loan in overdue_loans:
             player = await self.db.get_player_by_id(loan["user_id"])
             if not player:
-                await self.db.ext.mark_loan_overdue(loan["id"])
+                await self.db.conn.execute(
+                    "UPDATE bank_loans SET status = 'bad_debt' WHERE id = ?",
+                    (loan["id"],),
+                )
+                await self.db.conn.commit()
                 continue
             
             player_name = player.user_name or f"道友{player.user_id[:6]}"
             
             await self.db.delete_player_cascade(player.user_id)
-            await self.db.ext.mark_loan_overdue(loan["id"])
             
             # 写流水
             now = int(time.time())

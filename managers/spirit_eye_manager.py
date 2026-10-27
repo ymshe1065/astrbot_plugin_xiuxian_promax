@@ -8,6 +8,8 @@ from ..models import Player
 
 __all__ = ["SpiritEyeManager"]
 
+MAX_UNOWNED_EYES = 20
+
 # 灵眼配置
 SPIRIT_EYE_TYPES = {
     1: {"name": "下品灵眼", "exp_per_hour": 500, "spawn_rate": 50},
@@ -44,6 +46,13 @@ class SpiritEyeManager:
     
     async def spawn_spirit_eye(self) -> Tuple[bool, str]:
         """生成新灵眼（定时调用）"""
+        async with self.db.conn.execute(
+            "SELECT COUNT(*) FROM spirit_eyes WHERE owner_id IS NULL OR owner_id = ''"
+        ) as cursor:
+            unowned = (await cursor.fetchone())[0]
+        if unowned >= MAX_UNOWNED_EYES:
+            return False, f"无主灵眼已达上限（{MAX_UNOWNED_EYES}），本次不再生成。"
+
         # 随机生成灵眼类型
         roll = random.randint(1, 100)
         eye_type = 1
@@ -95,14 +104,14 @@ class SpiritEyeManager:
             
             # 抢占
             now = int(time.time())
-            await self.db.conn.execute(
+            cursor = await self.db.conn.execute(
                 """UPDATE spirit_eyes SET owner_id = ?, owner_name = ?, claim_time = ?, last_collect_time = ?
                    WHERE eye_id = ? AND (owner_id IS NULL OR owner_id = '')""",
                 (player.user_id, player.user_name or player.user_id[:8], now, now, eye_id)
             )
             
             # 检查是否真的抢占成功（防止并发）
-            if self.db.conn.total_changes == 0:
+            if cursor.rowcount == 0:
                 await self.db.conn.rollback()
                 return False, "❌ 抢占失败，灵眼已被他人占据。"
             
@@ -161,7 +170,7 @@ class SpiritEyeManager:
         
         await self.db.conn.execute(
             """
-            UPDATE spirit_eyes SET owner_id = NULL, owner_name = NULL, claim_time = NULL
+            UPDATE spirit_eyes SET owner_id = NULL, owner_name = NULL, claim_time = NULL, last_collect_time = NULL
             WHERE owner_id = ?
             """,
             (user_id,)
@@ -188,7 +197,7 @@ class SpiritEyeManager:
         
         if available:
             lines.append("【可抢占的灵眼】")
-            for eye in available[:5]:
+            for eye in available[:10]:
                 lines.append(f"  [{eye['eye_id']}] {eye['eye_name']} (+{eye['exp_per_hour']}/时)")
             lines.append("")
             lines.append("💡 /抢占灵眼 <ID>")

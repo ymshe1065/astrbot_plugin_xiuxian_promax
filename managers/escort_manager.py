@@ -15,15 +15,22 @@ __all__ = ["EscortManager"]
 
 
 class EscortManager:
-    """押镖管理器：押镖期间全服可劫镖，劫镖触发强制PVP（v6.12 平衡版）
-    平衡要点：押镖收益上调；劫镖为公平满血PVP（无先手惩罚）；
-    劫镖有10分钟冷却；劫镖失败赔偿随境界提升；送达获功德+1。"""
+    """押镖管理器：押镖期间全服可劫镖，劫镖触发天道压制PVP（v6.27 平衡版）
+    平衡要点：天道压制拉平修为面板；护镖方气血+10%、平局判守方胜；
+    高出对方2个大境界禁止劫镖；分成/赔偿随境界差动态调整；
+    同一镖主每日最多被劫成功一次；劫镖10分钟冷却；送达获功德+1。"""
 
     ESCORT_DURATION = 1800          # 押镖时长 30 分钟
     MIN_LEVEL = 3                   # 押镖/劫镖最低境界
     ROB_ITEM = "迷神香"             # 劫镖消耗道具
-    ROB_WIN_CUT = 0.3               # 劫镖成功可抢走镖银的 30%
+    ROB_WIN_CUT = 0.3               # 劫镖基础分成 30%
     ROB_COOLDOWN = 600              # 劫镖冷却（秒）
+    ROB_REALM_PROTECT_GAP = 2       # 高出对方 2 个大境界时禁止劫镖
+    ROB_CUT_STEP = 0.03             # 每级境界差调整 3% 分成
+    ROB_CUT_MIN = 0.1               # 劫掠分成下限
+    ROB_CUT_MAX = 0.5               # 劫掠分成上限
+    ROB_COMP_RATE = 0.2             # 失败赔偿至少为镖银的 20%
+    ROB_DEFENDER_HP_BONUS = 0.1     # 护镖方气血加成
 
     def __init__(self, db: DataBase, combat_mgr: CombatManager, storage_ring_mgr, config_manager=None):
         self.db = db
@@ -41,6 +48,33 @@ class EscortManager:
             return await self._social.companion_bonus_async(user_id, perk_type)
         except Exception:
             return 0.0
+
+    @staticmethod
+    def _major_realm_name(level_name: str) -> str:
+        """从境界名提取大境界：炼气期三层 -> 炼气，铜皮境初期 -> 铜皮。"""
+        name = (level_name or "").strip()
+        if not name:
+            return ""
+        for sep in ("境", "期", "体"):
+            if sep in name:
+                return name.split(sep)[0]
+        return name
+
+    def _major_realm_index(self, player: Player) -> int:
+        """计算大境界序号；兼容炼气十层与体修境界名。"""
+        try:
+            level_data = self.config_manager.get_level_data(player.cultivation_type) if self.config_manager else []
+            if not level_data or not (0 <= player.level_index < len(level_data)):
+                return player.level_index
+            realms = []
+            for entry in level_data:
+                base = self._major_realm_name(entry.get("level_name", ""))
+                if not realms or realms[-1] != base:
+                    realms.append(base)
+            base = self._major_realm_name(level_data[player.level_index].get("level_name", ""))
+            return realms.index(base) if base in realms else player.level_index
+        except Exception:
+            return player.level_index
 
     async def start_escort(self, player: Player) -> Tuple[bool, str, Dict]:
         """接镖：进入押镖状态，期间奖励随时间增长，但可被劫"""
@@ -144,7 +178,7 @@ class EscortManager:
         )
 
     async def rob_escort(self, attacker: Player, target_id: str) -> Tuple[bool, str]:
-        """劫镖：消耗迷神香，与押镖人强制PVP，胜者抢走部分镖银"""
+        """劫镖：天道压制 PVP，每日每名镖主最多被劫一次。"""
         if attacker.user_id == target_id:
             return False, "❌ 不能劫自己的镖。"
 
@@ -158,6 +192,28 @@ class EscortManager:
         target_cd = await self.db.ext.get_user_cd(target_id)
         if not target_cd or target_cd.type != UserStatus.DELIVERING:
             return False, "❌ 对方当前没有在押镖！"
+
+        # 每日一劫：同一镖主每天最多被劫成功一次
+        today = time.strftime("%Y-%m-%d")
+        daily_key = f"escort_robbed_{target_id}"
+        daily_record = await self.db.ext.get_system_config(daily_key)
+        if daily_record:
+            parts = daily_record.split("|", 2)
+            if parts and parts[0] == today:
+                robber_name = parts[2] if len(parts) > 2 and parts[2] else "他人"
+                return False, (
+                    f"❌ 【{target.user_name or target_id[:8]}】今日已被【{robber_name}】劫过一次，\n"
+                    "天道规矩：每人每天最多被劫镖一次。"
+                )
+
+        attacker_realm = self._major_realm_index(attacker)
+        target_realm = self._major_realm_index(target)
+        realm_gap = attacker_realm - target_realm
+        if realm_gap >= self.ROB_REALM_PROTECT_GAP:
+            return False, (
+                f"❌ 对方境界远低于你（相差 {realm_gap} 个大境界），\n"
+                "天道不容以大欺小，你无法对其劫镖。"
+            )
 
         if not self.storage_ring_mgr.has_item(attacker, self.ROB_ITEM, 1):
             return False, f"❌ 劫镖需要消耗【{self.ROB_ITEM}】x1，你的储物戒里没有。"
@@ -194,10 +250,21 @@ class EscortManager:
             stats_item.atk = atk
             stats_item.pet = main_pet
             stats_item.support_pets = support_pets
-            stats_item.effects = pet_effects
+            merged_effects = dict(stats_item.effects or {})
+            for key, value in (pet_effects or {}).items():
+                if isinstance(value, (int, float)):
+                    merged_effects[key] = merged_effects.get(key, 0) + value
+                else:
+                    merged_effects[key] = value
+            stats_item.effects = merged_effects
 
-        # v6.12 平衡：公平满血对决，劫镖方不再享有先手压制
-        result = self.combat_mgr.player_vs_player(attacker_stats, target_stats, combat_type=2)
+        # 天道压制：拉平修为面板，护镖方获得气血加成，平局判护镖方守住
+        result = self.combat_mgr.player_vs_player_balanced(
+            attacker_stats,
+            target_stats,
+            player2_hp_bonus=self.ROB_DEFENDER_HP_BONUS,
+            draw_to_player2=True,
+        )
 
         for stats_item in (attacker_stats, target_stats):
             pets = []
@@ -212,35 +279,105 @@ class EscortManager:
 
         log = "\n".join(result["combat_log"][-8:])  # 只展示最后8行战报，防刷屏
 
+        level_diff = attacker.level_index - target.level_index
+        if level_diff > 0:
+            cut = max(
+                self.ROB_CUT_MIN,
+                self.ROB_WIN_CUT - self.ROB_CUT_STEP * level_diff,
+            )
+        else:
+            cut = min(
+                self.ROB_CUT_MAX,
+                self.ROB_WIN_CUT + self.ROB_CUT_STEP * (-level_diff),
+            )
+        cut_pct = int(round(cut * 100))
+
         if result["winner"] == attacker.user_id:
-            robbed = int(escort_gold * self.ROB_WIN_CUT)
-            extra["escort_gold"] = escort_gold - robbed
-            target_cd.extra_data = json.dumps(extra, ensure_ascii=False)
-            await self.db.ext.update_user_cd(target_cd)
+            # 事务内重新校验目标仍处于押镖状态，避免目标恰好完成/放弃时
+            # 用旧的 UserCd 整行回写把已完成状态“复活”。
+            robbed = 0
+            await self.db.conn.execute("BEGIN IMMEDIATE")
+            try:
+                async with self.db.conn.execute(
+                    "SELECT type, extra_data FROM user_cd WHERE user_id = ?", (target_id,)
+                ) as cursor:
+                    row = await cursor.fetchone()
+                if not row or int(row["type"] or 0) != int(UserStatus.DELIVERING):
+                    await self.db.conn.rollback()
+                    await self.db.ext.set_system_config(cd_key, "0")
+                    await self.storage_ring_mgr.store_item(attacker, self.ROB_ITEM, 1, silent=True)
+                    return True, (
+                        f"{log}\n\n"
+                        "⚠️ 目标已结束押镖，本次劫镖取消。\n"
+                        f"【{self.ROB_ITEM}】已退回，劫镖冷却已清除。"
+                    )
+                try:
+                    fresh_extra = json.loads(row["extra_data"] or "{}")
+                except Exception:
+                    fresh_extra = {}
+                fresh_gold = int(fresh_extra.get("escort_gold", escort_gold))
+                robbed = max(1, int(fresh_gold * cut))
+                fresh_extra["escort_gold"] = max(0, fresh_gold - robbed)
+                cursor = await self.db.conn.execute(
+                    "UPDATE user_cd SET extra_data = ? WHERE user_id = ? AND type = ?",
+                    (json.dumps(fresh_extra, ensure_ascii=False), target_id, UserStatus.DELIVERING),
+                )
+                if cursor.rowcount == 0:
+                    await self.db.conn.rollback()
+                    await self.db.ext.set_system_config(cd_key, "0")
+                    await self.storage_ring_mgr.store_item(attacker, self.ROB_ITEM, 1, silent=True)
+                    return True, (
+                        f"{log}\n\n"
+                        "⚠️ 目标押镖状态已变化，本次劫镖取消。\n"
+                        f"【{self.ROB_ITEM}】已退回，劫镖冷却已清除。"
+                    )
+                await self.db.add_player_gold(attacker.user_id, robbed, commit=False)
+                await self.db.conn.commit()
+            except Exception:
+                await self.db.conn.rollback()
+                raise
 
             attacker.gold += robbed
             attacker.karma = (getattr(attacker, "karma", 0) or 0) - 1  # 劫镖为恶行，增加业力
-            await self.db.update_player(attacker)
+            await self.db.update_player_fields(attacker.user_id, karma=attacker.karma)
+            await self.db.ext.set_system_config(
+                daily_key,
+                f"{today}|{attacker.user_id}|{attacker.user_name or attacker.user_id[:8]}",
+            )
 
             return True, (
                 f"{log}\n\n"
                 f"⚔️ 劫镖成功！\n"
                 f"━━━━━━━━━━━━━━━\n"
                 f"你从【{target.user_name or target_id[:8]}】的镖车上抢走 {robbed:,} 灵石！\n"
-                f"🌑 劫镖为恶行，业力 +1；劫镖调息 10 分钟"
+                f"📜 本次分成：{cut_pct}%（境界差 {level_diff:+d}）\n"
+                f"🌑 劫镖为恶行，业力 +1；劫镖调息 10 分钟\n"
+                f"🛡️ 该镖主今日已被劫，今日内不会再被其他人劫镖"
             )
         else:
-            # 劫镖失败：赔偿押镖人（随境界提升）
-            compensation = 2000 + attacker.level_index * 200
-            await self.db.add_player_gold(attacker.user_id, -compensation)
-            attacker.gold = max(0, attacker.gold - compensation)
-            await self.db.add_player_gold(target.user_id, compensation)
-            target.gold += compensation
+            # 劫镖失败：赔偿押镖人，境界差越大惩罚越重
+            base_comp = max(
+                2000 + attacker.level_index * 200,
+                int(escort_gold * self.ROB_COMP_RATE),
+            )
+            if level_diff > 0:
+                compensation = int(base_comp * (1 + 0.25 * level_diff))
+            elif level_diff < 0:
+                compensation = int(base_comp * max(0.5, 1 + 0.08 * level_diff))
+            else:
+                compensation = base_comp
 
+            paid = min(compensation, max(0, attacker.gold))
+            await self.db.add_player_gold(attacker.user_id, -paid)
+            attacker.gold = max(0, attacker.gold - paid)
+            await self.db.add_player_gold(target.user_id, paid)
+            target.gold += paid
+
+            reason = "双方势均力敌，护镖人守住了镖车" if result.get("draw") else "你被护镖人击退"
             return True, (
                 f"{log}\n\n"
                 f"💀 劫镖失败！\n"
                 f"━━━━━━━━━━━━━━━\n"
-                f"你被护镖人反杀，赔偿 {compensation:,} 灵石给对方。\n"
-                f"❗ 劫镖调息 10 分钟"
+                f"{reason}，赔偿 {paid:,} 灵石给对方。\n"
+                f"📜 境界差 {level_diff:+d}；劫镖调息 10 分钟"
             )

@@ -12,7 +12,7 @@ except ImportError:
     logger = logging.getLogger("xiuxian.misc_handler")
 
 from ..utils.static_pages import build_help_text
-from .utils import player_required, with_player_lock
+from .utils import player_required, with_player_lock, set_event_flag
 
 __all__ = ["MiscHandler"]
 
@@ -66,6 +66,7 @@ class MiscHandler:
     @with_player_lock
     async def handle_force_unlock(self, event: AstrMessageEvent):
         """强制解卡（不走忙碌状态拦截，保证任何时候都能自救）"""
+        set_event_flag(event, "unlock_success", False)
         player = await self.db.get_player_by_id(event.get_sender_id())
         if not player:
             yield event.plain_result("道友尚未踏入仙途，请发送「我要修仙」开启你的旅程。")
@@ -86,13 +87,7 @@ class MiscHandler:
         player.cultivation_start_time = 0
         await self.db.update_player(player)
         
-        # 3. 暴力清理：取消正在进行中的赠予
-        try:
-            await self.db.conn.execute("DELETE FROM pending_gifts WHERE sender_id = ? OR receiver_id = ?", (player.user_id, player.user_id))
-            await self.db.conn.commit()
-        except:
-            pass
-
+        set_event_flag(event, "unlock_success", True)
         yield event.plain_result(
             "🔓 状态已强制重置！\n"
             "━━━━━━━━━━━━━━━\n"

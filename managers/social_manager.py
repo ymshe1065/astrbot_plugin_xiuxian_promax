@@ -17,30 +17,35 @@ SPIRIT_COMPANIONS = {
         "desc": "青丘丹谷传人，温婉聪慧，精于丹道。",
         "perk": "炼丹成功率 +5%",
         "perk_type": "alchemy",       # 炼丹
+        "bonus_max": 0.05,
     },
     "白芷": {
         "title": "剑冢侍剑",
         "desc": "剑冢守剑人，冷若冰霜，剑意冲霄。",
-        "perk": "历练修为收益 +8%",
+        "perk": "历练修为收益 +8%（满级）",
         "perk_type": "adventure",     # 历练
+        "bonus_max": 0.08,
     },
     "绯烟": {
         "title": "镖行大小姐",
         "desc": "天下镖行独女，飒爽仗义，交游广阔。",
-        "perk": "押镖镖银 +12%",
+        "perk": "押镖镖银 +12%（满级）",
         "perk_type": "escort",        # 押镖
+        "bonus_max": 0.12,
     },
     "玄霜": {
         "title": "北冥散人",
         "desc": "北冥之滨的神秘散修，闭关千年，道行深不可测。",
-        "perk": "闭关修为 +6%",
+        "perk": "闭关修为 +6%（满级）",
         "perk_type": "cultivate",     # 闭关
+        "bonus_max": 0.06,
     },
     "灵汐": {
         "title": "灵兽谷少主",
         "desc": "灵兽谷少主，通兽语，怀中总趴着一只雪貂。",
-        "perk": "灵兽协战概率 +5%",
+        "perk": "灵兽战斗属性 +10%（满级）",
         "perk_type": "pet",           # 灵兽
+        "bonus_max": 0.10,
     },
 }
 
@@ -69,6 +74,17 @@ class SocialManager:
                 return dict(row)
             return None
 
+    async def has_blessed_land(self, user_id: str) -> bool:
+        async with self.db.conn.execute(
+            "SELECT 1 FROM blessed_lands WHERE user_id = ? LIMIT 1", (user_id,)
+        ) as cursor:
+            return await cursor.fetchone() is not None
+
+    async def require_blessed_land(self, user_id: str) -> Tuple[bool, str]:
+        if await self.has_blessed_land(user_id):
+            return True, ""
+        return False, "❌ 仙灵需栖息于洞天。请先使用 /购买洞天 1 开辟洞天，再与仙灵结缘。"
+
     async def list_companions(self) -> str:
         lines = ["💍 仙灵结缘", "━━━━━━━━━━━━━━━"]
         for name, c in SPIRIT_COMPANIONS.items():
@@ -77,8 +93,8 @@ class SocialManager:
             lines.append(f"  缘加成：{c['perk']}")
         lines.append("━━━━━━━━━━━━━━━")
         lines.append(
-            f"结缘条件：境界≥{COMPANION_MIN_LEVEL}，{COMPANION_COST:,} 灵石，且无真人双修请求进行中\n"
-            "💡 /仙灵结缘 <名字> 结缘 · /仙灵共修 每日培养 · /仙灵解除 解缘"
+            f"结缘条件：拥有洞天，境界≥{COMPANION_MIN_LEVEL}，{COMPANION_COST:,} 灵石，且无真人双修请求进行中\n"
+            "💡 仙灵栖息于洞天：结缘/共修/代收均需洞天 · /仙灵解除 解缘"
         )
         return "\n".join(lines)
 
@@ -93,6 +109,9 @@ class SocialManager:
         if existing:
             old_name = SPIRIT_COMPANIONS.get(existing["npc_id"], {}).get("title", existing["npc_id"])
             return False, f"❌ 你已与【{existing['npc_id']}】（{old_name}）结缘。先 /仙灵解除 再结新缘。"
+        land_ok, land_msg = await self.require_blessed_land(player.user_id)
+        if not land_ok:
+            return False, land_msg
         # 与真人双修互斥：有待处理的双修请求（作为发起者）时不可结缘
         async with self.db.conn.execute(
             "SELECT COUNT(*) FROM dual_cultivation_requests WHERE from_id = ?", (player.user_id,)
@@ -126,6 +145,9 @@ class SocialManager:
         comp = await self.get_companion(player.user_id)
         if not comp:
             return False, "❌ 你还没有仙灵道侣。发送 /仙灵结缘 查看名单。"
+        land_ok, land_msg = await self.require_blessed_land(player.user_id)
+        if not land_ok:
+            return False, land_msg.replace("结缘", "共修")
         now = int(time.time())
         last = comp["daily_time"]
         if now - last < 86400 and time.strftime("%Y-%m-%d", time.localtime(last)) == time.strftime("%Y-%m-%d"):
@@ -197,6 +219,8 @@ class SocialManager:
             return False, f"❌ 洞天暂无余粮（收取冷却 {remaining // 60} 分钟）。仙灵说：刚收过啦，无物可代收～"
 
         hours = min(24, int(hours_passed))
+        credit_start = max(land["last_collect_time"], now - hours * 3600)
+        output_mult = player.shield_output_multiplier(credit_start, now)
         gold_income = land["gold_per_hour"] * hours
         # 灵泉假山加成
         try:
@@ -205,6 +229,7 @@ class SocialManager:
                 gold_income = int(gold_income * 1.10)
         except Exception:
             pass
+        gold_income = int(gold_income * output_mult)
 
         spirit_cut = int(gold_income * 0.20)
         player_cut = gold_income - spirit_cut
@@ -222,13 +247,18 @@ class SocialManager:
         await self.db.conn.commit()
 
         cfg = SPIRIT_COMPANIONS.get(comp["npc_id"], {})
+        shield_note = ""
+        if output_mult < 1.0:
+            penalty_pct = 10 if getattr(player, "life_skill", "") == "阵法师" else 20
+            shield_note = f"\n⚠️ 护府大阵生效期间，代收灵石按 -{penalty_pct}% 折算"
         return True, (
             f"🏔️【仙灵代收】\n"
             f"━━━━━━━━━━━━━━━\n"
             f"道侣【{comp['npc_id']}】（{cfg.get('title', '')}）代你巡视洞天，\n"
             f"收得闲置产出 {hours} 小时：\n"
             f"💰 灵石：+{player_cut:,}（仙灵情谊分成 {spirit_cut:,}）\n"
-            f"💞 消耗情缘 1 点（剩余 {comp['bond'] - 1}）\n"
+            f"💞 消耗情缘 1 点（剩余 {comp['bond'] - 1}）"
+            f"{shield_note}\n"
             f"━━━━━━━━━━━━━━━\n"
             f"💡 洞天已重新计时，/洞天收取 正常收取不受影响"
         )
@@ -246,8 +276,11 @@ class SocialManager:
         if cfg.get("perk_type") != perk_type:
             return 0.0
         level = min(MAX_COMPANION_LEVEL, comp["bond"] // BOND_PER_LEVEL + 1)
-        # 基础 5%，每级 +0.5%
-        return 0.05 + (level - 1) * 0.005
+        base = 0.05
+        cap = float(cfg.get("bonus_max", base) or base)
+        if cap <= base:
+            return base
+        return base + (cap - base) * (level - 1) / max(1, MAX_COMPANION_LEVEL - 1)
 
     # ================= 师徒系统 =================
 
@@ -404,15 +437,23 @@ class SocialManager:
             return False, f"❌ 师德点不足！需要 {goods['cost']}，当前 {vp}。\n💡 收徒并等弟子 /突破 即可累积师德。"
         if goods["type"] == "item" and not getattr(player, "_storage_ref", None):
             pass  # 储物戒由 handler 层传入处理
-        player.virtue_points = vp - goods["cost"]
         if goods["type"] == "title":
-            if player.title and "传道真人" in player.title:
+            from .title_manager import TitleManager
+            tm = TitleManager(self.db)
+            title_name = goods["title"]
+            if tm.has_title(player, title_name):
                 return False, "❌ 你已拥有该称号。"
-            if player.title and player.title != "传道真人":
-                player.title = f"{player.title}·传道真人"  # 追加而非覆盖，保留原称号
-            else:
-                player.title = "传道真人"
+            player.virtue_points = vp - goods["cost"]
+            is_new, title_msg = tm.grant(player, title_name)
+            if not is_new:
+                return False, "❌ 称号授予失败，请稍后再试。"
+            if not player.title:
+                player.title = title_name
             await self.db.update_player(player)
-            return True, f"🏅 兑换成功！获得称号【传道真人】（消耗师德 {goods['cost']}，剩余 {player.virtue_points}）"
+            return True, (
+                f"🏅 兑换成功！{title_msg.strip()}\n"
+                f"消耗师德 {goods['cost']}，剩余 {player.virtue_points}"
+            )
+        player.virtue_points = vp - goods["cost"]
         await self.db.update_player(player)
         return True, f"__NEED_STORE__{goods['item']}|{goods['count']}|兑换【{goods['name']}】成功（消耗师德 {goods['cost']}，剩余 {player.virtue_points}）"

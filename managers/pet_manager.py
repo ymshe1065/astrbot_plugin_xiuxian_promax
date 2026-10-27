@@ -123,6 +123,55 @@ class PetManager:
                 pets.setdefault(pet["user_id"], pet)
         return pets
 
+    async def get_all_pets_grouped(self) -> Dict[str, List[Dict]]:
+        """按玩家分组返回全部灵兽，供名片/战力榜统计辅助灵兽。"""
+        result: Dict[str, List[Dict]] = {}
+        async with self.db.conn.execute(
+            "SELECT * FROM player_pets ORDER BY user_id, is_main DESC, slot ASC, id ASC"
+        ) as cursor:
+            async for row in cursor:
+                pet = dict(row)
+                result.setdefault(pet["user_id"], []).append(pet)
+        return result
+
+    def summarize_lineup(
+        self,
+        player: Player,
+        pets: List[Dict],
+        owner_hp: int,
+        owner_atk: int,
+        owner_def: int,
+        cultivation_type: str,
+    ):
+        """非战斗展示用：返回 (主人攻击, 灵兽合计攻击, 主战特效, 防御加成)。"""
+        if not pets:
+            return int(owner_atk), 0, {}, 0
+        slots = max(1, self.get_pet_slots(player))
+        main = next((p for p in pets if int(p.get("is_main") or 0) == 1), None)
+        ordered = ([main] if main else []) + [p for p in pets if p is not main]
+        ordered = ordered[:slots]
+
+        states = []
+        for pet in ordered:
+            if int(pet.get("dead_until") or 0) > int(time.time()):
+                continue
+            stats = self.get_pet_stats(pet, owner_hp, owner_atk, owner_def)
+            states.append((pet, stats))
+        if not states:
+            return int(owner_atk), 0, {}, 0
+
+        pet_atk_mult = 1.0
+        if cultivation_type == "御兽":
+            count = len(states)
+            pet_atk_mult = 1 + 0.05 * (count - 1)
+            owner_atk = int(owner_atk * (1 + 0.03 * (count - 1)))
+
+        total_pet_atk = sum(int(stats["atk"] * pet_atk_mult) for _, stats in states)
+        main_pet = next((pet for pet, _ in states if int(pet.get("is_main") or 0) == 1), states[0][0])
+        effects = self.get_pet_combat_effects(main_pet)
+        defense_bonus = int(effects.get("defense_bonus", 0) or 0)
+        return int(owner_atk), total_pet_atk, effects, defense_bonus
+
     async def get_max_pet_level(self, user_id: str) -> int:
         async with self.db.conn.execute(
             "SELECT MAX(level) FROM player_pets WHERE user_id = ?", (user_id,)
@@ -643,6 +692,17 @@ class PetManager:
         if not pets:
             return None, [], {}, owner_atk
 
+        # 出战数量不得超过当前境界槽位；超过时优先保留主战灵兽。
+        player = await self.db.get_player_by_id(user_id)
+        if player:
+            slots = max(1, self.get_pet_slots(player))
+            if len(pets) > slots:
+                main_pet = next((p for p in pets if int(p.get("is_main") or 0) == 1), None)
+                ordered = ([main_pet] if main_pet else []) + [
+                    p for p in pets if p is not main_pet
+                ]
+                pets = ordered[:slots]
+
         revive_mult = 0.7 if cultivation_type == "御兽" else 1.0
         states = []
         for pet in pets:
@@ -654,6 +714,19 @@ class PetManager:
                 states.append((pet, state))
         if not states:
             return None, [], {}, owner_atk
+
+        pet_bonus = 0.0
+        try:
+            from .social_manager import SocialManager
+            pet_bonus = await SocialManager(self.db).companion_bonus_async(user_id, "pet")
+        except Exception:
+            pet_bonus = 0.0
+        if pet_bonus > 0:
+            for _, state in states:
+                state.max_hp = max(1, int(state.max_hp * (1 + pet_bonus)))
+                state.hp = min(state.max_hp, max(1, int(state.hp * (1 + pet_bonus))))
+                state.atk = max(1, int(state.atk * (1 + pet_bonus)))
+                state.defense = max(0, int(state.defense * (1 + pet_bonus)))
 
         if cultivation_type == "御兽":
             count = len(states)

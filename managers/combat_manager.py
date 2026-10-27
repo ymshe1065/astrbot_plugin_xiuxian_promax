@@ -108,19 +108,66 @@ class CombatManager:
 
     @staticmethod
     def calculate_equipment_bonus(player, config_manager) -> Dict:
-        """计算武器/防具对战斗面板的加成（与实战 _calculate_equipment_bonus 一致）"""
+        """计算武器/防具对战斗面板的加成，兼容两套装备配置与装备实例品质。"""
         bonus = {"atk": 0, "defense": 0}
-        if player.weapon and player.weapon in config_manager.weapons_data:
-            data = config_manager.weapons_data[player.weapon]
-            bonus["atk"] += (
+        if not config_manager:
+            return bonus
+        weapons_data = getattr(config_manager, "weapons_data", {}) or {}
+        items_data = getattr(config_manager, "items_data", {}) or {}
+        try:
+            from ..core.item_instance_manager import ItemInstanceManager
+            im = ItemInstanceManager(None, config_manager)
+        except Exception:
+            im = None
+
+        def quality_mult(slot):
+            if not im:
+                return 1.0
+            inst = im.get_instance(player, player.get_equipped_instances().get(slot, 0))
+            return im.quality_multiplier(inst.get("quality", "一般")) if inst else 1.0
+
+        if player.weapon:
+            data = weapons_data.get(player.weapon) or items_data.get(player.weapon) or {}
+            bonus["atk"] += int((
                 data.get("atk", 0)
                 + data.get("physical_damage", 0)
                 + data.get("magic_damage", 0)
-            )
-        if player.armor and player.armor in config_manager.items_data:
-            data = config_manager.items_data[player.armor]
-            bonus["defense"] += data.get("physical_defense", 0)
+            ) * quality_mult("weapon"))
+        if player.armor:
+            data = items_data.get(player.armor) or weapons_data.get(player.armor) or {}
+            bonus["defense"] += int((
+                data.get("physical_defense", 0)
+                + data.get("magic_defense", 0)
+            ) * quality_mult("armor"))
         return bonus
+
+    @staticmethod
+    def get_permanent_bonus_data(player) -> dict:
+        try:
+            import json
+            data = json.loads(player.permanent_bonus) if player.permanent_bonus else {}
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    @staticmethod
+    def get_title_combat_bonus(player) -> dict:
+        """读取当前最高品阶称号的战斗加成（不依赖数据库写入）。"""
+        try:
+            from .title_manager import TitleManager
+            return TitleManager(None).get_active_bonus(player) or {}
+        except Exception:
+            return {}
+
+    @staticmethod
+    def get_forge_multiplier(player) -> float:
+        """炼器等级：每级 +2% 攻击/防御，最高 +15 级。"""
+        data = CombatManager.get_permanent_bonus_data(player)
+        try:
+            level = max(0, min(15, int(data.get("forge_level", 0) or 0)))
+        except (TypeError, ValueError):
+            level = 0
+        return 1.0 + level * 0.02
 
     @staticmethod
     def build_combat_panel(
@@ -133,6 +180,12 @@ class CombatManager:
         """构建与实战一致的气血/灵气/攻击/防御/暴击面板。"""
         pill_multipliers = pill_multipliers or {}
         effects = effects or {}
+        try:
+            from .talisman_manager import TalismanManager
+            for key, value in TalismanManager.collect_active_combat_effects(player).items():
+                effects[key] = effects.get(key, 0) + value
+        except Exception:
+            pass
 
         hp_buff = impart_info.impart_hp_per if impart_info else 0.0
         mp_buff = impart_info.impart_mp_per if impart_info else 0.0
@@ -166,6 +219,16 @@ class CombatManager:
             )
         ) + int(effects.get("defense_bonus", 0))
 
+        title = CombatManager.get_title_combat_bonus(player)
+        atk += int(title.get("atk", 0) or 0) + int(title.get("magic", 0) or 0)
+        defense += int(title.get("phys_def", 0) or 0) + int(title.get("magic_def", 0) or 0)
+        effects["crit_rate"] = effects.get("crit_rate", 0) + int(title.get("crit", 0) or 0)
+        effects["lifesteal"] = effects.get("lifesteal", 0) + int(title.get("lifesteal", 0) or 0)
+
+        forge_mult = CombatManager.get_forge_multiplier(player)
+        atk = int(atk * forge_mult)
+        defense = int(defense * forge_mult)
+
         return {
             "hp": hp, "max_hp": hp,
             "mp": mp, "max_mp": mp,
@@ -190,14 +253,15 @@ class CombatManager:
             "magic_damage_multiplier": 1.0,
         }
         techniques_data = getattr(config_manager, "techniques_data", {}) or {}
+        items_data = getattr(config_manager, "items_data", {}) or {}
         for tech_name in player.get_techniques_list():
-            tech_config = techniques_data.get(tech_name)
+            tech_config = techniques_data.get(tech_name) or items_data.get(tech_name)
             if tech_config and "effects" in tech_config:
                 for key, value in tech_config["effects"].items():
                     if key in effects:
                         effects[key] += value
         if player.main_technique:
-            main_config = techniques_data.get(player.main_technique)
+            main_config = techniques_data.get(player.main_technique) or items_data.get(player.main_technique)
             if main_config and "effects" in main_config:
                 for key, value in main_config["effects"].items():
                     if key in effects:
@@ -212,7 +276,6 @@ class CombatManager:
                     effects[key] += value
         except Exception:
             pass
-        items_data = getattr(config_manager, "items_data", {}) or {}
         weapons_data = getattr(config_manager, "weapons_data", {}) or {}
         if player.weapon:
             weapon_config = weapons_data.get(player.weapon) or items_data.get(player.weapon)
@@ -226,6 +289,21 @@ class CombatManager:
                 for key, value in armor_config["effects"].items():
                     if key in effects:
                         effects[key] += value
+
+        try:
+            from ..core.item_instance_manager import ItemInstanceManager
+            im = ItemInstanceManager(None, config_manager)
+            for instance_id in player.get_equipped_instances().values():
+                inst = im.get_instance(player, instance_id)
+                if not inst:
+                    continue
+                for affix in inst.get("affixes", []) or []:
+                    key = affix.get("key")
+                    value = affix.get("value", 0)
+                    if key in effects:
+                        effects[key] += value
+        except Exception:
+            pass
         return effects
 
     @classmethod
@@ -240,8 +318,9 @@ class CombatManager:
         crit_rate: int = 0,
         extra_effects: Optional[dict] = None,
         element: Optional[str] = None,
+        pill_multipliers: Optional[dict] = None,
     ) -> "CombatStats":
-        """统一构建玩家战斗属性，确保所有战斗入口读取装备与词条。"""
+        """统一构建玩家战斗属性，确保所有战斗入口读取装备、词条与丹药。"""
         hp, mp = cls.calculate_hp_mp(player.experience, hp_buff, mp_buff)
         atk = cls.calculate_atk(
             player.experience,
@@ -257,12 +336,27 @@ class CombatManager:
         if config_manager is not None:
             equip = cls.calculate_equipment_bonus(player, config_manager)
             effects = cls.collect_combat_effects(player, config_manager)
+        if pill_multipliers is None and config_manager is not None:
+            try:
+                from ..core.pill_manager import PillManager
+                pill_multipliers = PillManager(db, config_manager).calculate_pill_attribute_effects(player)
+            except Exception:
+                pill_multipliers = {}
+        pill_multipliers = pill_multipliers or {}
         if extra_effects:
             for key, value in extra_effects.items():
                 if isinstance(value, (int, float)):
                     effects[key] = effects.get(key, 0) + value
                 else:
                     effects[key] = value
+
+        # 符箓效果：暴击/吸血/反击/闪避等
+        try:
+            from .talisman_manager import TalismanManager
+            for key, value in TalismanManager.collect_active_combat_effects(player).items():
+                effects[key] = effects.get(key, 0) + value
+        except Exception:
+            pass
 
         if element is None and config_manager is not None:
             try:
@@ -278,7 +372,28 @@ class CombatManager:
                 or cls.get_element_from_name(player.weapon)
             )
 
-        defense = int(equip.get("defense", 0)) + int(effects.get("defense_bonus", 0))
+        dmg_mult = max(
+            float(pill_multipliers.get("physical_damage", 1.0) or 1.0),
+            float(pill_multipliers.get("magic_damage", 1.0) or 1.0),
+        )
+        def_mult = max(
+            float(pill_multipliers.get("physical_defense", 1.0) or 1.0),
+            float(pill_multipliers.get("magic_defense", 1.0) or 1.0),
+        )
+        hp = int(hp * dmg_mult)
+        defense = int(int(equip.get("defense", 0)) * def_mult) + int(effects.get("defense_bonus", 0))
+        final_atk = int(int(atk) * dmg_mult) + int(equip.get("atk", 0))
+
+        title = cls.get_title_combat_bonus(player)
+        final_atk += int(title.get("atk", 0) or 0) + int(title.get("magic", 0) or 0)
+        defense += int(title.get("phys_def", 0) or 0) + int(title.get("magic_def", 0) or 0)
+        effects["crit_rate"] = effects.get("crit_rate", 0) + int(title.get("crit", 0) or 0)
+        effects["lifesteal"] = effects.get("lifesteal", 0) + int(title.get("lifesteal", 0) or 0)
+
+        forge_mult = cls.get_forge_multiplier(player)
+        final_atk = int(final_atk * forge_mult)
+        defense = int(defense * forge_mult)
+
         return CombatStats(
             user_id=player.user_id,
             name=player.user_name or player.user_id,
@@ -286,7 +401,7 @@ class CombatManager:
             max_hp=hp,
             mp=mp,
             max_mp=mp,
-            atk=int(atk) + int(equip.get("atk", 0)),
+            atk=final_atk,
             defense=defense,
             crit_rate=int(crit_rate or 0),
             exp=player.experience,
@@ -322,7 +437,16 @@ class CombatManager:
         """执行一次攻击，返回 (最终伤害, 战斗日志列表, 吸血量)"""
         logs = []
         effects = attacker.effects or {}
-        
+        defender_effects = defender.effects or {}
+
+        # 0. 闪避（符箓/词条）
+        try:
+            dodge = min(60.0, float(defender_effects.get("dodge", 0) or 0))
+        except (TypeError, ValueError):
+            dodge = 0.0
+        if dodge > 0 and random.randint(1, 100) <= dodge:
+            return 0, [f"{defender.name} 身形一闪，避开了攻击"], 0
+
         # 1. 基础伤害
         damage = int(round(random.uniform(0.95, 1.05), 2) * attacker.atk)
 
@@ -546,14 +670,24 @@ class CombatManager:
         }
 
     @classmethod
-    def player_vs_player_balanced(cls, player1: CombatStats, player2: CombatStats) -> Dict:
-        """天道压制 PVP（强制拉平基础属性，限5回合）"""
+    def player_vs_player_balanced(
+        cls,
+        player1: CombatStats,
+        player2: CombatStats,
+        player2_hp_bonus: float = 0.0,
+        draw_to_player2: bool = False,
+    ) -> Dict:
+        """天道压制 PVP（强制拉平基础属性，限5回合）
+
+        player2_hp_bonus：守方气血加成，用于押镖等防守方场景。
+        draw_to_player2：5回合未分胜负时，将平局判给守方。
+        """
         p1_orig_hp, p1_orig_atk = player1.hp, player1.atk
         p2_orig_hp, p2_orig_atk = player2.hp, player2.atk
         
-        # 强制拉平基础属性 (HP 锁定 10000)
+        # 强制拉平基础属性 (HP 锁定 10000，守方可获得护镖气血加成)
         player1.hp = player1.max_hp = 10000
-        player2.hp = player2.max_hp = 10000
+        player2.hp = player2.max_hp = int(10000 * (1 + max(0.0, player2_hp_bonus)))
         
         # 攻击力压制 (基础500，并且只保留原装备/词条 20% 的纯附加值优势)
         p1_atk_bonus = max(0, p1_orig_atk - (p1_orig_hp * 0.1))
@@ -580,8 +714,12 @@ class CombatManager:
             f"⚖️ 【天道压制】双方基础属性已被强制拉平！",
             f"（但保留了功法、装备、灵兽的特殊加成）",
             f"{player1.name} (ATK {player1.atk}) VS {player2.name} (ATK {player2.atk})",
-            ""
         ]
+        if player2_hp_bonus > 0:
+            combat_log.append(
+                f"🛡️ {player2.name} 护镖加持，气血 +{int(player2_hp_bonus * 100)}%！"
+            )
+        combat_log.append("")
         
         round_num = 0
         while player1.hp > 0 and player2.hp > 0 and round_num < 5:  # ★ 修改：最多5回合
@@ -620,17 +758,28 @@ class CombatManager:
                 
             combat_log.append("")
         
-        # ★ 修改：判定胜负逻辑
+        # ★ 修改：判定胜负逻辑（打满回合按剩余血量百分比判定）
+        was_draw = False
         if player2.hp <= 0 and player1.hp > 0:
             winner = player1.user_id
         elif player1.hp <= 0 and player2.hp > 0:
             winner = player2.user_id
         elif player1.hp <= 0 and player2.hp <= 0:
             winner = "平局"
+            was_draw = True
         else:
-            if player1.hp > player2.hp: winner = player1.user_id
-            elif player2.hp > player1.hp: winner = player2.user_id
-            else: winner = "平局"
+            p1_ratio = player1.hp / player1.max_hp if player1.max_hp > 0 else 0
+            p2_ratio = player2.hp / player2.max_hp if player2.max_hp > 0 else 0
+            if p1_ratio > p2_ratio:
+                winner = player1.user_id
+            elif p2_ratio > p1_ratio:
+                winner = player2.user_id
+            else:
+                winner = "平局"
+                was_draw = True
+
+        if was_draw and draw_to_player2:
+            winner = player2.user_id
 
         combat_log = cls._shorten_combat_log(
             combat_log, round_num, winner, player1, player2
@@ -639,6 +788,7 @@ class CombatManager:
             "winner": winner, 
             "combat_log": combat_log, 
             "rounds": round_num,
+            "draw": was_draw,
             "player1_final_hp": 1, "player1_final_mp": 1,
             "player2_final_hp": 1, "player2_final_mp": 1,
             "player1_real_hp": max(0, player1.hp), "player2_real_hp": max(0, player2.hp)

@@ -4,6 +4,7 @@ import json
 from typing import Tuple
 from ..data import DataBase
 from ..models import Player
+from ..core.item_instance_manager import ItemInstanceManager
 
 class ForgeManager:
     """炼器与洗练管理器"""
@@ -15,7 +16,8 @@ class ForgeManager:
         {"key": "counter_damage", "name": "反伤", "value": 5, "desc": "战斗中反弹5%伤害"},
         {"key": "combo_rate", "name": "连击率", "value": 5, "desc": "战斗中增加5%连击率"},
         {"key": "physical_damage_multiplier", "name": "物伤加成", "value": 0.05, "desc": "提升5%物伤"},
-        {"key": "magic_damage_multiplier", "name": "法伤加成", "value": 0.05, "desc": "提升5%法伤"}
+        {"key": "magic_damage_multiplier", "name": "法伤加成", "value": 0.05, "desc": "提升5%法伤"},
+        {"key": "luck", "name": "气运", "value": 2, "desc": "永久增加2点气运"}
     ]
 
     def __init__(self, db: DataBase, config_manager, storage_ring_mgr):
@@ -78,8 +80,16 @@ class ForgeManager:
             return False, f"💥 炼器失败！由于火候不佳，消耗了材料和灵石，但等级未提升（当前 +{current_level}）。{skill_note}"
 
     async def wash_equipment(self, player: Player) -> Tuple[bool, str]:
-        """洗练装备词条"""
+        """洗练装备词条（优先绑定当前武器/防具实例）"""
         data = self._get_bonus_data(player)
+        im = ItemInstanceManager(self.db, self.config_manager)
+        equipped_map = player.get_equipped_instances()
+        target_instance = None
+        for slot in ("weapon", "armor"):
+            inst = im.get_instance(player, equipped_map.get(slot, 0))
+            if inst:
+                target_instance = inst
+                break
         
         # 每次洗练消耗一个洗练石
         if not self.storage_ring_mgr.has_item(player, "洗练石", 1):
@@ -100,14 +110,26 @@ class ForgeManager:
         if isinstance(new_affix["value"], float):
             new_affix["display"] = f"{new_affix['name']}+{new_affix['value']*100:.1f}%"
             
-        # 最多保留 3 条词条
-        affixes = data.get("affixes", [])
-        affixes.append(new_affix)
-        if len(affixes) > 3:
-            affixes.pop(0)
-            
-        data["affixes"] = affixes
-        player.permanent_bonus = json.dumps(data)
+        if target_instance:
+            affixes = target_instance.get("affixes", []) or []
+            affixes.append(new_affix)
+            if len(affixes) > 3:
+                affixes.pop(0)
+            target_instance["affixes"] = affixes
+            instances = im.load(player)
+            for idx, inst in enumerate(instances):
+                if int(inst.get("id", 0) or 0) == int(target_instance.get("id", 0) or 0):
+                    instances[idx] = target_instance
+                    break
+            im.save(player, instances)
+        else:
+            # 兼容旧版全局词条
+            affixes = data.get("affixes", [])
+            affixes.append(new_affix)
+            if len(affixes) > 3:
+                affixes.pop(0)
+            data["affixes"] = affixes
+            player.permanent_bonus = json.dumps(data)
         await self.db.update_player(player)
         
         msg = [

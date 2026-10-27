@@ -2,7 +2,7 @@
 """奇遇事件池（100+ 事件）
 数据格式：E(title, desc, [(label, weight, win, lose), ...])
   weight: risk(高收益高风险) / safe(稳) / good(善行) / evil(恶行) / leave(离开)
-  win/lose 为 dict，可含 gold / exp / hp_pct / karma / item
+  win/lose 为 dict，可含 gold / exp / hp_pct / karma / luck / item
   奖励数值为基础值，运行时按玩家境界缩放。
 """
 
@@ -20,12 +20,13 @@ def E(title, desc, options, min_level=0):
     }
 
 
-def _g(gold=0, exp=0, hp=0, karma=0, item=None, count=1):
+def _g(gold=0, exp=0, hp=0, karma=0, luck=0, item=None, count=1):
     d = {}
     if gold: d["gold"] = gold
     if exp: d["exp"] = exp
     if hp: d["hp_pct"] = hp
     if karma: d["karma"] = karma
+    if luck: d["luck"] = luck
     if item: d["item"] = {"name": item, "count": count}
     return d
 
@@ -34,7 +35,7 @@ EVENTS = [
     # ===== 一、遗府与古迹（10）=====
     E("🏔️ 上古洞府", "尘封的洞府石门符文微闪，似有前辈遗藏。",
       [("强行破门", "risk", _g(8000, 5000), _g(hp=0.25)),
-       ("寻找机关", "safe", _g(4000, 3000), None),
+       ("寻找机关", "safe", _g(4000, 3000, luck=1), None),
        ("转身离开", "leave", None, None)]),
     E("🏛️ 坍塌古殿", "半埋于土中的古殿露出一只青铜鼎角。",
       [("挖掘古鼎", "risk", _g(item="玄铁", count=4), _g(hp=0.15)),
@@ -42,7 +43,7 @@ EVENTS = [
        ("离开", "leave", None, None)]),
     E("🚪 无名石门", "山壁上一道石门，门缝渗出丝丝寒气。",
       [("推门而入", "risk", _g(exp=9000), _g(hp=0.3)),
-       ("门缝窥视", "safe", _g(1500, 1000), None),
+       ("门缝窥视", "safe", _g(1500, 1000, luck=1), None),
        ("不碰为妙", "leave", None, None)]),
     E("🗿 石人阵", "十二尊石人环立，手中各持古兵。",
       [("取古兵", "risk", _g(item="精铁", count=6), _g(hp=0.2)),
@@ -53,7 +54,7 @@ EVENTS = [
        ("垂藤而下", "safe", _g(5000, 2000), None),
        ("填土离开", "leave", None, None)]),
     E("🪟 古修壁画", "壁画描绘一位古修吞吐日月，笔意隐含道韵。",
-      [("静坐参悟", "safe", _g(exp=6000), None),
+      [("静坐参悟", "safe", _g(exp=6000, luck=1), None),
        ("拓印带走", "safe", _g(2500), None),
        ("无暇理会", "leave", None, None)]),
     E("⚱️ 荒冢灵柩", "孤零零的荒冢，灵柩半开，宝光隐现。",
@@ -62,10 +63,10 @@ EVENTS = [
        ("敬而远之", "leave", None, None)]),
     E("🕯️ 长明灯室", "石室内九盏长明灯千年不灭，灯油似为灵液。",
       [("收灯油", "risk", _g(exp=7000), _g(hp=0.2)),
-       ("添一炷香", "good", _g(karma=1, exp=2000), None),
+       ("添一炷香", "good", _g(karma=1, exp=2000, luck=1), None),
        ("退出", "leave", None, None)]),
     E("📜 遗刻碑文", "断碑上刻着半部残诀，风雨侵蚀字迹模糊。",
-      [("辨读残诀", "safe", _g(exp=5500), None),
+      [("辨读残诀", "safe", _g(exp=5500, luck=1), None),
        ("拓印碑文", "safe", _g(2000), None),
        ("离开", "leave", None, None)]),
     E("🌉 悬空古桥", "云雾中一座石桥通向未知，桥下万丈深渊。",
@@ -137,15 +138,15 @@ EVENTS = [
        ("抓走驯养", "evil", _g(karma=-1, exp=2000), _g(hp=0.2)),
        ("不管", "leave", None, None)]),
     E("🐟 金鳞灵鱼", "溪中一尾金鳞鱼跃出水面，似在引你前行。",
-      [("随鱼而行", "safe", _g(4500, 2000), None),
+      [("随鱼而行", "safe", _g(4500, 2000, luck=1), None),
        ("撒网捕鱼", "risk", _g(8000), _g(hp=0.15)),
        ("不理会", "leave", None, None)]),
     E("🐢 龟驮石碑", "巨龟驮着石碑浮出水面，碑上刻满古老符文。",
-      [("参悟符文", "safe", _g(exp=7000), None),
+      [("参悟符文", "safe", _g(exp=7000, luck=1), None),
        ("推动石碑", "risk", _g(9000), _g(hp=0.25)),
        ("观龟而去", "leave", None, None)]),
     E("🦌 引路灵鹿", "通体雪白的灵鹿轻触你的衣角，转身深入林中。",
-      [("随鹿深入", "safe", _g(item="灵草", count=5), None),
+      [("随鹿深入", "safe", _g(item="灵草", count=5, luck=1), None),
        ("捕捉灵鹿", "evil", _g(6000, karma=-1), _g(hp=0.2)),
        ("不去", "leave", None, None)]),
     E("🐝 巨蜂巢穴", "悬崖上的巨蜂巢蜜香扑鼻，蜂群进出如云。",
@@ -157,7 +158,7 @@ EVENTS = [
        ("坐观虎斗", "leave", None, None),
        ("助狼捕兔", "evil", _g(item="灵兽毛皮", count=1, karma=-1), None)]),
     E("🦚 孔雀开屏", "五彩孔雀开屏起舞，羽毛间灵光流转。",
-      [("静心观赏", "safe", _g(exp=2500), None),
+      [("静心观赏", "safe", _g(exp=2500, luck=1), None),
        ("拔取翎羽", "risk", _g(item="星辰石", count=2), _g(hp=0.15)),
        ("离开", "leave", None, None)]),
     E("🐉 蛟龙蜕皮", "山潭边遗落一段蛟蜕，鳞光森然，寒气逼人。",
@@ -213,7 +214,7 @@ EVENTS = [
     E("🫖 灵茶古树", "半山腰一株野生灵茶树，嫩芽泛着金边。",
       [("采茶炒制", "safe", _g(3500), None),
        ("连根挖走", "risk", _g(9000), _g(hp=0.2)),
-       ("品一杯再走", "safe", _g(exp=1800), None)]),
+       ("品一杯再走", "safe", _g(exp=1800, luck=1), None)]),
     E("🔥 地火裂隙", "地面裂隙喷涌地火，火中隐见火莲摇曳。",
       [("火中取莲", "risk", _g(exp=13000), _g(hp=0.45)),
        ("借火炼体", "safe", _g(exp=5000), None),
@@ -261,7 +262,7 @@ EVENTS = [
        ("夺取残影之力", "evil", _g(exp=14000, karma=-1), _g(hp=0.3)),
        ("挥手作别", "leave", None, None)], min_level=8),
     E("🧩 无字天书", "书页空白无一字，月光下却隐有纹路流动。",
-      [("月下观书", "safe", _g(exp=8000), None),
+      [("月下观书", "safe", _g(exp=8000, luck=1), None),
        ("滴血认主", "risk", _g(exp=12000), _g(hp=0.3)),
        ("放回原处", "leave", None, None)]),
 
@@ -401,23 +402,23 @@ EVENTS = [
        ("云下悟道", "safe", _g(exp=6000), None),
        ("看一眼就走", "leave", None, None)], min_level=10),
     E("🔔 钟声引路", "空山钟声九响，一声近过一声，似在引路。",
-      [("循声而行", "safe", _g(exp=8000, item="灵草", count=2), None),
+      [("循声而行", "safe", _g(exp=8000, item="灵草", count=2, luck=2), None),
        ("逆向而行", "risk", _g(11000), _g(hp=0.3)),
        ("不动", "leave", None, None)]),
     E("🧚 引路仙童", "仙童踏莲而来，说你我有半面之缘。",
-      [("随行一会", "safe", _g(exp=9000), None),
+      [("随行一会", "safe", _g(exp=9000, luck=2), None),
        ("求赐灵物", "risk", _g(item="洗练石", count=2), _g(hp=0.2)),
        ("拱手送别", "leave", None, None)]),
     E("🌠 流星坠地", "一颗流星划破夜幕，坠入前方山谷。",
       [("寻陨坑", "risk", _g(item="星辰石", count=5), _g(hp=0.3)),
-       ("观星悟道", "safe", _g(exp=5000), None),
+       ("观星悟道", "safe", _g(exp=5000, luck=1), None),
        ("回屋睡觉", "leave", None, None)]),
     E("🪷 金身佛骨", "山体滑坡露出一截金身佛骨，宝相庄严。",
       [("参拜佛骨", "good", _g(karma=1, exp=7000), None),
        ("窃取指骨", "evil", _g(16000, karma=-1), _g(hp=0.35)),
        ("离开", "leave", None, None)]),
     E("🐉 龙女求签", "潭中龙女浮出水面，请你为她解一支签。",
-      [("解签赠言", "good", _g(karma=1, exp=6000), None),
+      [("解签赠言", "good", _g(karma=1, exp=6000, luck=1), None),
        ("讨要谢礼", "safe", _g(8000), None),
        ("匆匆离去", "leave", None, None)]),
     E("🍂 落宝金钱", "一只口衔铜钱的灵雀落在你肩头不走。",
@@ -425,7 +426,7 @@ EVENTS = [
        ("夺雀取钱", "evil", _g(9000, karma=-1), _g(hp=0.15)),
        ("挥袖驱雀", "leave", None, None)]),
     E("🪷 月下论道", "月圆之夜，有神秘道人邀你月下论道。",
-      [("论道一夜", "safe", _g(exp=11000), None),
+      [("论道一夜", "safe", _g(exp=11000, luck=2), None),
        ("斗法印证", "risk", _g(15000, 5000), _g(hp=0.35)),
        ("婉拒", "leave", None, None)], min_level=7),
 

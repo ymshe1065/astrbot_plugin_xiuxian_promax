@@ -1,5 +1,6 @@
 # core/pill_manager.py
 
+import json
 import time
 from typing import Dict, List, Optional, Tuple
 from astrbot.api import logger
@@ -12,9 +13,135 @@ from ..config_manager import ConfigManager
 class PillManager:
     """丹药管理器 - 处理丹药效果、属性加成和限制机制"""
 
+    QUALITY_ORDER = ["一般", "良好", "极佳", "大师"]
+    DEFAULT_QUALITY = "一般"
+
     def __init__(self, db: DataBase, config_manager: ConfigManager):
         self.db = db
         self.config_manager = config_manager
+
+    # ===== 品质与背包 key =====
+    def split_pill_key(self, key: str) -> Tuple[str, str]:
+        """解析 名称|品质，旧 key 默认一般。"""
+        raw = str(key or "")
+        if "|" in raw:
+            name, quality = raw.rsplit("|", 1)
+            if quality in self.QUALITY_ORDER:
+                return name, quality
+        return raw, self.DEFAULT_QUALITY
+
+    def make_pill_key(self, pill_name: str, quality: str = DEFAULT_QUALITY) -> str:
+        return f"{pill_name}|{quality}"
+
+    def normalize_quality(self, quality: Optional[str]) -> Optional[str]:
+        if not quality:
+            return None
+        quality = str(quality).strip()
+        return quality if quality in self.QUALITY_ORDER else None
+
+    def get_quality_info(self, quality: str) -> dict:
+        try:
+            return self.config_manager.get_pill_quality(quality) or {}
+        except Exception:
+            return {}
+
+    def get_quality_multiplier(self, quality: str) -> float:
+        try:
+            return float(self.get_quality_info(quality).get("effect_multiplier", 1.0))
+        except (TypeError, ValueError):
+            return 1.0
+
+    def get_breakthrough_multiplier(self, quality: str) -> float:
+        try:
+            return float(self.get_quality_info(quality).get("breakthrough_multiplier", 1.0))
+        except (TypeError, ValueError):
+            return 1.0
+
+    def get_resurrection_keep(self, quality: str) -> float:
+        try:
+            return float(self.get_quality_info(quality).get("resurrection_keep", 0.5))
+        except (TypeError, ValueError):
+            return 0.5
+
+    def get_quality_rank(self, quality: str) -> int:
+        try:
+            return int(self.get_quality_info(quality).get("order", self.QUALITY_ORDER.index(quality) if quality in self.QUALITY_ORDER else 0))
+        except (TypeError, ValueError):
+            return 0
+
+    def select_pill_key(self, inventory: dict, pill_name: str, quality: Optional[str] = None) -> Optional[str]:
+        """从背包中选出要消耗的 key：指定品质优先，否则自动最高品质。"""
+        base_name, embedded_quality = self.split_pill_key(pill_name)
+        target_quality = self.normalize_quality(quality) or (embedded_quality if "|" in str(pill_name) else None)
+        candidates = []
+        for key, count in inventory.items():
+            try:
+                if int(count) <= 0:
+                    continue
+            except (TypeError, ValueError):
+                continue
+            name, key_quality = self.split_pill_key(key)
+            if name != base_name:
+                continue
+            if target_quality and key_quality != target_quality:
+                continue
+            candidates.append((self.get_quality_rank(key_quality), key, key_quality))
+        if not candidates:
+            return None
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        return candidates[0][1]
+
+    def _consume_inventory_key(self, player: Player, pill_key: str) -> bool:
+        inventory = player.get_pills_inventory()
+        if pill_key not in inventory or int(inventory.get(pill_key, 0)) <= 0:
+            return False
+        inventory[pill_key] = int(inventory[pill_key]) - 1
+        if inventory[pill_key] <= 0:
+            del inventory[pill_key]
+        player.set_pills_inventory(inventory)
+        return True
+
+    def _reset_daily_if_needed(self, player: Player):
+        today = time.strftime("%Y-%m-%d")
+        if getattr(player, "last_daily_reset", "") != today:
+            player.daily_pill_usage = "{}"
+            player.last_daily_reset = today
+
+    def _check_daily_limit(self, player: Player, pill_name: str, pill_data: dict) -> Tuple[bool, str]:
+        try:
+            limit = int(pill_data.get("daily_limit", 0) or 0)
+        except (TypeError, ValueError):
+            limit = 0
+        if limit <= 0:
+            return True, ""
+        self._reset_daily_if_needed(player)
+        try:
+            usage = json.loads(player.daily_pill_usage) if player.daily_pill_usage else {}
+        except Exception:
+            usage = {}
+        if not isinstance(usage, dict):
+            usage = {}
+        used = int(usage.get(pill_name, 0) or 0)
+        if used >= limit:
+            return False, f"【{pill_name}】今日使用次数已达上限（{limit} 次），明日再来。"
+        return True, ""
+
+    def _record_daily_use(self, player: Player, pill_name: str, pill_data: dict):
+        try:
+            limit = int(pill_data.get("daily_limit", 0) or 0)
+        except (TypeError, ValueError):
+            limit = 0
+        if limit <= 0:
+            return
+        self._reset_daily_if_needed(player)
+        try:
+            usage = json.loads(player.daily_pill_usage) if player.daily_pill_usage else {}
+        except Exception:
+            usage = {}
+        if not isinstance(usage, dict):
+            usage = {}
+        usage[pill_name] = int(usage.get(pill_name, 0) or 0) + 1
+        player.daily_pill_usage = json.dumps(usage, ensure_ascii=False)
 
     def _ensure_non_negative_attributes(self, player: Player):
         """保证属性不为负，并同步能量上限约束"""
@@ -42,21 +169,22 @@ class PillManager:
             player.blood_qi = player.max_blood_qi
 
     def get_pill_by_name(self, pill_name: str) -> Optional[dict]:
-        """根据名称获取丹药配置"""
-        pill = self.config_manager.pills_data.get(pill_name)
+        """根据名称获取丹药配置（自动忽略品质后缀）"""
+        base_name, _ = self.split_pill_key(pill_name)
+        pill = self.config_manager.pills_data.get(base_name)
         if pill:
             return pill
 
-        pill = self.config_manager.exp_pills_data.get(pill_name)
+        pill = self.config_manager.exp_pills_data.get(base_name)
         if pill:
             return pill
 
-        pill = self.config_manager.utility_pills_data.get(pill_name)
+        pill = self.config_manager.utility_pills_data.get(base_name)
         if pill:
             return pill
 
         for item in self.config_manager.items_data.values():
-            if item.get("name") == pill_name and item.get("type") == "丹药":
+            if item.get("name") == base_name and item.get("type") == "丹药":
                 return item
 
         return None
@@ -86,18 +214,23 @@ class PillManager:
     async def use_pill(
         self,
         player: Player,
-        pill_name: str
+        pill_name: str,
+        quality: Optional[str] = None
     ) -> Tuple[bool, str]:
-        """使用丹药"""
+        """使用丹药。quality 为空时自动选择背包中最高品质。"""
         inventory = player.get_pills_inventory()
-        if pill_name not in inventory or inventory[pill_name] <= 0:
-            return False, f"你的背包中没有【{pill_name}】！"
+        pill_key = self.select_pill_key(inventory, pill_name, quality)
+        if not pill_key:
+            base_name, _ = self.split_pill_key(pill_name)
+            quality_hint = f"（{quality}）" if quality else ""
+            return False, f"你的背包中没有【{base_name}】{quality_hint}！"
 
-        pill_data = self.get_pill_by_name(pill_name)
+        base_name, actual_quality = self.split_pill_key(pill_key)
+        pill_data = self.get_pill_by_name(base_name)
         if not pill_data:
-            return False, f"丹药【{pill_name}】配置不存在！"
+            return False, f"丹药【{base_name}】配置不存在！"
 
-        required_level = pill_data.get("required_level_index", 0)
+        required_level = int(pill_data.get("required_level_index", 0) or 0)
         if player.level_index < required_level:
             level_data = self.config_manager.get_level_data(player.cultivation_type)
             level_name = f"境界{required_level}"
@@ -106,7 +239,7 @@ class PillManager:
             return False, (
                 f"❌ 境界不足，无法服用！\n"
                 f"━━━━━━━━━━━━━━━\n"
-                f"【{pill_name}】需要达到【{level_name}】（境界等级 {required_level}）\n"
+                f"【{base_name}·{actual_quality}】需要达到【{level_name}】（境界等级 {required_level}）\n"
                 f"你当前境界等级：{player.level_index}（还差 {required_level - player.level_index} 级）\n"
                 f"💡 丹药不会过期，先提升境界再来服用\n"
                 f"━━━━━━━━━━━━━━━\n"
@@ -117,74 +250,85 @@ class PillManager:
         subtype = pill_data.get("subtype", "")
 
         if subtype == "breakthrough":
-            return False, f"【{pill_name}】是破境丹，只能在突破时使用！"
+            return False, f"【{base_name}·{actual_quality}】是破境丹，只能在突破时使用！"
+
+        allowed, limit_msg = self._check_daily_limit(player, base_name, pill_data)
+        if not allowed:
+            return False, limit_msg
 
         if subtype == "exp":
-            return await self._use_exp_pill(player, pill_name, pill_data)
+            result = await self._use_exp_pill(player, pill_key, pill_data, actual_quality)
         elif subtype == "resurrection":
-            return await self._use_resurrection_pill(player, pill_name, pill_data)
+            result = await self._use_resurrection_pill(player, pill_key, pill_data, actual_quality)
+        elif pill_data.get("effect") and not pill_data.get("effect_type"):
+            result = await self._use_legacy_effect_pill(player, pill_key, pill_data, actual_quality)
         elif effect_type == "temporary":
-            return await self._use_temporary_pill(player, pill_name, pill_data)
+            result = await self._use_temporary_pill(player, pill_key, pill_data, actual_quality)
         elif effect_type == "permanent":
-            return await self._use_permanent_pill(player, pill_name, pill_data)
+            result = await self._use_permanent_pill(player, pill_key, pill_data, actual_quality)
         elif effect_type == "instant":
-            return await self._use_instant_pill(player, pill_name, pill_data)
+            result = await self._use_instant_pill(player, pill_key, pill_data, actual_quality)
         else:
             return False, f"未知的丹药类型：{effect_type}"
 
-    async def _use_exp_pill(self, player: Player, pill_name: str, pill_data: dict) -> Tuple[bool, str]:
+        if result[0]:
+            self._record_daily_use(player, base_name, pill_data)
+            if pill_data.get("daily_limit"):
+                await self.db.update_player(player)
+        return result
+
+    async def _use_exp_pill(self, player: Player, pill_key: str, pill_data: dict, quality: str) -> Tuple[bool, str]:
         """使用修为丹"""
-        exp_gain = pill_data.get("exp_gain", 0)
+        base_name, _ = self.split_pill_key(pill_key)
+        mult = self.get_quality_multiplier(quality)
+        exp_gain = int(float(pill_data.get("exp_gain", 0)) * mult)
         player.experience += exp_gain
 
-        inventory = player.get_pills_inventory()
-        inventory[pill_name] -= 1
-        if inventory[pill_name] <= 0:
-            del inventory[pill_name]
-        player.set_pills_inventory(inventory)
-
+        self._consume_inventory_key(player, pill_key)
         await self.db.update_player(player)
 
         return True, (
-            f"✨ 服用【{pill_name}】成功！\n"
+            f"✨ 服用【{base_name}·{quality}】成功！\n"
             f"━━━━━━━━━━━━━━━\n"
             f"📈 获得修为：{exp_gain}\n"
             f"💫 当前修为：{player.experience}\n"
             f"━━━━━━━━━━━━━━━"
         )
 
-    async def _use_resurrection_pill(self, player: Player, pill_name: str, pill_data: dict) -> Tuple[bool, str]:
+    async def _use_resurrection_pill(self, player: Player, pill_key: str, pill_data: dict, quality: str) -> Tuple[bool, str]:
         """使用回生丹"""
         if player.has_resurrection_pill:
             return False, "你已经拥有回生丹效果，无需重复使用！"
 
+        base_name, _ = self.split_pill_key(pill_key)
         player.has_resurrection_pill = True
+        player.resurrection_pill_quality = quality
 
-        inventory = player.get_pills_inventory()
-        inventory[pill_name] -= 1
-        if inventory[pill_name] <= 0:
-            del inventory[pill_name]
-        player.set_pills_inventory(inventory)
-
+        self._consume_inventory_key(player, pill_key)
         await self.db.update_player(player)
 
+        keep = self.get_resurrection_keep(quality)
         return True, (
-            f"✨ 服用【{pill_name}】成功！\n"
+            f"✨ 服用【{base_name}·{quality}】成功！\n"
             f"━━━━━━━━━━━━━━━\n"
             f"🛡️ 你获得了起死回生的能力\n"
             f"下次死亡时将自动复活\n"
-            f"（复活后所有属性减半）\n"
+            f"（复活后保留 {keep:.0%} 属性）\n"
             f"━━━━━━━━━━━━━━━"
         )
 
-    async def _use_temporary_pill(self, player: Player, pill_name: str, pill_data: dict) -> Tuple[bool, str]:
+    async def _use_temporary_pill(self, player: Player, pill_key: str, pill_data: dict, quality: str) -> Tuple[bool, str]:
         """使用临时效果丹药"""
+        base_name, _ = self.split_pill_key(pill_key)
         duration_minutes = pill_data.get("duration_minutes", 60)
         current_time = int(time.time())
         expiry_time = current_time + duration_minutes * 60
+        mult = self.get_quality_multiplier(quality)
 
         effect = {
-            "pill_name": pill_name,
+            "pill_name": base_name,
+            "pill_key": pill_key,
+            "quality": quality,
             "pill_id": pill_data.get("id", ""),
             "subtype": pill_data.get("subtype", ""),
             "start_time": current_time,
@@ -200,48 +344,51 @@ class PillManager:
             "spiritual_qi_regen_per_minute", "blood_qi_regen_per_minute", "blood_qi_cost_per_minute",
             "breakthrough_bonus"
         ]
+        cost_keys = {"lifespan_cost_per_minute", "blood_qi_cost_per_minute"}
         for key in effect_keys:
             if key in pill_data:
-                effect[key] = pill_data[key]
+                value = float(pill_data[key])
+                effect[key] = value / mult if key in cost_keys and mult > 0 else value * mult
 
-        effects = player.get_active_pill_effects()
+        # 同名丹药不叠加：刷新为新服用的品质与时间
+        effects = [
+            e for e in player.get_active_pill_effects()
+            if e.get("pill_name") != base_name
+        ]
         effects.append(effect)
         player.set_active_pill_effects(effects)
 
-        inventory = player.get_pills_inventory()
-        inventory[pill_name] -= 1
-        if inventory[pill_name] <= 0:
-            del inventory[pill_name]
-        player.set_pills_inventory(inventory)
-
+        self._consume_inventory_key(player, pill_key)
         await self.db.update_player(player)
 
         effect_desc = []
-        if "cultivation_multiplier" in pill_data:
-            mult = pill_data["cultivation_multiplier"]
-            effect_desc.append(f"修炼速度{'+' if mult > 0 else ''}{mult:.0%}")
-        if "physical_damage_multiplier" in pill_data:
-            mult = pill_data["physical_damage_multiplier"]
-            effect_desc.append(f"物伤{'+' if mult > 0 else ''}{mult:.0%}")
-        if "magic_damage_multiplier" in pill_data:
-            mult = pill_data["magic_damage_multiplier"]
-            effect_desc.append(f"法伤{'+' if mult > 0 else ''}{mult:.0%}")
-        if "breakthrough_bonus" in pill_data:
-            bonus = pill_data["breakthrough_bonus"]
-            effect_desc.append(f"突破成功率{'+' if bonus > 0 else ''}{bonus:.0%}")
+        if "cultivation_multiplier" in effect:
+            value = effect["cultivation_multiplier"]
+            effect_desc.append(f"修炼速度{'+' if value > 0 else ''}{value:.0%}")
+        if "physical_damage_multiplier" in effect:
+            value = effect["physical_damage_multiplier"]
+            effect_desc.append(f"物伤{'+' if value > 0 else ''}{value:.0%}")
+        if "magic_damage_multiplier" in effect:
+            value = effect["magic_damage_multiplier"]
+            effect_desc.append(f"法伤{'+' if value > 0 else ''}{value:.0%}")
+        if "breakthrough_bonus" in effect:
+            value = effect["breakthrough_bonus"]
+            effect_desc.append(f"突破成功率{'+' if value > 0 else ''}{value:.0%}")
 
         effects_str = "、".join(effect_desc) if effect_desc else "特殊效果"
 
         return True, (
-            f"✨ 服用【{pill_name}】成功！\n"
+            f"✨ 服用【{base_name}·{quality}】成功！\n"
             f"━━━━━━━━━━━━━━━\n"
             f"⏱️ 持续时间：{duration_minutes}分钟\n"
             f"🎯 效果：{effects_str}\n"
             f"━━━━━━━━━━━━━━━"
         )
 
-    async def _use_permanent_pill(self, player: Player, pill_name: str, pill_data: dict) -> Tuple[bool, str]:
+    async def _use_permanent_pill(self, player: Player, pill_key: str, pill_data: dict, quality: str) -> Tuple[bool, str]:
         """使用永久属性丹药"""
+        base_name, _ = self.split_pill_key(pill_key)
+        mult = self.get_quality_multiplier(quality)
         permanent_gains = player.get_permanent_pill_gains()
         level_key = f"level_{player.level_index}"
 
@@ -273,7 +420,8 @@ class PillManager:
             if gain_key not in pill_data:
                 continue
 
-            gain = pill_data[gain_key]
+            raw_gain = float(pill_data[gain_key])
+            gain = int(raw_gain * mult) if raw_gain > 0 else int(raw_gain)
             if gain == 0:
                 continue
 
@@ -299,7 +447,7 @@ class PillManager:
                 gains_applied[attr_name] = int(gain)
 
         if "cultivation_multiplier" in pill_data:
-            cult_mult = pill_data["cultivation_multiplier"]
+            cult_mult = float(pill_data["cultivation_multiplier"]) * mult
             if "cultivation_multiplier" not in permanent_gains[level_key]:
                 permanent_gains[level_key]["cultivation_multiplier"] = 0
             permanent_gains[level_key]["cultivation_multiplier"] += cult_mult
@@ -317,16 +465,11 @@ class PillManager:
 
         self._ensure_non_negative_attributes(player)
         player.set_permanent_pill_gains(permanent_gains)
-
-        inventory = player.get_pills_inventory()
-        inventory[pill_name] -= 1
-        if inventory[pill_name] <= 0:
-            del inventory[pill_name]
-        player.set_pills_inventory(inventory)
+        self._consume_inventory_key(player, pill_key)
 
         await self.db.update_player(player)
 
-        msg_parts = [f"✨ 服用【{pill_name}】成功！", "━━━━━━━━━━━━━━━", "💪 永久增益："]
+        msg_parts = [f"✨ 服用【{base_name}·{quality}】成功！", "━━━━━━━━━━━━━━━", "💪 永久增益："]
         for attr_name, value in gains_applied.items():
             if isinstance(value, int):
                 msg_parts.append(f"  {attr_name} +{value}")
@@ -343,9 +486,11 @@ class PillManager:
 
         return True, "\n".join(msg_parts)
 
-    async def _use_instant_pill(self, player: Player, pill_name: str, pill_data: dict) -> Tuple[bool, str]:
+    async def _use_instant_pill(self, player: Player, pill_key: str, pill_data: dict, quality: str) -> Tuple[bool, str]:
         """使用瞬间效果丹药"""
-        msg_parts = [f"✨ 服用【{pill_name}】成功！", "━━━━━━━━━━━━━━━"]
+        base_name, _ = self.split_pill_key(pill_key)
+        mult = self.get_quality_multiplier(quality)
+        msg_parts = [f"✨ 服用【{base_name}·{quality}】成功！", "━━━━━━━━━━━━━━━"]
 
         energy_restore = None
         energy_label = "灵气"
@@ -366,11 +511,12 @@ class PillManager:
 
         if energy_restore is not None:
             if energy_restore == -1:
-                actual_restore = max_energy - current_energy  # 恢复至上限，实际恢复量为缺口
+                actual_restore = max_energy - current_energy
                 current_energy = max_energy
             else:
+                restore_value = int(float(energy_restore) * mult)
                 old_energy = current_energy
-                current_energy = min(current_energy + energy_restore, max_energy)
+                current_energy = min(current_energy + restore_value, max_energy)
                 actual_restore = current_energy - old_energy
 
             if energy_label == "气血":
@@ -386,8 +532,8 @@ class PillManager:
             reset_applied = self._reset_permanent_pill_effects(player)
             if reset_applied:
                 msg_parts.append("🔄 已重置所有永久属性丹药增益")
-                refund_ratio = pill_data.get("reset_refund_ratio", 0.5)
-                refund = int(pill_data.get("price", 0) * refund_ratio)
+                refund_ratio = min(1.0, float(pill_data.get("reset_refund_ratio", 0.5)) * mult)
+                refund = int(float(pill_data.get("price", 0)) * refund_ratio)
                 if refund > 0:
                     player.gold += refund
                     msg_parts.append(f"💰 返还灵石：{refund}")
@@ -401,15 +547,98 @@ class PillManager:
                 player.has_debuff_shield = True
                 msg_parts.append("🛡️ 获得定魂护盾：下一次负面效果将被抵消")
 
-        inventory = player.get_pills_inventory()
-        inventory[pill_name] -= 1
-        if inventory[pill_name] <= 0:
-            del inventory[pill_name]
-        player.set_pills_inventory(inventory)
-
+        self._consume_inventory_key(player, pill_key)
         await self.db.update_player(player)
         msg_parts.append("━━━━━━━━━━━━━━━")
         return True, "\n".join(msg_parts)
+
+    async def _use_legacy_effect_pill(self, player: Player, pill_key: str, pill_data: dict, quality: str) -> Tuple[bool, str]:
+        """兼容 items.json 旧式 effect 丹药：统一进入丹药背包后仍可正常服用。"""
+        base_name, _ = self.split_pill_key(pill_key)
+        mult = self.get_quality_multiplier(quality)
+        effects = pill_data.get("effect") or {}
+        if not isinstance(effects, dict) or not effects:
+            return False, f"丹药【{base_name}】没有可用的效果配置。"
+
+        msgs = []
+        def scaled(key):
+            try:
+                return int(float(effects.get(key, 0)) * mult)
+            except (TypeError, ValueError):
+                return 0
+
+        add_hp = scaled("add_hp")
+        if add_hp:
+            if player.cultivation_type == "体修":
+                old = player.blood_qi
+                player.blood_qi = max(0, min(player.max_blood_qi, player.blood_qi + add_hp))
+                msgs.append(f"气血{player.blood_qi - old:+d}")
+            else:
+                old = player.spiritual_qi
+                player.spiritual_qi = max(0, min(player.max_spiritual_qi, player.spiritual_qi + add_hp))
+                msgs.append(f"灵气{player.spiritual_qi - old:+d}")
+
+        add_exp = scaled("add_experience")
+        if add_exp:
+            player.experience += add_exp
+            msgs.append(f"修为{add_exp:+d}")
+
+        add_max_hp = scaled("add_max_hp")
+        if add_max_hp:
+            if player.cultivation_type == "体修":
+                player.max_blood_qi += add_max_hp
+                msgs.append(f"最大气血{add_max_hp:+d}")
+            else:
+                player.max_spiritual_qi += add_max_hp
+                msgs.append(f"最大灵气{add_max_hp:+d}")
+
+        for key, attr, label in (
+            ("add_spiritual_power", "magic_damage", "法伤"),
+            ("add_mental_power", "mental_power", "精神力"),
+            ("add_attack", "physical_damage", "物伤"),
+            ("add_defense", "physical_defense", "物防"),
+        ):
+            value = scaled(key)
+            if value:
+                setattr(player, attr, getattr(player, attr) + value)
+                msgs.append(f"{label}{value:+d}")
+
+        add_gold = scaled("add_gold")
+        if add_gold:
+            player.gold += add_gold
+            msgs.append(f"灵石{add_gold:+d}")
+
+        breakthrough_bonus = float(effects.get("add_breakthrough_bonus", 0) or 0) * mult
+        if breakthrough_bonus:
+            current_time = int(time.time())
+            effects_list = [
+                e for e in player.get_active_pill_effects()
+                if e.get("pill_name") != base_name
+            ]
+            effects_list.append({
+                "pill_name": base_name,
+                "pill_key": pill_key,
+                "quality": quality,
+                "subtype": "breakthrough_boost",
+                "start_time": current_time,
+                "expiry_time": current_time + 3600,
+                "duration_minutes": 60,
+                "last_tick_time": current_time,
+                "breakthrough_bonus": breakthrough_bonus,
+            })
+            player.set_active_pill_effects(effects_list)
+            msgs.append(f"突破成功率{breakthrough_bonus:+.0%}（1小时）")
+
+        self._ensure_non_negative_attributes(player)
+        self._consume_inventory_key(player, pill_key)
+        await self.db.update_player(player)
+
+        return True, (
+            f"✨ 服用【{base_name}·{quality}】成功！\n"
+            f"━━━━━━━━━━━━━━━\n"
+            f"🎯 效果：" + "、".join(msgs[:6]) + "\n"
+            f"━━━━━━━━━━━━━━━"
+        )
 
     def _get_base_attributes_for_level(self, player: Player, level_index: int) -> dict:
         """获取当前境界的基础属性"""
@@ -439,20 +668,26 @@ class PillManager:
         if not player.has_resurrection_pill:
             return False
 
-        logger.info(f"玩家 {player.user_id} 触发回生丹效果")
+        quality = getattr(player, "resurrection_pill_quality", self.DEFAULT_QUALITY) or self.DEFAULT_QUALITY
+        keep = self.get_resurrection_keep(quality)
+        logger.info(f"玩家 {player.user_id} 触发回生丹效果（{quality}，保留 {keep:.0%}）")
         player.has_resurrection_pill = False
+        player.resurrection_pill_quality = self.DEFAULT_QUALITY
 
-        player.lifespan = player.lifespan // 2
-        player.experience = player.experience // 2
-        player.physical_damage = player.physical_damage // 2
-        player.magic_damage = player.magic_damage // 2
-        player.physical_defense = player.physical_defense // 2
-        player.magic_defense = player.magic_defense // 2
-        player.mental_power = player.mental_power // 2
-        player.max_spiritual_qi = player.max_spiritual_qi // 2
-        player.spiritual_qi = player.max_spiritual_qi // 2
-        player.max_blood_qi = player.max_blood_qi // 2
-        player.blood_qi = player.max_blood_qi // 2
+        def kept(value):
+            return int(value * keep)
+
+        player.lifespan = kept(player.lifespan)
+        player.experience = kept(player.experience)
+        player.physical_damage = kept(player.physical_damage)
+        player.magic_damage = kept(player.magic_damage)
+        player.physical_defense = kept(player.physical_defense)
+        player.magic_defense = kept(player.magic_defense)
+        player.mental_power = kept(player.mental_power)
+        player.max_spiritual_qi = kept(player.max_spiritual_qi)
+        player.spiritual_qi = player.max_spiritual_qi
+        player.max_blood_qi = kept(player.max_blood_qi)
+        player.blood_qi = player.max_blood_qi
 
         self._ensure_non_negative_attributes(player)
         await self.db.update_player(player)
@@ -492,8 +727,13 @@ class PillManager:
             if "cultivation_multiplier" in level_gains:
                 multipliers["cultivation_speed"] += level_gains["cultivation_multiplier"]
 
+        cap = 3.0
+        try:
+            cap = float(self.config_manager.pill_quality_data.get("temporary_effect_cap", 3.0))
+        except Exception:
+            cap = 3.0
         for key in multipliers:
-            multipliers[key] = max(0.0, multipliers[key])
+            multipliers[key] = max(0.0, min(cap, multipliers[key]))
 
         return multipliers
 
@@ -548,13 +788,13 @@ class PillManager:
             player.set_active_pill_effects(remaining_effects)
             await self.db.update_player(player)
 
-    async def add_pill_to_inventory(self, player: Player, pill_name: str, count: int = 1, external_transaction: bool = False):
-        """添加丹药到背包（修复事务冲突版本）"""
+    async def add_pill_to_inventory(self, player: Player, pill_name: str, count: int = 1, external_transaction: bool = False, quality: str = DEFAULT_QUALITY):
+        """添加丹药到背包（品质分 key）"""
+        base_name, embedded_quality = self.split_pill_key(pill_name)
+        quality = self.normalize_quality(quality) or embedded_quality
+        pill_key = self.make_pill_key(base_name, quality) if "|" not in pill_name else pill_name
         inventory = player.get_pills_inventory()
-        if pill_name in inventory:
-            inventory[pill_name] += count
-        else:
-            inventory[pill_name] = count
+        inventory[pill_key] = int(inventory.get(pill_key, 0)) + count
         player.set_pills_inventory(inventory)
         
         if not external_transaction:
@@ -566,14 +806,29 @@ class PillManager:
         if not inventory:
             return "你的丹药背包是空的！"
 
+        grouped = {}
+        for pill_key, count in inventory.items():
+            base_name, quality = self.split_pill_key(pill_key)
+            try:
+                count = int(count)
+            except (TypeError, ValueError):
+                count = 0
+            if count <= 0:
+                continue
+            grouped.setdefault(base_name, {})[quality] = grouped.setdefault(base_name, {}).get(quality, 0) + count
+
         lines = ["--- 丹药背包 ---"]
-        for pill_name, count in inventory.items():
-            pill_data = self.get_pill_by_name(pill_name)
-            if pill_data:
-                rank = pill_data.get("rank", "未知")
-                lines.append(f"[{rank}] {pill_name} × {count}")
-            else:
-                lines.append(f"{pill_name} × {count}")
+        for base_name in sorted(grouped):
+            pill_data = self.get_pill_by_name(base_name)
+            rank = pill_data.get("rank", "未知") if pill_data else "未知"
+            parts = []
+            for quality in self.QUALITY_ORDER:
+                count = grouped[base_name].get(quality, 0)
+                if count:
+                    parts.append(f"{quality}×{count}")
+            if not parts:
+                continue
+            lines.append(f"[{rank}] {base_name}（{'、'.join(parts)}）")
 
         lines.append("-" * 20)
         return "\n".join(lines)

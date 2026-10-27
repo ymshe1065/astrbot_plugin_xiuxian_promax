@@ -2,6 +2,7 @@
 
 import time
 import re
+import random
 from typing import Tuple
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api import AstrBotConfig, logger
@@ -9,7 +10,7 @@ from ..data import DataBase
 from ..core import ShopManager, EquipmentManager, PillManager, StorageRingManager, ItemRules
 from ..models import Player
 from ..config_manager import ConfigManager
-from .utils import player_required
+from .utils import player_required, set_event_flag
 
 __all__ = ["ShopHandler"]
 
@@ -20,13 +21,17 @@ class ShopHandler:
         'pill': "丹阁刷新、秘境稀有掉落",
         'exp_pill': "丹阁、炼丹系统、历练/秘境奖励",
         'utility_pill': "丹阁稀有、秘境/Boss 掉落",
-        'legacy_pill': "百宝阁限量，购买后立即生效",
+        'inventory_pill': "丹阁刷新、炼丹产出",
+        'legacy_pill': "丹阁刷新，购买后进入丹药背包",
+        'recipe': "丹方阁购买后学习",
+        'material': "材料阁、灵田、历练、秘境、悬赏",
+        'material_package': "材料阁购买后开启",
+        '符箓': "符箓师绘制、百宝阁限量、历练/秘境掉落",
         'weapon': "器阁、Boss 掉落",
         'armor': "器阁、Boss 掉落",
-        'accessory': "器阁、Boss 掉落",
+        'accessory': "百宝阁稀有刷新、Boss 掉落",
         'main_technique': "百宝阁稀有刷新",
         'technique': "百宝阁、Boss 掉落",
-        'material': "历练、秘境、悬赏、灵田收获与百宝阁限量",
     }
 
     def __init__(self, db: DataBase, config: AstrBotConfig, config_manager: ConfigManager):
@@ -37,11 +42,17 @@ class ShopHandler:
         self.storage_ring_manager = StorageRingManager(db, config_manager)
         self.equipment_manager = EquipmentManager(db, config_manager, self.storage_ring_manager)
         self.pill_manager = PillManager(db, config_manager)
+        self.last_buy_success = False
         access_control = self.config.get("ACCESS_CONTROL", {})
         self.shop_manager_ids = {
             str(user_id)
             for user_id in access_control.get("SHOP_MANAGERS", [])
         }
+
+    def _cfg(self, key: str, default):
+        """读取配置：优先新 schema 的 VALUES 层，兼容旧根键。"""
+        values = self.config.get("VALUES", {}) or {}
+        return values.get(key, self.config.get(key, default))
 
     async def _ensure_pavilion_refreshed(self, pavilion_id: str, item_getter, count: int) -> None:
         """确保阁楼已刷新"""
@@ -50,7 +61,7 @@ class ShopHandler:
             updated = self.shop_manager.ensure_items_have_stock(current_items)
             if updated:
                 await self.db.update_shop_data(pavilion_id, last_refresh_time, current_items)
-        refresh_hours = self.config.get("PAVILION_REFRESH_HOURS", 1)
+        refresh_hours = self._cfg("PAVILION_REFRESH_HOURS", 1)
         if not current_items or self.shop_manager.should_refresh_shop(last_refresh_time, refresh_hours):
             new_items = self.shop_manager.generate_pavilion_items(item_getter, count)
             await self.db.update_shop_data(pavilion_id, int(time.time()), new_items)
@@ -63,14 +74,16 @@ class ShopHandler:
         restocked = 0
         details = []
         jobs = [
-            ("pill_pavilion", "丹阁", self.shop_manager.get_pills_for_display, self.config.get("PAVILION_PILL_COUNT", 20)),
-            ("weapon_pavilion", "器阁", self.shop_manager.get_weapons_for_display, self.config.get("PAVILION_WEAPON_COUNT", 20)),
-            ("treasure_pavilion", "百宝阁", self.shop_manager.get_all_items_for_display, self.config.get("PAVILION_TREASURE_COUNT", 25)),
+            ("pill_pavilion", "丹阁", self.shop_manager.get_pills_for_display, self._cfg("PAVILION_PILL_COUNT", 20)),
+            ("recipe_pavilion", "丹方阁", self.shop_manager.get_recipes_for_display, self._cfg("PAVILION_RECIPE_COUNT", 10)),
+            ("material_pavilion", "材料阁", self.shop_manager.get_materials_for_display, self._cfg("PAVILION_MATERIAL_COUNT", 20)),
+            ("weapon_pavilion", "器阁", self.shop_manager.get_weapons_for_display, self._cfg("PAVILION_WEAPON_COUNT", 20)),
+            ("treasure_pavilion", "百宝阁", self.shop_manager.get_all_items_for_display, self._cfg("PAVILION_TREASURE_COUNT", 25)),
         ]
         for pavilion_id, name, getter, cnt in jobs:
             try:
                 last_refresh, items = await self.db.get_shop_data(pavilion_id)
-                refresh_hours = self.config.get("PAVILION_REFRESH_HOURS", 1)
+                refresh_hours = self._cfg("PAVILION_REFRESH_HOURS", 1)
                 due = self.shop_manager.should_refresh_shop(last_refresh, refresh_hours)
                 if not items:
                     # 空货架（从未初始化）：立即上货
@@ -98,18 +111,37 @@ class ShopHandler:
                 logger.warning(f"自动上货 {name} 异常: {e}")
         return restocked, "、".join(details) if details else ""
 
-    async def handle_pill_pavilion(self, event: AstrMessageEvent):
-        """处理丹阁命令 - 展示丹药列表"""
-        count = self.config.get("PAVILION_PILL_COUNT", 20)
-        await self._ensure_pavilion_refreshed("pill_pavilion", self.shop_manager.get_pills_for_display, count)
-        last_refresh, items = await self.db.get_shop_data("pill_pavilion")
-        if not items:
-            yield event.plain_result("丹阁暂无丹药出售。")
+    async def handle_pill_pavilion(self, event: AstrMessageEvent, section: str = ""):
+        """丹阁：默认丹药，可选丹方/材料分区。"""
+        section = (section or "").strip()
+        jobs = {
+            "丹药": ("pill_pavilion", "丹阁", self.shop_manager.get_pills_for_display, self._cfg("PAVILION_PILL_COUNT", 20)),
+            "丹方": ("recipe_pavilion", "丹方阁", self.shop_manager.get_recipes_for_display, self._cfg("PAVILION_RECIPE_COUNT", 10)),
+            "材料": ("material_pavilion", "材料阁", self.shop_manager.get_materials_for_display, self._cfg("PAVILION_MATERIAL_COUNT", 20)),
+        }
+        if not section:
+            yield event.plain_result(
+                "🏯 丹阁分区\n"
+                "━━━━━━━━━━━━━━━\n"
+                "  · /丹阁 丹药：成品丹药\n"
+                "  · /丹阁 丹方：可购买学习的丹方卷轴\n"
+                "  · /丹阁 材料：炼丹材料\n"
+                "━━━━━━━━━━━━━━━\n"
+                "💡 购买使用 /购买 <物品名> [数量]"
+            )
             return
-        refresh_hours = self.config.get("PAVILION_REFRESH_HOURS", 1)
-        display = self.shop_manager.format_pavilion_display("丹阁", items, refresh_hours, last_refresh)
-        # 卡片成功只发图，失败/关闭降级为文本
-        card = await self._pavilion_card("丹阁", items)
+        if section not in jobs:
+            yield event.plain_result("❌ 丹阁分区只有：丹药、丹方、材料。")
+            return
+        pavilion_id, name, getter, count = jobs[section]
+        await self._ensure_pavilion_refreshed(pavilion_id, getter, count)
+        last_refresh, items = await self.db.get_shop_data(pavilion_id)
+        if not items:
+            yield event.plain_result(f"{name}暂无物品出售。")
+            return
+        refresh_hours = self._cfg("PAVILION_REFRESH_HOURS", 1)
+        display = self.shop_manager.format_pavilion_display(name, items, refresh_hours, last_refresh)
+        card = await self._pavilion_card(name, items)
         if card:
             yield event.image_result(card)
         else:
@@ -117,13 +149,13 @@ class ShopHandler:
 
     async def handle_weapon_pavilion(self, event: AstrMessageEvent):
         """处理器阁命令 - 展示武器列表"""
-        count = self.config.get("PAVILION_WEAPON_COUNT", 20)
+        count = self._cfg("PAVILION_WEAPON_COUNT", 20)
         await self._ensure_pavilion_refreshed("weapon_pavilion", self.shop_manager.get_weapons_for_display, count)
         last_refresh, items = await self.db.get_shop_data("weapon_pavilion")
         if not items:
             yield event.plain_result("器阁暂无武器出售。")
             return
-        refresh_hours = self.config.get("PAVILION_REFRESH_HOURS", 1)
+        refresh_hours = self._cfg("PAVILION_REFRESH_HOURS", 1)
         display = self.shop_manager.format_pavilion_display("器阁", items, refresh_hours, last_refresh)
         card = await self._pavilion_card("器阁", items)
         if card:
@@ -133,13 +165,13 @@ class ShopHandler:
 
     async def handle_treasure_pavilion(self, event: AstrMessageEvent):
         """处理百宝阁命令 - 展示所有物品"""
-        count = self.config.get("PAVILION_TREASURE_COUNT", 25)
+        count = self._cfg("PAVILION_TREASURE_COUNT", 25)
         await self._ensure_pavilion_refreshed("treasure_pavilion", self.shop_manager.get_all_items_for_display, count)
         last_refresh, items = await self.db.get_shop_data("treasure_pavilion")
         if not items:
             yield event.plain_result("百宝阁暂无物品出售。")
             return
-        refresh_hours = self.config.get("PAVILION_REFRESH_HOURS", 1)
+        refresh_hours = self._cfg("PAVILION_REFRESH_HOURS", 1)
         display = self.shop_manager.format_pavilion_display("百宝阁", items, refresh_hours, last_refresh)
         card = await self._pavilion_card("百宝阁", items)
         if card:
@@ -182,7 +214,7 @@ class ShopHandler:
 
     async def _find_item_in_pavilions(self, item_name: str):
         """在所有阁楼中查找物品"""
-        for pavilion_id in ["pill_pavilion", "weapon_pavilion", "treasure_pavilion"]:
+        for pavilion_id in ["pill_pavilion", "recipe_pavilion", "material_pavilion", "weapon_pavilion", "treasure_pavilion"]:
             _, items = await self.db.get_shop_data(pavilion_id)
             if items:
                 for item in items:
@@ -193,6 +225,7 @@ class ShopHandler:
     @player_required
     async def handle_buy(self, player: Player, event: AstrMessageEvent, item_name: str = ""):
         """处理购买物品命令"""
+        set_event_flag(event, "shop_buy", False)
         if not item_name or item_name.strip() == "":
             yield event.plain_result("请指定要购买的物品名称，例如：购买 青铜剑")
             return
@@ -218,8 +251,11 @@ class ShopHandler:
             try:
                 raw_msg = event.get_message_str().strip()
                 raw_msg = raw_msg.lstrip('/').strip()  # 兼容 /购买 斜杠前缀，防止物品名带上命令前缀
-                if raw_msg.startswith("购买"):
-                    raw_msg = raw_msg[len("购买"):].strip()
+                # 最长前缀优先：购买物品 必须先于 购买 剥离
+                for prefix in ("购买物品", "购买"):
+                    if raw_msg.startswith(prefix):
+                        raw_msg = raw_msg[len(prefix):].strip()
+                        break
                 raw_msg = raw_msg.replace("　", " ")
                 raw_msg = raw_msg.translate(str.maketrans("０１２３４５６７８９", "0123456789"))
                 parsed_name, parsed_qty = parse_qty(raw_msg)
@@ -236,7 +272,7 @@ class ShopHandler:
             yield event.plain_result(
                 f"没有找到【{item_name}】。\n"
                 "💡 物品名需与货架完全一致，且该物品当前在售（每 1 小时刷新）：\n"
-                "  · 丹药 → /丹阁    武器 → /器阁    材料/符箓等 → /百宝阁\n"
+                "  · 丹药/丹方/材料 → /丹阁    武器 → /器阁    符箓/杂物 → /百宝阁\n"
                 "💡 也可先发 /物品信息 <名称> 查询物品详情与获取途径"
             )
             return
@@ -319,33 +355,37 @@ class ShopHandler:
 
             if item_type in equippable_types:
                 success, msg = await self.storage_ring_manager.store_item(player, target_item['name'], quantity, external_transaction=True)
-                if success:
-                    type_name = {
-                        "weapon": "武器", "armor": "防具", "accessory": "饰品",
-                        "main_technique": "心法", "technique": "功法",
-                    }.get(item_type, "装备")
-                    result_lines.append(f"成功购买{type_name}【{target_item['name']}】x{quantity}，已存入储物戒。")
-                else:
-                    result_lines.append(f"成功购买【{target_item['name']}】x{quantity}。")
-                    result_lines.append(f"⚠️ 存入储物戒失败：{msg}")
-            
-            elif item_type == 'inventory_pill':
-                inventory = player.get_pills_inventory()
-                inventory[target_item['name']] = inventory.get(target_item['name'], 0) + quantity
-                player.set_pills_inventory(inventory)
-                result_lines.append(
-                    f"成功购买丹药【{target_item['name']}】x{quantity}，已放入丹药背包。"
-                )
-                result_lines.append(f"💡 使用 /服用丹药 {target_item['name']} [数量]")
-
-            elif item_type == 'legacy_pill':
-                success, message = await self._apply_legacy_pill_effects(player, target_item, quantity)
                 if not success:
                     await self.db.conn.rollback()
-                    yield event.plain_result(message)
+                    yield event.plain_result(f"❌ 购买失败：储物戒空间不足。\n{msg}\n本次未扣除灵石。")
                     return
-                result_lines.append(message)
+                type_name = {
+                    "weapon": "武器", "armor": "防具", "accessory": "饰品",
+                    "main_technique": "心法", "technique": "功法",
+                }.get(item_type, "装备")
+                result_lines.append(f"成功购买{type_name}【{target_item['name']}】x{quantity}，已存入储物戒。")
             
+            elif item_type == 'inventory_pill':
+                self.pill_manager._reset_daily_if_needed(player)
+                inventory = player.get_pills_inventory()
+                pill_key = self.pill_manager.make_pill_key(target_item['name'], '一般')
+                inventory[pill_key] = inventory.get(pill_key, 0) + quantity
+                player.set_pills_inventory(inventory)
+                result_lines.append(
+                    f"成功购买丹药【{target_item['name']}·一般】x{quantity}，已放入丹药背包。"
+                )
+                result_lines.append(f"💡 使用 /服用丹药 {target_item['name']} [品质] [数量]")
+
+            elif item_type == 'recipe':
+                success, msg = await self.storage_ring_manager.store_item(player, target_item['name'], quantity, external_transaction=True)
+                if success:
+                    result_lines.append(f"成功购买丹方【{target_item['name']}】x{quantity}，已存入储物戒。")
+                    result_lines.append(f"💡 使用 /学习丹方 {target_item['name']} 学习")
+                else:
+                    await self.db.conn.rollback()
+                    yield event.plain_result(f"❌ 丹方存入储物戒失败：{msg}")
+                    return
+
             elif item_type == 'material':
                 success, msg = await self.storage_ring_manager.store_item(player, target_item['name'], quantity, external_transaction=True)
                 if success:
@@ -364,6 +404,7 @@ class ShopHandler:
             
             result_lines.append(f"花费灵石: {total_price}，剩余: {player.gold}")
             result_lines.append(f"剩余库存: {remaining}" if remaining > 0 else "该物品已售罄！")
+            set_event_flag(event, "shop_buy", True)
             yield event.plain_result("\n".join(result_lines))
         except Exception as e:
             await self.db.conn.rollback()
@@ -395,77 +436,6 @@ class ShopHandler:
         lines = [
             detail_text,
             f"获取途径：{acquire_hint}",
-            "💡 使用 /丹阁、/器阁、/百宝阁 查看当前售卖物品"
+            "💡 使用 /丹阁 丹药|丹方|材料、/器阁、/百宝阁 查看当前售卖物品"
         ]
         yield event.plain_result("\n".join(lines))
-
-    async def _apply_legacy_pill_effects(self, player: Player, item: dict, quantity: int) -> tuple:
-        """应用旧系统丹药效果（items.json中的丹药）"""
-        effects = item.get('data', {}).get('effect', {})
-        if not effects:
-            return False, f"丹药【{item['name']}】无效果配置。"
-
-        effect_msgs = []
-        pill_name = item['name']
-
-        for _ in range(quantity):
-            if 'add_hp' in effects:
-                hp_change = effects['add_hp']
-                if player.cultivation_type == "体修":
-                    old_blood = player.blood_qi
-                    player.blood_qi = max(0, min(player.max_blood_qi, player.blood_qi + hp_change))
-                    effect_msgs.append(f"气血+{player.blood_qi - old_blood}" if hp_change > 0 else f"气血{hp_change}")
-                else:
-                    old_qi = player.spiritual_qi
-                    player.spiritual_qi = max(0, min(player.max_spiritual_qi, player.spiritual_qi + hp_change))
-                    effect_msgs.append(f"灵气+{player.spiritual_qi - old_qi}" if hp_change > 0 else f"灵气{hp_change}")
-            if 'add_experience' in effects:
-                exp_gain = effects['add_experience']
-                player.experience += exp_gain
-                effect_msgs.append(f"修为+{exp_gain}")
-            if 'add_max_hp' in effects:
-                max_hp_gain = effects['add_max_hp']
-                if player.cultivation_type == "体修":
-                    player.max_blood_qi += max_hp_gain
-                    effect_msgs.append(f"最大气血+{max_hp_gain}")
-                else:
-                    player.max_spiritual_qi += max_hp_gain
-                    effect_msgs.append(f"最大灵气+{max_hp_gain}")
-            if 'add_spiritual_power' in effects:
-                sp_gain = effects['add_spiritual_power']
-                player.magic_damage += sp_gain
-                effect_msgs.append(f"法伤+{sp_gain}")
-            if 'add_mental_power' in effects:
-                mp_gain = effects['add_mental_power']
-                player.mental_power += mp_gain
-                effect_msgs.append(f"精神力+{mp_gain}")
-            if 'add_attack' in effects:
-                atk_gain = effects['add_attack']
-                player.physical_damage += atk_gain
-                effect_msgs.append(f"物伤+{atk_gain}" if atk_gain > 0 else f"物伤{atk_gain}")
-            if 'add_defense' in effects:
-                def_gain = effects['add_defense']
-                player.physical_defense += def_gain
-                effect_msgs.append(f"物防+{def_gain}" if def_gain > 0 else f"物防{def_gain}")
-            if 'add_gold' in effects:
-                gold_change = effects['add_gold']
-                player.gold += gold_change
-                effect_msgs.append(f"灵石+{gold_change}" if gold_change > 0 else f"灵石{gold_change}")
-
-        player.physical_damage = max(0, player.physical_damage)
-        player.magic_damage = max(0, player.magic_damage)
-        player.physical_defense = max(0, player.physical_defense)
-        player.magic_defense = max(0, player.magic_defense)
-        player.mental_power = max(0, player.mental_power)
-        player.spiritual_qi = min(player.spiritual_qi, player.max_spiritual_qi)
-        player.blood_qi = min(player.blood_qi, player.max_blood_qi)
-
-        await self.db.update_player(player, commit=False)
-
-        unique_effects = list(dict.fromkeys(effect_msgs))
-        effects_str = "、".join(unique_effects[:5])
-        if len(unique_effects) > 5:
-            effects_str += "..."
-
-        qty_str = f"x{quantity}" if quantity > 1 else ""
-        return True, f"服用【{pill_name}】{qty_str}成功！效果：{effects_str}"

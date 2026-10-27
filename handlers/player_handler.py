@@ -10,7 +10,7 @@ from ..models import Player
 from ..models_extended import UserStatus
 from ..config_manager import ConfigManager
 from ..managers.tutorial_manager import TutorialManager
-from .utils import player_required, with_player_lock, _loan_identity
+from .utils import player_required, with_player_lock, _loan_identity, set_event_flag
 
 CMD_START_XIUXIAN = "我要修仙"
 CMD_PLAYER_INFO = "我的信息"
@@ -165,6 +165,31 @@ class PlayerHandler:
 
         new_player = self.cultivation_manager.generate_new_player_stats(user_id, cultivation_type)
         await self.db.create_player(new_player)
+        try:
+            await self.db.ext.ensure_impart_info(user_id)
+        except Exception:
+            pass
+        # 弃道重修次数保存在 system_config，跨角色保留；达到 3 次补发【百变星君】
+        new_player_title_msg = ""
+        try:
+            raw_total = await self.db.ext.get_system_config(f"rebirth_total_{user_id}")
+            total = int(raw_total or 0)
+            if total >= 3:
+                from ..managers.title_manager import TitleManager
+                tm = TitleManager(self.db)
+                new_title, tmsg = tm.grant(new_player, "百变星君")
+                if new_title:
+                    await self.db.update_player(new_player)
+                    if tmsg:
+                        new_player_title_msg = tmsg.strip()
+                    else:
+                        new_player_title_msg = ""
+                else:
+                    new_player_title_msg = ""
+            else:
+                new_player_title_msg = ""
+        except Exception:
+            new_player_title_msg = ""
 
         root_name = new_player.spiritual_root.replace("灵根", "")
         root_description = self.cultivation_manager._get_root_description(root_name)
@@ -182,6 +207,8 @@ class PlayerHandler:
         
         tutorial_msg = await self.tutorial_mgr.check_and_advance(new_player, "create")
         reply_msg += tutorial_msg
+        if new_player_title_msg:
+            reply_msg += f"\n{new_player_title_msg}"
         
         yield event.plain_result(reply_msg)
 
@@ -204,19 +231,35 @@ class PlayerHandler:
         from ..managers.combat_manager import CombatManager
         impart_info = await self.db.ext.get_impart_info(player.user_id)
         effects = equipment_manager.get_combat_effects(player)
-        try:
-            from ..managers.pet_manager import PetManager
-            pet_mgr = PetManager(self.db)
-            pet = await pet_mgr.get_pet(player.user_id)
-            if pet:
-                for k, v in pet_mgr.get_pet_combat_effects(pet).items():
-                    effects[k] = effects.get(k, 0) + v
-        except Exception:
-            pass
 
         combat_panel = CombatManager.build_combat_panel(
             player, pill_multipliers, impart_info, self.config_manager, effects
         )
+        # 名片与实战一致：主战特效 + 全部出战灵兽攻击
+        try:
+            from ..managers.pet_manager import PetManager
+            pet_mgr = PetManager(self.db)
+            main_pet, support_pets, pet_effects, owner_atk = await pet_mgr.build_pet_lineup(
+                player.user_id,
+                combat_panel["hp"],
+                combat_panel["atk"],
+                combat_panel["defense"],
+                player.cultivation_type,
+                persist=False,
+            )
+            if main_pet or support_pets:
+                pet_atk = 0
+                for pet in [main_pet] + list(support_pets or []):
+                    if pet and getattr(pet, "hp", 0) > 0:
+                        pet_atk += int(pet.atk)
+                combat_panel["atk"] = int(owner_atk) + pet_atk
+                for k, v in (pet_effects or {}).items():
+                    if k in combat_panel and isinstance(v, (int, float)):
+                        combat_panel[k] = combat_panel.get(k, 0) + v
+                combat_panel["defense"] += int((pet_effects or {}).get("defense_bonus", 0) or 0)
+        except Exception:
+            pass
+
         combat_power = CombatManager.calculate_combat_power(
             combat_panel, total_attrs["mental_power"]
         )
@@ -224,6 +267,15 @@ class PlayerHandler:
             self.config_manager.get_item_element(player.main_technique)
             or self.config_manager.get_item_element(player.weapon)
             or "无"
+        )
+        from ..managers.luck_manager import LuckManager
+        luck_parts = LuckManager.get_breakdown(player)
+        luck_total = luck_parts["total"]
+        luck_detail = (
+            f"本体{luck_parts['base']}"
+            + (f" + 称号{luck_parts['title']}" if luck_parts["title"] else "")
+            + (f" + 词条{luck_parts['affix']}" if luck_parts["affix"] else "")
+            + (f" + 符箓{luck_parts['talisman']}" if luck_parts["talisman"] else "")
         )
         
         sect_name = "无宗门"
@@ -264,6 +316,7 @@ class PlayerHandler:
             f"  灵石：{player.gold:,}\n"
             f"  战力：{combat_power:,}\n"
             f"  灵根：{player.spiritual_root}\n"
+            f"  气运：{luck_total}（{luck_detail}）\n"
             f"【修炼属性】\n"
             f"  修炼方式：{player.cultivation_type}\n"
             f"  状态：{status_text}\n"
@@ -378,6 +431,7 @@ class PlayerHandler:
                             ("战力", f"{combat_power:,}"),
                             ("灵根", player.spiritual_root),
                             ("功德/业力", f"{getattr(player, 'karma', 0) or 0:+d}"),
+                            ("气运", f"{luck_total}"),
                             ("生活职业", getattr(player, "life_skill", "") or "无"),
                             ("五行属性", element_name),
                             ("化身", self._avatar_status(player)),
@@ -428,6 +482,19 @@ class PlayerHandler:
             yield event.plain_result(f"❌ 道友当前正{UserStatus.get_name(user_cd.type)}，无法闭关！")
             return
 
+        # 兼容旧数据/异常中断：玩家状态仍为修炼中但 user_cd 丢失时，恢复闭关而不是覆盖开始时间
+        if (
+            (not user_cd or user_cd.type == UserStatus.IDLE)
+            and player.state == "修炼中"
+            and player.cultivation_start_time > 0
+        ):
+            await self.db.ext.set_user_busy(player.user_id, UserStatus.CULTIVATING, 0)
+            yield event.plain_result(
+                f"🧘 检测到未结算的闭关记录，已恢复闭关状态\n"
+                f"💡 发送「{CMD_END_CULTIVATION}」结束闭关"
+            )
+            return
+
         player.state = "修炼中"
         player.cultivation_start_time = int(time.time())
         await self.db.update_player(player)
@@ -438,16 +505,25 @@ class PlayerHandler:
     @with_player_lock
     async def handle_end_cultivation(self, event: AstrMessageEvent):
         """处理出关指令（不走忙碌状态拦截，保证任何时候都能出关）"""
+        set_event_flag(event, "cultivation_success", False)
         player = await self.db.get_player_by_id(event.get_sender_id())
         if not player:
             yield event.plain_result("道友尚未踏入仙途，请发送「我要修仙」开启你的旅程。")
             return
         user_cd = await self.db.ext.get_user_cd(player.user_id)
-        if not user_cd or user_cd.type != UserStatus.CULTIVATING:
+        legacy_cultivating = (
+            player.state == "修炼中"
+            and (not user_cd or user_cd.type == UserStatus.IDLE)
+        )
+        if (not user_cd or user_cd.type != UserStatus.CULTIVATING) and not legacy_cultivating:
             yield event.plain_result("道友当前并未闭关，无需出关。")
             return
         if player.cultivation_start_time == 0:
-            yield event.plain_result("数据异常：未记录闭关开始时间。")
+            player.state = "空闲"
+            player.cultivation_start_time = 0
+            await self.db.update_player(player)
+            await self.db.ext.set_user_free(player.user_id)
+            yield event.plain_result("闭关记录异常，已为你恢复空闲状态，请重新闭关。")
             return
 
         end_time = int(time.time())
@@ -455,10 +531,24 @@ class PlayerHandler:
         duration_minutes = duration_seconds // 60
 
         if duration_minutes < 1:
-            yield event.plain_result("道友闭关时间不足1分钟，未获得修为。")
+            player.state = "空闲"
+            player.cultivation_start_time = 0
+            await self.db.update_player(player)
+            await self.db.ext.set_user_free(player.user_id)
+            yield event.plain_result("道友闭关时间不足1分钟，已出关，未获得修为。")
             return
 
-        base_minutes = 1440
+        try:
+            cultivation_cfg = self.config_manager.game_config.get("cultivation", {})
+        except AttributeError:
+            cultivation_cfg = {}
+        if not isinstance(cultivation_cfg, dict):
+            cultivation_cfg = {}
+        try:
+            base_minutes = int(cultivation_cfg.get("max_cultivation_minutes", 1440))
+        except (TypeError, ValueError):
+            base_minutes = 1440
+        base_minutes = max(1, base_minutes)
         realm_bonus = (player.level_index // 9) * 360
         MAX_CULTIVATION_MINUTES = base_minutes + realm_bonus
         effective_minutes = min(duration_minutes, MAX_CULTIVATION_MINUTES)
@@ -532,7 +622,7 @@ class PlayerHandler:
         except Exception:
             pass
 
-        # 仙灵道侣加成（玄霜：闭关+5%起）
+        # 仙灵道侣加成（玄霜：闭关最高+6%）
         try:
             comp_bonus = await self.social_mgr_ref.companion_bonus_async(player.user_id, "cultivate")
             if comp_bonus > 0:
@@ -552,6 +642,15 @@ class PlayerHandler:
         except Exception:
             pass
 
+        try:
+            from ..managers.title_manager import TitleManager
+            title_exp_bonus = TitleManager.get_exp_bonus(player)
+            if title_exp_bonus > 0:
+                gained_exp = int(gained_exp * (1 + title_exp_bonus))
+                tide_note += f"\n🏅 称号修为加成：+{int(title_exp_bonus * 100)}%"
+        except Exception:
+            pass
+
         player.experience += gained_exp
         player.state = "空闲"
         player.cultivation_start_time = 0
@@ -559,6 +658,7 @@ class PlayerHandler:
         await self.db.ext.set_user_free(player.user_id)
 
         await self.db.ext.add_task_progress(player.user_id, "cultivate", 1)
+        set_event_flag(event, "cultivation_success", True)
         tutorial_msg = await self.tutorial_mgr.check_and_advance(player, "cultivate")
 
         hours = duration_minutes // 60
@@ -674,6 +774,7 @@ class PlayerHandler:
     @player_required
     async def handle_rebirth(self, player: Player, event: AstrMessageEvent, confirm_text: str = ""):
         """弃道重修（7天冷却）"""
+        self.last_rebirth_success = False
         user_cd = await self.db.ext.get_user_cd(player.user_id)
         if user_cd and user_cd.type != UserStatus.IDLE:
             status_name = UserStatus.get_name(user_cd.type)
@@ -712,8 +813,15 @@ class PlayerHandler:
             )
             return
 
+        try:
+            raw_total = await self.db.ext.get_system_config(f"rebirth_total_{player.user_id}")
+            total = int(raw_total or 0) + 1
+        except (TypeError, ValueError):
+            total = 1
         await self.db.delete_player_cascade(player.user_id)
         await self.db.ext.set_system_config(key, str(now))
+        await self.db.ext.set_system_config(f"rebirth_total_{player.user_id}", str(total))
+        self.last_rebirth_success = True
 
         yield event.plain_result(
             "💀 你选择了弃道重修，旧生一切化为尘埃。\n"

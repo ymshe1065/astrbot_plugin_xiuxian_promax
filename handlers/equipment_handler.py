@@ -38,11 +38,18 @@ class EquipmentHandler:
         await self.pill_manager.update_temporary_effects(player)
         pill_multipliers = self.pill_manager.calculate_pill_attribute_effects(player)
 
+        equipped_map = player.get_equipped_instances()
+        def equipped_label(slot, name):
+            if not name:
+                return "未装备"
+            inst = self.equipment_manager.instance_manager.get_instance(player, equipped_map.get(slot, 0))
+            return f"{name}·{inst.get('quality', '一般')}" if inst else name
+
         # 构建装备显示
         equipment_lines = [
             f"=== {display_name} 的装备 ===\n",
-            f"【武器】{player.weapon if player.weapon else '未装备'}\n",
-            f"【防具】{player.armor if player.armor else '未装备'}\n",
+            f"【武器】{equipped_label('weapon', player.weapon)}\n",
+            f"【防具】{equipped_label('armor', player.armor)}\n",
             f"【主修心法】{player.main_technique if player.main_technique else '未装备'}\n",
         ]
 
@@ -94,8 +101,8 @@ class EquipmentHandler:
             if card_enabled("CARD_EQUIP"):
                 element_of = lambda n: (self.config_manager.get_item_element(n) if n else "")
                 equip_rows = [
-                    ("武器", player.weapon or "未装备"),
-                    ("防具", player.armor or "未装备"),
+                    ("武器", equipped_label("weapon", player.weapon)),
+                    ("防具", equipped_label("armor", player.armor)),
                     ("主修心法", player.main_technique or "未装备"),
                 ]
                 if element_of(player.main_technique) or element_of(player.weapon):
@@ -133,6 +140,11 @@ class EquipmentHandler:
             return
 
         item_name = item_name.strip()
+        instance_index = 1
+        tokens = item_name.split()
+        if len(tokens) >= 2 and tokens[-1].isdigit():
+            instance_index = max(1, int(tokens[-1]))
+            item_name = " ".join(tokens[:-1])
 
         # 检查物品是否存在于配置中（items -> weapons -> techniques）
         item_config = self.config_manager.items_data.get(item_name)
@@ -152,41 +164,38 @@ class EquipmentHandler:
             yield event.plain_result(f"【{item_name}】不是可装备的物品类型")
             return
 
-        # 检查储物戒中是否有该物品
-        if not self.storage_ring_manager.has_item(player, item_name, 1):
-            yield event.plain_result(
-                f"❌ 储物戒中没有【{item_name}】\n"
-                f"请先通过购买或获得该装备"
+        # 优先使用装备实例，同名装备按序号选择
+        inst = None
+        item_removed_from_storage = False
+        if item_type in ("weapon", "armor"):
+            inst = self.equipment_manager.instance_manager.find_for_equip(player, item_name, instance_index)
+            if not inst:
+                yield event.plain_result(f"❌ 储物戒中没有第 {instance_index} 件【{item_name}】可装备。")
+                return
+        if inst:
+            item = self.equipment_manager.parse_item_from_name(
+                item_name, self.config_manager.items_data, self.config_manager.weapons_data, inst
             )
-            return
+            success, message = await self.equipment_manager.equip_item(player, item, int(inst["id"]))
+        else:
+            # 兼容旧数据：储物戒名称堆叠
+            if not self.storage_ring_manager.has_item(player, item_name, 1):
+                yield event.plain_result(
+                    f"❌ 储物戒中没有【{item_name}】\n"
+                    f"请先通过购买或获得该装备"
+                )
+                return
 
-        # 从储物戒取出物品
-        success, retrieve_msg = await self.storage_ring_manager.retrieve_item(player, item_name, 1)
-        if not success:
-            yield event.plain_result(f"❌ 无法从储物戒取出装备：{retrieve_msg}")
-            return
+            success, retrieve_msg = await self.storage_ring_manager.retrieve_item(player, item_name, 1)
+            if not success:
+                yield event.plain_result(f"❌ 无法从储物戒取出装备：{retrieve_msg}")
+                return
+            item_removed_from_storage = True
 
-        # 创建Item对象
-        from ..models import Item
-        item = Item(
-            item_id=item_config.get("id", item_name),
-            name=item_name,
-            item_type=item_type,
-            description=item_config.get("description", ""),
-            rank=item_config.get("rank", ""),
-            required_level_index=ItemRules.get_required_level(item_config),
-            weapon_category=item_config.get("weapon_category", ""),
-            magic_damage=item_config.get("magic_damage", 0),
-            physical_damage=item_config.get("physical_damage", 0),
-            magic_defense=item_config.get("magic_defense", 0),
-            physical_defense=item_config.get("physical_defense", 0),
-            mental_power=item_config.get("mental_power", 0),
-            exp_multiplier=item_config.get("exp_multiplier", 0.0),
-            spiritual_qi=item_config.get("spiritual_qi", 0)
-        )
-
-        # 装备物品
-        success, message = await self.equipment_manager.equip_item(player, item)
+            item = self.equipment_manager.parse_item_from_name(
+                item_name, self.config_manager.items_data, self.config_manager.weapons_data
+            )
+            success, message = await self.equipment_manager.equip_item(player, item)
 
         if success:
             # 显示属性加成
@@ -198,8 +207,11 @@ class EquipmentHandler:
             )
             yield event.plain_result(result_msg)
         else:
-            # 装备失败，将物品放回储物戒
-            await self.storage_ring_manager.store_item(player, item_name, 1, silent=True)
+            # 仅“旧名称堆叠”路径在取出后失败时才回存；
+            # 实例路径失败时装备本体仍在储物戒，不能再次 store_item，
+            # 否则会新建实例并复制装备。
+            if item_removed_from_storage:
+                await self.storage_ring_manager.store_item(player, item_name, 1, silent=True)
             yield event.plain_result(f"❌ {message}")
 
     @player_required
@@ -224,10 +236,14 @@ class EquipmentHandler:
 
         # 获取卸下前的装备名称，用于存入储物戒
         unequipped_item_name = None
+        had_instance = False
+        equipped_map = player.get_equipped_instances()
         if slot_or_name in ["武器", "weapon"]:
             unequipped_item_name = player.weapon
+            had_instance = bool(equipped_map.get("weapon"))
         elif slot_or_name in ["防具", "armor"]:
             unequipped_item_name = player.armor
+            had_instance = bool(equipped_map.get("armor"))
         elif slot_or_name in ["主修心法", "心法", "main_technique"]:
             unequipped_item_name = player.main_technique
         else:
@@ -240,9 +256,12 @@ class EquipmentHandler:
         success, message = await self.equipment_manager.unequip_item(player, slot_or_name)
 
         if success:
-            # 卸下成功后，将装备存入储物戒
             storage_msg = ""
-            if unequipped_item_name:
+            # 武器/防具实例由 EquipmentManager 直接移回实例仓库；心法/功法仍按名称存取
+            needs_store = unequipped_item_name and (
+                slot_or_name not in ("武器", "weapon", "防具", "armor") or not had_instance
+            )
+            if needs_store:
                 store_success, store_msg = await self.storage_ring_manager.store_item(
                     player, unequipped_item_name, 1, silent=True
                 )

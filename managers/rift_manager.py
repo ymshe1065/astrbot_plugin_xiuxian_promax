@@ -268,6 +268,21 @@ class RiftManager:
             exp_reward = random.randint(1000, 5000)
             gold_reward = random.randint(500, 2000)
         
+        try:
+            from .talisman_manager import TalismanManager
+            from .luck_manager import LuckManager
+            reward_mult = 1.0 + TalismanManager.get_active_bonus(player, "rift_reward_multiplier")
+            reward_mult *= 1.0 + LuckManager.percent_bonus(player, per_point=0.3, cap=30.0) / 100.0
+            exp_reward = int(exp_reward * reward_mult)
+            gold_reward = int(gold_reward * reward_mult)
+            try:
+                from .title_manager import TitleManager
+                exp_reward = int(exp_reward * (1 + TitleManager.get_exp_bonus(player)))
+            except Exception:
+                pass
+        except Exception:
+            pass
+
         # 随机事件
         events = [
             {"desc": "你发现了一处灵泉，修为大增！", "item_chance": 70},
@@ -290,7 +305,8 @@ class RiftManager:
                 if is_pill:
                     # 存入丹药背包
                     inventory = player.get_pills_inventory()
-                    inventory[item_name] = inventory.get(item_name, 0) + count
+                    pill_key = f"{item_name}|一般"
+                    inventory[pill_key] = inventory.get(pill_key, 0) + count
                     player.set_pills_inventory(inventory)
                     item_lines.append(f"  · {item_name} x{count}（丹药背包）")
                 elif self.storage_ring_manager:
@@ -410,7 +426,14 @@ class RiftManager:
             掉落物品列表 [(物品名, 数量), ...]
         """
         dropped_items = []
-        
+        try:
+            from .talisman_manager import TalismanManager
+            from .luck_manager import LuckManager
+            item_chance += int(TalismanManager.get_active_bonus(player, "drop_chance_bonus"))
+            item_chance += int(LuckManager.percent_bonus(player, per_point=0.4, cap=20.0))
+        except Exception:
+            pass
+
         # 检查是否触发物品掉落
         if random.randint(1, 100) > item_chance:
             return dropped_items

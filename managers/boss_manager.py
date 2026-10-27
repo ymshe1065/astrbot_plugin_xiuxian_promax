@@ -3,6 +3,7 @@
 Boss系统管理器 - 处理Boss生成、战斗、奖励等逻辑
 """
 
+import asyncio
 import random
 import time
 from typing import Tuple, Dict, Optional, List, TYPE_CHECKING
@@ -49,10 +50,10 @@ class BossManager:
         ],
         "high": [
             {"name": "天材地宝", "weight": 30, "min": 2, "max": 4},
-            {"name": "混沌精华", "weight": 25, "min": 1, "max": 2},
-            {"name": "神兽之骨", "weight": 20, "min": 1, "max": 1},
-            {"name": "远古秘籍", "weight": 15, "min": 1, "max": 1},
-            {"name": "仙器碎片", "weight": 10, "min": 1, "max": 1},
+            {"name": "鸿蒙草", "weight": 25, "min": 1, "max": 2},
+            {"name": "九天骨", "weight": 20, "min": 1, "max": 2},
+            {"name": "混沌皮", "weight": 15, "min": 1, "max": 2},
+            {"name": "空间石", "weight": 10, "min": 1, "max": 1},
         ],
     }
     
@@ -63,7 +64,13 @@ class BossManager:
         self.storage_ring_manager = storage_ring_manager
         self.config = config_manager.boss_config if config_manager else {}
         self.levels = self.config.get("levels", self.BOSS_LEVELS)
+        self._battle_lock = None
     
+    def _get_battle_lock(self) -> asyncio.Lock:
+        if self._battle_lock is None:
+            self._battle_lock = asyncio.Lock()
+        return self._battle_lock
+
     def _get_element_of(self, item_name: str) -> str:
         """玩家五行：优先配置显式标注，其次名称推断"""
         if not item_name:
@@ -137,6 +144,14 @@ ATK：{atk}
         self,
         user_id: str
     ) -> Tuple[bool, str, Optional[Dict]]:
+        """旧版 Boss 战全局串行，避免并发击杀重复结算。"""
+        async with self._get_battle_lock():
+            return await self._challenge_boss_locked(user_id)
+
+    async def _challenge_boss_locked(
+        self,
+        user_id: str
+    ) -> Tuple[bool, str, Optional[Dict]]:
         player = await self.db.get_player_by_id(user_id)
         if not player:
             return False, "❌ 你还未踏入修仙之路！", None
@@ -194,6 +209,7 @@ ATK：{atk}
             self.config_manager,
             db=self.db,
             hp_buff=hp_buff,
+            mp_buff=mp_buff,
             atk_buff=atk_buff,
             crit_rate=int(crit_rate_buff * 100),
         )
@@ -207,7 +223,13 @@ ATK：{atk}
         player_stats.atk = atk
         player_stats.pet = main_pet
         player_stats.support_pets = support_pets
-        player_stats.effects = pet_effects
+        merged_effects = dict(player_stats.effects or {})
+        for key, value in (pet_effects or {}).items():
+            if isinstance(value, (int, float)):
+                merged_effects[key] = merged_effects.get(key, 0) + value
+            else:
+                merged_effects[key] = value
+        player_stats.effects = merged_effects
 
         # Boss 随机获得一种五行属性，构成克制关系
         boss_element = random.choice(["金", "木", "水", "火", "土"])

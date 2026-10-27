@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 from astrbot.api import logger
 from .data.default_configs import SECT_CONFIG, BOSS_CONFIG, RIFT_CONFIG, ALCHEMY_CONFIG
@@ -24,6 +24,10 @@ class ConfigManager:
         self.boss_config: Dict[str, Any] = {}
         self.rift_config: Dict[str, Any] = {}
         self.alchemy_config: Dict[str, Any] = {}
+        self.pill_quality_data: Dict[str, Any] = {}
+        self.pill_recipes_data: Dict[int, dict] = {}
+        self.material_catalog: Dict[str, dict] = {}
+        self.talisman_recipes_data: Dict[str, dict] = {}
         
         self._load_all()
 
@@ -98,7 +102,33 @@ class ConfigManager:
         self.alchemy_config = self._load_config_with_default(config_dir / "alchemy_config.json", ALCHEMY_CONFIG)
         self.alchemy_recipes = self._load_items_data(config_dir / "alchemy_recipes.json")
         self.game_config = self._load_config_with_default(config_dir / "game_config.json", {})
-        
+        self.pill_quality_data = self._load_config_with_default(
+            config_dir / "pill_quality.json",
+            {"qualities": {"一般": {"order": 0, "effect_multiplier": 1.0, "breakthrough_multiplier": 1.0, "resurrection_keep": 0.5, "weight": 55}}},
+        )
+        raw_recipes = self._load_json_data(config_dir / "pill_recipes.json")
+        self.pill_recipes_data = {}
+        for recipe in raw_recipes:
+            if isinstance(recipe, dict) and recipe.get("id") is not None:
+                try:
+                    self.pill_recipes_data[int(recipe["id"])] = recipe
+                except (TypeError, ValueError):
+                    continue
+        raw_material_catalog = self._load_config_with_default(config_dir / "material_catalog.json", {"materials": []})
+        self.material_catalog = {}
+        for material in raw_material_catalog.get("materials", []):
+            if isinstance(material, dict) and material.get("name"):
+                self.material_catalog[material["name"]] = material
+
+        raw_talisman_recipes = self._load_json_data(config_dir / "talisman_recipes.json")
+        self.talisman_recipes_data = {}
+        for recipe in raw_talisman_recipes:
+            if isinstance(recipe, dict) and recipe.get("name"):
+                self.talisman_recipes_data[recipe["name"]] = recipe
+
+        self._inject_recipe_scrolls()
+        self._inject_material_packages()
+        self._inject_talisman_items()
         self._pill_names_cache = None
         self._annotate_elements()
         logger.info("配置管理器初始化完成")
@@ -138,6 +168,122 @@ class ConfigManager:
     def get_item_element(self, item_name: str) -> str:
         """获取物品/功法的五行属性（未标注返回空串）"""
         return self._element_index.get(item_name, "")
+
+    def _inject_recipe_scrolls(self):
+        """将未学习丹方作为可交易、可堆叠的“丹方”物品注入物品目录。"""
+        for recipe in self.pill_recipes_data.values():
+            name = self.get_recipe_scroll_name(recipe)
+            if name in self.items_data:
+                continue
+            self.items_data[name] = {
+                "id": f"recipe_scroll_{recipe.get('id')}",
+                "name": name,
+                "type": "丹方",
+                "rank": "灵品",
+                "price": int(recipe.get("price") or 2000),
+                "shop_weight": int(recipe.get("shop_weight") or 10),
+                "volume": 1,
+                "recipe_id": int(recipe.get("id")),
+                "description": recipe.get("desc") or f"记载{recipe.get('output_pill', '丹药')}炼制方法的丹方，使用 /学习丹方 学习。",
+            }
+
+    def _inject_talisman_items(self):
+        """将新增符箓注入物品目录（已有符箓沿用原配置）。"""
+        for name, recipe in self.talisman_recipes_data.items():
+            if name in self.items_data:
+                continue
+            self.items_data[name] = {
+                "id": f"talisman_{recipe.get('id', name)}",
+                "name": name,
+                "type": "符箓",
+                "rank": recipe.get("rank", "黄阶"),
+                "price": int(recipe.get("price") or 1000),
+                "shop_weight": int(recipe.get("shop_weight") or 20),
+                "volume": 1,
+                "description": recipe.get("desc") or "一张蕴含天地之力的符箓。",
+            }
+
+    def _inject_material_packages(self):
+        """注入材料包：购买后随机开出同类别同品级材料。"""
+        tier_price = {"黄阶": 90, "玄阶": 360, "地阶": 1500, "天阶": 6000}
+        categories = ["灵植", "矿材", "妖兽", "灵液"]
+        for category in categories:
+            for tier, price in tier_price.items():
+                name = f"{category}包·{tier}"
+                if name in self.items_data:
+                    continue
+                self.items_data[name] = {
+                    "id": f"material_package_{category}_{tier}",
+                    "name": name,
+                    "type": "材料包",
+                    "rank": tier,
+                    "price": price,
+                    "shop_weight": 60 if tier in ("黄阶", "玄阶") else 15,
+                    "volume": 1,
+                    "package_category": category,
+                    "package_tier": tier,
+                    "description": f"打开后随机获得 1-3 个{tier}{category}材料。",
+                }
+
+    @staticmethod
+    def get_recipe_scroll_name(recipe: dict) -> str:
+        name = str(recipe.get("name") or recipe.get("output_pill") or "丹方")
+        return f"《{name}》" if not name.startswith("《") else name
+
+    def get_recipe_by_id(self, recipe_id) -> Optional[Dict[str, Any]]:
+        try:
+            return self.pill_recipes_data.get(int(recipe_id))
+        except (TypeError, ValueError):
+            return None
+
+    def get_recipe_by_scroll(self, item_name: str) -> Optional[Dict[str, Any]]:
+        item = self.items_data.get(item_name)
+        if not item or item.get("type") != "丹方":
+            return None
+        return self.get_recipe_by_id(item.get("recipe_id"))
+
+    def get_pill_quality(self, quality: str) -> Dict[str, Any]:
+        qualities = self.pill_quality_data.get("qualities", {}) if isinstance(self.pill_quality_data, dict) else {}
+        return qualities.get(quality or "", {})
+
+    def get_pill_quality_names(self) -> List[str]:
+        qualities = self.pill_quality_data.get("qualities", {}) if isinstance(self.pill_quality_data, dict) else {}
+        return [name for name, _ in sorted(qualities.items(), key=lambda kv: int(kv[1].get("order", 0)))]
+
+    def get_material_info(self, item_name: str) -> Dict[str, Any]:
+        return self.material_catalog.get(item_name, {})
+
+    def is_recipe_scroll(self, item_name: str) -> bool:
+        return self.get_recipe_by_scroll(item_name) is not None
+
+    def get_item_config(self, item_name: str) -> Optional[Dict[str, Any]]:
+        """统一物品目录查询：同名物品只认一个配置来源。"""
+        return (
+            self.items_data.get(item_name)
+            or self.weapons_data.get(item_name)
+            or self.techniques_data.get(item_name)
+            or self.pills_data.get(item_name)
+            or self.exp_pills_data.get(item_name)
+            or self.utility_pills_data.get(item_name)
+        )
+
+    def get_item_price(self, item_name: str) -> int:
+        """统一价格入口：配置价优先，缺失时按品级回退。"""
+        cfg = self.get_item_config(item_name) or {}
+        try:
+            price = int(cfg.get("price", 0) or 0)
+        except (TypeError, ValueError):
+            price = 0
+        if price > 0:
+            return price
+        rank = str(cfg.get("rank", "黄阶") or "黄阶")
+        fallback = {
+            "凡品": 100, "黄阶": 300, "灵品": 800, "玄阶": 2000,
+            "珍品": 4000, "地阶": 8000, "圣品": 15000, "天阶": 30000,
+            "帝品": 45000, "道品": 60000, "仙品": 120000, "神品": 200000,
+            "混元先天": 300000,
+        }
+        return int(fallback.get(rank, 1000))
 
     def is_pill(self, item_name: str) -> bool:
         if item_name in self.pills_data or item_name in self.exp_pills_data or item_name in self.utility_pills_data:

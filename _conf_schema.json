@@ -151,7 +151,7 @@
         "description": "Boss管理员名单",
         "type": "list",
         "default": [],
-        "hint": "可以手动生成Boss的用户ID（字符串）。为空则不允许任何人手动生成Boss。"
+        "hint": "可以手动生成Boss/开启团本/结束团本/开启与结束天魔入侵/开启魔潮的用户ID（字符串）。为空则不允许任何人手动管理Boss与全服事件。"
       }
     }
   },
@@ -195,6 +195,12 @@
         "default": [0.01, 0.1],
         "hint": "突破失败时的死亡概率范围。第一个值为最小概率（1%），第二个值为最大概率（10%）。每次突破失败会在此范围内随机一个死亡概率。"
       },
+      "BODY_BREAKTHROUGH_DEATH_MULTIPLIER": {
+        "description": "体修突破失败死亡概率倍率",
+        "type": "float",
+        "default": 1.5,
+        "hint": "体修突破失败时的死亡概率额外倍率。1.5 表示比灵修高 50%，设置为 1.0 则与灵修相同。"
+      },
       "PAVILION_REFRESH_HOURS": {
         "description": "阁楼刷新时间（小时）",
         "type": "int",
@@ -236,6 +242,90 @@
         "type": "int",
         "default": 100,
         "hint": "库存=物品权重/基数。基数越大，库存越少。"
+      },
+      "PAVILION_RECIPE_COUNT": {
+        "description": "丹方阁展示数量",
+        "type": "int",
+        "default": 10,
+        "hint": "丹方阁展示的丹方卷轴数量。"
+      },
+      "PAVILION_MATERIAL_COUNT": {
+        "description": "材料阁展示数量",
+        "type": "int",
+        "default": 20,
+        "hint": "材料阁展示的材料数量。"
+      }
+    }
+  },
+  "BANK": {
+    "description": "灵石银行配置",
+    "type": "object",
+    "items": {
+      "DAILY_INTEREST_RATE": {
+        "description": "存款日利率",
+        "type": "float",
+        "default": 0.001,
+        "hint": "存款复利日利率，0.001 表示 0.1%。"
+      },
+      "MAX_DEPOSIT": {
+        "description": "存款上限",
+        "type": "int",
+        "default": 10000000,
+        "hint": "单个账户最大存款额。"
+      },
+      "LOAN_INTEREST_RATE": {
+        "description": "普通贷款日利率",
+        "type": "float",
+        "default": 0.005,
+        "hint": "普通贷款按原始本金计算的日利率。"
+      },
+      "LOAN_DURATION_DAYS": {
+        "description": "普通贷款期限（天）",
+        "type": "int",
+        "default": 7,
+        "hint": "普通贷款到期天数，逾期会被银行追杀。"
+      },
+      "MAX_LOAN_AMOUNT": {
+        "description": "最大贷款额",
+        "type": "int",
+        "default": 1000000,
+        "hint": "单笔贷款上限。"
+      },
+      "MIN_LOAN_AMOUNT": {
+        "description": "最小贷款额",
+        "type": "int",
+        "default": 1000,
+        "hint": "单笔贷款下限。"
+      },
+      "BREAKTHROUGH_LOAN_RATE": {
+        "description": "突破贷款日利率",
+        "type": "float",
+        "default": 0.008,
+        "hint": "突破贷款风险更高，默认 0.8%。"
+      },
+      "BREAKTHROUGH_LOAN_DURATION": {
+        "description": "突破贷款期限（天）",
+        "type": "int",
+        "default": 3,
+        "hint": "突破贷款到期天数。"
+      },
+      "LOAN_HOLD_RATIO": {
+        "description": "大额贷款持有比例",
+        "type": "float",
+        "default": 0.2,
+        "hint": "大额贷款要求至少持有贷款额的该比例。"
+      },
+      "LOAN_HOLD_MIN": {
+        "description": "大额贷款最低持有额",
+        "type": "int",
+        "default": 5000,
+        "hint": "大额贷款持有门槛的最低绝对值。"
+      },
+      "LOAN_HOLD_FREE_LIMIT": {
+        "description": "免持有门槛额度",
+        "type": "int",
+        "default": 10000,
+        "hint": "不超过该额度的贷款不要求持有金额。"
       }
     }
   },

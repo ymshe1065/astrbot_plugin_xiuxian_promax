@@ -45,6 +45,7 @@ class Sect:
     sect_owner: str
     sect_scale: int = 0
     sect_used_stone: int = 0
+    # sect_fairyland/mainbuff/secbuff/elixir_room_level 为旧版兼容字段，当前玩法不参与结算
     sect_fairyland: int = 0
     sect_materials: int = 0
     mainbuff: str = "0"

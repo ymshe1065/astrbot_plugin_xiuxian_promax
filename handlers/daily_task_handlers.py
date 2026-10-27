@@ -30,6 +30,7 @@ class DailyTaskHandlers:
     @player_required
     async def handle_abandon_task(self, player: Player, event: AstrMessageEvent, task_id: str = ""):
         """放弃进行中的任务"""
+        self.last_abandon_success = False
         if not task_id or not task_id.strip():
             tasks = await self.db.ext.get_user_active_tasks(player.user_id)
             if not tasks:
@@ -62,6 +63,7 @@ class DailyTaskHandlers:
             return
 
         success, msg = await self.task_mgr.abandon_task(player, tid)
+        self.last_abandon_success = success
         yield event.plain_result(msg)
 
     @player_required

@@ -8,6 +8,7 @@ from typing import Tuple, Optional, Dict, List
 from ..data.data_manager import DataBase
 from ..models import Player
 from .encounter_events import EVENTS as EVENT_POOL
+from .luck_manager import LuckManager
 
 __all__ = ["EncounterManager"]
 
@@ -34,8 +35,12 @@ class EncounterManager:
 
     async def maybe_trigger(self, player: Player, base_chance: int = 20) -> Optional[str]:
         """历练(20%)/秘境(25%)归来时调用，概率触发奇遇。返回提示文本（None 表示未触发）"""
-        # 功德越高奇遇越容易触发（每点+2%，上限+20%）
+        if not player:
+            return None
+        # 功德越高奇遇越容易触发（每点+2%，上限+20%）；气运每点+0.5%，上限+20%
         chance = base_chance + max(0, min(10, getattr(player, "karma", 0) or 0) * 2)
+        chance += LuckManager.percent_bonus(player, per_point=0.5, cap=20.0)
+        chance = min(95, chance)
         if random.randint(1, 100) > chance:
             return None
 
@@ -103,13 +108,15 @@ class EncounterManager:
             return True, "🚶 你谨慎地离开了，世间机缘，随缘而已。"
 
         # 风险类 55% 成功；善行必成；恶行 70% 成功；稳妥类 85% 成功
+        # 气运提供额外成功率：每点+0.25%，上限+15%
+        luck_rate = LuckManager.percent_bonus(player, per_point=0.25, cap=15.0) / 100.0
         fail = False
         if weight == "risk":
-            fail = random.random() > 0.55
+            fail = random.random() > min(0.98, 0.55 + luck_rate)
         elif weight == "evil":
-            fail = random.random() > 0.7
+            fail = random.random() > min(0.98, 0.7 + luck_rate)
         elif weight == "safe":
-            fail = random.random() > 0.85
+            fail = random.random() > min(0.98, 0.85 + luck_rate)
         elif weight == "good":
             fail = False
 
@@ -129,6 +136,7 @@ class EncounterManager:
         exp = int(outcome.get("exp", 0))
         hp_pct = float(outcome.get("hp_pct", 0))
         karma = int(outcome.get("karma", 0))
+        luck = int(outcome.get("luck", 0) or 0)
         item = outcome.get("item")
 
         if gold:
@@ -150,7 +158,19 @@ class EncounterManager:
             player.karma = (getattr(player, "karma", 0) or 0) + karma
             lines.append(f"🌑业力 {karma}（当前 {player.karma}）：突破成功率降低，多行善可消解")
 
-        need_save = bool(gold or exp or hp_pct or karma)
+        # 奇遇是气运的主要获取途径：部分事件直接给气运，成功抉择也有基础机缘
+        if not fail and weight != "leave" and luck == 0:
+            ambient_chance = 10 + min(15, LuckManager.get_total_luck(player) * 0.1)
+            if random.randint(1, 100) <= ambient_chance:
+                luck = 1
+        if luck:
+            player.luck = LuckManager.add_luck(player, luck)
+            if luck > 0:
+                lines.append(f"🍀 机缘临身，气运 +{luck}（当前气运 {player.luck}）")
+            else:
+                lines.append(f"🍂 气运受损 {luck}（当前气运 {player.luck}）")
+
+        need_save = bool(gold or exp or hp_pct or karma or luck)
 
         if item and self.storage_ring_mgr and not fail:
             item_name = item.get("name", "")

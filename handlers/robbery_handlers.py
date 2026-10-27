@@ -4,16 +4,18 @@ from astrbot.api.all import At
 from ..data import DataBase
 from ..managers.robbery_manager import RobberyManager
 from ..models import Player
-from .utils import player_required
+from .utils import player_required, set_event_flag
 
 class RobberyHandlers:
     def __init__(self, db: DataBase, robbery_mgr: RobberyManager):
         self.db = db
         self.robbery_mgr = robbery_mgr
+        self.last_shield_success = False
 
     @player_required
     async def handle_use_shield(self, player: Player, event: AstrMessageEvent):
         success, msg = await self.robbery_mgr.use_shield(player)
+        set_event_flag(event, "shield_success", bool(success))
         yield event.plain_result(msg)
 
     @player_required

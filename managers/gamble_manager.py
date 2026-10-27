@@ -155,8 +155,9 @@ class GambleManager:
         selected = []
         while candidates and len(selected) < 3:
             weights = [
-                self.BLACK_MARKET_RANK_WEIGHTS.get(
-                    real_pool[name].get("rank", ""), 1
+                int(
+                    real_pool[name].get("black_market_weight")
+                    or self.BLACK_MARKET_RANK_WEIGHTS.get(real_pool[name].get("rank", ""), 1)
                 )
                 for name in candidates
             ]
@@ -290,7 +291,8 @@ class GambleManager:
 
         if is_pill:
             inventory = player.get_pills_inventory()
-            inventory[target["name"]] = inventory.get(target["name"], 0) + 1
+            pill_key = f"{target['name']}|一般"
+            inventory[pill_key] = inventory.get(pill_key, 0) + 1
             player.set_pills_inventory(inventory)
             await self.db.update_player(player)
             return True, (

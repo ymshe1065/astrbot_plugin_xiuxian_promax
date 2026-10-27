@@ -7,7 +7,8 @@ from astrbot.api.event import AstrMessageEvent
 
 from ..data import DataBase
 from ..models import Player
-from .utils import player_required
+from ..core import ItemRules
+from .utils import player_required, set_event_flag
 
 _TYPE_LABELS = {
     "weapon": "武器",
@@ -18,7 +19,9 @@ _TYPE_LABELS = {
     "pill": "破境丹",
     "exp_pill": "修为丹",
     "utility_pill": "功能丹",
+    "inventory_pill": "丹药",
     "legacy_pill": "丹药",
+    "recipe": "丹方",
     "material": "材料",
     "符箓": "符箓",
     "杂物": "杂物",
@@ -32,6 +35,7 @@ class SectShopHandler:
         self.storage_ring_mgr = storage_ring_mgr
         self.config = config
         self.sect_mgr = sect_mgr
+        self.last_buy_success = False
 
     def _discounted_price(self, sect, base_price: int) -> int:
         """商堂每级 -2%，最高 -10%。"""
@@ -42,23 +46,38 @@ class SectShopHandler:
         return max(1, int(base_price * (1 - discount)))
 
     def _refresh_hours(self) -> int:
+        values = self.config.get("VALUES", {}) or {}
+        raw = values.get("PAVILION_REFRESH_HOURS", self.config.get("PAVILION_REFRESH_HOURS", 1))
         try:
-            hours = int(self.config.get("PAVILION_REFRESH_HOURS", 1))
+            hours = int(raw)
         except (TypeError, ValueError):
             hours = 1
         return max(1, hours)
 
-    async def _get_shop(self, sect_id: int):
+    async def _get_shop(self, sect_id: int, player: Player = None):
         shop_id = f"sect_shop_{sect_id}"
         last_refresh, items = await self.db.get_shop_data(shop_id)
         hours = self._refresh_hours()
         if not items or self.shop_manager.should_refresh_shop(last_refresh, hours):
             pool = self.shop_manager.get_all_items_for_display(9999)
-            # 旧格式丹药暂时不进宗门商店，避免服用链路不完整
-            pool = [i for i in pool if i.get("type") != "legacy_pill"]
+            try:
+                pool = pool + self.shop_manager.get_recipes_for_display(9999)
+            except Exception:
+                pass
+            if player is not None:
+                filtered = []
+                for item in pool:
+                    req = ItemRules.get_required_level(item.get("data", {}) or {})
+                    if req <= player.level_index:
+                        filtered.append(item)
+                pool = filtered
             if pool:
-                selected = random.sample(pool, min(5, len(pool)))
-                items = [{**item, "stock": 1} for item in selected]
+                weighted = []
+                for item in pool:
+                    weight = int((item.get("data", {}) or {}).get("shop_weight", 100) or 100)
+                    weighted.append({**item, "weight": max(1, weight)})
+                selected = self.shop_manager._weighted_random_choice(weighted, min(5, len(weighted)))
+                items = [{**{k: v for k, v in item.items() if k != "weight"}, "stock": 1} for item in selected]
             else:
                 items = []
             last_refresh = int(time.time())
@@ -76,7 +95,7 @@ class SectShopHandler:
             yield event.plain_result("❌ 宗门信息异常！")
             return
 
-        _, last_refresh, items = await self._get_shop(player.sect_id)
+        _, last_refresh, items = await self._get_shop(player.sect_id, player)
         hours = self._refresh_hours()
         remaining = max(0, last_refresh + hours * 3600 - int(time.time()))
 
@@ -130,6 +149,7 @@ class SectShopHandler:
 
     @player_required
     async def handle_buy(self, player: Player, event: AstrMessageEvent, index: str = ""):
+        set_event_flag(event, "sect_shop_buy", False)
         if not player.sect_id:
             yield event.plain_result("❌ 你还没有加入宗门，无法使用宗门贡献商店。")
             return
@@ -142,13 +162,17 @@ class SectShopHandler:
             yield event.plain_result("❌ 请输入商品编号，例如：/宗门兑换 1")
             return
 
-        shop_id, _, items = await self._get_shop(player.sect_id)
+        shop_id, _, items = await self._get_shop(player.sect_id, player)
         if idx >= len(items):
             yield event.plain_result("❌ 没有这个商品，请发 /宗门商店 查看编号。")
             return
 
         sect = await self.db.ext.get_sect_by_id(player.sect_id)
         item = items[idx]
+        req_level = ItemRules.get_required_level(item.get("data", {}) or {})
+        if player.level_index < req_level:
+            yield event.plain_result(f"❌ 兑换【{item.get('name')}】需要达到境界等级 {req_level}。")
+            return
         item_name = item.get("name", "")
         stock = int(item.get("stock", 0) or 0)
         price = self._discounted_price(sect, int(item.get("price", 0) or 0))
@@ -188,18 +212,20 @@ class SectShopHandler:
             return
 
         item_type = item.get("type", "")
-        if item_type in ("pill", "exp_pill", "utility_pill"):
+        if item_type in ("pill", "exp_pill", "utility_pill", "inventory_pill"):
             inventory = player.get_pills_inventory()
-            inventory[item_name] = inventory.get(item_name, 0) + 1
+            pill_key = f"{item_name}|一般"
+            inventory[pill_key] = inventory.get(pill_key, 0) + 1
             player.set_pills_inventory(inventory)
             await self.db.update_player(player)
+            set_event_flag(event, "sect_shop_buy", True)
             yield event.plain_result(
-                f"✅ 兑换成功：{item_name} x1，已放入丹药背包。\n"
+                f"✅ 兑换成功：{item_name}·一般 x1，已放入丹药背包。\n"
                 f"💡 使用 /服用丹药 {item_name} 服用"
             )
             return
 
-        if item_type in ("weapon", "armor", "accessory", "technique", "material", "符箓", "杂物"):
+        if item_type in ("weapon", "armor", "accessory", "technique", "material", "recipe", "符箓", "杂物"):
             ok, msg = await self.storage_ring_mgr.store_item(
                 player, item_name, 1, silent=True
             )
@@ -210,6 +236,7 @@ class SectShopHandler:
                     f"❌ 储物戒空间不足，兑换失败：{msg}\n贡献已退回。"
                 )
                 return
+            set_event_flag(event, "sect_shop_buy", True)
             yield event.plain_result(
                 f"✅ 兑换成功：{item_name} x1，已存入储物戒。\n"
                 f"消耗宗门贡献：{price:,}"

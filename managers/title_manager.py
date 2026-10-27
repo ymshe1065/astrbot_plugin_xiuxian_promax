@@ -163,6 +163,17 @@ class TitleManager:
                 best = t
         return best["stats"] if best else {}
 
+    @staticmethod
+    def get_exp_bonus(player: Player) -> float:
+        """当前最高品阶称号提供的修为收益倍率。"""
+        try:
+            return float(TitleManager(None).get_active_bonus(player).get("exp", 0) or 0)
+        except Exception:
+            return 0.0
+
+    def has_title(self, player: Player, title_name: str) -> bool:
+        return title_name in self._load_owned(player)
+
     def get_active_title(self, player: Player) -> Optional[dict]:
         """当前提供加成的称号（最高品阶）"""
         owned = self._load_owned(player)

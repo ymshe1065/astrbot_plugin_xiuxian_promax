@@ -319,6 +319,13 @@ class AdventureManager:
             if comp_bonus > 0:
                 rewards["exp"] = int(rewards["exp"] * (1 + comp_bonus))
             try:
+                from .title_manager import TitleManager
+                title_exp = TitleManager.get_exp_bonus(player)
+                if title_exp > 0:
+                    rewards["exp"] = int(rewards["exp"] * (1 + title_exp))
+            except Exception:
+                pass
+            try:
                 from .pet_manager import PetManager
                 pet_mgr = PetManager(self.db)
                 pet = await pet_mgr.get_pet(user_id, apply_regen=False)
@@ -491,10 +498,19 @@ class AdventureManager:
 
         final_exp = max(0, int(exp_total * event.get("exp_mult", 1.0)))
         final_gold = max(0, int(gold_total * event.get("gold_mult", 1.0)))
+        try:
+            from .talisman_manager import TalismanManager
+            from .luck_manager import LuckManager
+            reward_mult = 1.0 + TalismanManager.get_active_bonus(player, "exploration_reward_multiplier")
+            reward_mult *= 1.0 + LuckManager.percent_bonus(player, per_point=0.3, cap=30.0) / 100.0
+            final_exp = int(final_exp * reward_mult)
+            final_gold = int(final_gold * reward_mult)
+        except Exception:
+            pass
         return {"exp": final_exp, "gold": final_gold}
 
     async def _companion_adventure_bonus(self, user_id: str) -> float:
-        """仙灵道侣历练加成（白芷：修为+8%起）"""
+        """仙灵道侣历练加成（白芷：修为最高+8%）"""
         try:
             return await self._social.companion_bonus_async(user_id, "adventure")
         except Exception:
@@ -506,6 +522,13 @@ class AdventureManager:
             return dropped_items, ""
 
         item_chance = event.get("item_chance", 40)
+        try:
+            from .talisman_manager import TalismanManager
+            from .luck_manager import LuckManager
+            item_chance += int(TalismanManager.get_active_bonus(player, "drop_chance_bonus"))
+            item_chance += int(LuckManager.percent_bonus(player, per_point=0.4, cap=20.0))
+        except Exception:
+            pass
         if random.randint(1, 100) > item_chance:
             return dropped_items, ""
 

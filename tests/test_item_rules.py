@@ -55,7 +55,7 @@ class TestItemRules(unittest.TestCase):
         self.assertEqual(norm({"type": "法器", "subtype": "防具"}), "armor")
         self.assertEqual(norm({"type": "法器", "subtype": "饰品"}), "accessory")
         self.assertEqual(norm({"type": "功法"}), "technique")
-        self.assertEqual(norm({"type": "丹药", "effect": {"add_hp": 1}}), "legacy_pill")
+        self.assertEqual(norm({"type": "丹药", "effect": {"add_hp": 1}}), "inventory_pill")
         self.assertEqual(norm({"type": "丹药", "effect_type": "temporary"}), "inventory_pill")
         self.assertEqual(norm({"type": "legacy_pill", "data": {"effect_type": "temporary"}}), "inventory_pill")
 
@@ -97,7 +97,9 @@ class TestCombatHelper(unittest.TestCase):
                 }
             }
             items_data = {
-                "测试甲": {"type": "法器", "subtype": "防具", "physical_defense": 500}
+                "测试甲": {"type": "法器", "subtype": "防具", "physical_defense": 500, "magic_defense": 200},
+                "测试伞": {"type": "法器", "subtype": "武器", "physical_damage": 777},
+                "测试功法": {"type": "功法", "effects": {"combo_rate": 10}},
             }
             techniques_data = {}
 
@@ -111,5 +113,35 @@ class TestCombatHelper(unittest.TestCase):
 
         stats = CombatManager.build_player_combat_stats(player, Config())
         self.assertGreater(stats.atk, 1000)
-        self.assertGreater(stats.defense, 0)
+        self.assertGreaterEqual(stats.defense, 700)
         self.assertEqual(stats.effects.get("crit_rate"), 5)
+
+        player.weapon = "测试伞"
+        player.set_techniques_list(["测试功法"])
+        stats2 = CombatManager.build_player_combat_stats(player, Config())
+        self.assertGreaterEqual(stats2.atk, 777)
+        self.assertEqual(stats2.effects.get("combo_rate"), 10)
+
+class TestStorageCategorization(unittest.TestCase):
+    def test_known_items_prefer_config_type(self):
+        Config = type("Config", (), {})
+        Config.items_data = {
+            "材料A": {"type": "材料"},
+            "寒霜精铁佩": {"type": "法器", "subtype": "防具"},
+            "八卦符": {"type": "符箓"},
+            "九天谱": {"type": "功法"},
+        }
+        Config.weapons_data = {}
+        Config.techniques_data = {}
+        Handler = _imp("handlers.storage_ring_handler").StorageRingHandler
+        handler = Handler(None, Config)
+        result = handler._categorize_items({
+            "材料A": 1,
+            "寒霜精铁佩": 1,
+            "八卦符": 1,
+            "九天谱": 1,
+            "无配置灵草": 1,
+        })
+        self.assertEqual([n for n, _ in result["材料"]], ["材料A", "八卦符", "无配置灵草"])
+        self.assertEqual([n for n, _ in result["装备"]], ["寒霜精铁佩"])
+        self.assertEqual([n for n, _ in result["功法"]], ["九天谱"])

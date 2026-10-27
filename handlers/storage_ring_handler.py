@@ -4,7 +4,8 @@ from astrbot.api.event import AstrMessageEvent
 from astrbot.api import logger
 from astrbot.api.all import At, Plain
 from ..data import DataBase
-from ..core import StorageRingManager, ItemRules
+from ..core import StorageRingManager, ItemRules, PillManager
+from ..core.item_instance_manager import ItemInstanceManager
 from ..config_manager import ConfigManager
 from ..models import Player
 from .utils import player_required
@@ -74,13 +75,23 @@ class StorageRingHandler:
         else:
             lines.append("【存储物品】空\n")
 
+        overflow = ring_info.get("overflow", {})
+        if overflow:
+            overflow_total = sum(int(v or 0) for v in overflow.values())
+            lines.append(f"\n【溢出仓库】{len(overflow)} 种 / {overflow_total} 件\n")
+            for name, count in list(overflow.items())[:10]:
+                lines.append(f"  · {name}×{count}\n")
+            if len(overflow) > 10:
+                lines.append("  · ...\n")
+            lines.append(f"领取：/领取溢出\n")
+
         # 空间警告
         warning = self.storage_ring_manager.get_space_warning(player)
         if warning:
             lines.append(f"\n{warning}\n")
 
         lines.append(f"\n{'=' * 28}\n")
-        lines.append(f"取出：{CMD_RETRIEVE_ITEM} 物品名 [数量]\n")
+        lines.append(f"丢弃：{CMD_DISCARD_ITEM} 物品名 [数量]\n")
         lines.append(f"搜索：{CMD_SEARCH_ITEM} 关键词\n")
         lines.append(f"升级：{CMD_UPGRADE_RING} 储物戒名")
 
@@ -109,7 +120,7 @@ class StorageRingHandler:
                         ]},
                         {"name": "物品清单", "rows": rows},
                     ],
-                    footer=f"共 {len(items)} 种物品 · /取出 物品名 [数量]",
+                    footer=f"共 {len(items)} 种物品 · /装备 物品名 · /丢弃 物品名 [数量]",
                 )
             if card_path:
                 yield event.image_result(card_path)
@@ -117,6 +128,11 @@ class StorageRingHandler:
                 yield event.plain_result(text_msg)
         except Exception:
             yield event.plain_result(text_msg)
+
+    @player_required
+    async def handle_claim_overflow(self, player: Player, event: AstrMessageEvent):
+        count, msg = await self.storage_ring_manager.claim_overflow(player)
+        yield event.plain_result(f"📦 {msg}")
 
     @player_required
     async def handle_store_item(self, player: Player, event: AstrMessageEvent, args: str):
@@ -134,37 +150,14 @@ class StorageRingHandler:
 
     @player_required
     async def handle_retrieve_item(self, player: Player, event: AstrMessageEvent, args: str):
-        """从储物戒取出物品"""
-        if not args or args.strip() == "":
-            yield event.plain_result(
-                f"请指定要取出的物品\n"
-                f"用法：{CMD_RETRIEVE_ITEM} 物品名 [数量]\n"
-                f"示例：{CMD_RETRIEVE_ITEM} 精铁 5"
-            )
-            return
-
-        args = args.strip()
-        parts = args.rsplit(" ", 1)
-
-        # 解析物品名和数量
-        if len(parts) == 2 and parts[1].isdigit():
-            item_name = parts[0]
-            count = int(parts[1])
-        else:
-            item_name = args
-            count = 1
-
-        if count <= 0:
-            yield event.plain_result("数量必须大于0")
-            return
-
-        # 取出物品
-        success, message = await self.storage_ring_manager.retrieve_item(player, item_name, count)
-
-        if success:
-            yield event.plain_result(f"✅ {message}")
-        else:
-            yield event.plain_result(f"❌ {message}")
+        """说明储物戒物品无需取出，避免误删"""
+        yield event.plain_result(
+            "📦 储物戒物品无需取出：\n"
+            "  · 装备：直接发送 /装备 <物品名>\n"
+            "  · 材料：炼丹、强化、护府等操作会自动从储物戒扣除\n"
+            "  · 销毁：请使用 /丢弃 <物品名> [数量]（不可恢复）\n"
+            "⚠️ 为避免误删，/取出 已停用。"
+        )
 
     @player_required
     async def handle_discard_item(self, player: Player, event: AstrMessageEvent, args: str):
@@ -268,6 +261,109 @@ class StorageRingHandler:
             yield event.plain_result("数量必须大于0")
             return
 
+        target_player = await self.db.get_player_by_id(target_id)
+        if not target_player:
+            yield event.plain_result(f"目标玩家（QQ:{target_id}）尚未开始修仙")
+            return
+        if target_id == player.user_id:
+            yield event.plain_result("不能赠予物品给自己")
+            return
+
+        pm = PillManager(self.db, self.storage_ring_manager.config_manager)
+        quality = ""
+        tokens = item_name.split()
+        if len(tokens) >= 2 and tokens[-1] in pm.QUALITY_ORDER:
+            quality = tokens.pop()
+            item_name = " ".join(tokens)
+        elif "|" in item_name:
+            base_name, embedded_quality = pm.split_pill_key(item_name)
+            item_name = base_name
+            quality = embedded_quality
+
+        sender_name = event.get_sender_name()
+        im = ItemInstanceManager(self.db, self.config_manager)
+        if im.item_type(item_name) in {"weapon", "armor", "head", "body", "boots", "gloves", "ring", "amulet", "accessory"}:
+            if count != 1:
+                yield event.plain_result("❌ 装备实例一次只能赠予 1 件。")
+                return
+            insts = im.list_instances(player, "storage", item_name)
+            if quality:
+                insts = [x for x in insts if x.get("quality") == quality]
+            if not insts:
+                yield event.plain_result(f"储物戒中没有可赠予的【{item_name}】装备实例")
+                return
+            inst = sorted(insts, key=lambda x: int(x.get("id", 0) or 0))[0]
+            quality = inst.get("quality", "一般")
+            im.move(player, int(inst["id"]), "gift")
+            await self.db.update_player(player)
+            try:
+                await self.db.ext.create_pending_gift(
+                    receiver_id=target_id,
+                    sender_id=player.user_id,
+                    sender_name=sender_name,
+                    item_name=item_name,
+                    count=1,
+                    expires_hours=24,
+                    item_kind="equipment",
+                    item_quality=quality,
+                    instance_id=int(inst["id"]),
+                )
+            except Exception as e:
+                im.move(player, int(inst["id"]), "storage")
+                await self.db.update_player(player)
+                logger.error(f"装备赠予创建失败，已退回: {e}")
+                yield event.plain_result("❌ 赠予创建失败，装备已退回储物戒。")
+                return
+            yield event.plain_result(
+                f"📦 赠予请求已发送！\n"
+                f"【{item_name}·{quality}】x1 → @{target_id}\n"
+                f"等待对方确认...（24小时内有效）\n"
+                f"对方可使用 {CMD_ACCEPT_GIFT} 接收或 {CMD_REJECT_GIFT} 拒绝"
+            )
+            return
+
+        if pm.get_pill_by_name(item_name):
+            pill_key = pm.select_pill_key(player.get_pills_inventory(), item_name, quality or None)
+            if not pill_key:
+                hint = f"（{quality}）" if quality else ""
+                yield event.plain_result(f"丹药背包中没有【{item_name}】{hint}")
+                return
+            base_name, quality = pm.split_pill_key(pill_key)
+            inventory = player.get_pills_inventory()
+            if int(inventory.get(pill_key, 0)) < count:
+                yield event.plain_result(f"【{base_name}·{quality}】数量不足（拥有 {inventory.get(pill_key, 0)}）")
+                return
+            inventory[pill_key] = int(inventory[pill_key]) - count
+            if inventory[pill_key] <= 0:
+                del inventory[pill_key]
+            player.set_pills_inventory(inventory)
+            await self.db.update_player(player)
+            try:
+                await self.db.ext.create_pending_gift(
+                    receiver_id=target_id,
+                    sender_id=player.user_id,
+                    sender_name=sender_name,
+                    item_name=base_name,
+                    count=count,
+                    expires_hours=24,
+                    item_kind="pill",
+                    item_quality=quality,
+                )
+            except Exception as e:
+                inventory[pill_key] = int(inventory.get(pill_key, 0)) + count
+                player.set_pills_inventory(inventory)
+                await self.db.update_player(player)
+                logger.error(f"丹药赠予创建失败，已退回: {e}")
+                yield event.plain_result("❌ 赠予创建失败，丹药已退回背包。")
+                return
+            yield event.plain_result(
+                f"📦 赠予请求已发送！\n"
+                f"【{base_name}·{quality}】x{count} → @{target_id}\n"
+                f"等待对方确认...（24小时内有效）\n"
+                f"对方可使用 {CMD_ACCEPT_GIFT} 接收或 {CMD_REJECT_GIFT} 拒绝"
+            )
+            return
+
         # 检查物品是否在储物戒中
         if not self.storage_ring_manager.has_item(player, item_name, count):
             current = self.storage_ring_manager.get_item_count(player, item_name)
@@ -277,31 +373,26 @@ class StorageRingHandler:
                 yield event.plain_result(f"储物戒中【{item_name}】数量不足（当前：{current}个）")
             return
 
-        target_player = await self.db.get_player_by_id(target_id)
-        if not target_player:
-            yield event.plain_result(f"目标玩家（QQ:{target_id}）尚未开始修仙")
-            return
-
-        if target_id == player.user_id:
-            yield event.plain_result("不能赠予物品给自己")
-            return
-
         # 先从储物戒中取出物品
         success, _ = await self.storage_ring_manager.retrieve_item(player, item_name, count)
         if not success:
             yield event.plain_result("赠予失败：无法取出物品")
             return
 
-        # 存储待处理的赠予请求到数据库
-        sender_name = event.get_sender_name()
-        await self.db.ext.create_pending_gift(
-            receiver_id=target_id,
-            sender_id=player.user_id,
-            sender_name=sender_name,
-            item_name=item_name,
-            count=count,
-            expires_hours=24  # 24小时后过期
-        )
+        try:
+            await self.db.ext.create_pending_gift(
+                receiver_id=target_id,
+                sender_id=player.user_id,
+                sender_name=sender_name,
+                item_name=item_name,
+                count=count,
+                expires_hours=24,
+            )
+        except Exception as e:
+            await self.storage_ring_manager.store_item(player, item_name, count, silent=True)
+            logger.error(f"物品赠予创建失败，已退回: {e}")
+            yield event.plain_result("❌ 赠予创建失败，物品已退回储物戒。")
+            return
 
         yield event.plain_result(
             f"📦 赠予请求已发送！\n"
@@ -328,14 +419,58 @@ class StorageRingHandler:
             count = gift["count"]
             sender_name = gift["sender_name"]
             gift_id = gift["id"]
+            item_kind = gift.get("item_kind", "item")
+            item_quality = gift.get("item_quality", "")
 
             # 先删除请求记录，防止并发卡出多份
             await self.db.conn.execute("DELETE FROM pending_gifts WHERE id = ?", (gift_id,))
-            
-            # 尝试存入
+
+            if item_kind == "equipment":
+                im = ItemInstanceManager(self.db, self.config_manager)
+                sender = await self.db.get_player_by_id(gift.get("sender_id"))
+                inst = im.get_instance(sender, gift.get("instance_id", 0)) if sender else None
+                if not inst:
+                    await self.db.conn.rollback()
+                    yield event.plain_result("❌ 装备实例已不存在，赠予已取消。")
+                    return
+                volume = self.storage_ring_manager._get_item_volume(item_name)
+                if self.storage_ring_manager.get_available_slots(player) < volume:
+                    await self.db.conn.rollback()
+                    yield event.plain_result("❌ 储物戒空间不足，接收失败，赠予请求已保留。")
+                    return
+                if not im.change_owner(sender, player, int(inst["id"])):
+                    await self.db.conn.rollback()
+                    yield event.plain_result("❌ 装备实例转移失败，请稍后再试。")
+                    return
+                await self.db.update_player(sender, commit=False)
+                await self.db.update_player(player, commit=False)
+                await self.db.conn.commit()
+                yield event.plain_result(
+                    f"✅ 已接收来自【{sender_name}】的赠予！\n"
+                    f"获得：【{item_name}·{item_quality}】x1（已存入储物戒）"
+                )
+                return
+
+            if item_kind == "pill":
+                pm = PillManager(self.db, self.storage_ring_manager.config_manager)
+                quality = item_quality or pm.DEFAULT_QUALITY
+                pill_key = pm.make_pill_key(item_name, quality)
+                inventory = player.get_pills_inventory()
+                inventory[pill_key] = int(inventory.get(pill_key, 0)) + count
+                player.set_pills_inventory(inventory)
+                await self.db.update_player(player, commit=False)
+                await self.db.conn.commit()
+                yield event.plain_result(
+                    f"✅ 已接收来自【{sender_name}】的赠予！\n"
+                    f"获得：【{item_name}·{quality}】x{count}（已放入丹药背包）"
+                )
+                return
+
+            # 尝试存入储物戒
             success, message = await self.storage_ring_manager.store_item(player, item_name, count, external_transaction=True, silent=True)
 
             if success:
+                await self.db.update_player(player, commit=False)
                 await self.db.conn.commit()
                 yield event.plain_result(
                     f"✅ 已接收来自【{sender_name}】的赠予！\n"
@@ -367,17 +502,54 @@ class StorageRingHandler:
         sender_id = gift["sender_id"]
         sender_name = gift["sender_name"]
         gift_id = gift["id"]
+        item_kind = gift.get("item_kind", "item")
+        item_quality = gift.get("item_quality", "")
 
         # 物品返还给发送者
         sender_player = await self.db.get_player_by_id(sender_id)
         if sender_player:
-            await self.storage_ring_manager.store_item(sender_player, item_name, count, silent=True)
+            if item_kind == "equipment":
+                im = ItemInstanceManager(self.db, self.config_manager)
+                sender = await self.db.get_player_by_id(sender_id)
+                inst = im.get_instance(sender, gift.get("instance_id", 0)) if sender else None
+                if not sender or not inst:
+                    await self.db.ext.delete_pending_gift(gift_id)
+                    yield event.plain_result("❌ 装备实例已不存在，赠予已取消。")
+                    return
+                volume = self.storage_ring_manager._get_item_volume(item_name)
+                if self.storage_ring_manager.get_available_slots(sender) < volume:
+                    yield event.plain_result(
+                        "❌ 赠送者储物戒空间不足，装备暂时无法退回，赠予请求已保留。"
+                    )
+                    return
+                if not im.move(sender, int(inst["id"]), "storage"):
+                    yield event.plain_result("❌ 装备实例退回失败，请稍后再试。")
+                    return
+                await self.db.update_player(sender)
+                await self.db.ext.delete_pending_gift(gift_id)
+                yield event.plain_result(
+                    f"已拒绝来自【{sender_name}】的赠予\n"
+                    f"【{item_name}·{item_quality}】x1 已退回赠送者储物戒"
+                )
+                return
+
+            if item_kind == "pill":
+                pm = PillManager(self.db, self.storage_ring_manager.config_manager)
+                quality = item_quality or pm.DEFAULT_QUALITY
+                pill_key = pm.make_pill_key(item_name, quality)
+                inventory = sender_player.get_pills_inventory()
+                inventory[pill_key] = int(inventory.get(pill_key, 0)) + count
+                sender_player.set_pills_inventory(inventory)
+                await self.db.update_player(sender_player)
+            else:
+                await self.storage_ring_manager.store_item(sender_player, item_name, count, silent=True)
 
         # 删除数据库中的赠予请求
         await self.db.ext.delete_pending_gift(gift_id)
+        label = f"{item_name}·{item_quality}" if item_kind in ("pill", "equipment") else item_name
         yield event.plain_result(
             f"已拒绝来自【{sender_name}】的赠予\n"
-            f"【{item_name}】x{count} 已返还"
+            f"【{label}】x{count} 已返还"
         )
 
     @player_required
@@ -432,15 +604,37 @@ class StorageRingHandler:
             yield event.plain_result(f"❌ {message}")
 
     def _categorize_items(self, items: dict) -> dict:
-        """将物品按分类整理"""
+        """将物品按分类整理。已知物品优先按配置类型分类。"""
         result = {cat: [] for cat in ITEM_CATEGORIES.keys()}
-        
+
+        gear_types = {"weapon", "armor", "head", "body", "boots", "gloves", "ring", "amulet", "accessory"}
+        technique_types = {"technique", "main_technique"}
+        material_types = {"material", "符箓", "talisman", "杂物", "丹方", "材料包"}
+
         for item_name, count in items.items():
+            item_config = self.config_manager.items_data.get(item_name)
+            if not item_config:
+                item_config = self.config_manager.weapons_data.get(item_name)
+            if not item_config and hasattr(self.config_manager, "techniques_data"):
+                item_config = self.config_manager.techniques_data.get(item_name)
+
+            if item_config:
+                item_type = ItemRules.normalize_equipment_type(item_config)
+                raw_type = str(item_config.get("type", "") or "")
+                if item_type in gear_types:
+                    result["装备"].append((item_name, count))
+                elif item_type in technique_types:
+                    result["功法"].append((item_name, count))
+                elif item_type in material_types or raw_type in ("材料", "符箓", "杂物", "丹方", "材料包"):
+                    result["材料"].append((item_name, count))
+                else:
+                    result["其他"].append((item_name, count))
+                continue
+
             categorized = False
             for category, keywords in ITEM_CATEGORIES.items():
                 if category == "其他":
                     continue
-                # 检查物品名是否包含分类关键词
                 for keyword in keywords:
                     if keyword in item_name or item_name in keyword:
                         result[category].append((item_name, count))
@@ -448,33 +642,9 @@ class StorageRingHandler:
                         break
                 if categorized:
                     break
-            
-            # 根据配置判断物品类型
             if not categorized:
-                item_config = self.config_manager.items_data.get(item_name, {})
-                if not item_config:
-                    item_config = self.config_manager.weapons_data.get(item_name, {})
-                if not item_config and hasattr(self.config_manager, "techniques_data"):
-                    item_config = self.config_manager.techniques_data.get(item_name, {})
+                result["其他"].append((item_name, count))
 
-                item_type = ItemRules.normalize_equipment_type(item_config)
-                if not item_type:
-                    raw_type = str(item_config.get("type", "") or "")
-                    if raw_type in ("材料", "material"):
-                        item_type = "material"
-                    elif raw_type in ("丹药", "pill", "exp_pill", "utility_pill"):
-                        item_type = "pill"
-
-                if item_type in {"weapon", "armor", "head", "body", "boots", "gloves", "ring", "amulet", "accessory"}:
-                    result["装备"].append((item_name, count))
-                elif item_type in {"technique", "main_technique"}:
-                    result["功法"].append((item_name, count))
-                elif item_type == "material":
-                    result["材料"].append((item_name, count))
-                else:
-                    result["其他"].append((item_name, count))
-        
-        # 移除空分类
         return {k: v for k, v in result.items() if v}
 
     @player_required
@@ -489,7 +659,7 @@ class StorageRingHandler:
             return
 
         keyword = keyword.strip().lower()
-        items = player.get_storage_ring_items()
+        items = self.storage_ring_manager.get_storage_ring_info(player).get("items", {})
         
         # 模糊搜索
         matched = []
@@ -524,47 +694,11 @@ class StorageRingHandler:
 
     @player_required
     async def handle_retrieve_all(self, player: Player, event: AstrMessageEvent, category: str = None):
-        """批量取出指定分类的物品"""
-        if not category or category.strip() == "":
-            yield event.plain_result(
-                f"请指定要取出的分类\n"
-                f"用法：{CMD_RETRIEVE_ALL} 分类名\n"
-                f"可用分类：材料、装备、功法、其他\n"
-                f"示例：{CMD_RETRIEVE_ALL} 材料"
-            )
-            return
-        
-        category = category.strip()
-        if category not in ITEM_CATEGORIES:
-            yield event.plain_result(f"未知分类：{category}\n可用分类：材料、装备、功法、其他")
-            return
-        
-        items = player.get_storage_ring_items()
-        categorized = self._categorize_items(items)
-        cat_items = categorized.get(category, [])
-        
-        if not cat_items:
-            yield event.plain_result(f"储物戒中没有【{category}】类物品")
-            return
-        
-        # 取出所有该分类的物品
-        retrieved = []
-        failed = []
-        for item_name, count in cat_items:
-            success, msg = await self.storage_ring_manager.retrieve_item(player, item_name, count)
-            if success:
-                retrieved.append(f"{item_name}×{count}")
-            else:
-                failed.append(f"{item_name}：{msg}")
-        
-        lines = [f"=== 批量取出【{category}】 ===\n"]
-        if retrieved:
-            lines.append(f"✅ 已取出：\n")
-            for item in retrieved:
-                lines.append(f"  · {item}\n")
-        if failed:
-            lines.append(f"\n❌ 失败：\n")
-            for item in failed:
-                lines.append(f"  · {item}\n")
-        
-        yield event.plain_result("".join(lines))
+        """说明批量取出已停用，避免整类材料被误删"""
+        yield event.plain_result(
+            "📦 批量取出已停用：\n"
+            "  · 装备：/装备 <物品名>\n"
+            "  · 材料：炼丹、强化、护府等操作会自动扣除\n"
+            "  · 销毁：/丢弃 <物品名> [数量]（不可恢复）\n"
+            "⚠️ 储物戒中的物品会安全保留。"
+        )

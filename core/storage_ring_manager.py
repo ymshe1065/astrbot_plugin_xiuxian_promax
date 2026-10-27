@@ -3,6 +3,8 @@
 import json
 from typing import TYPE_CHECKING, Optional, Tuple, List, Dict
 from ..models import Player
+from .item_instance_manager import ItemInstanceManager
+from .item_rules import ItemRules
 
 if TYPE_CHECKING:
     from ..data import DataBase
@@ -21,6 +23,7 @@ class StorageRingManager:
     def __init__(self, db: "DataBase", config_manager: "ConfigManager"):
         self.db = db
         self.config_manager = config_manager
+        self.instance_manager = ItemInstanceManager(db, config_manager)
 
     def get_storage_ring_config(self, ring_name: str) -> Optional[dict]:
         return self.config_manager.storage_rings_data.get(ring_name)
@@ -98,11 +101,13 @@ class StorageRingManager:
         return 1
 
     def get_used_slots(self, player: Player) -> int:
-        """获取已使用的容量数"""
+        """获取已使用的容量数（含装备实例）"""
         items = player.get_storage_ring_items()
         used_volume = 0
         for item_name, count in items.items():
-            used_volume += self._get_item_volume(item_name) * count
+            used_volume += self._get_item_volume(item_name) * int(count or 0)
+        for inst in self.instance_manager.list_instances(player, "storage"):
+            used_volume += self._get_item_volume(inst.get("name", ""))
         return used_volume
 
     def get_available_slots(self, player: Player) -> int:
@@ -121,6 +126,16 @@ class StorageRingManager:
             return f"⚠️ 储物戒空间不足！仅剩{available}容量({used}/{capacity}容量)"
         return None
 
+    GEAR_TYPES = {"weapon", "armor", "head", "body", "boots", "gloves", "ring", "amulet", "accessory"}
+
+    def is_equipment_item(self, item_name: str) -> bool:
+        cfg = self.config_manager.items_data.get(item_name)
+        if not cfg:
+            cfg = self.config_manager.weapons_data.get(item_name)
+        if not cfg:
+            return False
+        return ItemRules.normalize_equipment_type(cfg) in self.GEAR_TYPES
+
     def is_pill(self, item_name: str) -> bool:
         return self.config_manager.is_pill(item_name)
 
@@ -131,7 +146,7 @@ class StorageRingManager:
             return False, f"【{item_name}】是储物戒，不能存入另一个储物戒"
         return True, ""
 
-    async def store_item(self, player: Player, item_name: str, count: int = 1, silent: bool = False, external_transaction: bool = False) -> Tuple[bool, str]:
+    async def store_item(self, player: Player, item_name: str, count: int = 1, silent: bool = False, external_transaction: bool = False, allow_overflow: bool = True) -> Tuple[bool, str]:
         can_store, reason = self.can_store_item(item_name)
         if not can_store:
             return False, reason
@@ -155,14 +170,43 @@ class StorageRingManager:
             available = self.get_available_slots(player)
             
             if available < required_volume:
+                if allow_overflow:
+                    if self.is_equipment_item(item_name):
+                        # 装备按实例保存到 overflow 位置，保留品质/词条
+                        self.instance_manager.create_instances(
+                            player, item_name, count, location="overflow"
+                        )
+                        orig_player.set_equipment_instances(player.get_equipment_instances())
+                    else:
+                        overflow = player.get_overflow_items()
+                        overflow[item_name] = int(overflow.get(item_name, 0) or 0) + count
+                        player.set_overflow_items(overflow)
+                        orig_player.set_overflow_items(overflow)
+                    if not external_transaction:
+                        await self.db.update_player(player)
+                        await self.db.conn.commit()
+                    return True, f"储物戒容量不足，【{item_name}】x{count} 已转入溢出仓库，请清理储物戒后 /领取溢出"
                 if not external_transaction:
                     await self.db.conn.rollback()
                 capacity = self.get_total_capacity(player)
                 return False, f"储物戒容量不足！需要 {required_volume}，仅剩 {available}（上限{capacity}）"
 
+            if self.is_equipment_item(item_name):
+                self.instance_manager.create_instances(player, item_name, count, location="storage")
+                orig_player.set_equipment_instances(player.get_equipment_instances())
+                if not external_transaction:
+                    await self.db.update_player(player)
+                    await self.db.conn.commit()
+                capacity = self.get_total_capacity(player)
+                used = self.get_used_slots(player)
+                if silent:
+                    return True, ""
+                return True, f"已将【{item_name}】x{count} 存入储物戒（{used}/{capacity}容量）"
+
             items[item_name] = items.get(item_name, 0) + count
             player.set_storage_ring_items(items)
             orig_player.set_storage_ring_items(items)  # 同步调用方对象
+            orig_player.set_equipment_instances(player.get_equipment_instances())
 
             if not external_transaction:
                 await self.db.update_player(player)
@@ -184,6 +228,63 @@ class StorageRingManager:
                 await self.db.conn.rollback()
             raise
 
+    async def claim_overflow(self, player: Player) -> Tuple[int, str]:
+        """把溢出仓库物品尽量取回储物戒，返回 (取回数量, 描述)。"""
+        await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            fresh = await self.db.get_player_by_id(player.user_id)
+            if not fresh:
+                await self.db.conn.rollback()
+                return 0, "玩家不存在"
+            overflow = fresh.get_overflow_items()
+            overflow_equipment = self.instance_manager.list_instances(fresh, "overflow")
+            if not overflow and not overflow_equipment:
+                await self.db.conn.rollback()
+                return 0, "溢出仓库是空的"
+            items = fresh.get_storage_ring_items()
+            claimed = []
+            remaining = {}
+            for item_name, raw_count in overflow.items():
+                count = int(raw_count or 0)
+                if count <= 0:
+                    continue
+                item_volume = self._get_item_volume(item_name)
+                available = self.get_available_slots(fresh)
+                fit = min(count, available // max(1, item_volume))
+                if fit > 0:
+                    # 兼容旧格式：旧溢出记录只有名称和数量，无法恢复品质
+                    if self.is_equipment_item(item_name):
+                        self.instance_manager.create_instances(fresh, item_name, fit, location="storage")
+                    else:
+                        items[item_name] = int(items.get(item_name, 0) or 0) + fit
+                        fresh.set_storage_ring_items(items)
+                    claimed.append(f"{item_name}×{fit}")
+                    count -= fit
+                if count > 0:
+                    remaining[item_name] = count
+
+            # 新格式：装备实例保存在 overflow 位置，领取时保持品质与词条
+            for inst in sorted(overflow_equipment, key=lambda x: int(x.get("id", 0) or 0)):
+                name = inst.get("name", "")
+                item_volume = self._get_item_volume(name)
+                if self.get_available_slots(fresh) < item_volume:
+                    continue
+                if self.instance_manager.move(fresh, int(inst.get("id", 0) or 0), "storage"):
+                    claimed.append(f"{name}×1")
+            fresh.set_overflow_items(remaining)
+            # 同步调用方对象
+            player.set_storage_ring_items(items)
+            player.set_overflow_items(remaining)
+            player.set_equipment_instances(fresh.get_equipment_instances())
+            await self.db.update_player(fresh)
+            await self.db.conn.commit()
+            if claimed:
+                return len(claimed), "已取回：" + "、".join(claimed)
+            return 0, "储物戒空间不足，未能取回任何溢出物品"
+        except Exception:
+            await self.db.conn.rollback()
+            raise
+
     async def retrieve_item(self, player: Player, item_name: str, count: int = 1) -> Tuple[bool, str]:
         orig_player = player  # 同步调用方对象，防止其后续 update_player 回滚本次取出
         await self.db.conn.execute("BEGIN IMMEDIATE")
@@ -193,6 +294,32 @@ class StorageRingManager:
                 await self.db.conn.rollback()
                 return False, "玩家数据不存在，请重新踏入仙途"
             items = player.get_storage_ring_items()
+
+            if self.is_equipment_item(item_name):
+                insts = self.instance_manager.list_instances(player, "storage", item_name)
+                if len(insts) >= count:
+                    for inst in sorted(insts, key=lambda x: int(x.get("id", 0) or 0))[:count]:
+                        self.instance_manager.remove(player, int(inst.get("id", 0) or 0))
+                    orig_player.set_equipment_instances(player.get_equipment_instances())
+                    await self.db.update_player(player)
+                    await self.db.conn.commit()
+                    capacity = self.get_ring_capacity(player.storage_ring)
+                    used = self.get_used_slots(player)
+                    return True, f"已从储物戒取出【{item_name}】x{count}（{used}/{capacity}容量）"
+                # 兼容旧名称堆叠
+                legacy = int(items.get(item_name, 0) or 0)
+                if legacy >= count:
+                    if legacy <= count:
+                        del items[item_name]
+                    else:
+                        items[item_name] = legacy - count
+                    player.set_storage_ring_items(items)
+                    orig_player.set_storage_ring_items(items)
+                    await self.db.update_player(player)
+                    await self.db.conn.commit()
+                    return True, f"已从储物戒取出【{item_name}】x{count}"
+                await self.db.conn.rollback()
+                return False, f"储物戒中【{item_name}】数量不足（当前：{len(insts) + legacy}个）"
 
             if item_name not in items:
                 await self.db.conn.rollback()
@@ -229,6 +356,31 @@ class StorageRingManager:
                 await self.db.conn.rollback()
                 return False, "玩家数据不存在，请重新踏入仙途"
             items = player.get_storage_ring_items()
+
+            if self.is_equipment_item(item_name):
+                insts = self.instance_manager.list_instances(player, "storage", item_name)
+                if len(insts) >= count:
+                    for inst in sorted(insts, key=lambda x: int(x.get("id", 0) or 0))[:count]:
+                        self.instance_manager.remove(player, int(inst.get("id", 0) or 0))
+                    orig_player.set_equipment_instances(player.get_equipment_instances())
+                    await self.db.update_player(player)
+                    await self.db.conn.commit()
+                    capacity = self.get_ring_capacity(player.storage_ring)
+                    used = self.get_used_slots(player)
+                    return True, f"已丢弃【{item_name}】x{count}（{used}/{capacity}容量）"
+                legacy = int(items.get(item_name, 0) or 0)
+                if legacy >= count:
+                    if legacy <= count:
+                        del items[item_name]
+                    else:
+                        items[item_name] = legacy - count
+                    player.set_storage_ring_items(items)
+                    orig_player.set_storage_ring_items(items)
+                    await self.db.update_player(player)
+                    await self.db.conn.commit()
+                    return True, f"已丢弃【{item_name}】x{count}"
+                await self.db.conn.rollback()
+                return False, f"储物戒中【{item_name}】数量不足（当前：{len(insts) + legacy}个）"
 
             if item_name not in items:
                 await self.db.conn.rollback()
@@ -333,10 +485,17 @@ class StorageRingManager:
 
     def get_storage_ring_info(self, player: Player) -> dict:
         ring_config = self.get_storage_ring_config(player.storage_ring) or {}
-        items = player.get_storage_ring_items()
+        items = dict(player.get_storage_ring_items())
+        for name, count in self.instance_manager.storage_counts(player).items():
+            items[name] = int(items.get(name, 0) or 0) + count
         enchant = self.get_enchant_bonus(player)
         capacity = self.get_ring_capacity(player.storage_ring) + enchant
         used = self.get_used_slots(player)
+        overflow = dict(player.get_overflow_items())
+        for inst in self.instance_manager.list_instances(player, "overflow"):
+            name = inst.get("name", "")
+            if name:
+                overflow[name] = int(overflow.get(name, 0) or 0) + 1
 
         return {
             "name": player.storage_ring,
@@ -346,7 +505,8 @@ class StorageRingManager:
             "used": used,
             "available": capacity - used,
             "enchant": enchant,
-            "items": items
+            "items": items,
+            "overflow": overflow
         }
 
     def get_all_storage_rings(self) -> List[dict]:
@@ -365,7 +525,10 @@ class StorageRingManager:
 
     def get_item_count(self, player: Player, item_name: str) -> int:
         items = player.get_storage_ring_items()
-        return items.get(item_name, 0)
+        count = int(items.get(item_name, 0) or 0)
+        if self.is_equipment_item(item_name):
+            count += self.instance_manager.count_storage(player, item_name)
+        return count
 
     def has_item(self, player: Player, item_name: str, count: int = 1) -> bool:
         return self.get_item_count(player, item_name) >= count

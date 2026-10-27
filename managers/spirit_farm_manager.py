@@ -88,6 +88,8 @@ class SpiritFarmManager:
     def __init__(self, db: DataBase, storage_ring_manager: "StorageRingManager" = None):
         self.db = db
         self.storage_ring_manager = storage_ring_manager
+        self.last_harvest_count = 0
+        self.last_harvest_counts = {}
     
     async def get_user_farm(self, user_id: str) -> Optional[Dict]:
         """获取用户灵田信息"""
@@ -191,6 +193,8 @@ class SpiritFarmManager:
     
     async def harvest(self, player: Player) -> Tuple[bool, str]:
         """收获灵草"""
+        self.last_harvest_count = 0
+        self.last_harvest_counts[player.user_id] = 0
         farm = await self.get_user_farm(player.user_id)
         if not farm:
             return False, "❌ 你还没有灵田！"
@@ -218,7 +222,10 @@ class SpiritFarmManager:
         
         if not mature_crops and not withered_crops:
             return False, "❌ 没有成熟的灵草可以收获。"
-        
+
+        self.last_harvest_count = len(mature_crops)
+        self.last_harvest_counts[player.user_id] = len(mature_crops)
+
         # 计算奖励（只有成熟未枯萎的才有收益；产量受土壤肥力与季节影响）
         fertility = farm.get("fertility", 100)
         fertility_mult = fertility / 100.0
@@ -228,14 +235,22 @@ class SpiritFarmManager:
         total_gold = 0
         harvest_details = []
         herb_counts = {}
+        shield_penalized = False
 
         for crop in mature_crops:
             herb_name = crop["name"]
             herb_config = SPIRIT_HERBS.get(herb_name, SPIRIT_HERBS["灵草"])
-            total_exp += int(herb_config["exp_yield"] * fertility_mult * season_mult)
-            total_gold += int(herb_config["gold_yield"] * fertility_mult * season_mult)
+            mature_time = crop.get("mature_time", now)
+            plant_time = crop.get("plant_time", mature_time)
+            output_mult = player.shield_output_multiplier(plant_time, mature_time)
+            if output_mult < 1.0:
+                shield_penalized = True
+            total_exp += int(herb_config["exp_yield"] * fertility_mult * season_mult * output_mult)
+            total_gold += int(herb_config["gold_yield"] * fertility_mult * season_mult * output_mult)
             harvest_details.append(herb_name)
-            herb_counts[herb_name] = herb_counts.get(herb_name, 0) + 1
+            herb_counts[herb_name] = herb_counts.get(herb_name, 0) + output_mult
+
+        herb_counts = {name: max(1, int(round(count))) for name, count in herb_counts.items()}
         
         # 应用奖励
         if total_exp > 0 or total_gold > 0:
@@ -273,6 +288,9 @@ class SpiritFarmManager:
             if season_mult != 1.0:
                 pct = int((season_mult - 1) * 100)
                 msg_lines.append(f"{season['icon']} 季节【{season['name']}】生效：产量{pct:+d}%")
+            if shield_penalized:
+                shield_penalty_pct = 10 if getattr(player, "life_skill", "") == "阵法师" else 20
+                msg_lines.append(f"⚠️ 护府大阵生效期间，灵田产出降低{shield_penalty_pct}%")
             if stored_items:
                 msg_lines.append(f"📦 存入储物戒：")
                 for item in stored_items:
@@ -351,11 +369,20 @@ class SpiritFarmManager:
 
         if random.random() < 0.5:
             success, _ = await self.storage_ring_manager.store_item(player, product, 1, silent=True)
-            return True, (
-                f"🧬 杂交成功！\n"
-                f"━━━━━━━━━━━━━━━\n"
-                f"【{list(key)[0]}】+【{list(key)[1]}】融合为一株【{product}】！\n"
-                f"（已存入储物戒，可使用 /种植 {product} 种下）"
+            if success:
+                return True, (
+                    f"🧬 杂交成功！\n"
+                    f"━━━━━━━━━━━━━━━\n"
+                    f"【{list(key)[0]}】+【{list(key)[1]}】融合为一株【{product}】！\n"
+                    f"（已存入储物戒，可使用 /种植 {product} 种下）"
+                )
+            compensation = 3000
+            player.gold += compensation
+            await self.db.update_player(player)
+            return False, (
+                f"⚠️ 杂交成功，但储物戒已满，【{product}】未能保存。\n"
+                f"获得补偿：{compensation:,} 灵石\n"
+                f"💡 请清理储物戒后再试。"
             )
         else:
             compensation = 3000

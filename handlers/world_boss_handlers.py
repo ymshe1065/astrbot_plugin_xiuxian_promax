@@ -4,7 +4,7 @@ from astrbot.api.event import AstrMessageEvent
 from ..data import DataBase
 from ..managers.world_boss_manager import WorldBossManager
 from ..models import Player
-from .utils import player_required
+from .utils import player_required, set_event_flag
 
 class WorldBossHandlers:
     def __init__(self, db: DataBase, wb_mgr: WorldBossManager):
@@ -15,6 +15,11 @@ class WorldBossHandlers:
     async def handle_challenge(self, player: Player, event: AstrMessageEvent):
         """挑战世界Boss"""
         success, msg = await self.wb_mgr.challenge_boss(player)
+        set_event_flag(event, "world_boss_challenge", bool(success))
+        settle_msg = getattr(self.wb_mgr, "last_settle_msg", None)
+        if settle_msg:
+            set_event_flag(event, "world_boss_settle_msg", settle_msg)
+            self.wb_mgr.last_settle_msg = None
         yield event.plain_result(msg)
 
     async def handle_query(self, event: AstrMessageEvent):
@@ -47,12 +52,20 @@ class WorldBossHandlers:
         hp_percent = (boss["current_hp"] / boss["max_hp"]) * 100
         remaining_hours = remaining // 3600
         remaining_minutes = (remaining % 3600) // 60
+        type_cfg = self.wb_mgr.get_boss_type(boss)
+        tier = int(type_cfg.get("tier", 1) or 1)
+        tier_label = self.wb_mgr._tier_meta.get(tier, {}).get("label", f"{tier}阶")
+        drop_names = "、".join(item.get("name", "") for item in self.wb_mgr._drop_tables.get(type_cfg.get("drop_table", "low"), []))
+        min_level = int(type_cfg.get("min_level", self.wb_mgr.min_level) or self.wb_mgr.min_level)
 
         msg = [
-            f"👹 世界Boss：{boss['boss_name']}",
+            f"{type_cfg.get('icon', '👹')} 世界Boss：{boss['boss_name']}",
             f"━━━━━━━━━━━━━━━",
+            f"🏷️ 种类：{tier_label} · {type_cfg.get('element') or '无'}属性",
+            f"📖 {type_cfg.get('desc', '')}",
             f"❤️ 血量：{boss['current_hp']:,} / {boss['max_hp']:,} ({hp_percent:.1f}%)",
-            f"⚔️ 攻击：{boss['atk']:,}",
+            f"⚔️ 攻击：{boss['atk']:,} · 门槛境界：{min_level}",
+            f"🎁 掉落：{drop_names}",
             f"⏳ 剩余存活时间：{remaining_hours} 小时 {remaining_minutes} 分",
             f"━━━━━━━━━━━━━━━",
             f"💡 发送 /挑战世界Boss 参与讨伐（单次伤害上限20%，每日不限次数）"
@@ -70,15 +83,18 @@ class WorldBossHandlers:
                     "天道警示 · 全服共讨",
                     sections=[
                         {"name": "Boss状态", "rows": [
+                            ("种类", f"{tier_label} · {type_cfg.get('element') or '无'}属性"),
                             ("血量", f"{boss['current_hp']:,} / {boss['max_hp']:,}"),
                             ("血量百分比", f"{hp_percent:.1f}%"),
                             ("攻击力", f"{boss['atk']:,}"),
+                            ("门槛境界", f"{min_level}"),
                             ("剩余时间", f"{remaining // 3600}小时{(remaining % 3600) // 60}分"),
                         ]},
                         {"name": "讨伐规则", "lines": [
                             "· 每日挑战不限次数，每次间隔 5 分钟",
                             "· 单次伤害保底 0.5%，上限 20%",
-                            "· 尾刀斩杀者获唯一称号【灭世魔神】",
+                            "· 按伤害排名发放灵石与随机掉落",
+                            "· 尾刀斩杀者获称号【灭世魔神】",
                         ]},
                     ],
                     footer="/挑战世界Boss 参与讨伐",

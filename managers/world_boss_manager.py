@@ -1,20 +1,186 @@
 # managers/world_boss_manager.py
 import time
 import random
-from typing import Tuple, List, Dict
+from typing import Optional, Tuple, List, Dict
 from astrbot.api import logger
 from ..data import DataBase
 from ..models import Player
 
+
 class WorldBossManager:
-    """全服世界Boss管理器 - 动态水位与防膨胀机制"""
+    """全服世界Boss管理器 - 动态水位、种类、掉落与防重复结算"""
 
-    BOSS_NAMES = ["深渊魔龙", "远古天魔", "九幽冥王", "吞天巨兽", "血海老祖"]
+    BOSS_TYPES: Dict[str, dict] = {
+        "abyss_dragon": {
+            "name": "深渊魔龙", "element": "水", "tier": 1, "icon": "🐉",
+            "hp_mult": 1.0, "min_level": 3, "drop_table": "low",
+            "desc": "蛰伏深渊的远古魔龙，鳞甲如山，吐息可冻结江河。",
+        },
+        "ancient_demon": {
+            "name": "远古天魔", "element": "火", "tier": 1, "icon": "😈",
+            "hp_mult": 1.0, "min_level": 3, "drop_table": "low",
+            "desc": "自域外降临的天魔残念，焚尽所过之处的一切生机。",
+        },
+        "nether_king": {
+            "name": "九幽冥王", "element": "木", "tier": 1, "icon": "👻",
+            "hp_mult": 1.0, "min_level": 3, "drop_table": "low",
+            "desc": "统御九幽鬼众的冥王，怨气化藤，缠魂夺魄。",
+        },
+        "sky_devourer": {
+            "name": "吞天巨兽", "element": "土", "tier": 1, "icon": "🦣",
+            "hp_mult": 1.0, "min_level": 3, "drop_table": "low",
+            "desc": "以山岳为食的太古巨兽，一步便令大地震颤。",
+        },
+        "blood_ancestor": {
+            "name": "血海老祖", "element": "水", "tier": 1, "icon": "🩸",
+            "hp_mult": 1.0, "min_level": 3, "drop_table": "low",
+            "desc": "盘踞血海万年的邪修老祖，血浪滔天，诡谲难测。",
+        },
+        "flame_phoenix": {
+            "name": "焚天火凤", "element": "火", "tier": 2, "icon": "🔥",
+            "hp_mult": 1.6, "min_level": 6, "drop_table": "mid",
+            "desc": "涅槃于太阳真火中的上古神禽，双翼可焚山煮海。",
+        },
+        "frost_python": {
+            "name": "玄冥冰蟒", "element": "水", "tier": 2, "icon": "🐍",
+            "hp_mult": 1.6, "min_level": 6, "drop_table": "mid",
+            "desc": "玄冥寒渊中沉睡的冰蟒，所过之处万里冰封。",
+        },
+        "golden_ape": {
+            "name": "金甲战猿", "element": "金", "tier": 2, "icon": "🦍",
+            "hp_mult": 1.6, "min_level": 6, "drop_table": "mid",
+            "desc": "身披金甲的太古战猿，一棍可碎星辰，战意滔天。",
+        },
+        "venom_queen": {
+            "name": "万毒蛛后", "element": "木", "tier": 3, "icon": "🕷️",
+            "hp_mult": 2.2, "min_level": 9, "drop_table": "high",
+            "desc": "万毒之源的蛛后，丝网遮天，毒雾可蚀仙骨。",
+        },
+        "thunder_qilin": {
+            "name": "雷罚麒麟", "element": "金", "tier": 3, "icon": "⚡",
+            "hp_mult": 2.5, "min_level": 12, "drop_table": "high",
+            "desc": "代天行罚的雷霆麒麟，蹄落之处天雷滚滚，万法辟易。",
+        },
+    }
 
-    def __init__(self, db: DataBase, config_manager, storage_ring_mgr):
+    TIER_META: Dict[int, dict] = {
+        1: {"label": "灭世级", "weight": 60},
+        2: {"label": "灾厄级", "weight": 30},
+        3: {"label": "神话级", "weight": 10},
+    }
+
+    DROP_TABLES: Dict[str, List[dict]] = {
+        "low": [
+            {"name": "洗练石", "weight": 32, "min": 1, "max": 2},
+            {"name": "轮回骨", "weight": 28, "min": 1, "max": 3},
+            {"name": "无极骨", "weight": 22, "min": 1, "max": 2},
+            {"name": "噬魂铁", "weight": 18, "min": 1, "max": 2},
+        ],
+        "mid": [
+            {"name": "洗练石", "weight": 24, "min": 1, "max": 3},
+            {"name": "星辰铁", "weight": 22, "min": 2, "max": 4},
+            {"name": "九天骨", "weight": 20, "min": 1, "max": 2},
+            {"name": "混沌皮", "weight": 18, "min": 1, "max": 2},
+            {"name": "空间石", "weight": 16, "min": 1, "max": 1},
+        ],
+        "high": [
+            {"name": "洗练石", "weight": 20, "min": 2, "max": 4},
+            {"name": "八卦日曜晶皮", "weight": 18, "min": 1, "max": 2},
+            {"name": "诛仙龙骨铁", "weight": 18, "min": 1, "max": 2},
+            {"name": "噬魂幽冥草草", "weight": 16, "min": 1, "max": 2},
+            {"name": "紫电草", "weight": 14, "min": 1, "max": 2},
+            {"name": "寂灭液", "weight": 14, "min": 1, "max": 1},
+        ],
+    }
+
+    TIER_REWARDS: Dict[int, dict] = {
+        1: {"rank1": 30000, "top3": 15000, "participate": 5000, "killer": 50000},
+        2: {"rank1": 60000, "top3": 30000, "participate": 10000, "killer": 100000},
+        3: {"rank1": 120000, "top3": 60000, "participate": 20000, "killer": 200000},
+    }
+
+    def __init__(self, db: DataBase, config_manager, storage_ring_mgr, title_mgr=None):
         self.db = db
         self.config_manager = config_manager
         self.storage_ring_mgr = storage_ring_mgr
+        self.title_mgr = title_mgr
+        self.last_challenge_ok = False
+        self.last_settle_msg: Optional[str] = None
+        self._config = (getattr(config_manager, "boss_config", {}) or {}) if config_manager else {}
+        self._world_cfg = self._config.get("world_boss", {}) or {}
+        self._types = self._load_types()
+        self._tier_meta = self._load_tier_meta()
+        self._drop_tables = self._load_drop_tables()
+        self._rewards = self._load_rewards()
+        self.min_level = int(self._world_cfg.get("min_level", 3) or 3)
+        self.cooldown = int(self._world_cfg.get("cooldown", 300) or 300)
+        self.damage_floor_pct = float(self._world_cfg.get("damage_floor_pct", 0.5) or 0.5)
+        self.damage_cap_pct = float(self._world_cfg.get("damage_cap_pct", 20.0) or 20.0)
+        self.expire_hours = int(self._world_cfg.get("expire_hours", 24) or 24)
+
+    def _load_types(self) -> Dict[str, dict]:
+        raw = self._world_cfg.get("types")
+        if isinstance(raw, dict) and raw:
+            result = {k: dict(v) for k, v in self.BOSS_TYPES.items()}
+            for key, cfg in raw.items():
+                if not isinstance(cfg, dict):
+                    continue
+                item = dict(result.get(str(key), {}))
+                item.update(cfg)
+                item.setdefault("name", key)
+                result[str(key)] = item
+            return result
+        if isinstance(raw, list) and raw:
+            result = {k: dict(v) for k, v in self.BOSS_TYPES.items()}
+            for idx, cfg in enumerate(raw):
+                if not isinstance(cfg, dict):
+                    continue
+                key = str(cfg.get("key") or f"custom_{idx}")
+                item = dict(result.get(key, {}))
+                item.update(cfg)
+                item.setdefault("name", key)
+                result[key] = item
+            return result
+        return {k: dict(v) for k, v in self.BOSS_TYPES.items()}
+
+    def _load_tier_meta(self) -> Dict[int, dict]:
+        raw = self._world_cfg.get("tiers")
+        result = {k: dict(v) for k, v in self.TIER_META.items()}
+        if isinstance(raw, dict):
+            for key, cfg in raw.items():
+                try:
+                    tier = int(key)
+                except (TypeError, ValueError):
+                    continue
+                if isinstance(cfg, dict):
+                    result.setdefault(tier, {}).update(cfg)
+        elif isinstance(raw, list):
+            for idx, cfg in enumerate(raw, start=1):
+                if isinstance(cfg, dict):
+                    result.setdefault(idx, {}).update(cfg)
+        return result
+
+    def _load_drop_tables(self) -> Dict[str, List[dict]]:
+        result = {k: [dict(x) for x in v] for k, v in self.DROP_TABLES.items()}
+        raw = self._world_cfg.get("drop_tables")
+        if isinstance(raw, dict):
+            for key, table in raw.items():
+                if isinstance(table, list):
+                    result[str(key)] = [dict(x) for x in table]
+        return result
+
+    def _load_rewards(self) -> Dict[int, dict]:
+        raw = self._world_cfg.get("rewards")
+        result = {k: dict(v) for k, v in self.TIER_REWARDS.items()}
+        if isinstance(raw, dict):
+            for key, cfg in raw.items():
+                try:
+                    tier = int(key)
+                except (TypeError, ValueError):
+                    continue
+                if isinstance(cfg, dict):
+                    result.setdefault(tier, {}).update(cfg)
+        return result
 
     async def expire_bosses(self, now: int = None) -> int:
         """将已到期的存活Boss标记为逃遁，返回本次清理数量。"""
@@ -57,202 +223,486 @@ class WorldBossManager:
         target_hp = max(500_000, min(target_hp, 5_000_000_000))
         return target_hp, player_count
 
+    def get_boss_type(self, boss: dict) -> dict:
+        """返回Boss种类配置，兼容旧数据。"""
+        key = str(boss.get("boss_type") or "")
+        if key in self._types:
+            cfg = dict(self._types[key])
+        else:
+            name = str(boss.get("boss_name") or "")
+            cfg = next((dict(v) for v in self._types.values() if v.get("name") == name), None)
+        if not cfg:
+            cfg = {
+                "name": boss.get("boss_name") or "未知魔物",
+                "element": boss.get("element") or "",
+                "tier": 1,
+                "icon": "👹",
+                "hp_mult": 1.0,
+                "min_level": self.min_level,
+                "drop_table": "low",
+                "desc": "",
+            }
+        cfg.setdefault("name", boss.get("boss_name") or "未知魔物")
+        cfg.setdefault("element", boss.get("element") or "")
+        cfg.setdefault("tier", 1)
+        cfg.setdefault("min_level", self.min_level)
+        cfg.setdefault("drop_table", "low")
+        cfg.setdefault("icon", "👹")
+        return cfg
+
+    async def _server_max_level(self) -> int:
+        try:
+            async with self.db.conn.execute("SELECT MAX(level_index) AS lv FROM players") as cursor:
+                row = await cursor.fetchone()
+            return int(row["lv"]) if row and row["lv"] is not None else 0
+        except Exception:
+            return 0
+
+    def _choose_boss_key(self, max_level: Optional[int] = None) -> str:
+        eligible = self._types
+        if max_level is not None:
+            filtered = {
+                key: cfg for key, cfg in self._types.items()
+                if int(cfg.get("min_level", self.min_level) or self.min_level) <= int(max_level)
+            }
+            if filtered:
+                eligible = filtered
+            else:
+                lowest = min(
+                    int(cfg.get("min_level", self.min_level) or self.min_level)
+                    for cfg in self._types.values()
+                )
+                eligible = {
+                    key: cfg for key, cfg in self._types.items()
+                    if int(cfg.get("min_level", self.min_level) or self.min_level) == lowest
+                }
+        keys = []
+        weights = []
+        for key, cfg in eligible.items():
+            tier = int(cfg.get("tier", 1) or 1)
+            weight = int(cfg.get("weight") or self._tier_meta.get(tier, {}).get("weight", 10))
+            keys.append(key)
+            weights.append(max(1, weight))
+        if not keys:
+            return "abyss_dragon"
+        return random.choices(keys, weights=weights, k=1)[0]
+
     async def spawn_boss(self) -> Tuple[bool, str]:
         """生成世界Boss"""
-        await self.expire_bosses()
-        async with self.db.conn.execute("SELECT * FROM world_boss WHERE status = 1") as cursor:
-            if await cursor.fetchone():
-                return False, "❌ 当前已有世界Boss存活！"
-
-        max_hp, p_count = await self.calculate_dynamic_hp()
-        boss_name = random.choice(self.BOSS_NAMES)
         now = int(time.time())
-        expire_time = now + 86400 # 存活 24 小时
+        await self.expire_bosses(now)
 
-        await self.db.conn.execute(
-            """INSERT INTO world_boss (boss_name, boss_level, max_hp, current_hp, atk, defense, spawn_time, expire_time)
-               VALUES (?, 2, ?, ?, ?, 50, ?, ?)""",
-            (boss_name, max_hp, max_hp, int(max_hp * 0.001), now, expire_time)
-        )
-        await self.db.conn.commit()
+        base_hp, p_count = await self.calculate_dynamic_hp()
+        max_level = await self._server_max_level()
+        boss_key = self._choose_boss_key(max_level)
+        type_cfg = dict(self._types.get(boss_key, {}))
+        boss_name = type_cfg.get("name") or boss_key
+        element = type_cfg.get("element") or ""
+        tier = int(type_cfg.get("tier", 1) or 1)
+        max_hp = int(base_hp * float(type_cfg.get("hp_mult", 1.0) or 1.0))
+        max_hp = max(500_000, min(max_hp, 12_000_000_000))
+        expire_time = now + self.expire_hours * 3600
+        tier_label = self._tier_meta.get(tier, {}).get("label", f"{tier}阶")
+
+        await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            async with self.db.conn.execute("SELECT boss_id FROM world_boss WHERE status = 1 LIMIT 1") as cursor:
+                if await cursor.fetchone():
+                    await self.db.conn.rollback()
+                    return False, "❌ 当前已有世界Boss存活！"
+            await self.db.conn.execute(
+                """INSERT INTO world_boss
+                   (boss_name, boss_level, max_hp, current_hp, atk, defense, spawn_time, expire_time,
+                    status, boss_type, element, settled, killer_id)
+                   VALUES (?, ?, ?, ?, ?, 50, ?, ?, 1, ?, ?, 0, '')""",
+                (boss_name, tier, max_hp, max_hp, max(1, int(max_hp * 0.001)), now,
+                 expire_time, boss_key, element),
+            )
+            await self.db.conn.commit()
+        except Exception as e:
+            await self.db.conn.rollback()
+            logger.error(f"世界Boss生成异常: {e}")
+            return False, "❌ 世界Boss生成失败，请稍后再试。"
 
         return True, (
-            f"🌪️ 【天道警示】世界Boss降临！\n"
+            f"{type_cfg.get('icon', '👹')} 【天道警示】世界Boss降临！\n"
             f"━━━━━━━━━━━━━━━\n"
             f"👹 名称：{boss_name}\n"
-            f"💀 境界：灭世级\n"
-            f"❤️ 血量：{max_hp:,} （基于全服 {p_count} 名活跃修士战力生成）\n"
-            f"⏳ 存活时间：24小时\n"
+            f"🏷️ 种类：{tier_label} · {element or '无'}属性\n"
+            f"🚪 门槛境界：{int(type_cfg.get('min_level', self.min_level) or self.min_level)}\n"
+            f"💀 血量：{max_hp:,} （基于全服 {p_count} 名活跃修士战力生成）\n"
+            f"⏳ 存活时间：{self.expire_hours}小时\n"
+            f"📖 {type_cfg.get('desc', '')}\n"
             f"━━━━━━━━━━━━━━━\n"
             f"💡 发送 /挑战世界Boss 参与讨伐！"
         )
 
+    def player_element(self, player: Player) -> str:
+        from .combat_manager import CombatManager
+        cm = CombatManager()
+        try:
+            if self.config_manager and hasattr(self.config_manager, "get_item_element"):
+                element = (
+                    self.config_manager.get_item_element(player.main_technique)
+                    or self.config_manager.get_item_element(player.weapon)
+                )
+                if element:
+                    return element
+        except Exception:
+            pass
+        return (
+            cm.get_element_from_name(player.main_technique)
+            or cm.get_element_from_name(player.weapon)
+            or ""
+        )
+
+    async def calculate_realtime_atk(self, player: Player) -> int:
+        """统一战斗属性 + 灵兽协战攻击（Boss/团本为单次伤害，不消耗灵兽精力）。"""
+        from .combat_manager import CombatManager
+        from .pet_manager import PetManager
+        cm = CombatManager()
+        stats = cm.build_player_combat_stats(player, self.config_manager, db=self.db)
+        total_atk = int(stats.atk)
+        try:
+            pet_mgr = PetManager(self.db)
+            main_pet, support_pets, _, owner_atk = await pet_mgr.build_pet_lineup(
+                player.user_id,
+                stats.max_hp,
+                stats.atk,
+                stats.defense,
+                player.cultivation_type,
+                persist=False,
+            )
+            total_atk = int(owner_atk)
+            for pet in [main_pet] + list(support_pets or []):
+                if pet and getattr(pet, "hp", 0) > 0:
+                    total_atk += int(pet.atk)
+        except Exception:
+            total_atk = int(stats.atk)
+        return max(1, total_atk)
+
+    async def calculate_damage(
+        self,
+        player: Player,
+        max_hp: int,
+        boss_element: str = "",
+        floor_pct: Optional[float] = None,
+        cap_pct: Optional[float] = None,
+        extra_mult: float = 1.0,
+    ) -> Tuple[int, float, str]:
+        """计算对Boss的单次伤害，返回 (伤害, 百分比, 玩家五行)"""
+        floor_pct = self.damage_floor_pct if floor_pct is None else float(floor_pct)
+        cap_pct = self.damage_cap_pct if cap_pct is None else float(cap_pct)
+        player_element = self.player_element(player)
+        base_damage = int(await self.calculate_realtime_atk(player) * 100 + player.experience * 0.1)
+        try:
+            from .combat_manager import CombatManager
+            elem_mult = CombatManager.element_multiplier(player_element, boss_element or "")
+            base_damage = int(base_damage * elem_mult * max(0.1, extra_mult))
+        except Exception:
+            pass
+        max_hp = max(1, int(max_hp))
+        damage_percent = (base_damage / max_hp) * 100
+        damage_percent = max(float(floor_pct), min(float(cap_pct), damage_percent))
+        return max(1, int(max_hp * (damage_percent / 100))), damage_percent, player_element
+
+    def roll_drop(self, table_key: str) -> Optional[Tuple[str, int]]:
+        table = self._drop_tables.get(table_key) or self._drop_tables.get("low") or []
+        if not table:
+            return None
+        total_weight = sum(max(1, int(item.get("weight", 1))) for item in table)
+        roll = random.randint(1, total_weight)
+        current = 0
+        for item in table:
+            current += max(1, int(item.get("weight", 1)))
+            if roll <= current:
+                low = int(item.get("min", 1))
+                high = max(low, int(item.get("max", low)))
+                return str(item.get("name", "")), random.randint(low, high)
+        return None
+
+    async def _grant_title_async(self, player: Player) -> str:
+        if not self.title_mgr:
+            return ""
+        try:
+            is_new, msg = self.title_mgr.grant(player, "灭世魔神")
+            if not is_new:
+                return ""
+            fields = {"permanent_bonus": player.permanent_bonus}
+            if not player.title:
+                fields["title"] = "灭世魔神"
+                player.title = "灭世魔神"
+            await self.db.update_player_fields(player.user_id, **fields)
+            return msg.replace("\n", "")
+        except Exception:
+            return ""
+
+    async def get_active_boss(self) -> Optional[dict]:
+        async with self.db.conn.execute("SELECT * FROM world_boss WHERE status = 1 LIMIT 1") as cursor:
+            row = await cursor.fetchone()
+        return dict(row) if row else None
+
     async def challenge_boss(self, player: Player) -> Tuple[bool, str]:
         """挑战世界Boss"""
+        self.last_challenge_ok = False
         now = int(time.time())
         await self.expire_bosses(now)
 
-        # 0. 境界门槛：境界3（炼气四层）以上才能参与，防小号白嫖全服奖励
-        MIN_BOSS_LEVEL = 3
-        if player.level_index < MIN_BOSS_LEVEL:
+        boss = await self.get_active_boss()
+        if not boss:
+            return False, "❌ 当前没有存活的世界Boss。"
+        if now >= int(boss.get("expire_time") or 0):
+            return False, "❌ Boss已逃遁，请等待下次降临。"
+
+        type_cfg = self.get_boss_type(boss)
+        min_level = int(type_cfg.get("min_level", self.min_level) or self.min_level)
+        if player.level_index < min_level:
             return False, (
                 f"❌ 境界不足，无法参与讨伐！\n"
                 f"━━━━━━━━━━━━━━━\n"
-                f"挑战世界Boss需要达到境界等级 {MIN_BOSS_LEVEL}\n"
-                f"你当前境界等级：{player.level_index}（还差 {MIN_BOSS_LEVEL - player.level_index} 级）\n"
+                f"【{type_cfg.get('name', boss.get('boss_name'))}】需要境界等级 {min_level}\n"
+                f"你当前境界等级：{player.level_index}（还差 {min_level - player.level_index} 级）\n"
                 f"💡 通过 /闭关 /历练 提升修为后 /突破 提高境界"
             )
 
-        # 1. 检查Boss状态
-        async with self.db.conn.execute("SELECT * FROM world_boss WHERE status = 1") as cursor:
-            row = await cursor.fetchone()
-            if not row:
-                return False, "❌ 当前没有存活的世界Boss。"
-            boss = dict(row)
-
-        if now >= boss["expire_time"]:
-            return False, "❌ Boss已逃遁，请等待下次降临。"
-
-        # 2. 检查个人挑战次数与冷却
         async with self.db.conn.execute(
             "SELECT * FROM world_boss_damage WHERE boss_id = ? AND user_id = ?",
-            (boss["boss_id"], player.user_id)
+            (boss["boss_id"], player.user_id),
         ) as cursor:
             record = await cursor.fetchone()
-            if record:
-                rec = dict(record)
-                # 每日挑战次数不设上限，只保留 5 分钟冷却
-                if now - rec["last_attack_time"] < 300: # 5分钟CD
-                    return False, f"❌ 调息中，请 {300 - (now - rec['last_attack_time'])} 秒后再来。"
-            else:
-                rec = {"total_damage": 0, "attack_count": 0, "id": 0}
+        rec = dict(record) if record else None
+        if rec and now - int(rec.get("last_attack_time") or 0) < self.cooldown:
+            remaining = self.cooldown - (now - int(rec.get("last_attack_time") or 0))
+            return False, f"❌ 调息中，请 {remaining} 秒后再来。"
 
-        # 3. 核心修复：实时计算攻击力，防止面板未刷新导致的伤害异常
-        from .combat_manager import CombatManager
-        cm = CombatManager()
-        realtime_atk = cm.calculate_atk(
-            player.experience, player.atkpractice, 0, 
-            player.physical_damage, player.magic_damage, player.cultivation_type
+        final_damage, damage_percent, player_element = await self.calculate_damage(
+            player, int(boss["max_hp"]), type_cfg.get("element", "")
         )
-        base_damage = int(realtime_atk * 100 + player.experience * 0.1)
-        
-        damage_percent = (base_damage / boss["max_hp"]) * 100
 
-        # 强制限制在 0.5% ~ 20% 之间
-        damage_percent = max(0.5, min(20.0, damage_percent))
-        final_damage = int(boss["max_hp"] * (damage_percent / 100))
-        
-        if final_damage > boss["current_hp"]:
-            final_damage = boss["current_hp"]
-
-        # 4. 开启事务进行并发扣血与记录
         await self.db.conn.execute("BEGIN IMMEDIATE")
         try:
-            new_hp = boss["current_hp"] - final_damage
-            is_kill = False
-            if new_hp <= 0:
-                new_hp = 0
-                is_kill = True
-                await self.db.conn.execute("UPDATE world_boss SET current_hp = ?, status = 2 WHERE boss_id = ?", (new_hp, boss["boss_id"]))
-            else:
-                await self.db.conn.execute("UPDATE world_boss SET current_hp = ? WHERE boss_id = ?", (new_hp, boss["boss_id"]))
+            async with self.db.conn.execute(
+                "SELECT * FROM world_boss WHERE boss_id = ? AND status = 1",
+                (boss["boss_id"],),
+            ) as cursor:
+                fresh_row = await cursor.fetchone()
+            if not fresh_row:
+                await self.db.conn.rollback()
+                return False, "❌ 该Boss已被击杀，请查看最新状态。"
+            fresh = dict(fresh_row)
+            if now >= int(fresh.get("expire_time") or 0):
+                await self.db.conn.execute(
+                    "UPDATE world_boss SET status = 3 WHERE boss_id = ? AND status = 1",
+                    (boss["boss_id"],),
+                )
+                await self.db.conn.commit()
+                return False, "❌ Boss已逃遁，请等待下次降临。"
 
-            # 记录伤害
-            if record:
+            final_damage = min(final_damage, int(fresh["current_hp"]))
+            if final_damage <= 0:
+                await self.db.conn.rollback()
+                return False, "❌ Boss已无剩余血量。"
+            damage_percent = (final_damage / max(1, int(fresh["max_hp"]))) * 100
+            new_hp = int(fresh["current_hp"]) - final_damage
+            is_kill = new_hp <= 0
+
+            if is_kill:
+                new_hp = 0
                 await self.db.conn.execute(
-                    "UPDATE world_boss_damage SET total_damage = total_damage + ?, attack_count = attack_count + 1, last_attack_time = ? WHERE id = ?",
-                    (final_damage, now, rec.get("id", 0))
+                    "UPDATE world_boss SET current_hp = 0, status = 2, settled = 0, killer_id = ? "
+                    "WHERE boss_id = ? AND status = 1",
+                    (player.user_id, boss["boss_id"]),
                 )
             else:
                 await self.db.conn.execute(
-                    "INSERT INTO world_boss_damage (boss_id, user_id, total_damage, attack_count, last_attack_time) VALUES (?, ?, ?, 1, ?)",
-                    (boss["boss_id"], player.user_id, final_damage, now)
+                    "UPDATE world_boss SET current_hp = ? WHERE boss_id = ? AND status = 1",
+                    (new_hp, boss["boss_id"]),
                 )
-            
+
+            async with self.db.conn.execute(
+                "SELECT id, last_attack_time FROM world_boss_damage WHERE boss_id = ? AND user_id = ?",
+                (boss["boss_id"], player.user_id),
+            ) as cursor:
+                fresh_record = await cursor.fetchone()
+            if fresh_record and now - int(fresh_record["last_attack_time"] or 0) < self.cooldown:
+                await self.db.conn.rollback()
+                remaining = self.cooldown - (now - int(fresh_record["last_attack_time"] or 0))
+                return False, f"❌ 调息中，请 {remaining} 秒后再来。"
+            if fresh_record:
+                await self.db.conn.execute(
+                    "UPDATE world_boss_damage SET total_damage = total_damage + ?, "
+                    "attack_count = attack_count + 1, last_attack_time = ? WHERE id = ?",
+                    (final_damage, now, fresh_record["id"]),
+                )
+            else:
+                await self.db.conn.execute(
+                    "INSERT INTO world_boss_damage "
+                    "(boss_id, user_id, total_damage, attack_count, last_attack_time) "
+                    "VALUES (?, ?, ?, 1, ?)",
+                    (boss["boss_id"], player.user_id, final_damage, now),
+                )
             await self.db.conn.commit()
         except Exception as e:
             await self.db.conn.rollback()
             logger.error(f"世界Boss战斗异常: {e}")
             return False, "❌ 战斗异常，请稍后再试。"
 
-        self.last_challenge_ok = True  # 真正打出伤害，供任务进度判定
+        self.last_challenge_ok = True
 
-        # 5. 构造战报
         msg = [
-            f"⚔️ 你对【{boss['boss_name']}】造成了 {final_damage:,} 点伤害！",
+            f"⚔️ 你对【{fresh['boss_name']}】造成了 {final_damage:,} 点伤害！",
             f"━━━━━━━━━━━━━━━",
+            f"🏷️ 种类：{type_cfg.get('name', '')} · {type_cfg.get('element', '') or '无'}属性",
             f"📊 伤害占比：{damage_percent:.2f}%",
-            f"❤️ Boss剩余血量：{new_hp:,} / {boss['max_hp']:,}",
+            f"❤️ Boss剩余血量：{new_hp:,} / {int(fresh['max_hp']):,}",
         ]
+        if player_element:
+            try:
+                from .combat_manager import CombatManager
+                mult = CombatManager.element_multiplier(player_element, type_cfg.get("element", ""))
+                if mult > 1:
+                    msg.append(f"✨ 五行克制！你的【{player_element}】属性对Boss造成额外伤害。")
+                elif mult < 1:
+                    msg.append(f"⚠️ 五行受制！你的【{player_element}】属性被Boss压制。")
+            except Exception:
+                pass
 
-        # 6. 击杀结算
         if is_kill:
             settle_msg = await self.settle_boss_kill(boss["boss_id"], player.user_id)
-            msg.append("\n" + settle_msg)
+            msg.append("\n" + (settle_msg or "🎉 Boss已被击杀，奖励正在结算。"))
         else:
             msg.append("\n💡 使用 /世界Boss状态 查看当前状态")
 
         return True, "\n".join(msg)
 
     async def settle_boss_kill(self, boss_id: int, killer_id: str) -> str:
-        """结算Boss击杀奖励（真实发奖 + 尾刀称号）"""
+        """结算Boss击杀奖励（幂等，防重复发放）"""
+        async with self.db.conn.execute(
+            "SELECT * FROM world_boss WHERE boss_id = ?", (boss_id,)
+        ) as cursor:
+            boss_row = await cursor.fetchone()
+        if not boss_row:
+            return "❌ Boss记录不存在，无法结算。"
+        boss = dict(boss_row)
+        if not boss.get("settled"):
+            async with self.db.conn.execute(
+                "UPDATE world_boss SET settled = 1 WHERE boss_id = ? AND settled = 0",
+                (boss_id,),
+            ) as cursor:
+                claimed = cursor.rowcount
+            await self.db.conn.commit()
+            if not claimed:
+                return ""
+        else:
+            return ""
+
         async with self.db.conn.execute(
             "SELECT * FROM world_boss_damage WHERE boss_id = ? ORDER BY total_damage DESC",
-            (boss_id,)
+            (boss_id,),
         ) as cursor:
             damages = [dict(r) for r in await cursor.fetchall()]
 
+        type_cfg = self.get_boss_type(boss)
+        tier = int(type_cfg.get("tier", 1) or 1)
+        reward_cfg = self._rewards.get(tier, self._rewards.get(1, {}))
+        drop_table = type_cfg.get("drop_table", "low")
+        total_damage = sum(int(d.get("total_damage") or 0) for d in damages)
+        participant_count = len(damages)
+
         msg = [
-            f"🎉 世界Boss已被成功击杀！",
-            f"━━━━━━━━━━━━━━━",
+            "🎉 世界Boss已被成功击杀！",
+            "━━━━━━━━━━━━━━━",
+            f"👹 {boss.get('boss_name', '未知Boss')} · {self._tier_meta.get(tier, {}).get('label', f'{tier}阶')}",
+            f"👥 参与修士：{participant_count} 人 · 总伤害：{total_damage:,}",
         ]
-        
-        for i, dmg in enumerate(damages):
-            rank = i + 1
+
+        for index, dmg in enumerate(damages):
+            rank = index + 1
             target_player = await self.db.get_player_by_id(dmg["user_id"])
-            if not target_player: continue
+            if not target_player:
+                continue
 
-            # 默认显示名字
-            display_name = target_player.user_name or dmg['user_id']
+            display_name = target_player.user_name or dmg["user_id"]
+            if target_player.title:
+                display_name = f"【{target_player.title}】{display_name}"
 
-            if dmg["user_id"] == killer_id:
-                # 发尾刀奖励
-                await self.storage_ring_mgr.store_item(target_player, "洗练石", 2, silent=True)
-                await self.db.add_player_gold(target_player.user_id, 50000)
-                target_player.gold += 50000
-
-                # ===== 核心修复：实装尾刀称号 =====
-                if not target_player.title or target_player.title != "灭世魔神":
-                    await self.db.update_player_fields(target_player.user_id, title="灭世魔神")
-                    target_player.title = "灭世魔神"
-                    msg.append(f"👑 恭喜【{display_name}】斩杀世界Boss，获得唯一称号：【灭世魔神】！")
-                # 更新显示名（加上称号前缀）
-                display_name = f"【灭世魔神】{display_name}"
-                # ==================================
-
-                msg.append(f"🏆 {rank}. {display_name} - 尾刀大奖(洗练石x2, 5万灵石)")
-
+            is_killer = str(dmg["user_id"]) == str(killer_id)
+            if rank == 1:
+                gold = int(reward_cfg.get("rank1", 30000))
             elif rank <= 3:
-                await self.storage_ring_mgr.store_item(target_player, "洗练石", 1, silent=True)
-                await self.db.add_player_gold(target_player.user_id, 20000)
-                target_player.gold += 20000
-                # 显示带有称号的名字
-                if target_player.title:
-                    display_name = f"【{target_player.title}】{display_name}"
-                msg.append(f"🥇 {rank}. {display_name} - 主力输出(洗练石x1, 2万灵石)")
-
+                gold = int(reward_cfg.get("top3", 15000))
             else:
-                await self.db.add_player_gold(target_player.user_id, 5000)
-                target_player.gold += 5000
-                # 显示带有称号的名字
-                if target_player.title:
-                    display_name = f"【{target_player.title}】{display_name}"
-                msg.append(f"🥉 {rank}. {display_name} - 参与奖(5千灵石)")
+                gold = int(reward_cfg.get("participate", 5000))
+            if is_killer:
+                gold += int(reward_cfg.get("killer", 50000))
+
+            await self.db.add_player_gold(target_player.user_id, gold)
+            target_player.gold += gold
+
+            if is_killer:
+                rolls = 2 + tier
+            elif rank <= 3:
+                rolls = 2
+            else:
+                rolls = 1 if random.random() < 0.65 else 0
+            collected = {}
+            lost = {}
+            drops_to_grant = []
+            if is_killer:
+                first_drop = self.roll_drop("mid" if tier >= 2 else "low")
+                if first_drop:
+                    drops_to_grant.append(first_drop)
+            for _ in range(rolls):
+                drop = self.roll_drop(drop_table)
+                if drop:
+                    drops_to_grant.append(drop)
+            for item_name, count in drops_to_grant:
+                stored = await self._store_item(target_player, item_name, count)
+                bucket = collected if stored else lost
+                bucket[item_name] = bucket.get(item_name, 0) + count
+            item_lines = [f"{name}x{count}" for name, count in collected.items()]
+            item_lines.extend(f"{name}x{count}（储物戒已满）" for name, count in lost.items())
+
+            title_msg = ""
+            if is_killer:
+                title_msg = await self._grant_title_async(target_player)
+                display_name = f"【{target_player.title or '灭世魔神'}】{target_player.user_name or dmg['user_id']}"
+
+            tag = "👑 尾刀" if is_killer else ("🥇" if rank == 1 else ("🥈" if rank <= 3 else "🥉"))
+            line = f"{tag} {rank}. {display_name} - {gold:,}灵石"
+            if item_lines:
+                line += " · " + "、".join(item_lines)
+            if title_msg:
+                line += f" · {title_msg}"
+            msg.append(line)
 
         msg.append("━━━━━━━━━━━━━━━")
         msg.append("💡 奖励已发放至各位修士的储物戒/账户！")
-
-        # 缓存结算文本，由指令层负责全服广播
         self.last_settle_msg = "\n".join(msg)
+        return self.last_settle_msg
 
-        return "\n".join(msg)
+    async def _store_item(self, player: Player, item_name: str, count: int) -> bool:
+        if not self.storage_ring_mgr:
+            return False
+        try:
+            success, _ = await self.storage_ring_mgr.store_item(player, item_name, count, silent=True)
+            return bool(success)
+        except Exception as e:
+            logger.warning(f"世界Boss掉落发放失败 {item_name}x{count}: {e}")
+            return False
+
+    async def settle_pending_bosses(self) -> List[str]:
+        """补偿结算所有已击杀但未结算的Boss，返回结算文本列表。"""
+        async with self.db.conn.execute(
+            "SELECT boss_id, killer_id FROM world_boss WHERE status = 2 AND settled = 0"
+        ) as cursor:
+            rows = [dict(r) for r in await cursor.fetchall()]
+        messages = []
+        for row in rows:
+            try:
+                msg = await self.settle_boss_kill(int(row["boss_id"]), str(row.get("killer_id") or ""))
+                if msg:
+                    messages.append(msg)
+            except Exception as e:
+                logger.error(f"补结算世界Boss {row.get('boss_id')} 失败: {e}")
+        return messages

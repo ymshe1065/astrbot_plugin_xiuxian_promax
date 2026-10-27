@@ -18,23 +18,31 @@ class DailyTaskManager:
 
     TASK_POOL = {
         "黄": [
-            {"title": "洞府巡游", "type": "visit_dongfu", "count": 1, "desc": "参观一次任意玩家的洞府"},
-            {"title": "宗门劳作", "type": "donate_material", "count": 10, "desc": "给宗门捐献10份材料"},
-            {"title": "每日签到", "type": "check_in", "count": 1, "desc": "完成一次每日签到"}
+            {"title": "晨间吐纳", "type": "cultivate", "count": 1, "desc": "完成一次闭关并出关"},
+            {"title": "仙门签到", "type": "check_in", "count": 1, "desc": "完成一次每日签到"},
+            {"title": "灵田照料", "type": "harvest", "count": 1, "desc": "收获1次灵田作物"},
+            {"title": "山门历练", "type": "adventure", "count": 1, "desc": "完成一次历练路线"}
         ],
         "玄": [
             {"title": "闭关苦修", "type": "cultivate", "count": 1, "desc": "完成一次闭关并出关"},
             {"title": "历练闯荡", "type": "adventure", "count": 1, "desc": "完成一次历练路线"},
-            {"title": "秘境探索", "type": "explore_rift", "count": 1, "desc": "完成一次秘境探索"}
+            {"title": "秘境探索", "type": "explore_rift", "count": 1, "desc": "完成一次秘境探索"},
+            {"title": "镖行千里", "type": "escort", "count": 1, "desc": "完成一次押镖"},
+            {"title": "丹火初燃", "type": "craft_pill", "count": 1, "desc": "成功炼制一次丹药"}
         ],
         "地": [
             {"title": "切磋斗法", "type": "spar", "count": 1, "desc": "参与一次玩家切磋"},
-            {"title": "炼丹大师", "type": "craft_pill", "count": 1, "desc": "成功炼制一次丹药"},
-            {"title": "灵田丰收", "type": "harvest", "count": 3, "desc": "收获3次灵田作物"}
+            {"title": "炼丹大师", "type": "craft_pill", "count": 2, "desc": "成功炼制2次丹药"},
+            {"title": "灵田丰收", "type": "harvest", "count": 3, "desc": "收获3次灵田作物"},
+            {"title": "秘境深探", "type": "explore_rift", "count": 2, "desc": "完成2次秘境探索"},
+            {"title": "宗门执役", "type": "sect_task", "count": 1, "desc": "完成一次宗门任务"},
+            {"title": "护镖万里", "type": "escort", "count": 2, "desc": "完成2次押镖"}
         ],
         "天": [
             {"title": "弑神之战", "type": "boss_damage", "count": 2, "desc": "对世界Boss造成至少2%伤害"},
-            {"title": "越级挑战", "type": "win_pvp", "count": 1, "desc": "在决斗中击败一名玩家"}
+            {"title": "越级挑战", "type": "win_pvp", "count": 1, "desc": "在决斗中击败一名玩家"},
+            {"title": "团本先锋", "type": "boss_damage", "count": 3, "desc": "参与3次世界Boss/团本讨伐"},
+            {"title": "丹道宗师", "type": "craft_pill", "count": 3, "desc": "成功炼制3次丹药"}
         ]
     }
 
@@ -247,6 +255,11 @@ class DailyTaskManager:
                 return False, "❌ 玩家不存在。", []
                 
             # 发放基础奖励
+            try:
+                from .title_manager import TitleManager
+                total_exp = int(total_exp * (1 + TitleManager.get_exp_bonus(fresh_player)))
+            except Exception:
+                pass
             try:
                 from .pet_manager import PetManager
                 pet_mgr = PetManager(self.db)

@@ -5,6 +5,7 @@ from typing import Optional, List, Dict, TYPE_CHECKING
 from ..models import Player, Item
 from ..data import DataBase
 from .item_rules import ItemRules
+from .item_instance_manager import ItemInstanceManager
 
 if TYPE_CHECKING:
     from ..config_manager import ConfigManager
@@ -17,6 +18,7 @@ class EquipmentManager:
         self.db = db
         self.config_manager = config_manager
         self.storage_ring_manager = storage_ring_manager
+        self.instance_manager = ItemInstanceManager(db, config_manager)
 
     def get_combat_effects(self, player: Player) -> dict:
         """获取玩家所有功法/装备/炼器提供的特效加成"""
@@ -32,16 +34,18 @@ class EquipmentManager:
         }
         
         # 1. 遍历已装备的功法
+        items_data = getattr(self.config_manager, "items_data", {}) or {}
+        techniques_data = getattr(self.config_manager, "techniques_data", {}) or {}
         techniques_list = player.get_techniques_list()
         for tech_name in techniques_list:
-            tech_config = self.config_manager.techniques_data.get(tech_name)
+            tech_config = techniques_data.get(tech_name) or items_data.get(tech_name)
             if tech_config and "effects" in tech_config:
                 for k, v in tech_config["effects"].items():
                     if k in effects: effects[k] += v
-                        
+
         # 2. 主修心法特效
         if player.main_technique:
-            main_config = self.config_manager.techniques_data.get(player.main_technique)
+            main_config = techniques_data.get(player.main_technique) or items_data.get(player.main_technique)
             if main_config and "effects" in main_config:
                 for k, v in main_config["effects"].items():
                     if k in effects: effects[k] += v
@@ -70,9 +74,20 @@ class EquipmentManager:
             if armor_config and "effects" in armor_config:
                 for k, v in armor_config["effects"].items():
                     if k in effects: effects[k] += v
+
+        # 6. 装备实例词条
+        for instance_id in player.get_equipped_instances().values():
+            inst = self.instance_manager.get_instance(player, instance_id)
+            if not inst:
+                continue
+            for affix in inst.get("affixes", []) or []:
+                key = affix.get("key")
+                value = affix.get("value", 0)
+                if key in effects:
+                    effects[key] += value
         return effects
 
-    def parse_item_from_name(self, item_name: str, items_data: dict, weapons_data: dict = None) -> Optional[Item]:
+    def parse_item_from_name(self, item_name: str, items_data: dict, weapons_data: dict = None, instance: dict = None) -> Optional[Item]:
         """从物品名称解析为Item对象"""
         if not item_name: return None
         item_config = items_data.get(item_name)
@@ -91,6 +106,15 @@ class EquipmentManager:
             if "attack" in ee: physical_damage = ee["attack"]
             if "defense" in ee: physical_defense = ee["defense"]
 
+        quality_mult = 1.0
+        if instance:
+            quality_mult = self.instance_manager.quality_multiplier(instance.get("quality", "一般"))
+            magic_damage = int(magic_damage * quality_mult)
+            physical_damage = int(physical_damage * quality_mult)
+            magic_defense = int(magic_defense * quality_mult)
+            physical_defense = int(physical_defense * quality_mult)
+            mental_power = int(mental_power * quality_mult)
+
         return Item(
             item_id=item_config.get("id", item_name), name=item_name, item_type=item_type,
             description=item_config.get("description", ""), rank=item_config.get("rank", ""),
@@ -103,11 +127,14 @@ class EquipmentManager:
     def get_equipped_items(self, player: Player, items_data: dict, weapons_data: dict = None) -> List[Item]:
         """获取玩家所有已装备的物品"""
         equipped = []
+        equipped_map = player.get_equipped_instances()
         if player.weapon:
-            item = self.parse_item_from_name(player.weapon, items_data, weapons_data)
+            inst = self.instance_manager.get_instance(player, equipped_map.get("weapon", 0))
+            item = self.parse_item_from_name(player.weapon, items_data, weapons_data, inst)
             if item: equipped.append(item)
         if player.armor:
-            item = self.parse_item_from_name(player.armor, items_data, weapons_data)
+            inst = self.instance_manager.get_instance(player, equipped_map.get("armor", 0))
+            item = self.parse_item_from_name(player.armor, items_data, weapons_data, inst)
             if item: equipped.append(item)
         if player.main_technique:
             item = self.parse_item_from_name(player.main_technique, self.config_manager.techniques_data, items_data)
@@ -146,35 +173,38 @@ class EquipmentManager:
             return f"境界{level_index}"
         return " / ".join(names)
 
-    async def equip_item(self, player: Player, item: Item) -> tuple[bool, str]:
-        """装备物品"""
+    async def equip_item(self, player: Player, item: Item, instance_id: int = 0) -> tuple[bool, str]:
+        """装备物品（支持装备实例）"""
         can_equip, error_msg = self.check_equipment_level_requirement(player, item)
         if not can_equip:
             return False, error_msg
 
-        if item.item_type == "weapon":
-            old_item = player.weapon
-            if old_item:
+        if item.item_type in ("weapon", "armor"):
+            slot = "weapon" if item.item_type == "weapon" else "armor"
+            field = "weapon" if slot == "weapon" else "armor"
+            old_item = getattr(player, field)
+            equipped_map = player.get_equipped_instances()
+            old_instance_id = equipped_map.get(slot, 0)
+            if old_instance_id:
+                self.instance_manager.move(player, old_instance_id, "storage")
+            elif old_item:
                 store_ok, store_fail_msg = await self._try_store_old_equipment(player, old_item)
                 if not store_ok:
                     return False, f"储物戒空间不足，无法回收旧装备【{old_item}】，已取消换装。请先清理储物戒。\n{store_fail_msg}"
-            player.weapon = item.name
+            setattr(player, field, item.name)
+            if instance_id:
+                if not self.instance_manager.move(player, instance_id, "equipped", slot):
+                    return False, "❌ 装备实例不存在，已取消换装。"
+                equipped_map = player.get_equipped_instances()
+                equipped_map[slot] = int(instance_id)
+            else:
+                equipped_map.pop(slot, None)
+            player.set_equipped_instances(equipped_map)
             await self.db.update_player(player)
+            label = "武器" if slot == "weapon" else "防具"
             if old_item:
-                return True, f"已将【{old_item}】替换为【{item.name}】（{item.rank}）\n旧装备【{old_item}】已存入储物戒"
-            return True, f"已装备武器【{item.name}】（{item.rank}）"
-
-        elif item.item_type == "armor":
-            old_item = player.armor
-            if old_item:
-                store_ok, store_fail_msg = await self._try_store_old_equipment(player, old_item)
-                if not store_ok:
-                    return False, f"储物戒空间不足，无法回收旧装备【{old_item}】，已取消换装。请先清理储物戒。\n{store_fail_msg}"
-            player.armor = item.name
-            await self.db.update_player(player)
-            if old_item:
-                return True, f"已将【{old_item}】替换为【{item.name}】（{item.rank}）\n旧装备【{old_item}】已存入储物戒"
-            return True, f"已装备防具【{item.name}】（{item.rank}）"
+                return True, f"已将【{old_item}】替换为【{item.name}】（{item.rank}）\n旧装备已存入储物戒\n已装备{label}【{item.name}】"
+            return True, f"已装备{label}【{item.name}】（{item.rank}）"
 
         elif item.item_type == "main_technique":
             old_item = player.main_technique
@@ -206,12 +236,22 @@ class EquipmentManager:
         if slot_or_name in ["武器", "weapon"]:
             if not player.weapon: return False, "未装备武器"
             item_name = player.weapon
+            equipped_map = player.get_equipped_instances()
+            inst_id = equipped_map.pop("weapon", 0)
+            if inst_id:
+                self.instance_manager.move(player, inst_id, "storage")
+                player.set_equipped_instances(equipped_map)
             player.weapon = ""
             await self.db.update_player(player)
             return True, f"已卸下武器【{item_name}】"
         elif slot_or_name in ["防具", "armor"]:
             if not player.armor: return False, "未装备防具"
             item_name = player.armor
+            equipped_map = player.get_equipped_instances()
+            inst_id = equipped_map.pop("armor", 0)
+            if inst_id:
+                self.instance_manager.move(player, inst_id, "storage")
+                player.set_equipped_instances(equipped_map)
             player.armor = ""
             await self.db.update_player(player)
             return True, f"已卸下防具【{item_name}】"

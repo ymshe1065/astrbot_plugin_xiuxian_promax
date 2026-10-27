@@ -27,7 +27,7 @@ class BankHandlers:
             "━━━━━━━━━━━━━━━",
             f"💰 存款余额：{info['balance']:,} 灵石",
             f"📈 待领利息：{info['pending_interest']:,} 灵石",
-            f"📊 日利率：0.1%（复利）",
+            f"📊 日利率：{self.bank_mgr.daily_interest_rate:.2%}（复利）",
             "━━━━━━━━━━━━━━━",
             f"💎 持有灵石：{player.gold:,}",
         ]
@@ -98,9 +98,9 @@ class BankHandlers:
                 "🏦 贷款说明\n"
                 "━━━━━━━━━━━━━━━\n"
                 "📌 普通贷款：\n"
-                "   日利率：0.5%\n"
-                "   期限：7天\n"
-                "   额度：1,000 - 1,000,000 灵石\n"
+                f"   日利率：{self.bank_mgr.loan_interest_rate:.2%}\n"
+                f"   期限：{self.bank_mgr.loan_duration_days}天\n"
+                f"   额度：{self.bank_mgr.min_loan_amount:,} - {self.bank_mgr.max_loan_amount:,} 灵石\n"
                 "   大额门槛：超过1万需持有贷款额20%（最低5000）\n"
                 "━━━━━━━━━━━━━━━\n"
                 "💀 逾期后果：被银行追杀致死！\n"
@@ -174,9 +174,9 @@ class BankHandlers:
                 "🏦 突破贷款说明\n"
                 "━━━━━━━━━━━━━━━\n"
                 "📌 专为突破准备的短期贷款：\n"
-                "   日利率：0.8%（较高）\n"
-                "   期限：3天（较短）\n"
-                "   额度：1,000 - 1,000,000 灵石\n"
+                f"   日利率：{self.bank_mgr.breakthrough_loan_rate:.2%}（较高）\n"
+                f"   期限：{self.bank_mgr.breakthrough_loan_duration}天（较短）\n"
+                f"   额度：{self.bank_mgr.min_loan_amount:,} - {self.bank_mgr.max_loan_amount:,} 灵石\n"
                 "   大额门槛：超过1万需持有贷款额20%（最低5000）\n"
                 "━━━━━━━━━━━━━━━\n"
                 "✨ 突破成功后自动还款\n"

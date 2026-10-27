@@ -66,11 +66,12 @@ class DataBase:
                 magic_damage, physical_damage, magic_defense, physical_defense, mental_power,
                 sect_id, sect_position, sect_contribution, sect_task, sect_elixir_get,
                 blessed_spot_flag, blessed_spot_name,
-                active_pill_effects, permanent_pill_gains, has_resurrection_pill, has_debuff_shield, pills_inventory,
-                storage_ring, storage_ring_items,
-                daily_pill_usage, last_daily_reset, shield_expire_time,
-                tutorial_step, reincarnation_count, fate_points, permanent_bonus
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                active_pill_effects, permanent_pill_gains, has_resurrection_pill, resurrection_pill_quality,
+                has_debuff_shield, pills_inventory, learned_recipes,
+                storage_ring, storage_ring_items, overflow_items, equipment_instances, equipped_instances,
+                daily_pill_usage, last_daily_reset, shield_start_time, shield_expire_time,
+                tutorial_step, reincarnation_count, fate_points, permanent_bonus, luck
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 player.user_id,
@@ -113,17 +114,24 @@ class DataBase:
                 player.active_pill_effects,
                 player.permanent_pill_gains,
                 player.has_resurrection_pill,
+                getattr(player, "resurrection_pill_quality", "一般"),
                 int(player.has_debuff_shield),
                 player.pills_inventory,
+                getattr(player, "learned_recipes", "[]"),
                 player.storage_ring,
                 player.storage_ring_items,
+                getattr(player, "overflow_items", "{}"),
+                getattr(player, "equipment_instances", "[]"),
+                getattr(player, "equipped_instances", "{}"),
                 player.daily_pill_usage,
                 player.last_daily_reset,
+                player.shield_start_time,
                 player.shield_expire_time,
                 player.tutorial_step,
                 player.reincarnation_count,
                 player.fate_points,
-                player.permanent_bonus
+                player.permanent_bonus,
+                getattr(player, "luck", 0)
             )
         )
         await self.conn.commit()
@@ -196,17 +204,24 @@ class DataBase:
                 active_pill_effects = ?,
                 permanent_pill_gains = ?,
                 has_resurrection_pill = ?,
+                resurrection_pill_quality = ?,
                 has_debuff_shield = ?,
                 pills_inventory = ?,
+                learned_recipes = ?,
                 storage_ring = ?,
                 storage_ring_items = ?,
+                overflow_items = ?,
+                equipment_instances = ?,
+                equipped_instances = ?,
                 daily_pill_usage = ?,
                 last_daily_reset = ?,
+                shield_start_time = ?,
                 shield_expire_time = ?,
                 tutorial_step = ?,
                 reincarnation_count = ?,
                 fate_points = ?,
                 permanent_bonus = ?,
+                luck = ?,
                 karma = ?,
                 life_skill = ?,
                 virtue_points = ?
@@ -252,17 +267,24 @@ class DataBase:
                 player.active_pill_effects,
                 player.permanent_pill_gains,
                 player.has_resurrection_pill,
+                getattr(player, "resurrection_pill_quality", "一般"),
                 int(player.has_debuff_shield),
                 player.pills_inventory,
+                getattr(player, "learned_recipes", "[]"),
                 player.storage_ring,
                 player.storage_ring_items,
+                getattr(player, "overflow_items", "{}"),
+                getattr(player, "equipment_instances", "[]"),
+                getattr(player, "equipped_instances", "{}"),
                 player.daily_pill_usage,
                 player.last_daily_reset,
+                player.shield_start_time,
                 player.shield_expire_time,
                 player.tutorial_step,
                 player.reincarnation_count,
                 player.fate_points,
                 player.permanent_bonus,
+                getattr(player, "luck", 0),
                 getattr(player, "karma", 0),
                 getattr(player, "life_skill", ""),
                 getattr(player, "virtue_points", 0),
@@ -307,6 +329,25 @@ class DataBase:
         if commit:
             await self.conn.commit()
 
+    async def scale_player_exp(self, user_id: str, ratio: float, commit: bool = True):
+        """原子按比例缩放修为（向下取整，结果钳为0）"""
+        await self.conn.execute(
+            "UPDATE players SET experience = MAX(0, CAST(experience * ? AS INTEGER)) WHERE user_id = ?",
+            (ratio, user_id)
+        )
+        if commit:
+            await self.conn.commit()
+
+    async def scale_player_hp(self, user_id: str, ratio: float, minimum: int = 1,
+                              commit: bool = True):
+        """原子按比例缩放气血，并保证不低于 minimum"""
+        await self.conn.execute(
+            "UPDATE players SET hp = MAX(?, CAST(hp * ? AS INTEGER)) WHERE user_id = ?",
+            (minimum, ratio, user_id)
+        )
+        if commit:
+            await self.conn.commit()
+
     async def delete_player(self, user_id: str):
         """删除玩家"""
         await self.conn.execute(
@@ -317,6 +358,13 @@ class DataBase:
 
     async def delete_player_cascade(self, user_id: str):
         """级联删除玩家及所有关联数据"""
+        # 先把他人的待赠予物品退回发送者，避免删除角色时连带吞掉别人的资产
+        try:
+            if self.ext:
+                await self.ext.return_gifts_for_receiver(user_id)
+        except Exception as e:
+            logger.warning(f"[delete_player_cascade] 赠予退回失败: {e}")
+
         async def safe_execute(sql: str, params: tuple):
             try:
                 await self.conn.execute(sql, params)
@@ -349,22 +397,28 @@ class DataBase:
                         (successor[0],),
                     )
                 else:
-                    await self.conn.execute(
-                        "DELETE FROM sects WHERE sect_id = ?", (sect_id,)
-                    )
+                    if self.ext:
+                        await self.ext.delete_sect(sect_id)
+                    else:
+                        await self.conn.execute(
+                            "DELETE FROM sects WHERE sect_id = ?", (sect_id,)
+                        )
         except Exception as e:
             logger.warning(f"[delete_player_cascade] 宗门交接失败: {e}")
 
         statements = [
-            ("UPDATE spirit_eyes SET owner_id = NULL, owner_name = NULL, claim_time = NULL WHERE owner_id = ?", (user_id,)),
+            ("UPDATE spirit_eyes SET owner_id = NULL, owner_name = NULL, claim_time = NULL, last_collect_time = NULL WHERE owner_id = ?", (user_id,)),
+            ("DELETE FROM npc_partners WHERE user_id = ?", (user_id,)),
+            ("DELETE FROM master_relations WHERE master_id = ? OR disciple_id = ?", (user_id, user_id)),
             ("DELETE FROM blessed_lands WHERE user_id = ?", (user_id,)),
             ("DELETE FROM spirit_farms WHERE user_id = ?", (user_id,)),
             ("DELETE FROM bank_accounts WHERE user_id = ?", (user_id,)),
-            ("UPDATE bank_loans SET status = 'bad_debt' WHERE user_id = ? AND status = 'active'", (user_id,)),
+            ("UPDATE bank_loans SET status = 'bad_debt' WHERE user_id = ? AND status IN ('active', 'overdue')", (user_id,)),
             ("DELETE FROM bounty_tasks WHERE user_id = ?", (user_id,)),
             ("DELETE FROM dual_cultivation WHERE user_id = ?", (user_id,)),
             ("DELETE FROM dual_cultivation_requests WHERE from_id = ? OR target_id = ?", (user_id, user_id)),
             ("DELETE FROM user_cd WHERE user_id = ?", (user_id,)),
+            ("DELETE FROM auto_proxy WHERE user_id = ?", (user_id,)),
             ("DELETE FROM buff_info WHERE user_id = ?", (user_id,)),
             ("DELETE FROM impart_info WHERE user_id = ?", (user_id,)),
             ("DELETE FROM combat_cooldowns WHERE user_id = ?", (user_id,)),
@@ -372,12 +426,13 @@ class DataBase:
             ("DELETE FROM player_pets WHERE user_id = ?", (user_id,)),
             ("DELETE FROM daily_tasks WHERE user_id = ?", (user_id,)),
             ("DELETE FROM world_boss_damage WHERE user_id = ?", (user_id,)),
+            ("DELETE FROM world_boss_raid_damage WHERE user_id = ?", (user_id,)),
             ("DELETE FROM auction_npc_offers WHERE seller_id = ?", (user_id,)),
             ("DELETE FROM auction_items WHERE seller_id = ?", (user_id,)),
             ("DELETE FROM sect_tournament_entries WHERE user_id = ?", (user_id,)),
             ("UPDATE sect_orders SET status = 'cancelled' WHERE status = 'active' AND (issuer_id = ? OR target_id = ?)", (user_id, user_id)),
             # 清理用户专属冷却/次数，但保留重修冷却键（随后会写入新的时间）
-            ("DELETE FROM system_config WHERE key LIKE ? AND key != ?", (f"%{user_id}%", f"rebirth_last_{user_id}")),
+            ("DELETE FROM system_config WHERE key LIKE ? AND key NOT IN (?, ?)", (f"%{user_id}%", f"rebirth_last_{user_id}", f"rebirth_total_{user_id}")),
         ]
 
         for sql, params in statements:

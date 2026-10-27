@@ -4,7 +4,7 @@ from astrbot.api.event import AstrMessageEvent
 from ..data import DataBase
 from ..managers.spirit_farm_manager import SpiritFarmManager
 from ..models import Player
-from .utils import player_required
+from .utils import player_required, set_event_flag
 
 __all__ = ["SpiritFarmHandlers"]
 
@@ -114,7 +114,8 @@ class SpiritFarmHandlers:
     async def handle_harvest(self, player: Player, event: AstrMessageEvent):
         """收获灵草"""
         success, msg = await self.mgr.harvest(player)
-        self.last_harvest_ok = bool(success)  # 供任务进度判定
+        set_event_flag(event, "harvest_ok", bool(success))
+        set_event_flag(event, "harvest_count", int((getattr(self.mgr, "last_harvest_counts", {}) or {}).get(player.user_id, 0) or 0))
         yield event.plain_result(msg)
     
     @player_required

@@ -17152,13 +17152,15 @@
         "shop_weight": 100,
         "price": 10000,
         "volume": 1,
-        "description": "开启后24小时内免疫偷窃，但产出降低20%。"
+        "description": "开启后免疫偷窃（阵法师36小时、产出惩罚10%），但洞天与灵田产出降低20%。"
     },
     "9002": {
         "name": "迷神香",
         "type": "材料",
         "rank": "玄阶",
-        "shop_weight": 100,
+        "shop_weight": 50000,
+        "stock_cap": 2,
+        "black_market_weight": 300,
         "price": 5000,
         "volume": 1,
         "description": "潜入洞府偷窃的必备道具。"
@@ -17225,5 +17227,50 @@
         "price": 200000,
         "volume": 1,
         "description": "以秘法炼成的化身。激活后30天内，化身替你昼夜行功，闭关收益+20%。"
+    },
+    "10005": {
+        "name": "灵草",
+        "type": "材料",
+        "rank": "黄阶",
+        "shop_weight": 0,
+        "price": 100,
+        "volume": 1,
+        "description": "灵田产出的基础灵植，可用于炼制低阶丹药。"
+    },
+    "10006": {
+        "name": "血灵草",
+        "type": "材料",
+        "rank": "黄阶",
+        "shop_weight": 0,
+        "price": 300,
+        "volume": 1,
+        "description": "蕴含气血之力的灵草，是常见的炼丹灵植。"
+    },
+    "10007": {
+        "name": "冰心草",
+        "type": "材料",
+        "rank": "玄阶",
+        "shop_weight": 0,
+        "price": 800,
+        "volume": 1,
+        "description": "性寒清心，常用于中阶丹药的灵植材料。"
+    },
+    "10008": {
+        "name": "火焰花",
+        "type": "材料",
+        "rank": "玄阶",
+        "shop_weight": 0,
+        "price": 2000,
+        "volume": 1,
+        "description": "炽热如火的灵花，可用于中高阶炼丹。"
+    },
+    "10009": {
+        "name": "九叶灵芝",
+        "type": "材料",
+        "rank": "地阶",
+        "shop_weight": 0,
+        "price": 6000,
+        "volume": 1,
+        "description": "九叶轮生的珍稀灵芝，是高阶丹药的重要灵植。"
     }
 }

@@ -131,9 +131,7 @@ def normalize_pill_type(item: Optional[Dict[str, Any]]) -> str:
     if raw in ("pill", "exp_pill", "utility_pill"):
         return raw
     if raw in ("丹药", "legacy_pill"):
-        if _raw_value(item, "effect_type"):
-            return "inventory_pill"
-        return "legacy_pill"
+        return "inventory_pill"
     return raw
 
 
@@ -153,10 +151,14 @@ def normalize_shop_type(item: Optional[Dict[str, Any]]) -> str:
         return "main_technique"
     if raw in ("technique", "功法"):
         return "technique"
-    if raw in ("pill", "exp_pill", "utility_pill"):
+    if raw in ("pill", "exp_pill", "utility_pill", "legacy_pill"):
         return "inventory_pill"
-    if raw in ("丹药", "legacy_pill"):
-        return "inventory_pill" if _raw_value(item, "effect_type") else "legacy_pill"
+    if raw == "丹药":
+        return "inventory_pill"
+    if raw == "丹方":
+        return "recipe"
+    if raw in ("材料包", "material_package"):
+        return "material_package"
     if raw in ("material", "材料", "符箓", "talisman", "杂物"):
         return "material"
 

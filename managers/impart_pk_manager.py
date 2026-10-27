@@ -28,7 +28,9 @@ class ImpartPkManager:
         Returns:
             (attacker_wins, battle_log, rewards)
         """
-        # 获取双方传承等级
+        # 获取双方传承等级（兼容旧库/新角色：缺失时幂等初始化）
+        await self.db.ext.ensure_impart_info(attacker.user_id)
+        await self.db.ext.ensure_impart_info(defender.user_id)
         attacker_impart = await self.db.ext.get_impart_info(attacker.user_id)
         defender_impart = await self.db.ext.get_impart_info(defender.user_id)
         

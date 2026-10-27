@@ -61,6 +61,8 @@ class BountyHandlers:
     @player_required
     async def handle_abandon_bounty(self, player: Player, event: AstrMessageEvent):
         """放弃悬赏"""
+        self.last_abandon_success = False
         success, msg = await self.bounty_mgr.abandon_bounty(player)
+        self.last_abandon_success = success
         prefix = "✅" if success else "❌"
         yield event.plain_result(f"{prefix} {msg}")

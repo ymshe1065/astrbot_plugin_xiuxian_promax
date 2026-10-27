@@ -39,24 +39,28 @@ class PillHandler:
 
     @player_required
     async def handle_use_pill(self, player: Player, event: AstrMessageEvent, args: str = ""):
-        """处理服用丹药指令：/服用丹药 <丹药名> [数量]"""
+        """处理服用丹药指令：/服用丹药 <丹药名> [品质] [数量]"""
         # 检查是否提供了丹药名称
         if not args or args.strip() == "":
             yield event.plain_result(
                 "请指定要服用的丹药名称！\n"
-                f"💡 使用方法：{CMD_USE_PILL} <丹药名称> [数量]\n"
-                f"💡 例如：{CMD_USE_PILL} 炼气丹 或 {CMD_USE_PILL} 炼气丹 3"
+                f"💡 使用方法：{CMD_USE_PILL} <丹药名称> [品质] [数量]\n"
+                f"💡 例如：{CMD_USE_PILL} 炼气丹 或 {CMD_USE_PILL} 筑基丹 良好 2"
             )
             return
 
-        raw = args.strip()
-        parts = raw.rsplit(" ", 1)
-        if len(parts) == 2 and parts[1].isdigit():
-            pill_name = parts[0].strip()
-            count = int(parts[1])
-        else:
-            pill_name = raw
-            count = 1
+        tokens = args.strip().split()
+        count = 1
+        if tokens and tokens[-1].isdigit():
+            count = int(tokens.pop())
+        quality = None
+        if tokens and tokens[-1] in self.pill_manager.QUALITY_ORDER:
+            quality = tokens.pop()
+        pill_name = " ".join(tokens).strip()
+        if "|" in pill_name:
+            base_name, embedded_quality = self.pill_manager.split_pill_key(pill_name)
+            pill_name = base_name
+            quality = quality or embedded_quality
 
         if not pill_name:
             yield event.plain_result("❌ 未识别到丹药名称，请检查格式。")
@@ -74,7 +78,7 @@ class PillHandler:
         used = 0
         last_message = ""
         for _ in range(count):
-            success, message = await self.pill_manager.use_pill(player, pill_name)
+            success, message = await self.pill_manager.use_pill(player, pill_name, quality)
             if not success:
                 if used == 0:
                     yield event.plain_result(f"❌ {message}")
@@ -127,12 +131,15 @@ class PillHandler:
                     else:
                         time_str = f"{minutes}分钟"
 
-                    effects_display.append(f"🌟 {pill_name} (剩余: {time_str})")
+                    icon = "🧿" if effect.get("source") == "talisman" else "🌟"
+                    effects_display.append(f"{icon} {pill_name} (剩余: {time_str})")
 
         # 检查回生丹状态
         resurrection_status = ""
         if player.has_resurrection_pill:
-            resurrection_status = "\n🛡️ 当前拥有回生丹效果（可抵消一次死亡）"
+            res_quality = getattr(player, "resurrection_pill_quality", "一般") or "一般"
+            keep = self.pill_manager.get_resurrection_keep(res_quality)
+            resurrection_status = f"\n🛡️ 当前拥有回生丹效果（{res_quality}，复活保留 {keep:.0%} 属性）"
 
         # 组合显示
         full_message = inventory_display
@@ -194,9 +201,21 @@ class PillHandler:
 
         # 效果描述
         effect_type = pill_data.get('effect_type', '')
-        if effect_type:
+        if effect_type or pill_data.get("effect") or subtype:
             info_lines.append(f"\n【效果】")
             info_lines.append(self._get_effect_description(pill_data))
+
+        if subtype not in ("breakthrough",):
+            info_lines.append("\n【品质】")
+            for quality in self.pill_manager.QUALITY_ORDER:
+                mult = self.pill_manager.get_quality_multiplier(quality)
+                info_lines.append(f"  {quality}：效果 ×{mult:.2f}")
+            if subtype == "resurrection":
+                keeps = "、".join(
+                    f"{quality}{self.pill_manager.get_resurrection_keep(quality):.0%}"
+                    for quality in self.pill_manager.QUALITY_ORDER
+                )
+                info_lines.append(f"  复活保留：{keeps}")
 
         info_lines.append("-" * 20)
 
@@ -224,6 +243,23 @@ class PillHandler:
         effect_type = pill_data.get('effect_type', '')
         subtype = pill_data.get('subtype', '')
         lines = []
+
+        legacy_effect = pill_data.get('effect')
+        if isinstance(legacy_effect, dict) and legacy_effect:
+            labels = {
+                'add_hp': '气血/灵气', 'add_experience': '修为', 'add_max_hp': '上限',
+                'add_spiritual_power': '法伤', 'add_mental_power': '精神力',
+                'add_attack': '物伤', 'add_defense': '物防', 'add_gold': '灵石',
+                'add_breakthrough_bonus': '突破成功率',
+            }
+            for key, label in labels.items():
+                value = legacy_effect.get(key)
+                if value:
+                    if key == 'add_breakthrough_bonus':
+                        lines.append(f"  {label}：{float(value):+.1%}（1小时）")
+                    else:
+                        lines.append(f"  {label}：{value:+d}")
+            return "\n".join(lines) if lines else "  特殊效果"
 
         if subtype == "exp":
             exp_gain = pill_data.get('exp_gain', 0)

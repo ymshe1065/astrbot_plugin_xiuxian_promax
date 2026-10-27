@@ -1107,7 +1107,7 @@
       "name": "仙人战场",
       "aliases": [
         "仙人战场",
-        " immortal_battle"
+        "immortal_battle"
       ],
       "description": "两位仙人的战场余波未平，闯入者非死即悟。",
       "risk": "极高",
@@ -1852,6 +1852,42 @@
         "gold_mult": 1.25,
         "item_chance": 70,
         "bonus_progress": 0
+      },
+      {
+        "key": "spirit_spring",
+        "name": "灵泉涤尘",
+        "desc": "偶遇一眼灵泉，濯洗尘垢后神清气爽，修行事半功倍。",
+        "exp_mult": 1.15,
+        "gold_mult": 1.05,
+        "item_chance": 65,
+        "bonus_progress": 0
+      },
+      {
+        "key": "hermit_guidance",
+        "name": "隐世指点",
+        "desc": "路遇隐世高人，寥寥数语点破修行迷障。",
+        "exp_mult": 1.35,
+        "gold_mult": 0.9,
+        "item_chance": 45,
+        "bonus_progress": 1
+      },
+      {
+        "key": "old_friend",
+        "name": "故人重逢",
+        "desc": "与旧友异乡重逢，把酒言欢间互通有无。",
+        "exp_mult": 1.1,
+        "gold_mult": 1.2,
+        "item_chance": 60,
+        "bonus_progress": 0
+      },
+      {
+        "key": "bumper_harvest",
+        "name": "意外丰获",
+        "desc": "归途拾得一处无主药圃，顺手采了个满怀。",
+        "exp_mult": 1.0,
+        "gold_mult": 1.35,
+        "item_chance": 75,
+        "bonus_progress": 0
       }
     ],
     "standard": [
@@ -1880,6 +1916,42 @@
         "exp_mult": 1.1,
         "gold_mult": 1.35,
         "item_chance": 55,
+        "bonus_progress": 0
+      },
+      {
+        "key": "spirit_beast_block",
+        "name": "灵兽拦路",
+        "desc": "一头灵兽挡在道中，击退它后才发现其守护着一株灵药。",
+        "exp_mult": 1.25,
+        "gold_mult": 1.1,
+        "item_chance": 55,
+        "bonus_progress": 1
+      },
+      {
+        "key": "ancient_stele",
+        "name": "古碑参悟",
+        "desc": "荒道旁半截古碑隐有道韵，驻足参悟颇有收获。",
+        "exp_mult": 1.4,
+        "gold_mult": 0.95,
+        "item_chance": 45,
+        "bonus_progress": 1
+      },
+      {
+        "key": "rogue_cultivator",
+        "name": "追剿邪修",
+        "desc": "撞见邪修劫掠路人，出手将其击退，缴获若干赃物。",
+        "exp_mult": 1.2,
+        "gold_mult": 1.3,
+        "item_chance": 60,
+        "bonus_progress": 1
+      },
+      {
+        "key": "caravan_guard",
+        "name": "商队雇工",
+        "desc": "应商队之邀护送一程，一路平安抵达，得了一份酬金。",
+        "exp_mult": 1.0,
+        "gold_mult": 1.45,
+        "item_chance": 65,
         "bonus_progress": 0
       }
     ],
@@ -1911,6 +1983,57 @@
         "exp_mult": 0.8,
         "gold_mult": 0.8,
         "item_chance": 25,
+        "bonus_progress": 0,
+        "injury": true
+      },
+      {
+        "key": "thunderstorm",
+        "name": "雷雨突至",
+        "desc": "荒郊骤起雷暴，你冒雨赶路，勉强完成了既定目标。",
+        "exp_mult": 0.85,
+        "gold_mult": 0.8,
+        "item_chance": 20,
+        "bonus_progress": 1,
+        "injury": true
+      },
+      {
+        "key": "evil_ambush",
+        "name": "邪修伏击",
+        "desc": "邪修设伏偷袭，你带伤突围，却也摸清了对方巢穴。",
+        "exp_mult": 0.75,
+        "gold_mult": 1.1,
+        "item_chance": 30,
+        "bonus_progress": 1,
+        "injury": true
+      },
+      {
+        "key": "array_backlash",
+        "name": "古阵反噬",
+        "desc": "误触残余古阵，遭阵法反噬，却也借此参透了几分阵理。",
+        "exp_mult": 1.45,
+        "gold_mult": 0.6,
+        "item_chance": 25,
+        "bonus_progress": 2,
+        "injury": true
+      },
+      {
+        "key": "rift_eddies",
+        "name": "裂隙涟漪",
+        "desc": "空间裂隙泛起涟漪，你冒险深入，带回了几件裂隙遗物。",
+        "exp_mult": 1.5,
+        "gold_mult": 1.0,
+        "item_chance": 45,
+        "bonus_progress": 2,
+        "injury": true,
+        "drop_tier": "mid"
+      },
+      {
+        "key": "demon_corruption",
+        "name": "魔气侵体",
+        "desc": "误入魔气淤积之地，强行运功驱散，元气大伤。",
+        "exp_mult": 0.6,
+        "gold_mult": 0.7,
+        "item_chance": 15,
         "bonus_progress": 0,
         "injury": true
       }
