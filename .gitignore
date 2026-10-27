@@ -9,9 +9,6 @@ __pycache__/
 *.db-journal
 data/
 
-# 自动生成的固定页图片（首次调用/脚本/测试时生成）
-resources/generated/
-
 # IDE
 .idea/
 .vscode/

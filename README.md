@@ -132,6 +132,17 @@ python -m unittest tests.test_static_images -v
 
 ---
 
+## 📚 文档
+
+| 文档 | 用途 |
+|------|------|
+| [玩家游戏指南](docs/xiuxian_player_guide.md) | 面向玩家的玩法流程、系统说明、FAQ 与指令速查 |
+| [AI 知识库](docs/xiuxian_knowledge_base.md) | 给 AI 问答/群聊机器人使用，覆盖规则、数值、指令全集与常见问题 |
+| [物品指南](docs/xiuxian_item_guide.md) | 物品、丹药、装备、材料等详细数据 |
+| [历史 README](docs/xiuxian_README_original.md) | 早期版本存档，仅作参考，规则以现行文档为准 |
+
+---
+
 ## 🧪 部署前自检（可选）
 
 ```
