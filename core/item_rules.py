@@ -63,6 +63,12 @@ SLOT_BY_TYPE = {
 }
 
 
+GEAR_TYPES = EQUIPPABLE_TYPES - {"main_technique", "technique"}
+SLOT_LABELS = {"weapon": "武器", "head": "头饰", "armor": "甲胄", "gloves": "手套",
+               "boots": "靴子", "ring1": "戒指1", "ring2": "戒指2", "amulet": "护符"}
+SLOT_ALIASES = {**{k: k for k in SLOT_LABELS}, **{v: k for k, v in SLOT_LABELS.items()},
+                "防具": "armor", "body": "armor", "护甲": "armor"}
+
 def _raw_value(item: Optional[Dict[str, Any]], key: str, default=None):
     if not isinstance(item, dict):
         return default
@@ -80,6 +86,15 @@ def normalize_equipment_type(item: Optional[Dict[str, Any]]) -> str:
         return ""
     raw = str(item.get("type", "") or "")
     subtype = str(item.get("subtype", "") or "")
+    explicit = str(item.get("equip_slot", "") or "")
+    if explicit in ("ring1", "ring2"):
+        return "ring"
+    if explicit in SLOT_LABELS or explicit == "body":
+        return explicit
+    subtype_types = {"头饰": "head", "甲胄": "body", "护甲": "body", "手套": "gloves",
+                     "靴子": "boots", "戒指": "ring", "护符": "amulet"}
+    if raw in ("法器", "armor", "防具", "accessory", "饰品") and subtype in subtype_types:
+        return subtype_types[subtype]
 
     if raw in ("weapon", "武器"):
         return "weapon"
@@ -89,7 +104,7 @@ def normalize_equipment_type(item: Optional[Dict[str, Any]]) -> str:
         return "amulet"
     if raw in ("head", "头饰", "头部"):
         return "head"
-    if raw in ("body", "护甲", "衣服"):
+    if raw in ("body", "甲胄", "护甲", "衣服"):
         return "body"
     if raw in ("boots", "靴子", "鞋"):
         return "boots"
@@ -140,6 +155,11 @@ def normalize_shop_type(item: Optional[Dict[str, Any]]) -> str:
     if not isinstance(item, dict):
         return ""
     raw = str(item.get("type", "") or "")
+    equipment_type = normalize_equipment_type(item.get("data") or item)
+    if equipment_type in GEAR_TYPES:
+        if equipment_type == "amulet" and not (item.get("data") or item).get("equip_slot") and (item.get("data") or item).get("subtype", raw) in ("饰品", "accessory"):
+            return "accessory"
+        return equipment_type
 
     if raw in ("weapon", "武器"):
         return "weapon"
@@ -233,6 +253,9 @@ def validate_rate(key: str, value: Any) -> Tuple[bool, str]:
 
 
 class ItemRules:
+    GEAR_TYPES = GEAR_TYPES
+    SLOT_LABELS = SLOT_LABELS
+    SLOT_ALIASES = SLOT_ALIASES
     RANK_REQ_LEVEL = RANK_REQ_LEVEL
     EQUIPPABLE_TYPES = EQUIPPABLE_TYPES
     SLOT_BY_TYPE = SLOT_BY_TYPE

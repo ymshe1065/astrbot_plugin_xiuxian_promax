@@ -221,6 +221,22 @@ class AuctionManager:
             logger.warning(f"清理无主坊市挂单失败: {e}")
             return 0
 
+    async def get_trade_details(self, row: dict) -> list:
+        from ..core.shop_manager import ShopManager
+        cm = self.storage_ring_mgr.config_manager
+        shop = ShopManager(self.config, cm)
+        name = row.get("base_item_name", row["item_name"])
+        item = shop.find_item_by_name(name)
+        if not item:
+            return []
+        inst = None
+        if row.get("item_kind") == "equipment":
+            from ..core.item_instance_manager import ItemInstanceManager
+            seller = await self.db.get_player_by_id(row["seller_id"])
+            if seller:
+                inst = ItemInstanceManager(self.db, cm).get_instance(seller, row.get("instance_id"))
+        return shop.get_trade_details(item, inst)
+
     async def get_market_list(self) -> str:
         """查看坊市列表"""
         await self.cleanup_orphan_listings()
@@ -243,10 +259,11 @@ class AuctionManager:
 
             # 截断过长的物品名，防止群聊刷屏
             full_name = self._display_name(item)
-            display_name = full_name if len(full_name) <= 12 else full_name[:12] + "..."
+            display_name = full_name
 
             msg.append(f"[{item['id']}] {display_name} x{item['count']}")
             msg.append(f"  └ 总价: {total_price:,} 灵石 | 卖家: {seller_name}")
+            msg.extend(await self.get_trade_details(item))
 
         msg.append("━━━━━━━━━━━━━━━")
         msg.append(f"💡 购买：/坊市购买 <编号> (系统收取 {self.TAX_RATE:.0%} 交易税)")
@@ -263,6 +280,7 @@ class AuctionManager:
         ) as cursor:
             rows = [dict(r) for r in await cursor.fetchall()]
         for row in rows:
+            row["base_item_name"] = row["item_name"]
             row["item_name"] = self._display_name(row)
         return rows
 

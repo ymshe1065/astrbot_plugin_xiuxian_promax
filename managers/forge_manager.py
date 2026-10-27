@@ -86,14 +86,12 @@ class ForgeManager:
         equipped_map = player.get_equipped_instances()
 
         normalized_slot = (slot or "").strip().lower()
-        slot_aliases = {
-            "武器": "weapon", "weapon": "weapon",
-            "防具": "armor", "armor": "armor",
-        }
+        from ..core.item_rules import ItemRules
+        slot_aliases = ItemRules.SLOT_ALIASES
         if normalized_slot and normalized_slot not in slot_aliases:
-            return False, "❌ 请指定洗练部位：/洗练 武器 或 /洗练 防具"
+            return False, "❌ 洗练部位：武器/头饰/甲胄/手套/靴子/戒指1/戒指2/护符"
         requested_slot = slot_aliases.get(normalized_slot)
-        slots = [requested_slot] if requested_slot else ["weapon", "armor"]
+        slots = [requested_slot] if requested_slot else list(ItemRules.SLOT_LABELS)
 
         target_instance = None
         for slot_key in slots:

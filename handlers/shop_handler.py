@@ -141,9 +141,10 @@ class ShopHandler:
             return
         refresh_hours = self._cfg("PAVILION_REFRESH_HOURS", 1)
         display = self.shop_manager.format_pavilion_display(name, items, refresh_hours, last_refresh)
-        card = await self._pavilion_card(name, items)
-        if card:
-            yield event.image_result(card)
+        cards = await self._pavilion_cards(name, items)
+        if cards:
+            for card in cards:
+                yield event.image_result(card)
         else:
             yield event.plain_result(display)
 
@@ -157,9 +158,10 @@ class ShopHandler:
             return
         refresh_hours = self._cfg("PAVILION_REFRESH_HOURS", 1)
         display = self.shop_manager.format_pavilion_display("器阁", items, refresh_hours, last_refresh)
-        card = await self._pavilion_card("器阁", items)
-        if card:
-            yield event.image_result(card)
+        cards = await self._pavilion_cards("器阁", items)
+        if cards:
+            for card in cards:
+                yield event.image_result(card)
         else:
             yield event.plain_result(display)
 
@@ -173,11 +175,23 @@ class ShopHandler:
             return
         refresh_hours = self._cfg("PAVILION_REFRESH_HOURS", 1)
         display = self.shop_manager.format_pavilion_display("百宝阁", items, refresh_hours, last_refresh)
-        card = await self._pavilion_card("百宝阁", items)
-        if card:
-            yield event.image_result(card)
+        cards = await self._pavilion_cards("百宝阁", items)
+        if cards:
+            for card in cards:
+                yield event.image_result(card)
         else:
             yield event.plain_result(display)
+
+    async def _pavilion_cards(self, pavilion_name: str, items: list):
+        available = [item for item in items if item.get("stock", 0) > 0]
+        cards = []
+        pages = (len(available) + 4) // 5
+        for start in range(0, len(available), 5):
+            card = await self._pavilion_card(f"{pavilion_name} ({start // 5 + 1}/{pages})", available[start:start + 5])
+            if not card:
+                return []
+            cards.append(card)
+        return cards
 
     async def _pavilion_card(self, pavilion_name: str, items: list):
         """阁楼列表的磨砂玻璃卡片（关闭或失败时不产出任何消息）"""
@@ -186,7 +200,8 @@ class ShopHandler:
             if not card_enabled("CARD_SHOP"):
                 return None
             lines = []
-            for item in items[:14]:
+            count = 0
+            for item in items:
                 stock = item.get('stock', 0)
                 if stock <= 0:
                     continue
@@ -196,13 +211,16 @@ class ShopHandler:
                     price_tag += f"({round(discount * 10, 1)}折)"
                 element = item.get('element', '')
                 elem_tag = f"[{element}]" if element else ""
+                count += 1
                 lines.append(f"{item['name']}{elem_tag} - {price_tag} · 库存{stock}")
+                lines.extend(self.shop_manager.get_trade_details(item))
+                lines.append("")
             if not lines:
                 return None
             card_path = await render_card_async(
                 "shop",
                 f"{pavilion_name} · 今日货架",
-                f"共 {len(lines)} 种在售",
+                f"共 {count} 种在售",
                 sections=[{"name": "在售清单", "lines": lines}],
                 footer="购买 <物品名> [数量] · 售罄商品不显示",
             )
@@ -293,7 +311,7 @@ class ShopHandler:
 
         result_lines = []
         norm_type = ItemRules.normalize_shop_type(target_item)
-        equippable_types = {'weapon', 'armor', 'accessory', 'main_technique', 'technique'}
+        equippable_types = ItemRules.EQUIPPABLE_TYPES
 
         # ===== 门槛前置检查（事务前，无任何扣除，附当前可买清单）=====
         if norm_type in equippable_types:

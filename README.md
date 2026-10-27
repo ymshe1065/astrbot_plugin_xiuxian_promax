@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v6.32.5 (联动审计修复)
+# AstrBot 插件：模拟修仙 v6.32.6 (交易详情与装备部位修复)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v6.32.5-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v6.32.6-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,10 +31,25 @@
 
 ---
 
-> **插件版本:** v3.20.5 · **游戏版本:** v6.32.5 · **数据库:** v42
+> **插件版本:** v3.20.6 · **游戏版本:** v6.32.6 · **数据库:** v43
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，205 条帮助指令 / 205 条注册指令、15 个大系统、110 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
+
+---
+
+## 本次更新 · v6.32.6
+
+| 修复范围 | 变更 |
+| --- | --- |
+| 交易展示 | 丹阁、器阁、百宝阁及坊市图片恢复品级、属性、效果和需求境界；每页 5 件，不再截断商品名或遗漏第 14 件以后的商品，渲染失败回退完整文本。宗门商店、黑市共用详细说明。 |
+| 装备部位 | 武器、头饰、甲胄、手套、靴子、戒指1、戒指2、护符共八槽，穿戴、卸下、面板、战斗加成、固有特效与洗练全部接通。 |
+| 物品配置 | 旧冠/履/佩分别归入头饰/靴子/护符；每个已有防具品阶补充手套、戒指，器阁与百宝阁均可刷新获取。 |
+| 旧存档 | 数据库自动升至 v43，旧防具实例按部位迁移，保留 ID、品质和词条；槽位冲突的旧装备退回储物戒。甲胄仍兼容旧“防具”指令。 |
+
+- `/装备 <物品名> [同名序号] [部位]`：戒指默认先填空槽，两槽满时替换戒指1；可用 `/装备 黄阶·灵纹戒指 1 戒指2` 指定槽位。
+- `/卸下 <部位或装备名>`、`/洗练 [部位]`：部位可填武器、头饰、甲胄、手套、靴子、戒指1、戒指2、护符。
+- `/我的装备` 同时展示八个槽位；储物戒属于独立仓储系统，不占战斗戒指槽。
 
 ---
 
@@ -161,7 +176,7 @@ python3 -m unittest discover -s tests -q         # 现有单测
 | 奇遇事件 | 113 |
 | 称号 | 110（六品阶） |
 | 历练路线 | 60（境界 0-31 全覆盖） |
-| 数据库版本 | v42（全程无缝自动迁移） |
+| 数据库版本 | v43（全程无缝自动迁移） |
 | 离线测试 | 109 项单测 |
 
 ---

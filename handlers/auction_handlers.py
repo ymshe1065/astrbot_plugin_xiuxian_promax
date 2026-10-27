@@ -22,22 +22,28 @@ class AuctionHandlers:
         try:
             from ..utils.image_generator import render_card_async, card_enabled
             if card_enabled("CARD_MARKET"):
-                items = await self.auction_mgr.get_market_items(10)
+                items = await self.auction_mgr.get_market_items(30)
                 if items:
-                    lines = []
-                    for it in items:
-                        name = it['item_name'] if len(it['item_name']) <= 14 else it['item_name'][:14] + "…"
-                        lines.append(f"[{it['id']}] {name} x{it['count']} · {it['price'] * it['count']:,}灵石")
-                    card_path = await render_card_async(
-                        "shop",
-                        "🏪 玩家交易坊市",
-                        f"在售 {len(items)} 件 · 交易税 5%",
-                        sections=[{"name": "最新上架", "lines": lines}],
-                        footer="/坊市购买 <编号> · /我的坊市 查看NPC问价",
-                    )
-                    if card_path:
-                        yield event.image_result(card_path)
-                        sent = True
+                    cards = []
+                    for start in range(0, len(items), 5):
+                        lines = []
+                        for it in items[start:start + 5]:
+                            lines.append(f"[{it['id']}] {it['item_name']} x{it['count']} · {it['price'] * it['count']:,}灵石")
+                            lines.extend(await self.auction_mgr.get_trade_details(it))
+                            lines.append("")
+                        card = await render_card_async(
+                            "shop", "🏪 玩家交易坊市",
+                            f"最近 {len(items)} 件 · 第 {start // 5 + 1}/{(len(items) + 4) // 5} 页 · 交易税 5%",
+                            sections=[{"name": "最新上架", "lines": lines}],
+                            footer="/坊市购买 <编号> · /我的坊市 查看NPC问价",
+                        )
+                        if not card:
+                            cards = []
+                            break
+                        cards.append(card)
+                    for card in cards:
+                        yield event.image_result(card)
+                    sent = bool(cards)
         except Exception:
             pass
         if not sent:

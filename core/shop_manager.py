@@ -8,6 +8,7 @@ from typing import List, Dict, Optional, Tuple
 from astrbot.api import AstrBotConfig, logger
 from ..config_manager import ConfigManager
 from ..models import Item
+from .item_rules import ItemRules
 
 class ShopManager:
     """商店管理器，负责商店物品生成、刷新和购买"""
@@ -312,6 +313,10 @@ class ShopManager:
         for weapon in self.config_manager.weapons_data.values():
             if weapon.get('price', 0) > 0:
                 all_weapons.append({'name': weapon['name'], 'type': 'weapon', 'price': weapon['price'], 'rank': weapon.get('rank', '凡品'), 'data': weapon})
+        for item in self.config_manager.items_data.values():
+            if item.get("price", 0) > 0 and ItemRules.normalize_equipment_type(item) in ItemRules.GEAR_TYPES:
+                all_weapons.append({"name": item["name"], "type": ItemRules.normalize_shop_type(item),
+                                    "price": item["price"], "rank": item.get("rank", "凡品"), "data": item})
         return all_weapons
 
     def get_all_items_for_display(self, count: int) -> List[Dict]:
@@ -348,38 +353,7 @@ class ShopManager:
         Returns:
             映射后的类型字符串
         """
-        original_type = item.get('type', '')
-        subtype = item.get('subtype', '')
-
-        # 法器类型映射
-        if original_type == '法器':
-            if subtype == '武器':
-                return 'weapon'
-            elif subtype == '防具':
-                return 'armor'
-            elif subtype == '饰品':
-                return 'accessory'
-            else:
-                return 'weapon'  # 默认为武器
-
-        # 功法类型映射
-        if original_type == '功法':
-            return 'technique'
-
-        # 丹药类型映射（旧系统丹药统一进入丹药背包）
-        if original_type == '丹药':
-            return 'inventory_pill'
-
-        # 丹方
-        if original_type == '丹方':
-            return 'recipe'
-
-        # 材料类型映射
-        if original_type == '材料':
-            return 'material'
-
-        # 其他类型保持不变
-        return original_type
+        return ItemRules.normalize_shop_type(item)
 
     def find_item_by_name(self, name: str) -> Optional[Dict]:
         """根据名称查找物品"""
@@ -430,7 +404,7 @@ class ShopManager:
             stock_text = f"库存紧张:{stock}" if stock <= 3 else f"库存:{stock}"
 
             # 获取物品效果描述
-            effect_desc = self._get_item_effect_short(item)
+            effect_desc = '；'.join(self.get_trade_details(item))
             effect_line = f"\n   效果: {effect_desc}" if effect_desc else ""
 
             lines.append(f"{display_index}. [{item['rank']}] {item['name']} ({type_label}){discount_text}\n   价格: {item['price']} 灵石 {stock_text}{effect_line}\n")
@@ -449,7 +423,7 @@ class ShopManager:
         effects = []
         
         # 武器/装备属性
-        if item_type in ['weapon', 'armor', 'accessory']:
+        if item_type in ItemRules.GEAR_TYPES:
             if data.get('physical_damage', 0) > 0:
                 effects.append(f"物伤+{data['physical_damage']}")
             if data.get('magic_damage', 0) > 0:
@@ -510,6 +484,40 @@ class ShopManager:
         
         return ", ".join(effects[:3]) if effects else ""
 
+    def get_trade_details(self, item: Dict, instance: dict = None) -> list:
+        """图片与文本共用完整数值说明，不截断属性或名称。"""
+        data = item.get("data") or item
+        detail_type = item.get("type") or data.get("type")
+        if not detail_type:
+            detail_type = "exp_pill" if "exp_gain" in data else "utility_pill" if "effect_type" in data else ""
+        if detail_type not in ("pill", "exp_pill", "utility_pill"):
+            detail_type = ItemRules.normalize_shop_type(data)
+        normalized = {**item, "type": detail_type,
+                      "rank": item.get("rank", data.get("rank", "凡品")), "price": item.get("price", 0), "data": data}
+        lines = [f"品级: {normalized['rank']}"] + self.get_item_details(normalized).splitlines()[3:]
+        if ItemRules.normalize_equipment_type(data) in ItemRules.GEAR_TYPES:
+            from .equipment_manager import EquipmentManager
+            manager = EquipmentManager(None, self.config_manager)
+            parsed = manager.parse_item_from_name(item["name"], {item["name"]: data}, instance=instance)
+            lines = [line for line in lines if not line.startswith(("属性:", "需求境界:"))]
+            lines.append("属性: " + parsed.get_attribute_display())
+            slot = ItemRules.get_equip_slot(data)
+            label = "戒指（两个槽位）" if slot == "ring1" else ItemRules.SLOT_LABELS.get("armor" if slot == "body" else slot, slot)
+            lines.append(f"部位: {label} · 需求境界: {self._format_required_level(ItemRules.get_required_level(data))}")
+        labels = {"physical_damage": "物伤", "magic_damage": "法伤", "physical_defense": "物防",
+                  "magic_defense": "法防", "mental_power": "精神力", "luck": "气运", "crit_rate": "暴击率", "crit_damage": "暴击伤害", "lifesteal": "吸血", "counter_damage": "反伤",
+                  "combo_rate": "连击率", "defense_bonus": "额外防御", "physical_damage_multiplier": "物伤倍率", "magic_damage_multiplier": "法伤倍率"}
+        for key, value in data.get("effects", {}).items():
+            value_text = (f"{value:+g}%" if key in ("crit_rate", "lifesteal", "counter_damage", "combo_rate", "dodge", "status_resist")
+                          else f"{value:+.1%}" if ItemRules.is_rate_key(key) else f"{value:+g}")
+            lines.append(f"特效: {labels.get(key, key)} {value_text}")
+        for affix in (instance or {}).get("affixes", []) or []:
+            key, value = affix.get("key", ""), affix.get("value", 0)
+            value_text = (f"{value:+g}%" if key in ("crit_rate", "lifesteal", "counter_damage", "combo_rate", "dodge", "status_resist")
+                          else f"{value:+.1%}" if ItemRules.is_rate_key(key) else f"{value:+g}")
+            lines.append(f"词条: {affix.get('name') or labels.get(key, key)} {value_text}")
+        return lines
+
     def get_item_details(self, item_data: Dict) -> str:
         """获取物品详细信息
 
@@ -531,7 +539,7 @@ class ShopManager:
             details.append(f"描述: {description}")
 
         # 武器/防具/饰品属性
-        if item_type in ['weapon', 'armor', 'accessory']:
+        if item_type in ItemRules.GEAR_TYPES:
             attrs = []
             if data.get('magic_damage', 0) > 0:
                 attrs.append(f"法伤+{data['magic_damage']}")

@@ -112,33 +112,16 @@ class CombatManager:
         bonus = {"atk": 0, "defense": 0}
         if not config_manager:
             return bonus
-        weapons_data = getattr(config_manager, "weapons_data", {}) or {}
-        items_data = getattr(config_manager, "items_data", {}) or {}
-        try:
-            from ..core.item_instance_manager import ItemInstanceManager
-            im = ItemInstanceManager(None, config_manager)
-        except Exception:
-            im = None
-
-        def quality_mult(slot):
-            if not im:
-                return 1.0
-            inst = im.get_instance(player, player.get_equipped_instances().get(slot, 0))
-            return im.quality_multiplier(inst.get("quality", "一般")) if inst else 1.0
-
-        if player.weapon:
-            data = weapons_data.get(player.weapon) or items_data.get(player.weapon) or {}
-            bonus["atk"] += int((
-                data.get("atk", 0)
-                + data.get("physical_damage", 0)
-                + data.get("magic_damage", 0)
-            ) * quality_mult("weapon"))
-        if player.armor:
-            data = items_data.get(player.armor) or weapons_data.get(player.armor) or {}
-            bonus["defense"] += int((
-                data.get("physical_defense", 0)
-                + data.get("magic_defense", 0)
-            ) * quality_mult("armor"))
+        from ..core.equipment_manager import EquipmentManager
+        manager = EquipmentManager(None, config_manager)
+        for name, inst in manager.get_gear_slots(player).values():
+            item = manager.parse_item_from_name(name, config_manager.items_data, config_manager.weapons_data, inst)
+            if not item:
+                continue
+            cfg = config_manager.items_data.get(name) or config_manager.weapons_data.get(name, {})
+            quality = manager.instance_manager.quality_multiplier(inst.get("quality")) if inst else 1.0
+            bonus["atk"] += item.physical_damage + item.magic_damage + int(cfg.get("atk", 0) * quality)
+            bonus["defense"] += item.physical_defense + item.magic_defense
         return bonus
 
     @staticmethod
@@ -280,19 +263,13 @@ class CombatManager:
                     effects[key] += value
         except Exception:
             pass
+        from ..core.equipment_manager import EquipmentManager
         weapons_data = getattr(config_manager, "weapons_data", {}) or {}
-        if player.weapon:
-            weapon_config = weapons_data.get(player.weapon) or items_data.get(player.weapon)
-            if weapon_config and "effects" in weapon_config:
-                for key, value in weapon_config["effects"].items():
-                    if key in effects:
-                        effects[key] += value
-        if player.armor:
-            armor_config = items_data.get(player.armor) or weapons_data.get(player.armor)
-            if armor_config and "effects" in armor_config:
-                for key, value in armor_config["effects"].items():
-                    if key in effects:
-                        effects[key] += value
+        for name, _ in EquipmentManager(None, config_manager).get_gear_slots(player).values():
+            cfg = items_data.get(name) or weapons_data.get(name, {})
+            for key, value in cfg.get("effects", {}).items():
+                if key in effects:
+                    effects[key] += value
 
         try:
             from ..core.item_instance_manager import ItemInstanceManager
