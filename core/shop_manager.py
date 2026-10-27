@@ -72,7 +72,7 @@ class ShopManager:
         return None
 
     def refresh_item_data(self, items: List[Dict]) -> bool:
-        """用当前配置回填商店缓存；保留价格、库存和折扣。"""
+        """用当前配置回填商店缓存；同步基础价与折扣价，保留库存和折扣。"""
         changed = False
         for item in items or []:
             if not isinstance(item, dict):
@@ -90,24 +90,23 @@ class ShopManager:
             if current.get("rank") and item.get("rank") != current["rank"]:
                 item["rank"] = current["rank"]
                 changed = True
-            # 旧货架缓存的价格是上架时快照；配置改价后必须同步，
-            # 同时保留原有折扣和库存。旧数据没有价格字段时不强行改价。
-            old_price = old.get("price") if isinstance(old, dict) else None
-            new_price = current.get("price")
-            if old_price is not None and new_price is not None:
-                try:
-                    original = int(new_price)
-                    old_original = int(item.get("original_price", old_price) or 0)
-                    if original != old_original:
-                        item["original_price"] = original
-                        try:
-                            discount = float(item.get("discount", 1.0) or 1.0)
-                        except (TypeError, ValueError):
-                            discount = 1.0
-                        item["price"] = int(original * discount)
-                        changed = True
-                except (TypeError, ValueError):
-                    pass
+            try:
+                base_price = int(current.get("price", 0) or 0)
+            except (TypeError, ValueError):
+                base_price = 0
+            if base_price <= 0:
+                continue
+            try:
+                discount = float(item.get("discount", 1.0) or 1.0)
+            except (TypeError, ValueError):
+                discount = 1.0
+            if item.get("original_price") != base_price:
+                item["original_price"] = base_price
+                changed = True
+            display_price = int(base_price * discount)
+            if item.get("price") != display_price:
+                item["price"] = display_price
+                changed = True
         return changed
 
     def _format_required_level(self, level_index: int) -> str:
