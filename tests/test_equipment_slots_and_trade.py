@@ -128,6 +128,61 @@ class TestSlots(unittest.IsolatedAsyncioTestCase):
         with patch.object(image_module, "card_enabled", return_value=True), patch.object(image_module, "render_card_async", new_callable=AsyncMock, side_effect=["ok", None]):
             self.assertEqual(await handler._pavilion_cards("百宝阁", items), [])
 
+    async def test_equip_message_uses_instance_quality_and_shows_base(self):
+        p = await self._player()
+        inst = self.im.create_instances(p, self.weapon, quality="大师", location="storage")[0]
+        await self.db.update_player(p)
+        handler = _imp("handlers.equipment_handler").EquipmentHandler(self.db, self.cm)
+        event = _FakeEvent(p.user_id, p.user_id, text=f"/装备 {self.weapon}")
+        results = [r async for r in handler.handle_equip_item.__wrapped__(handler, p, event, self.weapon)]
+        text = "\n".join(results)
+        self.assertIn("属性加成：", text)
+        self.assertIn("品质：大师（主属性×1.15）", text)
+        self.assertIn("基础属性：", text)
+        base = "\n".join(self.shop_manager().get_item_details(
+            self.shop_manager().find_item_by_name(self.weapon)
+        ).splitlines())
+        self.assertIn("基础属性:", base)
+        self.assertIn("品质浮动:", base)
+
+    def shop_manager(self):
+        return _imp("core.shop_manager").ShopManager({}, self.cm)
+
+    async def test_pavilion_gear_gets_quality_and_displays_effective_stats(self):
+        shop = self.shop_manager()
+        items = shop.generate_pavilion_items(shop.get_weapons_for_display, 9999)
+        gear = [x for x in items if shop.is_gear_entry(x)]
+        self.assertTrue(gear)
+        item = gear[0]
+        self.assertIn(item.get("quality"), ("一般", "良好", "极佳", "大师"))
+        item["quality"] = "大师"
+        details = "\n".join(shop.get_trade_details(item))
+        parsed = self.em.parse_item_from_name(
+            item["name"], {item["name"]: item["data"]}, instance={"quality": "大师"}
+        )
+        self.assertIn(parsed.get_attribute_display(), details)
+        self.assertIn("品质: 大师（主属性×1.15）", details)
+
+        legacy = {"name": item["name"], "type": item["type"], "rank": item["rank"],
+                  "price": item["price"], "data": item["data"]}
+        self.assertTrue(shop.ensure_equipment_quality([legacy]))
+        self.assertIn(legacy["quality"], ("一般", "良好", "极佳", "大师"))
+
+    async def test_shop_purchase_uses_shelf_quality(self):
+        p = await self._player(gold=100000)
+        name = next(n for n, c in self.cm.items_data.items() if c.get("type") == "ring" and c["rank"] == "黄阶")
+        shop = self.shop_manager()
+        item = shop.find_item_by_name(name)
+        item.update(stock=1, price=100, quality="大师")
+        await self.db.update_shop_data("treasure_pavilion", 1, [item])
+        handler = _imp("handlers.shop_handler").ShopHandler(self.db, {}, self.cm)
+        event = _FakeEvent(p.user_id, p.user_id, "/购买 " + name)
+        results = [r async for r in handler.handle_buy.__wrapped__(handler, p, event, name)]
+        p = await self.db.get_player_by_id(p.user_id)
+        instances = self.im.list_instances(p, "storage", name)
+        self.assertEqual(len(instances), 1, results)
+        self.assertEqual(instances[0]["quality"], "大师")
+
     async def test_market_details_use_quality_and_affixes(self):
         p = await self._player()
         name = "交易测试护符"

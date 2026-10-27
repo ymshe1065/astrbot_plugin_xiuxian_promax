@@ -78,11 +78,14 @@ class PetHandlers:
         lines.append("━━━━━━━━━━━━━━━")
         if len(pets) > slots:
             lines.append(f"⚠️ 当前境界仅允许 {slots} 只灵兽出战，超出槽位的灵兽不会参战")
+        life_bonus = self.pet_mgr.get_life_bonus_from_pets(pets, "gold_bonus")
+        if life_bonus > 0:
+            lines.append(f"💰 生活加成叠加：灵石收益 +{life_bonus:.1%}（每只灵兽分别生效）")
         if getattr(player, "cultivation_type", "") == "御兽":
-            lines.append("🐾 御兽：喂养-20% · 复活-30% · 修为共享30% · 兽群指挥")
+            lines.append("🐾 御兽：喂养-20% · 复活-30% · 修为共享30%（每只各得） · 兽群指挥")
         else:
-            lines.append("🐾 修为共享10% · 主战宠提供主人被动")
-        lines.append("💡 /灵兽出战 切换主战 · /喂养灵兽 培养 · 每回合协战")
+            lines.append("🐾 修为共享10%（每只各得） · 主战宠提供主人被动")
+        lines.append("💡 /灵兽出战 切换主战 · /喂养灵兽 仅耗灵石 · 每回合协战")
         msg = "\n".join(lines)
 
         try:

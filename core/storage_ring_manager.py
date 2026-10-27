@@ -146,7 +146,7 @@ class StorageRingManager:
             return False, f"【{item_name}】是储物戒，不能存入另一个储物戒"
         return True, ""
 
-    async def store_item(self, player: Player, item_name: str, count: int = 1, silent: bool = False, external_transaction: bool = False, allow_overflow: bool = True) -> Tuple[bool, str]:
+    async def store_item(self, player: Player, item_name: str, count: int = 1, silent: bool = False, external_transaction: bool = False, allow_overflow: bool = True, quality: str = "") -> Tuple[bool, str]:
         can_store, reason = self.can_store_item(item_name)
         if not can_store:
             return False, reason
@@ -175,7 +175,7 @@ class StorageRingManager:
                         # 装备按实例保存到 overflow 位置，保留品质/词条
                         self.instance_manager.create_instances(
                             player, item_name, count,
-                            quality=self.instance_manager.roll_quality(),
+                            quality=quality or self.instance_manager.roll_quality(),
                             location="overflow",
                         )
                         orig_player.set_equipment_instances(player.get_equipment_instances())
@@ -196,7 +196,7 @@ class StorageRingManager:
             if self.is_equipment_item(item_name):
                 self.instance_manager.create_instances(
                     player, item_name, count,
-                    quality=self.instance_manager.roll_quality(),
+                    quality=quality or self.instance_manager.roll_quality(),
                     location="storage",
                 )
                 orig_player.set_equipment_instances(player.get_equipment_instances())

@@ -128,11 +128,12 @@ class GambleManager:
             "amulet": "护符",
         }.get(item_type, item_type or "物品")
 
-    def _black_market_effect(self, data: dict) -> str:
+    def _black_market_effect(self, data: dict, quality: str = "") -> str:
         from ..core.shop_manager import ShopManager
         return "；".join(ShopManager({}, self.config_manager).get_trade_details({
             "name": data.get("name", "未知物品"), "data": data,
             "price": data.get("price", 0), "rank": data.get("rank", "凡品"),
+            "quality": quality,
         }))
 
     def _get_black_market_items(self):
@@ -190,6 +191,18 @@ class GambleManager:
         items.extend(dict(fake) for fake in self.BLACK_MARKET_FAKES)
         if len(items) > 3:
             items = rng.sample(items, 3)
+
+        from ..core.item_instance_manager import ItemInstanceManager
+        from ..core.item_rules import ItemRules
+        quality_names = list(ItemInstanceManager.QUALITY_WEIGHTS)
+        quality_weights = [ItemInstanceManager.QUALITY_WEIGHTS[q] for q in quality_names]
+        for item in items:
+            data = item.get("data")
+            if item.get("fake") or not isinstance(data, dict):
+                continue
+            if ItemRules.normalize_equipment_type(data) in ItemRules.GEAR_TYPES:
+                item["quality"] = rng.choices(quality_names, weights=quality_weights, k=1)[0]
+                item["desc"] = self._black_market_effect(data, item["quality"])
 
         next_refresh = (hour_key + 1) * 3600
         return items, next_refresh
@@ -309,7 +322,8 @@ class GambleManager:
             )
 
         ok, store_msg = await self.storage_ring_mgr.store_item(
-            player, target["name"], 1, silent=True
+            player, target["name"], 1, silent=True,
+            quality=target.get("quality") or "",
         )
         if not ok:
             # 储物戒满/类型不可存：退回灵石，绝不发幽灵物品

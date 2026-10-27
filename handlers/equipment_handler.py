@@ -233,13 +233,37 @@ class EquipmentHandler:
 
         if success:
             await self._refresh_combat_cache(player)
-            # 显示属性加成
-            attr_display = item.get_attribute_display()
+            # 以实际装备实例为准展示属性，避免旧存档路径取到未附品质的配置值
+            display_item = item
+            quality = ""
+            if item.item_type in ItemRules.GEAR_TYPES:
+                actual_inst = inst
+                if not actual_inst:
+                    candidates = self.equipment_manager.instance_manager.list_instances(player, "equipped", item.name)
+                    actual_inst = max(candidates, key=lambda x: int(x.get("id", 0) or 0)) if candidates else None
+                if actual_inst:
+                    quality = actual_inst.get("quality", "一般")
+                    parsed = self.equipment_manager.parse_item_from_name(
+                        item.name, self.config_manager.items_data, self.config_manager.weapons_data, actual_inst
+                    )
+                    if parsed:
+                        display_item = parsed
+
+            attr_display = display_item.get_attribute_display()
             result_msg = (
                 f"✅ {message}\n"
                 f"━━━━━━━━━━━━━━━\n"
                 f"属性加成：{attr_display}"
             )
+            if quality:
+                mult = self.equipment_manager.instance_manager.quality_multiplier(quality)
+                result_msg += f"\n品质：{quality}（主属性×{mult:.2f}）"
+                if quality != "一般":
+                    base_item = self.equipment_manager.parse_item_from_name(
+                        item.name, self.config_manager.items_data, self.config_manager.weapons_data
+                    )
+                    if base_item:
+                        result_msg += f"\n基础属性：{base_item.get_attribute_display()}"
             yield event.plain_result(result_msg)
         else:
             # 仅“旧名称堆叠”路径在取出后失败时才回存；

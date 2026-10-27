@@ -52,6 +52,10 @@ class PetManager:
     REVIVE_PER_LEVEL_SECONDS = 60
     EXP_SHARE_YUSOU = 0.30
     EXP_SHARE_OTHER = 0.10
+    # 每级属性/被动效果统一加强倍率（1.5 = 提升 50%）
+    PET_LEVEL_BONUS_MULT = 1.5
+    PET_EFFECT_SCALE = 0.1 * PET_LEVEL_BONUS_MULT
+    GOLD_BONUS_PER_LEVEL = 0.005 * PET_LEVEL_BONUS_MULT
 
     def __init__(self, db: DataBase):
         self.db = db
@@ -213,17 +217,13 @@ class PetManager:
 
         eligible = [p for p in pets if int(p.get("level") or 1) < self.MAX_PET_LEVEL]
         share = self.EXP_SHARE_YUSOU if cultivation_type == "御兽" else self.EXP_SHARE_OTHER
-        total = int(delta * share)
-        if total <= 0 or not eligible:
+        gain = int(delta * share)
+        if gain <= 0 or not eligible:
             await self.db.ext.set_system_config(key, str(experience))
             return
 
-        base = total // len(eligible)
-        remainder = total % len(eligible)
-        for index, pet in enumerate(eligible):
-            gain = base + (1 if index < remainder else 0)
-            if gain <= 0:
-                continue
+        # 全体灵兽各获得等量经验，不再按灵兽数量平分。
+        for pet in eligible:
             level = int(pet.get("level") or 1)
             exp = int(pet.get("exp") or 0) + gain
             while level < self.MAX_PET_LEVEL and exp >= level * 500:
@@ -264,10 +264,11 @@ class PetManager:
 
     def _flat_stats(self, level: int, pet_type: str) -> Dict[str, int]:
         info = self.PET_TYPES.get(pet_type) or self.PET_TYPES["火灵狐"]
+        growth = level * self.PET_LEVEL_BONUS_MULT
         return {
-            "max_hp": max(1, int(info["hp_base"] + info["hp_growth"] * level)),
-            "atk": max(1, int(info["atk_base"] + info["atk_growth"] * level)),
-            "defense": max(0, int(info["def_base"] + info["def_growth"] * level)),
+            "max_hp": max(1, int(info["hp_base"] + info["hp_growth"] * growth)),
+            "atk": max(1, int(info["atk_base"] + info["atk_growth"] * growth)),
+            "defense": max(0, int(info["def_base"] + info["def_growth"] * growth)),
         }
 
     @staticmethod
@@ -286,9 +287,10 @@ class PetManager:
     ) -> Dict[str, int]:
         info = self.PET_TYPES.get(pet.get("pet_type")) or self.PET_TYPES["火灵狐"]
         level = max(1, int(pet.get("level") or 1))
-        max_hp = int(owner_hp * info["hp_ratio"]) + info["hp_base"] + info["hp_growth"] * level
-        atk = int(owner_atk * info["atk_ratio"]) + info["atk_base"] + info["atk_growth"] * level
-        defense = int(owner_def * info["def_ratio"]) + info["def_base"] + info["def_growth"] * level
+        growth = level * self.PET_LEVEL_BONUS_MULT
+        max_hp = int(owner_hp * info["hp_ratio"]) + info["hp_base"] + int(info["hp_growth"] * growth)
+        atk = int(owner_atk * info["atk_ratio"]) + info["atk_base"] + int(info["atk_growth"] * growth)
+        defense = int(owner_def * info["def_ratio"]) + info["def_base"] + int(info["def_growth"] * growth)
         return {
             "max_hp": max(1, max_hp),
             "atk": max(1, atk),
@@ -555,15 +557,11 @@ class PetManager:
             cost_mult *= 0.8
 
         cost_gold = int(pet["level"] * 1000 * cost_mult)
-        cost_exp = int(pet["level"] * 500 * cost_mult)
 
         if player.gold < cost_gold:
             return False, f"❌ 灵石不足，喂养需要 {cost_gold:,} 灵石。"
-        if player.experience < cost_exp:
-            return False, f"❌ 修为不足，喂养需要 {cost_exp:,} 修为（灵兽会吞噬你的修为）。"
 
         player.gold -= cost_gold
-        player.experience -= cost_exp
 
         new_exp = pet["exp"] + 100
         new_level = pet["level"]
@@ -593,7 +591,7 @@ class PetManager:
         discount_note = "\n🐾 御兽职业喂养消耗 -20%" if getattr(player, "cultivation_type", "") == "御兽" else ""
         return True, (
             f"✨ 喂养【{pet['pet_name']}】成功！{discount_note}\n"
-            f"消耗灵石：{cost_gold:,}\n"
+            f"消耗灵石：{cost_gold:,}（不消耗修为）\n"
             f"剩余灵石：{player.gold:,}\n"
             f"灵兽当前等级：Lv.{new_level} (经验：{new_exp}/{new_level * 500})\n"
             f"当前精力：{new_hp}/{stats['max_hp']} · 攻击：{stats['atk']} · 防御：{stats['defense']}"
@@ -611,30 +609,43 @@ class PetManager:
             return {}
 
         level = max(1, int(pet.get("level") or 1))
-        base_val = pet_info["val"] * level * 0.1
+        base_val = pet_info["val"] * level * self.PET_EFFECT_SCALE
 
         effects = {}
         if pet_info["attr"] == "crit_rate":
             effects["crit_rate"] = base_val
         elif pet_info["attr"] == "defense":
             effects["defense_bonus"] = base_val
-            effects["counter_damage"] = min(30.0, level * 0.2)
+            effects["counter_damage"] = min(30.0, level * 0.2 * self.PET_LEVEL_BONUS_MULT)
         elif pet_info["attr"] == "all":
             effects["crit_rate"] = base_val
             effects["lifesteal"] = base_val / 2
 
         return effects
 
+    def get_life_bonus_from_pets(self, pets: Optional[List[Dict]], attr: str = "gold_bonus") -> float:
+        """统计所有存活灵兽的生活类加成，同类效果按每只灵兽累加。"""
+        total = 0.0
+        now = int(time.time())
+        for pet in pets or []:
+            if not pet:
+                continue
+            if int(pet.get("dead_until") or 0) > now:
+                continue
+            pet_info = self.PET_TYPES.get(pet.get("pet_type"))
+            if not pet_info or pet_info.get("attr") != attr:
+                continue
+            level = max(1, int(pet.get("level") or 1))
+            if attr == "gold_bonus":
+                total += float(pet_info["val"]) + max(0, level - 1) * self.GOLD_BONUS_PER_LEVEL
+        return total
+
+    async def get_life_bonus(self, user_id: str, attr: str = "gold_bonus") -> float:
+        pets = await self._query_pets(user_id)
+        return self.get_life_bonus_from_pets(pets, attr)
+
     def get_gold_bonus(self, pet: Optional[Dict]) -> float:
-        if not pet:
-            return 0.0
-        if int(pet.get("dead_until") or 0) > int(time.time()):
-            return 0.0
-        pet_info = self.PET_TYPES.get(pet.get("pet_type"))
-        if not pet_info or pet_info["attr"] != "gold_bonus":
-            return 0.0
-        level = max(1, int(pet.get("level") or 1))
-        return pet_info["val"] + max(0, level - 1) * 0.005
+        return self.get_life_bonus_from_pets([pet] if pet else [], "gold_bonus")
 
     async def build_pet_combat_state(
         self,
