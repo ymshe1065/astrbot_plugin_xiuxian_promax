@@ -869,7 +869,7 @@ class CombatManager:
             
             # 玩家1攻击
             dmg1, logs1, heal1 = cls._execute_attack(player1, player2)
-            player2.hp -= dmg1
+            player2.hp = max(0, player2.hp - dmg1)
             player1.hp = min(player1.max_hp, player1.hp + heal1)
             combat_log.extend(logs1)
             combat_log.append(f"{player2.name} 剩余 HP: {max(0, player2.hp)}")
@@ -878,7 +878,7 @@ class CombatManager:
             counter = (player2.effects or {}).get("counter_damage", 0)
             if counter > 0:
                 reflect_dmg = int(dmg1 * (counter / 100))
-                player1.hp -= reflect_dmg
+                player1.hp = max(0, player1.hp - reflect_dmg)
                 combat_log.append(f"🛡️ {player2.name} 触发反伤，反弹 {reflect_dmg} 点伤害！")
                 combat_log.append(f"{player1.name} 剩余 HP: {max(0, player1.hp)}")
             
@@ -886,7 +886,7 @@ class CombatManager:
             
             # 玩家2攻击
             dmg2, logs2, heal2 = cls._execute_attack(player2, player1)
-            player1.hp -= dmg2
+            player1.hp = max(0, player1.hp - dmg2)
             player2.hp = min(player2.max_hp, player2.hp + heal2)
             combat_log.extend(logs2)
             combat_log.append(f"{player1.name} 剩余 HP: {max(0, player1.hp)}")
@@ -895,7 +895,7 @@ class CombatManager:
             counter1 = (player1.effects or {}).get("counter_damage", 0)
             if counter1 > 0:
                 reflect_dmg = int(dmg2 * (counter1 / 100))
-                player2.hp -= reflect_dmg
+                player2.hp = max(0, player2.hp - reflect_dmg)
                 combat_log.append(f"🛡️ {player1.name} 触发反伤，反弹 {reflect_dmg} 点伤害！")
                 combat_log.append(f"{player2.name} 剩余 HP: {max(0, player2.hp)}")
                 
@@ -1003,7 +1003,7 @@ class CombatManager:
             
             # 玩家1攻击
             dmg1, logs1, heal1 = cls._execute_attack(player1, player2)
-            player2.hp -= dmg1
+            player2.hp = max(0, player2.hp - dmg1)
             player1.hp = min(player1.max_hp, player1.hp + heal1)
             combat_log.extend(logs1)
             combat_log.append(f"{player2.name} 剩余 HP: {max(0, player2.hp)}")
@@ -1012,14 +1012,14 @@ class CombatManager:
             counter = (player2.effects or {}).get("counter_damage", 0)
             if counter > 0:
                 reflect_dmg = int(dmg1 * (counter / 100))
-                player1.hp -= reflect_dmg
+                player1.hp = max(0, player1.hp - reflect_dmg)
                 combat_log.append(f"🛡️ {player2.name} 触发反伤，反弹 {reflect_dmg} 点伤害！")
             
             if player2.hp <= 0: break
             
             # 玩家2攻击
             dmg2, logs2, heal2 = cls._execute_attack(player2, player1)
-            player1.hp -= dmg2
+            player1.hp = max(0, player1.hp - dmg2)
             player2.hp = min(player2.max_hp, player2.hp + heal2)
             combat_log.extend(logs2)
             combat_log.append(f"{player1.name} 剩余 HP: {max(0, player1.hp)}")
@@ -1028,7 +1028,7 @@ class CombatManager:
             counter1 = (player1.effects or {}).get("counter_damage", 0)
             if counter1 > 0:
                 reflect_dmg = int(dmg2 * (counter1 / 100))
-                player2.hp -= reflect_dmg
+                player2.hp = max(0, player2.hp - reflect_dmg)
                 combat_log.append(f"🛡️ {player1.name} 触发反伤，反弹 {reflect_dmg} 点伤害！")
                 
             combat_log.append("")
@@ -1081,7 +1081,7 @@ class CombatManager:
             combat_log.append(f"-- 第 {round_num} 回合 --")
             
             dmg, logs, heal = cls._execute_attack(player, boss)
-            boss.hp -= dmg
+            boss.hp = max(0, boss.hp - dmg)
             total_damage_dealt += dmg
             player.hp = min(player.max_hp, player.hp + heal)
             combat_log.extend(logs)
@@ -1090,7 +1090,7 @@ class CombatManager:
             if boss.hp <= 0: break
             
             b_dmg, b_logs, b_heal = cls._execute_attack(boss, player)
-            player.hp -= b_dmg
+            player.hp = max(0, player.hp - b_dmg)
             combat_log.extend(b_logs)
             combat_log.append(f"{player.name} 剩余 HP: {max(0, player.hp)}")
             combat_log.append("")
