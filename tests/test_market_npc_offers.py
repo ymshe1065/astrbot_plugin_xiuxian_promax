@@ -53,6 +53,8 @@ class TestMarketNpcOffers(unittest.IsolatedAsyncioTestCase):
         migration = _imp("data.migration")
         self.DataBase = _imp("data.data_manager").DataBase
         self.DatabaseExtended = _imp("data.database_extended").DatabaseExtended
+        self.ConfigManager = _imp("config_manager").ConfigManager
+        self.StorageRingManager = _imp("core.storage_ring_manager").StorageRingManager
         self.AuctionManager = _imp("managers.auction_manager").AuctionManager
         self.Player = _imp("models").Player
 
@@ -68,9 +70,11 @@ class TestMarketNpcOffers(unittest.IsolatedAsyncioTestCase):
         self.db.ext = self.DatabaseExtended(self.conn)
         await self.db.create_player(self.Player(user_id="seller", gold=0))
 
+        self.config_manager = self.ConfigManager(ROOT)
+        self.storage = self.StorageRingManager(self.db, self.config_manager)
         self.manager = self.AuctionManager(
             self.db,
-            None,
+            self.storage,
             {
                 "MARKET_NPC": {
                     "ENABLED": True,
@@ -78,6 +82,7 @@ class TestMarketNpcOffers(unittest.IsolatedAsyncioTestCase):
                     "MAX_INTERVAL": 1,
                     "MIN_RATE": 0.8,
                     "MAX_RATE": 1.2,
+                    "MAX_LISTING_MULTIPLIER": 2.0,
                     "OFFER_EXPIRE": 3600,
                     "CHECK_INTERVAL": 5,
                 }
@@ -88,13 +93,14 @@ class TestMarketNpcOffers(unittest.IsolatedAsyncioTestCase):
         await self.db.close()
         os.remove(self.db_path)
 
-    async def _insert_listing(self, price: int = 50, count: int = 2, next_offer_time: int = None):
+    async def _insert_listing(self, price: int = 50, count: int = 2, next_offer_time: int = None,
+                              item_name: str = "测试灵草"):
         now = int(time.time())
         await self.conn.execute(
             "INSERT INTO auction_items "
             "(seller_id, item_name, count, price, create_time, next_offer_time) "
-            "VALUES ('seller', '测试灵草', ?, ?, ?, ?)",
-            (count, price, now, next_offer_time if next_offer_time is not None else now - 1),
+            "VALUES ('seller', ?, ?, ?, ?, ?)",
+            (item_name, count, price, now, next_offer_time if next_offer_time is not None else now - 1),
         )
         await self.conn.commit()
         async with self.conn.execute("SELECT last_insert_rowid()") as cursor:
@@ -169,6 +175,36 @@ class TestMarketNpcOffers(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((generated, expired), (1, 0))
         pending = [o for o in await self._offers() if o["status"] == "pending"]
         self.assertEqual(len(pending), 1)
+
+
+    async def test_overpriced_listing_gets_no_npc_offer(self):
+        now = int(time.time())
+        standard = int(self.config_manager.items_data["轮回骨"]["price"])
+        auction_id = await self._insert_listing(
+            price=standard * 2 + 1, count=1, item_name="轮回骨"
+        )
+
+        generated, expired = await self.manager.process_npc_offers(now)
+        self.assertEqual((generated, expired), (0, 0))
+        self.assertEqual(await self._offers(), [])
+        self.assertEqual(
+            (await self._listing(auction_id))["next_offer_time"],
+            self.manager.OVERPRICED_SENTINEL,
+        )
+
+    async def test_listing_at_twice_standard_value_still_gets_offer(self):
+        now = int(time.time())
+        standard = int(self.config_manager.items_data["轮回骨"]["price"])
+        auction_id = await self._insert_listing(
+            price=standard * 2, count=1, item_name="轮回骨"
+        )
+
+        generated, expired = await self.manager.process_npc_offers(now)
+        self.assertEqual((generated, expired), (1, 0))
+        offers = await self._offers()
+        self.assertEqual(len(offers), 1)
+        self.assertEqual(offers[0]["auction_id"], auction_id)
+        self.assertEqual((await self._listing(auction_id))["next_offer_time"], -1)
 
 
 if __name__ == "__main__":

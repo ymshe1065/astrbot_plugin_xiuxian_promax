@@ -32,6 +32,7 @@ RANK_TIER = {
 }
 CATEGORY_LABELS = {
     "equipment": "装备", "talisman": "符箓", "pill": "丹药", "recipe": "丹方",
+    "technique": "功法", "main_technique": "心法",
 }
 
 
@@ -61,8 +62,10 @@ class AuctionHouseManager:
         ah_cfg = getattr(config_manager, "auction_house_config", {}) or {}
         self.ah_cfg = ah_cfg
         self.tier_labels = dict(ah_cfg.get("tier_labels") or {})
-        self.price_floors = dict(ah_cfg.get("price_floors") or {})
-        self.price_ceilings = dict(ah_cfg.get("price_ceilings") or {})
+        self.start_price_rate = max(0.01, self._as_float(ah_cfg.get("start_price_rate"), 0.2))
+        self.start_price_fluctuation = min(
+            1.0, max(0.0, self._as_float(ah_cfg.get("start_price_fluctuation"), 0.2))
+        )
         self.affix_counts = dict(ah_cfg.get("affix_counts") or {})
         blueprint = list(ah_cfg.get("lot_blueprint") or [])
         self.lot_blueprint = blueprint[: self.lot_count_cfg] if blueprint else []
@@ -1001,11 +1004,13 @@ class AuctionHouseManager:
             payload["equipment_rates"] = item_cfg.get("equipment_rates") or {}
 
         base_price = self._base_price(category, item_cfg, payload) * count
-        factor = self._as_float(entry.get("price_factor"), 0.6)
-        floor = self._as_int(self.price_floors.get(str(tier)), 1)
-        ceiling = self._as_int(self.price_ceilings.get(str(tier)), max(floor, base_price))
-        price = int(base_price * factor)
-        price = max(floor, min(ceiling, price))
+        rate = max(0.01, self._as_float(entry.get("start_price_rate"), self.start_price_rate))
+        fluctuation = self._as_float(
+            entry.get("start_price_fluctuation"), self.start_price_fluctuation
+        )
+        fluctuation = min(1.0, max(0.0, fluctuation))
+        rate *= random.uniform(1 - fluctuation, 1 + fluctuation)
+        price = max(1, int(round(base_price * rate)))
         if prev_start > 0 and price <= prev_start:
             price = prev_start + max(1, int(prev_start * 0.1))
 
@@ -1085,6 +1090,30 @@ class AuctionHouseManager:
                 result.append((name, cfg, RANK_TIER.get(rank, 1), rank, {
                     "description": cfg.get("description", ""),
                     "category": "pill",
+                }))
+        elif category in ("technique", "main_technique"):
+            merged = {}
+            for name, cfg in (getattr(self.config_manager, "techniques_data", {}) or {}).items():
+                if not isinstance(cfg, dict):
+                    continue
+                merged[name] = cfg
+            if category == "technique":
+                for name, cfg in (getattr(self.config_manager, "items_data", {}) or {}).items():
+                    if not isinstance(cfg, dict):
+                        continue
+                    if cfg.get("type") == "功法":
+                        merged.setdefault(name, cfg)
+            for name, cfg in merged.items():
+                item_type = cfg.get("type")
+                if category == "technique":
+                    if item_type not in ("technique", "功法"):
+                        continue
+                elif item_type not in ("main_technique", "心法"):
+                    continue
+                rank = str(cfg.get("rank") or "凡品")
+                result.append((name, cfg, RANK_TIER.get(rank, 1), rank, {
+                    "description": cfg.get("description", ""),
+                    "category": category,
                 }))
         elif category == "recipe":
             for recipe in (getattr(self.config_manager, "pill_recipes_data", {}) or {}).values():

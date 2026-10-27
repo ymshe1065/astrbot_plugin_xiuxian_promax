@@ -72,6 +72,32 @@ class TestRecipePavilion(unittest.TestCase):
         self.assertEqual(len(rare), 3)
         self.assertEqual(len(generated), len(permanent) + len(rare))
 
+    def test_recipe_price_below_output_pill(self):
+        sources = (
+            self.config_manager.pills_data,
+            self.config_manager.exp_pills_data,
+            self.config_manager.utility_pills_data,
+            self.config_manager.items_data,
+        )
+        for recipe in self.config_manager.pill_recipes_data.values():
+            output = recipe.get("output_pill")
+            pill = next((source[output] for source in sources if output in source), None)
+            self.assertIsNotNone(pill, f"未找到丹方成品：{output}")
+            self.assertLess(
+                int(recipe.get("price") or 0),
+                int(pill.get("price") or 0),
+                f"{recipe.get('name')} 价格不应高于成品 {output}",
+            )
+
+    def test_breakthrough_recipe_price_grows_with_level(self):
+        recipes = sorted(
+            (r for r in self.config_manager.pill_recipes_data.values() if 101 <= int(r.get("id", 0)) <= 126),
+            key=lambda r: int(r.get("level_required", 0)),
+        )
+        prices = [int(r.get("price") or 0) for r in recipes]
+        self.assertEqual(prices, sorted(prices))
+        self.assertEqual(len(prices), len(set(prices)))
+
 
 if __name__ == "__main__":
     unittest.main()

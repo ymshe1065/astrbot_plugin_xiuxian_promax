@@ -119,6 +119,7 @@ class TestTalismanSystem(unittest.IsolatedAsyncioTestCase):
         self.assertGreater(self.TalismanManager.get_active_bonus(player, "drop_chance_bonus"), 0)
 
     async def test_craft_consumes_materials_and_outputs_talisman(self):
+        from unittest.mock import patch
         player = self._player(level_index=0)
         mats = [
             m for m in self.config_manager.material_catalog.values()
@@ -126,7 +127,8 @@ class TestTalismanSystem(unittest.IsolatedAsyncioTestCase):
         ][:1]
         player.storage_ring_items = json.dumps({mats[0]["name"]: 5}, ensure_ascii=False)
         await self.db.create_player(player)
-        ok, msg = await self.talisman.craft_talisman(player, "稳魂符", 2)
+        with patch(f"{PKG}.managers.talisman_manager.random.randint", return_value=1):
+            ok, msg = await self.talisman.craft_talisman(player, "稳魂符", 2)
         self.assertTrue(ok, msg)
         fresh = await self.db.get_player_by_id("u1")
         inventory = fresh.get_storage_ring_items()
