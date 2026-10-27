@@ -253,7 +253,7 @@ class SpiritFarmManager:
             return False, f"❌ 开垦灵田需要 {cost:,} 灵石。"
         
         player.gold -= cost
-        await self.db.update_player(player)
+        await self.db.update_player_fields(player.user_id, gold=player.gold)
         
         await self.db.conn.execute(
             """
@@ -548,7 +548,12 @@ class SpiritFarmManager:
                 pass
             player.experience += total_exp
             player.gold += total_gold
-            await self.db.update_player(player)
+            # 只回写收益字段，避免旧快照覆盖当前气血/灵气
+            await self.db.update_player_fields(
+                player.user_id,
+                experience=player.experience,
+                gold=player.gold,
+            )
         
         # 将灵草存入储物戒
         stored_items = []
@@ -625,7 +630,7 @@ class SpiritFarmManager:
 
         player.gold -= cost
         new_fertility = min(100, fertility + 30)
-        await self.db.update_player(player)
+        await self.db.update_player_fields(player.user_id, gold=player.gold)
         await self.db.conn.execute(
             "UPDATE spirit_farms SET fertility = ? WHERE user_id = ?",
             (new_fertility, player.user_id)
@@ -744,7 +749,7 @@ class SpiritFarmManager:
             return False, f"❌ 升级需要 {cost:,} 灵石。"
         
         player.gold -= cost
-        await self.db.update_player(player)
+        await self.db.update_player_fields(player.user_id, gold=player.gold)
         
         new_level = current_level + 1
         await self.db.conn.execute(

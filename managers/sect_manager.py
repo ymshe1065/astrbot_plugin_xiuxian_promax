@@ -565,7 +565,12 @@ class SectManager:
 
         player.sect_contribution += contribution_gain
         player.sect_task = int(getattr(player, "sect_task", 0) or 0) + 1
-        await self.db.update_player(player)
+        # 只回写任务字段，避免旧快照覆盖当前气血/灵气
+        await self.db.update_player_fields(
+            user_id,
+            sect_contribution=player.sect_contribution,
+            sect_task=player.sect_task,
+        )
 
         level_msg = ""
         if sect:

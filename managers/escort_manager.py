@@ -153,7 +153,13 @@ class EscortManager:
         player.gold += escort_gold
         player.experience += escort_exp
         player.karma = (getattr(player, "karma", 0) or 0) + 1  # 护镖有功，功德+1
-        await self.db.update_player(player)
+        # 只回写结算字段，避免旧快照覆盖并发更新后的气血/灵气
+        await self.db.update_player_fields(
+            user_id,
+            gold=player.gold,
+            experience=player.experience,
+            karma=player.karma,
+        )
         await self.db.ext.set_user_free(user_id)
 
         return True, (
