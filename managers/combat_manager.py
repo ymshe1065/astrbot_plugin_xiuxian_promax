@@ -51,6 +51,7 @@ class CombatStats:
     physical_defense: int = 0
     magic_defense: int = 0
     defense_scale: int = 0
+    overflow_bonus: float = 0.0
 
 
 class CombatManager:
@@ -105,6 +106,28 @@ class CombatManager:
         return cls.calculate_effective_experience(
             getattr(player, "experience", 0), cap
         )
+
+    MAX_OVERFLOW_BONUS = 1.0
+
+    @classmethod
+    def get_experience_overflow_bonus(cls, player, config_manager) -> float:
+        """返回修为溢出对境界基础属性的加成比例。
+
+        段内修为不额外加成；超过当前境界突破门槛的部分按
+        30% / 15% / 5% 折算，最终最多加成 100%。
+        """
+        try:
+            cap = int(player.get_required_exp(config_manager) or 0)
+        except Exception:
+            cap = 0
+        if cap <= 0:
+            return 0.0
+        effective = cls.calculate_effective_experience(
+            getattr(player, "experience", 0), cap
+        )
+        if effective <= cap:
+            return 0.0
+        return min(cls.MAX_OVERFLOW_BONUS, (effective - cap) / cap)
 
     @classmethod
     def calculate_attack_components(
@@ -296,14 +319,18 @@ class CombatManager:
 
         from ..core.equipment_balance import realm_attributes
         base = realm_attributes(player, config_manager)
-        base_phys = int(base.get("physical_damage", 0))
-        base_magic = int(base.get("magic_damage", 0))
-        base_pdef = int(base.get("physical_defense", 0))
-        base_mdef = int(base.get("magic_defense", 0))
+        overflow_bonus = CombatManager.get_experience_overflow_bonus(
+            player, config_manager
+        )
+        base_phys = int(int(base.get("physical_damage", 0)) * (1 + overflow_bonus))
+        base_magic = int(int(base.get("magic_damage", 0)) * (1 + overflow_bonus))
+        base_pdef = int(int(base.get("physical_defense", 0)) * (1 + overflow_bonus))
+        base_mdef = int(int(base.get("magic_defense", 0)) * (1 + overflow_bonus))
         base_atk_total = max(1, base_phys + base_magic)
         physical_mult = float(pill_multipliers.get("physical_damage", 1.0) or 1.0)
         magic_mult = float(pill_multipliers.get("magic_damage", 1.0) or 1.0)
-        max_hp = max(1, int(int(base.get("max_hp", 1)) * (1 + max(-.5, min(.5, hp_buff)))))
+        base_max_hp = int(int(base.get("max_hp", 1)) * (1 + overflow_bonus))
+        max_hp = max(1, int(base_max_hp * (1 + max(-.5, min(.5, hp_buff)))))
         max_mp = max(0, int(getattr(player, "max_spiritual_qi", 0) or 0))
         raw_hp = int(getattr(player, "hp", 0) or 0)
         raw_mp = int(getattr(player, "spiritual_qi", 0) or 0)
@@ -376,6 +403,7 @@ class CombatManager:
             "physical_atk": physical_atk, "magic_atk": magic_atk,
             "physical_defense": physical_def, "magic_defense": magic_def,
             "defense_scale": int(base.get("defense_scale", 0)),
+            "overflow_bonus": overflow_bonus,
             "crit_rate": effects.get("crit_rate", 0),
             "crit_damage": effects.get("crit_damage", 1.5),
             "lifesteal": effects.get("lifesteal", 0),
@@ -509,12 +537,14 @@ class CombatManager:
         """统一构建玩家战斗属性，确保所有战斗入口读取装备、词条与丹药。"""
         from ..core.equipment_balance import realm_attributes
         base = realm_attributes(player, config_manager)
-        base_phys = int(base.get("physical_damage", 0))
-        base_magic = int(base.get("magic_damage", 0))
-        base_pdef = int(base.get("physical_defense", 0))
-        base_mdef = int(base.get("magic_defense", 0))
+        overflow_bonus = cls.get_experience_overflow_bonus(player, config_manager)
+        base_phys = int(int(base.get("physical_damage", 0)) * (1 + overflow_bonus))
+        base_magic = int(int(base.get("magic_damage", 0)) * (1 + overflow_bonus))
+        base_pdef = int(int(base.get("physical_defense", 0)) * (1 + overflow_bonus))
+        base_mdef = int(int(base.get("magic_defense", 0)) * (1 + overflow_bonus))
         base_atk_total = max(1, base_phys + base_magic)
-        max_hp = max(1, int(int(base.get("max_hp", 1)) * (1 + max(-.5, min(.5, hp_buff)))))
+        base_max_hp = int(int(base.get("max_hp", 1)) * (1 + overflow_bonus))
+        max_hp = max(1, int(base_max_hp * (1 + max(-.5, min(.5, hp_buff)))))
         max_mp = max(0, int(getattr(player, "max_spiritual_qi", 0) or 0))
         raw_hp = int(getattr(player, "hp", 0) or 0)
         raw_mp = int(getattr(player, "spiritual_qi", 0) or 0)
@@ -642,6 +672,7 @@ class CombatManager:
             physical_defense=physical_def,
             magic_defense=magic_def,
             defense_scale=int(base.get("defense_scale", 0)),
+            overflow_bonus=overflow_bonus,
         )
 
     @staticmethod

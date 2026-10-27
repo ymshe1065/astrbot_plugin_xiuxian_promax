@@ -354,6 +354,7 @@ class PlayerHandler:
             f"【战斗属性】\n"
             f"  气血：{combat_panel['hp']:,}/{combat_panel['max_hp']:,}\n"
             f"  灵气：{combat_panel['mp']:,}/{combat_panel['max_mp']:,}\n"
+            f"  修为溢出：+{combat_panel.get('overflow_bonus', 0):.1%}\n"
             f"  物攻：{combat_panel.get('physical_atk', 0):,} | 法攻：{combat_panel.get('magic_atk', 0):,}\n"
             f"  物防：{combat_panel.get('physical_defense', 0):,} | 法防：{combat_panel.get('magic_defense', 0):,}\n"
             f"  暴击：{combat_panel['crit_rate']:.1f}% | 暴伤：{combat_panel['crit_damage'] * 100:.1f}%\n"
@@ -463,6 +464,7 @@ class PlayerHandler:
                         {"name": "战斗", "rows": [
                             ("气血", f"{combat_panel['hp']:,}/{combat_panel['max_hp']:,}"),
                             ("灵气", f"{combat_panel['mp']:,}/{combat_panel['max_mp']:,}"),
+                            ("修为溢出", f"+{combat_panel.get('overflow_bonus', 0):.1%}"),
                             ("物攻/法攻", f"{combat_panel.get('physical_atk', 0):,}/{combat_panel.get('magic_atk', 0):,}"),
                             ("物防/法防", f"{combat_panel.get('physical_defense', 0):,}/{combat_panel.get('magic_defense', 0):,}"),
                             ("暴击/暴伤", f"{combat_panel['crit_rate']:.1f}%/{combat_panel['crit_damage'] * 100:.1f}%"),
