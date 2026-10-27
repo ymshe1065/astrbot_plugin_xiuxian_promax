@@ -359,7 +359,6 @@ class PlayerHandler:
             f"【战斗属性】\n"
             f"  气血：{combat_panel['hp']:,}/{combat_panel['max_hp']:,}\n"
             f"  灵气：{combat_panel['mp']:,}/{combat_panel['max_mp']:,}\n"
-            f"  攻击：{combat_panel['atk']:,} | 防御：{combat_panel['defense']:,}\n"
             f"  物攻：{combat_panel.get('physical_atk', 0):,} | 法攻：{combat_panel.get('magic_atk', 0):,}\n"
             f"  物防：{combat_panel.get('physical_defense', 0):,} | 法防：{combat_panel.get('magic_defense', 0):,}\n"
             f"  暴击：{combat_panel['crit_rate']:.1f}% | 暴伤：{combat_panel['crit_damage'] * 100:.1f}%\n"
@@ -467,7 +466,8 @@ class PlayerHandler:
                         {"name": "战斗", "rows": [
                             ("气血", f"{combat_panel['hp']:,}/{combat_panel['max_hp']:,}"),
                             ("灵气", f"{combat_panel['mp']:,}/{combat_panel['max_mp']:,}"),
-                            ("攻击/防御", f"{combat_panel['atk']:,}/{combat_panel['defense']:,}"),
+                            ("物攻/法攻", f"{combat_panel.get('physical_atk', 0):,}/{combat_panel.get('magic_atk', 0):,}"),
+                            ("物防/法防", f"{combat_panel.get('physical_defense', 0):,}/{combat_panel.get('magic_defense', 0):,}"),
                             ("暴击/暴伤", f"{combat_panel['crit_rate']:.1f}%/{combat_panel['crit_damage'] * 100:.1f}%"),
                             ("吸血/反伤", f"{combat_panel['lifesteal']:.1f}%/{combat_panel['counter_damage']:.1f}%"),
                             ("五行", element_name),

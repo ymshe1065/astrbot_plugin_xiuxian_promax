@@ -422,6 +422,10 @@ HP：{battle_result['player_final_hp']}/{player_stats.max_hp}
             return False, f"❌ 当前没有Boss！\n\n💡 预计下一个Boss将在 {next_time_str} 复活", None
         
         hp_percent = (boss.hp / boss.max_hp) * 100
+        preview = self.build_boss_combat_stats(boss, "")
+        archetype_name = self.get_archetype(
+            getattr(boss, "archetype", "balanced")
+        ).get("name", "均衡型")
         
         msg = f"""
 👹 当前Boss
@@ -429,10 +433,13 @@ HP：{battle_result['player_final_hp']}/{player_stats.max_hp}
 
 名称：{boss.boss_name}
 境界：{boss.boss_level}
+流派：{archetype_name}
 
 HP：{boss.hp}/{boss.max_hp} ({hp_percent:.1f}%)
-ATK：{boss.atk}
-防御：{boss.defense}%减伤
+物攻：{preview.physical_atk:,}
+法攻：{preview.magic_atk:,}
+物防：{preview.physical_defense:,}
+法防：{preview.magic_defense:,}
 
 奖励：{boss.stone_reward}灵石
 
