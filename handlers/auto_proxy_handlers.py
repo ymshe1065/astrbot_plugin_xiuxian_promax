@@ -3,7 +3,7 @@
 from astrbot.api.event import AstrMessageEvent
 
 from ..data import DataBase
-from ..managers.auto_proxy_manager import AutoProxyManager
+from ..managers.auto_proxy_manager import AutoProxyManager, TASK_ESCORT, TASK_SECT
 
 __all__ = ["AutoProxyHandlers"]
 
@@ -34,9 +34,19 @@ class AutoProxyHandlers:
         yield event.plain_result(msg)
 
     async def handle_disable(self, event: AstrMessageEvent, args: str = ""):
-        """关闭自动代理；可指定只取消灵田或特定格"""
+        """关闭自动代理；必须指定押镖/宗门任务/灵田/全部"""
         user_id = event.get_sender_id()
         raw = (args or "").strip()
+        usage = (
+            "❌ 请指定要关闭的代理内容。\n"
+            "💡 /关闭代理 押镖\n"
+            "💡 /关闭代理 宗门任务\n"
+            "💡 /关闭代理 灵田 [格号...]\n"
+            "💡 /关闭代理 全部"
+        )
+        if not raw:
+            yield event.plain_result(usage)
+            return
         if raw.lower() in ("全部", "所有", "all"):
             was_enabled = await self.proxy_mgr.disable(user_id, "manual_close")
             if was_enabled:
@@ -47,15 +57,17 @@ class AutoProxyHandlers:
             else:
                 yield event.plain_result("💡 自动代理当前未开启。")
             return
-        if raw and self.proxy_mgr._is_farm_request(raw):
+        if self.proxy_mgr._is_farm_request(raw):
             parts = raw.split(maxsplit=1)
             rest = parts[1] if len(parts) > 1 else ""
             ok, msg = await self.proxy_mgr.disable_farm(user_id, rest)
             yield event.plain_result(msg)
             return
-
-        ok, msg = await self.proxy_mgr.disable_primary(user_id, "manual_close")
-        yield event.plain_result(msg)
+        if self.proxy_mgr.normalize_task(raw) in (TASK_ESCORT, TASK_SECT):
+            ok, msg = await self.proxy_mgr.disable_primary(user_id, "manual_close")
+            yield event.plain_result(msg)
+            return
+        yield event.plain_result(usage)
 
     async def handle_status(self, event: AstrMessageEvent):
         """查看自动代理状态"""

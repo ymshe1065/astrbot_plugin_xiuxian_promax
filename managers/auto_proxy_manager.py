@@ -604,9 +604,21 @@ class AutoProxyManager:
             )
 
         row = await self.get(user_id) or {}
-        was_enabled = bool(row.get("enabled"))
         cd = await self.db.ext.get_user_cd(user_id)
         current = STATUS_TASK.get(cd.type) if cd else None
+
+        if not raw_task:
+            if not current:
+                return False, (
+                    "❌ 请指定要代理的内容。\n"
+                    "💡 /自动代理 押镖\n"
+                    "💡 /自动代理 宗门任务\n"
+                    "💡 /自动代理 灵田 [格号...]\n"
+                    "（仅当已处于押镖/宗门任务中时，可省略参数自动补全）"
+                )
+            requested = current
+
+        was_enabled = bool(row.get("enabled"))
         origin = origin or row.get("origin", "")
         legacy_busy = (not cd) and self._legacy_busy(player)
         busy_other = bool((cd and cd.type != UserStatus.IDLE and not current) or legacy_busy)
@@ -614,7 +626,7 @@ class AutoProxyManager:
         if busy_other:
             return False, (
                 f"❌ 你当前正在{busy_name}，自动代理只能接管押镖/宗门任务。\n"
-                f"💡 请空闲后再发送 /自动代理。"
+                f"💡 请空闲后再发送 /自动代理 押镖 或 /自动代理 宗门任务。"
             )
 
         preferred = requested or current or row.get("task_type", "")
@@ -626,12 +638,12 @@ class AutoProxyManager:
                     f"🤖 自动代理已开启\n"
                     f"当前正在{UserStatus.get_name(cd.type)}，先完成本轮；"
                     f"之后将自动改跑【{self.task_name(requested)}】。\n"
-                    f"💡 发送 /关闭代理 可随时停止。"
+                    f"💡 发送 /关闭代理 押镖 或 /关闭代理 宗门任务 可随时停止。"
                 )
             return True, (
                 f"🤖 自动代理已开启\n"
                 f"已接管当前【{self.task_name(current)}】，本轮结束后会自动结算并开始下一轮。\n"
-                f"💡 发送 /关闭代理 可随时停止。"
+                f"💡 发送 /关闭代理 押镖 或 /关闭代理 宗门任务 可随时停止。"
             )
 
         if not preferred:
@@ -640,7 +652,7 @@ class AutoProxyManager:
                 f"{tip}\n"
                 f"请先发送 /押镖 或 /宗门任务 开始第一轮，之后会自动续接。\n"
                 f"💡 也可直接使用 /自动代理 押镖、/自动代理 宗门任务 或 /自动代理 灵田。\n"
-                f"发送 /关闭代理 可随时停止。"
+                f"发送 /关闭代理 押镖 或 /关闭代理 宗门任务 可随时停止。"
             )
 
         ok, start_msg = await self.start_activity(player, preferred)
@@ -653,7 +665,7 @@ class AutoProxyManager:
             f"━━━━━━━━━━━━━━━\n"
             f"{start_msg}\n"
             f"━━━━━━━━━━━━━━━\n"
-            f"♻️ 每轮结束后会自动结算并开始下一轮，发送 /关闭代理 可停止。"
+            f"♻️ 每轮结束后会自动结算并开始下一轮，发送 /关闭代理 押镖 或 /关闭代理 宗门任务 可停止。"
         )
 
     async def status_text(self, user_id: str) -> str:
@@ -674,7 +686,7 @@ class AutoProxyManager:
             return (
                 "🤖 自动代理：未开启\n"
                 "━━━━━━━━━━━━━━━\n"
-                "发送 /自动代理 开启；可接 /自动代理 押镖、/自动代理 宗门任务 或 /自动代理 灵田。"
+                "发送 /自动代理 押镖、/自动代理 宗门任务 或 /自动代理 灵田 开启。"
                 f"{suffix}"
             )
 
@@ -722,7 +734,7 @@ class AutoProxyManager:
 
         if row.get("last_error") == "start_failed":
             lines.append("⚠️ 上次自动开始失败，已暂停")
-        lines.append("💡 /关闭代理 停止全部；/关闭代理 灵田 [格号] 停止指定灵田代理")
+        lines.append("💡 /关闭代理 押镖|宗门任务|灵田 [格号]|全部 停止对应代理")
         return "\n".join(lines)
 
     # ===== 活动执行 =====
@@ -858,7 +870,7 @@ class AutoProxyManager:
                 await self._notify(
                     origin,
                     f"⚠️ 自动代理结算【{self.task_name(current)}】失败：\n{finish_msg}\n"
-                    f"🛑 押镖/宗门任务代理已暂停，发送 /自动代理 可重试。",
+                    f"🛑 押镖/宗门任务代理已暂停，发送 /自动代理 押镖 或 /自动代理 宗门任务 可重试。",
                 )
                 await self._disable_primary(user_id, "finish_failed")
                 return True
@@ -872,7 +884,7 @@ class AutoProxyManager:
                     origin,
                     f"{finish_msg}\n\n"
                     f"⚠️ 自动代理无法开始下一轮【{self.task_name(next_task)}】：\n{start_msg}\n"
-                    f"🛑 押镖/宗门任务代理已暂停，发送 /自动代理 可重新开启。",
+                    f"🛑 押镖/宗门任务代理已暂停，发送 /自动代理 押镖 或 /自动代理 宗门任务 可重新开启。",
                 )
                 await self._disable_primary(user_id, "start_failed")
                 return True
@@ -892,7 +904,7 @@ class AutoProxyManager:
             await self._notify(
                 origin,
                 f"🛑 检测到你进入了{UserStatus.get_name(cd_type)}，"
-                + ("押镖/宗门任务代理已暂停，灵田代理继续运行。" if farm_on else "自动代理已关闭。发送 /自动代理 可重新开启。"),
+                + ("押镖/宗门任务代理已暂停，灵田代理继续运行。" if farm_on else "自动代理已关闭。发送 /自动代理 押镖 或 /自动代理 宗门任务 可重新开启。"),
             )
             await self._disable_primary(user_id, "other_busy")
             return True
@@ -904,7 +916,7 @@ class AutoProxyManager:
             await self._notify(
                 origin,
                 f"🛑 检测到你进入了{player.state}，"
-                + ("押镖/宗门任务代理已暂停，灵田代理继续运行。" if farm_on else "自动代理已关闭。发送 /自动代理 可重新开启。"),
+                + ("押镖/宗门任务代理已暂停，灵田代理继续运行。" if farm_on else "自动代理已关闭。发送 /自动代理 押镖 或 /自动代理 宗门任务 可重新开启。"),
             )
             await self._disable_primary(user_id, "other_busy")
             return True
@@ -918,7 +930,7 @@ class AutoProxyManager:
             await self._notify(
                 origin,
                 f"⚠️ 自动代理无法开始【{self.task_name(task_type)}】：\n{start_msg}\n"
-                f"🛑 押镖/宗门任务代理已暂停，发送 /自动代理 可重新开启。",
+                f"🛑 押镖/宗门任务代理已暂停，发送 /自动代理 押镖 或 /自动代理 宗门任务 可重新开启。",
             )
             await self._disable_primary(user_id, "start_failed")
             return True

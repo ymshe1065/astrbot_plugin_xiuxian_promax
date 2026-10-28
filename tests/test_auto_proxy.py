@@ -128,19 +128,21 @@ class TestAutoProxy(unittest.IsolatedAsyncioTestCase):
         await self.db.close()
         os.remove(self.db_path)
 
-    async def test_enable_without_task_waits_then_binds_and_repeats(self):
+    async def test_enable_without_task_requires_argument_unless_busy(self):
         ok, msg = await self.manager.enable("u1", "umo://group", "")
-        self.assertTrue(ok, msg)
-        row = await self.db.ext.get_auto_proxy("u1")
-        self.assertEqual(row["enabled"], 1)
-        self.assertEqual(row["task_type"], "")
+        self.assertFalse(ok)
+        self.assertIn("请指定", msg)
+        self.assertIsNone(await self.db.ext.get_auto_proxy("u1"))
 
         await self.db.ext.set_user_busy(
             "u1", self.UserStatus.DELIVERING, int(time.time()) - 1,
             {"escort_gold": 100, "escort_exp": 50},
         )
-        bound = await self.manager.note_activity_started("u1", "umo://group")
-        self.assertEqual(bound, "escort")
+        ok, msg = await self.manager.enable("u1", "umo://group", "")
+        self.assertTrue(ok, msg)
+        row = await self.db.ext.get_auto_proxy("u1")
+        self.assertEqual(row["enabled"], 1)
+        self.assertEqual(row["task_type"], "escort")
 
         processed = await self.manager.process_due()
         self.assertEqual(processed, 1)
@@ -189,7 +191,7 @@ class TestAutoProxy(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.escort.started, 1)
 
     async def test_external_activity_closes_proxy_immediately(self):
-        await self.manager.enable("u1", "umo://group", "")
+        await self.manager.enable("u1", "umo://group", "押镖")
         self.assertEqual((await self.db.ext.get_auto_proxy("u1"))["enabled"], 1)
         await self.db.ext.set_user_busy(
             "u1", self.UserStatus.CULTIVATING, int(time.time()) + 3600
@@ -224,6 +226,33 @@ class TestAutoProxy(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.escort.finished, 1)
         self.assertEqual(self.sect.started, 1)
         self.assertEqual(self.escort.started, 1)
+
+    async def _handle_disable(self, args: str):
+        handlers = _imp("handlers.auto_proxy_handlers").AutoProxyHandlers(self.db, self.manager)
+
+        class FakeEvent:
+            unified_msg_origin = "umo://group"
+
+            def get_sender_id(self):
+                return "u1"
+
+            def plain_result(self, text):
+                return text
+
+        results = []
+        async for result in handlers.handle_disable(FakeEvent(), args):
+            results.append(result)
+        return results
+
+    async def test_disable_requires_explicit_scope(self):
+        self.assertTrue((await self.manager.enable("u1", "umo://group", "押镖"))[0])
+        results = await self._handle_disable("")
+        self.assertIn("请指定", results[0])
+        self.assertEqual((await self.db.ext.get_auto_proxy("u1"))["enabled"], 1)
+
+        results = await self._handle_disable("押镖")
+        self.assertIn("自动代理已关闭", results[0])
+        self.assertEqual((await self.db.ext.get_auto_proxy("u1"))["enabled"], 0)
 
     async def test_finish_side_effects(self):
         bumps = []
