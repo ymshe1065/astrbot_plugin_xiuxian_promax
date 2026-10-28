@@ -69,9 +69,10 @@ class BountyManager:
         }
     }
 
-    def __init__(self, db: DataBase, storage_ring_manager: Optional["StorageRingManager"] = None):
+    def __init__(self, db: DataBase, storage_ring_manager: Optional["StorageRingManager"] = None, config_manager=None):
         self.db = db
         self.storage_ring_manager = storage_ring_manager
+        self.config_manager = config_manager
         self._bounty_cache: Dict[str, Dict] = {}
         self.difficulties: Dict[str, dict] = {}
         self.templates_by_id: Dict[int, dict] = {}
@@ -443,6 +444,13 @@ class BountyManager:
             try:
                 from .title_manager import TitleManager
                 exp_reward = int(exp_reward * (1 + TitleManager.get_exp_bonus(player)))
+            except Exception:
+                pass
+            try:
+                from ..core.technique_bonus import TechniqueBonusManager
+                stone_reward = TechniqueBonusManager.apply_gold_bonus(
+                    player, stone_reward, self.config_manager
+                )
             except Exception:
                 pass
 

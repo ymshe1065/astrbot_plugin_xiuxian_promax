@@ -267,13 +267,14 @@ class PlayerHandler:
             or "无"
         )
         from ..managers.luck_manager import LuckManager
-        luck_parts = LuckManager.get_breakdown(player)
+        luck_parts = LuckManager.get_breakdown(player, self.config_manager)
         luck_total = luck_parts["total"]
         luck_detail = (
             f"本体{luck_parts['base']}"
             + (f" + 称号{luck_parts['title']}" if luck_parts["title"] else "")
             + (f" + 词条{luck_parts['affix']}" if luck_parts["affix"] else "")
             + (f" + 符箓{luck_parts['talisman']}" if luck_parts["talisman"] else "")
+            + (f" + 功法{luck_parts['technique']}" if luck_parts.get("technique") else "")
         )
         
         sect_name = "无宗门"
@@ -293,6 +294,18 @@ class PlayerHandler:
                      for slot, (name, _) in equipment_manager.get_gear_slots(player).items()]
         gear_text = "".join(f"  {label}：{name}\n" for label, name in gear_rows)
         technique_name = player.main_technique if player.main_technique else "无"
+        from ..core.technique_bonus import TechniqueBonusManager
+        life = TechniqueBonusManager.collect_life_effects(player, self.config_manager)
+        life_text = []
+        if life.get("gold_bonus"):
+            life_text.append(f"灵石+{life['gold_bonus']:.1%}")
+        if life.get("drop_bonus"):
+            life_text.append(f"掉落+{life['drop_bonus']:.1%}")
+        if life.get("cooldown_reduction"):
+            life_text.append(f"调息-{life['cooldown_reduction']:.1%}")
+        if life.get("luck_bonus"):
+            life_text.append(f"气运+{int(life['luck_bonus'])}")
+        technique_life_text = " · ".join(life_text) if life_text else "无"
         
         dao_hao = player.user_name if player.user_name else display_name
         display_title = f"【{player.title}】" if player.title else ""
@@ -351,6 +364,7 @@ class PlayerHandler:
         reply_msg += (
             f"【装备与宗门】\n"
             f"  主修心法：{technique_name}\n"
+            f"  功法生活：{technique_life_text}\n"
             f"{gear_text}"
             f"  宗门：{sect_name} | 职位：{position_name}\n"
         )
@@ -458,6 +472,7 @@ class PlayerHandler:
                         {"name": "装备与宗门", "rows": [
                             *gear_rows,
                             ("主修心法", technique_name),
+                            ("功法生活", technique_life_text),
                             ("宗门", sect_name),
                             ("职位", position_name),
                         ]},

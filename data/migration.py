@@ -6,7 +6,7 @@ from typing import Dict, Callable, Awaitable
 from astrbot.api import logger
 from ..config_manager import ConfigManager
 
-LATEST_DB_VERSION = 45  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步
+LATEST_DB_VERSION = 47  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件
 
 MIGRATION_TASKS: Dict[int, Callable[[aiosqlite.Connection, ConfigManager], Awaitable[None]]] = {}
 
@@ -138,6 +138,7 @@ async def _ensure_auto_proxy_v35(conn: aiosqlite.Connection):
             task_type TEXT NOT NULL DEFAULT '',
             origin TEXT NOT NULL DEFAULT '',
             last_error TEXT NOT NULL DEFAULT '',
+            config_json TEXT NOT NULL DEFAULT '{}',
             updated_at INTEGER NOT NULL DEFAULT 0
         )
     """)
@@ -190,6 +191,44 @@ async def _ensure_world_boss_v38(conn: aiosqlite.Connection):
     )
 
 
+async def _ensure_battle_events_v46(conn: aiosqlite.Connection):
+    """创建江湖战斗小事件表（新库/旧库共用）。"""
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS battle_events (
+            event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_key TEXT NOT NULL,
+            event_name TEXT NOT NULL,
+            tier INTEGER NOT NULL DEFAULT 1,
+            element TEXT NOT NULL DEFAULT '',
+            max_hp INTEGER NOT NULL,
+            current_hp INTEGER NOT NULL,
+            min_level INTEGER NOT NULL DEFAULT 0,
+            spawn_time INTEGER NOT NULL,
+            expire_time INTEGER NOT NULL,
+            status INTEGER NOT NULL DEFAULT 1,
+            settled INTEGER NOT NULL DEFAULT 0,
+            killer_id TEXT NOT NULL DEFAULT ''
+        )
+    """)
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_battle_events_status ON battle_events(status, expire_time)"
+    )
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS battle_event_damage (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_id INTEGER NOT NULL,
+            user_id TEXT NOT NULL,
+            total_damage INTEGER NOT NULL DEFAULT 0,
+            attack_count INTEGER NOT NULL DEFAULT 0,
+            last_attack_time INTEGER NOT NULL,
+            UNIQUE(event_id, user_id)
+        )
+    """)
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_battle_event_damage ON battle_event_damage(event_id)"
+    )
+
+
 async def _ensure_trade_v39(conn: aiosqlite.Connection):
     """v39：坊市/赠予支持丹药，记录物品类型与品质。"""
     await _add_column_if_missing(conn, "auction_items", "item_kind", "TEXT NOT NULL DEFAULT 'item'")
@@ -198,6 +237,93 @@ async def _ensure_trade_v39(conn: aiosqlite.Connection):
     await _add_column_if_missing(conn, "pending_gifts", "item_kind", "TEXT NOT NULL DEFAULT 'item'")
     await _add_column_if_missing(conn, "pending_gifts", "item_quality", "TEXT NOT NULL DEFAULT ''")
     await _add_column_if_missing(conn, "pending_gifts", "instance_id", "INTEGER NOT NULL DEFAULT 0")
+
+
+async def _ensure_auction_house_v47(conn: aiosqlite.Connection):
+    """v47：拍卖会事件、拍品、报名、出价与播报出站表。"""
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS auction_house_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            cycle_no INTEGER NOT NULL DEFAULT 0,
+            cycle_start INTEGER NOT NULL DEFAULT 0,
+            announce_date TEXT NOT NULL DEFAULT '',
+            announce_start INTEGER NOT NULL DEFAULT 0,
+            event_start INTEGER NOT NULL DEFAULT 0,
+            event_end INTEGER NOT NULL DEFAULT 0,
+            phase TEXT NOT NULL DEFAULT 'scheduled',
+            lot_count INTEGER NOT NULL DEFAULT 0,
+            current_lot INTEGER NOT NULL DEFAULT 0,
+            last_reminder_slot TEXT NOT NULL DEFAULT '',
+            created_at INTEGER NOT NULL DEFAULT 0,
+            updated_at INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS auction_house_lots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_id INTEGER NOT NULL,
+            lot_no INTEGER NOT NULL,
+            category TEXT NOT NULL DEFAULT '',
+            preview_label TEXT NOT NULL DEFAULT '',
+            item_name TEXT NOT NULL DEFAULT '',
+            item_rank TEXT NOT NULL DEFAULT '',
+            item_quality TEXT NOT NULL DEFAULT '',
+            count INTEGER NOT NULL DEFAULT 1,
+            payload_json TEXT NOT NULL DEFAULT '{}',
+            start_price INTEGER NOT NULL DEFAULT 0,
+            current_price INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'pending',
+            lot_start INTEGER NOT NULL DEFAULT 0,
+            bid_deadline INTEGER NOT NULL DEFAULT 0,
+            highest_bidder TEXT NOT NULL DEFAULT '',
+            highest_bid INTEGER NOT NULL DEFAULT 0,
+            winner_id TEXT NOT NULL DEFAULT '',
+            winning_price INTEGER NOT NULL DEFAULT 0,
+            settled_at INTEGER NOT NULL DEFAULT 0,
+            delivery_status TEXT NOT NULL DEFAULT 'none',
+            created_at INTEGER NOT NULL DEFAULT 0,
+            UNIQUE(event_id, lot_no)
+        )
+    """)
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS auction_house_entries (
+            event_id INTEGER NOT NULL,
+            user_id TEXT NOT NULL,
+            entry_fee INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (event_id, user_id)
+        )
+    """)
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS auction_house_bids (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_id INTEGER NOT NULL,
+            lot_id INTEGER NOT NULL,
+            user_id TEXT NOT NULL,
+            user_name TEXT NOT NULL DEFAULT '',
+            amount INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS auction_house_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_id INTEGER NOT NULL,
+            lot_id INTEGER NOT NULL DEFAULT 0,
+            kind TEXT NOT NULL DEFAULT '',
+            dedupe_key TEXT NOT NULL UNIQUE,
+            payload_json TEXT NOT NULL DEFAULT '{}',
+            fallback_text TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at INTEGER NOT NULL DEFAULT 0,
+            sent_at INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_ah_lots_event ON auction_house_lots(event_id, lot_no)")
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_ah_lots_status ON auction_house_lots(event_id, status)")
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_ah_bids_lot ON auction_house_bids(lot_id, id)")
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_ah_entries_user ON auction_house_entries(event_id, user_id)")
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_ah_messages_status ON auction_house_messages(status, id)")
 
 
 async def _ensure_latest_columns(conn: aiosqlite.Connection):
@@ -229,7 +355,10 @@ async def _ensure_latest_columns(conn: aiosqlite.Connection):
     await _ensure_sect_v30_tables(conn)
     await _ensure_auction_npc_v32(conn)
     await _ensure_auto_proxy_v35(conn)
+    await _add_column_if_missing(conn, "auto_proxy", "config_json", "TEXT NOT NULL DEFAULT '{}'")
     await _ensure_world_boss_v38(conn)
+    await _ensure_battle_events_v46(conn)
+    await _ensure_auction_house_v47(conn)
     await _add_column_if_missing(conn, "player_pets", "max_hp", "INTEGER NOT NULL DEFAULT 0")
     await _add_column_if_missing(conn, "player_pets", "hp", "INTEGER NOT NULL DEFAULT 0")
     await _add_column_if_missing(conn, "player_pets", "last_regen_time", "INTEGER NOT NULL DEFAULT 0")
@@ -1617,8 +1746,27 @@ async def _migrate_to_v44(conn: aiosqlite.Connection, config_manager: ConfigMana
 
 @migration(45)
 async def _migrate_to_v45(conn: aiosqlite.Connection, config_manager: ConfigManager):
-    """v45：灵气统一后同步 mp 兼容字段，不删除旧列。"""
+    """v45：灵气统一后同步 mp 兼容字段，并补充自动代理灵田配置字段。"""
     logger.info("开始迁移到 v45：灵气与 mp 同步")
     await conn.execute("UPDATE players SET mp = COALESCE(spiritual_qi, 0)")
+    await _add_column_if_missing(conn, "auto_proxy", "config_json", "TEXT NOT NULL DEFAULT '{}'")
     await conn.commit()
     logger.info("v45迁移完成：mp 已同步为 spiritual_qi")
+
+
+@migration(46)
+async def _migrate_to_v46(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """迁移到 v46 - 江湖战斗小事件表。"""
+    logger.info("开始迁移到 v46：江湖战斗小事件")
+    await _ensure_battle_events_v46(conn)
+    await conn.commit()
+    logger.info("v46迁移完成：江湖事件表已建立")
+
+
+@migration(47)
+async def _migrate_to_v47(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """迁移到 v47 - 拍卖会事件表。"""
+    logger.info("开始迁移到 v47：拍卖会事件")
+    await _ensure_auction_house_v47(conn)
+    await conn.commit()
+    logger.info("v47迁移完成：拍卖会事件表已建立")

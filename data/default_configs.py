@@ -33,6 +33,18 @@ BOSS_CONFIG = {
         "damage_cap_pct": 8.0,
         "min_players": 2,
     },
+    "small_event": {
+        "enabled": True,
+        "interval_min_hours": 3,
+        "interval_max_hours": 4,
+        "active_start_hour": 10,
+        "active_end_hour": 24,
+        "cooldown": 180,
+        "damage_floor_pct": 1.0,
+        "damage_cap_pct": 12.0,
+        "expire_hours": 2,
+        "escape_reward_pct": 0.5,
+    },
 }
 
 RIFT_CONFIG = {
@@ -87,4 +99,26 @@ ALCHEMY_CONFIG = {
             "desc": "恢复50%真元"
         },
     }
+}
+
+AUCTION_HOUSE_CONFIG = {
+    "lot_blueprint": [
+        {"category": "equipment", "tier": 2, "count": 1, "price_factor": 0.55,
+         "quality_weights": {"一般": 30, "良好": 50, "极佳": 20, "大师": 0}},
+        {"category": "talisman", "tier": 2, "count": 2, "price_factor": 0.55},
+        {"category": "equipment", "tier": 3, "count": 1, "price_factor": 0.65,
+         "quality_weights": {"一般": 0, "良好": 35, "极佳": 50, "大师": 15}},
+        {"category": "pill", "tier": 3, "count": 1, "price_factor": 0.65,
+         "quality_weights": {"一般": 0, "良好": 45, "极佳": 45, "大师": 10}},
+        {"category": "recipe", "tier": 3, "count": 1, "price_factor": 0.7},
+        {"category": "talisman", "tier": 3, "count": 2, "price_factor": 0.75},
+        {"category": "equipment", "tier": 4, "count": 1, "price_factor": 0.8,
+         "quality_weights": {"一般": 0, "良好": 10, "极佳": 60, "大师": 30}},
+        {"category": "pill", "tier": 5, "count": 1, "price_factor": 0.85,
+         "quality_weights": {"一般": 0, "良好": 0, "极佳": 45, "大师": 55}},
+    ],
+    "tier_labels": {"1": "黄阶", "2": "玄阶", "3": "地阶", "4": "天阶", "5": "仙品"},
+    "price_floors": {"1": 1000, "2": 3000, "3": 15000, "4": 80000, "5": 300000},
+    "price_ceilings": {"1": 50000, "2": 50000, "3": 300000, "4": 2000000, "5": 20000000},
+    "affix_counts": {"一般": 0, "良好": 1, "极佳": 2, "大师": 3},
 }

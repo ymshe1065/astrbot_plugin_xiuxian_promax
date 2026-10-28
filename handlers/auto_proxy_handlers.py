@@ -33,17 +33,29 @@ class AutoProxyHandlers:
         _, msg = await self.proxy_mgr.enable(user_id, self._origin(event), raw)
         yield event.plain_result(msg)
 
-    async def handle_disable(self, event: AstrMessageEvent):
-        """关闭自动代理"""
+    async def handle_disable(self, event: AstrMessageEvent, args: str = ""):
+        """关闭自动代理；可指定只取消灵田或特定格"""
         user_id = event.get_sender_id()
-        was_enabled = await self.proxy_mgr.disable(user_id, "manual_close")
-        if was_enabled:
-            yield event.plain_result(
-                "🛑 自动代理已关闭。\n"
-                "当前正在进行的活动不会中断，可继续手动结算或放弃。"
-            )
-        else:
-            yield event.plain_result("💡 自动代理当前未开启。")
+        raw = (args or "").strip()
+        if raw.lower() in ("全部", "所有", "all"):
+            was_enabled = await self.proxy_mgr.disable(user_id, "manual_close")
+            if was_enabled:
+                yield event.plain_result(
+                    "🛑 自动代理已全部关闭（含灵田代理）。\n"
+                    "押镖/宗门任务不会中断；灵田成熟作物需手动 /收获。"
+                )
+            else:
+                yield event.plain_result("💡 自动代理当前未开启。")
+            return
+        if raw and self.proxy_mgr._is_farm_request(raw):
+            parts = raw.split(maxsplit=1)
+            rest = parts[1] if len(parts) > 1 else ""
+            ok, msg = await self.proxy_mgr.disable_farm(user_id, rest)
+            yield event.plain_result(msg)
+            return
+
+        ok, msg = await self.proxy_mgr.disable_primary(user_id, "manual_close")
+        yield event.plain_result(msg)
 
     async def handle_status(self, event: AstrMessageEvent):
         """查看自动代理状态"""

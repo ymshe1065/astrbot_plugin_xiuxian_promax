@@ -116,9 +116,13 @@ class BreakthroughHandler:
             else:
                 info_lines.append(f"业力缠身：{karma_bonus:+.1%}（业力 {karma}，/行善 可消解）\n")
         from ..managers.luck_manager import LuckManager
-        luck_bonus = LuckManager.percent_bonus(player, per_point=0.2, cap=10.0) / 100.0
+        luck_bonus = LuckManager.percent_bonus(
+            player, per_point=0.2, cap=10.0, config_manager=self.config_manager
+        ) / 100.0
         if luck_bonus:
-            info_lines.append(f"气运加持：{luck_bonus:+.1%}（气运 {LuckManager.get_total_luck(player)}）\n")
+            info_lines.append(
+                f"气运加持：{luck_bonus:+.1%}（气运 {LuckManager.get_total_luck(player, self.config_manager)}）\n"
+            )
         death_reduce = 1 - modifiers["permanent_death_multiplier"]
         if death_reduce > 0:
             info_lines.append(f"突破死亡概率降低：{death_reduce:.1%}\n")

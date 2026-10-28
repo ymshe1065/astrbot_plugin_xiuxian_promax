@@ -333,6 +333,13 @@ HP：{max_hp}
         if winner == user_id:
             boss.status = 0
             await self.db.ext.defeat_boss(boss.boss_id)
+            try:
+                from ..core.technique_bonus import TechniqueBonusManager
+                reward = TechniqueBonusManager.apply_gold_bonus(
+                    player, reward, self.config_manager
+                )
+            except Exception:
+                pass
             player.gold += reward
             
             item_msg = ""
@@ -379,6 +386,13 @@ HP：{battle_result['player_final_hp']}/{player_stats.max_hp}
             """.strip()
             
             if reward > 0:
+                try:
+                    from ..core.technique_bonus import TechniqueBonusManager
+                    reward = TechniqueBonusManager.apply_gold_bonus(
+                        player, reward, self.config_manager
+                    )
+                except Exception:
+                    pass
                 player.gold += reward
         
         player.hp = battle_result["player_final_hp"]
@@ -496,5 +510,20 @@ HP：{boss.hp}/{boss.max_hp} ({hp_percent:.1f}%)
                         count = random.randint(item["min"], item["max"])
                         dropped_items.append((item["name"], count))
                         break
-        
+
+        # Boss 机缘：较高概率掉普通功法，低概率掉主修心法
+        try:
+            from ..core.technique_bonus import TechniqueBonusManager
+            tech_name = TechniqueBonusManager.roll_technique_drop(
+                player,
+                self.config_manager,
+                base_chance=10 + min(12, boss_level_index),
+                allow_main=True,
+                main_ratio=0.08,
+            )
+            if tech_name:
+                dropped_items.append((tech_name, 1))
+        except Exception:
+            pass
+
         return dropped_items

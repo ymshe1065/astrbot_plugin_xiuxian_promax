@@ -1,6 +1,7 @@
 # core/pill_manager.py
 
 import json
+import random
 import time
 from typing import Dict, List, Optional, Tuple
 from astrbot.api import logger
@@ -19,6 +20,32 @@ class PillManager:
     def __init__(self, db: DataBase, config_manager: ConfigManager):
         self.db = db
         self.config_manager = config_manager
+
+    # ===== 永久丹药上限加成 =====
+    @staticmethod
+    def _get_bonus_data(player: Player) -> dict:
+        try:
+            data = json.loads(player.permanent_bonus) if player.permanent_bonus else {}
+        except Exception:
+            data = {}
+        return data if isinstance(data, dict) else {}
+
+    @classmethod
+    def get_base_attribute_limit_bonus(cls, player: Player) -> float:
+        try:
+            value = float(cls._get_bonus_data(player).get("permanent_pill_limit_bonus", 0) or 0)
+        except (TypeError, ValueError):
+            value = 0.0
+        return max(0.0, min(0.50, value))
+
+    @classmethod
+    def add_base_attribute_limit_bonus(cls, player: Player, amount: float) -> float:
+        data = cls._get_bonus_data(player)
+        current = cls.get_base_attribute_limit_bonus(player)
+        new_value = max(0.0, min(0.50, current + max(0.0, float(amount or 0))))
+        data["permanent_pill_limit_bonus"] = new_value
+        player.permanent_bonus = json.dumps(data, ensure_ascii=False)
+        return new_value
 
     # ===== 品质与背包 key =====
     def split_pill_key(self, key: str) -> Tuple[str, str]:
@@ -404,7 +431,7 @@ class PillManager:
             f"✨ 服用【{base_name}·{quality}】成功！\n"
             f"━━━━━━━━━━━━━━━\n"
             f"🛡️ 你获得了起死回生的能力\n"
-            f"下次死亡时将自动复活\n"
+            f"突破失败死亡时将自动复活\n"
             f"（复活后保留 {keep:.0%} 属性）\n"
             f"━━━━━━━━━━━━━━━"
         )
@@ -429,6 +456,16 @@ class PillManager:
             "last_tick_time": current_time,
         }
 
+        is_debuff = pill_data.get("subtype") in ("debuff", "breakthrough_debuff")
+        if is_debuff and player.has_debuff_shield:
+            player.has_debuff_shield = False
+            self._consume_inventory_key(player, pill_key)
+            await self.db.update_player(player)
+            return True, (
+                f"🛡️ 定魂护盾生效，抵消了【{base_name}·{quality}】的负面效果！\n"
+                "护盾已消耗。"
+            )
+
         effect_keys = [
             "cultivation_multiplier", "physical_damage_multiplier", "magic_damage_multiplier",
             "physical_defense_multiplier", "magic_defense_multiplier",
@@ -441,6 +478,16 @@ class PillManager:
             if key in pill_data:
                 value = float(pill_data[key])
                 effect[key] = value / mult if key in cost_keys and mult > 0 else value * mult
+
+        if pill_data.get("is_random"):
+            keys = [
+                "physical_damage_multiplier", "magic_damage_multiplier",
+                "physical_defense_multiplier", "magic_defense_multiplier",
+            ]
+            chosen = random.choice(keys)
+            for key in keys:
+                effect[key] = 0.5 if key == chosen else -0.5
+            effect["random_effect_key"] = chosen
 
         # 同名丹药不叠加：刷新为新服用的品质与时间
         effects = [
@@ -463,6 +510,14 @@ class PillManager:
         if "magic_damage_multiplier" in effect:
             value = effect["magic_damage_multiplier"]
             effect_desc.append(f"法伤{'+' if value > 0 else ''}{value:.0%}")
+        if "physical_defense_multiplier" in effect:
+            value = effect["physical_defense_multiplier"]
+            effect_desc.append(f"物防{'+' if value > 0 else ''}{value:.0%}")
+        if "magic_defense_multiplier" in effect:
+            value = effect["magic_defense_multiplier"]
+            effect_desc.append(f"法防{'+' if value > 0 else ''}{value:.0%}")
+        if effect.get("random_effect_key"):
+            effect_desc.append("随机一项属性大幅提升，其余属性大幅下降")
         if "breakthrough_bonus" in effect:
             value = effect["breakthrough_bonus"]
             effect_desc.append(f"突破成功率{'+' if value > 0 else ''}{value:.0%}")
@@ -493,6 +548,7 @@ class PillManager:
             }
 
         base_attrs = self._get_base_attributes_for_level(player, player.level_index)
+        limit_bonus = self.get_base_attribute_limit_bonus(player)
 
         attr_mapping = {
             "physical_damage_gain": ("physical_damage", "物伤"),
@@ -520,7 +576,7 @@ class PillManager:
             if gain > 0:
                 current_gain = permanent_gains[level_key].get(attr_key, 0)
                 base_value = base_attrs.get(attr_key, 100)
-                limit = base_value * 0.3
+                limit = base_value * (0.30 + limit_bonus)
 
                 if current_gain >= limit:
                     gains_blocked[attr_name] = f"已达上限({limit:.0f})"
@@ -537,6 +593,11 @@ class PillManager:
                 permanent_gains[level_key][attr_key] += gain
                 setattr(player, attr_key, getattr(player, attr_key) + int(gain))
                 gains_applied[attr_name] = int(gain)
+
+        if pill_data.get("base_attribute_limit_increase"):
+            raw = float(pill_data["base_attribute_limit_increase"]) * mult
+            new_limit = self.add_base_attribute_limit_bonus(player, raw)
+            gains_applied["永久属性上限"] = f"+{new_limit:.0%}"
 
         if "cultivation_multiplier" in pill_data:
             cult_mult = float(pill_data["cultivation_multiplier"]) * mult
@@ -574,7 +635,7 @@ class PillManager:
                 msg_parts.append(f"  {attr_name} {reason}")
 
         msg_parts.append("━━━━━━━━━━━━━━━")
-        msg_parts.append("注：每个境界的永久属性丹药增益最多为基础属性的30%")
+        msg_parts.append("注：每个境界的永久属性丹药增益上限为基础属性的30%+已使用洗髓/易筋加成")
 
         return True, "\n".join(msg_parts)
 
@@ -867,12 +928,16 @@ class PillManager:
             if "cultivation_multiplier" in level_gains:
                 multipliers["cultivation_speed"] += level_gains["cultivation_multiplier"]
 
-        cap = 3.0
         try:
-            cap = float(self.config_manager.pill_quality_data.get("temporary_effect_cap", 3.0))
+            cultivation_cap = float(self.config_manager.pill_quality_data.get("temporary_effect_cap", 3.0))
         except Exception:
-            cap = 3.0
-        for key in multipliers:
+            cultivation_cap = 3.0
+        caps = {
+            "physical_damage": 1.5, "magic_damage": 1.5,
+            "physical_defense": 1.5, "magic_defense": 1.5,
+            "cultivation_speed": max(1.0, cultivation_cap),
+        }
+        for key, cap in caps.items():
             multipliers[key] = max(0.0, min(cap, multipliers[key]))
 
         return multipliers
@@ -1052,5 +1117,8 @@ class PillManager:
                 gain["death_protection_multiplier"] = 1.0
 
         player.set_permanent_pill_gains({})
+        data = self._get_bonus_data(player)
+        if data.pop("permanent_pill_limit_bonus", None) is not None:
+            player.permanent_bonus = json.dumps(data, ensure_ascii=False)
         self._ensure_non_negative_attributes(player)
         return changed

@@ -384,6 +384,7 @@ class CombatManager:
             "counter_damage": 0,
             "defense_bonus": 0,
             "combo_rate": 0,
+            "dodge": 0,
             "physical_damage_multiplier": 1.0,
             "magic_damage_multiplier": 1.0,
         }
@@ -572,11 +573,21 @@ class CombatManager:
                 ) - 1 + forge_bonus,
             ),
         )
+        # 永久丹药/先天随机属性保留为有上限的附加值，不作为装备基数。
+        permanent_pill_limit = 0.30
+        try:
+            import json
+            bonus_data = json.loads(player.permanent_bonus) if player.permanent_bonus else {}
+            if isinstance(bonus_data, dict):
+                permanent_pill_limit += max(0.0, min(0.50, float(bonus_data.get("permanent_pill_limit_bonus", 0) or 0)))
+        except Exception:
+            pass
         permanent_total = min(
-            int(base_atk_total * .20),
+            int(base_atk_total * permanent_pill_limit),
             max(0, int(player.physical_damage or 0) + int(player.magic_damage or 0)),
         )
         perm_phys = int(permanent_total * base_phys / base_atk_total)
+
         perm_magic = permanent_total - perm_phys
         title_total = min(
             int(base_atk_total * .10),
@@ -589,7 +600,7 @@ class CombatManager:
         physical_def = int(base_pdef * (1 + defense_bonus)) + int(equip.get("physical_defense", 0))
         magic_def = int(base_mdef * (1 + defense_bonus)) + int(equip.get("magic_defense", 0))
         permanent_def_total = min(
-            int((base_pdef + base_mdef) * .20),
+            int((base_pdef + base_mdef) * permanent_pill_limit),
             max(0, int(player.physical_defense or 0) + int(player.magic_defense or 0)),
         )
         pdef_share = base_pdef / max(1, base_pdef + base_mdef)
@@ -605,7 +616,6 @@ class CombatManager:
         effects["lifesteal"] = effects.get("lifesteal", 0) + int(title.get("lifesteal", 0) or 0)
         final_atk = max(1, physical_atk + magic_atk)
         defense = max(0, physical_def + magic_def)
-
         return CombatStats(
             user_id=player.user_id,
             name=player.user_name or player.user_id,

@@ -116,6 +116,19 @@ class ShopManager:
                     'data': item
                 })
 
+        # 独立功法池（主修心法 + 普通生活功法）
+        for item in (getattr(self.config_manager, "techniques_data", {}) or {}).values():
+            if item.get('shop_weight', 0) > 0 and item.get('price', 0) > 0:
+                all_items.append({
+                    'id': item.get('id', item['name']),
+                    'name': item['name'],
+                    'type': ItemRules.normalize_shop_type(item),
+                    'price': item['price'],
+                    'weight': item['shop_weight'],
+                    'rank': item.get('rank', '凡品'),
+                    'data': item
+                })
+
         # 添加破境丹
         for pill in self.config_manager.pills_data.values():
             if pill.get('shop_weight', 0) > 0 and pill.get('price', 0) > 0:
@@ -297,11 +310,24 @@ class ShopManager:
         return (int(time.time()) - last_refresh_time) >= (refresh_hours * 3600)
 
     def generate_pavilion_items(self, item_getter, count: int) -> List[Dict]:
-        """生成阁楼物品列表（带库存和折扣）"""
+        """生成阁楼物品列表（带库存和折扣）
+
+        item_getter 返回的条目若带 always_available=True，则视为常驻商品：
+        每次刷新都会全部上架，count 仅控制额外随机商品的数量。
+        """
         base_items = item_getter(count * 2)  # 获取更多以便随机选择
-        selected = self._weighted_random_choice(
-            [{'weight': i.get('data', {}).get('shop_weight', 100), **i} for i in base_items], count
-        )
+        normalized = [
+            {'weight': i.get('data', {}).get('shop_weight', 100), **i}
+            for i in base_items
+        ]
+        permanent = [i for i in normalized if i.get('always_available')]
+        rotatable = [i for i in normalized if not i.get('always_available')]
+        if permanent:
+            selected = list(permanent)
+            if rotatable and count > 0:
+                selected.extend(self._weighted_random_choice(rotatable, min(count, len(rotatable))))
+        else:
+            selected = self._weighted_random_choice(normalized, count)
         discount_min = self._cfg("SHOP_DISCOUNT_MIN", 0.8)
         discount_max = self._cfg("SHOP_DISCOUNT_MAX", 1.2)
         result = []
@@ -311,7 +337,8 @@ class ShopManager:
             result.append({
                 'name': item['name'], 'type': item['type'], 'rank': item['rank'],
                 'original_price': item['price'], 'discount': discount,
-                'price': int(item['price'] * discount), 'stock': stock, 'data': item.get('data', {})
+                'price': int(item['price'] * discount), 'stock': stock, 'data': item.get('data', {}),
+                'always_available': bool(item.get('always_available')), 'rare': bool(item.get('rare')),
             })
         return result
 
@@ -329,14 +356,35 @@ class ShopManager:
                 all_pills.append({'name': pill['name'], 'type': 'utility_pill', 'price': pill['price'], 'rank': pill.get('rank', '凡品'), 'data': pill})
         return all_pills
 
+    def _is_breakthrough_recipe(self, item: Dict) -> bool:
+        """判断丹方卷轴对应的丹药是否为突破所需（常驻丹方）"""
+        recipe = None
+        recipe_id = item.get('recipe_id')
+        if recipe_id is not None:
+            recipe = self.config_manager.get_recipe_by_id(recipe_id)
+        if not recipe:
+            recipe = self.config_manager.get_recipe_by_scroll(item.get('name', ''))
+        if not recipe:
+            return False
+        output_pill = recipe.get('output_pill') or recipe.get('output')
+        pill = self.config_manager.pills_data.get(output_pill) if output_pill else None
+        if not isinstance(pill, dict):
+            return False
+        return pill.get('subtype') == 'breakthrough' or pill.get('type') == 'breakthrough'
+
     def get_recipes_for_display(self, count: int) -> List[Dict]:
-        """获取丹方卷轴用于丹方阁展示"""
+        """获取丹方卷轴用于丹方阁展示
+
+        突破丹方常驻提供（always_available=True），其余稀有丹方参与随机刷新。
+        """
         recipes = []
         for item in self.config_manager.items_data.values():
             if item.get('type') == '丹方' and item.get('price', 0) > 0:
+                permanent = self._is_breakthrough_recipe(item)
                 recipes.append({
                     'name': item['name'], 'type': 'recipe', 'price': item['price'],
                     'rank': item.get('rank', '灵品'), 'data': item,
+                    'always_available': permanent, 'rare': not permanent,
                 })
         return recipes
 
@@ -379,9 +427,18 @@ class ShopManager:
                 # 丹方/材料包由丹阁分区单独出售，不混入百宝阁
                 if item.get('type') in ('丹方', '材料包'):
                     continue
-                # 映射旧格式类型到新格式
-                item_type = self._map_legacy_item_type(item)
+                # 符箓保留独立类型，避免在商店/物品信息中显示成材料
+                item_type = "符箓" if item.get('type') == '符箓' else self._map_legacy_item_type(item)
                 all_items.append({'name': item['name'], 'type': item_type, 'price': item['price'], 'rank': item.get('rank', '凡品'), 'data': item})
+        for item in (getattr(self.config_manager, "techniques_data", {}) or {}).values():
+            if item.get('price', 0) > 0:
+                all_items.append({
+                    'name': item['name'],
+                    'type': ItemRules.normalize_shop_type(item),
+                    'price': item['price'],
+                    'rank': item.get('rank', '凡品'),
+                    'data': item,
+                })
         for pill in self.config_manager.pills_data.values():
             if pill.get('price', 0) > 0:
                 all_items.append({'name': pill['name'], 'type': 'pill', 'price': pill['price'], 'rank': pill.get('rank', '凡品'), 'data': pill})
@@ -405,24 +462,68 @@ class ShopManager:
         return ItemRules.normalize_shop_type(item)
 
     def find_item_by_name(self, name: str) -> Optional[Dict]:
-        """根据名称查找物品"""
+        """根据名称查找物品；覆盖商店、功法、丹药、材料、储物戒与符箓配方。"""
+        def _wrap(data: dict, item_type: str, price=None, rank=None):
+            return {
+                'name': data.get('name') or name,
+                'type': item_type,
+                'price': int(data.get('price', 0) or 0) if price is None else price,
+                'rank': rank or data.get('rank', '凡品'),
+                'data': data,
+            }
+
         for weapon in self.config_manager.weapons_data.values():
-            if weapon['name'] == name and weapon.get('price', 0) > 0:
-                return {'name': weapon['name'], 'type': 'weapon', 'price': weapon['price'], 'rank': weapon.get('rank', '凡品'), 'data': weapon}
+            if weapon.get('name') == name:
+                return _wrap(weapon, 'weapon')
         for item in self.config_manager.items_data.values():
-            if item['name'] == name and item.get('price', 0) > 0:
-                # 映射旧格式类型到新格式
-                item_type = self._map_legacy_item_type(item)
-                return {'name': item['name'], 'type': item_type, 'price': item['price'], 'rank': item.get('rank', '凡品'), 'data': item}
+            if item.get('name') == name:
+                if item.get('type') == '符箓':
+                    item_type = '符箓'
+                elif item.get('type') == '材料':
+                    item_type = 'material'
+                else:
+                    item_type = self._map_legacy_item_type(item)
+                return _wrap(item, item_type)
+        for item in (getattr(self.config_manager, "techniques_data", {}) or {}).values():
+            if item.get('name') == name:
+                return _wrap(item, ItemRules.normalize_shop_type(item))
         for pill in self.config_manager.pills_data.values():
-            if pill['name'] == name and pill.get('price', 0) > 0:
-                return {'name': pill['name'], 'type': 'pill', 'price': pill['price'], 'rank': pill.get('rank', '凡品'), 'data': pill}
+            if pill.get('name') == name:
+                return _wrap(pill, 'pill')
         for pill in self.config_manager.exp_pills_data.values():
-            if pill['name'] == name and pill.get('price', 0) > 0:
-                return {'name': pill['name'], 'type': 'exp_pill', 'price': pill['price'], 'rank': pill.get('rank', '凡品'), 'data': pill}
+            if pill.get('name') == name:
+                return _wrap(pill, 'exp_pill')
         for pill in self.config_manager.utility_pills_data.values():
-            if pill['name'] == name and pill.get('price', 0) > 0:
-                return {'name': pill['name'], 'type': 'utility_pill', 'price': pill['price'], 'rank': pill.get('rank', '凡品'), 'data': pill}
+            if pill.get('name') == name:
+                return _wrap(pill, 'utility_pill')
+        # 材料目录兜底（少数材料只存在于材料目录）
+        material = (getattr(self.config_manager, "material_catalog", {}) or {}).get(name)
+        if isinstance(material, dict):
+            data = {
+                **material,
+                'name': name,
+                'type': '材料',
+                'rank': material.get('tier', material.get('rank', '凡品')),
+                'price': material.get('price', 0),
+                'description': material.get('description') or f"{material.get('tier', '')}{material.get('category', '')}材料。",
+            }
+            return _wrap(data, 'material')
+        # 储物戒
+        ring = (getattr(self.config_manager, "storage_rings_data", {}) or {}).get(name)
+        if isinstance(ring, dict):
+            return _wrap(ring, 'storage_ring')
+        # 符箓配方兜底（部分配方未注入物品目录）
+        recipe = (getattr(self.config_manager, "talisman_recipes_data", {}) or {}).get(name)
+        if isinstance(recipe, dict):
+            data = {
+                **recipe,
+                'name': name,
+                'type': '符箓',
+                'rank': recipe.get('rank', '黄阶'),
+                'price': recipe.get('price', 0),
+                'description': recipe.get('desc') or f"{recipe.get('category', '')}符箓，可绘制使用。",
+            }
+            return _wrap(data, '符箓')
         return None
 
     def format_pavilion_display(self, pavilion_name: str, items: List[Dict], refresh_hours: int = 6, last_refresh: int = 0) -> str:
@@ -451,12 +552,13 @@ class ShopManager:
             elif item.get('discount', 1.0) > 1.0:
                 discount_text = f" [+{int((item['discount'] - 1.0) * 100)}%]"
             stock_text = f"库存紧张:{stock}" if stock <= 3 else f"库存:{stock}"
+            permanent_text = " [常驻]" if item.get('always_available') else ""
 
             # 获取物品效果描述
             effect_desc = '；'.join(self.get_trade_details(item))
             effect_line = f"\n   效果: {effect_desc}" if effect_desc else ""
 
-            lines.append(f"{display_index}. [{item['rank']}] {item['name']} ({type_label}){discount_text}\n   价格: {item['price']} 灵石 {stock_text}{effect_line}\n")
+            lines.append(f"{display_index}. [{item['rank']}] {item['name']} ({type_label}){permanent_text}{discount_text}\n   价格: {item['price']} 灵石 {stock_text}{effect_line}\n")
 
         if refresh_hours > 0 and last_refresh:
             remaining = (last_refresh + refresh_hours * 3600) - int(time.time())
@@ -540,7 +642,7 @@ class ShopManager:
         if not detail_type:
             detail_type = "exp_pill" if "exp_gain" in data else "utility_pill" if "effect_type" in data else ""
         if detail_type not in ("pill", "exp_pill", "utility_pill"):
-            detail_type = ItemRules.normalize_shop_type(data)
+            detail_type = "符箓" if data.get("type") == "符箓" else ItemRules.normalize_shop_type(data)
         normalized = {**item, "type": detail_type,
                       "rank": item.get("rank", data.get("rank", "凡品")), "price": item.get("price", 0), "data": data}
         lines = [f"品级: {normalized['rank']}"] + self.get_item_details(normalized).splitlines()[3:]
@@ -561,6 +663,22 @@ class ShopManager:
             value_text = (f"{value:+g}%" if key in ("crit_rate", "lifesteal", "counter_damage", "combo_rate", "dodge", "status_resist")
                           else f"{value:+.1%}" if ItemRules.is_rate_key(key) else f"{value:+g}")
             lines.append(f"特效: {labels.get(key, key)} {value_text}")
+        try:
+            exp_mult = float(data.get("exp_multiplier", 0) or 0)
+        except (TypeError, ValueError):
+            exp_mult = 0.0
+        if exp_mult > 0:
+            lines.append(f"生活: 修炼效率 {exp_mult:+.1%}")
+        from .technique_bonus import LIFE_EFFECT_LABELS
+        for key, value in (data.get("life_effects") or {}).items():
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                continue
+            if number <= 0:
+                continue
+            value_text = f"{number:+.0f}" if key == "luck_bonus" else f"{number:+.1%}"
+            lines.append(f"生活: {LIFE_EFFECT_LABELS.get(key, key)} {value_text}")
         for affix in (instance or {}).get("affixes", []) or []:
             key, value = affix.get("key", ""), affix.get("value", 0)
             value_text = (f"{value:+g}%" if key in ("crit_rate", "lifesteal", "counter_damage", "combo_rate", "dodge", "status_resist")
@@ -582,7 +700,13 @@ class ShopManager:
 
         details = [f"名称: {item_data['name']}"]
         details.append(f"品级: {item_data['rank']}")
-        details.append(f"价格: {item_data['price']} 灵石")
+        try:
+            price = int(item_data.get('price', 0) or 0)
+        except (TypeError, ValueError):
+            price = 0
+        details.append(f"价格: {price:,} 灵石" if price > 0 else "价格: —")
+        if data.get('element'):
+            details.append(f"五行: {data['element']}")
 
         description = data.get('description')
         if description:
@@ -598,6 +722,22 @@ class ShopManager:
             if 'required_level_index' in data:
                 level_name = self._format_required_level(data['required_level_index'])
                 details.append(f"需求境界: {level_name}")
+
+        elif item_type == '符箓':
+            from .talisman_rules import NON_TALISMAN_ITEMS, build_profile
+            if item_data['name'] in NON_TALISMAN_ITEMS:
+                details.append("用途：使用 /激活化身 可激活 30 天闭关收益加成")
+                return "\n".join(details)
+            recipe = (getattr(self.config_manager, "talisman_recipes_data", {}) or {}).get(item_data['name'], {})
+            profile = build_profile(item_data['name'], item_data.get('rank', '黄阶'), recipe.get('category', ''))
+            details.append(f"类别：{profile['category']}")
+            details.append(f"效果：{profile['description']}")
+            details.append(f"持续：{profile['duration']}分钟")
+            required = recipe.get("level_required")
+            if required is None:
+                required = data.get("required_level_index")
+            if required is not None:
+                details.append(f"需求境界: {self._format_required_level(int(required))}")
 
         elif item_type == 'material_package':
             category = data.get('package_category', '材料')
@@ -621,11 +761,51 @@ class ShopManager:
                 attrs.append(f"物防+{data['physical_defense']}")
             if data.get('mental_power', 0) > 0:
                 attrs.append(f"精神力+{data['mental_power']}")
+            from .technique_bonus import LIFE_EFFECT_LABELS
+            effect_labels = {
+                "crit_rate": "暴击率", "crit_damage": "暴击伤害", "lifesteal": "吸血",
+                "counter_damage": "反伤", "combo_rate": "连击率", "dodge": "闪避",
+                "defense_bonus": "额外防御", "physical_damage_multiplier": "物伤倍率",
+                "magic_damage_multiplier": "法伤倍率",
+            }
+            for key, value in (data.get("effects") or {}).items():
+                label = effect_labels.get(key, key)
+                if key in ("crit_rate", "lifesteal", "counter_damage", "combo_rate", "dodge"):
+                    attrs.append(f"{label}+{value:g}%")
+                elif key.endswith("_multiplier"):
+                    attrs.append(f"{label}+{float(value):.1%}")
+                else:
+                    attrs.append(f"{label}+{value:g}")
+            for key, value in (data.get("life_effects") or {}).items():
+                try:
+                    number = float(value)
+                except (TypeError, ValueError):
+                    continue
+                if number <= 0:
+                    continue
+                attrs.append(
+                    f"{LIFE_EFFECT_LABELS.get(key, key)}+{int(number)}"
+                    if key == "luck_bonus"
+                    else f"{LIFE_EFFECT_LABELS.get(key, key)}+{number:.1%}"
+                )
             if attrs:
                 details.append(f"效果: {', '.join(attrs)}")
             if 'required_level_index' in data:
                 level_name = self._format_required_level(data['required_level_index'])
                 details.append(f"需求境界: {level_name}")
+
+        elif item_type == 'storage_ring':
+            if data.get('capacity') is not None:
+                details.append(f"容量: {int(data.get('capacity', 0) or 0)} 格")
+            if 'required_level_index' in data:
+                details.append(f"需求境界: {self._format_required_level(int(data.get('required_level_index', 0) or 0))}")
+            details.append("获取：基础储物戒初始自带；高级储物戒商店/百宝阁购买")
+
+        elif item_type == 'material':
+            category = data.get('category') or data.get('subtype')
+            tier = data.get('tier') or item_data.get('rank')
+            if category or tier:
+                details.append(f"类别: {category or '材料'}" + (f" · {tier}" if tier else ""))
 
         # 丹药类
         elif item_type in ['pill', 'exp_pill', 'utility_pill', 'inventory_pill', 'legacy_pill']:

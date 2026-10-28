@@ -35,6 +35,10 @@ _RATE_KEYS = {
     "cultivation_multiplier",
     "status_resist",
     "dodge",
+    "gold_bonus",
+    "drop_bonus",
+    "cooldown_reduction",
+    "luck_bonus",
 }
 
 EQUIPPABLE_TYPES = {

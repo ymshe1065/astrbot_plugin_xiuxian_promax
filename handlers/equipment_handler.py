@@ -76,6 +76,7 @@ class EquipmentHandler:
 
         # 总属性加成：相对境界基础的绝对增量，并附带百分比以便理解新规则
         rates = self.equipment_manager.get_equipment_rates(player)
+        life_parts = []
         if equipped_items or rates:
             equipment_lines.append("\n--- 装备属性加成（境界基础×百分比）---\n")
             total_attrs = player.get_total_attributes(equipped_items, pill_multipliers, self.equipment_manager.get_base_attributes(player))
@@ -88,6 +89,20 @@ class EquipmentHandler:
             mental_power_bonus = total_attrs["mental_power"] - base["mental_power"]
             max_spiritual_qi_bonus = total_attrs["max_spiritual_qi"] - player.max_spiritual_qi
             exp_multiplier = total_attrs["exp_multiplier"]
+
+            from ..core.technique_bonus import TechniqueBonusManager
+            life = TechniqueBonusManager.collect_life_effects(player, self.config_manager)
+            life_parts = []
+            if life.get("gold_bonus"):
+                life_parts.append(f"灵石收益+{life['gold_bonus']:.1%}")
+            if life.get("drop_bonus"):
+                life_parts.append(f"掉落几率+{life['drop_bonus']:.1%}")
+            if life.get("cooldown_reduction"):
+                life_parts.append(f"调息缩减{life['cooldown_reduction']:.1%}")
+            if life.get("luck_bonus"):
+                life_parts.append(f"气运+{int(life['luck_bonus'])}")
+            if life_parts:
+                equipment_lines.append(f"🌿 生活加成：{' · '.join(life_parts)}\n")
 
             def _line(label: str, bonus: int, rate_key: str) -> str:
                 rate = rates.get(rate_key, 0)
@@ -133,6 +148,7 @@ class EquipmentHandler:
                             f"物伤 +{physical_damage_bonus}（+{rates.get('physical_damage', 0):.1%}）· 法伤 +{magic_damage_bonus}（+{rates.get('magic_damage', 0):.1%}）",
                             f"物防 +{physical_defense_bonus}（+{rates.get('physical_defense', 0):.1%}）· 法防 +{magic_defense_bonus}（+{rates.get('magic_defense', 0):.1%}）",
                             f"精神力 +{mental_power_bonus} · 修为倍率 +{exp_multiplier:.1%}",
+                            f"生活加成：{' · '.join(life_parts) if life_parts else '无'}",
                         ]},
                     ],
                     footer="装备按境界基础百分比加成，同属性加法叠加 · 装备 <物品名> [序号] [部位]",

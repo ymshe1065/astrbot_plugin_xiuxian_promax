@@ -105,7 +105,8 @@ class TestTalismanSystem(unittest.IsolatedAsyncioTestCase):
         fresh = await self.db.get_player_by_id("u1")
         stats = self.CombatManager.build_player_combat_stats(fresh, self.config_manager, db=self.db)
         self.assertGreater(stats.defense, 0)
-        self.assertGreater(stats.effects.get("defense_bonus", 0), 0)
+        base = _imp("core.equipment_balance").realm_attributes(fresh, self.config_manager)
+        self.assertGreater(stats.defense, base["physical_defense"] + base["magic_defense"])
 
     async def test_alchemy_and_exploration_bonus_keys(self):
         player = self._player()

@@ -174,7 +174,9 @@ class StorageRingManager:
                     if self.is_equipment_item(item_name):
                         # 装备按实例保存到 overflow 位置，保留品质/词条
                         self.instance_manager.create_instances(
-                            player, item_name, count, location="overflow"
+                            player, item_name, count,
+                            quality=self.instance_manager.roll_quality(),
+                            location="overflow",
                         )
                         orig_player.set_equipment_instances(player.get_equipment_instances())
                     else:
@@ -192,7 +194,11 @@ class StorageRingManager:
                 return False, f"储物戒容量不足！需要 {required_volume}，仅剩 {available}（上限{capacity}）"
 
             if self.is_equipment_item(item_name):
-                self.instance_manager.create_instances(player, item_name, count, location="storage")
+                self.instance_manager.create_instances(
+                    player, item_name, count,
+                    quality=self.instance_manager.roll_quality(),
+                    location="storage",
+                )
                 orig_player.set_equipment_instances(player.get_equipment_instances())
                 if not external_transaction:
                     await self.db.update_player(player)
@@ -254,7 +260,11 @@ class StorageRingManager:
                 if fit > 0:
                     # 兼容旧格式：旧溢出记录只有名称和数量，无法恢复品质
                     if self.is_equipment_item(item_name):
-                        self.instance_manager.create_instances(fresh, item_name, fit, location="storage")
+                        self.instance_manager.create_instances(
+                            fresh, item_name, fit,
+                            quality=self.instance_manager.roll_quality(),
+                            location="storage",
+                        )
                     else:
                         items[item_name] = int(items.get(item_name, 0) or 0) + fit
                         fresh.set_storage_ring_items(items)

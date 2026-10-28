@@ -1,54 +1,395 @@
 {
+  "庚金锐锋诀": {
+    "name": "庚金锐锋诀",
+    "type": "main_technique",
+    "rank": "黄阶",
+    "element": "金",
+    "description": "金系主修心法，以暴击与破甲见长。",
+    "effects": {
+      "crit_rate": 4,
+      "crit_damage": 0.1
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 600,
+    "drop_weight": 20,
+    "price": 30000,
+    "volume": 1,
+    "stock_cap": 1
+  },
+  "太白裂空剑典": {
+    "name": "太白裂空剑典",
+    "type": "main_technique",
+    "rank": "玄阶",
+    "element": "金",
+    "description": "金系主修心法，剑意凌厉，暴击伤害显著提升。",
+    "effects": {
+      "crit_rate": 7,
+      "crit_damage": 0.2
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 300,
+    "drop_weight": 10,
+    "price": 150000,
+    "volume": 1,
+    "stock_cap": 1
+  },
+  "白虎杀伐真经": {
+    "name": "白虎杀伐真经",
+    "type": "main_technique",
+    "rank": "地阶",
+    "element": "金",
+    "description": "金系主修心法，白虎杀伐之气凝于会心一击。",
+    "effects": {
+      "crit_rate": 11,
+      "crit_damage": 0.35
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 120,
+    "drop_weight": 4,
+    "price": 600000,
+    "volume": 1,
+    "stock_cap": 1
+  },
+  "诛仙戮神金章": {
+    "name": "诛仙戮神金章",
+    "type": "main_technique",
+    "rank": "天阶",
+    "element": "金",
+    "description": "金系至高心法，一击破万法。",
+    "effects": {
+      "crit_rate": 16,
+      "crit_damage": 0.55
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 40,
+    "drop_weight": 1,
+    "price": 2500000,
+    "volume": 1,
+    "stock_cap": 1
+  },
+  "青木回春诀": {
+    "name": "青木回春诀",
+    "type": "main_technique",
+    "rank": "黄阶",
+    "element": "木",
+    "description": "木系主修心法，生生不息，攻击可汲取气血。",
+    "effects": {
+      "lifesteal": 2,
+      "combo_rate": 2
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 600,
+    "drop_weight": 20,
+    "price": 30000,
+    "volume": 1,
+    "stock_cap": 1
+  },
+  "万木长生经": {
+    "name": "万木长生经",
+    "type": "main_technique",
+    "rank": "玄阶",
+    "element": "木",
+    "description": "木系主修心法，气血绵长，连击不绝。",
+    "effects": {
+      "lifesteal": 4,
+      "combo_rate": 4
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 300,
+    "drop_weight": 10,
+    "price": 150000,
+    "volume": 1,
+    "stock_cap": 1
+  },
+  "青龙不死玄功": {
+    "name": "青龙不死玄功",
+    "type": "main_technique",
+    "rank": "地阶",
+    "element": "木",
+    "description": "木系主修心法，青龙护体，愈战愈强。",
+    "effects": {
+      "lifesteal": 7,
+      "combo_rate": 7
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 120,
+    "drop_weight": 4,
+    "price": 600000,
+    "volume": 1,
+    "stock_cap": 1
+  },
+  "建木通天录": {
+    "name": "建木通天录",
+    "type": "main_technique",
+    "rank": "天阶",
+    "element": "木",
+    "description": "木系至高心法，生机通天，万木朝宗。",
+    "effects": {
+      "lifesteal": 11,
+      "combo_rate": 11
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 40,
+    "drop_weight": 1,
+    "price": 2500000,
+    "volume": 1,
+    "stock_cap": 1
+  },
+  "寒潭凝息诀": {
+    "name": "寒潭凝息诀",
+    "type": "main_technique",
+    "rank": "黄阶",
+    "element": "水",
+    "description": "水系主修心法，身法如水，受击可反震。",
+    "effects": {
+      "dodge": 2,
+      "counter_damage": 3
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 600,
+    "drop_weight": 20,
+    "price": 30000,
+    "volume": 1,
+    "stock_cap": 1
+  },
+  "玄水化元经": {
+    "name": "玄水化元经",
+    "type": "main_technique",
+    "rank": "玄阶",
+    "element": "水",
+    "description": "水系主修心法，化劲卸力，借力反伤。",
+    "effects": {
+      "dodge": 4,
+      "counter_damage": 6
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 300,
+    "drop_weight": 10,
+    "price": 150000,
+    "volume": 1,
+    "stock_cap": 1
+  },
+  "北冥归墟真解": {
+    "name": "北冥归墟真解",
+    "type": "main_technique",
+    "rank": "地阶",
+    "element": "水",
+    "description": "水系主修心法，北冥归墟，攻守转换自如。",
+    "effects": {
+      "dodge": 7,
+      "counter_damage": 10
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 120,
+    "drop_weight": 4,
+    "price": 600000,
+    "volume": 1,
+    "stock_cap": 1
+  },
+  "上善若水天章": {
+    "name": "上善若水天章",
+    "type": "main_technique",
+    "rank": "天阶",
+    "element": "水",
+    "description": "水系至高心法，上善若水，万法不沾。",
+    "effects": {
+      "dodge": 11,
+      "counter_damage": 16
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 40,
+    "drop_weight": 1,
+    "price": 2500000,
+    "volume": 1,
+    "stock_cap": 1
+  },
+  "赤炎焚脉诀": {
+    "name": "赤炎焚脉诀",
+    "type": "main_technique",
+    "rank": "黄阶",
+    "element": "火",
+    "description": "火系主修心法，灼烧经脉，攻势如火。",
+    "effects": {
+      "physical_damage_multiplier": 0.03,
+      "magic_damage_multiplier": 0.03,
+      "combo_rate": 2
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 600,
+    "drop_weight": 20,
+    "price": 30000,
+    "volume": 1,
+    "stock_cap": 1
+  },
+  "离火燃天经": {
+    "name": "离火燃天经",
+    "type": "main_technique",
+    "rank": "玄阶",
+    "element": "火",
+    "description": "火系主修心法，离火焚天，连击成势。",
+    "effects": {
+      "physical_damage_multiplier": 0.06,
+      "magic_damage_multiplier": 0.06,
+      "combo_rate": 4
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 300,
+    "drop_weight": 10,
+    "price": 150000,
+    "volume": 1,
+    "stock_cap": 1
+  },
+  "朱雀涅槃真经": {
+    "name": "朱雀涅槃真经",
+    "type": "main_technique",
+    "rank": "地阶",
+    "element": "火",
+    "description": "火系主修心法，朱雀涅槃，越战越烈。",
+    "effects": {
+      "physical_damage_multiplier": 0.1,
+      "magic_damage_multiplier": 0.1,
+      "combo_rate": 7
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 120,
+    "drop_weight": 4,
+    "price": 600000,
+    "volume": 1,
+    "stock_cap": 1
+  },
+  "焚世红莲天典": {
+    "name": "焚世红莲天典",
+    "type": "main_technique",
+    "rank": "天阶",
+    "element": "火",
+    "description": "火系至高心法，红莲业火焚尽诸天。",
+    "effects": {
+      "physical_damage_multiplier": 0.15,
+      "magic_damage_multiplier": 0.15,
+      "combo_rate": 10
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 40,
+    "drop_weight": 1,
+    "price": 2500000,
+    "volume": 1,
+    "stock_cap": 1
+  },
+  "厚土镇岳诀": {
+    "name": "厚土镇岳诀",
+    "type": "main_technique",
+    "rank": "黄阶",
+    "element": "土",
+    "description": "土系主修心法，厚土护体，稳如镇岳。",
+    "effects": {
+      "counter_damage": 4,
+      "defense_bonus": 30
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 600,
+    "drop_weight": 20,
+    "price": 30000,
+    "volume": 1,
+    "stock_cap": 1
+  },
+  "坤元不坏经": {
+    "name": "坤元不坏经",
+    "type": "main_technique",
+    "rank": "玄阶",
+    "element": "土",
+    "description": "土系主修心法，坤元不坏，反震来敌。",
+    "effects": {
+      "counter_damage": 7,
+      "defense_bonus": 80
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 300,
+    "drop_weight": 10,
+    "price": 150000,
+    "volume": 1,
+    "stock_cap": 1
+  },
+  "金刚不坏体": {
+    "name": "金刚不坏体",
+    "type": "main_technique",
+    "rank": "地阶",
+    "element": "土",
+    "description": "土系主修心法，佛门炼体至高术，受击反震。",
+    "effects": {
+      "counter_damage": 12,
+      "defense_bonus": 180
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 120,
+    "drop_weight": 4,
+    "price": 600000,
+    "volume": 1,
+    "stock_cap": 1
+  },
+  "山河社稷天章": {
+    "name": "山河社稷天章",
+    "type": "main_technique",
+    "rank": "天阶",
+    "element": "土",
+    "description": "土系至高心法，山河为盾，社稷为甲。",
+    "effects": {
+      "counter_damage": 18,
+      "defense_bonus": 350
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 40,
+    "drop_weight": 1,
+    "price": 2500000,
+    "volume": 1,
+    "stock_cap": 1
+  },
   "黄阶功法：基础剑诀": {
     "name": "黄阶功法：基础剑诀",
     "type": "technique",
     "rank": "黄阶",
-    "description": "修仙入门剑法，略微提升暴击率。",
-    "exp_multiplier": 0.05,
-    "effects": {
-      "crit_rate": 5,
-      "crit_damage": 1.5
+    "element": "金",
+    "description": "入门吐纳功法，提升修炼效率与历练掉落。",
+    "exp_multiplier": 0.015,
+    "life_effects": {
+      "drop_bonus": 0.01
     },
-    "shop_weight": 100,
-    "price": 5000
+    "shop_weight": 1000,
+    "drop_weight": 100,
+    "price": 8000,
+    "volume": 1,
+    "stock_cap": 2
   },
   "玄阶功法：血魔大法": {
     "name": "玄阶功法：血魔大法",
     "type": "technique",
     "rank": "玄阶",
-    "description": "魔道功法，攻击时吸取敌人气血。",
-    "exp_multiplier": 0.1,
-    "effects": {
-      "lifesteal": 15 
+    "element": "水",
+    "description": "魔道敛财之术，提升灵石收益与修炼效率。",
+    "exp_multiplier": 0.03,
+    "life_effects": {
+      "gold_bonus": 0.04
     },
-    "shop_weight": 30,
-    "price": 50000
-  },
-  "地阶功法：金刚不坏体": {
-    "name": "地阶功法：金刚不坏体",
-    "type": "main_technique",
-    "rank": "地阶",
-    "description": "佛门至高炼体术，受击时反弹伤害。",
-    "exp_multiplier": 0.2,
-    "effects": {
-      "counter_damage": 20,
-      "defense_bonus": 50
-    },
-    "shop_weight": 10,
-    "price": 200000
+    "shop_weight": 500,
+    "drop_weight": 35,
+    "price": 45000,
+    "volume": 1,
+    "stock_cap": 2
   },
   "天阶功法：太极剑意": {
     "name": "天阶功法：太极剑意",
     "type": "technique",
     "rank": "天阶",
-    "description": "一剑破万法，高暴击与高吸血并存。",
-    "exp_multiplier": 0.5,
-    "effects": {
-      "crit_rate": 20,
-      "lifesteal": 10,
-      "combo_rate": 15
+    "element": "土",
+    "description": "太极养生意，提升修炼、机缘与调息恢复。",
+    "exp_multiplier": 0.08,
+    "life_effects": {
+      "luck_bonus": 4,
+      "cooldown_reduction": 0.04
     },
-    "shop_weight": 1,
-    "price": 1000000
+    "shop_weight": 15,
+    "drop_weight": 2,
+    "price": 1200000,
+    "volume": 1,
+    "stock_cap": 2
   }
 }

@@ -125,7 +125,7 @@ class PillHandler:
         if player.has_resurrection_pill:
             res_quality = getattr(player, "resurrection_pill_quality", "一般") or "一般"
             keep = self.pill_manager.get_resurrection_keep(res_quality)
-            resurrection_status = f"\n🛡️ 当前拥有回生丹效果（{res_quality}，复活保留 {keep:.0%} 属性）"
+            resurrection_status = f"\n🛡️ 当前拥有回生丹效果（{res_quality}，突破失败复活保留 {keep:.0%} 属性）"
 
         # 组合显示
         full_message = inventory_display

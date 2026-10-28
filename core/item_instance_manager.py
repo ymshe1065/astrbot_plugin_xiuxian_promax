@@ -1,6 +1,7 @@
 # core/item_instance_manager.py
 """轻量装备实例管理：同名装备按实例 ID 区分。"""
 
+import random
 from typing import Dict, List, Optional
 
 from ..models import Player
@@ -12,6 +13,13 @@ __all__ = ["ItemInstanceManager"]
 
 class ItemInstanceManager:
     QUALITY_MULTIPLIER = {"一般": 1.0, "良好": 1.05, "极佳": 1.10, "大师": 1.15}
+    QUALITY_WEIGHTS = {"一般": 55, "良好": 30, "极佳": 12, "大师": 3}
+
+    @classmethod
+    def roll_quality(cls) -> str:
+        qualities = list(cls.QUALITY_WEIGHTS)
+        weights = [cls.QUALITY_WEIGHTS[q] for q in qualities]
+        return random.choices(qualities, weights=weights, k=1)[0]
 
     def __init__(self, db: DataBase = None, config_manager=None):
         self.db = db

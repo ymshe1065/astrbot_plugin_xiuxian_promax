@@ -131,6 +131,108 @@
       }
     }
   },
+  "AUCTION_HOUSE": {
+    "description": "拍卖会事件",
+    "type": "object",
+    "items": {
+      "ENABLED": {
+        "description": "启用拍卖会",
+        "type": "bool",
+        "default": true,
+        "hint": "关闭后不再排期、报名和播报拍卖会。"
+      },
+      "CYCLE_DAYS": {
+        "description": "筹备窗口天数",
+        "type": "int",
+        "default": 3,
+        "hint": "每 N 天内随机选一天作为预告日，当天 22:00 开拍。"
+      },
+      "ANNOUNCE_START_HOUR": {
+        "description": "预告开始小时",
+        "type": "int",
+        "default": 10,
+        "hint": "预告日从该小时开始每小时提醒一次。"
+      },
+      "ANNOUNCE_END_HOUR": {
+        "description": "预告结束小时",
+        "type": "int",
+        "default": 21,
+        "hint": "默认 21 点后不再发预告，22 点直接开拍。"
+      },
+      "EVENT_START_HOUR": {
+        "description": "开拍小时",
+        "type": "int",
+        "default": 22,
+        "hint": "预告日当天该小时开拍。"
+      },
+      "ENTRY_FEE": {
+        "description": "入场费（灵石）",
+        "type": "int",
+        "default": 500,
+        "hint": "报名时一次性扣除，正常开拍后不退。"
+      },
+      "LOT_DURATION": {
+        "description": "单件拍品固定时长（秒）",
+        "type": "int",
+        "default": 600,
+        "hint": "每件拍品最多占用该时长，之后进入下一件。"
+      },
+      "BID_COUNTDOWN": {
+        "description": "出价倒计时（秒）",
+        "type": "int",
+        "default": 60,
+        "hint": "首次出价后进入倒计时，后续出价会重置。"
+      },
+      "LOT_GAP": {
+        "description": "拍品间隔（秒）",
+        "type": "int",
+        "default": 10,
+        "hint": "上一件结算后到下一件开始前的缓冲时间。"
+      },
+      "MIN_INCREMENT_PCT": {
+        "description": "最低加价比例",
+        "type": "float",
+        "default": 0.05,
+        "hint": "后续出价至少比当前价高该比例，0.05 表示 5%。"
+      },
+      "LOT_COUNT": {
+        "description": "每场拍品数量",
+        "type": "int",
+        "default": 8,
+        "hint": "最多读取 config/auction_house_config.json 的前 N 件拍品。"
+      },
+      "AI_ENABLED": {
+        "description": "启用 AI 播报",
+        "type": "bool",
+        "default": true,
+        "hint": "关闭或 AI 不可用时自动使用模板播报。"
+      },
+      "AI_PROVIDER_ID": {
+        "description": "固定 AI Provider ID",
+        "type": "string",
+        "default": "",
+        "hint": "留空则使用首个白名单群当前会话的 Provider。"
+      },
+      "AI_TIMEOUT": {
+        "description": "AI 超时（秒）",
+        "type": "int",
+        "default": 8,
+        "hint": "超时后自动降级为模板播报。"
+      },
+      "AI_MAX_CHARS": {
+        "description": "AI 文案最大字数",
+        "type": "int",
+        "default": 300,
+        "hint": "限制 AI 生成内容长度，避免刷屏。"
+      },
+      "AI_BID_BROADCAST": {
+        "description": "出价也使用 AI 播报",
+        "type": "bool",
+        "default": false,
+        "hint": "关闭时出价播报使用模板，减少 AI 调用次数。"
+      }
+    }
+  },
   "ACCESS_CONTROL": {
     "description": "访问控制",
     "type": "object",
@@ -216,14 +318,14 @@
       "PAVILION_WEAPON_COUNT": {
         "description": "器阁展示数量",
         "type": "int",
-        "default": 20,
-        "hint": "器阁展示的武器数量。"
+        "default": 30,
+        "hint": "器阁展示的装备数量；数量越大，高境界装备也越容易出现。"
       },
       "PAVILION_TREASURE_COUNT": {
         "description": "百宝阁展示数量",
         "type": "int",
-        "default": 25,
-        "hint": "百宝阁展示的物品数量。"
+        "default": 40,
+        "hint": "百宝阁展示的物品数量；数量越大，可选范围越广。"
       },
       "SHOP_DISCOUNT_MIN": {
         "description": "折扣最小值",
@@ -243,11 +345,11 @@
         "default": 100,
         "hint": "库存=物品权重/基数。基数越大，库存越少。"
       },
-      "PAVILION_RECIPE_COUNT": {
-        "description": "丹方阁展示数量",
+      "PAVILION_RARE_RECIPE_COUNT": {
+        "description": "丹方阁稀有丹方数量",
         "type": "int",
-        "default": 10,
-        "hint": "丹方阁展示的丹方卷轴数量。"
+        "default": 3,
+        "hint": "丹方阁每次随机刷新的稀有丹方数量；突破所需丹方会常驻提供，不占用此数量。"
       },
       "PAVILION_MATERIAL_COUNT": {
         "description": "材料阁展示数量",

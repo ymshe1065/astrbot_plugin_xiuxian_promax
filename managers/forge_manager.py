@@ -102,6 +102,8 @@ class ForgeManager:
 
         if requested_slot and not target_instance:
             return False, "❌ 该部位没有已装备的装备实例，无法洗练。"
+        if not target_instance:
+            return False, "❌ 你当前没有已装备的装备实例，无法洗练。请先穿上需要洗练的装备。"
 
         # 每次洗练消耗一个洗练石
         if not self.storage_ring_mgr.has_item(player, "洗练石", 1):

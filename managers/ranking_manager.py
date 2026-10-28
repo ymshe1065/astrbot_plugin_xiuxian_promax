@@ -346,7 +346,7 @@ class RankingManager:
         return True, msg
 
     async def get_luck_ranking(self, limit: int = 10) -> Tuple[bool, str]:
-        """气运榜：按玩家真实气运总值排序（本体+称号+词条+符箓）"""
+        """气运榜：按玩家真实气运总值排序（本体+称号+词条+符箓+功法）"""
         from .luck_manager import LuckManager
 
         all_players = await self.db.get_all_players()
@@ -355,7 +355,7 @@ class RankingManager:
 
         scored = []
         for p in all_players:
-            luck = LuckManager.get_total_luck(p)
+            luck = LuckManager.get_total_luck(p, self.config_manager)
             if luck > 0:
                 scored.append((p, luck))
         scored.sort(key=lambda x: x[1], reverse=True)

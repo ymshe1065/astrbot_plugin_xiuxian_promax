@@ -19,19 +19,20 @@ class ShopHandler:
     
     ITEM_ACQUIRE_HINTS = {
         'pill': "丹阁刷新、秘境稀有掉落",
-        'exp_pill': "丹阁、炼丹系统、历练/秘境奖励",
-        'utility_pill': "丹阁稀有、秘境/Boss 掉落",
+        'exp_pill': "丹阁、炼丹系统、历练/秘境修为奖励",
+        'utility_pill': "丹阁、秘境掉落、炼丹产出",
         'inventory_pill': "丹阁刷新、炼丹产出",
         'legacy_pill': "丹阁刷新，购买后进入丹药背包",
         'recipe': "丹方阁购买后学习",
         'material': "材料阁、灵田、历练、秘境、悬赏",
         'material_package': "材料阁购买后开启",
-        '符箓': "符箓师绘制、百宝阁限量、历练/秘境掉落",
-        'weapon': "器阁、Boss 掉落",
-        'armor': "器阁、Boss 掉落",
-        'accessory': "百宝阁稀有刷新、Boss 掉落",
-        'main_technique': "百宝阁稀有刷新",
-        'technique': "百宝阁、Boss 掉落",
+        '符箓': "符箓师绘制、百宝阁、历练/奇遇掉落",
+        'weapon': "器阁、百宝阁、黑市",
+        'armor': "器阁、百宝阁",
+        'accessory': "百宝阁、黑市",
+        'main_technique': "百宝阁稀有刷新、历练/秘境/奇遇低概率掉落、Boss/世界Boss/团本稀有掉落",
+        'technique': "百宝阁、宗门商店、历练、秘境、奇遇、Boss 掉落",
+        'storage_ring': "基础储物戒初始自带；高级储物戒商店/百宝阁购买",
     }
 
     def __init__(self, db: DataBase, config: AstrBotConfig, config_manager: ConfigManager):
@@ -53,6 +54,14 @@ class ShopHandler:
         """读取配置：优先新 schema 的 VALUES 层，兼容旧根键。"""
         values = self.config.get("VALUES", {}) or {}
         return values.get(key, self.config.get(key, default))
+
+    def _rare_recipe_count(self) -> int:
+        """丹方阁每次随机刷新的稀有丹方数量（突破丹方常驻，不占此名额）。"""
+        raw = self._cfg("PAVILION_RARE_RECIPE_COUNT", self._cfg("PAVILION_RECIPE_COUNT", 3))
+        try:
+            return max(0, int(raw))
+        except (TypeError, ValueError):
+            return 3
 
     async def _ensure_pavilion_refreshed(self, pavilion_id: str, item_getter, count: int) -> None:
         """确保阁楼已刷新"""
@@ -76,10 +85,10 @@ class ShopHandler:
         details = []
         jobs = [
             ("pill_pavilion", "丹阁", self.shop_manager.get_pills_for_display, self._cfg("PAVILION_PILL_COUNT", 20)),
-            ("recipe_pavilion", "丹方阁", self.shop_manager.get_recipes_for_display, self._cfg("PAVILION_RECIPE_COUNT", 10)),
+            ("recipe_pavilion", "丹方阁", self.shop_manager.get_recipes_for_display, self._rare_recipe_count()),
             ("material_pavilion", "材料阁", self.shop_manager.get_materials_for_display, self._cfg("PAVILION_MATERIAL_COUNT", 20)),
-            ("weapon_pavilion", "器阁", self.shop_manager.get_weapons_for_display, self._cfg("PAVILION_WEAPON_COUNT", 20)),
-            ("treasure_pavilion", "百宝阁", self.shop_manager.get_all_items_for_display, self._cfg("PAVILION_TREASURE_COUNT", 25)),
+            ("weapon_pavilion", "器阁", self.shop_manager.get_weapons_for_display, self._cfg("PAVILION_WEAPON_COUNT", 30)),
+            ("treasure_pavilion", "百宝阁", self.shop_manager.get_all_items_for_display, self._cfg("PAVILION_TREASURE_COUNT", 40)),
         ]
         for pavilion_id, name, getter, cnt in jobs:
             try:
@@ -121,7 +130,7 @@ class ShopHandler:
         section = (section or "").strip()
         jobs = {
             "丹药": ("pill_pavilion", "丹阁", self.shop_manager.get_pills_for_display, self._cfg("PAVILION_PILL_COUNT", 20)),
-            "丹方": ("recipe_pavilion", "丹方阁", self.shop_manager.get_recipes_for_display, self._cfg("PAVILION_RECIPE_COUNT", 10)),
+            "丹方": ("recipe_pavilion", "丹方阁", self.shop_manager.get_recipes_for_display, self._rare_recipe_count()),
             "材料": ("material_pavilion", "材料阁", self.shop_manager.get_materials_for_display, self._cfg("PAVILION_MATERIAL_COUNT", 20)),
         }
         if not section:
@@ -155,7 +164,7 @@ class ShopHandler:
 
     async def handle_weapon_pavilion(self, event: AstrMessageEvent):
         """处理器阁命令 - 展示武器列表"""
-        count = self._cfg("PAVILION_WEAPON_COUNT", 20)
+        count = self._cfg("PAVILION_WEAPON_COUNT", 30)
         await self._ensure_pavilion_refreshed("weapon_pavilion", self.shop_manager.get_weapons_for_display, count)
         last_refresh, items = await self.db.get_shop_data("weapon_pavilion")
         if not items:
@@ -172,7 +181,7 @@ class ShopHandler:
 
     async def handle_treasure_pavilion(self, event: AstrMessageEvent):
         """处理百宝阁命令 - 展示所有物品"""
-        count = self._cfg("PAVILION_TREASURE_COUNT", 25)
+        count = self._cfg("PAVILION_TREASURE_COUNT", 40)
         await self._ensure_pavilion_refreshed("treasure_pavilion", self.shop_manager.get_all_items_for_display, count)
         last_refresh, items = await self.db.get_shop_data("treasure_pavilion")
         if not items:
@@ -214,10 +223,11 @@ class ShopHandler:
                 price_tag = f"{item['price']:,}灵石"
                 if discount < 1.0:
                     price_tag += f"({round(discount * 10, 1)}折)"
-                element = item.get('element', '')
+                element = item.get('element') or (item.get('data') or {}).get('element', '')
                 elem_tag = f"[{element}]" if element else ""
+                permanent_tag = " [常驻]" if item.get('always_available') else ""
                 count += 1
-                lines.append(f"{item['name']}{elem_tag} - {price_tag} · 库存{stock}")
+                lines.append(f"{item['name']}{elem_tag}{permanent_tag} - {price_tag} · 库存{stock}")
                 lines.extend(self.shop_manager.get_trade_details(item))
                 lines.append("")
             if not lines:
@@ -416,9 +426,11 @@ class ShopHandler:
                 success, msg = await self.storage_ring_manager.store_item(player, target_item['name'], quantity, external_transaction=True)
                 if not success:
                     await self.db.conn.rollback()
-                    yield event.plain_result(f"❌ 材料存入储物戒失败：{msg}\n本次未扣除灵石。")
+                    yield event.plain_result(f"❌ 物品存入储物戒失败：{msg}\n本次未扣除灵石。")
                     return
-                result_lines.append(f"成功购买材料【{target_item['name']}】x{quantity}，已存入储物戒。")
+                raw_type = (target_item.get('data') or {}).get('type')
+                type_name = "符箓" if raw_type == "符箓" else "材料"
+                result_lines.append(f"成功购买{type_name}【{target_item['name']}】x{quantity}，已存入储物戒。")
             else:
                 await self.db.conn.rollback()
                 yield event.plain_result(f"未知的物品类型：{item_type}")
@@ -437,8 +449,12 @@ class ShopHandler:
             logger.error(f"购买异常: {e}")
             raise
 
-    def _get_acquire_hint(self, item_type: str) -> str:
-        """根据类型返回获取提示"""
+    def _get_acquire_hint(self, item_type: str, item: dict = None) -> str:
+        """优先返回物品自定义获取途径，否则按类型返回提示"""
+        data = (item or {}).get("data") or {}
+        hint = data.get("acquire_hint") if isinstance(data, dict) else None
+        if hint:
+            return hint
         return self.ITEM_ACQUIRE_HINTS.get(item_type, "商店刷新或活动奖励")
 
     async def handle_item_info(self, event: AstrMessageEvent, item_name: str = ""):
@@ -457,7 +473,7 @@ class ShopHandler:
             return
 
         detail_text = self.shop_manager.get_item_details(item)
-        acquire_hint = self._get_acquire_hint(item.get('type', ''))
+        acquire_hint = self._get_acquire_hint(item.get('type', ''), item)
 
         lines = [
             detail_text,

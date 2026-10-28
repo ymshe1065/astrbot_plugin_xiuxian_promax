@@ -373,6 +373,10 @@
                 "count": 5
             },
             {
+                "name": "冰火双生花",
+                "count": 1
+            },
+            {
                 "category": "矿材",
                 "tier": "地阶",
                 "count": 4
@@ -455,6 +459,10 @@
                 "category": "灵植",
                 "tier": "天阶",
                 "count": 5
+            },
+            {
+                "name": "血玉灵芝",
+                "count": 1
             },
             {
                 "category": "矿材",
@@ -737,6 +745,10 @@
                 "category": "灵植",
                 "tier": "天阶",
                 "count": 6
+            },
+            {
+                "name": "九幽仙芝",
+                "count": 1
             },
             {
                 "category": "矿材",

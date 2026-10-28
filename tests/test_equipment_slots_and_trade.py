@@ -7,7 +7,11 @@ from test_equipment_instances import _imp, _FakeEvent
 
 
 class TestSlots(unittest.IsolatedAsyncioTestCase):
-    asyncSetUp = fixtures.TestEquipmentInstances.asyncSetUp
+    async def asyncSetUp(self):
+        await fixtures.TestEquipmentInstances.asyncSetUp(self)
+        self.im.roll_quality = lambda: "一般"
+        self.ring.instance_manager.roll_quality = lambda: "一般"
+
     asyncTearDown = fixtures.TestEquipmentInstances.asyncTearDown
     _player = fixtures.TestEquipmentInstances._player
 

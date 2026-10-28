@@ -98,7 +98,8 @@ class EquipmentManager:
             required_level_index=ItemRules.get_required_level(item_config), weapon_category=item_config.get("weapon_category", ""),
             magic_damage=magic_damage, physical_damage=physical_damage, magic_defense=magic_defense, physical_defense=physical_defense,
             mental_power=mental_power, exp_multiplier=item_config.get("exp_multiplier", 0.0),
-            spiritual_qi=item_config.get("spiritual_qi", 0), blood_qi=item_config.get("blood_qi", 0)
+            spiritual_qi=item_config.get("spiritual_qi", 0), blood_qi=item_config.get("blood_qi", 0),
+            life_effects=dict(item_config.get("life_effects") or {})
         )
 
     def get_gear_slots(self, player: Player) -> dict:
@@ -185,7 +186,9 @@ class EquipmentManager:
                 if not ok:
                     return False, msg
             if not inst:
-                inst = self.instance_manager.create_instances(player, item.name)[0]
+                inst = self.instance_manager.create_instances(
+                    player, item.name, quality=self.instance_manager.roll_quality()
+                )[0]
             self.instance_manager.move(player, inst["id"], "equipped", slot)
             mapping[slot] = int(inst["id"])
             player.set_equipped_instances(mapping)
@@ -246,16 +249,22 @@ class EquipmentManager:
         elif slot_or_name in ["主修心法", "心法", "main_technique"]:
             if not player.main_technique: return False, "未装备主修心法"
             item_name = player.main_technique
+            ok, msg = await self._try_store_old_equipment(player, item_name)
+            if not ok:
+                return False, f"储物戒空间不足，无法回收主修心法【{item_name}】：{msg}"
             player.main_technique = ""
             await self.db.update_player(player)
-            return True, f"已卸下主修心法【{item_name}】"
+            return True, f"已卸下主修心法【{item_name}】，已存入储物戒"
 
         techniques_list = player.get_techniques_list()
         if slot_or_name in techniques_list:
+            ok, msg = await self._try_store_old_equipment(player, slot_or_name)
+            if not ok:
+                return False, f"储物戒空间不足，无法回收功法【{slot_or_name}】：{msg}"
             techniques_list.remove(slot_or_name)
             player.set_techniques_list(techniques_list)
             await self.db.update_player(player)
-            return True, f"已卸下功法【{slot_or_name}】"
+            return True, f"已卸下功法【{slot_or_name}】，已存入储物戒"
         return False, f"未找到装备：{slot_or_name}"
 
     async def _try_store_old_equipment(self, player: Player, item_name: str) -> tuple:

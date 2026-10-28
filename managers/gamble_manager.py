@@ -101,7 +101,10 @@ class GambleManager:
         {"name": "神秘的葫芦", "price": 5000, "desc": "不知道装了什么。", "fake": True},
         {"name": "劣质回气散", "price": 200, "desc": "闻起来有点刺鼻。", "fake": True},
     ]
-    BLACK_MARKET_RANK_WEIGHTS = {"玄阶": 6, "地阶": 3, "天阶": 1}
+    BLACK_MARKET_RANK_WEIGHTS = {
+        "玄阶": 6, "地阶": 3, "天阶": 1,
+        "灵品": 6, "地品": 3, "天品": 1, "皇品": 1,
+    }
 
     def _black_market_type_label(self, data: dict) -> str:
         item_type = data.get("type", "")
@@ -110,9 +113,19 @@ class GambleManager:
         return {
             "丹药": "丹药",
             "功法": "功法",
+            "technique": "功法",
+            "main_technique": "心法",
             "符箓": "符箓",
             "材料": "材料",
             "杂物": "杂物",
+            "weapon": "武器",
+            "armor": "防具",
+            "head": "头饰",
+            "body": "甲胄",
+            "boots": "靴子",
+            "gloves": "手套",
+            "ring": "戒指",
+            "amulet": "护符",
         }.get(item_type, item_type or "物品")
 
     def _black_market_effect(self, data: dict) -> str:
@@ -129,7 +142,11 @@ class GambleManager:
         rng = random.Random(hour_key)
 
         real_pool = {}
-        for source in (self.config_manager.items_data, self.config_manager.weapons_data):
+        for source in (
+            self.config_manager.items_data,
+            self.config_manager.weapons_data,
+            getattr(self.config_manager, "techniques_data", {}) or {},
+        ):
             for name, data in source.items():
                 if not isinstance(data, dict):
                     continue

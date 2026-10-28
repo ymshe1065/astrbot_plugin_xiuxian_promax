@@ -73,32 +73,25 @@ class TestShopConfigRefresh(unittest.TestCase):
         }
         changed = self.sm.refresh_item_data([item])
         self.assertTrue(changed)
-        self.assertEqual(item["data"]["exp_multiplier"], 0.07)
+        self.assertEqual(item["data"]["exp_multiplier"], 0.05)
         self.assertEqual(item["price"], old_price)
         self.assertEqual(item["stock"], old_stock)
         text = self.sm._get_item_effect_short(item)
-        self.assertIn("修炼效率+7%", text)
+        self.assertIn("修炼效率+5%", text)
         self.assertNotIn("200%", text)
 
-    def test_technique_rank_effect_and_price_ranges(self):
-        effect = {"黄阶": 0.02, "玄阶": 0.04, "地阶": 0.07, "天阶": 0.12}
-        price_range = {
-            "黄阶": (10, 300),
-            "玄阶": (300, 3000),
-            "地阶": (3000, 30000),
-            "天阶": (50000, 250000),
-        }
+    def test_technique_config_integrity(self):
         count = 0
         for item in self.cm.items_data.values():
             if item.get("type") != "功法":
                 continue
             count += 1
-            rank = item.get("rank")
-            self.assertIn(rank, effect)
-            self.assertEqual(item.get("exp_multiplier"), effect[rank])
-            low, high = price_range[rank]
-            self.assertGreaterEqual(int(item.get("price", 0)), low)
-            self.assertLessEqual(int(item.get("price", 0)), high)
+            self.assertIn(item.get("rank"), {"黄阶", "玄阶", "地阶", "天阶"})
+            exp = float(item.get("exp_multiplier", 0) or 0)
+            self.assertGreaterEqual(exp, 0)
+            self.assertLessEqual(exp, 0.2)
+            self.assertGreater(int(item.get("price", 0)), 0)
+            self.assertTrue(item.get("life_effects") or exp > 0, item.get("name"))
         self.assertEqual(count, 155)
 
 

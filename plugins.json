@@ -1,7 +1,7 @@
 {
     "astrbot_plugin_xiuxian_promax": {
         "author": "云兮 (三改) / xiaojuwa (原作)",
-        "desc": "一款功能丰富的放置类修仙游戏：110+奇遇、五行克制、押镖劫道、自动代理、宗门建筑、魔潮天灾、天魔入侵、世界Boss团本、磨砂玻璃图片卡片",
+        "desc": "一款功能丰富的放置类修仙游戏：110+奇遇、五行克制、押镖劫道、自动代理、宗门建筑、魔潮天灾、天魔入侵、世界Boss团本、江湖通缉事件、全服拍卖会、磨砂玻璃图片卡片",
         "repo": "https://github.com/iqapi/astrbot_plugin_xiuxian_promax"
     }
 }

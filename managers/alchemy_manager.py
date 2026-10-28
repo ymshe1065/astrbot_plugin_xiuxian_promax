@@ -269,34 +269,108 @@ class AlchemyManager:
                 return 0
         return 0
 
-    def _consume_materials(self, player: Player, recipe: Dict) -> Tuple[bool, str, List[str]]:
+    def _iter_available_stacks(self, available: Dict[str, int], spec: Dict):
+        """在可用材料快照中查找匹配堆叠。"""
+        for item_name, count in list(available.items()):
+            try:
+                count = int(count)
+            except (TypeError, ValueError):
+                continue
+            if count <= 0:
+                continue
+            if spec.get("name"):
+                if item_name == spec["name"]:
+                    yield item_name, count
+                continue
+            info = self._material_info(item_name)
+            if not info:
+                continue
+            if spec.get("category") and info.get("category") != spec["category"]:
+                continue
+            if spec.get("tier") and info.get("tier") != spec["tier"]:
+                continue
+            yield item_name, count
+
+    def _plan_materials(self, player: Player, recipe: Dict):
+        """模拟扣料：具名材料优先预留，避免被同类/同阶泛材料提前吃掉。"""
+        available = {}
+        for item_name, count in player.get_storage_ring_items().items():
+            try:
+                count = int(count)
+            except (TypeError, ValueError):
+                continue
+            if count > 0:
+                available[item_name] = count
+
+        specs = list(self._iter_recipe_materials(recipe))
+        ordered = sorted(specs, key=lambda item: 0 if item.get("name") else 1)
+        plan = []
         missing = []
-        for spec in self._iter_recipe_materials(recipe):
-            have = self._material_count(player, spec)
-            if have < spec["count"]:
+        for spec in ordered:
+            need = int(spec.get("count", 0) or 0)
+            taken = []
+            for item_name, have in self._iter_available_stacks(available, spec):
+                if need <= 0:
+                    break
+                take = min(need, have)
+                left = available[item_name] - take
+                if left <= 0:
+                    del available[item_name]
+                else:
+                    available[item_name] = left
+                need -= take
+                taken.append((item_name, take))
+            if need > 0:
                 label = spec.get("name") or f"{spec.get('tier', '')}{spec.get('category', '')}材料"
-                missing.append(f"{label}（需要{spec['count']}，拥有{have}）")
-        if missing:
+                missing.append(f"{label}（缺{need}）")
+            plan.append((spec, taken))
+        return not missing, missing, plan
+
+    def _consume_materials(self, player: Player, recipe: Dict) -> Tuple[bool, str, List[str]]:
+        ok, missing, plan = self._plan_materials(player, recipe)
+        if not ok:
             return False, "❌ 材料不足！\n" + "\n".join(f"  · {m}" for m in missing), []
 
         ring_items = player.get_storage_ring_items()
         consumed = []
-        for spec in self._iter_recipe_materials(recipe):
-            remaining = spec["count"]
-            player.set_storage_ring_items(ring_items)
-            for item_name, have in self._find_material_stacks(player, spec):
-                if remaining <= 0:
-                    break
-                take = min(remaining, have)
-                left = int(ring_items.get(item_name, 0)) - take
+        for _, taken in plan:
+            for item_name, take in taken:
+                left = int(ring_items.get(item_name, 0) or 0) - take
                 if left <= 0:
-                    del ring_items[item_name]
+                    ring_items.pop(item_name, None)
                 else:
                     ring_items[item_name] = left
-                remaining -= take
                 consumed.append(f"{item_name}×{take}")
         player.set_storage_ring_items(ring_items)
         return True, "", consumed
+
+    def format_recipe_requirements(self, player: Player, recipe: Dict) -> Tuple[str, bool]:
+        """列出丹方所需材料、灵石及当前持有情况；返回 (文本, 是否齐全)。"""
+        _, missing, plan = self._plan_materials(player, recipe)
+        missing_labels = "；".join(missing)
+        parts = []
+        ready = not missing
+        for spec, taken in plan:
+            need = int(spec.get("count", 0) or 0)
+            have = sum(take for _, take in taken)
+            label = spec.get("name") or f"{spec.get('tier', '')}{spec.get('category', '')}材料"
+            if have >= need:
+                status = f"现有{have} ✓"
+            else:
+                status = f"现有{have}，缺{need - have}"
+            parts.append(f"  · {label} x{need}（{status}）")
+        gold_cost = int(recipe.get("gold_cost", 0) or 0)
+        if gold_cost > 0:
+            if player.gold >= gold_cost:
+                status = f"现有{player.gold:,} ✓"
+            else:
+                status = f"现有{player.gold:,}，缺{gold_cost - player.gold:,}"
+                ready = False
+            parts.append(f"  · 灵石 x{gold_cost:,}（{status}）")
+        text = "\n".join(parts) if parts else "  · 无"
+        if missing_labels:
+            text += f"\n  ⚠️ 材料冲突/不足：{missing_labels}"
+        return text, ready
 
     # ===== 五行/职业炼丹加成 =====
     def get_alchemy_bonus(self, player: Player) -> Dict:
@@ -382,20 +456,35 @@ class AlchemyManager:
               "desc": "不偏不倚，一切如常"},
     }
 
-    async def start_fire_control(self, user_id: str, pill_id: int, recipe_name: str) -> Tuple[bool, str]:
+    async def start_fire_control(
+        self,
+        user_id: str,
+        pill_id: int,
+        recipe_name: str,
+        requirements: str = "",
+        output_pill: str = "",
+        success_rate: float = 0,
+    ) -> Tuple[bool, str]:
         state = {"pill_id": pill_id, "recipe": recipe_name, "expire": int(time.time()) + 180}
         await self.db.ext.set_system_config(
             self.FIRE_STATE_PREFIX + user_id, json.dumps(state, ensure_ascii=False)
         )
         opts = "\n".join(f"  [{k}] {v['label']} —— {v['desc']}" for k, v in self.FIRE_OPTIONS.items())
-        return True, (
-            f"🔥 药材入炉，丹火升腾！\n"
-            f"━━━━━━━━━━━━━━━\n"
-            f"正在炼制【{recipe_name}】，请选择火候：\n"
-            f"{opts}\n"
-            f"━━━━━━━━━━━━━━━\n"
-            f"💡 3分钟内发送 /火候 <编号> 掌控丹炉（超时按控火守中处理）"
-        )
+        header = [f"🔥 药材入炉，丹火升腾！", "━━━━━━━━━━━━━━━", f"丹方：【{recipe_name}】"]
+        if output_pill:
+            header.append(f"出炉：{output_pill}")
+        header.append("出炉所需材料：")
+        header.append(requirements or "  · 无")
+        if success_rate:
+            header.append(f"基础成功率：{success_rate:.0f}%")
+        header.extend([
+            "━━━━━━━━━━━━━━━",
+            "正在炼制，请选择火候：",
+            opts,
+            "━━━━━━━━━━━━━━━",
+            "💡 3分钟内发送 /火候 <编号> 掌控丹炉（超时按控火守中处理）",
+        ])
+        return True, "\n".join(header)
 
     async def pop_fire_state(self, user_id: str) -> Tuple[Optional[int], Optional[str]]:
         raw = await self.db.ext.get_system_config(self.FIRE_STATE_PREFIX + user_id)
@@ -534,10 +623,35 @@ class AlchemyManager:
             fire_matched = False
 
         if not fire_matched:
+            player = await self.db.get_player_by_id(user_id)
+            if not player:
+                return False, "❌ 你还未踏入修仙之路！", None
             recipe = self.recipes.get(int(pill_id))
             if not recipe:
                 return False, "❌ 无效的丹药ID！", None
-            return await self.start_fire_control(user_id, int(pill_id), recipe["name"]) + (
+            learned = await self.ensure_learned_recipes(player)
+            if int(pill_id) not in learned:
+                return False, f"❌ 你还没有学会【{recipe['name']}】，请先 /学习丹方 {pill_id}。", None
+            if player.level_index < recipe["level_required"]:
+                return False, f"❌ 炼制{recipe['name']}需要达到境界等级 {recipe['level_required']}！", None
+            requirements, ready = self.format_recipe_requirements(player, recipe)
+            if not ready:
+                return False, (
+                    f"❌ 材料或灵石不足，暂时无法炼制【{recipe['name']}】\n"
+                    f"━━━━━━━━━━━━━━━\n"
+                    f"出炉：{recipe.get('output_pill', '')}\n"
+                    f"所需材料：\n{requirements}\n"
+                    f"━━━━━━━━━━━━━━━\n"
+                    f"💡 补齐材料后再发送 /炼丹 {pill_id}；可用 /丹药配方 查看全部丹方"
+                ), None
+            return await self.start_fire_control(
+                user_id,
+                int(pill_id),
+                recipe["name"],
+                requirements,
+                recipe.get("output_pill", ""),
+                recipe.get("success_rate", 0),
+            ) + (
                 {"success": False, "pending_fire": True},
             )
 
@@ -650,8 +764,9 @@ class AlchemyManager:
                         except Exception:
                             shield = 0
                         if shield > 0:
+                            TalismanManager.consume_active_charge(player, "tribulation_shield")
                             tribulation_msg = ("\n⚡ 天降丹劫！避劫符自行燃烧，"
-                                               "替你遮蔽天机，丹药安然出炉！")
+                                               "替你遮蔽天机，丹药安然出炉！（消耗避劫符护盾）")
                         else:
                             pill_ruined = True
                             tribulation_msg = ("\n💥 天降丹劫！你没有【引雷符】护身，"
