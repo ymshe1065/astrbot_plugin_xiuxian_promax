@@ -22,6 +22,27 @@ class ShopManager:
         values = self.config.get("VALUES", {}) or {}
         return values.get(key, self.config.get(key, default))
 
+    def is_gear_entry(self, item: Dict) -> bool:
+        """判断商店/交易条目是否为随机品质装备。"""
+        if not isinstance(item, dict):
+            return False
+        data = item.get("data") if isinstance(item.get("data"), dict) else item
+        return ItemRules.normalize_equipment_type(data) in ItemRules.GEAR_TYPES
+
+    def roll_gear_quality(self) -> str:
+        from .item_instance_manager import ItemInstanceManager
+        return ItemInstanceManager.roll_quality()
+
+    def ensure_equipment_quality(self, items: List[Dict]) -> bool:
+        """为旧货架补齐装备品质；品质一旦落库，展示与购买保持一致。"""
+        changed = False
+        for item in items or []:
+            if not self.is_gear_entry(item) or item.get("quality"):
+                continue
+            item["quality"] = self.roll_gear_quality()
+            changed = True
+        return changed
+
     def resolve_current_item_data(self, item: Dict) -> Optional[Dict]:
         """按缓存物品的 id/名称查找当前配置，避免继续使用旧效果快照。"""
         if not isinstance(item, dict):
@@ -339,6 +360,7 @@ class ShopManager:
                 'original_price': item['price'], 'discount': discount,
                 'price': int(item['price'] * discount), 'stock': stock, 'data': item.get('data', {}),
                 'always_available': bool(item.get('always_available')), 'rare': bool(item.get('rare')),
+                'quality': self.roll_gear_quality() if self.is_gear_entry(item) else '',
             })
         return result
 
@@ -648,10 +670,19 @@ class ShopManager:
         lines = [f"品级: {normalized['rank']}"] + self.get_item_details(normalized).splitlines()[3:]
         if ItemRules.normalize_equipment_type(data) in ItemRules.GEAR_TYPES:
             from .equipment_manager import EquipmentManager
+            from .equipment_balance import QUALITY
             manager = EquipmentManager(None, self.config_manager)
-            parsed = manager.parse_item_from_name(item["name"], {item["name"]: data}, instance=instance)
-            lines = [line for line in lines if not line.startswith(("属性:", "需求境界:"))]
-            lines.append("属性: " + parsed.get_attribute_display())
+            quality = str((instance or {}).get("quality") or item.get("quality") or "")
+            display_instance = instance if instance else ({"quality": quality} if quality else None)
+            parsed = manager.parse_item_from_name(item["name"], {item["name"]: data}, instance=display_instance)
+            lines = [line for line in lines if not line.startswith(("属性:", "基础属性:", "品质:", "品质浮动:", "需求境界:"))]
+            if quality:
+                mult = QUALITY.get(quality, 1.0)
+                lines.append("属性: " + parsed.get_attribute_display())
+                lines.append(f"品质: {quality}（主属性×{mult:.2f}）")
+            else:
+                lines.append("基础属性: " + parsed.get_attribute_display())
+                lines.append("品质浮动: 一般/良好/极佳/大师（主属性×1.00/1.05/1.10/1.15，按实例品质结算）")
             lines.append("同属性加法叠加；每落后3级效率×80%，最低20%")
             slot = ItemRules.get_equip_slot(data)
             label = "戒指（两个槽位）" if slot == "ring1" else ItemRules.SLOT_LABELS.get("armor" if slot == "body" else slot, slot)
@@ -718,7 +749,8 @@ class ShopManager:
             attrs = [f"境界基础{ATTRIBUTE_LABELS[k]}+{v:.1%}" for k, v in equipment_rates(data).items() if v]
 
             if attrs:
-                details.append(f"属性: {', '.join(attrs)}")
+                details.append(f"基础属性: {', '.join(attrs)}")
+                details.append("品质浮动: 一般/良好/极佳/大师（主属性×1.00/1.05/1.10/1.15，按实例品质结算）")
             if 'required_level_index' in data:
                 level_name = self._format_required_level(data['required_level_index'])
                 details.append(f"需求境界: {level_name}")

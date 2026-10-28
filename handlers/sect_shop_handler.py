@@ -58,7 +58,8 @@ class SectShopHandler:
         shop_id = f"sect_shop_{sect_id}"
         last_refresh, items = await self.db.get_shop_data(shop_id)
         if items:
-            changed = self.shop_manager.refresh_item_data(items)
+            changed = self.shop_manager.ensure_equipment_quality(items)
+            changed = self.shop_manager.refresh_item_data(items) or changed
             if changed:
                 await self.db.update_shop_data(shop_id, last_refresh, items)
         hours = self._refresh_hours()
@@ -81,7 +82,14 @@ class SectShopHandler:
                     weight = int((item.get("data", {}) or {}).get("shop_weight", 100) or 100)
                     weighted.append({**item, "weight": max(1, weight)})
                 selected = self.shop_manager._weighted_random_choice(weighted, min(5, len(weighted)))
-                items = [{**{k: v for k, v in item.items() if k != "weight"}, "stock": 1} for item in selected]
+                items = []
+                for item in selected:
+                    entry = {**{k: v for k, v in item.items() if k != "weight"}, "stock": 1}
+                    entry["quality"] = (
+                        self.shop_manager.roll_gear_quality()
+                        if self.shop_manager.is_gear_entry(entry) else ""
+                    )
+                    items.append(entry)
             else:
                 items = []
             last_refresh = int(time.time())
@@ -234,7 +242,8 @@ class SectShopHandler:
 
         if item_type in ItemRules.EQUIPPABLE_TYPES | {"material", "recipe", "符箓", "杂物"}:
             ok, msg = await self.storage_ring_mgr.store_item(
-                player, item_name, 1, silent=True
+                player, item_name, 1, silent=True,
+                quality=item.get("quality") or "",
             )
             if not ok:
                 await self._refund_contribution(player.user_id, price)

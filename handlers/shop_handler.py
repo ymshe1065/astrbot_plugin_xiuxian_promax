@@ -68,6 +68,7 @@ class ShopHandler:
         last_refresh_time, current_items = await self.db.get_shop_data(pavilion_id)
         if current_items:
             updated = self.shop_manager.ensure_items_have_stock(current_items)
+            updated = self.shop_manager.ensure_equipment_quality(current_items) or updated
             updated = self.shop_manager.refresh_item_data(current_items) or updated
             if updated:
                 await self.db.update_shop_data(pavilion_id, last_refresh_time, current_items)
@@ -94,7 +95,8 @@ class ShopHandler:
             try:
                 last_refresh, items = await self.db.get_shop_data(pavilion_id)
                 if items:
-                    data_changed = self.shop_manager.refresh_item_data(items)
+                    data_changed = self.shop_manager.ensure_equipment_quality(items)
+                    data_changed = self.shop_manager.refresh_item_data(items) or data_changed
                     if data_changed:
                         await self.db.update_shop_data(pavilion_id, last_refresh, items)
                 refresh_hours = self._cfg("PAVILION_REFRESH_HOURS", 1)
@@ -250,7 +252,8 @@ class ShopHandler:
         for pavilion_id in ["pill_pavilion", "recipe_pavilion", "material_pavilion", "weapon_pavilion", "treasure_pavilion"]:
             last_refresh, items = await self.db.get_shop_data(pavilion_id)
             if items:
-                changed = self.shop_manager.refresh_item_data(items)
+                changed = self.shop_manager.ensure_equipment_quality(items)
+                changed = self.shop_manager.refresh_item_data(items) or changed
                 if changed:
                     await self.db.update_shop_data(pavilion_id, last_refresh, items)
                 for item in items:
@@ -390,7 +393,10 @@ class ShopHandler:
             # ==========================================
 
             if item_type in equippable_types:
-                success, msg = await self.storage_ring_manager.store_item(player, target_item['name'], quantity, external_transaction=True)
+                success, msg = await self.storage_ring_manager.store_item(
+                    player, target_item['name'], quantity, external_transaction=True,
+                    quality=target_item.get('quality') or "",
+                )
                 if not success:
                     await self.db.conn.rollback()
                     yield event.plain_result(f"❌ 购买失败：储物戒空间不足。\n{msg}\n本次未扣除灵石。")

@@ -865,13 +865,14 @@ class AuctionHouseManager:
             lines.append(f"  {desc}")
         rates = payload.get("equipment_rates") or {}
         if rates:
-            from ..core.equipment_balance import ATTRIBUTE_LABELS
+            from ..core.equipment_balance import ATTRIBUTE_LABELS, QUALITY
+            mult = QUALITY.get(lot.get("item_quality") or "", 1.0)
             rate_text = "、".join(
-                f"{ATTRIBUTE_LABELS.get(k, k)}+{float(v):.0%}"
+                f"{ATTRIBUTE_LABELS.get(k, k)}+{float(v) * mult:.1%}"
                 for k, v in rates.items() if float(v or 0) > 0
             )
             if rate_text:
-                lines.append(f"  主属性：{rate_text}")
+                lines.append(f"  主属性（品质后）：{rate_text}")
         affixes = payload.get("affixes") or []
         if affixes:
             lines.append("  词条：" + "、".join(

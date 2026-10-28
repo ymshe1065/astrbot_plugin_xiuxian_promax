@@ -267,8 +267,7 @@ class DailyTaskManager:
             try:
                 from .pet_manager import PetManager
                 pet_mgr = PetManager(self.db)
-                pet = await pet_mgr.get_pet(fresh_player.user_id, apply_regen=False)
-                gold_bonus = pet_mgr.get_gold_bonus(pet)
+                gold_bonus = await pet_mgr.get_life_bonus(fresh_player.user_id, "gold_bonus")
                 if gold_bonus > 0:
                     total_gold = int(total_gold * (1 + gold_bonus))
             except Exception:

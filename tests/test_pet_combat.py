@@ -136,10 +136,33 @@ class TestPetCombat(unittest.IsolatedAsyncioTestCase):
         pet = await self.pet_mgr.get_pet("u1")
         self.assertEqual(pet["hp"], max(1, max_hp // 2))
 
-    async def test_gold_pet_bonus(self):
+    async def test_gold_pet_bonus_stacks_per_pet(self):
+        self.player.level_index = 10
+        await self.db.update_player(self.player)
+        self.assertTrue((await self.pet_mgr.adopt_pet(self.player, "噬金鼠"))[0])
         self.assertTrue((await self.pet_mgr.adopt_pet(self.player, "噬金鼠"))[0])
         pet = await self.pet_mgr.get_pet("u1")
         self.assertAlmostEqual(self.pet_mgr.get_gold_bonus(pet), 0.1)
+        self.assertAlmostEqual(await self.pet_mgr.get_life_bonus("u1"), 0.2)
+
+    async def test_feed_only_costs_gold(self):
+        self.player.cultivation_type = "灵修"
+        self.assertTrue((await self.pet_mgr.adopt_pet(self.player, "火灵狐"))[0])
+        pet = await self.pet_mgr.get_pet("u1")
+        exp_before = int(self.player.experience)
+        gold_before = int(self.player.gold)
+        ok, msg = await self.pet_mgr.feed_pet(self.player, "")
+        self.assertTrue(ok)
+        self.assertEqual(int(self.player.experience), exp_before)
+        self.assertEqual(int(self.player.gold), gold_before - 1000)
+        pet = await self.pet_mgr.get_pet("u1", apply_regen=False)
+        self.assertEqual(int(pet["exp"]), 100)
+        self.assertNotIn("修为不足", msg)
+
+    async def test_pet_level_effects_strengthened(self):
+        pet = {"pet_type": "火灵狐", "level": 10, "dead_until": 0}
+        effects = self.pet_mgr.get_pet_combat_effects(pet)
+        self.assertAlmostEqual(effects["crit_rate"], 15.0)
 
     async def test_multi_pet_slots_exp_share_and_lineup(self):
         self.player.level_index = 10
@@ -159,6 +182,8 @@ class TestPetCombat(unittest.IsolatedAsyncioTestCase):
         await self.db.update_player(self.player)
         pets = await self.pet_mgr.get_pets("u1")
         self.assertGreater(sum(p["exp"] + p["level"] * 500 for p in pets), old_exp)
+        # 御兽 30% 共享：10000 × 30% = 3000，每只灵兽各得 3000（Lv1→Lv4）
+        self.assertEqual({(p["level"], p["exp"]) for p in pets}, {(4, 0)})
 
         ok, _ = await self.pet_mgr.set_main_pet("u1", pets[2]["id"])
         self.assertTrue(ok)

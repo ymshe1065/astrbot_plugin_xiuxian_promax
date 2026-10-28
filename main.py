@@ -2226,8 +2226,7 @@ class XiuXianPlugin(Star):
             try:
                 from .managers.pet_manager import PetManager
                 pet_mgr = PetManager(self.db)
-                pet = await pet_mgr.get_pet(user_id)
-                gold_bonus = pet_mgr.get_gold_bonus(pet)
+                gold_bonus = await pet_mgr.get_life_bonus(user_id, "gold_bonus")
                 if gold_bonus > 0:
                     check_in_gold = int(check_in_gold * (1 + gold_bonus))
             except Exception:

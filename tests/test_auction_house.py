@@ -362,6 +362,17 @@ class TestAuctionHouse(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(event2["phase"], "settled")
 
+    async def test_lot_detail_uses_quality_adjusted_rates(self):
+        lot = {
+            "item_name": "乾坤伞", "item_rank": "玄阶", "item_quality": "大师", "count": 1,
+            "payload_json": __import__("json").dumps({
+                "equipment_rates": {"physical_damage": 0.06, "magic_damage": 0.06},
+            }),
+        }
+        text = "\n".join(self.manager._lot_detail_lines(lot))
+        self.assertIn("·大师", text)
+        self.assertIn("主属性（品质后）：物伤+6.9%、法伤+6.9%", text)
+
     async def test_equipment_delivery_keeps_quality_and_affixes(self):
         player = await self._player("eq1", gold=0)
         lot = {
