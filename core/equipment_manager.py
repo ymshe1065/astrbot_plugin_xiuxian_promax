@@ -179,11 +179,18 @@ class EquipmentManager:
             if item.item_type == "ring" and not target_slot:
                 slot = next((key for key in ("ring1", "ring2") if not mapping.get(key)), "ring1")
             if target_slot:
-                requested = ItemRules.SLOT_ALIASES.get(target_slot)
-                allowed = ("ring1", "ring2") if item.item_type == "ring" else (slot,)
-                if requested not in allowed:
-                    return False, "装备与指定部位不匹配。"
-                slot = requested
+                group = ItemRules.SLOT_GROUP_ALIASES.get(target_slot)
+                if group:
+                    if slot not in group:
+                        return False, "装备与指定部位不匹配。"
+                    if item.item_type == "ring":
+                        slot = next((key for key in ("ring1", "ring2") if not mapping.get(key)), "ring1")
+                else:
+                    requested = ItemRules.SLOT_ALIASES.get(target_slot)
+                    allowed = ("ring1", "ring2") if item.item_type == "ring" else (slot,)
+                    if requested not in allowed:
+                        return False, "装备与指定部位不匹配。"
+                    slot = requested
             # 先验证新实例，避免失败时把旧装备移走。
             inst = self.instance_manager.get_instance(player, instance_id) if instance_id else None
             if instance_id and (not inst or inst.get("name") != item.name or inst.get("location") != "storage"):

@@ -1869,8 +1869,8 @@ class XiuXianPlugin(Star):
 
     @filter.command(CMD_BLESSED_LAND_UPGRADE, "升级洞天")
     @require_whitelist
-    async def handle_blessed_land_upgrade(self, event: AstrMessageEvent):
-        async for r in self.blessed_land_handlers.handle_upgrade(event): yield r
+    async def handle_blessed_land_upgrade(self, event: AstrMessageEvent, upgrade_arg: GreedyStr = ""):
+        async for r in self.blessed_land_handlers.handle_upgrade(event, upgrade_arg): yield r
         # 称号：洞天等级
         try:
             p1 = await self.db.get_player_by_id(event.get_sender_id())
@@ -3023,7 +3023,7 @@ class XiuXianPlugin(Star):
             f"  ❄️ 冬·蛰藏：生长放缓50%，冰心草不受影响",
             "━━━━━━━━━━━━━━━",
             f"季节按现实时间每约一周自动轮转（当前：{order[idx]}季）",
-            "💡 发送 /种植 <灵草名> 把握季节加成",
+            "💡 发送 /种植 <灵草名> [数量|1-20|all] 把握季节加成",
         ]
         yield event.plain_result("\n".join(lines))
 

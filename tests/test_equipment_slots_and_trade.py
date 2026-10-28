@@ -1,5 +1,6 @@
 """多部位装备、旧存档迁移和交易图片回归。"""
 import json
+import time
 import unittest
 from unittest.mock import AsyncMock, patch
 import test_equipment_instances as fixtures
@@ -245,6 +246,83 @@ class TestSlots(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(ok, msg)
         self.assertEqual(self.im.get_instance(p, first["id"])["affixes"], [])
         self.assertTrue(self.im.get_instance(p, second["id"])["affixes"])
+
+    async def test_accessory_group_alias_equips_amulet_and_rings(self):
+        p = await self._player()
+        p.level_index = 0
+        amulet, ring = "测试饰品护符", "测试饰品戒指"
+        self.cm.items_data[amulet] = {"name": amulet, "type": "amulet", "physical_damage": 5, "price": 1}
+        self.cm.items_data[ring] = {"name": ring, "type": "ring", "physical_damage": 5, "price": 1}
+        handler = _imp("handlers.equipment_handler").EquipmentHandler(self.db, self.cm)
+        event = _FakeEvent(p.user_id, p.user_id)
+        expected_slots = ("amulet", "ring1", "ring2")
+        for name, expected_slot in zip((amulet, ring, ring), expected_slots):
+            ok, msg = await self.ring.store_item(p, name, 1)
+            self.assertTrue(ok, msg)
+            results = [r async for r in handler.handle_equip_item.__wrapped__(handler, p, event, f"{name} 饰品")]
+            self.assertIn(expected_slot, p.get_equipped_instances(), results)
+        self.assertEqual(set(p.get_equipped_instances()), set(expected_slots))
+
+    async def test_purchase_prefers_last_viewed_pavilion(self):
+        p = await self._player(gold=100000)
+        name = next(n for n, c in self.cm.items_data.items() if c.get("type") == "ring" and c["rank"] == "黄阶")
+        shop = self.shop_manager()
+        cheap = shop.find_item_by_name(name)
+        cheap.update(stock=1, price=100, quality="大师")
+        pricey = dict(cheap); pricey.update(price=500, quality="一般")
+        await self.db.update_shop_data("weapon_pavilion", 1, [pricey])
+        await self.db.update_shop_data("treasure_pavilion", 1, [cheap])
+        handler = _imp("handlers.shop_handler").ShopHandler(self.db, {}, self.cm)
+        event = _FakeEvent(p.user_id, p.user_id, "/购买 " + name)
+        handler._remember_viewed_pavilion(event, "treasure_pavilion")
+        results = [r async for r in handler.handle_buy.__wrapped__(handler, p, event, name)]
+        p = await self.db.get_player_by_id(p.user_id)
+        instances = self.im.list_instances(p, "storage", name)
+        self.assertEqual(len(instances), 1, results)
+        self.assertEqual(instances[0]["quality"], "大师")
+        _, treasure = await self.db.get_shop_data("treasure_pavilion")
+        _, weapon = await self.db.get_shop_data("weapon_pavilion")
+        self.assertEqual(int(treasure[0]["stock"]), 0, results)
+        self.assertEqual(int(weapon[0]["stock"]), 1, results)
+
+    def test_shop_and_pavilion_labels_cover_accessory_slots(self):
+        shop = _imp("core.shop_manager").ShopManager({}, self.cm)
+        names = {
+            "amulet": next(n for n, c in self.cm.items_data.items() if c.get("equip_slot") == "amulet"),
+            "ring": next(n for n, c in self.cm.items_data.items() if c.get("type") == "ring"),
+        }
+        expected = {"amulet": "护符", "ring": "戒指"}
+        for kind, name in names.items():
+            item = shop.find_item_by_name(name)
+            item["stock"] = 1
+            text = shop.format_pavilion_display("百宝阁", [item], 1, int(time.time()))
+            self.assertIn(expected[kind], text)
+
+    async def test_equip_reports_overflow_location(self):
+        p = await self._player()
+        p.level_index = 0
+        name = "测试溢出戒指"
+        self.cm.items_data[name] = {"name": name, "type": "ring", "physical_damage": 5, "price": 1}
+        self.im.create_instances(p, name, quality="一般", location="overflow")
+        handler = _imp("handlers.equipment_handler").EquipmentHandler(self.db, self.cm)
+        event = _FakeEvent(p.user_id, p.user_id)
+        results = [r async for r in handler.handle_equip_item.__wrapped__(handler, p, event, name)]
+        text = "\n".join(results)
+        self.assertIn("溢出", text)
+        self.assertIn("/领取溢出", text)
+
+    async def test_sect_shop_backfills_missing_stock(self):
+        p = await self._player()
+        shop = _imp("core.shop_manager").ShopManager({}, self.cm)
+        name = next(n for n, c in self.cm.items_data.items() if c.get("equip_slot") == "amulet")
+        item = shop.find_item_by_name(name)
+        item.pop("stock", None)
+        await self.db.update_shop_data("sect_shop_1", int(time.time()), [item])
+        handler = _imp("handlers.sect_shop_handler").SectShopHandler(self.db, shop, self.ring, {}, None)
+        _, _, items = await handler._get_shop(1, p)
+        self.assertGreater(items[0].get("stock", 0), 0)
+        _, persisted = await self.db.get_shop_data("sect_shop_1")
+        self.assertGreater(persisted[0].get("stock", 0), 0)
 
     async def test_migration_conflict_returns_old_armor_without_loss(self):
         p = await self._player()

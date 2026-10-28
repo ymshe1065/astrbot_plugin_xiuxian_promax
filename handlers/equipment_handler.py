@@ -171,7 +171,8 @@ class EquipmentHandler:
         item_name = item_name.strip()
         target_slot = ""
         tokens = item_name.split()
-        if len(tokens) > 1 and tokens[-1] in ItemRules.SLOT_ALIASES:
+        if len(tokens) > 1 and (tokens[-1] in ItemRules.SLOT_ALIASES
+                                or tokens[-1] in ItemRules.SLOT_GROUP_ALIASES):
             target_slot = tokens.pop()
             item_name = " ".join(tokens)
         instance_index = 1
@@ -204,6 +205,13 @@ class EquipmentHandler:
         if item_type in ItemRules.GEAR_TYPES:
             inst = self.equipment_manager.instance_manager.find_for_equip(player, item_name, instance_index)
             if not inst:
+                overflow = self.equipment_manager.instance_manager.list_instances(player, "overflow", item_name)
+                if overflow:
+                    yield event.plain_result(
+                        f"❌ 【{item_name}】目前在溢出仓库（储物戒已满，未进入储物戒）。\n"
+                        f"请先清理储物戒，再发送 /领取溢出 取回后装备。"
+                    )
+                    return
                 yield event.plain_result(f"❌ 储物戒中没有第 {instance_index} 件【{item_name}】可装备。")
                 return
         if inst:

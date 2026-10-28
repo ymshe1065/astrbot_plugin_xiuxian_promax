@@ -2,11 +2,41 @@
 """洞天福地系统管理器"""
 import time
 import json
+import re
 from typing import Tuple, Optional, Dict, List
 from ..data import DataBase
 from ..models import Player
 
 __all__ = ["BlessedLandManager"]
+
+_UPGRADE_ALL_KEYWORDS = {"all", "全部", "全满", "满"}
+
+
+def parse_upgrade_args(raw: str) -> Tuple[Optional[str], Optional[int]]:
+    """解析 /升级洞天 的参数。
+
+    返回 ``(模式, 数值)``：
+    - 空参数      -> ("times", 1)     升 1 级
+    - ``3``       -> ("times", 3)     连升 3 级
+    - ``1-5``     -> ("target", 5)    升到 Lv.5（上限内）
+    - ``all``     -> ("all", 0)       升到当前洞天满级（灵石不足则尽量升）
+    - 非法参数    -> (None, None)
+    """
+    text = (raw or "").strip().lower()
+    if not text:
+        return "times", 1
+    if text in _UPGRADE_ALL_KEYWORDS:
+        return "all", 0
+
+    range_match = re.fullmatch(r"(\d+)\s*-\s*(\d+)", text)
+    if range_match:
+        target = max(int(range_match.group(1)), int(range_match.group(2)))
+        return "target", max(1, target)
+
+    if re.fullmatch(r"\d+", text):
+        return "times", max(1, int(text))
+
+    return None, None
 
 # 洞天装修家具配置：效果分别为 闭关加成 / 喂养折扣 / 洞天产出加成
 FURNITURES: Dict[str, dict] = {
@@ -143,8 +173,19 @@ class BlessedLandManager:
             f"💡 当小洞天达到5级时，可使用 /进阶洞天 2 提升到中洞天"
         )
     
-    async def upgrade_blessed_land(self, player: Player) -> Tuple[bool, str]:
-        """升级洞天"""
+    async def upgrade_blessed_land(
+        self,
+        player: Player,
+        times: int = 1,
+        target_level: Optional[int] = None,
+        fill_all: bool = False,
+    ) -> Tuple[bool, str]:
+        """升级洞天
+
+        - ``times``：连续升级次数（默认 1）
+        - ``target_level``：升到指定等级为止
+        - ``fill_all``：升到当前洞天满级（优先于 times/target_level）
+        """
         land = await self.get_user_blessed_land(player.user_id)
         if not land:
             return False, "❌ 你还没有洞天！使用 /购买洞天 <类型> 获取。"
@@ -152,9 +193,10 @@ class BlessedLandManager:
         land_type = land["land_type"]
         current_level = land["level"]
         config = BLESSED_LANDS.get(land_type, BLESSED_LANDS[1])
-        
-        if current_level >= config["max_level"]:
-            return False, f"❌ 你的{land['land_name']}已达最高等级 {config['max_level']}！"
+        max_level = config["max_level"]
+
+        if current_level >= max_level:
+            return False, f"❌ 你的{land['land_name']}已达最高等级 {max_level}！"
         
         # 升级费用：使用固定每级费用，更线性增长
         # 小洞天：每级 1000，中洞天：每级 2000，大洞天：每级 3000，福地：每级 4000，洞天福地：每级 3000
@@ -166,16 +208,42 @@ class BlessedLandManager:
             5: 10000   # 洞天福地
         }
         upgrade_cost = level_cost_map.get(land_type, 1000)
-        
-        if player.gold < upgrade_cost:
-            return False, f"❌ 灵石不足！升级需要 {upgrade_cost:,} 灵石。"
-        
+
+        # 计算本次计划升级级数
+        if fill_all:
+            desired_levels = max_level - current_level
+        elif target_level is not None:
+            if target_level <= current_level:
+                return False, f"❌ 目标等级需高于当前 Lv.{current_level}。"
+            desired_levels = min(target_level, max_level) - current_level
+        else:
+            desired_levels = max(1, int(times or 1))
+        desired_levels = max(0, min(desired_levels, max_level - current_level))
+
+        # 逐级结算，灵石不足时停在可负担的等级
+        new_level = current_level
+        spent = 0
+        upgraded = 0
+        short_of_gold = False
+        while upgraded < desired_levels and new_level < max_level:
+            if player.gold < upgrade_cost:
+                short_of_gold = True
+                break
+            player.gold -= upgrade_cost
+            spent += upgrade_cost
+            new_level += 1
+            upgraded += 1
+
+        if upgraded <= 0:
+            return False, (
+                f"❌ 灵石不足！升级需要 {upgrade_cost:,} 灵石，"
+                f"当前仅有 {player.gold:,} 灵石。"
+            )
+
         # 升级加成
-        new_level = current_level + 1
         new_exp_bonus = config["exp_bonus"] * (1 + new_level * 0.1)
         new_gold_per_hour = int(config["gold_per_hour"] * (1 + new_level * 0.15))
-        
-        player.gold -= upgrade_cost
+
         await self.db.update_player(player)
         
         await self.db.conn.execute(
@@ -186,13 +254,29 @@ class BlessedLandManager:
             (new_level, new_exp_bonus, new_gold_per_hour, player.user_id)
         )
         await self.db.conn.commit()
-        
+
+        reached_max = new_level >= max_level
+        if upgraded == 1:
+            title = f"🎉 {land['land_name']}升级到 Lv.{new_level}！"
+        else:
+            title = f"🎉 {land['land_name']}升级到 Lv.{new_level}！（本次连升 {upgraded} 级）"
+
+        stop_note = ""
+        if short_of_gold:
+            stop_note = (
+                f"\n⚠️ 灵石不足，已停在 Lv.{new_level}；"
+                f"继续升级需 {upgrade_cost:,} 灵石（当前 {player.gold:,}）。"
+            )
+        elif reached_max:
+            stop_note = f"\n🏆 已达到当前洞天最高等级 Lv.{max_level}。"
+
         return True, (
-            f"🎉 {land['land_name']}升级到 Lv.{new_level}！\n"
+            f"{title}\n"
             f"━━━━━━━━━━━━━━━\n"
             f"修炼加成：+{new_exp_bonus:.1%}\n"
             f"每小时产出：{new_gold_per_hour} 灵石\n"
-            f"花费：{upgrade_cost:,} 灵石"
+            f"花费：{spent:,} 灵石"
+            f"{stop_note}"
         )
     
     async def collect_income(self, player: Player) -> Tuple[bool, str]:
@@ -414,5 +498,5 @@ class BlessedLandManager:
             f"待收取：约 {pending_gold:,} 灵石 / {pending_exp:,} 修为"
             f"{furniture_lines}{shield_line}\n"
             f"━━━━━━━━━━━━━━━\n"
-            f"💡 /升级洞天 | /洞天收取 | /洞天装修 <家具名>{advance_hint}"
+            f"💡 /升级洞天 [次数|目标等级|all] | /洞天收取 | /洞天装修 <家具名>{advance_hint}"
         )

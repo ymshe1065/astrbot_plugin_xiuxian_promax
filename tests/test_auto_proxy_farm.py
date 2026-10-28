@@ -444,5 +444,43 @@ class TestAutoProxyFarm(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(row["enabled"], 1)
 
 
+    async def test_parse_plant_args_modes(self):
+        module = _imp("managers.spirit_farm_manager")
+        self.assertEqual(module.parse_plant_args("灵草"), ("灵草", 1, None, False))
+        self.assertEqual(module.parse_plant_args("灵草 6"), ("灵草", 6, None, False))
+        self.assertEqual(module.parse_plant_args("灵草6"), ("灵草", 6, None, False))
+        self.assertEqual(module.parse_plant_args("灵草 1-20"), ("灵草", 1, (1, 20), False))
+        self.assertEqual(module.parse_plant_args("灵草1-20"), ("灵草", 1, (1, 20), False))
+        self.assertEqual(module.parse_plant_args("灵草 all"), ("灵草", 1, None, True))
+        self.assertEqual(module.parse_plant_args("灵草ALL"), ("灵草", 1, None, True))
+        self.assertEqual(module.parse_plant_args("灵草 全部"), ("灵草", 1, None, True))
+
+    async def test_plant_fill_all_and_slot_range(self):
+        player = await self.db.get_player_by_id("u1")
+        await self.conn.execute("UPDATE spirit_farms SET level = 5 WHERE user_id = ?", ("u1",))
+        await self.conn.commit()
+
+        ok, msg = await self.farm_mgr.plant_herb(player, "灵草", fill_all=True)
+        self.assertTrue(ok, msg)
+        self.assertEqual(len(await self._crops()), 20)
+
+        await self.conn.execute("UPDATE spirit_farms SET crops = '[]' WHERE user_id = ?", ("u1",))
+        await self.conn.execute("UPDATE spirit_farms SET level = 5 WHERE user_id = ?", ("u1",))
+        await self.conn.commit()
+        now = int(time.time())
+        await self._set_crops([
+            {"name": "灵草", "slot": 2, "plant_time": now, "mature_time": now + 3600},
+        ])
+
+        ok, msg = await self.farm_mgr.plant_herb(player, "灵草", slot_range=(1, 4))
+        self.assertTrue(ok, msg)
+        crops = await self._crops()
+        self.assertEqual(sorted(crops), [1, 2, 3, 4])
+
+        ok, msg = await self.farm_mgr.plant_herb(player, "灵草", slot_range=(1, 4))
+        self.assertFalse(ok)
+        self.assertIn("没有可种植的空位", msg)
+
+
 if __name__ == "__main__":
     unittest.main()

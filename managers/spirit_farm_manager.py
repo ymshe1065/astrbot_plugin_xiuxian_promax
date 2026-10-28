@@ -3,6 +3,7 @@
 import time
 import json
 import random
+import re
 from typing import Tuple, Optional, Dict, List, TYPE_CHECKING
 from ..data import DataBase
 from ..models import Player
@@ -77,6 +78,54 @@ def get_season_growth_mult(herb_name: str) -> float:
 def get_season_yield_mult() -> float:
     """当前季节的产量倍率"""
     return get_current_season()["yield_mult"]
+
+
+# ===== 种植参数解析（v6.36.12）=====
+# 支持三种写法：/种植 灵草 6（数量）、/种植 灵草 1-20（格号区间）、/种植 灵草 all（种满空格）
+_PLANT_ARG_RE = re.compile(
+    r"^(.+?)\s*(all|全部|全满|满|(?:\d+\s*-\s*\d+)|\d+)$",
+    re.IGNORECASE,
+)
+_PLANT_ALL_SPECS = {"all", "全部", "全满", "满"}
+
+
+def parse_plant_args(raw: str) -> Tuple[str, int, Optional[Tuple[int, int]], bool]:
+    """解析种植参数。
+
+    返回 ``(灵草名, 数量, 格号区间, 是否种满)``：
+    - ``灵草 6``      -> ("灵草", 6, None, False)
+    - ``灵草 1-20``   -> ("灵草", 1, (1, 20), False)
+    - ``灵草 all``    -> ("灵草", 1, None, True)
+    也兼容紧贴写法 ``灵草6`` / ``灵草1-20`` / ``灵草all``。
+    """
+    text = (raw or "").strip()
+    if not text:
+        return "", 1, None, False
+
+    match = _PLANT_ARG_RE.match(text)
+    if not match:
+        return text, 1, None, False
+
+    name = match.group(1).strip()
+    spec = match.group(2).strip().lower()
+
+    if spec in _PLANT_ALL_SPECS:
+        return name, 1, None, True
+
+    range_match = re.fullmatch(r"(\d+)\s*-\s*(\d+)", spec)
+    if range_match:
+        start = max(1, int(range_match.group(1)))
+        end = int(range_match.group(2))
+        if start > end:
+            start, end = end, start
+            start = max(1, start)
+        return name, 1, (start, end), False
+
+    try:
+        count = int(spec)
+    except ValueError:
+        return text, 1, None, False
+    return name, max(1, count), None, False
 
 
 def get_herb_unlock_level(herb_name: str) -> int:
@@ -275,8 +324,20 @@ class SpiritFarmManager:
             "💡 升级灵田可解锁更高级的灵草"
         )
     
-    async def plant_herb(self, player: Player, herb_name: str, count: int = 1) -> Tuple[bool, str]:
-        """种植灵草"""
+    async def plant_herb(
+        self,
+        player: Player,
+        herb_name: str,
+        count: int = 1,
+        slot_range: Optional[Tuple[int, int]] = None,
+        fill_all: bool = False,
+    ) -> Tuple[bool, str]:
+        """种植灵草
+
+        - ``count``：种植数量
+        - ``slot_range``：仅在此格号区间内种植
+        - ``fill_all``：种满当前所有可种空格（优先于 count）
+        """
         if herb_name not in SPIRIT_HERBS:
             herbs_list = "、".join(SPIRIT_HERBS.keys())
             return False, f"❌ 未知的灵草。可种植：{herbs_list}"
@@ -297,13 +358,25 @@ class SpiritFarmManager:
         crops = farm["crops"]
         used_slots = {int(c.get("slot") or 0) for c in crops}
         free_slots = [s for s in range(1, max_slots + 1) if s not in used_slots]
-        
+
+        if slot_range:
+            start, end = slot_range
+            free_slots = [s for s in free_slots if start <= s <= end]
+            if not free_slots:
+                return False, (
+                    f"❌ 格{start}-{end} 没有可种植的空位"
+                    f"（灵田共 {max_slots} 格，可用格号 1-{max_slots}）。"
+                )
+
         available_slots = len(free_slots)
         if available_slots <= 0:
             return False, f"❌ 灵田已满！最多种植 {max_slots} 株。"
-        
-        # 调整种植数量
-        plant_count = min(count, available_slots)
+
+        # 调整种植数量：种满/区间模式自动填满可用格，单数字模式按数量种植
+        if fill_all or slot_range:
+            plant_count = available_slots
+        else:
+            plant_count = min(max(1, int(count or 1)), available_slots)
         if plant_count <= 0:
             return False, "❌ 种植数量必须大于0！"
 
@@ -313,12 +386,17 @@ class SpiritFarmManager:
                 return False, "❌ 系统异常：储物戒管理器未加载，无法消耗种苗。"
             have = self.storage_ring_manager.get_item_count(player, herb_name)
             if have < plant_count:
-                formula = get_hybrid_formula(herb_name)
-                source = f"通过 /杂交 {formula} 合成" if formula else "通过 /杂交 合成"
-                return False, (
-                    f"❌ 【{herb_name}】种苗不足（拥有 {have}，需要 {plant_count}）。\n"
-                    f"💡 请先{source}，或在坊市购买后再种植。"
-                )
+                # 种满/区间模式下按实际拥有的种苗数量尽量种
+                partial = fill_all or bool(slot_range)
+                if partial and have > 0:
+                    plant_count = have
+                else:
+                    formula = get_hybrid_formula(herb_name)
+                    source = f"通过 /杂交 {formula} 合成" if formula else "通过 /杂交 合成"
+                    return False, (
+                        f"❌ 【{herb_name}】种苗不足（拥有 {have}，需要 {plant_count}）。\n"
+                        f"💡 请先{source}，或在坊市购买后再种植。"
+                    )
             ok, seed_msg = await self.storage_ring_manager.retrieve_item(player, herb_name, plant_count)
             if not ok:
                 return False, f"❌ 扣除【{herb_name}】种苗失败：{seed_msg}"
@@ -349,8 +427,13 @@ class SpiritFarmManager:
         season_note = ""
         if get_season_growth_mult(herb_name) != 1.0:
             season_note = f"\n{season['icon']} 当前季节【{season['name']}】影响了生长速度"
+        scope_note = ""
+        if slot_range:
+            scope_note = f"（格{slot_range[0]}-{slot_range[1]}范围内 {plant_count} 格）"
+        elif fill_all:
+            scope_note = f"（种满 {plant_count} 格）"
         return True, (
-            f"🌱 成功种植【{herb_name}】！\n"
+            f"🌱 成功种植【{herb_name}】×{plant_count}{scope_note}！\n"
             f"成熟时间：约 {grow_hours} 小时"
             f"{season_note}\n"
             f"当前种植：{len(crops)}/{max_slots}"
@@ -837,7 +920,7 @@ class SpiritFarmManager:
             lines.append("（空）")
         
         lines.append("")
-        lines.append("💡 /种植 <灵草名> | /收获 | /铲除 <格号>")
+        lines.append("💡 /种植 <灵草名> [数量|格号区间|all] | /收获 | /铲除 <格号>")
         lines.append("🧬 /杂交 消耗父本各1株并占用2格，完成后产出1株杂交植株")
         lines.append("🌱 非杂交灵草可按灵田等级直接种植；杂交植株种植消耗1株，收获4株")
         

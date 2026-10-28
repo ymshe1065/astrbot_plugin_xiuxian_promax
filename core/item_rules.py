@@ -75,6 +75,11 @@ SLOT_LABELS = {"weapon": "武器", "head": "头饰", "armor": "甲胄", "gloves"
                "boots": "靴子", "ring1": "戒指1", "ring2": "戒指2", "amulet": "护符"}
 SLOT_ALIASES = {**{k: k for k in SLOT_LABELS}, **{v: k for k, v in SLOT_LABELS.items()},
                 "防具": "armor", "body": "armor", "护甲": "armor"}
+# 「饰品」同时涵盖护符与两枚戒指，不能简单折叠为单一槽位，单独作为分组别名处理。
+SLOT_GROUP_ALIASES = {
+    "饰品": ("amulet", "ring1", "ring2"),
+    "首饰": ("amulet", "ring1", "ring2"),
+}
 
 def _raw_value(item: Optional[Dict[str, Any]], key: str, default=None):
     if not isinstance(item, dict):
@@ -290,6 +295,7 @@ class ItemRules:
     GEAR_TYPES = GEAR_TYPES
     SLOT_LABELS = SLOT_LABELS
     SLOT_ALIASES = SLOT_ALIASES
+    SLOT_GROUP_ALIASES = SLOT_GROUP_ALIASES
     RANK_REQ_LEVEL = RANK_REQ_LEVEL
     EQUIPPABLE_TYPES = EQUIPPABLE_TYPES
     SLOT_BY_TYPE = SLOT_BY_TYPE

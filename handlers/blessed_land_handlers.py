@@ -2,7 +2,7 @@
 """洞天福地处理器"""
 from astrbot.api.event import AstrMessageEvent
 from ..data import DataBase
-from ..managers.blessed_land_manager import BlessedLandManager
+from ..managers.blessed_land_manager import BlessedLandManager, parse_upgrade_args
 from ..models import Player
 from .utils import player_required
 
@@ -40,9 +40,28 @@ class BlessedLandHandlers:
         yield event.plain_result(msg)
     
     @player_required
-    async def handle_upgrade(self, player: Player, event: AstrMessageEvent):
-        """升级洞天"""
-        success, msg = await self.mgr.upgrade_blessed_land(player)
+    async def handle_upgrade(self, player: Player, event: AstrMessageEvent, arg: str = ""):
+        """升级洞天（支持次数 / 目标等级 / all）"""
+        mode, value = parse_upgrade_args(arg)
+        if mode is None:
+            yield event.plain_result(
+                "🏔️ 升级洞天\n"
+                "━━━━━━━━━━━━━━━\n"
+                "用法：\n"
+                "  /升级洞天        升 1 级\n"
+                "  /升级洞天 3      连升 3 级\n"
+                "  /升级洞天 1-5    升到 Lv.5\n"
+                "  /升级洞天 all    一键升到当前洞天满级\n"
+                "💡 连升时灵石不足会自动停在可负担的等级"
+            )
+            return
+
+        success, msg = await self.mgr.upgrade_blessed_land(
+            player,
+            times=value if mode == "times" else 1,
+            target_level=value if mode == "target" else None,
+            fill_all=(mode == "all"),
+        )
         yield event.plain_result(msg)
     
     @player_required

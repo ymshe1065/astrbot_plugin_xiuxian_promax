@@ -13,6 +13,12 @@ from .utils import player_required, set_event_flag
 _TYPE_LABELS = {
     "weapon": "武器",
     "armor": "防具",
+    "head": "头饰",
+    "body": "甲胄",
+    "gloves": "手套",
+    "boots": "靴子",
+    "ring": "戒指",
+    "amulet": "护符",
     "accessory": "饰品",
     "technique": "功法",
     "main_technique": "心法",
@@ -58,7 +64,8 @@ class SectShopHandler:
         shop_id = f"sect_shop_{sect_id}"
         last_refresh, items = await self.db.get_shop_data(shop_id)
         if items:
-            changed = self.shop_manager.ensure_equipment_quality(items)
+            changed = self.shop_manager.ensure_items_have_stock(items)
+            changed = self.shop_manager.ensure_equipment_quality(items) or changed
             changed = self.shop_manager.refresh_item_data(items) or changed
             if changed:
                 await self.db.update_shop_data(shop_id, last_refresh, items)

@@ -29,6 +29,12 @@ class ShopHandler:
         '符箓': "符箓师绘制、百宝阁、历练/奇遇掉落",
         'weapon': "器阁、百宝阁、黑市",
         'armor': "器阁、百宝阁",
+        'head': "器阁、百宝阁",
+        'body': "器阁、百宝阁",
+        'gloves': "器阁、百宝阁",
+        'boots': "器阁、百宝阁",
+        'ring': "百宝阁、黑市",
+        'amulet': "百宝阁、黑市",
         'accessory': "百宝阁、黑市",
         'main_technique': "百宝阁稀有刷新、历练/秘境/奇遇低概率掉落、Boss/世界Boss/团本稀有掉落",
         'technique': "百宝阁、宗门商店、历练、秘境、奇遇、Boss 掉落",
@@ -44,6 +50,7 @@ class ShopHandler:
         self.equipment_manager = EquipmentManager(db, config_manager, self.storage_ring_manager)
         self.pill_manager = PillManager(db, config_manager)
         self.last_buy_success = False
+        self._last_viewed_pavilion: dict[str, str] = {}
         access_control = self.config.get("ACCESS_CONTROL", {})
         self.shop_manager_ids = {
             str(user_id)
@@ -54,6 +61,25 @@ class ShopHandler:
         """读取配置：优先新 schema 的 VALUES 层，兼容旧根键。"""
         values = self.config.get("VALUES", {}) or {}
         return values.get(key, self.config.get(key, default))
+
+    def _sender_key(self, event: AstrMessageEvent) -> str:
+        try:
+            return str(event.get_sender_id() or "")
+        except Exception:
+            return ""
+
+    def _remember_viewed_pavilion(self, event: AstrMessageEvent, pavilion_id: str) -> None:
+        """记录玩家最近查看的货架，购买同名物品时优先从该货架扣库存。"""
+        uid = self._sender_key(event)
+        if not uid:
+            return
+        self._last_viewed_pavilion[uid] = pavilion_id
+        if len(self._last_viewed_pavilion) > 512:
+            for stale in list(self._last_viewed_pavilion)[:128]:
+                self._last_viewed_pavilion.pop(stale, None)
+
+    def _viewed_pavilion(self, event: AstrMessageEvent) -> str:
+        return self._last_viewed_pavilion.get(self._sender_key(event), "")
 
     def _rare_recipe_count(self) -> int:
         """丹方阁每次随机刷新的稀有丹方数量（突破丹方常驻，不占此名额）。"""
@@ -151,6 +177,7 @@ class ShopHandler:
             return
         pavilion_id, name, getter, count = jobs[section]
         await self._ensure_pavilion_refreshed(pavilion_id, getter, count)
+        self._remember_viewed_pavilion(event, pavilion_id)
         last_refresh, items = await self.db.get_shop_data(pavilion_id)
         if not items:
             yield event.plain_result(f"{name}暂无物品出售。")
@@ -168,6 +195,7 @@ class ShopHandler:
         """处理器阁命令 - 展示武器列表"""
         count = self._cfg("PAVILION_WEAPON_COUNT", 30)
         await self._ensure_pavilion_refreshed("weapon_pavilion", self.shop_manager.get_weapons_for_display, count)
+        self._remember_viewed_pavilion(event, "weapon_pavilion")
         last_refresh, items = await self.db.get_shop_data("weapon_pavilion")
         if not items:
             yield event.plain_result("器阁暂无武器出售。")
@@ -185,6 +213,7 @@ class ShopHandler:
         """处理百宝阁命令 - 展示所有物品"""
         count = self._cfg("PAVILION_TREASURE_COUNT", 40)
         await self._ensure_pavilion_refreshed("treasure_pavilion", self.shop_manager.get_all_items_for_display, count)
+        self._remember_viewed_pavilion(event, "treasure_pavilion")
         last_refresh, items = await self.db.get_shop_data("treasure_pavilion")
         if not items:
             yield event.plain_result("百宝阁暂无物品出售。")
@@ -247,9 +276,13 @@ class ShopHandler:
         except Exception:
             return None
 
-    async def _find_item_in_pavilions(self, item_name: str):
-        """在所有阁楼中查找物品"""
-        for pavilion_id in ["pill_pavilion", "recipe_pavilion", "material_pavilion", "weapon_pavilion", "treasure_pavilion"]:
+    async def _find_item_in_pavilions(self, item_name: str, preferred_pavilion: str = ""):
+        """在所有阁楼中查找物品；同一物品重复上架时优先匹配玩家刚查看的货架。"""
+        pavilion_ids = ["pill_pavilion", "recipe_pavilion", "material_pavilion", "weapon_pavilion", "treasure_pavilion"]
+        if preferred_pavilion in pavilion_ids:
+            pavilion_ids.remove(preferred_pavilion)
+            pavilion_ids.insert(0, preferred_pavilion)
+        for pavilion_id in pavilion_ids:
             last_refresh, items = await self.db.get_shop_data(pavilion_id)
             if items:
                 changed = self.shop_manager.ensure_equipment_quality(items)
@@ -306,7 +339,7 @@ class ShopHandler:
 
         item_name = item_part
 
-        pavilion_id, target_item = await self._find_item_in_pavilions(item_name)
+        pavilion_id, target_item = await self._find_item_in_pavilions(item_name, self._viewed_pavilion(event))
         if not target_item:
             yield event.plain_result(
                 f"没有找到【{item_name}】。\n"
@@ -402,7 +435,9 @@ class ShopHandler:
                     yield event.plain_result(f"❌ 购买失败：储物戒空间不足。\n{msg}\n本次未扣除灵石。")
                     return
                 type_name = {
-                    "weapon": "武器", "armor": "防具", "accessory": "饰品",
+                    "weapon": "武器", "armor": "防具", "head": "头饰", "body": "甲胄",
+                    "gloves": "手套", "boots": "靴子", "ring": "戒指",
+                    "amulet": "护符", "accessory": "饰品",
                     "main_technique": "心法", "technique": "功法",
                 }.get(item_type, "装备")
                 result_lines.append(f"成功购买{type_name}【{target_item['name']}】x{quantity}。\n{msg}")

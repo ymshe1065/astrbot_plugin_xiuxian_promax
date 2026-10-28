@@ -575,7 +575,9 @@ class ShopManager:
             return f"{pavilion_name}暂无物品出售"
 
         type_label_map = {
-            'weapon': '武器', 'armor': '防具', 'main_technique': '心法', 'technique': '功法',
+            'weapon': '武器', 'armor': '防具', 'head': '头饰', 'body': '甲胄',
+            'gloves': '手套', 'boots': '靴子', 'ring': '戒指', 'amulet': '护符',
+            'main_technique': '心法', 'technique': '功法',
             'pill': '破境丹', 'exp_pill': '修为丹', 'utility_pill': '功能丹',
             'inventory_pill': '丹药', 'legacy_pill': '丹药', 'recipe': '丹方',
             'material': '材料', 'accessory': '饰品', '符箓': '符箓'
