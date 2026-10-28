@@ -347,7 +347,8 @@ class CombatManager:
     ) -> Dict:
         """构建与实战一致的气血/灵气/攻击/防御/暴击面板。"""
         pill_multipliers = pill_multipliers or {}
-        effects = effects or {}
+        # 复制一份，避免展示面板回写调用方的特效字典（名片/排行共用同一份数据）。
+        effects = dict(effects or {})
         try:
             from .talisman_manager import TalismanManager
             for key, value in TalismanManager.collect_active_combat_effects(player).items():
@@ -435,6 +436,19 @@ class CombatManager:
         magic_def += title_def_total - int(title_def_total * pdef_share)
         effects["crit_rate"] = effects.get("crit_rate", 0) + int(title.get("crit", 0) or 0)
         effects["lifesteal"] = effects.get("lifesteal", 0) + int(title.get("lifesteal", 0) or 0)
+        # 传承的会心/爆伤同样属于战斗面板，名片与排行必须与实战口径一致。
+        if impart_info:
+            effects["crit_rate"] = effects.get("crit_rate", 0) + int(
+                float(getattr(impart_info, "impart_know_per", 0.0) or 0.0) * 100
+            )
+            effects["crit_damage"] = effects.get("crit_damage", 1.5) + float(
+                getattr(impart_info, "impart_burst_per", 0.0) or 0.0
+            )
+        # 暴击/吸血溢出转换会改变双攻，展示面板也需先结算。
+        overflow_attack_mult = CombatManager.normalize_overflow_effects(effects)
+        if overflow_attack_mult != 1.0:
+            physical_atk = max(0, int(physical_atk * overflow_attack_mult))
+            magic_atk = max(0, int(magic_atk * overflow_attack_mult))
         atk = max(1, physical_atk + magic_atk)
         defense = max(0, physical_def + magic_def)
 
@@ -493,41 +507,44 @@ class CombatManager:
         except Exception:
             pass
         from ..core.equipment_manager import EquipmentManager
+        from ..core.equipment_balance import GEAR_EFFECT_CAPS
         weapons_data = getattr(config_manager, "weapons_data", {}) or {}
+        # 装备特效单独累计后按部位总上限收敛，避免多槽位重复叠满；
+        # 不能直接钳制总特效，否则功法/传承提供的暴击、爆伤也会被装备上限误伤。
+        gear_effects = {}
+
+        def add_gear_effect(key, value):
+            if key in ("physical_damage_multiplier", "magic_damage_multiplier"):
+                return
+            if key not in effects:
+                return
+            try:
+                value = min(float(GEAR_EFFECT_CAPS.get(key, value)), float(value or 0))
+            except (TypeError, ValueError):
+                value = 0
+            gear_effects[key] = gear_effects.get(key, 0) + value
+
         for name, _ in EquipmentManager(None, config_manager).get_gear_slots(player).values():
             cfg = items_data.get(name) or weapons_data.get(name, {})
-            from ..core.equipment_balance import GEAR_EFFECT_CAPS
             for key, value in cfg.get("effects", {}).items():
-                if key in ("physical_damage_multiplier", "magic_damage_multiplier"):
-                    continue
-                if key in effects:
-                    try:
-                        value = min(float(GEAR_EFFECT_CAPS.get(key, value)), float(value or 0))
-                    except (TypeError, ValueError):
-                        value = 0
-                    effects[key] += value
+                add_gear_effect(key, value)
 
         try:
             from ..core.item_instance_manager import ItemInstanceManager
-            from ..core.equipment_balance import GEAR_EFFECT_CAPS
             im = ItemInstanceManager(None, config_manager)
             for instance_id in player.get_equipped_instances().values():
                 inst = im.get_instance(player, instance_id)
                 if not inst:
                     continue
                 for affix in inst.get("affixes", []) or []:
-                    key = affix.get("key")
-                    value = affix.get("value", 0)
-                    if key in ("physical_damage_multiplier", "magic_damage_multiplier"):
-                        continue
-                    if key in effects:
-                        try:
-                            value = min(float(GEAR_EFFECT_CAPS.get(key, value)), float(value or 0))
-                        except (TypeError, ValueError):
-                            value = 0
-                        effects[key] += value
+                    add_gear_effect(affix.get("key"), affix.get("value", 0))
         except Exception:
             pass
+        for key, cap in GEAR_EFFECT_CAPS.items():
+            if key in gear_effects:
+                gear_effects[key] = min(gear_effects[key], float(cap))
+        for key, value in gear_effects.items():
+            effects[key] = effects.get(key, 0) + value
         # 防御脏配置/旧生成器数据：百分比类词条统一钳制到 0-100，避免 500% 暴击/吸血
         for rate_key in ("crit_rate", "lifesteal", "combo_rate", "counter_damage", "dodge"):
             if rate_key in effects:
@@ -535,14 +552,6 @@ class CombatManager:
                     effects[rate_key] = max(0.0, min(100.0, float(effects[rate_key])))
                 except (TypeError, ValueError):
                     effects[rate_key] = 0
-        # 装备特效按部位总上限收敛，避免多槽位重复叠满。
-        try:
-            from ..core.equipment_balance import GEAR_EFFECT_CAPS
-            for key, cap in GEAR_EFFECT_CAPS.items():
-                if key in effects:
-                    effects[key] = min(float(effects[key]), float(cap))
-        except Exception:
-            pass
         # 装备增伤已进入装备百分比池，特效层不再二次放大。
         effects["physical_damage_multiplier"] = 1.0
         effects["magic_damage_multiplier"] = 1.0
@@ -694,6 +703,13 @@ class CombatManager:
         magic_def += title_def_total - int(title_def_total * pdef_share)
         effects["crit_rate"] = effects.get("crit_rate", 0) + int(title.get("crit", 0) or 0)
         effects["lifesteal"] = effects.get("lifesteal", 0) + int(title.get("lifesteal", 0) or 0)
+        # 把传承会心并入统一特效池，确保溢出转换在所有战斗入口生效。
+        if crit_rate:
+            effects["crit_rate"] = effects.get("crit_rate", 0) + float(crit_rate or 0)
+        overflow_attack_mult = cls.normalize_overflow_effects(effects)
+        if overflow_attack_mult != 1.0:
+            physical_atk = max(0, int(physical_atk * overflow_attack_mult))
+            magic_atk = max(0, int(magic_atk * overflow_attack_mult))
         final_atk = max(1, physical_atk + magic_atk)
         defense = max(0, physical_def + magic_def)
         return CombatStats(
@@ -705,7 +721,8 @@ class CombatManager:
             max_mp=max_mp,
             atk=final_atk,
             defense=defense,
-            crit_rate=int(crit_rate or 0),
+            # 会心已并入 effects，避免 _execute_attack 重复计算
+            crit_rate=0,
             exp=player.experience,
             effects=effects,
             element=element or "",

@@ -590,7 +590,9 @@ class PetManager:
             )
 
         used_slots = {int(p.get("slot") or 0) for p in pets}
-        slot = next(i for i in range(1, slots + 1) if i not in used_slots)
+        slot = next((i for i in range(1, slots + 1) if i not in used_slots), None)
+        if slot is None:
+            return False, "❌ 灵兽槽位数据异常，请先整理灵兽栏后再试。"
 
         is_first_yusou = (
             getattr(player, "cultivation_type", "") == "御兽" and not pets
@@ -664,7 +666,9 @@ class PetManager:
             return False, f"❌ 捕捉【{pet_name}】需要 {cost:,} 灵石。", None
 
         used_slots = {int(p.get("slot") or 0) for p in pets}
-        slot = next(i for i in range(1, slots + 1) if i not in used_slots)
+        slot = next((i for i in range(1, slots + 1) if i not in used_slots), None)
+        if slot is None:
+            return False, "❌ 灵兽槽位数据异常，请先整理灵兽栏后再试。", None
 
         level = max(1, min(self.MAX_PET_LEVEL, int(level or 1)))
         stage = self.stage_for_level(level)

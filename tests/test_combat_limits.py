@@ -183,6 +183,56 @@ class TestCombatDailyLimits(unittest.IsolatedAsyncioTestCase):
         self.assertGreater(cd_a["last_spar_time"], 0)
         self.assertGreater(cd_b["last_spar_time"], 0)
 
+    async def test_spar_accept_keeps_invite_when_initiator_busy(self):
+        await self.handlers._create_spar_request("1001", "甲", "1002")
+        await self.db.conn.execute(
+            "UPDATE players SET state = '修炼中' WHERE user_id = ?", ("1001",)
+        )
+        await self.db.conn.commit()
+
+        event = _FakeEvent("1002", "接受切磋")
+        await self._run(self.handlers.handle_spar_accept(event))
+
+        self.assertTrue(any("切磋无法进行" in text for text in event.results))
+        # 校验失败不应消耗邀请，发起者空闲后仍可接受
+        self.assertIsNotNone(await self.handlers._get_pending_spar_request("1002"))
+
+    async def test_spar_accept_keeps_invite_when_initiator_out_of_limits(self):
+        await self.handlers._create_spar_request("1001", "甲", "1002")
+        spar_limit = self.handlers._daily_limit("spar_daily_limit", 3)
+        await self.db.conn.execute(
+            """INSERT INTO combat_daily (user_id, day, spar_count) VALUES (?, ?, ?)
+               ON CONFLICT(user_id, day) DO UPDATE SET spar_count = ?""",
+            ("1001", self.handlers._today(), spar_limit, spar_limit),
+        )
+        await self.db.conn.commit()
+
+        event = _FakeEvent("1002", "接受切磋")
+        await self._run(self.handlers.handle_spar_accept(event))
+
+        self.assertTrue(any("今日切磋次数已用尽" in text for text in event.results))
+        self.assertIsNotNone(await self.handlers._get_pending_spar_request("1002"))
+
+        usage = await self.handlers._get_daily_usage("1002")
+        self.assertEqual(usage["spar_count"], 0)
+
+    async def test_daily_pair_savepoint_works_inside_open_transaction(self):
+        # 模拟调用方已开启事务：旧实现 BEGIN IMMEDIATE 会直接报错
+        await self.db.conn.execute(
+            "INSERT INTO combat_daily (user_id, day, duel_count) VALUES (?, ?, 0)",
+            ("1003", self.handlers._today()),
+        )
+        ok, blocked = await self.handlers._consume_daily_pair(
+            ["1001", "1002"], "duel_count", 1
+        )
+        self.assertTrue(ok)
+        self.assertIsNone(blocked)
+        await self.db.conn.commit()
+
+        for uid in ("1001", "1002"):
+            usage = await self.handlers._get_daily_usage(uid)
+            self.assertEqual(usage["duel_count"], 1)
+
     async def test_spar_request_expires(self):
         await self.handlers._create_spar_request("1001", "甲", "1002")
         await self.db.conn.execute(

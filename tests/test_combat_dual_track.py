@@ -225,6 +225,95 @@ class TestCombatDualTrack(unittest.TestCase):
         self.assertGreater(p_atk, 0)
         self.assertGreater(m_atk, 0)
 
+    def test_impart_crit_applies_to_panel_and_battle(self):
+        cm = self.CombatManager
+        config = _imp("config_manager").ConfigManager(ROOT)
+        Player = _imp("models").Player
+        player = Player(user_id="impart", level_index=12)
+        impart = types.SimpleNamespace(
+            impart_hp_per=0.0,
+            impart_mp_per=0.0,
+            impart_atk_per=0.0,
+            impart_know_per=0.25,
+            impart_burst_per=0.5,
+        )
+        effects = {
+            "crit_rate": 0,
+            "crit_damage": 1.5,
+            "lifesteal": 0,
+            "counter_damage": 0,
+        }
+        panel = cm.build_combat_panel(player, {}, impart, config, effects)
+        self.assertEqual(panel["crit_rate"], 25)
+        self.assertAlmostEqual(panel["crit_damage"], 2.0)
+        # 面板不得回写调用方的特效字典
+        self.assertEqual(effects["crit_rate"], 0)
+        self.assertAlmostEqual(effects["crit_damage"], 1.5)
+
+        stats = cm.build_player_combat_stats(
+            player,
+            config,
+            crit_rate=25,
+            crit_damage_bonus=0.5,
+            pill_multipliers={},
+        )
+        self.assertEqual(stats.effects["crit_rate"], 25)
+        self.assertAlmostEqual(stats.effects["crit_damage"], 2.0)
+        # 会心已并入 effects，CombatStats.crit_rate 保持 0 防止重复判定
+        self.assertEqual(stats.crit_rate, 0)
+
+    def test_overflow_conversion_applies_without_pets(self):
+        cm = self.CombatManager
+        config = _imp("config_manager").ConfigManager(ROOT)
+        Player = _imp("models").Player
+        player = Player(user_id="overflow", level_index=12)
+        base = cm.collect_combat_effects(player, config)
+        plain = cm.build_combat_panel(player, {}, None, config, dict(base))
+
+        boosted = dict(base)
+        boosted["lifesteal"] = boosted.get("lifesteal", 0) + 150
+        panel = cm.build_combat_panel(player, {}, None, config, dict(boosted))
+        self.assertEqual(panel["lifesteal"], 100)
+        self.assertGreater(panel["atk"], plain["atk"])
+
+        stats = cm.build_player_combat_stats(
+            player, config, extra_effects={"lifesteal": 150}, pill_multipliers={}
+        )
+        self.assertEqual(stats.effects["lifesteal"], 100)
+        self.assertEqual(panel["atk"], stats.atk)
+        self.assertEqual(panel["physical_atk"], stats.physical_atk)
+        self.assertEqual(panel["magic_atk"], stats.magic_atk)
+
+        crit = dict(base)
+        crit["crit_rate"] = crit.get("crit_rate", 0) + 150
+        crit_panel = cm.build_combat_panel(player, {}, None, config, dict(crit))
+        overflow = crit["crit_rate"] - 100
+        self.assertEqual(crit_panel["crit_rate"], 100)
+        self.assertAlmostEqual(
+            crit_panel["crit_damage"],
+            base.get("crit_damage", 1.5) + overflow * 0.5 / 100.0,
+            places=6,
+        )
+
+    def test_player_effects_allow_documented_overflow_caps(self):
+        cm = self.CombatManager
+        config = _imp("config_manager").ConfigManager(ROOT)
+        Player = _imp("models").Player
+        player = Player(
+            user_id="caps",
+            level_index=12,
+            permanent_bonus='{"affixes":[{"key":"crit_rate","value":60},'
+                            '{"key":"lifesteal","value":25}]}',
+        )
+        effects = cm.collect_combat_effects(player, config)
+        # v6.36.9 起暴击/吸血总量上限为 100，不应再被旧的 50/15 上限截断
+        self.assertEqual(effects["crit_rate"], 60)
+        self.assertEqual(effects["lifesteal"], 25)
+
+        panel = cm.build_combat_panel(player, {}, None, config, dict(effects))
+        self.assertEqual(panel["crit_rate"], 60)
+        self.assertEqual(panel["lifesteal"], 25)
+
     def test_balanced_pvp_sets_dual_components(self):
         cm = self.CombatManager
         p1 = self.CombatStats(

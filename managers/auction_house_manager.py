@@ -443,7 +443,13 @@ class AuctionHouseManager:
             return 0
         queued = 0
         last_slot = event.get("last_reminder_slot") or ""
-        for hour in range(self.announce_start_hour, self.announce_end_hour + 1):
+        # 使用场次自身的预告开始小时，避免运行中修改配置后旧场次漏发预告。
+        try:
+            start_hour = datetime.fromtimestamp(int(event.get("announce_start") or now)).hour
+        except (TypeError, ValueError, OSError):
+            start_hour = self.announce_start_hour
+        start_hour = max(0, min(23, start_hour))
+        for hour in range(start_hour, self.announce_end_hour + 1):
             hour_ts = self._at_hour(now, hour)
             if now < hour_ts:
                 continue

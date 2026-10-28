@@ -167,8 +167,10 @@ class TestAuctionHouse(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(announce_dt.date(), start_dt.date())
         self.assertEqual(start_dt.hour, 22)
 
-        announce_start = self.manager._at_hour(now, datetime.fromtimestamp(now).hour)
-        event_start = now + 3600
+        announce_start = self.manager._at_hour(now, self.manager.announce_start_hour)
+        event_start = self.manager._at_hour(announce_start, self.manager.event_start_hour)
+        if event_start <= announce_start:
+            event_start += 86400
         await self.conn.execute(
             "UPDATE auction_house_events SET announce_start=?, event_start=?, announce_date=? WHERE id=?",
             (announce_start, event_start, datetime.fromtimestamp(announce_start).strftime("%Y-%m-%d"), event["id"]),

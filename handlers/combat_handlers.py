@@ -83,7 +83,9 @@ class CombatHandlers:
             return True, None
         unique_ids = list(dict.fromkeys(str(uid) for uid in user_ids if uid))
         today = self._today()
-        await self.db.conn.execute("BEGIN IMMEDIATE")
+        # 使用 SAVEPOINT 而非 BEGIN IMMEDIATE：即使调用方已有未提交事务
+        # 也能安全嵌套，避免 “cannot start a transaction within a transaction”。
+        await self.db.conn.execute("SAVEPOINT combat_daily_pair")
         try:
             for uid in unique_ids:
                 async with self.db.conn.execute(
@@ -93,7 +95,8 @@ class CombatHandlers:
                     row = await cursor.fetchone()
                 current = int(row[0] or 0) if row else 0
                 if current >= limit:
-                    await self.db.conn.rollback()
+                    await self.db.conn.execute("ROLLBACK TO SAVEPOINT combat_daily_pair")
+                    await self.db.conn.execute("RELEASE SAVEPOINT combat_daily_pair")
                     return False, uid
             for uid in unique_ids:
                 await self.db.conn.execute(
@@ -101,10 +104,14 @@ class CombatHandlers:
                         ON CONFLICT(user_id, day) DO UPDATE SET {field} = {field} + 1""",
                     (uid, today),
                 )
-            await self.db.conn.commit()
+            await self.db.conn.execute("RELEASE SAVEPOINT combat_daily_pair")
             return True, None
         except Exception:
-            await self.db.conn.rollback()
+            try:
+                await self.db.conn.execute("ROLLBACK TO SAVEPOINT combat_daily_pair")
+                await self.db.conn.execute("RELEASE SAVEPOINT combat_daily_pair")
+            except Exception:
+                pass
             raise
 
     async def _busy_status(self, user_id: str, player: Player = None) -> str:
@@ -477,18 +484,9 @@ class CombatHandlers:
             yield event.plain_result("❌ 没有待接受的切磋邀请。")
             return
 
-        # 先原子抢占请求，避免同一请求被重复接受
-        cursor = await self.db.conn.execute(
-            "DELETE FROM spar_requests WHERE id = ? AND target_id = ?",
-            (request["id"], acceptor_id),
-        )
-        await self.db.conn.commit()
-        if cursor.rowcount == 0:
-            yield event.plain_result("❌ 该切磋邀请已被处理，请重新邀请。")
-            return
-
         initiator = await self.db.get_player_by_id(request["from_id"])
         if not initiator:
+            await self._delete_spar_request(request["id"])
             yield event.plain_result("❌ 发起切磋的道友已不在此界，邀请作废。")
             return
         initiator_id = str(initiator.user_id)
@@ -541,6 +539,16 @@ class CombatHandlers:
         p2_stats = await self._prepare_combat_stats(acceptor_id)
         if not p1_stats or not p2_stats:
             yield event.plain_result("❌ 战斗状态准备失败，请重试。")
+            return
+
+        # 所有校验通过后再原子抢占请求，避免对方忙碌/次数不足时白白吞掉邀请。
+        cursor = await self.db.conn.execute(
+            "DELETE FROM spar_requests WHERE id = ? AND target_id = ?",
+            (request["id"], acceptor_id),
+        )
+        await self.db.conn.commit()
+        if cursor.rowcount == 0:
+            yield event.plain_result("❌ 该切磋邀请已被处理，请重新邀请。")
             return
 
         consumed, blocked_uid = await self._consume_daily_pair(
