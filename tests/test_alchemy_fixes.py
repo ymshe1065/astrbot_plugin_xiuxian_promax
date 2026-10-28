@@ -67,7 +67,14 @@ class _FakeConfig:
             "level_required": 0,
             "materials": {"灵草": 2, "灵石": 100},
             "success_rate": 85,
-        }
+        },
+        "聚气丹": {
+            "id": 2,
+            "name": "聚气丹",
+            "level_required": 0,
+            "materials": {"灵草": 1, "灵石": 50},
+            "success_rate": 80,
+        },
     }
     exp_pills_data = {"炼气丹": {"name": "炼气丹", "exp_gain": 500, "rank": "黄阶"}}
     utility_pills_data = {}
@@ -86,6 +93,17 @@ class TestAlchemyFixes(unittest.IsolatedAsyncioTestCase):
         self.assertIn("灵草x2(✓)", text)
         self.assertIn("灵石x100", text)
         self.assertIn("可炼制", text)
+
+    async def test_recipe_list_only_shows_learned(self):
+        Player = _imp("models").Player
+        AlchemyManager = _imp("managers.alchemy_manager").AlchemyManager
+        player = Player(user_id="u1", user_name="道友", learned_recipes="[1]")
+        mgr = AlchemyManager(_FakeDB(player), _FakeConfig(), _FakeStorage())
+        ok, text = await mgr.get_available_recipes("u1")
+        self.assertTrue(ok)
+        self.assertIn("[1] 炼气丹", text)
+        self.assertNotIn("[2] 聚气丹", text)
+        self.assertNotIn("未学习", text)
 
 
 if __name__ == "__main__":

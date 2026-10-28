@@ -80,6 +80,28 @@ class TestCombatDualTrack(unittest.TestCase):
             + int(950_000 * 0.05),
         )
 
+    def test_experience_overflow_bonus_is_capped(self):
+        cm = self.CombatManager
+
+        class Player:
+            experience = 2_000_000
+
+            def get_required_exp(self, config_manager):
+                return 350_000
+
+        bonus = cm.get_experience_overflow_bonus(Player(), None)
+        expected_effective = (
+            350_000 + int(350_000 * 0.30) + int(350_000 * 0.15)
+            + int(950_000 * 0.05)
+        )
+        self.assertAlmostEqual(bonus, (expected_effective - 350_000) / 350_000)
+
+        Player.experience = 10**18
+        self.assertEqual(
+            cm.get_experience_overflow_bonus(Player(), None),
+            cm.MAX_OVERFLOW_BONUS,
+        )
+
     def test_physical_defense_only_reduces_physical(self):
         cm = self.CombatManager
         attacker = self.CombatStats(

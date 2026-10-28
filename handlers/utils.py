@@ -103,6 +103,27 @@ def get_player_lock(user_id: str) -> asyncio.Lock:
     return lock
 
 
+def _handler_config_manager(handler):
+    """从 Handler 自身或它持有的管理器上找到插件 ConfigManager。
+
+    player_required 等装饰器以前只读 handler.config_manager；不少 Handler
+    只有 mgr 属性，导致恢复逻辑以 config_manager=None 计算气血上限，
+    把玩家当前气血错误压到较低的回退上限。
+    """
+    manager = getattr(handler, "config_manager", None)
+    if manager is not None:
+        return manager
+    try:
+        values = vars(handler).values()
+    except TypeError:
+        return None
+    for value in values:
+        manager = getattr(value, "config_manager", None)
+        if manager is not None:
+            return manager
+    return None
+
+
 def with_player_lock(func: Callable[..., Coroutine[any, any, AsyncGenerator[any, None]]]):
     """给不经过 player_required 的“退出/解卡”指令也加上同一把玩家状态锁。"""
 
@@ -117,13 +138,15 @@ def with_player_lock(func: Callable[..., Coroutine[any, any, AsyncGenerator[any,
                 return
             try:
                 from ..managers.recovery_manager import RecoveryManager
-                recovery = RecoveryManager(
-                    self.db, getattr(self, "config_manager", None)
-                )
-                await recovery.apply_lazy_recovery(player)
+                recovery = None
+                config_manager = _handler_config_manager(self)
+                if config_manager is not None:
+                    recovery = RecoveryManager(self.db, config_manager)
+                    await recovery.apply_lazy_recovery(player)
                 command_text = _normalize_command_text(event.get_message_str())
                 if (
-                    command_text.startswith(INJURED_BLOCKED_COMMANDS)
+                    recovery is not None
+                    and command_text.startswith(INJURED_BLOCKED_COMMANDS)
                     and await recovery.is_injured(player)
                 ):
                     yield event.plain_result(
@@ -152,9 +175,11 @@ def idle_player_lock(func: Callable[..., Coroutine[any, any, AsyncGenerator[any,
                 return
             try:
                 from ..managers.recovery_manager import RecoveryManager
-                await RecoveryManager(
-                    self.db, getattr(self, "config_manager", None)
-                ).apply_lazy_recovery(player)
+                config_manager = _handler_config_manager(self)
+                if config_manager is not None:
+                    await RecoveryManager(
+                        self.db, config_manager
+                    ).apply_lazy_recovery(player)
             except Exception:
                 pass
             user_cd = await self.db.ext.get_user_cd(player.user_id)
@@ -192,11 +217,11 @@ def player_required(func: Callable[..., Coroutine[any, any, AsyncGenerator[any, 
             injured = False
             try:
                 from ..managers.recovery_manager import RecoveryManager
-                recovery = RecoveryManager(
-                    self.db, getattr(self, "config_manager", None)
-                )
-                await recovery.apply_lazy_recovery(player)
-                injured = await recovery.is_injured(player)
+                config_manager = _handler_config_manager(self)
+                if config_manager is not None:
+                    recovery = RecoveryManager(self.db, config_manager)
+                    await recovery.apply_lazy_recovery(player)
+                    injured = await recovery.is_injured(player)
             except Exception:
                 pass
 

@@ -46,16 +46,28 @@ class TestEquipmentBalance(unittest.TestCase):
                 self.assertLessEqual(a.defense, b.defense * 1.35)
                 self.assertEqual(a.hp, b.hp)
 
-    def test_experience_hoarding_cannot_increase_combat(self):
+    def test_experience_overflow_boosts_combat_with_cap(self):
         p = self.suit(10)
         before = self.combat.build_player_combat_stats(p, self.cm)
         p.experience = 10**18
         after = self.combat.build_player_combat_stats(p, self.cm)
-        for key in ('atk', 'defense', 'hp', 'mp', 'defense_scale'):
-            self.assertEqual(getattr(before, key), getattr(after, key))
+        self.assertGreater(after.atk, before.atk)
+        self.assertGreater(after.hp, before.hp)
+        self.assertGreater(after.defense, before.defense)
+        self.assertEqual(after.overflow_bonus, self.combat.MAX_OVERFLOW_BONUS)
+        # 溢出加成最高 100%，不能无限膨胀。
+        self.assertLessEqual(after.atk, before.atk * 2)
         p.level_index = 13
         higher = self.combat.build_player_combat_stats(p, self.cm)
         self.assertGreater(higher.atk, after.atk)
+
+    def test_experience_within_realm_does_not_change_combat(self):
+        p = self.suit(10)
+        before = self.combat.build_player_combat_stats(p, self.cm)
+        p.experience = p.get_required_exp(self.cm)
+        after = self.combat.build_player_combat_stats(p, self.cm)
+        self.assertEqual(after.overflow_bonus, 0.0)
+        self.assertEqual(after.atk, before.atk)
 
     def test_quality_and_obsolescence_do_not_multiply_total_stats(self):
         config = {'type': 'weapon', 'required_level_index': 10, 'equipment_rates': {'physical_damage': .18}}
