@@ -73,5 +73,17 @@
     "damage_floor_pct": 0.3,
     "damage_cap_pct": 8.0,
     "min_players": 2
+  },
+  "small_event": {
+    "enabled": true,
+    "interval_min_hours": 3,
+    "interval_max_hours": 4,
+    "active_start_hour": 10,
+    "active_end_hour": 24,
+    "cooldown": 180,
+    "damage_floor_pct": 1.0,
+    "damage_cap_pct": 12.0,
+    "expire_hours": 2,
+    "escape_reward_pct": 0.5
   }
 }

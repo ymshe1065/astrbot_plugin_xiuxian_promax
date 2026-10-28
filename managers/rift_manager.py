@@ -272,7 +272,9 @@ class RiftManager:
             from .talisman_manager import TalismanManager
             from .luck_manager import LuckManager
             reward_mult = 1.0 + TalismanManager.get_active_bonus(player, "rift_reward_multiplier")
-            reward_mult *= 1.0 + LuckManager.percent_bonus(player, per_point=0.3, cap=30.0) / 100.0
+            reward_mult *= 1.0 + LuckManager.percent_bonus(
+                player, per_point=0.3, cap=30.0, config_manager=self.config_manager
+            ) / 100.0
             exp_reward = int(exp_reward * reward_mult)
             gold_reward = int(gold_reward * reward_mult)
             try:
@@ -321,6 +323,13 @@ class RiftManager:
                 item_msg = "\n\n📦 获得物品：\n" + "\n".join(item_lines)
         
         # 7. 应用奖励
+        try:
+            from ..core.technique_bonus import TechniqueBonusManager
+            gold_reward = TechniqueBonusManager.apply_gold_bonus(
+                player, gold_reward, self.config_manager
+            )
+        except Exception:
+            pass
         player.experience += exp_reward
         player.gold += gold_reward
         await self.db.update_player(player)
@@ -430,32 +439,22 @@ class RiftManager:
             from .talisman_manager import TalismanManager
             from .luck_manager import LuckManager
             item_chance += int(TalismanManager.get_active_bonus(player, "drop_chance_bonus"))
-            item_chance += int(LuckManager.percent_bonus(player, per_point=0.4, cap=20.0))
+            item_chance += int(LuckManager.percent_bonus(
+                player, per_point=0.4, cap=20.0, config_manager=self.config_manager
+            ))
         except Exception:
             pass
+        item_chance = min(100, max(0, item_chance))
 
         # 检查是否触发物品掉落
-        if random.randint(1, 100) > item_chance:
-            return dropped_items
-        
-        # 获取对应等级的掉落表
-        drop_table = self.RIFT_DROP_TABLE.get(rift_level, self.RIFT_DROP_TABLE[1])
-        
-        # 加权随机选择物品（秘境保证至少掉落1件）
-        total_weight = sum(item["weight"] for item in drop_table)
-        roll = random.randint(1, total_weight)
-        
-        current_weight = 0
-        for item in drop_table:
-            current_weight += item["weight"]
-            if roll <= current_weight:
-                count = random.randint(item["min"], item["max"])
-                dropped_items.append((item["name"], count))
-                break
-        
-        # 高级秘境有50%概率额外掉落一件
-        if rift_level >= 2 and random.randint(1, 100) <= 50:
+        if random.randint(1, 100) <= item_chance:
+            # 获取对应等级的掉落表
+            drop_table = self.RIFT_DROP_TABLE.get(rift_level, self.RIFT_DROP_TABLE[1])
+
+            # 加权随机选择物品（秘境保证至少掉落1件）
+            total_weight = sum(item["weight"] for item in drop_table)
             roll = random.randint(1, total_weight)
+
             current_weight = 0
             for item in drop_table:
                 current_weight += item["weight"]
@@ -463,12 +462,38 @@ class RiftManager:
                     count = random.randint(item["min"], item["max"])
                     dropped_items.append((item["name"], count))
                     break
-        
+
+            # 高级秘境有50%概率额外掉落一件
+            if rift_level >= 2 and random.randint(1, 100) <= 50:
+                roll = random.randint(1, total_weight)
+                current_weight = 0
+                for item in drop_table:
+                    current_weight += item["weight"]
+                    if roll <= current_weight:
+                        count = random.randint(item["min"], item["max"])
+                        dropped_items.append((item["name"], count))
+                        break
+
         # 稀有丹药掉落检测
         pill_drops = self._roll_pill_drops(rift_level)
         if pill_drops:
             dropped_items.extend(pill_drops)
-        
+
+        # 秘境传承机缘：额外掉落功法，低概率掉落随机五行心法
+        try:
+            from ..core.technique_bonus import TechniqueBonusManager
+            tech_name = TechniqueBonusManager.roll_technique_drop(
+                player,
+                self.config_manager,
+                base_chance=4 + max(0, int(rift_level)) * 2,
+                allow_main=True,
+                main_ratio=0.10,
+            )
+            if tech_name:
+                dropped_items.append((tech_name, 1))
+        except Exception:
+            pass
+
         return dropped_items
     
     def _roll_pill_drops(self, rift_level: int) -> List[Tuple[str, int]]:

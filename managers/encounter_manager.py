@@ -22,9 +22,10 @@ class EncounterManager:
     REWARD_SCALE_PER_LEVEL = 0.12
     REWARD_SCALE_MAX = 4.0
 
-    def __init__(self, db: DataBase, storage_ring_mgr=None):
+    def __init__(self, db: DataBase, storage_ring_mgr=None, config_manager=None):
         self.db = db
         self.storage_ring_mgr = storage_ring_mgr
+        self.config_manager = config_manager
         self.events = {ev["key"]: ev for ev in EVENT_POOL}
 
     def _storage_key(self, user_id: str) -> str:
@@ -39,7 +40,9 @@ class EncounterManager:
             return None
         # 功德越高奇遇越容易触发（每点+2%，上限+20%）；气运每点+0.5%，上限+20%
         chance = base_chance + max(0, min(10, getattr(player, "karma", 0) or 0) * 2)
-        chance += LuckManager.percent_bonus(player, per_point=0.5, cap=20.0)
+        chance += LuckManager.percent_bonus(
+            player, per_point=0.5, cap=20.0, config_manager=self.config_manager
+        )
         chance = min(95, chance)
         if random.randint(1, 100) > chance:
             return None
@@ -109,7 +112,9 @@ class EncounterManager:
 
         # 风险类 55% 成功；善行必成；恶行 70% 成功；稳妥类 85% 成功
         # 气运提供额外成功率：每点+0.25%，上限+15%
-        luck_rate = LuckManager.percent_bonus(player, per_point=0.25, cap=15.0) / 100.0
+        luck_rate = LuckManager.percent_bonus(
+            player, per_point=0.25, cap=15.0, config_manager=self.config_manager
+        ) / 100.0
         fail = False
         if weight == "risk":
             fail = random.random() > min(0.98, 0.55 + luck_rate)
@@ -141,6 +146,14 @@ class EncounterManager:
 
         if gold:
             gold = int(gold * scale)
+            if gold > 0:
+                try:
+                    from ..core.technique_bonus import TechniqueBonusManager
+                    gold = TechniqueBonusManager.apply_gold_bonus(
+                        player, gold, self.config_manager
+                    )
+                except Exception:
+                    pass
             player.gold = max(0, player.gold + gold)
             lines.append(f"{'获得' if gold > 0 else '损失'}灵石：{gold:+,}")
         if exp:
@@ -160,7 +173,7 @@ class EncounterManager:
 
         # 奇遇是气运的主要获取途径：部分事件直接给气运，成功抉择也有基础机缘
         if not fail and weight != "leave" and luck == 0:
-            ambient_chance = 10 + min(15, LuckManager.get_total_luck(player) * 0.1)
+            ambient_chance = 10 + min(15, LuckManager.get_total_luck(player, self.config_manager) * 0.1)
             if random.randint(1, 100) <= ambient_chance:
                 luck = 1
         if luck:
@@ -180,6 +193,29 @@ class EncounterManager:
                 lines.append(f"📦 获得物品：【{item_name}】x{item_count}（已存入储物戒）")
             else:
                 lines.append(f"⚠️ 获得【{item_name}】x{item_count}，但储物戒已满，物品丢失")
+
+        # 奇遇机缘：成功后低概率获得功法，极小概率获得随机五行心法
+        if not fail and weight != "leave" and self.storage_ring_mgr:
+            try:
+                from ..core.technique_bonus import TechniqueBonusManager
+                tech_name = TechniqueBonusManager.roll_technique_drop(
+                    player,
+                    self.config_manager,
+                    base_chance=8,
+                    allow_main=True,
+                    main_ratio=0.08,
+                )
+                if tech_name:
+                    stored, _ = await self.storage_ring_mgr.store_item(
+                        player, tech_name, 1, silent=True
+                    )
+                    if stored:
+                        cfg = self.config_manager.get_item_config(tech_name) if self.config_manager else {}
+                        label = "心法" if (cfg or {}).get("type") == "main_technique" else "功法"
+                        lines.append(f"📜 奇遇传承：获得{label}【{tech_name}】（已存入储物戒）")
+                        need_save = True
+            except Exception:
+                pass
 
         if need_save:
             await self.db.update_player(player)

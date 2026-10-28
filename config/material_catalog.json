@@ -162,6 +162,20 @@
       "volume": 1
     },
     {
+      "name": "血玉灵芝",
+      "category": "灵植",
+      "tier": "天阶",
+      "price": 36000,
+      "volume": 1
+    },
+    {
+      "name": "九幽仙芝",
+      "category": "灵植",
+      "tier": "天阶",
+      "price": 90000,
+      "volume": 1
+    },
+    {
       "name": "幽冥草",
       "category": "灵植",
       "tier": "天阶",
@@ -1132,6 +1146,76 @@
       "category": "灵植",
       "tier": "地阶",
       "price": 6000,
+      "volume": 1
+    },
+    {
+      "name": "精铁",
+      "category": "矿材",
+      "tier": "黄阶",
+      "price": 40,
+      "volume": 1
+    },
+    {
+      "name": "灵石碎片",
+      "category": "灵液",
+      "tier": "黄阶",
+      "price": 30,
+      "volume": 1
+    },
+    {
+      "name": "玄铁",
+      "category": "矿材",
+      "tier": "玄阶",
+      "price": 180,
+      "volume": 1
+    },
+    {
+      "name": "灵兽毛皮",
+      "category": "妖兽",
+      "tier": "玄阶",
+      "price": 160,
+      "volume": 1
+    },
+    {
+      "name": "妖兽精血",
+      "category": "妖兽",
+      "tier": "玄阶",
+      "price": 200,
+      "volume": 1
+    },
+    {
+      "name": "星辰石",
+      "category": "矿材",
+      "tier": "地阶",
+      "price": 900,
+      "volume": 1
+    },
+    {
+      "name": "灵兽内丹",
+      "category": "妖兽",
+      "tier": "地阶",
+      "price": 1200,
+      "volume": 1
+    },
+    {
+      "name": "天材地宝",
+      "category": "灵植",
+      "tier": "天阶",
+      "price": 6000,
+      "volume": 1
+    },
+    {
+      "name": "功法残页",
+      "category": "灵液",
+      "tier": "玄阶",
+      "price": 300,
+      "volume": 1
+    },
+    {
+      "name": "秘境精华",
+      "category": "灵液",
+      "tier": "地阶",
+      "price": 800,
       "volume": 1
     }
   ]

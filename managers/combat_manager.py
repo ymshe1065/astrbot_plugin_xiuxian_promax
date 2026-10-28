@@ -171,6 +171,7 @@ class CombatManager:
             "counter_damage": 0,
             "defense_bonus": 0,
             "combo_rate": 0,
+            "dodge": 0,
             "physical_damage_multiplier": 1.0,
             "magic_damage_multiplier": 1.0,
         }
@@ -282,8 +283,16 @@ class CombatManager:
         attack_bonus = max(-.5, min(.50, dmg_mult - 1 + atk_buff + min(.20, max(0, player.atkpractice) * .01) + forge_bonus))
         defense_bonus = max(-.5, min(.50, def_mult - 1 + forge_bonus))
         # 永久丹药/先天随机属性保留为有上限的附加值，不作为装备基数。
-        permanent_atk = min(int(base_atk * .20), max(0, player.physical_damage + player.magic_damage))
-        permanent_def = min(int(base_def * .20), max(0, player.physical_defense + player.magic_defense))
+        permanent_pill_limit = 0.30
+        try:
+            import json
+            bonus_data = json.loads(player.permanent_bonus) if player.permanent_bonus else {}
+            if isinstance(bonus_data, dict):
+                permanent_pill_limit += max(0.0, min(0.50, float(bonus_data.get("permanent_pill_limit_bonus", 0) or 0)))
+        except Exception:
+            pass
+        permanent_atk = min(int(base_atk * permanent_pill_limit), max(0, player.physical_damage + player.magic_damage))
+        permanent_def = min(int(base_def * permanent_pill_limit), max(0, player.physical_defense + player.magic_defense))
         title_atk = min(int(base_atk * .10), max(0, title.get("atk", 0) + title.get("magic", 0)))
         title_def = min(int(base_def * .10), max(0, title.get("phys_def", 0) + title.get("magic_def", 0)))
         final_atk = max(1, int(base_atk * (1 + attack_bonus)) + equip["atk"] + permanent_atk + title_atk)

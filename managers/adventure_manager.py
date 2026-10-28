@@ -91,9 +91,10 @@ class AdventureManager:
         }
     }
 
-    def __init__(self, db: DataBase, storage_ring_manager: "StorageRingManager" = None):
+    def __init__(self, db: DataBase, storage_ring_manager: "StorageRingManager" = None, config_manager=None):
         self.db = db
         self.storage_ring_manager = storage_ring_manager
+        self.config_manager = config_manager
         self._social = None  # 懒加载 SocialManager（避免循环导入）
         self._route_cooldowns: Dict[str, Dict[str, int]] = {}
         self.routes: Dict[str, dict] = {}
@@ -333,6 +334,13 @@ class AdventureManager:
                     rewards["gold"] = int(rewards["gold"] * (1 + gold_bonus))
             except Exception:
                 pass
+            try:
+                from ..core.technique_bonus import TechniqueBonusManager
+                rewards["gold"] = TechniqueBonusManager.apply_gold_bonus(
+                    player, rewards["gold"], self.config_manager
+                )
+            except Exception:
+                pass
             player.experience += rewards["exp"]
             player.gold += rewards["gold"]
             
@@ -502,7 +510,9 @@ class AdventureManager:
             from .talisman_manager import TalismanManager
             from .luck_manager import LuckManager
             reward_mult = 1.0 + TalismanManager.get_active_bonus(player, "exploration_reward_multiplier")
-            reward_mult *= 1.0 + LuckManager.percent_bonus(player, per_point=0.3, cap=30.0) / 100.0
+            reward_mult *= 1.0 + LuckManager.percent_bonus(
+                player, per_point=0.3, cap=30.0, config_manager=self.config_manager
+            ) / 100.0
             final_exp = int(final_exp * reward_mult)
             final_gold = int(final_gold * reward_mult)
         except Exception:
@@ -526,26 +536,41 @@ class AdventureManager:
             from .talisman_manager import TalismanManager
             from .luck_manager import LuckManager
             item_chance += int(TalismanManager.get_active_bonus(player, "drop_chance_bonus"))
-            item_chance += int(LuckManager.percent_bonus(player, per_point=0.4, cap=20.0))
+            item_chance += int(LuckManager.percent_bonus(
+                player, per_point=0.4, cap=20.0, config_manager=self.config_manager
+            ))
         except Exception:
             pass
-        if random.randint(1, 100) > item_chance:
-            return dropped_items, ""
+        item_chance = min(100, max(0, item_chance))
+        if random.randint(1, 100) <= item_chance:
+            tier = event.get("drop_tier") or route.get("drop_tier") or "low"
+            drop_table = self.drop_tables.get(tier, self.DEFAULT_CONFIG["drop_tables"]["low"])
+            total_weight = sum(item["weight"] for item in drop_table)
+            roll = random.randint(1, total_weight)
+            upto = 0
+            chosen = drop_table[0]
+            for item in drop_table:
+                upto += item["weight"]
+                if roll <= upto:
+                    chosen = item
+                    break
+            count = random.randint(chosen["min"], chosen["max"])
+            dropped_items.append((chosen["name"], count))
 
-        tier = event.get("drop_tier") or route.get("drop_tier") or "low"
-        drop_table = self.drop_tables.get(tier, self.DEFAULT_CONFIG["drop_tables"]["low"])
-        total_weight = sum(item["weight"] for item in drop_table)
-        roll = random.randint(1, total_weight)
-        upto = 0
-        chosen = drop_table[0]
-        for item in drop_table:
-            upto += item["weight"]
-            if roll <= upto:
-                chosen = item
-                break
-
-        count = random.randint(chosen["min"], chosen["max"])
-        dropped_items.append((chosen["name"], count))
+        # 历练额外机缘：低概率掉落功法，极小概率掉落随机五行心法
+        try:
+            from ..core.technique_bonus import TechniqueBonusManager
+            tech_name = TechniqueBonusManager.roll_technique_drop(
+                player,
+                self.config_manager,
+                base_chance=4 + min(6, max(0, int(player.level_index) // 3)),
+                allow_main=True,
+                main_ratio=0.08,
+            )
+            if tech_name:
+                dropped_items.append((tech_name, 1))
+        except Exception:
+            pass
 
         item_lines = []
         for item_name, qty in dropped_items:

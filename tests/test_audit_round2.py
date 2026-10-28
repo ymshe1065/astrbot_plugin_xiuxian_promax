@@ -94,7 +94,7 @@ class TestContentSanity(unittest.TestCase):
         stats = CombatManager.build_player_combat_stats(player, config_manager=None)
         base = _imp("core.equipment_balance").realm_attributes(player)
         defense = base["physical_defense"] + base["magic_defense"]
-        self.assertEqual(stats.defense, defense + int(defense * .20))
+        self.assertEqual(stats.defense, defense + int(defense * .30))
 
 
 class TestManagerRegressions(unittest.TestCase):

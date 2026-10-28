@@ -75,10 +75,14 @@ class BreakthroughManager:
 
         # 气运修正：每点 +0.2%，上限 +10%
         from ..managers.luck_manager import LuckManager
-        luck_bonus = LuckManager.percent_bonus(player, per_point=0.2, cap=10.0) / 100.0
+        luck_bonus = LuckManager.percent_bonus(
+            player, per_point=0.2, cap=10.0, config_manager=self.config_manager
+        ) / 100.0
         if luck_bonus:
             final_rate += luck_bonus
-            info_lines.append(f"气运加持：{luck_bonus:+.1%}（气运 {LuckManager.get_total_luck(player)}）")
+            info_lines.append(
+                f"气运加持：{luck_bonus:+.1%}（气运 {LuckManager.get_total_luck(player, self.config_manager)}）"
+            )
 
         if pill_name:
             base_name = pill_name.split("|", 1)[0]

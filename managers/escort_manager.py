@@ -142,6 +142,13 @@ class EscortManager:
                 escort_gold = int(escort_gold * (1 + gold_pct))
         except Exception:
             pass
+        try:
+            from ..core.technique_bonus import TechniqueBonusManager
+            escort_gold = TechniqueBonusManager.apply_gold_bonus(
+                player, escort_gold, self.config_manager
+            )
+        except Exception:
+            pass
 
         player.gold += escort_gold
         player.experience += escort_exp
@@ -237,8 +244,15 @@ class EscortManager:
 
         success, _ = await self.storage_ring_mgr.retrieve_item(attacker, self.ROB_ITEM, 1)
         if not success:
-            return False, "❌ 消耗迷神香失败。"
-        await self.db.ext.set_system_config(cd_key, str(now_ts + self.ROB_COOLDOWN))
+            return False, f"❌ 消耗迷神香失败。"
+        try:
+            from ..core.technique_bonus import TechniqueBonusManager
+            cooldown = TechniqueBonusManager.effective_cooldown(
+                self.ROB_COOLDOWN, attacker, self.config_manager
+            )
+        except Exception:
+            cooldown = self.ROB_COOLDOWN
+        await self.db.ext.set_system_config(cd_key, str(now_ts + cooldown))
 
         # 用天道压制引擎快速构建双方战斗属性（接入传承加成）
         async def build_stats(p: Player) -> CombatStats:

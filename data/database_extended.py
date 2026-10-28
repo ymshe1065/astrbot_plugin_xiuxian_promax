@@ -527,21 +527,23 @@ class DatabaseExtended:
         task_type: str = "",
         origin: str = "",
         last_error: str = "",
+        config_json: str = "",
         commit: bool = True,
     ):
         """写入自动代理配置（不存在则插入）"""
         await self.conn.execute(
             """
-            INSERT INTO auto_proxy (user_id, enabled, task_type, origin, last_error, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO auto_proxy (user_id, enabled, task_type, origin, last_error, config_json, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(user_id) DO UPDATE SET
                 enabled = excluded.enabled,
                 task_type = excluded.task_type,
                 origin = excluded.origin,
                 last_error = excluded.last_error,
+                config_json = excluded.config_json,
                 updated_at = excluded.updated_at
             """,
-            (user_id, int(enabled), task_type or "", origin or "", last_error or "", int(time.time())),
+            (user_id, int(enabled), task_type or "", origin or "", last_error or "", config_json or "", int(time.time())),
         )
         if commit:
             await self.conn.commit()

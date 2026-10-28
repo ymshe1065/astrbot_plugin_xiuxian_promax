@@ -37,6 +37,9 @@ from .pet_manager import PetManager
 # v6.6 交易坊市
 from .auction_manager import AuctionManager
 
+# v6.34 拍卖会
+from .auction_house_manager import AuctionHouseManager
+
 # v6.8 押镖劫道
 from .escort_manager import EscortManager
 # v6.8 奇遇系统
@@ -49,6 +52,8 @@ from .luck_manager import LuckManager
 from .talisman_manager import TalismanManager
 # v6.10 魔潮天灾
 from .calamity_manager import CalamityManager
+# v6.34 江湖战斗小事件
+from .battle_event_manager import BattleEventManager
 # v6.26 自动代理
 from .auto_proxy_manager import AutoProxyManager
 
@@ -59,6 +64,6 @@ __all__ = [
     "BlessedLandManager", "SpiritFarmManager", "DualCultivationManager", "SpiritEyeManager",
     "DailyTaskManager", "WorldBossManager", "RaidManager", "RobberyManager", "TutorialManager", "ReincarnationManager",
     "GambleManager", "ForgeManager", "GlobalEventManager", "DemonInvasionManager", "PetManager",
-    "AuctionManager", "EscortManager", "EncounterManager", "LifeSkillManager", "TalismanManager", "CalamityManager", "LuckManager",
-    "AutoProxyManager"
+    "AuctionManager", "AuctionHouseManager", "EscortManager", "EncounterManager", "LifeSkillManager", "TalismanManager", "CalamityManager", "LuckManager",
+    "AutoProxyManager", "BattleEventManager"
 ]

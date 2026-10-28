@@ -28,8 +28,9 @@ BLESSED_LANDS = {
 class BlessedLandManager:
     """洞天福地管理器"""
     
-    def __init__(self, db: DataBase):
+    def __init__(self, db: DataBase, config_manager=None):
         self.db = db
+        self.config_manager = config_manager
     
     async def get_user_blessed_land(self, user_id: str) -> Optional[Dict]:
         """获取用户洞天信息"""
@@ -228,7 +229,14 @@ class BlessedLandManager:
             exp_income = int(exp_income * (1 + TitleManager.get_exp_bonus(player)))
         except Exception:
             pass
-        
+        try:
+            from ..core.technique_bonus import TechniqueBonusManager
+            gold_income = TechniqueBonusManager.apply_gold_bonus(
+                player, gold_income, self.config_manager
+            )
+        except Exception:
+            pass
+
         player.gold += gold_income
         player.experience += exp_income
         await self.db.update_player(player)
@@ -304,6 +312,13 @@ class BlessedLandManager:
                 max_exp_per_hour * pending_hours,
             )
             pending_exp = int(pending_exp * output_mult)
+            try:
+                from ..core.technique_bonus import TechniqueBonusManager
+                pending_gold = TechniqueBonusManager.apply_gold_bonus(
+                    player, pending_gold, self.config_manager
+                )
+            except Exception:
+                pass
             player.gold += pending_gold
             player.experience += pending_exp
 

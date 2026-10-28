@@ -3,7 +3,9 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 from astrbot.api import logger
-from .data.default_configs import SECT_CONFIG, BOSS_CONFIG, RIFT_CONFIG, ALCHEMY_CONFIG
+from .data.default_configs import (
+    SECT_CONFIG, BOSS_CONFIG, RIFT_CONFIG, ALCHEMY_CONFIG, AUCTION_HOUSE_CONFIG,
+)
 
 class ConfigManager:
     """配置管理器，加载境界、物品、武器和丹药配置"""
@@ -28,6 +30,7 @@ class ConfigManager:
         self.pill_recipes_data: Dict[int, dict] = {}
         self.material_catalog: Dict[str, dict] = {}
         self.talisman_recipes_data: Dict[str, dict] = {}
+        self.auction_house_config: Dict[str, Any] = {}
         
         self._load_all()
 
@@ -102,6 +105,9 @@ class ConfigManager:
         self.alchemy_config = self._load_config_with_default(config_dir / "alchemy_config.json", ALCHEMY_CONFIG)
         self.alchemy_recipes = self._load_items_data(config_dir / "alchemy_recipes.json")
         self.game_config = self._load_config_with_default(config_dir / "game_config.json", {})
+        self.auction_house_config = self._load_config_with_default(
+            config_dir / "auction_house_config.json", AUCTION_HOUSE_CONFIG
+        )
         self.pill_quality_data = self._load_config_with_default(
             config_dir / "pill_quality.json",
             {"qualities": {"一般": {"order": 0, "effect_multiplier": 1.0, "breakthrough_multiplier": 1.0, "resurrection_keep": 0.5, "weight": 55}}},
@@ -218,7 +224,7 @@ class ConfigManager:
                     "type": "材料包",
                     "rank": tier,
                     "price": price,
-                    "shop_weight": 60 if tier in ("黄阶", "玄阶") else 15,
+                    "shop_weight": 600 if tier in ("黄阶", "玄阶") else 200,
                     "volume": 1,
                     "package_category": category,
                     "package_tier": tier,

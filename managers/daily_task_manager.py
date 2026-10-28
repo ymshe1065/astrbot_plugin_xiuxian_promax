@@ -47,8 +47,9 @@ class DailyTaskManager:
         ]
     }
 
-    def __init__(self, db: DataBase):
+    def __init__(self, db: DataBase, config_manager=None):
         self.db = db
+        self.config_manager = config_manager
 
     # ===== v6.17 每日随机任务池：每人当日可接任务不同 =====
     def _daily_seed(self, user_id: str) -> int:
@@ -270,6 +271,13 @@ class DailyTaskManager:
                 gold_bonus = pet_mgr.get_gold_bonus(pet)
                 if gold_bonus > 0:
                     total_gold = int(total_gold * (1 + gold_bonus))
+            except Exception:
+                pass
+            try:
+                from ..core.technique_bonus import TechniqueBonusManager
+                total_gold = TechniqueBonusManager.apply_gold_bonus(
+                    fresh_player, total_gold, self.config_manager
+                )
             except Exception:
                 pass
             fresh_player.experience += total_exp

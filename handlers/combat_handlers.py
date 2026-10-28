@@ -186,7 +186,14 @@ class CombatHandlers:
 
         cooldowns = await self._get_combat_cooldown(user_id)
         now = int(time.time())
-        remaining_cd = DUEL_COOLDOWN - (now - cooldowns["last_duel_time"])
+        try:
+            from ..core.technique_bonus import TechniqueBonusManager
+            duel_cooldown = TechniqueBonusManager.effective_cooldown(
+                DUEL_COOLDOWN, player, self.config_manager
+            )
+        except Exception:
+            duel_cooldown = DUEL_COOLDOWN
+        remaining_cd = duel_cooldown - (now - cooldowns["last_duel_time"])
         if cooldowns["last_duel_time"] and remaining_cd > 0:
             yield event.plain_result(f"❌ 决斗调息中，请 {remaining_cd // 60} 分 {remaining_cd % 60} 秒后再战。")
             return
@@ -253,7 +260,14 @@ class CombatHandlers:
 
         cooldowns = await self._get_combat_cooldown(user_id)
         now = int(time.time())
-        remaining_cd = SPAR_COOLDOWN - (now - cooldowns["last_spar_time"])
+        try:
+            from ..core.technique_bonus import TechniqueBonusManager
+            spar_cooldown = TechniqueBonusManager.effective_cooldown(
+                SPAR_COOLDOWN, player, self.config_manager
+            )
+        except Exception:
+            spar_cooldown = SPAR_COOLDOWN
+        remaining_cd = spar_cooldown - (now - cooldowns["last_spar_time"])
         if cooldowns["last_spar_time"] and remaining_cd > 0:
             yield event.plain_result(f"❌ 切磋调息中，请 {remaining_cd // 60} 分 {remaining_cd % 60} 秒后再战。")
             return

@@ -258,14 +258,22 @@ class RaidManager:
                 f"你当前境界等级：{player.level_index}（还差 {min_level - player.level_index} 级）"
             )
 
+        try:
+            from ..core.technique_bonus import TechniqueBonusManager
+            cooldown = TechniqueBonusManager.effective_cooldown(
+                self.cooldown, player, self.config_manager
+            )
+        except Exception:
+            cooldown = self.cooldown
+
         async with self.db.conn.execute(
             "SELECT * FROM world_boss_raid_damage WHERE raid_id = ? AND user_id = ?",
             (raid["raid_id"], player.user_id),
         ) as cursor:
             record = await cursor.fetchone()
         rec = dict(record) if record else None
-        if rec and now - int(rec.get("last_attack_time") or 0) < self.cooldown:
-            remaining = self.cooldown - (now - int(rec.get("last_attack_time") or 0))
+        if rec and now - int(rec.get("last_attack_time") or 0) < cooldown:
+            remaining = cooldown - (now - int(rec.get("last_attack_time") or 0))
             minutes, seconds = divmod(max(0, remaining), 60)
             return False, f"❌ 团本调息中，请 {minutes} 分 {seconds} 秒后再来。"
 
@@ -338,9 +346,9 @@ class RaidManager:
                 (raid["raid_id"], player.user_id),
             ) as cursor:
                 fresh_record = await cursor.fetchone()
-            if fresh_record and now - int(fresh_record["last_attack_time"] or 0) < self.cooldown:
+            if fresh_record and now - int(fresh_record["last_attack_time"] or 0) < cooldown:
                 await self.db.conn.rollback()
-                remaining = self.cooldown - (now - int(fresh_record["last_attack_time"] or 0))
+                remaining = cooldown - (now - int(fresh_record["last_attack_time"] or 0))
                 minutes, seconds = divmod(max(0, remaining), 60)
                 return False, f"❌ 团本调息中，请 {minutes} 分 {seconds} 秒后再来。"
             if fresh_record:
@@ -472,6 +480,13 @@ class RaidManager:
             if is_killer:
                 gold += int(reward_cfg.get("killer", 30000))
             gold = max(0, int(gold * team_mult))
+            try:
+                from ..core.technique_bonus import TechniqueBonusManager
+                gold = TechniqueBonusManager.apply_gold_bonus(
+                    target_player, gold, self.config_manager
+                )
+            except Exception:
+                pass
 
             await self.db.add_player_gold(target_player.user_id, gold)
             target_player.gold += gold
@@ -488,6 +503,19 @@ class RaidManager:
                 drop = self.world_boss_mgr.roll_drop(drop_table) if self.world_boss_mgr else None
                 if drop:
                     drops_to_grant.append(drop)
+            try:
+                from ..core.technique_bonus import TechniqueBonusManager
+                tech_name = TechniqueBonusManager.roll_technique_drop(
+                    target_player,
+                    self.config_manager,
+                    base_chance=10,
+                    allow_main=is_killer,
+                    main_ratio=0.12,
+                )
+                if tech_name:
+                    drops_to_grant.append((tech_name, 1))
+            except Exception:
+                pass
             for item_name, count in drops_to_grant:
                 stored = await self._store_item(target_player, item_name, count)
                 bucket = collected if stored else lost

@@ -37,6 +37,7 @@ class Item:
     blood_qi: int = 0  # 气血加成（仅心法有效，体修）
 
     equipment_rates: dict = field(default_factory=dict)  # 装备主属性百分比
+    life_effects: dict = field(default_factory=dict)  # 普通功法生活加成
 
     def get_attribute_display(self) -> str:
         """获取属性加成的显示文本"""
@@ -60,6 +61,16 @@ class Item:
             attrs.append(f"灵气+{self.spiritual_qi}")
         if self.blood_qi > 0:
             attrs.append(f"气血+{self.blood_qi}")
+        from .core.technique_bonus import LIFE_EFFECT_LABELS
+        for key, value in (self.life_effects or {}).items():
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                continue
+            if number <= 0:
+                continue
+            label = LIFE_EFFECT_LABELS.get(key, key)
+            attrs.append(f"{label}+{int(number)}" if key == "luck_bonus" else f"{label}+{number:.1%}")
         return "、".join(attrs) if attrs else "无属性加成"
 
 @dataclass

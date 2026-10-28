@@ -47,11 +47,16 @@ from .pet_handlers import PetHandlers
 # v6.6 交易坊市
 from .auction_handlers import AuctionHandlers
 
+# v6.34 拍卖会
+from .auction_house_handlers import AuctionHouseHandlers
+
 # 宗门贡献商店
 from .sect_shop_handler import SectShopHandler
 
 # v6.26 自动代理
 from .auto_proxy_handlers import AutoProxyHandlers
+# v6.34 江湖战斗小事件
+from .battle_event_handlers import BattleEventHandlers
 
 __all__ = [
     "PlayerHandler", "MiscHandler", "EquipmentHandler", "BreakthroughHandler", 
@@ -62,5 +67,5 @@ __all__ = [
     "SpiritFarmHandlers", "DualCultivationHandlers", "SpiritEyeHandlers", 
     "DailyTaskHandlers", "WorldBossHandlers", "RaidHandlers", "RobberyHandlers", "ReincarnationHandlers",
     "GambleHandlers", "ForgeHandlers", "DemonInvasionHandlers", "PetHandlers",
-    "AuctionHandlers", "SectShopHandler", "AutoProxyHandlers"
+    "AuctionHandlers", "AuctionHouseHandlers", "SectShopHandler", "AutoProxyHandlers", "BattleEventHandlers"
 ]

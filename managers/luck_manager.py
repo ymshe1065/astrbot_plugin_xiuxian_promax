@@ -106,26 +106,38 @@ class LuckManager:
         return max(0, int(round(total)))
 
     @classmethod
-    def get_total_luck(cls, player: Player) -> int:
+    def get_technique_luck(cls, player: Player, config_manager=None) -> int:
+        """普通功法提供的固定气运。"""
+        try:
+            from ..core.technique_bonus import TechniqueBonusManager
+            return max(0, int(TechniqueBonusManager.luck_bonus(player, config_manager)))
+        except Exception:
+            return 0
+
+    @classmethod
+    def get_total_luck(cls, player: Player, config_manager=None) -> int:
         return (
             cls.get_base_luck(player)
             + cls.get_title_luck(player)
             + cls.get_affix_luck(player)
             + cls.get_talisman_luck(player)
+            + cls.get_technique_luck(player, config_manager)
         )
 
     @classmethod
-    def get_breakdown(cls, player: Player) -> Dict[str, int]:
+    def get_breakdown(cls, player: Player, config_manager=None) -> Dict[str, int]:
         base = cls.get_base_luck(player)
         title = cls.get_title_luck(player)
         affix = cls.get_affix_luck(player)
         talisman = cls.get_talisman_luck(player)
+        technique = cls.get_technique_luck(player, config_manager)
         return {
             "base": base,
             "title": title,
             "affix": affix,
             "talisman": talisman,
-            "total": base + title + affix + talisman,
+            "technique": technique,
+            "total": base + title + affix + talisman + technique,
         }
 
     @classmethod
@@ -139,6 +151,8 @@ class LuckManager:
         return player.luck
 
     @classmethod
-    def percent_bonus(cls, player: Player, per_point: float = 0.5, cap: float = 20.0) -> float:
+    def percent_bonus(
+        cls, player: Player, per_point: float = 0.5, cap: float = 20.0, config_manager=None
+    ) -> float:
         """把气运换算为百分比加成，例如 0.5% / 点、上限 20%。"""
-        return min(float(cap), cls.get_total_luck(player) * float(per_point))
+        return min(float(cap), cls.get_total_luck(player, config_manager) * float(per_point))
