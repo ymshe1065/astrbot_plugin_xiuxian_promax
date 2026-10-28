@@ -63,7 +63,7 @@ class BattleEventHandlers:
             f"🏷️ 属性：{event_data.get('element') or '无'}",
             f"❤️ 气血：{current_hp:,} / {max_hp:,}（{hp_percent:.1f}%）",
             f"🚪 门槛境界：{min_level}",
-            f"⚔️ 调息间隔：{cooldown} 秒",
+            f"⚔️ 攻击间隔：{cooldown} 秒",
             f"⏳ 剩余时间：{remain // 3600} 小时 {(remain % 3600) // 60} 分",
         ]
         if drop_names:

@@ -302,7 +302,7 @@ class PlayerHandler:
         if life.get("drop_bonus"):
             life_text.append(f"掉落+{life['drop_bonus']:.1%}")
         if life.get("cooldown_reduction"):
-            life_text.append(f"调息-{life['cooldown_reduction']:.1%}")
+            life_text.append(f"冷却-{life['cooldown_reduction']:.1%}")
         if life.get("luck_bonus"):
             life_text.append(f"气运+{int(life['luck_bonus'])}")
         technique_life_text = " · ".join(life_text) if life_text else "无"
