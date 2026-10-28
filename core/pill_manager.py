@@ -9,6 +9,7 @@ from astrbot.api import logger
 from ..models import Player
 from ..data import DataBase
 from ..config_manager import ConfigManager
+from .item_rules import ItemRules
 
 
 class PillManager:
@@ -503,24 +504,33 @@ class PillManager:
         effect_desc = []
         if "cultivation_multiplier" in effect:
             value = effect["cultivation_multiplier"]
-            effect_desc.append(f"修炼速度{'+' if value > 0 else ''}{value:.0%}")
+            effect_desc.append(f"修炼速度{ItemRules.format_bonus_rate(value, cap=None)}")
         if "physical_damage_multiplier" in effect:
             value = effect["physical_damage_multiplier"]
-            effect_desc.append(f"物伤{'+' if value > 0 else ''}{value:.0%}")
+            effect_desc.append(f"物伤{ItemRules.format_bonus_rate(value)}")
         if "magic_damage_multiplier" in effect:
             value = effect["magic_damage_multiplier"]
-            effect_desc.append(f"法伤{'+' if value > 0 else ''}{value:.0%}")
+            effect_desc.append(f"法伤{ItemRules.format_bonus_rate(value)}")
         if "physical_defense_multiplier" in effect:
             value = effect["physical_defense_multiplier"]
-            effect_desc.append(f"物防{'+' if value > 0 else ''}{value:.0%}")
+            effect_desc.append(f"物防{ItemRules.format_bonus_rate(value)}")
         if "magic_defense_multiplier" in effect:
             value = effect["magic_defense_multiplier"]
-            effect_desc.append(f"法防{'+' if value > 0 else ''}{value:.0%}")
+            effect_desc.append(f"法防{ItemRules.format_bonus_rate(value)}")
         if effect.get("random_effect_key"):
             effect_desc.append("随机一项属性大幅提升，其余属性大幅下降")
         if "breakthrough_bonus" in effect:
             value = effect["breakthrough_bonus"]
-            effect_desc.append(f"突破成功率{'+' if value > 0 else ''}{value:.0%}")
+            effect_desc.append(f"突破成功率{value:+.0%}")
+
+        if any(
+            key in effect
+            for key in (
+                "physical_damage_multiplier", "magic_damage_multiplier",
+                "physical_defense_multiplier", "magic_defense_multiplier",
+            )
+        ):
+            effect_desc.append("战斗属性加成按项封顶 +50%")
 
         effects_str = "、".join(effect_desc) if effect_desc else "特殊效果"
 

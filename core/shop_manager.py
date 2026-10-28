@@ -60,13 +60,17 @@ class ShopManager:
             source = getattr(self.config_manager, attr, None)
             if isinstance(source, dict):
                 sources.extend(source.values())
+        # 先全量匹配 id，再退回名称：避免先遍历到的同名旧条目抢在正确 id 之前。
         for current in sources:
             if not isinstance(current, dict):
                 continue
             current_id = str(current.get("id") or "")
-            current_name = str(current.get("name") or "")
             if target_id and current_id and current_id == target_id:
                 return dict(current)
+        for current in sources:
+            if not isinstance(current, dict):
+                continue
+            current_name = str(current.get("name") or "")
             if target_name and current_name == target_name:
                 return dict(current)
         return None
@@ -878,17 +882,31 @@ class ShopManager:
                 exp_gain = data.get('exp_gain', 0)
                 effect_desc.append(f"立即获得修为：+{exp_gain}")
 
-            elif item_type == 'utility_pill':
+            elif item_type == 'utility_pill' or data.get('effect_type') in ('temporary', 'permanent'):
                 effect_type = data.get('effect_type', '')
-                if subtype == 'resurrection':
+                if item_type == 'utility_pill' and subtype == 'resurrection':
                     effect_desc.append("死亡时自动复活（属性减半）")
                 elif effect_type == 'temporary':
                     duration = data.get('duration_minutes', 0)
                     mult = data.get('cultivation_multiplier', 0)
                     if mult > 0:
-                        effect_desc.append(f"修炼速度+{int(mult * 100)}% 持续 {duration} 分钟")
+                        effect_desc.append(f"修炼速度{ItemRules.format_bonus_rate(mult, cap=None)} 持续 {duration} 分钟")
                     if data.get('physical_damage_multiplier'):
-                        effect_desc.append(f"物伤倍率+{data['physical_damage_multiplier']:.0%}")
+                        effect_desc.append(f"物伤{ItemRules.format_bonus_rate(data['physical_damage_multiplier'])}")
+                    if data.get('magic_damage_multiplier'):
+                        effect_desc.append(f"法伤{ItemRules.format_bonus_rate(data['magic_damage_multiplier'])}")
+                    if data.get('physical_defense_multiplier'):
+                        effect_desc.append(f"物防{ItemRules.format_bonus_rate(data['physical_defense_multiplier'])}")
+                    if data.get('magic_defense_multiplier'):
+                        effect_desc.append(f"法防{ItemRules.format_bonus_rate(data['magic_defense_multiplier'])}")
+                    if data.get('duration_minutes') and not any(
+                        data.get(key) for key in (
+                            'cultivation_multiplier', 'physical_damage_multiplier',
+                            'magic_damage_multiplier', 'physical_defense_multiplier',
+                            'magic_defense_multiplier',
+                        )
+                    ):
+                        effect_desc.append(f"持续 {duration} 分钟")
                 elif effect_type == 'permanent':
                     gains = []
                     for attr_key, label in [

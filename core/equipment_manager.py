@@ -57,11 +57,14 @@ class EquipmentManager:
                     rates[attr] = rates.get(attr, 0) + min(.10, max(0, value))
         return {key: min(value, RATE_CAPS[key]) for key, value in rates.items()}
 
-    def parse_item_from_name(self, item_name: str, items_data: dict, weapons_data: dict = None, instance: dict = None) -> Optional[Item]:
+    def parse_item_from_name(self, item_name: str, items_data: dict, weapons_data: dict = None, instance: dict = None, player_level: int = None) -> Optional[Item]:
         """从物品名称解析为Item对象"""
         if not item_name: return None
         item_config = items_data.get(item_name)
         if not item_config and weapons_data: item_config = weapons_data.get(item_name)
+        if not item_config and self.config_manager is not None:
+            # 功法/心法独立存放在 techniques.json，不能只查 items/weapons。
+            item_config = (getattr(self.config_manager, "techniques_data", {}) or {}).get(item_name)
         if not item_config: return None
 
         item_type = ItemRules.normalize_equipment_type(item_config)
@@ -87,8 +90,13 @@ class EquipmentManager:
 
         rates = {}
         if item_type in ItemRules.GEAR_TYPES:
-            rates = {key: value * QUALITY.get((instance or {}).get("quality", "一般"), 1.0)
-                     for key, value in equipment_rates(item_config).items()}
+            quality = (instance or {}).get("quality", "一般")
+            if player_level is None:
+                rates = {key: value * QUALITY.get(quality, 1.0)
+                         for key, value in equipment_rates(item_config).items()}
+            else:
+                # 与实战一致：穿戴展示也要计入境界效率衰减
+                rates = effective_rates(item_config, player_level, quality)
             physical_damage = magic_damage = physical_defense = magic_defense = mental_power = 0
 
         return Item(
@@ -158,6 +166,8 @@ class EquipmentManager:
 
     async def equip_item(self, player: Player, item: Item, instance_id: int = 0, target_slot: str = "") -> tuple[bool, str]:
         """装备物品（支持装备实例）"""
+        if item is None:
+            return False, "❌ 未找到该装备的配置数据，无法穿戴。"
         can_equip, error_msg = self.check_equipment_level_requirement(player, item)
         if not can_equip:
             return False, error_msg

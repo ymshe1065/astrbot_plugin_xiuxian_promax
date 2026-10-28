@@ -275,7 +275,7 @@ class AuctionManager:
         return True, f"✅ 上架成功！\n物品：【{item_name}】x{count}\n单价：{price:,} 灵石\n总价：{total:,} 灵石{tip}"
 
     async def cleanup_orphan_listings(self) -> int:
-        """清理卖家已不存在的挂单，避免坊市出现无法成交的幽灵商品。"""
+        """清理卖家已不存在或装备实例已消失的挂单，避免坊市出现无法成交的幽灵商品。"""
         try:
             await self.db.conn.execute(
                 "DELETE FROM auction_npc_offers WHERE auction_id IN "
@@ -284,8 +284,29 @@ class AuctionManager:
             cursor = await self.db.conn.execute(
                 "DELETE FROM auction_items WHERE seller_id NOT IN (SELECT user_id FROM players)"
             )
+            removed = int(cursor.rowcount or 0)
+
+            im = self._instance_manager()
+            if im:
+                async with self.db.conn.execute(
+                    "SELECT id, seller_id, instance_id FROM auction_items "
+                    "WHERE item_kind='equipment' AND COALESCE(instance_id, 0) > 0"
+                ) as cursor:
+                    ghost_rows = [dict(r) for r in await cursor.fetchall()]
+                for row in ghost_rows:
+                    seller = await self.db.get_player_by_id(row["seller_id"])
+                    if seller and im.get_instance(seller, row["instance_id"]):
+                        continue
+                    await self.db.conn.execute(
+                        "DELETE FROM auction_npc_offers WHERE auction_id=?", (row["id"],)
+                    )
+                    await self.db.conn.execute(
+                        "DELETE FROM auction_items WHERE id=?", (row["id"],)
+                    )
+                    removed += 1
+                    logger.warning(f"【坊市】清理装备实例已消失的挂单 id={row['id']}")
             await self.db.conn.commit()
-            return int(cursor.rowcount or 0)
+            return removed
         except Exception as e:
             logger.warning(f"清理无主坊市挂单失败: {e}")
             return 0
@@ -697,6 +718,7 @@ class AuctionManager:
 
             is_pill_item = item_data.get("item_kind") == "pill"
             is_equipment_item = item_data.get("item_kind") == "equipment"
+            store_msg = ""
             if is_equipment_item:
                 im = self._instance_manager()
                 seller = await self.db.get_player_by_id(item_data["seller_id"])
@@ -728,7 +750,7 @@ class AuctionManager:
                 # 2. 尝试存入买家储物戒
                 success, store_msg = await self.storage_ring_mgr.store_item(
                     buyer, item_data["item_name"], item_data["count"],
-                    external_transaction=True, silent=True
+                    external_transaction=True, silent=False
                 )
                 if not success:
                     await self.db.conn.rollback()
@@ -747,8 +769,15 @@ class AuctionManager:
             await self.db.conn.execute("DELETE FROM auction_items WHERE id = ?", (auction_id,))
             await self.db.conn.commit()
 
-            target_desc = "丹药背包" if is_pill_item else "储物戒"
-            return True, f"✅ 购买成功！\n花费：{total_price:,} 灵石\n获得：【{self._display_name(item_data)}】x{item_data['count']}（已存入{target_desc}）"
+            target_desc = "丹药背包" if is_pill_item else ""
+            if target_desc:
+                obtain_note = f"已放入{target_desc}"
+            else:
+                obtain_note = store_msg or "已存入储物戒"
+            return True, (
+                f"✅ 购买成功！\n花费：{total_price:,} 灵石\n"
+                f"获得：【{self._display_name(item_data)}】x{item_data['count']}\n{obtain_note}"
+            )
 
         except Exception as e:
             await self.db.conn.rollback()
@@ -802,13 +831,13 @@ class AuctionManager:
             else:
                 success, msg = await self.storage_ring_mgr.store_item(
                     player, item_data["item_name"], item_data["count"],
-                    external_transaction=True, silent=True
+                    external_transaction=True, silent=False
                 )
                 if not success:
                     await self.db.conn.rollback()
                     return False, f"❌ 储物戒已满，无法下架退回物品。请清理背包后再试。"
                 await self.db.update_player(player, commit=False)
-                target_desc = "储物戒"
+                target_desc = "溢出仓库" if "溢出" in (msg or "") else "储物戒"
 
             await self.db.conn.execute("DELETE FROM auction_npc_offers WHERE auction_id = ?", (auction_id,))
             await self.db.conn.execute("DELETE FROM auction_items WHERE id = ?", (auction_id,))

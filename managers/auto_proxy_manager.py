@@ -281,6 +281,10 @@ class AutoProxyManager:
         row = await self.get(user_id)
         if not row or not row.get("enabled"):
             return None
+        # 仅开启灵田代理时，不接管玩家手动开始的押镖/宗门任务；
+        # 否则会把灵田代理悄悄改绑成押镖/宗门任务代理。
+        if not (row.get("task_type") or "") and self._farm_enabled(row):
+            return None
         cd = await self.db.ext.get_user_cd(user_id)
         current = STATUS_TASK.get(cd.type) if cd else None
         if not current:
@@ -740,6 +744,20 @@ class AutoProxyManager:
     # ===== 活动执行 =====
 
     async def start_activity(self, player: Any, task_type: str) -> Tuple[bool, str]:
+        # 与手动指令保持一致的受伤拦截：气血不足 20% 时不再自动开始行动。
+        config_manager = getattr(self.escort_mgr, "config_manager", None)
+        if config_manager is not None:
+            try:
+                from .recovery_manager import RecoveryManager
+                fresh = await self.db.get_player_by_id(player.user_id) or player
+                recovery = RecoveryManager(self.db, config_manager)
+                if await recovery.is_injured(fresh):
+                    return False, (
+                        "❌ 你当前身受重伤（气血不足 20%），自动代理已暂停。\n"
+                        "💡 请先 /调息 或服用回春散恢复气血，再发送 /自动代理 押镖 重新开启。"
+                    )
+            except Exception as e:
+                logger.warning(f"【自动代理】受伤状态检查失败: {e}")
         if task_type == TASK_ESCORT:
             ok, msg, _ = await self.escort_mgr.start_escort(player)
             return bool(ok), msg

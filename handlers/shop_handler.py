@@ -405,7 +405,7 @@ class ShopHandler:
                     "weapon": "武器", "armor": "防具", "accessory": "饰品",
                     "main_technique": "心法", "technique": "功法",
                 }.get(item_type, "装备")
-                result_lines.append(f"成功购买{type_name}【{target_item['name']}】x{quantity}，已存入储物戒。")
+                result_lines.append(f"成功购买{type_name}【{target_item['name']}】x{quantity}。\n{msg}")
             
             elif item_type == 'inventory_pill':
                 self.pill_manager._reset_daily_if_needed(player)
@@ -436,7 +436,7 @@ class ShopHandler:
                     return
                 raw_type = (target_item.get('data') or {}).get('type')
                 type_name = "符箓" if raw_type == "符箓" else "材料"
-                result_lines.append(f"成功购买{type_name}【{target_item['name']}】x{quantity}，已存入储物戒。")
+                result_lines.append(f"成功购买{type_name}【{target_item['name']}】x{quantity}。\n{msg}")
             else:
                 await self.db.conn.rollback()
                 yield event.plain_result(f"未知的物品类型：{item_type}")

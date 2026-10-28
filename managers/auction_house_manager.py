@@ -208,6 +208,12 @@ class AuctionHouseManager:
         now = int(now or time.time())
         queued = 0
         async with self._lock:
+            # 上次进程在发放中途退出时，残留的 delivering 需要回到 pending 才能重试。
+            # 由于发放与状态更新都在本锁内完成，这里不会与正在进行的发放冲突。
+            await self.db.conn.execute(
+                "UPDATE auction_house_lots SET delivery_status='pending' WHERE delivery_status='delivering'"
+            )
+            await self.db.conn.commit()
             event = await self._ensure_event_locked(now)
             if not event:
                 return 0
@@ -256,7 +262,8 @@ class AuctionHouseManager:
     async def _start_live(self, event: dict, now: int) -> int:
         lots = await self._ensure_lots(event, now)
         if not lots:
-            await self._finish_event(event, now, "本场拍卖会没有可用拍品，已取消。")
+            await self._refund_entry_fees(event["id"])
+            await self._finish_event(event, now, "本场拍卖会没有可用拍品，已取消（入场费已全额退还）。")
             return 0
 
         entries = await self._fetchone(
@@ -319,6 +326,31 @@ class AuctionHouseManager:
 
         return 0
 
+    async def _refund_entry_fees(self, event_id: int) -> int:
+        """场次在开拍前取消时退还入场费；entry_fee 置 0 保证重复调用不会多退。"""
+        entries = await self._fetchall(
+            "SELECT user_id, entry_fee FROM auction_house_entries WHERE event_id=? AND entry_fee>0",
+            (event_id,),
+        )
+        if not entries:
+            return 0
+        refunded = 0
+        for entry in entries:
+            fee = int(entry.get("entry_fee") or 0)
+            if fee <= 0:
+                continue
+            await self.db.conn.execute(
+                "UPDATE players SET gold = gold + ? WHERE user_id=?",
+                (fee, entry["user_id"]),
+            )
+            refunded += fee
+        await self.db.conn.execute(
+            "UPDATE auction_house_entries SET entry_fee=0 WHERE event_id=?",
+            (event_id,),
+        )
+        await self.db.conn.commit()
+        return refunded
+
     async def _start_lot(self, event: dict, lot_no: int, now: int) -> int:
         lot = await self._fetchone(
             "SELECT * FROM auction_house_lots WHERE event_id=? AND lot_no=?",
@@ -372,7 +404,7 @@ class AuctionHouseManager:
         if sold:
             winner_id = lot.get("highest_bidder") or ""
             winning_price = int(lot.get("highest_bid") or 0)
-            delivery_status = "pending" if winner_id else "none"
+            delivery_status = "delivering" if winner_id else "none"
             await self.db.conn.execute(
                 """UPDATE auction_house_lots
                    SET status='sold', winner_id=?, winning_price=?, settled_at=?,
@@ -472,10 +504,13 @@ class AuctionHouseManager:
                 f"━━━━━━━━━━━━━━━\n"
                 f"💡 发送 /拍卖会报名 缴纳入场费，今晚 {self.event_start_hour:02d}:00 开拍！"
             )
-            await self._queue_message(
+            queued_ok = await self._queue_message(
                 event["id"], 0, "reminder", f"ah:{event['id']}:reminder:{slot_key}",
                 {"scene": "reminder", "facts": facts}, fallback, now,
             )
+            if not queued_ok:
+                # 入队失败时不要推进 slot，否则该小时预告会永久丢失。
+                break
             last_slot = slot_key
             queued += 1
         if queued:
@@ -506,8 +541,17 @@ class AuctionHouseManager:
             logger.warning(f"【拍卖会】播报入队失败: {e}")
             return False
 
-    async def drain_messages(self, limit: int = 10) -> List[dict]:
+    async def drain_messages(self, limit: int = 10, max_age: int = 900) -> List[dict]:
         async with self._lock:
+            # 重启后积压的旧场次播报不应再发送；直接标记失败，避免无限重播。
+            now = int(time.time())
+            cutoff = now - max(60, int(max_age))
+            await self.db.conn.execute(
+                """UPDATE auction_house_messages SET status='failed', sent_at=?
+                   WHERE status='pending' AND created_at < ?""",
+                (now, cutoff),
+            )
+            await self.db.conn.commit()
             return await self._fetchall(
                 "SELECT * FROM auction_house_messages WHERE status='pending' ORDER BY id LIMIT ?",
                 (max(1, int(limit)),),
@@ -723,27 +767,38 @@ class AuctionHouseManager:
             )
 
     async def claim_pending(self, player: Player) -> Tuple[bool, str]:
-        lots = await self._fetchall(
-            "SELECT * FROM auction_house_lots WHERE winner_id=? AND delivery_status='pending' ORDER BY id",
-            (player.user_id,),
-        )
-        if not lots:
-            return False, "📦 你当前没有待领取的拍卖会拍品。"
-        delivered = []
-        for lot in lots:
-            ok, msg = await self._deliver_lot(lot, player.user_id)
-            if ok:
-                await self.db.conn.execute(
-                    "UPDATE auction_house_lots SET delivery_status='delivered' WHERE id=?",
+        # 与 tick/结算共用同一把锁，避免结算与补领同时发放同一件拍品。
+        async with self._lock:
+            lots = await self._fetchall(
+                "SELECT * FROM auction_house_lots WHERE winner_id=? AND delivery_status='pending' ORDER BY id",
+                (player.user_id,),
+            )
+            if not lots:
+                return False, "📦 你当前没有待领取的拍卖会拍品。"
+            delivered = []
+            for lot in lots:
+                # 原子占位：只有仍为 pending 的记录才能被本次领走。
+                cursor = await self.db.conn.execute(
+                    """UPDATE auction_house_lots SET delivery_status='delivering'
+                       WHERE id=? AND delivery_status='pending'""",
                     (lot["id"],),
                 )
-                delivered.append(f"第 {lot['lot_no']} 件：{lot['item_name']} ×{lot['count']}")
-            else:
-                logger.warning(f"【拍卖会】补领失败 lot={lot['id']}: {msg}")
-        await self.db.conn.commit()
-        if not delivered:
-            return False, "❌ 补领失败，请确认储物戒/溢出仓库状态后联系管理员。"
-        return True, "✅ 补领成功！\n" + "\n".join(delivered)
+                await self.db.conn.commit()
+                if cursor.rowcount <= 0:
+                    continue
+                ok, msg = await self._deliver_lot(lot, player.user_id)
+                await self.db.conn.execute(
+                    "UPDATE auction_house_lots SET delivery_status=? WHERE id=?",
+                    ("delivered" if ok else "pending", lot["id"]),
+                )
+                await self.db.conn.commit()
+                if ok:
+                    delivered.append(f"第 {lot['lot_no']} 件：{lot['item_name']} ×{lot['count']}")
+                else:
+                    logger.warning(f"【拍卖会】补领失败 lot={lot['id']}: {msg}")
+            if not delivered:
+                return False, "❌ 补领失败，请确认储物戒/溢出仓库状态后联系管理员。"
+            return True, "✅ 补领成功！\n" + "\n".join(delivered)
 
     async def get_status(self, player: Optional[Player] = None) -> str:
         now = int(time.time())

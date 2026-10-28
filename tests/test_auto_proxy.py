@@ -345,5 +345,18 @@ class TestAutoProxy(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(bounty_calls, [("u1", "escort", 1)])
 
 
+    async def test_start_activity_blocks_injured_player(self):
+        cm = _imp("config_manager").ConfigManager(ROOT)
+        self.escort.config_manager = cm
+        player = await self.db.get_player_by_id("u1")
+        player.hp = 1
+        await self.db.update_player(player)
+        player = await self.db.get_player_by_id("u1")
+        ok, msg = await self.manager.start_activity(player, "escort")
+        self.assertFalse(ok)
+        self.assertIn("重伤", msg)
+        self.assertEqual(self.escort.started, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

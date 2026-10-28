@@ -488,45 +488,68 @@ class StorageRingHandler:
 
     @player_required
     async def handle_reject_gift(self, player: Player, event: AstrMessageEvent):
-        """拒绝赠予的物品"""
+        """拒绝赠予的物品（事务内完成退回与删除）"""
         user_id = player.user_id
 
-        # 从数据库获取待处理的赠予请求
-        gift = await self.db.ext.get_pending_gift(user_id)
-        if not gift:
-            yield event.plain_result("你没有待处理的赠予请求")
-            return
+        await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            # 事务内重新获取请求（不触发内部 commit 的过期清理）
+            gift = await self.db.ext.get_pending_gift(user_id, cleanup=False)
+            if not gift:
+                await self.db.conn.rollback()
+                yield event.plain_result("你没有待处理的赠予请求")
+                return
 
-        item_name = gift["item_name"]
-        count = gift["count"]
-        sender_id = gift["sender_id"]
-        sender_name = gift["sender_name"]
-        gift_id = gift["id"]
-        item_kind = gift.get("item_kind", "item")
-        item_quality = gift.get("item_quality", "")
+            item_name = gift["item_name"]
+            count = gift["count"]
+            sender_id = gift["sender_id"]
+            sender_name = gift["sender_name"]
+            gift_id = gift["id"]
+            item_kind = gift.get("item_kind", "item")
+            item_quality = gift.get("item_quality", "")
 
-        # 物品返还给发送者
-        sender_player = await self.db.get_player_by_id(sender_id)
-        if sender_player:
+            # 物品返还给发送者
+            sender_player = await self.db.get_player_by_id(sender_id)
+            if not sender_player:
+                # 赠送者角色已不存在，物品无处可退；记录日志并作废，避免请求永远卡住。
+                await self.db.conn.execute("DELETE FROM pending_gifts WHERE id = ?", (gift_id,))
+                await self.db.conn.commit()
+                logger.warning(f"拒绝赠予：赠送者 {sender_id} 不存在，赠予 {gift_id} 已作废")
+                yield event.plain_result(
+                    f"❌ 赠送者【{sender_name}】的角色已不存在，该赠予请求已作废（物品无法退回）。"
+                )
+                return
+
+            # 原子删除：若已被接收流程处理，直接放弃，避免双方各得一份
+            cursor = await self.db.conn.execute(
+                "DELETE FROM pending_gifts WHERE id = ? AND receiver_id = ?",
+                (gift_id, user_id),
+            )
+            if cursor.rowcount <= 0:
+                await self.db.conn.rollback()
+                yield event.plain_result("该赠予请求已被处理，请刷新后重试。")
+                return
+
             if item_kind == "equipment":
                 im = ItemInstanceManager(self.db, self.config_manager)
-                sender = await self.db.get_player_by_id(sender_id)
-                inst = im.get_instance(sender, gift.get("instance_id", 0)) if sender else None
-                if not sender or not inst:
-                    await self.db.ext.delete_pending_gift(gift_id)
+                inst = im.get_instance(sender_player, gift.get("instance_id", 0))
+                if not inst:
+                    await self.db.conn.commit()
                     yield event.plain_result("❌ 装备实例已不存在，赠予已取消。")
                     return
                 volume = self.storage_ring_manager._get_item_volume(item_name)
-                if self.storage_ring_manager.get_available_slots(sender) < volume:
+                if self.storage_ring_manager.get_available_slots(sender_player) < volume:
+                    await self.db.conn.rollback()
                     yield event.plain_result(
                         "❌ 赠送者储物戒空间不足，装备暂时无法退回，赠予请求已保留。"
                     )
                     return
-                if not im.move(sender, int(inst["id"]), "storage"):
+                if not im.move(sender_player, int(inst["id"]), "storage"):
+                    await self.db.conn.rollback()
                     yield event.plain_result("❌ 装备实例退回失败，请稍后再试。")
                     return
-                await self.db.update_player(sender)
-                await self.db.ext.delete_pending_gift(gift_id)
+                await self.db.update_player(sender_player, commit=False)
+                await self.db.conn.commit()
                 yield event.plain_result(
                     f"已拒绝来自【{sender_name}】的赠予\n"
                     f"【{item_name}·{item_quality}】x1 已退回赠送者储物戒"
@@ -540,17 +563,35 @@ class StorageRingHandler:
                 inventory = sender_player.get_pills_inventory()
                 inventory[pill_key] = int(inventory.get(pill_key, 0)) + count
                 sender_player.set_pills_inventory(inventory)
-                await self.db.update_player(sender_player)
-            else:
-                await self.storage_ring_manager.store_item(sender_player, item_name, count, silent=True)
+                await self.db.update_player(sender_player, commit=False)
+                await self.db.conn.commit()
+                yield event.plain_result(
+                    f"已拒绝来自【{sender_name}】的赠予\n"
+                    f"【{item_name}·{quality}】x{count} 已返还"
+                )
+                return
 
-        # 删除数据库中的赠予请求
-        await self.db.ext.delete_pending_gift(gift_id)
-        label = f"{item_name}·{item_quality}" if item_kind in ("pill", "equipment") else item_name
-        yield event.plain_result(
-            f"已拒绝来自【{sender_name}】的赠予\n"
-            f"【{label}】x{count} 已返还"
-        )
+            ok, store_msg = await self.storage_ring_manager.store_item(
+                sender_player, item_name, count,
+                silent=False, external_transaction=True, allow_overflow=True,
+            )
+            if not ok:
+                await self.db.conn.rollback()
+                yield event.plain_result(
+                    f"❌ 退回失败：{store_msg}\n赠予请求已保留，请让赠送者清理储物戒后重试。"
+                )
+                return
+            await self.db.update_player(sender_player, commit=False)
+            await self.db.conn.commit()
+            label = f"{item_name}·{item_quality}" if item_quality else item_name
+            yield event.plain_result(
+                f"已拒绝来自【{sender_name}】的赠予\n"
+                f"【{label}】x{count} 已返还\n{store_msg}"
+            )
+        except Exception as e:
+            await self.db.conn.rollback()
+            logger.error(f"拒绝赠予异常: {e}")
+            yield event.plain_result("❌ 拒绝赠予异常，请稍后再试。")
 
     @player_required
     async def handle_upgrade_ring(self, player: Player, event: AstrMessageEvent, ring_name: str):

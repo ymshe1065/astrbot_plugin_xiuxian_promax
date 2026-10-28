@@ -459,5 +459,84 @@ class TestAuctionHouse(unittest.IsolatedAsyncioTestCase):
         })
 
 
+    async def test_claim_pending_twice_delivers_once(self):
+        now = int(time.time())
+        event = await self._insert_event("live", now=now, current_lot=1, lot_count=1)
+        lot = await self._insert_lot(
+            event["id"], category="pill", name="筑基丹", quality="良好",
+            status="sold", highest_bidder="w1", highest_bid=1500,
+        )
+        await self.conn.execute(
+            "UPDATE auction_house_lots SET winner_id=?, winning_price=?, delivery_status='pending' WHERE id=?",
+            ("w1", 1500, lot["id"]),
+        )
+        await self.conn.commit()
+        player = await self._player("w1", gold=0, name="赢家")
+
+        ok, msg = await self.manager.claim_pending(player)
+        self.assertTrue(ok, msg)
+        ok2, _ = await self.manager.claim_pending(player)
+        self.assertFalse(ok2)
+        winner = await self.db.get_player_by_id("w1")
+        self.assertEqual(winner.get_pills_inventory().get("筑基丹|良好"), 1)
+
+    async def test_reminder_slot_not_advanced_when_queue_fails(self):
+        from unittest.mock import AsyncMock, patch
+
+        now = int(time.time())
+        event = await self._insert_event(
+            "announcing", now=now, announce_start=now - 60, event_start=now + 3600,
+        )
+        with patch.object(self.manager, "_queue_message", new_callable=AsyncMock, return_value=False):
+            queued = await self.manager._queue_due_reminders(event, now)
+        self.assertEqual(queued, 0)
+        fresh = await self.manager._fetchone(
+            "SELECT last_reminder_slot FROM auction_house_events WHERE id=?", (event["id"],)
+        )
+        self.assertEqual(fresh["last_reminder_slot"], "")
+
+    async def test_drain_messages_skips_stale_backlog(self):
+        now = int(time.time())
+        event = await self._insert_event("live", now=now)
+        await self.conn.execute(
+            """INSERT INTO auction_house_messages
+               (event_id, lot_id, kind, dedupe_key, payload_json, fallback_text,
+                status, created_at, sent_at)
+               VALUES (?, 0, 'start', 'stale:1', '{}', '旧播报', 'pending', ?, 0)""",
+            (event["id"], now - 3600),
+        )
+        await self.conn.commit()
+        messages = await self.manager.drain_messages()
+        self.assertEqual(messages, [])
+        async with self.conn.execute(
+            "SELECT status FROM auction_house_messages WHERE dedupe_key='stale:1'"
+        ) as cur:
+            row = await cur.fetchone()
+        self.assertEqual(row["status"], "failed")
+
+    async def test_cancelled_event_refunds_entry_fee(self):
+        from unittest.mock import AsyncMock, patch
+
+        now = int(time.time())
+        event = await self._insert_event(
+            "announcing", now=now, announce_start=now - 3600, event_start=now - 1,
+        )
+        player = await self._player("refund1", gold=1000, name="报名者")
+        await self._entry(event["id"], "refund1")
+        await self.conn.execute(
+            "UPDATE players SET gold = gold - 500 WHERE user_id='refund1'"
+        )
+        await self.conn.commit()
+        with patch.object(self.manager, "_ensure_lots", new_callable=AsyncMock, return_value=[]):
+            await self.manager._start_live(event, now)
+        fresh = await self.db.get_player_by_id("refund1")
+        self.assertEqual(fresh.gold, 1000)
+        entry = await self.manager._fetchone(
+            "SELECT entry_fee FROM auction_house_entries WHERE event_id=? AND user_id='refund1'",
+            (event["id"],),
+        )
+        self.assertEqual(int(entry["entry_fee"]), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

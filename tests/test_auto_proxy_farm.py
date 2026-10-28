@@ -426,5 +426,23 @@ class TestAutoProxyFarm(unittest.IsolatedAsyncioTestCase):
         self.assertIn("没有种植", msg)
 
 
+    async def test_farm_only_proxy_does_not_rebind_manual_activity(self):
+        UserStatus = _imp("models_extended").UserStatus
+        ok, msg = await self.manager.enable("u1", "umo://g", "灵田")
+        self.assertTrue(ok, msg)
+        row = await self.db.ext.get_auto_proxy("u1")
+        self.assertEqual(row["enabled"], 1)
+        self.assertEqual(row["task_type"], "")
+
+        await self.db.ext.set_user_busy(
+            "u1", UserStatus.DELIVERING, int(time.time()) + 900
+        )
+        bound = await self.manager.note_activity_started("u1", "umo://g")
+        self.assertIsNone(bound)
+        row = await self.db.ext.get_auto_proxy("u1")
+        self.assertEqual(row["task_type"], "")
+        self.assertEqual(row["enabled"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()

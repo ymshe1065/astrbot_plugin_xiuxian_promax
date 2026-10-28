@@ -313,7 +313,7 @@ class StorageRingManager:
                     orig_player.set_equipment_instances(player.get_equipment_instances())
                     await self.db.update_player(player)
                     await self.db.conn.commit()
-                    capacity = self.get_ring_capacity(player.storage_ring)
+                    capacity = self.get_total_capacity(player)
                     used = self.get_used_slots(player)
                     return True, f"已从储物戒取出【{item_name}】x{count}（{used}/{capacity}容量）"
                 # 兼容旧名称堆叠
@@ -350,7 +350,7 @@ class StorageRingManager:
             await self.db.update_player(player)
             await self.db.conn.commit()
 
-            capacity = self.get_ring_capacity(player.storage_ring)
+            capacity = self.get_total_capacity(player)
             used = self.get_used_slots(player)
             return True, f"已从储物戒取出【{item_name}】x{count}（{used}/{capacity}容量）"
         except Exception:
@@ -375,7 +375,7 @@ class StorageRingManager:
                     orig_player.set_equipment_instances(player.get_equipment_instances())
                     await self.db.update_player(player)
                     await self.db.conn.commit()
-                    capacity = self.get_ring_capacity(player.storage_ring)
+                    capacity = self.get_total_capacity(player)
                     used = self.get_used_slots(player)
                     return True, f"已丢弃【{item_name}】x{count}（{used}/{capacity}容量）"
                 legacy = int(items.get(item_name, 0) or 0)
@@ -413,7 +413,7 @@ class StorageRingManager:
             await self.db.update_player(player)
             await self.db.conn.commit()
 
-            capacity = self.get_ring_capacity(player.storage_ring)
+            capacity = self.get_total_capacity(player)
             used = self.get_used_slots(player)
             return True, f"已丢弃【{item_name}】x{discard_count}（{used}/{capacity}容量）"
         except Exception:

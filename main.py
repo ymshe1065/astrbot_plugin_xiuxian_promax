@@ -814,21 +814,33 @@ class XiuXianPlugin(Star):
             except Exception:
                 payload = {}
             fallback = msg.get("fallback_text") or ""
-            text = await self.auction_ai.compose(
-                msg.get("kind") or "", payload, fallback, umo
-            )
-            await self._broadcast_auction_house(text or fallback)
-            await self.auction_house_mgr.mark_message_sent(msg["id"])
+            try:
+                text = await self.auction_ai.compose(
+                    msg.get("kind") or "", payload, fallback, umo
+                )
+                sent = await self._broadcast_auction_house(text or fallback)
+                if sent:
+                    await self.auction_house_mgr.mark_message_sent(msg["id"])
+                else:
+                    # 发送失败保持 pending，下次 tick 重试；超过 drain 的 max_age 会转为 failed。
+                    logger.warning(f"【拍卖会】播报发送失败，稍后重试: {msg['id']}")
+            except Exception as e:
+                logger.warning(f"【拍卖会】播报处理异常 msg={msg.get('id')}: {e}")
+                try:
+                    await self.auction_house_mgr.mark_message_failed(msg["id"])
+                except Exception as mark_err:
+                    logger.warning(f"【拍卖会】播报状态更新失败 msg={msg.get('id')}: {mark_err}")
             await asyncio.sleep(0.2)
 
-    async def _broadcast_auction_house(self, msg: str):
+    async def _broadcast_auction_house(self, msg: str) -> bool:
         from astrbot.api.event import MessageChain
         if not msg:
-            return
+            return False
         if not self.whitelist_groups:
             self._warn_no_whitelist("拍卖会")
-            return
+            return False
         message_chain = MessageChain().message(msg)
+        sent = False
         try:
             platforms = self.context.platform_manager.get_insts()
             for platform in platforms:
@@ -837,10 +849,12 @@ class XiuXianPlugin(Star):
                     umo = f"{platform_name}:GroupMessage:{group_id}"
                     try:
                         await self.context.send_message(umo, message_chain)
+                        sent = True
                     except Exception as e:
                         logger.warning(f"【修仙插件】拍卖会广播失败 (群{group_id}): {e}")
         except Exception as e:
             logger.error(f"【修仙插件】拍卖会广播异常: {e}")
+        return sent
 
     async def _broadcast_world_boss_spawn(self, msg: str):
         """广播动态世界Boss降临/天魔结算"""

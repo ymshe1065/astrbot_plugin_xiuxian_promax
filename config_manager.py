@@ -77,7 +77,13 @@ class ConfigManager:
                     for item_id, item_data in data.items():
                         if isinstance(item_data, dict) and item_data.get("name"):
                             if "id" not in item_data: item_data["id"] = item_id
-                            items_dict[item_data["name"]] = item_data
+                            name = item_data["name"]
+                            if name in items_dict:
+                                logger.warning(
+                                    f"物品配置存在同名条目：{name}（{items_dict[name].get('id')} 与 "
+                                    f"{item_data.get('id')}），后者将覆盖前者，请检查 config/items.json"
+                                )
+                            items_dict[name] = item_data
                     return items_dict
                 return {}
         except Exception as e:

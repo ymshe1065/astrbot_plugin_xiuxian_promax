@@ -208,7 +208,8 @@ class EquipmentHandler:
                 return
         if inst:
             item = self.equipment_manager.parse_item_from_name(
-                item_name, self.config_manager.items_data, self.config_manager.weapons_data, inst
+                item_name, self.config_manager.items_data, self.config_manager.weapons_data, inst,
+                player_level=player.level_index,
             )
             success, message = await self.equipment_manager.equip_item(player, item, int(inst["id"]), target_slot)
         else:
@@ -227,7 +228,8 @@ class EquipmentHandler:
             item_removed_from_storage = True
 
             item = self.equipment_manager.parse_item_from_name(
-                item_name, self.config_manager.items_data, self.config_manager.weapons_data
+                item_name, self.config_manager.items_data, self.config_manager.weapons_data,
+                player_level=player.level_index,
             )
             success, message = await self.equipment_manager.equip_item(player, item, target_slot=target_slot)
 
@@ -244,7 +246,8 @@ class EquipmentHandler:
                 if actual_inst:
                     quality = actual_inst.get("quality", "一般")
                     parsed = self.equipment_manager.parse_item_from_name(
-                        item.name, self.config_manager.items_data, self.config_manager.weapons_data, actual_inst
+                        item.name, self.config_manager.items_data, self.config_manager.weapons_data, actual_inst,
+                        player_level=player.level_index,
                     )
                     if parsed:
                         display_item = parsed
@@ -260,7 +263,8 @@ class EquipmentHandler:
                 result_msg += f"\n品质：{quality}（主属性×{mult:.2f}）"
                 if quality != "一般":
                     base_item = self.equipment_manager.parse_item_from_name(
-                        item.name, self.config_manager.items_data, self.config_manager.weapons_data
+                        item.name, self.config_manager.items_data, self.config_manager.weapons_data,
+                        player_level=player.level_index,
                     )
                     if base_item:
                         result_msg += f"\n基础属性：{base_item.get_attribute_display()}"
@@ -285,16 +289,11 @@ class EquipmentHandler:
 
         slot_or_name = slot_or_name.strip()
 
-        gear = self.equipment_manager.get_gear_slots(player)
-        is_gear = slot_or_name in ItemRules.SLOT_ALIASES or any(name == slot_or_name for name, _ in gear.values())
         if slot_or_name == player.main_technique:
             slot_or_name = "心法"
-        name = player.main_technique if slot_or_name in ("心法", "主修心法", "main_technique") else slot_or_name
+        # unequip_item 内部已统一把心法/功法/装备实例放回储物戒；
+        # 此处不能再调用 store_item，否则会新建实例造成无限复制。
         success, message = await self.equipment_manager.unequip_item(player, slot_or_name)
         if success:
             await self._refresh_combat_cache(player)
-            if not is_gear:
-                ok, msg = await self.storage_ring_manager.store_item(player, name, 1, silent=True)
-                if not ok:
-                    message += f"\n⚠️ 存入储物戒失败：{msg}"
         yield event.plain_result(f"{'✅' if success else '❌'} {message}")

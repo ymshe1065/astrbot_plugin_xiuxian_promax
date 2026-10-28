@@ -191,12 +191,20 @@ class Player:
             return level_data[self.level_index + 1].get("exp_needed", 0)
         return 0
 
+    @staticmethod
+    def _load_json_field(raw, default):
+        """解析 JSON 字段；NULL、非法 JSON、类型不符时返回 default。"""
+        if raw is None:
+            return default
+        try:
+            data = json.loads(raw)
+        except (TypeError, ValueError):
+            return default
+        return data if isinstance(data, type(default)) else default
+
     def get_techniques_list(self) -> List[str]:
         """获取功法列表"""
-        try:
-            return json.loads(self.techniques)
-        except json.JSONDecodeError:
-            return []
+        return self._load_json_field(self.techniques, [])
 
     def set_techniques_list(self, techniques_list: List[str]):
         """设置功法列表"""
@@ -204,10 +212,7 @@ class Player:
 
     def get_active_pill_effects(self) -> List[dict]:
         """获取当前生效的临时丹药效果列表"""
-        try:
-            return json.loads(self.active_pill_effects)
-        except json.JSONDecodeError:
-            return []
+        return self._load_json_field(self.active_pill_effects, [])
 
     def set_active_pill_effects(self, effects: List[dict]):
         """设置当前生效的临时丹药效果"""
@@ -215,10 +220,7 @@ class Player:
 
     def get_permanent_pill_gains(self) -> dict:
         """获取永久丹药累积增益"""
-        try:
-            return json.loads(self.permanent_pill_gains)
-        except json.JSONDecodeError:
-            return {}
+        return self._load_json_field(self.permanent_pill_gains, {})
 
     def set_permanent_pill_gains(self, gains: dict):
         """设置永久丹药累积增益"""
@@ -226,10 +228,7 @@ class Player:
 
     def get_pills_inventory(self) -> dict:
         """获取丹药背包"""
-        try:
-            return json.loads(self.pills_inventory)
-        except json.JSONDecodeError:
-            return {}
+        return self._load_json_field(self.pills_inventory, {})
 
     def set_pills_inventory(self, inventory: dict):
         """设置丹药背包"""
@@ -237,10 +236,7 @@ class Player:
 
     def get_storage_ring_items(self) -> dict:
         """获取储物戒物品"""
-        try:
-            return json.loads(self.storage_ring_items)
-        except json.JSONDecodeError:
-            return {}
+        return self._load_json_field(self.storage_ring_items, {})
 
     def set_storage_ring_items(self, items: dict):
         """设置储物戒物品"""
@@ -248,11 +244,7 @@ class Player:
 
     def get_overflow_items(self) -> dict:
         """获取溢出仓库物品"""
-        try:
-            data = json.loads(self.overflow_items)
-            return data if isinstance(data, dict) else {}
-        except Exception:
-            return {}
+        return self._load_json_field(self.overflow_items, {})
 
     def set_overflow_items(self, items: dict):
         """设置溢出仓库物品"""
@@ -260,22 +252,14 @@ class Player:
 
     def get_equipment_instances(self) -> list:
         """获取装备实例列表"""
-        try:
-            data = json.loads(self.equipment_instances)
-            return data if isinstance(data, list) else []
-        except Exception:
-            return []
+        return self._load_json_field(self.equipment_instances, [])
 
     def set_equipment_instances(self, instances: list):
         self.equipment_instances = json.dumps(instances, ensure_ascii=False)
 
     def get_equipped_instances(self) -> dict:
         """获取槽位 -> 实例ID映射"""
-        try:
-            data = json.loads(self.equipped_instances)
-            return data if isinstance(data, dict) else {}
-        except Exception:
-            return {}
+        return self._load_json_field(self.equipped_instances, {})
 
     def set_equipped_instances(self, mapping: dict):
         self.equipped_instances = json.dumps(mapping, ensure_ascii=False)

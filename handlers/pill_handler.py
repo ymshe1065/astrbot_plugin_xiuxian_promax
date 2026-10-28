@@ -2,7 +2,7 @@
 
 from astrbot.api.event import AstrMessageEvent
 from ..data import DataBase
-from ..core import PillManager
+from ..core import PillManager, ItemRules
 from ..models import Player
 from ..config_manager import ConfigManager
 from .utils import player_required
@@ -256,27 +256,21 @@ class PillHandler:
 
         elif effect_type == "temporary":
             duration = pill_data.get('duration_minutes', 0)
-            lines.append(f"  持续时间：{duration}分钟")
+            if duration:
+                lines.append(f"  持续时间：{duration}分钟")
 
             if 'cultivation_multiplier' in pill_data:
                 mult = pill_data['cultivation_multiplier']
-                lines.append(f"  修炼速度：{mult:+.0%}")
+                lines.append(f"  修炼速度：{ItemRules.format_bonus_rate(mult, cap=None)}")
 
-            if 'physical_damage_multiplier' in pill_data:
-                mult = pill_data['physical_damage_multiplier']
-                lines.append(f"  物伤：{mult:+.0%}")
-
-            if 'magic_damage_multiplier' in pill_data:
-                mult = pill_data['magic_damage_multiplier']
-                lines.append(f"  法伤：{mult:+.0%}")
-
-            if 'physical_defense_multiplier' in pill_data:
-                mult = pill_data['physical_defense_multiplier']
-                lines.append(f"  物防：{mult:+.0%}")
-
-            if 'magic_defense_multiplier' in pill_data:
-                mult = pill_data['magic_defense_multiplier']
-                lines.append(f"  法防：{mult:+.0%}")
+            for key, label in (
+                ('physical_damage_multiplier', '物伤'),
+                ('magic_damage_multiplier', '法伤'),
+                ('physical_defense_multiplier', '物防'),
+                ('magic_defense_multiplier', '法防'),
+            ):
+                if key in pill_data:
+                    lines.append(f"  {label}：{ItemRules.format_bonus_rate(pill_data[key])}")
 
         elif effect_type == "permanent":
             lines.append("  永久效果（受30%上限限制）：")

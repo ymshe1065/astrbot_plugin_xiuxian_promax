@@ -233,6 +233,33 @@ def is_rate_key(key: str) -> bool:
     return key in _RATE_KEYS
 
 
+# 临时丹药的物伤/法伤/物防/法防加成在结算时会被 PillManager 封顶，
+# 展示层必须使用同一上限，避免出现“+1000% 实际只有 +50%”的误导。
+TEMPORARY_COMBAT_BONUS_CAP = 0.5
+
+
+def effective_temporary_bonus(value: Any, cap: float = TEMPORARY_COMBAT_BONUS_CAP) -> float:
+    """返回临时丹药加成在结算后的实际生效值（小数）。"""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    if number <= 0:
+        return number
+    return min(cap, number)
+
+
+def format_bonus_rate(value: Any, cap: Optional[float] = TEMPORARY_COMBAT_BONUS_CAP) -> str:
+    """把小数加成格式化为百分比；超过结算上限时明确标注。"""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if cap is not None and number > cap >= 0:
+        return f"+{cap:.0%}（已达上限）"
+    return f"{number:+.0%}"
+
+
 def normalize_rate(value: Any, as_percent: bool = False) -> float:
     """统一倍率/百分比：内部返回小数；as_percent=True 时返回百分数。"""
     try:
@@ -274,5 +301,8 @@ class ItemRules:
     get_equip_slot = staticmethod(get_equip_slot)
     is_equipment = staticmethod(is_equipment)
     is_rate_key = staticmethod(is_rate_key)
+    effective_temporary_bonus = staticmethod(effective_temporary_bonus)
+    format_bonus_rate = staticmethod(format_bonus_rate)
+    TEMPORARY_COMBAT_BONUS_CAP = TEMPORARY_COMBAT_BONUS_CAP
     normalize_rate = staticmethod(normalize_rate)
     validate_rate = staticmethod(validate_rate)

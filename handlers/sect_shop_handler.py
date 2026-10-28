@@ -242,7 +242,7 @@ class SectShopHandler:
 
         if item_type in ItemRules.EQUIPPABLE_TYPES | {"material", "recipe", "符箓", "杂物"}:
             ok, msg = await self.storage_ring_mgr.store_item(
-                player, item_name, 1, silent=True,
+                player, item_name, 1, silent=False,
                 quality=item.get("quality") or "",
             )
             if not ok:
@@ -254,7 +254,7 @@ class SectShopHandler:
                 return
             set_event_flag(event, "sect_shop_buy", True)
             yield event.plain_result(
-                f"✅ 兑换成功：{item_name} x1，已存入储物戒。\n"
+                f"✅ 兑换成功：{item_name} x1\n{msg}\n"
                 f"消耗宗门贡献：{price:,}"
             )
             return
