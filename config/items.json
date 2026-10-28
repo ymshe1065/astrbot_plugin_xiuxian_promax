@@ -899,7 +899,7 @@
         "type": "丹药",
         "rank": "黄阶",
         "shop_weight": 999,
-        "price": 99,
+        "price": 1000,
         "volume": 1,
         "description": "这是一件黄阶级别的丹药，蕴含着天地之力。",
         "effect": {
