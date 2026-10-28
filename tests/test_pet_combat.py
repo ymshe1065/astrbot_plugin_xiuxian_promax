@@ -138,6 +138,7 @@ class TestPetCombat(unittest.IsolatedAsyncioTestCase):
 
     async def test_gold_pet_bonus_stacks_per_pet(self):
         self.player.level_index = 10
+        self.player.cultivation_type = "御兽"
         await self.db.update_player(self.player)
         self.assertTrue((await self.pet_mgr.adopt_pet(self.player, "噬金鼠"))[0])
         self.assertTrue((await self.pet_mgr.adopt_pet(self.player, "噬金鼠"))[0])
@@ -193,3 +194,154 @@ class TestPetCombat(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(main_pet)
         self.assertEqual(len(supports), 2)
         self.assertGreater(atk, 10_000)
+
+    async def test_pet_encounter_chance_grows_with_empty_slots(self):
+        self.assertAlmostEqual(self.pet_mgr.pet_encounter_chance(0), 0.50)
+        self.assertAlmostEqual(self.pet_mgr.pet_encounter_chance(1), 0.65)
+        self.assertAlmostEqual(self.pet_mgr.pet_encounter_chance(2), 0.80)
+        self.assertAlmostEqual(self.pet_mgr.pet_encounter_chance(3), 0.95)
+        self.assertAlmostEqual(self.pet_mgr.pet_encounter_chance(10), 0.95)
+
+    async def test_only_yushou_has_multi_pet_slots(self):
+        self.player.level_index = 14
+        self.player.cultivation_type = "灵修"
+        await self.db.update_player(self.player)
+        self.assertEqual(self.pet_mgr.get_pet_slots(self.player), 1)
+        self.assertTrue((await self.pet_mgr.adopt_pet(self.player, "火灵狐"))[0])
+        ok, _ = await self.pet_mgr.adopt_pet(self.player, "冰晶兽")
+        self.assertFalse(ok)
+
+        self.player.cultivation_type = "御兽"
+        self.assertEqual(self.pet_mgr.get_pet_slots(self.player), 4)
+
+    async def test_pet_auto_evolves_at_level_20_and_40(self):
+        self.player.level_index = 10
+        self.player.cultivation_type = "御兽"
+        await self.db.update_player(self.player)
+        self.assertTrue((await self.pet_mgr.adopt_pet(self.player, "火灵狐"))[0])
+        pet = await self.pet_mgr.get_pet("u1", apply_regen=False)
+        await self.conn.execute("UPDATE player_pets SET level = 20 WHERE id = ?", (pet["id"],))
+        await self.conn.commit()
+        pets = await self.pet_mgr.get_pets("u1", apply_regen=False)
+        self.assertEqual(pets[0]["pet_type"], "炎灵狐")
+        self.assertEqual(pets[0]["pet_name"], "炎灵狐 1")
+        self.assertEqual(self.pet_mgr.get_pet_info(pets[0])["stage"], 1)
+        self.assertGreater(self.pet_mgr.get_pet_combat_effects(pets[0])["crit_rate"], 30.0)
+
+        await self.conn.execute("UPDATE player_pets SET level = 40 WHERE id = ?", (pet["id"],))
+        await self.conn.commit()
+        pets = await self.pet_mgr.get_pets("u1", apply_regen=False)
+        self.assertEqual(pets[0]["pet_type"], "九尾天狐")
+        self.assertEqual(pets[0]["pet_name"], "九尾天狐 1")
+        self.assertEqual(self.pet_mgr.get_pet_info(pets[0])["stage"], 2)
+        self.assertGreater(self.pet_mgr.get_pet_combat_effects(pets[0])["crit_rate"], 45.0)
+
+    async def test_overflow_conversion_and_counter_cap(self):
+        raw_effects = {
+            "crit_rate": 150.0,
+            "crit_damage": 1.5,
+            "lifesteal": 160.0,
+            "counter_damage": 150.0,
+        }
+        effects = dict(raw_effects)
+        attack_mult = self.CombatManager.normalize_overflow_effects(effects)
+        self.assertAlmostEqual(attack_mult, 1.3)
+        self.assertAlmostEqual(effects["crit_rate"], 100.0)
+        self.assertAlmostEqual(effects["crit_damage"], 1.75)
+        self.assertAlmostEqual(effects["lifesteal"], 100.0)
+        self.assertAlmostEqual(effects["counter_damage"], 100.0)
+
+        panel = {
+            "hp": 10000, "atk": 2000,
+            "physical_atk": 1000, "magic_atk": 1000,
+            "defense": 0, "physical_defense": 0, "magic_defense": 0,
+            "crit_rate": 0, "crit_damage": 1.5, "lifesteal": 0, "counter_damage": 0,
+        }
+        self.CombatManager.apply_pet_lineup(
+            panel, None, [], dict(raw_effects), None
+        )
+        self.assertEqual(panel["physical_atk"], 1300)
+        self.assertEqual(panel["magic_atk"], 1300)
+        self.assertEqual(panel["atk"], 2600)
+        self.assertEqual(panel["counter_damage"], 100.0)
+
+    async def test_ice_final_stage_is_glacier_beast(self):
+        self.player.cultivation_type = "灵修"
+        self.assertTrue((await self.pet_mgr.adopt_pet(self.player, "冰晶兽"))[0])
+        pet = await self.pet_mgr.get_pet("u1", apply_regen=False)
+        await self.conn.execute("UPDATE player_pets SET level = 40 WHERE id = ?", (pet["id"],))
+        await self.conn.commit()
+        pets = await self.pet_mgr.get_pets("u1", apply_regen=False)
+        self.assertEqual(pets[0]["pet_type"], "冰川巨兽")
+        self.assertEqual(pets[0]["pet_name"], "冰川巨兽 1")
+
+    async def test_gold_bonus_scales_after_evolution(self):
+        self.player.cultivation_type = "灵修"
+        self.assertTrue((await self.pet_mgr.adopt_pet(self.player, "噬金鼠"))[0])
+        pet = await self.pet_mgr.get_pet("u1", apply_regen=False)
+        await self.conn.execute("UPDATE player_pets SET level = 20 WHERE id = ?", (pet["id"],))
+        await self.conn.commit()
+        pets = await self.pet_mgr.get_pets("u1", apply_regen=False)
+        self.assertEqual(pets[0]["pet_type"], "寻宝金鼠")
+        self.assertGreater(await self.pet_mgr.get_life_bonus("u1"), 0.3)
+
+    async def test_feed_crossing_level_20_evolves_for_free(self):
+        self.player.cultivation_type = "灵修"
+        self.assertTrue((await self.pet_mgr.adopt_pet(self.player, "火灵狐"))[0])
+        pet = await self.pet_mgr.get_pet("u1", apply_regen=False)
+        await self.conn.execute(
+            "UPDATE player_pets SET level = 19, exp = 9450 WHERE id = ?", (pet["id"],)
+        )
+        await self.conn.commit()
+        ok, msg = await self.pet_mgr.feed_pet(self.player, "")
+        self.assertTrue(ok)
+        self.assertIn("境界突破", msg)
+        pet = await self.pet_mgr.get_pet("u1", apply_regen=False, sync_exp=False)
+        self.assertEqual(pet["level"], 20)
+        self.assertEqual(pet["pet_type"], "炎灵狐")
+
+    async def test_grant_pet_at_high_level_starts_evolved(self):
+        self.player.level_index = 10
+        self.player.cultivation_type = "御兽"
+        await self.db.update_player(self.player)
+        ok, _, info = await self.pet_mgr.grant_pet(self.player, "青龙幼崽", level=45)
+        self.assertTrue(ok)
+        self.assertEqual(info["pet_type"], "太古青龙")
+        self.assertEqual(info["pet_name"], "太古青龙 1")
+        self.assertEqual(info["stage"], 2)
+
+    async def test_grant_pet_is_free_and_respects_slots(self):
+        self.player.level_index = 10
+        self.player.cultivation_type = "御兽"
+        await self.db.update_player(self.player)
+        gold_before = int(self.player.gold)
+        ok, _, info = await self.pet_mgr.grant_pet(self.player, "火灵狐", level=3)
+        self.assertTrue(ok)
+        self.assertEqual(int(self.player.gold), gold_before)
+        self.assertEqual(info["level"], 3)
+        self.assertEqual(info["slot"], 1)
+        self.assertTrue(info["is_main"])
+
+        ok, _, _ = await self.pet_mgr.grant_pet(self.player, "冰晶兽")
+        self.assertTrue(ok)
+        ok, _, _ = await self.pet_mgr.grant_pet(self.player, "噬金鼠")
+        self.assertTrue(ok)
+        ok, _, _ = await self.pet_mgr.grant_pet(self.player, "青龙幼崽")
+        self.assertFalse(ok)
+        self.assertIsNone(await self.pet_mgr.try_exploration_encounter(self.player))
+
+    async def test_exploration_pet_encounter_triggers_with_empty_slot(self):
+        self.player.level_index = 10
+        self.player.cultivation_type = "御兽"
+        await self.db.update_player(self.player)
+        self.pet_mgr.PET_ENCOUNTER_BASE_CHANCE = 1.0
+        self.pet_mgr.PET_ENCOUNTER_MAX_CHANCE = 1.0
+        info = await self.pet_mgr.try_exploration_encounter(
+            self.player, "秘境探索中", commit=True
+        )
+        self.assertIsNotNone(info)
+        self.assertEqual(info["source"], "秘境探索中")
+        self.assertEqual(info["empty_before"], 3)
+        pets = await self.pet_mgr.get_pets("u1", apply_regen=False)
+        self.assertEqual(len(pets), 1)
+        self.assertIn("灵兽奇遇", self.pet_mgr.format_exploration_encounter(info))

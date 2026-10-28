@@ -58,6 +58,16 @@ class TestAuditRegressions(unittest.TestCase):
         self.assertTrue(self.allow("世界Boss", self.allowed))
         self.assertTrue(self.allow("世界boss", self.allowed))
 
+    def test_busy_whitelist_allows_all_ranking_commands(self):
+        for command in ("境界排行", "战力排行", "灵石排行", "宗门排行", "存款排行",
+                        "贡献排行", "传承排行", "功德榜", "气运榜", "师德榜",
+                        "气运", "团本排行"):
+            self.assertTrue(self.allow(command, self.allowed), command)
+
+    def test_busy_whitelist_allows_combat_invite_responses(self):
+        self.assertTrue(self.allow("接受切磋", self.allowed))
+        self.assertTrue(self.allow("拒绝切磋", self.allowed))
+
     def test_forge_multiplier(self):
         player = self.Player(user_id="u1", permanent_bonus=json.dumps({"forge_level": 5}))
         self.assertAlmostEqual(self.CombatManager.get_forge_multiplier(player), 1.10)

@@ -333,6 +333,20 @@ class RiftManager:
         player.experience += exp_reward
         player.gold += gold_reward
         await self.db.update_player(player)
+
+        # 灵兽奇遇：秘境归来的空槽判定
+        pet_encounter = None
+        try:
+            from .pet_manager import PetManager
+            pet_encounter = await PetManager(self.db).try_exploration_encounter(
+                player, "秘境探索中", commit=True
+            )
+        except Exception:
+            pet_encounter = None
+        pet_msg = ""
+        if pet_encounter:
+            from .pet_manager import PetManager
+            pet_msg = PetManager.format_exploration_encounter(pet_encounter)
         
         # 8. 清除CD
         await self.db.ext.set_user_free(user_id)
@@ -344,7 +358,7 @@ class RiftManager:
 {event["desc"]}
 
 获得修为：+{exp_reward:,}
-获得灵石：+{gold_reward:,}{item_msg}
+获得灵石：+{gold_reward:,}{item_msg}{pet_msg}
         """.strip()
         
         reward_data = {
@@ -352,6 +366,7 @@ class RiftManager:
             "gold": gold_reward,
             "event": event["desc"],
             "items": dropped_items,
+            "pet": pet_encounter,
             "rift_name": rift_name
         }
         

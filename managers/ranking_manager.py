@@ -24,6 +24,14 @@ POSITION_MAP = {
 MAX_NAME_LENGTH = 12
 
 
+def _as_int(value, default: int = 0) -> int:
+    """安全转换为整数，避免旧存档中的 NULL/脏数据导致排序或格式化报错"""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _short_id(user_id) -> str:
     """安全获取短ID，防止非字符串类型报错"""
     if user_id is None:
@@ -77,7 +85,7 @@ class RankingManager:
         # 仅按修为排序会出现「炼气期排在筑基期前面」的情况，须以境界优先、修为次之。
         sorted_players = sorted(
             all_players,
-            key=lambda p: (p.level_index or 0, p.experience or 0),
+            key=lambda p: (_as_int(p.level_index), _as_int(p.experience)),
             reverse=True,
         )[:limit]
         
@@ -91,7 +99,7 @@ class RankingManager:
             msg += f"{idx}. {name}\n"
             msg += (
                 f"   境界：{level_name} | "
-                f"修为：{int(player.experience):,}/{int(required_exp):,}\n\n"
+                f"修为：{_as_int(player.experience):,}/{_as_int(required_exp):,}\n\n"
             )
         
         return True, msg
@@ -103,6 +111,9 @@ class RankingManager:
         战力计算公式：气血/10 + 攻击 + 防御 + 精神力/10
         战斗面板完整计入装备、临时丹药、传承与灵兽加成，
         确保排行显示的战力与玩家名片完全一致。
+
+        注意：灵兽在实战中独立出手，只把主战特效与御兽指挥加成同步给主人，
+        灵兽自身攻击不计入主人面板（与名片、战斗结算保持一致）。
         
         Args:
             limit: 显示数量
@@ -144,7 +155,7 @@ class RankingManager:
             try:
                 pets = pet_map.get(player.user_id, [])
                 if pets:
-                    owner_atk, pet_atk, pet_effects, pet_def = pet_manager.summarize_lineup(
+                    owner_atk, _, pet_effects, pet_def = pet_manager.summarize_lineup(
                         player,
                         pets,
                         combat_panel["hp"],
@@ -154,15 +165,15 @@ class RankingManager:
                     )
                     pet_effect_data = dict(pet_effects or {})
                     if "defense_bonus" not in pet_effect_data:
-                        pet_effect_data["defense_bonus"] = int(pet_def or 0)
+                        pet_effect_data["defense_bonus"] = _as_int(pet_def)
                     CombatManager.apply_pet_lineup(
                         combat_panel, None, [], pet_effect_data,
-                        int(owner_atk) + int(pet_atk),
+                        _as_int(owner_atk),
                     )
             except Exception:
                 pass
             combat_power = CombatManager.calculate_combat_power(
-                combat_panel, total_attrs["mental_power"]
+                combat_panel, _as_int(total_attrs.get("mental_power"))
             )
             player_power.append((player, combat_power, total_attrs))
         
@@ -176,10 +187,10 @@ class RankingManager:
             name = _safe_name(player, player.user_id)
             # 显示主要攻击属性（根据修炼类型）
             if player.cultivation_type == "体修":
-                main_atk = int(attrs['physical_damage'])
+                main_atk = _as_int(attrs.get("physical_damage"))
                 atk_label = "物伤"
             else:
-                main_atk = int(attrs['magic_damage'])
+                main_atk = _as_int(attrs.get("magic_damage"))
                 atk_label = "法伤"
             msg += f"{idx}. {name}\n"
             msg += f"   战力：{power:,} | {atk_label}：{main_atk:,}\n\n"
@@ -202,7 +213,7 @@ class RankingManager:
             return False, "❌ 暂无数据！"
         
         # 按灵石排序
-        sorted_players = sorted(all_players, key=lambda p: p.gold, reverse=True)[:limit]
+        sorted_players = sorted(all_players, key=lambda p: _as_int(p.gold), reverse=True)[:limit]
         
         msg = "📊 财富排行榜\n"
         msg += "━━━━━━━━━━━━━━━\n"
@@ -210,7 +221,7 @@ class RankingManager:
         for idx, player in enumerate(sorted_players, 1):
             name = _safe_name(player, player.user_id)
             msg += f"{idx}. {name}\n"
-            msg += f"   灵石：{player.gold:,}\n\n"
+            msg += f"   灵石：{_as_int(player.gold):,}\n\n"
         
         return True, msg
     
@@ -230,7 +241,7 @@ class RankingManager:
             return False, "❌ 暂无宗门数据！"
         
         # 显式按建设度排序，不依赖DB层的排序行为
-        top_sects = sorted(all_sects, key=lambda s: s.sect_scale, reverse=True)[:limit]
+        top_sects = sorted(all_sects, key=lambda s: _as_int(s.sect_scale), reverse=True)[:limit]
         
         msg = "📊 宗门排行榜\n"
         msg += "━━━━━━━━━━━━━━━\n"
@@ -247,7 +258,7 @@ class RankingManager:
             
             msg += f"{idx}. 【{sect_name}】\n"
             msg += f"   宗主：{owner_name}\n"
-            msg += f"   建设度：{sect.sect_scale:,} | 成员：{len(members)}人\n\n"
+            msg += f"   建设度：{_as_int(sect.sect_scale):,} | 成员：{len(members)}人\n\n"
         
         return True, msg
     
@@ -299,7 +310,7 @@ class RankingManager:
             return False, "❌ 宗门暂无成员！"
         
         # 按贡献度排序
-        sorted_members = sorted(members, key=lambda p: p.sect_contribution, reverse=True)[:limit]
+        sorted_members = sorted(members, key=lambda p: _as_int(p.sect_contribution), reverse=True)[:limit]
         
         # 宗门名称安全处理
         sect_name = sect.sect_name.replace("@", "＠")
@@ -314,7 +325,7 @@ class RankingManager:
             # 使用安全映射获取职位名称，防止索引越界
             position_name = POSITION_MAP.get(member.sect_position, "成员")
             msg += f"{idx}. {name} ({position_name})\n"
-            msg += f"   贡献度：{member.sect_contribution:,}\n\n"
+            msg += f"   贡献度：{_as_int(member.sect_contribution):,}\n\n"
 
         return True, msg
 
@@ -326,20 +337,20 @@ class RankingManager:
         if not all_players:
             return False, "❌ 暂无数据！"
 
-        goods = sorted([p for p in all_players if ((p.karma or 0) > 0)], key=lambda p: (p.karma or 0), reverse=True)[:limit]
-        evils = sorted([p for p in all_players if ((p.karma or 0) < 0)], key=lambda p: (p.karma or 0))[:limit]
+        goods = sorted([p for p in all_players if _as_int(p.karma) > 0], key=lambda p: _as_int(p.karma), reverse=True)[:limit]
+        evils = sorted([p for p in all_players if _as_int(p.karma) < 0], key=lambda p: _as_int(p.karma))[:limit]
 
         msg = "📊 功德·业力榜\n━━━━━━━━━━━━━━━\n"
         msg += "【善】功德榜：\n"
         if goods:
             for idx, p in enumerate(goods, 1):
-                msg += f"{idx}. {_safe_name(p, p.user_id)} 功德 {p.karma:+d}\n"
+                msg += f"{idx}. {_safe_name(p, p.user_id)} 功德 {_as_int(p.karma):+d}\n"
         else:
             msg += "  暂无行善之人……\n"
         msg += "【恶】业力榜：\n"
         if evils:
             for idx, p in enumerate(evils, 1):
-                msg += f"{idx}. {_safe_name(p, p.user_id)} 业力 {p.karma}\n"
+                msg += f"{idx}. {_safe_name(p, p.user_id)} 业力 {_as_int(p.karma)}\n"
         else:
             msg += "  天下太平，无作恶之徒。\n"
         msg += "━━━━━━━━━━━━━━━\n💡 功德提升奇遇与突破，业力反之。/行善 可积德"
@@ -355,7 +366,7 @@ class RankingManager:
 
         scored = []
         for p in all_players:
-            luck = LuckManager.get_total_luck(p, self.config_manager)
+            luck = _as_int(LuckManager.get_total_luck(p, self.config_manager))
             if luck > 0:
                 scored.append((p, luck))
         scored.sort(key=lambda x: x[1], reverse=True)
@@ -377,12 +388,12 @@ class RankingManager:
         all_players = await self.db.get_all_players()
         if not all_players:
             return False, "❌ 暂无数据！"
-        teachers = sorted([p for p in all_players if (getattr(p, "virtue_points", 0) or 0) > 0],
-                          key=lambda p: (p.virtue_points or 0), reverse=True)[:limit]
+        teachers = sorted([p for p in all_players if _as_int(getattr(p, "virtue_points", 0)) > 0],
+                          key=lambda p: _as_int(getattr(p, "virtue_points", 0)), reverse=True)[:limit]
         if not teachers:
             return False, "🎓 师德榜暂无数据。\n💡 收徒并助弟子突破可累积师德（/拜师 了解详情）"
         msg = "🎓 师德榜（传道真人）\n━━━━━━━━━━━━━━━\n"
         for idx, p in enumerate(teachers, 1):
-            msg += f"{idx}. {_safe_name(p, p.user_id)} 师德 {p.virtue_points or 0}\n"
+            msg += f"{idx}. {_safe_name(p, p.user_id)} 师德 {_as_int(getattr(p, 'virtue_points', 0))}\n"
         msg += "━━━━━━━━━━━━━━━\n💡 师德可在 /师德兑换 换取稀有奖励"
         return True, msg

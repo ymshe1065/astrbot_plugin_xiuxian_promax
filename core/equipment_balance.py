@@ -13,7 +13,7 @@ RATE_CAPS = {"physical_damage": .40, "magic_damage": .40, "physical_defense": .3
 GEAR_EFFECT_CAPS = {"crit_rate": 10, "lifesteal": 5, "counter_damage": 10, "combo_rate": 10,
                     "dodge": 5, "crit_damage": .20, "physical_damage_multiplier": .10,
                     "magic_damage_multiplier": .10, "defense_bonus": 0}
-GLOBAL_EFFECT_CAPS = {"crit_rate": 50, "lifesteal": 15, "counter_damage": 25, "combo_rate": 30,
+GLOBAL_EFFECT_CAPS = {"crit_rate": 50, "lifesteal": 15, "counter_damage": 100, "combo_rate": 30,
                       "dodge": 20, "crit_damage": 2.0, "physical_damage_multiplier": 1.5,
                       "magic_damage_multiplier": 1.5}
 

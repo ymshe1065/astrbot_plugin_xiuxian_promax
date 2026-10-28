@@ -101,6 +101,8 @@ CMD_RANK_DEPOSIT = "存款排行"
 CMD_RANK_CONTRIBUTION = "贡献排行"
 CMD_DUEL = "决斗"
 CMD_SPAR = "切磋"
+CMD_SPAR_ACCEPT = "接受切磋"
+CMD_SPAR_REJECT = "拒绝切磋"
 CMD_RIFT_LIST = "秘境列表"
 CMD_RIFT_EXPLORE = "探索秘境"
 CMD_RIFT_COMPLETE = "完成探索"
@@ -1537,7 +1539,7 @@ class XiuXianPlugin(Star):
     @filter.command(CMD_DUEL, "决斗")
     @require_whitelist
     async def handle_duel(self, event: AstrMessageEvent, target: str = ""):
-        user_id = event.get_sender_id()
+        user_id = str(event.get_sender_id())
         async for r in self.combat_handlers.handle_duel(event, target):
             yield r
         # 只有获胜才计入 win_pvp 任务进度
@@ -1551,18 +1553,36 @@ class XiuXianPlugin(Star):
     @filter.command(CMD_SPAR, "切磋")
     @require_whitelist
     async def handle_spar(self, event: AstrMessageEvent, target: str = ""):
-        user_id = event.get_sender_id()
         async for r in self.combat_handlers.handle_spar(event, target):
             yield r
-        # 真正开打（非冷却被拒）才计入 spar 任务进度
-        if get_event_flag(event, "spar_fought", False):
+
+    @filter.command(CMD_SPAR_ACCEPT, "接受切磋")
+    @require_whitelist
+    async def handle_spar_accept(self, event: AstrMessageEvent):
+        sender_id = str(event.get_sender_id())
+        async for r in self.combat_handlers.handle_spar_accept(event):
+            yield r
+
+        result = get_event_flag(event, "spar_result", None)
+        if not result:
+            return
+        # 双方都真正参与了切磋，分别推进任务、称号与悬赏
+        for user_id in result.get("participants") or []:
+            user_id = str(user_id)
             await self.db.ext.add_task_progress(user_id, "spar", 1)
-            await self._title_bump(user_id, "spar_count")
-            # 悬赏联动（spar/pvp tag）
+            tmsg = await self._title_bump(user_id, "spar_count")
+            if tmsg and user_id == sender_id:
+                yield event.plain_result(tmsg)
             player = await self.db.get_player_by_id(user_id)
             if player:
                 await self.bounty_mgr.add_bounty_progress(player, "spar", 1)
                 await self.bounty_mgr.add_bounty_progress(player, "pvp", 1)
+
+    @filter.command(CMD_SPAR_REJECT, "拒绝切磋")
+    @require_whitelist
+    async def handle_spar_reject(self, event: AstrMessageEvent):
+        async for r in self.combat_handlers.handle_spar_reject(event):
+            yield r
 
     # ===== 秘境 =====
     @filter.command(CMD_RIFT_LIST, "秘境列表")

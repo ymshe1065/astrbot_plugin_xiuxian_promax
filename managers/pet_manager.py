@@ -1,13 +1,47 @@
 # managers/pet_manager.py
+import random
 import time
 from typing import Tuple, Dict, Optional, List
 from ..data import DataBase
 from ..models import Player
 
+
+def _build_pet_types(base_types: Dict[str, dict], evolutions: Dict[str, list]) -> Dict[str, dict]:
+    """按进化链生成所有灵兽阶段，阶段数据继承基础品种并放大。"""
+    result: Dict[str, dict] = {}
+    for base_name, base_info in base_types.items():
+        chain = evolutions.get(base_name) or [{"name": base_name, "level": 1}]
+        for stage_index, stage in enumerate(chain):
+            stat_mult = float(stage.get("stat_mult", 1.0) or 1.0)
+            effect_mult = float(stage.get("effect_mult", 1.0) or 1.0)
+            info = dict(base_info)
+            for key in ("hp_ratio", "atk_ratio", "def_ratio"):
+                info[key] = float(base_info[key]) * stat_mult
+            for key in ("hp_base", "hp_growth", "atk_base", "atk_growth", "def_base", "def_growth"):
+                info[key] = int(round(float(base_info[key]) * stat_mult))
+            info["val"] = float(base_info["val"]) * effect_mult
+            info["guard_rate"] = min(
+                0.6,
+                float(base_info.get("guard_rate", 0.15)) + float(stage.get("guard_bonus", 0.0) or 0.0),
+            )
+            info["effect_mult"] = effect_mult
+            info["desc"] = stage.get("desc", base_info.get("desc", ""))
+            info["name"] = stage["name"]
+            info["base_type"] = base_name
+            info["stage"] = stage_index
+            info["evolution_level"] = int(stage.get("level", 1) or 1)
+            info["next_evolution_level"] = (
+                int(chain[stage_index + 1]["level"]) if stage_index + 1 < len(chain) else None
+            )
+            info["is_base"] = stage_index == 0
+            result[stage["name"]] = info
+    return result
+
+
 class PetManager:
     """灵兽管理器"""
 
-    PET_TYPES = {
+    BASE_PET_TYPES = {
         "火灵狐": {
             "desc": "攻击时附带灼烧，增加主人暴击率",
             "attr": "crit_rate", "val": 10,
@@ -46,6 +80,56 @@ class PetManager:
         },
     }
 
+    # 灵兽进化链：Lv.20 第一次进化，Lv.40 第二次进化，无需材料。
+    PET_EVOLUTIONS = {
+        "火灵狐": [
+            {"name": "火灵狐", "level": 1, "stat_mult": 1.0, "effect_mult": 1.0, "guard_bonus": 0.0},
+            {
+                "name": "炎灵狐", "level": 20, "stat_mult": 1.6, "effect_mult": 1.5,
+                "guard_bonus": 0.04, "desc": "灵火凝形，灼烧与暴击大幅提升",
+            },
+            {
+                "name": "九尾天狐", "level": 40, "stat_mult": 2.2, "effect_mult": 2.0,
+                "guard_bonus": 0.08, "desc": "九尾狐火焚天，本体数值与暴击加成再次飞跃",
+            },
+        ],
+        "冰晶兽": [
+            {"name": "冰晶兽", "level": 1, "stat_mult": 1.0, "effect_mult": 1.0, "guard_bonus": 0.0},
+            {
+                "name": "玄冰巨兽", "level": 20, "stat_mult": 1.6, "effect_mult": 1.5,
+                "guard_bonus": 0.04, "desc": "玄冰护体，防御、反伤与护主能力大幅提升",
+            },
+            {
+                "name": "冰川巨兽", "level": 40, "stat_mult": 2.2, "effect_mult": 2.0,
+                "guard_bonus": 0.08, "desc": "冰川之躯，防御、反伤与护主能力再次飞跃",
+            },
+        ],
+        "噬金鼠": [
+            {"name": "噬金鼠", "level": 1, "stat_mult": 1.0, "effect_mult": 1.0, "guard_bonus": 0.0},
+            {
+                "name": "寻宝金鼠", "level": 20, "stat_mult": 1.6, "effect_mult": 1.5,
+                "guard_bonus": 0.04, "desc": "寻宝血脉觉醒，灵石收益显著提升",
+            },
+            {
+                "name": "吞金貔貅", "level": 40, "stat_mult": 2.2, "effect_mult": 2.0,
+                "guard_bonus": 0.08, "desc": "貔貅吞金纳财，灵石收益飞跃式提升",
+            },
+        ],
+        "青龙幼崽": [
+            {"name": "青龙幼崽", "level": 1, "stat_mult": 1.0, "effect_mult": 1.0, "guard_bonus": 0.0},
+            {
+                "name": "青龙", "level": 20, "stat_mult": 1.6, "effect_mult": 1.5,
+                "guard_bonus": 0.04, "desc": "青龙觉醒，暴击、吸血与龙息反哺大幅提升",
+            },
+            {
+                "name": "太古青龙", "level": 40, "stat_mult": 2.2, "effect_mult": 2.0,
+                "guard_bonus": 0.08, "desc": "太古青龙血脉，暴击、吸血与龙息反哺达到巅峰",
+            },
+        ],
+    }
+
+    PET_TYPES = _build_pet_types(BASE_PET_TYPES, PET_EVOLUTIONS)
+
     MAX_PET_LEVEL = 50
     REGEN_PER_MIN = 0.02
     REVIVE_BASE_SECONDS = 3600
@@ -56,6 +140,11 @@ class PetManager:
     PET_LEVEL_BONUS_MULT = 1.5
     PET_EFFECT_SCALE = 0.1 * PET_LEVEL_BONUS_MULT
     GOLD_BONUS_PER_LEVEL = 0.005 * PET_LEVEL_BONUS_MULT
+
+    # 历练/秘境归来的灵兽奇遇：空槽越多，触发概率越高
+    PET_ENCOUNTER_BASE_CHANCE = 0.50
+    PET_ENCOUNTER_PER_EMPTY_SLOT = 0.15
+    PET_ENCOUNTER_MAX_CHANCE = 0.95
 
     def __init__(self, db: DataBase):
         self.db = db
@@ -70,10 +159,93 @@ class PetManager:
         return 1 + (idx - 10) // 3
 
     def get_pet_slots(self, player: Player) -> int:
-        slots = 1 + self.get_realm_tier(player.level_index)
+        # 非御兽职业固定 1 个灵兽槽；御兽随大境界提升（炼气2、筑基3、金丹4……）。
         if getattr(player, "cultivation_type", "") == "御兽":
-            slots += 1
-        return slots
+            return 2 + self.get_realm_tier(player.level_index)
+        return 1
+
+    @staticmethod
+    def stage_for_level(level: int) -> int:
+        lv = max(1, int(level or 1))
+        if lv >= 40:
+            return 2
+        if lv >= 20:
+            return 1
+        return 0
+
+    def get_pet_info(self, pet: Optional[Dict]) -> Dict:
+        if not pet:
+            return self.PET_TYPES["火灵狐"]
+        return self.PET_TYPES.get(pet.get("pet_type")) or self.PET_TYPES["火灵狐"]
+
+    def get_pet_info_for_level(self, pet_type: str, level: int) -> Dict:
+        """按等级解析当前应处于的进化阶段，未落库时也能正确计算。"""
+        info = self.PET_TYPES.get(pet_type) or self.PET_TYPES["火灵狐"]
+        desired = self.stage_for_level(level)
+        if desired <= int(info.get("stage", 0)):
+            return info
+        chain = self.PET_EVOLUTIONS.get(info.get("base_type")) or []
+        if not chain:
+            return info
+        target = chain[min(desired, len(chain) - 1)]
+        return self.PET_TYPES.get(target["name"], info)
+
+    def get_base_type(self, pet_type: str) -> str:
+        info = self.PET_TYPES.get(pet_type)
+        return info.get("base_type", pet_type) if info else pet_type
+
+    @staticmethod
+    def _evolved_pet_name(old_name: str, old_type: str, new_type: str) -> str:
+        old_name = (old_name or "").strip()
+        if not old_name or old_name == old_type:
+            return new_type
+        prefix = f"{old_type} "
+        if old_name.startswith(prefix):
+            suffix = old_name[len(prefix):]
+            if suffix.isdigit():
+                return f"{new_type} {suffix}"
+        return old_name
+
+    async def ensure_pet_evolution(
+        self,
+        pet: Optional[Dict],
+        commit: bool = False,
+        level: Optional[int] = None,
+    ) -> Optional[Dict]:
+        """达到 Lv.20 / Lv.40 时自动进化，不消耗材料。"""
+        if not pet:
+            return None
+        info = self.PET_TYPES.get(pet.get("pet_type"))
+        if not info:
+            return None
+        lv = max(1, int(level if level is not None else pet.get("level") or 1))
+        desired = self.stage_for_level(lv)
+        if desired <= int(info.get("stage", 0)):
+            return None
+        chain = self.PET_EVOLUTIONS.get(info.get("base_type")) or []
+        if not chain:
+            return None
+        desired = min(desired, len(chain) - 1)
+        target = chain[desired]
+        old_type = pet.get("pet_type")
+        new_type = target["name"]
+        new_name = self._evolved_pet_name(pet.get("pet_name", ""), old_type, new_type)
+        pet["pet_type"] = new_type
+        pet["pet_name"] = new_name
+        if pet.get("id"):
+            await self.db.conn.execute(
+                "UPDATE player_pets SET pet_type = ?, pet_name = ? WHERE id = ?",
+                (new_type, new_name, pet["id"]),
+            )
+            if commit:
+                await self.db.conn.commit()
+        return {
+            "from": old_type,
+            "to": new_type,
+            "level": lv,
+            "stage": desired,
+            "pet_name": new_name,
+        }
 
     async def _query_pets(self, user_id: str) -> List[Dict]:
         async with self.db.conn.execute(
@@ -89,16 +261,21 @@ class PetManager:
         sync_exp: bool = True,
         commit: bool = True,
     ) -> List[Dict]:
+        exp_changed = False
         if sync_exp:
-            await self.sync_pet_exp(user_id)
+            exp_changed = await self.sync_pet_exp(user_id)
         pets = await self._query_pets(user_id)
         if not pets:
             return []
+        evolved = False
+        for pet in pets:
+            if await self.ensure_pet_evolution(pet, commit=False):
+                evolved = True
         if apply_regen:
             for pet in pets:
                 await self.refresh_pet(pet, commit=False)
-            if commit:
-                await self.db.conn.commit()
+        if commit and (apply_regen or evolved or exp_changed):
+            await self.db.conn.commit()
         return pets
 
     async def get_pet(
@@ -183,7 +360,7 @@ class PetManager:
             row = await cursor.fetchone()
         return int(row[0]) if row and row[0] else 0
 
-    async def sync_pet_exp(self, user_id: str, player: Optional[Player] = None):
+    async def sync_pet_exp(self, user_id: str, player: Optional[Player] = None) -> bool:
         if player is not None:
             experience = int(player.experience or 0)
             cultivation_type = player.cultivation_type
@@ -193,7 +370,7 @@ class PetManager:
             ) as cursor:
                 row = await cursor.fetchone()
             if not row:
-                return
+                return False
             experience = int(row[0] or 0)
             cultivation_type = row[1]
 
@@ -201,26 +378,26 @@ class PetManager:
         checkpoint_raw = await self.db.ext.get_system_config(key)
         if checkpoint_raw is None or not str(checkpoint_raw).isdigit():
             await self.db.ext.set_system_config(key, str(experience))
-            return
+            return False
 
         checkpoint = int(checkpoint_raw)
         delta = experience - checkpoint
         if delta <= 0:
             if delta < 0:
                 await self.db.ext.set_system_config(key, str(experience))
-            return
+            return False
 
         pets = await self._query_pets(user_id)
         if not pets:
             await self.db.ext.set_system_config(key, str(experience))
-            return
+            return False
 
         eligible = [p for p in pets if int(p.get("level") or 1) < self.MAX_PET_LEVEL]
         share = self.EXP_SHARE_YUSOU if cultivation_type == "御兽" else self.EXP_SHARE_OTHER
         gain = int(delta * share)
         if gain <= 0 or not eligible:
             await self.db.ext.set_system_config(key, str(experience))
-            return
+            return False
 
         # 全体灵兽各获得等量经验，不再按灵兽数量平分。
         for pet in eligible:
@@ -231,11 +408,13 @@ class PetManager:
                 level += 1
             if level >= self.MAX_PET_LEVEL:
                 exp = 0
+            await self.ensure_pet_evolution(pet, commit=False, level=level)
             await self.db.conn.execute(
                 "UPDATE player_pets SET level = ?, exp = ? WHERE id = ?",
                 (level, exp, pet["id"]),
             )
         await self.db.ext.set_system_config(key, str(experience))
+        return True
 
     async def _persist_pet(self, pet: Dict):
         if pet.get("id"):
@@ -263,7 +442,7 @@ class PetManager:
         await self.db.conn.commit()
 
     def _flat_stats(self, level: int, pet_type: str) -> Dict[str, int]:
-        info = self.PET_TYPES.get(pet_type) or self.PET_TYPES["火灵狐"]
+        info = self.get_pet_info_for_level(pet_type, level)
         growth = level * self.PET_LEVEL_BONUS_MULT
         return {
             "max_hp": max(1, int(info["hp_base"] + info["hp_growth"] * growth)),
@@ -285,8 +464,8 @@ class PetManager:
         owner_atk: int = 0,
         owner_def: int = 0,
     ) -> Dict[str, int]:
-        info = self.PET_TYPES.get(pet.get("pet_type")) or self.PET_TYPES["火灵狐"]
         level = max(1, int(pet.get("level") or 1))
+        info = self.get_pet_info_for_level(pet.get("pet_type"), level)
         growth = level * self.PET_LEVEL_BONUS_MULT
         max_hp = int(owner_hp * info["hp_ratio"]) + info["hp_base"] + int(info["hp_growth"] * growth)
         atk = int(owner_atk * info["atk_ratio"]) + info["atk_base"] + int(info["atk_growth"] * growth)
@@ -392,11 +571,14 @@ class PetManager:
         for pet in pets:
             if pet.get("pet_type") == selector:
                 return pet, ""
+        for pet in pets:
+            if self.get_base_type(pet.get("pet_type")) == selector:
+                return pet, ""
         return None, f"❌ 没有名为【{selector}】的灵兽。"
 
     async def adopt_pet(self, player: Player, pet_name: str) -> Tuple[bool, str]:
-        if pet_name not in self.PET_TYPES:
-            return False, f"❌ 未知的灵兽种类！可用灵兽：{', '.join(self.PET_TYPES.keys())}"
+        if pet_name not in self.BASE_PET_TYPES:
+            return False, f"❌ 未知的灵兽种类！可用灵兽：{', '.join(self.BASE_PET_TYPES.keys())}"
 
         await self.sync_pet_exp(player.user_id, player)
         pets = await self._query_pets(player.user_id)
@@ -404,7 +586,7 @@ class PetManager:
         if len(pets) >= slots:
             return False, (
                 f"❌ 灵兽槽位已满（{len(pets)}/{slots}）。\n"
-                f"💡 提升大境界可解锁更多槽位；御兽职业额外 +1 槽位。"
+                f"💡 非御兽职业固定 1 个灵兽槽；御兽槽位随大境界提升。"
             )
 
         used_slots = {int(p.get("slot") or 0) for p in pets}
@@ -421,7 +603,7 @@ class PetManager:
         await self.db.update_player(player)
 
         used_names = {p.get("pet_name") for p in pets}
-        same_type = sum(1 for p in pets if p.get("pet_type") == pet_name)
+        same_type = sum(1 for p in pets if self.get_base_type(p.get("pet_type")) == pet_name)
         suffix = same_type + 1
         display_name = f"{pet_name} {suffix}"
         while display_name in used_names:
@@ -447,12 +629,140 @@ class PetManager:
         await self.db.conn.commit()
 
         pet_info = self.PET_TYPES[pet_name]
+        chain = self.PET_EVOLUTIONS.get(pet_name, [])
+        evolution_line = (
+            f"\n进化：{' → '.join(stage['name'] for stage in chain)}（Lv20 / Lv40 自动进化）"
+            if len(chain) > 1 else ""
+        )
         free_note = "\n🎁 御兽职业首次契约免费！" if is_first_yusou else ""
         return True, (
             f"🎉 恭喜！你成功契约了【{display_name}】（槽位 {slot}/{slots}）！{free_note}\n"
-            f"特性：{pet_info['desc']}\n"
+            f"特性：{pet_info['desc']}{evolution_line}\n"
             f"精力：{stats['max_hp']} · 攻击：{stats['atk']} · 防御：{stats['defense']}\n"
             f"💡 灵兽每回合都会协战，精力耗尽后会倒下，需等待较长时间复活。"
+        )
+
+    async def grant_pet(
+        self,
+        player: Player,
+        pet_name: str,
+        level: int = 1,
+        free: bool = True,
+        commit: bool = True,
+    ) -> Tuple[bool, str, Optional[Dict]]:
+        """直接授予灵兽（奇遇/活动用），默认免费，占用当前空槽。"""
+        if pet_name not in self.BASE_PET_TYPES:
+            return False, f"❌ 未知的灵兽种类：{pet_name}", None
+
+        pets = await self._query_pets(player.user_id)
+        slots = self.get_pet_slots(player)
+        if len(pets) >= slots:
+            return False, f"❌ 灵兽槽位已满（{len(pets)}/{slots}）。", None
+
+        cost = 0 if free else 100000
+        if player.gold < cost:
+            return False, f"❌ 捕捉【{pet_name}】需要 {cost:,} 灵石。", None
+
+        used_slots = {int(p.get("slot") or 0) for p in pets}
+        slot = next(i for i in range(1, slots + 1) if i not in used_slots)
+
+        level = max(1, min(self.MAX_PET_LEVEL, int(level or 1)))
+        stage = self.stage_for_level(level)
+        chain = self.PET_EVOLUTIONS.get(pet_name) or []
+        stage_info = chain[min(stage, len(chain) - 1)] if chain else {"name": pet_name}
+        pet_type = stage_info["name"]
+
+        used_names = {p.get("pet_name") for p in pets}
+        same_type = sum(1 for p in pets if self.get_base_type(p.get("pet_type")) == pet_name)
+        suffix = same_type + 1
+        display_name = f"{pet_type} {suffix}"
+        while display_name in used_names:
+            suffix += 1
+            display_name = f"{pet_type} {suffix}"
+
+        owner_hp, owner_atk = self._owner_realm_stats(player)
+        stats = self.get_pet_stats(
+            {"level": level, "pet_type": pet_type}, owner_hp, owner_atk, 0
+        )
+        now = int(time.time())
+        is_main = 1 if not any(int(p.get("is_main") or 0) == 1 for p in pets) else 0
+
+        if cost:
+            player.gold -= cost
+            await self.db.update_player(player, commit=commit)
+        await self.db.conn.execute(
+            "INSERT INTO player_pets "
+            "(user_id, pet_name, pet_type, level, exp, max_hp, hp, last_regen_time, dead_until, slot, is_main) "
+            "VALUES (?, ?, ?, ?, 0, ?, ?, ?, 0, ?, ?)",
+            (
+                player.user_id, display_name, pet_type, level,
+                stats["max_hp"], stats["max_hp"], now, slot, is_main,
+            ),
+        )
+        if commit:
+            await self.db.conn.commit()
+
+        info = {
+            "pet_name": display_name,
+            "pet_type": pet_type,
+            "base_type": pet_name,
+            "stage": stage,
+            "level": level,
+            "slot": slot,
+            "slots": slots,
+            "is_main": bool(is_main),
+            "free": bool(free),
+            "stats": stats,
+        }
+        return True, f"🎁 你获得了【{display_name}】（Lv.{level}）！", info
+
+    def pet_encounter_chance(self, empty_slots: int) -> float:
+        empty = max(0, int(empty_slots))
+        return min(
+            self.PET_ENCOUNTER_MAX_CHANCE,
+            self.PET_ENCOUNTER_BASE_CHANCE + self.PET_ENCOUNTER_PER_EMPTY_SLOT * empty,
+        )
+
+    async def try_exploration_encounter(
+        self,
+        player: Player,
+        source: str = "历练途中",
+        commit: bool = True,
+    ) -> Optional[Dict]:
+        """历练/秘境结算时判定灵兽奇遇：有空槽才触发，空槽越多概率越高。"""
+        if not player:
+            return None
+        pets = await self._query_pets(player.user_id)
+        slots = self.get_pet_slots(player)
+        empty = slots - len(pets)
+        if empty <= 0:
+            return None
+        chance = self.pet_encounter_chance(empty)
+        if random.random() >= chance:
+            return None
+
+        pet_type = random.choice(list(self.BASE_PET_TYPES.keys()))
+        level = max(1, int(getattr(player, "level_index", 0) or 0) // 5)
+        ok, _, info = await self.grant_pet(
+            player, pet_type, level=level, free=True, commit=commit
+        )
+        if not ok or not info:
+            return None
+        result = dict(info)
+        result.update({"source": source, "empty_before": empty, "chance": chance})
+        return result
+
+    @staticmethod
+    def format_exploration_encounter(info: Optional[Dict]) -> str:
+        if not info:
+            return ""
+        source = info.get("source", "探索")
+        main_note = "，并自动设为主战灵兽" if info.get("is_main") else ""
+        return (
+            f"\n\n🐾【灵兽奇遇】\n"
+            f"你在{source}遇到一只【{info['pet_name']}】，它主动与你缔结了契约{main_note}！\n"
+            f"等级：Lv.{info['level']} · 槽位 {info['slot']}/{info['slots']}\n"
+            f"💡 本次契约免费，发送 /我的灵兽 查看"
         )
 
     async def set_main_pet(self, user_id: str, pet_id: int) -> Tuple[bool, str]:
@@ -571,6 +881,7 @@ class PetManager:
         if new_level >= self.MAX_PET_LEVEL:
             new_exp = 0
 
+        evolution = await self.ensure_pet_evolution(pet, commit=False, level=new_level)
         owner_hp, owner_atk = self._owner_realm_stats(player)
         stats = self.get_pet_stats(
             {"level": new_level, "pet_type": pet["pet_type"]}, owner_hp, owner_atk, 0
@@ -589,8 +900,14 @@ class PetManager:
         await self.db.conn.commit()
 
         discount_note = "\n🐾 御兽职业喂养消耗 -20%" if getattr(player, "cultivation_type", "") == "御兽" else ""
+        evolve_note = ""
+        if evolution:
+            evolve_note = (
+                f"\n✨ 境界突破！【{evolution['from']}】进化为【{evolution['to']}】，"
+                f"本体数值与加成效果大幅提升！"
+            )
         return True, (
-            f"✨ 喂养【{pet['pet_name']}】成功！{discount_note}\n"
+            f"✨ 喂养【{pet['pet_name']}】成功！{discount_note}{evolve_note}\n"
             f"消耗灵石：{cost_gold:,}（不消耗修为）\n"
             f"剩余灵石：{player.gold:,}\n"
             f"灵兽当前等级：Lv.{new_level} (经验：{new_exp}/{new_level * 500})\n"
@@ -604,11 +921,11 @@ class PetManager:
         if int(pet.get("dead_until") or 0) > int(time.time()):
             return {}
 
-        pet_info = self.PET_TYPES.get(pet["pet_type"])
+        level = max(1, int(pet.get("level") or 1))
+        pet_info = self.get_pet_info_for_level(pet.get("pet_type"), level)
         if not pet_info:
             return {}
 
-        level = max(1, int(pet.get("level") or 1))
         base_val = pet_info["val"] * level * self.PET_EFFECT_SCALE
 
         effects = {}
@@ -616,7 +933,10 @@ class PetManager:
             effects["crit_rate"] = base_val
         elif pet_info["attr"] == "defense":
             effects["defense_bonus"] = base_val
-            effects["counter_damage"] = min(30.0, level * 0.2 * self.PET_LEVEL_BONUS_MULT)
+            effects["counter_damage"] = min(
+                100.0,
+                level * 0.2 * self.PET_LEVEL_BONUS_MULT * float(pet_info.get("effect_mult", 1.0)),
+            )
         elif pet_info["attr"] == "all":
             effects["crit_rate"] = base_val
             effects["lifesteal"] = base_val / 2
@@ -632,12 +952,13 @@ class PetManager:
                 continue
             if int(pet.get("dead_until") or 0) > now:
                 continue
-            pet_info = self.PET_TYPES.get(pet.get("pet_type"))
+            level = max(1, int(pet.get("level") or 1))
+            pet_info = self.get_pet_info_for_level(pet.get("pet_type"), level)
             if not pet_info or pet_info.get("attr") != attr:
                 continue
-            level = max(1, int(pet.get("level") or 1))
             if attr == "gold_bonus":
-                total += float(pet_info["val"]) + max(0, level - 1) * self.GOLD_BONUS_PER_LEVEL
+                per_level = self.GOLD_BONUS_PER_LEVEL * float(pet_info.get("effect_mult", 1.0))
+                total += float(pet_info["val"]) + max(0, level - 1) * per_level
         return total
 
     async def get_life_bonus(self, user_id: str, attr: str = "gold_bonus") -> float:
@@ -660,6 +981,7 @@ class PetManager:
         if int(pet.get("dead_until") or 0) > now:
             return None
 
+        await self.ensure_pet_evolution(pet, commit=commit)
         stats = self.get_pet_stats(pet, owner_hp, owner_atk, owner_def)
         max_hp = stats["max_hp"]
         hp = int(pet.get("hp") or 0)

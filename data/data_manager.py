@@ -417,6 +417,8 @@ class DataBase:
             ("DELETE FROM bounty_tasks WHERE user_id = ?", (user_id,)),
             ("DELETE FROM dual_cultivation WHERE user_id = ?", (user_id,)),
             ("DELETE FROM dual_cultivation_requests WHERE from_id = ? OR target_id = ?", (user_id, user_id)),
+            ("DELETE FROM combat_daily WHERE user_id = ?", (user_id,)),
+            ("DELETE FROM spar_requests WHERE from_id = ? OR target_id = ?", (user_id, user_id)),
             ("DELETE FROM user_cd WHERE user_id = ?", (user_id,)),
             ("DELETE FROM auto_proxy WHERE user_id = ?", (user_id,)),
             ("DELETE FROM buff_info WHERE user_id = ?", (user_id,)),

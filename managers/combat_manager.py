@@ -76,6 +76,48 @@ class CombatManager:
         "御兽": (0.5, 0.5),
     }
 
+    # 溢出属性转换：每 1% 溢出暴击 -> +0.5% 暴伤；每 1% 溢出吸血 -> +0.5% 双攻
+    CRIT_OVERFLOW_TO_CRIT_DAMAGE = 0.5
+    LIFESTEAL_OVERFLOW_TO_ATTACK = 0.5
+    CRIT_RATE_CAP = 100.0
+    LIFESTEAL_CAP = 100.0
+    COUNTER_DAMAGE_CAP = 100.0
+
+    @classmethod
+    def normalize_overflow_effects(cls, effects: dict) -> float:
+        """钳制暴击/吸血/反伤上限，并把溢出部分转换为暴伤与双攻。
+
+        返回需要应用到物理攻击与法术攻击上的倍率。
+        """
+        if not isinstance(effects, dict):
+            return 1.0
+
+        def as_float(key: str, default: float = 0.0) -> float:
+            try:
+                return float(effects.get(key, default) or default)
+            except (TypeError, ValueError):
+                return default
+
+        crit = as_float("crit_rate")
+        if crit > cls.CRIT_RATE_CAP:
+            excess = crit - cls.CRIT_RATE_CAP
+            effects["crit_rate"] = cls.CRIT_RATE_CAP
+            crit_damage = as_float("crit_damage", 1.5) or 1.5
+            effects["crit_damage"] = crit_damage + excess * cls.CRIT_OVERFLOW_TO_CRIT_DAMAGE / 100.0
+
+        lifesteal = as_float("lifesteal")
+        attack_mult = 1.0
+        if lifesteal > cls.LIFESTEAL_CAP:
+            excess = lifesteal - cls.LIFESTEAL_CAP
+            effects["lifesteal"] = cls.LIFESTEAL_CAP
+            attack_mult = 1.0 + excess * cls.LIFESTEAL_OVERFLOW_TO_ATTACK / 100.0
+
+        counter = as_float("counter_damage")
+        if counter > cls.COUNTER_DAMAGE_CAP:
+            effects["counter_damage"] = cls.COUNTER_DAMAGE_CAP
+
+        return attack_mult
+
     @classmethod
     def get_attack_profile(cls, cultivation_type: str = "") -> Tuple[float, float]:
         """返回 (物理占比, 法术占比)，未知职业默认均衡。"""
@@ -707,6 +749,25 @@ class CombatManager:
             p_def += bonus_def // 2
             m_def += bonus_def - bonus_def // 2
 
+        if isinstance(stats, dict):
+            merged = {
+                key: stats.get(key, 1.5 if key == "crit_damage" else 0)
+                for key in ("crit_rate", "crit_damage", "lifesteal", "counter_damage")
+            }
+        else:
+            merged = dict(getattr(stats, "effects", None) or {})
+        for key, value in effects.items():
+            if isinstance(value, (int, float)):
+                merged[key] = merged.get(key, 0) + value
+            else:
+                merged[key] = value
+
+        # 暴击/吸血溢出转换会改变双攻，因此必须在写入面板前结算。
+        attack_mult = cls.normalize_overflow_effects(merged)
+        if attack_mult != 1.0:
+            physical = max(0, int(physical * attack_mult))
+            magic = max(0, int(magic * attack_mult))
+
         set_value("physical_atk", physical)
         set_value("magic_atk", magic)
         set_value("physical_defense", p_def)
@@ -715,18 +776,12 @@ class CombatManager:
         set_value("defense", p_def + m_def)
 
         if isinstance(stats, dict):
-            for key, value in effects.items():
-                if key in stats and isinstance(value, (int, float)):
-                    stats[key] = stats.get(key, 0) + value
+            for key in ("crit_rate", "crit_damage", "lifesteal", "counter_damage"):
+                if key in merged:
+                    stats[key] = merged[key]
             stats["pet"] = main_pet
             stats["support_pets"] = support_pets or []
         else:
-            merged = dict(getattr(stats, "effects", None) or {})
-            for key, value in effects.items():
-                if isinstance(value, (int, float)):
-                    merged[key] = merged.get(key, 0) + value
-                else:
-                    merged[key] = value
             stats.effects = merged
             stats.pet = main_pet
             stats.support_pets = support_pets or []

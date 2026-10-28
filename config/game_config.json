@@ -6,9 +6,12 @@
     "combat": {
         "duel_cooldown": 300,
         "spar_cooldown": 60,
+        "duel_daily_limit": 1,
+        "spar_daily_limit": 3,
+        "spar_request_expire": 300,
         "boss_crit_rate": 30,
         "crit_damage_multiplier": 1.5,
-        "comment": "战斗冷却（秒）和暴击配置"
+        "comment": "战斗冷却（秒）、每日切磋/决斗次数与暴击配置"
     },
     "bank": {
         "daily_interest_rate": 0.001,

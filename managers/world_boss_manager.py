@@ -271,21 +271,9 @@ class WorldBossManager:
                 player.cultivation_type,
                 persist=False,
             )
-            old_atk = int(stats.atk)
-            if owner_atk != old_atk:
-                stats.physical_atk = max(
-                    0, int(stats.physical_atk) + int(owner_atk - old_atk)
-                )
-            stats.atk = int(stats.physical_atk) + int(stats.magic_atk)
-            stats.pet = main_pet
-            stats.support_pets = support_pets
-            effects = dict(stats.effects or {})
-            for key, value in (pet_effects or {}).items():
-                if isinstance(value, (int, float)):
-                    effects[key] = effects.get(key, 0) + value
-                else:
-                    effects[key] = value
-            stats.effects = effects
+            cm.apply_pet_lineup(
+                stats, main_pet, support_pets, pet_effects, owner_atk
+            )
         except Exception:
             pass
         return stats

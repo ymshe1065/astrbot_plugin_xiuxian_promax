@@ -6,7 +6,7 @@ from typing import Dict, Callable, Awaitable
 from astrbot.api import logger
 from ..config_manager import ConfigManager
 
-LATEST_DB_VERSION = 47  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件
+LATEST_DB_VERSION = 48  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求
 
 MIGRATION_TASKS: Dict[int, Callable[[aiosqlite.Connection, ConfigManager], Awaitable[None]]] = {}
 
@@ -359,6 +359,7 @@ async def _ensure_latest_columns(conn: aiosqlite.Connection):
     await _ensure_world_boss_v38(conn)
     await _ensure_battle_events_v46(conn)
     await _ensure_auction_house_v47(conn)
+    await _ensure_combat_limits_v48(conn)
     await _add_column_if_missing(conn, "player_pets", "max_hp", "INTEGER NOT NULL DEFAULT 0")
     await _add_column_if_missing(conn, "player_pets", "hp", "INTEGER NOT NULL DEFAULT 0")
     await _add_column_if_missing(conn, "player_pets", "last_regen_time", "INTEGER NOT NULL DEFAULT 0")
@@ -1770,3 +1771,41 @@ async def _migrate_to_v47(conn: aiosqlite.Connection, config_manager: ConfigMana
     await _ensure_auction_house_v47(conn)
     await conn.commit()
     logger.info("v47迁移完成：拍卖会事件表已建立")
+
+
+async def _ensure_combat_limits_v48(conn: aiosqlite.Connection):
+    """v48：每日切磋/决斗次数与切磋邀请表。"""
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS combat_daily (
+            user_id TEXT NOT NULL,
+            day TEXT NOT NULL,
+            duel_count INTEGER NOT NULL DEFAULT 0,
+            spar_count INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (user_id, day)
+        )
+    """)
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS spar_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            from_id TEXT NOT NULL,
+            from_name TEXT NOT NULL DEFAULT '',
+            target_id TEXT NOT NULL,
+            created_at INTEGER NOT NULL DEFAULT 0,
+            expires_at INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_spar_requests_target ON spar_requests(target_id, expires_at)"
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_spar_requests_from ON spar_requests(from_id, expires_at)"
+    )
+
+
+@migration(48)
+async def _migrate_to_v48(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """迁移到 v48 - 每日切磋/决斗次数与切磋邀请。"""
+    logger.info("开始迁移到 v48：切磋/决斗每日限制")
+    await _ensure_combat_limits_v48(conn)
+    await conn.commit()
+    logger.info("v48迁移完成：切磋/决斗每日限制表已建立")

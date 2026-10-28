@@ -61,12 +61,22 @@ class PetHandlers:
             status = self._pet_status(pet, max_hp, now)
             is_main = int(pet.get("is_main") or 0) == 1
             main_tag = " [主战]" if is_main else ""
-            lines.append(f"{index}. 【{pet['pet_name']}】{main_tag}")
-            lines.append(f"   Lv.{pet['level']} · {status}")
+            pet_info = self.pet_mgr.get_pet_info_for_level(
+                pet.get("pet_type", ""), pet.get("level", 1)
+            )
+            stage_name = pet_info.get("name") or pet.get("pet_type", "")
+            stage_no = int(pet_info.get("stage", 0)) + 1
+            next_lv = pet_info.get("next_evolution_level")
+            evo_text = f"Lv.{next_lv} 进化" if next_lv else "已终极进化"
+            species_tag = "" if stage_name in pet["pet_name"] else f" · {stage_name}"
+            lines.append(f"{index}. 【{pet['pet_name']}】{main_tag}{species_tag}")
+            lines.append(f"   Lv.{pet['level']} · {status} · {stage_name}（{evo_text}）")
             lines.append(f"   精力 {hp}/{max_hp} ({hp_pct}%) · 攻 {stats['atk']} · 防 {stats['defense']}")
             sections.append({
-                "name": f"{index}. {pet['pet_name']}{main_tag}",
+                "name": f"{index}. {pet['pet_name']}{main_tag}{species_tag}",
                 "rows": [
+                    ("品种", f"{stage_name}（第{stage_no}阶）"),
+                    ("进化", evo_text),
                     ("等级", f"Lv.{pet['level']}"),
                     ("经验", f"{pet['exp']}/{pet['level'] * 500}"),
                     ("精力", f"{hp}/{max_hp} ({hp_pct}%)"),
@@ -77,14 +87,16 @@ class PetHandlers:
             })
         lines.append("━━━━━━━━━━━━━━━")
         if len(pets) > slots:
-            lines.append(f"⚠️ 当前境界仅允许 {slots} 只灵兽出战，超出槽位的灵兽不会参战")
+            lines.append(f"⚠️ 当前仅允许 {slots} 只灵兽出战，超出槽位的灵兽不会参战")
+        elif len(pets) < slots:
+            lines.append(f"🐾 空槽 {slots - len(pets)} 个 · 历练/秘境结算可触发灵兽奇遇")
         life_bonus = self.pet_mgr.get_life_bonus_from_pets(pets, "gold_bonus")
         if life_bonus > 0:
             lines.append(f"💰 生活加成叠加：灵石收益 +{life_bonus:.1%}（每只灵兽分别生效）")
         if getattr(player, "cultivation_type", "") == "御兽":
             lines.append("🐾 御兽：喂养-20% · 复活-30% · 修为共享30%（每只各得） · 兽群指挥")
         else:
-            lines.append("🐾 修为共享10%（每只各得） · 主战宠提供主人被动")
+            lines.append("🐾 非御兽仅 1 个灵兽槽 · 修为共享10%（每只各得） · 主战宠提供主人被动")
         lines.append("💡 /灵兽出战 切换主战 · /喂养灵兽 仅耗灵石 · 每回合协战")
         msg = "\n".join(lines)
 
@@ -97,7 +109,7 @@ class PetHandlers:
                     f"灵兽 · {len(pets)}只",
                     f"槽位 {len(pets)}/{slots} · 主战灵兽提供主人被动",
                     sections=sections,
-                    footer="/灵兽出战 切换主战 · 每回合协战，精力耗尽后需时间复活",
+                    footer="/灵兽出战 切换主战 · Lv20/Lv40 自动进化 · 精力耗尽需时间复活",
                 )
             if card_path:
                 yield event.image_result(card_path)
@@ -111,7 +123,12 @@ class PetHandlers:
         pets = await self.pet_mgr.get_pets(player.user_id)
         slots = self.pet_mgr.get_pet_slots(player)
         if not pet_name:
-            available = "\n".join([f"· {k}：{v['desc']}" for k, v in self.pet_mgr.PET_TYPES.items()])
+            available_lines = []
+            for key, info in self.pet_mgr.BASE_PET_TYPES.items():
+                chain = self.pet_mgr.PET_EVOLUTIONS.get(key, [])
+                evolution = " → ".join(stage["name"] for stage in chain) if chain else key
+                available_lines.append(f"· {key}：{info['desc']}\n    进化：{evolution}")
+            available = "\n".join(available_lines)
             free_note = "（御兽职业首次契约免费）" if getattr(player, "cultivation_type", "") == "御兽" and not pets else ""
             yield event.plain_result(
                 f"请指定你要契约的灵兽名称{free_note}：\n{available}\n"

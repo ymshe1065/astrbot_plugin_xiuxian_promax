@@ -297,23 +297,9 @@ HP：{max_hp}
             user_id, player_stats.max_hp, player_stats.atk,
             player_stats.defense, player.cultivation_type,
         )
-        old_atk = int(player_stats.atk)
-        if atk != old_atk:
-            player_stats.physical_atk = max(
-                0, int(getattr(player_stats, "physical_atk", 0)) + int(atk - old_atk)
-            )
-            player_stats.atk = player_stats.physical_atk + int(
-                getattr(player_stats, "magic_atk", 0)
-            )
-        player_stats.pet = main_pet
-        player_stats.support_pets = support_pets
-        merged_effects = dict(player_stats.effects or {})
-        for key, value in (pet_effects or {}).items():
-            if isinstance(value, (int, float)):
-                merged_effects[key] = merged_effects.get(key, 0) + value
-            else:
-                merged_effects[key] = value
-        player_stats.effects = merged_effects
+        CombatManager.apply_pet_lineup(
+            player_stats, main_pet, support_pets, pet_effects, atk
+        )
 
         # Boss 随机获得一种五行属性，构成克制关系
         boss_element = random.choice(["金", "木", "水", "火", "土"])

@@ -294,6 +294,7 @@ class AdventureManager:
         event = self._trigger_route_event(route)
 
         rewards = self._calculate_rewards(player, route, effective_duration, event)
+        pet_encounter = None
         
         # 开始事务
         await self.db.conn.execute("BEGIN IMMEDIATE")
@@ -303,6 +304,15 @@ class AdventureManager:
             if not player:
                 await self.db.conn.rollback()
                 return False, "❌ 你还未踏入修仙之路！", None
+
+            # 灵兽奇遇：有空槽时优先判定；写入跟随外层事务
+            try:
+                from .pet_manager import PetManager
+                pet_encounter = await PetManager(self.db).try_exploration_encounter(
+                    player, "历练途中", commit=False
+                )
+            except Exception:
+                pet_encounter = None
 
             # 处理物品掉落，传递 external_transaction=True
             dropped_items, item_msg = await self._handle_drops(player, route, event, external_transaction=True)
@@ -351,6 +361,11 @@ class AdventureManager:
             await self.db.conn.rollback()
             raise
 
+        pet_msg = ""
+        if pet_encounter:
+            from .pet_manager import PetManager
+            pet_msg = PetManager.format_exploration_encounter(pet_encounter)
+
         fatigue = route.get("fatigue_cooldown", 0)
         if event.get("injury"):
             # 受伤时增加额外休整时间
@@ -372,6 +387,7 @@ class AdventureManager:
             f"获得修为：+{rewards['exp']:,}\n"
             f"获得灵石：+{rewards['gold']:,}"
             f"{item_msg}"
+            f"{pet_msg}"
             f"\n━━━━━━━━━━━━━━━\n"
             f"当前修为：{player.experience:,}\n"
             f"当前灵石：{player.gold:,}"
@@ -386,6 +402,7 @@ class AdventureManager:
             "exp_reward": rewards["exp"],
             "gold_reward": rewards["gold"],
             "items": dropped_items,
+            "pet": pet_encounter,
             "duration": effective_duration,
             "bounty_tag": route.get("bounty_tag", "adventure"),
             "bounty_progress": max(1, route.get("bounty_progress", 1) + event.get("bonus_progress", 0))

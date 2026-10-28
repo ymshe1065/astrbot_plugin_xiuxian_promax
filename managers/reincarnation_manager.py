@@ -156,11 +156,11 @@ class ReincarnationManager:
             await self.db.conn.execute("DELETE FROM master_relations WHERE master_id = ? OR disciple_id = ?", (player.user_id, player.user_id))
             # 清空活动进度，避免高境界接取任务后飞升再以 0 级结算旧奖励
             for table in (
-                "bounty_tasks", "daily_tasks", "combat_cooldowns",
+                "bounty_tasks", "daily_tasks", "combat_cooldowns", "combat_daily",
                 "world_boss_damage", "world_boss_raid_damage",
-                "dual_cultivation", "dual_cultivation_requests", "sect_tournament_entries",
+                "dual_cultivation", "dual_cultivation_requests", "spar_requests", "sect_tournament_entries",
             ):
-                if table == "dual_cultivation_requests":
+                if table in ("dual_cultivation_requests", "spar_requests"):
                     await self.db.conn.execute(
                         f"DELETE FROM {table} WHERE from_id = ? OR target_id = ?",
                         (player.user_id, player.user_id),
