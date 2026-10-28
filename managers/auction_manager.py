@@ -22,6 +22,7 @@ class AuctionManager:
     """玩家交易坊市管理器"""
 
     TAX_RATE = 0.05 # 系统收取 5% 的交易税，用于回收灵石
+    OVERPRICED_SENTINEL = -2  # 定价超过标准价值上限，NPC 不再问价
 
     NPC_NAMES = (
         "青阳散修", "坊市掌柜", "游方道人", "万宝阁执事", "蒙面客",
@@ -52,6 +53,9 @@ class AuctionManager:
         if self.npc_max_rate < self.npc_min_rate:
             self.npc_min_rate, self.npc_max_rate = self.npc_max_rate, self.npc_min_rate
 
+        max_multiplier = self._as_float(cfg.get("MAX_LISTING_MULTIPLIER"), 2.0)
+        self.npc_max_listing_multiplier = max_multiplier if max_multiplier > 0 else 0.0
+
     @staticmethod
     def _as_int(value, default: int) -> int:
         try:
@@ -68,6 +72,62 @@ class AuctionManager:
 
     def _next_offer_delay(self) -> int:
         return random.randint(self.npc_min_interval, self.npc_max_interval)
+
+    def _standard_unit_price(self, item: dict) -> int:
+        """读取物品标准价值；无法识别时返回 0（不限制定价）。"""
+        storage = self.storage_ring_mgr
+        config_manager = getattr(storage, "config_manager", None) if storage else None
+        if not config_manager:
+            return 0
+        name = item.get("item_name") or item.get("base_item_name") or ""
+        if not name:
+            return 0
+        if item.get("item_kind") == "pill":
+            name = name.split("|")[0]
+        from ..core.shop_manager import ShopManager
+        found = ShopManager(self.config, config_manager).find_item_by_name(name)
+        if not found:
+            return 0
+        try:
+            price = int(found.get("price") or 0)
+        except (TypeError, ValueError):
+            price = 0
+        if price <= 0:
+            return 0
+        if item.get("item_kind") == "equipment":
+            from ..core.equipment_balance import QUALITY
+            price = int(round(price * QUALITY.get(item.get("item_quality") or "", 1.0)))
+        return max(1, price)
+
+    def _is_listing_overpriced(self, item: dict) -> bool:
+        """定价超过标准价值 N 倍时，NPC 不会出价。"""
+        if self.npc_max_listing_multiplier <= 0:
+            return False
+        standard = self._standard_unit_price(item)
+        if standard <= 0:
+            return False
+        try:
+            price = int(item.get("price") or 0)
+        except (TypeError, ValueError):
+            return False
+        return price > standard * self.npc_max_listing_multiplier
+
+    def _next_offer_time_for_listing(self, item: dict, now: int) -> int:
+        if not self.npc_enabled:
+            return 0
+        if self._is_listing_overpriced(item):
+            return self.OVERPRICED_SENTINEL
+        return now + self._next_offer_delay()
+
+    def _listing_npc_tip(self, next_offer_time: int) -> str:
+        if not self.npc_enabled:
+            return ""
+        if next_offer_time == self.OVERPRICED_SENTINEL:
+            return (
+                f"\n⚠️ 定价超过标准价值 {self.npc_max_listing_multiplier:g} 倍，"
+                "NPC 不会前来问价。"
+            )
+        return "\n💬 坊市NPC可能稍后发来问价，使用 /我的坊市 查看。"
 
     def _pill_manager(self):
         from ..core.pill_manager import PillManager
@@ -124,7 +184,10 @@ class AuctionManager:
                 await self.db.update_player(player)
 
                 now = int(time.time())
-                next_offer_time = now + self._next_offer_delay() if self.npc_enabled else 0
+                next_offer_time = self._next_offer_time_for_listing(
+                    {"item_kind": "pill", "item_name": base_name,
+                     "item_quality": quality, "price": price}, now
+                )
                 try:
                     await self.db.conn.execute(
                         "INSERT INTO auction_items (seller_id, item_name, count, price, create_time, next_offer_time, item_kind, item_quality) VALUES (?, ?, ?, ?, ?, ?, 'pill', ?)",
@@ -138,7 +201,7 @@ class AuctionManager:
                     logger.error(f"丹药上架失败，已恢复背包: {e}")
                     return False, "❌ 上架失败，丹药已退回背包。"
                 total = price * count
-                tip = "\n💬 坊市NPC可能稍后发来问价，使用 /我的坊市 查看。" if self.npc_enabled else ""
+                tip = self._listing_npc_tip(next_offer_time)
                 return True, f"✅ 上架成功！\n丹药：【{base_name}·{quality}】x{count}\n单价：{price:,} 灵石\n总价：{total:,} 灵石{tip}"
 
         im = self._instance_manager()
@@ -157,7 +220,10 @@ class AuctionManager:
             await self.db.update_player(player)
 
             now = int(time.time())
-            next_offer_time = now + self._next_offer_delay() if self.npc_enabled else 0
+            next_offer_time = self._next_offer_time_for_listing(
+                {"item_kind": "equipment", "item_name": item_name,
+                 "item_quality": quality, "price": price}, now
+            )
             try:
                 await self.db.conn.execute(
                     "INSERT INTO auction_items (seller_id, item_name, count, price, create_time, next_offer_time, item_kind, item_quality, instance_id) VALUES (?, ?, 1, ?, ?, ?, 'equipment', ?, ?)",
@@ -169,7 +235,7 @@ class AuctionManager:
                 await self.db.update_player(player)
                 logger.error(f"装备上架失败，已恢复储物戒: {e}")
                 return False, "❌ 上架失败，装备已退回储物戒。"
-            tip = "\n💬 坊市NPC可能稍后发来问价，使用 /我的坊市 查看。" if self.npc_enabled else ""
+            tip = self._listing_npc_tip(next_offer_time)
             return True, f"✅ 上架成功！\n装备：【{item_name}·{quality}】\n单价：{price:,} 灵石{tip}"
 
         # 检查物品是否真实存在于配置中（防止上架幽灵物品）
@@ -189,7 +255,10 @@ class AuctionManager:
 
         # 写入坊市表
         now = int(time.time())
-        next_offer_time = now + self._next_offer_delay() if self.npc_enabled else 0
+        next_offer_time = self._next_offer_time_for_listing(
+            {"item_kind": "item", "item_name": item_name,
+             "item_quality": "", "price": price}, now
+        )
         try:
             await self.db.conn.execute(
                 "INSERT INTO auction_items (seller_id, item_name, count, price, create_time, next_offer_time, item_kind, item_quality, instance_id) VALUES (?, ?, ?, ?, ?, ?, 'item', '', 0)",
@@ -202,7 +271,7 @@ class AuctionManager:
             return False, "❌ 上架失败，物品已退回储物戒。"
 
         total = price * count
-        tip = "\n💬 坊市NPC可能稍后发来问价，使用 /我的坊市 查看。" if self.npc_enabled else ""
+        tip = self._listing_npc_tip(next_offer_time)
         return True, f"✅ 上架成功！\n物品：【{item_name}】x{count}\n单价：{price:,} 灵石\n总价：{total:,} 灵石{tip}"
 
     async def cleanup_orphan_listings(self) -> int:
@@ -346,6 +415,13 @@ class AuctionManager:
                         )
                         continue
 
+                if self._is_listing_overpriced(item):
+                    await self.db.conn.execute(
+                        "UPDATE auction_items SET next_offer_time = ? WHERE id = ?",
+                        (self.OVERPRICED_SENTINEL, item["id"]),
+                    )
+                    continue
+
                 rate = random.uniform(self.npc_min_rate, self.npc_max_rate)
                 offer_price = max(1, int(round(item["price"] * rate)))
                 npc_name = random.choice(self.NPC_NAMES)
@@ -444,6 +520,11 @@ class AuctionManager:
             elif item.get("next_offer_time", 0) > now:
                 eta_min = max(1, math.ceil((item["next_offer_time"] - now) / 60))
                 msg.append(f"  ⏳ 等待NPC问价（约 {eta_min} 分钟后）")
+            elif item.get("next_offer_time", 0) == self.OVERPRICED_SENTINEL:
+                msg.append(
+                    f"  ⚠️ 定价超过标准价值 {self.npc_max_listing_multiplier:g} 倍，"
+                    "NPC不会问价"
+                )
             elif item.get("next_offer_time", 0) == -1:
                 msg.append("  ⏳ NPC正在考虑，请稍候")
             else:

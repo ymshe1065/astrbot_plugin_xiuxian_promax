@@ -117,6 +117,12 @@
         "default": 1.2,
         "hint": "NPC问价相对玩家定价的最高比例，1.2表示最高加价两成（定价50可能问60）。"
       },
+      "MAX_LISTING_MULTIPLIER": {
+        "description": "NPC问价定价上限倍数",
+        "type": "float",
+        "default": 2.0,
+        "hint": "玩家定价超过物品标准价值的该倍数时，NPC不会前来问价。默认2倍，0表示不限制。"
+      },
       "OFFER_EXPIRE": {
         "description": "问价有效期（秒）",
         "type": "int",
@@ -198,7 +204,7 @@
       "LOT_COUNT": {
         "description": "每场拍品数量",
         "type": "int",
-        "default": 8,
+        "default": 10,
         "hint": "最多读取 config/auction_house_config.json 的前 N 件拍品。"
       },
       "AI_ENABLED": {

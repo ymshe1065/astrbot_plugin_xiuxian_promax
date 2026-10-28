@@ -88,7 +88,7 @@ class TestAuctionHouse(unittest.IsolatedAsyncioTestCase):
                     "BID_COUNTDOWN": 60,
                     "LOT_GAP": 10,
                     "MIN_INCREMENT_PCT": 0.05,
-                    "LOT_COUNT": 8,
+                    "LOT_COUNT": 10,
                     "AI_ENABLED": False,
                 }
             },
@@ -181,12 +181,15 @@ class TestAuctionHouse(unittest.IsolatedAsyncioTestCase):
             "SELECT * FROM auction_house_events WHERE id=?", (event["id"],)
         )
         self.assertEqual(event["phase"], "announcing")
-        self.assertEqual(int(event["lot_count"]), 8)
+        self.assertEqual(int(event["lot_count"]), 10)
         lots = await self.manager._fetchall(
             "SELECT * FROM auction_house_lots WHERE event_id=? ORDER BY lot_no", (event["id"],)
         )
-        self.assertEqual(len(lots), 8)
-        self.assertEqual({lot["category"] for lot in lots}, {"equipment", "talisman", "pill", "recipe"})
+        self.assertEqual(len(lots), 10)
+        self.assertEqual(
+            {lot["category"] for lot in lots},
+            {"equipment", "talisman", "pill", "recipe", "technique", "main_technique"},
+        )
         prices = [int(lot["start_price"]) for lot in lots]
         self.assertEqual(prices, sorted(prices))
         rank_tiers = [
@@ -373,6 +376,34 @@ class TestAuctionHouse(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(inst), 1)
         self.assertEqual(inst[0]["quality"], "大师")
         self.assertEqual(inst[0]["affixes"][0]["name"], "暴击率")
+
+    async def test_start_price_is_around_twenty_percent_of_base_price(self):
+        now = int(time.time())
+        shop = _imp("core.shop_manager").ShopManager({}, self.config_manager)
+        entries = [
+            {"category": "pill", "tier": 3, "count": 1},
+            {"category": "technique", "tier": 2, "count": 1},
+            {"category": "main_technique", "tier": 4, "count": 1},
+        ]
+        for entry in entries:
+            lot = self.manager._generate_lot(1, 1, entry, set(), 0, now)
+            self.assertIsNotNone(lot)
+            found = shop.find_item_by_name(lot["item_name"])
+            self.assertIsNotNone(found, lot["item_name"])
+            base = int(found["price"])
+            self.assertGreaterEqual(lot["start_price"], int(base * 0.16))
+            self.assertLessEqual(lot["start_price"], int(base * 0.24) + 1)
+
+    async def test_technique_delivery_goes_to_storage_ring(self):
+        await self._player("tech1", gold=0)
+        lot = {
+            "id": 1000, "category": "technique", "item_name": "黄阶功法：基础剑诀",
+            "count": 1, "item_quality": "一般", "payload_json": "{}",
+        }
+        ok, msg = await self.manager._deliver_lot(lot, "tech1")
+        self.assertTrue(ok, msg)
+        fresh = await self.db.get_player_by_id("tech1")
+        self.assertEqual(fresh.get_storage_ring_items().get("黄阶功法：基础剑诀"), 1)
 
     async def test_ai_fallback_without_provider(self):
         class FakeContext:
