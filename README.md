@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v6.36.13 (饰品与货架修复)
+# AstrBot 插件：模拟修仙 v6.36.14 (灵兽调息恢复)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v6.36.13-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v6.36.14-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.22.13 · **游戏版本:** v6.36.13 · **数据库:** v48
+> **插件版本:** v3.22.14 · **游戏版本:** v6.36.14 · **数据库:** v48
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，222 条帮助指令 / 222 条注册指令、16 个大系统、110 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -41,6 +41,17 @@
 ## 📜 更新日志
 
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
+
+<details>
+<summary><b>本次更新 · v6.36.14</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 灵兽调息 | `/调息` 期间灵兽精力同步按 5%/分钟恢复，并享受调息恢复加成；主人结束调息或气血/灵气满自动收功时都会先结算。 |
+| 自然恢复 | 灵兽自然恢复精力时改为享受自然恢复加成（宗门疗养殿、洞府家具、功法与装备），不再是固定速率。 |
+| 结算入口 | 灵兽精力恢复统一接入玩家自然恢复/调息结算，避免只有打开灵兽面板时才会恢复。 |
+
+</details>
 
 <details>
 <summary><b>本次更新 · v6.36.13</b></summary>
@@ -646,6 +657,7 @@ v6.35.1 灵田杂交     所有灵草统一1收4；/杂交 消耗父本各1株�
 <summary><b>版本沿革（四改）</b></summary>
 
 ```
+v6.36.14 灵兽调息恢复 灵兽精力恢复接入玩家自然恢复/调息结算：调息时按5%/分钟并享受调息加成，自然恢复享受自然恢复加成；收功/自动收功前先结算
 v6.36.13 饰品与货架修复 同名装备重复上架时按最近查看货架成交；补全头饰/甲胄/手套/靴子/戒指/护符类型标签；/装备 支持「饰品」分组别名；宗门商店旧货架补齐库存
 v6.36.12 灵田与洞天批量 /种植 支持单数字（6 株）、格号区间（1-20）与 all 种满；/升级洞天 支持连升次数、目标等级与 all 一键满级；区间自动跳过占用/超等级格；提示与帮助同步
 v6.36.11 物品与播报修复 修复功法卸下复制、拍卖重复发放与取消不退费、预告丢失/重启重播、赠予丢件；旧式丹药与封顶效果显示、装备穿戴境界衰减展示、储物戒附魔容量显示、items 同名条目与 NULL JSON 兼容；自动代理灵田误改绑与受伤绕过

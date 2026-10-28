@@ -4,6 +4,7 @@ import time
 from typing import Tuple, Dict, Optional, List
 from ..data import DataBase
 from ..models import Player
+from ..models_extended import UserStatus
 
 
 def _build_pet_types(base_types: Dict[str, dict], evolutions: Dict[str, list]) -> Dict[str, dict]:
@@ -132,6 +133,8 @@ class PetManager:
 
     MAX_PET_LEVEL = 50
     REGEN_PER_MIN = 0.02
+    # 主人调息时灵兽同步按调息速率恢复精力（与玩家 /调息 的 5%/分钟一致）
+    REST_REGEN_PER_MIN = 0.05
     REVIVE_BASE_SECONDS = 3600
     REVIVE_PER_LEVEL_SECONDS = 60
     EXP_SHARE_YUSOU = 0.30
@@ -146,8 +149,9 @@ class PetManager:
     PET_ENCOUNTER_PER_EMPTY_SLOT = 0.15
     PET_ENCOUNTER_MAX_CHANCE = 0.95
 
-    def __init__(self, db: DataBase):
+    def __init__(self, db: DataBase, config_manager=None):
         self.db = db
+        self.config_manager = config_manager
 
     @staticmethod
     def get_realm_tier(level_index: int) -> int:
@@ -272,11 +276,64 @@ class PetManager:
             if await self.ensure_pet_evolution(pet, commit=False):
                 evolved = True
         if apply_regen:
+            regen_rate, regen_bonus = await self._regen_context(user_id)
             for pet in pets:
-                await self.refresh_pet(pet, commit=False)
+                await self.refresh_pet(
+                    pet,
+                    commit=commit,
+                    regen_rate=regen_rate,
+                    regen_bonus=regen_bonus,
+                )
         if commit and (apply_regen or evolved or exp_changed):
             await self.db.conn.commit()
         return pets
+
+    async def _regen_context(self, user_id: str) -> Tuple[float, float]:
+        """灵兽精力恢复速率：主人调息时用调息速率，否则用自然恢复速率。"""
+        resting = False
+        try:
+            cd = await self.db.ext.get_user_cd(user_id)
+            resting = bool(cd and int(cd.type) == int(UserStatus.RESTING))
+        except Exception:
+            pass
+
+        rate = self.REST_REGEN_PER_MIN if resting else self.REGEN_PER_MIN
+        bonus = 0.0
+        if self.config_manager is not None:
+            try:
+                from .recovery_manager import RecoveryManager
+
+                player = await self.db.get_player_by_id(user_id)
+                if player:
+                    bonuses = await RecoveryManager(
+                        self.db, self.config_manager
+                    ).get_bonuses(player)
+                    key = "rest_hp_regen_bonus" if resting else "natural_hp_regen_bonus"
+                    bonus = float(bonuses.get(key, 0.0) or 0.0)
+            except Exception:
+                pass
+        return rate, bonus
+
+    async def apply_regen(
+        self,
+        user_id: str,
+        regen_rate: Optional[float] = None,
+        regen_bonus: float = 0.0,
+        now: Optional[int] = None,
+    ) -> None:
+        """按指定速率结算一次灵兽精力恢复（供调息/自然恢复统一调用）。"""
+        pets = await self._query_pets(user_id)
+        if not pets:
+            return
+        for pet in pets:
+            await self.refresh_pet(
+                pet,
+                commit=True,
+                now=now,
+                regen_rate=regen_rate,
+                regen_bonus=regen_bonus,
+            )
+        await self.db.conn.commit()
 
     async def get_pet(
         self,
@@ -503,8 +560,16 @@ class PetManager:
                 await self._persist_pet(pet)
         return pet
 
-    async def refresh_pet(self, pet: Dict, commit: bool = True) -> Dict:
-        now = int(time.time())
+    async def refresh_pet(
+        self,
+        pet: Dict,
+        commit: bool = True,
+        now: Optional[int] = None,
+        regen_rate: Optional[float] = None,
+        regen_bonus: float = 0.0,
+    ) -> Dict:
+        now = int(now or time.time())
+        rate = self.REGEN_PER_MIN if regen_rate is None else float(regen_rate)
         level = max(1, int(pet.get("level") or 1))
         max_hp = int(pet.get("max_hp") or 0)
         changed = False
@@ -542,7 +607,10 @@ class PetManager:
         if hp < max_hp:
             elapsed = now - last
             if elapsed >= 60:
-                regen = max(1, int(max_hp * self.REGEN_PER_MIN * (elapsed // 60)))
+                regen = max(
+                    1,
+                    int(max_hp * rate * (1 + float(regen_bonus or 0.0)) * (elapsed // 60)),
+                )
                 pet["hp"] = min(max_hp, hp + regen)
                 pet["last_regen_time"] = now - (elapsed % 60)
                 changed = True

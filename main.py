@@ -270,7 +270,7 @@ class XiuXianPlugin(Star):
         self.demon_handlers.context = self.context
         
         # v6.5 灵兽系统
-        self.pet_mgr = PetManager(self.db)
+        self.pet_mgr = PetManager(self.db, self.config_manager)
         self.pet_handlers = PetHandlers(self.db, self.pet_mgr, self.config_manager)
         self.recovery_handler = RecoveryHandler(self.db, self.config_manager)
 

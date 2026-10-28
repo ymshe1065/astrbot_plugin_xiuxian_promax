@@ -136,6 +136,84 @@ class TestPetCombat(unittest.IsolatedAsyncioTestCase):
         pet = await self.pet_mgr.get_pet("u1")
         self.assertEqual(pet["hp"], max(1, max_hp // 2))
 
+    async def test_resting_accelerates_pet_energy_regen(self):
+        UserStatus = _imp("models_extended").UserStatus
+        ok, _ = await self.pet_mgr.adopt_pet(self.player, "冰晶兽")
+        self.assertTrue(ok)
+        pet = await self.pet_mgr.get_pet("u1")
+        max_hp = pet["max_hp"]
+
+        now = int(time.time())
+        await self.db.ext.set_user_busy("u1", int(UserStatus.RESTING), 0)
+        start_hp = max_hp // 2
+        await self.conn.execute(
+            "UPDATE player_pets SET hp = ?, last_regen_time = ? WHERE user_id = ?",
+            (start_hp, now - 600, "u1"),
+        )
+        await self.conn.commit()
+
+        pet = await self.pet_mgr.get_pet("u1")
+        # 调息 10 分钟按 5%/分钟恢复，应明显高于自然恢复的 2%/分钟
+        self.assertGreaterEqual(pet["hp"] - start_hp, int(max_hp * 0.45))
+        # 恢复结果需落库，不能只改内存里的临时字典
+        stored = await self.pet_mgr.get_pet("u1", apply_regen=False, sync_exp=False)
+        self.assertEqual(stored["hp"], pet["hp"])
+
+    async def test_pet_regen_bonus_is_applied(self):
+        ok, _ = await self.pet_mgr.adopt_pet(self.player, "冰晶兽")
+        self.assertTrue(ok)
+        pet = await self.pet_mgr.get_pet("u1")
+        max_hp = pet["max_hp"]
+
+        now = int(time.time())
+        await self.conn.execute(
+            "UPDATE player_pets SET hp = 100, last_regen_time = ? WHERE user_id = ?",
+            (now - 60, "u1"),
+        )
+        await self.conn.commit()
+
+        pet = await self.pet_mgr.get_pet("u1", apply_regen=False, sync_exp=False)
+        await self.pet_mgr.refresh_pet(pet, now=now, regen_rate=0.02, regen_bonus=1.0)
+        self.assertEqual(pet["hp"], min(max_hp, 100 + int(max_hp * 0.02 * 2)))
+
+    async def test_lazy_recovery_rest_also_settles_pet_energy(self):
+        UserStatus = _imp("models_extended").UserStatus
+        RecoveryManager = _imp("managers.recovery_manager").RecoveryManager
+        ConfigManager = _imp("config_manager").ConfigManager
+
+        ok, _ = await self.pet_mgr.adopt_pet(self.player, "冰晶兽")
+        self.assertTrue(ok)
+        pet = await self.pet_mgr.get_pet("u1")
+        max_hp = pet["max_hp"]
+
+        now = int(time.time())
+        player = await self.db.get_player_by_id("u1")
+        player.hp = 1
+        player.spiritual_qi = 0
+        await self.db.update_player(player)
+
+        await self.db.ext.set_user_busy(
+            "u1",
+            int(UserStatus.RESTING),
+            0,
+            extra_data={"resting_since": now - 600, "rest_last_tick": now - 600},
+        )
+        start_hp = max_hp // 2
+        await self.conn.execute(
+            "UPDATE player_pets SET hp = ?, last_regen_time = ? WHERE user_id = ?",
+            (start_hp, now - 600, "u1"),
+        )
+        await self.conn.commit()
+
+        recovery = RecoveryManager(self.db, ConfigManager(ROOT))
+        await recovery.apply_lazy_recovery(player, now=now)
+
+        async with self.conn.execute(
+            "SELECT hp FROM player_pets WHERE user_id = ?", ("u1",)
+        ) as cursor:
+            row = await cursor.fetchone()
+        self.assertGreaterEqual(int(row[0]) - start_hp, int(max_hp * 0.45))
+
     async def test_gold_pet_bonus_stacks_per_pet(self):
         self.player.level_index = 10
         self.player.cultivation_type = "御兽"

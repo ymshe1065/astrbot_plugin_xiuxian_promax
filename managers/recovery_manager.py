@@ -174,6 +174,24 @@ class RecoveryManager:
         await self.db.update_player_fields(
             player.user_id, hp=player.hp, spiritual_qi=player.spiritual_qi, mp=player.mp
         )
+
+        # 灵兽精力同步：调息时按调息速率恢复，自然恢复时享受自然恢复加成。
+        try:
+            from .pet_manager import PetManager
+
+            pet_mgr = PetManager(self.db, self.config_manager)
+            resting = int(cd.type) == int(UserStatus.RESTING)
+            bonus_key = "rest_hp_regen_bonus" if resting else "natural_hp_regen_bonus"
+            await pet_mgr.apply_regen(
+                player.user_id,
+                regen_rate=(
+                    pet_mgr.REST_REGEN_PER_MIN if resting else pet_mgr.REGEN_PER_MIN
+                ),
+                regen_bonus=bonuses.get(bonus_key, 0.0),
+                now=now,
+            )
+        except Exception:
+            pass
         return player
 
     async def is_injured(self, player: Player) -> bool:
