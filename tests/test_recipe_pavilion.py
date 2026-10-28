@@ -72,6 +72,20 @@ class TestRecipePavilion(unittest.TestCase):
         self.assertEqual(len(rare), 3)
         self.assertEqual(len(generated), len(permanent) + len(rare))
 
+    def test_stale_recipe_price_is_refreshed_with_discount(self):
+        item = {
+            "name": "《筑基丹方》", "type": "recipe", "rank": "灵品",
+            "price": 18553, "original_price": 15500, "discount": 1.2,
+            "stock": 2,
+            "data": {"name": "《筑基丹方》", "type": "丹方", "price": 15500, "recipe_id": 101},
+        }
+        changed = self.shop_manager.refresh_item_data([item])
+        self.assertTrue(changed)
+        current = self.config_manager.items_data["《筑基丹方》"]
+        self.assertEqual(item["original_price"], int(current["price"]))
+        self.assertEqual(item["price"], int(current["price"] * 1.2))
+        self.assertEqual(item["stock"], 2)
+
     def test_recipe_price_below_output_pill(self):
         sources = (
             self.config_manager.pills_data,

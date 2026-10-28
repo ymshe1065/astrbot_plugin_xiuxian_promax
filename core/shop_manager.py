@@ -72,7 +72,7 @@ class ShopManager:
         return None
 
     def refresh_item_data(self, items: List[Dict]) -> bool:
-        """用当前配置回填商店缓存；保留价格、库存和折扣。"""
+        """用当前配置回填商店缓存；同步基础价与折扣价，保留库存和折扣。"""
         changed = False
         for item in items or []:
             if not isinstance(item, dict):
@@ -89,6 +89,23 @@ class ShopManager:
                 changed = True
             if current.get("rank") and item.get("rank") != current["rank"]:
                 item["rank"] = current["rank"]
+                changed = True
+            try:
+                base_price = int(current.get("price", 0) or 0)
+            except (TypeError, ValueError):
+                base_price = 0
+            if base_price <= 0:
+                continue
+            try:
+                discount = float(item.get("discount", 1.0) or 1.0)
+            except (TypeError, ValueError):
+                discount = 1.0
+            if item.get("original_price") != base_price:
+                item["original_price"] = base_price
+                changed = True
+            display_price = int(base_price * discount)
+            if item.get("price") != display_price:
+                item["price"] = display_price
                 changed = True
         return changed
 

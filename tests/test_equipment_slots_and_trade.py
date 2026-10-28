@@ -224,13 +224,14 @@ class TestSlots(unittest.IsolatedAsyncioTestCase):
         name = next(n for n, c in self.cm.items_data.items() if c.get("type") == "ring" and c["rank"] == "黄阶")
         shop = _imp("core.shop_manager").ShopManager({}, self.cm)
         item = shop.find_item_by_name(name)
-        item.update(stock=2, price=100)
+        item.update(stock=2)
         await self.db.update_shop_data("treasure_pavilion", 1, [item])
         handler = _imp("handlers.shop_handler").ShopHandler(self.db, {}, self.cm)
         event = _FakeEvent(p.user_id, p.user_id, "/购买 " + name)
         results = [r async for r in handler.handle_buy.__wrapped__(handler, p, event, name)]
         p = await self.db.get_player_by_id(p.user_id)
-        self.assertEqual(p.gold, 99900, results)
+        expected_price = int(self.cm.items_data[name].get("price", 0))
+        self.assertEqual(p.gold, 100000 - expected_price, results)
         self.assertEqual(self.im.count_storage(p, name), 1)
 
     async def test_wash_targets_second_ring_only(self):
