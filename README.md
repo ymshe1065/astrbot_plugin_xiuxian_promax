@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v6.40.0 (功法与卸下栏位指定)
+# AstrBot 插件：模拟修仙 v6.40.1 (全局数据库并发加固)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v6.40.0-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v6.40.1-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.25.4 · **游戏版本:** v6.40.0 · **数据库:** v49
+> **插件版本:** v3.25.5 · **游戏版本:** v6.40.1 · **数据库:** v49
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，222 条帮助指令 / 222 条注册指令、16 个大系统、110 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,22 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · v6.40.0</b></summary>
+<summary><b>本次更新 · v6.40.1</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 连接隔离 | 数据库改为按 asyncio 任务分配独立连接，任务结束时自动回滚并关闭；后台调度与指令处理不再共用同一条连接。 |
+| 事务入口 | 新增 `DataBase.transaction()`（`BEGIN IMMEDIATE` + 上下文管理）；事务内再次开启事务自动降级为 `SAVEPOINT`，内层失败只回滚自身。 |
+| 并发错乱 | 现有显式事务里的 `BEGIN IMMEDIATE` / `COMMIT` / `ROLLBACK` 由连接状态机接管，彻底消除“cannot start a transaction within a transaction”与互相回滚。 |
+| 写入可靠性 | 启用 WAL 日志与 `busy_timeout=10000`，写入排队等待而非直接报错；连接使用自动提交模式，避免隐式只读事务长期持有旧快照。 |
+| 收尾事务 | `删除角色级联`、`宗门欠款自动偿还`、`日常任务进度` 等读写序列改为单事务提交，异常整体回滚。 |
+| 回归测试 | 新增并发回归用例：并行事务互不影响、嵌套保存点、并行隐式写、并发自增不丢失、未提交数据任务间隔离。 |
+| 帮助同步 | 版本号更新至 v6.40.1；本次无新增指令与数据库结构变更。 |
+
+</details>
+
+<details>
+<summary><b>v6.40.0 · 功法与卸下栏位指定</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |

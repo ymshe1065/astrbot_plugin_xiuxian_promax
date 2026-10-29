@@ -2,12 +2,15 @@
 
 import aiosqlite
 import json
+from contextlib import asynccontextmanager
+from contextvars import ContextVar
 from dataclasses import fields
 from pathlib import Path
 from typing import Tuple, List, Optional
 from astrbot.api import logger
 from ..models import Player
 from .database_extended import DatabaseExtended
+from .task_connection import TaskConnectionRouter, configure_connection
 
 # 获取 Player 模型的所有字段名（用于过滤数据库中的多余字段，作为迁移未完成时的兼容）
 PLAYER_FIELDS = {f.name for f in fields(Player)}
@@ -59,16 +62,23 @@ def _find_shop_entry_index(items: list, item_name: str, entry_key: Optional[dict
 class DataBase:
     """数据库管理类，提供基础玩家操作"""
 
+    # 直接持有原始连接（测试/外部注入）时的事务嵌套深度
+    _raw_tx_depth: ContextVar[int] = ContextVar("xiuxian_raw_tx_depth", default=0)
+
     def __init__(self, db_file: str = "xiuxian_data_lite.db"):
         self.db_path = Path(db_file)
         self.conn: aiosqlite.Connection = None
         self.ext: Optional[DatabaseExtended] = None  # 扩展操作类
 
     async def connect(self):
-        """连接数据库"""
-        self.conn = await aiosqlite.connect(self.db_path)
-        self.conn.row_factory = aiosqlite.Row
-        self.ext = DatabaseExtended(self.conn)  # 初始化扩展操作
+        """连接数据库：默认连接 + 每任务独立连接路由"""
+        raw = await aiosqlite.connect(self.db_path, isolation_level=None)
+        raw.row_factory = aiosqlite.Row
+        await configure_connection(raw)
+        router = TaskConnectionRouter(self.db_path, raw)
+        router.row_factory = aiosqlite.Row
+        self.conn = router
+        self.ext = DatabaseExtended(router)  # 初始化扩展操作
 
     async def close(self):
         """关闭数据库连接"""
@@ -96,6 +106,63 @@ class DataBase:
             return
         logger.warning("[database] 检测到数据库连接断开，正在自动重连...")
         await self.reconnect()
+
+    async def raw_connection(self) -> aiosqlite.Connection:
+        """返回当前上下文应使用的原始连接（任务隔离或外部注入的连接）。"""
+        conn = self.conn
+        getter = getattr(conn, "current_connection", None)
+        if getter is not None:
+            return await getter()
+        return conn
+
+    @asynccontextmanager
+    async def transaction(self):
+        """统一事务入口：``BEGIN IMMEDIATE`` + 嵌套保存点。
+
+        用法::
+
+            async with self.db.transaction() as conn:
+                ...
+
+        事务内再调用 ``transaction()`` 会自动降级为保存点，内层失败只回滚
+        自身改动，不会提交/回滚外层事务。
+        """
+        owner = self.conn
+        if isinstance(owner, TaskConnectionRouter):
+            async with owner.transaction() as conn:
+                yield conn
+            return
+
+        conn = await self.raw_connection()
+        depth = self._raw_tx_depth.get()
+        savepoint = f"xiuxian_raw_sp_{depth}" if depth else None
+        try:
+            if depth == 0:
+                # 结束遗留的隐式事务，保证 BEGIN 可用
+                if getattr(conn, "in_transaction", False):
+                    await conn.commit()
+                await conn.execute("BEGIN IMMEDIATE")
+            else:
+                await conn.execute(f"SAVEPOINT {savepoint}")
+            self._raw_tx_depth.set(depth + 1)
+            yield conn
+        except BaseException:
+            self._raw_tx_depth.set(depth)
+            try:
+                if depth == 0:
+                    await conn.rollback()
+                else:
+                    await conn.execute(f"ROLLBACK TO {savepoint}")
+                    await conn.execute(f"RELEASE {savepoint}")
+            except Exception as e:
+                logger.error(f"[database] 回滚事务失败: {e}")
+            raise
+        else:
+            self._raw_tx_depth.set(depth)
+            if depth == 0:
+                await conn.commit()
+            else:
+                await conn.execute(f"RELEASE {savepoint}")
 
     async def create_player(self, player: Player):
         """创建新玩家"""
@@ -401,7 +468,12 @@ class DataBase:
         await self.conn.commit()
 
     async def delete_player_cascade(self, user_id: str):
-        """级联删除玩家及所有关联数据"""
+        """级联删除玩家及所有关联数据（单事务，失败整体回滚）"""
+        async with self.transaction():
+            await self._delete_player_cascade_inner(user_id)
+
+    async def _delete_player_cascade_inner(self, user_id: str):
+        """级联删除的具体步骤，需由外层事务调用。"""
         # 先把他人的待赠予物品退回发送者，避免删除角色时连带吞掉别人的资产
         try:
             if self.ext:
@@ -493,7 +565,6 @@ class DataBase:
             await safe_execute(sql, params)
 
         await self.conn.execute("DELETE FROM players WHERE user_id = ?", (user_id,))
-        await self.conn.commit()
 
     async def get_all_players(self):
         """获取所有玩家"""
