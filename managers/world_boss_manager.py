@@ -679,6 +679,7 @@ class WorldBossManager:
     async def challenge_boss(self, player: Player) -> Tuple[bool, str]:
         """挑战世界Boss"""
         self.last_challenge_ok = False
+        self.last_settle_msg = None
         now = int(time.time())
         await self.expire_bosses(now)
 

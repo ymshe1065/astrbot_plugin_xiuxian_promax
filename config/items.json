@@ -796,18 +796,6 @@
             "add_experience": 911000
         }
     },
-    "1053": {
-        "name": "混沌丹",
-        "type": "丹药",
-        "rank": "凡品",
-        "shop_weight": 999,
-        "price": 86,
-        "volume": 1,
-        "description": "这是一件凡品丹药，蕴含着天地之力。",
-        "effect_type": "temporary",
-        "duration_minutes": 30,
-        "physical_damage_multiplier": 0.1
-    },
     "1054": {
         "name": "万古刀",
         "type": "法器",
@@ -2148,18 +2136,6 @@
         },
         "balance_version": 1
     },
-    "1139": {
-        "name": "噬魂丹",
-        "type": "丹药",
-        "rank": "圣品",
-        "shop_weight": 1,
-        "price": 59000,
-        "volume": 1,
-        "description": "这是一件圣品丹药，蕴含着天地之力。",
-        "effect": {
-            "add_hp": 318000
-        }
-    },
     "1140": {
         "name": "龙渊弓",
         "type": "法器",
@@ -2223,18 +2199,6 @@
             "magic_defense": 0
         },
         "balance_version": 1
-    },
-    "1144": {
-        "name": "混元丹",
-        "type": "丹药",
-        "rank": "黄品",
-        "shop_weight": 990,
-        "price": 850,
-        "volume": 1,
-        "description": "这是一件黄品丹药，蕴含着天地之力。",
-        "effect": {
-            "add_experience": 18260
-        }
     },
     "1145": {
         "name": "造化冠",
@@ -7524,18 +7488,6 @@
             "magic_defense": 0
         },
         "balance_version": 1
-    },
-    "1484": {
-        "name": "长生丹",
-        "type": "丹药",
-        "rank": "玄品",
-        "shop_weight": 900,
-        "price": 13500,
-        "volume": 1,
-        "description": "这是一件玄品丹药，蕴含着天地之力。",
-        "effect_type": "temporary",
-        "duration_minutes": 30,
-        "physical_damage_multiplier": 10
     },
     "1485": {
         "name": "两仪丹",

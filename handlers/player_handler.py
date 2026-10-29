@@ -58,11 +58,11 @@ class PlayerHandler:
             },
             "03-03": {
                 "name": "蟠桃盛会", "desc": "瑶池金母设宴，三千年一开花，三千年一结果。", 
-                "gold": 30000, "exp": 50000, "item": "极品洗练石", "item_count": 2
+                "gold": 30000, "exp": 50000, "item": "洗练石", "item_count": 3
             },
             "05-04": {
                 "name": "百器争鸣", "desc": "天下炼器师齐聚，地火涌动，正是炼器好时节。", 
-                "gold": 10400, "exp": 10400, "item": "天外陨铁", "item_count": 3
+                "gold": 10400, "exp": 10400, "item": "混元铁", "item_count": 1
             },
             "06-06": {
                 "name": "镇魔日", "desc": "天狗食日，魔气肆虐，天道赐下护身法宝。", 
@@ -82,7 +82,7 @@ class PlayerHandler:
             },
             "10-01": {
                 "name": "万仙来朝", "desc": "普天同庆，仙界大开宝库，降下海量修行资源。", 
-                "gold": 19490, "exp": 19490, "item": "极品洗练石", "item_count": 1
+                "gold": 19490, "exp": 19490, "item": "洗练石", "item_count": 3
             },
             "11-11": {
                 "name": "清心寡欲日", "desc": "红尘滚滚，我自独行，极致的孤独带来极致的道心。", 
@@ -90,11 +90,11 @@ class PlayerHandler:
             },
             "12-22": {
                 "name": "阴极冬至", "desc": "阴极之至，阳气始生，天道赐下纯阳之气助你突破。", 
-                "gold": 12220, "exp": 12220, "item": "圣品·混元道果", "item_count": 1
+                "gold": 12220, "exp": 12220, "item": "九幽仙芝", "item_count": 1
             },
             "12-25": {
                 "name": "瑞雪丰年", "desc": "天降祥瑞，灵石矿脉爆发，万物生机盎然。", 
-                "gold": 12250, "exp": 12250, "item": "极品洗练石", "item_count": 1
+                "gold": 12250, "exp": 12250, "item": "洗练石", "item_count": 2
             },
         }
 
@@ -718,6 +718,13 @@ class PlayerHandler:
                 check_in_gold = int(check_in_gold * (1 + gold_bonus))
         except Exception:
             pass
+        try:
+            from ..core.technique_bonus import TechniqueBonusManager
+            check_in_gold = TechniqueBonusManager.apply_gold_bonus(
+                player, check_in_gold, self.config_manager
+            )
+        except Exception:
+            pass
         player.gold += check_in_gold
         player.last_check_in_date = today
         
@@ -725,7 +732,15 @@ class PlayerHandler:
         festival = self._get_today_festival()
         festival_msg = ""
         if festival:
-            player.gold += festival["gold"]
+            festival_gold = festival["gold"]
+            try:
+                from ..core.technique_bonus import TechniqueBonusManager
+                festival_gold = TechniqueBonusManager.apply_gold_bonus(
+                    player, festival_gold, self.config_manager
+                )
+            except Exception:
+                pass
+            player.gold += festival_gold
             player.experience += festival["exp"]
             
             item_name = festival.get("item")
@@ -737,7 +752,7 @@ class PlayerHandler:
                 f"\n🎊【{festival['name']}】专属福利降临！🎊\n"
                 f"━━━━━━━━━━━━━━━\n"
                 f"“{festival['desc']}”\n"
-                f"额外获得：{festival['gold']:,} 灵石、{festival['exp']:,} 修为\n"
+                f"额外获得：{festival_gold:,} 灵石、{festival['exp']:,} 修为\n"
             )
             if item_name:
                 festival_msg += f"福泽恩赐：【{item_name}】x{item_count}\n"
@@ -760,6 +775,9 @@ class PlayerHandler:
             "明日再来，莫要忘记哦~"
         )
         reply_msg += festival_msg
+        title_msg = getattr(self, "_last_checkin_title", "") or ""
+        if title_msg:
+            reply_msg += f"\n{title_msg}"
 
         # ===== 签到卡片：成功只发图，失败/关闭降级为纯文本（节日自动切换背景）=====
         try:

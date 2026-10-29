@@ -163,7 +163,7 @@ def _gold_gradient_text(canvas, xy, text, font) -> Tuple[int, int]:
     md.text((4, 4), text, font=font, fill=255)
     bbox = mask.getbbox()
     if not bbox:
-        draw.text((x, y), text, font=font, fill=INK_GOLD)
+        ImageDraw.Draw(canvas).text((x, y), text, font=font, fill=INK_GOLD)
         return tw, th
     mask = mask.crop(bbox)
     w2, h2 = mask.size

@@ -365,6 +365,14 @@ class EquipmentManager:
                 return False, "❌ 装备实例不可用，已取消换装。"
             old_item, old_inst = self.get_gear_slots(player)[slot]
             if old_inst:
+                # 新装备来自储物戒时会腾出对应格数，净占用不变；否则需要额外空间。
+                freeing = (
+                    self.storage_ring_manager._get_item_volume(item.name)
+                    if inst and self.storage_ring_manager else 0
+                )
+                ok, msg = self._storage_accepts_instance(player, old_item or item.name, freeing)
+                if not ok:
+                    return False, msg
                 self.instance_manager.move(player, old_inst["id"], "storage")
             elif old_item:
                 ok, msg = await self._try_store_old_equipment(player, old_item)
@@ -419,6 +427,9 @@ class EquipmentManager:
             if not name:
                 return False, f"未装备{ItemRules.SLOT_LABELS[slot]}"
             if inst:
+                ok, msg = self._storage_accepts_instance(player, name)
+                if not ok:
+                    return False, msg
                 self.instance_manager.move(player, inst["id"], "storage")
             else:
                 ok, msg = await self._try_store_old_equipment(player, name)
@@ -451,6 +462,20 @@ class EquipmentManager:
             await self.db.update_player(player)
             return True, f"已卸下功法【{slot_or_name}】，已存入储物戒"
         return False, f"未找到装备：{slot_or_name}"
+
+    def _storage_accepts_instance(self, player: Player, item_name: str, freeing: int = 0) -> tuple:
+        """检查储物戒是否还有空间容纳一件装备实例（freeing 为同时腾出的格数）。"""
+        if not self.storage_ring_manager:
+            return True, ""
+        volume = self.storage_ring_manager._get_item_volume(item_name)
+        available = self.storage_ring_manager.get_available_slots(player)
+        if available + max(0, int(freeing)) >= volume:
+            return True, ""
+        capacity = self.storage_ring_manager.get_total_capacity(player)
+        return False, (
+            f"储物戒容量不足！装备【{item_name}】需要 {volume} 格，"
+            f"仅剩 {available}（上限 {capacity}）。请先清理储物戒或使用 /领取溢出。"
+        )
 
     async def _try_store_old_equipment(self, player: Player, item_name: str) -> tuple:
         """尝试将旧装备存入储物戒，返回 (是否成功, 失败消息)"""

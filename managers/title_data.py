@@ -80,9 +80,9 @@ TITLES = [
     T("照妖明镜", 2, "demon_catch", condition=3, crit=5),
 
     # ========== 地品（高难玩法，22）==========
-    T("筑基人杰", 3, "breakthrough", condition=16, exp=0.08, atk=60),
-    T("金丹真人", 3, "breakthrough", condition=22, exp=0.10, atk=90),
-    T("元婴老祖", 3, "breakthrough", condition=28, exp=0.12, atk=120),
+    T("筑基人杰", 3, "breakthrough", condition=10, exp=0.08, atk=60),
+    T("金丹真人", 3, "breakthrough", condition=13, exp=0.10, atk=90),
+    T("元婴老祖", 3, "breakthrough", condition=16, exp=0.12, atk=120),
     T("传道真人", 3, "manual", atk=60, exp=0.05),
     T("天下第一善", 3, "karma", condition=20, luck=8, exp=0.06),
     T("积善之家", 3, "karma", condition=10, luck=5),
@@ -104,10 +104,10 @@ TITLES = [
     T("护道者", 3, "escort_count", condition=100, gold_pct=0.15, phys_def=80),
 
     # ========== 天品（巅峰成就，18）==========
-    T("化神尊者", 4, "breakthrough", condition=34, exp=0.15, atk=180),
-    T("炼虚合道", 4, "breakthrough", condition=40, exp=0.18, atk=220),
-    T("大乘巅峰", 4, "breakthrough", condition=46, exp=0.20, atk=260),
-    T("渡劫真君", 4, "breakthrough", condition=52, exp=0.25, atk=300),
+    T("化神尊者", 4, "breakthrough", condition=19, exp=0.15, atk=180),
+    T("炼虚合道", 4, "breakthrough", condition=22, exp=0.18, atk=220),
+    T("大乘巅峰", 4, "breakthrough", condition=28, exp=0.20, atk=260),
+    T("渡劫真君", 4, "breakthrough", condition=31, exp=0.25, atk=300),
     T("灭世魔神", 4, "manual", atk=200, crit=5),
     T("初露锋芒·极", 4, "sect_battle_win", condition=80, atk=200, crit=6),
     T("天下无双", 4, "win_pvp", condition=120, atk=260, crit=8),
@@ -129,7 +129,7 @@ TITLES = [
     T("天道亲女儿", 5, "luck_event", condition=100, luck=30, exp=0.30),
     T("炼丹圣人", 5, "craft_perfect", condition=300, exp=0.35, luck=20),
     T("武道圣者", 5, "win_pvp", condition=400, atk=500, crit=15),
-    T("圣域主宰", 5, "breakthrough", condition=58, exp=0.35, atk=450),
+    T("圣域主宰", 5, "breakthrough", condition=33, exp=0.35, atk=450),
     T("功德圣者", 5, "karma", condition=100, luck=35, exp=0.35),
     T("魔帝", 5, "karma_neg", condition=-60, atk=450, lifesteal=10),
     T("天下第一镖", 5, "escort_count", condition=250, gold_pct=0.25, atk=300),
@@ -145,5 +145,5 @@ TITLES = [
     T("丹帝", 6, "craft_perfect", condition=600, exp=0.50, luck=30),
     T("万胜武帝", 6, "win_pvp", condition=800, atk=700, crit=20),
     T("轮回帝尊", 6, "reincarnation", condition=35, exp=0.55, luck=45, atk=500),
-    T("仙帝", 6, "breakthrough", condition=64, exp=0.60, atk=650, crit=15),
+    T("仙帝", 6, "breakthrough", condition=35, exp=0.60, atk=650, crit=15),
 ]

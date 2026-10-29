@@ -297,7 +297,9 @@ class BlessedLandManager:
         
         # 计算产出（最多24小时；灵泉假山使灵石产出+10%）
         hours = min(24, int(hours_passed))
+        # 保留不足 1 小时的余数，避免频繁在非整点收取时永久损失小数小时收益
         credit_start = max(last_collect, now - hours * 3600)
+        settled_until = now if hours_passed >= 24 else last_collect + hours * 3600
         output_mult = player.shield_output_multiplier(credit_start, now)
         gold_income = land["gold_per_hour"] * hours
         if self.has_furniture(land, "灵泉假山"):
@@ -330,7 +332,7 @@ class BlessedLandManager:
         
         await self.db.conn.execute(
             "UPDATE blessed_lands SET last_collect_time = ? WHERE user_id = ?",
-            (now, player.user_id)
+            (settled_until, player.user_id)
         )
         await self.db.conn.commit()
         
@@ -386,6 +388,10 @@ class BlessedLandManager:
         furniture = existing.get("furniture_list") or []
         hours_passed = (now - existing["last_collect_time"]) / 3600
         pending_hours = min(24, int(hours_passed)) if hours_passed >= 1 else 0
+        settled_until = (
+            now if hours_passed >= 24
+            else int(existing["last_collect_time"]) + pending_hours * 3600
+        )
         pending_gold = 0
         pending_exp = 0
         if pending_hours > 0:
@@ -424,7 +430,7 @@ class BlessedLandManager:
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (player.user_id, target_type, target_config["name"], initial_level,
-             target_config["exp_bonus"], target_config["gold_per_hour"], now,
+             target_config["exp_bonus"], target_config["gold_per_hour"], settled_until,
              json.dumps(furniture, ensure_ascii=False))
         )
         await self.db.conn.commit()

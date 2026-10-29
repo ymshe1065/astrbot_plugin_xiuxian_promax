@@ -178,8 +178,8 @@ class StorageRingHandler:
         args = args.strip()
         parts = args.rsplit(" ", 1)
 
-        # 解析物品名和数量
-        if len(parts) == 2 and parts[1].isdigit():
+        # 解析物品名和数量（isdigit 对 ²/① 等字符也返回 True，需限制为 ASCII 数字）
+        if len(parts) == 2 and parts[1].isascii() and parts[1].isdigit():
             item_name = parts[0]
             count = int(parts[1])
         else:
@@ -287,7 +287,7 @@ class StorageRingHandler:
         # 解析物品名和数量
         if text_content:
             parts = text_content.rsplit(" ", 1)
-            if len(parts) == 2 and parts[1].isdigit():
+            if len(parts) == 2 and parts[1].isascii() and parts[1].isdigit():
                 item_name = parts[0].strip()
                 count = int(parts[1])
             else:
@@ -466,6 +466,12 @@ class StorageRingHandler:
         """接收赠予的物品（带事务防并发）"""
         user_id = player.user_id
 
+        # 过期赠予不会自动过期删除：在事务外先退回发送者，避免物品永久卡在 pending_gifts
+        try:
+            await self.db.ext.cleanup_expired_gifts()
+        except Exception as e:
+            logger.warning(f"清理过期赠予失败: {e}")
+
         await self.db.conn.execute("BEGIN IMMEDIATE")
         try:
             # 事务内重新获取请求（不触发内部 commit 的过期清理）
@@ -532,9 +538,10 @@ class StorageRingHandler:
             if success:
                 await self.db.update_player(player, commit=False)
                 await self.db.conn.commit()
+                extra_hint = f"\n{message}" if message else ""
                 yield event.plain_result(
                     f"✅ 已接收来自【{sender_name}】的赠予！\n"
-                    f"获得：【{item_name}】x{count}"
+                    f"获得：【{item_name}】x{count}{extra_hint}"
                 )
             else:
                 # 存入失败，回滚事务（这样 pending_gift 不会被删，物品还在）
@@ -550,6 +557,11 @@ class StorageRingHandler:
     async def handle_reject_gift(self, player: Player, event: AstrMessageEvent):
         """拒绝赠予的物品（事务内完成退回与删除）"""
         user_id = player.user_id
+
+        try:
+            await self.db.ext.cleanup_expired_gifts()
+        except Exception as e:
+            logger.warning(f"清理过期赠予失败: {e}")
 
         await self.db.conn.execute("BEGIN IMMEDIATE")
         try:

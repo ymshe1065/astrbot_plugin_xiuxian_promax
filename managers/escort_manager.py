@@ -307,7 +307,7 @@ class EscortManager:
         for p, stats_item in ((attacker, attacker_stats), (target, target_stats)):
             main_pet, support_pets, pet_effects, atk = await pet_mgr.build_pet_lineup(
                 p.user_id, stats_item.max_hp, stats_item.atk,
-                stats_item.defense, p.cultivation_type,
+                stats_item.defense, p.cultivation_type, persist=False,
             )
             self.combat_mgr.apply_pet_lineup(
                 stats_item, main_pet, support_pets, pet_effects, atk
@@ -321,15 +321,8 @@ class EscortManager:
             draw_to_player2=True,
         )
 
-        for stats_item in (attacker_stats, target_stats):
-            pets = []
-            if stats_item.pet:
-                pets.append(stats_item.pet)
-            pets.extend(stats_item.support_pets or [])
-            for pet in pets:
-                await pet_mgr.save_pet_combat_state(pet)
         # 劫镖使用天道压制面板，气血/灵气会被临时拉平；
-        # 这里不能把平衡面板的残余值写回玩家真实状态。
+        # 这里不能把平衡面板的残余值写回玩家真实状态；灵兽同理不回写。
         extra = target_cd.get_extra_data() if hasattr(target_cd, "get_extra_data") else {}
         escort_gold = int(extra.get("escort_gold", 2000))
 

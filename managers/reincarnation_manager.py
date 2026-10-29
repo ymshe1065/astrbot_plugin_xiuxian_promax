@@ -203,8 +203,8 @@ class ReincarnationManager:
         if not heirloom or not heirloom.get("sealed"):
             return False, "❌ 你没有处于封印状态的传家宝。"
 
-        # 限制解封境界（筑基期 level_index >= 3）
-        if player.level_index < 3:
+        # 限制解封境界（筑基期 level_index >= 10）
+        if player.level_index < 10:
             return False, "❌ 解封传家宝需要至少达到【筑基期】！请继续努力修行。"
             
         heirloom_name = heirloom.get("name")

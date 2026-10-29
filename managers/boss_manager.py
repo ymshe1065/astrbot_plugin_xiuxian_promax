@@ -21,13 +21,13 @@ class BossManager:
     
     BOSS_LEVELS = [
         {"name": "练气", "level_index": 0, "hp_mult": 1.0, "atk_mult": 1.0, "reward_mult": 1.0},
-        {"name": "筑基", "level_index": 3, "hp_mult": 1.5, "atk_mult": 1.2, "reward_mult": 1.5},
-        {"name": "金丹", "level_index": 6, "hp_mult": 2.0, "atk_mult": 1.5, "reward_mult": 2.0},
-        {"name": "元婴", "level_index": 9, "hp_mult": 2.5, "atk_mult": 1.8, "reward_mult": 2.5},
-        {"name": "化神", "level_index": 12, "hp_mult": 3.0, "atk_mult": 2.0, "reward_mult": 3.0},
-        {"name": "炼虚", "level_index": 15, "hp_mult": 4.0, "atk_mult": 2.5, "reward_mult": 4.0},
-        {"name": "合体", "level_index": 18, "hp_mult": 5.0, "atk_mult": 3.0, "reward_mult": 5.0},
-        {"name": "大乘", "level_index": 21, "hp_mult": 6.0, "atk_mult": 3.5, "reward_mult": 6.0},
+        {"name": "筑基", "level_index": 10, "hp_mult": 1.5, "atk_mult": 1.2, "reward_mult": 1.5},
+        {"name": "金丹", "level_index": 13, "hp_mult": 2.0, "atk_mult": 1.5, "reward_mult": 2.0},
+        {"name": "元婴", "level_index": 16, "hp_mult": 2.5, "atk_mult": 1.8, "reward_mult": 2.5},
+        {"name": "化神", "level_index": 19, "hp_mult": 3.0, "atk_mult": 2.0, "reward_mult": 3.0},
+        {"name": "炼虚", "level_index": 22, "hp_mult": 4.0, "atk_mult": 2.5, "reward_mult": 4.0},
+        {"name": "合体", "level_index": 25, "hp_mult": 5.0, "atk_mult": 3.0, "reward_mult": 5.0},
+        {"name": "大乘", "level_index": 28, "hp_mult": 6.0, "atk_mult": 3.5, "reward_mult": 6.0},
     ]
     
     BOSS_NAMES = [
@@ -179,7 +179,7 @@ class BossManager:
         stone_reward = int(base_exp * reward_mult // 10)
         
         defense = 0
-        if level_config["level_index"] >= 15:
+        if level_config["level_index"] >= 22:
             defense = random.randint(40, 90)
         archetype = self.pick_archetype()
         archetype_cfg = self.get_archetype(archetype)
@@ -467,9 +467,9 @@ HP：{boss.hp}/{boss.max_hp} ({hp_percent:.1f}%)
                 boss_level_index = level["level_index"]
                 break
         
-        if boss_level_index <= 6:
+        if boss_level_index <= 13:
             drop_table = self.BOSS_DROP_TABLE["low"]
-        elif boss_level_index <= 12:
+        elif boss_level_index <= 19:
             drop_table = self.BOSS_DROP_TABLE["mid"]
         else:
             drop_table = self.BOSS_DROP_TABLE["high"]
@@ -485,8 +485,8 @@ HP：{boss.hp}/{boss.max_hp} ({hp_percent:.1f}%)
                 dropped_items.append((item["name"], count))
                 break
         
-        if boss_level_index >= 9:
-            extra_chance = 50 if boss_level_index < 15 else 70
+        if boss_level_index >= 16:
+            extra_chance = 50 if boss_level_index < 22 else 70
             if random.randint(1, 100) <= extra_chance:
                 roll = random.randint(1, total_weight)
                 current_weight = 0

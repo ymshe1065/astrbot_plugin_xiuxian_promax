@@ -444,7 +444,12 @@ class AuctionManager:
                     continue
 
                 rate = random.uniform(self.npc_min_rate, self.npc_max_rate)
-                offer_price = max(1, int(round(item["price"] * rate)))
+                # 问价以标准价值为上限，避免卖家挂高价后由 NPC 接盘套利
+                standard = self._standard_unit_price(item)
+                base_price = int(item["price"])
+                if standard > 0:
+                    base_price = min(base_price, standard)
+                offer_price = max(1, int(round(base_price * rate)))
                 npc_name = random.choice(self.NPC_NAMES)
                 await self.db.conn.execute(
                     """INSERT INTO auction_npc_offers

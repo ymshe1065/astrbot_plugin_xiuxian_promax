@@ -60,8 +60,12 @@ class SpiritFarmHandlers:
                     if not rows:
                         rows.append(("（空地）", "可种植"))
                     season_rows = []
-                    if hasattr(self.mgr, "get_current_season"):
-                        season_rows.append(("当前季节", f"{self.mgr.get_current_season()['icon']} {self.mgr.get_current_season()['name']}"))
+                    try:
+                        from ..managers.spirit_farm_manager import get_current_season
+                        season = get_current_season()
+                        season_rows.append(("当前季节", f"{season['icon']} {season['name']}"))
+                    except Exception:
+                        pass
                     next_level, next_herbs = get_next_unlock(farm_level)
                     unlock_rows = [("下一档解锁", f"Lv.{next_level} " + "、".join(next_herbs))] if next_level else []
                     card_path = await render_card_async(

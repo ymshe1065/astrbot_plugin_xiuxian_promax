@@ -344,10 +344,13 @@ class ShopHandler:
             if m:
                 part = m.group(1).strip()
                 qty_str = m.group(2) or m.group(3)
-                return part, max(1, int(qty_str))
+                return part, int(qty_str)
             return text.strip(), 1
 
         item_part, quantity = parse_qty(normalized)
+        if quantity <= 0:
+            yield event.plain_result("❌ 购买数量必须大于 0。")
+            return
 
         if quantity == 1:
             try:
@@ -366,6 +369,10 @@ class ShopHandler:
                     item_part, quantity = parsed_name, parsed_qty
             except Exception:
                 pass
+
+        if quantity <= 0:
+            yield event.plain_result("❌ 购买数量必须大于 0。")
+            return
 
         item_name = item_part
 

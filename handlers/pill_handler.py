@@ -177,6 +177,7 @@ class PillHandler:
             info_lines.append(f"价格：{price} 灵石")
 
         # 效果描述
+        subtype = str(pill_data.get('subtype', '') or '')
         effect_type = pill_data.get('effect_type', '')
         if effect_type or pill_data.get("effect") or subtype:
             info_lines.append(f"\n【效果】")

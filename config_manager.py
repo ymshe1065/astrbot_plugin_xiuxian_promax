@@ -328,6 +328,8 @@ class ConfigManager:
     def get_item_price(self, item_name: str) -> int:
         """统一价格入口：配置价优先，缺失时按品级回退。"""
         cfg = self.get_item_config(item_name) or {}
+        if not cfg:
+            cfg = self.get_material_info(item_name)
         try:
             price = int(cfg.get("price", 0) or 0)
         except (TypeError, ValueError):

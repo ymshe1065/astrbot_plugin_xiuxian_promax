@@ -316,6 +316,7 @@ class XiuXianPlugin(Star):
         from .managers.title_hooks import TitleHooks
         self.title_hooks = TitleHooks(self.db)
         self.title_mgr = self.title_hooks._tm()
+        self.player_handler.title_hooks = self.title_hooks
         self.world_boss_mgr.title_mgr = self.title_mgr
         self.raid_mgr.title_mgr = self.title_mgr
 
@@ -1630,8 +1631,8 @@ class XiuXianPlugin(Star):
                 yield event.plain_result(tmsg)
             player = await self.db.get_player_by_id(user_id)
             if player:
+                # 同一悬赏模板同时含 spar/pvp，单次切磋只能推进 1 点
                 await self.bounty_mgr.add_bounty_progress(player, "spar", 1)
-                await self.bounty_mgr.add_bounty_progress(player, "pvp", 1)
 
     @filter.command(CMD_SPAR_REJECT, "拒绝切磋")
     @require_whitelist
@@ -2076,8 +2077,8 @@ class XiuXianPlugin(Star):
             # 悬赏联动（boss_damage/tide tag）
             player = await self.db.get_player_by_id(user_id)
             if player:
+                # 同一悬赏模板同时含 tide/boss_damage，单次战斗只能推进 1 点
                 await self.bounty_mgr.add_bounty_progress(player, "boss_damage", 1)
-                await self.bounty_mgr.add_bounty_progress(player, "tide", 1)
         # 击杀结算全服广播（排名奖励公示）
         settle_msg = get_event_flag(event, "world_boss_settle_msg", None)
         if settle_msg:
@@ -2107,8 +2108,8 @@ class XiuXianPlugin(Star):
             await self._title_bump(user_id, "boss_damage")
             player = await self.db.get_player_by_id(user_id)
             if player:
+                # 同一悬赏模板同时含 tide/boss_damage，单次战斗只能推进 1 点
                 await self.bounty_mgr.add_bounty_progress(player, "boss_damage", 1)
-                await self.bounty_mgr.add_bounty_progress(player, "tide", 1)
         if get_event_flag(event, "battle_event_kill", False):
             await self._title_bump(user_id, "boss_kill_old")
         settle_msg = get_event_flag(event, "battle_event_settle_msg", None)
@@ -2175,8 +2176,8 @@ class XiuXianPlugin(Star):
             await self._title_bump(user_id, "boss_damage")
             player = await self.db.get_player_by_id(user_id)
             if player:
+                # 同一悬赏模板同时含 tide/boss_damage，单次战斗只能推进 1 点
                 await self.bounty_mgr.add_bounty_progress(player, "boss_damage", 1)
-                await self.bounty_mgr.add_bounty_progress(player, "tide", 1)
         broadcast_msg = get_event_flag(event, "raid_broadcast_msg", None)
         if broadcast_msg:
             await self._broadcast_world_boss_spawn(broadcast_msg)
@@ -2283,13 +2284,6 @@ class XiuXianPlugin(Star):
         player = await self.db.get_player_by_id(user_id)
         if not player:
             yield event.plain_result("❌ 道友尚未踏入仙途，请先发送「我要修仙」。")
-            return
-
-        # 检查是否处于忙碌状态
-        user_cd = await self.db.ext.get_user_cd(user_id)
-        if user_cd and user_cd.type != UserStatus.IDLE:
-            status_name = UserStatus.get_name(user_cd.type)
-            yield event.plain_result(f"❌ 道友当前正「{status_name}」，无法分心打理日常。")
             return
 
         details = []

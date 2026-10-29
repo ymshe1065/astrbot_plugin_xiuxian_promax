@@ -364,11 +364,14 @@ class AutoProxyManager:
         farm_cfg["exclude"] = []
         farm_cfg["tasks"] = farm_cfg.get("tasks") if isinstance(farm_cfg.get("tasks"), dict) else {}
         origin = origin or row.get("origin", "")
-        await self._write_state(user_id, True, row.get("task_type", ""), origin, "", config)
+        # 只保留当前正在进行的押镖/宗门任务，避免旧的 task_type 在仅开启灵田代理时被自动续接
+        cd = await self.db.ext.get_user_cd(user_id)
+        active_task = STATUS_TASK.get(cd.type) if cd else ""
+        await self._write_state(user_id, True, active_task or "", origin, "", config)
 
         changed, cycle_msg, config_dirty = await self._run_farm_cycle(user_id, await self.db.get_player_by_id(user_id), config)
         if changed or config_dirty:
-            await self._write_state(user_id, True, row.get("task_type", ""), origin, "", config)
+            await self._write_state(user_id, True, active_task or "", origin, "", config)
 
         header = (
             "🤖 灵田代理已开启\n"

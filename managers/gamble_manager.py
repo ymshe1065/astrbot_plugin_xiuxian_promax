@@ -277,12 +277,36 @@ class GambleManager:
         msg.append("💡 使用 `/黑市购买 <编号>`，真假自负！")
         return True, "\n".join(msg)
 
+    async def _black_market_purchase_key(self, user_id: str) -> str:
+        return f"black_market_bought_{int(time.time()) // 3600}_{user_id}"
+
+    async def _black_market_bought(self, user_id: str) -> set:
+        try:
+            raw = await self.db.ext.get_system_config(
+                await self._black_market_purchase_key(user_id)
+            )
+            data = json.loads(raw) if raw else []
+            return {int(x) for x in data} if isinstance(data, list) else set()
+        except Exception:
+            return set()
+
+    async def _mark_black_market_bought(self, user_id: str, index: int) -> None:
+        bought = await self._black_market_bought(user_id)
+        bought.add(int(index))
+        await self.db.ext.set_system_config(
+            await self._black_market_purchase_key(user_id),
+            json.dumps(sorted(bought)),
+        )
+
     async def buy_black_market(self, player: Player, index: int) -> Tuple[bool, str]:
-        """购买当前小时的黑市商品。"""
+        """购买当前小时的黑市商品（每人每小时每件限购 1 次）。"""
         items, _ = self._get_black_market_items()
 
         if index < 1 or index > len(items):
             return False, "❌ 无效的商品编号。"
+
+        if index in await self._black_market_bought(player.user_id):
+            return False, "❌ 本小时你已经买过这件商品了，请等待下次刷新。"
 
         target = items[index - 1]
         if player.gold < target["price"]:
@@ -293,6 +317,7 @@ class GambleManager:
             penalty_hp = int(player.hp * 0.2) if player.hp > 0 else 0
             player.hp = max(1, player.hp - penalty_hp)
             await self.db.update_player(player)
+            await self._mark_black_market_bought(player.user_id, index)
             return True, (
                 f"🤢 你买下了【{target['name']}】，结果发现是个假货！\n"
                 f"你被毒气所伤，损失了 {penalty_hp} 点气血。"
@@ -318,6 +343,7 @@ class GambleManager:
             inventory[pill_key] = inventory.get(pill_key, 0) + 1
             player.set_pills_inventory(inventory)
             await self.db.update_player(player)
+            await self._mark_black_market_bought(player.user_id, index)
             return True, (
                 f"✅ 交易成功！你获得了【{target['name']}】x1，已放入丹药背包。\n"
                 f"消耗灵石：{target['price']:,}"
@@ -336,6 +362,7 @@ class GambleManager:
                 f"灵石已退回：{target['price']:,}"
             )
 
+        await self._mark_black_market_bought(player.user_id, index)
         return True, (
             f"✅ 交易成功！你获得了【{target['name']}】x1，已存入储物戒。\n"
             f"消耗灵石：{target['price']:,}"

@@ -96,6 +96,7 @@ class DemonInvasionManager:
         self,
         reward_demons: bool,
         demon_ids: Optional[List[str]] = None,
+        exclude_ids: Optional[List[str]] = None,
     ) -> Tuple[bool, str]:
         is_active = await self.db.ext.get_system_config("demon_invasion_active")
         if is_active != "1":
@@ -114,7 +115,7 @@ class DemonInvasionManager:
                 await self.db.add_player_gold(uid, self.DEMON_REWARD)
 
         all_players = await self.db.get_all_players()
-        demon_set = set(demon_ids)
+        demon_set = set(demon_ids) | set(exclude_ids or [])
         for p in all_players:
             if p.user_id not in demon_set:
                 await self.db.add_player_gold(p.user_id, self.MORTAL_REWARD)
@@ -173,13 +174,14 @@ class DemonInvasionManager:
                     "你遭到天道反噬，气血减半，照妖镜碎裂。"
                 )
 
+            original_demon_ids = list(demon_ids)
             demon_ids.remove(target_id)
             await self.db.add_player_gold(player.user_id, self.CATCH_REWARD)
             await self.db.scale_player_exp(target_id, 0.8)
 
             if not demon_ids:
                 settlement_msg = await self._finish_locked(
-                    reward_demons=False, demon_ids=[]
+                    reward_demons=False, demon_ids=[], exclude_ids=original_demon_ids
                 )
                 if settlement_msg[0]:
                     await self.db.ext.set_system_config("demon_invasion_list", "[]")

@@ -1078,7 +1078,7 @@ class SectManager:
         effects = stats.effects or {}
         pet_mgr = PetManager(self.db)
         main_pet, support_pets, pet_effects, atk = await pet_mgr.build_pet_lineup(
-            user_id, stats.hp, stats.atk, stats.defense,
+            user_id, stats.max_hp, stats.atk, stats.defense,
             player.cultivation_type, persist=persist_pets,
         )
         CombatManager.apply_pet_lineup(

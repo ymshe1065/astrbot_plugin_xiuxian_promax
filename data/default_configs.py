@@ -2,20 +2,20 @@
 
 SECT_CONFIG = {
     "create_cost": 10000,
-    "create_level_required": 3, # 筑基
+    "create_level_required": 10, # 筑基
 }
 
 BOSS_CONFIG = {
     "spawn_interval": 3600,
     "levels": [
         {"name": "练气", "level_index": 0, "hp_mult": 1.0, "atk_mult": 1.0, "reward_mult": 1.0},
-        {"name": "筑基", "level_index": 3, "hp_mult": 1.5, "atk_mult": 1.2, "reward_mult": 1.5},
-        {"name": "金丹", "level_index": 6, "hp_mult": 2.0, "atk_mult": 1.5, "reward_mult": 2.0},
-        {"name": "元婴", "level_index": 9, "hp_mult": 2.5, "atk_mult": 1.8, "reward_mult": 2.5},
-        {"name": "化神", "level_index": 12, "hp_mult": 3.0, "atk_mult": 2.0, "reward_mult": 3.0},
-        {"name": "炼虚", "level_index": 15, "hp_mult": 4.0, "atk_mult": 2.5, "reward_mult": 4.0},
-        {"name": "合体", "level_index": 18, "hp_mult": 5.0, "atk_mult": 3.0, "reward_mult": 5.0},
-        {"name": "大乘", "level_index": 21, "hp_mult": 6.0, "atk_mult": 3.5, "reward_mult": 6.0},
+        {"name": "筑基", "level_index": 10, "hp_mult": 1.5, "atk_mult": 1.2, "reward_mult": 1.5},
+        {"name": "金丹", "level_index": 13, "hp_mult": 2.0, "atk_mult": 1.5, "reward_mult": 2.0},
+        {"name": "元婴", "level_index": 16, "hp_mult": 2.5, "atk_mult": 1.8, "reward_mult": 2.5},
+        {"name": "化神", "level_index": 19, "hp_mult": 3.0, "atk_mult": 2.0, "reward_mult": 3.0},
+        {"name": "炼虚", "level_index": 22, "hp_mult": 4.0, "atk_mult": 2.5, "reward_mult": 4.0},
+        {"name": "合体", "level_index": 25, "hp_mult": 5.0, "atk_mult": 3.0, "reward_mult": 5.0},
+        {"name": "大乘", "level_index": 28, "hp_mult": 6.0, "atk_mult": 3.5, "reward_mult": 6.0},
     ],
     "world_boss": {
         "min_level": 3,

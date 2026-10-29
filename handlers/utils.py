@@ -48,7 +48,7 @@ BUSY_STATE_ALLOWED_COMMANDS = [
     "秘境列表", "历练信息", "传承信息", "坊市",
     "宗门列表", "宗门命令列表", "宗门大比状态", "宗门战争状态", "宗门战报", "宗门建筑",
     "悬赏令", "银行流水", "仙缘商店", "搜索物品",
-    "团本状态", "世界团本", "符箓", "季节", "仙界日历", "师徒",
+    "团本状态", "世界团本", "符箓", "季节", "仙界日历", "师徒", "奇遇选择",
     "称号图鉴", "我的称号", "一键日常", "修仙诊断",
     
     # 收菜与领奖（不打架，纯收益）
@@ -82,11 +82,12 @@ BUSY_STATE_ALLOWED_COMMANDS = [
     "调息", "收功", "服用丹药", "丹药背包",
 ]
 
-# 受伤时禁止行动类指令
+# 受伤时禁止行动类指令（使用完整指令名 + 精确匹配，避免“团本”误伤“团本状态”）
 INJURED_BLOCKED_COMMANDS = (
-    "押镖", "劫镖", "切磋", "接受切磋", "决斗", "挑战Boss", "挑战世界Boss",
-    "历练", "开始历练", "探索秘境", "开始探索", "进入秘境",
-    "宗门任务", "接取宗门任务", "宗门大比", "报名宗门大比", "团本",
+    "押镖", "劫镖", "切磋", "决斗", "挑战Boss", "挑战世界Boss",
+    "开始历练", "探索秘境", "开始探索", "进入秘境",
+    "接取宗门任务", "宗门大比开启", "宗门大比报名",
+    "挑战团本", "讨伐", "追捕", "挑战通缉犯",
     "传承挑战", "闭关",
 )
 
@@ -151,10 +152,9 @@ def with_player_lock(func: Callable[..., Coroutine[any, any, AsyncGenerator[any,
                 if config_manager is not None:
                     recovery = RecoveryManager(self.db, config_manager)
                     await recovery.apply_lazy_recovery(player)
-                command_text = _normalize_command_text(event.get_message_str())
                 if (
                     recovery is not None
-                    and command_text.startswith(INJURED_BLOCKED_COMMANDS)
+                    and _is_command_allowed(event.get_message_str(), list(INJURED_BLOCKED_COMMANDS))
                     and await recovery.is_injured(player)
                 ):
                     yield event.plain_result(
@@ -185,9 +185,17 @@ def idle_player_lock(func: Callable[..., Coroutine[any, any, AsyncGenerator[any,
                 from ..managers.recovery_manager import RecoveryManager
                 config_manager = _handler_config_manager(self)
                 if config_manager is not None:
-                    await RecoveryManager(
-                        self.db, config_manager
-                    ).apply_lazy_recovery(player)
+                    recovery = RecoveryManager(self.db, config_manager)
+                    await recovery.apply_lazy_recovery(player)
+                    if (
+                        _is_command_allowed(event.get_message_str(), list(INJURED_BLOCKED_COMMANDS))
+                        and await recovery.is_injured(player)
+                    ):
+                        yield event.plain_result(
+                            "❌ 你当前身受重伤，气血不足 20%，无法进行此项行动。\n"
+                            "💡 请先 /调息 或服用回春散恢复气血。"
+                        )
+                        return
             except Exception:
                 pass
             user_cd = await self.db.ext.get_user_cd(player.user_id)
@@ -254,8 +262,8 @@ def player_required(func: Callable[..., Coroutine[any, any, AsyncGenerator[any, 
             command_text = _normalize_command_text(message_text)
             bypass_busy = command_text.startswith(BUSY_BYPASS_COMMANDS)
 
-            # 低气血受伤状态：禁止行动类指令
-            if injured and command_text.startswith(INJURED_BLOCKED_COMMANDS):
+            # 低气血受伤状态：禁止行动类指令（精确匹配完整指令名）
+            if injured and _is_command_allowed(message_text, list(INJURED_BLOCKED_COMMANDS)):
                 yield event.plain_result(
                     "❌ 你当前身受重伤，气血不足 20%，无法进行此项行动。\n"
                     "💡 请先 /调息 或服用回春散恢复气血。"

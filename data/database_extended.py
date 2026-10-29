@@ -1155,17 +1155,20 @@ class DatabaseExtended:
 
         # ===== v6.1 日常任务 CRUD =====
     
-    async def get_user_active_tasks(self, user_id: str) -> List[dict]:
-        """获取用户当前进行中的任务（顺带清理已过期任务，避免占用每日接取上限）"""
+    async def get_user_active_tasks(self, user_id: str, include_completed: bool = False) -> List[dict]:
+        """获取用户当前任务（默认仅进行中；include_completed=True 时含已完成待领取）"""
         import time as _time
         await self.conn.execute(
             "UPDATE daily_tasks SET status = 3 WHERE user_id = ? AND status = 1 AND expire_time < ?",
             (user_id, int(_time.time()))
         )
         await self.conn.commit()
+        statuses = (1, 2) if include_completed else (1,)
+        placeholders = ", ".join("?" for _ in statuses)
         async with self.conn.execute(
-            "SELECT * FROM daily_tasks WHERE user_id = ? AND status = 1 AND expire_time > ? ORDER BY task_level DESC",
-            (user_id, int(_time.time()))
+            f"SELECT * FROM daily_tasks WHERE user_id = ? AND status IN ({placeholders}) "
+            "AND expire_time > ? ORDER BY task_level DESC",
+            (user_id, *statuses, int(_time.time()))
         ) as cursor:
             rows = await cursor.fetchall()
             return [dict(row) for row in rows]

@@ -71,20 +71,21 @@ class DailyTaskManager:
 
     async def show_board(self, player: Player) -> str:
         """任务榜 v2：今日可接任务（随机池）+ 已接任务进度"""
-        active_tasks = await self.db.ext.get_user_active_tasks(player.user_id)
+        active_tasks = await self.db.ext.get_user_active_tasks(player.user_id, include_completed=True)
 
         msg = ["📋 天道任务榜", "━━━━━━━━━━━━━━━"]
 
-        # 已接任务
+        # 已接任务（含已完成待领取，编号用于 /放弃任务）
         if active_tasks:
             msg.append("【进行中】")
             for t in active_tasks:
                 status_str = "✅ 已完成待领取" if t["status"] == 2 else f"进度：{t['current_progress']}/{t['target_count']}"
-                msg.append(f"[{t['task_level']}阶] {t['title']} - {status_str}")
+                msg.append(f"#{t['id']} [{t['task_level']}阶] {t['title']} - {status_str}")
         else:
             msg.append("【进行中】暂无。")
 
-        # 今日可接（每品阶随机 3 个）
+        # 今日可接（每品阶随机 3 个）；已接取/已完成的标题不再重复展示
+        done_titles = {t["title"] for t in active_tasks}
         msg.append("")
         msg.append("【今日可接】（每人每日随机，明早刷新）")
         for level in self.LEVEL_LIMITS:
@@ -93,7 +94,8 @@ class DailyTaskManager:
             if active_count >= max_limit:
                 msg.append(f"  [{level}阶] 今日该品阶名额已满（{max_limit}）")
                 continue
-            pool = self.get_daily_pool(player.user_id, level)
+            pool = [(i, t) for i, t in self.get_daily_pool(player.user_id, level)
+                    if t["title"] not in done_titles]
             if pool:
                 names = " / ".join(t["title"] for _, t in pool)
                 msg.append(f"  [{level}阶] {names}")
@@ -114,7 +116,7 @@ class DailyTaskManager:
         if level == "黄": materials = [{"name": "灵草", "count": 3}]
         elif level == "玄": materials = [{"name": "玄铁", "count": 2}]
         elif level == "地": materials = [{"name": "洗练石", "count": 1}]
-        elif level == "天": materials = [{"name": "极品洗练石", "count": 1}]
+        elif level == "天": materials = [{"name": "混元铁", "count": 1}]
 
         return {"exp": exp, "gold": gold, "materials": materials}
 

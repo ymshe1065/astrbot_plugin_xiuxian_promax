@@ -331,7 +331,7 @@ class SocialManager:
             f"━━━━━━━━━━━━━━━\n"
             f"你跪奉茶盏，正式拜【{master.user_name or master_id[:8]}】为师！\n"
             f"💡 师父在你每次突破时获得师德点（可在 /师德商店 兑换奖励）\n"
-            f"💡 当你达到筑基期（境界3）后，师父可用 /出师 为你出师，双方获大礼"
+            f"💡 当你达到筑基期（境界10）后，师父可用 /出师 为你出师，双方获大礼"
         )
 
     async def on_disciple_breakthrough(self, disciple_id: str) -> Tuple[bool, str]:
@@ -349,19 +349,19 @@ class SocialManager:
         if not master:
             return False, ""
         mname = master.user_name or rel["master_id"][:8]
-        return True, f"\n🎓 你的突破令师父【{mname}】欣喜，师德 +{gain}（当前 {master.virtue_points + gain}）"
+        return True, f"\n🎓 你的突破令师父【{mname}】欣喜，师德 +{gain}（当前 {master.virtue_points}）"
 
     async def graduate_disciple(self, master: Player, disciple_id: str) -> Tuple[bool, str]:
-        """出师（师父操作，徒弟需境界≥3）"""
+        """出师（师父操作，徒弟需境界≥10）"""
         rel = await self.get_master_of(disciple_id)
         if not rel or rel["master_id"] != master.user_id:
             return False, "❌ 对方不是你的在学弟子。"
         d = await self.db.get_player_by_id(disciple_id)
         if not d:
             return False, "❌ 弟子数据异常。"
-        if d.level_index < 3:
+        if d.level_index < 10:
             dn = d.user_name or disciple_id[:8]
-            return False, f"❌ 弟子【{dn}】尚未达到筑基期（境界3），尚需打磨。"
+            return False, f"❌ 弟子【{dn}】尚未达到筑基期（境界10），尚需打磨。"
         # 奖励双方
         d_reward_gold, d_reward_exp = 30000, 20000
         m_reward_gold = 20000

@@ -19,6 +19,7 @@ class CalamityManager:
     KEY_TARGET = "tide_target"
     KEY_PROGRESS = "tide_progress"
     KEY_AFTERMATH = "tide_aftermath_until"
+    KEY_SCALE = "tide_scale"
     DEBUFF_RATE = 0.20
     MIN_HOURS = 1
     MAX_HOURS = 48
@@ -49,7 +50,7 @@ class CalamityManager:
         except (TypeError, ValueError):
             return False
 
-    async def start_tide(self, hours: int = 12) -> Tuple[bool, str]:
+    async def start_tide(self, hours: int = 12, scale: str = "manual") -> Tuple[bool, str]:
         """管理员开启魔潮"""
         hours = self._normalize_hours(hours)
 
@@ -80,6 +81,7 @@ class CalamityManager:
                 await self.db.ext.set_system_config(self.KEY_END, str(end_time))
                 await self.db.ext.set_system_config(self.KEY_TARGET, str(target))
                 await self.db.ext.set_system_config(self.KEY_PROGRESS, "0")
+                await self.db.ext.set_system_config(self.KEY_SCALE, scale or "manual")
                 await self.db.ext.set_system_config(
                     f"tide_auto_{time.strftime('%Y%m%d')}", "1"
                 )
@@ -238,6 +240,7 @@ class CalamityManager:
         await self.db.ext.set_system_config(self.KEY_PROGRESS, "0")
         await self.db.ext.set_system_config(self.KEY_END, "0")
         await self.db.ext.set_system_config(self.KEY_TARGET, "0")
+        await self.db.ext.set_system_config(self.KEY_SCALE, "")
         await self.event_mgr.release(GlobalEventManager.EVENT_TIDE)
 
         return True, (
@@ -285,6 +288,7 @@ class CalamityManager:
         await self.db.ext.set_system_config(self.KEY_PROGRESS, "0")
         await self.db.ext.set_system_config(self.KEY_END, "0")
         await self.db.ext.set_system_config(self.KEY_TARGET, "0")
+        await self.db.ext.set_system_config(self.KEY_SCALE, "")
         await self.event_mgr.release(GlobalEventManager.EVENT_TIDE)
 
         return True, (
@@ -323,7 +327,8 @@ class CalamityManager:
             return False, ""
 
         hours = 8 if is_first_of_month else 5
-        ok, msg = await self.start_tide(hours)
+        scale = "month" if is_first_of_month else "sat"
+        ok, msg = await self.start_tide(hours, scale=scale)
         if ok:
             scale = "大魔潮（月初·8小时）" if is_first_of_month else "魔潮（周六·5小时）"
             return True, f"🌑【天道自动警示】{scale}降临！\n{msg}"
@@ -352,9 +357,12 @@ class CalamityManager:
 
         tide_active = await self.is_tide_active()
         aftermath = await self.is_aftermath()
+        tide_scale = (await self._get(self.KEY_SCALE)) if tide_active else ""
+        if tide_active and not tide_scale:
+            tide_scale = "month" if local.tm_mday == 1 else ("sat" if local.tm_wday == 5 else "manual")
 
-        sat_text = "进行中" if tide_active else sat_when
-        month_text = "进行中" if tide_active else month_when
+        sat_text = "进行中" if tide_active and tide_scale == "sat" else sat_when
+        month_text = "进行中" if tide_active and tide_scale == "month" else month_when
 
         lines = [
             "📅 仙界日历",

@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v6.39.1 (历练时长优化)
+# AstrBot 插件：模拟修仙 v6.39.2 (全量 BUG 修复)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v6.39.1-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v6.39.2-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.25.1 · **游戏版本:** v6.39.1 · **数据库:** v49
+> **插件版本:** v3.25.2 · **游戏版本:** v6.39.2 · **数据库:** v49
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，222 条帮助指令 / 222 条注册指令、16 个大系统、110 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,23 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · v6.39.1</b></summary>
+<summary><b>本次更新 · v6.39.2</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 指令稳定性 | 修复 `/丹药信息` 与图片渐变兜底分支的未定义变量崩溃；修正重伤/忙碌拦截、签到称号计数与节日奖励功法加成。 |
+| 战斗结算 | 修正宗门战灵兽气血基准、劫镖天道压制后灵兽状态回写、世界 Boss 补结算消息重复广播；Boss 境界档位与掉落档位对齐 36 级境界表。 |
+| 经济交易 | 修复 `/购买 物品 0` 强制买 1 件、黑市同商品无限回购、坊市 NPC 高价接盘套利；洞天/灵眼收取保留不足 1 小时余数。 |
+| 物品与奖励 | 清理 4 条与丹药配置重名且低价出售的遗留物品，替换节日/天阶日常中的幽灵奖励，补齐材料目录价格兜底。 |
+| 任务社交 | 修复已完成任务不展示、创建宗门/出师/解封传家宝门槛仍按旧境界索引、师德提示重复计数、天魔全灭后仍领正道安慰奖。 |
+| 洞天代理 | 修复仅开启灵田代理时继承旧押镖/宗门目标、储物戒容量检查、过期赠予回收与溢出仓库提示。 |
+| 秘境事务 | 秘境结算改为单事务提交，奖励、掉落、灵兽奇遇与清空 CD 原子生效，避免中断后重复领取。 |
+| 帮助同步 | `/修仙帮助` 与版本号同步更新至 v6.39.2，本次无新增指令与数据库结构变更。 |
+
+</details>
+
+<details>
+<summary><b>v6.39.1 · 历练时长优化</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |

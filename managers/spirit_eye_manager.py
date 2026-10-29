@@ -147,10 +147,11 @@ class SpiritEyeManager:
         player.experience += exp_income
         await self.db.update_player(player)
         
-        # 更新last_collect_time
+        # 未达上限时保留不足1小时的余数；达到24小时上限时按当前时间结算
+        next_collect = now if hours >= 24 else last_collect + hours * 3600
         await self.db.conn.execute(
             "UPDATE spirit_eyes SET last_collect_time = ? WHERE owner_id = ?",
-            (now, player.user_id)
+            (next_collect, player.user_id)
         )
         await self.db.conn.commit()
         
@@ -188,11 +189,16 @@ class SpiritEyeManager:
         
         if my_eye:
             now = int(time.time())
-            hours = (now - (my_eye.get("last_collect_time") or my_eye.get("claim_time", now))) / 3600
-            pending = int(min(24, hours) * my_eye["exp_per_hour"])
+            last_collect = my_eye.get("last_collect_time") or my_eye.get("claim_time", now)
+            hours_passed = (now - last_collect) / 3600
+            pending_hours = min(24, int(max(0, hours_passed)))
+            pending = pending_hours * my_eye["exp_per_hour"]
             lines.append(f"【我的灵眼】{my_eye['eye_name']}")
             lines.append(f"每小时：+{my_eye['exp_per_hour']:,} 修为")
-            lines.append(f"待收取：约 +{pending:,} 修为")
+            lines.append(f"待收取：约 +{pending:,} 修为（{pending_hours} 小时）")
+            if hours_passed < 1:
+                remaining = max(0, int(3600 - (now - last_collect)))
+                lines.append(f"⏳ 收取冷却中，还需 {(remaining + 59) // 60} 分钟")
             lines.append("")
         
         if available:

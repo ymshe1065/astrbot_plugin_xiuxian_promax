@@ -672,8 +672,18 @@ class PetManager:
         if slot is None:
             return False, "❌ 灵兽槽位数据异常，请先整理灵兽栏后再试。"
 
+        # 御兽首次契约免费必须是一次性标记，不能只看“当前没有灵兽”：
+        # 否则放生/吞噬后灵兽数归零，可反复免费契约再吞噬刷灵石/修为。
+        free_flag_key = f"pet_first_free_{player.user_id}"
+        first_free_used = False
+        try:
+            first_free_used = bool(await self.db.ext.get_system_config(free_flag_key))
+        except Exception:
+            first_free_used = False
         is_first_yusou = (
-            getattr(player, "cultivation_type", "") == "御兽" and not pets
+            getattr(player, "cultivation_type", "") == "御兽"
+            and not pets
+            and not first_free_used
         )
         cost = 0 if is_first_yusou else 100000
         if player.gold < cost:
@@ -707,6 +717,11 @@ class PetManager:
             ),
         )
         await self.db.conn.commit()
+        if is_first_yusou:
+            try:
+                await self.db.ext.set_system_config(free_flag_key, "1")
+            except Exception:
+                pass
 
         pet_info = self.PET_TYPES[pet_name]
         chain = self.PET_EVOLUTIONS.get(pet_name, [])
@@ -872,6 +887,8 @@ class PetManager:
             return False, "❌ 新名字不能为空。"
         if len(new_name) > 16:
             return False, "❌ 名字最多 16 个字符。"
+        if new_name.isascii() and new_name.isdigit():
+            return False, "❌ 名字不能是纯数字，否则会与灵兽序号混淆。"
         pets = await self._query_pets(user_id)
         target = next((p for p in pets if int(p.get("id") or 0) == int(pet_id)), None)
         if not target:

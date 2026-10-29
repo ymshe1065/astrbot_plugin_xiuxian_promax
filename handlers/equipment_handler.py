@@ -97,7 +97,8 @@ class EquipmentHandler:
         # 同部位槽位：戒指有两个，其余部位唯一
         mapping = player.get_equipped_instances()
         slots = ["ring1", "ring2"] if item_type == "ring" else [ItemRules.SLOT_BY_TYPE.get(item_type, "")]
-        slots = [slot for slot in slots if slot]
+        # 装备系统内部用 armor 作为甲胄槽键，SLOT_BY_TYPE 里的 body 仅用于兼容旧名
+        slots = ["armor" if slot == "body" else slot for slot in slots if slot]
         equipped = []
         empty_slots = []
         for slot in slots:

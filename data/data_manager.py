@@ -406,6 +406,9 @@ class DataBase:
         except Exception as e:
             logger.warning(f"[delete_player_cascade] 宗门交接失败: {e}")
 
+        escaped_uid = (
+            str(user_id).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        )
         statements = [
             ("UPDATE spirit_eyes SET owner_id = NULL, owner_name = NULL, claim_time = NULL, last_collect_time = NULL WHERE owner_id = ?", (user_id,)),
             ("DELETE FROM npc_partners WHERE user_id = ?", (user_id,)),
@@ -429,12 +432,17 @@ class DataBase:
             ("DELETE FROM daily_tasks WHERE user_id = ?", (user_id,)),
             ("DELETE FROM world_boss_damage WHERE user_id = ?", (user_id,)),
             ("DELETE FROM world_boss_raid_damage WHERE user_id = ?", (user_id,)),
+            ("DELETE FROM battle_event_damage WHERE user_id = ?", (user_id,)),
+            ("DELETE FROM auction_house_entries WHERE user_id = ?", (user_id,)),
             ("DELETE FROM auction_npc_offers WHERE seller_id = ?", (user_id,)),
             ("DELETE FROM auction_items WHERE seller_id = ?", (user_id,)),
             ("DELETE FROM sect_tournament_entries WHERE user_id = ?", (user_id,)),
             ("UPDATE sect_orders SET status = 'cancelled' WHERE status = 'active' AND (issuer_id = ? OR target_id = ?)", (user_id, user_id)),
             # 清理用户专属冷却/次数，但保留重修冷却键（随后会写入新的时间）
-            ("DELETE FROM system_config WHERE key LIKE ? AND key NOT IN (?, ?)", (f"%{user_id}%", f"rebirth_last_{user_id}", f"rebirth_total_{user_id}")),
+            (
+                "DELETE FROM system_config WHERE (key LIKE ? ESCAPE '\\' OR key = ?) AND key NOT IN (?, ?)",
+                (f"%\\_{escaped_uid}", user_id, f"rebirth_last_{user_id}", f"rebirth_total_{user_id}"),
+            ),
         ]
 
         for sql, params in statements:

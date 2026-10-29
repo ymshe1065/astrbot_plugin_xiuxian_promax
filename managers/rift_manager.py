@@ -300,63 +300,71 @@ class RiftManager:
         dropped_items = []
         item_msg = ""
         dropped_items = await self._roll_rift_drops(player, rift_level, event["item_chance"])
-        if dropped_items:
-            item_lines = []
-            for entry in dropped_items:
-                item_name, count, *rest = entry
-                quality = rest[0] if rest else ""
-                # 检查是否为丹药，丹药存入丹药背包，其他存入储物戒
-                is_pill = self._is_pill_item(item_name)
-                if is_pill:
-                    # 存入丹药背包
-                    inventory = player.get_pills_inventory()
-                    pill_key = f"{item_name}|一般"
-                    inventory[pill_key] = inventory.get(pill_key, 0) + count
-                    player.set_pills_inventory(inventory)
-                    item_lines.append(f"  · {item_name} x{count}（丹药背包）")
-                elif self.storage_ring_manager:
-                    success, _ = await self.storage_ring_manager.store_item(
-                        player, item_name, count, silent=True, quality=quality
-                    )
-                    if success:
-                        suffix = f"（{quality}）" if quality else ""
-                        item_lines.append(f"  · {item_name} x{count}{suffix}")
-                    else:
-                        item_lines.append(f"  · {item_name} x{count}（储物戒已满，丢失）")
-                else:
-                    item_lines.append(f"  · {item_name} x{count}（无法存储）")
-            if item_lines:
-                item_msg = "\n\n📦 获得物品：\n" + "\n".join(item_lines)
-        
-        # 7. 应用奖励
-        try:
-            from ..core.technique_bonus import TechniqueBonusManager
-            gold_reward = TechniqueBonusManager.apply_gold_bonus(
-                player, gold_reward, self.config_manager
-            )
-        except Exception:
-            pass
-        player.experience += exp_reward
-        player.gold += gold_reward
-        await self.db.update_player(player)
 
-        # 灵兽奇遇：秘境归来的空槽判定
+        # 7. 奖励、掉落与清空 CD 必须原子提交，避免结算中断后重复领取
         pet_encounter = None
-        try:
-            from .pet_manager import PetManager
-            pet_encounter = await PetManager(self.db).try_exploration_encounter(
-                player, "秘境探索中", commit=True
-            )
-        except Exception:
-            pet_encounter = None
         pet_msg = ""
-        if pet_encounter:
-            from .pet_manager import PetManager
-            pet_msg = PetManager.format_exploration_encounter(pet_encounter)
-        
-        # 8. 清除CD
-        await self.db.ext.set_user_free(user_id)
-        
+        try:
+            await self.db.conn.execute("BEGIN IMMEDIATE")
+            if dropped_items:
+                item_lines = []
+                for entry in dropped_items:
+                    item_name, count, *rest = entry
+                    quality = rest[0] if rest else ""
+                    # 检查是否为丹药，丹药存入丹药背包，其他存入储物戒
+                    is_pill = self._is_pill_item(item_name)
+                    if is_pill:
+                        # 存入丹药背包
+                        inventory = player.get_pills_inventory()
+                        pill_key = f"{item_name}|一般"
+                        inventory[pill_key] = inventory.get(pill_key, 0) + count
+                        player.set_pills_inventory(inventory)
+                        item_lines.append(f"  · {item_name} x{count}（丹药背包）")
+                    elif self.storage_ring_manager:
+                        success, _ = await self.storage_ring_manager.store_item(
+                            player, item_name, count, silent=True, quality=quality,
+                            external_transaction=True,
+                        )
+                        if success:
+                            suffix = f"（{quality}）" if quality else ""
+                            item_lines.append(f"  · {item_name} x{count}{suffix}")
+                        else:
+                            item_lines.append(f"  · {item_name} x{count}（储物戒已满，丢失）")
+                    else:
+                        item_lines.append(f"  · {item_name} x{count}（无法存储）")
+                if item_lines:
+                    item_msg = "\n\n📦 获得物品：\n" + "\n".join(item_lines)
+
+            try:
+                from ..core.technique_bonus import TechniqueBonusManager
+                gold_reward = TechniqueBonusManager.apply_gold_bonus(
+                    player, gold_reward, self.config_manager
+                )
+            except Exception:
+                pass
+            player.experience += exp_reward
+            player.gold += gold_reward
+            await self.db.update_player(player, commit=False)
+
+            # 灵兽奇遇：秘境归来的空槽判定
+            try:
+                from .pet_manager import PetManager
+                pet_encounter = await PetManager(self.db).try_exploration_encounter(
+                    player, "秘境探索中", commit=False
+                )
+            except Exception:
+                pet_encounter = None
+            if pet_encounter:
+                from .pet_manager import PetManager
+                pet_msg = PetManager.format_exploration_encounter(pet_encounter)
+
+            # 8. 清除CD
+            await self.db.ext.set_user_free(user_id, commit=False)
+            await self.db.conn.commit()
+        except Exception:
+            await self.db.conn.rollback()
+            raise
+
         msg = f"""
 🌀 探索完成 - {rift_name}
 ━━━━━━━━━━━━━━━
