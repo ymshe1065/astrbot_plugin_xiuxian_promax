@@ -126,6 +126,7 @@
     "interval_max_hours": 4,
     "active_start_hour": 10,
     "active_end_hour": 24,
+    "timezone": "Asia/Shanghai",
     "cooldown": 180,
     "damage_floor_pct": 1.0,
     "damage_cap_pct": 12.0,

@@ -71,6 +71,20 @@ class _FakeStorage:
         return True, "ok"
 
 
+class _FailingStorage(_FakeStorage):
+    """指定材料扣除失败，用于验证杂交父本扣除的回滚逻辑。"""
+
+    def __init__(self, items=None, fail_on=None):
+        super().__init__(items)
+        self.fail_on = fail_on
+        self.fail_all = fail_on == "__all__"
+
+    async def retrieve_item(self, player, item_name, count=1):
+        if self.fail_all or item_name == self.fail_on:
+            return False, "模拟扣料失败"
+        return await super().retrieve_item(player, item_name, count)
+
+
 class TestAutoProxyFarm(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         import aiosqlite
@@ -379,6 +393,36 @@ class TestAutoProxyFarm(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(ok)
         self.assertIn("2 个空格", msg)
         self.assertEqual(storage.items, {"冰心草": 1, "火焰花": 1})
+
+    async def test_hybridize_refunds_consumed_parent_when_deduction_fails(self):
+        await self.conn.execute(
+            "UPDATE spirit_farms SET level = 5 WHERE user_id = ?", ("u1",)
+        )
+        await self.conn.commit()
+        storage = _FailingStorage({"冰心草": 1, "火焰花": 1}, fail_on="火焰花")
+        self.farm_mgr.storage_ring_manager = storage
+        player = await self.db.get_player_by_id("u1")
+
+        ok, msg = await self.farm_mgr.hybridize(player, "冰心草", "火焰花")
+        self.assertFalse(ok, msg)
+        self.assertIn("扣除", msg)
+        # 已扣的一半父本必须原样返还，且不得残留杂交占位
+        self.assertEqual(storage.items, {"冰心草": 1, "火焰花": 1})
+        self.assertEqual(await self._crops(), {})
+
+    async def test_hybridize_aborts_when_all_parents_fail(self):
+        await self.conn.execute(
+            "UPDATE spirit_farms SET level = 5 WHERE user_id = ?", ("u1",)
+        )
+        await self.conn.commit()
+        storage = _FailingStorage({"冰心草": 1, "火焰花": 1}, fail_on="__all__")
+        self.farm_mgr.storage_ring_manager = storage
+        player = await self.db.get_player_by_id("u1")
+
+        ok, msg = await self.farm_mgr.hybridize(player, "冰心草", "火焰花")
+        self.assertFalse(ok, msg)
+        self.assertEqual(storage.items, {"冰心草": 1, "火焰花": 1})
+        self.assertEqual(await self._crops(), {})
 
     async def test_new_hybrid_recipes_and_levels(self):
         mgr_mod = _imp("managers.spirit_farm_manager")

@@ -68,6 +68,25 @@ class TestAuditRegressions(unittest.TestCase):
         self.assertTrue(self.allow("接受切磋", self.allowed))
         self.assertTrue(self.allow("拒绝切磋", self.allowed))
 
+    def test_busy_whitelist_allows_view_only_commands(self):
+        for command in (
+            "突破信息", "丹药信息", "丹阁", "器阁", "百宝阁", "丹药配方", "丹方",
+            "秘境列表", "历练信息", "传承信息", "坊市", "悬赏令", "银行流水",
+            "仙缘商店", "搜索物品", "宗门列表", "宗门命令列表", "宗门大比状态",
+            "宗门战争状态", "宗门战报", "宗门建筑", "团本状态", "世界团本",
+            "符箓", "季节", "仙界日历", "师徒", "称号图鉴", "我的称号",
+            "一键日常", "修仙诊断",
+        ):
+            self.assertTrue(self.allow(command, self.allowed), command)
+
+    def test_busy_whitelist_keeps_action_commands_blocked(self):
+        for command in (
+            "突破", "学习丹方", "炼丹", "种植", "购买 玄铁",
+            "黑市购买 1", "坊市购买 1", "坊市上架 丹药 1 100",
+            "宗门大比报名", "仙缘兑换 1", "接取悬赏 1",
+        ):
+            self.assertFalse(self.allow(command, self.allowed), command)
+
     def test_forge_multiplier(self):
         player = self.Player(user_id="u1", permanent_bonus=json.dumps({"forge_level": 5}))
         self.assertAlmostEqual(self.CombatManager.get_forge_multiplier(player), 1.10)

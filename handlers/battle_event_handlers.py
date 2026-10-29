@@ -32,12 +32,17 @@ class BattleEventHandlers:
         if not event_data:
             remaining = await self.battle_event_mgr.next_spawn_remaining()
             if remaining is None:
-                yield event.plain_result("🎲 当前没有正在进行的江湖事件，请等待江湖快报。")
+                yield event.plain_result(
+                    "🎲 当前没有正在进行的江湖事件，也尚未读取到下一场排期。\n"
+                    "💡 请确认 config/boss_config.json 中 small_event.enabled=true，"
+                    "并在日志中搜索“江湖事件定时任务已启动”。"
+                )
                 return
             yield event.plain_result(
                 "🎲 当前风平浪静，江湖暂无风波。\n"
                 f"⏳ 下一场江湖事件预计 {remaining // 3600} 小时 {(remaining % 3600) // 60} 分后出现。\n"
-                "💡 江湖事件仅在每日 10:00-24:00 之间出现。"
+                f"💡 江湖事件仅在每日 {self.battle_event_mgr.active_window_label}"
+                f"（{self.battle_event_mgr.timezone_label}）之间出现。"
             )
             return
 

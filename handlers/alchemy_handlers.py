@@ -18,6 +18,13 @@ class AlchemyHandlers:
 
     async def handle_learn_recipe(self, event: AstrMessageEvent, identifier: str):
         """学习丹方"""
+        if not identifier or not str(identifier).strip():
+            yield event.plain_result(
+                "❌ 请指定要学习的丹方名称。\n"
+                "💡 用法：/学习丹方 <丹方名>\n"
+                "💡 发送 /丹阁 丹方 查看可购买丹方，/丹方 查看已学丹方。"
+            )
+            return
         user_id = event.get_sender_id()
         player = await self.db.get_player_by_id(user_id)
         if not player:

@@ -15,9 +15,10 @@ SPIRIT_COMPANIONS = {
     "青璃": {
         "title": "丹谷仙子",
         "desc": "青丘丹谷传人，温婉聪慧，精于丹道。",
-        "perk": "炼丹成功率 +5%",
+        "perk": "炼丹成功率 +10%",
         "perk_type": "alchemy",       # 炼丹
-        "bonus_max": 0.05,
+        "bonus_base": 0.10,
+        "bonus_max": 0.10,
     },
     "白芷": {
         "title": "剑冢侍剑",
@@ -29,9 +30,9 @@ SPIRIT_COMPANIONS = {
     "绯烟": {
         "title": "镖行大小姐",
         "desc": "天下镖行独女，飒爽仗义，交游广阔。",
-        "perk": "押镖镖银 +12%（满级）",
+        "perk": "押镖镖银 +8%（满级）",
         "perk_type": "escort",        # 押镖
-        "bonus_max": 0.12,
+        "bonus_max": 0.08,
     },
     "玄霜": {
         "title": "北冥散人",
@@ -276,7 +277,7 @@ class SocialManager:
         if cfg.get("perk_type") != perk_type:
             return 0.0
         level = min(MAX_COMPANION_LEVEL, comp["bond"] // BOND_PER_LEVEL + 1)
-        base = 0.05
+        base = float(cfg.get("bonus_base", 0.05) or 0.05)
         cap = float(cfg.get("bonus_max", base) or base)
         if cap <= base:
             return base

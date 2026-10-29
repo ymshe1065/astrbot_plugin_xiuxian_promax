@@ -22,6 +22,12 @@ class EscortManager:
 
     ESCORT_DURATION = 1800          # 押镖时长 30 分钟
     MIN_LEVEL = 3                   # 押镖/劫镖最低境界
+    ESCORT_EXP_BASE = 1000          # 押镖修为基础值（每趟 30 分钟）
+    ESCORT_EXP_PER_LEVEL = 100      # 每级境界追加修为
+    ESCORT_EXP_RANDOM = 100         # 修为随机浮动上限
+    ESCORT_GOLD_BASE = 4000         # 镖银基础值
+    ESCORT_GOLD_PER_LEVEL = 1500    # 每级境界追加镖银
+    ESCORT_COMPANION_CAP = 0.08     # 绯烟押镖加成上限，防止旧数据超发
     ROB_ITEM = "迷神香"             # 劫镖消耗道具
     ROB_WIN_CUT = 0.3               # 劫镖基础分成 30%
     ROB_COOLDOWN = 600              # 劫镖冷却（秒）
@@ -76,6 +82,19 @@ class EscortManager:
         except Exception:
             return player.level_index
 
+    def calculate_escort_exp(self, level_index: int) -> int:
+        """押镖修为：定位为灵石玩法的附带收益，约同境界白板闭关的 1/3。
+
+        白板闭关 30 分钟 = 3000×(1+0.1×level)，此处约为其 1/3 且不随
+        功法/丹药/仙缘/洞天等修炼加成膨胀，保证闭关始终是修为主来源。
+        """
+        return max(
+            0,
+            self.ESCORT_EXP_BASE
+            + level_index * self.ESCORT_EXP_PER_LEVEL
+            + random.randint(0, self.ESCORT_EXP_RANDOM),
+        )
+
     async def start_escort(self, player: Player) -> Tuple[bool, str, Dict]:
         """接镖：进入押镖状态，期间奖励随时间增长，但可被劫"""
         user_id = player.user_id
@@ -90,13 +109,14 @@ class EscortManager:
         if user_cd.type != UserStatus.IDLE:
             return False, f"❌ 你当前正{UserStatus.get_name(user_cd.type)}，无法押镖！", {}
 
-        # 镖银与修为按境界浮动（v6.12 上调收益，匹配被劫风险）；绯烟（押镖仙灵）加镖银
-        base = 4000 + player.level_index * 1500
+        # 镖银与修为按境界浮动（v6.36.22 定位分离：镖银为主收益，修为仅作附带）
+        # 绯烟（押镖仙灵）只加镖银，不再连带放大修为
+        base = self.ESCORT_GOLD_BASE + player.level_index * self.ESCORT_GOLD_PER_LEVEL
         escort_bonus = await self._companion_bonus(user_id, "escort")
         if escort_bonus > 0:
-            base = int(base * (1 + escort_bonus))
+            base = int(base * (1 + min(escort_bonus, self.ESCORT_COMPANION_CAP)))
         escort_gold = base + random.randint(-500, 1500)
-        escort_exp = base // 2 + random.randint(0, 600)
+        escort_exp = self.calculate_escort_exp(player.level_index)
 
         now = int(time.time())
         extra = {
@@ -114,6 +134,7 @@ class EscortManager:
             f"━━━━━━━━━━━━━━━\n"
             f"⚠️ 押镖期间全服玩家可消耗【迷神香】劫镖！\n"
             f"被劫失败将损失部分镖银\n"
+            f"💡 押镖以灵石为主，修为请以 /闭关 为主\n"
             f"💡 时间到后发送 /完成押镖 结算"
         )
         return True, msg, {"gold": escort_gold, "exp": escort_exp}

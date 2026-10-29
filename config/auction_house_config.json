@@ -70,5 +70,10 @@
     "良好": 1,
     "极佳": 2,
     "大师": 3
-  }
+  },
+  "guaranteed_categories": ["main_technique"],
+  "space_stone_name": "空间石",
+  "space_stone_count": 2,
+  "space_stone_chance": 0.8,
+  "space_stone_extra_chance": 0.5
 }

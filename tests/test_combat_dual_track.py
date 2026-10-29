@@ -262,6 +262,38 @@ class TestCombatDualTrack(unittest.TestCase):
         # 会心已并入 effects，CombatStats.crit_rate 保持 0 防止重复判定
         self.assertEqual(stats.crit_rate, 0)
 
+    def test_technique_defense_bonus_applies_to_panel_and_battle(self):
+        cm = self.CombatManager
+        config = _imp("config_manager").ConfigManager(ROOT)
+        Player = _imp("models").Player
+        realm_attributes = _imp("core.equipment_balance").realm_attributes
+        player = Player(user_id="flatdef", level_index=12)
+        player.main_technique = "山河社稷天章"
+
+        effects = cm.collect_combat_effects(player, config)
+        self.assertEqual(effects["defense_bonus"], 350)
+
+        base = realm_attributes(player, config)
+        base_def = int(base["physical_defense"]) + int(base["magic_defense"])
+        expected = min(int(base_def * 0.10), 350)
+        self.assertGreater(expected, 0)
+
+        plain = cm.build_combat_panel(player, {}, None, config, {})
+        panel = cm.build_combat_panel(player, {}, None, config, effects)
+        self.assertEqual(panel["defense"] - plain["defense"], expected)
+        self.assertEqual(panel["counter_damage"], 18)
+
+        stats = cm.build_player_combat_stats(
+            player, config, pill_multipliers={}
+        )
+        self.assertEqual(stats.defense, panel["defense"])
+
+        # 额外防御沿用旧版“基础防御 10%”封顶，不能无限叠加。
+        huge = dict(effects)
+        huge["defense_bonus"] = 10 ** 9
+        capped = cm.build_combat_panel(player, {}, None, config, huge)
+        self.assertEqual(capped["defense"] - plain["defense"], int(base_def * 0.10))
+
     def test_overflow_conversion_applies_without_pets(self):
         cm = self.CombatManager
         config = _imp("config_manager").ConfigManager(ROOT)

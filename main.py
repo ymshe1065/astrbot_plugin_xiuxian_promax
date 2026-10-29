@@ -354,6 +354,9 @@ class XiuXianPlugin(Star):
 
         access_control_config = self.config.get("ACCESS_CONTROL", {})
         self.whitelist_groups = [str(g) for g in access_control_config.get("WHITELIST_GROUPS", [])]
+        # 广播群与白名单解耦：白名单为空时仍可指定专门的播报群
+        broadcast_groups = [str(g) for g in access_control_config.get("BROADCAST_GROUPS", [])]
+        self.broadcast_groups = broadcast_groups or list(self.whitelist_groups)
         self.boss_admins = [str(a) for a in access_control_config.get("BOSS_ADMINS", [])]
 
         logger.info(f"【修仙插件】XiuXianPlugin 初始化完成，数据库路径: {db_path}")
@@ -637,12 +640,18 @@ class XiuXianPlugin(Star):
                 await asyncio.sleep(30)
 
     def _warn_no_whitelist(self, event_name: str):
-        """全服事件广播因未配置白名单而被丢弃时提示管理员"""
+        """全服事件广播因未配置播报群而被丢弃时提示管理员（每小时最多一次，避免刷屏）"""
         if not hasattr(self, "_whitelist_warned"):
-            self._whitelist_warned = set()
-        if event_name not in self._whitelist_warned:
-            self._whitelist_warned.add(event_name)
-            logger.warning(f"【修仙插件】{event_name} 广播被跳过：未配置白名单 WHITELIST_GROUPS，全服事件将不会通知任何群聊！")
+            self._whitelist_warned = {}
+        now = int(time.time())
+        if now - int(self._whitelist_warned.get(event_name, 0)) < 3600:
+            return
+        self._whitelist_warned[event_name] = now
+        logger.warning(
+            f"【修仙插件】{event_name} 广播被跳过：未配置播报群。"
+            "请在 ACCESS_CONTROL.BROADCAST_GROUPS 或 WHITELIST_GROUPS 中至少填写一个群号，"
+            "否则全服事件不会通知任何群聊！"
+        )
 
     async def _schedule_restock(self):
         """v6.17 商店自动上货：每 10 分钟检查三阁，售罄/到期自动补货"""
@@ -693,32 +702,49 @@ class XiuXianPlugin(Star):
 
     async def _schedule_battle_events(self):
         """v6.34 江湖战斗小事件：每日10-24点每3-4小时随机出现"""
+        mgr = self.battle_event_mgr
+        logger.info(
+            f"【修仙插件】江湖事件定时任务已启动：活动时段 {mgr.active_window_label}"
+            f"（{mgr.timezone_label}），间隔 {mgr.interval_min_hours:g}-{mgr.interval_max_hours:g} 小时，"
+            f"开关 {'开启' if mgr.enabled else '关闭'}"
+        )
         while True:
             try:
                 await self.db.ensure_connection()
                 now = int(time.time())
 
-                expired = await self.battle_event_mgr.expire_events(now)
+                expired = await mgr.expire_events(now)
                 if expired:
                     logger.info(f"【修仙插件】{expired} 个江湖事件超时结束")
-                for settle_msg in await self.battle_event_mgr.settle_pending_events():
+                for settle_msg in await mgr.settle_pending_events():
                     await self._broadcast_world_boss_spawn(settle_msg)
 
-                if not self.battle_event_mgr.enabled:
+                if not mgr.enabled:
+                    if not getattr(self, "_battle_event_disabled_warned", False):
+                        logger.warning("【修仙插件】江湖事件已关闭（small_event.enabled=false），跳过生成")
+                        self._battle_event_disabled_warned = True
                     await asyncio.sleep(600)
                     continue
 
-                next_spawn_str = await self.db.ext.get_system_config(
-                    self.battle_event_mgr.KEY_NEXT_SPAWN
-                )
+                next_spawn_str = await self.db.ext.get_system_config(mgr.KEY_NEXT_SPAWN)
                 try:
                     next_spawn_time = int(next_spawn_str) if next_spawn_str else 0
                 except (TypeError, ValueError):
+                    logger.warning(f"【修仙插件】江湖事件排期值异常：{next_spawn_str!r}，将重新排期")
+                    next_spawn_time = 0
+                # 旧版本/手动写入可能留下过远的排期，超过“最长间隔 + 1 天”视为无效
+                max_ahead = int(max(26.0, mgr.interval_max_hours + 1.0) * 3600)
+                if next_spawn_time > int(time.time()) + max_ahead:
+                    logger.warning(
+                        f"【修仙插件】江湖事件排期过远（{mgr.format_time(next_spawn_time)}），将重新排期"
+                    )
                     next_spawn_time = 0
                 if next_spawn_time <= 0:
-                    next_spawn_time = self.battle_event_mgr.next_spawn_time(now)
-                    await self.db.ext.set_system_config(
-                        self.battle_event_mgr.KEY_NEXT_SPAWN, str(next_spawn_time)
+                    next_spawn_time = mgr.next_spawn_time(now)
+                    await self.db.ext.set_system_config(mgr.KEY_NEXT_SPAWN, str(next_spawn_time))
+                    logger.info(
+                        f"【修仙插件】江湖事件已排期：{mgr.format_time(next_spawn_time)}"
+                        f"（{mgr.timezone_label}）"
                     )
 
                 remaining = next_spawn_time - int(time.time())
@@ -727,35 +753,44 @@ class XiuXianPlugin(Star):
                     continue
 
                 now = int(time.time())
-                if not self.battle_event_mgr.is_active_time(now):
-                    next_spawn_time = self.battle_event_mgr.next_spawn_time(now)
-                    await self.db.ext.set_system_config(
-                        self.battle_event_mgr.KEY_NEXT_SPAWN, str(next_spawn_time)
+                if not mgr.is_active_time(now):
+                    next_spawn_time = mgr.next_spawn_time(now)
+                    await self.db.ext.set_system_config(mgr.KEY_NEXT_SPAWN, str(next_spawn_time))
+                    logger.info(
+                        f"【修仙插件】当前不在江湖事件活动时段（{mgr.active_window_label}，"
+                        f"{mgr.timezone_label}），下一场排期至 {mgr.format_time(next_spawn_time)}"
                     )
                     await asyncio.sleep(60)
                     continue
 
-                if await self.battle_event_mgr.get_active_event():
-                    next_spawn_time = self.battle_event_mgr.next_spawn_time(now)
-                    await self.db.ext.set_system_config(
-                        self.battle_event_mgr.KEY_NEXT_SPAWN, str(next_spawn_time)
+                if await mgr.get_active_event():
+                    next_spawn_time = mgr.next_spawn_time(now)
+                    await self.db.ext.set_system_config(mgr.KEY_NEXT_SPAWN, str(next_spawn_time))
+                    logger.info(
+                        f"【修仙插件】已有江湖事件进行中，下一场推迟至 {mgr.format_time(next_spawn_time)}"
                     )
                     await asyncio.sleep(60)
                     continue
 
-                success, msg, _ = await self.battle_event_mgr.spawn_event()
+                success, msg, _ = await mgr.spawn_event()
                 if success:
-                    logger.info("【修仙插件】江湖战斗小事件出现")
+                    logger.info(f"【修仙插件】江湖战斗小事件出现：{msg.splitlines()[0]}")
                     await self._broadcast_world_boss_spawn(msg)
+                    if not self.broadcast_groups:
+                        logger.warning(
+                            "【修仙插件】江湖事件已生成，但未配置广播群（ACCESS_CONTROL.BROADCAST_GROUPS / "
+                            "WHITELIST_GROUPS 均为空），群内不会收到快报，可发送 /江湖事件 查看。"
+                        )
+                else:
+                    logger.warning(f"【修仙插件】江湖事件生成失败：{msg}")
 
-                next_spawn_time = self.battle_event_mgr.next_spawn_time(int(time.time()))
-                await self.db.ext.set_system_config(
-                    self.battle_event_mgr.KEY_NEXT_SPAWN, str(next_spawn_time)
-                )
+                next_spawn_time = mgr.next_spawn_time(int(time.time()))
+                await self.db.ext.set_system_config(mgr.KEY_NEXT_SPAWN, str(next_spawn_time))
+                logger.info(f"【修仙插件】下一场江湖事件排期：{mgr.format_time(next_spawn_time)}")
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"江湖事件任务异常: {e}")
+                logger.error(f"江湖事件任务异常: {e}", exc_info=True)
                 await asyncio.sleep(60)
 
     async def _schedule_auction_house(self):
@@ -778,8 +813,8 @@ class XiuXianPlugin(Star):
                 await asyncio.sleep(30)
 
     def _auction_provider_umo(self) -> str:
-        """取第一个白名单群作为 AI Provider 的会话来源。"""
-        if not self.whitelist_groups:
+        """取第一个播报群作为 AI Provider 的会话来源。"""
+        if not self.broadcast_groups:
             return ""
         try:
             platforms = self.context.platform_manager.get_insts()
@@ -791,14 +826,15 @@ class XiuXianPlugin(Star):
                 if hasattr(platform, "meta") and callable(platform.meta)
                 else "unknown"
             )
-            return f"{platform_name}:GroupMessage:{self.whitelist_groups[0]}"
+            return f"{platform_name}:GroupMessage:{self.broadcast_groups[0]}"
         except Exception as e:
             logger.warning(f"【拍卖会】获取播报会话失败: {e}")
             return ""
 
     async def _flush_auction_messages(self):
-        if not self.whitelist_groups:
-            # 没有白名单时不广播，直接标记已处理，避免积压。
+        if not self.broadcast_groups:
+            # 没有播报群时不广播，直接标记已处理，避免积压。
+            self._warn_no_whitelist("拍卖会")
             messages = await self.auction_house_mgr.drain_messages(limit=20)
             for msg in messages:
                 await self.auction_house_mgr.mark_message_sent(msg["id"])
@@ -836,7 +872,7 @@ class XiuXianPlugin(Star):
         from astrbot.api.event import MessageChain
         if not msg:
             return False
-        if not self.whitelist_groups:
+        if not self.broadcast_groups:
             self._warn_no_whitelist("拍卖会")
             return False
         message_chain = MessageChain().message(msg)
@@ -845,7 +881,7 @@ class XiuXianPlugin(Star):
             platforms = self.context.platform_manager.get_insts()
             for platform in platforms:
                 platform_name = platform.meta().name if hasattr(platform, 'meta') and callable(platform.meta) else "unknown"
-                for group_id in self.whitelist_groups:
+                for group_id in self.broadcast_groups:
                     umo = f"{platform_name}:GroupMessage:{group_id}"
                     try:
                         await self.context.send_message(umo, message_chain)
@@ -857,17 +893,17 @@ class XiuXianPlugin(Star):
         return sent
 
     async def _broadcast_world_boss_spawn(self, msg: str):
-        """广播动态世界Boss降临/天魔结算"""
+        """广播动态世界Boss降临/天魔结算/江湖事件"""
         from astrbot.api.event import MessageChain
-        if not self.whitelist_groups:
-            self._warn_no_whitelist("世界Boss/魔潮")
+        if not self.broadcast_groups:
+            self._warn_no_whitelist("世界Boss/魔潮/江湖事件")
             return
         message_chain = MessageChain().message(msg)
         try:
             platforms = self.context.platform_manager.get_insts()
             for platform in platforms:
                 platform_name = platform.meta().name if hasattr(platform, 'meta') and callable(platform.meta) else "unknown"
-                for group_id in self.whitelist_groups:
+                for group_id in self.broadcast_groups:
                     umo = f"{platform_name}:GroupMessage:{group_id}"
                     try:
                         await self.context.send_message(umo, message_chain)
@@ -879,7 +915,7 @@ class XiuXianPlugin(Star):
     async def _broadcast_boss_defeat(self, player_name: str, battle_result: dict):
         """兼容旧版 Boss 击杀广播"""
         from astrbot.api.event import MessageChain
-        if not self.whitelist_groups:
+        if not self.broadcast_groups:
             self._warn_no_whitelist("Boss击杀")
             return
         reward = battle_result.get("reward", 0)
@@ -898,7 +934,7 @@ class XiuXianPlugin(Star):
             platforms = self.context.platform_manager.get_insts()
             for platform in platforms:
                 platform_name = platform.meta().name if hasattr(platform, 'meta') and callable(platform.meta) else "unknown"
-                for group_id in self.whitelist_groups:
+                for group_id in self.broadcast_groups:
                     umo = f"{platform_name}:GroupMessage:{group_id}"
                     try:
                         await self.context.send_message(umo, message_chain)
@@ -932,7 +968,7 @@ class XiuXianPlugin(Star):
 
     async def _broadcast_loan_death(self, loan_info: dict):
         from astrbot.api.event import MessageChain
-        if not self.whitelist_groups:
+        if not self.broadcast_groups:
             self._warn_no_whitelist("贷款追杀")
             return
         player_name = loan_info.get("player_name", "某修士")
@@ -951,7 +987,7 @@ class XiuXianPlugin(Star):
             platforms = self.context.platform_manager.get_insts()
             for platform in platforms:
                 platform_name = platform.meta().name if hasattr(platform, 'meta') and callable(platform.meta) else "unknown"
-                for group_id in self.whitelist_groups:
+                for group_id in self.broadcast_groups:
                     umo = f"{platform_name}:GroupMessage:{group_id}"
                     try:
                         await self.context.send_message(umo, message_chain)
@@ -1030,7 +1066,7 @@ class XiuXianPlugin(Star):
 
     async def _broadcast_spirit_eye_spawn(self, msg: str):
         from astrbot.api.event import MessageChain
-        if not self.whitelist_groups:
+        if not self.broadcast_groups:
             self._warn_no_whitelist("灵眼降临")
             return
         broadcast_msg = f"👁️ {msg}\n💡 使用 /灵眼信息 查看详情"
@@ -1039,7 +1075,7 @@ class XiuXianPlugin(Star):
             platforms = self.context.platform_manager.get_insts()
             for platform in platforms:
                 platform_name = platform.meta().name if hasattr(platform, 'meta') and callable(platform.meta) else "unknown"
-                for group_id in self.whitelist_groups:
+                for group_id in self.broadcast_groups:
                     umo = f"{platform_name}:GroupMessage:{group_id}"
                     try:
                         await self.context.send_message(umo, message_chain)
@@ -1059,13 +1095,13 @@ class XiuXianPlugin(Star):
     @filter.command(CMD_AUTO_PROXY, "开启自动代理（可指定 押镖/宗门任务/灵田）")
     @require_whitelist
     @with_player_lock
-    async def handle_auto_proxy_enable(self, event: AstrMessageEvent, task: GreedyStr = ""):
+    async def handle_auto_proxy_enable(self, event: AstrMessageEvent, task: GreedyStr):
         async for r in self.auto_proxy_handlers.handle_enable(event, task): yield r
 
     @filter.command(CMD_AUTO_PROXY_OFF, "关闭自动代理")
     @require_whitelist
     @with_player_lock
-    async def handle_auto_proxy_disable(self, event: AstrMessageEvent, args: GreedyStr = ""):
+    async def handle_auto_proxy_disable(self, event: AstrMessageEvent, args: GreedyStr):
         async for r in self.auto_proxy_handlers.handle_disable(event, args): yield r
 
     @filter.command(CMD_AUTO_PROXY_STATUS, "查看自动代理状态")
@@ -1130,7 +1166,7 @@ class XiuXianPlugin(Star):
 
     @filter.command(CMD_EQUIP_ITEM, "装备物品")
     @require_whitelist
-    async def handle_equip_item(self, event: AstrMessageEvent, item_name: GreedyStr = ""):
+    async def handle_equip_item(self, event: AstrMessageEvent, item_name: GreedyStr):
         async for r in self.equipment_handler.handle_equip_item(event, item_name): yield r
 
     @filter.command(CMD_UNEQUIP_ITEM, "卸下装备")
@@ -1145,7 +1181,7 @@ class XiuXianPlugin(Star):
 
     @filter.command(CMD_BREAKTHROUGH, "尝试突破境界，可带破境丹与品质")
     @require_whitelist
-    async def handle_breakthrough(self, event: AstrMessageEvent, args: GreedyStr = ""):
+    async def handle_breakthrough(self, event: AstrMessageEvent, args: GreedyStr):
         before = await self.db.get_player_by_id(event.get_sender_id())
         before_level = before.level_index if before else None
 
@@ -1184,7 +1220,7 @@ class XiuXianPlugin(Star):
 
     @filter.command(CMD_PILL_PAVILION, "查看丹阁丹药/丹方/材料")
     @require_whitelist
-    async def handle_pill_pavilion(self, event: AstrMessageEvent, args: GreedyStr = ""):
+    async def handle_pill_pavilion(self, event: AstrMessageEvent, args: GreedyStr):
         async for r in self.shop_handler.handle_pill_pavilion(event, args): yield r
 
     @filter.command(CMD_WEAPON_PAVILION, "查看器阁武器")
@@ -1722,12 +1758,12 @@ class XiuXianPlugin(Star):
     @filter.command(CMD_LEARN_RECIPE, "学习丹方")
     @require_whitelist
     @idle_player_lock
-    async def handle_learn_recipe(self, event: AstrMessageEvent, args: GreedyStr = ""):
+    async def handle_learn_recipe(self, event: AstrMessageEvent, args: GreedyStr):
         async for r in self.alchemy_handlers.handle_learn_recipe(event, args): yield r
 
     @filter.command(CMD_ALCHEMY_CRAFT, "炼制丹药")
     @require_whitelist
-    async def handle_alchemy_craft(self, event: AstrMessageEvent, args: GreedyStr = ""):
+    async def handle_alchemy_craft(self, event: AstrMessageEvent, args: GreedyStr):
         async for r in self.alchemy_handlers.handle_craft(event, args):
             yield r
         # 任务要求"成功炼制"：失败/丹劫毁丹不计进度
@@ -1869,7 +1905,7 @@ class XiuXianPlugin(Star):
 
     @filter.command(CMD_BLESSED_LAND_UPGRADE, "升级洞天")
     @require_whitelist
-    async def handle_blessed_land_upgrade(self, event: AstrMessageEvent, upgrade_arg: GreedyStr = ""):
+    async def handle_blessed_land_upgrade(self, event: AstrMessageEvent, upgrade_arg: GreedyStr):
         async for r in self.blessed_land_handlers.handle_upgrade(event, upgrade_arg): yield r
         # 称号：洞天等级
         try:
@@ -1911,7 +1947,7 @@ class XiuXianPlugin(Star):
 
     @filter.command(CMD_SPIRIT_FARM_PLANT, "种植灵草")
     @require_whitelist
-    async def handle_spirit_farm_plant(self, event: AstrMessageEvent, herb_name: GreedyStr = ""):
+    async def handle_spirit_farm_plant(self, event: AstrMessageEvent, herb_name: GreedyStr):
         async for r in self.spirit_farm_handlers.handle_plant(event, herb_name): yield r
         if get_event_flag(event, "farm_plant_ok", False):
             try:
@@ -1942,7 +1978,7 @@ class XiuXianPlugin(Star):
 
     @filter.command(CMD_SPIRIT_FARM_REMOVE, "铲除指定格子的灵草")
     @require_whitelist
-    async def handle_spirit_farm_remove(self, event: AstrMessageEvent, slot: GreedyStr = ""):
+    async def handle_spirit_farm_remove(self, event: AstrMessageEvent, slot: GreedyStr):
         async for r in self.spirit_farm_handlers.handle_remove_crop(event, slot): yield r
         if get_event_flag(event, "farm_remove_ok", False):
             try:
@@ -2511,7 +2547,7 @@ class XiuXianPlugin(Star):
 
     @filter.command("喂养灵兽", "消耗资源提升灵兽等级")
     @require_whitelist
-    async def handle_feed_pet(self, event: AstrMessageEvent, args: GreedyStr = ""):
+    async def handle_feed_pet(self, event: AstrMessageEvent, args: GreedyStr):
         uid = event.get_sender_id()
         before = await self.pet_mgr.get_max_pet_level(uid)
         async for r in self.pet_handlers.handle_feed(event, args): yield r
@@ -2526,23 +2562,23 @@ class XiuXianPlugin(Star):
 
     @filter.command("灵兽出战", "设置出战的主战灵兽")
     @require_whitelist
-    async def handle_set_main_pet(self, event: AstrMessageEvent, args: GreedyStr = ""):
+    async def handle_set_main_pet(self, event: AstrMessageEvent, args: GreedyStr):
         async for r in self.pet_handlers.handle_set_main(event, args): yield r
 
     @filter.command("灵兽改名", "给灵兽改一个名字")
     @require_whitelist
-    async def handle_rename_pet(self, event: AstrMessageEvent, args: GreedyStr = ""):
+    async def handle_rename_pet(self, event: AstrMessageEvent, args: GreedyStr):
         async for r in self.pet_handlers.handle_rename(event, args): yield r
 
     # ===== v6.5.1 新增：放生与吞噬 =====
     @filter.command("放生灵兽", "放生指定灵兽")
     @require_whitelist
-    async def handle_release_pet(self, event: AstrMessageEvent, args: GreedyStr = ""):
+    async def handle_release_pet(self, event: AstrMessageEvent, args: GreedyStr):
         async for r in self.pet_handlers.handle_release(event, args): yield r
 
     @filter.command("吞噬灵兽", "吞噬指定灵兽，返还部分资源")
     @require_whitelist
-    async def handle_devour_pet(self, event: AstrMessageEvent, args: GreedyStr = ""):
+    async def handle_devour_pet(self, event: AstrMessageEvent, args: GreedyStr):
         async for r in self.pet_handlers.handle_devour(event, args): yield r
 
     # ===== v6.6 宗门大比 =====
@@ -2635,7 +2671,7 @@ class XiuXianPlugin(Star):
 
     @filter.command("拍卖会出价", "对当前拍品出价")
     @require_whitelist
-    async def handle_auction_house_bid(self, event: AstrMessageEvent, amount: GreedyStr = ""):
+    async def handle_auction_house_bid(self, event: AstrMessageEvent, amount: GreedyStr):
         async for r in self.auction_house_handlers.handle_bid(event, amount): yield r
 
     @filter.command("拍卖会领取", "补领拍卖会成交拍品")
@@ -2904,7 +2940,7 @@ class XiuXianPlugin(Star):
     @filter.command("制符", "绘制符箓；不带参数领取符箓师每日引雷符")
     @require_whitelist
     @idle_player_lock
-    async def handle_draw_talisman(self, event: AstrMessageEvent, args: GreedyStr = ""):
+    async def handle_draw_talisman(self, event: AstrMessageEvent, args: GreedyStr):
         player = await self.db.get_player_by_id(event.get_sender_id())
         if not player:
             yield event.plain_result("❌ 道友尚未踏入仙途。")
@@ -2928,7 +2964,7 @@ class XiuXianPlugin(Star):
     @filter.command("使用符箓", "使用符箓获得战斗/炼丹/探索加成")
     @require_whitelist
     @idle_player_lock
-    async def handle_use_talisman(self, event: AstrMessageEvent, args: GreedyStr = ""):
+    async def handle_use_talisman(self, event: AstrMessageEvent, args: GreedyStr):
         player = await self.db.get_player_by_id(event.get_sender_id())
         if not player:
             yield event.plain_result("❌ 道友尚未踏入仙途。")

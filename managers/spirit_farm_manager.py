@@ -5,6 +5,14 @@ import json
 import random
 import re
 from typing import Tuple, Optional, Dict, List, TYPE_CHECKING
+
+try:
+    from astrbot.api import logger
+except ImportError:  # pragma: no cover - 测试/非 AstrBot 环境
+    import logging
+
+    logger = logging.getLogger("xiuxian.spirit_farm")
+
 from ..data import DataBase
 from ..models import Player
 
@@ -241,6 +249,22 @@ class SpiritFarmManager:
         self.last_harvest_count = 0
         self.last_harvest_counts = {}
     
+    async def _refund_items(self, player: Player, items: List[Tuple[str, int]]) -> None:
+        """回滚已扣除的材料（尽力补偿，不因补偿失败中断主流程）。"""
+        if not self.storage_ring_manager:
+            return
+        for item_name, count in items:
+            if count <= 0:
+                continue
+            try:
+                ok, msg = await self.storage_ring_manager.store_item(
+                    player, item_name, count, silent=True
+                )
+                if not ok:
+                    logger.warning(f"【灵田】回滚材料失败：{item_name}×{count} - {msg}")
+            except Exception as e:
+                logger.warning(f"【灵田】回滚材料异常：{item_name}×{count} - {e}")
+    
     @staticmethod
     def get_max_slots(farm: Dict) -> int:
         """灵田当前可种植格数"""
@@ -381,6 +405,7 @@ class SpiritFarmManager:
             return False, "❌ 种植数量必须大于0！"
 
         # 杂交灵草必须消耗同名种苗（由 /杂交 或坊市交易获得）
+        consumed_seeds = 0
         if requires_seed(herb_name):
             if not self.storage_ring_manager:
                 return False, "❌ 系统异常：储物戒管理器未加载，无法消耗种苗。"
@@ -400,6 +425,7 @@ class SpiritFarmManager:
             ok, seed_msg = await self.storage_ring_manager.retrieve_item(player, herb_name, plant_count)
             if not ok:
                 return False, f"❌ 扣除【{herb_name}】种苗失败：{seed_msg}"
+            consumed_seeds = plant_count
 
         # 批量种植（成熟时间受季节影响）
         herb_config = SPIRIT_HERBS[herb_name]
@@ -416,11 +442,17 @@ class SpiritFarmManager:
             })
         self._normalize_crop_slots(crops, max_slots)
 
-        await self.db.conn.execute(
-            "UPDATE spirit_farms SET crops = ? WHERE user_id = ?",
-            (json.dumps(crops), player.user_id)
-        )
-        await self.db.conn.commit()
+        try:
+            await self.db.conn.execute(
+                "UPDATE spirit_farms SET crops = ? WHERE user_id = ?",
+                (json.dumps(crops), player.user_id)
+            )
+            await self.db.conn.commit()
+        except Exception:
+            await self.db.conn.rollback()
+            if consumed_seeds:
+                await self._refund_items(player, [(herb_name, consumed_seeds)])
+            raise
 
         season = get_current_season()
         grow_hours = grow_time // 3600
@@ -453,6 +485,7 @@ class SpiritFarmManager:
         crops = farm["crops"]
         used_slots = {int(c.get("slot") or 0) for c in crops}
         planted = []
+        consumed = []
         plant_time = int(time.time())
         for raw_slot, herb_name in assignments.items():
             try:
@@ -471,6 +504,7 @@ class SpiritFarmManager:
                 ok, _ = await self.storage_ring_manager.retrieve_item(player, herb_name, 1)
                 if not ok:
                     continue
+                consumed.append((herb_name, 1))
             herb_config = SPIRIT_HERBS[herb_name]
             grow_time = int(herb_config["grow_time"] * get_season_growth_mult(herb_name))
             crops.append({
@@ -482,13 +516,20 @@ class SpiritFarmManager:
             used_slots.add(slot)
             planted.append(f"格{slot} {herb_name}")
         if not planted:
+            if consumed:
+                await self._refund_items(player, consumed)
             return 0, ""
         self._normalize_crop_slots(crops, max_slots)
-        await self.db.conn.execute(
-            "UPDATE spirit_farms SET crops = ? WHERE user_id = ?",
-            (json.dumps(crops), player.user_id)
-        )
-        await self.db.conn.commit()
+        try:
+            await self.db.conn.execute(
+                "UPDATE spirit_farms SET crops = ? WHERE user_id = ?",
+                (json.dumps(crops), player.user_id)
+            )
+            await self.db.conn.commit()
+        except Exception:
+            await self.db.conn.rollback()
+            await self._refund_items(player, consumed)
+            raise
         return len(planted), f"♻️ 已续种：{'、'.join(planted)}"
 
     async def remove_crop(self, player: Player, slot: int) -> Tuple[bool, str]:
@@ -733,6 +774,8 @@ class SpiritFarmManager:
             return False, "❌ 你还没有灵田！使用 /开垦灵田"
 
         farm_level = int(farm.get("level", 1) or 1)
+        herb_a = (herb_a or "").strip()
+        herb_b = (herb_b or "").strip()
         if not herb_a or not herb_b or herb_a == herb_b:
             return False, (
                 "🧬 灵草杂交\n"
@@ -747,7 +790,7 @@ class SpiritFarmManager:
                 "💡 用法：/杂交 火焰花 冰心草"
             )
 
-        key = frozenset({herb_a.strip(), herb_b.strip()})
+        key = frozenset({herb_a, herb_b})
         product = HYBRID_RECIPES.get(key)
         if not product:
             return False, (
@@ -780,8 +823,17 @@ class SpiritFarmManager:
             if not self.storage_ring_manager.has_item(player, herb, 1):
                 return False, f"❌ 储物戒中没有【{herb}】（杂交每种需要1株）"
 
-        for herb in key:
-            await self.storage_ring_manager.retrieve_item(player, herb, 1)
+        # 逐个扣除父本；任一失败立即回滚已扣材料，避免半扣/白嫖
+        consumed: List[Tuple[str, int]] = []
+        for herb in sorted(key):
+            ok, why = await self.storage_ring_manager.retrieve_item(player, herb, 1)
+            if not ok:
+                await self._refund_items(player, consumed)
+                return False, (
+                    f"❌ 扣除【{herb}】失败：{why}\n"
+                    "💡 本次杂交未开始，已扣除的材料会原样返还"
+                )
+            consumed.append((herb, 1))
 
         now = int(time.time())
         grow_time = int(SPIRIT_HERBS[product]["grow_time"] * get_season_growth_mult(product))
@@ -799,11 +851,16 @@ class SpiritFarmManager:
                 "mature_time": mature_time,
             })
         self._normalize_crop_slots(crops, max_slots)
-        await self.db.conn.execute(
-            "UPDATE spirit_farms SET crops = ? WHERE user_id = ?",
-            (json.dumps(crops, ensure_ascii=False), player.user_id)
-        )
-        await self.db.conn.commit()
+        try:
+            await self.db.conn.execute(
+                "UPDATE spirit_farms SET crops = ? WHERE user_id = ?",
+                (json.dumps(crops, ensure_ascii=False), player.user_id)
+            )
+            await self.db.conn.commit()
+        except Exception:
+            await self.db.conn.rollback()
+            await self._refund_items(player, consumed)
+            raise
 
         hours = max(1, grow_time // 3600)
         return True, (

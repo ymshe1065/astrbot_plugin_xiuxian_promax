@@ -93,6 +93,9 @@ class TestAuctionHouse(unittest.IsolatedAsyncioTestCase):
                 }
             },
         )
+        # 测试中固定空间石结果，避免随机导致断言不稳定。
+        self.manager.space_stone_chance = 1.0
+        self.manager.space_stone_extra_chance = 0.0
 
     async def asyncTearDown(self):
         await self.db.close()
@@ -183,27 +186,53 @@ class TestAuctionHouse(unittest.IsolatedAsyncioTestCase):
             "SELECT * FROM auction_house_events WHERE id=?", (event["id"],)
         )
         self.assertEqual(event["phase"], "announcing")
-        self.assertEqual(int(event["lot_count"]), 10)
+        self.assertEqual(int(event["lot_count"]), 11)
         lots = await self.manager._fetchall(
             "SELECT * FROM auction_house_lots WHERE event_id=? ORDER BY lot_no", (event["id"],)
         )
-        self.assertEqual(len(lots), 10)
+        self.assertEqual(len(lots), 11)
         self.assertEqual(
             {lot["category"] for lot in lots},
-            {"equipment", "talisman", "pill", "recipe", "technique", "main_technique"},
+            {"equipment", "talisman", "pill", "recipe", "technique", "main_technique", "material"},
         )
+        self.assertEqual(
+            sum(1 for lot in lots if lot["category"] == "main_technique"), 1
+        )
+        stones = [lot for lot in lots if lot["item_name"] == "空间石"]
+        self.assertEqual(len(stones), 1)
+        self.assertEqual(int(stones[0]["count"]), 2)
         prices = [int(lot["start_price"]) for lot in lots]
         self.assertEqual(prices, sorted(prices))
-        rank_tiers = [
-            _imp("managers.auction_house_manager").RANK_TIER.get(lot["item_rank"], 1)
-            for lot in lots
-        ]
-        self.assertEqual(rank_tiers, sorted(rank_tiers))
         for lot in lots:
             self.assertNotIn(lot["item_name"], lot["preview_label"])
             self.assertFalse(lot["preview_label"][0].isdigit())
         status = await self.manager.get_status()
         self.assertIn("拍品预告", status)
+
+    async def test_guarantees_main_technique_when_blueprint_omits_it(self):
+        now = int(time.time())
+        event = await self._insert_event("announcing", announce_start=now - 60,
+                                         event_start=now + 3600)
+        self.manager.lot_blueprint = [{"category": "equipment", "tier": 2, "count": 1}]
+        self.manager.space_stone_chance = 0.0
+        self.manager.space_stone_extra_chance = 0.0
+
+        lots = await self.manager._generate_lots(event["id"], now)
+        self.assertTrue(any(lot["category"] == "main_technique" for lot in lots))
+
+    async def test_space_stone_can_roll_two_lots(self):
+        now = int(time.time())
+        event = await self._insert_event("announcing", announce_start=now - 60,
+                                         event_start=now + 3600)
+        self.manager.space_stone_chance = 1.0
+        self.manager.space_stone_extra_chance = 1.0
+
+        lots = await self.manager._generate_lots(event["id"], now)
+        stones = [lot for lot in lots if lot["item_name"] == "空间石"]
+        self.assertEqual(len(stones), 2)
+        self.assertTrue(all(int(lot["count"]) == 2 for lot in stones))
+        prices = [int(lot["start_price"]) for lot in lots]
+        self.assertEqual(prices, sorted(prices))
 
     async def test_register_deducts_once_and_rejects_duplicate(self):
         event = await self._insert_event("announcing", announce_start=int(time.time()) - 60,

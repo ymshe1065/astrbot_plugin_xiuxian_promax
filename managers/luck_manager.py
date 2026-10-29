@@ -32,23 +32,19 @@ class LuckManager:
 
     @classmethod
     def get_title_luck(cls, player: Player) -> int:
-        """仅最高品阶称号的气运生效，与称号系统规则一致。"""
-        from .title_data import TITLES
+        """称号气运：复用称号系统统一的生效规则。
 
-        owned = cls._bonus_data(player).get("titles", {})
-        if not isinstance(owned, dict) or not owned:
-            return 0
-        title_map = {t["name"]: t for t in TITLES}
-        best = None
-        for name in owned:
-            title = title_map.get(name)
-            if title and (best is None or title["tier"] > best["tier"]):
-                best = title
-        if not best:
-            return 0
+        旧实现独立按“最高品阶首个”挑选，与图鉴/战斗/修为的生效称号可能
+        不是同一个；现统一走 TitleManager，避免同名品阶互相覆盖。
+        """
         try:
-            return max(0, int(best["stats"].get("luck", 0) or 0))
-        except (TypeError, ValueError):
+            from .title_manager import TitleManager
+
+            active = TitleManager(None).get_active_title(player)
+            if not active:
+                return 0
+            return max(0, int(active["stats"].get("luck", 0) or 0))
+        except Exception:
             return 0
 
     @classmethod

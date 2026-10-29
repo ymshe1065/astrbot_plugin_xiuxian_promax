@@ -160,15 +160,43 @@ class TitleManager:
         return ""
     # =========================================================
 
+    @staticmethod
+    def _pick_active_title(
+        owned: Dict, title_map: Dict[str, dict], worn: str = ""
+    ) -> Optional[dict]:
+        """统一“当前生效称号”规则，保证展示与各类加成口径一致。
+
+        优先级：最高品阶 → 同品阶优先当前佩戴称号 → 再取最近获得的称号。
+        旧实现仅按字典插入顺序取首个同品阶称号，导致“图鉴显示生效的称号”
+        与实际生效加成可能不是同一个。
+        """
+        if not isinstance(owned, dict) or not owned:
+            return None
+        candidates = []
+        for name, obtained in owned.items():
+            t = title_map.get(name)
+            if not t:
+                continue
+            try:
+                ts = float(obtained or 0)
+            except (TypeError, ValueError):
+                ts = 0.0
+            candidates.append((t, ts))
+        if not candidates:
+            return None
+        best_tier = max(t["tier"] for t, _ in candidates)
+        same_tier = [(t, ts) for t, ts in candidates if t["tier"] == best_tier]
+        if worn:
+            for t, _ in same_tier:
+                if t["name"] == worn:
+                    return t
+        same_tier.sort(key=lambda item: item[1], reverse=True)
+        return same_tier[0][0]
+
     def get_active_bonus(self, player: Player) -> Dict:
         """计算当前生效的加成（最高品阶的一个称号）"""
-        owned = self._load_owned(player)
-        best = None
-        for name in owned:
-            t = self.titles.get(name)
-            if t and (best is None or t["tier"] > best["tier"]):
-                best = t
-        return best["stats"] if best else {}
+        active = self.get_active_title(player)
+        return active["stats"] if active else {}
 
     @staticmethod
     def get_exp_bonus(player: Player) -> float:
@@ -182,14 +210,12 @@ class TitleManager:
         return title_name in self._load_owned(player)
 
     def get_active_title(self, player: Player) -> Optional[dict]:
-        """当前提供加成的称号（最高品阶）"""
-        owned = self._load_owned(player)
-        best = None
-        for name in owned:
-            t = self.titles.get(name)
-            if t and (best is None or t["tier"] > best["tier"]):
-                best = t
-        return best
+        """当前提供加成的称号（统一规则，供气运/修为/战斗/灵石共用）。"""
+        return self._pick_active_title(
+            self._load_owned(player),
+            self.titles,
+            getattr(player, "title", "") or "",
+        )
 
     def equip_display(self, player: Player, title_name: str) -> Tuple[bool, str]:
         """佩戴称号（支持空参数自动佩戴最高品阶，支持摘下）"""
@@ -239,10 +265,13 @@ class TitleManager:
                 mark = "✅" if t["name"] in owned else "🔒"
                 active_mark = " ⭐生效中" if active and active["name"] == t["name"] else ""
                 how_txt = self._how_text(t)
-                lines.append(f"  {mark}【{t['name']}】{how_txt}{active_mark}")
-                
+                stats_txt = self._format_stats(t["stats"], sep="/")
+                lines.append(f"  {mark}【{t['name']}】{how_txt}｜{stats_txt}{active_mark}")
+
         lines.append("━━━━━━━━━━━━━━━")
-        lines.append("💡 加成自动按已拥有的最高品阶称号生效；/佩戴称号 <名> 更换展示")
+        lines.append("💡 每行“｜”后为称号实际加成；前面文字是解锁条件，不是加成效果。")
+        lines.append("💡 加成自动按已拥有的最高品阶生效；同品阶优先当前佩戴，否则取最近获得。")
+        lines.append("💡 发送 /佩戴称号 <名> 更换展示，或 /佩戴称号 自动佩戴最高品阶。")
         return "\n".join(lines)
 
     def _how_text(self, t: dict) -> str:
@@ -294,32 +323,39 @@ class TitleManager:
         stats = self.get_active_bonus(player)
         if not stats:
             return "当前无称号加成"
-        parts = []
-        cn = {"atk": "物伤", "magic": "法伤", "phys_def": "物防", "magic_def": "法防",
-              "crit": "会心", "lifesteal": "吸血", "exp": "修为%", "luck": "气运",
-              "gold_pct": "灵石%"}
-        for k, v in stats.items():
-            if k in ("exp", "gold_pct", "lifesteal"):
-                parts.append(f"{cn.get(k, k)}+{v:.0%}" if isinstance(v, float) else f"{cn.get(k, k)}+{v}")
-            else:
-                parts.append(f"{cn.get(k, k)}+{v}")
         active = self.get_active_title(player)
         tier_name = TIERS[active["tier"]][0] if active else ""
-        return f"【{active['name']}】({tier_name})：{' '.join(parts)}" if active else "无"
+        return (
+            f"【{active['name']}】({tier_name})：{self._format_stats(stats, sep=' ')}"
+            if active
+            else "无"
+        )
 
-    def _format_stats(self, stats: dict) -> str:
-        """内部辅助：格式化属性字典为可读文本"""
-        if not stats: return "无加成"
+    @classmethod
+    def _format_stats(cls, stats: dict, sep: str = " | ") -> str:
+        """内部辅助：格式化属性字典为可读文本。
+
+        称号 stats 约定：exp/gold_pct 为小数（0.2=20%），crit/lifesteal
+        为整数百分点（5=5%），其余为固定数值。
+        """
+        if not stats:
+            return "无加成"
         parts = []
         cn = {"atk": "物伤", "magic": "法伤", "phys_def": "物防", "magic_def": "法防",
               "crit": "会心", "lifesteal": "吸血", "exp": "修为", "luck": "气运",
               "gold_pct": "灵石"}
         for k, v in stats.items():
-            if k in ("exp", "gold_pct", "lifesteal"):
-                parts.append(f"{cn.get(k, k)}+{v:.0%}" if isinstance(v, float) else f"{cn.get(k, k)}+{v}")
+            label = cn.get(k, k)
+            if k in ("exp", "gold_pct"):
+                try:
+                    parts.append(f"{label}+{float(v):.0%}")
+                except (TypeError, ValueError):
+                    parts.append(f"{label}+{v}")
+            elif k in ("crit", "lifesteal"):
+                parts.append(f"{label}+{v}%")
             else:
-                parts.append(f"{cn.get(k, k)}+{v}")
-        return " | ".join(parts)
+                parts.append(f"{label}+{v}")
+        return sep.join(parts)
 
     # ==========================================
     # 新增方法：全量展示与推荐
@@ -339,18 +375,21 @@ class TitleManager:
         # 按品阶（高->低）和获得时间（新->旧）排序
         owned_titles.sort(key=lambda x: (x[0]["tier"], x[1]), reverse=True)
         best_title = owned_titles[0][0] if owned_titles else None
-        
+        active = self.get_active_title(player)
+
         lines = [f"🏅 我的称号（已拥有 {len(owned_titles)} 个）", "━━━━━━━━━━━━━━━"]
         for t, _ in owned_titles:
             tier_name = TIERS.get(t["tier"], (f"未知",))[0]
             stats_desc = self._format_stats(t["stats"])
-            
+
             mark = ""
             if player.title == t["name"]:
                 mark = " ⭐当前佩戴"
-            elif not player.title and best_title and t["name"] == best_title["name"]:
-                mark = " ⭐最高品阶"
-                
+                if active and active["name"] == t["name"]:
+                    mark += "·生效中"
+            elif active and active["name"] == t["name"]:
+                mark = " ⭐生效中"
+
             lines.append(f"【{tier_name}】{t['name']}{mark}")
             lines.append(f"  └ {stats_desc}")
             

@@ -5,6 +5,7 @@ import random
 import time
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
+from zoneinfo import ZoneInfo
 
 from astrbot.api import logger
 
@@ -123,6 +124,18 @@ class BattleEventManager:
         self.damage_cap_pct = float(self._cfg.get("damage_cap_pct", 12.0) or 12.0)
         self.expire_hours = float(self._cfg.get("expire_hours", 2) or 2)
         self.escape_reward_pct = float(self._cfg.get("escape_reward_pct", 0.5) or 0.5)
+        self.timezone = str(self._cfg.get("timezone", "Asia/Shanghai") or "Asia/Shanghai").strip()
+        self._tz = None
+        if self.timezone.lower() not in ("", "local", "system"):
+            try:
+                self._tz = ZoneInfo(self.timezone)
+            except Exception:
+                logger.warning(
+                    f"江湖事件时区配置无效：{self.timezone}，已回退为服务器本地时区"
+                )
+                self.timezone = "local"
+        else:
+            self.timezone = "local"
         self._types = self._load_types()
         self._tier_meta = self._load_tier_meta()
         self._rewards = self._load_rewards()
@@ -179,8 +192,27 @@ class BattleEventManager:
                     result.setdefault(tier, {}).update(cfg)
         return result
 
+    def _to_datetime(self, ts: int) -> datetime:
+        """按配置时区把时间戳转为 datetime；未配置时区时使用服务器本地时区。"""
+        return datetime.fromtimestamp(int(ts), tz=self._tz)
+
+    @property
+    def timezone_label(self) -> str:
+        return self.timezone if self._tz is not None else "服务器本地时区"
+
+    @property
+    def active_window_label(self) -> str:
+        return f"{int(self.active_start_hour):02d}:00-{int(self.active_end_hour):02d}:00"
+
+    def format_time(self, ts: int) -> str:
+        """用于日志/提示的可读时间。"""
+        try:
+            return self._to_datetime(ts).strftime("%m-%d %H:%M")
+        except Exception:
+            return str(ts)
+
     def is_active_time(self, now: Optional[int] = None) -> bool:
-        dt = datetime.fromtimestamp(int(now if now is not None else time.time()))
+        dt = self._to_datetime(int(now if now is not None else time.time()))
         hour = dt.hour + dt.minute / 60.0 + dt.second / 3600.0
         start = self.active_start_hour
         end = self.active_end_hour
@@ -192,7 +224,7 @@ class BattleEventManager:
 
     def next_spawn_time(self, now: Optional[int] = None) -> int:
         now = int(now if now is not None else time.time())
-        dt = datetime.fromtimestamp(now)
+        dt = self._to_datetime(now)
         start = int(self.active_start_hour)
         end = int(self.active_end_hour)
         if start >= end:

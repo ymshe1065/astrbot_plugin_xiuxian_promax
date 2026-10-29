@@ -7,6 +7,7 @@ import unittest
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import AsyncMock
+from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT.parent))
@@ -99,8 +100,10 @@ class TestBattleEvents(unittest.IsolatedAsyncioTestCase):
         return player
 
     def test_active_window_and_next_spawn(self):
+        tz = ZoneInfo("Asia/Shanghai")
+
         def ts(hour, minute=0, day=27):
-            return int(datetime(2026, 10, day, hour, minute).timestamp())
+            return int(datetime(2026, 10, day, hour, minute, tzinfo=tz).timestamp())
 
         self.assertFalse(self.mgr.is_active_time(ts(9, 59)))
         self.assertTrue(self.mgr.is_active_time(ts(10, 0)))
@@ -114,6 +117,24 @@ class TestBattleEvents(unittest.IsolatedAsyncioTestCase):
         next_day = self.mgr.next_spawn_time(ts(23, 0))
         self.assertGreaterEqual(next_day, ts(10, 0, day=28))
         self.assertLessEqual(next_day, ts(10, 10, day=28))
+
+    def test_timezone_config_and_fallback(self):
+        class Cfg:
+            def __init__(self, cfg):
+                self.boss_config = cfg
+
+        utc = ZoneInfo("UTC")
+        mgr = self.BattleEventManager(
+            self.db, Cfg({"small_event": {"timezone": "UTC"}}), self.ring, self.world_boss
+        )
+        self.assertEqual(mgr.timezone_label, "UTC")
+        self.assertTrue(mgr.is_active_time(int(datetime(2026, 10, 27, 10, 0, tzinfo=utc).timestamp())))
+        self.assertFalse(mgr.is_active_time(int(datetime(2026, 10, 27, 9, 59, tzinfo=utc).timestamp())))
+
+        bad = self.BattleEventManager(
+            self.db, Cfg({"small_event": {"timezone": "Not/AZone"}}), self.ring, self.world_boss
+        )
+        self.assertEqual(bad.timezone_label, "服务器本地时区")
 
     async def test_spawn_challenge_kill_and_idempotent_settlement(self):
         self.world_boss.calculate_dynamic_hp = AsyncMock(return_value=(100000, 1))

@@ -42,6 +42,14 @@ BUSY_STATE_ALLOWED_COMMANDS = [
     "银行", "储物戒", "丹药背包", "修仙帮助", "物品信息", "黑市", "天魔状态", "查验天魔", "世界Boss", "世界boss", "世界Boss状态", "灵眼信息", "江湖事件", "通缉令",
     "宗门商店", "宗门兑换", "我的坊市", "坊市我的", "坊市卖出", "坊市等待",
     "拍卖会", "拍卖会信息", "拍卖会报名", "拍卖会入场", "拍卖会出价", "拍卖会领取",
+
+    # 信息查阅类（只读，不改变修炼/战斗状态）
+    "突破信息", "丹药信息", "丹阁", "器阁", "百宝阁", "丹药配方", "丹方",
+    "秘境列表", "历练信息", "传承信息", "坊市",
+    "宗门列表", "宗门命令列表", "宗门大比状态", "宗门战争状态", "宗门战报", "宗门建筑",
+    "悬赏令", "银行流水", "仙缘商店", "搜索物品",
+    "团本状态", "世界团本", "符箓", "季节", "仙界日历", "师徒",
+    "称号图鉴", "我的称号", "一键日常", "修仙诊断",
     
     # 收菜与领奖（不打架，纯收益）
     CMD_CHECK_IN, "签到", "领取利息", "洞天收取", "收获", "灵眼收取", 
@@ -274,7 +282,7 @@ def player_required(func: Callable[..., Coroutine[any, any, AsyncGenerator[any, 
 
                 if not is_allowed:
                     status_name = UserStatus.get_name(user_cd.type)
-                    yield event.plain_result(f"❌ 道友当前正在「{status_name}」，无法分心他顾。\n💡 可使用「我的信息」「签到」「银行」等基础指令。")
+                    yield event.plain_result(f"❌ 道友当前正在「{status_name}」，无法分心他顾。\n💡 可使用「我的信息」「突破信息」「签到」等查看类指令。")
                     return
 
             # 状态检查：user_cd 缺失或为空闲时，用 player.state 兜底（兼容异常中断的闭关记录）
@@ -287,7 +295,7 @@ def player_required(func: Callable[..., Coroutine[any, any, AsyncGenerator[any, 
                 if not command_text.startswith((CMD_START_CULTIVATION, CMD_END_CULTIVATION)):
                     is_allowed = _is_command_allowed(message_text, BUSY_STATE_ALLOWED_COMMANDS)
                     if not is_allowed:
-                        yield event.plain_result(f"❌ 道友当前正在「{player.state}」中，无法分心他顾。\n💡 可使用「出关」「我的信息」「签到」等基础指令。")
+                        yield event.plain_result(f"❌ 道友当前正在「{player.state}」中，无法分心他顾。\n💡 可使用「出关」「我的信息」「突破信息」等查看类指令。")
                         return
 
             # 将 player 对象作为第一个参数传递给原始函数

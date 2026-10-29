@@ -434,6 +434,15 @@ class CombatManager:
         )
         physical_def += int(title_def_total * pdef_share)
         magic_def += title_def_total - int(title_def_total * pdef_share)
+        # 功法/词条提供的额外防御（沿用旧版基础防御 10% 封顶）；
+        # 灵兽额外防御由 apply_pet_lineup 单独结算，避免重复叠加。
+        flat_def_total = min(
+            int((base_pdef + base_mdef) * .10),
+            max(0, int(effects.get("defense_bonus", 0) or 0)),
+        )
+        if flat_def_total:
+            physical_def += int(flat_def_total * pdef_share)
+            magic_def += flat_def_total - int(flat_def_total * pdef_share)
         effects["crit_rate"] = effects.get("crit_rate", 0) + int(title.get("crit", 0) or 0)
         effects["lifesteal"] = effects.get("lifesteal", 0) + int(title.get("lifesteal", 0) or 0)
         # 传承的会心/爆伤同样属于战斗面板，名片与排行必须与实战口径一致。
@@ -701,6 +710,15 @@ class CombatManager:
         )
         physical_def += int(title_def_total * pdef_share)
         magic_def += title_def_total - int(title_def_total * pdef_share)
+        # 功法/词条提供的额外防御（沿用旧版基础防御 10% 封顶）；
+        # 灵兽额外防御由 apply_pet_lineup 单独结算，避免重复叠加。
+        flat_def_total = min(
+            int((base_pdef + base_mdef) * .10),
+            max(0, int(effects.get("defense_bonus", 0) or 0)),
+        )
+        if flat_def_total:
+            physical_def += int(flat_def_total * pdef_share)
+            magic_def += flat_def_total - int(flat_def_total * pdef_share)
         effects["crit_rate"] = effects.get("crit_rate", 0) + int(title.get("crit", 0) or 0)
         effects["lifesteal"] = effects.get("lifesteal", 0) + int(title.get("lifesteal", 0) or 0)
         # 把传承会心并入统一特效池，确保溢出转换在所有战斗入口生效。

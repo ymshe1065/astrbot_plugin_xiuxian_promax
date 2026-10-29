@@ -249,6 +249,12 @@
         "default": [],
         "hint": "请添加允许使用此插件的QQ群号。留空则表示所有群聊都可用。"
       },
+      "BROADCAST_GROUPS": {
+        "description": "全服事件播报群号列表",
+        "type": "list",
+        "default": [],
+        "hint": "世界Boss/团本/天魔/魔潮/拍卖会/江湖事件等播报发送到这些群。留空则自动沿用 WHITELIST_GROUPS；两者都为空时事件仍会生成，但群内不会收到播报。"
+      },
       "SHOP_MANAGERS": {
         "description": "商店管理员名单",
         "type": "list",

@@ -39,6 +39,7 @@ BOSS_CONFIG = {
         "interval_max_hours": 4,
         "active_start_hour": 10,
         "active_end_hour": 24,
+        "timezone": "Asia/Shanghai",
         "cooldown": 180,
         "damage_floor_pct": 1.0,
         "damage_cap_pct": 12.0,
@@ -123,4 +124,9 @@ AUCTION_HOUSE_CONFIG = {
     "start_price_fluctuation": 0.2,
     "tier_labels": {"1": "黄阶", "2": "玄阶", "3": "地阶", "4": "天阶", "5": "仙品"},
     "affix_counts": {"一般": 0, "良好": 1, "极佳": 2, "大师": 3},
+    "guaranteed_categories": ["main_technique"],
+    "space_stone_name": "空间石",
+    "space_stone_count": 2,
+    "space_stone_chance": 0.8,
+    "space_stone_extra_chance": 0.5,
 }

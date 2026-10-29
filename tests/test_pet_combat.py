@@ -6,6 +6,7 @@ import time
 import types
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT.parent))
@@ -274,11 +275,15 @@ class TestPetCombat(unittest.IsolatedAsyncioTestCase):
         self.assertGreater(atk, 10_000)
 
     async def test_pet_encounter_chance_grows_with_empty_slots(self):
-        self.assertAlmostEqual(self.pet_mgr.pet_encounter_chance(0), 0.50)
-        self.assertAlmostEqual(self.pet_mgr.pet_encounter_chance(1), 0.65)
-        self.assertAlmostEqual(self.pet_mgr.pet_encounter_chance(2), 0.80)
-        self.assertAlmostEqual(self.pet_mgr.pet_encounter_chance(3), 0.95)
-        self.assertAlmostEqual(self.pet_mgr.pet_encounter_chance(10), 0.95)
+        self.assertAlmostEqual(self.pet_mgr.pet_encounter_chance(0, "御兽"), 0.50)
+        self.assertAlmostEqual(self.pet_mgr.pet_encounter_chance(1, "御兽"), 0.65)
+        self.assertAlmostEqual(self.pet_mgr.pet_encounter_chance(2, "御兽"), 0.80)
+        self.assertAlmostEqual(self.pet_mgr.pet_encounter_chance(3, "御兽"), 0.95)
+        self.assertAlmostEqual(self.pet_mgr.pet_encounter_chance(10, "御兽"), 0.95)
+        # 非御兽只有 1 个槽，单槽也要达到最高概率，不能卡在 65%。
+        self.assertAlmostEqual(self.pet_mgr.pet_encounter_chance(0, "灵修"), 0.50)
+        self.assertAlmostEqual(self.pet_mgr.pet_encounter_chance(1, "灵修"), 0.95)
+        self.assertAlmostEqual(self.pet_mgr.pet_encounter_chance(2, "灵修"), 0.95)
 
     async def test_only_yushou_has_multi_pet_slots(self):
         self.player.level_index = 14
@@ -423,3 +428,16 @@ class TestPetCombat(unittest.IsolatedAsyncioTestCase):
         pets = await self.pet_mgr.get_pets("u1", apply_regen=False)
         self.assertEqual(len(pets), 1)
         self.assertIn("灵兽奇遇", self.pet_mgr.format_exploration_encounter(info))
+
+    async def test_non_yushou_single_slot_reaches_max_encounter_chance(self):
+        self.player.level_index = 10
+        self.player.cultivation_type = "灵修"
+        await self.db.update_player(self.player)
+        # 非御兽只有 1 个空槽，0.9 的随机值在旧的 65% 概率下不会触发。
+        with patch("random.random", return_value=0.9):
+            info = await self.pet_mgr.try_exploration_encounter(
+                self.player, "历练途中", commit=True
+            )
+        self.assertIsNotNone(info)
+        self.assertEqual(info["empty_before"], 1)
+        self.assertAlmostEqual(info["chance"], 0.95)

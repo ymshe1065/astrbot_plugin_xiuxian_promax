@@ -397,7 +397,7 @@ class AlchemyManager:
         perfect_bonus = min(float(fire_cfg.get("cap", 20) or 20), float(fire_cfg.get("perfect_rate", 15) or 15) * fire_share)
 
         if getattr(player, "life_skill", "") == "炼丹师":
-            success_bonus += 5
+            success_bonus += 10
 
         return {
             "success_rate": success_bonus,

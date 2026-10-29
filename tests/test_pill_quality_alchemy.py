@@ -69,6 +69,29 @@ class _FakeDBExt(_FakeDB):
         self.ext = _FakeExt()
 
 
+class _FakeCompanionCursor:
+    def __init__(self, row):
+        self._row = row
+
+    async def fetchone(self):
+        return self._row
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return False
+
+
+class _FakeCompanionDB:
+    def __init__(self, row):
+        self.conn = self
+        self._row = row
+
+    def execute(self, sql, params):
+        return _FakeCompanionCursor(self._row)
+
+
 class TestPillQuality(unittest.IsolatedAsyncioTestCase):
     @classmethod
     def setUpClass(cls):
@@ -140,6 +163,26 @@ class TestPillQuality(unittest.IsolatedAsyncioTestCase):
         player.spiritual_root = "火灵根"
         bonus = mgr.get_alchemy_bonus(player)
         self.assertGreater(bonus["perfect_rate"], 0)
+
+    def test_alchemist_life_skill_bonus_doubled(self):
+        alchemy = _imp("managers.alchemy_manager").AlchemyManager
+        models = _imp("models")
+        player = models.Player(user_id="u1", life_skill="炼丹师")
+        mgr = alchemy(_FakeDB(player), self.config_manager, None)
+        bonus = mgr.get_alchemy_bonus(player)
+        self.assertEqual(bonus["success_rate"], 10.0)
+        life = _imp("managers.life_skill_manager")
+        self.assertIn("+10%", life.LIFE_SKILLS["炼丹师"]["desc"])
+
+    async def test_qingli_alchemy_bonus_doubled(self):
+        social = _imp("managers.social_manager")
+        # 青璃原为固定 +5%，翻倍后应恒为 +10%，不随情缘等级变化
+        for bond in (0, 450, 900):
+            db = _FakeCompanionDB({
+                "user_id": "u1", "npc_id": "青璃", "bond": bond, "daily_time": 0,
+            })
+            bonus = await social.SocialManager(db).companion_bonus_async("u1", "alchemy")
+            self.assertAlmostEqual(bonus, 0.10)
 
 
 if __name__ == "__main__":

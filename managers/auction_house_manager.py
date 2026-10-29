@@ -32,7 +32,7 @@ RANK_TIER = {
 }
 CATEGORY_LABELS = {
     "equipment": "装备", "talisman": "符箓", "pill": "丹药", "recipe": "丹方",
-    "technique": "功法", "main_technique": "心法",
+    "technique": "功法", "main_technique": "心法", "material": "材料",
 }
 
 
@@ -70,6 +70,23 @@ class AuctionHouseManager:
         blueprint = list(ah_cfg.get("lot_blueprint") or [])
         self.lot_blueprint = blueprint[: self.lot_count_cfg] if blueprint else []
         self.lot_count = len(self.lot_blueprint) or self.lot_count_cfg
+
+        # 保底类目：即使拍品数量被裁剪或随机生成失败，也至少补一件。
+        guaranteed = ah_cfg.get("guaranteed_categories")
+        self.guaranteed_categories = (
+            [str(x) for x in guaranteed if str(x).strip()]
+            if isinstance(guaranteed, list)
+            else ["main_technique"]
+        ) or ["main_technique"]
+        # 空间石：每场按概率追加，默认至少 80% 出现一件、50% 再追加一件。
+        self.space_stone_name = str(ah_cfg.get("space_stone_name") or "空间石")
+        self.space_stone_count = max(1, self._as_int(ah_cfg.get("space_stone_count"), 2))
+        self.space_stone_chance = min(
+            1.0, max(0.0, self._as_float(ah_cfg.get("space_stone_chance"), 0.8))
+        )
+        self.space_stone_extra_chance = min(
+            1.0, max(0.0, self._as_float(ah_cfg.get("space_stone_extra_chance"), 0.5))
+        )
 
         self.ai_enabled = bool(cfg.get("AI_ENABLED", True))
         self.ai_bid_broadcast = bool(cfg.get("AI_BID_BROADCAST", False))
@@ -1023,6 +1040,56 @@ class AuctionHouseManager:
             used_names.add(lot["item_name"])
             lots.append(lot)
 
+        # 保底：主修心法等指定类目至少出现一件（拍品数量被裁剪时也能补上）。
+        present = {lot["category"] for lot in lots}
+        for category in self.guaranteed_categories:
+            if category in present:
+                continue
+            entry = next(
+                (e for e in self.lot_blueprint
+                 if isinstance(e, dict) and str(e.get("category") or "") == category),
+                None,
+            ) or {
+                "category": category,
+                "tier": 4 if category == "main_technique" else 3,
+                "count": 1,
+            }
+            lot = self._generate_lot(event_id, len(lots) + 1, entry, used_names, 0, now)
+            if not lot:
+                logger.warning(f"【拍卖会】保底拍品生成失败：{category}")
+                continue
+            used_names.add(lot["item_name"])
+            lots.append(lot)
+            present.add(category)
+
+        # 空间石：每场独立判定，默认 80% 出现一件、50% 再追加一件。
+        stone_cfg = (getattr(self.config_manager, "items_data", {}) or {}).get(
+            self.space_stone_name
+        )
+        if isinstance(stone_cfg, dict):
+            stone_tier = RANK_TIER.get(str(stone_cfg.get("rank") or "地阶"), 3)
+            stone_entry = {
+                "category": "material",
+                "tier": stone_tier,
+                "count": self.space_stone_count,
+                "item_names": [self.space_stone_name],
+            }
+            for chance in (self.space_stone_chance, self.space_stone_extra_chance):
+                if chance <= 0 or random.random() >= chance:
+                    continue
+                lot = self._generate_lot(
+                    event_id, len(lots) + 1, stone_entry, used_names, 0, now
+                )
+                if not lot:
+                    continue
+                used_names.add(lot["item_name"])
+                lots.append(lot)
+
+        # 追加的拍品按价格重新排序，保持“由低到高”的展示顺序。
+        lots.sort(key=lambda x: int(x["start_price"]))
+        for index, lot in enumerate(lots, 1):
+            lot["lot_no"] = index
+
         created: List[dict] = []
         for lot in lots:
             cursor = await self.db.conn.execute(
@@ -1050,7 +1117,8 @@ class AuctionHouseManager:
         category = str(entry.get("category") or "").strip()
         tier = max(1, min(5, self._as_int(entry.get("tier"), 2)))
         count = max(1, self._as_int(entry.get("count"), 1))
-        selected = self._select_item(category, tier, used_names)
+        item_names = entry.get("item_names") or entry.get("item_name")
+        selected = self._select_item(category, tier, used_names, item_names)
         if not selected:
             return None
 
@@ -1093,8 +1161,15 @@ class AuctionHouseManager:
             "created_at": int(now),
         }
 
-    def _select_item(self, category: str, tier: int, used_names: set):
+    def _select_item(self, category: str, tier: int, used_names: set, item_names=None):
         candidates = self._category_candidates(category)
+        if item_names:
+            if isinstance(item_names, (list, tuple, set)):
+                allowed = {str(x).strip() for x in item_names if str(x).strip()}
+            else:
+                allowed = {str(item_names).strip()}
+            if allowed:
+                candidates = [x for x in candidates if x[0] in allowed]
         if not candidates:
             return None
         preferred = [x for x in candidates if x[2] == tier and x[0] not in used_names]
@@ -1176,6 +1251,17 @@ class AuctionHouseManager:
                 result.append((name, cfg, RANK_TIER.get(rank, 1), rank, {
                     "description": cfg.get("description", ""),
                     "category": category,
+                }))
+        elif category == "material":
+            for name, cfg in (getattr(self.config_manager, "items_data", {}) or {}).items():
+                if not isinstance(cfg, dict):
+                    continue
+                if cfg.get("type") not in ("材料", "material"):
+                    continue
+                rank = str(cfg.get("rank") or "凡品")
+                result.append((name, cfg, RANK_TIER.get(rank, 1), rank, {
+                    "description": cfg.get("description", ""),
+                    "category": "material",
                 }))
         elif category == "recipe":
             for recipe in (getattr(self.config_manager, "pill_recipes_data", {}) or {}).values():

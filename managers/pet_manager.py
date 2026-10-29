@@ -144,9 +144,11 @@ class PetManager:
     PET_EFFECT_SCALE = 0.1 * PET_LEVEL_BONUS_MULT
     GOLD_BONUS_PER_LEVEL = 0.005 * PET_LEVEL_BONUS_MULT
 
-    # 历练/秘境归来的灵兽奇遇：空槽越多，触发概率越高
+    # 历练/秘境归来的灵兽奇遇：空槽越多，触发概率越高。
+    # 非御兽职业固定只有 1 个槽，用更高的单槽权重补偿，避免概率永远停在 65%。
     PET_ENCOUNTER_BASE_CHANCE = 0.50
     PET_ENCOUNTER_PER_EMPTY_SLOT = 0.15
+    PET_ENCOUNTER_PER_EMPTY_SLOT_NON_YUSOU = 0.45
     PET_ENCOUNTER_MAX_CHANCE = 0.95
 
     def __init__(self, db: DataBase, config_manager=None):
@@ -788,11 +790,16 @@ class PetManager:
         }
         return True, f"🎁 你获得了【{display_name}】（Lv.{level}）！", info
 
-    def pet_encounter_chance(self, empty_slots: int) -> float:
+    def pet_encounter_chance(self, empty_slots: int, cultivation_type: str = "") -> float:
         empty = max(0, int(empty_slots))
+        per_slot = (
+            self.PET_ENCOUNTER_PER_EMPTY_SLOT
+            if cultivation_type == "御兽"
+            else self.PET_ENCOUNTER_PER_EMPTY_SLOT_NON_YUSOU
+        )
         return min(
             self.PET_ENCOUNTER_MAX_CHANCE,
-            self.PET_ENCOUNTER_BASE_CHANCE + self.PET_ENCOUNTER_PER_EMPTY_SLOT * empty,
+            self.PET_ENCOUNTER_BASE_CHANCE + per_slot * empty,
         )
 
     async def try_exploration_encounter(
@@ -809,7 +816,9 @@ class PetManager:
         empty = slots - len(pets)
         if empty <= 0:
             return None
-        chance = self.pet_encounter_chance(empty)
+        chance = self.pet_encounter_chance(
+            empty, getattr(player, "cultivation_type", "")
+        )
         if random.random() >= chance:
             return None
 

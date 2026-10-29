@@ -263,6 +263,30 @@ class TestSlots(unittest.IsolatedAsyncioTestCase):
             self.assertIn(expected_slot, p.get_equipped_instances(), results)
         self.assertEqual(set(p.get_equipped_instances()), set(expected_slots))
 
+    async def test_explicit_ring_slot_argument_is_honoured(self):
+        """回归：/装备 戒指 戒指2 必须装到戒指2，不能与戒指1互相覆盖。"""
+        p = await self._player()
+        p.level_index = 0
+        name = "测试灵纹戒指"
+        self.cm.items_data[name] = {"name": name, "type": "ring", "physical_damage": 3, "price": 1}
+        handler = _imp("handlers.equipment_handler").EquipmentHandler(self.db, self.cm)
+        event = _FakeEvent(p.user_id, p.user_id)
+
+        ok, msg = await self.ring.store_item(p, name, 2)
+        self.assertTrue(ok, msg)
+        results = [r async for r in handler.handle_equip_item.__wrapped__(handler, p, event, f"{name} 戒指2")]
+        mapping = p.get_equipped_instances()
+        self.assertIn("ring2", mapping, results)
+        self.assertNotIn("ring1", mapping, results)
+        ring2_id = mapping["ring2"]
+        self.assertIn("戒指2", "".join(results))
+
+        results = [r async for r in handler.handle_equip_item.__wrapped__(handler, p, event, f"{name} 戒指1")]
+        mapping = p.get_equipped_instances()
+        self.assertIn("ring1", mapping, results)
+        self.assertEqual(mapping["ring2"], ring2_id, "装备戒指1不应覆盖已装备的戒指2")
+        self.assertNotEqual(mapping["ring1"], ring2_id)
+
     async def test_purchase_prefers_last_viewed_pavilion(self):
         p = await self._player(gold=100000)
         name = next(n for n, c in self.cm.items_data.items() if c.get("type") == "ring" and c["rank"] == "黄阶")
