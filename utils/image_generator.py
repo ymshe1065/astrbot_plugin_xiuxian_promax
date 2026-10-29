@@ -449,15 +449,16 @@ def render_card(
 
         for sec in sections:
             name = _trunc(draw, sec.get("name", ""), f_section, width - pad * 2 - inner * 2 - 40)
-            # 区块名金箔底衬
-            nw = draw.textlength(name, font=f_section)
+            # 区块名金箔底衬（混排绘制，避免 emoji 被中文字体画成方块）
+            nw = _mixed_width(name, f_section, 28)
             bx0, by0 = label_x + 14, y_cursor - 2
             draw.rounded_rectangle([bx0, by0, bx0 + nw + 18, by0 + 42], radius=8,
                                    fill=INK_ACCENT + (52,), outline=INK_ACCENT + (150,), width=1)
             cx = label_x + 4
             draw.polygon([(cx - 9, y_cursor + 19), (cx, y_cursor + 10), (cx + 9, y_cursor + 19), (cx, y_cursor + 28)],
                          outline=INK_SECTION, width=2)
-            draw.text((label_x + 22, y_cursor + 1), name, font=f_section, fill=INK_SECTION)
+            _draw_mixed(canvas, (label_x + 22, y_cursor + 1), name, f_section, 28, INK_SECTION)
+            draw = ImageDraw.Draw(canvas)
             draw.line([(label_x + 22 + nw + 26, y_cursor + 19), (width - pad - inner, y_cursor + 19)],
                       fill=INK_DIVIDER, width=1)
             y_cursor += row_h + 8

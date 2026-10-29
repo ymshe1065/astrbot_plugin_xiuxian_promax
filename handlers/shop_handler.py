@@ -240,56 +240,68 @@ class ShopHandler:
             yield event.plain_result(display)
 
     async def _pavilion_cards(self, pavilion_name: str, items: list):
-        """百宝阁按品阶分开成卡，同品阶超过 5 件时再分页；其他阁保持整架长图。"""
+        """每个阁楼只生成一张长图；百宝阁在同一张图内按品阶分区。"""
         available = [item for item in items if item.get("stock", 0) > 0]
         if not available:
             return []
-        if pavilion_name != "百宝阁":
-            card = await self._pavilion_card(pavilion_name, available)
-            return [card] if card else []
-        cards = []
-        for rank, group in self.shop_manager.group_items_by_rank(available):
-            page_size = 5
-            pages = [group[i:i + page_size] for i in range(0, len(group), page_size)]
-            for index, page in enumerate(pages, 1):
-                title = f"百宝阁 · {rank}区"
-                if len(pages) > 1:
-                    title += f" ({index}/{len(pages)})"
-                card = await self._pavilion_card(pavilion_name, page, title=title)
-                if card:
-                    cards.append(card)
-        return cards
+        groups = None
+        if pavilion_name == "百宝阁":
+            groups = self.shop_manager.group_items_by_rank(available)
+            ordered = [item for _, group in groups for item in group]
+        else:
+            ordered = available
+        card = await self._pavilion_card(
+            pavilion_name, ordered, groups=groups
+        )
+        return [card] if card else []
 
-    async def _pavilion_card(self, pavilion_name: str, items: list, title: str = ""):
-        """阁楼列表的磨砂玻璃卡片（关闭或失败时不产出任何消息）"""
+    def _pavilion_section_lines(self, items: list):
+        """生成单个区块的商品行，图片与文本共用完整交易详情。"""
+        lines = []
+        count = 0
+        for item in items:
+            stock = item.get('stock', 0)
+            if stock <= 0:
+                continue
+            discount = item.get('discount', 1.0)
+            price_tag = f"{item['price']:,}灵石"
+            if discount < 1.0:
+                price_tag += f"({round(discount * 10, 1)}折)"
+            element = item.get('element') or (item.get('data') or {}).get('element', '')
+            elem_tag = f"[{element}]" if element else ""
+            permanent_tag = " [常驻]" if item.get('always_available') else ""
+            count += 1
+            lines.append(f"{item['name']}{elem_tag}{permanent_tag} - {price_tag} · 库存{stock}")
+            lines.extend(self.shop_manager.get_trade_details(item))
+            lines.append("")
+        return count, lines
+
+    async def _pavilion_card(self, pavilion_name: str, items: list,
+                             title: str = "", groups=None):
+        """阁楼列表的磨砂玻璃卡片（关闭或失败时不产出任何消息）。"""
         try:
             from ..utils.image_generator import render_card_async, card_enabled
             if not card_enabled("CARD_SHOP"):
                 return None
-            lines = []
+            sections = []
             count = 0
-            for item in items:
-                stock = item.get('stock', 0)
-                if stock <= 0:
-                    continue
-                discount = item.get('discount', 1.0)
-                price_tag = f"{item['price']:,}灵石"
-                if discount < 1.0:
-                    price_tag += f"({round(discount * 10, 1)}折)"
-                element = item.get('element') or (item.get('data') or {}).get('element', '')
-                elem_tag = f"[{element}]" if element else ""
-                permanent_tag = " [常驻]" if item.get('always_available') else ""
-                count += 1
-                lines.append(f"{item['name']}{elem_tag}{permanent_tag} - {price_tag} · 库存{stock}")
-                lines.extend(self.shop_manager.get_trade_details(item))
-                lines.append("")
-            if not lines:
+            if groups:
+                for rank, group in groups:
+                    group_count, lines = self._pavilion_section_lines(group)
+                    if lines:
+                        sections.append({"name": f"{rank}区", "lines": lines})
+                        count += group_count
+            else:
+                count, lines = self._pavilion_section_lines(items)
+                if lines:
+                    sections.append({"name": "在售清单", "lines": lines})
+            if not sections:
                 return None
             card_path = await render_card_async(
                 "shop",
                 title or f"{pavilion_name} · 今日货架",
                 f"共 {count} 种在售",
-                sections=[{"name": "在售清单", "lines": lines}],
+                sections=sections,
                 footer="购买 <物品名> [数量] · 售罄商品不显示",
             )
             if card_path:

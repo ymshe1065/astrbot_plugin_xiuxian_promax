@@ -110,28 +110,33 @@ class TestSlots(unittest.IsolatedAsyncioTestCase):
         for x in shop.get_weapons_for_display(9999):
             self.assertIn(self.core.ItemRules.normalize_shop_type(x), self.core.ItemRules.GEAR_TYPES)
 
-    async def test_paginated_card_keeps_all_items_and_stats(self):
+    async def test_pavilion_cards_are_single_long_image(self):
         Handler = _imp("handlers.shop_handler").ShopHandler
         handler = Handler.__new__(Handler)
         handler.shop_manager = _imp("core.shop_manager").ShopManager({}, self.cm)
-        items = [{"name": f"商品{i}", "type": "head", "rank": "凡品", "price": 100, "stock": 1,
-                  "data": {"type": "head", "physical_damage": 11, "magic_defense": 22, "effects": {"crit_rate": 5}}} for i in range(25)]
+        items = [{"name": f"商品{i}", "type": "head", "rank": "凡品" if i < 10 else "黄品",
+                  "price": 100, "stock": 1,
+                  "data": {"type": "head", "physical_damage": 11, "magic_defense": 22,
+                           "effects": {"crit_rate": 5}}} for i in range(25)]
         image_module = _imp("utils.image_generator")
         with patch.object(image_module, "card_enabled", return_value=True), patch.object(image_module, "render_card_async", new_callable=AsyncMock, return_value="card.jpg") as render:
             cards = await handler._pavilion_cards("百宝阁", items)
-        # 百宝阁按品阶分卡；同品阶超过 5 件时再分页
-        self.assertGreater(len(cards), 1)
-        self.assertEqual(render.call_count, len(cards))
-        lines = "\n".join(
-            line
-            for call in render.call_args_list
-            for line in call.kwargs["sections"][0]["lines"]
-        )
+        # 百宝阁只出一张长图，品阶在同一张图内分区
+        self.assertEqual(len(cards), 1)
+        self.assertEqual(render.call_count, 1)
+        sections = render.call_args.kwargs["sections"]
+        self.assertEqual([s["name"] for s in sections], ["凡品区", "黄品区"])
+        lines = "\n".join(line for section in sections for line in section["lines"])
         self.assertIn("商品24", lines)
         self.assertIn("境界基础物防+6.0%", lines)
         self.assertIn("境界基础法防+6.0%", lines)
         self.assertIn("暴击率 +5%", lines)
         self.assertIn("部位: 头饰", lines)
+        for name in ("丹阁", "器阁", "百宝阁"):
+            with patch.object(image_module, "card_enabled", return_value=True), patch.object(image_module, "render_card_async", new_callable=AsyncMock, return_value="card.jpg") as render:
+                cards = await handler._pavilion_cards(name, items)
+            self.assertEqual(len(cards), 1, name)
+            self.assertEqual(render.call_count, 1, name)
         with patch.object(image_module, "card_enabled", return_value=True), patch.object(image_module, "render_card_async", new_callable=AsyncMock, return_value=None):
             self.assertEqual(await handler._pavilion_cards("百宝阁", items), [])
 

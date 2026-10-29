@@ -5,6 +5,7 @@ import sys
 import types
 import unittest
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT.parent))
@@ -172,6 +173,41 @@ class TestStaticImageGeneration(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(results[0][0], "text")
         self.assertEqual(results[0][1], pages.build_help_text())
         image_generator.set_card_flags({"__enabled__": True, "CARD_HELP": True})
+
+
+class TestAdventureCards(unittest.IsolatedAsyncioTestCase):
+    class _Mgr:
+        def get_route_overview(self):
+            return [{"name": "巡山问道", "risk": "低", "duration": 600,
+                     "min_level": 0, "description": "巡山"}]
+
+        async def check_adventure_status(self, user_id):
+            return True, "📍 历练进度\n已历练：10 分钟\n剩余时间：5分0秒"
+
+        async def start_adventure(self, user_id, route):
+            return False, "🗺️ 请选择历练路线\n· 巡山问道\n  时长：10 分钟"
+
+    class _Event(_FakeEvent):
+        def get_sender_id(self):
+            return "u1"
+
+    async def test_adventure_status_is_one_image(self):
+        handler_mod = _imp("handlers.adventure_handlers")
+        with patch.object(handler_mod, "render_result_card", new_callable=AsyncMock,
+                          return_value="adventure.jpg") as render:
+            handler = handler_mod.AdventureHandlers(None, self._Mgr())
+            results = [r async for r in handler.handle_adventure_status(self._Event())]
+        self.assertEqual(results[0], ("image", "adventure.jpg"))
+        self.assertEqual(render.call_count, 1)
+
+    async def test_adventure_falls_back_to_text(self):
+        handler_mod = _imp("handlers.adventure_handlers")
+        with patch.object(handler_mod, "render_result_card", new_callable=AsyncMock,
+                          return_value=None):
+            handler = handler_mod.AdventureHandlers(None, self._Mgr())
+            results = [r async for r in handler.handle_adventure_status(self._Event())]
+        self.assertEqual(results[0][0], "text")
+        self.assertIn("历练进度", results[0][1])
 
 
 if __name__ == "__main__":

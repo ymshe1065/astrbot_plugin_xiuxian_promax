@@ -103,14 +103,24 @@ async def generate_page(page_key: str, force: bool = False) -> Optional[str]:
             return str(path) if path.exists() else None
 
         spec = PAGES[page_key]
-        temp_path = await render_card_async(
-            spec.get("background", "default"),
-            spec.get("title", ""),
-            spec.get("subtitle", ""),
-            spec.get("sections", []),
-            spec.get("footer", ""),
-            spec.get("width", 1000),
-        )
+        if spec.get("renderer") == "help_columns":
+            from .help_image import render_help_page_async
+            temp_path = await render_help_page_async(
+                spec.get("title", ""),
+                spec.get("subtitle", ""),
+                spec.get("sections", []),
+                spec.get("footer", ""),
+                spec.get("width", 1600),
+            )
+        else:
+            temp_path = await render_card_async(
+                spec.get("background", "default"),
+                spec.get("title", ""),
+                spec.get("subtitle", ""),
+                spec.get("sections", []),
+                spec.get("footer", ""),
+                spec.get("width", 1000),
+            )
         if not temp_path:
             logger.warning(f"【修仙插件】静态页图片渲染失败: {page_key}")
             return str(path) if path.exists() else None

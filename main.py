@@ -1721,14 +1721,28 @@ class XiuXianPlugin(Star):
                 if tutorial_msg: msg += tutorial_msg
 
             # 奇遇系统：历练归来概率触发三选一事件
+            encounter_msg = ""
             try:
                 encounter_msg = await self.encounter_mgr.maybe_trigger(player)
                 if encounter_msg:
-                    msg += encounter_msg
                     await self._title_bump(user_id, "luck_event")
             except Exception as e:
                 logger.warning(f"奇遇触发异常: {e}")
-        yield event.plain_result(msg)
+            from .utils.result_card import render_result_card
+            card = await render_result_card(
+                "🚶 历练归来", msg, background="adventure",
+                subtitle="本次历练结算",
+                footer="/历练信息 查看路线 · /历练状态 查看进度",
+                enabled_key="CARD_ADVENTURE",
+            )
+            if card:
+                yield event.image_result(card)
+            else:
+                yield event.plain_result(msg)
+            if encounter_msg:
+                yield event.plain_result(encounter_msg)
+        else:
+            yield event.plain_result(msg)
 
     @filter.command("放弃历练", "放弃当前历练（支付违约金）")
     @require_whitelist
