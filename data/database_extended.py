@@ -6,6 +6,7 @@
 import aiosqlite
 import json
 import time
+from contextlib import asynccontextmanager
 from typing import List, Optional
 from ..models_extended import (
     Sect, BuffInfo, Boss, Rift, ImpartInfo, UserCd, UserStatus
@@ -32,6 +33,26 @@ class DatabaseExtended:
     def __init__(self, conn: aiosqlite.Connection):
         self.conn = conn
         self._bounty_tables_ensured = False  # 避免每次查询都执行 DDL+commit 破坏外层事务
+
+    @asynccontextmanager
+    async def _transaction(self):
+        """读写一致的写事务；已处于事务中时自动加入外层事务。"""
+        started = False
+        # 任务连接路由能管理真实事务边界；外部注入的裸连接没有事务管理器，
+        # 沿用历史行为（结束时提交），避免旧测试/调用方数据未落盘。
+        managed = hasattr(self.conn, "current_connection")
+        if not getattr(self.conn, "in_transaction", False):
+            await self.conn.execute("BEGIN IMMEDIATE")
+            started = True
+        try:
+            yield
+        except BaseException:
+            if started:
+                await self.conn.rollback()
+            raise
+        else:
+            if started or not managed:
+                await self.conn.commit()
     
     # ===== 宗门系统 CRUD =====
     
@@ -588,26 +609,26 @@ class DatabaseExtended:
     async def settle_sect_debt(self, user_id: str) -> int:
         """用当前灵石自动偿还宗门欠款，返回实际还款额。"""
         # 用 SQL 直接处理，避免依赖上层 DataBase 实例
-        async with self.conn.execute(
-            "SELECT gold, sect_debt, sect_id FROM players WHERE user_id = ?", (user_id,)
-        ) as cursor:
-            row = await cursor.fetchone()
-        if not row:
-            return 0
-        gold, debt, sect_id = int(row[0] or 0), int(row[1] or 0), int(row[2] or 0)
-        if debt <= 0 or gold <= 0 or sect_id <= 0:
-            return 0
-        pay = min(gold, debt)
-        await self.conn.execute(
-            "UPDATE players SET gold = gold - ?, sect_debt = sect_debt - ? WHERE user_id = ?",
-            (pay, pay, user_id),
-        )
-        await self.conn.execute(
-            "UPDATE sects SET sect_used_stone = sect_used_stone + ? WHERE sect_id = ?",
-            (pay, sect_id),
-        )
-        await self.conn.commit()
-        return pay
+        async with self._transaction():
+            async with self.conn.execute(
+                "SELECT gold, sect_debt, sect_id FROM players WHERE user_id = ?", (user_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+            if not row:
+                return 0
+            gold, debt, sect_id = int(row[0] or 0), int(row[1] or 0), int(row[2] or 0)
+            if debt <= 0 or gold <= 0 or sect_id <= 0:
+                return 0
+            pay = min(gold, debt)
+            await self.conn.execute(
+                "UPDATE players SET gold = gold - ?, sect_debt = sect_debt - ? WHERE user_id = ?",
+                (pay, pay, user_id),
+            )
+            await self.conn.execute(
+                "UPDATE sects SET sect_used_stone = sect_used_stone + ? WHERE sect_id = ?",
+                (pay, sect_id),
+            )
+            return pay
 
     async def settle_all_sect_debts(self) -> int:
         """扫描并偿还所有宗门欠款，返回总还款额。"""
@@ -1200,26 +1221,26 @@ class DatabaseExtended:
         """增加任务进度（供其他 Manager 调用的接口）"""
         import time as _time
         now = int(_time.time())
-        async with self.conn.execute(
-            "SELECT * FROM daily_tasks WHERE user_id = ? AND target_type = ? AND status = 1 AND expire_time >= ?",
-            (user_id, target_type, now)
-        ) as cursor:
-            tasks = await cursor.fetchall()
-            
-        for task in tasks:
-            new_progress = min(task['target_count'], task['current_progress'] + count)
-            if new_progress >= task['target_count']:
-                # 任务完成
-                await self.conn.execute(
-                    "UPDATE daily_tasks SET current_progress = ?, status = 2 WHERE id = ?",
-                    (new_progress, task['id'])
-                )
-            else:
-                await self.conn.execute(
-                    "UPDATE daily_tasks SET current_progress = ? WHERE id = ?",
-                    (new_progress, task['id'])
-                )
-        await self.conn.commit()
+        async with self._transaction():
+            async with self.conn.execute(
+                "SELECT * FROM daily_tasks WHERE user_id = ? AND target_type = ? AND status = 1 AND expire_time >= ?",
+                (user_id, target_type, now)
+            ) as cursor:
+                tasks = await cursor.fetchall()
+
+            for task in tasks:
+                new_progress = min(task['target_count'], task['current_progress'] + count)
+                if new_progress >= task['target_count']:
+                    # 任务完成
+                    await self.conn.execute(
+                        "UPDATE daily_tasks SET current_progress = ?, status = 2 WHERE id = ?",
+                        (new_progress, task['id'])
+                    )
+                else:
+                    await self.conn.execute(
+                        "UPDATE daily_tasks SET current_progress = ? WHERE id = ?",
+                        (new_progress, task['id'])
+                    )
 
     async def complete_daily_task(self, task_id: int, user_id: str):
         """标记任务为已领奖"""

@@ -165,6 +165,59 @@ class ShopManager:
             changed = True
         return changed
 
+    @staticmethod
+    def shop_entry_key(item: Dict) -> Dict:
+        """返回货架条目的库存定位键（id + 品质），供扣减/回滚精确定位。"""
+        data = item.get("data") if isinstance(item.get("data"), dict) else {}
+        return {
+            "id": item.get("id") or data.get("id"),
+            "quality": item.get("quality"),
+        }
+
+    def dedupe_same_name_items(self, items: List[Dict]) -> bool:
+        """合并同名货架条目：保留首个条目的价格/品质，库存累加到首个条目。
+
+        商店购买与宗门兑换按名称展示，同名条目会导致“展示的条目”和“扣库存的
+        条目”错位。新货架在生成时去重，旧货架在读取时惰性合并。
+        """
+        if not isinstance(items, list) or len(items) < 2:
+            return False
+        merged: List[Dict] = []
+        index_by_name: Dict[str, int] = {}
+        changed = False
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or "")
+            if not name:
+                merged.append(item)
+                continue
+            first_index = index_by_name.get(name)
+            if first_index is None:
+                index_by_name[name] = len(merged)
+                merged.append(item)
+                continue
+            first = merged[first_index]
+            try:
+                add_stock = max(0, int(item.get("stock", 0) or 0))
+            except (TypeError, ValueError):
+                add_stock = 0
+            try:
+                base_stock = max(0, int(first.get("stock", 0) or 0))
+            except (TypeError, ValueError):
+                base_stock = 0
+            first["stock"] = base_stock + add_stock
+            changed = True
+            dropped_data = item.get("data") if isinstance(item.get("data"), dict) else {}
+            logger.warning(
+                f"【商店】货架存在同名条目，已合并库存：{name} "
+                f"(丢弃条目 id={item.get('id') or dropped_data.get('id')}, "
+                f"库存 {add_stock} → 合计 {first['stock']})"
+            )
+        if changed:
+            items[:] = merged
+        return changed
+
     def resolve_current_item_data(self, item: Dict) -> Optional[Dict]:
         """按缓存物品的 id/名称查找当前配置，避免继续使用旧效果快照。"""
         if not isinstance(item, dict):
@@ -484,6 +537,7 @@ class ShopManager:
                 'data': item['data']
             })
 
+        self.dedupe_same_name_items(shop_items)
         return shop_items
 
     def should_refresh_shop(self, last_refresh_time: int, refresh_hours: int = None) -> bool:
@@ -526,6 +580,7 @@ class ShopManager:
                 'always_available': bool(item.get('always_available')), 'rare': bool(item.get('rare')),
                 'quality': self.roll_gear_quality() if self.is_gear_entry(item) else '',
             })
+        self.dedupe_same_name_items(result)
         return self.sort_pavilion_items(result)
 
     def get_pills_for_display(self, count: int) -> List[Dict]:

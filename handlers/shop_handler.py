@@ -94,7 +94,8 @@ class ShopHandler:
         """确保阁楼已刷新"""
         last_refresh_time, current_items = await self.db.get_shop_data(pavilion_id)
         if current_items:
-            updated = self.shop_manager.ensure_items_have_stock(current_items)
+            updated = self.shop_manager.dedupe_same_name_items(current_items)
+            updated = self.shop_manager.ensure_items_have_stock(current_items) or updated
             updated = self.shop_manager.ensure_equipment_quality(current_items) or updated
             updated = self.shop_manager.refresh_item_data(current_items) or updated
             if updated:
@@ -133,7 +134,8 @@ class ShopHandler:
             try:
                 last_refresh, items = await self.db.get_shop_data(pavilion_id)
                 if items:
-                    data_changed = self.shop_manager.ensure_equipment_quality(items)
+                    data_changed = self.shop_manager.dedupe_same_name_items(items)
+                    data_changed = self.shop_manager.ensure_equipment_quality(items) or data_changed
                     data_changed = self.shop_manager.refresh_item_data(items) or data_changed
                     if data_changed:
                         await self.db.update_shop_data(pavilion_id, last_refresh, items)
@@ -323,7 +325,8 @@ class ShopHandler:
         for pavilion_id in pavilion_ids:
             last_refresh, items = await self.db.get_shop_data(pavilion_id)
             if items:
-                changed = self.shop_manager.ensure_equipment_quality(items)
+                changed = self.shop_manager.dedupe_same_name_items(items)
+                changed = self.shop_manager.ensure_equipment_quality(items) or changed
                 changed = self.shop_manager.refresh_item_data(items) or changed
                 if changed:
                     await self.db.update_shop_data(pavilion_id, last_refresh, items)
@@ -473,7 +476,11 @@ class ShopHandler:
                 )
                 return
 
-            reserved, _, remaining = await self.db.decrement_shop_item_stock(pavilion_id, item_name, quantity, external_transaction=True)
+            reserved, _, remaining = await self.db.decrement_shop_item_stock(
+                pavilion_id, item_name, quantity,
+                external_transaction=True,
+                entry_key=self.shop_manager.shop_entry_key(target_item),
+            )
             if not reserved:
                 await self.db.conn.rollback()
                 yield event.plain_result(f"【{item_name}】已售罄，请等待刷新。")

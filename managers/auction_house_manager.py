@@ -417,12 +417,7 @@ class AuctionHouseManager:
                 winner = await self.db.get_player_by_id(winner_id)
                 lot["winner_name"] = winner.user_name if winner and winner.user_name else winner_id
             if winner_id:
-                ok, msg = await self._deliver_lot(lot, winner_id)
-                await self.db.conn.execute(
-                    "UPDATE auction_house_lots SET delivery_status=? WHERE id=?",
-                    ("delivered" if ok else "pending", lot["id"]),
-                )
-                await self.db.conn.commit()
+                ok, msg = await self._deliver_lot_atomic(lot, winner_id)
                 if not ok:
                     logger.warning(f"【拍卖会】拍品发放失败 lot={lot['id']}: {msg}")
             payload = {"scene": "result", "lot_no": lot["lot_no"], "facts": self._lot_result_facts(event, lot, True)}
@@ -768,28 +763,14 @@ class AuctionHouseManager:
         # 与 tick/结算共用同一把锁，避免结算与补领同时发放同一件拍品。
         async with self._lock:
             lots = await self._fetchall(
-                "SELECT * FROM auction_house_lots WHERE winner_id=? AND delivery_status='pending' ORDER BY id",
+                "SELECT * FROM auction_house_lots WHERE winner_id=? AND delivery_status IN ('pending', 'delivering') ORDER BY id",
                 (player.user_id,),
             )
             if not lots:
                 return False, "📦 你当前没有待领取的拍卖会拍品。"
             delivered = []
             for lot in lots:
-                # 原子占位：只有仍为 pending 的记录才能被本次领走。
-                cursor = await self.db.conn.execute(
-                    """UPDATE auction_house_lots SET delivery_status='delivering'
-                       WHERE id=? AND delivery_status='pending'""",
-                    (lot["id"],),
-                )
-                await self.db.conn.commit()
-                if cursor.rowcount <= 0:
-                    continue
-                ok, msg = await self._deliver_lot(lot, player.user_id)
-                await self.db.conn.execute(
-                    "UPDATE auction_house_lots SET delivery_status=? WHERE id=?",
-                    ("delivered" if ok else "pending", lot["id"]),
-                )
-                await self.db.conn.commit()
+                ok, msg = await self._deliver_lot_atomic(lot, player.user_id)
                 if ok:
                     delivered.append(f"第 {lot['lot_no']} 件：{lot['item_name']} ×{lot['count']}")
                 else:
@@ -1391,9 +1372,74 @@ class AuctionHouseManager:
 
     # ================= 发放 =================
 
-    async def _deliver_lot(self, lot: dict, user_id: str) -> Tuple[bool, str]:
-        player = await self.db.get_player_by_id(user_id)
+    async def _deliver_lot_atomic(self, lot: dict, user_id: str) -> Tuple[bool, str]:
+        """单事务完成“发放 + 状态落库”，避免发放成功后崩溃导致重复领取。
+
+        发放失败时回滚全部物品/背包改动，并把状态退回 pending 供补领。
+        """
+        lot_id = lot.get("id")
+        began = False
+        last_error = None
+        for attempt in range(5):
+            try:
+                await self.db.conn.execute("BEGIN IMMEDIATE")
+                began = True
+                break
+            except Exception as e:
+                last_error = e
+                if attempt < 4:
+                    await asyncio.sleep(0.05 * (attempt + 1))
+        if not began:
+            logger.error(f"【拍卖会】发放事务启动失败 lot={lot_id}: {last_error}")
+            return False, f"发放事务启动失败: {last_error}"
+        ok, msg = False, "发放失败"
+        try:
+            cursor = await self.db.conn.execute(
+                """UPDATE auction_house_lots SET delivery_status='delivering'
+                   WHERE id=? AND delivery_status IN ('pending', 'delivering')""",
+                (lot_id,),
+            )
+            if cursor.rowcount <= 0:
+                await self.db.conn.rollback()
+                return False, "该拍品已发放或状态异常"
+            ok, msg = await self._deliver_lot(lot, user_id, external_transaction=True)
+            if ok:
+                await self.db.conn.execute(
+                    "UPDATE auction_house_lots SET delivery_status='delivered' WHERE id=?",
+                    (lot_id,),
+                )
+                await self.db.conn.commit()
+                return True, ""
+            await self.db.conn.rollback()
+        except Exception as e:
+            if began:
+                await self.db.conn.rollback()
+            logger.error(f"【拍卖会】发放事务异常 lot={lot_id}: {e}")
+            ok, msg = False, str(e)
+        try:
+            await self.db.conn.execute(
+                """UPDATE auction_house_lots SET delivery_status='pending'
+                   WHERE id=? AND delivery_status IN ('delivering', 'pending')""",
+                (lot_id,),
+            )
+            await self.db.conn.commit()
+        except Exception as e:
+            logger.error(f"【拍卖会】回退发放状态失败 lot={lot_id}: {e}")
+        return False, msg
+
+    async def _deliver_lot(self, lot: dict, user_id: str, external_transaction: bool = False) -> Tuple[bool, str]:
+        if not external_transaction:
+            await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            player = await self.db.get_player_by_id(user_id)
+        except Exception as e:
+            if not external_transaction:
+                await self.db.conn.rollback()
+            logger.error(f"【拍卖会】读取玩家失败 lot={lot.get('id')}: {e}")
+            return False, str(e)
         if not player:
+            if not external_transaction:
+                await self.db.conn.rollback()
             return False, "玩家不存在"
         try:
             payload = json.loads(lot.get("payload_json") or "{}")
@@ -1409,7 +1455,12 @@ class AuctionHouseManager:
             if category == "pill":
                 from ..core.pill_manager import PillManager
                 pm = PillManager(self.db, self.config_manager)
-                await pm.add_pill_to_inventory(player, item_name, count, quality=quality)
+                await pm.add_pill_to_inventory(
+                    player, item_name, count, quality=quality, external_transaction=True
+                )
+                await self.db.update_player(player, commit=False)
+                if not external_transaction:
+                    await self.db.conn.commit()
                 return True, ""
             if category == "equipment":
                 from ..core.item_instance_manager import ItemInstanceManager
@@ -1422,12 +1473,24 @@ class AuctionHouseManager:
                     affixes=payload.get("affixes") or [],
                     location=location,
                 )
-                await self.db.update_player(player)
+                await self.db.update_player(player, commit=False)
+                if not external_transaction:
+                    await self.db.conn.commit()
                 return True, ""
             ok, msg = await self.storage_ring_mgr.store_item(
-                player, item_name, count, silent=True, allow_overflow=True
+                player, item_name, count, silent=True, allow_overflow=True,
+                external_transaction=True,
             )
-            return bool(ok), msg
+            if ok:
+                await self.db.update_player(player, commit=False)
+                if not external_transaction:
+                    await self.db.conn.commit()
+                return True, ""
+            if not external_transaction:
+                await self.db.conn.rollback()
+            return False, msg
         except Exception as e:
+            if not external_transaction:
+                await self.db.conn.rollback()
             logger.error(f"【拍卖会】发放异常 lot={lot.get('id')}: {e}")
             return False, str(e)

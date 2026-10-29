@@ -5,7 +5,7 @@ from ..data import DataBase
 from ..core import EquipmentManager, PillManager, StorageRingManager, ItemRules
 from ..config_manager import ConfigManager
 from ..models import Player
-from .utils import player_required
+from .utils import player_required, resolve_greedy_args
 
 CMD_SHOW_EQUIPMENT = "我的装备"
 CMD_EQUIP_ITEM = "装备"
@@ -370,18 +370,29 @@ class EquipmentHandler:
                                 or tokens[-1] in ItemRules.SLOT_GROUP_ALIASES):
             target_slot = tokens.pop()
             item_name = " ".join(tokens)
-        instance_index = 1
+
+        # 末尾数字：装备表示“储物戒中第 N 件”，功法表示“要替换的功法栏位 1~3”。
+        trailing_index = 0
         tokens = item_name.split()
         if len(tokens) >= 2 and tokens[-1].isdigit():
-            instance_index = max(1, int(tokens[-1]))
-            item_name = " ".join(tokens[:-1])
+            trailing_index = max(1, int(tokens[-1]))
+            base_name = " ".join(tokens[:-1])
+        else:
+            base_name = item_name
 
-        # 检查物品是否存在于配置中（items -> weapons -> techniques）
-        item_config = self.config_manager.items_data.get(item_name)
-        if not item_config:
-            item_config = self.config_manager.weapons_data.get(item_name)
-        if not item_config and hasattr(self.config_manager, "techniques_data"):
-            item_config = self.config_manager.techniques_data.get(item_name)
+        def _lookup(name: str):
+            return (self.config_manager.items_data.get(name)
+                    or self.config_manager.weapons_data.get(name)
+                    or (getattr(self.config_manager, "techniques_data", {}) or {}).get(name))
+
+        item_config = _lookup(base_name)
+        if not item_config and trailing_index and base_name != item_name:
+            # 物品名本身以数字结尾（如“xx戒指2”）时，不能把末尾数字当序号。
+            item_config = _lookup(item_name)
+            if item_config:
+                base_name = item_name
+                trailing_index = 0
+        item_name = base_name
 
         if not item_config:
             yield event.plain_result(f"未找到物品：{item_name}")
@@ -389,6 +400,8 @@ class EquipmentHandler:
 
         item_type = ItemRules.normalize_equipment_type(item_config)
         equippable_types = ItemRules.EQUIPPABLE_TYPES
+        technique_index = trailing_index if item_type == "technique" else 0
+        instance_index = trailing_index if item_type in ItemRules.GEAR_TYPES else 1
 
         if item_type not in equippable_types:
             yield event.plain_result(f"【{item_name}】不是可装备的物品类型")
@@ -414,7 +427,9 @@ class EquipmentHandler:
                 item_name, self.config_manager.items_data, self.config_manager.weapons_data, inst,
                 player_level=player.level_index,
             )
-            success, message = await self.equipment_manager.equip_item(player, item, int(inst["id"]), target_slot)
+            success, message = await self.equipment_manager.equip_item(
+                player, item, int(inst["id"]), target_slot, technique_index
+            )
         else:
             # 兼容旧数据：储物戒名称堆叠
             if not self.storage_ring_manager.has_item(player, item_name, 1):
@@ -434,7 +449,9 @@ class EquipmentHandler:
                 item_name, self.config_manager.items_data, self.config_manager.weapons_data,
                 player_level=player.level_index,
             )
-            success, message = await self.equipment_manager.equip_item(player, item, target_slot=target_slot)
+            success, message = await self.equipment_manager.equip_item(
+                player, item, target_slot=target_slot, technique_index=technique_index
+            )
 
         if success:
             await self._refresh_combat_cache(player)
@@ -496,23 +513,45 @@ class EquipmentHandler:
                 await self.storage_ring_manager.store_item(player, item_name, 1, silent=True)
             yield event.plain_result(f"❌ {message}")
 
+    def _is_known_unequip_target(self, player: Player, name: str) -> bool:
+        """判断去掉末尾数字后的名称是否是已装备/可定位的目标。"""
+        if name in ("功法", "technique", "戒指", "ring", "心法", "主修心法", "main_technique"):
+            return True
+        if name in ItemRules.SLOT_ALIASES:
+            return True
+        if name in player.get_techniques_list():
+            return True
+        return any(n == name for n, _ in self.equipment_manager.get_gear_slots(player).values())
+
+    def _parse_unequip_target(self, player: Player, text: str):
+        """解析「目标 [栏位序号]」；目标名本身以数字结尾时保留完整名称。"""
+        tokens = (text or "").split()
+        if len(tokens) >= 2 and tokens[-1].isdigit():
+            name = " ".join(tokens[:-1])
+            index = int(tokens[-1])
+            if index >= 1 and self._is_known_unequip_target(player, name):
+                return name, index
+        return (text or "").strip(), 0
+
     @player_required
     async def handle_unequip_item(self, player: Player, event: AstrMessageEvent, slot_or_name: str):
-        """卸下装备"""
-        if not slot_or_name or slot_or_name.strip() == "":
+        """卸下装备；支持 /卸下 戒指 2、/卸下 功法 2 等栏位写法。"""
+        raw = resolve_greedy_args(event, slot_or_name, CMD_UNEQUIP_ITEM).strip()
+        if not raw:
             yield event.plain_result(
                 f"请指定要卸下的装备\n"
-                f"用法：{CMD_UNEQUIP_ITEM} 武器/头饰/甲胄/手套/靴子/戒指1/戒指2/护符/心法/功法名称"
+                f"用法：{CMD_UNEQUIP_ITEM} 武器/头饰/甲胄/手套/靴子/戒指1/戒指2/护符/心法/功法名\n"
+                f"栏位写法：{CMD_UNEQUIP_ITEM} 戒指 2、{CMD_UNEQUIP_ITEM} 功法名 2"
             )
             return
 
-        slot_or_name = slot_or_name.strip()
+        name, slot_index = self._parse_unequip_target(player, raw)
 
-        if slot_or_name == player.main_technique:
-            slot_or_name = "心法"
+        if name == player.main_technique and name not in player.get_techniques_list():
+            name = "心法"
         # unequip_item 内部已统一把心法/功法/装备实例放回储物戒；
         # 此处不能再调用 store_item，否则会新建实例造成无限复制。
-        success, message = await self.equipment_manager.unequip_item(player, slot_or_name)
+        success, message = await self.equipment_manager.unequip_item(player, name, slot_index)
         if success:
             await self._refresh_combat_cache(player)
         yield event.plain_result(f"{'✅' if success else '❌'} {message}")

@@ -332,8 +332,9 @@ class EquipmentManager:
             return f"境界{level_index}"
         return " / ".join(names)
 
-    async def equip_item(self, player: Player, item: Item, instance_id: int = 0, target_slot: str = "") -> tuple[bool, str]:
-        """装备物品（支持装备实例）"""
+    async def equip_item(self, player: Player, item: Item, instance_id: int = 0, target_slot: str = "",
+                         technique_index: int = 0) -> tuple[bool, str]:
+        """装备物品（支持装备实例与功法栏位）"""
         if item is None:
             return False, "❌ 未找到该装备的配置数据，无法穿戴。"
         can_equip, error_msg = self.check_equipment_level_requirement(player, item)
@@ -405,44 +406,112 @@ class EquipmentManager:
             return True, f"已装备主修心法【{item.name}】（{item.rank}）"
 
         elif item.item_type == "technique":
-            techniques_list = player.get_techniques_list()
-            if item.name in techniques_list:
-                return False, f"功法【{item.name}】已装备"
+            return await self._equip_technique(player, item, technique_index)
+        else:
+            return False, f"未知的装备类型：{item.item_type}"
+
+    async def _equip_technique(self, player: Player, item: Item, technique_index: int = 0) -> tuple[bool, str]:
+        """装备普通功法；technique_index 为 1~3 时替换指定栏位。"""
+        techniques_list = player.get_techniques_list()
+        if item.name in techniques_list:
+            actual = techniques_list.index(item.name) + 1
+            return False, f"功法【{item.name}】已装备（栏位 {actual}）"
+
+        if not technique_index:
             if len(techniques_list) >= 3:
-                return False, f"功法栏已满（最多3个），请先卸下其他功法"
+                return False, (
+                    "功法栏已满（最多3个）。\n"
+                    f"可发送 /装备 {item.name} 1~3 替换指定栏位的功法。"
+                )
             techniques_list.append(item.name)
             player.set_techniques_list(techniques_list)
             await self.db.update_player(player)
             return True, f"已装备功法【{item.name}】（{item.rank}）（{len(techniques_list)}/3）"
-        else:
-            return False, f"未知的装备类型：{item.item_type}"
 
-    async def unequip_item(self, player: Player, slot_or_name: str) -> tuple[bool, str]:
-        """卸下装备"""
-        slot = ItemRules.SLOT_ALIASES.get(slot_or_name)
-        if not slot:
-            slot = next((key for key, (name, _) in self.get_gear_slots(player).items() if name == slot_or_name), None)
-        if slot:
-            name, inst = self.get_gear_slots(player)[slot]
-            if not name:
-                return False, f"未装备{ItemRules.SLOT_LABELS[slot]}"
-            if inst:
-                ok, msg = self._storage_accepts_instance(player, name)
-                if not ok:
-                    return False, msg
-                self.instance_manager.move(player, inst["id"], "storage")
-            else:
-                ok, msg = await self._try_store_old_equipment(player, name)
-                if not ok:
-                    return False, msg
-            mapping = player.get_equipped_instances()
-            mapping.pop(slot, None)
-            player.set_equipped_instances(mapping)
-            if slot in ("weapon", "armor"):
-                setattr(player, slot, "")
+        if technique_index < 1 or technique_index > 3:
+            return False, "功法栏位序号只能是 1~3。"
+        if technique_index > len(techniques_list) + 1:
+            return False, (
+                f"当前只有 {len(techniques_list)} 个功法，无法放入第 {technique_index} 个栏位。"
+                f"可用栏位：1~{len(techniques_list) + 1}。"
+            )
+
+        if technique_index == len(techniques_list) + 1:
+            techniques_list.append(item.name)
+            player.set_techniques_list(techniques_list)
             await self.db.update_player(player)
-            return True, f"已卸下{ItemRules.SLOT_LABELS[slot]}【{name}】，已存入储物戒"
-        elif slot_or_name in ["主修心法", "心法", "main_technique"]:
+            return True, f"已装备功法【{item.name}】（{item.rank}）（{len(techniques_list)}/3）"
+
+        old_name = techniques_list[technique_index - 1]
+        ok, msg = await self._try_store_old_equipment(player, old_name)
+        if not ok:
+            return False, f"储物戒空间不足，无法回收旧功法【{old_name}】，已取消换装。\n{msg}"
+        techniques_list[technique_index - 1] = item.name
+        player.set_techniques_list(techniques_list)
+        await self.db.update_player(player)
+        return True, (
+            f"已将栏位 {technique_index} 的功法【{old_name}】替换为【{item.name}】（{item.rank}）\n"
+            f"旧功法【{old_name}】已存入储物戒"
+        )
+
+    async def unequip_item(self, player: Player, slot_or_name: str, slot_index: int = 0) -> tuple[bool, str]:
+        """卸下装备。
+
+        slot_index > 0 时按栏位定位：
+        - 功法：1~3，对应 /我的装备 中显示的功法序号；
+        - 戒指：1~2，对应戒指1/戒指2。
+        """
+        name = (slot_or_name or "").strip()
+        techniques_list = player.get_techniques_list()
+        gear_slots = self.get_gear_slots(player)
+
+        # 通用功法名 + 序号
+        if name in ("功法", "technique"):
+            if not slot_index:
+                return False, "请指定功法栏位，例如 /卸下 功法 1~3。"
+            return await self._unequip_technique_at(player, slot_index)
+
+        # 通用戒指名 + 序号
+        if name in ("戒指", "ring"):
+            if slot_index not in (1, 2):
+                return False, "请指定戒指栏位：/卸下 戒指 1 或 /卸下 戒指 2。"
+            return await self._unequip_gear_slot(player, f"ring{slot_index}")
+
+        # 按功法名卸下（可附带栏位校验）
+        if name in techniques_list:
+            actual = techniques_list.index(name) + 1
+            if slot_index and slot_index != actual:
+                return False, f"功法【{name}】当前在栏位 {actual}，不是 {slot_index}。"
+            return await self._unequip_technique_at(player, actual)
+
+        slot = ItemRules.SLOT_ALIASES.get(name)
+        if slot:
+            if slot in ("ring1", "ring2") and slot_index:
+                if slot_index not in (1, 2):
+                    return False, "戒指栏位序号只能是 1 或 2。"
+                if slot != f"ring{slot_index}":
+                    return False, f"【{name}】与戒指栏位 {slot_index} 不匹配。"
+            elif slot_index not in (0, 1):
+                return False, f"{ItemRules.SLOT_LABELS.get(slot, name)}没有第 {slot_index} 个栏位。"
+            return await self._unequip_gear_slot(player, slot)
+
+        matched = [key for key, (equipped_name, _) in gear_slots.items() if equipped_name == name]
+        if matched:
+            slot = matched[0]
+            if slot_index:
+                if slot.startswith("ring"):
+                    if slot_index not in (1, 2):
+                        return False, "戒指栏位序号只能是 1 或 2。"
+                    slot = f"ring{slot_index}"
+                    equipped_name = gear_slots.get(slot, ("", None))[0]
+                    if equipped_name != name:
+                        actual = f"【{equipped_name}】" if equipped_name else "空"
+                        return False, f"戒指{slot_index}当前装备的是{actual}，不是【{name}】。"
+                elif slot_index != 1:
+                    return False, f"【{name}】没有第 {slot_index} 个栏位。"
+            return await self._unequip_gear_slot(player, slot)
+
+        if name in ["主修心法", "心法", "main_technique"]:
             if not player.main_technique: return False, "未装备主修心法"
             item_name = player.main_technique
             ok, msg = await self._try_store_old_equipment(player, item_name)
@@ -451,17 +520,45 @@ class EquipmentManager:
             player.main_technique = ""
             await self.db.update_player(player)
             return True, f"已卸下主修心法【{item_name}】，已存入储物戒"
+        return False, f"未找到装备：{name}"
 
+    async def _unequip_technique_at(self, player: Player, index: int) -> tuple[bool, str]:
+        """按显示序号卸下普通功法。"""
         techniques_list = player.get_techniques_list()
-        if slot_or_name in techniques_list:
-            ok, msg = await self._try_store_old_equipment(player, slot_or_name)
+        if index < 1 or index > 3:
+            return False, "功法栏位序号只能是 1~3。"
+        if index > len(techniques_list):
+            return False, f"功法栏位 {index} 未装备功法（当前 {len(techniques_list)}/3）。"
+        item_name = techniques_list[index - 1]
+        ok, msg = await self._try_store_old_equipment(player, item_name)
+        if not ok:
+            return False, f"储物戒空间不足，无法回收功法【{item_name}】：{msg}"
+        techniques_list.pop(index - 1)
+        player.set_techniques_list(techniques_list)
+        await self.db.update_player(player)
+        return True, f"已卸下栏位 {index} 的功法【{item_name}】，已存入储物戒"
+
+    async def _unequip_gear_slot(self, player: Player, slot: str) -> tuple[bool, str]:
+        """卸下指定装备槽位并存入储物戒。"""
+        name, inst = self.get_gear_slots(player).get(slot, ("", None))
+        if not name:
+            return False, f"未装备{ItemRules.SLOT_LABELS.get(slot, slot)}"
+        if inst:
+            ok, msg = self._storage_accepts_instance(player, name)
             if not ok:
-                return False, f"储物戒空间不足，无法回收功法【{slot_or_name}】：{msg}"
-            techniques_list.remove(slot_or_name)
-            player.set_techniques_list(techniques_list)
-            await self.db.update_player(player)
-            return True, f"已卸下功法【{slot_or_name}】，已存入储物戒"
-        return False, f"未找到装备：{slot_or_name}"
+                return False, msg
+            self.instance_manager.move(player, inst["id"], "storage")
+        else:
+            ok, msg = await self._try_store_old_equipment(player, name)
+            if not ok:
+                return False, msg
+        mapping = player.get_equipped_instances()
+        mapping.pop(slot, None)
+        player.set_equipped_instances(mapping)
+        if slot in ("weapon", "armor"):
+            setattr(player, slot, "")
+        await self.db.update_player(player)
+        return True, f"已卸下{ItemRules.SLOT_LABELS.get(slot, slot)}【{name}】，已存入储物戒"
 
     def _storage_accepts_instance(self, player: Player, item_name: str, freeing: int = 0) -> tuple:
         """检查储物戒是否还有空间容纳一件装备实例（freeing 为同时腾出的格数）。"""

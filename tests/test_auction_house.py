@@ -516,6 +516,46 @@ class TestAuctionHouse(unittest.IsolatedAsyncioTestCase):
         winner = await self.db.get_player_by_id("w1")
         self.assertEqual(winner.get_pills_inventory().get("筑基丹|良好"), 1)
 
+    async def test_delivery_failure_rolls_back_and_retry_delivers_once(self):
+        now = int(time.time())
+        event = await self._insert_event("live", now=now, current_lot=1, lot_count=1)
+        lot = await self._insert_lot(
+            event["id"], category="pill", name="筑基丹", quality="良好",
+            status="sold", highest_bidder="w1", highest_bid=1500,
+        )
+        await self.conn.execute(
+            "UPDATE auction_house_lots SET winner_id=?, winning_price=?, delivery_status='pending' WHERE id=?",
+            ("w1", 1500, lot["id"]),
+        )
+        await self.conn.commit()
+        player = await self._player("w1", gold=0, name="赢家")
+        original = self.manager._deliver_lot
+
+        async def grant_then_raise(_lot, user_id):
+            winner = await self.db.get_player_by_id(user_id)
+            inventory = winner.get_pills_inventory()
+            inventory["筑基丹|良好"] = inventory.get("筑基丹|良好", 0) + 1
+            winner.set_pills_inventory(inventory)
+            await self.db.update_player(winner, commit=False)
+            raise RuntimeError("模拟发放后崩溃")
+
+        self.manager._deliver_lot = grant_then_raise
+        ok, _ = await self.manager.claim_pending(player)
+        self.assertFalse(ok)
+        winner = await self.db.get_player_by_id("w1")
+        self.assertEqual(winner.get_pills_inventory().get("筑基丹|良好", 0), 0)
+        async with self.conn.execute(
+            "SELECT delivery_status FROM auction_house_lots WHERE id=?", (lot["id"],)
+        ) as cur:
+            status = (await cur.fetchone())[0]
+        self.assertEqual(status, "pending")
+
+        self.manager._deliver_lot = original
+        ok, msg = await self.manager.claim_pending(player)
+        self.assertTrue(ok, msg)
+        winner = await self.db.get_player_by_id("w1")
+        self.assertEqual(winner.get_pills_inventory().get("筑基丹|良好"), 1)
+
     async def test_reminder_slot_not_advanced_when_queue_fails(self):
         from unittest.mock import AsyncMock, patch
 

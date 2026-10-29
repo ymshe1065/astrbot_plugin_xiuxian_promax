@@ -58,6 +58,8 @@ from .sect_shop_handler import SectShopHandler
 from .auto_proxy_handlers import AutoProxyHandlers
 # v6.34 江湖战斗小事件
 from .battle_event_handlers import BattleEventHandlers
+# v6.40 仙市投资系统
+from .invest_handlers import InvestHandlers
 
 __all__ = [
     "PlayerHandler", "RecoveryHandler", "MiscHandler", "EquipmentHandler", "BreakthroughHandler",
@@ -68,5 +70,6 @@ __all__ = [
     "SpiritFarmHandlers", "DualCultivationHandlers", "SpiritEyeHandlers", 
     "DailyTaskHandlers", "WorldBossHandlers", "RaidHandlers", "RobberyHandlers", "ReincarnationHandlers",
     "GambleHandlers", "ForgeHandlers", "DemonInvasionHandlers", "PetHandlers",
-    "AuctionHandlers", "AuctionHouseHandlers", "SectShopHandler", "AutoProxyHandlers", "BattleEventHandlers"
+    "AuctionHandlers", "AuctionHouseHandlers", "SectShopHandler", "AutoProxyHandlers", "BattleEventHandlers",
+    "InvestHandlers"
 ]

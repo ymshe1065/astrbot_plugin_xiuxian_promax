@@ -10,7 +10,7 @@ from astrbot.api import logger
 if TYPE_CHECKING:
     from ..config_manager import ConfigManager
 
-LATEST_DB_VERSION = 49  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求；v49: 统一物品品阶名称
+LATEST_DB_VERSION = 50  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求；v49: 统一物品品阶名称；v50: 仙市投资系统（基金/股票）
 
 MIGRATION_TASKS: Dict[int, Callable[[aiosqlite.Connection, ConfigManager], Awaitable[None]]] = {}
 
@@ -364,6 +364,7 @@ async def _ensure_latest_columns(conn: aiosqlite.Connection):
     await _ensure_battle_events_v46(conn)
     await _ensure_auction_house_v47(conn)
     await _ensure_combat_limits_v48(conn)
+    await _ensure_invest_v50(conn)
     await _add_column_if_missing(conn, "player_pets", "max_hp", "INTEGER NOT NULL DEFAULT 0")
     await _add_column_if_missing(conn, "player_pets", "hp", "INTEGER NOT NULL DEFAULT 0")
     await _add_column_if_missing(conn, "player_pets", "last_regen_time", "INTEGER NOT NULL DEFAULT 0")
@@ -1806,6 +1807,104 @@ async def _ensure_combat_limits_v48(conn: aiosqlite.Connection):
     )
 
 
+async def _ensure_invest_v50(conn: aiosqlite.Connection):
+    """v50：仙市投资系统（基金/股票）表。
+
+    价格只在盘次边界写库，查询纯读；消息自落库以便补结算完整重放。
+    """
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS invest_products (
+            code TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            base_price REAL NOT NULL,
+            price REAL NOT NULL,
+            prev_close REAL NOT NULL,
+            prev_change REAL NOT NULL DEFAULT 0,
+            day_open REAL NOT NULL DEFAULT 0,
+            sigma REAL NOT NULL DEFAULT 0.006,
+            cycle_amp REAL NOT NULL DEFAULT 0,
+            cycle_phase INTEGER NOT NULL DEFAULT 0,
+            price_limit REAL NOT NULL DEFAULT 0.03,
+            day_limit REAL NOT NULL DEFAULT 0.08,
+            msg_base REAL NOT NULL DEFAULT 0,
+            weekly_return REAL NOT NULL DEFAULT 0,
+            dividend_rate REAL NOT NULL DEFAULT 0,
+            risk_level INTEGER NOT NULL DEFAULT 1,
+            status TEXT NOT NULL DEFAULT 'trading'
+        )
+    """)
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS invest_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            trade_day INTEGER NOT NULL,
+            slot INTEGER NOT NULL,
+            code TEXT NOT NULL,
+            pattern TEXT NOT NULL,
+            direction INTEGER NOT NULL,
+            base_bias REAL NOT NULL,
+            strength REAL NOT NULL DEFAULT 1,
+            title TEXT NOT NULL DEFAULT '',
+            detail TEXT NOT NULL DEFAULT ''
+        )
+    """)
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_inv_events_day ON invest_events(trade_day, slot)"
+    )
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS invest_holdings (
+            user_id TEXT NOT NULL,
+            code TEXT NOT NULL,
+            shares REAL NOT NULL DEFAULT 0,
+            cost INTEGER NOT NULL DEFAULT 0,
+            hold_since INTEGER NOT NULL DEFAULT 0,
+            last_buy INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (user_id, code)
+        )
+    """)
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS invest_orders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            code TEXT NOT NULL,
+            side TEXT NOT NULL,
+            shares REAL NOT NULL,
+            price REAL NOT NULL,
+            amount INTEGER NOT NULL,
+            fee INTEGER NOT NULL DEFAULT 0,
+            tick INTEGER NOT NULL DEFAULT 0,
+            backfilled INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_inv_orders_user ON invest_orders(user_id, created_at DESC)"
+    )
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS invest_prices (
+            code TEXT NOT NULL,
+            tick INTEGER NOT NULL,
+            close REAL NOT NULL,
+            change_rate REAL NOT NULL DEFAULT 0,
+            msg_tag TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY (code, tick)
+        )
+    """)
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS invest_dividends (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            code TEXT NOT NULL,
+            amount INTEGER NOT NULL,
+            tick INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_inv_div_user ON invest_dividends(user_id, created_at DESC)"
+    )
+
+
 @migration(48)
 async def _migrate_to_v48(conn: aiosqlite.Connection, config_manager: ConfigManager):
     """迁移到 v48 - 每日切磋/决斗次数与切磋邀请。"""
@@ -2019,3 +2118,12 @@ async def _migrate_to_v49(conn: aiosqlite.Connection, config_manager: ConfigMana
     await _rank_rename_trade_tables_v49(conn)
     await conn.commit()
     logger.info("v49迁移完成：物品品阶名称已统一")
+
+
+@migration(50)
+async def _migrate_to_v50(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """迁移到 v50 - 仙市投资系统（基金/股票）。"""
+    logger.info("开始迁移到 v50：仙市投资系统")
+    await _ensure_invest_v50(conn)
+    await conn.commit()
+    logger.info("v50迁移完成：仙市投资表已建立")
