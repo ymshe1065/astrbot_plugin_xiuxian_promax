@@ -38,7 +38,7 @@ CMD_CHECK_IN = "签到"
 # 忙碌状态下允许执行的命令白名单（只能查信息、收菜、领奖）
 BUSY_STATE_ALLOWED_COMMANDS = [
     # 基础信息查看
-    CMD_PLAYER_INFO, "我的信息", "我的装备", "我的灵兽", "孵化灵兽", "喂养灵兽", "灵兽出战", "灵兽改名", "放生灵兽", "吞噬灵兽", "我的洞天", "我的灵田", "我的宗门",
+    CMD_PLAYER_INFO, "我的信息", "我的装备", "我的灵兽", "孵化灵兽", "喂养灵兽", "灵兽出战", "灵兽改名", "放生灵兽", "吞噬灵兽", "灵兽吞噬", "我的洞天", "我的灵田", "我的宗门",
     "银行", "储物戒", "丹药背包", "修仙帮助", "物品信息", "黑市", "天魔状态", "查验天魔", "世界Boss", "世界boss", "世界Boss状态", "灵眼信息", "江湖事件", "通缉令",
     "宗门商店", "宗门兑换", "我的坊市", "坊市我的", "坊市卖出", "坊市等待",
     "拍卖会", "拍卖会信息", "拍卖会报名", "拍卖会入场", "拍卖会出价", "拍卖会领取",
@@ -367,6 +367,37 @@ def _is_command_allowed(message_text: str, allowed_commands: list) -> bool:
         if clean_text.startswith(cmd + " ") or clean_text.startswith(cmd + "\u3000"):
             return True
     return False
+
+
+def get_command_args(event: AstrMessageEvent, *command_names: str) -> str:
+    """从原始消息中取出指令后的完整参数文本。
+
+    AstrBot 的 ``GreedyStr`` 在部分版本/包装方式下会退化成普通 str，只回传第一个
+    空格分隔的参数（例如 ``/种植 灵草 all`` 只拿到 ``灵草``，导致 all 种满失效）。
+    这里直接解析原始消息，作为贪婪参数的兜底。
+    """
+    try:
+        text = _normalize_command_text(event.get_message_str())
+    except Exception:
+        return ""
+    if not text:
+        return ""
+    # 长命令优先，避免 “购买物品” 被 “购买” 抢先截断
+    for name in sorted({n for n in command_names if n}, key=len, reverse=True):
+        if text.startswith(name):
+            return text[len(name):].strip()
+    return ""
+
+
+def resolve_greedy_args(
+    event: AstrMessageEvent, greedy_args: str, *command_names: str
+) -> str:
+    """贪婪参数兜底：原始消息里的参数更完整时以原始消息为准。"""
+    current = (greedy_args or "").strip()
+    raw = get_command_args(event, *command_names)
+    if raw and len(raw) > len(current):
+        return raw
+    return current
 
 
 async def _check_loan_status(db, player: Player) -> dict:

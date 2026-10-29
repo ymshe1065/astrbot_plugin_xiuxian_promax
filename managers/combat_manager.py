@@ -5,7 +5,7 @@
 
 import random
 from typing import Tuple, Dict, Optional, List
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 @dataclass
 class PetCombatState:
@@ -52,6 +52,10 @@ class CombatStats:
     magic_defense: int = 0
     defense_scale: int = 0
     overflow_bonus: float = 0.0
+    # 状态系统：眩晕/灼烧/寒霜/诅咒/冻结，以及控制冷却
+    statuses: dict = field(default_factory=dict)
+    status_resist: float = 0.0
+    control_cd: int = 0
 
 
 class CombatManager:
@@ -488,6 +492,42 @@ class CombatManager:
             "dodge": 0,
             "physical_damage_multiplier": 1.0,
             "magic_damage_multiplier": 1.0,
+            "status_resist": 0,
+            "extra_attack_chance": 0,
+            "extra_attack_ratio": 0,
+            "extra_attack_count": 0,
+            "extra_attack_second_ratio": 0,
+            "extra_attack_can_crit": 0,
+            "extra_attack_can_proc": 0,
+            "armor_penetration": 0,
+            "sunder_chance": 0,
+            "sunder_pct": 0,
+            "sunder_turns": 0,
+            "crit_chain_chance": 0,
+            "crit_chain_ratio": 0,
+            "crit_chain_can_crit": 0,
+            "crit_defense_ignore": 0,
+            "combo_extra_hit_ratio": 0,
+            "combo_can_crit": 0,
+            "combo_lifesteal_pct": 0,
+            "stun_chance": 0,
+            "stun_turns": 0,
+            "stun_extend_chance": 0,
+            "stun_resist_pierce": 0,
+            "burn_chance": 0,
+            "burn_turns": 0,
+            "burn_damage_pct": 0,
+            "burn_heal_reduction": 0,
+            "burn_detonate": 0,
+            "frost_chance": 0,
+            "frost_atk_reduction": 0,
+            "frost_turns": 0,
+            "frost_dodge_reduction": 0,
+            "freeze_chance": 0,
+            "curse_chance": 0,
+            "curse_defense_pct": 0,
+            "curse_turns": 0,
+            "curse_damage_reduction": 0,
         }
         techniques_data = getattr(config_manager, "techniques_data", {}) or {}
         items_data = getattr(config_manager, "items_data", {}) or {}
@@ -516,7 +556,7 @@ class CombatManager:
         except Exception:
             pass
         from ..core.equipment_manager import EquipmentManager
-        from ..core.equipment_balance import GEAR_EFFECT_CAPS
+        from ..core.equipment_balance import GEAR_EFFECT_CAPS, effective_effects
         weapons_data = getattr(config_manager, "weapons_data", {}) or {}
         # 装备特效单独累计后按部位总上限收敛，避免多槽位重复叠满；
         # 不能直接钳制总特效，否则功法/传承提供的暴击、爆伤也会被装备上限误伤。
@@ -533,9 +573,10 @@ class CombatManager:
                 value = 0
             gear_effects[key] = gear_effects.get(key, 0) + value
 
-        for name, _ in EquipmentManager(None, config_manager).get_gear_slots(player).values():
+        for name, inst in EquipmentManager(None, config_manager).get_gear_slots(player).values():
             cfg = items_data.get(name) or weapons_data.get(name, {})
-            for key, value in cfg.get("effects", {}).items():
+            quality = (inst or {}).get("quality", "一般")
+            for key, value in effective_effects(cfg, quality).items():
                 add_gear_effect(key, value)
 
         try:
@@ -865,16 +906,210 @@ class CombatManager:
         final_damage = int(damage * (1 - reduction_rate))
         return max(1, final_damage)
     
+    # ================= 状态与命中特效 =================
+
     @classmethod
-    def _execute_attack(cls, attacker: CombatStats, defender: CombatStats) -> Tuple[int, List[str], int]:
+    def _ensure_statuses(cls, stats: CombatStats) -> dict:
+        if not isinstance(getattr(stats, "statuses", None), dict):
+            stats.statuses = {}
+        return stats.statuses
+
+    @staticmethod
+    def _status_int(statuses: dict, name: str, key: str, default: int = 0) -> int:
+        try:
+            return int((statuses.get(name) or {}).get(key, default) or default)
+        except (TypeError, ValueError):
+            return default
+
+    @classmethod
+    def _tick_statuses(cls, stats: CombatStats, logs: List[str], pvp: bool = False) -> bool:
+        """回合开始结算灼烧并判断是否因麻痹/冻结跳过行动。"""
+        statuses = cls._ensure_statuses(stats)
+        stats.control_cd = max(0, int(getattr(stats, "control_cd", 0) or 0) - 1)
+
+        burn = statuses.get("burn")
+        if burn and int(burn.get("turns", 0) or 0) > 0:
+            damage_pct = max(0.0, float(burn.get("damage_pct", 0) or 0))
+            damage = max(1, int(stats.max_hp * damage_pct / 100.0))
+            stats.hp = max(0, stats.hp - damage)
+            logs.append(f"🔥 {stats.name} 受到灼烧，损失 {damage} 点气血（剩余 {max(0, int(burn['turns']) - 1)} 回合）")
+            burn["turns"] = max(0, int(burn["turns"]) - 1)
+            if burn["turns"] <= 0:
+                statuses.pop("burn", None)
+
+        for key, label in (("freeze", "冻结"), ("stun", "麻痹")):
+            status = statuses.get(key)
+            if status and int(status.get("turns", 0) or 0) > 0:
+                status["turns"] = int(status["turns"]) - 1
+                if status["turns"] <= 0:
+                    statuses.pop(key, None)
+                logs.append(f"❄️ {stats.name} 处于{label}状态，本回合无法行动！" if key == "freeze"
+                            else f"⚡ {stats.name} 被麻痹，本回合无法行动！")
+                return True
+        return False
+
+    @classmethod
+    def _decay_statuses(cls, stats: CombatStats) -> None:
+        statuses = cls._ensure_statuses(stats)
+        for key in ("frost", "curse", "sunder"):
+            status = statuses.get(key)
+            if not status:
+                continue
+            status["turns"] = int(status.get("turns", 0) or 0) - 1
+            if status["turns"] <= 0:
+                statuses.pop(key, None)
+
+    @classmethod
+    def _apply_on_hit_statuses(cls, attacker: CombatStats, defender: CombatStats, damage: int,
+                               logs: List[str], pvp: bool = False, boss: bool = False,
+                               hard_pvp: bool = False) -> None:
+        """伤害命中后结算麻痹、灼烧、寒霜、诅咒与破防。"""
+        if damage <= 0 or defender.hp <= 0:
+            return
+        effects = attacker.effects or {}
+        statuses = cls._ensure_statuses(defender)
+        control_scale = 0.5 if pvp else 1.0
+        if hard_pvp:
+            control_scale *= 0.5
+        dot_scale = 0.5 if pvp else (0.25 if boss else 1.0)
+        debuff_scale = 0.7 if pvp else 1.0
+        resist = float((defender.effects or {}).get("status_resist", 0) or 0)
+        resist += float(getattr(defender, "status_resist", 0.0) or 0.0)
+        if boss:
+            resist = max(resist, 80.0 if getattr(defender, "user_id", "").startswith("world") else 50.0)
+        pierce = max(0.0, min(100.0, float(effects.get("stun_resist_pierce", 0) or 0)))
+        resist = max(0.0, min(90.0, resist * (1 - pierce / 100.0)))
+
+        def roll(chance: float) -> bool:
+            if chance <= 0:
+                return False
+            return random.uniform(0, 100) < min(100.0, chance)
+
+        def resisted() -> bool:
+            return resist > 0 and random.uniform(0, 100) < resist
+
+        # 麻痹：PVP 只持续 1 回合，且 2 回合冷却；Boss 冷却 3 回合
+        stun_chance = float(effects.get("stun_chance", 0) or 0) * control_scale
+        if roll(stun_chance) and int(getattr(defender, "control_cd", 0) or 0) <= 0 and not resisted():
+            turns = max(1, int(effects.get("stun_turns", 1) or 1))
+            if pvp:
+                turns = 1
+            elif roll(float(effects.get("stun_extend_chance", 0) or 0)):
+                turns = max(turns, 2)
+            old = statuses.get("stun") or {}
+            statuses["stun"] = {"turns": max(turns, int(old.get("turns", 0) or 0)), "level": 2}
+            defender.control_cd = 2 if pvp else (3 if boss else 2)
+            logs.append(f"⚡ {attacker.name} 的麻痹生效，{defender.name} 下回合无法行动！")
+
+        # 冻结：与麻痹互斥
+        freeze_chance = float(effects.get("freeze_chance", 0) or 0) * (0.5 if pvp else 1.0)
+        if roll(freeze_chance) and "stun" not in statuses and int(getattr(defender, "control_cd", 0) or 0) <= 0 and not resisted():
+            statuses["freeze"] = {"turns": 1, "level": 2}
+            defender.control_cd = 2 if pvp else (3 if boss else 2)
+            logs.append(f"❄️ {attacker.name} 的寒霜冻结了 {defender.name}，下回合无法行动！")
+
+        # 灼烧
+        burn_chance = float(effects.get("burn_chance", 0) or 0)
+        if roll(burn_chance):
+            damage_pct = max(0.1, float(effects.get("burn_damage_pct", 0) or 0) * dot_scale)
+            turns = max(1, int(effects.get("burn_turns", 1) or 1))
+            old = statuses.get("burn")
+            if old and int(effects.get("burn_detonate", 0) or 0):
+                remaining = max(1, int(old.get("turns", 1) or 1))
+                burst = max(1, int(defender.max_hp * float(old.get("damage_pct", 0) or 0) / 100.0 * remaining))
+                defender.hp = max(0, defender.hp - burst)
+                logs.append(f"🔥 灼烧爆燃，{defender.name} 立即损失 {burst} 点气血！")
+            statuses["burn"] = {
+                "turns": turns,
+                "damage_pct": max(float((old or {}).get("damage_pct", 0) or 0), damage_pct),
+                "heal_reduction": max(
+                    float(effects.get("burn_heal_reduction", 0) or 0),
+                    float((old or {}).get("heal_reduction", 0) or 0),
+                ),
+                "level": 2,
+            }
+            logs.append(f"🔥 {attacker.name} 点燃了 {defender.name}（{turns} 回合，每回合 {damage_pct:.1f}% 最大生命）")
+
+        # 寒霜
+        frost_chance = float(effects.get("frost_chance", 0) or 0)
+        if roll(frost_chance):
+            reduction = max(1.0, float(effects.get("frost_atk_reduction", 0) or 0))
+            turns = max(1, int(effects.get("frost_turns", 1) or 1))
+            old = statuses.get("frost") or {}
+            statuses["frost"] = {
+                "turns": max(turns, int(old.get("turns", 0) or 0)),
+                "atk_reduction": max(reduction, float(old.get("atk_reduction", 0) or 0)),
+                "dodge_reduction": max(
+                    float(effects.get("frost_dodge_reduction", 0) or 0),
+                    float(old.get("dodge_reduction", 0) or 0),
+                ),
+                "level": 2,
+            }
+            logs.append(f"🌨️ {attacker.name} 使 {defender.name} 寒霜缠身，攻击降低 {reduction:.1f}%！")
+
+        # 诅咒（诅咒戒指与噬魂戒指共用）
+        curse_chance = float(effects.get("curse_chance", 0) or 0)
+        if roll(curse_chance):
+            defense_pct = max(1.0, float(effects.get("curse_defense_pct", 0) or 0) * debuff_scale)
+            damage_reduction = max(0.0, float(effects.get("curse_damage_reduction", 0) or 0) * debuff_scale)
+            turns = max(1, int(effects.get("curse_turns", 1) or 1))
+            old = statuses.get("curse") or {}
+            statuses["curse"] = {
+                "turns": max(turns, int(old.get("turns", 0) or 0)),
+                "defense_pct": max(defense_pct, float(old.get("defense_pct", 0) or 0)),
+                "damage_reduction": max(damage_reduction, float(old.get("damage_reduction", 0) or 0)),
+                "level": 2,
+            }
+            logs.append(f"🌀 {attacker.name} 诅咒了 {defender.name}，防御降低 {defense_pct:.1f}%！")
+
+        # 破防
+        sunder_chance = float(effects.get("sunder_chance", 0) or 0)
+        if roll(sunder_chance):
+            pct = max(1.0, float(effects.get("sunder_pct", 0) or 0))
+            turns = max(1, int(effects.get("sunder_turns", 2) or 2))
+            old = statuses.get("sunder") or {}
+            statuses["sunder"] = {
+                "turns": max(turns, int(old.get("turns", 0) or 0)),
+                "pct": max(pct, float(old.get("pct", 0) or 0)),
+                "level": 2,
+            }
+            logs.append(f"🪓 {attacker.name} 击破 {defender.name} 的护体，防御降低 {pct:.1f}%！")
+
+    @classmethod
+    def _take_turn(cls, attacker: CombatStats, defender: CombatStats, pvp: bool = False,
+                   boss: bool = False, hard_pvp: bool = False) -> Tuple[int, List[str], int]:
+        """完整一回合：状态结算 + 主攻击 + 命中特效。"""
+        logs: List[str] = []
+        if cls._tick_statuses(attacker, logs, pvp=pvp):
+            cls._decay_statuses(attacker)
+            return 0, logs, 0
+        damage, attack_logs, heal = cls._execute_attack(
+            attacker, defender, pvp=pvp, boss=boss, hard_pvp=hard_pvp
+        )
+        logs.extend(attack_logs)
+        if damage > 0:
+            cls._apply_on_hit_statuses(
+                attacker, defender, damage, logs, pvp=pvp, boss=boss, hard_pvp=hard_pvp
+            )
+        cls._decay_statuses(attacker)
+        return damage, logs, heal
+
+    @classmethod
+    def _execute_attack(cls, attacker: CombatStats, defender: CombatStats,
+                        pvp: bool = False, boss: bool = False,
+                        hard_pvp: bool = False) -> Tuple[int, List[str], int]:
         """执行一次攻击，返回 (最终伤害, 战斗日志列表, 吸血量)"""
         logs = []
         effects = attacker.effects or {}
         defender_effects = defender.effects or {}
+        attacker_statuses = cls._ensure_statuses(attacker)
+        defender_statuses = cls._ensure_statuses(defender)
 
-        # 0. 闪避（符箓/词条）
+        # 0. 闪避（符箓/词条/寒霜降闪避）
+        frost_def = defender_statuses.get("frost") or {}
         try:
-            dodge = min(60.0, float(defender_effects.get("dodge", 0) or 0))
+            dodge = min(60.0, max(0.0, float(defender_effects.get("dodge", 0) or 0)
+                                  - float(frost_def.get("dodge_reduction", 0) or 0)))
         except (TypeError, ValueError):
             dodge = 0.0
         if dodge > 0 and random.randint(1, 100) <= dodge:
@@ -883,15 +1118,23 @@ class CombatManager:
         # 1. 物法双轨基础伤害：同一次攻击共用一个 70%~130% 浮动系数
         physical_atk, magic_atk = cls.resolve_attack_components(attacker)
         physical_def, magic_def = cls.resolve_defense_components(defender)
+
+        # 寒霜降低攻击、诅咒降低伤害
+        attack_mult = 1.0
+        frost_self = attacker_statuses.get("frost") or {}
+        attack_mult *= max(0.1, 1 - float(frost_self.get("atk_reduction", 0) or 0) / 100.0)
+        curse_self = attacker_statuses.get("curse") or {}
+        attack_mult *= max(0.0, 1 - float(curse_self.get("damage_reduction", 0) or 0) / 100.0)
+
         variance = random.uniform(
             cls.DAMAGE_VARIANCE_MIN, cls.DAMAGE_VARIANCE_MAX
         )
         physical_damage = (
-            variance * physical_atk
+            variance * physical_atk * attack_mult
             * float(effects.get("physical_damage_multiplier", 1.0) or 1.0)
         )
         magic_damage = (
-            variance * magic_atk
+            variance * magic_atk * attack_mult
             * float(effects.get("magic_damage_multiplier", 1.0) or 1.0)
         )
 
@@ -904,20 +1147,39 @@ class CombatManager:
         # 2. 一次攻击只判定一次暴击；暴击时物法两部分同时暴击
         base_crit = attacker.crit_rate
         bonus_crit = effects.get("crit_rate", 0)
-        if random.randint(0, 100) <= (base_crit + bonus_crit):
-            crit_mult = effects.get("crit_damage", 1.5)
+        crit_proc = random.randint(0, 100) <= (base_crit + bonus_crit)
+        crit_mult = float(effects.get("crit_damage", 1.5) or 1.5)
+        if crit_proc:
             physical_damage *= crit_mult
             magic_damage *= crit_mult
             logs.append(f"💥 {attacker.name} 触发会心一击！")
 
         # 3. 一次攻击只判定一次连击；连击时物法两部分同时追加
         combo_rate = effects.get("combo_rate", 0)
-        if random.randint(0, 100) <= combo_rate:
+        combo_proc = random.randint(0, 100) <= combo_rate
+        if combo_proc:
             physical_damage *= 1.5
             magic_damage *= 1.5
             logs.append(f"⚡ {attacker.name} 触发功法连击，物法两部分同时增强！")
 
-        # 4. 物理按物防、法术按法防分别减伤
+        # 4. 防御修正：破防、诅咒、无视防御
+        defense_mult = 1.0
+        for key in ("curse", "sunder"):
+            status = defender_statuses.get(key) or {}
+            pct = status.get("defense_pct", status.get("pct", 0)) if key == "curse" else status.get("pct", 0)
+            defense_mult *= max(0.0, 1 - float(pct or 0) / 100.0)
+        try:
+            penetration = max(0.0, min(100.0, float(effects.get("armor_penetration", 0) or 0)))
+            defense_mult *= max(0.0, 1 - penetration / 100.0)
+            if crit_proc:
+                ignore = max(0.0, min(100.0, float(effects.get("crit_defense_ignore", 0) or 0)))
+                defense_mult *= max(0.0, 1 - ignore / 100.0)
+        except (TypeError, ValueError):
+            pass
+        physical_def = max(0, int(physical_def * defense_mult))
+        magic_def = max(0, int(magic_def * defense_mult))
+
+        # 5. 物理按物防、法术按法防分别减伤
         physical_final = (
             cls.apply_damage_reduction(int(physical_damage), physical_def, defender.defense_scale)
             if physical_damage > 0 else 0
@@ -937,7 +1199,63 @@ class CombatManager:
         elif magic_final > 0:
             logs.append(f"✨ {attacker.name} 造成 {magic_final} 点法术伤害")
 
-        # 5. 灵兽每回合协战
+        # 6. 额外攻击：快击、暴击连锁、连击二段
+        def extra_hit(ratio_pct: float, label: str, can_crit: bool = False,
+                      can_proc: bool = False) -> int:
+            ratio = max(0.0, float(ratio_pct)) / 100.0
+            if ratio <= 0:
+                return 0
+            extra_phys = int(variance * physical_atk * attack_mult * ratio)
+            extra_magic = int(variance * magic_atk * attack_mult * ratio)
+            if can_crit and random.randint(0, 100) <= (base_crit + bonus_crit):
+                extra_phys = int(extra_phys * crit_mult)
+                extra_magic = int(extra_magic * crit_mult)
+                logs.append(f"💥 {label} 触发会心！")
+            extra_phys = cls.apply_damage_reduction(extra_phys, physical_def, defender.defense_scale) if extra_phys > 0 else 0
+            extra_magic = cls.apply_damage_reduction(extra_magic, magic_def, defender.defense_scale) if extra_magic > 0 else 0
+            total = extra_phys + extra_magic
+            if total > 0:
+                logs.append(f"⚔️ {label}，追加 {total} 点伤害！")
+                # 快击 T7：额外攻击可触发命中特效（灼烧/寒霜/诅咒/麻痹/破防）
+                if can_proc:
+                    cls._apply_on_hit_statuses(
+                        attacker, defender, total, logs,
+                        pvp=pvp, boss=boss, hard_pvp=hard_pvp,
+                    )
+            return total
+
+        extra_chance = float(effects.get("extra_attack_chance", 0) or 0)
+        if extra_chance > 0 and random.uniform(0, 100) < extra_chance:
+            segments = max(1, min(3, int(effects.get("extra_attack_count", 1) or 1)))
+            first_ratio = float(effects.get("extra_attack_ratio", 0) or 0)
+            second_ratio = float(effects.get("extra_attack_second_ratio", 50) or 50)
+            can_crit = bool(effects.get("extra_attack_can_crit", 0))
+            can_proc = bool(effects.get("extra_attack_can_proc", 0))
+            for index in range(segments):
+                ratio = first_ratio if index == 0 else first_ratio * second_ratio / 100.0
+                final_damage += extra_hit(
+                    ratio,
+                    f"{attacker.name} 触发快击" + ("二段" if index else ""),
+                    can_crit,
+                    can_proc,
+                )
+
+        if crit_proc and float(effects.get("crit_chain_chance", 0) or 0) > 0:
+            if random.uniform(0, 100) < float(effects.get("crit_chain_chance", 0) or 0):
+                final_damage += extra_hit(
+                    float(effects.get("crit_chain_ratio", 0) or 0),
+                    f"{attacker.name} 引动暴击雷连锁",
+                    bool(effects.get("crit_chain_can_crit", 0)),
+                )
+
+        if combo_proc and float(effects.get("combo_extra_hit_ratio", 0) or 0) > 0:
+            final_damage += extra_hit(
+                float(effects.get("combo_extra_hit_ratio", 0) or 0),
+                f"{attacker.name} 触发连击二段",
+                bool(effects.get("combo_can_crit", 0)),
+            )
+
+        # 7. 灵兽每回合协战
         attacker_pets = []
         if getattr(attacker, "pet", None) and attacker.pet.alive:
             attacker_pets.append(attacker.pet)
@@ -962,7 +1280,7 @@ class CombatManager:
                     attacker.hp = min(attacker.max_hp, attacker.hp + heal_pet)
                     logs.append(f"🐉 【{pet.name}】龙息反哺，{attacker.name} 恢复 {heal_pet} 点气血！")
 
-        # 6. 防守方主战灵兽护主承伤
+        # 8. 防守方主战灵兽护主承伤
         defender_pets = []
         if getattr(defender, "pet", None):
             defender_pets.append(defender.pet)
@@ -984,11 +1302,16 @@ class CombatManager:
                     defender_pet.hp = 0
                     logs.append(f"💀 【{defender_pet.name}】力竭倒下，本场战斗无法继续协战！")
 
-        # 7. 吸血计算
-        lifesteal_percent = effects.get("lifesteal", 0)
+        # 9. 吸血计算（灼烧会降低自身受疗）
+        lifesteal_percent = float(effects.get("lifesteal", 0) or 0)
         heal_amount = 0
         if lifesteal_percent > 0:
-            heal_amount = int(final_damage * (lifesteal_percent / 100))
+            heal_mult = 1.0
+            burn_self = attacker_statuses.get("burn") or {}
+            heal_mult *= max(0.0, 1 - float(burn_self.get("heal_reduction", 0) or 0) / 100.0)
+            if combo_proc and float(effects.get("combo_lifesteal_pct", 0) or 0) > 0:
+                heal_mult += float(effects.get("combo_lifesteal_pct", 0) or 0) / 100.0
+            heal_amount = int(final_damage * (lifesteal_percent / 100) * heal_mult)
             if heal_amount > 0:
                 logs.append(f"🩸 {attacker.name} 吸取了 {heal_amount} 点气血！")
 
@@ -1051,7 +1374,7 @@ class CombatManager:
             combat_log.append(f"-- 第 {round_num} 回合 --")
             
             # 玩家1攻击
-            dmg1, logs1, heal1 = cls._execute_attack(player1, player2)
+            dmg1, logs1, heal1 = cls._take_turn(player1, player2, pvp=True)
             player2.hp = max(0, player2.hp - dmg1)
             player1.hp = min(player1.max_hp, player1.hp + heal1)
             combat_log.extend(logs1)
@@ -1068,7 +1391,7 @@ class CombatManager:
             if player2.hp <= 0 or player1.hp <= 0: break
             
             # 玩家2攻击
-            dmg2, logs2, heal2 = cls._execute_attack(player2, player1)
+            dmg2, logs2, heal2 = cls._take_turn(player2, player1, pvp=True)
             player1.hp = max(0, player1.hp - dmg2)
             player2.hp = min(player2.max_hp, player2.hp + heal2)
             combat_log.extend(logs2)
@@ -1185,7 +1508,7 @@ class CombatManager:
             combat_log.append(f"-- 第 {round_num} 回合 --")
             
             # 玩家1攻击
-            dmg1, logs1, heal1 = cls._execute_attack(player1, player2)
+            dmg1, logs1, heal1 = cls._take_turn(player1, player2, pvp=True, hard_pvp=True)
             player2.hp = max(0, player2.hp - dmg1)
             player1.hp = min(player1.max_hp, player1.hp + heal1)
             combat_log.extend(logs1)
@@ -1201,7 +1524,7 @@ class CombatManager:
             if player2.hp <= 0: break
             
             # 玩家2攻击
-            dmg2, logs2, heal2 = cls._execute_attack(player2, player1)
+            dmg2, logs2, heal2 = cls._take_turn(player2, player1, pvp=True, hard_pvp=True)
             player1.hp = max(0, player1.hp - dmg2)
             player2.hp = min(player2.max_hp, player2.hp + heal2)
             combat_log.extend(logs2)
@@ -1263,7 +1586,7 @@ class CombatManager:
             round_num += 1
             combat_log.append(f"-- 第 {round_num} 回合 --")
             
-            dmg, logs, heal = cls._execute_attack(player, boss)
+            dmg, logs, heal = cls._take_turn(player, boss, boss=True)
             boss.hp = max(0, boss.hp - dmg)
             total_damage_dealt += dmg
             player.hp = min(player.max_hp, player.hp + heal)
@@ -1272,7 +1595,7 @@ class CombatManager:
             
             if boss.hp <= 0: break
             
-            b_dmg, b_logs, b_heal = cls._execute_attack(boss, player)
+            b_dmg, b_logs, b_heal = cls._take_turn(boss, player)
             player.hp = max(0, player.hp - b_dmg)
             combat_log.extend(b_logs)
             combat_log.append(f"{player.name} 剩余 HP: {max(0, player.hp)}")

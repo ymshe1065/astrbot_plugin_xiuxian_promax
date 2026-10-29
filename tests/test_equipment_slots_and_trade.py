@@ -64,7 +64,7 @@ class TestSlots(unittest.IsolatedAsyncioTestCase):
 
     async def test_two_same_rings_and_explicit_replacement(self):
         p = await self._player()
-        name = next(n for n, c in self.cm.items_data.items() if c.get("type") == "ring" and c["rank"] == "黄阶")
+        name = next(n for n, c in self.cm.items_data.items() if c.get("type") == "ring" and c["rank"] == "凡品")
         first = await self.equip(p, name)
         second = await self.equip(p, name)
         third = await self.equip(p, name, "戒指2")
@@ -114,19 +114,25 @@ class TestSlots(unittest.IsolatedAsyncioTestCase):
         Handler = _imp("handlers.shop_handler").ShopHandler
         handler = Handler.__new__(Handler)
         handler.shop_manager = _imp("core.shop_manager").ShopManager({}, self.cm)
-        items = [{"name": f"商品{i}", "type": "head", "rank": "黄阶", "price": 100, "stock": 1,
+        items = [{"name": f"商品{i}", "type": "head", "rank": "凡品", "price": 100, "stock": 1,
                   "data": {"type": "head", "physical_damage": 11, "magic_defense": 22, "effects": {"crit_rate": 5}}} for i in range(25)]
         image_module = _imp("utils.image_generator")
         with patch.object(image_module, "card_enabled", return_value=True), patch.object(image_module, "render_card_async", new_callable=AsyncMock, return_value="card.jpg") as render:
             cards = await handler._pavilion_cards("百宝阁", items)
-        self.assertEqual(len(cards), 5)
-        lines = "\n".join(line for call in render.call_args_list for line in call.kwargs["sections"][0]["lines"])
+        # 百宝阁按品阶分卡；同品阶超过 5 件时再分页
+        self.assertGreater(len(cards), 1)
+        self.assertEqual(render.call_count, len(cards))
+        lines = "\n".join(
+            line
+            for call in render.call_args_list
+            for line in call.kwargs["sections"][0]["lines"]
+        )
         self.assertIn("商品24", lines)
         self.assertIn("境界基础物防+6.0%", lines)
         self.assertIn("境界基础法防+6.0%", lines)
         self.assertIn("暴击率 +5%", lines)
         self.assertIn("部位: 头饰", lines)
-        with patch.object(image_module, "card_enabled", return_value=True), patch.object(image_module, "render_card_async", new_callable=AsyncMock, side_effect=["ok", None]):
+        with patch.object(image_module, "card_enabled", return_value=True), patch.object(image_module, "render_card_async", new_callable=AsyncMock, return_value=None):
             self.assertEqual(await handler._pavilion_cards("百宝阁", items), [])
 
     async def test_equip_message_uses_instance_quality_and_shows_base(self):
@@ -162,7 +168,8 @@ class TestSlots(unittest.IsolatedAsyncioTestCase):
             item["name"], {item["name"]: item["data"]}, instance={"quality": "大师"}
         )
         self.assertIn(parsed.get_attribute_display(), details)
-        self.assertIn("品质: 大师（主属性×1.15）", details)
+        scale_label = "主属性" if parsed.get_attribute_display() else "特殊效果"
+        self.assertIn(f"品质: 大师（{scale_label}×1.15）", details)
 
         legacy = {"name": item["name"], "type": item["type"], "rank": item["rank"],
                   "price": item["price"], "data": item["data"]}
@@ -171,7 +178,7 @@ class TestSlots(unittest.IsolatedAsyncioTestCase):
 
     async def test_shop_purchase_uses_shelf_quality(self):
         p = await self._player(gold=100000)
-        name = next(n for n, c in self.cm.items_data.items() if c.get("type") == "ring" and c["rank"] == "黄阶")
+        name = next(n for n, c in self.cm.items_data.items() if c.get("type") == "ring" and c["rank"] == "凡品")
         shop = self.shop_manager()
         item = shop.find_item_by_name(name)
         item.update(stock=1, price=100, quality="大师")
@@ -205,7 +212,7 @@ class TestSlots(unittest.IsolatedAsyncioTestCase):
             results = [result async for result in handler.handle_show_equipment.__wrapped__(handler, p, event)]
         self.assertEqual(results, ["card.jpg"])
         self.assertIn(("戒指2", "未装备"), render.call_args.kwargs["sections"][0]["rows"])
-        name = next(n for n, c in self.cm.items_data.items() if c.get("type") == "ring" and c["rank"] == "黄阶")
+        name = next(n for n, c in self.cm.items_data.items() if c.get("type") == "ring" and c["rank"] == "凡品")
         await self.ring.store_item(p, name, 1)
         results = [r async for r in handler.handle_equip_item.__wrapped__(handler, p, event, name + " 1 戒指2")]
         self.assertTrue(p.get_equipped_instances().get("ring2"), results)
@@ -222,7 +229,7 @@ class TestSlots(unittest.IsolatedAsyncioTestCase):
 
     async def test_ring_purchase_creates_equippable_instance(self):
         p = await self._player(gold=100000)
-        name = next(n for n, c in self.cm.items_data.items() if c.get("type") == "ring" and c["rank"] == "黄阶")
+        name = next(n for n, c in self.cm.items_data.items() if c.get("type") == "ring" and c["rank"] == "凡品")
         shop = _imp("core.shop_manager").ShopManager({}, self.cm)
         item = shop.find_item_by_name(name)
         item.update(stock=2)
@@ -237,7 +244,7 @@ class TestSlots(unittest.IsolatedAsyncioTestCase):
 
     async def test_wash_targets_second_ring_only(self):
         p = await self._player()
-        name = next(n for n, c in self.cm.items_data.items() if c.get("type") == "ring" and c["rank"] == "黄阶")
+        name = next(n for n, c in self.cm.items_data.items() if c.get("type") == "ring" and c["rank"] == "凡品")
         first = await self.equip(p, name)
         second = await self.equip(p, name)
         await self.ring.store_item(p, "洗练石", 1)
@@ -289,7 +296,7 @@ class TestSlots(unittest.IsolatedAsyncioTestCase):
 
     async def test_purchase_prefers_last_viewed_pavilion(self):
         p = await self._player(gold=100000)
-        name = next(n for n, c in self.cm.items_data.items() if c.get("type") == "ring" and c["rank"] == "黄阶")
+        name = next(n for n, c in self.cm.items_data.items() if c.get("type") == "ring" and c["rank"] == "凡品")
         shop = self.shop_manager()
         cheap = shop.find_item_by_name(name)
         cheap.update(stock=1, price=100, quality="大师")

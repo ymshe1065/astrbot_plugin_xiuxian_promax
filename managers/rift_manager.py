@@ -6,6 +6,7 @@
 import random
 import time
 from typing import Tuple, List, Optional, Dict, TYPE_CHECKING
+from astrbot.api import logger
 from ..data.data_manager import DataBase
 from ..models_extended import Rift, UserStatus
 from ..models import Player
@@ -301,7 +302,9 @@ class RiftManager:
         dropped_items = await self._roll_rift_drops(player, rift_level, event["item_chance"])
         if dropped_items:
             item_lines = []
-            for item_name, count in dropped_items:
+            for entry in dropped_items:
+                item_name, count, *rest = entry
+                quality = rest[0] if rest else ""
                 # 检查是否为丹药，丹药存入丹药背包，其他存入储物戒
                 is_pill = self._is_pill_item(item_name)
                 if is_pill:
@@ -312,9 +315,12 @@ class RiftManager:
                     player.set_pills_inventory(inventory)
                     item_lines.append(f"  · {item_name} x{count}（丹药背包）")
                 elif self.storage_ring_manager:
-                    success, _ = await self.storage_ring_manager.store_item(player, item_name, count, silent=True)
+                    success, _ = await self.storage_ring_manager.store_item(
+                        player, item_name, count, silent=True, quality=quality
+                    )
                     if success:
-                        item_lines.append(f"  · {item_name} x{count}")
+                        suffix = f"（{quality}）" if quality else ""
+                        item_lines.append(f"  · {item_name} x{count}{suffix}")
                     else:
                         item_lines.append(f"  · {item_name} x{count}（储物戒已满，丢失）")
                 else:
@@ -437,7 +443,7 @@ class RiftManager:
         else:
             return 3  # 高级秘境
     
-    async def _roll_rift_drops(self, player: Player, rift_level: int, item_chance: int) -> List[Tuple[str, int]]:
+    async def _roll_rift_drops(self, player: Player, rift_level: int, item_chance: int) -> List[Tuple]:
         """
         根据秘境等级随机掉落物品
         
@@ -447,7 +453,7 @@ class RiftManager:
             item_chance: 掉落概率
             
         Returns:
-            掉落物品列表 [(物品名, 数量), ...]
+            掉落物品列表 [(物品名, 数量[, 品质]), ...]；装备条目含品质
         """
         dropped_items = []
         try:
@@ -508,6 +514,23 @@ class RiftManager:
                 dropped_items.append((tech_name, 1))
         except Exception:
             pass
+
+        # 独立装备掉落：一次最多 1 件，掉落实例时 roll 品质
+        try:
+            from ..core.equipment_drop import roll_equipment_drop
+            chances = self.config.get("equipment_drop_chances") or {}
+            chance = int(chances.get(str(rift_level), chances.get(rift_level, 0)) or 0)
+            if chance > 0 and random.randint(1, 100) <= chance:
+                drop = roll_equipment_drop(
+                    self.config_manager,
+                    player.level_index,
+                    self.config.get("equipment_slot_weights"),
+                )
+                if drop:
+                    dropped_items.append((drop["name"], 1, drop["quality"]))
+        except Exception as e:
+            if self.config_manager:
+                logger.warning(f"秘境装备掉落判定失败：{e}")
 
         return dropped_items
     

@@ -69,7 +69,7 @@ class ImpartPkManager:
             rounds += 1
             battle_log.append(f"-- 第 {rounds} 回合 --")
 
-            damage, logs, heal = self.combat_mgr._execute_attack(atk_stats, def_stats)
+            damage, logs, heal = self.combat_mgr._take_turn(atk_stats, def_stats, pvp=True)
             def_stats.hp = max(0, def_stats.hp - damage)
             atk_stats.hp = min(atk_stats.max_hp, atk_stats.hp + heal)
             battle_log.extend(logs)
@@ -77,7 +77,7 @@ class ImpartPkManager:
             if def_stats.hp <= 0:
                 break
 
-            damage, logs, heal = self.combat_mgr._execute_attack(def_stats, atk_stats)
+            damage, logs, heal = self.combat_mgr._take_turn(def_stats, atk_stats, pvp=True)
             atk_stats.hp = max(0, atk_stats.hp - damage)
             def_stats.hp = min(def_stats.max_hp, def_stats.hp + heal)
             battle_log.extend(logs)

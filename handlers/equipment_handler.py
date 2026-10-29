@@ -35,10 +35,171 @@ class EquipmentHandler:
         except Exception:
             pass
 
+    # ===== /我的装备 比较 <装备名称> =====
+    def _item_config(self, name: str) -> dict:
+        cm = self.config_manager
+        return ((getattr(cm, "items_data", {}) or {}).get(name)
+                or (getattr(cm, "weapons_data", {}) or {}).get(name)
+                or (getattr(cm, "techniques_data", {}) or {}).get(name)
+                or {})
+
+    @staticmethod
+    def _parse_compare_target(text: str):
+        """解析「装备名 [序号]」，名称可含空格。"""
+        name = (text or "").strip()
+        index = 1
+        tokens = name.split()
+        if len(tokens) >= 2 and tokens[-1].isdigit():
+            index = max(1, int(tokens.pop()))
+            name = " ".join(tokens)
+        return name.strip(), index
+
+    async def _handle_equipment_compare(self, player: Player, event: AstrMessageEvent, raw_target: str):
+        if not raw_target:
+            yield event.plain_result(
+                "⚖️ 装备比较用法\n"
+                "━━━━━━━━━━━━━━━\n"
+                "用法：/我的装备 比较 <装备名称> [序号]\n"
+                "示例：/我的装备 比较 诛仙剑\n"
+                "示例：/我的装备 比较 紫金八卦镜 2\n"
+                "💡 将储物戒中的装备与同部位已穿戴装备比较；空槽位直接显示穿戴后的实际加成。"
+            )
+            return
+
+        name, index = self._parse_compare_target(raw_target)
+        cfg = self._item_config(name)
+        if not cfg:
+            yield event.plain_result(f"❌ 未找到装备【{name}】，请检查名称是否正确。")
+            return
+        item_type = ItemRules.normalize_equipment_type(cfg)
+        if item_type not in ItemRules.GEAR_TYPES:
+            yield event.plain_result(
+                "⚖️ 比较功能仅支持武器/头饰/甲胄/手套/靴子/戒指/护符等部位装备。"
+            )
+            return
+
+        im = self.equipment_manager.instance_manager
+        instances = im.list_instances(player, "storage", name)
+        overflow = im.list_instances(player, "overflow", name)
+        if not instances:
+            hint = "该装备目前在溢出仓库，请先 /领取溢出。" if overflow else "请先购买或获得该装备。"
+            yield event.plain_result(f"❌ 储物戒中没有【{name}】。\n💡 {hint}")
+            return
+        instances.sort(key=lambda x: int(x.get("id", 0) or 0))
+        if index > len(instances):
+            yield event.plain_result(
+                f"❌ 储物戒中只有 {len(instances)} 件【{name}】，没有第 {index} 件。"
+            )
+            return
+        candidate = instances[index - 1]
+        quality = candidate.get("quality", "一般")
+
+        # 同部位槽位：戒指有两个，其余部位唯一
+        mapping = player.get_equipped_instances()
+        slots = ["ring1", "ring2"] if item_type == "ring" else [ItemRules.SLOT_BY_TYPE.get(item_type, "")]
+        slots = [slot for slot in slots if slot]
+        equipped = []
+        empty_slots = []
+        for slot in slots:
+            inst = im.get_instance(player, mapping.get(slot, 0)) if mapping.get(slot) else None
+            if inst and inst.get("name"):
+                equipped.append((slot, inst))
+            else:
+                empty_slots.append(slot)
+
+        if empty_slots:
+            target_slot, current = empty_slots[0], None
+        else:
+            # 两枚戒指都满时，新戒指默认替换较弱的一枚
+            target_slot, current = min(
+                equipped,
+                key=lambda pair: self.equipment_manager.gear_bonus_score(
+                    player, pair[1].get("name", ""), pair[1]
+                ),
+            )
+
+        em = self.equipment_manager
+        candidate_values = em.item_bonus_values(player, name, candidate)
+        slot_label = ItemRules.SLOT_LABELS.get(target_slot, target_slot)
+        lines = []
+
+        if current is None:
+            lines.append(f"⚖️ 【{name}·{quality}】 → 空槽位【{slot_label}】")
+            lines.append("该部位当前未装备，穿戴后实际加成为：")
+            if candidate_values:
+                lines.extend(
+                    f"  · {em.bonus_label(key)} {em.format_bonus_value(key, value)}"
+                    for key, value in candidate_values.items()
+                )
+            else:
+                lines.append("  · 无额外加成")
+        else:
+            current_name = current.get("name", "")
+            current_quality = current.get("quality", "一般")
+            lines.append(f"⚖️ 【{name}·{quality}】 vs 已穿戴【{current_name}·{current_quality}】")
+            lines.append(f"部位：{slot_label}")
+            lines.append("━━━━━━━━━━━━━━━")
+            current_values = em.item_bonus_values(player, current_name, current)
+            keys = list(dict.fromkeys([*candidate_values, *current_values]))
+            if not keys:
+                lines.append("两件装备均无属性加成。")
+            for key in keys:
+                new_value = candidate_values.get(key, 0.0)
+                old_value = current_values.get(key, 0.0)
+                delta = new_value - old_value
+                label = em.bonus_label(key)
+                if abs(delta) < 1e-9:
+                    marker = "持平"
+                else:
+                    arrow = "▲" if delta > 0 else "▼"
+                    shown = em.format_bonus_value(key, abs(delta)).lstrip("+")
+                    marker = f"{arrow}{shown}"
+                lines.append(
+                    f"{label}：{em.format_bonus_value(key, old_value)} → "
+                    f"{em.format_bonus_value(key, new_value)}  {marker}"
+                )
+
+        lines.append("━━━━━━━━━━━━━━━")
+        req_level = ItemRules.get_required_level(cfg)
+        from ..core.realm_rules import format_applicable_realm
+        lines.append(
+            "适用境界：" + format_applicable_realm(
+                req_level,
+                getattr(self.config_manager, "level_data", []),
+                getattr(self.config_manager, "body_level_data", []),
+                rank=str(cfg.get("rank", "") or ""),
+            )
+        )
+        if player.level_index < req_level:
+            lines.append(f"⚠️ 当前境界不足（需要境界等级 {req_level}），暂时无法穿戴。")
+        else:
+            lines.append(f"当前境界：{player.get_level(self.config_manager)} · 已计入品质与境界效率")
+        if item_type == "ring" and len(slots) == 2 and current is not None:
+            lines.append("💡 戒指有 2 个槽位，默认与较弱的一枚比较；装备时可指定 戒指1/戒指2。")
+
+        yield event.plain_result("\n".join(lines))
+
     @player_required
     async def handle_show_equipment(self, player: Player, event: AstrMessageEvent):
-        """显示玩家当前装备"""
+        """显示玩家当前装备；支持 /我的装备 比较 <装备名称>"""
         display_name = event.get_sender_name()
+
+        # 解析 /我的装备 比较 <装备名>（不改变指令注册形态，兼容无参数调用）
+        try:
+            raw_text = (event.get_message_str() or "").strip()
+        except Exception:
+            raw_text = ""
+        compare_text = raw_text.lstrip("/").strip()
+        for prefix in (CMD_SHOW_EQUIPMENT, "查看装备"):
+            if compare_text.startswith(prefix):
+                compare_text = compare_text[len(prefix):].strip()
+                break
+        if compare_text.startswith("比较"):
+            async for result in self._handle_equipment_compare(
+                player, event, compare_text[len("比较"):].strip()
+            ):
+                yield result
+            return
 
         # 获取所有已装备物品
         equipped_items = self.equipment_manager.get_equipped_items(
@@ -62,6 +223,22 @@ class EquipmentHandler:
         equipment_lines = [f"=== {display_name} 的装备 ===\n"]
         equipment_lines.extend(f"【{label}】{name}\n" for label, name in gear_rows)
         equipment_lines.append(f"【主修心法】{player.main_technique or '未装备'}\n")
+        equipment_lines.append("\n--- 单件加成 ---\n")
+        for slot, (slot_name, slot_inst) in gear.items():
+            label = ItemRules.SLOT_LABELS[slot]
+            if not slot_name:
+                equipment_lines.append(f"{label}：未装备\n")
+                continue
+            slot_quality = (slot_inst or {}).get("quality", "一般")
+            equipment_lines.append(
+                f"{label} {slot_name}·{slot_quality}："
+                f"{self.equipment_manager.describe_item_bonus(player, slot_name, slot_inst)}\n"
+            )
+        if player.main_technique:
+            equipment_lines.append(
+                f"主修心法 {player.main_technique}："
+                f"{self.equipment_manager.describe_item_bonus(player, player.main_technique)}\n"
+            )
         physical_damage_bonus = magic_damage_bonus = physical_defense_bonus = magic_defense_bonus = 0
         mental_power_bonus = max_spiritual_qi_bonus = exp_multiplier = 0
 
@@ -137,12 +314,29 @@ class EquipmentHandler:
                     equip_rows.append(("五行属性",
                         element_of(player.main_technique) or element_of(player.weapon)))
                 tech_lines = [f"{i}. {t}" for i, t in enumerate(techniques_list, 1)] or ["未装备"]
+                single_bonus_lines = []
+                for slot, (slot_name, slot_inst) in gear.items():
+                    label = ItemRules.SLOT_LABELS[slot]
+                    if not slot_name:
+                        single_bonus_lines.append(f"{label}：未装备")
+                        continue
+                    slot_quality = (slot_inst or {}).get("quality", "一般")
+                    single_bonus_lines.append(
+                        f"{label} {slot_name}·{slot_quality}："
+                        f"{self.equipment_manager.describe_item_bonus(player, slot_name, slot_inst)}"
+                    )
+                if player.main_technique:
+                    single_bonus_lines.append(
+                        f"主修心法 {player.main_technique}："
+                        f"{self.equipment_manager.describe_item_bonus(player, player.main_technique)}"
+                    )
                 card_path = await render_card_async(
                     "combat",
                     f"{display_name} 的装备",
                     f"功法 {len(techniques_list)}/3",
                     sections=[
                         {"name": "装备栏", "rows": equip_rows},
+                        {"name": "单件加成", "lines": single_bonus_lines},
                         {"name": "功法", "lines": tech_lines},
                         {"name": "加成总览", "lines": [
                             f"物伤 +{physical_damage_bonus}（+{rates.get('physical_damage', 0):.1%}）· 法伤 +{magic_damage_bonus}（+{rates.get('magic_damage', 0):.1%}）",
@@ -151,7 +345,7 @@ class EquipmentHandler:
                             f"生活加成：{' · '.join(life_parts) if life_parts else '无'}",
                         ]},
                     ],
-                    footer="装备按境界基础百分比加成，同属性加法叠加 · 装备 <物品名> [序号] [部位]",
+                    footer="境界基础×百分比 · /我的装备 比较 <装备名> · /装备 <物品名>",
                 )
                 if card_path:
                     yield event.image_result(card_path)
@@ -261,6 +455,8 @@ class EquipmentHandler:
                         display_item = parsed
 
             attr_display = display_item.get_attribute_display()
+            has_panel_rates = bool((attr_display or "").strip())
+            attr_display = (attr_display or "").strip() or "无面板主属性（仅提供特殊效果）"
             result_msg = (
                 f"✅ {message}\n"
                 f"━━━━━━━━━━━━━━━\n"
@@ -268,14 +464,28 @@ class EquipmentHandler:
             )
             if quality:
                 mult = self.equipment_manager.instance_manager.quality_multiplier(quality)
-                result_msg += f"\n品质：{quality}（主属性×{mult:.2f}）"
-                if quality != "一般":
+                scale_label = "主属性" if has_panel_rates else "特殊效果"
+                result_msg += f"\n品质：{quality}（{scale_label}×{mult:.2f}）"
+                if quality != "一般" and has_panel_rates:
                     base_item = self.equipment_manager.parse_item_from_name(
                         item.name, self.config_manager.items_data, self.config_manager.weapons_data,
                         player_level=player.level_index,
                     )
                     if base_item:
                         result_msg += f"\n基础属性：{base_item.get_attribute_display()}"
+            # 特殊手套/戒指没有面板主属性，改为展示品质缩放后的战斗特效
+            try:
+                from ..core.equipment_balance import effective_effects
+                cfg = self._item_config(item.name)
+                effect_lines = [
+                    f"{EquipmentManager.EFFECT_LABELS.get(key, key)}"
+                    f"{EquipmentManager.format_bonus_value(key, value)}"
+                    for key, value in effective_effects(cfg, quality or "一般").items()
+                ]
+                if effect_lines:
+                    result_msg += "\n特殊效果：" + "，".join(effect_lines)
+            except Exception:
+                pass
             yield event.plain_result(result_msg)
         else:
             # 仅“旧名称堆叠”路径在取出后失败时才回存；

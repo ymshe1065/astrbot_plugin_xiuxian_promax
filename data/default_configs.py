@@ -50,6 +50,11 @@ BOSS_CONFIG = {
 
 RIFT_CONFIG = {
     "default_duration": 1800, # 30分钟
+    "equipment_drop_chances": {"1": 6, "2": 10, "3": 15, "4": 18, "5": 22},
+    "equipment_slot_weights": {
+        "weapon": 16, "armor": 16, "head": 12, "boots": 12,
+        "amulet": 12, "gloves": 16, "ring": 16,
+    },
     "rifts": [
         {"id": 1, "name": "青云秘境", "level": 2, "exp_range": [100, 500], "gold_range": [50, 200]},
         {"id": 2, "name": "幽冥鬼域", "level": 5, "exp_range": [500, 2000], "gold_range": [200, 800]},
@@ -104,11 +109,11 @@ ALCHEMY_CONFIG = {
 
 AUCTION_HOUSE_CONFIG = {
     "lot_blueprint": [
-        {"category": "equipment", "tier": 2, "count": 1,
+        {"category": "equipment", "slot": "gloves", "tier": 2, "count": 1,
          "quality_weights": {"一般": 30, "良好": 50, "极佳": 20, "大师": 0}},
         {"category": "talisman", "tier": 2, "count": 2},
         {"category": "technique", "tier": 2, "count": 1},
-        {"category": "equipment", "tier": 3, "count": 1,
+        {"category": "equipment", "slot": "ring", "tier": 3, "count": 1,
          "quality_weights": {"一般": 0, "良好": 35, "极佳": 50, "大师": 15}},
         {"category": "pill", "tier": 3, "count": 1,
          "quality_weights": {"一般": 0, "良好": 45, "极佳": 45, "大师": 10}},
@@ -122,7 +127,6 @@ AUCTION_HOUSE_CONFIG = {
     ],
     "start_price_rate": 0.2,
     "start_price_fluctuation": 0.2,
-    "tier_labels": {"1": "黄阶", "2": "玄阶", "3": "地阶", "4": "天阶", "5": "仙品"},
     "affix_counts": {"一般": 0, "良好": 1, "极佳": 2, "大师": 3},
     "guaranteed_categories": ["main_technique"],
     "space_stone_name": "空间石",

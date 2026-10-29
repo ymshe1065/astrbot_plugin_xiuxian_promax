@@ -1,10 +1,13 @@
 # managers/pet_manager.py
 import random
 import time
-from typing import Tuple, Dict, Optional, List
+from typing import TYPE_CHECKING, Tuple, Dict, Optional, List
 from ..data import DataBase
 from ..models import Player
 from ..models_extended import UserStatus
+
+if TYPE_CHECKING:
+    from ..core import StorageRingManager
 
 
 def _build_pet_types(base_types: Dict[str, dict], evolutions: Dict[str, list]) -> Dict[str, dict]:
@@ -144,6 +147,10 @@ class PetManager:
     PET_EFFECT_SCALE = 0.1 * PET_LEVEL_BONUS_MULT
     GOLD_BONUS_PER_LEVEL = 0.005 * PET_LEVEL_BONUS_MULT
 
+    # 灵兽吞噬：指定内丹让灵兽直接提升等级
+    PET_CORE_ITEM = "灵兽内丹"
+    PET_CORE_LEVEL_GAIN = 1
+
     # 历练/秘境归来的灵兽奇遇：空槽越多，触发概率越高。
     # 非御兽职业固定只有 1 个槽，用更高的单槽权重补偿，避免概率永远停在 65%。
     PET_ENCOUNTER_BASE_CHANCE = 0.50
@@ -151,9 +158,10 @@ class PetManager:
     PET_ENCOUNTER_PER_EMPTY_SLOT_NON_YUSOU = 0.45
     PET_ENCOUNTER_MAX_CHANCE = 0.95
 
-    def __init__(self, db: DataBase, config_manager=None):
+    def __init__(self, db: DataBase, config_manager=None, storage_ring_manager: "StorageRingManager" = None):
         self.db = db
         self.config_manager = config_manager
+        self.storage_ring_manager = storage_ring_manager
 
     @staticmethod
     def get_realm_tier(level_index: int) -> int:
@@ -994,6 +1002,109 @@ class PetManager:
             f"灵兽当前等级：Lv.{new_level} (经验：{new_exp}/{new_level * 500})\n"
             f"当前精力：{new_hp}/{stats['max_hp']} · 攻击：{stats['atk']} · 防御：{stats['defense']}"
         )
+
+    def _storage_item_count(self, player: Player, item_name: str) -> int:
+        if self.storage_ring_manager:
+            try:
+                return int(self.storage_ring_manager.get_item_count(player, item_name))
+            except Exception:
+                pass
+        items = player.get_storage_ring_items() or {}
+        return int(items.get(item_name, 0) or 0)
+
+    async def _consume_storage_item(
+        self, player: Player, item_name: str, count: int = 1
+    ) -> Tuple[bool, str]:
+        if self.storage_ring_manager:
+            return await self.storage_ring_manager.discard_item(player, item_name, count)
+        items = dict(player.get_storage_ring_items() or {})
+        current = int(items.get(item_name, 0) or 0)
+        if current < count:
+            return False, f"❌ 储物戒中【{item_name}】数量不足（当前：{current}个）"
+        if current == count:
+            items.pop(item_name, None)
+        else:
+            items[item_name] = current - count
+        player.set_storage_ring_items(items)
+        await self.db.update_player_fields(
+            player.user_id, commit=True, storage_ring_items=player.storage_ring_items
+        )
+        return True, ""
+
+    async def devour_item(
+        self,
+        player: Player,
+        selector: str = "",
+        item_name: str = PET_CORE_ITEM,
+    ) -> Tuple[bool, str]:
+        """让指定灵兽吞噬灵兽内丹，直接提升等级。"""
+        item_name = (item_name or "").strip() or self.PET_CORE_ITEM
+        if item_name != self.PET_CORE_ITEM:
+            return False, f"❌ 目前只有【{self.PET_CORE_ITEM}】可以用于灵兽吞噬。"
+
+        pets = await self.get_pets(player.user_id)
+        pet, error = self._select_pet(pets, selector)
+        if not pet:
+            return False, error
+
+        now = int(time.time())
+        dead_until = int(pet.get("dead_until") or 0)
+        if dead_until > now:
+            remain = dead_until - now
+            return False, (
+                f"❌ 【{pet['pet_name']}】正在复活中，还需 "
+                f"{remain // 60} 分 {remain % 60} 秒，暂时无法吞噬。"
+            )
+
+        old_level = max(1, int(pet.get("level") or 1))
+        if old_level >= self.MAX_PET_LEVEL:
+            return False, f"❌ 【{pet['pet_name']}】已经满级（Lv.{self.MAX_PET_LEVEL}）。"
+
+        if self._storage_item_count(player, item_name) <= 0:
+            return False, f"❌ 储物戒中没有【{item_name}】，可前往材料阁购买或秘境获取。"
+
+        ok, msg = await self._consume_storage_item(player, item_name, 1)
+        if not ok:
+            return False, msg
+
+        pet_name = pet["pet_name"]
+        new_level = min(self.MAX_PET_LEVEL, old_level + self.PET_CORE_LEVEL_GAIN)
+        new_exp = 0 if new_level >= self.MAX_PET_LEVEL else int(pet.get("exp") or 0)
+        evolution = await self.ensure_pet_evolution(pet, commit=False, level=new_level)
+
+        owner_hp, owner_atk = self._owner_realm_stats(player)
+        stats = self.get_pet_stats(
+            {"level": new_level, "pet_type": pet["pet_type"]}, owner_hp, owner_atk, 0
+        )
+        old_max = int(pet.get("max_hp") or 0)
+        new_hp = min(
+            stats["max_hp"],
+            max(0, int(pet.get("hp") or 0))
+            + max(0, stats["max_hp"] - old_max)
+            + max(1, stats["max_hp"] // 20),
+        )
+
+        await self.db.conn.execute(
+            "UPDATE player_pets SET level = ?, exp = ?, max_hp = ?, hp = ? WHERE id = ?",
+            (new_level, new_exp, stats["max_hp"], new_hp, pet["id"]),
+        )
+        await self.db.conn.commit()
+
+        remaining = self._storage_item_count(player, item_name)
+        lines = [
+            f"🐾 【{pet_name}】吞噬了【{item_name}】！",
+            f"✨ 等级提升：Lv.{old_level} → Lv.{new_level}",
+        ]
+        if evolution:
+            lines.append(
+                f"🌟 境界突破！【{evolution['from']}】进化为【{evolution['to']}】，"
+                "本体数值与加成效果大幅提升！"
+            )
+        lines.append(f"📦 剩余【{item_name}】：{remaining} 颗")
+        lines.append(
+            f"当前精力：{new_hp}/{stats['max_hp']} · 攻击：{stats['atk']} · 防御：{stats['defense']}"
+        )
+        return True, "\n".join(lines)
 
     def get_pet_combat_effects(self, pet: Optional[Dict]) -> dict:
         if not pet:

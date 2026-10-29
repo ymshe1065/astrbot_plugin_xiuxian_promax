@@ -215,7 +215,7 @@ class AlchemyManager:
             return {
                 "name": name,
                 "category": self._infer_material_category(name),
-                "tier": item.get("rank", "黄阶"),
+                "tier": item.get("rank", "凡品"),
             }
         return {}
 

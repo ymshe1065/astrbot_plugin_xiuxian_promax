@@ -11,7 +11,10 @@ from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.core.star.filter.command import GreedyStr
 from .data import DataBase, MigrationManager
 from .config_manager import ConfigManager
-from .handlers.utils import with_player_lock, idle_player_lock, get_player_lock, get_event_flag
+from .handlers.utils import (
+    with_player_lock, idle_player_lock, get_player_lock, get_event_flag,
+    resolve_greedy_args,
+)
 from .handlers import (
     MiscHandler, PlayerHandler, RecoveryHandler, EquipmentHandler, BreakthroughHandler,
     PillHandler, ShopHandler, StorageRingHandler,
@@ -270,7 +273,7 @@ class XiuXianPlugin(Star):
         self.demon_handlers.context = self.context
         
         # v6.5 灵兽系统
-        self.pet_mgr = PetManager(self.db, self.config_manager)
+        self.pet_mgr = PetManager(self.db, self.config_manager, self.storage_ring_mgr)
         self.pet_handlers = PetHandlers(self.db, self.pet_mgr, self.config_manager)
         self.recovery_handler = RecoveryHandler(self.db, self.config_manager)
 
@@ -1096,13 +1099,15 @@ class XiuXianPlugin(Star):
     @require_whitelist
     @with_player_lock
     async def handle_auto_proxy_enable(self, event: AstrMessageEvent, task: GreedyStr):
-        async for r in self.auto_proxy_handlers.handle_enable(event, task): yield r
+        args = resolve_greedy_args(event, task, CMD_AUTO_PROXY)
+        async for r in self.auto_proxy_handlers.handle_enable(event, args): yield r
 
     @filter.command(CMD_AUTO_PROXY_OFF, "关闭自动代理")
     @require_whitelist
     @with_player_lock
     async def handle_auto_proxy_disable(self, event: AstrMessageEvent, args: GreedyStr):
-        async for r in self.auto_proxy_handlers.handle_disable(event, args): yield r
+        merged = resolve_greedy_args(event, args, CMD_AUTO_PROXY_OFF)
+        async for r in self.auto_proxy_handlers.handle_disable(event, merged): yield r
 
     @filter.command(CMD_AUTO_PROXY_STATUS, "查看自动代理状态")
     @require_whitelist
@@ -1283,7 +1288,7 @@ class XiuXianPlugin(Star):
     async def handle_discard_item(self, event: AstrMessageEvent, args: GreedyStr):
         async for r in self.storage_ring_handler.handle_discard_item(event, args): yield r
 
-    @filter.command(CMD_GIFT_ITEM, "赠予物品/丹药给其他玩家")
+    @filter.command(CMD_GIFT_ITEM, "赠予物品/丹药给其他玩家，或 /赠予 @人 灵石 数量 直接转账")
     @require_whitelist
     async def handle_gift_item(self, event: AstrMessageEvent, args: str = ""):
         async for r in self.storage_ring_handler.handle_gift_item(event, args): yield r
@@ -1906,7 +1911,8 @@ class XiuXianPlugin(Star):
     @filter.command(CMD_BLESSED_LAND_UPGRADE, "升级洞天")
     @require_whitelist
     async def handle_blessed_land_upgrade(self, event: AstrMessageEvent, upgrade_arg: GreedyStr):
-        async for r in self.blessed_land_handlers.handle_upgrade(event, upgrade_arg): yield r
+        args = resolve_greedy_args(event, upgrade_arg, CMD_BLESSED_LAND_UPGRADE)
+        async for r in self.blessed_land_handlers.handle_upgrade(event, args): yield r
         # 称号：洞天等级
         try:
             p1 = await self.db.get_player_by_id(event.get_sender_id())
@@ -1948,7 +1954,8 @@ class XiuXianPlugin(Star):
     @filter.command(CMD_SPIRIT_FARM_PLANT, "种植灵草")
     @require_whitelist
     async def handle_spirit_farm_plant(self, event: AstrMessageEvent, herb_name: GreedyStr):
-        async for r in self.spirit_farm_handlers.handle_plant(event, herb_name): yield r
+        args = resolve_greedy_args(event, herb_name, CMD_SPIRIT_FARM_PLANT)
+        async for r in self.spirit_farm_handlers.handle_plant(event, args): yield r
         if get_event_flag(event, "farm_plant_ok", False):
             try:
                 await self.auto_proxy_mgr.note_farm_planted(event.get_sender_id())
@@ -1979,7 +1986,8 @@ class XiuXianPlugin(Star):
     @filter.command(CMD_SPIRIT_FARM_REMOVE, "铲除指定格子的灵草")
     @require_whitelist
     async def handle_spirit_farm_remove(self, event: AstrMessageEvent, slot: GreedyStr):
-        async for r in self.spirit_farm_handlers.handle_remove_crop(event, slot): yield r
+        args = resolve_greedy_args(event, slot, CMD_SPIRIT_FARM_REMOVE)
+        async for r in self.spirit_farm_handlers.handle_remove_crop(event, args): yield r
         if get_event_flag(event, "farm_remove_ok", False):
             try:
                 await self.auto_proxy_mgr.clear_farm_plot(
@@ -2581,6 +2589,21 @@ class XiuXianPlugin(Star):
     async def handle_devour_pet(self, event: AstrMessageEvent, args: GreedyStr):
         async for r in self.pet_handlers.handle_devour(event, args): yield r
 
+    @filter.command("灵兽吞噬", "让指定灵兽吞噬灵兽内丹，直接提升等级")
+    @require_whitelist
+    async def handle_devour_pet_item(self, event: AstrMessageEvent, args: GreedyStr):
+        uid = event.get_sender_id()
+        before = await self.pet_mgr.get_max_pet_level(uid)
+        async for r in self.pet_handlers.handle_devour_item(event, args): yield r
+        try:
+            p1 = await self.db.get_player_by_id(uid)
+            after = await self.pet_mgr.get_max_pet_level(uid)
+            if p1 and after > before:
+                tmsg = await self.title_hooks.bump_value(p1, "pet_level", after)
+                if tmsg: yield event.plain_result(tmsg)
+        except Exception:
+            pass
+
     # ===== v6.6 宗门大比 =====
     @filter.command("开启宗门大比", "管理员开启活动")
     @require_whitelist
@@ -2649,12 +2672,12 @@ class XiuXianPlugin(Star):
         async for r in self.auction_handlers.handle_decline_offer(event, offer_id): yield r
 
     # ===== v6.35 拍卖会 =====
-    @filter.command("拍卖会", "查看拍卖会状态与拍品预告")
+    @filter.command("拍卖会", "查看拍卖会状态与拍品名单（每日22:00开拍）")
     @require_whitelist
     async def handle_auction_house_status(self, event: AstrMessageEvent):
         async for r in self.auction_house_handlers.handle_status(event): yield r
 
-    @filter.command("拍卖会信息", "查看拍卖会状态与拍品预告")
+    @filter.command("拍卖会信息", "查看拍卖会状态与拍品名单（每日22:00开拍）")
     @require_whitelist
     async def handle_auction_house_status_alias(self, event: AstrMessageEvent):
         async for r in self.auction_house_handlers.handle_status(event): yield r
@@ -3088,7 +3111,7 @@ class XiuXianPlugin(Star):
         if not self.storage_ring_mgr.has_item(player, "化身傀儡", 1):
             yield event.plain_result(
                 "❌ 你的储物戒中没有【化身傀儡】。\n"
-                "💡 化身傀儡为天阶稀有物品，可留意百宝阁刷新。"
+                "💡 化身傀儡为圣品稀有物品，可留意百宝阁刷新。"
             )
             return
 

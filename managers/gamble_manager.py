@@ -64,16 +64,16 @@ class GambleManager:
             for _ in range(count):
                 roll = random.random()
                 if roll < 0.80:
-                    # 80% 废料 (黄阶材料；材料体积为1，确保能放入基础储物戒)
-                    item_name = get_random_by_rank("黄阶", ("材料",))
+                    # 80% 废料（凡品材料；材料体积为1，确保能放入基础储物戒）
+                    item_name = get_random_by_rank("凡品", ("材料",))
                     results.append(await award(item_name, 5, "切出了", "（废料）"))
                 elif roll < 0.95:
-                    # 15% 稀有材料 (玄阶)
-                    item_name = get_random_by_rank("玄阶", ("材料",))
+                    # 15% 稀有材料（黄品）
+                    item_name = get_random_by_rank("黄品", ("材料",))
                     results.append(await award(item_name, 1, "✨ 切出了", "！"))
                 elif roll < 0.999:
-                    # 4.9% 地阶/天阶法宝
-                    rank_pool = "天阶" if random.random() < 0.2 else "地阶"
+                    # 4.9% 玄品/圣品法宝
+                    rank_pool = "圣品" if random.random() < 0.2 else "玄品"
                     item_name = get_random_by_rank(rank_pool, ("法器",))
                     results.append(await award(item_name, 1, "🎉 金光四射！切出了", "！"))
                 else:
@@ -102,7 +102,7 @@ class GambleManager:
         {"name": "劣质回气散", "price": 200, "desc": "闻起来有点刺鼻。", "fake": True},
     ]
     BLACK_MARKET_RANK_WEIGHTS = {
-        "玄阶": 6, "地阶": 3, "天阶": 1,
+        "黄品": 6, "玄品": 3, "圣品": 1,
         "灵品": 6, "地品": 3, "天品": 1, "皇品": 1,
     }
 
@@ -166,6 +166,8 @@ class GambleManager:
             weights = [
                 int(
                     real_pool[name].get("black_market_weight")
+                    or real_pool[name].get("drop_weight")
+                    or real_pool[name].get("shop_weight")
                     or self.BLACK_MARKET_RANK_WEIGHTS.get(real_pool[name].get("rank", ""), 1)
                 )
                 for name in candidates
@@ -208,9 +210,9 @@ class GambleManager:
         return items, next_refresh
 
     LEGACY_GHOST_ITEMS = {
-        "天阶·混元道果": 100000,
-        "地阶·洗髓丹": 1000,
-        "天阶·诛仙剑": 50000,
+        "圣品·混元道果": 100000,
+        "玄品·洗髓丹": 1000,
+        "圣品·诛仙剑": 50000,
     }
 
     async def cleanup_legacy_black_market_items(self) -> int:

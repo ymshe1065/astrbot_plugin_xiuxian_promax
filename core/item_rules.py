@@ -4,24 +4,11 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional, Tuple
 
+from ..rank_rules import RANK_LEVELS, rank_level
 
-# 两套显示品阶共用同一解锁境界；未写 required_level_index 时走此表。
-RANK_REQ_LEVEL = {
-    "凡品": 0,
-    "黄阶": 0,
-    "玄阶": 3,
-    "地阶": 9,
-    "灵品": 10,
-    "地品": 12,
-    "天品": 13,
-    "皇品": 16,
-    "天阶": 18,
-    "帝品": 22,
-    "道品": 28,
-    "仙品": 32,
-    "混元先天": 35,
-    "神品": 35,
-}
+
+# 单品阶统一由根目录 rank_rules.py 提供；未写 required_level_index 时走此表。
+RANK_REQ_LEVEL = dict(RANK_LEVELS)
 
 _RATE_KEYS = {
     "exp_multiplier",
@@ -215,7 +202,7 @@ def resolve_required_level(required_level_index: Any, rank: str = "") -> int:
 
     if explicit is not None and explicit >= 0:
         return explicit
-    return int(RANK_REQ_LEVEL.get(rank or "", 0))
+    return rank_level(rank)
 
 
 def get_required_level(item: Optional[Dict[str, Any]]) -> int:

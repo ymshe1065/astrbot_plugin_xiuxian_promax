@@ -14,6 +14,7 @@ from .item_rules import (
     normalize_equipment_type,
     normalize_shop_type,
 )
+from .realm_rules import applicable_level_range, format_applicable_realm
 
 __all__ = [
     "CultivationManager",
@@ -28,4 +29,6 @@ __all__ = [
     "get_required_level",
     "normalize_equipment_type",
     "normalize_shop_type",
+    "applicable_level_range",
+    "format_applicable_realm",
 ]

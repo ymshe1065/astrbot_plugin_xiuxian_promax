@@ -20,7 +20,7 @@ class Item:
     description: str = ""  # 物品描述
 
     # 装备品级相关
-    rank: str = ""  # 品级：凡品、灵品、地品、天品、皇品、帝品、道品、仙品、混元先天
+    rank: str = ""  # 统一品阶：凡品、黄品、玄品、灵品、地品、天品、皇品、圣品、帝品、道品、仙品、混元先天
     required_level_index: int = 0  # 需要的最低境界level_index
     weapon_category: str = ""  # 武器类别：剑、刀、阔刀、琴、匕首、符箓、鼎、棍、枪、笔
 

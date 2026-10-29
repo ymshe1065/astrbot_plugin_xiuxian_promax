@@ -17,6 +17,7 @@ except ImportError:  # pragma: no cover - 测试/非 AstrBot 环境
 
 from ..data.data_manager import DataBase
 from ..models_extended import UserStatus
+from ..utils.arg_parse import PLOT_ALL_KEYWORDS, is_all_keyword, normalize_arg_text
 
 __all__ = ["AutoProxyManager"]
 
@@ -145,13 +146,13 @@ class AutoProxyManager:
     @staticmethod
     def _parse_plot_selection(raw: str) -> Tuple[Optional[list[int]], list[str]]:
         """解析格号选择：空=全部；支持 1 2 / 1,2 / 1-3；全部=全部。"""
-        tokens = [t for t in re.split(r"[\s,，、]+", (raw or "").strip()) if t]
+        tokens = [t for t in re.split(r"[\s,，、]+", normalize_arg_text(raw)) if t]
         if not tokens:
             return None, []
         plots: list[int] = []
         invalid: list[str] = []
         for token in tokens:
-            if token.lower() in ("全部", "所有", "all", "*"):
+            if is_all_keyword(token, PLOT_ALL_KEYWORDS):
                 return None, []
             range_match = re.match(r"^(\d+)-(\d+)$", token)
             if range_match:

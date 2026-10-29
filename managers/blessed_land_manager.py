@@ -6,10 +6,11 @@ import re
 from typing import Tuple, Optional, Dict, List
 from ..data import DataBase
 from ..models import Player
+from ..utils.arg_parse import ALL_KEYWORDS, is_all_keyword, normalize_arg_text
 
 __all__ = ["BlessedLandManager"]
 
-_UPGRADE_ALL_KEYWORDS = {"all", "全部", "全满", "满"}
+_UPGRADE_ALL_KEYWORDS = ALL_KEYWORDS
 
 
 def parse_upgrade_args(raw: str) -> Tuple[Optional[str], Optional[int]]:
@@ -22,10 +23,10 @@ def parse_upgrade_args(raw: str) -> Tuple[Optional[str], Optional[int]]:
     - ``all``     -> ("all", 0)       升到当前洞天满级（灵石不足则尽量升）
     - 非法参数    -> (None, None)
     """
-    text = (raw or "").strip().lower()
+    text = normalize_arg_text(raw).lower()
     if not text:
         return "times", 1
-    if text in _UPGRADE_ALL_KEYWORDS:
+    if is_all_keyword(text, _UPGRADE_ALL_KEYWORDS):
         return "all", 0
 
     range_match = re.fullmatch(r"(\d+)\s*-\s*(\d+)", text)

@@ -76,7 +76,7 @@ class _FakeConfig:
             "success_rate": 80,
         },
     }
-    exp_pills_data = {"炼气丹": {"name": "炼气丹", "exp_gain": 500, "rank": "黄阶"}}
+    exp_pills_data = {"炼气丹": {"name": "炼气丹", "exp_gain": 500, "rank": "凡品"}}
     utility_pills_data = {}
     pills_data = {}
 

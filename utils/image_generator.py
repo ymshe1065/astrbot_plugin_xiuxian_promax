@@ -361,27 +361,31 @@ def render_card(
 
         probe = ImageDraw.Draw(Image.new("RGB", (10, 10)))
 
-        # ===== 预排版：智能列宽（数值自适应扩展，杜绝截断）=====
-        VALUE_RATIO_MAX = 0.62   # 数值列最多占内容宽 62%
-        LABEL_RATIO_MIN = 0.24   # 字段列最少 24%
+        # ===== 预排版：智能列宽（名称永不省略，超长自动换行）=====
+        LABEL_RATIO_MIN = 0.30   # 字段列最少 30%
+        VALUE_RATIO_MIN = 0.22   # 数值列最少 22%
         content_w = width - pad * 2 - inner * 2 - 40
         line_w = width - pad * 2 - inner * 2 - 10
+        max_label_w = 0.0
+        for sec in sections:
+            for label, value in sec.get("rows", []):
+                max_label_w = max(max_label_w, _font_textlen(f_label, str(label)))
+        # 字段列按最长名称扩展；数值列至少保留 22%。
+        # 两者下限冲突时优先保证名称完整，数值列改为折行显示。
+        label_col = int(max(max_label_w + 6, content_w * LABEL_RATIO_MIN))
+        label_col = min(label_col, int(content_w * (1 - VALUE_RATIO_MIN)))
+        value_col = max(1, content_w - label_col)
+
         body_height = 0
-        max_value_w = 0.0
         for sec in sections:
             body_height += row_h + 14
             for label, value in sec.get("rows", []):
-                lw = _font_textlen(f_label, str(label))
-                vw = _font_textlen(f_value, str(value))
-                max_value_w = max(max_value_w, vw, lw + 30)
-            body_height += row_h * len(sec.get("rows", []))
+                label_lines = _wrap_mixed(str(label), f_label, label_col)
+                value_lines = _wrap_mixed(str(value), f_value, value_col)
+                body_height += row_h * max(len(label_lines), len(value_lines))
             for line in sec.get("lines", []):
                 body_height += row_h * max(1, len(_wrap_mixed(str(line), f_value, line_w, 30)))
             body_height += section_gap
-        # 数值列宽 = min(最长数值, 上限)，且保证字段列 >= 最低占比
-        value_col = int(min(max(max_value_w, content_w * 0.40), content_w * VALUE_RATIO_MAX))
-        value_col = max(value_col, int(content_w * (1 - LABEL_RATIO_MIN)) - 0)
-        label_col = content_w - value_col
 
         header_h = 176 if subtitle else 138
         footer_h = 70 if footer else 30
@@ -459,18 +463,26 @@ def render_card(
             y_cursor += row_h + 8
 
             for label, value in sec.get("rows", []):
-                label_s = _trunc(draw, str(label), f_label, label_col)
-                value_s = _trunc(draw, str(value), f_value, value_col)
-                draw.text((label_x + 6, y_cursor + 3), label_s, font=f_label, fill=INK_LABEL)
-                vw = _mixed_width(value_s, f_value, emoji_px_val)
-                _draw_mixed(canvas, (value_right - vw, y_cursor), value_s, f_value, emoji_px_val, INK_TEXT)
-                draw = ImageDraw.Draw(canvas)
-                # 行间点线
-                if (y_cursor // row_h) % 2 == 0:
-                    lx_end = label_x + 6 + draw.textlength(label_s, font=f_label)
-                    for dx in range(int(lx_end + 12), int(value_right - vw - 14), 26):
-                        draw.ellipse([dx, y_cursor + 27, dx + 3, y_cursor + 29], fill=INK_DIVIDER + (110,))
-                y_cursor += row_h
+                label_lines = _wrap_mixed(str(label), f_label, label_col) or [""]
+                value_lines = _wrap_mixed(str(value), f_value, value_col) or [""]
+                line_count = max(len(label_lines), len(value_lines))
+                for idx in range(line_count):
+                    if idx < len(label_lines):
+                        draw.text((label_x + 6, y_cursor + 3), label_lines[idx],
+                                  font=f_label, fill=INK_LABEL)
+                    if idx < len(value_lines):
+                        vw = _mixed_width(value_lines[idx], f_value, emoji_px_val)
+                        _draw_mixed(canvas, (value_right - vw, y_cursor), value_lines[idx],
+                                    f_value, emoji_px_val, INK_TEXT)
+                        draw = ImageDraw.Draw(canvas)
+                    # 行间点线只用于单行条目，避免多行名称时穿插杂乱
+                    if idx == 0 and line_count == 1:
+                        lx_end = label_x + 6 + draw.textlength(label_lines[0], font=f_label)
+                        vw = _mixed_width(value_lines[0], f_value, emoji_px_val)
+                        for dx in range(int(lx_end + 12), int(value_right - vw - 14), 26):
+                            draw.ellipse([dx, y_cursor + 27, dx + 3, y_cursor + 29],
+                                         fill=INK_DIVIDER + (110,))
+                y_cursor += row_h * line_count
 
             for line in sec.get("lines", []):
                 for seg in _wrap_mixed(str(line), f_value, line_w, emoji_px_val):

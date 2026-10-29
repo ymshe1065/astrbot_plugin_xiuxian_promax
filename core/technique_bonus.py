@@ -26,7 +26,7 @@ LIFE_EFFECT_LABELS = {
     "exp_multiplier": "修炼效率",
 }
 
-_RANK_DROP_WEIGHT = {"黄阶": 100, "玄阶": 35, "地阶": 10, "天阶": 2, "仙品": 1}
+_RANK_DROP_WEIGHT = {"凡品": 100, "黄品": 35, "玄品": 10, "圣品": 2, "仙品": 1}
 
 
 class TechniqueBonusManager:

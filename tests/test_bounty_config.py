@@ -169,6 +169,13 @@ class TestAdventureConfig(unittest.TestCase):
                     )
                 index[normalized] = route["key"]
 
+    def test_route_durations_are_compressed(self):
+        for route in self.adventure["routes"]:
+            self.assertGreaterEqual(route["duration"], 1800, f"{route['key']} 历练时长不应低于 30 分钟")
+            self.assertLessEqual(route["duration"], 3600, f"{route['key']} 历练时长不应高于 60 分钟")
+            self.assertEqual(route["duration"] % 60, 0, f"{route['key']} 历练时长应按分钟取整")
+            self.assertGreater(route.get("reward_duration", 0), 0, f"{route['key']} 缺少 reward_duration")
+
     def test_event_groups_are_complete_and_unique(self):
         groups = self.adventure["event_groups"]
         self.assertTrue(set(groups) >= {"safe", "standard", "risky"})

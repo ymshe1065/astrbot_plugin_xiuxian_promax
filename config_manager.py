@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 from astrbot.api import logger
+from .rank_rules import RANK_PRICE, normalize_rank
 from .data.default_configs import (
     SECT_CONFIG, BOSS_CONFIG, RIFT_CONFIG, ALCHEMY_CONFIG, AUCTION_HOUSE_CONFIG,
 )
@@ -90,12 +91,28 @@ class ConfigManager:
             logger.error(f"加载物品数据失败: {e}")
             return {}
 
+    def _merge_special_equipment(self):
+        """把特殊装备合并进 items_data；同名时以 items.json 为准并告警。"""
+        data = getattr(self, "special_equipment_data", {}) or {}
+        merged = 0
+        for name, cfg in data.items():
+            if not isinstance(cfg, dict):
+                continue
+            if name in self.items_data:
+                logger.warning(f"特殊装备与 items.json 同名：{name}，已保留 items.json 配置")
+                continue
+            self.items_data[name] = cfg
+            merged += 1
+        logger.info(f"特殊手套/戒指装备加载完成：{merged} 件")
+
     def _load_all(self):
         config_dir = self._base_dir / "config"
-        
         self.level_data = self._load_json_data(config_dir / "level_config.json")
         self.body_level_data = self._load_json_data(config_dir / "body_level_config.json")
         self.items_data = self._load_items_data(config_dir / "items.json")
+        # 特殊手套/戒指（120 件）单独维护，加载后合并进统一物品目录。
+        self.special_equipment_data = self._load_items_data(config_dir / "special_equipment.json")
+        self._merge_special_equipment()
         self.weapons_data = self._load_items_data(config_dir / "weapons.json")
         self.pills_data = self._load_items_data(config_dir / "pills.json")
         self.exp_pills_data = self._load_items_data(config_dir / "exp_pills.json")
@@ -138,12 +155,41 @@ class ConfigManager:
             if isinstance(recipe, dict) and recipe.get("name"):
                 self.talisman_recipes_data[recipe["name"]] = recipe
 
+        self._normalize_ranks()
         self._inject_recipe_scrolls()
         self._inject_material_packages()
         self._inject_talisman_items()
         self._pill_names_cache = None
         self._annotate_elements()
         logger.info("配置管理器初始化完成")
+
+    def _normalize_ranks(self):
+        """把配置中的历史品阶名称统一为 rank_rules 的标准名称。
+
+        配置文件可能来自旧版本自定义，加载时统一归一化，避免两套名称
+        在运行时重新混用；不写回文件。
+        """
+        item_sources = (
+            self.items_data, self.weapons_data, self.pills_data,
+            self.exp_pills_data, self.utility_pills_data,
+            self.storage_rings_data, self.techniques_data,
+        )
+        for data in item_sources:
+            for cfg in data.values():
+                if isinstance(cfg, dict) and cfg.get("rank"):
+                    cfg["rank"] = normalize_rank(cfg["rank"])
+        for recipe in self.talisman_recipes_data.values():
+            if isinstance(recipe, dict) and recipe.get("rank"):
+                recipe["rank"] = normalize_rank(recipe["rank"])
+        for recipe in self.pill_recipes_data.values():
+            if not isinstance(recipe, dict):
+                continue
+            for spec in recipe.get("materials") or []:
+                if isinstance(spec, dict) and spec.get("tier"):
+                    spec["tier"] = normalize_rank(spec["tier"])
+        for material in self.material_catalog.values():
+            if isinstance(material, dict) and material.get("tier"):
+                material["tier"] = normalize_rank(material["tier"])
 
     # ===== 五行属性标注 =====
     # 名称关键词 → 五行（含变体属性映射：雷属木、风属木、冰属水、光属火、暗属水）
@@ -208,7 +254,7 @@ class ConfigManager:
                 "id": f"talisman_{recipe.get('id', name)}",
                 "name": name,
                 "type": "符箓",
-                "rank": recipe.get("rank", "黄阶"),
+                "rank": normalize_rank(recipe.get("rank"), "凡品"),
                 "price": int(recipe.get("price") or 1000),
                 "shop_weight": int(recipe.get("shop_weight") or 20),
                 "volume": 1,
@@ -217,7 +263,7 @@ class ConfigManager:
 
     def _inject_material_packages(self):
         """注入材料包：购买后随机开出同类别同品级材料。"""
-        tier_price = {"黄阶": 90, "玄阶": 360, "地阶": 1500, "天阶": 6000}
+        tier_price = {"凡品": 90, "黄品": 360, "玄品": 1500, "圣品": 6000}
         categories = ["灵植", "矿材", "妖兽", "灵液"]
         for category in categories:
             for tier, price in tier_price.items():
@@ -230,7 +276,7 @@ class ConfigManager:
                     "type": "材料包",
                     "rank": tier,
                     "price": price,
-                    "shop_weight": 600 if tier in ("黄阶", "玄阶") else 200,
+                    "shop_weight": 600 if tier in ("凡品", "黄品") else 200,
                     "volume": 1,
                     "package_category": category,
                     "package_tier": tier,
@@ -288,14 +334,8 @@ class ConfigManager:
             price = 0
         if price > 0:
             return price
-        rank = str(cfg.get("rank", "黄阶") or "黄阶")
-        fallback = {
-            "凡品": 100, "黄阶": 300, "灵品": 800, "玄阶": 2000,
-            "珍品": 4000, "地阶": 8000, "圣品": 15000, "天阶": 30000,
-            "帝品": 45000, "道品": 60000, "仙品": 120000, "神品": 200000,
-            "混元先天": 300000,
-        }
-        return int(fallback.get(rank, 1000))
+        rank = normalize_rank(cfg.get("rank"), "凡品")
+        return int(RANK_PRICE.get(rank, 1000))
 
     def is_pill(self, item_name: str) -> bool:
         if item_name in self.pills_data or item_name in self.exp_pills_data or item_name in self.utility_pills_data:

@@ -12,6 +12,7 @@ from ..core.talisman_rules import (
     TIER_POWER, TIER_LEVEL, TIER_GOLD, TIER_PRICE, CATEGORY_KEYWORDS,
     NON_TALISMAN_ITEMS, infer_category, build_profile,
 )
+from ..rank_rules import normalize_rank, rank_level
 
 if TYPE_CHECKING:
     from ..config_manager import ConfigManager
@@ -50,31 +51,30 @@ class TalismanManager:
     def get_talisman_profile(self, name: str) -> Dict:
         """根据符名、品级与配置推演效果。"""
         item = self._item_data(name)
-        rank = str(item.get("rank") or self._recipe_config(name).get("rank") or "黄阶")
+        rank = normalize_rank(item.get("rank") or self._recipe_config(name).get("rank"), "凡品")
         category = self._infer_category(name)
         return build_profile(name, rank, category)
 
     # ===== 配方 =====
+    # 材料目录只有四档，按境界把符箓品阶归入最近的材料档。
+    MATERIAL_TIER_COUNTS = {"凡品": 2, "黄品": 2, "玄品": 3, "圣品": 4}
+
+    @classmethod
+    def _material_tier(cls, rank: str) -> str:
+        level = rank_level(rank)
+        if level >= 18:
+            return "圣品"
+        if level >= 9:
+            return "玄品"
+        if level >= 3:
+            return "黄品"
+        return "凡品"
+
     def _auto_materials(self, rank: str) -> List[Dict]:
-        if rank in ("凡品", "黄阶", "灵品"):
-            tier = "黄阶"
-            return [
-                {"category": "灵植", "tier": tier, "count": 2},
-                {"category": "矿材", "tier": tier, "count": 1},
-            ]
-        if rank in ("玄阶", "珍品"):
-            return [
-                {"category": "灵植", "tier": "玄阶", "count": 2},
-                {"category": "矿材", "tier": "玄阶", "count": 1},
-            ]
-        if rank in ("地阶", "圣品"):
-            return [
-                {"category": "灵植", "tier": "地阶", "count": 3},
-                {"category": "矿材", "tier": "地阶", "count": 2},
-            ]
+        tier = self._material_tier(normalize_rank(rank, "凡品"))
         return [
-            {"category": "灵植", "tier": "天阶", "count": 4},
-            {"category": "矿材", "tier": "天阶", "count": 3},
+            {"category": "灵植", "tier": tier, "count": self.MATERIAL_TIER_COUNTS[tier]},
+            {"category": "矿材", "tier": tier, "count": max(1, self.MATERIAL_TIER_COUNTS[tier] - 1)},
         ]
 
     def get_recipe(self, name: str) -> Optional[Dict]:
@@ -86,7 +86,7 @@ class TalismanManager:
         item = self._item_data(name)
         if not item or item.get("type") != "符箓":
             return None
-        rank = item.get("rank", "黄阶")
+        rank = normalize_rank(item.get("rank"), "凡品")
         return {
             "id": f"auto_{name}",
             "name": name,
@@ -292,7 +292,7 @@ class TalismanManager:
             return False, f"❌ 【{name}】不是符箓。"
 
         recipe = self._recipe_config(name)
-        required = int(recipe.get("level_required", self.TIER_LEVEL.get(str(self._item_data(name).get("rank") or recipe.get("rank") or "黄阶"), 0)) or 0)
+        required = int(recipe.get("level_required", self.TIER_LEVEL.get(normalize_rank(self._item_data(name).get("rank") or recipe.get("rank"), "凡品"), 0)) or 0)
         if player.level_index < required:
             return False, f"❌ 使用【{name}】需要达到境界等级 {required}。"
 

@@ -12,6 +12,7 @@ from typing import List, Optional, Tuple
 from astrbot.api import logger
 
 from ..core.item_rules import ItemRules
+from ..rank_rules import RANK_TIERS, level_to_rank, normalize_rank
 from ..data import DataBase
 from ..models import Player
 
@@ -23,13 +24,7 @@ SLOT_PREVIEW_LABELS = {
     "gloves": "手套", "boots": "靴子", "ring1": "戒指", "ring2": "戒指",
     "amulet": "护符",
 }
-RANK_TIER = {
-    "凡品": 1, "黄阶": 1,
-    "灵品": 2, "玄阶": 2,
-    "珍品": 3, "地阶": 3, "地品": 3,
-    "圣品": 4, "天阶": 4, "天品": 4, "皇品": 4, "帝品": 4, "道品": 4,
-    "仙品": 5, "混元先天": 5, "神品": 5,
-}
+RANK_TIER = dict(RANK_TIERS)
 CATEGORY_LABELS = {
     "equipment": "装备", "talisman": "符箓", "pill": "丹药", "recipe": "丹方",
     "technique": "功法", "main_technique": "心法", "material": "材料",
@@ -57,11 +52,10 @@ class AuctionHouseManager:
         self.bid_countdown = max(10, self._as_int(cfg.get("BID_COUNTDOWN"), 60))
         self.lot_gap = max(0, self._as_int(cfg.get("LOT_GAP"), 10))
         self.min_increment_pct = max(0.0, self._as_float(cfg.get("MIN_INCREMENT_PCT"), 0.05))
-        self.lot_count_cfg = max(1, self._as_int(cfg.get("LOT_COUNT"), 8))
+        self.lot_count_cfg = max(1, self._as_int(cfg.get("LOT_COUNT"), 10))
 
         ah_cfg = getattr(config_manager, "auction_house_config", {}) or {}
         self.ah_cfg = ah_cfg
-        self.tier_labels = dict(ah_cfg.get("tier_labels") or {})
         self.start_price_rate = max(0.01, self._as_float(ah_cfg.get("start_price_rate"), 0.2))
         self.start_price_fluctuation = min(
             1.0, max(0.0, self._as_float(ah_cfg.get("start_price_fluctuation"), 0.2))
@@ -171,52 +165,41 @@ class AuctionHouseManager:
             "ORDER BY id DESC LIMIT 1"
         )
         if active:
+            # 旧场次的 announcing 阶段统一视为 scheduled；到点直接开拍。
+            if active.get("phase") == "announcing":
+                await self.db.conn.execute(
+                    "UPDATE auction_house_events SET phase='scheduled', updated_at=? WHERE id=?",
+                    (now, active["id"]),
+                )
+                await self.db.conn.commit()
+                active["phase"] = "scheduled"
             return active
 
         last = await self._fetchone(
             "SELECT * FROM auction_house_events ORDER BY id DESC LIMIT 1"
         )
-        if last:
-            cycle_no = int(last.get("cycle_no") or 0) + 1
-            base = int(last.get("cycle_start") or 0) + self.cycle_days * 86400
-            end_ts = int(last.get("event_end") or 0) or int(last.get("event_start") or 0) or now
-            after_event = self._midnight(end_ts) + 86400
-            cycle_start = max(base, after_event)
-        else:
-            cycle_no = 1
-            cycle_start = self._midnight(now)
+        cycle_no = int(last.get("cycle_no") or 0) + 1 if last else 1
 
-        # 在窗口内选择一天作为预告日；当天 22:00 开拍，已错过则顺延。
-        for _ in range(365):
-            candidates = []
-            for offset in range(self.cycle_days):
-                day_start = cycle_start + offset * 86400
-                event_start = self._at_hour(day_start, self.event_start_hour)
-                if event_start > now + 300:
-                    candidates.append(day_start)
-            if candidates:
-                announce_day = random.choice(candidates)
-                announce_start = self._at_hour(announce_day, self.announce_start_hour)
-                event_start = self._at_hour(announce_day, self.event_start_hour)
-                announce_date = self._date_str(announce_day)
-                await self.db.conn.execute(
-                    """INSERT INTO auction_house_events
-                       (cycle_no, cycle_start, announce_date, announce_start, event_start,
-                        event_end, phase, lot_count, current_lot, last_reminder_slot,
-                        created_at, updated_at)
-                       VALUES (?, ?, ?, ?, ?, 0, 'scheduled', 0, 0, '', ?, ?)""",
-                    (cycle_no, cycle_start, announce_date, announce_start, event_start, now, now),
-                )
-                await self.db.conn.commit()
-                return await self._fetchone(
-                    "SELECT * FROM auction_house_events ORDER BY id DESC LIMIT 1"
-                ) or {}
+        # 每日 22:00 开拍；当天已过点则顺延到明天。
+        today_start = self._at_hour(self._midnight(now), self.event_start_hour)
+        event_start = today_start if today_start > now + 300 else today_start + 86400
+        cycle_start = self._midnight(event_start)
+        announce_day = cycle_start
+        announce_start = event_start
+        announce_date = self._date_str(announce_day)
 
-            cycle_start += self.cycle_days * 86400
-            cycle_no += 1
-
-        logger.error("【拍卖会】无法排期：一年内没有可用日期")
-        return {}
+        await self.db.conn.execute(
+            """INSERT INTO auction_house_events
+               (cycle_no, cycle_start, announce_date, announce_start, event_start,
+                event_end, phase, lot_count, current_lot, last_reminder_slot,
+                created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, 0, 'scheduled', 0, 0, '', ?, ?)""",
+            (cycle_no, cycle_start, announce_date, announce_start, event_start, now, now),
+        )
+        await self.db.conn.commit()
+        return await self._fetchone(
+            "SELECT * FROM auction_house_events ORDER BY id DESC LIMIT 1"
+        ) or {}
 
     async def tick(self, now: Optional[int] = None) -> int:
         """推进拍卖会状态机；返回本轮新增播报数量。"""
@@ -236,20 +219,17 @@ class AuctionHouseManager:
                 return 0
 
             if event["phase"] == "scheduled":
-                if now >= int(event["announce_start"]):
-                    await self._ensure_lots(event, now)
-                    await self.db.conn.execute(
-                        "UPDATE auction_house_events SET phase='announcing', updated_at=? WHERE id=?",
-                        (now, event["id"]),
-                    )
-                    await self.db.conn.commit()
-                    event["phase"] = "announcing"
-                    queued += await self._queue_due_reminders(event, now)
                 if now >= int(event["event_start"]):
                     queued += await self._start_live(event, now)
 
             elif event["phase"] == "announcing":
-                queued += await self._queue_due_reminders(event, now)
+                # 兼容旧数据：不再发预告，到点直接开拍。
+                await self.db.conn.execute(
+                    "UPDATE auction_house_events SET phase='scheduled', updated_at=? WHERE id=?",
+                    (now, event["id"]),
+                )
+                await self.db.conn.commit()
+                event["phase"] = "scheduled"
                 if now >= int(event["event_start"]):
                     queued += await self._start_live(event, now)
 
@@ -488,6 +468,7 @@ class AuctionHouseManager:
     # ================= 预告与消息 =================
 
     async def _queue_due_reminders(self, event: dict, now: int) -> int:
+        """兼容旧整点预告逻辑；v6.39.0 起 tick 不再调用，开拍前改为 /拍卖会 查看名单。"""
         if self._date_str(now) != event.get("announce_date"):
             return 0
         queued = 0
@@ -594,7 +575,7 @@ class AuctionHouseManager:
         now = int(time.time())
         async with self._lock:
             event = await self._ensure_event_locked(now)
-            if not event or event["phase"] != "announcing":
+            if not event or event["phase"] not in ("scheduled", "announcing"):
                 return False, "❌ 当前没有开放报名的拍卖会。"
             if now >= int(event["event_start"]):
                 return False, "⏰ 拍卖会已经开拍，报名已截止。"
@@ -640,8 +621,8 @@ class AuctionHouseManager:
                 f"✅ 报名成功！\n"
                 f"━━━━━━━━━━━━━━━\n"
                 f"入场费：{self._fmt_price(self.entry_fee)} 灵石\n"
-                f"开拍时间：今日 {self.event_start_hour:02d}:00\n"
-                f"💡 发送 /拍卖会 查看拍品预告，开拍后使用 /拍卖会出价 <金额> 竞价。"
+                f"开拍时间：{datetime.fromtimestamp(int(event['event_start'])).strftime('%m-%d %H:%M')}\n"
+                f"💡 发送 /拍卖会 查看拍品名单，开拍后使用 /拍卖会出价 <金额> 竞价。"
             )
 
     async def bid(self, player: Player, amount_text: str) -> Tuple[bool, str]:
@@ -834,23 +815,29 @@ class AuctionHouseManager:
             lines = ["🏛️ 【拍卖会】", "━━━━━━━━━━━━━━━"]
             phase = event["phase"]
             if phase == "scheduled":
-                start_dt = datetime.fromtimestamp(int(event["announce_start"])).strftime("%m-%d %H:%M")
+                await self._ensure_lots(event, now)
                 event_dt = datetime.fromtimestamp(int(event["event_start"])).strftime("%m-%d %H:%M")
-                lines.append(f"📅 预告开启：{start_dt}")
-                lines.append(f"🔨 开拍时间：{event_dt}")
+                remain = max(0, int(event["event_start"]) - now)
+                lines.append(f"🔨 开拍时间：{event_dt}（剩余 {self._remaining_text(remain)}）")
                 lines.append(f"🎟️ 入场费：{self._fmt_price(self.entry_fee)} 灵石")
-                lines.append("⏳ 预告尚未开始，请耐心等待。")
+                if player:
+                    lines.append("✅ 报名状态：已报名" if registered else "❌ 报名状态：未报名（发送 /拍卖会报名）")
+                lines.append("")
+                lines.append("📜 拍品名单（按出场顺序）：")
+                lines.extend(await self._preview_lines(event))
+                lines.append("━━━━━━━━━━━━━━━")
+                lines.append("💡 /拍卖会报名 缴纳入场费；开拍后 /拍卖会出价 <金额>")
                 return "\n".join(lines)
 
             if phase == "announcing":
+                await self._ensure_lots(event, now)
                 remain = max(0, int(event["event_start"]) - now)
-                lines.append(f"📅 预告日：{event['announce_date']}")
                 lines.append(f"🔨 开拍：今日 {self.event_start_hour:02d}:00（剩余 {self._remaining_text(remain)}）")
                 lines.append(f"🎟️ 入场费：{self._fmt_price(self.entry_fee)} 灵石")
                 if player:
                     lines.append("✅ 报名状态：已报名" if registered else "❌ 报名状态：未报名（发送 /拍卖会报名）")
                 lines.append("")
-                lines.append("📜 拍品预告（详情开拍时公布）：")
+                lines.append("📜 拍品名单（按出场顺序）：")
                 lines.extend(await self._preview_lines(event))
                 lines.append("━━━━━━━━━━━━━━━")
                 lines.append("💡 /拍卖会报名 缴纳入场费；开拍后 /拍卖会出价 <金额>")
@@ -867,7 +854,7 @@ class AuctionHouseManager:
 
             lines.append("✅ 本场拍卖会已结束。")
             lines.extend(await self._preview_lines(event))
-            lines.append("💡 下一场拍卖会将在新的 3 天窗口内随机预告。")
+            lines.append(f"💡 下一场拍卖会将在明日 {self.event_start_hour:02d}:00 开拍。")
             return "\n".join(lines)
 
     # ================= 文案 =================
@@ -886,11 +873,17 @@ class AuctionHouseManager:
                 "pending": "待拍", "live": "竞拍中", "countdown": "倒计时",
                 "sold": "已成交", "passed": "流拍",
             }.get(status, status)
-            if status in ("live", "countdown", "sold", "passed"):
-                label = f"{lot['preview_label']}【{lot['item_name']}】"
-            else:
-                label = lot["preview_label"]
-            lines.append(f"  #{lot['lot_no']} {label} · {suffix}")
+            rank = str(lot.get("item_rank") or "")
+            try:
+                count = max(1, int(lot.get("count") or 1))
+            except (TypeError, ValueError):
+                count = 1
+            count_tag = f" ×{count}" if count > 1 else ""
+            rank_tag = f"[{rank}]" if rank else ""
+            lines.append(
+                f"  #{lot['lot_no']} {rank_tag}{lot['preview_label']}"
+                f"【{lot['item_name']}】{count_tag} · {suffix}"
+            )
         return lines
 
     async def _live_status_lines(self, event: dict, now: int) -> List[str]:
@@ -951,6 +944,21 @@ class AuctionHouseManager:
             )
             if rate_text:
                 lines.append(f"  主属性（品质后）：{rate_text}")
+        effects = payload.get("effects") or {}
+        if effects:
+            from ..core.equipment_balance import effective_effects
+            from ..core.equipment_manager import EquipmentManager
+            scaled = effective_effects(
+                {"effects": effects, "effect_quality_scaling": payload.get("effect_quality_scaling")},
+                lot.get("item_quality") or "一般",
+            )
+            effect_text = "、".join(
+                f"{EquipmentManager.EFFECT_LABELS.get(k, k)} "
+                f"{EquipmentManager.format_bonus_value(k, v)}"
+                for k, v in scaled.items()
+            )
+            if effect_text:
+                lines.append(f"  特殊效果（品质后）：{effect_text}")
         affixes = payload.get("affixes") or []
         if affixes:
             lines.append("  词条：" + "、".join(
@@ -1020,7 +1028,7 @@ class AuctionHouseManager:
             f"━━━━━━━━━━━━━━━\n"
             f"{extra or self._summary_facts(lots)}\n"
             f"━━━━━━━━━━━━━━━\n"
-            f"💡 感谢各位道友参与，下一场拍卖会将在新的 3 天窗口内随机预告。"
+            f"💡 感谢各位道友参与，下一场拍卖会将在明日 {self.event_start_hour:02d}:00 开拍。"
         )
 
     # ================= 拍品生成 =================
@@ -1062,12 +1070,24 @@ class AuctionHouseManager:
             lots.append(lot)
             present.add(category)
 
+        # 每日手套/戒指保底：优先新系特殊装备，每场至少各 1 件。
+        for slot, label in (("gloves", "手套"), ("ring", "戒指")):
+            if any(label in str(lot.get("preview_label") or "") for lot in lots):
+                continue
+            entry = {"category": "equipment", "slot": slot, "tier": 3, "count": 1}
+            lot = self._generate_lot(event_id, len(lots) + 1, entry, used_names, 0, now)
+            if not lot:
+                logger.warning(f"【拍卖会】{label}保底拍品生成失败")
+                continue
+            used_names.add(lot["item_name"])
+            lots.append(lot)
+
         # 空间石：每场独立判定，默认 80% 出现一件、50% 再追加一件。
         stone_cfg = (getattr(self.config_manager, "items_data", {}) or {}).get(
             self.space_stone_name
         )
         if isinstance(stone_cfg, dict):
-            stone_tier = RANK_TIER.get(str(stone_cfg.get("rank") or "地阶"), 3)
+            stone_tier = RANK_TIER.get(normalize_rank(stone_cfg.get("rank"), "玄品"), 3)
             stone_entry = {
                 "category": "material",
                 "tier": stone_tier,
@@ -1117,8 +1137,13 @@ class AuctionHouseManager:
         category = str(entry.get("category") or "").strip()
         tier = max(1, min(5, self._as_int(entry.get("tier"), 2)))
         count = max(1, self._as_int(entry.get("count"), 1))
+        # 装备拍品固定 1 件，避免同一实例被拆分。
+        if category == "equipment":
+            count = 1
         item_names = entry.get("item_names") or entry.get("item_name")
-        selected = self._select_item(category, tier, used_names, item_names)
+        selected = self._select_item(
+            category, tier, used_names, item_names, slot=str(entry.get("slot") or "")
+        )
         if not selected:
             return None
 
@@ -1132,6 +1157,8 @@ class AuctionHouseManager:
             affixes = self._roll_affixes(quality)
             payload["affixes"] = affixes
             payload["equipment_rates"] = item_cfg.get("equipment_rates") or {}
+            payload["effects"] = dict(item_cfg.get("effects") or {})
+            payload["effect_quality_scaling"] = bool(item_cfg.get("effect_quality_scaling"))
 
         base_price = self._base_price(category, item_cfg, payload) * count
         rate = max(0.01, self._as_float(entry.get("start_price_rate"), self.start_price_rate))
@@ -1161,8 +1188,18 @@ class AuctionHouseManager:
             "created_at": int(now),
         }
 
-    def _select_item(self, category: str, tier: int, used_names: set, item_names=None):
+    def _select_item(self, category: str, tier: int, used_names: set, item_names=None, slot: str = ""):
         candidates = self._category_candidates(category)
+        if slot and category == "equipment":
+            target = "ring1" if slot in ("ring", "ring1", "ring2") else slot
+            candidates = [
+                x for x in candidates
+                if ItemRules.get_equip_slot(x[1]) == target
+            ]
+            # 手套/戒指拍品位优先新系特殊装备，保证每场至少各 1 件。
+            special = [x for x in candidates if x[1].get("effect_quality_scaling")]
+            if special:
+                candidates = special
         if item_names:
             if isinstance(item_names, (list, tuple, set)):
                 allowed = {str(x).strip() for x in item_names if str(x).strip()}
@@ -1202,7 +1239,7 @@ class AuctionHouseManager:
                     continue
                 if ItemRules.normalize_equipment_type(cfg) not in GEAR_TYPES:
                     continue
-                rank = str(cfg.get("rank") or "凡品")
+                rank = normalize_rank(cfg.get("rank"), "凡品")
                 result.append((name, cfg, RANK_TIER.get(rank, 1), rank, {
                     "description": cfg.get("description", ""),
                     "category": "equipment",
@@ -1211,7 +1248,7 @@ class AuctionHouseManager:
             for name, cfg in (getattr(self.config_manager, "items_data", {}) or {}).items():
                 if not isinstance(cfg, dict) or cfg.get("type") != "符箓":
                     continue
-                rank = str(cfg.get("rank") or "黄阶")
+                rank = normalize_rank(cfg.get("rank"), "凡品")
                 result.append((name, cfg, RANK_TIER.get(rank, 1), rank, {
                     "description": cfg.get("description", ""),
                     "category": "talisman",
@@ -1223,7 +1260,7 @@ class AuctionHouseManager:
             for name, cfg in merged.items():
                 if not isinstance(cfg, dict):
                     continue
-                rank = str(cfg.get("rank") or "凡品")
+                rank = normalize_rank(cfg.get("rank"), "凡品")
                 result.append((name, cfg, RANK_TIER.get(rank, 1), rank, {
                     "description": cfg.get("description", ""),
                     "category": "pill",
@@ -1247,7 +1284,7 @@ class AuctionHouseManager:
                         continue
                 elif item_type not in ("main_technique", "心法"):
                     continue
-                rank = str(cfg.get("rank") or "凡品")
+                rank = normalize_rank(cfg.get("rank"), "凡品")
                 result.append((name, cfg, RANK_TIER.get(rank, 1), rank, {
                     "description": cfg.get("description", ""),
                     "category": category,
@@ -1258,7 +1295,7 @@ class AuctionHouseManager:
                     continue
                 if cfg.get("type") not in ("材料", "material"):
                     continue
-                rank = str(cfg.get("rank") or "凡品")
+                rank = normalize_rank(cfg.get("rank"), "凡品")
                 result.append((name, cfg, RANK_TIER.get(rank, 1), rank, {
                     "description": cfg.get("description", ""),
                     "category": "material",
@@ -1281,7 +1318,7 @@ class AuctionHouseManager:
                     "price": self._as_int(recipe.get("price"), 2000),
                     "description": recipe.get("desc") or "记载丹方炼制方法的卷轴。",
                 }
-                rank_label = self.tier_labels.get(str(tier), "灵品")
+                rank_label = level_to_rank(level)
                 result.append((name, cfg, tier, rank_label, {
                     "description": cfg["description"],
                     "category": "recipe",

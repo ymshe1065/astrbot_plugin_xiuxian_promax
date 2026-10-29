@@ -1,10 +1,13 @@
 # handlers/storage_ring_handler.py
 
+from typing import Tuple
+
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api import logger
 from astrbot.api.all import At, Plain
 from ..data import DataBase
 from ..core import StorageRingManager, ItemRules, PillManager
+from ..core.realm_rules import format_applicable_realm
 from ..core.item_instance_manager import ItemInstanceManager
 from ..config_manager import ConfigManager
 from ..models import Player
@@ -104,8 +107,9 @@ class StorageRingHandler:
             if card_enabled("CARD_BAG"):
                 enchant = ring_info.get("enchant", 0)
                 rows = []
-                for item_name, count in list(items.items())[:14]:
-                    rows.append((item_name[:12], f"x{count}"))
+                # 名称完整显示，不做省略；物品较多时由渲染器自动加长图片
+                for item_name, count in items.items():
+                    rows.append((item_name, f"x{count}"))
                 if not rows:
                     rows.append(("空空如也", "—"))
                 card_path = await render_card_async(
@@ -194,9 +198,55 @@ class StorageRingHandler:
         else:
             yield event.plain_result(f"❌ {message}")
 
+    async def _transfer_gold(
+        self, player: Player, target: Player, amount: int, sender_name: str
+    ) -> Tuple[bool, str]:
+        """原子转账灵石：扣款与到账在同一事务内，余额不足则整笔失败。"""
+        sender_id = player.user_id
+        try:
+            await self.db.conn.execute("BEGIN IMMEDIATE")
+            cursor = await self.db.conn.execute(
+                "UPDATE players SET gold = gold - ? WHERE user_id = ? AND gold >= ?",
+                (amount, sender_id, amount),
+            )
+            if cursor.rowcount == 0:
+                await self.db.conn.rollback()
+                return False, (
+                    f"❌ 灵石不足！\n"
+                    f"当前持有：{int(player.gold):,} 灵石\n"
+                    f"需要转账：{amount:,} 灵石"
+                )
+            await self.db.conn.execute(
+                "UPDATE players SET gold = gold + ? WHERE user_id = ?",
+                (amount, target.user_id),
+            )
+            await self.db.conn.commit()
+        except Exception as e:
+            await self.db.conn.rollback()
+            logger.error(f"灵石转账失败（{sender_id} → {target.user_id}）: {e}")
+            return False, "❌ 转账失败，灵石未扣除，请稍后再试。"
+
+        # 以数据库为准刷新余额，避免并发操作导致内存快照偏差
+        async with self.db.conn.execute(
+            "SELECT gold FROM players WHERE user_id = ?", (sender_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+        if row:
+            player.gold = int(row[0] or 0)
+
+        target_name = target.user_name or target.user_id
+        logger.info(
+            f"灵石转账：{sender_name}({sender_id}) → {target_name}({target.user_id}) {amount} 灵石"
+        )
+        return True, (
+            f"💎 转账成功！\n"
+            f"【{amount:,} 灵石】→ {target_name}\n"
+            f"当前余额：{player.gold:,} 灵石"
+        )
+
     @player_required
     async def handle_gift_item(self, player: Player, event: AstrMessageEvent, args: str):
-        """赠予物品给其他玩家"""
+        """赠予物品给其他玩家；item_name 为「灵石」时直接转账"""
         target_id = None
         item_name = None
         count = 1
@@ -249,7 +299,9 @@ class StorageRingHandler:
                 f"请指定赠予对象\n"
                 f"用法：{CMD_GIFT_ITEM} @某人 物品名 [数量]\n"
                 f"或：{CMD_GIFT_ITEM} QQ号 物品名 [数量]\n"
-                f"示例：{CMD_GIFT_ITEM} 123456789 精铁 5"
+                f"转账灵石：{CMD_GIFT_ITEM} @某人 灵石 数量（直接到账）\n"
+                f"示例：{CMD_GIFT_ITEM} 123456789 精铁 5\n"
+                f"示例：{CMD_GIFT_ITEM} @某人 灵石 1000"
             )
             return
 
@@ -267,6 +319,14 @@ class StorageRingHandler:
             return
         if target_id == player.user_id:
             yield event.plain_result("不能赠予物品给自己")
+            return
+
+        # 灵石属于货币，不在储物戒/丹药背包中，直接走原子转账，无需对方确认
+        if item_name == "灵石":
+            success, message = await self._transfer_gold(
+                player, target_player, count, event.get_sender_name()
+            )
+            yield event.plain_result(message)
             return
 
         pm = PillManager(self.db, self.storage_ring_manager.config_manager)
@@ -616,10 +676,15 @@ class StorageRingHandler:
                 else:
                     marker = "  "
 
-                level_name = self.storage_ring_manager._format_required_level(ring["required_level_index"])
+                level_name = format_applicable_realm(
+                    ring["required_level_index"],
+                    self.config_manager.level_data,
+                    self.config_manager.body_level_data,
+                    rank=str(ring.get("rank", "") or ""),
+                )
                 lines.append(
                     f"{marker}【{ring['name']}】({ring['rank']})\n"
-                    f"    容量：{ring['capacity']}格 | 需求：{level_name}\n"
+                    f"    容量：{ring['capacity']}格 | 适用境界：{level_name}\n"
                 )
 
             lines.append(f"\n用法：{CMD_UPGRADE_RING} 储物戒名")

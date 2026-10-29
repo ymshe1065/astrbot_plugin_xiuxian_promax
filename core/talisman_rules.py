@@ -4,26 +4,23 @@ from __future__ import annotations
 
 from typing import Dict
 
-TIER_POWER = {
-    "凡品": 0.15, "黄阶": 0.25, "灵品": 0.3, "玄阶": 0.4,
-    "珍品": 0.45, "地阶": 0.55, "圣品": 0.6, "天阶": 0.8,
-    "帝品": 0.85, "道品": 0.9, "仙品": 1.0, "神品": 1.1, "混元先天": 1.2,
-}
-TIER_LEVEL = {
-    "凡品": 0, "黄阶": 0, "灵品": 0, "玄阶": 3, "珍品": 3,
-    "地阶": 9, "圣品": 9, "天阶": 18, "帝品": 18, "道品": 24,
-    "仙品": 30, "神品": 36, "混元先天": 42,
-}
-TIER_GOLD = {
-    "凡品": 200, "黄阶": 300, "灵品": 500, "玄阶": 900,
-    "珍品": 1500, "地阶": 3000, "圣品": 5000, "天阶": 12000,
-    "帝品": 16000, "道品": 22000, "仙品": 50000, "神品": 80000, "混元先天": 120000,
-}
-TIER_PRICE = {
-    "凡品": 500, "黄阶": 800, "灵品": 1500, "玄阶": 2600,
-    "珍品": 4000, "地阶": 9000, "圣品": 14000, "天阶": 35000,
-    "帝品": 45000, "道品": 60000, "仙品": 120000, "神品": 200000, "混元先天": 300000,
-}
+from ..rank_rules import (
+    RANK_ALIASES, RANK_GOLD, RANK_LEVELS, RANK_POWER, RANK_PRICE, normalize_rank,
+)
+
+
+def _with_aliases(table: Dict[str, object]) -> Dict[str, object]:
+    """在统一阶梯上补齐旧名称，保证历史配置/存档仍可读取。"""
+    merged: Dict[str, object] = dict(table)
+    for alias, canonical in RANK_ALIASES.items():
+        merged.setdefault(alias, table[canonical])
+    return merged
+
+
+TIER_POWER = _with_aliases(RANK_POWER)
+TIER_LEVEL = _with_aliases(RANK_LEVELS)
+TIER_GOLD = _with_aliases(RANK_GOLD)
+TIER_PRICE = _with_aliases(RANK_PRICE)
 
 CATEGORY_KEYWORDS = [
     ("炼丹", ("引雷", "避劫", "稳魂", "聚灵")),
@@ -49,7 +46,8 @@ def infer_category(name: str, recipe_category: str = "") -> str:
 
 def build_profile(name: str, rank: str, category: str = "") -> Dict:
     """根据符名、品级与分类推演符箓效果。"""
-    power = float(TIER_POWER.get(rank, 0.3))
+    rank = normalize_rank(rank, "凡品")
+    power = float(TIER_POWER.get(rank, 0.25))
     category = category or infer_category(name)
     is_array = "阵" in str(name)
     if is_array:

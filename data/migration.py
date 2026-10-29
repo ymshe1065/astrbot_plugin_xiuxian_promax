@@ -1,12 +1,16 @@
 # data/migration.py
 
+from __future__ import annotations
+
 import aiosqlite
 import json
-from typing import Dict, Callable, Awaitable
+from typing import Dict, Callable, Awaitable, TYPE_CHECKING
 from astrbot.api import logger
-from ..config_manager import ConfigManager
 
-LATEST_DB_VERSION = 48  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求
+if TYPE_CHECKING:
+    from ..config_manager import ConfigManager
+
+LATEST_DB_VERSION = 49  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求；v49: 统一物品品阶名称
 
 MIGRATION_TASKS: Dict[int, Callable[[aiosqlite.Connection, ConfigManager], Awaitable[None]]] = {}
 
@@ -1809,3 +1813,209 @@ async def _migrate_to_v48(conn: aiosqlite.Connection, config_manager: ConfigMana
     await _ensure_combat_limits_v48(conn)
     await conn.commit()
     logger.info("v48迁移完成：切磋/决斗每日限制表已建立")
+
+
+# ===== v49：统一物品品阶名称 =====
+# 旧版并存「黄阶/玄阶/地阶/天阶」与「凡品/灵品/...」两套名称，
+# 自 v49 起统一为 rank_rules.RANK_TABLE 中的 12 档「品」阶。
+# 这里只改名，不改任何物品的 required_level_index。
+
+
+def _rank_rename_text(value):
+    from ..rank_rules import RANK_ALIASES
+
+    if not isinstance(value, str) or not value:
+        return value
+    for old, new in RANK_ALIASES.items():
+        value = value.replace(old, new)
+    return value
+
+
+def _rank_rename_key_map(raw):
+    """把 {物品名: 数量} 这类 JSON 的键改名；无变化返回 None。"""
+    try:
+        data = json.loads(raw) if raw else {}
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    renamed = {}
+    changed = False
+    for key, count in data.items():
+        new_key = _rank_rename_text(str(key))
+        if new_key != key:
+            changed = True
+        if new_key in renamed:
+            try:
+                renamed[new_key] = int(renamed[new_key] or 0) + int(count or 0)
+            except (TypeError, ValueError):
+                renamed[new_key] = count
+        else:
+            renamed[new_key] = count
+    return renamed if changed else None
+
+
+def _rank_rename_instance_list(raw):
+    try:
+        data = json.loads(raw) if raw else []
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(data, list):
+        return None
+    changed = False
+    for inst in data:
+        if isinstance(inst, dict) and inst.get("name"):
+            new_name = _rank_rename_text(str(inst["name"]))
+            if new_name != inst["name"]:
+                inst["name"] = new_name
+                changed = True
+    return data if changed else None
+
+
+def _rank_rename_text_list(raw):
+    try:
+        data = json.loads(raw) if raw else []
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(data, list):
+        return None
+    changed = False
+    result = []
+    for value in data:
+        new_value = _rank_rename_text(value) if isinstance(value, str) else value
+        if new_value != value:
+            changed = True
+        result.append(new_value)
+    return result if changed else None
+
+
+async def _rank_rename_player_items_v49(conn: aiosqlite.Connection):
+    async with conn.execute(
+        "SELECT user_id, storage_ring_items, overflow_items, equipment_instances, "
+        "equipped_instances, techniques, weapon, armor, main_technique FROM players"
+    ) as cursor:
+        rows = await cursor.fetchall()
+
+    for row in rows:
+        user_id = row[0]
+        updates = {}
+
+        storage = _rank_rename_key_map(row[1])
+        if storage is not None:
+            updates["storage_ring_items"] = json.dumps(storage, ensure_ascii=False)
+
+        overflow = _rank_rename_key_map(row[2])
+        if overflow is not None:
+            updates["overflow_items"] = json.dumps(overflow, ensure_ascii=False)
+
+        instances = _rank_rename_instance_list(row[3])
+        if instances is not None:
+            updates["equipment_instances"] = json.dumps(instances, ensure_ascii=False)
+
+        # 已穿戴实例（按部位保存）同样要改名，否则装备会因旧名查不到配置而失效。
+        equipped = _rank_rename_instance_list(row[4])
+        if equipped is not None:
+            updates["equipped_instances"] = json.dumps(equipped, ensure_ascii=False)
+
+        techniques = _rank_rename_text_list(row[5])
+        if techniques is not None:
+            updates["techniques"] = json.dumps(techniques, ensure_ascii=False)
+
+        for index, column in ((6, "weapon"), (7, "armor"), (8, "main_technique")):
+            value = row[index]
+            new_value = _rank_rename_text(value)
+            if new_value != value:
+                updates[column] = new_value
+
+        if not updates:
+            continue
+        assignments = ", ".join(f"{column} = ?" for column in updates)
+        await conn.execute(
+            f"UPDATE players SET {assignments} WHERE user_id = ?",
+            (*updates.values(), user_id),
+        )
+
+
+async def _rank_rename_trade_tables_v49(conn: aiosqlite.Connection):
+    from ..rank_rules import normalize_rank
+
+    async with conn.execute("SELECT id, item_name FROM auction_npc_offers") as cursor:
+        rows = await cursor.fetchall()
+    for row in rows:
+        new_name = _rank_rename_text(row[1])
+        if new_name != row[1]:
+            await conn.execute("UPDATE auction_npc_offers SET item_name = ? WHERE id = ?", (new_name, row[0]))
+
+    async with conn.execute("SELECT id, item_name FROM auction_items") as cursor:
+        rows = await cursor.fetchall()
+    for row in rows:
+        new_name = _rank_rename_text(row[1])
+        if new_name != row[1]:
+            await conn.execute("UPDATE auction_items SET item_name = ? WHERE id = ?", (new_name, row[0]))
+
+    async with conn.execute("SELECT id, item_name FROM pending_gifts") as cursor:
+        rows = await cursor.fetchall()
+    for row in rows:
+        new_name = _rank_rename_text(row[1])
+        if new_name != row[1]:
+            await conn.execute("UPDATE pending_gifts SET item_name = ? WHERE id = ?", (new_name, row[0]))
+
+    async with conn.execute(
+        "SELECT id, item_name, item_rank, preview_label, payload_json FROM auction_house_lots"
+    ) as cursor:
+        rows = await cursor.fetchall()
+    for row in rows:
+        lot_id, item_name, item_rank, preview_label, payload_json = row
+        await conn.execute(
+            "UPDATE auction_house_lots SET item_name = ?, item_rank = ?, preview_label = ?, payload_json = ? WHERE id = ?",
+            (
+                _rank_rename_text(item_name) or "",
+                normalize_rank(item_rank or "", item_rank or ""),
+                _rank_rename_text(preview_label) or "",
+                _rank_rename_text(payload_json) or "{}",
+                lot_id,
+            ),
+        )
+
+    async with conn.execute("SELECT shop_id, current_items FROM shop") as cursor:
+        rows = await cursor.fetchall()
+    for shop_id, raw in rows:
+        try:
+            items = json.loads(raw) if raw else []
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(items, list):
+            continue
+        changed = False
+        for entry in items:
+            if not isinstance(entry, dict):
+                continue
+            for key in ("name", "rank"):
+                if isinstance(entry.get(key), str):
+                    new_value = _rank_rename_text(entry[key])
+                    if new_value != entry[key]:
+                        entry[key] = new_value
+                        changed = True
+            data = entry.get("data")
+            if isinstance(data, dict):
+                for key in ("name", "rank"):
+                    if isinstance(data.get(key), str):
+                        new_value = _rank_rename_text(data[key])
+                        if new_value != data[key]:
+                            data[key] = new_value
+                            changed = True
+        if changed:
+            await conn.execute(
+                "UPDATE shop SET current_items = ? WHERE shop_id = ?",
+                (json.dumps(items, ensure_ascii=False), shop_id),
+            )
+
+
+@migration(49)
+async def _migrate_to_v49(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """迁移到 v49 - 统一物品品阶名称（仅改名，不改解锁等级）。"""
+    logger.info("开始迁移到 v49：统一物品品阶名称")
+    await _rank_rename_player_items_v49(conn)
+    await _rank_rename_trade_tables_v49(conn)
+    await conn.commit()
+    logger.info("v49迁移完成：物品品阶名称已统一")

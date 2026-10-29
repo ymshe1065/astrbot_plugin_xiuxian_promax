@@ -148,28 +148,28 @@
         "hint": "关闭后不再排期、报名和播报拍卖会。"
       },
       "CYCLE_DAYS": {
-        "description": "筹备窗口天数",
+        "description": "筹备窗口天数（兼容项）",
         "type": "int",
-        "default": 3,
-        "hint": "每 N 天内随机选一天作为预告日，当天 22:00 开拍。"
+        "default": 1,
+        "hint": "拍卖会已改为每天 22:00 开拍；该项仅为兼容旧配置保留，不再生效。"
       },
       "ANNOUNCE_START_HOUR": {
-        "description": "预告开始小时",
+        "description": "预告开始小时（已停用）",
         "type": "int",
         "default": 10,
-        "hint": "预告日从该小时开始每小时提醒一次。"
+        "hint": "预告播报已取消；该项仅为兼容旧配置保留。"
       },
       "ANNOUNCE_END_HOUR": {
-        "description": "预告结束小时",
+        "description": "预告结束小时（已停用）",
         "type": "int",
         "default": 21,
-        "hint": "默认 21 点后不再发预告，22 点直接开拍。"
+        "hint": "预告播报已取消；该项仅为兼容旧配置保留。"
       },
       "EVENT_START_HOUR": {
         "description": "开拍小时",
         "type": "int",
         "default": 22,
-        "hint": "预告日当天该小时开拍。"
+        "hint": "每天该小时开拍，默认 22:00。"
       },
       "ENTRY_FEE": {
         "description": "入场费（灵石）",

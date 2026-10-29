@@ -94,7 +94,7 @@ class _OverlapConfig(_FakeConfig):
             "output_pill": "化神丹",
             "level_required": 0,
             "materials": [
-                {"category": "灵植", "tier": "天阶", "count": 2},
+                {"category": "灵植", "tier": "圣品", "count": 2},
                 {"name": "血玉灵芝", "count": 1},
             ],
             "success_rate": 85,
@@ -103,7 +103,7 @@ class _OverlapConfig(_FakeConfig):
 
     def get_material_info(self, name):
         if name in ("血玉灵芝", "灵草", "九叶灵芝"):
-            return {"name": name, "category": "灵植", "tier": "天阶"}
+            return {"name": name, "category": "灵植", "tier": "圣品"}
         return {}
 
 

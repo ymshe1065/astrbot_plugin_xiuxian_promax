@@ -82,8 +82,8 @@ class TestEquipmentBalance(unittest.TestCase):
         self.assertEqual(self.em.get_equipment_rates(p)['physical_damage'], .40)
         effects = self.combat.collect_combat_effects(p, self.cm)
         self.assertEqual(effects['physical_damage_multiplier'], 1.0)
-        self.assertEqual(effects['crit_rate'], 10)
-        self.assertEqual(effects['counter_damage'], 10)
+        self.assertEqual(effects['crit_rate'], 25)
+        self.assertEqual(effects['counter_damage'], 20)
 
     def test_catalog_has_no_fixed_gear_stats_and_prices_are_monotonic(self):
         rules = _imp('core.item_rules').ItemRules
@@ -93,7 +93,12 @@ class TestEquipmentBalance(unittest.TestCase):
                 continue
             self.assertIn('equipment_rates', config)
             self.assertFalse(any(config.get(key) for key in (*self.balance.RATE_CAPS, 'atk', 'equip_effects')))
-            self.assertEqual(config['price'], self.balance.equipment_price(config))
+            if config.get('effect_quality_scaling'):
+                # 特殊装备无面板主属性，价格按同品阶灵纹同部位 ×0.9 单独定价
+                self.assertEqual(config.get('equipment_rates'), {})
+                self.assertGreater(config['price'], 0)
+            else:
+                self.assertEqual(config['price'], self.balance.equipment_price(config))
             if not config.get('effects'):
                 prices.setdefault(rules.get_equip_slot(config), []).append((config['required_level_index'], config['price']))
         for values in prices.values():

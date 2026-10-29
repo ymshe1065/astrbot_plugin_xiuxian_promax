@@ -525,6 +525,42 @@ class TestAutoProxyFarm(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(ok)
         self.assertIn("没有可种植的空位", msg)
 
+    async def test_plant_all_without_herb_fills_every_free_plot(self):
+        """`/种植 all` 不写灵草：沿用田里最多的灵草并种满所有空格。"""
+        player = await self.db.get_player_by_id("u1")
+        await self.conn.execute("UPDATE spirit_farms SET level = 5 WHERE user_id = ?", ("u1",))
+        await self.conn.commit()
+        now = int(time.time())
+        await self._set_crops([
+            {"name": "血灵草", "slot": 1, "plant_time": now, "mature_time": now + 3600},
+            {"name": "血灵草", "slot": 2, "plant_time": now, "mature_time": now + 3600},
+            {"name": "灵草", "slot": 3, "plant_time": now, "mature_time": now + 3600},
+        ])
+
+        ok, msg = await self.farm_mgr.plant_herb(player, "", fill_all=True)
+        self.assertTrue(ok, msg)
+        crops = await self._crops()
+        self.assertEqual(len(crops), 20)
+        self.assertEqual(sorted(crops), list(range(1, 21)))
+        for slot in range(4, 21):
+            self.assertEqual(crops[slot]["name"], "血灵草")
+        self.assertIn("未指定灵草", msg)
+        self.assertIn("另有 3 格", msg)
+
+    async def test_plant_all_hybrid_reports_seed_shortage(self):
+        """杂交灵草 all：按现有种苗尽量种，并明确提示未种满的原因。"""
+        storage = _FakeStorage({"九幽仙芝": 2})
+        self.farm_mgr.storage_ring_manager = storage
+        player = await self.db.get_player_by_id("u1")
+        await self.conn.execute("UPDATE spirit_farms SET level = 5 WHERE user_id = ?", ("u1",))
+        await self.conn.commit()
+        await self._set_crops([])
+
+        ok, msg = await self.farm_mgr.plant_herb(player, "九幽仙芝", fill_all=True)
+        self.assertTrue(ok, msg)
+        self.assertEqual(len(await self._crops()), 2)
+        self.assertIn("杂交种苗不足", msg)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -2,7 +2,7 @@
   "庚金锐锋诀": {
     "name": "庚金锐锋诀",
     "type": "main_technique",
-    "rank": "黄阶",
+    "rank": "凡品",
     "element": "金",
     "description": "金系主修心法，以暴击与破甲见长。",
     "effects": {
@@ -19,7 +19,7 @@
   "太白裂空剑典": {
     "name": "太白裂空剑典",
     "type": "main_technique",
-    "rank": "玄阶",
+    "rank": "黄品",
     "element": "金",
     "description": "金系主修心法，剑意凌厉，暴击伤害显著提升。",
     "effects": {
@@ -36,7 +36,7 @@
   "白虎杀伐真经": {
     "name": "白虎杀伐真经",
     "type": "main_technique",
-    "rank": "地阶",
+    "rank": "玄品",
     "element": "金",
     "description": "金系主修心法，白虎杀伐之气凝于会心一击。",
     "effects": {
@@ -53,7 +53,7 @@
   "诛仙戮神金章": {
     "name": "诛仙戮神金章",
     "type": "main_technique",
-    "rank": "天阶",
+    "rank": "圣品",
     "element": "金",
     "description": "金系至高心法，一击破万法。",
     "effects": {
@@ -70,7 +70,7 @@
   "青木回春诀": {
     "name": "青木回春诀",
     "type": "main_technique",
-    "rank": "黄阶",
+    "rank": "凡品",
     "element": "木",
     "description": "木系主修心法，生生不息，攻击可汲取气血。",
     "effects": {
@@ -87,7 +87,7 @@
   "万木长生经": {
     "name": "万木长生经",
     "type": "main_technique",
-    "rank": "玄阶",
+    "rank": "黄品",
     "element": "木",
     "description": "木系主修心法，气血绵长，连击不绝。",
     "effects": {
@@ -104,7 +104,7 @@
   "青龙不死玄功": {
     "name": "青龙不死玄功",
     "type": "main_technique",
-    "rank": "地阶",
+    "rank": "玄品",
     "element": "木",
     "description": "木系主修心法，青龙护体，愈战愈强。",
     "effects": {
@@ -121,7 +121,7 @@
   "建木通天录": {
     "name": "建木通天录",
     "type": "main_technique",
-    "rank": "天阶",
+    "rank": "圣品",
     "element": "木",
     "description": "木系至高心法，生机通天，万木朝宗。",
     "effects": {
@@ -138,7 +138,7 @@
   "寒潭凝息诀": {
     "name": "寒潭凝息诀",
     "type": "main_technique",
-    "rank": "黄阶",
+    "rank": "凡品",
     "element": "水",
     "description": "水系主修心法，身法如水，受击可反震。",
     "effects": {
@@ -155,7 +155,7 @@
   "玄水化元经": {
     "name": "玄水化元经",
     "type": "main_technique",
-    "rank": "玄阶",
+    "rank": "黄品",
     "element": "水",
     "description": "水系主修心法，化劲卸力，借力反伤。",
     "effects": {
@@ -172,7 +172,7 @@
   "北冥归墟真解": {
     "name": "北冥归墟真解",
     "type": "main_technique",
-    "rank": "地阶",
+    "rank": "玄品",
     "element": "水",
     "description": "水系主修心法，北冥归墟，攻守转换自如。",
     "effects": {
@@ -189,7 +189,7 @@
   "上善若水天章": {
     "name": "上善若水天章",
     "type": "main_technique",
-    "rank": "天阶",
+    "rank": "圣品",
     "element": "水",
     "description": "水系至高心法，上善若水，万法不沾。",
     "effects": {
@@ -206,7 +206,7 @@
   "赤炎焚脉诀": {
     "name": "赤炎焚脉诀",
     "type": "main_technique",
-    "rank": "黄阶",
+    "rank": "凡品",
     "element": "火",
     "description": "火系主修心法，灼烧经脉，攻势如火。",
     "effects": {
@@ -224,7 +224,7 @@
   "离火燃天经": {
     "name": "离火燃天经",
     "type": "main_technique",
-    "rank": "玄阶",
+    "rank": "黄品",
     "element": "火",
     "description": "火系主修心法，离火焚天，连击成势。",
     "effects": {
@@ -242,7 +242,7 @@
   "朱雀涅槃真经": {
     "name": "朱雀涅槃真经",
     "type": "main_technique",
-    "rank": "地阶",
+    "rank": "玄品",
     "element": "火",
     "description": "火系主修心法，朱雀涅槃，越战越烈。",
     "effects": {
@@ -260,7 +260,7 @@
   "焚世红莲天典": {
     "name": "焚世红莲天典",
     "type": "main_technique",
-    "rank": "天阶",
+    "rank": "圣品",
     "element": "火",
     "description": "火系至高心法，红莲业火焚尽诸天。",
     "effects": {
@@ -278,7 +278,7 @@
   "厚土镇岳诀": {
     "name": "厚土镇岳诀",
     "type": "main_technique",
-    "rank": "黄阶",
+    "rank": "凡品",
     "element": "土",
     "description": "土系主修心法，厚土护体，稳如镇岳。",
     "effects": {
@@ -295,7 +295,7 @@
   "坤元不坏经": {
     "name": "坤元不坏经",
     "type": "main_technique",
-    "rank": "玄阶",
+    "rank": "黄品",
     "element": "土",
     "description": "土系主修心法，坤元不坏，反震来敌。",
     "effects": {
@@ -312,7 +312,7 @@
   "金刚不坏体": {
     "name": "金刚不坏体",
     "type": "main_technique",
-    "rank": "地阶",
+    "rank": "玄品",
     "element": "土",
     "description": "土系主修心法，佛门炼体至高术，受击反震。",
     "effects": {
@@ -329,7 +329,7 @@
   "山河社稷天章": {
     "name": "山河社稷天章",
     "type": "main_technique",
-    "rank": "天阶",
+    "rank": "圣品",
     "element": "土",
     "description": "土系至高心法，山河为盾，社稷为甲。",
     "effects": {
@@ -343,10 +343,10 @@
     "volume": 1,
     "stock_cap": 1
   },
-  "黄阶功法：基础剑诀": {
-    "name": "黄阶功法：基础剑诀",
+  "凡品功法：基础剑诀": {
+    "name": "凡品功法：基础剑诀",
     "type": "technique",
-    "rank": "黄阶",
+    "rank": "凡品",
     "element": "金",
     "description": "入门吐纳功法，提升修炼效率与历练掉落。",
     "exp_multiplier": 0.015,
@@ -359,10 +359,10 @@
     "volume": 1,
     "stock_cap": 2
   },
-  "玄阶功法：血魔大法": {
-    "name": "玄阶功法：血魔大法",
+  "黄品功法：血魔大法": {
+    "name": "黄品功法：血魔大法",
     "type": "technique",
-    "rank": "玄阶",
+    "rank": "黄品",
     "element": "水",
     "description": "魔道敛财之术，提升灵石收益与修炼效率。",
     "exp_multiplier": 0.03,
@@ -375,10 +375,10 @@
     "volume": 1,
     "stock_cap": 2
   },
-  "天阶功法：太极剑意": {
-    "name": "天阶功法：太极剑意",
+  "圣品功法：太极剑意": {
+    "name": "圣品功法：太极剑意",
     "type": "technique",
-    "rank": "天阶",
+    "rank": "圣品",
     "element": "土",
     "description": "太极养生意，提升修炼、机缘与调息恢复。",
     "exp_multiplier": 0.08,

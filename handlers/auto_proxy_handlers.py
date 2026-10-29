@@ -4,6 +4,7 @@ from astrbot.api.event import AstrMessageEvent
 
 from ..data import DataBase
 from ..managers.auto_proxy_manager import AutoProxyManager, TASK_ESCORT, TASK_SECT
+from ..utils.arg_parse import ALL_KEYWORDS, is_all_keyword
 
 __all__ = ["AutoProxyHandlers"]
 
@@ -45,7 +46,7 @@ class AutoProxyHandlers:
             "💡 /关闭代理 灵田 [格号...]\n"
             "💡 /关闭代理 全部"
         )
-        if raw.lower() in ("全部", "所有", "all"):
+        if is_all_keyword(raw, ALL_KEYWORDS):
             was_enabled = await self.proxy_mgr.disable(user_id, "manual_close")
             if was_enabled:
                 yield event.plain_result(

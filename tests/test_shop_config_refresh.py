@@ -60,14 +60,14 @@ class TestShopConfigRefresh(unittest.TestCase):
         item = {
             "name": "九天精铁诀",
             "type": "technique",
-            "rank": "地阶",
+            "rank": "玄品",
             "price": old_price,
             "stock": old_stock,
             "data": {
                 "id": "1416",
                 "name": "九天精铁诀",
                 "type": "功法",
-                "rank": "地阶",
+                "rank": "玄品",
                 "exp_multiplier": 2.0,
             },
         }
@@ -113,7 +113,7 @@ class TestShopConfigRefresh(unittest.TestCase):
             if item.get("type") != "功法":
                 continue
             count += 1
-            self.assertIn(item.get("rank"), {"黄阶", "玄阶", "地阶", "天阶"})
+            self.assertIn(item.get("rank"), {"凡品", "黄品", "玄品", "圣品"})
             exp = float(item.get("exp_multiplier", 0) or 0)
             self.assertGreaterEqual(exp, 0)
             self.assertLessEqual(exp, 0.2)

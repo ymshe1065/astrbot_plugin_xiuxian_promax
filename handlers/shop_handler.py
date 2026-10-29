@@ -10,6 +10,7 @@ from ..data import DataBase
 from ..core import ShopManager, EquipmentManager, PillManager, StorageRingManager, ItemRules
 from ..models import Player
 from ..config_manager import ConfigManager
+from ..rank_rules import normalize_rank
 from .utils import player_required, set_event_flag
 
 __all__ = ["ShopHandler"]
@@ -89,7 +90,7 @@ class ShopHandler:
         except (TypeError, ValueError):
             return 3
 
-    async def _ensure_pavilion_refreshed(self, pavilion_id: str, item_getter, count: int) -> None:
+    async def _ensure_pavilion_refreshed(self, pavilion_id: str, item_getter, count: int, apply_rank_band: bool = False) -> None:
         """确保阁楼已刷新"""
         last_refresh_time, current_items = await self.db.get_shop_data(pavilion_id)
         if current_items:
@@ -100,6 +101,12 @@ class ShopHandler:
                 await self.db.update_shop_data(pavilion_id, last_refresh_time, current_items)
         refresh_hours = self._cfg("PAVILION_REFRESH_HOURS", 1)
         if not current_items or self.shop_manager.should_refresh_shop(last_refresh_time, refresh_hours):
+            if apply_rank_band:
+                try:
+                    players = await self.db.get_all_players()
+                    self.shop_manager.resolve_rank_band(players, force=True)
+                except Exception:
+                    pass
             new_items = self.shop_manager.generate_pavilion_items(item_getter, count)
             await self.db.update_shop_data(pavilion_id, int(time.time()), new_items)
 
@@ -110,6 +117,11 @@ class ShopHandler:
         import time as _time
         restocked = 0
         details = []
+        try:
+            players = await self.db.get_all_players()
+            self.shop_manager.resolve_rank_band(players, force=True)
+        except Exception:
+            pass
         jobs = [
             ("pill_pavilion", "丹阁", self.shop_manager.get_pills_for_display, self._cfg("PAVILION_PILL_COUNT", 20)),
             ("recipe_pavilion", "丹方阁", self.shop_manager.get_recipes_for_display, self._rare_recipe_count()),
@@ -194,7 +206,7 @@ class ShopHandler:
     async def handle_weapon_pavilion(self, event: AstrMessageEvent):
         """处理器阁命令 - 展示武器列表"""
         count = self._cfg("PAVILION_WEAPON_COUNT", 30)
-        await self._ensure_pavilion_refreshed("weapon_pavilion", self.shop_manager.get_weapons_for_display, count)
+        await self._ensure_pavilion_refreshed("weapon_pavilion", self.shop_manager.get_weapons_for_display, count, apply_rank_band=True)
         self._remember_viewed_pavilion(event, "weapon_pavilion")
         last_refresh, items = await self.db.get_shop_data("weapon_pavilion")
         if not items:
@@ -212,7 +224,7 @@ class ShopHandler:
     async def handle_treasure_pavilion(self, event: AstrMessageEvent):
         """处理百宝阁命令 - 展示所有物品"""
         count = self._cfg("PAVILION_TREASURE_COUNT", 40)
-        await self._ensure_pavilion_refreshed("treasure_pavilion", self.shop_manager.get_all_items_for_display, count)
+        await self._ensure_pavilion_refreshed("treasure_pavilion", self.shop_manager.get_all_items_for_display, count, apply_rank_band=True)
         self._remember_viewed_pavilion(event, "treasure_pavilion")
         last_refresh, items = await self.db.get_shop_data("treasure_pavilion")
         if not items:
@@ -228,17 +240,27 @@ class ShopHandler:
             yield event.plain_result(display)
 
     async def _pavilion_cards(self, pavilion_name: str, items: list):
+        """百宝阁按品阶分开成卡，同品阶超过 5 件时再分页；其他阁保持整架长图。"""
         available = [item for item in items if item.get("stock", 0) > 0]
+        if not available:
+            return []
+        if pavilion_name != "百宝阁":
+            card = await self._pavilion_card(pavilion_name, available)
+            return [card] if card else []
         cards = []
-        pages = (len(available) + 4) // 5
-        for start in range(0, len(available), 5):
-            card = await self._pavilion_card(f"{pavilion_name} ({start // 5 + 1}/{pages})", available[start:start + 5])
-            if not card:
-                return []
-            cards.append(card)
+        for rank, group in self.shop_manager.group_items_by_rank(available):
+            page_size = 5
+            pages = [group[i:i + page_size] for i in range(0, len(group), page_size)]
+            for index, page in enumerate(pages, 1):
+                title = f"百宝阁 · {rank}区"
+                if len(pages) > 1:
+                    title += f" ({index}/{len(pages)})"
+                card = await self._pavilion_card(pavilion_name, page, title=title)
+                if card:
+                    cards.append(card)
         return cards
 
-    async def _pavilion_card(self, pavilion_name: str, items: list):
+    async def _pavilion_card(self, pavilion_name: str, items: list, title: str = ""):
         """阁楼列表的磨砂玻璃卡片（关闭或失败时不产出任何消息）"""
         try:
             from ..utils.image_generator import render_card_async, card_enabled
@@ -265,7 +287,7 @@ class ShopHandler:
                 return None
             card_path = await render_card_async(
                 "shop",
-                f"{pavilion_name} · 今日货架",
+                title or f"{pavilion_name} · 今日货架",
                 f"共 {count} 种在售",
                 sections=[{"name": "在售清单", "lines": lines}],
                 footer="购买 <物品名> [数量] · 售罄商品不显示",
@@ -277,11 +299,15 @@ class ShopHandler:
             return None
 
     async def _find_item_in_pavilions(self, item_name: str, preferred_pavilion: str = ""):
-        """在所有阁楼中查找物品；同一物品重复上架时优先匹配玩家刚查看的货架。"""
+        """在所有阁楼中查找物品；同一物品重复上架时优先匹配玩家刚查看的货架。
+
+        优先返回仍有库存的货架；若全部售罄，则返回首个匹配条目，供购买流程提示“已售罄”。
+        """
         pavilion_ids = ["pill_pavilion", "recipe_pavilion", "material_pavilion", "weapon_pavilion", "treasure_pavilion"]
         if preferred_pavilion in pavilion_ids:
             pavilion_ids.remove(preferred_pavilion)
             pavilion_ids.insert(0, preferred_pavilion)
+        sold_out = None
         for pavilion_id in pavilion_ids:
             last_refresh, items = await self.db.get_shop_data(pavilion_id)
             if items:
@@ -290,9 +316,13 @@ class ShopHandler:
                 if changed:
                     await self.db.update_shop_data(pavilion_id, last_refresh, items)
                 for item in items:
-                    if item['name'] == item_name and item.get('stock', 0) > 0:
+                    if item['name'] != item_name:
+                        continue
+                    if item.get('stock', 0) > 0:
                         return pavilion_id, item
-        return None, None
+                    if sold_out is None:
+                        sold_out = (pavilion_id, item)
+        return sold_out if sold_out else (None, None)
 
     @player_required
     async def handle_buy(self, player: Player, event: AstrMessageEvent, item_name: str = ""):
@@ -341,15 +371,33 @@ class ShopHandler:
 
         pavilion_id, target_item = await self._find_item_in_pavilions(item_name, self._viewed_pavilion(event))
         if not target_item:
+            known = self.shop_manager.find_item_by_name(item_name)
+            if known:
+                acquire_hint = self._get_acquire_hint(known.get('type', ''), known)
+                yield event.plain_result(
+                    f"【{item_name}】当前未在货架上（货架每 1 小时刷新）。\n"
+                    f"💡 获取途径：{acquire_hint}\n"
+                    "💡 材料/材料包可查看 /丹阁 材料，其他物品可查看 /器阁、/百宝阁\n"
+                    "💡 也可先发 /物品信息 <名称> 查询物品详情"
+                )
+                return
             yield event.plain_result(
                 f"没有找到【{item_name}】。\n"
                 "💡 物品名需与货架完全一致，且该物品当前在售（每 1 小时刷新）：\n"
-                "  · 丹药/丹方/材料 → /丹阁    武器 → /器阁    符箓/杂物 → /百宝阁\n"
+                "  · 丹药 → /丹阁 丹药    丹方 → /丹阁 丹方    材料/材料包 → /丹阁 材料\n"
+                "  · 武器/装备 → /器阁    符箓/杂物 → /百宝阁\n"
                 "💡 也可先发 /物品信息 <名称> 查询物品详情与获取途径"
             )
             return
 
         stock = target_item.get('stock', 0)
+        if stock <= 0:
+            yield event.plain_result(f"【{item_name}】已售罄，请等待货架刷新。")
+            return
+        limited_note = ""
+        if self.shop_manager.is_gear_entry(target_item) and quantity > 1:
+            quantity = 1
+            limited_note = "⚠️ 装备每次限购 1 件，已按 1 件结算。\n"
         if quantity > stock:
             yield event.plain_result(f"【{item_name}】库存不足，当前库存: {stock}。")
             return
@@ -369,7 +417,7 @@ class ShopHandler:
 
         # ===== 门槛前置检查（事务前，无任何扣除，附当前可买清单）=====
         if norm_type in equippable_types:
-            rank = target_item.get('rank', '黄阶')
+            rank = normalize_rank(target_item.get('rank'), '凡品')
             req_level = ItemRules.get_required_level(target_item)
             if player.level_index < req_level:
                 # 收集同一阁楼中玩家当前买得起的同类物品
@@ -416,7 +464,7 @@ class ShopHandler:
 
             # ===== 门槛防线（前置检查已拦截，此处仅事务内兜底）=====
             if item_type in equippable_types:
-                rank = target_item.get('rank', '黄阶')
+                rank = normalize_rank(target_item.get('rank'), '凡品')
                 req_level = ItemRules.get_required_level(target_item)
 
                 if player.level_index < req_level:
@@ -472,6 +520,30 @@ class ShopHandler:
                 raw_type = (target_item.get('data') or {}).get('type')
                 type_name = "符箓" if raw_type == "符箓" else "材料"
                 result_lines.append(f"成功购买{type_name}【{target_item['name']}】x{quantity}。\n{msg}")
+            elif item_type == 'material_package':
+                opened = {}
+                for _ in range(quantity):
+                    picks = self.shop_manager.open_material_package(target_item)
+                    if not picks:
+                        await self.db.conn.rollback()
+                        yield event.plain_result(
+                            f"❌ 开启【{target_item['name']}】失败：暂无可开出的材料，本次未扣除灵石。"
+                        )
+                        return
+                    for material_name, count in picks:
+                        opened[material_name] = opened.get(material_name, 0) + count
+                for material_name, count in opened.items():
+                    success, msg = await self.storage_ring_manager.store_item(
+                        player, material_name, count, external_transaction=True, silent=True
+                    )
+                    if not success:
+                        await self.db.conn.rollback()
+                        yield event.plain_result(f"❌ 材料包开启失败：{msg}\n本次未扣除灵石。")
+                        return
+                gained = "、".join(
+                    f"{name}×{count}" for name, count in sorted(opened.items(), key=lambda kv: (-kv[1], kv[0]))
+                )
+                result_lines.append(f"成功购买并开启【{target_item['name']}】x{quantity}，获得：{gained}")
             else:
                 await self.db.conn.rollback()
                 yield event.plain_result(f"未知的物品类型：{item_type}")
@@ -483,6 +555,8 @@ class ShopHandler:
             
             result_lines.append(f"花费灵石: {total_price}，剩余: {player.gold}")
             result_lines.append(f"剩余库存: {remaining}" if remaining > 0 else "该物品已售罄！")
+            if limited_note:
+                result_lines.insert(0, limited_note.strip())
             set_event_flag(event, "shop_buy", True)
             yield event.plain_result("\n".join(result_lines))
         except Exception as e:

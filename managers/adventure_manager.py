@@ -33,6 +33,7 @@ class AdventureManager:
                 "description": "巡视宗门周边，风险较低，适合积累经验。",
                 "risk": "低",
                 "duration": 1800,
+                "reward_duration": 1800,
                 "min_level": 0,
                 "fatigue_cooldown": 300,
                 "base_exp_per_min": 45,
@@ -88,7 +89,12 @@ class AdventureManager:
                 {"name": "精铁", "weight": 30, "min": 1, "max": 2},
                 {"name": "灵石碎片", "weight": 20, "min": 2, "max": 5}
             ]
-        }
+        },
+        "equipment_drop_chances": {"low": 5, "mid": 8, "high": 12},
+        "equipment_slot_weights": {
+            "weapon": 16, "armor": 16, "head": 12, "boots": 12,
+            "amulet": 12, "gloves": 16, "ring": 16,
+        },
     }
 
     def __init__(self, db: DataBase, storage_ring_manager: "StorageRingManager" = None, config_manager=None):
@@ -129,6 +135,12 @@ class AdventureManager:
 
         self.event_groups = config.get("event_groups", self.DEFAULT_CONFIG["event_groups"])
         self.drop_tables = config.get("drop_tables", self.DEFAULT_CONFIG["drop_tables"])
+        self.equipment_drop_chances = config.get(
+            "equipment_drop_chances", self.DEFAULT_CONFIG["equipment_drop_chances"]
+        )
+        self.equipment_slot_weights = config.get(
+            "equipment_slot_weights", self.DEFAULT_CONFIG["equipment_slot_weights"]
+        )
 
     def _load_config_file(self) -> dict:
         """加载配置文件并在失败时回退到默认配置"""
@@ -509,7 +521,12 @@ class AdventureManager:
         return random.choice(group)
 
     def _calculate_rewards(self, player: Player, route: dict, duration: int, event: dict) -> Dict[str, int]:
-        duration_minutes = max(1, duration // 60)
+        # 路线时长缩短后，按配置的原始时长折算收益分钟数，保证单次收益不随等待时间缩水
+        reward_duration = route.get("reward_duration")
+        route_duration = route.get("duration")
+        if reward_duration and route_duration:
+            duration = min(duration, route_duration) * reward_duration / route_duration
+        duration_minutes = max(1, int(duration) // 60)
         base_exp = duration_minutes * route.get("base_exp_per_min", 40)
         base_gold = duration_minutes * route.get("base_gold_per_min", 10)
 
@@ -543,7 +560,7 @@ class AdventureManager:
             return 0.0
 
     async def _handle_drops(self, player: Player, route: dict, event: dict, external_transaction: bool = False) -> Tuple[List[Tuple[str, int]], str]:
-        dropped_items: List[Tuple[str, int]] = []
+        dropped_items: List[Tuple] = []
         if not self.storage_ring_manager:
             return dropped_items, ""
 
@@ -588,11 +605,34 @@ class AdventureManager:
         except Exception:
             pass
 
+        # 独立装备掉落：与材料互不影响，每次最多 1 件
+        try:
+            from ..core.equipment_drop import roll_equipment_drop
+            tier = event.get("drop_tier") or route.get("drop_tier") or "low"
+            chance = int(self.equipment_drop_chances.get(tier, 0) or 0)
+            if chance > 0 and random.randint(1, 100) <= chance:
+                base_level = max(
+                    int(player.level_index or 0), int(route.get("min_level", 0) or 0)
+                )
+                drop = roll_equipment_drop(
+                    self.config_manager, base_level, self.equipment_slot_weights
+                )
+                if drop:
+                    dropped_items.append((drop["name"], 1, drop["quality"]))
+        except Exception:
+            pass
+
         item_lines = []
-        for item_name, qty in dropped_items:
-            success, _ = await self.storage_ring_manager.store_item(player, item_name, qty, silent=True, external_transaction=external_transaction)
+        for entry in dropped_items:
+            item_name, qty, *rest = entry
+            quality = rest[0] if rest else ""
+            success, _ = await self.storage_ring_manager.store_item(
+                player, item_name, qty, silent=True,
+                external_transaction=external_transaction, quality=quality,
+            )
             if success:
-                item_lines.append(f"  · {item_name} x{qty}")
+                suffix = f"（{quality}）" if quality else ""
+                item_lines.append(f"  · {item_name} x{qty}{suffix}")
             else:
                 item_lines.append(f"  · {item_name} x{qty}（储物戒已满，丢失）")
 

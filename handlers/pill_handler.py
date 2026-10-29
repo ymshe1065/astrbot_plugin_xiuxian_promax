@@ -3,6 +3,7 @@
 from astrbot.api.event import AstrMessageEvent
 from ..data import DataBase
 from ..core import PillManager, ItemRules
+from ..core.realm_rules import format_applicable_realm
 from ..models import Player
 from ..config_manager import ConfigManager
 from .utils import player_required
@@ -21,21 +22,6 @@ class PillHandler:
         self.db = db
         self.config_manager = config_manager
         self.pill_manager = PillManager(db, config_manager)
-
-    def _format_required_level(self, level_index: int) -> str:
-        """同时展示灵修/体修的需求境界名称"""
-        names = []
-        if 0 <= level_index < len(self.config_manager.level_data):
-            name = self.config_manager.level_data[level_index].get("level_name", "")
-            if name:
-                names.append(name)
-        if 0 <= level_index < len(self.config_manager.body_level_data):
-            name = self.config_manager.body_level_data[level_index].get("level_name", "")
-            if name and name not in names:
-                names.append(name)
-        if not names:
-            return "未知境界"
-        return " / ".join(names)
 
     @player_required
     async def handle_use_pill(self, player: Player, event: AstrMessageEvent, args: str = ""):
@@ -174,11 +160,16 @@ class PillHandler:
         if description:
             info_lines.append(f"描述：{description}")
 
-        # 需求境界
+        # 需求境界：按品阶区间展示适用境界
         required_level = pill_data.get('required_level_index', 0)
         if required_level > 0:
-            level_name = self._format_required_level(required_level)
-            info_lines.append(f"需求境界：{level_name}")
+            realm_text = format_applicable_realm(
+                required_level,
+                self.config_manager.level_data,
+                self.config_manager.body_level_data,
+                rank=str(pill_data.get("rank", "") or ""),
+            )
+            info_lines.append(f"适用境界：{realm_text}")
 
         # 价格
         price = pill_data.get('price', 0)

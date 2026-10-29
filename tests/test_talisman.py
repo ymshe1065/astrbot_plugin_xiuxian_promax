@@ -123,7 +123,7 @@ class TestTalismanSystem(unittest.IsolatedAsyncioTestCase):
         player = self._player(level_index=0)
         mats = [
             m for m in self.config_manager.material_catalog.values()
-            if m["category"] == "灵植" and m["tier"] == "黄阶"
+            if m["category"] == "灵植" and m["tier"] == "凡品"
         ][:1]
         player.storage_ring_items = json.dumps({mats[0]["name"]: 5}, ensure_ascii=False)
         await self.db.create_player(player)

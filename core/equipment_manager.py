@@ -6,7 +6,11 @@ from ..models import Player, Item
 from ..data import DataBase
 from .item_rules import ItemRules
 from .item_instance_manager import ItemInstanceManager
-from .equipment_balance import equipment_rates, effective_rates, realm_attributes, RATE_CAPS, GEAR_EFFECT_CAPS, QUALITY
+from .equipment_balance import (
+    equipment_rates, effective_rates, effective_effects, realm_attributes,
+    RATE_CAPS, GEAR_EFFECT_CAPS, QUALITY, ATTRIBUTE_LABELS,
+)
+from ..rank_rules import normalize_rank
 
 if TYPE_CHECKING:
     from ..config_manager import ConfigManager
@@ -30,7 +34,8 @@ class EquipmentManager:
         effects = {}
         for name, inst in self.get_gear_slots(player).values():
             cfg = (getattr(self.config_manager, "items_data", {}) or {}).get(name) or (getattr(self.config_manager, "weapons_data", {}) or {}).get(name, {})
-            sources = list(cfg.get("effects", {}).items())
+            quality = (inst or {}).get("quality", "一般")
+            sources = list(effective_effects(cfg, quality).items())
             sources += [(a.get("key"), a.get("value", 0)) for a in (inst or {}).get("affixes", [])]
             for key, value in sources:
                 if key in GEAR_EFFECT_CAPS and key not in ("physical_damage_multiplier", "magic_damage_multiplier"):
@@ -56,6 +61,169 @@ class EquipmentManager:
                 if attr:
                     rates[attr] = rates.get(attr, 0) + min(.10, max(0, value))
         return {key: min(value, RATE_CAPS[key]) for key, value in rates.items()}
+
+    # ===== 单件装备加成展示 =====
+    EFFECT_LABELS = {
+        "crit_rate": "暴击率", "crit_damage": "暴击伤害", "lifesteal": "吸血",
+        "counter_damage": "反伤", "combo_rate": "连击率", "dodge": "闪避",
+        "defense_bonus": "额外防御", "physical_damage_multiplier": "物伤倍率",
+        "magic_damage_multiplier": "法伤倍率", "status_resist": "状态抗性",
+        "extra_attack_chance": "快击概率", "extra_attack_ratio": "快击倍率",
+        "extra_attack_count": "快击段数", "extra_attack_second_ratio": "快击二段倍率",
+        "extra_attack_can_crit": "快击可暴击", "extra_attack_can_proc": "快击触发特效",
+        "armor_penetration": "无视防御", "sunder_chance": "破防概率",
+        "sunder_pct": "破防减防", "sunder_turns": "破防回合",
+        "crit_chain_chance": "暴击连锁概率", "crit_chain_ratio": "暴击连锁倍率",
+        "crit_chain_can_crit": "暴击连锁可暴击", "crit_defense_ignore": "暴击无视防御",
+        "combo_extra_hit_ratio": "连击二段倍率", "combo_can_crit": "连击可暴击",
+        "combo_lifesteal_pct": "连击吸血",
+        "stun_chance": "麻痹概率", "stun_turns": "麻痹回合",
+        "stun_extend_chance": "麻痹延长概率", "stun_resist_pierce": "控制抗性穿透",
+        "burn_chance": "灼烧概率", "burn_turns": "灼烧回合",
+        "burn_damage_pct": "灼烧伤害", "burn_heal_reduction": "灼烧降疗",
+        "burn_detonate": "灼烧爆燃",
+        "frost_chance": "寒霜概率", "frost_atk_reduction": "寒霜减攻",
+        "frost_turns": "寒霜回合", "frost_dodge_reduction": "寒霜降闪避",
+        "freeze_chance": "冻结概率",
+        "curse_chance": "诅咒概率", "curse_defense_pct": "诅咒减防",
+        "curse_turns": "诅咒回合", "curse_damage_reduction": "诅咒减伤",
+    }
+    EFFECT_TURN_KEYS = {
+        "extra_attack_count", "sunder_turns", "stun_turns", "burn_turns",
+        "frost_turns", "curse_turns",
+    }
+    EFFECT_BOOL_KEYS = {
+        "extra_attack_can_crit", "extra_attack_can_proc", "burn_detonate",
+        "crit_chain_can_crit", "combo_can_crit",
+    }
+    TECHNIQUE_ATTR_LABELS = {
+        "spiritual_qi": "灵气", "magic_damage": "法伤", "physical_damage": "物伤",
+        "magic_defense": "法防", "physical_defense": "物防", "mental_power": "精神力",
+    }
+
+    def _item_config(self, name: str) -> dict:
+        if not name:
+            return {}
+        items = getattr(self.config_manager, "items_data", {}) or {}
+        weapons = getattr(self.config_manager, "weapons_data", {}) or {}
+        techniques = getattr(self.config_manager, "techniques_data", {}) or {}
+        return items.get(name) or weapons.get(name) or techniques.get(name) or {}
+
+    def item_bonus_values(self, player: Player, name: str, instance: dict = None) -> dict:
+        """返回单件装备在玩家当前境界下的实际加成（百分比存小数）。
+
+        主属性已包含品质倍率与跨境界效率衰减；特殊效果按装备来源上限封顶。
+        """
+        cfg = self._item_config(name)
+        if not cfg:
+            return {}
+        item_type = ItemRules.normalize_equipment_type(cfg)
+        quality = (instance or {}).get("quality", "一般")
+        values: dict = {}
+
+        if item_type in ItemRules.GEAR_TYPES:
+            for key, value in effective_rates(cfg, player.level_index, quality).items():
+                if value:
+                    values[key] = float(value)
+            effects: dict = {}
+            for key, value in effective_effects(cfg, quality).items():
+                try:
+                    effects[key] = effects.get(key, 0.0) + float(value)
+                except (TypeError, ValueError):
+                    continue
+            for affix in (instance or {}).get("affixes") or []:
+                key = affix.get("key")
+                if not key:
+                    continue
+                try:
+                    effects[key] = effects.get(key, 0.0) + float(affix.get("value", 0) or 0)
+                except (TypeError, ValueError):
+                    continue
+            for key, value in effects.items():
+                cap = GEAR_EFFECT_CAPS.get(key)
+                if cap is not None:
+                    value = min(value, cap)
+                if value:
+                    values[key] = value
+        else:
+            try:
+                exp_mult = float(cfg.get("exp_multiplier", 0) or 0)
+            except (TypeError, ValueError):
+                exp_mult = 0.0
+            if exp_mult > 0:
+                values["exp_multiplier"] = exp_mult
+            for key in self.TECHNIQUE_ATTR_LABELS:
+                try:
+                    value = float(cfg.get(key, 0) or 0)
+                except (TypeError, ValueError):
+                    value = 0.0
+                if value:
+                    values[key] = value
+            for key, value in (cfg.get("effects") or {}).items():
+                try:
+                    values[key] = float(value)
+                except (TypeError, ValueError):
+                    continue
+
+        for key, value in (cfg.get("life_effects") or {}).items():
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                continue
+            if number:
+                values[key] = number
+        return values
+
+    @staticmethod
+    def format_bonus_value(key: str, value: float, absolute: bool = False) -> str:
+        """统一加成数值格式：概率类用百分点，倍率用百分比。"""
+        if absolute:
+            return f"{value:+.0f}"
+        if key in EquipmentManager.EFFECT_BOOL_KEYS:
+            return "已解锁" if value else "未解锁"
+        if key in EquipmentManager.EFFECT_TURN_KEYS:
+            return f"{int(value)}回合"
+        if key in ("crit_rate", "lifesteal", "counter_damage", "combo_rate", "dodge", "status_resist",
+                   "extra_attack_chance", "extra_attack_ratio", "extra_attack_second_ratio",
+                   "armor_penetration", "sunder_chance", "sunder_pct", "crit_chain_chance",
+                   "crit_chain_ratio", "crit_defense_ignore", "combo_extra_hit_ratio",
+                   "combo_lifesteal_pct", "stun_chance", "stun_extend_chance", "stun_resist_pierce",
+                   "burn_chance", "burn_damage_pct", "burn_heal_reduction", "frost_chance",
+                   "frost_atk_reduction", "frost_dodge_reduction", "freeze_chance", "curse_chance",
+                   "curse_defense_pct", "curse_damage_reduction"):
+            return f"{value:+g}%"
+        if key in ("luck_bonus", "defense_bonus"):
+            return f"{value:+.0f}"
+        if key.startswith("add_"):
+            return f"{value:+.0f}"
+        if key in ATTRIBUTE_LABELS or ItemRules.is_rate_key(key):
+            return f"{value:+.1%}"
+        return f"{value:+g}"
+
+    def bonus_label(self, key: str) -> str:
+        from .technique_bonus import LIFE_EFFECT_LABELS
+        return (ATTRIBUTE_LABELS.get(key) or self.EFFECT_LABELS.get(key)
+                or LIFE_EFFECT_LABELS.get(key) or self.TECHNIQUE_ATTR_LABELS.get(key) or key)
+
+    def describe_item_bonus(self, player: Player, name: str, instance: dict = None) -> str:
+        """单件装备/功法的一行加成描述。"""
+        cfg = self._item_config(name)
+        if not cfg:
+            return "无额外加成"
+        values = self.item_bonus_values(player, name, instance)
+        if not values:
+            return "无额外加成"
+        is_gear = ItemRules.normalize_equipment_type(cfg) in ItemRules.GEAR_TYPES
+        return " · ".join(
+            f"{self.bonus_label(key)}"
+            f"{self.format_bonus_value(key, value, absolute=(not is_gear and key in self.TECHNIQUE_ATTR_LABELS))}"
+            for key, value in values.items()
+        )
+
+    def gear_bonus_score(self, player: Player, name: str, instance: dict = None) -> float:
+        """用于判定两枚戒指中哪一枚更弱（只看主属性）。"""
+        values = self.item_bonus_values(player, name, instance)
+        return sum(value for key, value in values.items() if key in ATTRIBUTE_LABELS)
 
     def parse_item_from_name(self, item_name: str, items_data: dict, weapons_data: dict = None, instance: dict = None, player_level: int = None) -> Optional[Item]:
         """从物品名称解析为Item对象"""
@@ -102,7 +270,7 @@ class EquipmentManager:
         return Item(
             equipment_rates=rates,
             item_id=item_config.get("id", item_name), name=item_name, item_type=item_type,
-            description=item_config.get("description", ""), rank=item_config.get("rank", ""),
+            description=item_config.get("description", ""), rank=normalize_rank(item_config.get("rank"), ""),
             required_level_index=ItemRules.get_required_level(item_config), weapon_category=item_config.get("weapon_category", ""),
             magic_damage=magic_damage, physical_damage=physical_damage, magic_defense=magic_defense, physical_defense=physical_defense,
             mental_power=mental_power, exp_multiplier=item_config.get("exp_multiplier", 0.0),

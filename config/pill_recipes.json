@@ -9,7 +9,7 @@
         "materials": [
             {
                 "category": "灵植",
-                "tier": "黄阶",
+                "tier": "凡品",
                 "count": 2
             }
         ],
@@ -27,7 +27,7 @@
         "materials": [
             {
                 "category": "灵植",
-                "tier": "黄阶",
+                "tier": "凡品",
                 "count": 3
             }
         ],
@@ -45,7 +45,7 @@
         "materials": [
             {
                 "category": "灵植",
-                "tier": "黄阶",
+                "tier": "凡品",
                 "count": 4
             }
         ],
@@ -63,12 +63,12 @@
         "materials": [
             {
                 "category": "灵植",
-                "tier": "黄阶",
+                "tier": "凡品",
                 "count": 5
             },
             {
                 "category": "灵液",
-                "tier": "黄阶",
+                "tier": "凡品",
                 "count": 1
             }
         ],
@@ -86,12 +86,12 @@
         "materials": [
             {
                 "category": "灵植",
-                "tier": "玄阶",
+                "tier": "黄品",
                 "count": 3
             },
             {
                 "category": "灵液",
-                "tier": "玄阶",
+                "tier": "黄品",
                 "count": 1
             }
         ],
@@ -109,12 +109,12 @@
         "materials": [
             {
                 "category": "灵植",
-                "tier": "玄阶",
+                "tier": "黄品",
                 "count": 4
             },
             {
                 "category": "灵液",
-                "tier": "玄阶",
+                "tier": "黄品",
                 "count": 2
             }
         ],
@@ -132,12 +132,12 @@
         "materials": [
             {
                 "category": "灵植",
-                "tier": "黄阶",
+                "tier": "凡品",
                 "count": 3
             },
             {
                 "category": "灵液",
-                "tier": "黄阶",
+                "tier": "凡品",
                 "count": 2
             }
         ],
@@ -155,12 +155,12 @@
         "materials": [
             {
                 "category": "灵植",
-                "tier": "黄阶",
+                "tier": "凡品",
                 "count": 3
             },
             {
                 "category": "灵液",
-                "tier": "黄阶",
+                "tier": "凡品",
                 "count": 2
             }
         ],
@@ -178,12 +178,12 @@
         "materials": [
             {
                 "category": "灵植",
-                "tier": "黄阶",
+                "tier": "凡品",
                 "count": 3
             },
             {
                 "category": "灵液",
-                "tier": "黄阶",
+                "tier": "凡品",
                 "count": 2
             }
         ],
@@ -201,17 +201,17 @@
         "materials": [
             {
                 "category": "灵植",
-                "tier": "玄阶",
+                "tier": "黄品",
                 "count": 4
             },
             {
                 "category": "矿材",
-                "tier": "玄阶",
+                "tier": "黄品",
                 "count": 3
             },
             {
                 "category": "灵液",
-                "tier": "玄阶",
+                "tier": "黄品",
                 "count": 1
             }
         ],
@@ -229,17 +229,17 @@
         "materials": [
             {
                 "category": "灵植",
-                "tier": "玄阶",
+                "tier": "黄品",
                 "count": 4
             },
             {
                 "category": "矿材",
-                "tier": "玄阶",
+                "tier": "黄品",
                 "count": 3
             },
             {
                 "category": "灵液",
-                "tier": "玄阶",
+                "tier": "黄品",
                 "count": 1
             }
         ],
@@ -257,17 +257,17 @@
         "materials": [
             {
                 "category": "灵植",
-                "tier": "玄阶",
+                "tier": "黄品",
                 "count": 4
             },
             {
                 "category": "矿材",
-                "tier": "玄阶",
+                "tier": "黄品",
                 "count": 3
             },
             {
                 "category": "灵液",
-                "tier": "玄阶",
+                "tier": "黄品",
                 "count": 1
             }
         ],
@@ -285,17 +285,17 @@
         "materials": [
             {
                 "category": "灵植",
-                "tier": "地阶",
+                "tier": "玄品",
                 "count": 4
             },
             {
                 "category": "矿材",
-                "tier": "地阶",
+                "tier": "玄品",
                 "count": 3
             },
             {
                 "category": "灵液",
-                "tier": "地阶",
+                "tier": "玄品",
                 "count": 1
             }
         ],
@@ -313,17 +313,17 @@
         "materials": [
             {
                 "category": "灵植",
-                "tier": "地阶",
+                "tier": "玄品",
                 "count": 4
             },
             {
                 "category": "矿材",
-                "tier": "地阶",
+                "tier": "玄品",
                 "count": 3
             },
             {
                 "category": "灵液",
-                "tier": "地阶",
+                "tier": "玄品",
                 "count": 1
             }
         ],
@@ -341,17 +341,17 @@
         "materials": [
             {
                 "category": "灵植",
-                "tier": "地阶",
+                "tier": "玄品",
                 "count": 4
             },
             {
                 "category": "矿材",
-                "tier": "地阶",
+                "tier": "玄品",
                 "count": 3
             },
             {
                 "category": "灵液",
-                "tier": "地阶",
+                "tier": "玄品",
                 "count": 1
             }
         ],
@@ -369,7 +369,7 @@
         "materials": [
             {
                 "category": "灵植",
-                "tier": "地阶",
+                "tier": "玄品",
                 "count": 5
             },
             {
@@ -378,12 +378,12 @@
             },
             {
                 "category": "矿材",
-                "tier": "地阶",
+                "tier": "玄品",
                 "count": 4
             },
             {
                 "category": "灵液",
-                "tier": "地阶",
+                "tier": "玄品",
                 "count": 1
             }
         ],
@@ -401,17 +401,17 @@
         "materials": [
             {
                 "category": "灵植",
-                "tier": "地阶",
+                "tier": "玄品",
                 "count": 5
             },
             {
                 "category": "矿材",
-                "tier": "地阶",
+                "tier": "玄品",
                 "count": 4
             },
             {
                 "category": "灵液",
-                "tier": "地阶",
+                "tier": "玄品",
                 "count": 1
             }
         ],
@@ -429,17 +429,17 @@
         "materials": [
             {
                 "category": "灵植",
-                "tier": "地阶",
+                "tier": "玄品",
                 "count": 5
             },
             {
                 "category": "矿材",
-                "tier": "地阶",
+                "tier": "玄品",
                 "count": 4
             },
             {
                 "category": "灵液",
-                "tier": "地阶",
+                "tier": "玄品",
                 "count": 1
             }
         ],
@@ -457,7 +457,7 @@
         "materials": [
             {
                 "category": "灵植",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 5
             },
             {
@@ -466,12 +466,12 @@
             },
             {
                 "category": "矿材",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 4
             },
             {
                 "category": "灵液",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 1
             }
         ],
@@ -489,17 +489,17 @@
         "materials": [
             {
                 "category": "灵植",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 5
             },
             {
                 "category": "矿材",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 4
             },
             {
                 "category": "灵液",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 1
             }
         ],
@@ -517,17 +517,17 @@
         "materials": [
             {
                 "category": "灵植",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 5
             },
             {
                 "category": "矿材",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 4
             },
             {
                 "category": "灵液",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 1
             }
         ],
@@ -545,22 +545,22 @@
         "materials": [
             {
                 "category": "灵植",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 6
             },
             {
                 "category": "矿材",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 6
             },
             {
                 "category": "妖兽",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 5
             },
             {
                 "category": "灵液",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 1
             }
         ],
@@ -578,22 +578,22 @@
         "materials": [
             {
                 "category": "灵植",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 6
             },
             {
                 "category": "矿材",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 6
             },
             {
                 "category": "妖兽",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 5
             },
             {
                 "category": "灵液",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 1
             }
         ],
@@ -611,22 +611,22 @@
         "materials": [
             {
                 "category": "灵植",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 6
             },
             {
                 "category": "矿材",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 6
             },
             {
                 "category": "妖兽",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 5
             },
             {
                 "category": "灵液",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 1
             }
         ],
@@ -644,22 +644,22 @@
         "materials": [
             {
                 "category": "灵植",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 6
             },
             {
                 "category": "矿材",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 6
             },
             {
                 "category": "妖兽",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 5
             },
             {
                 "category": "灵液",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 1
             }
         ],
@@ -677,22 +677,22 @@
         "materials": [
             {
                 "category": "灵植",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 6
             },
             {
                 "category": "矿材",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 6
             },
             {
                 "category": "妖兽",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 5
             },
             {
                 "category": "灵液",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 1
             }
         ],
@@ -710,22 +710,22 @@
         "materials": [
             {
                 "category": "灵植",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 6
             },
             {
                 "category": "矿材",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 6
             },
             {
                 "category": "妖兽",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 5
             },
             {
                 "category": "灵液",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 1
             }
         ],
@@ -743,7 +743,7 @@
         "materials": [
             {
                 "category": "灵植",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 6
             },
             {
@@ -752,17 +752,17 @@
             },
             {
                 "category": "矿材",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 6
             },
             {
                 "category": "妖兽",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 5
             },
             {
                 "category": "灵液",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 1
             }
         ],
@@ -780,22 +780,22 @@
         "materials": [
             {
                 "category": "灵植",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 6
             },
             {
                 "category": "矿材",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 6
             },
             {
                 "category": "妖兽",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 5
             },
             {
                 "category": "灵液",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 1
             }
         ],
@@ -813,22 +813,22 @@
         "materials": [
             {
                 "category": "灵植",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 6
             },
             {
                 "category": "矿材",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 6
             },
             {
                 "category": "妖兽",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 5
             },
             {
                 "category": "灵液",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 1
             }
         ],
@@ -846,22 +846,22 @@
         "materials": [
             {
                 "category": "灵植",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 6
             },
             {
                 "category": "矿材",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 6
             },
             {
                 "category": "妖兽",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 5
             },
             {
                 "category": "灵液",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 1
             }
         ],
@@ -879,22 +879,22 @@
         "materials": [
             {
                 "category": "灵植",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 6
             },
             {
                 "category": "矿材",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 6
             },
             {
                 "category": "妖兽",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 5
             },
             {
                 "category": "灵液",
-                "tier": "天阶",
+                "tier": "圣品",
                 "count": 1
             }
         ],

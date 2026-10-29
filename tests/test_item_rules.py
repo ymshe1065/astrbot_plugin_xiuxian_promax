@@ -63,8 +63,8 @@ class TestItemRules(unittest.TestCase):
         get_req = self.rules.get_required_level
         self.assertEqual(get_req({"rank": "天品", "required_level_index": 13}), 13)
         self.assertEqual(get_req({"rank": "天品", "required_level_index": 13, "data": {}}), 13)
-        self.assertEqual(get_req({"rank": "天阶"}), 18)
-        self.assertEqual(get_req({"rank": "天阶", "data": {"required_level_index": 13}}), 13)
+        self.assertEqual(get_req({"rank": "圣品"}), 18)
+        self.assertEqual(get_req({"rank": "圣品", "data": {"required_level_index": 13}}), 13)
         self.assertEqual(get_req({"rank": "凡品", "required_level_index": 0}), 0)
 
     def test_normalize_equipment_type(self):

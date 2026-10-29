@@ -2,6 +2,7 @@
   "lot_blueprint": [
     {
       "category": "equipment",
+      "slot": "gloves",
       "tier": 2,
       "count": 1,
       "quality_weights": {"一般": 30, "良好": 50, "极佳": 20, "大师": 0}
@@ -18,6 +19,7 @@
     },
     {
       "category": "equipment",
+      "slot": "ring",
       "tier": 3,
       "count": 1,
       "quality_weights": {"一般": 0, "良好": 35, "极佳": 50, "大师": 15}
@@ -58,13 +60,6 @@
   ],
   "start_price_rate": 0.2,
   "start_price_fluctuation": 0.2,
-  "tier_labels": {
-    "1": "黄阶",
-    "2": "玄阶",
-    "3": "地阶",
-    "4": "天阶",
-    "5": "仙品"
-  },
   "affix_counts": {
     "一般": 0,
     "良好": 1,

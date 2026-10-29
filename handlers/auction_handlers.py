@@ -24,26 +24,20 @@ class AuctionHandlers:
             if card_enabled("CARD_MARKET"):
                 items = await self.auction_mgr.get_market_items(30)
                 if items:
-                    cards = []
-                    for start in range(0, len(items), 5):
-                        lines = []
-                        for it in items[start:start + 5]:
-                            lines.append(f"[{it['id']}] {it['item_name']} x{it['count']} · {it['price'] * it['count']:,}灵石")
-                            lines.extend(await self.auction_mgr.get_trade_details(it))
-                            lines.append("")
-                        card = await render_card_async(
-                            "shop", "🏪 玩家交易坊市",
-                            f"最近 {len(items)} 件 · 第 {start // 5 + 1}/{(len(items) + 4) // 5} 页 · 交易税 5%",
-                            sections=[{"name": "最新上架", "lines": lines}],
-                            footer="/坊市购买 <编号> · /我的坊市 查看NPC问价",
-                        )
-                        if not card:
-                            cards = []
-                            break
-                        cards.append(card)
-                    for card in cards:
+                    lines = []
+                    for it in items:
+                        lines.append(f"[{it['id']}] {it['item_name']} x{it['count']} · {it['price'] * it['count']:,}灵石")
+                        lines.extend(await self.auction_mgr.get_trade_details(it))
+                        lines.append("")
+                    card = await render_card_async(
+                        "shop", "🏪 玩家交易坊市",
+                        f"最近 {len(items)} 件 · 交易税 5%",
+                        sections=[{"name": "最新上架", "lines": lines}],
+                        footer="/坊市购买 <编号> · /我的坊市 查看NPC问价",
+                    )
+                    if card:
                         yield event.image_result(card)
-                    sent = bool(cards)
+                        sent = True
         except Exception:
             pass
         if not sent:
@@ -58,7 +52,7 @@ class AuctionHandlers:
                 "🏪 上架物品说明\n"
                 "━━━━━━━━━━━━━━━\n"
                 "用法：/坊市上架 <物品名> [品质] <数量> <单价>\n"
-                "示例：/坊市上架 天阶·诛仙剑 1 50000\n"
+                "示例：/坊市上架 圣品·诛仙剑 1 50000\n"
                 "示例：/坊市上架 筑基丹 良好 1 8000"
             )
             return

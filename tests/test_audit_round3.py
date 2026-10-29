@@ -82,7 +82,7 @@ class TestEquipmentRound3(unittest.IsolatedAsyncioTestCase):
     async def test_technique_from_techniques_json_can_equip_and_unequip_once(self):
         name = "回归测试剑诀"
         self.cm.techniques_data[name] = {
-            "name": name, "type": "main_technique", "rank": "黄阶",
+            "name": name, "type": "main_technique", "rank": "凡品",
             "exp_multiplier": 0.05, "price": 100,
         }
         p = await self._player()
@@ -111,7 +111,7 @@ class TestEquipmentRound3(unittest.IsolatedAsyncioTestCase):
 
     async def test_equip_prompt_uses_realm_decay(self):
         cfg = {
-            "name": "衰减测试剑", "type": "weapon", "rank": "黄阶",
+            "name": "衰减测试剑", "type": "weapon", "rank": "凡品",
             "equipment_rates": {"physical_damage": 0.18, "magic_damage": 0.18},
         }
         self.cm.items_data["衰减测试剑"] = cfg

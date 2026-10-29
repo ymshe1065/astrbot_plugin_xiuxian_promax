@@ -161,7 +161,7 @@ class TestAuctionHouse(unittest.IsolatedAsyncioTestCase):
         )
         await self.conn.commit()
 
-    async def test_schedule_same_day_and_preview_hides_names(self):
+    async def test_schedule_same_day_and_preview_shows_names(self):
         now = int(time.time())
         event = await self.manager.ensure_event(now)
         self.assertEqual(event["phase"], "scheduled")
@@ -181,11 +181,17 @@ class TestAuctionHouse(unittest.IsolatedAsyncioTestCase):
         await self.conn.commit()
 
         queued = await self.manager.tick(announce_start + 30)
-        self.assertGreaterEqual(queued, 1)
+        self.assertEqual(queued, 0)  # 取消预告播报
         event = await self.manager._fetchone(
             "SELECT * FROM auction_house_events WHERE id=?", (event["id"],)
         )
-        self.assertEqual(event["phase"], "announcing")
+        self.assertEqual(event["phase"], "scheduled")
+
+        status = await self.manager.get_status()
+        self.assertIn("拍品名单", status)
+        event = await self.manager._fetchone(
+            "SELECT * FROM auction_house_events WHERE id=?", (event["id"],)
+        )
         self.assertEqual(int(event["lot_count"]), 11)
         lots = await self.manager._fetchall(
             "SELECT * FROM auction_house_lots WHERE event_id=? ORDER BY lot_no", (event["id"],)
@@ -198,16 +204,17 @@ class TestAuctionHouse(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             sum(1 for lot in lots if lot["category"] == "main_technique"), 1
         )
+        # 每日手套/戒指保底，且优先新系特殊装备
+        self.assertTrue(any("手套" in lot["preview_label"] for lot in lots))
+        self.assertTrue(any("戒指" in lot["preview_label"] for lot in lots))
         stones = [lot for lot in lots if lot["item_name"] == "空间石"]
         self.assertEqual(len(stones), 1)
         self.assertEqual(int(stones[0]["count"]), 2)
         prices = [int(lot["start_price"]) for lot in lots]
         self.assertEqual(prices, sorted(prices))
-        for lot in lots:
-            self.assertNotIn(lot["item_name"], lot["preview_label"])
-            self.assertFalse(lot["preview_label"][0].isdigit())
-        status = await self.manager.get_status()
-        self.assertIn("拍品预告", status)
+        # 名单直接展示完整名称，不再隐藏
+        for lot in lots[:3]:
+            self.assertIn(lot["item_name"], status)
 
     async def test_guarantees_main_technique_when_blueprint_omits_it(self):
         now = int(time.time())
@@ -395,7 +402,7 @@ class TestAuctionHouse(unittest.IsolatedAsyncioTestCase):
 
     async def test_lot_detail_uses_quality_adjusted_rates(self):
         lot = {
-            "item_name": "乾坤伞", "item_rank": "玄阶", "item_quality": "大师", "count": 1,
+            "item_name": "乾坤伞", "item_rank": "黄品", "item_quality": "大师", "count": 1,
             "payload_json": __import__("json").dumps({
                 "equipment_rates": {"physical_damage": 0.06, "magic_damage": 0.06},
             }),
@@ -439,13 +446,13 @@ class TestAuctionHouse(unittest.IsolatedAsyncioTestCase):
     async def test_technique_delivery_goes_to_storage_ring(self):
         await self._player("tech1", gold=0)
         lot = {
-            "id": 1000, "category": "technique", "item_name": "黄阶功法：基础剑诀",
+            "id": 1000, "category": "technique", "item_name": "凡品功法：基础剑诀",
             "count": 1, "item_quality": "一般", "payload_json": "{}",
         }
         ok, msg = await self.manager._deliver_lot(lot, "tech1")
         self.assertTrue(ok, msg)
         fresh = await self.db.get_player_by_id("tech1")
-        self.assertEqual(fresh.get_storage_ring_items().get("黄阶功法：基础剑诀"), 1)
+        self.assertEqual(fresh.get_storage_ring_items().get("凡品功法：基础剑诀"), 1)
 
     async def test_ai_fallback_without_provider(self):
         class FakeContext:

@@ -20,7 +20,7 @@
     "玄铁储物戒": {
         "name": "玄铁储物戒",
         "type": "storage_ring",
-        "rank": "珍品",
+        "rank": "地品",
         "description": "以玄铁为材料炼制，空间稳定且容量可观。",
         "capacity": 50,
         "required_level_index": 6,
@@ -29,7 +29,7 @@
     "星辰储物戒": {
         "name": "星辰储物戒",
         "type": "storage_ring",
-        "rank": "珍品",
+        "rank": "地品",
         "description": "蕴含星辰之力的储物法器，内部空间如同一片小型星空。",
         "capacity": 80,
         "required_level_index": 10,
@@ -65,7 +65,7 @@
     "太虚储物戒": {
         "name": "太虚储物戒",
         "type": "storage_ring",
-        "rank": "神品",
+        "rank": "仙品",
         "description": "通往太虚的法器，内部便是一方小世界，万物可纳。",
         "capacity": 999,
         "required_level_index": 33,
