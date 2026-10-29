@@ -10,7 +10,7 @@ from astrbot.api import logger
 if TYPE_CHECKING:
     from ..config_manager import ConfigManager
 
-LATEST_DB_VERSION = 51  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求；v49: 统一物品品阶名称；v50: 仙市投资系统（基金/股票）；v51: 符箓熟练度与符图习得
+LATEST_DB_VERSION = 52  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求；v49: 统一物品品阶名称；v50: 仙市投资系统（基金/股票）；v51: 符箓熟练度与符图习得；v52: 仙市 v6（16 盘 + 赌场级波动 + 不对称日熔断）
 
 MIGRATION_TASKS: Dict[int, Callable[[aiosqlite.Connection, ConfigManager], Awaitable[None]]] = {}
 
@@ -1846,6 +1846,8 @@ async def _ensure_invest_v50(conn: aiosqlite.Connection):
             cycle_phase INTEGER NOT NULL DEFAULT 0,
             price_limit REAL NOT NULL DEFAULT 0.03,
             day_limit REAL NOT NULL DEFAULT 0.08,
+            day_up REAL NOT NULL DEFAULT 4.00,
+            day_down REAL NOT NULL DEFAULT 0.75,
             msg_base REAL NOT NULL DEFAULT 0,
             weekly_return REAL NOT NULL DEFAULT 0,
             dividend_rate REAL NOT NULL DEFAULT 0,
@@ -2155,3 +2157,19 @@ async def _migrate_to_v51(conn: aiosqlite.Connection, config_manager: ConfigMana
     await _ensure_talisman_v51(conn)
     await conn.commit()
     logger.info("v51迁移完成：符箓熟练度与符图习得已就绪")
+
+
+@migration(52)
+async def _migrate_to_v52(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """迁移到 v52 - 仙市 v6：16 盘 + 赌场级波动 + 不对称日熔断。
+
+    给 invest_products 加 day_up / day_down 两列（不对称日熔断，取代对称 day_limit）。
+    day_limit 保留用于兼容，但结算逻辑改读 day_up / day_down。
+    存量标的的实际数值由 InvestManager._seed_products 强制刷新（INSERT OR REPLACE），
+    这里只负责加列与默认值。
+    """
+    logger.info("开始迁移到 v52：仙市 v6（16 盘 + 不对称日熔断）")
+    await _add_column_if_missing(conn, "invest_products", "day_up", "REAL NOT NULL DEFAULT 4.00")
+    await _add_column_if_missing(conn, "invest_products", "day_down", "REAL NOT NULL DEFAULT 0.75")
+    await conn.commit()
+    logger.info("v52迁移完成：invest_products 已加 day_up/day_down 列")
