@@ -291,6 +291,9 @@ class ShopManager:
         for item in items or []:
             if not isinstance(item, dict):
                 continue
+            # 符图用的是符名，与物品目录里的成品符同名，不能被回填成成品符
+            if item.get("type") == "talisman_recipe":
+                continue
             current = self.resolve_current_item_data(item)
             if not current:
                 continue
@@ -678,6 +681,63 @@ class ShopManager:
                 })
         return recipes
 
+    # ===== 符阁 =====
+    # 只卖凡品与黄品成品符：玄品以上必须由符箓师绘制，否则制符无意义。
+    TALISMAN_SHELF_RANKS = ("凡品", "黄品")
+
+    def get_talismans_for_display(self, count: int) -> List[Dict]:
+        """获取符阁货架：成品符，只上架凡品与黄品，不卖材料。"""
+        talismans = []
+        for item in self.config_manager.items_data.values():
+            if not isinstance(item, dict) or item.get("type") != "符箓":
+                continue
+            if item.get("legacy"):
+                continue
+            rank = normalize_rank(item.get("rank"), "凡品")
+            if rank not in self.TALISMAN_SHELF_RANKS:
+                continue
+            price = int(item.get("price", 0) or 0)
+            if price <= 0:
+                continue
+            talismans.append({
+                'name': item['name'], 'type': '符箓', 'price': price,
+                'rank': rank, 'data': item,
+            })
+        return talismans
+
+    def get_talisman_recipes_for_display(self, count: int) -> List[Dict]:
+        """获取符阁·符图货架：只卖需要习得的符图，基础配方不上架。
+
+        黄品符图常驻（学习门槛低），玄品以上稀有刷新。
+        """
+        recipes = []
+        for name, recipe in (getattr(self.config_manager, "talisman_recipes_data", {}) or {}).items():
+            if not isinstance(recipe, dict):
+                continue
+            if recipe.get("basic") or recipe.get("legacy"):
+                continue
+            if int(recipe.get("shop_weight", 0) or 0) <= 0:
+                continue
+            rank = normalize_rank(recipe.get("rank"), "凡品")
+            price = int(int(recipe.get("price", 0) or 0) * 0.8)
+            if price <= 0:
+                continue
+            permanent = rank == "黄品"
+            recipes.append({
+                'name': name, 'type': 'talisman_recipe', 'price': price,
+                'rank': rank,
+                'data': {
+                    'type': '符图',
+                    'name': name,
+                    'rank': rank,
+                    'level_required': int(recipe.get('level_required', 0) or 0),
+                    'category': recipe.get('category', ''),
+                    'description': f"记载{name}绘制方法的符图，购买后即可 /制符 {name}。",
+                },
+                'always_available': permanent, 'rare': not permanent,
+            })
+        return recipes
+
     def get_materials_for_display(self, count: int) -> List[Dict]:
         """获取材料用于材料阁展示；价格缺失时按品级补齐。"""
         tier_price = {'凡品': 10, '黄品': 30, '玄品': 120, '灵品': 200, '地品': 500, '天品': 900, '皇品': 1500, '圣品': 2000, '帝品': 3000, '道品': 4000, '仙品': 5000, '混元先天': 8000}
@@ -781,11 +841,10 @@ class ShopManager:
                 all_items.append({'name': weapon['name'], 'type': 'weapon', 'price': weapon['price'], 'rank': weapon.get('rank', '凡品'), 'data': weapon})
         for item in self.config_manager.items_data.values():
             if item.get('price', 0) > 0:
-                # 丹方/材料包由丹阁分区单独出售，不混入百宝阁
-                if item.get('type') in ('丹方', '材料包'):
+                # 丹方/材料包由丹阁分区单独出售，符箓由符阁单独出售，都不混入百宝阁
+                if item.get('type') in ('丹方', '材料包', '符箓'):
                     continue
-                # 符箓保留独立类型，避免在商店/物品信息中显示成材料
-                item_type = "符箓" if item.get('type') == '符箓' else self._map_legacy_item_type(item)
+                item_type = self._map_legacy_item_type(item)
                 all_items.append({'name': item['name'], 'type': item_type, 'price': item['price'], 'rank': item.get('rank', '凡品'), 'data': item})
         for item in (getattr(self.config_manager, "techniques_data", {}) or {}).values():
             if item.get('price', 0) > 0:
@@ -1083,7 +1142,11 @@ class ShopManager:
             物品详细描述
         """
         item_type = item_data.get('type', '')
-        data = self.resolve_current_item_data(item_data) or item_data.get('data', {})
+        # 符图与成品符同名，不能被 resolve 回填成货架上的那张符
+        if item_type in ('符图', 'talisman_recipe'):
+            data = item_data.get('data') or item_data
+        else:
+            data = self.resolve_current_item_data(item_data) or item_data.get('data', {})
 
         details = [f"名称: {item_data['name']}"]
         details.append(f"品级: {item_data['rank']}")
@@ -1118,13 +1181,31 @@ class ShopManager:
                 details.append(f"特殊效果{quality_text}: " + "，".join(effect_lines))
             details.append(f"适用境界: {self._format_applicable_realm(data)}")
 
+        elif item_type in ('符图', 'talisman_recipe'):
+            details.append("用途：购买后习得该符箓的绘制方法")
+            try:
+                required = int(data.get('level_required', 0) or 0)
+            except (TypeError, ValueError):
+                required = 0
+            if required:
+                details.append(f"适用境界: {self._format_applicable_realm(data, required)}")
+            details.append(f"绘制需求: /制符 {item_data['name']}")
+
         elif item_type == '符箓':
             from .talisman_rules import NON_TALISMAN_ITEMS, build_profile
             if item_data['name'] in NON_TALISMAN_ITEMS:
                 details.append("用途：使用 /激活化身 可激活 30 天闭关收益加成")
                 return "\n".join(details)
             recipe = (getattr(self.config_manager, "talisman_recipes_data", {}) or {}).get(item_data['name'], {})
-            profile = build_profile(item_data['name'], normalize_rank(item_data.get('rank'), '凡品'), recipe.get('category', ''))
+            raw_effects = recipe.get("effects")
+            profile = build_profile(
+                item_data['name'],
+                normalize_rank(item_data.get('rank'), '凡品'),
+                recipe.get('category', ''),
+                effects=raw_effects if isinstance(raw_effects, dict) else None,
+                duration=recipe.get('duration'),
+                description=recipe.get('desc', ''),
+            )
             details.append(f"类别：{profile['category']}")
             details.append(f"效果：{profile['description']}")
             details.append(f"持续：{profile['duration']}分钟")

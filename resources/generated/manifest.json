@@ -1,12 +1,12 @@
 {
   "help": {
-    "hash": "093b875534bae30497c46744bdf27a6053a9fb3f09849a8538ed558c2757c877",
+    "hash": "041f212101018449a192bdb94c5eaba7d209e972588f99f19ba550ad296aa936",
     "file": "help.jpg",
-    "generated_at": "2026-10-30T00:22:24+00:00"
+    "generated_at": "2026-10-29T11:49:36+00:00"
   },
   "talisman_recipes": {
-    "hash": "a7579bce20b78474be67f704c54146b16f2d5d9daea4e9d7e841b1290b21def2",
+    "hash": "c36df633117e524b353b8ebfae7820fc8339d4f8e19264cc9537df3811729d7a",
     "file": "talisman_recipes.jpg",
-    "generated_at": "2026-10-30T00:21:52+00:00"
+    "generated_at": "2026-10-29T11:48:47+00:00"
   }
 }

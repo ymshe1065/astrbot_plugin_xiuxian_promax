@@ -10,7 +10,7 @@ from astrbot.api import logger
 if TYPE_CHECKING:
     from ..config_manager import ConfigManager
 
-LATEST_DB_VERSION = 50  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求；v49: 统一物品品阶名称；v50: 仙市投资系统（基金/股票）
+LATEST_DB_VERSION = 51  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求；v49: 统一物品品阶名称；v50: 仙市投资系统（基金/股票）；v51: 符箓熟练度与符图习得
 
 MIGRATION_TASKS: Dict[int, Callable[[aiosqlite.Connection, ConfigManager], Awaitable[None]]] = {}
 
@@ -330,6 +330,24 @@ async def _ensure_auction_house_v47(conn: aiosqlite.Connection):
     await conn.execute("CREATE INDEX IF NOT EXISTS idx_ah_messages_status ON auction_house_messages(status, id)")
 
 
+async def _ensure_talisman_v51(conn: aiosqlite.Connection, grant_legacy: bool = True):
+    """符箓熟练度与符图习得：加两列，并给老存档补授原有的非基础符图。
+
+    基础配方（basic=true）人人可画，不需要落库；``grant_legacy`` 补的是
+    v6.41 之前已经能靠改名配方画出来的 5 张，避免老玩家突然失去绘制能力。
+    只在版本迁移时补授——兜底路径（每次启动）不能给新玩家白发符图。
+    """
+    await _add_column_if_missing(conn, "players", "talisman_exp", "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(conn, "players", "talisman_recipes", "TEXT NOT NULL DEFAULT '[]'")
+    if not grant_legacy:
+        return
+    legacy_products = ["聚灵符", "避劫符", "寻宝符", "星辰符", "鸿蒙符"]
+    await conn.execute(
+        "UPDATE players SET talisman_recipes = ? WHERE COALESCE(talisman_recipes, '') IN ('', '[]')",
+        (json.dumps(legacy_products, ensure_ascii=False),),
+    )
+
+
 async def _ensure_latest_columns(conn: aiosqlite.Connection):
     """终极兜底：确保 NPC、宗门、贷款等最新增量列/表齐全。"""
     await _add_column_if_missing(conn, "players", "karma", "INTEGER NOT NULL DEFAULT 0")
@@ -365,6 +383,7 @@ async def _ensure_latest_columns(conn: aiosqlite.Connection):
     await _ensure_auction_house_v47(conn)
     await _ensure_combat_limits_v48(conn)
     await _ensure_invest_v50(conn)
+    await _ensure_talisman_v51(conn, grant_legacy=False)
     await _add_column_if_missing(conn, "player_pets", "max_hp", "INTEGER NOT NULL DEFAULT 0")
     await _add_column_if_missing(conn, "player_pets", "hp", "INTEGER NOT NULL DEFAULT 0")
     await _add_column_if_missing(conn, "player_pets", "last_regen_time", "INTEGER NOT NULL DEFAULT 0")
@@ -2127,3 +2146,12 @@ async def _migrate_to_v50(conn: aiosqlite.Connection, config_manager: ConfigMana
     await _ensure_invest_v50(conn)
     await conn.commit()
     logger.info("v50迁移完成：仙市投资表已建立")
+
+
+@migration(51)
+async def _migrate_to_v51(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """迁移到 v51 - 符箓熟练度与符图习得。"""
+    logger.info("开始迁移到 v51：符箓熟练度与符图习得")
+    await _ensure_talisman_v51(conn)
+    await conn.commit()
+    logger.info("v51迁移完成：符箓熟练度与符图习得已就绪")

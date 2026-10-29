@@ -9,6 +9,9 @@ from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 from ..data.data_manager import DataBase
 from ..models import Player
 from ..models_extended import UserStatus
+from ..core.talisman_rules import (
+    TRIBULATION_DEMAND, TRIBULATION_RATE, pill_rank_of, rank_from_level,
+)
 
 if TYPE_CHECKING:
     from ..config_manager import ConfigManager
@@ -373,6 +376,19 @@ class AlchemyManager:
         return text, ready
 
     # ===== 五行/职业炼丹加成 =====
+    def _pill_rank_of(self, output_pill: str, recipe: Dict = None) -> str:
+        """丹药品阶：先查四张配置表，都查不到按丹方需求等级兜底。"""
+        rank = pill_rank_of(output_pill, self.config_manager)
+        if rank:
+            return rank
+        level_required = 0
+        if isinstance(recipe, dict):
+            try:
+                level_required = int(recipe.get("level_required", 0) or 0)
+            except (TypeError, ValueError):
+                level_required = 0
+        return rank_from_level(level_required)
+
     def get_alchemy_bonus(self, player: Player) -> Dict:
         root = str(getattr(player, "spiritual_root", "") or "").replace("灵根", "")
         variant_map = {"雷": "木", "风": "木", "冰": "水", "暗": "水", "光": "火"}
@@ -756,30 +772,39 @@ class AlchemyManager:
             if is_success:
                 tribulation_msg = ""
                 pill_ruined = False
-                if recipe["level_required"] >= 6 and random.randint(1, 100) <= 25:
-                    ring_items = player.get_storage_ring_items()
-                    if self.storage_ring_manager and ring_items.get("引雷符", 0) >= 1:
-                        if ring_items["引雷符"] <= 1:
-                            del ring_items["引雷符"]
-                        else:
-                            ring_items["引雷符"] -= 1
-                        player.set_storage_ring_items(ring_items)
-                        tribulation_msg = ("\n⚡ 天降丹劫！你祭出【引雷符】引雷入体，"
-                                           "雷光淬丹，丹药品质得以保全！（消耗引雷符x1）")
+                pill_rank = self._pill_rank_of(output_pill, recipe)
+                demand = int(TRIBULATION_DEMAND.get(pill_rank, 0) or 0)
+                trigger = int(TRIBULATION_RATE.get(pill_rank, 0) or 0)
+                # 丹劫挂在丹药品阶上，与丹方等级解耦：一张黄品引雷符救不了圣品丹。
+                if demand > 0 and trigger > 0 and random.randint(1, 100) <= trigger:
+                    used, shield = None, 0
+                    try:
+                        from .talisman_manager import TalismanManager
+                        pick = TalismanManager.pick_shield_talisman(player, demand, self.config_manager)
+                        if pick:
+                            used = TalismanManager.consume_shield_talisman(player, self.config_manager, demand)
+                            shield = int(pick[1])
+                        elif TalismanManager.consume_active_shield(player, demand):
+                            used, shield = "已激活的护劫符", demand
+                    except Exception:
+                        used, shield = None, 0
+                    if used:
+                        tribulation_msg = (
+                            f"\n⚡ 天降丹劫！你祭出【{used}】（护盾 {shield}），"
+                            f"雷光淬丹，丹药品质得以保全！"
+                        )
                     else:
+                        pill_ruined = True
+                        best = 0
                         try:
                             from .talisman_manager import TalismanManager
-                            shield = TalismanManager.get_active_bonus(player, "tribulation_shield")
+                            best = TalismanManager.best_shield_available(player, self.config_manager)
                         except Exception:
-                            shield = 0
-                        if shield > 0:
-                            TalismanManager.consume_active_charge(player, "tribulation_shield")
-                            tribulation_msg = ("\n⚡ 天降丹劫！避劫符自行燃烧，"
-                                               "替你遮蔽天机，丹药安然出炉！（消耗避劫符护盾）")
-                        else:
-                            pill_ruined = True
-                            tribulation_msg = ("\n💥 天降丹劫！你没有【引雷符】护身，"
-                                               "雷火焚炉，丹药在最后一刻化为灰烬...")
+                            best = 0
+                        tribulation_msg = (
+                            f"\n💥 天降丹劫！本丹劫需护盾 ≥ {demand}，"
+                            f"你最高只有 {best}，雷火焚炉，丹药在最后一刻化为灰烬..."
+                        )
 
                 if not pill_ruined:
                     pill_key = f"{output_pill}|{quality}"
@@ -801,7 +826,7 @@ class AlchemyManager:
 品质：{quality}
 {tribulation_msg}
 
-💡 高阶丹药请随身携带【引雷符】（丹阁/符箓师可获取）
+💡 此丹为{pill_rank}，丹劫需护盾 ≥ {demand}；护劫符可在 /符阁 符箓 购买，或由符箓师绘制
                     """.strip()
                     await self.db.conn.commit()
                     return True, msg, {

@@ -25,9 +25,10 @@ class ShopHandler:
         'inventory_pill': "丹阁刷新、炼丹产出",
         'legacy_pill': "丹阁刷新，购买后进入丹药背包",
         'recipe': "丹方阁购买后学习",
+        'talisman_recipe': "符阁·符图 购买后习得绘制方法",
         'material': "材料阁、灵田、历练、秘境、悬赏",
         'material_package': "材料阁购买后开启",
-        '符箓': "符箓师绘制、百宝阁、历练/奇遇掉落",
+        '符箓': "符阁购买成品符、符箓师绘制、历练/奇遇掉落",
         'weapon': "器阁、百宝阁、黑市",
         'armor': "器阁、百宝阁",
         'head': "器阁、百宝阁",
@@ -130,6 +131,8 @@ class ShopHandler:
             ("material_pavilion", "材料阁", self.shop_manager.get_materials_for_display, self._cfg("PAVILION_MATERIAL_COUNT", 20), ""),
             ("weapon_pavilion", "器阁", self.shop_manager.get_weapons_for_display, self._cfg("PAVILION_WEAPON_COUNT", 40), "common"),
             ("treasure_pavilion", "百宝阁", self.shop_manager.get_treasure_items_for_display, self._cfg("PAVILION_TREASURE_COUNT", 12), "rare"),
+            ("talisman_pavilion", "符阁", self.shop_manager.get_talismans_for_display, self._cfg("PAVILION_TALISMAN_COUNT", 12), ""),
+            ("talisman_recipe_pavilion", "符阁·符图", self.shop_manager.get_talisman_recipes_for_display, self._cfg("PAVILION_TALISMAN_RECIPE_COUNT", 4), ""),
         ]
         for pavilion_id, name, getter, cnt, pick_mode in jobs:
             try:
@@ -192,6 +195,44 @@ class ShopHandler:
             return
         pavilion_id, name, getter, count, pick_mode = jobs[section]
         await self._ensure_pavilion_refreshed(pavilion_id, getter, count, pick_mode=pick_mode)
+        self._remember_viewed_pavilion(event, pavilion_id)
+        last_refresh, items = await self.db.get_shop_data(pavilion_id)
+        if not items:
+            yield event.plain_result(f"{name}暂无物品出售。")
+            return
+        refresh_hours = self._cfg("PAVILION_REFRESH_HOURS", 1)
+        display = self.shop_manager.format_pavilion_display(name, items, refresh_hours, last_refresh)
+        cards = await self._pavilion_cards(name, items)
+        if cards:
+            for card in cards:
+                yield event.image_result(card)
+        else:
+            yield event.plain_result(display)
+
+    async def handle_talisman_pavilion(self, event: AstrMessageEvent, section: str = ""):
+        """符阁：成品符与符图两区，不卖材料。"""
+        section = (section or "").strip()
+        jobs = {
+            "符箓": ("talisman_pavilion", "符阁", self.shop_manager.get_talismans_for_display, self._cfg("PAVILION_TALISMAN_COUNT", 12)),
+            "符图": ("talisman_recipe_pavilion", "符阁·符图", self.shop_manager.get_talisman_recipes_for_display, self._cfg("PAVILION_TALISMAN_RECIPE_COUNT", 4)),
+        }
+        section = {"配方": "符图"}.get(section, section)
+        if not section:
+            yield event.plain_result(
+                "🏯 符阁分区\n"
+                "━━━━━━━━━━━━━━━\n"
+                "  · /符阁 符箓：凡品与黄品成品符\n"
+                "  · /符阁 符图：玄品以上符箓的绘制图纸\n"
+                "━━━━━━━━━━━━━━━\n"
+                "💡 玄品以上成品符只能由符箓师绘制\n"
+                "💡 购买使用 /购买 <物品名> [数量]"
+            )
+            return
+        if section not in jobs:
+            yield event.plain_result("❌ 符阁分区只有：符箓、符图。")
+            return
+        pavilion_id, name, getter, count = jobs[section]
+        await self._ensure_pavilion_refreshed(pavilion_id, getter, count)
         self._remember_viewed_pavilion(event, pavilion_id)
         last_refresh, items = await self.db.get_shop_data(pavilion_id)
         if not items:
@@ -324,7 +365,10 @@ class ShopHandler:
 
         优先返回仍有库存的货架；若全部售罄，则返回首个匹配条目，供购买流程提示“已售罄”。
         """
-        pavilion_ids = ["pill_pavilion", "recipe_pavilion", "material_pavilion", "weapon_pavilion", "treasure_pavilion"]
+        pavilion_ids = [
+            "pill_pavilion", "recipe_pavilion", "material_pavilion", "weapon_pavilion",
+            "treasure_pavilion", "talisman_pavilion", "talisman_recipe_pavilion",
+        ]
         if preferred_pavilion in pavilion_ids:
             pavilion_ids.remove(preferred_pavilion)
             pavilion_ids.insert(0, preferred_pavilion)
@@ -414,7 +458,7 @@ class ShopHandler:
                 f"没有找到【{item_name}】。\n"
                 "💡 物品名需与货架完全一致，且该物品当前在售（每 1 小时刷新）：\n"
                 "  · 丹药 → /丹阁 丹药    丹方 → /丹阁 丹方    材料/材料包 → /丹阁 材料\n"
-                "  · 武器/装备 → /器阁    符箓/杂物 → /百宝阁\n"
+                "  · 武器/装备 → /器阁    符箓 → /符阁    杂物 → /百宝阁\n"
                 "💡 也可先发 /物品信息 <名称> 查询物品详情与获取途径"
             )
             return
@@ -424,9 +468,14 @@ class ShopHandler:
             yield event.plain_result(f"【{item_name}】已售罄，请等待货架刷新。")
             return
         limited_note = ""
+        norm_type = ItemRules.normalize_shop_type(target_item)
         if self.shop_manager.is_gear_entry(target_item) and quantity > 1:
             quantity = 1
             limited_note = "⚠️ 装备每次限购 1 件，已按 1 件结算。\n"
+        # 符图是「一次性习得」，不可能批量买
+        if norm_type == 'talisman_recipe' and quantity > 1:
+            quantity = 1
+            limited_note = "⚠️ 符图每次限购 1 份，已按 1 份结算。\n"
         if quantity > stock:
             yield event.plain_result(f"【{item_name}】库存不足，当前库存: {stock}。")
             return
@@ -543,6 +592,17 @@ class ShopHandler:
                     await self.db.conn.rollback()
                     yield event.plain_result(f"❌ 丹方存入储物戒失败：{msg}")
                     return
+
+            elif item_type == 'talisman_recipe':
+                from ..managers.talisman_manager import TalismanManager
+                talisman_mgr = TalismanManager(self.db, self.config_manager, self.storage_ring_manager)
+                ok, msg = await talisman_mgr.learn_recipe(player, target_item['name'], commit=False)
+                if not ok:
+                    await self.db.conn.rollback()
+                    yield event.plain_result(msg)
+                    return
+                result_lines.append(f"成功购入【{target_item['name']}】符图，已参悟绘制方法。")
+                result_lines.append(f"💡 使用 /制符 {target_item['name']} 绘制")
 
             elif item_type == 'material':
                 success, msg = await self.storage_ring_manager.store_item(player, target_item['name'], quantity, external_transaction=True)

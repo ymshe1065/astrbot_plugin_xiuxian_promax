@@ -70,6 +70,7 @@ CMD_USE_PILL = "服用丹药"
 CMD_SHOW_PILLS = "丹药背包"
 CMD_PILL_INFO = "丹药信息"
 CMD_PILL_PAVILION = "丹阁"
+CMD_TALISMAN_PAVILION = "符阁"
 CMD_WEAPON_PAVILION = "器阁"
 CMD_TREASURE_PAVILION = "百宝阁"
 CMD_ITEM_INFO = "物品信息"
@@ -1265,6 +1266,11 @@ class XiuXianPlugin(Star):
     @require_whitelist
     async def handle_pill_pavilion(self, event: AstrMessageEvent, args: GreedyStr):
         async for r in self.shop_handler.handle_pill_pavilion(event, args): yield r
+
+    @filter.command(CMD_TALISMAN_PAVILION, "查看符阁符箓/符图")
+    @require_whitelist
+    async def handle_talisman_pavilion(self, event: AstrMessageEvent, args: GreedyStr):
+        async for r in self.shop_handler.handle_talisman_pavilion(event, args): yield r
 
     @filter.command(CMD_WEAPON_PAVILION, "查看器阁武器")
     @require_whitelist
@@ -3068,7 +3074,7 @@ class XiuXianPlugin(Star):
             logger.warning(f"符箓配方长图生成失败，降级文本: {e}")
         yield event.plain_result(self.talisman_mgr.format_recipe_text())
 
-    @filter.command("制符", "绘制符箓；不带参数领取每日引雷符或查看制符引导")
+    @filter.command("制符", "绘制符箓；不带参数领取符箓师每日护劫符")
     @require_whitelist
     @idle_player_lock
     async def handle_draw_talisman(self, event: AstrMessageEvent, args: GreedyStr):
