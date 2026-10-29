@@ -24,7 +24,8 @@ from .handlers import (
     BlessedLandHandlers, SpiritFarmHandlers, DualCultivationHandlers, SpiritEyeHandlers,
     DailyTaskHandlers, WorldBossHandlers, RaidHandlers, RobberyHandlers, ReincarnationHandlers,
     GambleHandlers, ForgeHandlers, DemonInvasionHandlers, PetHandlers,
-    AuctionHandlers, AuctionHouseHandlers, SectShopHandler, AutoProxyHandlers, BattleEventHandlers
+    AuctionHandlers, AuctionHouseHandlers, SectShopHandler, AutoProxyHandlers, BattleEventHandlers,
+    InvestHandlers
 )
 from .managers import (
     CombatManager, SectManager, BossManager, RiftManager,
@@ -35,7 +36,7 @@ from .managers import (
     TutorialManager, GambleManager, ForgeManager, GlobalEventManager,
     DemonInvasionManager, PetManager,
     AuctionManager, AuctionHouseManager, EscortManager, EncounterManager, LifeSkillManager, TalismanManager, CalamityManager,
-    AutoProxyManager, BattleEventManager
+    AutoProxyManager, BattleEventManager, InvestManager
 )
 from .models_extended import UserStatus
 
@@ -128,6 +129,14 @@ CMD_BANK_LOAN = "贷款"
 CMD_BANK_REPAY = "还款"
 CMD_BANK_TRANSACTIONS = "银行流水"
 CMD_BANK_BREAKTHROUGH_LOAN = "突破贷款"
+CMD_INVEST_MARKET = "仙市"
+CMD_INVEST_QUOTE = "行情"
+CMD_INVEST_BUY = "买入股"
+CMD_INVEST_SELL = "卖出股"
+CMD_INVEST_SUBSCRIBE = "申购"
+CMD_INVEST_REDEEM = "赎回"
+CMD_INVEST_HOLDINGS = "我的持仓"
+CMD_INVEST_ORDERS = "仙市流水"
 CMD_BOUNTY_LIST = "悬赏令"
 CMD_BOUNTY_ACCEPT = "接取悬赏"
 CMD_BOUNTY_STATUS = "悬赏状态"
@@ -229,6 +238,8 @@ class XiuXianPlugin(Star):
         self.bank_mgr = BankManager(self.db, self.config, self.config_manager)
         self.bounty_mgr = BountyManager(self.db, self.storage_ring_mgr, self.config_manager)
         self.bank_handlers = BankHandlers(self.db, self.bank_mgr)
+        self.invest_mgr = InvestManager(self.db, self.config, self.config_manager)
+        self.invest_handlers = InvestHandlers(self.db, self.invest_mgr)
         self.bounty_handlers = BountyHandlers(self.db, self.bounty_mgr)
         
         self.impart_pk_mgr = ImpartPkManager(self.db, self.combat_mgr, self.config_manager)
@@ -425,6 +436,8 @@ class XiuXianPlugin(Star):
         self.battle_event_task = asyncio.create_task(self._schedule_battle_events())
         # v6.35 拍卖会
         self.auction_house_task = asyncio.create_task(self._schedule_auction_house())
+        # v6.40 仙市投资系统
+        self.invest_task = asyncio.create_task(self._schedule_invest())
         
         logger.info("【修仙插件】已加载。")
 
@@ -437,7 +450,8 @@ class XiuXianPlugin(Star):
                      getattr(self, "market_npc_task", None),
                      getattr(self, "auto_proxy_task", None),
                      getattr(self, "battle_event_task", None),
-                     getattr(self, "auction_house_task", None)):
+                     getattr(self, "auction_house_task", None),
+                     getattr(self, "invest_task", None)):
             if task: task.cancel()
         await self.db.close()
         logger.info("【修仙插件】已卸载。")
@@ -670,6 +684,29 @@ class XiuXianPlugin(Star):
                 break
             except Exception as e:
                 logger.error(f"自动上货任务异常: {e}")
+                await asyncio.sleep(120)
+
+    async def _schedule_invest(self):
+        """v6.40 仙市：每 60 秒对齐盘次边界，停机期间缺失的盘次一并补算。
+
+        价格只在该盘边界变化，60 秒轮询已足够精确；
+        不要改成「有人查行情才结算」——没人看盘就不涨，玩家很快就会察觉。
+        """
+        while True:
+            try:
+                await self.db.ensure_connection()
+                moved = await self.invest_mgr.settle_to()
+                if moved > 0:
+                    tick = self.invest_mgr.tick_of()
+                    logger.info(
+                        f"【仙市】结算 {moved} 盘，当前第 {tick % 8 + 1} 盘"
+                        f"（{self.invest_mgr.slot_label(tick)}）"
+                    )
+                await asyncio.sleep(60)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"仙市结算任务异常: {e}")
                 await asyncio.sleep(120)
 
     async def _schedule_market_npc_offers(self):
@@ -1852,6 +1889,48 @@ class XiuXianPlugin(Star):
             yield event.plain_result("❌ 请输入正确的数字！")
             return
         async for r in self.bank_handlers.handle_breakthrough_loan(event, amount_int): yield r
+
+    # ===== v6.40 仙市投资系统 =====
+
+    @filter.command(CMD_INVEST_MARKET, "仙市行情总览")
+    @require_whitelist
+    async def handle_invest_market(self, event: AstrMessageEvent):
+        async for r in self.invest_handlers.handle_market(event): yield r
+
+    @filter.command(CMD_INVEST_QUOTE, "查看单个标的行情")
+    @require_whitelist
+    async def handle_invest_quote(self, event: AstrMessageEvent, code: str = ""):
+        async for r in self.invest_handlers.handle_quote(event, code): yield r
+
+    @filter.command(CMD_INVEST_BUY, "买入股票")
+    @require_whitelist
+    async def handle_invest_buy(self, event: AstrMessageEvent, code: str = "", lots: str = ""):
+        async for r in self.invest_handlers.handle_buy_stock(event, code, lots): yield r
+
+    @filter.command(CMD_INVEST_SELL, "卖出股票")
+    @require_whitelist
+    async def handle_invest_sell(self, event: AstrMessageEvent, code: str = "", lots: str = ""):
+        async for r in self.invest_handlers.handle_sell_stock(event, code, lots): yield r
+
+    @filter.command(CMD_INVEST_SUBSCRIBE, "申购基金")
+    @require_whitelist
+    async def handle_invest_subscribe(self, event: AstrMessageEvent, code: str = "", amount: str = ""):
+        async for r in self.invest_handlers.handle_subscribe(event, code, amount): yield r
+
+    @filter.command(CMD_INVEST_REDEEM, "赎回基金")
+    @require_whitelist
+    async def handle_invest_redeem(self, event: AstrMessageEvent, code: str = "", shares: str = ""):
+        async for r in self.invest_handlers.handle_redeem(event, code, shares): yield r
+
+    @filter.command(CMD_INVEST_HOLDINGS, "查看仙市持仓")
+    @require_whitelist
+    async def handle_invest_holdings(self, event: AstrMessageEvent):
+        async for r in self.invest_handlers.handle_holdings(event): yield r
+
+    @filter.command(CMD_INVEST_ORDERS, "查看仙市成交流水")
+    @require_whitelist
+    async def handle_invest_orders(self, event: AstrMessageEvent):
+        async for r in self.invest_handlers.handle_orders(event): yield r
 
     # ===== 悬赏 =====
     @filter.command(CMD_BOUNTY_LIST, "查看悬赏任务")

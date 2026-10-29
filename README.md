@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v6.40.1 (全局数据库并发加固)
+# AstrBot 插件：模拟修仙 v6.41.0 (仙市投资系统)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v6.40.1-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v6.41.0-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,10 +31,10 @@
 
 ---
 
-> **插件版本:** v3.25.5 · **游戏版本:** v6.40.1 · **数据库:** v49
+> **插件版本:** v3.26.0 · **游戏版本:** v6.41.0 · **数据库:** v50
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
-一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，222 条帮助指令 / 222 条注册指令、16 个大系统、110 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
+一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，231 条帮助指令 / 231 条注册指令、16 个大系统、110 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
 
 ---
 
@@ -43,7 +43,26 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · v6.40.1</b></summary>
+<summary><b>本次更新 · v6.41.0</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 仙市投资 | 新增银行「仙市」，9 只标的（6 股 + 3 基金）；股票 1 手 = 100 股、T+0 同盘同价，基金按净值申赎。 |
+| 盘次节奏 | 每日 8 盘：07/09/11/13/15/17/19/21 点各结算一盘；21:00–23:00 尾盘冻结价格仍可交易，23:00–07:00 封盘禁买卖。 |
+| 定价模型 | 每盘涨跌 = 噪声 + 动量（0.25×上一盘）+ 7 日周期 + 消息项 + 均值回归（权重 0.08），单盘限幅 ±3%~±4%、日线熔断 ±7%~±10%。 |
+| 仙市消息 | 每日 07:00 与 15:00 各一条，先落库再结算其后四盘；形态分单边 / 脉冲 / 冲高回落 / 先抑后扬四种，趋势藏在措辞里不直接标注。 |
+| 交易规则 | 股票手续费 0.3% 双边、单笔最低 100 灵石；基金申购免费，赎回费按持有盘次 1.5% / 0.5% / 0，净值硬底 0.85。 |
+| 额度与准入 | 单盘单标的 20 手、单只持仓 50 万、总持仓 200 万；贷款余额超 10 万禁买股票，基金不接受贷款资金。 |
+| 分红机制 | 每 21 盘派息 0.22%，需连续持有满 8 盘，清仓后起点重置。 |
+| 防推算 | 行情种子混入服务器密钥（首次启动随机生成落库），同一盘次重放结果一致，玩家无法本地推演套利。 |
+| 新增指令 | `/仙市` `/行情` `/买入股` `/卖出股` `/申购` `/赎回` `/我的持仓` `/仙市流水`（共 8 条）。 |
+| 数据迁移 | 数据库 v49 → v50，新增 6 张投资表；既有表结构零改动，旧存档自动迁移。 |
+| 回归测试 | 新增 27 个用例，覆盖盘次边界、补算重放一致、限幅熔断、T+0 同价、手续费下限、贷款准入、赎回费阶梯、分红窗口。 |
+
+</details>
+
+<details>
+<summary><b>v6.40.1 · 全局数据库并发加固</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |
