@@ -64,7 +64,8 @@ class SectShopHandler:
         shop_id = f"sect_shop_{sect_id}"
         last_refresh, items = await self.db.get_shop_data(shop_id)
         if items:
-            changed = self.shop_manager.ensure_items_have_stock(items)
+            changed = self.shop_manager.dedupe_same_name_items(items)
+            changed = self.shop_manager.ensure_items_have_stock(items) or changed
             changed = self.shop_manager.ensure_equipment_quality(items) or changed
             changed = self.shop_manager.refresh_item_data(items) or changed
             if changed:
@@ -155,16 +156,9 @@ class SectShopHandler:
         )
         await self.db.conn.commit()
 
-    async def _restore_stock(self, shop_id: str, item_name: str):
-        last_refresh, items = await self.db.get_shop_data(shop_id)
-        changed = False
-        for item in items:
-            if item.get("name") == item_name:
-                item["stock"] = int(item.get("stock", 0) or 0) + 1
-                changed = True
-                break
-        if changed:
-            await self.db.update_shop_data(shop_id, last_refresh, items)
+    async def _restore_stock(self, shop_id: str, item_name: str, entry_key: dict = None):
+        """按精确条目回滚库存，避免同名条目把库存加错行。"""
+        await self.db.increment_shop_item_stock(shop_id, item_name, 1, entry_key=entry_key)
 
     @player_required
     async def handle_buy(self, player: Player, event: AstrMessageEvent, index: str = ""):
@@ -188,6 +182,7 @@ class SectShopHandler:
 
         sect = await self.db.ext.get_sect_by_id(player.sect_id)
         item = items[idx]
+        item_key = self.shop_manager.shop_entry_key(item)
         req_level = ItemRules.get_required_level(item.get("data", {}) or {})
         if player.level_index < req_level:
             yield event.plain_result(f"❌ 兑换【{item.get('name')}】需要达到境界等级 {req_level}。")
@@ -223,7 +218,7 @@ class SectShopHandler:
 
         # 扣库存
         reserved, _, _ = await self.db.decrement_shop_item_stock(
-            shop_id, item_name, 1
+            shop_id, item_name, 1, entry_key=item_key
         )
         if not reserved:
             await self._refund_contribution(player.user_id, price)
@@ -254,7 +249,7 @@ class SectShopHandler:
             )
             if not ok:
                 await self._refund_contribution(player.user_id, price)
-                await self._restore_stock(shop_id, item_name)
+                await self._restore_stock(shop_id, item_name, item_key)
                 yield event.plain_result(
                     f"❌ 储物戒空间不足，兑换失败：{msg}\n贡献已退回。"
                 )
@@ -268,5 +263,5 @@ class SectShopHandler:
 
         # 未知类型：退款并恢复库存
         await self._refund_contribution(player.user_id, price)
-        await self._restore_stock(shop_id, item_name)
+        await self._restore_stock(shop_id, item_name, item_key)
         yield event.plain_result(f"❌ 暂不支持兑换该类型物品（{item_type}），贡献已退回。")

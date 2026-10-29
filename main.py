@@ -1175,9 +1175,9 @@ class XiuXianPlugin(Star):
     async def handle_equip_item(self, event: AstrMessageEvent, item_name: GreedyStr):
         async for r in self.equipment_handler.handle_equip_item(event, item_name): yield r
 
-    @filter.command(CMD_UNEQUIP_ITEM, "卸下装备")
+    @filter.command(CMD_UNEQUIP_ITEM, "卸下装备（可指定戒指/功法栏位）")
     @require_whitelist
-    async def handle_unequip_item(self, event: AstrMessageEvent, slot_or_name: str = ""):
+    async def handle_unequip_item(self, event: AstrMessageEvent, slot_or_name: GreedyStr):
         async for r in self.equipment_handler.handle_unequip_item(event, slot_or_name): yield r
 
     @filter.command(CMD_BREAKTHROUGH_INFO, "查看突破信息")

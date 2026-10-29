@@ -270,6 +270,79 @@ class TestSlots(unittest.IsolatedAsyncioTestCase):
             self.assertIn(expected_slot, p.get_equipped_instances(), results)
         self.assertEqual(set(p.get_equipped_instances()), set(expected_slots))
 
+    async def test_technique_slot_replacement_and_unequip_by_index(self):
+        """回归：/装备 功法名 2 替换第2个功法；/卸下 功法 2 按栏位卸下。"""
+        p = await self._player()
+        p.level_index = 0
+        names = ["测试功法甲", "测试功法乙", "测试功法丙", "测试功法丁"]
+        for name in names:
+            self.cm.techniques_data[name] = {
+                "name": name, "type": "功法", "rank": "凡品",
+                "life_effects": {"gold_bonus": 0.01},
+            }
+        handler = _imp("handlers.equipment_handler").EquipmentHandler(self.db, self.cm)
+        event = _FakeEvent(p.user_id, p.user_id)
+
+        for name in names[:3]:
+            ok, msg = await self.ring.store_item(p, name, 1)
+            self.assertTrue(ok, msg)
+            results = [r async for r in handler.handle_equip_item.__wrapped__(handler, p, event, name)]
+            self.assertIn("已装备功法", "".join(results), results)
+        self.assertEqual(p.get_techniques_list(), names[:3])
+
+        # 满栏时替换第2个
+        ok, msg = await self.ring.store_item(p, names[3], 1)
+        self.assertTrue(ok, msg)
+        results = [r async for r in handler.handle_equip_item.__wrapped__(handler, p, event, f"{names[3]} 2")]
+        self.assertIn("替换", "".join(results), results)
+        self.assertEqual(p.get_techniques_list(), [names[0], names[3], names[2]])
+        self.assertTrue(self.ring.has_item(p, names[1], 1), results)
+
+        # 按栏位卸下第2个
+        results = [r async for r in handler.handle_unequip_item.__wrapped__(handler, p, event, "功法 2")]
+        self.assertIn("栏位 2", "".join(results), results)
+        self.assertEqual(p.get_techniques_list(), [names[0], names[2]])
+        self.assertTrue(self.ring.has_item(p, names[3], 1), results)
+
+        # 名称与栏位不符时拒绝卸下
+        results = [r async for r in handler.handle_unequip_item.__wrapped__(handler, p, event, f"{names[0]} 2")]
+        self.assertIn("不是 2", "".join(results), results)
+        self.assertEqual(p.get_techniques_list(), [names[0], names[2]])
+
+    async def test_unequip_ring_by_name_and_slot_index(self):
+        """回归：/卸下 戒指名 2 卸下戒指2；/卸下 戒指 1 卸下戒指1。"""
+        p = await self._player()
+        p.level_index = 0
+        name = "测试栏位戒指"
+        self.cm.items_data[name] = {"name": name, "type": "ring", "physical_damage": 3, "price": 1}
+        handler = _imp("handlers.equipment_handler").EquipmentHandler(self.db, self.cm)
+        event = _FakeEvent(p.user_id, p.user_id)
+
+        ok, msg = await self.ring.store_item(p, name, 2)
+        self.assertTrue(ok, msg)
+        for slot in ("戒指1", "戒指2"):
+            results = [r async for r in handler.handle_equip_item.__wrapped__(handler, p, event, f"{name} 1 {slot}")]
+            self.assertIn(slot, "".join(results), results)
+        self.assertEqual(
+            set(p.get_equipped_instances()), {"ring1", "ring2"}
+        )
+
+        results = [r async for r in handler.handle_unequip_item.__wrapped__(handler, p, event, f"{name} 2")]
+        self.assertIn("戒指2", "".join(results), results)
+        self.assertNotIn("ring2", p.get_equipped_instances())
+        self.assertIn("ring1", p.get_equipped_instances())
+
+        results = [r async for r in handler.handle_unequip_item.__wrapped__(handler, p, event, "戒指 1")]
+        self.assertIn("戒指1", "".join(results), results)
+        self.assertNotIn("ring1", p.get_equipped_instances())
+
+        results = [r async for r in handler.handle_unequip_item.__wrapped__(handler, p, event, "戒指 2")]
+        self.assertIn("未装备戒指2", "".join(results), results)
+
+        # 显式部位与序号冲突时拒绝
+        results = [r async for r in handler.handle_unequip_item.__wrapped__(handler, p, event, "戒指1 2")]
+        self.assertIn("不匹配", "".join(results), results)
+
     async def test_explicit_ring_slot_argument_is_honoured(self):
         """回归：/装备 戒指 戒指2 必须装到戒指2，不能与戒指1互相覆盖。"""
         p = await self._player()

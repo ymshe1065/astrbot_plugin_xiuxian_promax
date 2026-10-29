@@ -12,6 +12,50 @@ from .database_extended import DatabaseExtended
 # 获取 Player 模型的所有字段名（用于过滤数据库中的多余字段，作为迁移未完成时的兼容）
 PLAYER_FIELDS = {f.name for f in fields(Player)}
 
+
+def _shop_entry_key_matches(item: dict, entry_key: dict) -> bool:
+    """货架条目是否匹配调用方指定的 id/品质。"""
+    data = item.get("data") if isinstance(item.get("data"), dict) else {}
+    target_id = str(entry_key.get("id") or "")
+    if target_id:
+        item_id = str(item.get("id") or data.get("id") or "")
+        if item_id != target_id:
+            return False
+    if "quality" in entry_key:
+        target_quality = entry_key.get("quality")
+        if target_quality is not None and str(item.get("quality") or "") != str(target_quality):
+            return False
+    return True
+
+
+def _find_shop_entry_index(items: list, item_name: str, entry_key: Optional[dict] = None, quantity: int = 0) -> int:
+    """定位货架条目：优先精确键，其次有足够库存的同名条目，最后首个同名条目。
+
+    商店购买/兑换按名称展示，但同名条目可能来自旧配置或跨配置源。调用方传入
+    entry_key（data.id + 品质）时优先扣减/回滚真正的那一条；未传时退化为按名称
+    找第一条有货的条目，避免第一条售罄后误报“已售罄”。
+    """
+    candidates = [
+        idx for idx, item in enumerate(items)
+        if isinstance(item, dict) and item.get("name") == item_name
+    ]
+    if not candidates:
+        return -1
+    if isinstance(entry_key, dict):
+        matched = [idx for idx in candidates if _shop_entry_key_matches(items[idx], entry_key)]
+        if matched:
+            candidates = matched
+    if quantity > 0:
+        for idx in candidates:
+            try:
+                stock = int(items[idx].get("stock", 0) or 0)
+            except (TypeError, ValueError):
+                stock = 0
+            if stock >= quantity:
+                return idx
+    return candidates[0]
+
+
 class DataBase:
     """数据库管理类，提供基础玩家操作"""
 
@@ -487,8 +531,11 @@ class DataBase:
         )
         await self.conn.commit()
 
-    async def decrement_shop_item_stock(self, shop_id: str, item_name: str, quantity: int = 1, external_transaction: bool = False) -> tuple[bool, int, int]:
-        """尝试扣减指定商店物品的库存（原子操作，可批量）"""
+    async def decrement_shop_item_stock(self, shop_id: str, item_name: str, quantity: int = 1, external_transaction: bool = False, entry_key: Optional[dict] = None) -> tuple[bool, int, int]:
+        """尝试扣减指定商店物品的库存（原子操作，可批量）
+
+        entry_key 可传 {"id": ..., "quality": ...} 精确指定货架条目，避免同名条目扣错行。
+        """
         quantity = max(1, int(quantity))
         if not external_transaction:
             await self.conn.execute("BEGIN IMMEDIATE")
@@ -510,11 +557,7 @@ class DataBase:
             except (json.JSONDecodeError, TypeError, ValueError):
                 current_items = []
 
-            target_index = -1
-            for idx, item in enumerate(current_items):
-                if item.get('name') == item_name:
-                    target_index = idx
-                    break
+            target_index = _find_shop_entry_index(current_items, item_name, entry_key, quantity)
 
             if target_index == -1:
                 if not external_transaction:
@@ -548,8 +591,11 @@ class DataBase:
                 await self.conn.rollback()
             raise
 
-    async def increment_shop_item_stock(self, shop_id: str, item_name: str, quantity: int = 1):
-        """回滚库存（在购买失败时恢复库存），支持批量"""
+    async def increment_shop_item_stock(self, shop_id: str, item_name: str, quantity: int = 1, entry_key: Optional[dict] = None):
+        """回滚库存（在购买失败时恢复库存），支持批量
+
+        entry_key 与 decrement_shop_item_stock 保持一致，避免同名条目加错行。
+        """
         quantity = max(1, int(quantity))
         await self.conn.execute("BEGIN IMMEDIATE")
         try:
@@ -569,11 +615,10 @@ class DataBase:
             except (json.JSONDecodeError, TypeError, ValueError):
                 current_items = []
 
-            for item in current_items:
-                if item.get('name') == item_name:
-                    current_stock = item.get('stock', 0) or 0
-                    item['stock'] = current_stock + quantity
-                    break
+            target_index = _find_shop_entry_index(current_items, item_name, entry_key)
+            if target_index >= 0:
+                current_stock = current_items[target_index].get('stock', 0) or 0
+                current_items[target_index]['stock'] = current_stock + quantity
 
             items_json = json.dumps(current_items, ensure_ascii=False)
             await self.conn.execute(

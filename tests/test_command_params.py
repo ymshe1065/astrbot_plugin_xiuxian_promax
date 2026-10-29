@@ -68,6 +68,20 @@ class TestCommandParams(unittest.TestCase):
         annotation = next(arg for arg, _ in _iter_params(func.args) if arg.arg == "item_name")
         self.assertEqual(_annotation_name(annotation.annotation), GREEDY_NAME)
 
+    def test_unequip_command_is_greedy(self):
+        """回归：/卸下 戒指 2 需要完整接收栏位参数。"""
+        tree = ast.parse((ROOT / "main.py").read_text(encoding="utf-8"))
+        func = next(
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "handle_unequip_item"
+        )
+        params = {arg.arg: default for arg, default in _iter_params(func.args)}
+        self.assertIn("slot_or_name", params)
+        self.assertIsNone(params["slot_or_name"])
+        annotation = next(arg for arg, _ in _iter_params(func.args) if arg.arg == "slot_or_name")
+        self.assertEqual(_annotation_name(annotation.annotation), GREEDY_NAME)
+
 
 if __name__ == "__main__":
     unittest.main()

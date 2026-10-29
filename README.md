@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v6.39.2 (全量 BUG 修复)
+# AstrBot 插件：模拟修仙 v6.40.0 (功法与卸下栏位指定)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v6.39.2-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v6.40.0-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.25.2 · **游戏版本:** v6.39.2 · **数据库:** v49
+> **插件版本:** v3.25.4 · **游戏版本:** v6.40.0 · **数据库:** v49
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，222 条帮助指令 / 222 条注册指令、16 个大系统、110 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,32 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · v6.39.2</b></summary>
+<summary><b>本次更新 · v6.40.0</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 功法栏位 | `/装备 <功法名> 1~3` 可替换 `/我的装备` 中对应序号的普通功法，旧功法自动返还储物戒；满栏时不再只能先卸下。 |
+| 卸下栏位 | `/卸下` 支持栏位参数：`/卸下 戒指 1/2`、`/卸下 <戒指名> 1/2`、`/卸下 功法 1~3`、`/卸下 <功法名> <栏位>`；名称与栏位不符时会拒绝误卸。 |
+| 参数解析 | `/卸下` 改为贪婪参数，修复多词装备名与栏位数字被截断；物品名本身以数字结尾时优先按完整名称匹配。 |
+| 拍卖发放 | 拍品发放与 `delivered` 状态改为单事务提交，失败自动回滚并退回 `pending`，进程中断后不再重复发放。 |
+| 帮助同步 | `/修仙帮助`、玩家指南与知识库同步新增栏位写法，版本号更新至 v6.40.0；本次无数据库结构变更。 |
+
+</details>
+
+<details>
+<summary><b>v6.39.3 · 商店库存定位修复</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 商店库存 | 货架改为按 `data.id + 品质` 精确定位扣减/回滚；同名条目首条售罄时不再误报“已售罄”。 |
+| 旧货架兼容 | 读取/生成货架时自动合并同名条目，库存累加并保留首条价格与品质，合并结果写回缓存。 |
+| 宗门兑换 | `/宗门兑换 <编号>` 扣库存与失败回滚改为按对应编号条目的精确键执行，避免扣错同名行。 |
+| 帮助同步 | `/修仙帮助` 与版本号同步更新至 v6.39.3，本次无新增指令与数据库结构变更。 |
+
+</details>
+
+<details>
+<summary><b>v6.39.2 · 全量 BUG 修复</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |
