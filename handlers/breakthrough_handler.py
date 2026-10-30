@@ -125,7 +125,7 @@ class BreakthroughHandler:
             )
         death_reduce = 1 - modifiers["permanent_death_multiplier"]
         if death_reduce > 0:
-            info_lines.append(f"突破死亡概率降低：{death_reduce:.1%}\n")
+            info_lines.append(f"突破失败境界跌落概率降低：{death_reduce:.1%}\n")
 
         if available_pills:
             info_lines.append(f"\n【可用破境丹】\n")
@@ -145,8 +145,8 @@ class BreakthroughHandler:
                 f"【突破说明】\n",
                 f"• 使用命令：{CMD_BREAKTHROUGH} 或 {CMD_BREAKTHROUGH} [破境丹名称]\n",
                 f"• 突破成功：境界提升，肉身更强\n",
-                f"• 突破失败：损失10%修为，有概率死亡\n",
-                f"• 死亡后：所有数据清除，需重新入仙途\n",
+                f"• 突破失败：损失10%修为，有概率跌落一个大境界\n",
+                f"• 境界跌落：不会死亡，修为超过新境界门槛的部分会被压缩\n",
                 f"=" * 28
             ])
         else:
@@ -155,8 +155,8 @@ class BreakthroughHandler:
                 f"【突破说明】\n",
                 f"• 使用命令：{CMD_BREAKTHROUGH} 或 {CMD_BREAKTHROUGH} [破境丹名称]\n",
                 f"• 突破成功：境界提升，实力大增\n",
-                f"• 突破失败：损失10%修为，有概率死亡\n",
-                f"• 死亡后：所有数据清除，需重新入仙途\n",
+                f"• 突破失败：损失10%修为，有概率跌落一个大境界\n",
+                f"• 境界跌落：不会死亡，修为超过新境界门槛的部分会被压缩\n",
                 f"=" * 28
             ])
 

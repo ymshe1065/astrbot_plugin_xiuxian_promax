@@ -1050,8 +1050,8 @@ class XiuXianPlugin(Star):
                 if processed:
                     logger.info(f"【修仙插件】处理了 {len(processed)} 笔逾期贷款")
                     for loan_info in processed:
-                        if loan_info.get("death"):
-                            await self._broadcast_loan_death(loan_info)
+                        if loan_info.get("realm_fall"):
+                            await self._broadcast_loan_fall(loan_info)
                 retry_count = 0
             except asyncio.CancelledError:
                 break
@@ -1062,19 +1062,22 @@ class XiuXianPlugin(Star):
                 logger.info(f"【修仙插件】贷款检查任务将在 {delay} 秒后重试（第{retry_count}次）")
                 await asyncio.sleep(delay)
 
-    async def _broadcast_loan_death(self, loan_info: dict):
+    async def _broadcast_loan_fall(self, loan_info: dict):
         from astrbot.api.event import MessageChain
         if not self.broadcast_groups:
-            self._warn_no_whitelist("贷款追杀")
+            self._warn_no_whitelist("贷款处罚")
             return
         player_name = loan_info.get("player_name", "某修士")
         principal = loan_info.get("principal", 0)
+        old_name = loan_info.get("old_name", "原境界")
+        new_name = loan_info.get("new_name", "更低境界")
         broadcast_msg = (
-            f"💀 银行追杀公告 💀\n"
+            f"💀 银行罚则公告 💀\n"
             f"━━━━━━━━━━━━━━━\n"
             f"修士【{player_name}】因贷款逾期未还\n"
             f"欠款：{principal:,} 灵石\n"
-            f"已被灵石银行追杀致死！\n"
+            f"被银行执法者击伤，境界跌落！\n"
+            f"📉 {old_name} → {new_name}\n"
             f"━━━━━━━━━━━━━━━\n"
             f"⚠️ 借贷有风险，还款需及时！"
         )

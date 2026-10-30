@@ -113,7 +113,7 @@ class BreakthroughManager:
         death_rate_multiplier: float = 1.0,
         pill_quality: Optional[str] = None,
     ) -> Tuple[bool, str, bool, bool]:
-        """执行突破。返回 (是否成功, 消息, 是否死亡, 是否真正发起突破)"""
+        """执行突破。返回 (是否成功, 消息, 是否删号, 是否真正发起突破)"""
         # 1. 检查突破条件
         can_breakthrough, error_msg = self.check_breakthrough_requirements(player)
         if not can_breakthrough:
@@ -288,14 +288,13 @@ class BreakthroughManager:
             died = random.random() < death_rate
 
             if died:
-                # 死亡逻辑
+                # 原“死亡”判定：统一改为掉落一个大境界，不再删除角色
                 from .pill_manager import PillManager
                 pill_manager = PillManager(self.db, self.config_manager)
                 res_quality = (
                     getattr(player, "resurrection_pill_quality", pill_manager.DEFAULT_QUALITY)
                     or pill_manager.DEFAULT_QUALITY
                 )
-                res_keep = pill_manager.get_resurrection_keep(res_quality)
                 resurrected = await pill_manager.handle_resurrection(player)
 
                 if resurrected:
@@ -308,29 +307,42 @@ class BreakthroughManager:
                         f"\n"
                         f"⚡ 回生丹效果触发！⚡\n"
                         f"━━━━━━━━━━━━━━━\n"
-                        f"🌟 你涅槃重生了！\n"
-                        f"⚠️ 你的永久属性保留 {res_keep:.0%}（{res_quality}回生丹）\n"
-                        f"💊 回生丹效果已消耗\n"
+                        f"🌟 回生丹护住你的道基，本次未跌落境界！\n"
+                        f"💊 回生丹效果已消耗（{res_quality}）\n"
                         f"━━━━━━━━━━━━━━━\n"
-                        f"请继续修炼，重回巅峰！"
+                        f"请继续修炼，再接再厉！"
                     )
                     resurrection_msg += cost_note
-                    logger.info(f"玩家 {player.user_id} 突破失败触发回生丹，成功复活")
+                    logger.info(f"玩家 {player.user_id} 突破失败触发回生丹，避免境界跌落")
                     return False, resurrection_msg, False, True
 
-                # 真死
-                await self.db.delete_player_cascade(player.user_id)
-                death_msg = (
+                # 掉落一个大境界
+                from .realm_penalty import fall_one_major_realm
+                fall_info = fall_one_major_realm(player, self.config_manager)
+                await self.db.update_player(player)
+
+                fall_msg = (
                     f"💀 突破失败，走火入魔！💀\n"
                     f"━━━━━━━━━━━━━━━\n"
                     f"{rate_info}\n"
                     f"━━━━━━━━━━━━━━━\n"
-                    f"你在突破【{next_level_name}】时走火入魔，身死道消...\n"
-                    f"所有修为和装备化为虚无\n"
-                    f"若想重新修仙，请使用'我要修仙'命令重新开始"
+                    f"你在突破【{next_level_name}】时走火入魔，道基受损...\n"
+                    f"\n"
+                    f"📉 境界跌落：{fall_info['old_name']} → {fall_info['new_name']}\n"
                 )
-                logger.info(f"玩家 {player.user_id} 突破失败并死亡：{current_level_name} -> {next_level_name}，死亡概率 {death_rate:.2%}")
-                return False, death_msg, True, True
+                if fall_info.get("exp_lost"):
+                    fall_msg += f"修为受损：-{fall_info['exp_lost']:,}\n"
+                fall_msg += (
+                    f"━━━━━━━━━━━━━━━\n"
+                    f"所幸保住性命，请重新修炼，再攀高峰！"
+                )
+                fall_msg += cost_note
+                logger.info(
+                    f"玩家 {player.user_id} 突破失败并跌落境界：{current_level_name} -> {next_level_name}，"
+                    f"实际境界 {fall_info['old_name']} -> {fall_info['new_name']}，"
+                    f"跌落概率 {death_rate:.2%}"
+                )
+                return False, fall_msg, False, True
 
             else:
                 # 失败但未死
@@ -353,7 +365,7 @@ class BreakthroughManager:
                 return False, fail_msg, False, True
     
     def _get_death_probability_range(self) -> Tuple[float, float]:
-        """读取并校验突破失败死亡概率区间，异常配置回退到 1%~10%。"""
+        """读取并校验突破失败境界跌落概率区间，异常配置回退到 1%~10%。"""
         values = self.config.get("VALUES", {}) or {}
         raw = values.get("BREAKTHROUGH_DEATH_PROBABILITY", [0.01, 0.1])
         try:
@@ -372,7 +384,7 @@ class BreakthroughManager:
         return low, high
 
     def _get_body_death_multiplier(self) -> float:
-        """体修突破失败的额外死亡风险倍率。"""
+        """体修突破失败的境界跌落风险倍率。"""
         values = self.config.get("VALUES", {}) or {}
         try:
             multiplier = float(values.get("BODY_BREAKTHROUGH_DEATH_MULTIPLIER", 1.5))
@@ -438,7 +450,7 @@ class BreakthroughManager:
                     f"应还金额：{total_due:,} 灵石\n"
                     f"你只有：{penalty_gold:,} 灵石\n"
                     f"【天道降罚】你的灵石被全部清空，气血减半！\n"
-                    f"贷款已被标记为逾期，请立刻前往银行还款，否则将被追杀致死！"
+                    f"贷款已被标记为逾期，请立刻前往银行还款，否则将掉落一个大境界！"
                 )
         except Exception as e:
             logger.warning(f"处理突破贷款自动还款异常: {e}")

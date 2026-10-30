@@ -41,7 +41,7 @@ class DailyTaskManager:
         ],
         "天": [
             {"title": "弑神之战", "type": "boss_damage", "count": 2, "desc": "对世界Boss造成至少2%伤害"},
-            {"title": "越级挑战", "type": "win_pvp", "count": 1, "desc": "在决斗中击败一名玩家"},
+            {"title": "越级挑战", "type": "adventure", "count": 2, "desc": "完成2次历练路线，挑战更高境界的强敌"},
             {"title": "团本先锋", "type": "boss_damage", "count": 3, "desc": "参与3次世界Boss/团本讨伐"},
             {"title": "丹道宗师", "type": "craft_pill", "count": 3, "desc": "成功炼制3次丹药"}
         ]
@@ -101,6 +101,7 @@ class DailyTaskManager:
                 msg.append(f"  [{level}阶] {names}")
         msg.append("")
         msg.append("💡 /接取任务 <黄/玄/地/天> 从今日随机任务中抽一个接取")
+        msg.append("💡 /接取任务 all 一键接取今日全部可接任务")
         msg.append("💡 /领取任务奖励 结算已完成任务")
         return "\n".join(msg)
 
@@ -126,8 +127,18 @@ class DailyTaskManager:
 
     async def generate_task(self, player: Player, level: str) -> Tuple[bool, str]:
         """接取任务（v6.17：从今日随机池抽取，每人任务不同）"""
+        success, title, detail = await self._accept_one_task(player, level)
+        if not success:
+            return False, detail
+        return True, f"✅ 已接取【{level}阶】任务：{title}\n目标：{detail}"
+
+    async def _accept_one_task(self, player: Player, level: str) -> Tuple[bool, str, str]:
+        """从指定品阶的今日随机池接取一个任务。
+
+        返回 (是否成功, 任务标题/错误信息, 任务目标)。
+        """
         if level not in self.LEVEL_LIMITS:
-            return False, "❌ 无效的任务品阶，请选择 黄/玄/地/天。"
+            return False, "", "❌ 无效的任务品阶，请选择 黄/玄/地/天。"
 
         # 计算过期时间（今天 23:59:59）
         now = int(time.time())
@@ -139,7 +150,7 @@ class DailyTaskManager:
             player.user_id, level, today_end
         )
         if current_level_count >= max_limit:
-            return False, f"❌ 你今日的【{level}阶】任务接取次数已用尽（上限 {max_limit} 次）。"
+            return False, "", f"❌ 你今日的【{level}阶】任务接取次数已用尽（上限 {max_limit} 次）。"
 
         # 从今日随机池中抽取（去掉已在进行中的同名任务）
         daily_pool = self.get_daily_pool(player.user_id, level)
@@ -147,7 +158,7 @@ class DailyTaskManager:
         doing_titles = {t["title"] for t in active_tasks}
         candidates = [(i, tpl) for i, tpl in daily_pool if tpl["title"] not in doing_titles]
         if not candidates:
-            return False, f"❌ 今日【{level}阶】的随机任务你都已接取/在进行中，明日再来。"
+            return False, "", f"❌ 今日【{level}阶】的随机任务你都已接取/在进行中，明日再来。"
 
         import random as _random
         idx, template = _random.choice(candidates)
@@ -181,7 +192,42 @@ class DailyTaskManager:
             expire_time=today_end
         )
         
-        return True, f"✅ 已接取【{level}阶】任务：{template['title']}\n目标：{template['desc']}"
+        return True, template["title"], template["desc"]
+
+    async def generate_all_tasks(self, player: Player) -> Tuple[bool, str]:
+        """一键接取今日所有可接任务（受各品阶上限与随机池限制）。"""
+        accepted: List[Tuple[str, str]] = []
+        blocked: List[str] = []
+
+        for level in self.LEVEL_LIMITS:
+            pool_size = len(self.TASK_POOL.get(level, []))
+            level_accepted = 0
+            # 最多尝试“随机池数量 + 每日上限”次，避免异常情况下死循环
+            max_attempts = pool_size + self.LEVEL_LIMITS[level]["max"] + 1
+            for _ in range(max_attempts):
+                success, title, detail = await self._accept_one_task(player, level)
+                if not success:
+                    if level_accepted == 0:
+                        blocked.append(f"[{level}阶] {detail}")
+                    break
+                accepted.append((level, title))
+                level_accepted += 1
+
+        if not accepted:
+            lines = ["❌ 今日暂无可接取的任务。"]
+            lines.extend(blocked)
+            return False, "\n".join(lines)
+
+        lines = ["✅ 一键接取完成！", "━━━━━━━━━━━━━━━"]
+        for level, title in accepted:
+            lines.append(f"[{level}阶] {title}")
+        lines.append(f"━━━━━━━━━━━━━━━\n共接取 {len(accepted)} 个任务")
+        if blocked:
+            lines.append("")
+            lines.append("【未接取】")
+            lines.extend(blocked)
+        lines.append("💡 使用 /任务榜 查看进度，/领取任务奖励 结算已完成任务")
+        return True, "\n".join(lines)
 
     async def abandon_task(self, player: Player, task_id: int) -> Tuple[bool, str]:
         """放弃一个进行中的日常任务；已完成的任务必须先领奖。"""

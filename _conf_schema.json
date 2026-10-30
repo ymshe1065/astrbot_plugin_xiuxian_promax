@@ -310,16 +310,16 @@
         "hint": "每日签到获得的最多灵石数量。"
       },
       "BREAKTHROUGH_DEATH_PROBABILITY": {
-        "description": "突破失败死亡概率范围",
+        "description": "突破失败境界跌落概率范围",
         "type": "list",
         "default": [0.01, 0.1],
-        "hint": "突破失败时的死亡概率范围。第一个值为最小概率（1%），第二个值为最大概率（10%）。每次突破失败会在此范围内随机一个死亡概率。"
+        "hint": "突破失败时的境界跌落概率范围。第一个值为最小概率（1%），第二个值为最大概率（10%）。每次突破失败会在此范围内随机一个概率，触发后掉落一个大境界，但不会死亡。"
       },
       "BODY_BREAKTHROUGH_DEATH_MULTIPLIER": {
-        "description": "体修突破失败死亡概率倍率",
+        "description": "体修突破失败境界跌落概率倍率",
         "type": "float",
         "default": 1.5,
-        "hint": "体修突破失败时的死亡概率额外倍率。1.5 表示比灵修高 50%，设置为 1.0 则与灵修相同。"
+        "hint": "体修突破失败时的境界跌落概率额外倍率。1.5 表示比灵修高 50%，设置为 1.0 则与灵修相同。"
       },
       "PAVILION_REFRESH_HOURS": {
         "description": "阁楼刷新时间（小时）",
@@ -415,7 +415,7 @@
         "description": "普通贷款期限（天）",
         "type": "int",
         "default": 7,
-        "hint": "普通贷款到期天数，逾期会被银行追杀。"
+        "hint": "普通贷款到期天数，逾期会掉落一个大境界。"
       },
       "MAX_LOAN_AMOUNT": {
         "description": "最大贷款额",

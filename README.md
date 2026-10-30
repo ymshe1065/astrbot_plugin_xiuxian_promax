@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v6.44.0 (符箓重做·仙市16盘·拍卖盲拍)
+# AstrBot 插件：模拟修仙 v6.45.0 (一键接取任务·境界跌落替代死亡)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v6.44.0-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v6.45.0-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.28.0 · **游戏版本:** v6.44.0 · **数据库:** v53
+> **插件版本:** v3.29.0 · **游戏版本:** v6.45.0 · **数据库:** v53
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，233 条帮助指令 / 233 条注册指令、16 个大系统、110 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,22 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · v6.44.0（符箓重做 · 仙市 16 盘 · 拍卖盲拍）</b></summary>
+<summary><b>本次更新 · v6.45.0（一键接取任务 · 境界跌落替代死亡）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 日常任务 | 新增 `/接取任务 all`（也支持 `全部/所有/一键`），一次性接取当日各品阶所有可接任务，仍受每日上限与随机池限制。 |
+| 越级挑战 | 天阶「越级挑战」不再要求决斗，改为完成 2 次历练路线、挑战更高境界强敌。 |
+| 死亡判定 | 突破失败、贷款逾期等原“角色死亡/删除数据”场景，统一改为掉落一个大境界；触发概率保持不变，角色不再直接死亡。 |
+| 跌落规则 | 优先保留当前小境界位置（如金丹后期→筑基后期）；修为压缩至新境界门槛，超出部分损失。 |
+| 回生丹 | 效果调整为抵消一次突破失败的境界跌落，不再按比例削减属性。 |
+| 贷款逾期 | 逾期处罚改为跌落一个大境界，并将该笔贷款转为坏账，避免同一笔欠款重复触发处罚。 |
+| 帮助同步 | `/修仙帮助` 版本号更新至 v6.45.0，任务与突破说明同步；本次无数据库结构变更。 |
+
+</details>
+
+<details>
+<summary><b>v6.44.0 · 符箓重做 · 仙市 16 盘 · 拍卖盲拍</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |
@@ -914,7 +929,8 @@ python -m unittest tests.test_static_images -v
 闭关 → 出关           ← 挂机修炼
 开始历练             ← 选择 60 条路线之一
 接取任务 玄          ← 今日随机任务
-突破                 ← 提升境界（会死的那种）
+接取任务 all         ← 一键接取今日全部可接任务
+突破                 ← 提升境界（失败会跌落境界）
 器阁 → 购买 青铜剑    ← 购买第一件装备
 储物戒 → 装备 青铜剑  ← 装备先进储物戒，再用 /装备 穿戴
 坊市上架 → 我的坊市  ← NPC约1小时随机问价，选择卖出或继续等待

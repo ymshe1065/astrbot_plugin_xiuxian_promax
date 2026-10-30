@@ -427,13 +427,11 @@ class PillManager:
         self._consume_inventory_key(player, pill_key)
         await self.db.update_player(player)
 
-        keep = self.get_resurrection_keep(quality)
         return True, (
             f"✨ 服用【{base_name}·{quality}】成功！\n"
             f"━━━━━━━━━━━━━━━\n"
-            f"🛡️ 你获得了起死回生的能力\n"
-            f"突破失败死亡时将自动复活\n"
-            f"（复活后保留 {keep:.0%} 属性）\n"
+            f"🛡️ 你获得了护住道基的能力\n"
+            f"突破失败触发境界跌落时可自动抵消一次\n"
             f"━━━━━━━━━━━━━━━"
         )
 
@@ -621,7 +619,7 @@ class PillManager:
             if "death_protection_multiplier" not in permanent_gains[level_key]:
                 permanent_gains[level_key]["death_protection_multiplier"] = 1.0
             permanent_gains[level_key]["death_protection_multiplier"] *= death_mult
-            gains_applied["突破死亡概率"] = f"降低{(1 - death_mult) * 100:.0f}%"
+            gains_applied["突破境界跌落概率"] = f"降低{(1 - death_mult) * 100:.0f}%"
 
         if not gains_applied:
             return False, "该丹药的所有属性增益都已达到上限，无法使用！"
@@ -858,49 +856,15 @@ class PillManager:
         }
 
     async def handle_resurrection(self, player: Player) -> bool:
-        """处理玩家死亡时的回生丹效果"""
+        """处理原“死亡”判定时的回生丹效果：抵消本次大境界跌落。"""
         if not player.has_resurrection_pill:
             return False
 
         quality = getattr(player, "resurrection_pill_quality", self.DEFAULT_QUALITY) or self.DEFAULT_QUALITY
-        keep = self.get_resurrection_keep(quality)
-        logger.info(f"玩家 {player.user_id} 触发回生丹效果（{quality}，保留 {keep:.0%}）")
+        logger.info(f"玩家 {player.user_id} 触发回生丹效果（{quality}，抵消境界跌落）")
         player.has_resurrection_pill = False
         player.resurrection_pill_quality = self.DEFAULT_QUALITY
 
-        def kept(value):
-            return int(value * keep)
-
-        player.lifespan = kept(player.lifespan)
-        player.experience = kept(player.experience)
-        player.physical_damage = kept(player.physical_damage)
-        player.magic_damage = kept(player.magic_damage)
-        player.physical_defense = kept(player.physical_defense)
-        player.magic_defense = kept(player.magic_defense)
-        player.mental_power = kept(player.mental_power)
-        player.max_spiritual_qi = kept(player.max_spiritual_qi)
-        player.spiritual_qi = player.max_spiritual_qi
-        player.max_blood_qi = kept(player.max_blood_qi)
-        player.blood_qi = player.max_blood_qi
-
-        # 永久丹药增益记录同步缩放，否则复活后旧记录仍占满 30% 上限，无法继续吃永久丹
-        try:
-            permanent_gains = player.get_permanent_pill_gains()
-            for gains in permanent_gains.values():
-                if not isinstance(gains, dict):
-                    continue
-                for attr_key in (
-                    "physical_damage", "magic_damage", "physical_defense",
-                    "magic_defense", "mental_power", "lifespan",
-                    "max_spiritual_qi", "max_blood_qi",
-                ):
-                    if attr_key in gains:
-                        gains[attr_key] = kept(int(gains.get(attr_key, 0) or 0))
-            player.set_permanent_pill_gains(permanent_gains)
-        except Exception:
-            pass
-
-        self._ensure_non_negative_attributes(player)
         await self.db.update_player(player)
         return True
 

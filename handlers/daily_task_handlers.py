@@ -21,7 +21,13 @@ class DailyTaskHandlers:
     async def handle_accept_task(self, player: Player, event: AstrMessageEvent, level: str = ""):
         """接取任务"""
         if not level:
-            yield event.plain_result("❌ 请指定任务品阶，例如：/接取任务 黄")
+            yield event.plain_result("❌ 请指定任务品阶，例如：/接取任务 黄，或 /接取任务 all 一键接取今日全部任务")
+            return
+
+        choice = level.strip().lower()
+        if choice in ("all", "全部", "所有", "一键"):
+            success, msg = await self.task_mgr.generate_all_tasks(player)
+            yield event.plain_result(msg)
             return
             
         success, msg = await self.task_mgr.generate_task(player, level)

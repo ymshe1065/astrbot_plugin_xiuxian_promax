@@ -233,9 +233,9 @@ def player_required(func: Callable[..., Coroutine[any, any, AsyncGenerator[any, 
                 return
 
             injured = False
+            config_manager = _handler_config_manager(self)
             try:
                 from ..managers.recovery_manager import RecoveryManager
-                config_manager = _handler_config_manager(self)
                 if config_manager is not None:
                     recovery = RecoveryManager(self.db, config_manager)
                     await recovery.apply_lazy_recovery(player)
@@ -244,10 +244,10 @@ def player_required(func: Callable[..., Coroutine[any, any, AsyncGenerator[any, 
                 pass
 
             # 检查贷款状态并处理逾期
-            loan_warning = await _check_loan_status(self.db, player)
+            loan_warning = await _check_loan_status(self.db, player, config_manager)
             if loan_warning:
-                if loan_warning.get("is_dead"):
-                    # 玩家因逾期被追杀，删除数据
+                if loan_warning.get("penalized") or loan_warning.get("is_dead"):
+                    # 玩家因逾期被处罚（境界跌落），展示结果后中止本次操作
                     yield event.plain_result(loan_warning["message"])
                     return
 
@@ -410,7 +410,7 @@ def resolve_greedy_args(
     return current
 
 
-async def _check_loan_status(db, player: Player) -> dict:
+async def _check_loan_status(db, player: Player, config_manager=None) -> dict:
     """检查玩家贷款状态"""
     try:
         loan = await db.ext.get_active_loan(player.user_id)
@@ -422,7 +422,7 @@ async def _check_loan_status(db, player: Player) -> dict:
         
         # 检查是否已逾期
         if now > due_at:
-            # 使用事务保护，防止并发删除
+            # 使用事务保护，防止并发重复处罚
             await db.conn.execute("BEGIN IMMEDIATE")
             try:
                 # 重新检查贷款状态（overdue 同样属于未结清贷款）
@@ -436,33 +436,52 @@ async def _check_loan_status(db, player: Player) -> dict:
                     return None
                 
                 player_name = player.user_name or f"道友{player.user_id[:6]}"
-                
-                # 删除玩家（级联删除所有关联数据）
-                await db.delete_player_cascade(player.user_id)
-                # 级联删除已将未结清贷款标记为 bad_debt，无需再改回 overdue
-                
+
+                # 原“银行追杀致死”改为掉落一个大境界，保留角色
+                from ..core.realm_penalty import fall_one_major_realm
+                fall_info = fall_one_major_realm(player, config_manager)
+                await db.update_player(player, commit=False)
+
+                # 转为坏账，避免同一笔欠款每次操作都重复触发境界跌落
+                await db.conn.execute(
+                    "UPDATE bank_loans SET status = 'bad_debt' WHERE id = ?",
+                    (loan["id"],),
+                )
+
                 # 记录流水
-                await db.ext.add_bank_transaction(
-                    player.user_id, "bank_kill", 0, 0,
-                    "逾期未还款，被银行追杀致死", now
+                await db.conn.execute(
+                    "INSERT INTO bank_transactions (user_id, trans_type, amount, balance_after, description, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        player.user_id, "bank_kill", 0, 0,
+                        f"逾期未还款，境界跌落：{fall_info['old_name']}→{fall_info['new_name']}",
+                        now,
+                    )
                 )
                 
                 await db.conn.commit()
                 
                 loan_type_name = "突破贷款" if loan["loan_type"] == "breakthrough" else "普通贷款"
+                exp_note = (
+                    f"修为压缩：-{fall_info['exp_lost']:,}\n"
+                    if fall_info.get("exp_lost") else ""
+                )
                 
                 return {
-                    "is_dead": True,
+                    "is_dead": False,
+                    "penalized": True,
+                    "fall_info": fall_info,
                     "message": (
-                        f"💀 银行追杀令 💀\n"
+                        f"💀 银行罚则 💀\n"
                         f"━━━━━━━━━━━━━━━\n"
-                        f"道友【{player_name}】因{loan_type_name}逾期未还\n"
+                        f"道友【{player_name}】的{loan_type_name}逾期未还\n"
                         f"欠款本金：{loan['principal']:,} 灵石\n"
                         f"━━━━━━━━━━━━━━━\n"
-                        f"银行派出的追杀者已将你击杀！\n"
-                        f"所有修为和装备化为虚无...\n"
+                        f"银行执法者击伤了你，境界跌落！\n"
+                        f"📉 {fall_info['old_name']} → {fall_info['new_name']}\n"
+                        f"{exp_note}"
+                        f"该笔贷款已转为坏账，不会重复处罚。\n"
                         f"━━━━━━━━━━━━━━━\n"
-                        f"若想重新修仙，请使用「我要修仙」命令"
+                        f"所幸保住性命，请重新修炼，再攀高峰！"
                     )
                 }
             except Exception:

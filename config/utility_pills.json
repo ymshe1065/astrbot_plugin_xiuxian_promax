@@ -2,7 +2,7 @@
     {
         "id": "util_001",
         "name": "回生丹",
-        "description": "传说级丹药，突破失败死亡时可自动复活一次，但复活后属性减半",
+        "description": "传说级丹药，突破失败触发境界跌落时可自动抵消一次",
         "rank": "仙品",
         "subtype": "resurrection",
         "required_level_index": 0,
@@ -14,7 +14,7 @@
     {
         "id": "util_002",
         "name": "涅槃重生丹",
-        "description": "混元先天丹药，突破失败死亡时可自动复活一次，复活后属性减半",
+        "description": "混元先天丹药，突破失败触发境界跌落时可自动抵消一次",
         "rank": "混元先天",
         "subtype": "resurrection",
         "required_level_index": 0,
@@ -1593,7 +1593,7 @@
     {
         "id": "util_120",
         "name": "破劫丹",
-        "description": "永久降低突破死亡概率-50%",
+        "description": "永久降低突破境界跌落概率-50%",
         "rank": "仙品",
         "subtype": "permanent_attribute",
         "required_level_index": 31,

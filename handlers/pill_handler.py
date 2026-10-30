@@ -110,8 +110,7 @@ class PillHandler:
         resurrection_status = ""
         if player.has_resurrection_pill:
             res_quality = getattr(player, "resurrection_pill_quality", "一般") or "一般"
-            keep = self.pill_manager.get_resurrection_keep(res_quality)
-            resurrection_status = f"\n🛡️ 当前拥有回生丹效果（{res_quality}，突破失败复活保留 {keep:.0%} 属性）"
+            resurrection_status = f"\n🛡️ 当前拥有回生丹效果（{res_quality}，可抵消一次境界跌落）"
 
         # 组合显示
         full_message = inventory_display
@@ -189,11 +188,7 @@ class PillHandler:
                 mult = self.pill_manager.get_quality_multiplier(quality)
                 info_lines.append(f"  {quality}：效果 ×{mult:.2f}")
             if subtype == "resurrection":
-                keeps = "、".join(
-                    f"{quality}{self.pill_manager.get_resurrection_keep(quality):.0%}"
-                    for quality in self.pill_manager.QUALITY_ORDER
-                )
-                info_lines.append(f"  复活保留：{keeps}")
+                info_lines.append("  效果：抵消一次突破失败的境界跌落")
 
         info_lines.append("-" * 20)
 
@@ -244,7 +239,7 @@ class PillHandler:
             lines.append(f"  增加修为：{exp_gain}")
 
         elif subtype == "resurrection":
-            lines.append("  抵消一次死亡，复活后属性减半")
+            lines.append("  抵消一次突破失败的境界跌落")
 
         elif effect_type == "temporary":
             duration = pill_data.get('duration_minutes', 0)

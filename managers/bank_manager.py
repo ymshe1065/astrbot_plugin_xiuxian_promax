@@ -354,7 +354,7 @@ class BankManager:
                 + (f"持有门槛：{required_holdings:,} 灵石（已满足）\n" if required_holdings > 0 else "")
                 + f"━━━━━━━━━━━━━━━\n"
                 f"当前持有：{player.gold:,} 灵石\n"
-                f"💀 逾期将被银行追杀致死！"
+                f"💀 逾期将掉落一个大境界！"
             )
         except Exception as e:
             await self.db.conn.rollback()
@@ -478,11 +478,13 @@ class BankManager:
             raise
     
     async def check_and_process_overdue_loans(self) -> List[dict]:
-        """检查并处理逾期贷款 - 逾期玩家将被银行追杀致死"""
+        """检查并处理逾期贷款 - 逾期玩家掉落一个大境界（不再删除角色）"""
         now = int(time.time())
         overdue_loans = await self.db.ext.get_overdue_loans(now)
         processed = []
-        
+
+        from ..core.realm_penalty import fall_one_major_realm
+
         for loan in overdue_loans:
             player = await self.db.get_player_by_id(loan["user_id"])
             if not player:
@@ -492,25 +494,41 @@ class BankManager:
                 )
                 await self.db.conn.commit()
                 continue
-            
+
             player_name = player.user_name or f"道友{player.user_id[:6]}"
-            
-            await self.db.delete_player_cascade(player.user_id)
-            
+
+            fall_info = fall_one_major_realm(player, self.config_manager)
+            await self.db.update_player_fields(
+                player.user_id,
+                level_index=player.level_index,
+                experience=player.experience,
+            )
+
+            # 贷款转为坏账，避免同一笔欠款每小时重复触发境界跌落
+            await self.db.conn.execute(
+                "UPDATE bank_loans SET status = 'bad_debt' WHERE id = ?",
+                (loan["id"],),
+            )
+
             # 写流水
             now = int(time.time())
             await self.db.conn.execute(
                 "INSERT INTO bank_transactions (user_id, trans_type, amount, balance_after, description, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (loan["user_id"], "bank_kill", 0, 0, "逾期未还款，被银行追杀致死", now)
+                (
+                    loan["user_id"], "bank_kill", 0, 0,
+                    f"逾期未还款，境界跌落：{fall_info['old_name']}→{fall_info['new_name']}",
+                    now,
+                )
             )
             await self.db.conn.commit()
-            
+
             processed.append({
                 **loan,
+                **fall_info,
                 "player_name": player_name,
-                "death": True
+                "realm_fall": bool(fall_info.get("dropped")),
             })
-        
+
         return processed
     
     # ===== 流水相关 =====
