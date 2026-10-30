@@ -4,7 +4,7 @@ import time
 import json
 import random
 import re
-from typing import Tuple, Optional, Dict, List, TYPE_CHECKING
+from typing import Tuple, Optional, Dict, List, Any, TYPE_CHECKING
 
 try:
     from astrbot.api import logger
@@ -253,13 +253,20 @@ def remove_hybrid_job(crops: List[Dict], job_id: str) -> None:
 
 
 # 灵田等级配置
+# max_fertility：肥力上限 = max(100, 格数 × 20)，满格种满一茬固定消耗上限的 40%
 FARM_LEVELS = {
-    1: {"slots": 3, "upgrade_cost": 5000},
-    2: {"slots": 5, "upgrade_cost": 15000},
-    3: {"slots": 8, "upgrade_cost": 50000},
-    4: {"slots": 12, "upgrade_cost": 150000},
-    5: {"slots": 20, "upgrade_cost": 0},  # 最高级
+    1: {"slots": 3, "upgrade_cost": 5000, "max_fertility": 100},
+    2: {"slots": 5, "upgrade_cost": 15000, "max_fertility": 100},
+    3: {"slots": 8, "upgrade_cost": 50000, "max_fertility": 160},
+    4: {"slots": 12, "upgrade_cost": 150000, "max_fertility": 240},
+    5: {"slots": 20, "upgrade_cost": 0, "max_fertility": 400},  # 最高级
 }
+
+# 施肥：恢复上限的 30%，成本固定 2000 灵石
+FERTILIZE_GAIN_RATIO = 0.30
+FERTILIZE_COST = 2000
+# 肥力地板：上限的 20%，见底收益系数即 0.2
+FERTILITY_FLOOR_RATIO = 0.20
 
 
 class SpiritFarmManager:
@@ -293,6 +300,44 @@ class SpiritFarmManager:
         """灵田当前可种植格数"""
         level = int((farm or {}).get("level", 1) or 1)
         return FARM_LEVELS.get(level, FARM_LEVELS[1])["slots"]
+
+    @staticmethod
+    def get_max_fertility(farm_or_level: Any) -> int:
+        """灵田肥力上限；同时接受灵田 dict 或等级数字，兜底 100。"""
+        if isinstance(farm_or_level, dict):
+            try:
+                level = int(farm_or_level.get("level", 1) or 1)
+            except (TypeError, ValueError):
+                level = 1
+        else:
+            try:
+                level = int(farm_or_level or 1)
+            except (TypeError, ValueError):
+                level = 1
+        return int(FARM_LEVELS.get(level, FARM_LEVELS[1]).get("max_fertility", 100))
+
+    @classmethod
+    def get_gain_per_fertilize(cls, farm_or_level: Any) -> int:
+        """单次施肥恢复的肥力（上限的 30%，至少 1 点）。"""
+        return max(1, int(cls.get_max_fertility(farm_or_level) * FERTILIZE_GAIN_RATIO))
+
+    @classmethod
+    def estimate_fertilize_roi(cls, farm: Dict) -> float:
+        """估算施肥一次的投资回报率：0.30 × Σgold_yield / 2000。
+
+        只统计普通灵草（杂交植株占格但不计入肥力消耗与产出）。
+        """
+        crops = (farm or {}).get("crops") or []
+        total_gold = 0
+        for crop in crops:
+            name = crop.get("name") if isinstance(crop, dict) else None
+            if not name or name == HYBRID_MARKER:
+                continue
+            herb_config = SPIRIT_HERBS.get(name)
+            if not herb_config:
+                continue
+            total_gold += int(herb_config.get("gold_yield", 0) or 0)
+        return FERTILIZE_GAIN_RATIO * total_gold / FERTILIZE_COST
 
     @staticmethod
     def _normalize_crop_slots(crops: List[Dict], max_slots: int) -> List[Dict]:
@@ -330,8 +375,9 @@ class SpiritFarmManager:
             if row:
                 data = dict(row)
                 data["crops"] = json.loads(data.get("crops", "[]"))
+                # 缺省肥力按当前等级上限给满（旧库由迁移按百分比换算）
                 if not data.get("fertility"):
-                    data["fertility"] = 100
+                    data["fertility"] = self.get_max_fertility(data)
                 data["crops"] = self._normalize_crop_slots(
                     data["crops"], self.get_max_slots(data)
                 )
@@ -353,10 +399,10 @@ class SpiritFarmManager:
         
         await self.db.conn.execute(
             """
-            INSERT INTO spirit_farms (user_id, level, crops)
-            VALUES (?, 1, '[]')
+            INSERT INTO spirit_farms (user_id, level, crops, fertility)
+            VALUES (?, 1, '[]', ?)
             """,
-            (player.user_id,)
+            (player.user_id, self.get_max_fertility(1))
         )
         await self.db.conn.commit()
         
@@ -673,8 +719,9 @@ class SpiritFarmManager:
         self.last_harvest_counts[player.user_id] = len(mature_crops) + len(completed_jobs)
 
         # 计算奖励（只有成熟未枯萎的才有收益；产量受土壤肥力与季节影响）
-        fertility = farm.get("fertility", 100)
-        fertility_mult = fertility / 100.0
+        max_fertility = self.get_max_fertility(farm)
+        fertility = int(farm.get("fertility") or 0)
+        fertility_mult = min(1.0, fertility / float(max_fertility)) if max_fertility else 0.0
         season = get_current_season()
         season_mult = get_season_yield_mult()
         total_exp = 0
@@ -732,10 +779,11 @@ class SpiritFarmManager:
                 else:
                     stored_items.append(f"{herb_name}×{count}（储物戒已满，丢失）")
         
-        # 更新灵田（收获消耗肥力，每株-8，最低20；杂交领取不额外扣肥力）
+        # 更新灵田（收获消耗肥力，每株-8，最低为上限的20%；杂交领取不额外扣肥力）
         new_fertility = fertility
         if mature_crops:
-            new_fertility = max(20, fertility - 8 * len(mature_crops))
+            floor = int(max_fertility * FERTILITY_FLOOR_RATIO)
+            new_fertility = max(floor, fertility - 8 * len(mature_crops))
         await self.db.conn.execute(
             "UPDATE spirit_farms SET crops = ?, fertility = ? WHERE user_id = ?",
             (json.dumps(remaining_crops), new_fertility, player.user_id)
@@ -753,7 +801,9 @@ class SpiritFarmManager:
             msg_lines.append(f"获得修为：+{total_exp:,}")
             msg_lines.append(f"获得灵石：+{total_gold:,}")
             if fertility_mult < 1.0:
-                msg_lines.append(f"⚠️ 土壤贫瘠（肥力{fertility}/100），修为/灵石收益已打折，请及时 /施肥")
+                msg_lines.append(
+                    f"⚠️ 土壤贫瘠（肥力{fertility}/{max_fertility}），修为/灵石收益已打折，请及时 /施肥"
+                )
             if season_mult != 1.0:
                 pct = int((season_mult - 1) * 100)
                 msg_lines.append(f"{season['icon']} 季节【{season['name']}】生效：修为/灵石收益{pct:+d}%")
@@ -782,21 +832,23 @@ class SpiritFarmManager:
         return bool(mature_crops or completed_jobs), "\n".join(msg_lines)
     
     async def fertilize(self, player: Player) -> Tuple[bool, str]:
-        """施肥：消耗灵石恢复土壤肥力"""
+        """施肥：消耗灵石恢复土壤肥力（恢复上限的 30%）"""
         farm = await self.get_user_farm(player.user_id)
         if not farm:
             return False, "❌ 你还没有灵田！"
 
-        fertility = farm.get("fertility", 100)
-        if fertility >= 100:
-            return False, "✅ 你的灵田土壤肥沃（肥力100/100），无需施肥。"
+        max_fertility = self.get_max_fertility(farm)
+        fertility = int(farm.get("fertility") or 0)
+        gain = self.get_gain_per_fertilize(farm)
+        if fertility >= max_fertility:
+            return False, f"✅ 你的灵田土壤肥沃（肥力{fertility}/{max_fertility}），无需施肥。"
 
-        cost = 2000
+        cost = FERTILIZE_COST
         if player.gold < cost:
-            return False, f"❌ 施肥一次需要 {cost:,} 灵石（恢复30点肥力）。"
+            return False, f"❌ 施肥一次需要 {cost:,} 灵石（恢复{gain}点肥力）。"
 
         player.gold -= cost
-        new_fertility = min(100, fertility + 30)
+        new_fertility = min(max_fertility, fertility + gain)
         await self.db.update_player_fields(player.user_id, gold=player.gold)
         await self.db.conn.execute(
             "UPDATE spirit_farms SET fertility = ? WHERE user_id = ?",
@@ -809,6 +861,40 @@ class SpiritFarmManager:
             f"花费：{cost:,} 灵石\n"
             f"💡 肥力影响修为/灵石收益，收获会持续消耗肥力"
         )
+
+    async def fertilize_once(self, player: Player, times: int = 1) -> Tuple[bool, str, int]:
+        """连续施肥至多 times 次（供自动施肥代理调用）。
+
+        返回 ``(是否施过肥, 消息, 实际次数)``：
+        - 已满肥 / 无灵田 / 灵石不足时提前结束，``是否施过肥`` 为 False；
+        - 消息为「肥力 240→400（2 次，−4,000 灵石）」这类聚合文案。
+        """
+        times = max(1, int(times or 1))
+        farm = await self.get_user_farm(player.user_id)
+        if not farm:
+            return False, "❌ 你还没有灵田！", 0
+
+        max_fertility = self.get_max_fertility(farm)
+        start = int(farm.get("fertility") or 0)
+        if start >= max_fertility:
+            return False, f"✅ 肥力已满（{start}/{max_fertility}）", 0
+
+        done = 0
+        last_msg = ""
+        for _ in range(times):
+            ok, last_msg = await self.fertilize(player)
+            if not ok:
+                break
+            done += 1
+
+        if done <= 0:
+            return False, last_msg, 0
+
+        farm_after = await self.get_user_farm(player.user_id) or farm
+        end = int(farm_after.get("fertility") or 0)
+        return True, (
+            f"肥力 {start}→{end}（{done} 次，−{FERTILIZE_COST * done:,} 灵石）"
+        ), done
 
     async def hybridize(self, player: Player, herb_a: str, herb_b: str) -> Tuple[bool, str]:
         """杂交嫁接：消耗父本并占用两个灵田格培育全新品种"""
@@ -935,9 +1021,18 @@ class SpiritFarmManager:
         await self.db.update_player_fields(player.user_id, gold=player.gold)
         
         new_level = current_level + 1
+        # 升级后肥力上限提高，按百分比换算，避免满肥田升级后凭空掉到 60%
+        old_max = self.get_max_fertility(current_level)
+        new_max = self.get_max_fertility(new_level)
+        old_fertility = int(farm.get("fertility") or 0)
+        new_fertility = old_fertility
+        if old_max > 0 and new_max != old_max:
+            new_fertility = min(
+                new_max, int(round(old_fertility * new_max / float(old_max)))
+            )
         await self.db.conn.execute(
-            "UPDATE spirit_farms SET level = ? WHERE user_id = ?",
-            (new_level, player.user_id)
+            "UPDATE spirit_farms SET level = ?, fertility = ? WHERE user_id = ?",
+            (new_level, new_fertility, player.user_id)
         )
         await self.db.conn.commit()
         
@@ -945,6 +1040,7 @@ class SpiritFarmManager:
         unlocked = [name for name, cfg in SPIRIT_HERBS.items()
                     if int(cfg.get("unlock_level", 1) or 1) == new_level]
         msg_lines = [f"🎉 灵田升级到 Lv.{new_level}！格数增加到 {new_slots}"]
+        msg_lines.append(f"🌱 肥力上限提升到 {new_max}（当前 {new_fertility}/{new_max}）")
         if unlocked:
             msg_lines.append(f"🌿 新解锁灵草：{'、'.join(unlocked)}")
         next_level, next_herbs = get_next_unlock(new_level)
@@ -970,17 +1066,30 @@ class SpiritFarmManager:
         
         season = get_current_season()
         farm_level = int(farm.get("level", 1) or 1)
+        max_fertility = self.get_max_fertility(farm)
+        fertility = int(farm.get("fertility") or 0)
+        fertility_pct = (fertility / max_fertility) if max_fertility else 0.0
+        fertility_note = "（贫瘠，收益打折！/施肥 恢复）" if fertility_pct < 0.6 else ""
         lines = [
             f"🌾 我的灵田 (Lv.{farm['level']})",
             "━━━━━━━━━━━━━━━",
             f"占用格数：{len(crops)}/{level_config['slots']}",
-            f"土壤肥力：{farm.get('fertility', 100)}/100" + ("（贫瘠，收益打折！/施肥 恢复）" if farm.get("fertility", 100) < 60 else ""),
+            f"土壤肥力：{fertility}/{max_fertility}{fertility_note}",
             f"{season['icon']} 当前季节：【{season['name']}】{season['desc']}",
             f"🌿 可种植：{'、'.join(get_herbs_for_level(farm_level))}",
         ]
         next_level, next_herbs = get_next_unlock(farm_level)
         if next_level is not None:
             lines.append(f"🔒 Lv.{next_level} 解锁：{'、'.join(next_herbs)}")
+        normal_crop_count = sum(1 for c in crops if c.get("name") != HYBRID_MARKER)
+        if normal_crop_count:
+            gain = self.get_gain_per_fertilize(farm)
+            roi = self.estimate_fertilize_roi(farm)
+            roi_note = "值得施" if roi >= 1.0 else "低于成本，施肥不划算"
+            lines.append(
+                f"🌱 施肥：+{gain} 肥力 / {FERTILIZE_COST:,} 灵石"
+                f"（当前作物回报约 {roi:.2f} 倍，{roi_note}）"
+            )
         lines.append("")
         
         hybrid_jobs = collect_hybrid_jobs(crops)

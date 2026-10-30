@@ -1205,7 +1205,7 @@ class XiuXianPlugin(Star):
         async for r in self.misc_handler.handle_help(event): yield r
 
     # ===== v6.26 自动代理 =====
-    @filter.command(CMD_AUTO_PROXY, "开启自动代理（可指定 押镖/宗门任务/灵田/秘境）")
+    @filter.command(CMD_AUTO_PROXY, "开启自动代理（可指定 押镖/宗门任务/灵田/秘境/施肥）")
     @require_whitelist
     @with_player_lock
     async def handle_auto_proxy_enable(self, event: AstrMessageEvent, task: GreedyStr):

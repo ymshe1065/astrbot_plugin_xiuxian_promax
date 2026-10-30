@@ -10,7 +10,7 @@ from astrbot.api import logger
 if TYPE_CHECKING:
     from ..config_manager import ConfigManager
 
-LATEST_DB_VERSION = 53  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求；v49: 统一物品品阶名称；v50: 仙市投资系统（基金/股票）；v51: 符箓熟练度与符图习得；v52: 仙市 v6（16 盘 + 赌场级波动 + 不对称日熔断）；v53: 拍卖会未开拍拍品按固定品阶曲线重建（并兼容分叉旧库补授符图）
+LATEST_DB_VERSION = 54  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求；v49: 统一物品品阶名称；v50: 仙市投资系统（基金/股票）；v51: 符箓熟练度与符图习得；v52: 仙市 v6（16 盘 + 赌场级波动 + 不对称日熔断）；v53: 拍卖会未开拍拍品按固定品阶曲线重建（并兼容分叉旧库补授符图）；v54: 灵田肥力上限按等级分级（旧值按百分比换算）
 
 MIGRATION_TASKS: Dict[int, Callable[[aiosqlite.Connection, ConfigManager], Awaitable[None]]] = {}
 
@@ -2202,3 +2202,31 @@ async def _migrate_to_v53(conn: aiosqlite.Connection, config_manager: ConfigMana
     removed = max(0, int(cursor.rowcount or 0))
     await conn.commit()
     logger.info(f"v53迁移完成：已清理 {removed} 件未开拍拍品，等待按新曲线重建")
+
+
+# 灵田肥力上限：与 managers/spirit_farm_manager.FARM_LEVELS 的 max_fertility 保持一致
+_FERTILITY_CEIL_V54 = {1: 100, 2: 100, 3: 160, 4: 240, 5: 400}
+
+
+@migration(54)
+async def _migrate_to_v54(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """迁移到 v54 - 灵田肥力上限按等级分级。
+
+    旧上限统一是 100，新上限为 max(100, 格数×20)。这里按**百分比**换算，
+    让老玩家上线看到的肥力百分比不变（Lv5 旧 100 → 新 400，而不是 100/400）。
+    Lv1/Lv2 上限仍是 100，不需要改动。
+    """
+    logger.info("开始迁移到 v54：灵田肥力上限分级")
+    scaled = 0
+    for level, ceil in _FERTILITY_CEIL_V54.items():
+        if ceil <= 100:
+            continue
+        cursor = await conn.execute(
+            "UPDATE spirit_farms SET fertility = "
+            "MIN(?, CAST(ROUND(fertility * ? / 100.0) AS INTEGER)) "
+            "WHERE level = ? AND fertility > 0",
+            (ceil, ceil, level),
+        )
+        scaled += max(0, int(cursor.rowcount or 0))
+    await conn.commit()
+    logger.info(f"v54迁移完成：已按百分比换算 {scaled} 块灵田的肥力")

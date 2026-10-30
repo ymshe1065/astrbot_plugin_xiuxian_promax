@@ -68,6 +68,7 @@ class SpiritFarmHandlers:
                         pass
                     next_level, next_herbs = get_next_unlock(farm_level)
                     unlock_rows = [("下一档解锁", f"Lv.{next_level} " + "、".join(next_herbs))] if next_level else []
+                    max_fertility = self.mgr.get_max_fertility(farm)
                     card_path = await render_card_async(
                         "spirit",
                         f"我的灵田 Lv.{farm['level']}",
@@ -75,7 +76,7 @@ class SpiritFarmHandlers:
                         sections=[
                             {"name": "灵田", "rows": [
                                 ("占用格数", f"{len(farm['crops'])}/{level_config['slots']}"),
-                                ("土壤肥力", f"{farm.get('fertility', 100)}/100"),
+                                ("土壤肥力", f"{int(farm.get('fertility') or 0)}/{max_fertility}"),
                                 ("可种植", "、".join(get_herbs_for_level(farm_level))),
                             ] + season_rows + unlock_rows},
                             {"name": "种植中", "rows": rows},

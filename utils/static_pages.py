@@ -6,8 +6,8 @@ import hashlib
 import json
 from typing import Any, Dict, List
 
-HELP_VERSION = "v6.45.0"
-HELP_HEADER = f"📖 修仙指令大全 {HELP_VERSION} (秘境自动代理·拍卖盲拍)"
+HELP_VERSION = "v6.46.0"
+HELP_HEADER = f"📖 修仙指令大全 {HELP_VERSION} (灵田肥力分级·自动施肥)"
 HELP_HINT = "💡 提示：所有指令均可带 / 前缀使用"
 HELP_TITLE = "修仙指令大全"
 HELP_SUBTITLE = f"📖 {HELP_VERSION} · 所有指令均可带 / 前缀使用"
@@ -102,7 +102,8 @@ HELP_SECTIONS: List[Dict[str, Any]] = [
             "/洞天装修 <家具> /进阶洞天 <编号>",
             "/我的灵田 /开垦灵田 /种植 <草> [数量|1-20|all] /收获",
             "/铲除 <格号> /施肥 /杂交 <草A> <草B> /升级灵田 /季节",
-            "/自动代理 灵田 [格号...] /灵眼信息 /抢占灵眼 <ID> /灵眼收取 /释放灵眼",
+            "/自动代理 灵田 [格号...] /自动代理 施肥 [阈值%]（肥力低于阈值自动补肥）",
+            "/灵眼信息 /抢占灵眼 <ID> /灵眼收取 /释放灵眼",
             "/我的灵兽 /孵化灵兽 <名> /喂养灵兽 [序号/名] /灵兽出战 /灵兽改名",
             "/放生灵兽 /吞噬灵兽 /灵兽吞噬 <序号/名> [灵兽内丹]",
             "灵兽随主人修为获得经验；Lv20/Lv40 自动进化；御兽可拥有多只",
