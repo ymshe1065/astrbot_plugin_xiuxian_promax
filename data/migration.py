@@ -10,7 +10,7 @@ from astrbot.api import logger
 if TYPE_CHECKING:
     from ..config_manager import ConfigManager
 
-LATEST_DB_VERSION = 50  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求；v49: 统一物品品阶名称；v50: 仙市投资系统（基金/股票）
+LATEST_DB_VERSION = 51  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求；v49: 统一物品品阶名称；v50: 仙市投资系统（基金/股票）；v51: 未开拍拍品按固定品阶曲线重建
 
 MIGRATION_TASKS: Dict[int, Callable[[aiosqlite.Connection, ConfigManager], Awaitable[None]]] = {}
 
@@ -2127,3 +2127,21 @@ async def _migrate_to_v50(conn: aiosqlite.Connection, config_manager: ConfigMana
     await _ensure_invest_v50(conn)
     await conn.commit()
     logger.info("v50迁移完成：仙市投资表已建立")
+
+
+@migration(51)
+async def _migrate_to_v51(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """迁移到 v51 - 未开拍拍卖会按新的固定品阶曲线重建拍品。
+
+    仅清理 scheduled/announcing 阶段的拍品：这些场次尚未开拍、没有出价，
+    下次查看或开拍时会按新蓝图重新生成；进行中和已结束场次保持原样。
+    """
+    cursor = await conn.execute(
+        """DELETE FROM auction_house_lots
+           WHERE event_id IN (
+               SELECT id FROM auction_house_events WHERE phase IN ('scheduled', 'announcing')
+           )"""
+    )
+    removed = max(0, int(cursor.rowcount or 0))
+    await conn.commit()
+    logger.info(f"v51迁移完成：已清理 {removed} 件未开拍拍品，等待按新曲线重建")

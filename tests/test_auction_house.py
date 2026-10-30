@@ -161,7 +161,7 @@ class TestAuctionHouse(unittest.IsolatedAsyncioTestCase):
         )
         await self.conn.commit()
 
-    async def test_schedule_same_day_and_preview_shows_names(self):
+    async def test_schedule_same_day_and_preview_hides_names(self):
         now = int(time.time())
         event = await self.manager.ensure_event(now)
         self.assertEqual(event["phase"], "scheduled")
@@ -197,9 +197,9 @@ class TestAuctionHouse(unittest.IsolatedAsyncioTestCase):
             "SELECT * FROM auction_house_lots WHERE event_id=? ORDER BY lot_no", (event["id"],)
         )
         self.assertEqual(len(lots), 11)
-        self.assertEqual(
-            {lot["category"] for lot in lots},
-            {"equipment", "talisman", "pill", "recipe", "technique", "main_technique", "material"},
+        self.assertTrue(
+            {"equipment", "talisman", "material", "main_technique"}
+            <= {lot["category"] for lot in lots}
         )
         self.assertEqual(
             sum(1 for lot in lots if lot["category"] == "main_technique"), 1
@@ -212,9 +212,36 @@ class TestAuctionHouse(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(int(stones[0]["count"]), 2)
         prices = [int(lot["start_price"]) for lot in lots]
         self.assertEqual(prices, sorted(prices))
-        # 名单直接展示完整名称，不再隐藏
-        for lot in lots[:3]:
-            self.assertIn(lot["item_name"], status)
+        # 品阶必须随出场顺序单调不降，后段为高稀有度压轴。
+        rank_names = _imp("rank_rules").RANK_NAMES
+        rank_index = {name: i for i, name in enumerate(rank_names)}
+        ranks = [rank_index.get(lot["item_rank"], 0) for lot in lots]
+        self.assertEqual(ranks, sorted(ranks))
+        self.assertEqual(lots[0]["item_rank"], "凡品")
+        self.assertEqual(lots[-1]["item_rank"], "混元先天")
+        # 名单只展示品阶与类目，隐藏具体物品名。
+        for lot in lots:
+            self.assertNotIn(lot["item_name"], status)
+            self.assertIn(self.manager._preview_head(lot), status)
+
+    async def test_migration_v51_clears_only_unstarted_lots(self):
+        now = int(time.time())
+        scheduled = await self._insert_event(
+            "scheduled", now=now, event_start=now + 3600,
+        )
+        live = await self._insert_event(
+            "live", now=now, current_lot=1, lot_count=1,
+        )
+        await self._insert_lot(scheduled["id"], status="pending")
+        await self._insert_lot(live["id"], status="live")
+
+        migration = _imp("data.migration")
+        await migration._migrate_to_v51(self.conn, self.config_manager)
+
+        remaining = await self.manager._fetchall(
+            "SELECT event_id FROM auction_house_lots ORDER BY event_id"
+        )
+        self.assertEqual([int(row["event_id"]) for row in remaining], [int(live["id"])])
 
     async def test_guarantees_main_technique_when_blueprint_omits_it(self):
         now = int(time.time())

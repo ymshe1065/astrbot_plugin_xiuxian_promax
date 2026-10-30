@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v6.41.1 (仙市投资·符箓配方·稀有阁楼)
+# AstrBot 插件：模拟修仙 v6.41.2 (拍卖会盲拍·品阶曲线)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v6.41.1-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v6.41.2-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.26.1 · **游戏版本:** v6.41.1 · **数据库:** v50
+> **插件版本:** v3.26.2 · **游戏版本:** v6.41.2 · **数据库:** v51
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，232 条帮助指令 / 232 条注册指令、16 个大系统、110 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,22 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · v6.41.1</b></summary>
+<summary><b>本次更新 · v6.41.2</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 盲拍名单 | `/拍卖会` 的拍品名单不再显示具体物品名，只保留出场序号、品阶、类目、数量与状态；开拍后仍会正常展示当前拍品的完整信息。 |
+| 品阶曲线 | 拍卖会拍品按出场顺序固定为「凡品 → 黄品 → 玄品 → 灵品 → 地品 → 天品 → 皇品 → 圣品 → 仙品 → 混元先天」，越靠后越稀有；不再随玩家或全服平均境界浮动。 |
+| 品质分布 | 大幅拉开品质跨度：前段以一般/良好为主，中段开始出现极佳，后段大师占比显著提高；拍品生成后按品阶重新排序并保证起拍价同步递增。 |
+| 配置同步 | `config/auction_house_config.json` 与内置默认蓝图新增 `rank` 字段，旧蓝图缺少该字段时仍按原 `tier` 逻辑兼容运行。 |
+| 数据迁移 | 数据库 v50 → v51：仅清理未开拍（scheduled/announcing）场次的旧拍品，下次查看或开拍时按新曲线重建；进行中与已结束场次不受影响。 |
+| 回归测试 | 新增盲拍名单、品阶单调递增、首尾品阶跨度与起拍价递增断言；本次无新增指令。 |
+| 装备卡片 | `/我的装备` 图片卡片的「功法」栏现在逐条显示功法品阶、五行属性以及各自的修炼效率、灵石收益、掉落几率、冷却缩减、气运等增益，不再只列出功法名称。 |
+
+</details>
+
+<details>
+<summary><b>v6.41.1 · 仙市投资·符箓配方·稀有阁楼</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |

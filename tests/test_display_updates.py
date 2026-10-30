@@ -119,6 +119,30 @@ class TestEquipmentCompare(unittest.IsolatedAsyncioTestCase):
         self.assertIn(self.weapon, bonus_text)
         self.assertIn("物伤", bonus_text)
 
+    async def test_card_shows_per_technique_bonus(self):
+        p = await self._player()
+        tech = next(
+            name for name, cfg in self.cm.items_data.items()
+            if cfg.get("type") in ("功法", "technique") and cfg.get("life_effects")
+        )
+        p.set_techniques_list([tech])
+        await self.db.update_player(p)
+        p = await self.db.get_player_by_id(p.user_id)
+
+        event = _FakeEvent(p.user_id, p.user_id)
+        event.image_result = lambda path: path
+        handler = self._handler()
+        image_module = _imp("utils.image_generator")
+        with patch.object(image_module, "card_enabled", return_value=True), \
+                patch.object(image_module, "render_card_async", new_callable=AsyncMock,
+                             return_value="card.jpg") as render:
+            results = [r async for r in handler.handle_show_equipment.__wrapped__(handler, p, event)]
+        self.assertEqual(results, ["card.jpg"])
+        tech_section = next(s for s in render.call_args.kwargs["sections"] if s["name"] == "功法")
+        tech_text = "\n".join(tech_section["lines"])
+        self.assertIn(tech, tech_text)
+        self.assertRegex(tech_text, r"(灵石收益|掉落几率|冷却缩减|气运|修炼效率)")
+
     async def test_compare_with_empty_slot_shows_actual_bonus(self):
         p = await self._player()
         await self.ring.store_item(p, self.weapon, 1)

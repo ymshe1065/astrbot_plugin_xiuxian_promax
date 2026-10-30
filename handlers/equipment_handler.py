@@ -180,6 +180,17 @@ class EquipmentHandler:
 
         yield event.plain_result("\n".join(lines))
 
+    def _format_technique_detail(self, player: Player, name: str) -> str:
+        """功法单条详情：名称（品阶·五行）：属性与生活加成。"""
+        cfg = self.config_manager.get_item_config(name) or {}
+        rank = str(cfg.get("rank", "") or "")
+        element = self.config_manager.get_item_element(name) or str(cfg.get("element", "") or "")
+        tags = "·".join(tag for tag in (rank, element) if tag)
+        detail = self.equipment_manager.describe_item_bonus(player, name)
+        if detail == "无额外加成" and cfg.get("description"):
+            detail = str(cfg.get("description"))
+        return f"{name}（{tags}）：{detail}" if tags else f"{name}：{detail}"
+
     @player_required
     async def handle_show_equipment(self, player: Player, event: AstrMessageEvent):
         """显示玩家当前装备；支持 /我的装备 比较 <装备名称>"""
@@ -243,12 +254,16 @@ class EquipmentHandler:
         physical_damage_bonus = magic_damage_bonus = physical_defense_bonus = magic_defense_bonus = 0
         mental_power_bonus = max_spiritual_qi_bonus = exp_multiplier = 0
 
-        # 功法列表
+        # 功法列表（同时展示品阶、五行与各自的属性/生活加成）
         techniques_list = player.get_techniques_list()
+        technique_entries = [
+            self._format_technique_detail(player, tech)
+            for tech in techniques_list
+        ]
         equipment_lines.append(f"【功法】({len(techniques_list)}/3)\n")
-        if techniques_list:
-            for i, tech in enumerate(techniques_list, 1):
-                equipment_lines.append(f"  {i}. {tech}\n")
+        if technique_entries:
+            for i, entry in enumerate(technique_entries, 1):
+                equipment_lines.append(f"  {i}. {entry}\n")
         else:
             equipment_lines.append("  未装备\n")
 
@@ -314,7 +329,7 @@ class EquipmentHandler:
                 if element_of(player.main_technique) or element_of(player.weapon):
                     equip_rows.append(("五行属性",
                         element_of(player.main_technique) or element_of(player.weapon)))
-                tech_lines = [f"{i}. {t}" for i, t in enumerate(techniques_list, 1)] or ["未装备"]
+                tech_lines = [f"{i}. {line}" for i, line in enumerate(technique_entries, 1)] or ["未装备"]
                 single_bonus_lines = []
                 for slot, (slot_name, slot_inst) in gear.items():
                     label = ItemRules.SLOT_LABELS[slot]

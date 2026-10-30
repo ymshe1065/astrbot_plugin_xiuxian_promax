@@ -3,59 +3,76 @@
     {
       "category": "equipment",
       "slot": "gloves",
-      "tier": 2,
+      "rank": "凡品",
+      "tier": 1,
       "count": 1,
-      "quality_weights": {"一般": 30, "良好": 50, "极佳": 20, "大师": 0}
+      "quality_weights": {"一般": 85, "良好": 15, "极佳": 0, "大师": 0}
     },
     {
       "category": "talisman",
+      "rank": "黄品",
       "tier": 2,
       "count": 2
     },
     {
-      "category": "technique",
-      "tier": 2,
-      "count": 1
+      "category": "material",
+      "rank": "玄品",
+      "tier": 3,
+      "count": 2
     },
     {
       "category": "equipment",
       "slot": "ring",
+      "rank": "灵品",
       "tier": 3,
       "count": 1,
-      "quality_weights": {"一般": 0, "良好": 35, "极佳": 50, "大师": 15}
+      "quality_weights": {"一般": 45, "良好": 45, "极佳": 10, "大师": 0}
     },
     {
-      "category": "pill",
+      "category": "equipment",
+      "slot": "body",
+      "rank": "地品",
       "tier": 3,
+      "count": 1,
+      "quality_weights": {"一般": 20, "良好": 55, "极佳": 24, "大师": 1}
+    },
+    {
+      "category": "equipment",
+      "slot": "boots",
+      "rank": "天品",
+      "tier": 4,
       "count": 1,
       "quality_weights": {"一般": 0, "良好": 45, "极佳": 45, "大师": 10}
     },
     {
-      "category": "recipe",
-      "tier": 3,
-      "count": 1
-    },
-    {
-      "category": "talisman",
-      "tier": 3,
-      "count": 2
+      "category": "equipment",
+      "slot": "amulet",
+      "rank": "皇品",
+      "tier": 4,
+      "count": 1,
+      "quality_weights": {"一般": 0, "良好": 25, "极佳": 55, "大师": 20}
     },
     {
       "category": "main_technique",
+      "rank": "圣品",
       "tier": 4,
       "count": 1
     },
     {
       "category": "equipment",
-      "tier": 4,
-      "count": 1,
-      "quality_weights": {"一般": 0, "良好": 10, "极佳": 60, "大师": 30}
-    },
-    {
-      "category": "pill",
+      "slot": "head",
+      "rank": "仙品",
       "tier": 5,
       "count": 1,
-      "quality_weights": {"一般": 0, "良好": 0, "极佳": 45, "大师": 55}
+      "quality_weights": {"一般": 0, "良好": 5, "极佳": 45, "大师": 50}
+    },
+    {
+      "category": "equipment",
+      "slot": "ring",
+      "rank": "混元先天",
+      "tier": 5,
+      "count": 1,
+      "quality_weights": {"一般": 0, "良好": 0, "极佳": 30, "大师": 70}
     }
   ],
   "start_price_rate": 0.2,

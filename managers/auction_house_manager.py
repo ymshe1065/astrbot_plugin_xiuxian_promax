@@ -12,7 +12,7 @@ from typing import List, Optional, Tuple
 from astrbot.api import logger
 
 from ..core.item_rules import ItemRules
-from ..rank_rules import RANK_TIERS, level_to_rank, normalize_rank
+from ..rank_rules import RANK_NAMES, RANK_TIERS, level_to_rank, normalize_rank
 from ..data import DataBase
 from ..models import Player
 
@@ -25,6 +25,8 @@ SLOT_PREVIEW_LABELS = {
     "amulet": "护符",
 }
 RANK_TIER = dict(RANK_TIERS)
+# 统一品阶阶梯下标：拍卖会按拍品蓝图固定从低到高排布，不读取玩家/全服平均境界。
+RANK_INDEX = {name: index for index, name in enumerate(RANK_NAMES)}
 CATEGORY_LABELS = {
     "equipment": "装备", "talisman": "符箓", "pill": "丹药", "recipe": "丹方",
     "technique": "功法", "main_technique": "心法", "material": "材料",
@@ -854,18 +856,21 @@ class AuctionHouseManager:
                 "pending": "待拍", "live": "竞拍中", "countdown": "倒计时",
                 "sold": "已成交", "passed": "流拍",
             }.get(status, status)
-            rank = str(lot.get("item_rank") or "")
-            try:
-                count = max(1, int(lot.get("count") or 1))
-            except (TypeError, ValueError):
-                count = 1
-            count_tag = f" ×{count}" if count > 1 else ""
-            rank_tag = f"[{rank}]" if rank else ""
+            # 开拍前只公布品阶与类目，隐藏具体物品名，保留悬念。
             lines.append(
-                f"  #{lot['lot_no']} {rank_tag}{lot['preview_label']}"
-                f"【{lot['item_name']}】{count_tag} · {suffix}"
+                f"  #{lot['lot_no']} {self._preview_head(lot)} · {suffix}"
             )
         return lines
+
+    @staticmethod
+    def _preview_head(lot: dict) -> str:
+        """名单用展示头：`[品阶] 类目 ×数量`，不含具体物品名。"""
+        rank = normalize_rank(lot.get("item_rank"), "")
+        label = str(lot.get("preview_label") or "").strip()
+        if rank and label.startswith(f"{rank}·"):
+            label = label[len(rank) + 1:]
+        rank_tag = f"[{rank}]" if rank else ""
+        return f"{rank_tag} {label}".strip()
 
     async def _live_status_lines(self, event: dict, now: int) -> List[str]:
         lots = await self._fetchall(
@@ -900,7 +905,7 @@ class AuctionHouseManager:
         for item in lots:
             if int(item["lot_no"]) <= current_no:
                 continue
-            lines.append(f"  #{item['lot_no']} {item['preview_label']} · 待拍")
+            lines.append(f"  #{item['lot_no']} {self._preview_head(item)} · 待拍")
         return lines
 
     def _lot_detail_lines(self, lot: dict) -> List[str]:
@@ -1041,6 +1046,7 @@ class AuctionHouseManager:
             ) or {
                 "category": category,
                 "tier": 4 if category == "main_technique" else 3,
+                "rank": "圣品" if category == "main_technique" else "玄品",
                 "count": 1,
             }
             lot = self._generate_lot(event_id, len(lots) + 1, entry, used_names, 0, now)
@@ -1055,7 +1061,7 @@ class AuctionHouseManager:
         for slot, label in (("gloves", "手套"), ("ring", "戒指")):
             if any(label in str(lot.get("preview_label") or "") for lot in lots):
                 continue
-            entry = {"category": "equipment", "slot": slot, "tier": 3, "count": 1}
+            entry = {"category": "equipment", "slot": slot, "tier": 3, "rank": "玄品", "count": 1}
             lot = self._generate_lot(event_id, len(lots) + 1, entry, used_names, 0, now)
             if not lot:
                 logger.warning(f"【拍卖会】{label}保底拍品生成失败")
@@ -1086,9 +1092,20 @@ class AuctionHouseManager:
                 used_names.add(lot["item_name"])
                 lots.append(lot)
 
-        # 追加的拍品按价格重新排序，保持“由低到高”的展示顺序。
-        lots.sort(key=lambda x: int(x["start_price"]))
+        # 拍品按品阶从低到高排布（同阶再按起拍价），确保越靠后的拍品越稀有；
+        # 该曲线只由蓝图决定，与玩家或全服平均境界无关。
+        lots.sort(key=lambda x: (
+            RANK_INDEX.get(normalize_rank(x.get("item_rank"), ""), 0),
+            int(x["start_price"]),
+        ))
+        prev_start = 0
         for index, lot in enumerate(lots, 1):
+            price = int(lot["start_price"])
+            if prev_start > 0 and price <= prev_start:
+                price = prev_start + max(1, int(prev_start * 0.1))
+                lot["start_price"] = price
+                lot["current_price"] = price
+            prev_start = price
             lot["lot_no"] = index
 
         created: List[dict] = []
@@ -1117,13 +1134,17 @@ class AuctionHouseManager:
                       prev_start: int, now: int) -> Optional[dict]:
         category = str(entry.get("category") or "").strip()
         tier = max(1, min(5, self._as_int(entry.get("tier"), 2)))
+        rank_target = normalize_rank(entry.get("rank"), "")
+        if rank_target:
+            tier = RANK_TIER.get(rank_target, tier)
         count = max(1, self._as_int(entry.get("count"), 1))
         # 装备拍品固定 1 件，避免同一实例被拆分。
         if category == "equipment":
             count = 1
         item_names = entry.get("item_names") or entry.get("item_name")
         selected = self._select_item(
-            category, tier, used_names, item_names, slot=str(entry.get("slot") or "")
+            category, tier, used_names, item_names,
+            slot=str(entry.get("slot") or ""), rank=rank_target,
         )
         if not selected:
             return None
@@ -1169,7 +1190,8 @@ class AuctionHouseManager:
             "created_at": int(now),
         }
 
-    def _select_item(self, category: str, tier: int, used_names: set, item_names=None, slot: str = ""):
+    def _select_item(self, category: str, tier: int, used_names: set, item_names=None,
+                     slot: str = "", rank: str = ""):
         candidates = self._category_candidates(category)
         if slot and category == "equipment":
             target = "ring1" if slot in ("ring", "ring1", "ring2") else slot
@@ -1190,18 +1212,35 @@ class AuctionHouseManager:
                 candidates = [x for x in candidates if x[0] in allowed]
         if not candidates:
             return None
-        preferred = [x for x in candidates if x[2] == tier and x[0] not in used_names]
-        if preferred:
-            pool = preferred
-        else:
-            available = [x for x in candidates if x[0] not in used_names] or candidates
-            lower = [x for x in available if x[2] <= tier]
-            if lower:
-                nearest = max(x[2] for x in lower)
-                pool = [x for x in lower if x[2] == nearest]
+        if rank:
+            # 指定品阶的拍品位优先精确命中；数据缺失时只向下取最近档，
+            # 保证不会因为候选池稀疏而把后段拍品降级成低阶物品。
+            exact = [x for x in candidates if x[3] == rank and x[0] not in used_names]
+            if exact:
+                pool = exact
             else:
-                nearest = min(x[2] for x in available)
-                pool = [x for x in available if x[2] == nearest]
+                target_idx = RANK_INDEX.get(rank, 0)
+                available = [x for x in candidates if x[0] not in used_names] or candidates
+                lower = [x for x in available if RANK_INDEX.get(x[3], 0) <= target_idx]
+                if lower:
+                    nearest = max(RANK_INDEX.get(x[3], 0) for x in lower)
+                    pool = [x for x in lower if RANK_INDEX.get(x[3], 0) == nearest]
+                else:
+                    nearest = min(RANK_INDEX.get(x[3], 0) for x in available)
+                    pool = [x for x in available if RANK_INDEX.get(x[3], 0) == nearest]
+        else:
+            preferred = [x for x in candidates if x[2] == tier and x[0] not in used_names]
+            if preferred:
+                pool = preferred
+            else:
+                available = [x for x in candidates if x[0] not in used_names] or candidates
+                lower = [x for x in available if x[2] <= tier]
+                if lower:
+                    nearest = max(x[2] for x in lower)
+                    pool = [x for x in lower if x[2] == nearest]
+                else:
+                    nearest = min(x[2] for x in available)
+                    pool = [x for x in available if x[2] == nearest]
         weights = [max(1, self._as_int(x[1].get("shop_weight"), 10)) for x in pool]
         try:
             name, cfg, _tier, rank, payload = random.choices(pool, weights=weights, k=1)[0]
@@ -1309,12 +1348,13 @@ class AuctionHouseManager:
 
     @staticmethod
     def _default_quality_weights(tier: int) -> dict:
+        # 品质随品阶档位单调上移：越靠后的拍品，极佳/大师占比越高。
         return {
-            1: {"一般": 60, "良好": 30, "极佳": 10, "大师": 0},
-            2: {"一般": 25, "良好": 50, "极佳": 25, "大师": 0},
-            3: {"一般": 0, "良好": 40, "极佳": 50, "大师": 10},
-            4: {"一般": 0, "良好": 10, "极佳": 60, "大师": 30},
-            5: {"一般": 0, "良好": 0, "极佳": 40, "大师": 60},
+            1: {"一般": 85, "良好": 15, "极佳": 0, "大师": 0},
+            2: {"一般": 55, "良好": 35, "极佳": 10, "大师": 0},
+            3: {"一般": 25, "良好": 45, "极佳": 28, "大师": 2},
+            4: {"一般": 0, "良好": 30, "极佳": 50, "大师": 20},
+            5: {"一般": 0, "良好": 5, "极佳": 40, "大师": 55},
         }.get(tier, {"一般": 100})
 
     @staticmethod

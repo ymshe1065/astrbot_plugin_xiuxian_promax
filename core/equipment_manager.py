@@ -87,6 +87,8 @@ class EquipmentManager:
         "freeze_chance": "冻结概率",
         "curse_chance": "诅咒概率", "curse_defense_pct": "诅咒减防",
         "curse_turns": "诅咒回合", "curse_damage_reduction": "诅咒减伤",
+        "natural_hp_regen_bonus": "自然气血恢复", "natural_qi_regen_bonus": "自然灵气恢复",
+        "rest_hp_regen_bonus": "调息气血恢复", "rest_qi_regen_bonus": "调息灵气恢复",
     }
     EFFECT_TURN_KEYS = {
         "extra_attack_count", "sunder_turns", "stun_turns", "burn_turns",
@@ -190,7 +192,9 @@ class EquipmentManager:
                    "combo_lifesteal_pct", "stun_chance", "stun_extend_chance", "stun_resist_pierce",
                    "burn_chance", "burn_damage_pct", "burn_heal_reduction", "frost_chance",
                    "frost_atk_reduction", "frost_dodge_reduction", "freeze_chance", "curse_chance",
-                   "curse_defense_pct", "curse_damage_reduction"):
+                   "curse_defense_pct", "curse_damage_reduction",
+                   "natural_hp_regen_bonus", "natural_qi_regen_bonus",
+                   "rest_hp_regen_bonus", "rest_qi_regen_bonus"):
             return f"{value:+g}%"
         if key in ("luck_bonus", "defense_bonus"):
             return f"{value:+.0f}"
