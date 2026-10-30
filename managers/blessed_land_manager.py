@@ -486,7 +486,16 @@ class BlessedLandManager:
             pending_exp = int(pending_exp * output_mult)
 
         can_advance = land["level"] >= current_config["max_level"] and land["land_type"] < 5
-        advance_hint = "\n💡 已达满级，可使用 /进阶洞天 <类型> 提升洞天品质" if can_advance else ""
+        advance_hint = ""
+        if can_advance:
+            next_type = land["land_type"] + 1
+            next_config = BLESSED_LANDS.get(next_type)
+            if next_config:
+                advance_cost = int(next_config["price"] * 0.3)
+                advance_hint = (
+                    f"\n💡 已达满级，可使用 /进阶洞天 {next_type} 进阶为{next_config['name']}"
+                    f"（花费 {advance_cost:,} 灵石）"
+                )
 
         furniture_lines = ""
         if furniture:
@@ -505,5 +514,5 @@ class BlessedLandManager:
             f"待收取：约 {pending_gold:,} 灵石 / {pending_exp:,} 修为"
             f"{furniture_lines}{shield_line}\n"
             f"━━━━━━━━━━━━━━━\n"
-            f"💡 /升级洞天 [次数|目标等级|all] | /洞天收取 | /洞天装修 <家具名>{advance_hint}"
+            f"💡 /升级洞天 [次数|目标等级|all] | /进阶洞天 <编号> | /洞天收取 | /洞天装修 <家具名>{advance_hint}"
         )

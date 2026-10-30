@@ -46,6 +46,14 @@ def list_pages():
     return list(PAGES.keys())
 
 
+def register_page(page_key: str, spec: Dict[str, Any]) -> bool:
+    """注册运行时构建的固定页（如符箓配方），供生成器缓存与渲染。"""
+    if not page_key or not isinstance(spec, dict) or not spec.get("sections"):
+        return False
+    PAGES[page_key] = spec
+    return True
+
+
 def image_path(page_key: str) -> Path:
     return OUTPUT_DIR / f"{page_key}.jpg"
 

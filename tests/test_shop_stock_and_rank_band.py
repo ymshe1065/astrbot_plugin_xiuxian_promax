@@ -70,6 +70,29 @@ class TestShopStockAndRankBand(unittest.TestCase):
         groups = self.shop.group_items_by_rank(ordered)
         self.assertEqual([rank for rank, _ in groups], ["凡品", "黄品"])
 
+    def test_common_and_rare_pick_weights_shift_quality(self):
+        self.shop.resolve_rank_band([_Player(0), _Player(9), _Player(20)], force=True)
+        weapons = self.shop.get_weapons_for_display(9999)
+        ranks = [self.shop.rank_index(x["rank"]) for x in weapons]
+        low = next(x for x in weapons if self.shop.rank_index(x["rank"]) == min(ranks))
+        high = next(x for x in weapons if self.shop.rank_index(x["rank"]) == max(ranks))
+        self.assertGreater(self.shop._pick_weight(high, "rare"), self.shop._pick_weight(low, "rare"))
+        self.assertGreater(self.shop._pick_weight(low, "common"), self.shop._pick_weight(high, "common"))
+
+    def test_treasure_rare_pool_filters_all_types_by_band(self):
+        self.shop.resolve_rank_band([_Player(0)], force=True)
+        items = self.shop.get_treasure_items_for_display(9999)
+        self.assertTrue(items)
+        self.assertTrue(all(self.shop.rank_index(x["rank"]) == 0 for x in items))
+
+    def test_rare_recipe_weight_prefers_high_value_scrolls(self):
+        recipes = self.shop.get_recipes_for_display(9999)
+        by_name = {r["name"]: r for r in recipes if r["rare"]}
+        self.assertGreater(
+            self.shop._pick_weight(by_name["《回春散·天方》"], "rare"),
+            self.shop._pick_weight(by_name["《回春散·凡方》"], "rare"),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

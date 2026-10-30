@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 import types
 import unittest
 from pathlib import Path
@@ -56,6 +57,7 @@ class TestTalismanSystem(unittest.IsolatedAsyncioTestCase):
         cls.ConfigManager = _imp("config_manager").ConfigManager
         cls.Player = _imp("models").Player
         cls.TalismanManager = _imp("managers.talisman_manager").TalismanManager
+        cls.LifeSkillManager = _imp("managers.life_skill_manager").LifeSkillManager
         cls.StorageRingManager = _imp("core").StorageRingManager
         cls.CombatManager = _imp("managers.combat_manager").CombatManager
         cls.AuctionManager = _imp("managers.auction_manager").AuctionManager
@@ -71,6 +73,7 @@ class TestTalismanSystem(unittest.IsolatedAsyncioTestCase):
         await self.data.MigrationManager(self.db.conn, self.config_manager).migrate()
         self.storage = self.StorageRingManager(self.db, self.config_manager)
         self.talisman = self.TalismanManager(self.db, self.config_manager, self.storage)
+        self.life = self.LifeSkillManager(self.db, self.storage)
 
     async def asyncTearDown(self):
         await self.db.close()
@@ -81,8 +84,9 @@ class TestTalismanSystem(unittest.IsolatedAsyncioTestCase):
 
     def _player(self, **kwargs):
         kwargs.setdefault("level_index", 10)
+        kwargs.setdefault("life_skill", "符箓师")
         return self.Player(
-            user_id="u1", user_name="符师", gold=100000, life_skill="符箓师", **kwargs
+            user_id="u1", user_name="符师", gold=100000, **kwargs
         )
 
     async def test_profiles_cover_existing_and_new_talismans(self):
@@ -190,6 +194,54 @@ class TestTalismanSystem(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(ok, msg)
         receiver = await self.db.get_player_by_id("receiver")
         self.assertEqual(receiver.get_storage_ring_items().get("寻宝符"), 1)
+
+    async def test_recipe_page_covers_all_craftable_talismans(self):
+        entries = self.talisman.iter_recipes()
+        self.assertEqual(len(entries), 77)
+        names = {name for name, _ in entries}
+        self.assertNotIn("化身傀儡", names)
+
+        page = self.talisman.build_recipe_page()
+        self.assertEqual(page["title"], "符箓配方总览")
+        self.assertEqual(page["background"], "craft")
+        categories = [sec["name"] for sec in page["sections"][1:]]
+        self.assertTrue(any("攻击符箓" in name for name in categories))
+        lines = [line for sec in page["sections"] for line in sec.get("lines", []) if line.startswith("· ")]
+        self.assertEqual(len(lines), 77)
+        self.assertTrue(all("灵石" in line and "%" in line for line in lines))
+
+    async def test_recipe_text_fallback_contains_materials_and_command_hint(self):
+        text = self.talisman.format_recipe_text()
+        self.assertIn("符箓配方总览", text)
+        self.assertIn("【攻击】", text)
+        self.assertIn("灵植", text)
+        self.assertIn("/制符", text)
+
+    async def test_daily_talisman_guides_non_master(self):
+        player = self._player(level_index=0, life_skill="")
+        await self.db.create_player(player)
+        ok, msg = await self.life.daily_talisman(player)
+        self.assertFalse(ok)
+        self.assertIn("/选择生活职业 符箓师", msg)
+        self.assertIn("/符箓配方", msg)
+
+    async def test_daily_talisman_guides_when_already_claimed(self):
+        player = self._player(level_index=0)
+        await self.db.create_player(player)
+        await self.db.ext.set_system_config(f"talisman_{player.user_id}", time.strftime("%Y-%m-%d"))
+        ok, msg = await self.life.daily_talisman(player)
+        self.assertFalse(ok)
+        self.assertIn("今日引雷符已领取", msg)
+        self.assertIn("/符箓配方", msg)
+
+    async def test_daily_talisman_claims_free_talisman(self):
+        player = self._player(level_index=0)
+        await self.db.create_player(player)
+        ok, msg = await self.life.daily_talisman(player)
+        self.assertTrue(ok, msg)
+        fresh = await self.db.get_player_by_id(player.user_id)
+        self.assertEqual(fresh.get_storage_ring_items().get("引雷符"), 1)
+        self.assertIn("/符箓配方", msg)
 
 
 if __name__ == "__main__":

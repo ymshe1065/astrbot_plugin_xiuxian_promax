@@ -82,8 +82,12 @@ class ShopManager:
         self._rank_band_at = now
         return band
 
-    def filter_by_rank_band(self, items: List[Dict]) -> List[Dict]:
-        """按品阶区间过滤装备/符箓，并把区间权重乘到商店权重上。"""
+    def filter_by_rank_band(self, items: List[Dict], all_types: bool = False) -> List[Dict]:
+        """按品阶区间过滤货架物品，并把区间权重乘到商店权重上。
+
+        默认只约束装备/符箓，消耗品保持全品阶可选；``all_types=True`` 时
+        连丹药、功法、材料等一并按全服品阶区间过滤（百宝阁稀有池使用）。
+        """
         band = self._rank_band
         if not band or not band.get("weights"):
             return items
@@ -92,7 +96,7 @@ class ShopManager:
             data = item.get("data") if isinstance(item.get("data"), dict) else {}
             is_gear = ItemRules.normalize_equipment_type(data) in ItemRules.GEAR_TYPES
             is_talisman = data.get("type") == "符箓" or item.get("type") == "符箓"
-            if not (is_gear or is_talisman):
+            if not (is_gear or is_talisman or all_types):
                 result.append(item)
                 continue
             index = self.rank_index(item.get("rank") or data.get("rank") or "凡品")
@@ -143,6 +147,37 @@ class ShopManager:
         """读取配置：优先新 schema 的 VALUES 层，兼容旧根键。"""
         values = self.config.get("VALUES", {}) or {}
         return values.get(key, self.config.get(key, default))
+
+    # ===== 随机抽取模式 =====
+
+    def _pick_weight(self, item: Dict, mode: str = "") -> int:
+        """按抽取模式返回权重。
+
+        - ``common``：品阶越低越常见，器阁以常规货为主；
+        - ``rare``：品阶越高、基础权重越低（越稀有）越容易入选，用于百宝阁/稀有丹方；
+        - 空值：沿用货架原有权重（含品阶区间修正）。
+        """
+        data = item.get("data") if isinstance(item.get("data"), dict) else {}
+        try:
+            base_weight = int(item.get("pick_weight") or data.get("shop_weight") or item.get("weight") or 100)
+        except (TypeError, ValueError):
+            base_weight = 100
+        base_weight = max(1, base_weight)
+        try:
+            store_weight = int(item.get("weight") or base_weight)
+        except (TypeError, ValueError):
+            store_weight = base_weight
+        store_weight = max(1, store_weight)
+        index = self.rank_index(item.get("rank") or data.get("rank") or "凡品")
+        if mode == "common":
+            # 常规模式：品阶越低越常见
+            return max(1, int(round(store_weight / (1.0 + index * 1.2))))
+        if mode == "rare":
+            # 稀有模式：品阶越高、原始权重越低（越稀有）越容易入选
+            rank_factor = (1.0 + index) ** 1.6
+            rarity_factor = base_weight ** -1.0
+            return max(1, int(round(rank_factor * rarity_factor * 100)))
+        return store_weight
 
     def is_gear_entry(self, item: Dict) -> bool:
         """判断商店/交易条目是否为随机品质装备。"""
@@ -548,11 +583,13 @@ class ShopManager:
             return False
         return (int(time.time()) - last_refresh_time) >= (refresh_hours * 3600)
 
-    def generate_pavilion_items(self, item_getter, count: int) -> List[Dict]:
+    def generate_pavilion_items(self, item_getter, count: int, pick_mode: str = "") -> List[Dict]:
         """生成阁楼物品列表（带库存和折扣）
 
         item_getter 返回的条目若带 always_available=True，则视为常驻商品：
         每次刷新都会全部上架，count 仅控制额外随机商品的数量。
+
+        ``pick_mode`` 控制随机权重：``common`` 偏常规低阶，``rare`` 偏稀有高阶。
         """
         base_items = item_getter(count * 2)  # 获取更多以便随机选择
         normalized = [
@@ -561,6 +598,15 @@ class ShopManager:
         ]
         permanent = [i for i in normalized if i.get('always_available')]
         rotatable = [i for i in normalized if not i.get('always_available')]
+        if pick_mode:
+            weighted = []
+            for item in normalized:
+                clone = dict(item)
+                clone['weight'] = self._pick_weight(item, pick_mode)
+                weighted.append(clone)
+            normalized = weighted
+            permanent = [i for i in normalized if i.get('always_available')]
+            rotatable = [i for i in normalized if not i.get('always_available')]
         if permanent:
             selected = list(permanent)
             if rotatable and count > 0:
@@ -622,10 +668,13 @@ class ShopManager:
         for item in self.config_manager.items_data.values():
             if item.get('type') == '丹方' and item.get('price', 0) > 0:
                 permanent = self._is_breakthrough_recipe(item)
+                price = max(1, int(item.get('price') or 0))
                 recipes.append({
                     'name': item['name'], 'type': 'recipe', 'price': item['price'],
                     'rank': item.get('rank', '灵品'), 'data': item,
                     'always_available': permanent, 'rare': not permanent,
+                    # 稀有模式按价格反推权重：越贵的丹方 pick_weight 越低，越容易入选
+                    'pick_weight': max(1, int(10_000_000 / price)),
                 })
         return recipes
 
@@ -720,8 +769,12 @@ class ShopManager:
                                     "price": item["price"], "rank": item.get("rank", "凡品"), "data": item})
         return self.filter_by_rank_band(all_weapons)
 
-    def get_all_items_for_display(self, count: int) -> List[Dict]:
-        """获取所有物品用于百宝阁展示"""
+    def get_all_items_for_display(self, count: int, apply_band_all: bool = False) -> List[Dict]:
+        """获取所有物品用于百宝阁展示
+
+        ``apply_band_all=True`` 时消耗品/功法/材料也按全服品阶区间过滤，
+        用于百宝阁的稀有池，避免低境界服务器直接刷出高境界杂物。
+        """
         all_items = []
         for weapon in self.config_manager.weapons_data.values():
             if weapon.get('price', 0) > 0:
@@ -752,7 +805,11 @@ class ShopManager:
         for pill in self.config_manager.utility_pills_data.values():
             if pill.get('price', 0) > 0:
                 all_items.append({'name': pill['name'], 'type': 'utility_pill', 'price': pill['price'], 'rank': pill.get('rank', '凡品'), 'data': pill})
-        return self.filter_by_rank_band(all_items)
+        return self.filter_by_rank_band(all_items, all_types=apply_band_all)
+
+    def get_treasure_items_for_display(self, count: int) -> List[Dict]:
+        """百宝阁稀有池：按全服品阶区间过滤全部类型，供 rare 模式抽取。"""
+        return self.get_all_items_for_display(count, apply_band_all=True)
 
     def _map_legacy_item_type(self, item: dict) -> str:
         """将旧格式物品类型映射到新格式

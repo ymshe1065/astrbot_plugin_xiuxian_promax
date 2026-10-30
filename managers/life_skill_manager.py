@@ -79,22 +79,42 @@ class LifeSkillManager:
         )
 
     async def daily_talisman(self, player: Player) -> Tuple[bool, str]:
-        """符箓师专属：每日免费绘制一张引雷符"""
-        if self.get_skill(player) != "符箓师":
-            return False, "❌ 只有【符箓师】才能制符。发送 /选择生活职业 符箓师 转职。"
+        """符箓师专属：每日免费绘制一张引雷符；按状态给出制符引导。"""
+        skill = self.get_skill(player)
+        if skill != "符箓师":
+            return False, (
+                "🖌️ 制符指引\n"
+                "━━━━━━━━━━━━━━━\n"
+                f"当前生活职业：{skill or '未选择'}\n"
+                "制符是【符箓师】的专属能力，其他职业无法绘制符箓。\n"
+                "· 转职：/选择生活职业 符箓师\n"
+                "· 查看配方：/符箓配方\n"
+                "· 获取符箓：百宝阁 / 坊市 / 拍卖会 / 历练奇遇"
+            )
 
         today = time.strftime("%Y-%m-%d")
         key = f"talisman_{player.user_id}"
         last_day = await self.db.ext.get_system_config(key)
         if last_day == today:
-            return False, "❌ 你今日已经绘制过符箓了，明日再来。"
+            return False, (
+                "🖌️ 今日引雷符已领取\n"
+                "━━━━━━━━━━━━━━━\n"
+                "每日免费【引雷符】已于今日领取，明日 00:00 后刷新。\n"
+                "继续绘制（消耗灵石与材料）：\n"
+                "· /制符 稳魂符\n"
+                "· /制符 寻宝符 2\n"
+                "· 全部配方：/符箓配方"
+            )
 
         if not self.storage_ring_mgr:
             return False, "❌ 系统异常：储物戒管理器未加载。"
 
         success, msg = await self.storage_ring_mgr.store_item(player, "引雷符", 1, silent=True)
         if not success:
-            return False, f"❌ 绘制成功但存入储物戒失败：{msg}"
+            return False, (
+                f"❌ 今日引雷符已绘成，但存入储物戒失败：{msg}\n"
+                "💡 请先 /储物戒 整理空间，或 /丢弃 无用物品后再发送 /制符。"
+            )
 
         await self.db.ext.set_system_config(key, today)
         return True, (
@@ -102,5 +122,6 @@ class LifeSkillManager:
             "━━━━━━━━━━━━━━━\n"
             "你以朱砂灵墨勾画雷纹，一笔成符——\n"
             "获得【引雷符】x1（已存入储物戒）\n"
-            "💡 高阶炼丹的丹劫保命神器"
+            "💡 高阶炼丹的丹劫保命神器\n"
+            "💡 继续绘制：/制符 <符名> [数量]｜全部配方：/符箓配方"
         )

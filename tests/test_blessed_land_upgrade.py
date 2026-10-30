@@ -139,6 +139,22 @@ class TestBlessedLandUpgrade(unittest.IsolatedAsyncioTestCase):
         self.assertIn("需高于当前", msg)
         self.assertEqual(await self._level(), 1)
 
+    async def test_info_hint_contains_advance_command(self):
+        msg = await self.mgr.get_blessed_land_info("u1")
+        self.assertIn("/进阶洞天 <编号>", msg)
+        self.assertIn("/升级洞天", msg)
+
+    async def test_info_shows_advance_target_at_max_level(self):
+        await self.conn.execute(
+            "UPDATE blessed_lands SET level = 5 WHERE user_id = ?", ("u1",)
+        )
+        await self.conn.commit()
+
+        msg = await self.mgr.get_blessed_land_info("u1")
+        self.assertIn("/进阶洞天 2", msg)
+        self.assertIn("中洞天", msg)
+        self.assertIn("9,000", msg)
+
 
 if __name__ == "__main__":
     unittest.main()

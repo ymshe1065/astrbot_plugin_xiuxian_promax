@@ -468,12 +468,14 @@ def render_card(
                 value_lines = _wrap_mixed(str(value), f_value, value_col) or [""]
                 line_count = max(len(label_lines), len(value_lines))
                 for idx in range(line_count):
+                    # 每条折行独占一行高度，避免多行文字叠在同一基线上
+                    row_y = y_cursor + idx * row_h
                     if idx < len(label_lines):
-                        draw.text((label_x + 6, y_cursor + 3), label_lines[idx],
+                        draw.text((label_x + 6, row_y + 3), label_lines[idx],
                                   font=f_label, fill=INK_LABEL)
                     if idx < len(value_lines):
                         vw = _mixed_width(value_lines[idx], f_value, emoji_px_val)
-                        _draw_mixed(canvas, (value_right - vw, y_cursor), value_lines[idx],
+                        _draw_mixed(canvas, (value_right - vw, row_y), value_lines[idx],
                                     f_value, emoji_px_val, INK_TEXT)
                         draw = ImageDraw.Draw(canvas)
                     # 行间点线只用于单行条目，避免多行名称时穿插杂乱
@@ -481,7 +483,7 @@ def render_card(
                         lx_end = label_x + 6 + draw.textlength(label_lines[0], font=f_label)
                         vw = _mixed_width(value_lines[0], f_value, emoji_px_val)
                         for dx in range(int(lx_end + 12), int(value_right - vw - 14), 26):
-                            draw.ellipse([dx, y_cursor + 27, dx + 3, y_cursor + 29],
+                            draw.ellipse([dx, row_y + 27, dx + 3, row_y + 29],
                                          fill=INK_DIVIDER + (110,))
                 y_cursor += row_h * line_count
 

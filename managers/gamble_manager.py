@@ -5,6 +5,7 @@ import time
 from typing import Tuple
 from ..data import DataBase
 from ..models import Player
+from ..rank_rules import RANK_NAMES, normalize_rank
 
 class GambleManager:
     """赌石与黑市管理器"""
@@ -102,9 +103,33 @@ class GambleManager:
         {"name": "劣质回气散", "price": 200, "desc": "闻起来有点刺鼻。", "fake": True},
     ]
     BLACK_MARKET_RANK_WEIGHTS = {
-        "黄品": 6, "玄品": 3, "圣品": 1,
-        "灵品": 6, "地品": 3, "天品": 1, "皇品": 1,
+        "黄品": 6, "玄品": 5, "灵品": 4, "地品": 3, "天品": 2, "皇品": 2,
+        "圣品": 1, "帝品": 1, "道品": 1, "仙品": 1, "混元先天": 1,
     }
+    # 黑市装备品质：整体高于普通货架，大师/极佳更常见
+    BLACK_MARKET_QUALITY_WEIGHTS = {"一般": 20, "良好": 35, "极佳": 30, "大师": 15}
+
+    @staticmethod
+    def _rank_index(rank: str) -> int:
+        try:
+            return RANK_NAMES.index(normalize_rank(rank))
+        except ValueError:
+            return 0
+
+    def _black_market_pick_weight(self, data: dict) -> float:
+        """黑市抽取权重：品阶越高、原始权重越低（越稀有）越容易入选。"""
+        try:
+            base = int(
+                data.get("black_market_weight")
+                or data.get("drop_weight")
+                or data.get("shop_weight")
+                or self.BLACK_MARKET_RANK_WEIGHTS.get(data.get("rank", ""), 1)
+            )
+        except (TypeError, ValueError):
+            base = 1
+        base = max(1, base)
+        index = self._rank_index(data.get("rank", ""))
+        return max(1.0, ((1.0 + index) ** 1.5) * (base ** -0.5) * 100)
 
     def _black_market_type_label(self, data: dict) -> str:
         item_type = data.get("type", "")
@@ -163,15 +188,7 @@ class GambleManager:
         candidates = list(real_pool)
         selected = []
         while candidates and len(selected) < 3:
-            weights = [
-                int(
-                    real_pool[name].get("black_market_weight")
-                    or real_pool[name].get("drop_weight")
-                    or real_pool[name].get("shop_weight")
-                    or self.BLACK_MARKET_RANK_WEIGHTS.get(real_pool[name].get("rank", ""), 1)
-                )
-                for name in candidates
-            ]
+            weights = [self._black_market_pick_weight(real_pool[name]) for name in candidates]
             pick = rng.choices(candidates, weights=weights, k=1)[0]
             selected.append(pick)
             candidates.remove(pick)
@@ -180,7 +197,9 @@ class GambleManager:
         for name in selected:
             data = real_pool[name]
             base_price = max(1, int(data.get("price", 0) or 0))
-            price = max(1, int(base_price * 0.9))
+            # 稀有货溢价：品阶越高，溢价越重
+            premium = 1.8 + self._rank_index(data.get("rank", "")) * 0.18 + rng.uniform(0.0, 0.7)
+            price = max(1, int(base_price * premium))
             items.append({
                 "name": name,
                 "price": price,
@@ -190,14 +209,13 @@ class GambleManager:
                 "type": self._black_market_type_label(data),
                 "desc": self._black_market_effect(data),
             })
-        items.extend(dict(fake) for fake in self.BLACK_MARKET_FAKES)
-        if len(items) > 3:
-            items = rng.sample(items, 3)
+        # 黑市以稀有真品为主，小概率混入一件假货（真假自负）
+        if items and rng.random() < 0.2:
+            items[rng.randrange(len(items))] = dict(rng.choice(self.BLACK_MARKET_FAKES))
 
-        from ..core.item_instance_manager import ItemInstanceManager
         from ..core.item_rules import ItemRules
-        quality_names = list(ItemInstanceManager.QUALITY_WEIGHTS)
-        quality_weights = [ItemInstanceManager.QUALITY_WEIGHTS[q] for q in quality_names]
+        quality_names = list(self.BLACK_MARKET_QUALITY_WEIGHTS)
+        quality_weights = [self.BLACK_MARKET_QUALITY_WEIGHTS[q] for q in quality_names]
         for item in items:
             data = item.get("data")
             if item.get("fake") or not isinstance(data, dict):

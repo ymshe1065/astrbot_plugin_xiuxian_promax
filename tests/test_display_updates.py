@@ -57,6 +57,33 @@ class TestFullNameRendering(unittest.TestCase):
         os.remove(path)
 
 
+class TestWrappedRowLayout(unittest.TestCase):
+    def test_wrapped_value_lines_use_separate_rows(self):
+        image_module = _imp("utils.image_generator")
+        if not image_module.HAS_PIL:
+            self.skipTest("未安装 Pillow")
+        drawn = []
+
+        def capture(canvas, xy, text, *args, **kwargs):
+            drawn.append((str(text), xy[1]))
+            return xy[0]
+
+        with patch.object(image_module, "_draw_mixed", side_effect=capture):
+            path = image_module.render_card(
+                "bag", "道友 的信息", "",
+                sections=[{"name": "装备与宗门", "rows": [
+                    ("功法生活", "灵石+3.0% · 掉落+1.0% · 冷却-1.0% · 气运+5 · 额外加成"),
+                ]}],
+                footer="",
+            )
+        self.assertTrue(path)
+        value_ys = [y for text, y in drawn if "灵石+3.0%" in text or "额外加成" in text]
+        self.assertGreaterEqual(len(value_ys), 2)
+        self.assertEqual(len(value_ys), len(set(value_ys)), "折行文字不应叠在同一基线上")
+        import os
+        os.remove(path)
+
+
 class TestEquipmentCompare(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         await fixtures.TestEquipmentInstances.asyncSetUp(self)

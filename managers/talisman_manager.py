@@ -128,9 +128,113 @@ class TalismanManager:
         ]
         others = max(0, len(all_talismans) - len(recipes))
         if others:
-            lines.append(f"\n另有 {others} 种已有符箓，可直接 /制符 <符名> 按品级自动配方绘制。")
+            lines.append(f"\n另有 {others} 种已有符箓，可按品级自动推演配方绘制。")
         lines.append("\n💡 /制符 <符名> [数量] 绘制；/使用符箓 <符名> [数量] 使用")
+        lines.append("💡 /符箓配方 查看全部配方长图（材料、灵石、成功率）")
         lines.append("💡 任意符箓均可 /使用符箓，效果按符名与品级自动推演")
+        return "\n".join(lines)
+
+    # ===== 配方总览 =====
+    RECIPE_CATEGORY_ORDER = ["攻击", "防御", "控制", "回复", "炼丹", "探索", "增益"]
+
+    @staticmethod
+    def _material_label(spec: Dict) -> str:
+        count = int(spec.get("count", 0) or 0)
+        if spec.get("name"):
+            return f"{spec['name']}×{count}"
+        return f"{spec.get('tier', '')}{spec.get('category', '')}×{count}"
+
+    @staticmethod
+    def _recipe_rank(recipe: Dict) -> str:
+        return normalize_rank(recipe.get("rank"), "凡品")
+
+    def _recipe_summary(self, recipe: Dict) -> str:
+        materials = "、".join(
+            self._material_label(spec) for spec in (recipe.get("materials") or []) if isinstance(spec, dict)
+        ) or "无需材料"
+        level = int(recipe.get("level_required", 0) or 0)
+        gold = int(recipe.get("gold_cost", 0) or 0)
+        rate = float(recipe.get("success_rate", 75) or 75)
+        return f"{self._recipe_rank(recipe)} Lv{level}｜{gold:,}灵石｜{materials}｜{rate:.0f}%"
+
+    def iter_recipes(self) -> List[Tuple[str, Dict]]:
+        """枚举所有可绘制符箓（配置配方 + 按品级自动推演配方）。"""
+        names = set(getattr(self.config_manager, "talisman_recipes_data", {}) or {})
+        for name, item in (getattr(self.config_manager, "items_data", {}) or {}).items():
+            if isinstance(item, dict) and item.get("type") == "符箓" and name not in NON_TALISMAN_ITEMS:
+                names.add(name)
+        entries = []
+        for name in names:
+            recipe = self.get_recipe(name)
+            if not recipe:
+                continue
+            category = recipe.get("category") or self._infer_category(name)
+            recipe["category"] = category
+            entries.append((name, recipe))
+        order = {category: index for index, category in enumerate(self.RECIPE_CATEGORY_ORDER)}
+        entries.sort(key=lambda item: (
+            order.get(item[1].get("category"), len(order)),
+            rank_level(self._recipe_rank(item[1])),
+            int(item[1].get("level_required", 0) or 0),
+            item[0],
+        ))
+        return entries
+
+    def build_recipe_page(self, width: int = 1280) -> Dict:
+        """构建配方长图的图片页配置（供固定页生成器渲染与缓存）。"""
+        entries = self.iter_recipes()
+        grouped: Dict[str, List[Tuple[str, Dict]]] = {category: [] for category in self.RECIPE_CATEGORY_ORDER}
+        for name, recipe in entries:
+            grouped.setdefault(recipe.get("category", "增益"), []).append((name, recipe))
+
+        sections: List[Dict] = [{
+            "name": "制符说明",
+            "lines": [
+                "仅【符箓师】可绘制符箓；绘制消耗灵石与对应品阶材料。",
+                "符箓师加成：成功率 +10%、灵石消耗 -20%、20% 概率额外产出 1 张。",
+                "表中成功率为基础值，符箓师实际再 +10%；灵石消耗同样按 8 折结算。",
+                "材料按「类别 + 品阶」匹配：灵植 / 矿材 / 妖兽 / 灵液，可从丹阁材料、灵田、历练与秘境获取。",
+                "格式：符名｜品阶 境界｜灵石｜材料｜成功率。",
+                "/制符 <符名> [数量] 绘制；/使用符箓 <符名> [数量] 使用；/符箓 查看分类与持有数量。",
+            ],
+        }]
+        for category in self.RECIPE_CATEGORY_ORDER:
+            items = grouped.get(category) or []
+            if not items:
+                continue
+            sections.append({
+                "name": f"{category}符箓 · {len(items)}种",
+                "lines": [
+                    f"· {name}｜{self._recipe_summary(recipe)}"
+                    for name, recipe in items
+                ],
+            })
+        return {
+            "title": "符箓配方总览",
+            "subtitle": f"共 {len(entries)} 种可绘制符箓 · 材料按类别与品阶匹配",
+            "footer": "💡 /制符 <符名> [数量] 绘制 · /使用符箓 <符名> [数量] 使用",
+            "background": "craft",
+            "width": width,
+            "sections": sections,
+        }
+
+    def format_recipe_text(self) -> str:
+        """图片不可用时的配方文本降级。"""
+        entries = self.iter_recipes()
+        lines = [
+            f"🧿 符箓配方总览（共 {len(entries)} 种）",
+            "━━━━━━━━━━━━━━━",
+            "仅【符箓师】可绘制；材料按「类别 + 品阶」匹配。",
+            "格式：符名（品阶 境界｜灵石｜材料｜成功率）。",
+        ]
+        current_category = None
+        for name, recipe in entries:
+            category = recipe.get("category", "增益")
+            if category != current_category:
+                current_category = category
+                lines.append(f"\n【{category}】")
+            lines.append(f"  · {name}（{self._recipe_summary(recipe)}）")
+        lines.append("\n💡 /制符 <符名> [数量] 绘制；/使用符箓 <符名> [数量] 使用")
         return "\n".join(lines)
 
     # ===== 材料 =====
@@ -198,9 +302,13 @@ class TalismanManager:
         count = max(1, min(100, int(count or 1)))
         recipe = self.get_recipe(name)
         if not recipe:
-            return False, f"❌ 没有找到符箓【{name}】的绘制方法。发送 /符箓 查看可绘制符箓。"
+            return False, f"❌ 没有找到符箓【{name}】的绘制方法。\n💡 发送 /符箓配方 查看全部配方长图。"
         if player.life_skill != "符箓师":
-            return False, "❌ 只有【符箓师】才能绘制符箓。发送 /选择生活职业 符箓师 转职。"
+            return False, (
+                "❌ 只有【符箓师】才能绘制符箓。\n"
+                "· 转职：/选择生活职业 符箓师\n"
+                "· 查看配方：/符箓配方"
+            )
         if not self.storage_ring_manager:
             return False, "❌ 系统异常：储物戒管理器未加载。"
 

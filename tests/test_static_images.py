@@ -100,6 +100,22 @@ class TestStaticPageContent(unittest.TestCase):
             pages.HELP_SUBTITLE = original
             pages.PAGES["help"]["subtitle"] = original
 
+    def test_register_runtime_page(self):
+        generator = _imp("utils.static_image_generator")
+        pages = _imp("utils.static_pages")
+        spec = {
+            "title": "符箓配方总览",
+            "subtitle": "测试",
+            "sections": [{"name": "🧿 测试", "lines": ["/制符 <符名>"]}],
+        }
+        try:
+            self.assertTrue(generator.register_page("test_recipe_page", spec))
+            self.assertIn("test_recipe_page", generator.list_pages())
+            self.assertTrue(pages.page_fingerprint("test_recipe_page"))
+            self.assertFalse(generator.register_page("bad_page", {}))
+        finally:
+            pages.PAGES.pop("test_recipe_page", None)
+
 
 @unittest.skipUnless(HAS_PIL, "需要 Pillow 才能生成图片（pip install Pillow）")
 class TestStaticImageGeneration(unittest.IsolatedAsyncioTestCase):

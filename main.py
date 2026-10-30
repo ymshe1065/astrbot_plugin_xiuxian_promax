@@ -3047,7 +3047,28 @@ class XiuXianPlugin(Star):
             return
         yield event.plain_result(self.talisman_mgr.list_talismans(player))
 
-    @filter.command("制符", "绘制符箓；不带参数领取符箓师每日引雷符")
+    @filter.command("符箓配方", "发送符箓配方长图（材料/灵石/成功率）")
+    @require_whitelist
+    async def handle_talisman_recipes(self, event: AstrMessageEvent):
+        spec = self.talisman_mgr.build_recipe_page()
+        try:
+            from .utils.image_generator import card_enabled
+            from .utils.static_image_generator import (
+                auto_regenerate_enabled, ensure_page, image_path, register_page,
+            )
+
+            if card_enabled("CARD_TALISMAN_RECIPE"):
+                register_page("talisman_recipes", spec)
+                allow_generate = auto_regenerate_enabled() or not image_path("talisman_recipes").exists()
+                image = await ensure_page("talisman_recipes", allow_generate=allow_generate)
+                if image:
+                    yield event.image_result(image)
+                    return
+        except Exception as e:
+            logger.warning(f"符箓配方长图生成失败，降级文本: {e}")
+        yield event.plain_result(self.talisman_mgr.format_recipe_text())
+
+    @filter.command("制符", "绘制符箓；不带参数领取每日引雷符或查看制符引导")
     @require_whitelist
     @idle_player_lock
     async def handle_draw_talisman(self, event: AstrMessageEvent, args: GreedyStr):

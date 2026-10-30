@@ -15,6 +15,12 @@
         "default": true,
         "hint": "/修仙帮助 发送预生成的指令大全图片，图片不可用时自动降级为文本。"
       },
+      "CARD_TALISMAN_RECIPE": {
+        "description": "符箓配方长图",
+        "type": "bool",
+        "default": true,
+        "hint": "/符箓配方 发送全部符箓配方长图（材料/灵石/成功率），图片不可用时自动降级为文本。"
+      },
       "STATIC_AUTO_REGEN": {
         "description": "固定页面自动重生成",
         "type": "bool",
@@ -330,14 +336,14 @@
       "PAVILION_WEAPON_COUNT": {
         "description": "器阁展示数量",
         "type": "int",
-        "default": 30,
-        "hint": "器阁展示的装备数量；数量越大，高境界装备也越容易出现。"
+        "default": 40,
+        "hint": "器阁展示的常规装备数量；数量较多，且以当前境界区间内的常规品阶为主。"
       },
       "PAVILION_TREASURE_COUNT": {
         "description": "百宝阁展示数量",
         "type": "int",
-        "default": 40,
-        "hint": "百宝阁展示的物品数量；数量越大，可选范围越广。"
+        "default": 12,
+        "hint": "百宝阁展示的稀有物品数量；数量较少，但优先刷新高品阶、低权重的稀有物品。"
       },
       "SHOP_DISCOUNT_MIN": {
         "description": "折扣最小值",
@@ -360,8 +366,8 @@
       "PAVILION_RARE_RECIPE_COUNT": {
         "description": "丹方阁稀有丹方数量",
         "type": "int",
-        "default": 3,
-        "hint": "丹方阁每次随机刷新的稀有丹方数量；突破所需丹方会常驻提供，不占用此数量。"
+        "default": 6,
+        "hint": "丹方阁每次随机刷新的稀有丹方数量；突破所需丹方会常驻提供，不占用此数量。稀有丹方优先刷新高价值、低权重的丹方。"
       },
       "PAVILION_MATERIAL_COUNT": {
         "description": "材料阁展示数量",
