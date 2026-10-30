@@ -70,6 +70,7 @@ CMD_USE_PILL = "服用丹药"
 CMD_SHOW_PILLS = "丹药背包"
 CMD_PILL_INFO = "丹药信息"
 CMD_PILL_PAVILION = "丹阁"
+CMD_TALISMAN_PAVILION = "符阁"
 CMD_WEAPON_PAVILION = "器阁"
 CMD_TREASURE_PAVILION = "百宝阁"
 CMD_ITEM_INFO = "物品信息"
@@ -137,6 +138,7 @@ CMD_INVEST_SUBSCRIBE = "申购"
 CMD_INVEST_REDEEM = "赎回"
 CMD_INVEST_HOLDINGS = "我的持仓"
 CMD_INVEST_ORDERS = "仙市流水"
+CMD_INVEST_SUBSCRIBE = "仙市订阅"
 CMD_BOUNTY_LIST = "悬赏令"
 CMD_BOUNTY_ACCEPT = "接取悬赏"
 CMD_BOUNTY_STATUS = "悬赏状态"
@@ -691,7 +693,10 @@ class XiuXianPlugin(Star):
 
         价格只在该盘边界变化，60 秒轮询已足够精确；
         不要改成「有人查行情才结算」——没人看盘就不涨，玩家很快就会察觉。
+        v6 新增：每个 HH:30 推送下一盘风声（若订阅开启），风声用确定性种子提前生成，
+        与整点结算复用同一条消息。
         """
+        pushed_hint_tick = None
         while True:
             try:
                 await self.db.ensure_connection()
@@ -699,15 +704,65 @@ class XiuXianPlugin(Star):
                 if moved > 0:
                     tick = self.invest_mgr.tick_of()
                     logger.info(
-                        f"【仙市】结算 {moved} 盘，当前第 {tick % 8 + 1} 盘"
+                        f"【仙市】结算 {moved} 盘，当前第 {tick % 16 + 1} 盘"
                         f"（{self.invest_mgr.slot_label(tick)}）"
                     )
+                # HH:30 风声推送
+                pushed_hint_tick = await self._maybe_push_invest_hint(pushed_hint_tick)
                 await asyncio.sleep(60)
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error(f"仙市结算任务异常: {e}")
                 await asyncio.sleep(120)
+
+    async def _maybe_push_invest_hint(self, pushed_hint_tick):
+        """每个 HH:30 推送下一盘风声（订阅开启时）。返回（可能更新的）已推送标记。"""
+        from astrbot.api.event import MessageChain
+        now = self.invest_mgr.now()
+        # 风声推送时点：HH:30（下一盘结算前 30 分钟）。开市为 07:00–22:00 结算，
+        # 故风声窗口为 06:30–21:30。
+        if now.minute != 30 or not (6 <= now.hour <= 21):
+            return pushed_hint_tick
+        # 订阅开关（全局）
+        subscribed = await self.db.ext.get_system_config("invest_hint_subscribe")
+        if subscribed != "1":
+            return pushed_hint_tick
+        next_tick = self.invest_mgr.tick_of(now) + 1
+        if next_tick == pushed_hint_tick:
+            return pushed_hint_tick
+        hint = await self.invest_mgr.peek_hint(next_tick)
+        if not hint:
+            return pushed_hint_tick
+        # 只有真消息才推送；盘面平静不打扰
+        if hint.get("pattern") in (None, "calm", ""):
+            return pushed_hint_tick
+        prefix = "全市场 · " if hint.get("code") == "*" else ""
+        text = (
+            f"📈 仙市风声（{hint.get('hour', '--')}:00 结算计入）\n"
+            f"{prefix}{hint.get('title', '')}\n"
+            f"　{hint.get('detail', '')}\n"
+            f"── 半小时后开盘，可 /买入股 抢跑"
+        )
+        if self.broadcast_groups:
+            message_chain = MessageChain().message(text)
+            try:
+                platforms = self.context.platform_manager.get_insts()
+                for platform in platforms:
+                    platform_name = (
+                        platform.meta().name
+                        if hasattr(platform, "meta") and callable(platform.meta)
+                        else "unknown"
+                    )
+                    for group_id in self.broadcast_groups:
+                        umo = f"{platform_name}:GroupMessage:{group_id}"
+                        try:
+                            await self.context.send_message(umo, message_chain)
+                        except Exception as e:
+                            logger.warning(f"【仙市】风声广播失败 (群{group_id}): {e}")
+            except Exception as e:
+                logger.error(f"【仙市】风声广播异常: {e}")
+        return next_tick
 
     async def _schedule_market_npc_offers(self):
         """v6.22 坊市NPC问价：按随机间隔生成问价，并清理过期问价"""
@@ -1265,6 +1320,11 @@ class XiuXianPlugin(Star):
     @require_whitelist
     async def handle_pill_pavilion(self, event: AstrMessageEvent, args: GreedyStr):
         async for r in self.shop_handler.handle_pill_pavilion(event, args): yield r
+
+    @filter.command(CMD_TALISMAN_PAVILION, "查看符阁符箓/符图")
+    @require_whitelist
+    async def handle_talisman_pavilion(self, event: AstrMessageEvent, args: GreedyStr):
+        async for r in self.shop_handler.handle_talisman_pavilion(event, args): yield r
 
     @filter.command(CMD_WEAPON_PAVILION, "查看器阁武器")
     @require_whitelist
@@ -1945,6 +2005,11 @@ class XiuXianPlugin(Star):
     @require_whitelist
     async def handle_invest_orders(self, event: AstrMessageEvent):
         async for r in self.invest_handlers.handle_orders(event): yield r
+
+    @filter.command(CMD_INVEST_SUBSCRIBE, "开关仙市风声主动推送")
+    @require_whitelist
+    async def handle_invest_subscribe(self, event: AstrMessageEvent):
+        async for r in self.invest_handlers.handle_subscribe(event): yield r
 
     # ===== 悬赏 =====
     @filter.command(CMD_BOUNTY_LIST, "查看悬赏任务")
@@ -3068,7 +3133,7 @@ class XiuXianPlugin(Star):
             logger.warning(f"符箓配方长图生成失败，降级文本: {e}")
         yield event.plain_result(self.talisman_mgr.format_recipe_text())
 
-    @filter.command("制符", "绘制符箓；不带参数领取每日引雷符或查看制符引导")
+    @filter.command("制符", "绘制符箓；不带参数领取符箓师每日护劫符")
     @require_whitelist
     @idle_player_lock
     async def handle_draw_talisman(self, event: AstrMessageEvent, args: GreedyStr):

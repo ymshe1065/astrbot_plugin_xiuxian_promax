@@ -345,6 +345,18 @@
         "default": 12,
         "hint": "百宝阁展示的稀有物品数量；数量较少，但优先刷新高品阶、低权重的稀有物品。"
       },
+      "PAVILION_TALISMAN_COUNT": {
+        "description": "符阁符箓展示数量",
+        "type": "int",
+        "default": 12,
+        "hint": "符阁每次刷新上架的成品符数量（只上架凡品与黄品）。"
+      },
+      "PAVILION_TALISMAN_RECIPE_COUNT": {
+        "description": "符阁符图展示数量",
+        "type": "int",
+        "default": 4,
+        "hint": "符阁每次刷新额外上架的符图数量；黄品符图常驻，玄品以上随机刷新。"
+      },
       "SHOP_DISCOUNT_MIN": {
         "description": "折扣最小值",
         "type": "float",

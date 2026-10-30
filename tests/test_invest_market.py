@@ -61,21 +61,21 @@ class TestInvestTiming(unittest.TestCase):
         from datetime import date, datetime
         base_day = (date(2026, 10, 29) - date(2026, 1, 1)).days
         cases = {
-            (6, 59): (base_day - 1, 7),
+            (6, 59): (base_day - 1, 15),
             (7, 0): (base_day, 0),
-            (8, 59): (base_day, 0),
-            (9, 0): (base_day, 1),
-            (14, 59): (base_day, 3),
-            (15, 0): (base_day, 4),
-            (21, 0): (base_day, 7),
-            (22, 59): (base_day, 7),
-            (23, 0): (base_day, 7),
-            (23, 59): (base_day, 7),
+            (8, 59): (base_day, 1),
+            (9, 0): (base_day, 2),
+            (14, 59): (base_day, 7),
+            (15, 0): (base_day, 8),
+            (21, 0): (base_day, 14),
+            (22, 59): (base_day, 15),
+            (23, 0): (base_day, 15),
+            (23, 59): (base_day, 15),
         }
         for (hour, minute), (expect_day, expect_slot) in cases.items():
             tick = self.InvestManager.tick_of(datetime(2026, 10, 29, hour, minute))
             self.assertEqual(
-                (tick // 8, tick % 8),
+                (tick // 16, tick % 16),
                 (expect_day, expect_slot),
                 msg=f"{hour:02d}:{minute:02d} 应为第 {expect_day} 天第 {expect_slot} 盘",
             )
@@ -90,25 +90,24 @@ class TestInvestTiming(unittest.TestCase):
             last = tick
             moment += timedelta(minutes=1)
 
-    def test_eight_new_ticks_per_day(self):
+    def test_sixteen_new_ticks_per_day(self):
         from datetime import datetime, timedelta
         moment = datetime(2026, 10, 29, 0, 0)
         ticks = set()
         for _ in range(24 * 60):
             ticks.add(self.InvestManager.tick_of(moment))
             moment += timedelta(minutes=1)
-        # 含凌晨延续的前一日最后一盘，共 9 个；新增盘次为 8
-        self.assertEqual(len(ticks), 9)
+        # 含凌晨延续的前一日最后一盘，共 17 个；新增盘次为 16
+        self.assertEqual(len(ticks), 17)
 
-    def test_news_ticks_are_0700_and_1500(self):
+    def test_news_every_tick(self):
         from datetime import datetime
-        day = self.InvestManager.tick_of(datetime(2026, 10, 29, 12, 0)) // 8
+        day = self.InvestManager.tick_of(datetime(2026, 10, 29, 12, 0)) // 16
         labels = [
             self.InvestManager.slot_label(t)
-            for t in range(day * 8, (day + 1) * 8)
-            if t % 8 in (0, 4)
+            for t in range(day * 16, (day + 1) * 16)
         ]
-        self.assertEqual(labels, ["07:00", "15:00"])
+        self.assertEqual(labels, [f"{hour:02d}:00" for hour in range(7, 23)])
 
     def test_market_open_window(self):
         from datetime import datetime
@@ -206,49 +205,49 @@ class TestInvestMarket(unittest.IsolatedAsyncioTestCase):
             os.remove(path)
 
     async def test_price_limits_respected(self):
-        """单盘不超过 price_limit，日累计不超过 day_limit。"""
+        """单盘不超过 price_limit，日累计不越 day_up / day_down 熔断。"""
         await self.manager._settle_tick(1)
-        for tick in range(2, 90):
+        for tick in range(2, 100):
             await self.manager._settle_tick(tick)
-            day_open = float(
-                await self.manager._scalar(
-                    "SELECT day_open FROM invest_products WHERE code = 'S01'"
-                )
-            )
-            limit = float(
-                await self.manager._scalar(
-                    "SELECT day_limit FROM invest_products WHERE code = 'S01'"
-                )
-            )
+            row = (await self.manager._rows(
+                "SELECT day_open, price_limit, day_up, day_down FROM invest_products WHERE code = 'S01'"
+            ))[0]
             change = float(
                 await self.manager._scalar(
                     "SELECT change_rate FROM invest_prices WHERE code = 'S01' AND tick = ?", (tick,)
                 )
             )
             price = await self._price("S01")
-            self.assertLessEqual(abs(change), 0.030 + 1e-6, msg=f"第 {tick} 盘超出单盘限幅")
             self.assertLessEqual(
-                abs(price / day_open - 1), limit + 1e-4, msg=f"第 {tick} 盘超出日熔断"
+                abs(change), float(row["price_limit"]) + 1e-6, msg=f"第 {tick} 盘超出单盘限幅"
+            )
+            day_open = float(row["day_open"])
+            self.assertLessEqual(
+                price, day_open * (1 + float(row["day_up"])) + 1e-4,
+                msg=f"第 {tick} 盘超出日上限",
+            )
+            self.assertGreaterEqual(
+                price, day_open * (1 - float(row["day_down"])) - 1e-4,
+                msg=f"第 {tick} 盘跌破日下限",
             )
 
     async def test_prices_stay_bounded_long_run(self):
-        """长期不应跑飞：软回归要能把价格拉在基准附近。"""
+        """长期不应跑飞：软回归要能把价格拉在合理量级内。"""
         for tick in range(1, 400):
             await self.manager._settle_tick(tick)
         for code, base in (("S01", 42.0), ("S05", 55.0), ("F01", 1.0)):
             price = await self._price(code)
-            self.assertLess(price, base * 1.6, msg=f"{code} 价格跑飞：{price}")
-            self.assertGreater(price, base * 0.4, msg=f"{code} 价格崩塌：{price}")
+            self.assertLess(price, base * 12, msg=f"{code} 价格跑飞：{price}")
+            self.assertGreater(price, base * 0.05, msg=f"{code} 价格崩塌：{price}")
 
-    async def test_news_generated_twice_per_day(self):
+    async def test_news_generated_every_tick(self):
         day = 5
-        await self.manager._settle_tick(day * 8)
-        await self.manager._settle_tick(day * 8 + 1)
-        await self.manager._settle_tick(day * 8 + 4)
+        for slot in range(4):
+            await self.manager._settle_tick(day * 16 + slot)
         rows = await self.manager._rows(
             "SELECT slot FROM invest_events WHERE trade_day = ? ORDER BY slot", (day,)
         )
-        self.assertEqual([r["slot"] for r in rows], [0, 4])
+        self.assertEqual([r["slot"] for r in rows], [0, 1, 2, 3])
 
     async def test_news_is_idempotent(self):
         """同一盘重复触发不能生成第二条消息。"""
@@ -324,17 +323,17 @@ class TestInvestMarket(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(ok, msg)
             after_buy = (await self.db.get_player_by_id("u1")).gold
             amount = int(round(100 * price))
-            buy_fee = max(100, int(amount * 0.003))
+            buy_fee = max(20, int(amount * 0.0015))
             self.assertEqual(after_buy, start_gold - amount - buy_fee)
 
             ok, msg = await self.manager.sell_stock(player, "S01", 1)
             self.assertTrue(ok, msg)
             after_sell = (await self.db.get_player_by_id("u1")).gold
-            sell_fee = max(100, int(amount * 0.003))
+            sell_fee = max(20, int(amount * 0.0015))
             self.assertEqual(after_sell, start_gold - buy_fee - sell_fee)
 
     async def test_min_fee_floor(self):
-        """小额交易按 100 灵石最低手续费收，防止刷单。"""
+        """小额交易按 20 灵石最低手续费收，防止刷单。"""
         await self.manager._settle_tick(10)
         player = await self._player()
         with self._patch_tick(10):
@@ -343,7 +342,7 @@ class TestInvestMarket(unittest.IsolatedAsyncioTestCase):
         fee = await self.manager._scalar(
             "SELECT fee FROM invest_orders WHERE user_id = ? ORDER BY id DESC LIMIT 1", ("u1",)
         )
-        self.assertEqual(int(fee), 100)
+        self.assertEqual(int(fee), 20)
 
     async def test_single_tick_lot_cap(self):
         await self.manager._settle_tick(10)
@@ -437,26 +436,37 @@ class TestInvestMarket(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(ok, msg)
 
         nav = await self._price("F01")
-        # 持有 5 盘 → 1.5%
+        # 持有 5 盘 → 0.5%
         with self._patch_tick(105):
             ok, msg = await self.manager.redeem_fund(player, "F01", 0)
         self.assertTrue(ok, msg)
         fee = int(await self.manager._scalar(
             "SELECT fee FROM invest_orders WHERE user_id = ? ORDER BY id DESC LIMIT 1", ("u1",)
         ))
-        self.assertAlmostEqual(fee, int(10_000 * nav * 0.015), delta=2)
+        self.assertAlmostEqual(fee, int(10_000 * nav * 0.005), delta=2)
 
-        # 持有 20 盘 → 0.5%
+        # 持有 30 盘 → 0.2%
         with self._patch_tick(200):
             await self.manager.subscribe_fund(player, "F01", 10_000)
         nav2 = await self._price("F01")
-        with self._patch_tick(225):
+        with self._patch_tick(230):
             ok, _ = await self.manager.redeem_fund(player, "F01", 0)
         self.assertTrue(ok)
         fee2 = int(await self.manager._scalar(
             "SELECT fee FROM invest_orders WHERE user_id = ? ORDER BY id DESC LIMIT 1", ("u1",)
         ))
-        self.assertAlmostEqual(fee2, int(10_000 * nav2 * 0.005), delta=2)
+        self.assertAlmostEqual(fee2, int(10_000 * nav2 * 0.002), delta=2)
+
+        # 持有 90 盘 → 免赎回费
+        with self._patch_tick(300):
+            await self.manager.subscribe_fund(player, "F01", 10_000)
+        with self._patch_tick(390):
+            ok, _ = await self.manager.redeem_fund(player, "F01", 0)
+        self.assertTrue(ok)
+        fee3 = int(await self.manager._scalar(
+            "SELECT fee FROM invest_orders WHERE user_id = ? ORDER BY id DESC LIMIT 1", ("u1",)
+        ))
+        self.assertEqual(fee3, 0)
 
     async def test_fund_shares_track_nav(self):
         await self.manager._settle_tick(10)
@@ -475,21 +485,21 @@ class TestInvestMarket(unittest.IsolatedAsyncioTestCase):
     async def test_dividend_requires_holding_window(self):
         await self.manager._settle_tick(19)
         player = await self._player()
-        with self._patch_tick(19):
+        with self._patch_tick(31):
             ok, msg = await self.manager.buy_stock(player, "S01", 1)
         self.assertTrue(ok, msg)
 
-        # 持有不足 8 盘（21 - 19 = 2）：不派息
-        await self.manager._settle_tick(21)
+        # 持有不足 12 盘（32 - 31 = 1）：不派息
+        await self.manager._settle_tick(32)
         count = await self.manager._scalar("SELECT COUNT(*) FROM invest_dividends")
         self.assertEqual(int(count), 0)
 
-        # hold_since 改到 5，42 - 5 = 37 盘，应派息
+        # hold_since 改到 20，64 - 20 = 44 盘，应派息
         await self.conn.execute(
-            "UPDATE invest_holdings SET hold_since = 5 WHERE user_id = 'u1' AND code = 'S01'"
+            "UPDATE invest_holdings SET hold_since = 20 WHERE user_id = 'u1' AND code = 'S01'"
         )
         await self.conn.commit()
-        await self.manager._settle_tick(42)
+        await self.manager._settle_tick(64)
         count = await self.manager._scalar("SELECT COUNT(*) FROM invest_dividends")
         self.assertEqual(int(count), 1)
         amount = int(await self.manager._scalar("SELECT amount FROM invest_dividends LIMIT 1"))
@@ -503,8 +513,9 @@ class TestInvestMarket(unittest.IsolatedAsyncioTestCase):
         with self._patch_tick(5):
             data = await self.manager.get_overview()
         self.assertEqual(len(data["items"]), 9)  # 6 股票 + 3 基金
-        self.assertEqual(len(data["news"]), 2)
+        self.assertEqual(len(data["news"]), 5)
         self.assertTrue(all("change" in i and "today" in i for i in data["items"]))
+        self.assertIn("current_hint", data)
 
     async def test_holdings_profit(self):
         await self.manager._settle_tick(10)

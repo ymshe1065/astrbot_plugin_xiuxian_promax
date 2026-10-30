@@ -224,7 +224,7 @@ class TestAuctionHouse(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn(lot["item_name"], status)
             self.assertIn(self.manager._preview_head(lot), status)
 
-    async def test_migration_v51_clears_only_unstarted_lots(self):
+    async def test_migration_v53_clears_only_unstarted_lots(self):
         now = int(time.time())
         scheduled = await self._insert_event(
             "scheduled", now=now, event_start=now + 3600,
@@ -236,7 +236,7 @@ class TestAuctionHouse(unittest.IsolatedAsyncioTestCase):
         await self._insert_lot(live["id"], status="live")
 
         migration = _imp("data.migration")
-        await migration._migrate_to_v51(self.conn, self.config_manager)
+        await migration._migrate_to_v53(self.conn, self.config_manager)
 
         remaining = await self.manager._fetchall(
             "SELECT event_id FROM auction_house_lots ORDER BY event_id"

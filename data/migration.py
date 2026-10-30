@@ -10,7 +10,7 @@ from astrbot.api import logger
 if TYPE_CHECKING:
     from ..config_manager import ConfigManager
 
-LATEST_DB_VERSION = 51  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求；v49: 统一物品品阶名称；v50: 仙市投资系统（基金/股票）；v51: 未开拍拍品按固定品阶曲线重建
+LATEST_DB_VERSION = 53  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求；v49: 统一物品品阶名称；v50: 仙市投资系统（基金/股票）；v51: 符箓熟练度与符图习得；v52: 仙市 v6（16 盘 + 赌场级波动 + 不对称日熔断）；v53: 拍卖会未开拍拍品按固定品阶曲线重建（并兼容分叉旧库补授符图）
 
 MIGRATION_TASKS: Dict[int, Callable[[aiosqlite.Connection, ConfigManager], Awaitable[None]]] = {}
 
@@ -23,11 +23,16 @@ def migration(version: int):
 
 async def _add_column_if_missing(conn: aiosqlite.Connection, table: str, column: str, ddl_type: str):
     """幂等加列：全新建表已包含最新列时，增量迁移的 ALTER 不能因重复列而失败"""
-    async with conn.execute(f"PRAGMA table_info({table})") as cursor:
-        existing = {row[1] for row in await cursor.fetchall()}
-    if column in existing:
+    if await _column_exists(conn, table, column):
         return
     await conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl_type}")
+
+
+async def _column_exists(conn: aiosqlite.Connection, table: str, column: str) -> bool:
+    """判断表里是否已有某列（用于区分分叉旧库与全新库）"""
+    async with conn.execute(f"PRAGMA table_info({table})") as cursor:
+        existing = {row[1] for row in await cursor.fetchall()}
+    return column in existing
 
 
 async def _ensure_sect_v30_tables(conn: aiosqlite.Connection):
@@ -330,6 +335,24 @@ async def _ensure_auction_house_v47(conn: aiosqlite.Connection):
     await conn.execute("CREATE INDEX IF NOT EXISTS idx_ah_messages_status ON auction_house_messages(status, id)")
 
 
+async def _ensure_talisman_v51(conn: aiosqlite.Connection, grant_legacy: bool = True):
+    """符箓熟练度与符图习得：加两列，并给老存档补授原有的非基础符图。
+
+    基础配方（basic=true）人人可画，不需要落库；``grant_legacy`` 补的是
+    v6.41 之前已经能靠改名配方画出来的 5 张，避免老玩家突然失去绘制能力。
+    只在版本迁移时补授——兜底路径（每次启动）不能给新玩家白发符图。
+    """
+    await _add_column_if_missing(conn, "players", "talisman_exp", "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(conn, "players", "talisman_recipes", "TEXT NOT NULL DEFAULT '[]'")
+    if not grant_legacy:
+        return
+    legacy_products = ["聚灵符", "避劫符", "寻宝符", "星辰符", "鸿蒙符"]
+    await conn.execute(
+        "UPDATE players SET talisman_recipes = ? WHERE COALESCE(talisman_recipes, '') IN ('', '[]')",
+        (json.dumps(legacy_products, ensure_ascii=False),),
+    )
+
+
 async def _ensure_latest_columns(conn: aiosqlite.Connection):
     """终极兜底：确保 NPC、宗门、贷款等最新增量列/表齐全。"""
     await _add_column_if_missing(conn, "players", "karma", "INTEGER NOT NULL DEFAULT 0")
@@ -365,6 +388,7 @@ async def _ensure_latest_columns(conn: aiosqlite.Connection):
     await _ensure_auction_house_v47(conn)
     await _ensure_combat_limits_v48(conn)
     await _ensure_invest_v50(conn)
+    await _ensure_talisman_v51(conn, grant_legacy=False)
     await _add_column_if_missing(conn, "player_pets", "max_hp", "INTEGER NOT NULL DEFAULT 0")
     await _add_column_if_missing(conn, "player_pets", "hp", "INTEGER NOT NULL DEFAULT 0")
     await _add_column_if_missing(conn, "player_pets", "last_regen_time", "INTEGER NOT NULL DEFAULT 0")
@@ -1827,6 +1851,8 @@ async def _ensure_invest_v50(conn: aiosqlite.Connection):
             cycle_phase INTEGER NOT NULL DEFAULT 0,
             price_limit REAL NOT NULL DEFAULT 0.03,
             day_limit REAL NOT NULL DEFAULT 0.08,
+            day_up REAL NOT NULL DEFAULT 4.00,
+            day_down REAL NOT NULL DEFAULT 0.75,
             msg_base REAL NOT NULL DEFAULT 0,
             weekly_return REAL NOT NULL DEFAULT 0,
             dividend_rate REAL NOT NULL DEFAULT 0,
@@ -2131,11 +2157,42 @@ async def _migrate_to_v50(conn: aiosqlite.Connection, config_manager: ConfigMana
 
 @migration(51)
 async def _migrate_to_v51(conn: aiosqlite.Connection, config_manager: ConfigManager):
-    """迁移到 v51 - 未开拍拍卖会按新的固定品阶曲线重建拍品。
+    """迁移到 v51 - 符箓熟练度与符图习得。"""
+    logger.info("开始迁移到 v51：符箓熟练度与符图习得")
+    await _ensure_talisman_v51(conn)
+    await conn.commit()
+    logger.info("v51迁移完成：符箓熟练度与符图习得已就绪")
+
+
+@migration(52)
+async def _migrate_to_v52(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """迁移到 v52 - 仙市 v6：16 盘 + 赌场级波动 + 不对称日熔断。
+
+    给 invest_products 加 day_up / day_down 两列（不对称日熔断，取代对称 day_limit）。
+    day_limit 保留用于兼容，但结算逻辑改读 day_up / day_down。
+    存量标的的实际数值由 InvestManager._seed_products 强制刷新（INSERT OR REPLACE），
+    这里只负责加列与默认值。
+    """
+    logger.info("开始迁移到 v52：仙市 v6（16 盘 + 不对称日熔断）")
+    await _add_column_if_missing(conn, "invest_products", "day_up", "REAL NOT NULL DEFAULT 4.00")
+    await _add_column_if_missing(conn, "invest_products", "day_down", "REAL NOT NULL DEFAULT 0.75")
+    await conn.commit()
+    logger.info("v52迁移完成：invest_products 已加 day_up/day_down 列")
+
+
+@migration(53)
+async def _migrate_to_v53(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """迁移到 v53 - 合并 v6.44：拍卖会固定品阶曲线 + 分叉旧库符箓补齐。
 
     仅清理 scheduled/announcing 阶段的拍品：这些场次尚未开拍、没有出价，
     下次查看或开拍时会按新蓝图重新生成；进行中和已结束场次保持原样。
+
+    另有从拍卖分叉版（v51 = 拍卖迁移）升级的存档：它们没跑过符箓 v51，
+    这里按「升级前是否已有 talisman_exp 列」判断，只给这类旧库补授 5 张老符图，
+    避免 v6.42+ 新玩家白发符图。
     """
+    had_talisman_column = await _column_exists(conn, "players", "talisman_exp")
+    await _ensure_talisman_v51(conn, grant_legacy=not had_talisman_column)
     cursor = await conn.execute(
         """DELETE FROM auction_house_lots
            WHERE event_id IN (
@@ -2144,4 +2201,4 @@ async def _migrate_to_v51(conn: aiosqlite.Connection, config_manager: ConfigMana
     )
     removed = max(0, int(cursor.rowcount or 0))
     await conn.commit()
-    logger.info(f"v51迁移完成：已清理 {removed} 件未开拍拍品，等待按新曲线重建")
+    logger.info(f"v53迁移完成：已清理 {removed} 件未开拍拍品，等待按新曲线重建")

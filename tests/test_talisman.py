@@ -173,8 +173,10 @@ class TestTalismanSystem(unittest.IsolatedAsyncioTestCase):
         item = shop.find_item_by_name("寻宝符")
         self.assertIsNotNone(item)
         self.assertEqual(self.ItemRules.normalize_shop_type(item), "material")
+        # v6.42 起符箓从百宝阁下架，改由符阁独立上架
         all_items = shop.get_all_items_for_display(9999)
-        self.assertTrue(any(i["name"] == "寻宝符" for i in all_items))
+        self.assertFalse(any(i["name"] == "寻宝符" for i in all_items))
+        self.assertTrue(any(i["name"] == "寻宝符" for i in shop.get_talismans_for_display(9999)))
 
         sender = self.Player(user_id="sender", user_name="送礼者")
         sender.storage_ring_items = json.dumps({"寻宝符": 1}, ensure_ascii=False)
@@ -197,9 +199,12 @@ class TestTalismanSystem(unittest.IsolatedAsyncioTestCase):
 
     async def test_recipe_page_covers_all_craftable_talismans(self):
         entries = self.talisman.iter_recipes()
-        self.assertEqual(len(entries), 77)
+        # v6.42 起符表收敛为 8 类 × 4 阶共 34 张；legacy 拼凑符不进配方总览
+        self.assertEqual(len(entries), 34)
         names = {name for name, _ in entries}
         self.assertNotIn("化身傀儡", names)
+        self.assertIn("烈焰符", names)
+        self.assertNotIn("太虚箓", names)
 
         page = self.talisman.build_recipe_page()
         self.assertEqual(page["title"], "符箓配方总览")
@@ -207,7 +212,7 @@ class TestTalismanSystem(unittest.IsolatedAsyncioTestCase):
         categories = [sec["name"] for sec in page["sections"][1:]]
         self.assertTrue(any("攻击符箓" in name for name in categories))
         lines = [line for sec in page["sections"] for line in sec.get("lines", []) if line.startswith("· ")]
-        self.assertEqual(len(lines), 77)
+        self.assertEqual(len(lines), 34)
         self.assertTrue(all("灵石" in line and "%" in line for line in lines))
 
     async def test_recipe_text_fallback_contains_materials_and_command_hint(self):
@@ -231,7 +236,7 @@ class TestTalismanSystem(unittest.IsolatedAsyncioTestCase):
         await self.db.ext.set_system_config(f"talisman_{player.user_id}", time.strftime("%Y-%m-%d"))
         ok, msg = await self.life.daily_talisman(player)
         self.assertFalse(ok)
-        self.assertIn("今日引雷符已领取", msg)
+        self.assertIn("今日护劫符已领取", msg)
         self.assertIn("/符箓配方", msg)
 
     async def test_daily_talisman_claims_free_talisman(self):
@@ -240,7 +245,8 @@ class TestTalismanSystem(unittest.IsolatedAsyncioTestCase):
         ok, msg = await self.life.daily_talisman(player)
         self.assertTrue(ok, msg)
         fresh = await self.db.get_player_by_id(player.user_id)
-        self.assertEqual(fresh.get_storage_ring_items().get("引雷符"), 1)
+        # 境界 Lv0 发凡品稳魂符（护盾 2）；Lv9+ 才发避劫符
+        self.assertEqual(fresh.get_storage_ring_items().get("稳魂符"), 1)
         self.assertIn("/符箓配方", msg)
 
 

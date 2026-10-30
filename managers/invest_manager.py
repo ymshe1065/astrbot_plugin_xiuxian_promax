@@ -32,38 +32,39 @@ __all__ = ["InvestManager"]
 
 TZ_CST = timezone(timedelta(hours=8))
 EPOCH_DATE = date(2026, 1, 1)
-TICKS_PER_DAY = 8
-SLOT_HOURS = (7, 9, 11, 13, 15, 17, 19, 21)
+TICKS_PER_DAY = 16
+SLOT_HOURS = (7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22)
 MARKET_OPEN_HOUR = 7
 MARKET_CLOSE_HOUR = 23
 
-# 补结算最多回溯 56 盘（7 个交易日），更早的行情不再重算
-MAX_BACKFILL_TICKS = 56
+# 补结算最多回溯 112 盘（7 个交易日），更早的行情不再重算
+MAX_BACKFILL_TICKS = 112
 
 # ===== 交易规则 =====
 
 LOT_SIZE = 100
-FEE_RATE = 0.003
-MIN_FEE = 100
+FEE_RATE = 0.0015
+MIN_FEE = 20
 MAX_LOTS_PER_TICK = 20
 MAX_POS_PER_STOCK = 500_000
 MAX_POS_TOTAL = 2_000_000
 LOAN_LIMIT_FOR_STOCK = 100_000
 
 # 赎回费阶梯：(持有盘数上限, 费率)，按顺序取第一个满足的
-REDEEM_FEE_TIERS = ((14, 0.015), (42, 0.005), (10 ** 9, 0.0))
+REDEEM_FEE_TIERS = ((24, 0.005), (84, 0.002), (10 ** 9, 0.0))
 
 # ===== 分红 =====
 
-DIVIDEND_INTERVAL = 21   # 每 21 盘结算一次
-DIVIDEND_MIN_HOLD = 8    # 需连续持有满 8 盘
+DIVIDEND_INTERVAL = 32   # 每 32 盘（2 天）结算一次
+DIVIDEND_MIN_HOLD = 12   # 需连续持有满 12 盘
+DIVIDEND_RATE = 0.0035   # 分红率 0.35%
 
 # ===== 价格引擎 =====
 
-MOMENTUM_WEIGHT = 0.25
-REVERSION_WEIGHT = 0.08
-REVERSION_CAP = 0.012
-CYCLE_TICKS = 56         # 7 个交易日一轮
+MOMENTUM_WEIGHT = 0.35
+REVERSION_WEIGHT = 0.012
+REVERSION_CAP = 0.025
+CYCLE_TICKS = 112        # 7 个交易日一轮
 
 # 形态剧本：四盘节奏系数。同一个利好，有四种完全不同的走法，
 # 这张表是「消息决定走向但决定不了结果」的全部来源。
@@ -82,29 +83,33 @@ PATTERN_LABEL = {
 }
 
 # ===== 品种 =====
-# (代码, 名称, 关联系统, 基准价, 每盘σ, 周期振幅, 周期相位, 单盘限幅, 日熔断, 消息基准)
+# 股票：(代码, 名称, 关联系统, 基准价, 每盘σ, 周期振幅, 周期相位, 单盘限幅, 日上限, 日下限, 消息基准)
+# v6：σ×10、消息基准×22、单盘限幅 ±15%、不对称日熔断 +400%/−75%
 
 STOCK_DEFS = (
-    ("S01", "丹阁股", "炼丹", 42.0, 0.0055, 0.0016, 0, 0.030, 0.08, 0.0045),
-    ("S02", "器阁股", "锻造", 38.0, 0.0070, 0.0022, 7, 0.035, 0.09, 0.0055),
-    ("S03", "镖局股", "押镖", 25.0, 0.0045, 0.0014, 14, 0.030, 0.07, 0.0038),
-    ("S04", "灵田股", "种植", 30.0, 0.0060, 0.0019, 21, 0.030, 0.08, 0.0048),
-    ("S05", "御兽股", "灵兽", 55.0, 0.0085, 0.0026, 28, 0.040, 0.10, 0.0065),
-    ("S06", "拍卖行股", "拍卖", 68.0, 0.0075, 0.0024, 35, 0.035, 0.09, 0.0058),
+    ("S01", "丹阁股", "炼丹", 42.0, 0.055, 0.016, 0, 0.15, 4.0, 0.75, 0.079),
+    ("S02", "器阁股", "锻造", 38.0, 0.070, 0.022, 7, 0.15, 4.0, 0.75, 0.097),
+    ("S03", "镖局股", "押镖", 25.0, 0.045, 0.014, 14, 0.15, 4.0, 0.75, 0.067),
+    ("S04", "灵田股", "种植", 30.0, 0.060, 0.019, 21, 0.15, 4.0, 0.75, 0.084),
+    ("S05", "御兽股", "灵兽", 55.0, 0.085, 0.026, 28, 0.18, 4.5, 0.78, 0.114),
+    ("S06", "拍卖行股", "拍卖", 68.0, 0.075, 0.024, 35, 0.15, 4.0, 0.75, 0.102),
 )
 
-# (代码, 名称, 风险等级, 基准净值, 每盘σ, 周收益, 消息基准)
+# (代码, 名称, 风险等级, 基准净值, 每盘σ, 日漂移, 消息基准)
+# v6：日漂移 2%/5%/10%（weekly_return 字段复用为「日漂移」，结算时 ÷16）
 FUND_DEFS = (
-    ("F01", "灵脉·稳", 1, 1.0, 0.0006, 0.009, 0.0012),
-    ("F02", "仙市·衡", 2, 1.0, 0.0011, 0.013, 0.0016),
-    ("F03", "险峰·进", 3, 1.0, 0.0020, 0.010, 0.0022),
+    ("F01", "灵脉·稳", 1, 1.0, 0.010, 0.020, 0.0012),
+    ("F02", "仙市·衡", 2, 1.0, 0.025, 0.050, 0.0016),
+    ("F03", "险峰·进", 3, 1.0, 0.050, 0.100, 0.0022),
 )
 
-FUND_FLOOR = 0.85        # 净值硬底
+# 基金净值硬底（按风险等级）：v6 从统一 0.85 改为分档，跌到硬底后不再下探
+FUND_FLOOR = {1: 0.60, 2: 0.50, 3: 0.40}
 
 # ===== 消息池 =====
-# 每条 = (形态, 方向, 标题, 细节)。形态藏在措辞里：看「盛传」就别追，
-# 看「三年/每月」才是真利好。玩家自己归纳，这个学习过程本身是玩法。
+# 每条 = (形态, 标题, 细节)。方向由「利好组 / 利空组」决定（1:1 抽方向）。
+# 形态藏在措辞里：看「盛传/抢购」是陷阱（pump_dump），看「三年/每月/契约」才是真单边（single），
+# 「承诺三日内」是先抑后扬（reverse）。玩家自己归纳，这个学习过程本身是玩法。
 
 NEWS_POOL: Dict[str, List[Tuple[str, int, str, str]]] = {
     "S01": [
@@ -119,6 +124,7 @@ NEWS_POOL: Dict[str, List[Tuple[str, int, str, str]]] = {
         ("spike", 1, "器阁在百器大会夺魁", "当场获赏，订单当日踏破门槛。"),
         ("pump_dump", 1, "法器供不应求，铺前排起长队", "有商号加价抢货，器阁未表态。"),
         ("single", -1, "器阁主炉炸裂，工期延误", "三成订单需延期交付。"),
+        ("reverse", -1, "器阁被曝以次充好", "阁主承诺三日内回收旧货，信誉待验。"),
     ],
     "S03": [
         ("single", 1, "镖局开辟北境新商路", "长期承运，每月固定走镖三趟。"),
@@ -131,6 +137,7 @@ NEWS_POOL: Dict[str, List[Tuple[str, int, str, str]]] = {
         ("single", -1, "灵田遭虫害，减产三成", "需一季方能恢复地力。"),
         ("pump_dump", 1, "坊间囤积灵谷待涨", "粮价短期走高，仓储已满。"),
         ("single", 1, "灵田与药堂签下长期供药契约", "每月固定供货，不随行就市。"),
+        ("reverse", -1, "灵田被曝私售禁种灵植", "庄主承诺三日内自查并公示田册。"),
     ],
     "S05": [
         ("spike", 1, "御兽门在万兽大会夺冠", "当场获赏，灵兽价格应声而起。"),
@@ -146,7 +153,7 @@ NEWS_POOL: Dict[str, List[Tuple[str, int, str, str]]] = {
     ],
 }
 
-# 全市场消息：10% 概率取代个股消息，影响所有标的（利空利多各半）
+# 全市场消息：10% 概率取代个股消息，影响所有标的（利好/利空分列）
 MARKET_NEWS = (
     ("single", -1, "坊市整顿，各铺停业自查", "三日之内不得开张，各业皆受影响。"),
     ("single", 1, "新灵石矿脉现世", "市面银钱充裕，各铺生意兴隆。"),
@@ -154,8 +161,23 @@ MARKET_NEWS = (
 
 MARKET_NEWS_CHANCE = 0.10
 
+# 每盘真消息概率（其余为「盘面平静」氛围文案，不产生 bias）
+NEWS_CHANCE = 0.30
+
+# 盘面平静文案池（不影响行情，只让风声「每盘都有」）
+CALM_NEWS = (
+    "今日盘面平静，各铺如常开张。",
+    "坊间无甚大事，买卖两清。",
+    "市面波澜不惊，看客三三两两。",
+    "仙市照常运转，无风无浪。",
+    "今日无新闻，行情随波逐流。",
+)
+
 # 非个股消息的传导折扣
 MARKET_NEWS_SCALE = 0.5
+
+# 消息影响窗口：当盘 + 后 3 盘（共 4 盘）
+NEWS_WINDOW = 4
 
 
 class InvestManager:
@@ -192,7 +214,7 @@ class InvestManager:
             return max(0, (day_index - 1) * TICKS_PER_DAY + TICKS_PER_DAY - 1)
         if hour >= MARKET_CLOSE_HOUR:
             return day_index * TICKS_PER_DAY + TICKS_PER_DAY - 1
-        return day_index * TICKS_PER_DAY + (hour - MARKET_OPEN_HOUR) // 2
+        return day_index * TICKS_PER_DAY + (hour - MARKET_OPEN_HOUR)
 
     @classmethod
     def tick_time(cls, tick: int) -> datetime:
@@ -279,29 +301,57 @@ class InvestManager:
         count = await self._scalar("SELECT COUNT(*) FROM invest_products")
         if not count:
             await self._seed_products()
+        else:
+            # 存量部署：静态数值字段随代码升级刷新（v6 换了整套 σ/msg_base/限幅/日漂移），
+            # 但保留 price/prev_close/prev_change/day_open 等运行时行情状态，避免重置盘面。
+            await self._refresh_product_defs()
         self._ready = True
 
     async def _seed_products(self):
-        for code, name, link, base, sigma, amp, phase, price_limit, day_limit, msg_base in STOCK_DEFS:
+        for code, name, link, base, sigma, amp, phase, price_limit, day_up, day_down, msg_base in STOCK_DEFS:
             await self.db.conn.execute(
                 "INSERT OR IGNORE INTO invest_products "
                 "(code, name, kind, base_price, price, prev_close, prev_change, day_open, sigma, "
-                " cycle_amp, cycle_phase, price_limit, day_limit, msg_base, weekly_return, "
-                " dividend_rate, risk_level) "
-                "VALUES (?, ?, 'stock', ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, 0, 0.0022, 2)",
-                (code, name, base, base, base, base, sigma, amp, phase, price_limit, day_limit, msg_base),
+                " cycle_amp, cycle_phase, price_limit, day_limit, day_up, day_down, msg_base, "
+                " weekly_return, dividend_rate, risk_level) "
+                "VALUES (?, ?, 'stock', ?, ?, ?, 0, ?, ?, ?, ?, ?, 0, ?, ?, ?, 0, ?, 2)",
+                (code, name, base, base, base, base, sigma, amp, phase, price_limit, day_up, day_down,
+                 msg_base, DIVIDEND_RATE),
             )
-        for code, name, risk, base, sigma, weekly, msg_base in FUND_DEFS:
+        for code, name, risk, base, sigma, drift, msg_base in FUND_DEFS:
             await self.db.conn.execute(
                 "INSERT OR IGNORE INTO invest_products "
                 "(code, name, kind, base_price, price, prev_close, prev_change, day_open, sigma, "
-                " cycle_amp, cycle_phase, price_limit, day_limit, msg_base, weekly_return, "
-                " dividend_rate, risk_level) "
-                "VALUES (?, ?, 'fund', ?, ?, ?, 0, ?, ?, 0, 0, 0.02, 0.05, ?, ?, 0, ?)",
-                (code, name, base, base, base, base, sigma, msg_base, weekly, risk),
+                " cycle_amp, cycle_phase, price_limit, day_limit, day_up, day_down, msg_base, "
+                " weekly_return, dividend_rate, risk_level) "
+                "VALUES (?, ?, 'fund', ?, ?, ?, 0, ?, ?, 0, 0, 0.15, 0, 4.0, 0.75, ?, ?, 0, ?)",
+                (code, name, base, base, base, base, sigma, msg_base, drift, risk),
             )
         await self.db.conn.commit()
         logger.info("【仙市】已初始化 %d 只股票与 %d 只基金", len(STOCK_DEFS), len(FUND_DEFS))
+
+    async def _refresh_product_defs(self):
+        """刷新存量标的的静态数值字段，保留运行时价格状态。
+
+        v6 数值升级（σ×10、msg_base×22、限幅、日漂移、硬底、分红率）需要覆盖老部署的旧值；
+        INSERT OR IGNORE 不会更新已存在的行，所以这里用 UPDATE 定向刷新。
+        """
+        for code, name, link, base, sigma, amp, phase, price_limit, day_up, day_down, msg_base in STOCK_DEFS:
+            await self.db.conn.execute(
+                "UPDATE invest_products SET name = ?, base_price = ?, sigma = ?, cycle_amp = ?, "
+                " cycle_phase = ?, price_limit = ?, day_up = ?, day_down = ?, msg_base = ?, "
+                " dividend_rate = ? WHERE code = ?",
+                (name, base, sigma, amp, phase, price_limit, day_up, day_down, msg_base,
+                 DIVIDEND_RATE, code),
+            )
+        for code, name, risk, base, sigma, drift, msg_base in FUND_DEFS:
+            await self.db.conn.execute(
+                "UPDATE invest_products SET name = ?, base_price = ?, sigma = ?, msg_base = ?, "
+                " weekly_return = ? WHERE code = ?",
+                (name, base, sigma, msg_base, drift, code),
+            )
+        await self.db.conn.commit()
+        logger.info("【仙市】已刷新标的静态数值（v6）")
 
     async def _load_products(self) -> List[dict]:
         return await self._rows("SELECT * FROM invest_products ORDER BY kind DESC, code")
@@ -346,18 +396,17 @@ class InvestManager:
             for p in products:
                 p["day_open"] = p["price"]
 
-        # 先生成消息、再结算——玩家看到的第 1 盘价格已经含了第一段，
-        # 否则消息一公布所有人抢跑，等于白送。
-        if slot in (0, 4):
-            await self._ensure_news(day, slot)
-        news = await self._load_news(day, slot)
+        # 每盘都生成风声（30% 真消息，其余平静）。风声可能已由 peek_hint 提前落库，
+        # _ensure_news 发现已存在会跳过。结算用「当盘 + 前 3 盘」窗口叠加 bias。
+        await self._ensure_news(day, slot)
+        news = await self._load_news_window(day, slot)
 
         for p in products:
             if p["kind"] == "fund":
                 new_price, change = self._advance_fund(p, tick)
                 tag = ""
             else:
-                bias = self._bias_for(p, slot, news)
+                bias = self._bias_for(p, day, slot, news)
                 new_price, change = self._advance_stock(p, tick, slot, bias)
                 tag = self._tag_for(p, news)
             await self._write_price(p, tick, new_price, change, tag)
@@ -387,12 +436,13 @@ class InvestManager:
         change = max(-limit, min(limit, raw))
         new_price = price * (1 + change)
 
-        # 日线熔断：取消锁定后的最后一道闸
+        # 日线熔断（v6 不对称）：向上允许「一天翻五倍」封顶，向下保证不归零
         day_open = float(product["day_open"]) or price
         if day_open > 0:
-            day_limit = float(product["day_limit"])
-            new_price = min(new_price, day_open * (1 + day_limit))
-            new_price = max(new_price, day_open * (1 - day_limit))
+            day_up = float(product.get("day_up", 4.0))
+            day_down = float(product.get("day_down", 0.75))
+            new_price = min(new_price, day_open * (1 + day_up))
+            new_price = max(new_price, day_open * (1 - day_down))
 
         new_price = max(new_price, 0.01)
         real_change = (new_price / price - 1) if price else 0.0
@@ -400,14 +450,19 @@ class InvestManager:
 
     def _advance_fund(self, product: dict, tick: int) -> Tuple[float, float]:
         rng = self._rng(tick, product["code"], "fund")
-        drift = float(product["weekly_return"]) / CYCLE_TICKS
+        # v6：weekly_return 字段复用为「日漂移」，每盘漂移 = 日漂移 ÷ 16
+        drift = float(product["weekly_return"]) / TICKS_PER_DAY
         noise = rng.gauss(0.0, float(product["sigma"]))
         price = float(product["price"])
-        new_price = max(price * (1 + drift + noise), FUND_FLOOR)
+        floor = FUND_FLOOR.get(int(product["risk_level"]), 0.60)
+        new_price = max(price * (1 + drift + noise), floor)
         return round(new_price, 4), (new_price / price - 1) if price else 0.0
 
-    def _bias_for(self, product: dict, slot: int, news: List[dict]) -> float:
-        idx = slot if slot < 4 else slot - 4
+    def _bias_for(self, product: dict, day: int, slot: int, news: List[dict]) -> float:
+        # news 是「当盘 + 前 3 盘」的消息集合。每条消息有各自的 trade_day/slot，
+        # 它在剧本中的位置 = 当前盘距消息盘经过了几盘（0=消息当盘，1=下一盘……）。
+        # 跨日时用绝对盘次换算。
+        cur_abs = day * TICKS_PER_DAY + slot
         total = 0.0
         is_fund = product["kind"] == "fund"
         for item in news:
@@ -418,7 +473,11 @@ class InvestManager:
                 continue
             script = PATTERN_SCRIPT.get(item["pattern"])
             if not script:
-                continue
+                continue  # 'calm' 等无剧本，跳过
+            msg_abs = int(item["trade_day"]) * TICKS_PER_DAY + int(item["slot"])
+            idx = cur_abs - msg_abs
+            if idx < 0 or idx >= len(script):
+                continue  # 超出影响窗口，跳过
             scale = MARKET_NEWS_SCALE if scope == "*" else 1.0
             if is_fund:
                 scale *= MARKET_NEWS_SCALE
@@ -428,7 +487,7 @@ class InvestManager:
     @staticmethod
     def _tag_for(product: dict, news: List[dict]) -> str:
         for item in news:
-            if item["code"] in (product["code"], "*"):
+            if item["code"] in (product["code"], "*") and item.get("pattern") not in (None, "calm", ""):
                 return item["pattern"]
         return ""
 
@@ -453,6 +512,12 @@ class InvestManager:
     # ===== 消息 =====
 
     async def _ensure_news(self, day: int, slot: int):
+        """为 (day, slot) 生成风声。每盘 30% 概率是真消息（利好利空 1:1），
+        其余为「盘面平静」氛围文案（pattern='calm'，不产生 bias）。
+
+        用确定性种子生成；peek_hint 提前调用本函数时会把结果落库，
+        settle 时再次调用发现已存在则跳过，保证风声与结算用同一条消息。
+        """
         exists = await self._scalar(
             "SELECT COUNT(*) FROM invest_events WHERE trade_day = ? AND slot = ?", (day, slot)
         )
@@ -460,12 +525,22 @@ class InvestManager:
             return
 
         rng = self._rng(day, slot, "news")
-        if rng.random() < MARKET_NEWS_CHANCE:
+        if rng.random() >= NEWS_CHANCE:
+            # 盘面平静：无 bias
+            title = rng.choice(CALM_NEWS)
+            pattern, direction, code, detail = "calm", 0, "", ""
+        elif rng.random() < MARKET_NEWS_CHANCE:
+            # 全市场消息
             code = "*"
             pattern, direction, title, detail = rng.choice(MARKET_NEWS)
         else:
+            # 个股消息：先掷方向（1:1），再从该标的下对应方向的消息里抽
             code = rng.choice(sorted(NEWS_POOL.keys()))
-            pattern, direction, title, detail = rng.choice(NEWS_POOL[code])
+            direction = 1 if rng.random() < 0.5 else -1
+            candidates = [n for n in NEWS_POOL[code] if n[1] == direction]
+            if not candidates:  # 兜底：该标的某方向无文案时回退到全池
+                candidates = NEWS_POOL[code]
+            pattern, direction, title, detail = rng.choice(candidates)
 
         strength = round(self._rng(day, slot, "strength").uniform(0.7, 1.3), 4)
         await self.db.conn.execute(
@@ -475,28 +550,52 @@ class InvestManager:
             (day, slot, code, pattern, direction, 0.0, strength, title, detail),
         )
 
+    async def _load_news_window(self, day: int, slot: int) -> List[dict]:
+        """加载「当盘 + 前 3 盘」的消息，用于结算时叠加 bias（消息影响 4 盘）。"""
+        # 处理跨日边界：把 (day, slot) 及之前 3 个盘次展开成 (day, slot) 列表
+        ticks = []
+        for back in range(NEWS_WINDOW):
+            d, s = day, slot - back
+            while s < 0:
+                d -= 1
+                s += TICKS_PER_DAY
+            ticks.append((d, s))
+        if not ticks:
+            return []
+        placeholders = ", ".join("(?, ?)" for _ in ticks)
+        params = [v for d, s in ticks for v in (d, s)]
+        return await self._rows(
+            f"SELECT * FROM invest_events WHERE (trade_day, slot) IN ({placeholders})", tuple(params)
+        )
+
     async def _load_news(self, day: int, slot: int) -> List[dict]:
         return await self._rows(
             "SELECT * FROM invest_events WHERE trade_day = ? AND slot = ?", (day, slot)
         )
 
     async def today_news(self, moment: Optional[datetime] = None) -> List[dict]:
-        """今天两条消息；未到点的那一场为待发。"""
+        """今天已生成的风声（每盘一条，含盘面平静）。按 slot 升序返回。"""
         day = self.tick_of(moment) // TICKS_PER_DAY
-        current_slot = self.tick_of(moment) % TICKS_PER_DAY
         rows = await self._rows(
             "SELECT * FROM invest_events WHERE trade_day = ? ORDER BY slot", (day,)
         )
-        by_slot = {r["slot"]: r for r in rows}
-        result = []
-        for slot in (0, 4):
-            hour = SLOT_HOURS[slot]
-            if slot in by_slot:
-                result.append(dict(by_slot[slot], published=True, hour=hour))
-            else:
-                pending = current_slot < slot
-                result.append({"slot": slot, "hour": hour, "published": False, "pending": pending})
-        return result
+        return [dict(r, hour=SLOT_HOURS[int(r["slot"])]) for r in rows]
+
+    async def peek_hint(self, tick: int) -> Optional[dict]:
+        """提前生成 tick 盘的风声并落库，返回该条消息（供 HH:30 推送）。
+
+        用与 _ensure_news 相同的确定性种子生成；settle 时 _ensure_news 发现已存在会跳过，
+        因此风声与结算用的是同一条消息，序列不分裂。返回 None 表示盘面平静（可推送氛围文案，
+        也可由调用方决定不推）。
+        """
+        day, slot = divmod(tick, TICKS_PER_DAY)
+        await self._ensure_news(day, slot)
+        row = await self._load_news(day, slot)
+        if not row:
+            return None
+        item = row[0]
+        item["hour"] = SLOT_HOURS[slot]
+        return item
 
     # ===== 分红 =====
 
@@ -902,7 +1001,19 @@ class InvestManager:
             "seconds_to_close": self.seconds_to_close(moment),
             "items": items,
             "news": await self.today_news(moment),
+            "current_hint": await self._current_hint(moment),
         }
+
+    async def _current_hint(self, moment: Optional[datetime] = None) -> Optional[dict]:
+        """当前应展示的风声：开盘前看下盘风声，盘内看当盘风声。"""
+        tick = self.tick_of(moment)
+        day, slot = divmod(tick, TICKS_PER_DAY)
+        row = await self._load_news(day, slot)
+        if row:
+            item = row[0]
+            item["hour"] = SLOT_HOURS[slot]
+            return item
+        return None
 
     async def get_quote(self, code: str, moment: Optional[datetime] = None) -> Optional[dict]:
         await self.settle_to(moment)

@@ -65,28 +65,31 @@ class InvestHandlers:
     @player_required
     async def handle_market(self, player: Player, event: AstrMessageEvent):
         data = await self.invest_mgr.get_overview()
-
         if data["open"]:
             wait = data["seconds_to_close"]
             hours, rest = divmod(wait, 3600)
             tail = f"距收市 {hours} 小时 {rest // 60} 分"
-            headline = f"「 仙市 · 第 {data['tick'] % 8 + 1} 盘 · {data['label']} 」"
+            headline = f"「 仙市 · 第 {data['tick'] % 16 + 1} 盘 · {data['label']} 」"
         else:
             wait = data["seconds_to_open"]
             hours, rest = divmod(wait, 3600)
             tail = f"距开盘 {hours} 小时 {rest // 60} 分"
             headline = "「 仙市 · 已收市 」"
 
-        lines = [headline, LINE, "今日消息"]
-        for news in data["news"]:
-            stamp = f"{news['hour']:02d}:00"
-            if news.get("published"):
-                prefix = "全市场 · " if news["code"] == "*" else ""
-                lines.append(f"· {stamp} {prefix}{news['title']}")
-            else:
-                lines.append(f"· {stamp} 待发")
+        lines = [headline]
+        hint = data.get("current_hint")
+        if hint and hint.get("pattern") not in (None, "calm", ""):
+            lines.extend([LINE, "当盘风声"])
+            prefix = "全市场 · " if hint["code"] == "*" else ""
+            lines.append(f"· {prefix}{hint['title']}")
+            if hint.get("detail"):
+                lines.append(f"　{hint['detail']}")
+        elif hint:
+            lines.extend([LINE, "当盘风声"])
+            lines.append(f"· {hint.get('title', '盘面平静')}")
 
-        lines.extend([LINE, "股票"])
+        lines.append(LINE)
+        lines.append("股票")
         for item in data["items"]:
             if item["kind"] != "stock":
                 continue
@@ -154,7 +157,7 @@ class InvestHandlers:
             prev_day = None
             for row in quote["history"]:
                 tick = int(row["tick"])
-                day, _slot = divmod(tick, 8)
+                day, _slot = divmod(tick, 16)
                 if prev_day is not None and day != prev_day:
                     lines.append("　── 次日 ──")
                 prev_day = day
@@ -328,3 +331,21 @@ class InvestHandlers:
             )
         lines.extend([LINE, f"现有灵石 {_money(player.gold)}"])
         yield event.plain_result("\n".join(lines))
+
+    @player_required
+    async def handle_subscribe(self, player: Player, event: AstrMessageEvent):
+        """开关仙市风声主动推送（全局开关，控制是否向播报群推送 HH:30 风声）。"""
+        current = await self.db.ext.get_system_config("invest_hint_subscribe")
+        if current == "1":
+            await self.db.ext.set_system_config("invest_hint_subscribe", "0")
+            yield event.plain_result(
+                "🔕 已关闭仙市风声主动推送。\n"
+                "仍可随时用「/仙市」查看当盘风声。"
+            )
+        else:
+            await self.db.ext.set_system_config("invest_hint_subscribe", "1")
+            yield event.plain_result(
+                "🔔 已开启仙市风声主动推送。\n"
+                "每个 HH:30（06:30–21:30）向播报群推送下一盘风声，提前半小时可抢跑。\n"
+                "注意：只有「真消息」才推送，「盘面平静」不打扰。"
+            )

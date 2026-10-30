@@ -181,8 +181,9 @@ class DataBase:
                 has_debuff_shield, pills_inventory, learned_recipes,
                 storage_ring, storage_ring_items, overflow_items, equipment_instances, equipped_instances,
                 daily_pill_usage, last_daily_reset, shield_start_time, shield_expire_time,
-                tutorial_step, reincarnation_count, fate_points, permanent_bonus, luck
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                tutorial_step, reincarnation_count, fate_points, permanent_bonus, luck,
+                talisman_exp, talisman_recipes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 player.user_id,
@@ -242,7 +243,9 @@ class DataBase:
                 player.reincarnation_count,
                 player.fate_points,
                 player.permanent_bonus,
-                getattr(player, "luck", 0)
+                getattr(player, "luck", 0),
+                getattr(player, "talisman_exp", 0),
+                getattr(player, "talisman_recipes", "[]"),
             )
         )
         await self.conn.commit()
@@ -335,7 +338,9 @@ class DataBase:
                 luck = ?,
                 karma = ?,
                 life_skill = ?,
-                virtue_points = ?
+                virtue_points = ?,
+                talisman_exp = ?,
+                talisman_recipes = ?
             WHERE user_id = ?
             """,
             (
@@ -399,6 +404,8 @@ class DataBase:
                 getattr(player, "karma", 0),
                 getattr(player, "life_skill", ""),
                 getattr(player, "virtue_points", 0),
+                getattr(player, "talisman_exp", 0),
+                getattr(player, "talisman_recipes", "[]"),
                 player.user_id
             )
         )

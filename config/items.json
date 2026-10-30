@@ -109,7 +109,8 @@
         "description": "这是一件黄品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 690
-        }
+        },
+        "legacy": true
     },
     "1008": {
         "name": "轮回骨",
@@ -880,7 +881,8 @@
         "description": "这是一件凡品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 158
-        }
+        },
+        "legacy": true
     },
     "1059": {
         "name": "造化丹",
@@ -1150,7 +1152,8 @@
         "description": "这是一件凡品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 108
-        }
+        },
+        "legacy": true
     },
     "1075": {
         "name": "造化刀",
@@ -1601,7 +1604,8 @@
         "description": "这是一件黄品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 1550
-        }
+        },
+        "legacy": true
     },
     "1104": {
         "name": "八卦散",
@@ -1937,7 +1941,8 @@
         "description": "这是一件黄品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 650
-        }
+        },
+        "legacy": true
     },
     "1127": {
         "name": "寒霜菩提子经",
@@ -2385,7 +2390,8 @@
         "description": "这是一件凡品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 140
-        }
+        },
+        "legacy": true
     },
     "1156": {
         "name": "九天剑",
@@ -2957,7 +2963,8 @@
         "description": "这是一件圣品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 123000
-        }
+        },
+        "legacy": true
     },
     "1191": {
         "name": "长生冠",
@@ -3240,7 +3247,8 @@
         "description": "这是一件凡品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 178
-        }
+        },
+        "legacy": true
     },
     "1210": {
         "name": "焚天丸",
@@ -4249,7 +4257,8 @@
         "description": "这是一件凡品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 122
-        }
+        },
+        "legacy": true
     },
     "1275": {
         "name": "轮回丹",
@@ -4542,7 +4551,8 @@
         "description": "这是一件凡品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 50
-        }
+        },
+        "legacy": true
     },
     "1296": {
         "name": "太极龙骨鞭",
@@ -4636,7 +4646,8 @@
         "description": "这是一件黄品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 1910
-        }
+        },
+        "legacy": true
     },
     "1302": {
         "name": "长生甲",
@@ -5999,7 +6010,8 @@
         "description": "这是一件凡品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 177
-        }
+        },
+        "legacy": true
     },
     "1389": {
         "name": "噬魂陨铁丹",
@@ -6076,7 +6088,8 @@
         "description": "这是一件凡品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 182
-        }
+        },
+        "legacy": true
     },
     "1394": {
         "name": "噬魂符",
@@ -6088,7 +6101,8 @@
         "description": "这是一件凡品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 72
-        }
+        },
+        "legacy": true
     },
     "1395": {
         "name": "两仪剑",
@@ -6192,14 +6206,12 @@
     "1401": {
         "name": "山河符",
         "type": "符箓",
-        "rank": "玄品",
-        "shop_weight": 900,
-        "price": 11500,
+        "rank": "黄品",
+        "shop_weight": 120,
+        "price": 3824,
         "volume": 1,
-        "description": "这是一件玄品符箓，蕴含着天地之力。",
-        "effects": {
-            "magic_damage": 11800
-        }
+        "description": "防御符·黄品，15分钟内生效。",
+        "legacy": false
     },
     "1402": {
         "name": "灭世衣",
@@ -6468,7 +6480,8 @@
         "description": "这是一件黄品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 800
-        }
+        },
+        "legacy": true
     },
     "1419": {
         "name": "长生扇",
@@ -7048,7 +7061,8 @@
         "description": "这是一件凡品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 51
-        }
+        },
+        "legacy": true
     },
     "1456": {
         "name": "九幽衣",
@@ -7263,7 +7277,8 @@
         "description": "这是一件凡品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 50
-        }
+        },
+        "legacy": true
     },
     "1470": {
         "name": "九天仙露液",
@@ -8107,7 +8122,8 @@
         "description": "这是一件黄品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 1480
-        }
+        },
+        "legacy": true
     },
     "1525": {
         "name": "轮回皮",
@@ -8403,7 +8419,8 @@
         "description": "这是一件凡品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 116
-        }
+        },
+        "legacy": true
     },
     "1545": {
         "name": "焚天菩提子履",
@@ -8543,7 +8560,8 @@
         "description": "这是一件圣品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 119000
-        }
+        },
+        "legacy": true
     },
     "1554": {
         "name": "紫电谱",
@@ -8847,7 +8865,8 @@
         "description": "这是一件凡品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 161
-        }
+        },
+        "legacy": true
     },
     "1573": {
         "name": "龙渊冠",
@@ -8890,7 +8909,8 @@
         "description": "这是一件凡品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 104
-        }
+        },
+        "legacy": true
     },
     "1576": {
         "name": "四象神木心袍",
@@ -8990,7 +9010,8 @@
         "description": "这是一件黄品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 1360
-        }
+        },
+        "legacy": true
     },
     "1583": {
         "name": "九幽菩提子液",
@@ -9578,7 +9599,8 @@
         "description": "这是一件凡品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 174
-        }
+        },
+        "legacy": true
     },
     "1620": {
         "name": "无极仙露剑",
@@ -9638,7 +9660,8 @@
         "description": "这是一件凡品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 151
-        }
+        },
+        "legacy": true
     },
     "1624": {
         "name": "诛仙幽冥草履",
@@ -9967,7 +9990,8 @@
         "description": "这是一件凡品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 93
-        }
+        },
+        "legacy": true
     },
     "1647": {
         "name": "太虚地火丹",
@@ -10123,7 +10147,8 @@
         "description": "这是一件凡品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 86
-        }
+        },
+        "legacy": true
     },
     "1658": {
         "name": "日月液",
@@ -10456,7 +10481,8 @@
         "description": "这是一件黄品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 1460
-        }
+        },
+        "legacy": true
     },
     "1679": {
         "name": "混元棍",
@@ -10623,7 +10649,8 @@
         "description": "这是一件凡品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 80
-        }
+        },
+        "legacy": true
     },
     "1689": {
         "name": "乾坤箓",
@@ -10635,7 +10662,8 @@
         "description": "这是一件凡品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 62
-        }
+        },
+        "legacy": true
     },
     "1690": {
         "name": "诛仙玄铁丹",
@@ -10873,7 +10901,8 @@
         "description": "这是一件凡品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 176
-        }
+        },
+        "legacy": true
     },
     "1706": {
         "name": "焚天弓",
@@ -11261,7 +11290,8 @@
         "description": "这是一件凡品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 76
-        }
+        },
+        "legacy": true
     },
     "1732": {
         "name": "长生液",
@@ -11354,7 +11384,8 @@
         "description": "这是一件凡品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 185
-        }
+        },
+        "legacy": true
     },
     "1738": {
         "name": "轮回精铁丸",
@@ -11459,7 +11490,8 @@
         "description": "这是一件凡品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 108
-        }
+        },
+        "legacy": true
     },
     "1745": {
         "name": "噬魂仙露履",
@@ -11508,7 +11540,8 @@
         "description": "这是一件黄品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 730
-        }
+        },
+        "legacy": true
     },
     "1749": {
         "name": "九幽骨",
@@ -11594,7 +11627,8 @@
         "description": "这是一件凡品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 79
-        }
+        },
+        "legacy": true
     },
     "1755": {
         "name": "青锋伞",
@@ -11810,7 +11844,8 @@
         "description": "这是一件凡品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 52
-        }
+        },
+        "legacy": true
     },
     "1769": {
         "name": "鸿蒙扇",
@@ -11949,7 +11984,8 @@
         "description": "这是一件玄品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 14000
-        }
+        },
+        "legacy": true
     },
     "1777": {
         "name": "山河星辰沙散",
@@ -12499,7 +12535,8 @@
         "description": "这是一件凡品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 91
-        }
+        },
+        "legacy": true
     },
     "1813": {
         "name": "龙渊石",
@@ -13096,13 +13133,11 @@
         "name": "紫电符",
         "type": "符箓",
         "rank": "黄品",
-        "shop_weight": 990,
-        "price": 320,
+        "shop_weight": 110,
+        "price": 5436,
         "volume": 1,
-        "description": "这是一件黄品符箓，蕴含着天地之力。",
-        "effects": {
-            "magic_damage": 1290
-        }
+        "description": "攻击符·黄品，15分钟内生效。",
+        "legacy": false
     },
     "1851": {
         "name": "寒霜玄铁阵",
@@ -13114,7 +13149,8 @@
         "description": "这是一件黄品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 1010
-        }
+        },
+        "legacy": true
     },
     "1852": {
         "name": "破军刀",
@@ -13171,7 +13207,8 @@
         "description": "这是一件玄品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 6900
-        }
+        },
+        "legacy": true
     },
     "1856": {
         "name": "星辰陨铁液",
@@ -14057,7 +14094,8 @@
         "description": "这是一件凡品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 129
-        }
+        },
+        "legacy": true
     },
     "1915": {
         "name": "日月草",
@@ -14568,7 +14606,8 @@
         "description": "这是一件玄品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 14400
-        }
+        },
+        "legacy": true
     },
     "1950": {
         "name": "八卦月华石枪",
@@ -14598,7 +14637,8 @@
         "description": "这是一件黄品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 1630
-        }
+        },
+        "legacy": true
     },
     "1952": {
         "name": "太极龙骨草",
@@ -14619,7 +14659,8 @@
         "description": "这是一件凡品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 51
-        }
+        },
+        "legacy": true
     },
     "1954": {
         "name": "寒霜龙骨弓",
@@ -15338,7 +15379,8 @@
         "description": "这是一件凡品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 88
-        }
+        },
+        "legacy": true
     },
     "2000": {
         "name": "噬魂散",
@@ -16337,7 +16379,8 @@
         "description": "这是一件黄品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 1540
-        }
+        },
+        "legacy": true
     },
     "2066": {
         "name": "日月日曜晶散",
@@ -16745,7 +16788,8 @@
         "description": "这是一件凡品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 87
-        }
+        },
+        "legacy": true
     },
     "2095": {
         "name": "青锋衣",
@@ -17019,13 +17063,11 @@
         "name": "星辰符",
         "type": "符箓",
         "rank": "玄品",
-        "shop_weight": 900,
-        "price": 12200,
+        "shop_weight": 40,
+        "price": 44080,
         "volume": 1,
-        "description": "这是一件玄品符箓，蕴含着天地之力。",
-        "effects": {
-            "magic_damage": 6700
-        }
+        "description": "攻击符·玄品，20分钟内生效。",
+        "legacy": false
     },
     "2114": {
         "name": "灭世极冰枪",
@@ -17076,7 +17118,8 @@
         "description": "这是一件黄品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 1550
-        }
+        },
+        "legacy": true
     },
     "2117": {
         "name": "破军神木心衣",
@@ -17128,7 +17171,8 @@
         "description": "这是一件凡品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 159
-        }
+        },
+        "legacy": true
     },
     "2121": {
         "name": "山河甲",
@@ -17703,7 +17747,8 @@
         "description": "这是一件凡品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 167
-        }
+        },
+        "legacy": true
     },
     "2157": {
         "name": "四象血灵芝丹",
@@ -17866,7 +17911,8 @@
         "description": "这是一件凡品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 74
-        }
+        },
+        "legacy": true
     },
     "2167": {
         "name": "幽冥日曜晶剑",
@@ -18967,7 +19013,8 @@
         "description": "这是一件玄品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 9400
-        }
+        },
+        "legacy": true
     },
     "2242": {
         "name": "幽冥血灵芝甲",
@@ -19272,7 +19319,8 @@
         "description": "这是一件黄品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 690
-        }
+        },
+        "legacy": true
     },
     "2262": {
         "name": "九天经",
@@ -19546,7 +19594,8 @@
         "description": "这是一件凡品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 185
-        }
+        },
+        "legacy": true
     },
     "2280": {
         "name": "万古血灵芝丹",
@@ -19634,7 +19683,8 @@
         "description": "这是一件黄品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 690
-        }
+        },
+        "legacy": true
     },
     "2286": {
         "name": "长生极冰阵",
@@ -19646,7 +19696,8 @@
         "description": "这是一件黄品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 1130
-        }
+        },
+        "legacy": true
     },
     "2287": {
         "name": "焚天幽冥草佩",
@@ -19733,7 +19784,8 @@
         "description": "这是一件凡品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 101
-        }
+        },
+        "legacy": true
     },
     "2292": {
         "name": "幽冥凤血佩",
@@ -20477,7 +20529,8 @@
         "description": "这是一件黄品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 840
-        }
+        },
+        "legacy": true
     },
     "2342": {
         "name": "无极凤血履",
@@ -20573,7 +20626,8 @@
         "description": "这是一件黄品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 990
-        }
+        },
+        "legacy": true
     },
     "2348": {
         "name": "长生玄铁诀",
@@ -20901,7 +20955,8 @@
         "description": "这是一件玄品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 8100
-        }
+        },
+        "legacy": true
     },
     "2370": {
         "name": "鸿蒙极冰散",
@@ -21331,7 +21386,8 @@
         "description": "这是一件凡品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 89
-        }
+        },
+        "legacy": true
     },
     "2400": {
         "name": "太虚龙骨散",
@@ -22375,7 +22431,8 @@
         "description": "这是一件凡品符箓，蕴含着天地之力。",
         "effects": {
             "magic_damage": 142
-        }
+        },
+        "legacy": true
     },
     "2469": {
         "name": "鸿蒙神木心散·1",
@@ -22429,13 +22486,11 @@
         "name": "鸿蒙符",
         "type": "符箓",
         "rank": "黄品",
-        "shop_weight": 990,
-        "price": 160,
+        "shop_weight": 110,
+        "price": 5536,
         "volume": 1,
-        "description": "这是一件黄品符箓，蕴含着天地之力。",
-        "effects": {
-            "magic_damage": 1470
-        }
+        "description": "增益符·黄品，15分钟内生效。",
+        "legacy": false
     },
     "2473": {
         "name": "龙渊凤血枪",
@@ -22880,10 +22935,11 @@
         "name": "引雷符",
         "type": "符箓",
         "rank": "黄品",
-        "shop_weight": 60,
-        "price": 800,
+        "shop_weight": 130,
+        "price": 5336,
         "volume": 1,
-        "description": "炼制高阶丹药时引来丹劫，可消耗此符引雷入体，保住丹药。"
+        "description": "炼丹符·黄品，15分钟内生效。",
+        "legacy": false
     },
     "10002": {
         "name": "空间石",
@@ -22937,7 +22993,8 @@
         "shop_weight": 15,
         "price": 200000,
         "volume": 1,
-        "description": "以秘法炼成的化身。激活后30天内，化身替你昼夜行功，闭关收益+20%。"
+        "description": "以秘法炼成的化身。激活后30天内，化身替你昼夜行功，闭关收益+20%。",
+        "legacy": true
     },
     "10005": {
         "name": "灵草",
@@ -24158,5 +24215,295 @@
             "rest_hp_regen_bonus": 0.2,
             "rest_qi_regen_bonus": 0.2
         }
+    },
+    "10012": {
+        "name": "烈焰符",
+        "type": "符箓",
+        "rank": "凡品",
+        "shop_weight": 200,
+        "price": 580,
+        "volume": 1,
+        "description": "攻击符·凡品，15分钟内生效。",
+        "legacy": false
+    },
+    "10013": {
+        "name": "斩仙符",
+        "type": "符箓",
+        "rank": "圣品",
+        "shop_weight": 15,
+        "price": 308100,
+        "volume": 1,
+        "description": "攻击符·圣品，30分钟内生效。",
+        "legacy": false
+    },
+    "10014": {
+        "name": "石肤符",
+        "type": "符箓",
+        "rank": "凡品",
+        "shop_weight": 200,
+        "price": 480,
+        "volume": 1,
+        "description": "防御符·凡品，15分钟内生效。",
+        "legacy": false
+    },
+    "10015": {
+        "name": "金刚符",
+        "type": "符箓",
+        "rank": "黄品",
+        "shop_weight": 110,
+        "price": 5386,
+        "volume": 1,
+        "description": "防御符·黄品，15分钟内生效。",
+        "legacy": false
+    },
+    "10016": {
+        "name": "天罡符",
+        "type": "符箓",
+        "rank": "玄品",
+        "shop_weight": 40,
+        "price": 44080,
+        "volume": 1,
+        "description": "防御符·玄品，20分钟内生效。",
+        "legacy": false
+    },
+    "10017": {
+        "name": "不灭符",
+        "type": "符箓",
+        "rank": "圣品",
+        "shop_weight": 15,
+        "price": 406800,
+        "volume": 1,
+        "description": "防御符·圣品，30分钟内生效。",
+        "legacy": false
+    },
+    "10018": {
+        "name": "寒霜符",
+        "type": "符箓",
+        "rank": "凡品",
+        "shop_weight": 180,
+        "price": 630,
+        "volume": 1,
+        "description": "控制符·凡品，15分钟内生效。",
+        "legacy": false
+    },
+    "10019": {
+        "name": "九幽符",
+        "type": "符箓",
+        "rank": "黄品",
+        "shop_weight": 110,
+        "price": 5436,
+        "volume": 1,
+        "description": "控制符·黄品，15分钟内生效。",
+        "legacy": false
+    },
+    "10020": {
+        "name": "幽冥符",
+        "type": "符箓",
+        "rank": "玄品",
+        "shop_weight": 40,
+        "price": 44080,
+        "volume": 1,
+        "description": "控制符·玄品，20分钟内生效。",
+        "legacy": false
+    },
+    "10021": {
+        "name": "缚天符",
+        "type": "符箓",
+        "rank": "圣品",
+        "shop_weight": 15,
+        "price": 308100,
+        "volume": 1,
+        "description": "控制符·圣品，30分钟内生效。",
+        "legacy": false
+    },
+    "10022": {
+        "name": "回春符",
+        "type": "符箓",
+        "rank": "凡品",
+        "shop_weight": 200,
+        "price": 670,
+        "volume": 1,
+        "description": "回复符·凡品，15分钟内生效。",
+        "legacy": false
+    },
+    "10023": {
+        "name": "甘露符",
+        "type": "符箓",
+        "rank": "黄品",
+        "shop_weight": 110,
+        "price": 5336,
+        "volume": 1,
+        "description": "回复符·黄品，15分钟内生效。",
+        "legacy": false
+    },
+    "10024": {
+        "name": "再生符",
+        "type": "符箓",
+        "rank": "玄品",
+        "shop_weight": 40,
+        "price": 44080,
+        "volume": 1,
+        "description": "回复符·玄品，20分钟内生效。",
+        "legacy": false
+    },
+    "10025": {
+        "name": "回天符",
+        "type": "符箓",
+        "rank": "圣品",
+        "shop_weight": 15,
+        "price": 308100,
+        "volume": 1,
+        "description": "回复符·圣品，30分钟内生效。",
+        "legacy": false
+    },
+    "10026": {
+        "name": "稳魂符",
+        "type": "符箓",
+        "rank": "凡品",
+        "shop_weight": 200,
+        "price": 580,
+        "volume": 1,
+        "description": "炼丹符·凡品，15分钟内生效。",
+        "legacy": false
+    },
+    "10027": {
+        "name": "聚灵符",
+        "type": "符箓",
+        "rank": "黄品",
+        "shop_weight": 110,
+        "price": 5436,
+        "volume": 1,
+        "description": "炼丹符·黄品，15分钟内生效。",
+        "legacy": false
+    },
+    "10028": {
+        "name": "避劫符",
+        "type": "符箓",
+        "rank": "玄品",
+        "shop_weight": 45,
+        "price": 72300,
+        "volume": 1,
+        "description": "炼丹符·玄品，20分钟内生效。",
+        "legacy": false
+    },
+    "10029": {
+        "name": "混元符",
+        "type": "符箓",
+        "rank": "圣品",
+        "shop_weight": 15,
+        "price": 604200,
+        "volume": 1,
+        "description": "炼丹符·圣品，30分钟内生效。",
+        "legacy": false
+    },
+    "10030": {
+        "name": "遁地符",
+        "type": "符箓",
+        "rank": "凡品",
+        "shop_weight": 200,
+        "price": 480,
+        "volume": 1,
+        "description": "探索符·凡品，15分钟内生效。",
+        "legacy": false
+    },
+    "10031": {
+        "name": "寻宝符",
+        "type": "符箓",
+        "rank": "黄品",
+        "shop_weight": 110,
+        "price": 3724,
+        "volume": 1,
+        "description": "探索符·黄品，15分钟内生效。",
+        "legacy": false
+    },
+    "10032": {
+        "name": "破障符",
+        "type": "符箓",
+        "rank": "玄品",
+        "shop_weight": 40,
+        "price": 44080,
+        "volume": 1,
+        "description": "探索符·玄品，20分钟内生效。",
+        "legacy": false
+    },
+    "10033": {
+        "name": "洞天符",
+        "type": "符箓",
+        "rank": "圣品",
+        "shop_weight": 15,
+        "price": 406800,
+        "volume": 1,
+        "description": "探索符·圣品，30分钟内生效。",
+        "legacy": false
+    },
+    "10034": {
+        "name": "疾风符",
+        "type": "符箓",
+        "rank": "凡品",
+        "shop_weight": 180,
+        "price": 580,
+        "volume": 1,
+        "description": "增益符·凡品，15分钟内生效。",
+        "legacy": false
+    },
+    "10035": {
+        "name": "天机符",
+        "type": "符箓",
+        "rank": "玄品",
+        "shop_weight": 40,
+        "price": 44080,
+        "volume": 1,
+        "description": "增益符·玄品，20分钟内生效。",
+        "legacy": false
+    },
+    "10036": {
+        "name": "大道符",
+        "type": "符箓",
+        "rank": "圣品",
+        "shop_weight": 15,
+        "price": 308100,
+        "volume": 1,
+        "description": "增益符·圣品，30分钟内生效。",
+        "legacy": false
+    },
+    "10037": {
+        "name": "轻身符",
+        "type": "符箓",
+        "rank": "凡品",
+        "shop_weight": 180,
+        "price": 530,
+        "volume": 1,
+        "description": "遁术符·凡品，15分钟内生效。",
+        "legacy": false
+    },
+    "10038": {
+        "name": "缩地符",
+        "type": "符箓",
+        "rank": "黄品",
+        "shop_weight": 110,
+        "price": 5336,
+        "volume": 1,
+        "description": "遁术符·黄品，15分钟内生效。",
+        "legacy": false
+    },
+    "10039": {
+        "name": "虚空符",
+        "type": "符箓",
+        "rank": "玄品",
+        "shop_weight": 40,
+        "price": 44080,
+        "volume": 1,
+        "description": "遁术符·玄品，20分钟内生效。",
+        "legacy": false
+    },
+    "10040": {
+        "name": "大挪移符",
+        "type": "符箓",
+        "rank": "圣品",
+        "shop_weight": 15,
+        "price": 308100,
+        "volume": 1,
+        "description": "遁术符·圣品，30分钟内生效。",
+        "legacy": false
     }
 }

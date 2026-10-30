@@ -355,11 +355,9 @@ class CombatManager:
         effects = dict(effects or {})
         try:
             from .talisman_manager import TalismanManager
-            for key, value in TalismanManager.collect_active_combat_effects(player).items():
-                effects[key] = effects.get(key, 0) + value
+            effects = TalismanManager.merge_into_combat_effects(effects, player)
         except Exception:
             pass
-
         hp_buff = impart_info.impart_hp_per if impart_info else 0.0
         mp_buff = impart_info.impart_mp_per if impart_info else 0.0
         atk_buff = impart_info.impart_atk_per if impart_info else 0.0
@@ -391,6 +389,15 @@ class CombatManager:
         practice_bonus = min(0.20, max(0, int(player.atkpractice or 0)) * 0.01)
         phys_attack_bonus = max(-.5, min(.5, physical_mult - 1 + atk_buff + practice_bonus + forge_bonus))
         magic_attack_bonus = max(-.5, min(.5, magic_mult - 1 + atk_buff + practice_bonus + forge_bonus))
+        # 符箓双防是倍率增量（0.33 = ×1.33），要单独并进防御面板，
+        # 否则 /使用符箓 只涨提示不涨面板。
+        try:
+            talisman_def = max(
+                float(effects.get("physical_defense_multiplier", 0) or 0),
+                float(effects.get("magic_defense_multiplier", 0) or 0),
+            )
+        except (TypeError, ValueError):
+            talisman_def = 0.0
         defense_bonus = max(
             -.5,
             min(
@@ -398,6 +405,7 @@ class CombatManager:
                 max(
                     float(pill_multipliers.get("physical_defense", 1.0) or 1.0),
                     float(pill_multipliers.get("magic_defense", 1.0) or 1.0),
+                    1.0 + talisman_def,
                 ) - 1 + forge_bonus,
             ),
         )
@@ -608,11 +616,18 @@ class CombatManager:
         return CombatManager.clamp_effects(effects)
 
     @staticmethod
-    def clamp_effects(effects: dict) -> dict:
-        """统一限制战斗特效上限，避免装备/词条/符箓叠加失控。"""
+    def clamp_effects(effects: dict, skip: tuple = ()) -> dict:
+        """统一限制战斗特效上限，避免装备/词条/符箓叠加失控。
+
+        ``skip`` 用于跳过由 normalize_overflow_effects 接管的三项
+        （暴击/吸血/反伤）：它们会被钳到 100 并把溢出转成暴伤/双攻，
+        提前钳制会让溢出转换失效。
+        """
         from ..core.equipment_balance import GLOBAL_EFFECT_CAPS
         result = dict(effects or {})
         for key, cap in GLOBAL_EFFECT_CAPS.items():
+            if key in skip:
+                continue
             if key in result:
                 try:
                     result[key] = max(0, min(float(cap), float(result[key] or 0)))
@@ -673,11 +688,17 @@ class CombatManager:
                 else:
                     effects[key] = value
 
-        # 符箓效果：暴击/吸血/反击/闪避等
+        # 符箓效果：暴击/吸血/反击/闪避/攻防倍率等。
+        # 注意：这段必须在 collect_combat_effects 之后（后者会把物法倍率重置为 1.0），
+        # 挪到前面会被清零。
         try:
             from .talisman_manager import TalismanManager
-            for key, value in TalismanManager.collect_active_combat_effects(player).items():
-                effects[key] = effects.get(key, 0) + value
+            effects = TalismanManager.merge_into_combat_effects(effects, player)
+            # 合并后统一封顶，符箓效果此前处于无上限状态。
+            # 暴击/吸血/反伤交给 normalize_overflow_effects 处理，别在这里提前钳死。
+            effects = cls.clamp_effects(
+                effects, skip=("crit_rate", "lifesteal", "counter_damage")
+            )
         except Exception:
             pass
 
@@ -702,6 +723,14 @@ class CombatManager:
         practice_bonus = min(0.20, max(0, int(player.atkpractice or 0)) * 0.01)
         phys_attack_bonus = max(-.5, min(.5, physical_mult - 1 + atk_buff + practice_bonus + forge_bonus))
         magic_attack_bonus = max(-.5, min(.5, magic_mult - 1 + atk_buff + practice_bonus + forge_bonus))
+        # 符箓双防倍率并入面板（与 build_combat_panel 同口径）
+        try:
+            talisman_def = max(
+                float(effects.get("physical_defense_multiplier", 0) or 0),
+                float(effects.get("magic_defense_multiplier", 0) or 0),
+            )
+        except (TypeError, ValueError):
+            talisman_def = 0.0
         defense_bonus = max(
             -.5,
             min(
@@ -709,6 +738,7 @@ class CombatManager:
                 max(
                     float(pill_multipliers.get("physical_defense", 1.0) or 1.0),
                     float(pill_multipliers.get("magic_defense", 1.0) or 1.0),
+                    1.0 + talisman_def,
                 ) - 1 + forge_bonus,
             ),
         )

@@ -166,6 +166,10 @@ class Player:
     # v6.16 师徒系统
     virtue_points: int = 0  # 师德点（徒弟突破时获得，可兑换奖励）
 
+    # v6.42 符箓熟练度与符图习得
+    talisman_exp: int = 0  # 制符熟练点（累计，无每日上限）
+    talisman_recipes: str = "[]"  # 已习得的符图（JSON数组，存符名）
+
     def shield_output_multiplier(self, period_start: int, period_end: int) -> float:
         """护府大阵生效期间产出系数（按时间重叠比例计算）"""
         if self.shield_expire_time <= 0 or self.shield_start_time <= 0:
