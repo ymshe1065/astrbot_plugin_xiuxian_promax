@@ -6,8 +6,8 @@ import hashlib
 import json
 from typing import Any, Dict, List
 
-HELP_VERSION = "v6.44.0"
-HELP_HEADER = f"📖 修仙指令大全 {HELP_VERSION} (符箓重做·仙市16盘·拍卖盲拍)"
+HELP_VERSION = "v6.45.0"
+HELP_HEADER = f"📖 修仙指令大全 {HELP_VERSION} (秘境自动代理·拍卖盲拍)"
 HELP_HINT = "💡 提示：所有指令均可带 / 前缀使用"
 HELP_TITLE = "修仙指令大全"
 HELP_SUBTITLE = f"📖 {HELP_VERSION} · 所有指令均可带 / 前缀使用"
@@ -51,6 +51,7 @@ HELP_SECTIONS: List[Dict[str, Any]] = [
         "lines": [
             "/历练信息 /开始历练 <路线> /历练状态 /完成历练 /放弃历练",
             "/秘境列表 /探索秘境 <ID> /完成探索 /退出秘境",
+            "/自动代理 秘境 <ID>（到期自动结算并重新进入）",
             "/任务榜 /接取任务 <品阶> /放弃任务 <编号> /领取任务奖励",
             "/悬赏令 /接取悬赏 <ID> /悬赏状态 /完成悬赏 /放弃悬赏",
             "/奇遇选择 <编号> (历练/秘境归来可触发)",

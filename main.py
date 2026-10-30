@@ -343,6 +343,7 @@ class XiuXianPlugin(Star):
             bounty_mgr=self.bounty_mgr,
             lock_getter=get_player_lock,
             farm_mgr=self.spirit_farm_mgr,
+            rift_mgr=self.rift_mgr,
         )
         self.auto_proxy_handlers = AutoProxyHandlers(self.db, self.auto_proxy_mgr)
 
@@ -604,14 +605,22 @@ class XiuXianPlugin(Star):
         if not closed:
             return ""
         row = await self.auto_proxy_mgr.get(event.get_sender_id())
-        farm_on = bool(row and self.auto_proxy_mgr._farm_enabled(row))
+        config = self.auto_proxy_mgr._load_config(row or {})
+        keep_text = "、".join(
+            name
+            for name, on in (
+                ("灵田", bool(config["farm"].get("enabled"))),
+                ("秘境", bool(config["rift"].get("enabled"))),
+            )
+            if on
+        )
         return (
-            "\n\n🤖 检测到你手动退出，押镖/宗门任务代理已同步暂停。"
-            + ("灵田代理继续运行。" if farm_on else "自动代理已关闭。")
+            "\n\n🤖 检测到你手动退出，自动代理已同步暂停。"
+            + (f"{keep_text}代理继续运行。" if keep_text else "发送 /自动代理 可重新开启。")
         )
 
     async def _auto_proxy_external_activity(self, event: AstrMessageEvent) -> str:
-        """用户开始闭关/历练/秘境等代理不接管的活动时关闭代理。"""
+        """用户开始闭关/历练等代理不接管的活动时关闭代理；手动进秘境会被秘境代理接管。"""
         try:
             closed = await self.auto_proxy_mgr.note_external_activity_started(event.get_sender_id())
         except Exception as e:
@@ -620,10 +629,18 @@ class XiuXianPlugin(Star):
         if not closed:
             return ""
         row = await self.auto_proxy_mgr.get(event.get_sender_id())
-        farm_on = bool(row and self.auto_proxy_mgr._farm_enabled(row))
+        config = self.auto_proxy_mgr._load_config(row or {})
+        keep_text = "、".join(
+            name
+            for name, on in (
+                ("灵田", bool(config["farm"].get("enabled"))),
+                ("秘境", bool(config["rift"].get("enabled"))),
+            )
+            if on
+        )
         return (
             "\n\n🛑 检测到你开始了其他活动，押镖/宗门任务代理已同步暂停。"
-            + ("灵田代理继续运行。" if farm_on else "自动代理已关闭。")
+            + (f"{keep_text}代理继续运行。" if keep_text else "自动代理已关闭。")
         )
 
     async def _send_to_origin(self, origin: str, msg: str):
@@ -1188,7 +1205,7 @@ class XiuXianPlugin(Star):
         async for r in self.misc_handler.handle_help(event): yield r
 
     # ===== v6.26 自动代理 =====
-    @filter.command(CMD_AUTO_PROXY, "开启自动代理（可指定 押镖/宗门任务/灵田）")
+    @filter.command(CMD_AUTO_PROXY, "开启自动代理（可指定 押镖/宗门任务/灵田/秘境）")
     @require_whitelist
     @with_player_lock
     async def handle_auto_proxy_enable(self, event: AstrMessageEvent, task: GreedyStr):
