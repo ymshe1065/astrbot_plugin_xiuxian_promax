@@ -35,7 +35,7 @@ class AutoProxyHandlers:
         yield event.plain_result(msg)
 
     async def handle_disable(self, event: AstrMessageEvent, args: str = ""):
-        """关闭自动代理；不填默认全部关闭，也可指定押镖/宗门任务/灵田。"""
+        """关闭自动代理；不填默认全部关闭，也可指定押镖/宗门任务/灵田/秘境。"""
         user_id = event.get_sender_id()
         raw = (args or "").strip() or "全部"
         usage = (
@@ -44,22 +44,32 @@ class AutoProxyHandlers:
             "💡 /关闭代理 押镖\n"
             "💡 /关闭代理 宗门任务\n"
             "💡 /关闭代理 灵田 [格号...]\n"
+            "💡 /关闭代理 秘境\n"
+            "💡 /关闭代理 施肥\n"
             "💡 /关闭代理 全部"
         )
         if is_all_keyword(raw, ALL_KEYWORDS):
             was_enabled = await self.proxy_mgr.disable(user_id, "manual_close")
             if was_enabled:
                 yield event.plain_result(
-                    "🛑 自动代理已全部关闭（含灵田代理）。\n"
-                    "押镖/宗门任务不会中断；灵田成熟作物需手动 /收获。"
+                    "🛑 自动代理已全部关闭（含灵田/秘境/施肥代理）。\n"
+                    "押镖/宗门任务不会中断；灵田成熟作物需手动 /收获；当前秘境探索可继续 /完成探索。"
                 )
             else:
                 yield event.plain_result("💡 自动代理当前未开启。")
+            return
+        if self.proxy_mgr._is_fert_request(raw):
+            ok, msg = await self.proxy_mgr.disable_fert(user_id)
+            yield event.plain_result(msg)
             return
         if self.proxy_mgr._is_farm_request(raw):
             parts = raw.split(maxsplit=1)
             rest = parts[1] if len(parts) > 1 else ""
             ok, msg = await self.proxy_mgr.disable_farm(user_id, rest)
+            yield event.plain_result(msg)
+            return
+        if self.proxy_mgr._is_rift_request(raw):
+            ok, msg = await self.proxy_mgr.disable_rift(user_id)
             yield event.plain_result(msg)
             return
         if self.proxy_mgr.normalize_task(raw) in (TASK_ESCORT, TASK_SECT):

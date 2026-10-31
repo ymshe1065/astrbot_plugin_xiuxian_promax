@@ -104,7 +104,7 @@ class RankingManager:
         
         return True, msg
     
-    async def get_power_ranking(self, limit: int = 10) -> Tuple[bool, str]:
+    async def get_power_ranking(self, limit: int = 10, viewer_id: str = "") -> Tuple[bool, str]:
         """
         战力排行榜（与「我的信息」名片使用同一套战斗面板与战力公式）
         
@@ -124,7 +124,7 @@ class RankingManager:
         all_players = await self.db.get_all_players()
         
         if not all_players:
-            return False, "❌ 暂无数据！"
+            return False, "⚔️ 战力排行榜暂无数据"
         
         from ..core import PillManager
         from ..managers.pet_manager import PetManager
@@ -177,25 +177,40 @@ class RankingManager:
             )
             player_power.append((player, combat_power, total_attrs))
         
-        # 按战力排序
-        sorted_players = sorted(player_power, key=lambda x: x[1], reverse=True)[:limit]
-        
-        msg = "📊 战力排行榜\n"
-        msg += "━━━━━━━━━━━━━━━\n"
-        
-        for idx, (player, power, attrs) in enumerate(sorted_players, 1):
+        # 按战力降序；同战力按道号稳定排序，避免每次刷新名次跳动。
+        all_sorted = sorted(
+            player_power,
+            key=lambda x: (-x[1], _safe_name(x[0], x[0].user_id)),
+        )
+        try:
+            limit = max(1, min(50, int(limit)))
+        except (TypeError, ValueError):
+            limit = 10
+        top_players = all_sorted[:limit]
+        viewer = str(viewer_id or "")
+        viewer_index = next(
+            (idx for idx, (player, _, _) in enumerate(all_sorted, 1)
+             if str(player.user_id) == viewer),
+            0,
+        )
+
+        msg = [
+            f"⚔️ 战力排行 · 全服前 {limit}",
+            f"共 {len(all_sorted)} 名修士",
+            "━━━━━━━━━━━━━━━",
+        ]
+        for idx, (player, power, _) in enumerate(top_players, 1):
             name = _safe_name(player, player.user_id)
-            # 显示主要攻击属性（根据修炼类型）
-            if player.cultivation_type == "体修":
-                main_atk = _as_int(attrs.get("physical_damage"))
-                atk_label = "物伤"
-            else:
-                main_atk = _as_int(attrs.get("magic_damage"))
-                atk_label = "法伤"
-            msg += f"{idx}. {name}\n"
-            msg += f"   战力：{power:,} | {atk_label}：{main_atk:,}\n\n"
-        
-        return True, msg
+            mine = " ← 你" if viewer and str(player.user_id) == viewer else ""
+            msg.append(f"{idx}. {name} · {power:,}{mine}")
+
+        if viewer_index and viewer_index > len(top_players):
+            viewer_player, viewer_power, _ = all_sorted[viewer_index - 1]
+            msg.extend([
+                "━━━━━━━━━━━━━━━",
+                f"你的排名：第 {viewer_index} 名 · {_safe_name(viewer_player, viewer_player.user_id)} · {viewer_power:,}",
+            ])
+        return True, "\n".join(msg)
     
     async def get_wealth_ranking(self, limit: int = 10) -> Tuple[bool, str]:
         """

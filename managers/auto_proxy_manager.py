@@ -1,5 +1,5 @@
 # managers/auto_proxy_manager.py
-"""自动代理：无人值守结算并续接不需要用户选择的活动（押镖 / 宗门任务）"""
+"""自动代理：无人值守结算并续接不需要用户选择的活动（押镖 / 宗门任务 / 秘境）"""
 from __future__ import annotations
 
 import asyncio
@@ -24,11 +24,15 @@ __all__ = ["AutoProxyManager"]
 TASK_ESCORT = "escort"
 TASK_SECT = "sect_task"
 TASK_FARM = "farm"
+TASK_RIFT = "rift"
+TASK_FERTILIZE = "fertilize"
 
 TASK_NAMES = {
     TASK_ESCORT: "押镖",
     TASK_SECT: "宗门任务",
     TASK_FARM: "灵田",
+    TASK_RIFT: "秘境",
+    TASK_FERTILIZE: "施肥",
 }
 
 TASK_ALIASES = {
@@ -41,7 +45,18 @@ TASK_ALIASES = {
     "宗门任务": TASK_SECT,
     "灵田": TASK_FARM,
     "farm": TASK_FARM,
+    "秘境": TASK_RIFT,
+    "探索秘境": TASK_RIFT,
+    "rift": TASK_RIFT,
+    "施肥": TASK_FERTILIZE,
+    "fertilize": TASK_FERTILIZE,
 }
+
+# 施肥是“维护动作”而不是“活动”，不占用 UserStatus，故不进 TASK_STATUS
+DEFAULT_FERTILIZE_THRESHOLD = 0.85
+DEFAULT_FERTILIZE_MIN_ROI = 1.0
+# 单轮最多补几次肥（每次 +30% 上限，4 次足以从地板补满）
+MAX_FERTILIZE_TIMES = 4
 
 TASK_STATUS = {
     TASK_ESCORT: UserStatus.DELIVERING,
@@ -73,6 +88,7 @@ class AutoProxyManager:
         bounty_mgr: Any = None,
         lock_getter: Optional[Callable[[str], asyncio.Lock]] = None,
         farm_mgr: Any = None,
+        rift_mgr: Any = None,
     ):
         self.db = db
         self.escort_mgr = escort_mgr
@@ -82,6 +98,7 @@ class AutoProxyManager:
         self.bounty_mgr = bounty_mgr
         self._lock_getter = lock_getter
         self.farm_mgr = farm_mgr
+        self.rift_mgr = rift_mgr
         self._fallback_locks: dict[str, asyncio.Lock] = {}
 
     def _get_lock(self, user_id: str) -> asyncio.Lock:
@@ -129,11 +146,46 @@ class AutoProxyManager:
         farm.setdefault("exclude", [])
         farm.setdefault("tasks", {})
         config["farm"] = farm
+
+        rift = config.get("rift")
+        if not isinstance(rift, dict):
+            rift = {}
+        rift.setdefault("enabled", False)
+        rift.setdefault("rift_id", 0)
+        config["rift"] = rift
+
+        fert = config.get("fertilize")
+        if not isinstance(fert, dict):
+            fert = {}
+        fert.setdefault("enabled", False)
+        fert.setdefault("threshold", DEFAULT_FERTILIZE_THRESHOLD)
+        fert.setdefault("min_roi", DEFAULT_FERTILIZE_MIN_ROI)
+        fert.setdefault("note", "")
+        config["fertilize"] = fert
         return config
 
     @classmethod
     def _farm_enabled(cls, row: Optional[dict]) -> bool:
         return bool(cls._load_config(row)["farm"].get("enabled"))
+
+    @classmethod
+    def _rift_enabled(cls, row: Optional[dict]) -> bool:
+        return bool(cls._load_config(row)["rift"].get("enabled"))
+
+    @classmethod
+    def _fert_enabled(cls, row: Optional[dict]) -> bool:
+        return bool(cls._load_config(row)["fertilize"].get("enabled"))
+
+    @staticmethod
+    def _is_fert_request(raw: str) -> bool:
+        parts = (raw or "").strip().split()
+        if not parts:
+            return False
+        key = parts[0].lower()
+        if key in ("施肥", "施肥代理", "fertilize", "fert", "肥"):
+            return True
+        # 兼容粘连写法：/自动代理 施肥70
+        return key.startswith("施肥") or key.startswith("fertilize")
 
     @staticmethod
     def _is_farm_request(raw: str) -> bool:
@@ -142,6 +194,17 @@ class AutoProxyManager:
             return False
         key = parts[0].lower()
         return key in ("灵田", "farm", "田")
+
+    @staticmethod
+    def _is_rift_request(raw: str) -> bool:
+        parts = (raw or "").strip().split()
+        if not parts:
+            return False
+        key = parts[0].lower()
+        if key in ("秘境", "探索秘境", "rift", "秘"):
+            return True
+        # 兼容粘连写法：/自动代理 秘境1
+        return key.startswith("秘境") or key.startswith("rift")
 
     @staticmethod
     def _parse_plot_selection(raw: str) -> Tuple[Optional[list[int]], list[str]]:
@@ -203,11 +266,13 @@ class AutoProxyManager:
         )
 
     async def disable(self, user_id: str, reason: str = "") -> bool:
-        """关闭全部代理；保留上次活动类型与灵田任务，方便下次恢复。"""
+        """关闭全部代理；保留上次活动类型、灵田任务、秘境目标与施肥阈值，方便下次恢复。"""
         row = await self.get(user_id)
         was_enabled = bool(row and row.get("enabled"))
         config = self._load_config(row)
         config["farm"]["enabled"] = False
+        config["rift"]["enabled"] = False
+        config["fertilize"]["enabled"] = False
         await self._write_state(
             user_id,
             False,
@@ -219,19 +284,26 @@ class AutoProxyManager:
         return was_enabled
 
     async def disable_primary(self, user_id: str, reason: str = "manual_close") -> Tuple[bool, str]:
-        """只关闭押镖/宗门任务代理，灵田自动代理不受影响。"""
+        """只关闭押镖/宗门任务代理，灵田/秘境/施肥自动代理不受影响。"""
         row = await self.get(user_id)
         if not row or not row.get("enabled"):
             return False, "💡 自动代理当前未开启。"
         config = self._load_config(row)
         farm_on = bool(config["farm"].get("enabled"))
+        rift_on = bool(config["rift"].get("enabled"))
+        fert_on = bool(config["fertilize"].get("enabled"))
         had_primary = bool(row.get("task_type"))
         await self._disable_primary(user_id, reason)
-        if farm_on:
+        if farm_on or rift_on or fert_on:
             tip = "押镖/宗门任务代理已关闭" if had_primary else "押镖/宗门任务代理未开启"
+            keep = "、".join(
+                name
+                for name, on in (("灵田", farm_on), ("秘境", rift_on), ("施肥", fert_on))
+                if on
+            )
             return True, (
-                f"🛑 {tip}；灵田自动代理继续运行。\n"
-                "💡 发送 /关闭代理 灵田 可停止灵田代理；发送 /关闭代理 可全部停止。"
+                f"🛑 {tip}；{keep}自动代理继续运行。\n"
+                "💡 发送 /关闭代理 灵田 /关闭代理 秘境 /关闭代理 施肥 可单独停止；发送 /关闭代理 可全部停止。"
             )
         return True, (
             "🛑 自动代理已关闭。\n"
@@ -239,12 +311,16 @@ class AutoProxyManager:
         )
 
     async def _disable_primary(self, user_id: str, reason: str) -> bool:
-        """只关闭押镖/宗门任务代理；灵田代理继续运行。"""
+        """只关闭押镖/宗门任务代理；灵田/秘境/施肥代理继续运行。"""
         row = await self.get(user_id)
         if not row:
             return False
         config = self._load_config(row)
-        if config["farm"].get("enabled"):
+        if (
+            config["farm"].get("enabled")
+            or config["rift"].get("enabled")
+            or config["fertilize"].get("enabled")
+        ):
             await self._write_state(
                 user_id,
                 True,
@@ -258,10 +334,25 @@ class AutoProxyManager:
         return True
 
     async def note_manual_exit(self, user_id: str) -> bool:
-        """用户手动退出/放弃时调用；灵田代理不受影响。"""
+        """用户手动退出/放弃时调用；主动放弃秘境会同时关闭秘境代理，灵田代理不受影响。"""
         row = await self.get(user_id)
         if not row or not row.get("enabled"):
             return False
+        config = self._load_config(row)
+        if config["rift"].get("enabled"):
+            config["rift"]["enabled"] = False
+            keep_enabled = bool(row.get("task_type")) or bool(
+                config["farm"].get("enabled")
+            ) or bool(config["fertilize"].get("enabled"))
+            await self._write_state(
+                user_id,
+                keep_enabled,
+                row.get("task_type", ""),
+                row.get("origin", ""),
+                "manual_exit",
+                config,
+            )
+            return True
         return await self._disable_primary(user_id, "manual_exit")
 
     async def note_external_activity_started(self, user_id: str) -> bool:
@@ -270,10 +361,15 @@ class AutoProxyManager:
         if not row or not row.get("enabled"):
             return False
         farm_on = self._farm_enabled(row)
-        if not (row.get("task_type") or "") and farm_on:
+        rift_on = self._rift_enabled(row)
+        fert_on = self._fert_enabled(row)
+        if not (row.get("task_type") or "") and (farm_on or rift_on or fert_on):
             return False
         cd = await self.db.ext.get_user_cd(user_id)
         if not cd or cd.type in (UserStatus.IDLE, UserStatus.DELIVERING, UserStatus.SECT_TASK):
+            return False
+        # 玩家手动进入秘境：由秘境代理接管续接，不能当成“其他活动”关掉
+        if cd.type == UserStatus.EXPLORING and rift_on:
             return False
         return await self._disable_primary(user_id, "other_busy")
 
@@ -282,9 +378,13 @@ class AutoProxyManager:
         row = await self.get(user_id)
         if not row or not row.get("enabled"):
             return None
-        # 仅开启灵田代理时，不接管玩家手动开始的押镖/宗门任务；
-        # 否则会把灵田代理悄悄改绑成押镖/宗门任务代理。
-        if not (row.get("task_type") or "") and self._farm_enabled(row):
+        # 仅开启灵田/秘境/施肥代理时，不接管玩家手动开始的押镖/宗门任务；
+        # 否则会把灵田/秘境/施肥代理悄悄改绑成押镖/宗门任务代理。
+        if not (row.get("task_type") or "") and (
+            self._farm_enabled(row)
+            or self._rift_enabled(row)
+            or self._fert_enabled(row)
+        ):
             return None
         cd = await self.db.ext.get_user_cd(user_id)
         current = STATUS_TASK.get(cd.type) if cd else None
@@ -377,7 +477,8 @@ class AutoProxyManager:
             "🤖 灵田代理已开启\n"
             "━━━━━━━━━━━━━━━\n"
             f"代理范围：{self._farm_plots_text(plots)}\n"
-            "♻️ 成熟后自动收获，并按原格续种；杂交植株需有足够种苗才会续种。"
+            "♻️ 成熟后自动收获，并按原格续种；杂交植株需有足够种苗才会续种。\n"
+            "💡 肥力不足会打折，可另开 /自动代理 施肥 让代理按阈值补肥。"
         )
         if cycle_msg:
             header += f"\n━━━━━━━━━━━━━━━\n{cycle_msg}"
@@ -435,7 +536,9 @@ class AutoProxyManager:
             farm_cfg["tasks"] = {}
             action = "灵田代理已关闭。"
 
-        keep_enabled = bool(row.get("task_type")) or bool(farm_cfg.get("enabled"))
+        keep_enabled = bool(row.get("task_type")) or bool(farm_cfg.get("enabled")) or bool(
+            config["fertilize"].get("enabled")
+        )
         await self._write_state(
             user_id,
             keep_enabled,
@@ -593,6 +696,419 @@ class AutoProxyManager:
             messages.append(plant_msg)
         return changed, "\n".join(messages), config_dirty
 
+    # ===== 自动施肥（独立子系统，不占用 UserStatus） =====
+
+    async def _enable_fert(
+        self, user_id: str, origin: str, raw_task: str
+    ) -> Tuple[bool, str]:
+        if not self.farm_mgr:
+            return False, "❌ 灵田系统未加载，暂时无法自动施肥。"
+        farm = await self.farm_mgr.get_user_farm(user_id)
+        if not farm:
+            return False, "❌ 你还没有灵田，请先使用 /开垦灵田。"
+
+        from .spirit_farm_manager import FERTILIZE_COST
+
+        parts = raw_task.strip().split(maxsplit=1)
+        rest = (parts[1] if len(parts) > 1 else "").strip()
+        if not rest:
+            m = re.match(r"^(?:施肥|fertilize)\s*(\d+)%?$", raw_task.strip(), re.IGNORECASE)
+            if m:
+                rest = m.group(1)
+        threshold = DEFAULT_FERTILIZE_THRESHOLD
+        if rest:
+            digits = re.sub(r"[%％]", "", rest).strip()
+            if not digits.isdigit():
+                return False, (
+                    "❌ 施肥阈值要填 10-100 的百分比数字。\n"
+                    "💡 /自动代理 施肥 70（肥力低于 70% 时自动补肥）"
+                )
+            value = int(digits)
+            if not 10 <= value <= 100:
+                return False, "❌ 施肥阈值需要在 10-100 之间。\n💡 例如 /自动代理 施肥 70"
+            threshold = value / 100.0
+
+        row = await self.get(user_id) or {}
+        config = self._load_config(row)
+        fert_cfg = config["fertilize"]
+        fert_cfg["enabled"] = True
+        fert_cfg["threshold"] = threshold
+        fert_cfg["min_roi"] = float(
+            fert_cfg.get("min_roi") or DEFAULT_FERTILIZE_MIN_ROI
+        )
+        fert_cfg["note"] = ""
+        origin = origin or row.get("origin", "")
+        cd = await self.db.ext.get_user_cd(user_id)
+        active_task = STATUS_TASK.get(cd.type) if cd else ""
+        await self._write_state(user_id, True, active_task or "", origin, "", config)
+
+        player = await self.db.get_player_by_id(user_id)
+        changed, cycle_msg, dirty = await self._run_fert_cycle(user_id, player, config)
+        if changed or dirty:
+            await self._write_state(
+                user_id, True, active_task or "", origin, "", config
+            )
+
+        max_f = self.farm_mgr.get_max_fertility(farm)
+        fertility = int(farm.get("fertility") or 0)
+        gain = self.farm_mgr.get_gain_per_fertilize(farm)
+        roi = self.farm_mgr.estimate_fertilize_roi(farm)
+        lines = [
+            "🤖 自动施肥已开启",
+            "━━━━━━━━━━━━━━━",
+            f"触发阈值：肥力低于 {threshold:.0%}（{int(max_f * threshold)}/{max_f}）",
+            f"单次施肥：+{gain} 肥力 / {FERTILIZE_COST:,} 灵石",
+            f"当前肥力：{fertility}/{max_f}",
+            (
+                f"收益判断：当前作物施肥回报约 {roi:.2f} 倍，值得施 ✅"
+                if roi >= DEFAULT_FERTILIZE_MIN_ROI
+                else f"收益判断：当前作物施肥回报仅 {roi:.2f} 倍，低于 1 倍时会自动跳过 ⚠️"
+            ),
+            "💡 只在田里有作物且回报 ≥ 成本时施肥；与灵田代理互不影响。",
+        ]
+        if cycle_msg:
+            lines.append("━━━━━━━━━━━━━━━")
+            lines.append(cycle_msg)
+        return True, "\n".join(lines)
+
+    async def disable_fert(self, user_id: str) -> Tuple[bool, str]:
+        row = await self.get(user_id)
+        if not row:
+            return False, "❌ 道友尚未踏入仙途。"
+        config = self._load_config(row)
+        fert_cfg = config["fertilize"]
+        if not fert_cfg.get("enabled"):
+            return False, "💡 自动施肥当前未开启。"
+        fert_cfg["enabled"] = False
+        fert_cfg["note"] = ""
+        keep_enabled = (
+            bool(row.get("task_type"))
+            or bool(config["farm"].get("enabled"))
+            or bool(config["rift"].get("enabled"))
+        )
+        await self._write_state(
+            user_id,
+            keep_enabled,
+            row.get("task_type", ""),
+            row.get("origin", ""),
+            row.get("last_error", ""),
+            config,
+        )
+        return True, "🛑 自动施肥已关闭。\n灵田与押镖/宗门任务代理不受影响。"
+
+    async def _run_fert_cycle(
+        self, user_id: str, player: Any, config: dict
+    ) -> Tuple[bool, str, bool]:
+        """自动施肥：肥力低于阈值且有作物时补肥。
+
+        必须排在灵田收获之前调用 —— 收益按「收获那一刻」的肥力结算，
+        顺序反了会让本茬白亏一截肥力。
+        返回 ``(是否需要通知, 消息, 配置是否变化)``。
+        """
+        if not self.farm_mgr or not player:
+            return False, "", False
+        fert_cfg = config["fertilize"]
+        if not fert_cfg.get("enabled"):
+            return False, "", False
+
+        farm = await self.farm_mgr.get_user_farm(user_id)
+        if not farm:
+            fert_cfg["enabled"] = False
+            return True, "⚠️ 灵田已不存在，自动施肥已关闭。", True
+
+        from .spirit_farm_manager import FERTILIZE_COST, HYBRID_MARKER
+
+        max_f = self.farm_mgr.get_max_fertility(farm)
+        fertility = int(farm.get("fertility") or 0)
+        threshold = float(fert_cfg.get("threshold") or DEFAULT_FERTILIZE_THRESHOLD)
+        if max_f <= 0 or fertility >= max_f * threshold:
+            return False, "", False
+
+        # 空田不施：等续种后自然会补上
+        crops = [
+            crop
+            for crop in (farm.get("crops") or [])
+            if crop.get("name") and crop.get("name") != HYBRID_MARKER
+        ]
+        if not crops:
+            return False, "", False
+
+        min_roi = float(
+            fert_cfg.get("min_roi")
+            if fert_cfg.get("min_roi") is not None
+            else DEFAULT_FERTILIZE_MIN_ROI
+        )
+        roi = self.farm_mgr.estimate_fertilize_roi(farm)
+        if roi < min_roi:
+            # 回报不足时静默跳过，只在状态页说明，避免刷屏
+            if fert_cfg.get("note"):
+                fert_cfg["note"] = ""
+                return False, "", True
+            return False, "", False
+
+        if int(player.gold or 0) < FERTILIZE_COST:
+            if fert_cfg.get("note") != "insufficient_gold":
+                fert_cfg["note"] = "insufficient_gold"
+                return (
+                    True,
+                    f"⚠️ 自动施肥暂停：灵石不足 {FERTILIZE_COST:,}"
+                    f"（当前 {int(player.gold or 0):,}），补足后会自动继续。",
+                    True,
+                )
+            return False, "", False
+
+        gain = self.farm_mgr.get_gain_per_fertilize(farm)
+        need = max_f - fertility
+        times = min(MAX_FERTILIZE_TIMES, max(1, (need + gain - 1) // gain))
+        ok, msg, _done = await self.farm_mgr.fertilize_once(player, times)
+
+        dirty = False
+        if fert_cfg.get("note"):
+            fert_cfg["note"] = ""
+            dirty = True
+        if not ok:
+            return False, "", dirty
+        return True, f"🌱 自动施肥：{msg}", dirty
+
+    # ===== 秘境代理 =====
+
+    @staticmethod
+    def _rift_label(rift: Any) -> str:
+        return f"【{rift.rift_name}】ID:{rift.rift_id}（需境界 {rift.required_level}）"
+
+    def _rift_choices_text(self, enterable: list) -> str:
+        lines = [
+            "🌀 请选择要代理探索的秘境：",
+            "━━━━━━━━━━━━━━━",
+        ]
+        for rift in enterable:
+            lines.append(f"  · {self._rift_label(rift)}")
+        lines.append("💡 发送 /自动代理 秘境 <ID> 开启，例如 /自动代理 秘境 1")
+        lines.append("♻️ 开启后到期自动结算，并按同一秘境重新进入。")
+        return "\n".join(lines)
+
+    def _match_rift(self, raw: str, rifts: list, enterable: list) -> Optional[Any]:
+        """按 ID 或名称匹配秘境（仅允许已满足境界要求的秘境）。"""
+        text = (raw or "").strip()
+        if not text:
+            return None
+        digits = re.sub(r"^(id|ID|秘境|rift)\s*", "", text).strip()
+        if digits.isdigit():
+            target = int(digits)
+            for rift in rifts:
+                if int(getattr(rift, "rift_id", 0)) == target:
+                    return rift
+            return None
+        for rift in enterable:
+            if text in str(getattr(rift, "rift_name", "")):
+                return rift
+        return None
+
+    async def _enable_rift(
+        self, user_id: str, origin: str, raw_task: str
+    ) -> Tuple[bool, str]:
+        if not self.rift_mgr:
+            return False, "❌ 秘境系统未加载，暂时无法代理秘境。"
+
+        player = await self.db.get_player_by_id(user_id)
+        if not player:
+            return False, "❌ 道友尚未踏入仙途，请先发送「我要修仙」。"
+
+        try:
+            rifts = list(await self.db.ext.get_all_rifts() or [])
+        except Exception as e:
+            logger.warning(f"【自动代理】读取秘境列表失败: {e}")
+            rifts = []
+        if not rifts:
+            return False, "❌ 当前没有开放的秘境，暂时无法代理。"
+
+        enterable = [r for r in rifts if player.level_index >= int(r.required_level)]
+        if not enterable:
+            return False, (
+                "❌ 你当前境界还没有可进入的秘境。\n"
+                "💡 先 /闭关 /历练 提升修为，突破后再来代理秘境。"
+            )
+
+        parts = raw_task.strip().split(maxsplit=1)
+        rest = parts[1].strip() if len(parts) > 1 else ""
+        if not rest:
+            # 兼容粘连写法：/自动代理 秘境1
+            m = re.match(r"^(?:秘境|rift)\s*(\d+)$", raw_task.strip(), re.IGNORECASE)
+            if m:
+                rest = m.group(1)
+        if not rest:
+            # 不做自动选择：必须由玩家指定秘境
+            return False, self._rift_choices_text(enterable)
+
+        rift = self._match_rift(rest, rifts, enterable)
+        if not rift:
+            return False, (
+                f"❌ 找不到可代理的秘境「{rest}」。\n"
+                "💡 请从下列秘境中选择：\n"
+                + "\n".join(f"  · {self._rift_label(r)}" for r in enterable)
+            )
+
+        if player.level_index < int(rift.required_level):
+            level_name = self.rift_mgr._get_level_name(int(rift.required_level))
+            return False, (
+                f"❌ 【{rift.rift_name}】需要达到【{level_name}】，你当前境界不足。\n"
+                "💡 你当前可代理的秘境：\n"
+                + "\n".join(f"  · {self._rift_label(r)}" for r in enterable)
+            )
+
+        row = await self.get(user_id) or {}
+        config = self._load_config(row)
+        rift_cfg = config["rift"]
+        rift_cfg["enabled"] = True
+        rift_cfg["rift_id"] = int(rift.rift_id)
+        origin = origin or row.get("origin", "")
+
+        # 秘境与押镖/宗门任务互斥：开启秘境代理时清空任务目标
+        await self._write_state(user_id, True, "", origin, "", config)
+
+        header = (
+            "🤖 秘境代理已开启\n"
+            "━━━━━━━━━━━━━━━\n"
+            f"目标秘境：{self._rift_label(rift)}"
+        )
+
+        try:
+            cd = await self.db.ext.get_user_cd(user_id)
+        except Exception:
+            cd = None
+        cd_type = cd.type if cd else UserStatus.IDLE
+
+        if cd_type == UserStatus.IDLE:
+            ok, start_msg = await self.rift_mgr.enter_rift(user_id, int(rift.rift_id))
+            if not ok:
+                rift_cfg["enabled"] = False
+                await self._write_state(user_id, False, "", origin, "start_failed", config)
+                return False, f"{header}\n\n⚠️ 无法开始探索：\n{start_msg}"
+            header += f"\n\n♻️ 已开始第一轮探索\n{start_msg}"
+            header += "\n💡 发送 /关闭代理 秘境 可停止。"
+            return True, header
+
+        if cd_type == UserStatus.EXPLORING:
+            header += (
+                "\n\n♻️ 已接管当前探索，完成后自动结算并重新进入。\n"
+                "💡 发送 /关闭代理 秘境 可停止。"
+            )
+            return True, header
+
+        header += (
+            f"\n\n⏳ 你当前正{UserStatus.get_name(cd_type)}，结束后将自动开始秘境探索。\n"
+            "💡 发送 /关闭代理 秘境 可停止。"
+        )
+        return True, header
+
+    async def disable_rift(self, user_id: str) -> Tuple[bool, str]:
+        row = await self.get(user_id)
+        if not row:
+            return False, "❌ 道友尚未踏入仙途。"
+        config = self._load_config(row)
+        rift_cfg = config["rift"]
+        if not rift_cfg.get("enabled"):
+            return False, "💡 秘境代理当前未开启。"
+        rift_cfg["enabled"] = False
+        keep_enabled = bool(row.get("task_type")) or bool(
+            config["farm"].get("enabled")
+        ) or bool(config["fertilize"].get("enabled"))
+        await self._write_state(
+            user_id,
+            keep_enabled,
+            row.get("task_type", ""),
+            row.get("origin", ""),
+            row.get("last_error", ""),
+            config,
+        )
+        return True, (
+            "🛑 秘境代理已关闭。\n"
+            "当前这次探索不会中断，可继续 /完成探索 领取奖励。"
+        )
+
+    async def _record_rift_progress(self, user_id: str, player: Any):
+        """自动结算秘境后补记日常任务/称号/悬赏进度（奇遇仍只手动触发）。"""
+        try:
+            await self.db.ext.add_task_progress(user_id, "explore_rift", 1)
+        except Exception as e:
+            logger.warning(f"【自动代理】秘境日常进度写入失败: {e}")
+        if self.title_bump:
+            try:
+                await self.title_bump(user_id, "rift_count", 1)
+            except Exception as e:
+                logger.warning(f"【自动代理】秘境称号计数失败: {e}")
+        if self.bounty_mgr:
+            try:
+                await self.bounty_mgr.add_bounty_progress(player, "rift", 1)
+            except Exception as e:
+                logger.warning(f"【自动代理】秘境悬赏进度失败: {e}")
+
+    async def _run_rift_cycle(
+        self, user_id: str, player: Any, config: dict
+    ) -> Tuple[bool, str, bool]:
+        """执行一次秘境结算/开始；返回 (是否发生动作, 消息, 是否已完成一轮)。"""
+        if not self.rift_mgr:
+            return False, "", False
+        rift_cfg = config["rift"]
+        if not rift_cfg.get("enabled"):
+            return False, "", False
+
+        try:
+            rift_id = int(rift_cfg.get("rift_id") or 0)
+        except (TypeError, ValueError):
+            rift_id = 0
+        if rift_id <= 0:
+            rift_cfg["enabled"] = False
+            return True, "⚠️ 未选择代理秘境，秘境代理已关闭。", False
+
+        try:
+            cd = await self.db.ext.get_user_cd(user_id)
+        except Exception:
+            cd = None
+        cd_type = cd.type if cd else UserStatus.IDLE
+        now = int(time.time())
+
+        if cd_type == UserStatus.EXPLORING:
+            if cd and cd.scheduled_time and now < int(cd.scheduled_time):
+                return False, "", False
+            ok, msg, _reward = await self.rift_mgr.finish_exploration(user_id)
+            if not ok:
+                rift_cfg["enabled"] = False
+                return (
+                    True,
+                    f"⚠️ 秘境结算失败：\n{msg}\n"
+                    "🛑 秘境代理已关闭，发送 /自动代理 秘境 <ID> 可重新开启。",
+                    False,
+                )
+            ok, start_msg = await self.rift_mgr.enter_rift(user_id, rift_id)
+            if not ok:
+                rift_cfg["enabled"] = False
+                return (
+                    True,
+                    f"{msg}\n\n⚠️ 无法开始下一轮探索：\n{start_msg}\n"
+                    "🛑 秘境代理已关闭，发送 /自动代理 秘境 <ID> 可重新开启。",
+                    True,
+                )
+            return (
+                True,
+                f"{msg}\n\n🤖 秘境代理：已开始下一轮探索\n{start_msg}",
+                True,
+            )
+
+        if cd_type != UserStatus.IDLE:
+            return False, "", False
+
+        ok, start_msg = await self.rift_mgr.enter_rift(user_id, rift_id)
+        if not ok:
+            rift_cfg["enabled"] = False
+            return (
+                True,
+                f"⚠️ 无法开始秘境探索：\n{start_msg}\n"
+                "🛑 秘境代理已关闭，发送 /自动代理 秘境 <ID> 可重新开启。",
+                False,
+            )
+        return True, f"🤖 秘境代理：已开始新一轮探索\n{start_msg}", False
+
     # ===== 命令入口 =====
 
     async def enable(self, user_id: str, origin: str = "", task_type: str = "") -> Tuple[bool, str]:
@@ -601,17 +1117,27 @@ class AutoProxyManager:
             return False, "❌ 道友尚未踏入仙途，请先发送「我要修仙」。"
 
         raw_task = (task_type or "").strip()
+        if raw_task and self._is_fert_request(raw_task):
+            return await self._enable_fert(user_id, origin, raw_task)
         if raw_task and self._is_farm_request(raw_task):
             return await self._enable_farm(user_id, origin, raw_task)
+        if raw_task and self._is_rift_request(raw_task):
+            return await self._enable_rift(user_id, origin, raw_task)
 
         requested = self.normalize_task(raw_task) if raw_task else None
         if raw_task and not requested:
             return False, (
                 "❌ 暂不支持该活动。\n"
-                "💡 目前自动代理支持：/自动代理 押镖、/自动代理 宗门任务、/自动代理 灵田"
+                "💡 目前自动代理支持：/自动代理 押镖、/自动代理 宗门任务、"
+                "/自动代理 灵田、/自动代理 秘境、/自动代理 施肥"
             )
 
         row = await self.get(user_id) or {}
+        config = self._load_config(row)
+        rift_closed = bool(config["rift"].get("enabled"))
+        if rift_closed:
+            config["rift"]["enabled"] = False
+        rift_note = "\n（秘境代理已关闭）" if rift_closed else ""
         cd = await self.db.ext.get_user_cd(user_id)
         current = STATUS_TASK.get(cd.type) if cd else None
 
@@ -622,6 +1148,8 @@ class AutoProxyManager:
                     "💡 /自动代理 押镖\n"
                     "💡 /自动代理 宗门任务\n"
                     "💡 /自动代理 灵田 [格号...]\n"
+                    "💡 /自动代理 秘境 <ID>\n"
+                    "💡 /自动代理 施肥 [阈值%]\n"
                     "（仅当已处于押镖/宗门任务中时，可省略参数自动补全）"
                 )
             requested = current
@@ -638,7 +1166,7 @@ class AutoProxyManager:
             )
 
         preferred = requested or current or row.get("task_type", "")
-        await self._write_state(user_id, True, preferred, origin)
+        await self._write_state(user_id, True, preferred, origin, "", config)
 
         if current:
             if requested and requested != current:
@@ -647,11 +1175,13 @@ class AutoProxyManager:
                     f"当前正在{UserStatus.get_name(cd.type)}，先完成本轮；"
                     f"之后将自动改跑【{self.task_name(requested)}】。\n"
                     f"💡 发送 /关闭代理 押镖 或 /关闭代理 宗门任务 可随时停止。"
+                    f"{rift_note}"
                 )
             return True, (
                 f"🤖 自动代理已开启\n"
                 f"已接管当前【{self.task_name(current)}】，本轮结束后会自动结算并开始下一轮。\n"
                 f"💡 发送 /关闭代理 押镖 或 /关闭代理 宗门任务 可随时停止。"
+                f"{rift_note}"
             )
 
         if not preferred:
@@ -659,8 +1189,10 @@ class AutoProxyManager:
             return True, (
                 f"{tip}\n"
                 f"请先发送 /押镖 或 /宗门任务 开始第一轮，之后会自动续接。\n"
-                f"💡 也可直接使用 /自动代理 押镖、/自动代理 宗门任务 或 /自动代理 灵田。\n"
+                f"💡 也可直接使用 /自动代理 押镖、/自动代理 宗门任务、/自动代理 灵田、"
+                f"/自动代理 秘境 或 /自动代理 施肥。\n"
                 f"发送 /关闭代理 押镖 或 /关闭代理 宗门任务 可随时停止。"
+                f"{rift_note}"
             )
 
         ok, start_msg = await self.start_activity(player, preferred)
@@ -674,6 +1206,7 @@ class AutoProxyManager:
             f"{start_msg}\n"
             f"━━━━━━━━━━━━━━━\n"
             f"♻️ 每轮结束后会自动结算并开始下一轮，发送 /关闭代理 押镖 或 /关闭代理 宗门任务 可停止。"
+            f"{rift_note}"
         )
 
     async def status_text(self, user_id: str) -> str:
@@ -687,6 +1220,10 @@ class AutoProxyManager:
         config = self._load_config(row)
         farm_cfg = config["farm"]
         farm_on = bool(farm_cfg.get("enabled"))
+        rift_cfg = config["rift"]
+        rift_on = bool(rift_cfg.get("enabled"))
+        fert_cfg = config["fertilize"]
+        fert_on = bool(fert_cfg.get("enabled"))
 
         if not row.get("enabled"):
             last = row.get("task_type")
@@ -694,7 +1231,8 @@ class AutoProxyManager:
             return (
                 "🤖 自动代理：未开启\n"
                 "━━━━━━━━━━━━━━━\n"
-                "发送 /自动代理 押镖、/自动代理 宗门任务 或 /自动代理 灵田 开启。"
+                "发送 /自动代理 押镖、/自动代理 宗门任务、/自动代理 灵田、"
+                "/自动代理 秘境 或 /自动代理 施肥 开启。"
                 f"{suffix}"
             )
 
@@ -711,9 +1249,38 @@ class AutoProxyManager:
             else:
                 plot_text = self._farm_plots_text(raw_plots or [])
             lines.append(f"灵田代理：运行中（{plot_text}）")
+        if rift_on:
+            rift_id = int(rift_cfg.get("rift_id") or 0)
+            rift_name = ""
+            if self.rift_mgr and rift_id:
+                try:
+                    rift = await self.db.ext.get_rift_by_id(rift_id)
+                    rift_name = f"【{rift.rift_name}】" if rift else ""
+                except Exception:
+                    rift_name = ""
+            lines.append(f"秘境代理：运行中（{rift_name}ID:{rift_id}）")
+        if fert_on:
+            threshold = float(
+                fert_cfg.get("threshold") or DEFAULT_FERTILIZE_THRESHOLD
+            )
+            fert_farm = (
+                await self.farm_mgr.get_user_farm(user_id) if self.farm_mgr else None
+            )
+            if fert_farm:
+                max_f = self.farm_mgr.get_max_fertility(fert_farm)
+                fertility = int(fert_farm.get("fertility") or 0)
+                roi = self.farm_mgr.estimate_fertilize_roi(fert_farm)
+                detail = f"肥力 {fertility}/{max_f}，阈值 {threshold:.0%}"
+                if roi < DEFAULT_FERTILIZE_MIN_ROI:
+                    detail += f"，作物回报 {roi:.2f} 倍（自动跳过）"
+                if fert_cfg.get("note") == "insufficient_gold":
+                    detail += "，灵石不足已暂停"
+                lines.append(f"施肥代理：运行中（{detail}）")
+            else:
+                lines.append("施肥代理：运行中（无灵田）")
         if row.get("task_type"):
             lines.append(f"目标活动：{self.task_name(row.get('task_type'))}")
-        elif not farm_on:
+        elif not farm_on and not rift_on and not fert_on:
             lines.append("目标活动：等待选择")
         if current:
             if cd and cd.scheduled_time:
@@ -725,24 +1292,39 @@ class AutoProxyManager:
                 lines.append(f"当前进行：{self.task_name(current)}")
             if row.get("task_type") and row.get("task_type") != current:
                 lines.append(f"下一轮目标：{self.task_name(row.get('task_type'))}")
+        elif cd and cd.type == UserStatus.EXPLORING:
+            if rift_on:
+                remaining = max(0, int(getattr(cd, "scheduled_time", 0) or 0) - int(time.time()))
+                if remaining > 0:
+                    lines.append(f"当前进行：探索秘境（剩余 {remaining // 60} 分 {remaining % 60} 秒）")
+                else:
+                    lines.append("当前进行：探索秘境（可结算，等待代理处理）")
+            else:
+                lines.append("当前状态：探索秘境中（秘境代理未开启）")
         elif cd and cd.type != UserStatus.IDLE:
             if row.get("task_type"):
                 lines.append(f"当前状态：{UserStatus.get_name(cd.type)}（押镖/宗门任务代理将暂停）")
             else:
-                lines.append(f"当前状态：{UserStatus.get_name(cd.type)}（灵田代理不受影响）")
+                lines.append(f"当前状态：{UserStatus.get_name(cd.type)}（灵田/秘境代理不受影响）")
         elif not cd and self._legacy_busy(player):
             if row.get("task_type"):
                 lines.append(f"当前状态：{player.state}（押镖/宗门任务代理将暂停）")
             else:
-                lines.append(f"当前状态：{player.state}（灵田代理不受影响）")
+                lines.append(f"当前状态：{player.state}（灵田/秘境代理不受影响）")
+        elif rift_on:
+            lines.append("当前状态：秘境代理运行中，等待空闲后进入秘境")
         elif farm_on:
             lines.append("当前状态：灵田代理运行中，等待成熟")
+        elif fert_on:
+            lines.append("当前状态：自动施肥运行中，肥力不足时补肥")
         else:
             lines.append("当前状态：空闲（等待下一轮）")
 
         if row.get("last_error") == "start_failed":
             lines.append("⚠️ 上次自动开始失败，已暂停")
-        lines.append("💡 /关闭代理 押镖|宗门任务|灵田 [格号]|全部 停止对应代理")
+        lines.append(
+            "💡 /关闭代理 押镖|宗门任务|灵田 [格号]|秘境|施肥|全部 停止对应代理"
+        )
         return "\n".join(lines)
 
     # ===== 活动执行 =====
@@ -859,13 +1441,44 @@ class AutoProxyManager:
 
         config = self._load_config(row)
         farm_cfg = config["farm"]
+        rift_cfg = config["rift"]
+        fert_cfg = config["fertilize"]
         handled = False
+
+        # 自动施肥必须排在灵田收获之前：收益按“收获那一刻”的肥力结算
+        if fert_cfg.get("enabled") and self.farm_mgr:
+            changed, fert_msg, config_dirty = await self._run_fert_cycle(
+                user_id, player, config
+            )
+            if changed or config_dirty:
+                keep_enabled = (
+                    bool(row.get("task_type"))
+                    or bool(farm_cfg.get("enabled"))
+                    or bool(rift_cfg.get("enabled"))
+                    or bool(fert_cfg.get("enabled"))
+                )
+                await self._write_state(
+                    user_id,
+                    keep_enabled,
+                    row.get("task_type", ""),
+                    origin,
+                    row.get("last_error", ""),
+                    config,
+                )
+            if changed:
+                await self._notify(origin, fert_msg)
+                handled = True
 
         # 灵田代理独立于忙碌状态运行
         if farm_cfg.get("enabled") and self.farm_mgr:
             changed, farm_msg, config_dirty = await self._run_farm_cycle(user_id, player, config)
             if changed or config_dirty:
-                keep_enabled = bool(row.get("task_type")) or bool(farm_cfg.get("enabled"))
+                keep_enabled = (
+                    bool(row.get("task_type"))
+                    or bool(farm_cfg.get("enabled"))
+                    or bool(rift_cfg.get("enabled"))
+                    or bool(fert_cfg.get("enabled"))
+                )
                 await self._write_state(
                     user_id,
                     keep_enabled,
@@ -876,6 +1489,31 @@ class AutoProxyManager:
                 )
             if changed:
                 await self._notify(origin, farm_msg)
+                handled = True
+
+        # 秘境代理：接管探索中的结算与空闲时的进入，不触发奇遇
+        if rift_cfg.get("enabled") and self.rift_mgr:
+            changed, rift_msg, finished = await self._run_rift_cycle(user_id, player, config)
+            if changed:
+                keep_enabled = (
+                    bool(row.get("task_type"))
+                    or bool(farm_cfg.get("enabled"))
+                    or bool(rift_cfg.get("enabled"))
+                    or bool(fert_cfg.get("enabled"))
+                )
+                await self._write_state(
+                    user_id,
+                    keep_enabled,
+                    row.get("task_type", ""),
+                    origin,
+                    row.get("last_error", ""),
+                    config,
+                )
+            if finished:
+                await self._record_rift_progress(user_id, player)
+            if changed:
+                if rift_msg:
+                    await self._notify(origin, rift_msg)
                 handled = True
 
         cd = await self.db.ext.get_user_cd(user_id)
@@ -927,10 +1565,23 @@ class AutoProxyManager:
             if not row.get("task_type"):
                 return handled
             # 玩家进入了闭关/历练等代理不接管的活动：暂停押镖/宗门任务代理
+            keep_text = "、".join(
+                name
+                for name, on in (
+                    ("灵田", farm_on),
+                    ("秘境", bool(rift_cfg.get("enabled"))),
+                    ("施肥", bool(fert_cfg.get("enabled"))),
+                )
+                if on
+            )
             await self._notify(
                 origin,
                 f"🛑 检测到你进入了{UserStatus.get_name(cd_type)}，"
-                + ("押镖/宗门任务代理已暂停，灵田代理继续运行。" if farm_on else "自动代理已关闭。发送 /自动代理 押镖 或 /自动代理 宗门任务 可重新开启。"),
+                + (
+                    f"押镖/宗门任务代理已暂停，{keep_text}代理继续运行。"
+                    if keep_text
+                    else "自动代理已关闭。发送 /自动代理 押镖 或 /自动代理 宗门任务 可重新开启。"
+                ),
             )
             await self._disable_primary(user_id, "other_busy")
             return True
@@ -939,10 +1590,23 @@ class AutoProxyManager:
             if not row.get("task_type"):
                 return handled
             # 兼容旧数据：user_cd 未建立但 players.state 仍显示忙碌
+            keep_text = "、".join(
+                name
+                for name, on in (
+                    ("灵田", farm_on),
+                    ("秘境", bool(rift_cfg.get("enabled"))),
+                    ("施肥", bool(fert_cfg.get("enabled"))),
+                )
+                if on
+            )
             await self._notify(
                 origin,
                 f"🛑 检测到你进入了{player.state}，"
-                + ("押镖/宗门任务代理已暂停，灵田代理继续运行。" if farm_on else "自动代理已关闭。发送 /自动代理 押镖 或 /自动代理 宗门任务 可重新开启。"),
+                + (
+                    f"押镖/宗门任务代理已暂停，{keep_text}代理继续运行。"
+                    if keep_text
+                    else "自动代理已关闭。发送 /自动代理 押镖 或 /自动代理 宗门任务 可重新开启。"
+                ),
             )
             await self._disable_primary(user_id, "other_busy")
             return True

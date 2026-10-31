@@ -343,6 +343,7 @@ class XiuXianPlugin(Star):
             bounty_mgr=self.bounty_mgr,
             lock_getter=get_player_lock,
             farm_mgr=self.spirit_farm_mgr,
+            rift_mgr=self.rift_mgr,
         )
         self.auto_proxy_handlers = AutoProxyHandlers(self.db, self.auto_proxy_mgr)
 
@@ -604,14 +605,22 @@ class XiuXianPlugin(Star):
         if not closed:
             return ""
         row = await self.auto_proxy_mgr.get(event.get_sender_id())
-        farm_on = bool(row and self.auto_proxy_mgr._farm_enabled(row))
+        config = self.auto_proxy_mgr._load_config(row or {})
+        keep_text = "、".join(
+            name
+            for name, on in (
+                ("灵田", bool(config["farm"].get("enabled"))),
+                ("秘境", bool(config["rift"].get("enabled"))),
+            )
+            if on
+        )
         return (
-            "\n\n🤖 检测到你手动退出，押镖/宗门任务代理已同步暂停。"
-            + ("灵田代理继续运行。" if farm_on else "自动代理已关闭。")
+            "\n\n🤖 检测到你手动退出，自动代理已同步暂停。"
+            + (f"{keep_text}代理继续运行。" if keep_text else "发送 /自动代理 可重新开启。")
         )
 
     async def _auto_proxy_external_activity(self, event: AstrMessageEvent) -> str:
-        """用户开始闭关/历练/秘境等代理不接管的活动时关闭代理。"""
+        """用户开始闭关/历练等代理不接管的活动时关闭代理；手动进秘境会被秘境代理接管。"""
         try:
             closed = await self.auto_proxy_mgr.note_external_activity_started(event.get_sender_id())
         except Exception as e:
@@ -620,10 +629,18 @@ class XiuXianPlugin(Star):
         if not closed:
             return ""
         row = await self.auto_proxy_mgr.get(event.get_sender_id())
-        farm_on = bool(row and self.auto_proxy_mgr._farm_enabled(row))
+        config = self.auto_proxy_mgr._load_config(row or {})
+        keep_text = "、".join(
+            name
+            for name, on in (
+                ("灵田", bool(config["farm"].get("enabled"))),
+                ("秘境", bool(config["rift"].get("enabled"))),
+            )
+            if on
+        )
         return (
             "\n\n🛑 检测到你开始了其他活动，押镖/宗门任务代理已同步暂停。"
-            + ("灵田代理继续运行。" if farm_on else "自动代理已关闭。")
+            + (f"{keep_text}代理继续运行。" if keep_text else "自动代理已关闭。")
         )
 
     async def _send_to_origin(self, origin: str, msg: str):
@@ -1191,7 +1208,7 @@ class XiuXianPlugin(Star):
         async for r in self.misc_handler.handle_help(event): yield r
 
     # ===== v6.26 自动代理 =====
-    @filter.command(CMD_AUTO_PROXY, "开启自动代理（可指定 押镖/宗门任务/灵田）")
+    @filter.command(CMD_AUTO_PROXY, "开启自动代理（可指定 押镖/宗门任务/灵田/秘境/施肥）")
     @require_whitelist
     @with_player_lock
     async def handle_auto_proxy_enable(self, event: AstrMessageEvent, task: GreedyStr):
@@ -2145,16 +2162,18 @@ class XiuXianPlugin(Star):
                     if has_progress:
                         yield event.plain_result(bounty_msg.strip())
 
-    @filter.command(CMD_SPIRIT_FARM_REMOVE, "铲除指定格子的灵草")
+    @filter.command(CMD_SPIRIT_FARM_REMOVE, "批量铲除灵田灵草：格号/区间/all")
     @require_whitelist
     async def handle_spirit_farm_remove(self, event: AstrMessageEvent, slot: GreedyStr):
         args = resolve_greedy_args(event, slot, CMD_SPIRIT_FARM_REMOVE)
         async for r in self.spirit_farm_handlers.handle_remove_crop(event, args): yield r
         if get_event_flag(event, "farm_remove_ok", False):
             try:
-                await self.auto_proxy_mgr.clear_farm_plot(
-                    event.get_sender_id(), get_event_flag(event, "farm_remove_slot", 0)
-                )
+                removed_slots = get_event_flag(event, "farm_remove_slots", []) or []
+                for slot in removed_slots:
+                    await self.auto_proxy_mgr.clear_farm_plot(
+                        event.get_sender_id(), slot
+                    )
             except Exception as e:
                 logger.warning(f"【自动代理】铲除后同步灵田代理失败: {e}")
 
@@ -2652,6 +2671,15 @@ class XiuXianPlugin(Star):
                 tmsg = await self._title_bump(uid, key)
                 if tmsg:
                     yield event.plain_result(tmsg)
+
+    @filter.command("炼器", "妖兽材料定向洗练装备词条")
+    @require_whitelist
+    async def handle_forge(self, event: AstrMessageEvent, args: GreedyStr):
+        async for r in self.forge_handlers.handle_forge(event, args): yield r
+        if get_event_flag(event, "targeted_wash_success", False):
+            tmsg = await self._title_bump(event.get_sender_id(), "forge_count")
+            if tmsg:
+                yield event.plain_result(tmsg)
 
     # ===== v6.4 天魔入侵 =====
     @filter.command("开启天魔入侵", "管理员开启活动")
