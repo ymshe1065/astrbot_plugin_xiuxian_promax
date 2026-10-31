@@ -15,7 +15,9 @@ class RankingHandlers:
 
     async def handle_rank_power(self, event: AstrMessageEvent):
         """战力排行"""
-        success, msg = await self.rank_mgr.get_power_ranking()
+        success, msg = await self.rank_mgr.get_power_ranking(
+            viewer_id=str(event.get_sender_id())
+        )
         yield event.plain_result(msg)
     
     async def handle_rank_wealth(self, event: AstrMessageEvent):

@@ -142,12 +142,45 @@ class TestRankingCalculations(unittest.IsolatedAsyncioTestCase):
             }
             combat_mock.calculate_combat_power.return_value = 1234
 
-            success, message = await mgr.get_power_ranking()
+            success, message = await mgr.get_power_ranking(viewer_id="u1")
 
         self.assertTrue(success)
-        self.assertIn("战力：1,234", message)
+        self.assertIn("1. 甲 · 1,234 ← 你", message)
+        self.assertIn("共 1 名修士", message)
         final_owner_atk = combat_mock.apply_pet_lineup.call_args.args[4]
         self.assertEqual(final_owner_atk, 1000)
+
+    async def test_power_ranking_shows_outside_viewer_rank(self):
+        p1 = self._player(
+            user_id="u1", user_name="甲", get_level=lambda cm: "一层",
+            get_total_attributes=lambda *a, **k: {
+                "physical_damage": 1, "magic_damage": 1, "mental_power": 10,
+            },
+        )
+        p2 = self._player(
+            user_id="u2", user_name="乙", get_level=lambda cm: "一层",
+            get_total_attributes=lambda *a, **k: {
+                "physical_damage": 1, "magic_damage": 1, "mental_power": 10,
+            },
+        )
+        mgr = self._manager(_FakeDB([p1, p2]))
+
+        with patch.object(self.rank_mod, "CombatManager") as combat_mock, patch(
+            f"{PKG}.core.PillManager", create=True
+        ) as pill_mock, patch(
+            f"{PKG}.managers.pet_manager.PetManager", _FakePetManager
+        ):
+            pill_mock.return_value.calculate_pill_attribute_effects.return_value = {}
+            combat_mock.build_combat_panel.return_value = {
+                "hp": 100, "atk": 100, "defense": 10,
+            }
+            combat_mock.calculate_combat_power.side_effect = [100, 50]
+            success, message = await mgr.get_power_ranking(limit=1, viewer_id="u2")
+
+        self.assertTrue(success)
+        self.assertIn("1. 甲 · 100", message)
+        self.assertNotIn("1. 甲 · 100 ← 你", message)
+        self.assertIn("你的排名：第 2 名 · 乙 · 50", message)
 
     async def test_rankings_tolerate_null_legacy_fields(self):
         player = self._player(
