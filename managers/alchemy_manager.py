@@ -595,6 +595,7 @@ class AlchemyManager:
         learned = await self.ensure_learned_recipes(player)
         lines = ["📜 已学丹方列表", "━━━━━━━━━━━━━━━"]
         rows = []
+        card_lines = []
         # 这里只列出已学习丹方；未学习丹方请到 /丹阁 丹方 购买卷轴后学习。
         learned_ids = []
         for value in learned:
@@ -608,7 +609,7 @@ class AlchemyManager:
         if not learned_ids:
             lines.append("你还没有学习任何丹方。")
             lines.append("💡 前往 /丹阁 丹方 购买丹方卷轴，再使用 /学习丹方。")
-            return True, "\n".join(lines), []
+            return True, "\n".join(lines), [], []
 
         for recipe_id in sorted(learned_ids):
             recipe = self.recipes[recipe_id]
@@ -617,6 +618,8 @@ class AlchemyManager:
                 status = f"需境界 {level_required}"
             else:
                 status = "可炼制"
+            success_rate = recipe.get("success_rate", 0)
+            card_lines.append(f"[{recipe_id}] {recipe['name']}（{status} · 成功率 {success_rate:.0f}%）")
 
             material_parts = []
             for spec in self._iter_recipe_materials(recipe):
@@ -624,20 +627,27 @@ class AlchemyManager:
                 label = spec.get("name") or f"{spec.get('tier', '')}{spec.get('category', '')}"
                 mark = "✓" if have >= spec["count"] else f"缺{spec['count'] - have}"
                 material_parts.append(f"{label}x{spec['count']}({mark})")
+                # 图片卡片逐行展示，标识改用文字，避免窄列挤压与 ✓ 字形缺失
+                card_mark = "足够" if have >= spec["count"] else f"缺{spec['count'] - have}"
+                card_lines.append(f"   · {label} ×{spec['count']}（拥有 {have}/{spec['count']} · {card_mark}）")
             if recipe.get("gold_cost"):
-                mark = "✓" if player.gold >= recipe["gold_cost"] else f"缺{recipe['gold_cost'] - player.gold}"
-                material_parts.append(f"灵石x{recipe['gold_cost']}({mark})")
+                gold_cost = int(recipe["gold_cost"])
+                mark = "✓" if player.gold >= gold_cost else f"缺{gold_cost - player.gold}"
+                material_parts.append(f"灵石x{gold_cost}({mark})")
+                card_mark = "足够" if player.gold >= gold_cost else f"缺{gold_cost - player.gold}"
+                card_lines.append(f"   · 灵石 ×{gold_cost}（持有 {player.gold}/{gold_cost} · {card_mark}）")
+            card_lines.append("")
 
-            lines.append(f"[{recipe_id}] {recipe['name']}（{status}，成功率 {recipe.get('success_rate', 0):.0f}%）")
+            lines.append(f"[{recipe_id}] {recipe['name']}（{status}，成功率 {success_rate:.0f}%）")
             if material_parts:
                 lines.append("   材料：" + "、".join(material_parts))
             rows.append((
-                f"[{recipe_id}] {recipe['name']}（{status} · 成功率{recipe.get('success_rate', 0):.0f}%）",
+                f"[{recipe_id}] {recipe['name']}（{status} · 成功率{success_rate:.0f}%）",
                 "材料：" + "、".join(material_parts) if material_parts else "无材料消耗",
             ))
         lines.append("━━━━━━━━━━━━━━━")
         lines.append("💡 /学习丹方 <ID或名称> 学习；/炼丹 <ID> 开始炼制")
-        return True, "\n".join(lines), rows
+        return True, "\n".join(lines), rows, card_lines
 
     # ===== 炼制 =====
     async def craft_pill(self, user_id: str, pill_id: int, fire_choice: Optional[str] = None) -> Tuple[bool, str, Optional[Dict]]:

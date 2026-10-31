@@ -4925,5 +4925,7961 @@
         "price": 53600,
         "shop_weight": 200,
         "desc": "记载七品化神增益丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 373,
+        "name": "幽冥丹方",
+        "output_pill": "幽冥丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 560,
+        "shop_weight": 50,
+        "desc": "记载幽冥丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 374,
+        "name": "噬魂丸方",
+        "output_pill": "噬魂丸",
+        "level_required": 18,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 400,
+        "success_rate": 60,
+        "price": 40680,
+        "shop_weight": 50,
+        "desc": "记载噬魂丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 375,
+        "name": "紫电散方",
+        "output_pill": "紫电散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载紫电散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 376,
+        "name": "混沌液方",
+        "output_pill": "混沌液",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 490,
+        "shop_weight": 50,
+        "desc": "记载混沌液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 377,
+        "name": "九幽液方",
+        "output_pill": "九幽液",
+        "level_required": 18,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 400,
+        "success_rate": 60,
+        "price": 131140,
+        "shop_weight": 50,
+        "desc": "记载九幽液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 378,
+        "name": "青锋散方",
+        "output_pill": "青锋散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载青锋散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 379,
+        "name": "日月散方",
+        "output_pill": "日月散",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 410,
+        "shop_weight": 50,
+        "desc": "记载日月散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 380,
+        "name": "无极丸方",
+        "output_pill": "无极丸",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载无极丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 381,
+        "name": "八卦丹方",
+        "output_pill": "八卦丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载八卦丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 382,
+        "name": "太虚液方",
+        "output_pill": "太虚液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载太虚液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 383,
+        "name": "轮回散方",
+        "output_pill": "轮回散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载轮回散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 384,
+        "name": "万古液方",
+        "output_pill": "万古液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载万古液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 385,
+        "name": "万古精铁液方",
+        "output_pill": "万古精铁液",
+        "level_required": 18,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 400,
+        "success_rate": 60,
+        "price": 138280,
+        "shop_weight": 50,
+        "desc": "记载万古精铁液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 386,
+        "name": "万古丹方",
+        "output_pill": "万古丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载万古丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 387,
+        "name": "噬魂玄铁丸方",
+        "output_pill": "噬魂玄铁丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载噬魂玄铁丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 388,
+        "name": "噬魂液方",
+        "output_pill": "噬魂液",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 150,
+        "shop_weight": 50,
+        "desc": "记载噬魂液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 389,
+        "name": "造化玄铁液方",
+        "output_pill": "造化玄铁液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载造化玄铁液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 390,
+        "name": "青锋凤血散方",
+        "output_pill": "青锋凤血散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载青锋凤血散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 391,
+        "name": "九幽丹方",
+        "output_pill": "九幽丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载九幽丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 392,
+        "name": "幽冥液方",
+        "output_pill": "幽冥液",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载幽冥液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 393,
+        "name": "太虚散方",
+        "output_pill": "太虚散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载太虚散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 394,
+        "name": "幽冥散方",
+        "output_pill": "幽冥散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载幽冥散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 395,
+        "name": "太虚玄铁散方",
+        "output_pill": "太虚玄铁散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载太虚玄铁散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 396,
+        "name": "四象散方",
+        "output_pill": "四象散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载四象散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 397,
+        "name": "八卦液方",
+        "output_pill": "八卦液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载八卦液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 398,
+        "name": "轮回丸方",
+        "output_pill": "轮回丸",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 970,
+        "shop_weight": 50,
+        "desc": "记载轮回丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 399,
+        "name": "八卦散方",
+        "output_pill": "八卦散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载八卦散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 400,
+        "name": "青锋雷霆木散方",
+        "output_pill": "青锋雷霆木散",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载青锋雷霆木散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 401,
+        "name": "九幽陨铁液方",
+        "output_pill": "九幽陨铁液",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 250,
+        "shop_weight": 50,
+        "desc": "记载九幽陨铁液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 402,
+        "name": "诛仙丸方",
+        "output_pill": "诛仙丸",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 5130,
+        "shop_weight": 50,
+        "desc": "记载诛仙丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 403,
+        "name": "幽冥精铁液方",
+        "output_pill": "幽冥精铁液",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载幽冥精铁液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 404,
+        "name": "万古散方",
+        "output_pill": "万古散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载万古散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 405,
+        "name": "太虚凤血液方",
+        "output_pill": "太虚凤血液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载太虚凤血液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 406,
+        "name": "造化散方",
+        "output_pill": "造化散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载造化散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 407,
+        "name": "焚天丹方",
+        "output_pill": "焚天丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载焚天丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 408,
+        "name": "龙渊丹方",
+        "output_pill": "龙渊丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载龙渊丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 409,
+        "name": "破军液方",
+        "output_pill": "破军液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载破军液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 410,
+        "name": "混元散方",
+        "output_pill": "混元散",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 130,
+        "shop_weight": 50,
+        "desc": "记载混元散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 411,
+        "name": "寂灭丹方",
+        "output_pill": "寂灭丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载寂灭丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 412,
+        "name": "星辰丹方",
+        "output_pill": "星辰丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 860,
+        "shop_weight": 50,
+        "desc": "记载星辰丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 413,
+        "name": "万古丸方",
+        "output_pill": "万古丸",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载万古丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 414,
+        "name": "乾坤丸方",
+        "output_pill": "乾坤丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载乾坤丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 415,
+        "name": "无极仙露丸方",
+        "output_pill": "无极仙露丸",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载无极仙露丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 416,
+        "name": "八卦陨铁丹方",
+        "output_pill": "八卦陨铁丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载八卦陨铁丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 417,
+        "name": "太极丸方",
+        "output_pill": "太极丸",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 1070,
+        "shop_weight": 50,
+        "desc": "记载太极丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 418,
+        "name": "四象液方",
+        "output_pill": "四象液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载四象液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 419,
+        "name": "无极龙骨丸方",
+        "output_pill": "无极龙骨丸",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 920,
+        "shop_weight": 50,
+        "desc": "记载无极龙骨丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 420,
+        "name": "鸿蒙丹方",
+        "output_pill": "鸿蒙丹",
+        "level_required": 18,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 400,
+        "success_rate": 60,
+        "price": 4200,
+        "shop_weight": 50,
+        "desc": "记载鸿蒙丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 421,
+        "name": "紫电仙露散方",
+        "output_pill": "紫电仙露散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载紫电仙露散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 422,
+        "name": "太虚星辰沙液方",
+        "output_pill": "太虚星辰沙液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载太虚星辰沙液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 423,
+        "name": "破军星辰沙液方",
+        "output_pill": "破军星辰沙液",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 1140,
+        "shop_weight": 50,
+        "desc": "记载破军星辰沙液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 424,
+        "name": "造化神木心散方",
+        "output_pill": "造化神木心散",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 3400,
+        "shop_weight": 50,
+        "desc": "记载造化神木心散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 425,
+        "name": "混沌地火丹方",
+        "output_pill": "混沌地火丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载混沌地火丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 426,
+        "name": "紫电丸方",
+        "output_pill": "紫电丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载紫电丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 427,
+        "name": "灭世散方",
+        "output_pill": "灭世散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载灭世散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 428,
+        "name": "无极日曜晶丸方",
+        "output_pill": "无极日曜晶丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载无极日曜晶丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 429,
+        "name": "寒霜散方",
+        "output_pill": "寒霜散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载寒霜散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 430,
+        "name": "无极幽冥草丸方",
+        "output_pill": "无极幽冥草丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载无极幽冥草丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 431,
+        "name": "焚天丸方",
+        "output_pill": "焚天丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载焚天丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 432,
+        "name": "造化凤血散方",
+        "output_pill": "造化凤血散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载造化凤血散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 433,
+        "name": "两仪散方",
+        "output_pill": "两仪散",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 480,
+        "shop_weight": 50,
+        "desc": "记载两仪散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 434,
+        "name": "万古陨铁丸方",
+        "output_pill": "万古陨铁丸",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 3450,
+        "shop_weight": 50,
+        "desc": "记载万古陨铁丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 435,
+        "name": "紫电幽冥草散方",
+        "output_pill": "紫电幽冥草散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载紫电幽冥草散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 436,
+        "name": "太极丹方",
+        "output_pill": "太极丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载太极丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 437,
+        "name": "青锋液方",
+        "output_pill": "青锋液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载青锋液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 438,
+        "name": "寒霜雷霆木散方",
+        "output_pill": "寒霜雷霆木散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载寒霜雷霆木散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 439,
+        "name": "灭世精铁散方",
+        "output_pill": "灭世精铁散",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 310,
+        "shop_weight": 50,
+        "desc": "记载灭世精铁散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 440,
+        "name": "造化丸方",
+        "output_pill": "造化丸",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载造化丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 441,
+        "name": "紫电凤血丸方",
+        "output_pill": "紫电凤血丸",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 3870,
+        "shop_weight": 50,
+        "desc": "记载紫电凤血丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 442,
+        "name": "太虚地火散方",
+        "output_pill": "太虚地火散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载太虚地火散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 443,
+        "name": "九幽散方",
+        "output_pill": "九幽散",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 470,
+        "shop_weight": 50,
+        "desc": "记载九幽散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 444,
+        "name": "星辰散方",
+        "output_pill": "星辰散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载星辰散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 445,
+        "name": "灭世凤血散方",
+        "output_pill": "灭世凤血散",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 490,
+        "shop_weight": 50,
+        "desc": "记载灭世凤血散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 446,
+        "name": "鸿蒙丸方",
+        "output_pill": "鸿蒙丸",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 11440,
+        "shop_weight": 50,
+        "desc": "记载鸿蒙丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 447,
+        "name": "乾坤散方",
+        "output_pill": "乾坤散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载乾坤散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 448,
+        "name": "造化菩提子散方",
+        "output_pill": "造化菩提子散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载造化菩提子散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 449,
+        "name": "寒霜丸方",
+        "output_pill": "寒霜丸",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载寒霜丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 450,
+        "name": "混元液方",
+        "output_pill": "混元液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载混元液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 451,
+        "name": "龙渊散方",
+        "output_pill": "龙渊散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载龙渊散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 452,
+        "name": "轮回丹方",
+        "output_pill": "轮回丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载轮回丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 453,
+        "name": "灭世丸方",
+        "output_pill": "灭世丸",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 130,
+        "shop_weight": 50,
+        "desc": "记载灭世丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 454,
+        "name": "九天液方",
+        "output_pill": "九天液",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 530,
+        "shop_weight": 50,
+        "desc": "记载九天液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 455,
+        "name": "焚天散方",
+        "output_pill": "焚天散",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 410,
+        "shop_weight": 50,
+        "desc": "记载焚天散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 456,
+        "name": "无极陨铁丸方",
+        "output_pill": "无极陨铁丸",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 130,
+        "shop_weight": 50,
+        "desc": "记载无极陨铁丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 457,
+        "name": "九天丸方",
+        "output_pill": "九天丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载九天丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 458,
+        "name": "青锋丹方",
+        "output_pill": "青锋丹",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 130,
+        "shop_weight": 50,
+        "desc": "记载青锋丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 459,
+        "name": "八卦极冰液方",
+        "output_pill": "八卦极冰液",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 130,
+        "shop_weight": 50,
+        "desc": "记载八卦极冰液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 460,
+        "name": "太极神木心丹方",
+        "output_pill": "太极神木心丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载太极神木心丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 461,
+        "name": "幽冥菩提子液方",
+        "output_pill": "幽冥菩提子液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载幽冥菩提子液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 462,
+        "name": "日月丸方",
+        "output_pill": "日月丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载日月丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 463,
+        "name": "八卦丸方",
+        "output_pill": "八卦丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载八卦丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 464,
+        "name": "混元雷霆木散方",
+        "output_pill": "混元雷霆木散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载混元雷霆木散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 465,
+        "name": "轮回血灵芝散方",
+        "output_pill": "轮回血灵芝散",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 3230,
+        "shop_weight": 50,
+        "desc": "记载轮回血灵芝散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 466,
+        "name": "幽冥月华石液方",
+        "output_pill": "幽冥月华石液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载幽冥月华石液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 467,
+        "name": "寂灭丸方",
+        "output_pill": "寂灭丸",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 330,
+        "shop_weight": 50,
+        "desc": "记载寂灭丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 468,
+        "name": "九幽月华石散方",
+        "output_pill": "九幽月华石散",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 7370,
+        "shop_weight": 50,
+        "desc": "记载九幽月华石散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 469,
+        "name": "星辰液方",
+        "output_pill": "星辰液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载星辰液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 470,
+        "name": "混元丸方",
+        "output_pill": "混元丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载混元丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 471,
+        "name": "九幽星辰沙丹方",
+        "output_pill": "九幽星辰沙丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载九幽星辰沙丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 472,
+        "name": "轮回菩提子散方",
+        "output_pill": "轮回菩提子散",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 380,
+        "shop_weight": 50,
+        "desc": "记载轮回菩提子散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 473,
+        "name": "灭世极冰丸方",
+        "output_pill": "灭世极冰丸",
+        "level_required": 18,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 400,
+        "success_rate": 60,
+        "price": 98960,
+        "shop_weight": 50,
+        "desc": "记载灭世极冰丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 474,
+        "name": "九天散方",
+        "output_pill": "九天散",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 1050,
+        "shop_weight": 50,
+        "desc": "记载九天散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 475,
+        "name": "破军丸方",
+        "output_pill": "破军丸",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 170,
+        "shop_weight": 50,
+        "desc": "记载破军丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 476,
+        "name": "噬魂仙露丸方",
+        "output_pill": "噬魂仙露丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载噬魂仙露丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 477,
+        "name": "混元陨铁丹方",
+        "output_pill": "混元陨铁丹",
+        "level_required": 18,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 400,
+        "success_rate": 60,
+        "price": 4200,
+        "shop_weight": 50,
+        "desc": "记载混元陨铁丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 478,
+        "name": "太极散方",
+        "output_pill": "太极散",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 500,
+        "shop_weight": 50,
+        "desc": "记载太极散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 479,
+        "name": "混沌丸方",
+        "output_pill": "混沌丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载混沌丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 480,
+        "name": "造化玄铁液·1方",
+        "output_pill": "造化玄铁液·1",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载造化玄铁液·1炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 481,
+        "name": "噬魂幽冥草丸方",
+        "output_pill": "噬魂幽冥草丸",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 370,
+        "shop_weight": 50,
+        "desc": "记载噬魂幽冥草丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 482,
+        "name": "九幽日曜晶丹方",
+        "output_pill": "九幽日曜晶丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载九幽日曜晶丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 483,
+        "name": "寂灭散方",
+        "output_pill": "寂灭散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载寂灭散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 484,
+        "name": "轮回幽冥草丸方",
+        "output_pill": "轮回幽冥草丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载轮回幽冥草丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 485,
+        "name": "灭世液方",
+        "output_pill": "灭世液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载灭世液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 486,
+        "name": "山河散方",
+        "output_pill": "山河散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载山河散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 487,
+        "name": "日月龙骨丸方",
+        "output_pill": "日月龙骨丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载日月龙骨丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 488,
+        "name": "太极菩提子丸方",
+        "output_pill": "太极菩提子丸",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 540,
+        "shop_weight": 50,
+        "desc": "记载太极菩提子丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 489,
+        "name": "噬魂陨铁丹方",
+        "output_pill": "噬魂陨铁丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载噬魂陨铁丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 490,
+        "name": "日月幽冥草丸方",
+        "output_pill": "日月幽冥草丸",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 3280,
+        "shop_weight": 50,
+        "desc": "记载日月幽冥草丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 491,
+        "name": "龙渊菩提子丹方",
+        "output_pill": "龙渊菩提子丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载龙渊菩提子丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 492,
+        "name": "焚天血灵芝散方",
+        "output_pill": "焚天血灵芝散",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载焚天血灵芝散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 493,
+        "name": "两仪丸方",
+        "output_pill": "两仪丸",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 3470,
+        "shop_weight": 50,
+        "desc": "记载两仪丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 494,
+        "name": "紫电丹方",
+        "output_pill": "紫电丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 500,
+        "shop_weight": 50,
+        "desc": "记载紫电丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 495,
+        "name": "日月仙露丸方",
+        "output_pill": "日月仙露丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载日月仙露丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 496,
+        "name": "紫电液方",
+        "output_pill": "紫电液",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 440,
+        "shop_weight": 50,
+        "desc": "记载紫电液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 497,
+        "name": "鸿蒙液方",
+        "output_pill": "鸿蒙液",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 310,
+        "shop_weight": 50,
+        "desc": "记载鸿蒙液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 498,
+        "name": "焚天液方",
+        "output_pill": "焚天液",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 130,
+        "shop_weight": 50,
+        "desc": "记载焚天液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 499,
+        "name": "诛仙液方",
+        "output_pill": "诛仙液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载诛仙液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 500,
+        "name": "寂灭神木心丸方",
+        "output_pill": "寂灭神木心丸",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 3960,
+        "shop_weight": 50,
+        "desc": "记载寂灭神木心丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 501,
+        "name": "混元陨铁散方",
+        "output_pill": "混元陨铁散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载混元陨铁散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 502,
+        "name": "紫电星辰沙液方",
+        "output_pill": "紫电星辰沙液",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 5620,
+        "shop_weight": 50,
+        "desc": "记载紫电星辰沙液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 503,
+        "name": "四象神木心液方",
+        "output_pill": "四象神木心液",
+        "level_required": 18,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 400,
+        "success_rate": 60,
+        "price": 258040,
+        "shop_weight": 50,
+        "desc": "记载四象神木心液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 504,
+        "name": "山河丸方",
+        "output_pill": "山河丸",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 250,
+        "shop_weight": 50,
+        "desc": "记载山河丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 505,
+        "name": "混元玄铁液方",
+        "output_pill": "混元玄铁液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载混元玄铁液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 506,
+        "name": "鸿蒙精铁丹方",
+        "output_pill": "鸿蒙精铁丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载鸿蒙精铁丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 507,
+        "name": "九天仙露液方",
+        "output_pill": "九天仙露液",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 890,
+        "shop_weight": 50,
+        "desc": "记载九天仙露液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 508,
+        "name": "灭世丹方",
+        "output_pill": "灭世丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载灭世丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 509,
+        "name": "噬魂仙露丸·1方",
+        "output_pill": "噬魂仙露丸·1",
+        "level_required": 18,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 400,
+        "success_rate": 60,
+        "price": 150270,
+        "shop_weight": 50,
+        "desc": "记载噬魂仙露丸·1炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 510,
+        "name": "鸿蒙神木心丸方",
+        "output_pill": "鸿蒙神木心丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载鸿蒙神木心丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 511,
+        "name": "两仪丹方",
+        "output_pill": "两仪丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载两仪丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 512,
+        "name": "焚天神木心丹方",
+        "output_pill": "焚天神木心丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载焚天神木心丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 513,
+        "name": "乾坤精铁丸方",
+        "output_pill": "乾坤精铁丸",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 1470,
+        "shop_weight": 50,
+        "desc": "记载乾坤精铁丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 514,
+        "name": "焚天雷霆木液方",
+        "output_pill": "焚天雷霆木液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载焚天雷霆木液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 515,
+        "name": "噬魂血灵芝丹方",
+        "output_pill": "噬魂血灵芝丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 620,
+        "shop_weight": 50,
+        "desc": "记载噬魂血灵芝丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 516,
+        "name": "日月雷霆木散方",
+        "output_pill": "日月雷霆木散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载日月雷霆木散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 517,
+        "name": "寒霜丹方",
+        "output_pill": "寒霜丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 740,
+        "shop_weight": 50,
+        "desc": "记载寒霜丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 518,
+        "name": "星辰龙骨丹方",
+        "output_pill": "星辰龙骨丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载星辰龙骨丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 519,
+        "name": "太极液方",
+        "output_pill": "太极液",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 280,
+        "shop_weight": 50,
+        "desc": "记载太极液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 520,
+        "name": "鸿蒙幽冥草丸方",
+        "output_pill": "鸿蒙幽冥草丸",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载鸿蒙幽冥草丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 521,
+        "name": "日月凤血散方",
+        "output_pill": "日月凤血散",
+        "level_required": 18,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 400,
+        "success_rate": 60,
+        "price": 71340,
+        "shop_weight": 50,
+        "desc": "记载日月凤血散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 522,
+        "name": "万古凤血丹方",
+        "output_pill": "万古凤血丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载万古凤血丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 523,
+        "name": "太虚丸方",
+        "output_pill": "太虚丸",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 4160,
+        "shop_weight": 50,
+        "desc": "记载太虚丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 524,
+        "name": "日月丹方",
+        "output_pill": "日月丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载日月丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 525,
+        "name": "紫电仙露丹方",
+        "output_pill": "紫电仙露丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载紫电仙露丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 526,
+        "name": "两仪凤血丸方",
+        "output_pill": "两仪凤血丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载两仪凤血丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 527,
+        "name": "太虚玄铁液方",
+        "output_pill": "太虚玄铁液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载太虚玄铁液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 528,
+        "name": "寂灭菩提子丹方",
+        "output_pill": "寂灭菩提子丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载寂灭菩提子丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 529,
+        "name": "焚天极冰液方",
+        "output_pill": "焚天极冰液",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 130,
+        "shop_weight": 50,
+        "desc": "记载焚天极冰液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 530,
+        "name": "无极丹方",
+        "output_pill": "无极丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载无极丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 531,
+        "name": "破军散方",
+        "output_pill": "破军散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载破军散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 532,
+        "name": "寂灭幽冥草液方",
+        "output_pill": "寂灭幽冥草液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载寂灭幽冥草液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 533,
+        "name": "日月玄铁丹方",
+        "output_pill": "日月玄铁丹",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 4040,
+        "shop_weight": 50,
+        "desc": "记载日月玄铁丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 534,
+        "name": "太极雷霆木丸方",
+        "output_pill": "太极雷霆木丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载太极雷霆木丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 535,
+        "name": "太极月华石液方",
+        "output_pill": "太极月华石液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载太极月华石液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 536,
+        "name": "两仪星辰沙散方",
+        "output_pill": "两仪星辰沙散",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载两仪星辰沙散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 537,
+        "name": "诛仙散方",
+        "output_pill": "诛仙散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载诛仙散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 538,
+        "name": "九幽菩提子液方",
+        "output_pill": "九幽菩提子液",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 880,
+        "shop_weight": 50,
+        "desc": "记载九幽菩提子液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 539,
+        "name": "幽冥日曜晶丹方",
+        "output_pill": "幽冥日曜晶丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载幽冥日曜晶丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 540,
+        "name": "山河液方",
+        "output_pill": "山河液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载山河液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 541,
+        "name": "星辰地火丹方",
+        "output_pill": "星辰地火丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载星辰地火丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 542,
+        "name": "龙渊仙露丹方",
+        "output_pill": "龙渊仙露丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载龙渊仙露丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 543,
+        "name": "寒霜液方",
+        "output_pill": "寒霜液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载寒霜液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 544,
+        "name": "万古地火丹方",
+        "output_pill": "万古地火丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载万古地火丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 545,
+        "name": "破军丹方",
+        "output_pill": "破军丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载破军丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 546,
+        "name": "诛仙丹方",
+        "output_pill": "诛仙丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载诛仙丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 547,
+        "name": "太虚丹方",
+        "output_pill": "太虚丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载太虚丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 548,
+        "name": "长生地火丹方",
+        "output_pill": "长生地火丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载长生地火丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 549,
+        "name": "混沌散方",
+        "output_pill": "混沌散",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 800,
+        "shop_weight": 50,
+        "desc": "记载混沌散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 550,
+        "name": "四象丸方",
+        "output_pill": "四象丸",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 440,
+        "shop_weight": 50,
+        "desc": "记载四象丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 551,
+        "name": "混沌月华石丸方",
+        "output_pill": "混沌月华石丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载混沌月华石丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 552,
+        "name": "紫电幽冥草丹方",
+        "output_pill": "紫电幽冥草丹",
+        "level_required": 18,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 400,
+        "success_rate": 60,
+        "price": 4200,
+        "shop_weight": 50,
+        "desc": "记载紫电幽冥草丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 553,
+        "name": "噬魂星辰沙丹方",
+        "output_pill": "噬魂星辰沙丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 180,
+        "shop_weight": 50,
+        "desc": "记载噬魂星辰沙丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 554,
+        "name": "两仪玄铁丹方",
+        "output_pill": "两仪玄铁丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载两仪玄铁丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 555,
+        "name": "九幽雷霆木液方",
+        "output_pill": "九幽雷霆木液",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 3000,
+        "shop_weight": 50,
+        "desc": "记载九幽雷霆木液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 556,
+        "name": "无极龙骨丹方",
+        "output_pill": "无极龙骨丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载无极龙骨丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 557,
+        "name": "鸿蒙神木心液方",
+        "output_pill": "鸿蒙神木心液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载鸿蒙神木心液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 558,
+        "name": "紫电地火液方",
+        "output_pill": "紫电地火液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载紫电地火液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 559,
+        "name": "四象星辰沙散方",
+        "output_pill": "四象星辰沙散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载四象星辰沙散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 560,
+        "name": "青锋雷霆木散·1方",
+        "output_pill": "青锋雷霆木散·1",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载青锋雷霆木散·1炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 561,
+        "name": "太虚地火丹方",
+        "output_pill": "太虚地火丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 340,
+        "shop_weight": 50,
+        "desc": "记载太虚地火丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 562,
+        "name": "破军凤血散方",
+        "output_pill": "破军凤血散",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 280,
+        "shop_weight": 50,
+        "desc": "记载破军凤血散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 563,
+        "name": "鸿蒙星辰沙液方",
+        "output_pill": "鸿蒙星辰沙液",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 130,
+        "shop_weight": 50,
+        "desc": "记载鸿蒙星辰沙液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 564,
+        "name": "山河血灵芝散方",
+        "output_pill": "山河血灵芝散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载山河血灵芝散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 565,
+        "name": "日月液方",
+        "output_pill": "日月液",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 130,
+        "shop_weight": 50,
+        "desc": "记载日月液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 566,
+        "name": "诛仙仙露液方",
+        "output_pill": "诛仙仙露液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载诛仙仙露液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 567,
+        "name": "青锋玄铁散方",
+        "output_pill": "青锋玄铁散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载青锋玄铁散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 568,
+        "name": "焚天幽冥草散方",
+        "output_pill": "焚天幽冥草散",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 130,
+        "shop_weight": 50,
+        "desc": "记载焚天幽冥草散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 569,
+        "name": "诛仙玄铁丹方",
+        "output_pill": "诛仙玄铁丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载诛仙玄铁丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 570,
+        "name": "混沌血灵芝丸方",
+        "output_pill": "混沌血灵芝丸",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载混沌血灵芝丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 571,
+        "name": "太虚陨铁丹方",
+        "output_pill": "太虚陨铁丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 1120,
+        "shop_weight": 50,
+        "desc": "记载太虚陨铁丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 572,
+        "name": "九天丹方",
+        "output_pill": "九天丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载九天丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 573,
+        "name": "混沌雷霆木液方",
+        "output_pill": "混沌雷霆木液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载混沌雷霆木液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 574,
+        "name": "长生丸方",
+        "output_pill": "长生丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载长生丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 575,
+        "name": "青锋血灵芝液方",
+        "output_pill": "青锋血灵芝液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载青锋血灵芝液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 576,
+        "name": "轮回雷霆木丸方",
+        "output_pill": "轮回雷霆木丸",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 670,
+        "shop_weight": 50,
+        "desc": "记载轮回雷霆木丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 577,
+        "name": "灭世菩提子丹方",
+        "output_pill": "灭世菩提子丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载灭世菩提子丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 578,
+        "name": "青锋丸方",
+        "output_pill": "青锋丸",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 11030,
+        "shop_weight": 50,
+        "desc": "记载青锋丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 579,
+        "name": "紫电龙骨液方",
+        "output_pill": "紫电龙骨液",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载紫电龙骨液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 580,
+        "name": "鸿蒙仙露丸方",
+        "output_pill": "鸿蒙仙露丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载鸿蒙仙露丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 581,
+        "name": "混沌极冰散方",
+        "output_pill": "混沌极冰散",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 1070,
+        "shop_weight": 50,
+        "desc": "记载混沌极冰散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 582,
+        "name": "乾坤仙露散方",
+        "output_pill": "乾坤仙露散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载乾坤仙露散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 583,
+        "name": "日月神木心液方",
+        "output_pill": "日月神木心液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载日月神木心液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 584,
+        "name": "长生液方",
+        "output_pill": "长生液",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 160,
+        "shop_weight": 50,
+        "desc": "记载长生液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 585,
+        "name": "青锋幽冥草丸方",
+        "output_pill": "青锋幽冥草丸",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载青锋幽冥草丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 586,
+        "name": "轮回精铁丸方",
+        "output_pill": "轮回精铁丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载轮回精铁丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 587,
+        "name": "太虚星辰沙液·1方",
+        "output_pill": "太虚星辰沙液·1",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 160,
+        "shop_weight": 50,
+        "desc": "记载太虚星辰沙液·1炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 588,
+        "name": "太虚玄铁散·1方",
+        "output_pill": "太虚玄铁散·1",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载太虚玄铁散·1炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 589,
+        "name": "无极幽冥草液方",
+        "output_pill": "无极幽冥草液",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载无极幽冥草液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 590,
+        "name": "无极星辰沙丸方",
+        "output_pill": "无极星辰沙丸",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载无极星辰沙丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 591,
+        "name": "山河星辰沙散方",
+        "output_pill": "山河星辰沙散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载山河星辰沙散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 592,
+        "name": "鸿蒙散方",
+        "output_pill": "鸿蒙散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载鸿蒙散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 593,
+        "name": "轮回日曜晶散方",
+        "output_pill": "轮回日曜晶散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载轮回日曜晶散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 594,
+        "name": "四象幽冥草散方",
+        "output_pill": "四象幽冥草散",
+        "level_required": 18,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 400,
+        "success_rate": 60,
+        "price": 135700,
+        "shop_weight": 50,
+        "desc": "记载四象幽冥草散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 595,
+        "name": "长生星辰沙液方",
+        "output_pill": "长生星辰沙液",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 7930,
+        "shop_weight": 50,
+        "desc": "记载长生星辰沙液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 596,
+        "name": "幽冥丸方",
+        "output_pill": "幽冥丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载幽冥丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 597,
+        "name": "造化血灵芝丸方",
+        "output_pill": "造化血灵芝丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载造化血灵芝丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 598,
+        "name": "日月极冰丸方",
+        "output_pill": "日月极冰丸",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 9210,
+        "shop_weight": 50,
+        "desc": "记载日月极冰丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 599,
+        "name": "造化极冰丸方",
+        "output_pill": "造化极冰丸",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 660,
+        "shop_weight": 50,
+        "desc": "记载造化极冰丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 600,
+        "name": "长生神木心丸方",
+        "output_pill": "长生神木心丸",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载长生神木心丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 601,
+        "name": "四象玄铁丸方",
+        "output_pill": "四象玄铁丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载四象玄铁丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 602,
+        "name": "幽冥玄铁丹方",
+        "output_pill": "幽冥玄铁丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 1100,
+        "shop_weight": 50,
+        "desc": "记载幽冥玄铁丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 603,
+        "name": "太虚菩提子丸方",
+        "output_pill": "太虚菩提子丸",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 500,
+        "shop_weight": 50,
+        "desc": "记载太虚菩提子丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 604,
+        "name": "鸿蒙神木心散方",
+        "output_pill": "鸿蒙神木心散",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 6630,
+        "shop_weight": 50,
+        "desc": "记载鸿蒙神木心散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 605,
+        "name": "破军极冰液方",
+        "output_pill": "破军极冰液",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载破军极冰液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 606,
+        "name": "破军玄铁液方",
+        "output_pill": "破军玄铁液",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 3740,
+        "shop_weight": 50,
+        "desc": "记载破军玄铁液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 607,
+        "name": "太虚玄铁丹方",
+        "output_pill": "太虚玄铁丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载太虚玄铁丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 608,
+        "name": "焚天星辰沙丹方",
+        "output_pill": "焚天星辰沙丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载焚天星辰沙丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 609,
+        "name": "四象极冰丸方",
+        "output_pill": "四象极冰丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载四象极冰丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 610,
+        "name": "山河丹方",
+        "output_pill": "山河丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载山河丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 611,
+        "name": "幽冥仙露散方",
+        "output_pill": "幽冥仙露散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载幽冥仙露散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 612,
+        "name": "太极幽冥草丸方",
+        "output_pill": "太极幽冥草丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载太极幽冥草丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 613,
+        "name": "寒霜极冰丸方",
+        "output_pill": "寒霜极冰丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载寒霜极冰丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 614,
+        "name": "鸿蒙日曜晶液方",
+        "output_pill": "鸿蒙日曜晶液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载鸿蒙日曜晶液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 615,
+        "name": "混元星辰沙散方",
+        "output_pill": "混元星辰沙散",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 5800,
+        "shop_weight": 50,
+        "desc": "记载混元星辰沙散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 616,
+        "name": "混沌幽冥草丹方",
+        "output_pill": "混沌幽冥草丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载混沌幽冥草丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 617,
+        "name": "九幽丸方",
+        "output_pill": "九幽丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载九幽丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 618,
+        "name": "幽冥菩提子液·1方",
+        "output_pill": "幽冥菩提子液·1",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载幽冥菩提子液·1炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 619,
+        "name": "紫电月华石丸方",
+        "output_pill": "紫电月华石丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载紫电月华石丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 620,
+        "name": "噬魂血灵芝丹·1方",
+        "output_pill": "噬魂血灵芝丹·1",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载噬魂血灵芝丹·1炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 621,
+        "name": "日月玄铁散方",
+        "output_pill": "日月玄铁散",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 540,
+        "shop_weight": 50,
+        "desc": "记载日月玄铁散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 622,
+        "name": "造化龙骨丹方",
+        "output_pill": "造化龙骨丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载造化龙骨丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 623,
+        "name": "灭世极冰散方",
+        "output_pill": "灭世极冰散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载灭世极冰散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 624,
+        "name": "八卦仙露丸方",
+        "output_pill": "八卦仙露丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载八卦仙露丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 625,
+        "name": "造化雷霆木液方",
+        "output_pill": "造化雷霆木液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载造化雷霆木液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 626,
+        "name": "九幽星辰沙丸方",
+        "output_pill": "九幽星辰沙丸",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 2400,
+        "shop_weight": 50,
+        "desc": "记载九幽星辰沙丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 627,
+        "name": "乾坤丹方",
+        "output_pill": "乾坤丹",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 6510,
+        "shop_weight": 50,
+        "desc": "记载乾坤丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 628,
+        "name": "噬魂陨铁丹·1方",
+        "output_pill": "噬魂陨铁丹·1",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 130,
+        "shop_weight": 50,
+        "desc": "记载噬魂陨铁丹·1炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 629,
+        "name": "两仪日曜晶丹方",
+        "output_pill": "两仪日曜晶丹",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 6780,
+        "shop_weight": 50,
+        "desc": "记载两仪日曜晶丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 630,
+        "name": "四象幽冥草散·1方",
+        "output_pill": "四象幽冥草散·1",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载四象幽冥草散·1炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 631,
+        "name": "龙渊仙露液方",
+        "output_pill": "龙渊仙露液",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 490,
+        "shop_weight": 50,
+        "desc": "记载龙渊仙露液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 632,
+        "name": "造化极冰散方",
+        "output_pill": "造化极冰散",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载造化极冰散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 633,
+        "name": "诛仙血灵芝散方",
+        "output_pill": "诛仙血灵芝散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载诛仙血灵芝散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 634,
+        "name": "噬魂幽冥草丹方",
+        "output_pill": "噬魂幽冥草丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 1150,
+        "shop_weight": 50,
+        "desc": "记载噬魂幽冥草丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 635,
+        "name": "无极血灵芝丹方",
+        "output_pill": "无极血灵芝丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 1140,
+        "shop_weight": 50,
+        "desc": "记载无极血灵芝丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 636,
+        "name": "焚天地火丸方",
+        "output_pill": "焚天地火丸",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 4110,
+        "shop_weight": 50,
+        "desc": "记载焚天地火丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 637,
+        "name": "日月星辰沙散方",
+        "output_pill": "日月星辰沙散",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载日月星辰沙散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 638,
+        "name": "万古菩提子丸方",
+        "output_pill": "万古菩提子丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载万古菩提子丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 639,
+        "name": "山河幽冥草液方",
+        "output_pill": "山河幽冥草液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载山河幽冥草液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 640,
+        "name": "鸿蒙神木心丸·1方",
+        "output_pill": "鸿蒙神木心丸·1",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载鸿蒙神木心丸·1炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 641,
+        "name": "噬魂日曜晶液方",
+        "output_pill": "噬魂日曜晶液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载噬魂日曜晶液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 642,
+        "name": "九幽龙骨散方",
+        "output_pill": "九幽龙骨散",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 130,
+        "shop_weight": 50,
+        "desc": "记载九幽龙骨散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 643,
+        "name": "乾坤神木心散方",
+        "output_pill": "乾坤神木心散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载乾坤神木心散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 644,
+        "name": "寂灭幽冥草散方",
+        "output_pill": "寂灭幽冥草散",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载寂灭幽冥草散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 645,
+        "name": "造化神木心散·1方",
+        "output_pill": "造化神木心散·1",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载造化神木心散·1炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 646,
+        "name": "八卦菩提子丹方",
+        "output_pill": "八卦菩提子丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载八卦菩提子丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 647,
+        "name": "九天雷霆木丸方",
+        "output_pill": "九天雷霆木丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载九天雷霆木丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 648,
+        "name": "山河陨铁液方",
+        "output_pill": "山河陨铁液",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 690,
+        "shop_weight": 50,
+        "desc": "记载山河陨铁液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 649,
+        "name": "焚天仙露散方",
+        "output_pill": "焚天仙露散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载焚天仙露散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 650,
+        "name": "两仪菩提子丹方",
+        "output_pill": "两仪菩提子丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载两仪菩提子丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 651,
+        "name": "寒霜精铁丹方",
+        "output_pill": "寒霜精铁丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载寒霜精铁丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 652,
+        "name": "星辰丸方",
+        "output_pill": "星辰丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载星辰丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 653,
+        "name": "噬魂散方",
+        "output_pill": "噬魂散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载噬魂散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 654,
+        "name": "八卦日曜晶丸方",
+        "output_pill": "八卦日曜晶丸",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 130,
+        "shop_weight": 50,
+        "desc": "记载八卦日曜晶丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 655,
+        "name": "破军仙露丸方",
+        "output_pill": "破军仙露丸",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 300,
+        "shop_weight": 50,
+        "desc": "记载破军仙露丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 656,
+        "name": "四象玄铁丸·1方",
+        "output_pill": "四象玄铁丸·1",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 2210,
+        "shop_weight": 50,
+        "desc": "记载四象玄铁丸·1炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 657,
+        "name": "青锋精铁丸方",
+        "output_pill": "青锋精铁丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载青锋精铁丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 658,
+        "name": "幽冥玄铁液方",
+        "output_pill": "幽冥玄铁液",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 130,
+        "shop_weight": 50,
+        "desc": "记载幽冥玄铁液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 659,
+        "name": "四象月华石液方",
+        "output_pill": "四象月华石液",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 130,
+        "shop_weight": 50,
+        "desc": "记载四象月华石液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 660,
+        "name": "轮回月华石液方",
+        "output_pill": "轮回月华石液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载轮回月华石液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 661,
+        "name": "紫电神木心丸方",
+        "output_pill": "紫电神木心丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载紫电神木心丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 662,
+        "name": "灭世凤血丹方",
+        "output_pill": "灭世凤血丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载灭世凤血丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 663,
+        "name": "噬魂仙露液方",
+        "output_pill": "噬魂仙露液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载噬魂仙露液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 664,
+        "name": "无极日曜晶丹方",
+        "output_pill": "无极日曜晶丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载无极日曜晶丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 665,
+        "name": "焚天幽冥草液方",
+        "output_pill": "焚天幽冥草液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载焚天幽冥草液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 666,
+        "name": "轮回陨铁丸方",
+        "output_pill": "轮回陨铁丸",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 10200,
+        "shop_weight": 50,
+        "desc": "记载轮回陨铁丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 667,
+        "name": "乾坤液方",
+        "output_pill": "乾坤液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载乾坤液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 668,
+        "name": "乾坤龙骨液方",
+        "output_pill": "乾坤龙骨液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载乾坤龙骨液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 669,
+        "name": "鸿蒙玄铁散方",
+        "output_pill": "鸿蒙玄铁散",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 130,
+        "shop_weight": 50,
+        "desc": "记载鸿蒙玄铁散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 670,
+        "name": "幽冥龙骨丹方",
+        "output_pill": "幽冥龙骨丹",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 130,
+        "shop_weight": 50,
+        "desc": "记载幽冥龙骨丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 671,
+        "name": "造化月华石丸方",
+        "output_pill": "造化月华石丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载造化月华石丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 672,
+        "name": "日月日曜晶散方",
+        "output_pill": "日月日曜晶散",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载日月日曜晶散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 673,
+        "name": "灭世精铁丹方",
+        "output_pill": "灭世精铁丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 580,
+        "shop_weight": 50,
+        "desc": "记载灭世精铁丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 674,
+        "name": "焚天菩提子液方",
+        "output_pill": "焚天菩提子液",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 500,
+        "shop_weight": 50,
+        "desc": "记载焚天菩提子液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 675,
+        "name": "四象丹方",
+        "output_pill": "四象丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载四象丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 676,
+        "name": "太极幽冥草液方",
+        "output_pill": "太极幽冥草液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载太极幽冥草液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 677,
+        "name": "日月幽冥草液方",
+        "output_pill": "日月幽冥草液",
+        "level_required": 18,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 400,
+        "success_rate": 60,
+        "price": 4200,
+        "shop_weight": 50,
+        "desc": "记载日月幽冥草液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 678,
+        "name": "万古凤血丸方",
+        "output_pill": "万古凤血丸",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 240,
+        "shop_weight": 50,
+        "desc": "记载万古凤血丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 679,
+        "name": "紫电地火丹方",
+        "output_pill": "紫电地火丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载紫电地火丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 680,
+        "name": "万古神木心散方",
+        "output_pill": "万古神木心散",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载万古神木心散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 681,
+        "name": "诛仙菩提子丹方",
+        "output_pill": "诛仙菩提子丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载诛仙菩提子丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 682,
+        "name": "星辰幽冥草散方",
+        "output_pill": "星辰幽冥草散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载星辰幽冥草散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 683,
+        "name": "九天神木心散方",
+        "output_pill": "九天神木心散",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 5020,
+        "shop_weight": 50,
+        "desc": "记载九天神木心散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 684,
+        "name": "幽冥菩提子丸方",
+        "output_pill": "幽冥菩提子丸",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 130,
+        "shop_weight": 50,
+        "desc": "记载幽冥菩提子丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 685,
+        "name": "九幽玄铁散方",
+        "output_pill": "九幽玄铁散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载九幽玄铁散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 686,
+        "name": "太极星辰沙散方",
+        "output_pill": "太极星辰沙散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载太极星辰沙散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 687,
+        "name": "破军凤血散·1方",
+        "output_pill": "破军凤血散·1",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 1910,
+        "shop_weight": 50,
+        "desc": "记载破军凤血散·1炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 688,
+        "name": "轮回幽冥草液方",
+        "output_pill": "轮回幽冥草液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载轮回幽冥草液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 689,
+        "name": "太虚精铁散方",
+        "output_pill": "太虚精铁散",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 430,
+        "shop_weight": 50,
+        "desc": "记载太虚精铁散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 690,
+        "name": "日月星辰沙丹方",
+        "output_pill": "日月星辰沙丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载日月星辰沙丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 691,
+        "name": "轮回血灵芝丸方",
+        "output_pill": "轮回血灵芝丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载轮回血灵芝丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 692,
+        "name": "紫电地火丸方",
+        "output_pill": "紫电地火丸",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载紫电地火丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 693,
+        "name": "龙渊龙骨液方",
+        "output_pill": "龙渊龙骨液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载龙渊龙骨液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 694,
+        "name": "四象地火丹方",
+        "output_pill": "四象地火丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载四象地火丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 695,
+        "name": "太虚玄铁丹·1方",
+        "output_pill": "太虚玄铁丹·1",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 120,
+        "shop_weight": 50,
+        "desc": "记载太虚玄铁丹·1炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 696,
+        "name": "太极凤血散方",
+        "output_pill": "太极凤血散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载太极凤血散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 697,
+        "name": "万古日曜晶散方",
+        "output_pill": "万古日曜晶散",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载万古日曜晶散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 698,
+        "name": "寂灭雷霆木液方",
+        "output_pill": "寂灭雷霆木液",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 590,
+        "shop_weight": 50,
+        "desc": "记载寂灭雷霆木液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 699,
+        "name": "八卦日曜晶丸·1方",
+        "output_pill": "八卦日曜晶丸·1",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载八卦日曜晶丸·1炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 700,
+        "name": "无极月华石丹方",
+        "output_pill": "无极月华石丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载无极月华石丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 701,
+        "name": "混沌凤血散方",
+        "output_pill": "混沌凤血散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载混沌凤血散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 702,
+        "name": "万古玄铁液方",
+        "output_pill": "万古玄铁液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载万古玄铁液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 703,
+        "name": "四象血灵芝丹方",
+        "output_pill": "四象血灵芝丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载四象血灵芝丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 704,
+        "name": "山河幽冥草液·1方",
+        "output_pill": "山河幽冥草液·1",
+        "level_required": 18,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 400,
+        "success_rate": 60,
+        "price": 125220,
+        "shop_weight": 50,
+        "desc": "记载山河幽冥草液·1炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 705,
+        "name": "造化月华石丸·1方",
+        "output_pill": "造化月华石丸·1",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 130,
+        "shop_weight": 50,
+        "desc": "记载造化月华石丸·1炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 706,
+        "name": "鸿蒙日曜晶散方",
+        "output_pill": "鸿蒙日曜晶散",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 710,
+        "shop_weight": 50,
+        "desc": "记载鸿蒙日曜晶散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 707,
+        "name": "太虚凤血丹方",
+        "output_pill": "太虚凤血丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载太虚凤血丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 708,
+        "name": "四象精铁散方",
+        "output_pill": "四象精铁散",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载四象精铁散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 709,
+        "name": "两仪菩提子丹·1方",
+        "output_pill": "两仪菩提子丹·1",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 420,
+        "shop_weight": 50,
+        "desc": "记载两仪菩提子丹·1炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 710,
+        "name": "四象雷霆木液方",
+        "output_pill": "四象雷霆木液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载四象雷霆木液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 711,
+        "name": "八卦玄铁丹方",
+        "output_pill": "八卦玄铁丹",
+        "level_required": 18,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 400,
+        "success_rate": 60,
+        "price": 48880,
+        "shop_weight": 50,
+        "desc": "记载八卦玄铁丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 712,
+        "name": "八卦精铁散方",
+        "output_pill": "八卦精铁散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载八卦精铁散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 713,
+        "name": "寒霜血灵芝丹方",
+        "output_pill": "寒霜血灵芝丹",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 7200,
+        "shop_weight": 50,
+        "desc": "记载寒霜血灵芝丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 714,
+        "name": "八卦仙露丸·1方",
+        "output_pill": "八卦仙露丸·1",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载八卦仙露丸·1炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 715,
+        "name": "九幽星辰沙液方",
+        "output_pill": "九幽星辰沙液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载九幽星辰沙液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 716,
+        "name": "寂灭菩提子液方",
+        "output_pill": "寂灭菩提子液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载寂灭菩提子液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 717,
+        "name": "九天日曜晶散方",
+        "output_pill": "九天日曜晶散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载九天日曜晶散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 718,
+        "name": "诛仙精铁丹方",
+        "output_pill": "诛仙精铁丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载诛仙精铁丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 719,
+        "name": "焚天月华石液方",
+        "output_pill": "焚天月华石液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载焚天月华石液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 720,
+        "name": "造化神木心液方",
+        "output_pill": "造化神木心液",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 320,
+        "shop_weight": 50,
+        "desc": "记载造化神木心液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 721,
+        "name": "青锋雷霆木散·2方",
+        "output_pill": "青锋雷霆木散·2",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 460,
+        "shop_weight": 50,
+        "desc": "记载青锋雷霆木散·2炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 722,
+        "name": "紫电星辰沙散方",
+        "output_pill": "紫电星辰沙散",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 2960,
+        "shop_weight": 50,
+        "desc": "记载紫电星辰沙散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 723,
+        "name": "四象幽冥草丹方",
+        "output_pill": "四象幽冥草丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载四象幽冥草丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 724,
+        "name": "无极散方",
+        "output_pill": "无极散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载无极散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 725,
+        "name": "混元玄铁丸方",
+        "output_pill": "混元玄铁丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载混元玄铁丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 726,
+        "name": "星辰月华石丹方",
+        "output_pill": "星辰月华石丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载星辰月华石丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 727,
+        "name": "青锋仙露散方",
+        "output_pill": "青锋仙露散",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 230,
+        "shop_weight": 50,
+        "desc": "记载青锋仙露散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 728,
+        "name": "轮回菩提子散·1方",
+        "output_pill": "轮回菩提子散·1",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载轮回菩提子散·1炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 729,
+        "name": "轮回星辰沙散方",
+        "output_pill": "轮回星辰沙散",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 130,
+        "shop_weight": 50,
+        "desc": "记载轮回星辰沙散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 730,
+        "name": "星辰龙骨丸方",
+        "output_pill": "星辰龙骨丸",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 990,
+        "shop_weight": 50,
+        "desc": "记载星辰龙骨丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 731,
+        "name": "太虚陨铁丹·1方",
+        "output_pill": "太虚陨铁丹·1",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载太虚陨铁丹·1炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 732,
+        "name": "混元幽冥草丹方",
+        "output_pill": "混元幽冥草丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载混元幽冥草丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 733,
+        "name": "幽冥精铁丸方",
+        "output_pill": "幽冥精铁丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载幽冥精铁丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 734,
+        "name": "寂灭神木心散方",
+        "output_pill": "寂灭神木心散",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载寂灭神木心散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 735,
+        "name": "寂灭精铁散方",
+        "output_pill": "寂灭精铁散",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 2740,
+        "shop_weight": 50,
+        "desc": "记载寂灭精铁散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 736,
+        "name": "焚天神木心散方",
+        "output_pill": "焚天神木心散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载焚天神木心散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 737,
+        "name": "轮回月华石丹方",
+        "output_pill": "轮回月华石丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载轮回月华石丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 738,
+        "name": "造化星辰沙丹方",
+        "output_pill": "造化星辰沙丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载造化星辰沙丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 739,
+        "name": "九幽星辰沙丸·1方",
+        "output_pill": "九幽星辰沙丸·1",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 450,
+        "shop_weight": 50,
+        "desc": "记载九幽星辰沙丸·1炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 740,
+        "name": "山河玄铁散方",
+        "output_pill": "山河玄铁散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载山河玄铁散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 741,
+        "name": "幽冥陨铁散方",
+        "output_pill": "幽冥陨铁散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载幽冥陨铁散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 742,
+        "name": "乾坤精铁丸·1方",
+        "output_pill": "乾坤精铁丸·1",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载乾坤精铁丸·1炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 743,
+        "name": "鸿蒙地火丸方",
+        "output_pill": "鸿蒙地火丸",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 250,
+        "shop_weight": 50,
+        "desc": "记载鸿蒙地火丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 744,
+        "name": "混沌月华石丸·1方",
+        "output_pill": "混沌月华石丸·1",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载混沌月华石丸·1炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 745,
+        "name": "噬魂凤血散方",
+        "output_pill": "噬魂凤血散",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 370,
+        "shop_weight": 50,
+        "desc": "记载噬魂凤血散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 746,
+        "name": "长生仙露液方",
+        "output_pill": "长生仙露液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载长生仙露液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 747,
+        "name": "造化幽冥草丹方",
+        "output_pill": "造化幽冥草丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载造化幽冥草丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 748,
+        "name": "寒霜雷霆木液方",
+        "output_pill": "寒霜雷霆木液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载寒霜雷霆木液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 749,
+        "name": "万古血灵芝丹方",
+        "output_pill": "万古血灵芝丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载万古血灵芝丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 750,
+        "name": "灭世玄铁丸方",
+        "output_pill": "灭世玄铁丸",
+        "level_required": 18,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 400,
+        "success_rate": 60,
+        "price": 4200,
+        "shop_weight": 50,
+        "desc": "记载灭世玄铁丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 751,
+        "name": "乾坤菩提子丸方",
+        "output_pill": "乾坤菩提子丸",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载乾坤菩提子丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 752,
+        "name": "混沌星辰沙丹方",
+        "output_pill": "混沌星辰沙丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载混沌星辰沙丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 753,
+        "name": "乾坤幽冥草丸方",
+        "output_pill": "乾坤幽冥草丸",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载乾坤幽冥草丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 754,
+        "name": "八卦极冰液·1方",
+        "output_pill": "八卦极冰液·1",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 740,
+        "shop_weight": 50,
+        "desc": "记载八卦极冰液·1炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 755,
+        "name": "寂灭龙骨丹方",
+        "output_pill": "寂灭龙骨丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载寂灭龙骨丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 756,
+        "name": "万古菩提子液方",
+        "output_pill": "万古菩提子液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载万古菩提子液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 757,
+        "name": "幽冥星辰沙散方",
+        "output_pill": "幽冥星辰沙散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载幽冥星辰沙散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 758,
+        "name": "长生月华石丸方",
+        "output_pill": "长生月华石丸",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 440,
+        "shop_weight": 50,
+        "desc": "记载长生月华石丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 759,
+        "name": "诛仙玄铁丸方",
+        "output_pill": "诛仙玄铁丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载诛仙玄铁丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 760,
+        "name": "太极菩提子液方",
+        "output_pill": "太极菩提子液",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 390,
+        "shop_weight": 50,
+        "desc": "记载太极菩提子液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 761,
+        "name": "太虚神木心散方",
+        "output_pill": "太虚神木心散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载太虚神木心散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 762,
+        "name": "长生凤血丸方",
+        "output_pill": "长生凤血丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载长生凤血丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 763,
+        "name": "紫电仙露丸方",
+        "output_pill": "紫电仙露丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载紫电仙露丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 764,
+        "name": "寒霜龙骨散方",
+        "output_pill": "寒霜龙骨散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载寒霜龙骨散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 765,
+        "name": "混元幽冥草散方",
+        "output_pill": "混元幽冥草散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载混元幽冥草散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 766,
+        "name": "诛仙玄铁液方",
+        "output_pill": "诛仙玄铁液",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 4120,
+        "shop_weight": 50,
+        "desc": "记载诛仙玄铁液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 767,
+        "name": "龙渊月华石散方",
+        "output_pill": "龙渊月华石散",
+        "level_required": 18,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 400,
+        "success_rate": 60,
+        "price": 41290,
+        "shop_weight": 50,
+        "desc": "记载龙渊月华石散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 768,
+        "name": "太极星辰沙丹方",
+        "output_pill": "太极星辰沙丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载太极星辰沙丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 769,
+        "name": "四象极冰液方",
+        "output_pill": "四象极冰液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载四象极冰液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 770,
+        "name": "幽冥凤血丹方",
+        "output_pill": "幽冥凤血丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载幽冥凤血丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 771,
+        "name": "星辰雷霆木丹方",
+        "output_pill": "星辰雷霆木丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载星辰雷霆木丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 772,
+        "name": "诛仙极冰丸方",
+        "output_pill": "诛仙极冰丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载诛仙极冰丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 773,
+        "name": "幽冥日曜晶丸方",
+        "output_pill": "幽冥日曜晶丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载幽冥日曜晶丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 774,
+        "name": "青锋玄铁丸方",
+        "output_pill": "青锋玄铁丸",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 210,
+        "shop_weight": 50,
+        "desc": "记载青锋玄铁丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 775,
+        "name": "八卦精铁液方",
+        "output_pill": "八卦精铁液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载八卦精铁液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 776,
+        "name": "鸿蒙极冰散方",
+        "output_pill": "鸿蒙极冰散",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 130,
+        "shop_weight": 50,
+        "desc": "记载鸿蒙极冰散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 777,
+        "name": "八卦幽冥草丹方",
+        "output_pill": "八卦幽冥草丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载八卦幽冥草丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 778,
+        "name": "龙渊丸方",
+        "output_pill": "龙渊丸",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 810,
+        "shop_weight": 50,
+        "desc": "记载龙渊丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 779,
+        "name": "紫电星辰沙散·1方",
+        "output_pill": "紫电星辰沙散·1",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载紫电星辰沙散·1炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 780,
+        "name": "混元神木心液方",
+        "output_pill": "混元神木心液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载混元神木心液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 781,
+        "name": "乾坤凤血丹方",
+        "output_pill": "乾坤凤血丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载乾坤凤血丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 782,
+        "name": "青锋月华石液方",
+        "output_pill": "青锋月华石液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载青锋月华石液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 783,
+        "name": "太虚龙骨散方",
+        "output_pill": "太虚龙骨散",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载太虚龙骨散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 784,
+        "name": "日月龙骨液方",
+        "output_pill": "日月龙骨液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载日月龙骨液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 785,
+        "name": "混沌月华石丹方",
+        "output_pill": "混沌月华石丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 810,
+        "shop_weight": 50,
+        "desc": "记载混沌月华石丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 786,
+        "name": "万古星辰沙丹方",
+        "output_pill": "万古星辰沙丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 240,
+        "shop_weight": 50,
+        "desc": "记载万古星辰沙丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 787,
+        "name": "山河日曜晶液方",
+        "output_pill": "山河日曜晶液",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 130,
+        "shop_weight": 50,
+        "desc": "记载山河日曜晶液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 788,
+        "name": "九天血灵芝丹方",
+        "output_pill": "九天血灵芝丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 1050,
+        "shop_weight": 50,
+        "desc": "记载九天血灵芝丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 789,
+        "name": "龙渊幽冥草液方",
+        "output_pill": "龙渊幽冥草液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载龙渊幽冥草液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 790,
+        "name": "八卦凤血丸方",
+        "output_pill": "八卦凤血丸",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载八卦凤血丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 791,
+        "name": "破军星辰沙液·1方",
+        "output_pill": "破军星辰沙液·1",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载破军星辰沙液·1炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 792,
+        "name": "日月极冰散方",
+        "output_pill": "日月极冰散",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 170,
+        "shop_weight": 50,
+        "desc": "记载日月极冰散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 793,
+        "name": "太虚神木心丸方",
+        "output_pill": "太虚神木心丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载太虚神木心丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 794,
+        "name": "混元陨铁散·1方",
+        "output_pill": "混元陨铁散·1",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载混元陨铁散·1炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 795,
+        "name": "诛仙菩提子丸方",
+        "output_pill": "诛仙菩提子丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载诛仙菩提子丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 796,
+        "name": "焚天仙露丹方",
+        "output_pill": "焚天仙露丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载焚天仙露丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 797,
+        "name": "长生极冰丹方",
+        "output_pill": "长生极冰丹",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 3980,
+        "shop_weight": 50,
+        "desc": "记载长生极冰丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 798,
+        "name": "混元月华石丹方",
+        "output_pill": "混元月华石丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载混元月华石丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 799,
+        "name": "噬魂陨铁丸方",
+        "output_pill": "噬魂陨铁丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载噬魂陨铁丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 800,
+        "name": "破军仙露散方",
+        "output_pill": "破军仙露散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载破军仙露散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 801,
+        "name": "万古菩提子液·1方",
+        "output_pill": "万古菩提子液·1",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载万古菩提子液·1炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 802,
+        "name": "太极月华石丹方",
+        "output_pill": "太极月华石丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载太极月华石丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 803,
+        "name": "山河日曜晶液·1方",
+        "output_pill": "山河日曜晶液·1",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 500,
+        "shop_weight": 50,
+        "desc": "记载山河日曜晶液·1炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 804,
+        "name": "噬魂玄铁散方",
+        "output_pill": "噬魂玄铁散",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载噬魂玄铁散炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 805,
+        "name": "八卦雷霆木液方",
+        "output_pill": "八卦雷霆木液",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载八卦雷霆木液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 806,
+        "name": "无极日曜晶液方",
+        "output_pill": "无极日曜晶液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载无极日曜晶液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 807,
+        "name": "破军地火液·1方",
+        "output_pill": "破军地火液·1",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载破军地火液·1炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 808,
+        "name": "鸿蒙神木心散·1方",
+        "output_pill": "鸿蒙神木心散·1",
+        "level_required": 9,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 65,
+        "price": 3920,
+        "shop_weight": 50,
+        "desc": "记载鸿蒙神木心散·1炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 809,
+        "name": "九天仙露丸方",
+        "output_pill": "九天仙露丸",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 870,
+        "shop_weight": 50,
+        "desc": "记载九天仙露丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 810,
+        "name": "鸿蒙极冰丹方",
+        "output_pill": "鸿蒙极冰丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载鸿蒙极冰丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 811,
+        "name": "日月日曜晶液方",
+        "output_pill": "日月日曜晶液",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 75,
+        "price": 140,
+        "shop_weight": 50,
+        "desc": "记载日月日曜晶液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 812,
+        "name": "诛仙地火液方",
+        "output_pill": "诛仙地火液",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载诛仙地火液炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 813,
+        "name": "噬魂玄铁丹方",
+        "output_pill": "噬魂玄铁丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载噬魂玄铁丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 814,
+        "name": "八卦星辰沙丸方",
+        "output_pill": "八卦星辰沙丸",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 50,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 50,
+        "desc": "记载八卦星辰沙丸炼制方法的丹方，学习后可用 /炼丹 炼制。"
     }
 ]

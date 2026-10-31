@@ -97,6 +97,78 @@ def expected_cost(recipe: dict, medians: dict, by_name: dict) -> float:
     return cost / (success * tribulation)
 
 
+
+# ===== 旧式丹药效果定价锚点（方案A）=====
+ESCORT_GOLD_BASE = 9000
+ESCORT_REALM_MULT = {3: 1.0, 10: 1.6, 13: 2.5, 16: 4.0, 19: 6.5, 22: 10.0,
+                     25: 16.0, 28: 25.0, 31: 36.0, 34: 44.0, 35: 45.0}
+EFFECT_PRICE_DISCOUNT = 0.25
+
+
+def escort_trip_gold(level: int) -> int:
+    points = sorted(ESCORT_REALM_MULT.items())
+    low_level, low_mult = points[0]
+    high_level, high_mult = points[-1]
+    if level <= low_level:
+        mult = low_mult
+    elif level >= high_level:
+        mult = high_mult
+    else:
+        mult = low_mult
+        for (l1, m1), (l2, m2) in zip(points, points[1:]):
+            if l1 <= level <= l2:
+                mult = m1 + (m2 - m1) * (level - l1) / (l2 - l1)
+                break
+    return int(round(ESCORT_GOLD_BASE * mult / 500.0)) * 500
+
+
+# L0~L2 押镖未开放，用历练过渡日收益（见《经济基准表》）
+TRANSITION_DAILY = {0: 324, 1: 399, 2: 504}
+
+
+def value_per_exp(level: int) -> float:
+    """1 点修为的机会成本 = 押镖日收益 ÷ (每日闭关修为)。闭关 100 修为/分钟 × (1+0.1L)。"""
+    if level < 3:
+        daily = TRANSITION_DAILY.get(level, 324)
+    else:
+        daily = escort_trip_gold(level) * 48
+    return daily / (1440.0 * 100.0 * (1 + 0.1 * level))
+
+
+def effect_anchor_price(cfg: dict, rank: str, level_exp: list) -> int:
+    """旧式丹药按效果定价：修为/气血/灵气按闭关时间价值，恢复类按境界资源池比例。"""
+    eff = cfg.get("effect") or {}
+    if not isinstance(eff, dict) or not eff:
+        return 0
+    level = RANK_LEVEL.get(rank, 0)
+    ve = value_per_exp(level)
+    discount = EFFECT_PRICE_DISCOUNT
+
+    def nice(value: float) -> int:
+        return max(10, int(round(value / 10.0) * 10))
+
+    if "add_experience" in eff:
+        amount = max(0, int(eff.get("add_experience") or 0))
+        return nice(amount * ve * discount)
+    if "add_hp" in eff:
+        hp = max(0, int(eff.get("add_hp") or 0))
+        return nice(hp * 2 * ve * discount)  # 气血 = 修为/2
+    if "add_mp" in eff or "add_spiritual_qi" in eff:
+        mp = max(0, int(eff.get("add_mp") or eff.get("add_spiritual_qi") or 0))
+        return nice(mp * ve * discount)      # 灵气 = 修为
+    pool_exp = 1000
+    if 0 <= level < len(level_exp) and isinstance(level_exp[level], dict):
+        pool_exp = max(1000, int(level_exp[level].get("exp_needed") or 0))
+    if "restore_hp_percent" in eff:
+        pct = max(0.0, float(eff.get("restore_hp_percent") or 0))
+        amount = pct * pool_exp / 2.0
+        return nice(amount * 2 * ve * discount)
+    if "restore_qi_percent" in eff or "restore_mp_percent" in eff:
+        pct = max(0.0, float(eff.get("restore_qi_percent") or eff.get("restore_mp_percent") or 0))
+        amount = pct * pool_exp
+        return nice(amount * ve * discount)
+    return 0
+
 def rebuild_materials():
     catalog = load("material_catalog.json")
     for material in catalog["materials"]:
@@ -171,11 +243,46 @@ def rebuild_recipes_and_pills(catalog: dict) -> int:
             by_output[name] = recipes[-1]
             next_id += 1
 
+
+    # items.json 旧式丹药：按效果锚点定价并补丹方（价格 = max(效果价, 炼制成本×1.5)）
+    level_exp = load("level_config.json")
+    for _key, cfg in items.items():
+        if not isinstance(cfg, dict) or cfg.get("type") != "丹药":
+            continue
+        name = cfg.get("name") or ""
+        if not name or name in by_output:
+            continue
+        rank = rank_of(cfg)
+        tier = RANK_MATERIAL_TIER.get(rank, "圣品")
+        recipes.append({
+            "id": next_id,
+            "name": f"{name}方",
+            "output_pill": name,
+            "level_required": int(RANK_LEVEL.get(rank, 0)),
+            "materials": [{"category": "灵植", "tier": tier, "count": 1}],
+            "gold_cost": max(50, RANK_GOLD.get(rank, 100) // 20),
+            "success_rate": RANK_SUCCESS.get(rank, 60),
+            "price": 2000,
+            "shop_weight": 50,
+            "desc": f"记载{name}炼制方法的丹方，学习后可用 /炼丹 炼制。",
+        })
+        by_output[name] = recipes[-1]
+        next_id += 1
+
     # 重算成品价与卷轴价
     price_by_output = {}
+    pill_cfgs = {}
+    for pill in pills + exp + util:
+        pill_cfgs[pill.get("name")] = pill
+    for _key, cfg in items.items():
+        if isinstance(cfg, dict) and cfg.get("type") == "丹药" and cfg.get("name"):
+            pill_cfgs.setdefault(cfg.get("name"), cfg)
     for recipe in recipes:
-        target = ceil_to_nice(expected_cost(recipe, medians, by_name) * 1.5)
-        price_by_output[recipe["output_pill"]] = target
+        cost_target = ceil_to_nice(expected_cost(recipe, medians, by_name) * 1.5)
+        output = recipe["output_pill"]
+        cfg = pill_cfgs.get(output) or {}
+        effect_price = effect_anchor_price(cfg, cfg.get("rank") or "凡品", level_exp) if cfg else 0
+        price_by_output[output] = max(cost_target, effect_price)
 
     # 突破丹方卷轴价按境界严格递增，避免重算后并列
     breakthrough = sorted(

@@ -87,9 +87,11 @@ class ShopHandler:
         """丹方阁每次随机刷新的丹方数量（突破丹方与初始已学丹方不占此名额）。"""
         raw = self._cfg("PAVILION_RARE_RECIPE_COUNT", self._cfg("PAVILION_RECIPE_COUNT", 10))
         try:
-            return max(0, int(raw))
+            count = int(raw)
         except (TypeError, ValueError):
-            return 10
+            count = 10
+        # 每次固定 10 个，服务器配置写小值也强制保底 10
+        return max(10, count)
 
     async def _ensure_pavilion_refreshed(self, pavilion_id: str, item_getter, count: int,
                                          apply_rank_band: bool = False, pick_mode: str = "",
@@ -109,6 +111,16 @@ class ShopHandler:
                 updated = True
             if updated:
                 await self.db.update_shop_data(pavilion_id, last_refresh_time, current_items)
+        # 丹方总数变化（新增/删除丹方）时强制重建丹方货架，避免旧货架残留
+        if pavilion_id in ("recipe_pavilion", "breakthrough_recipe_pavilion"):
+            try:
+                expected = f"recipes-{len(self.config_manager.pill_recipes_data or {})}"
+                stored = await self.db.ext.get_system_config("shop_recipe_fingerprint")
+                if stored != expected:
+                    last_refresh_time = 0
+                    await self.db.ext.set_system_config("shop_recipe_fingerprint", expected)
+            except Exception:
+                pass
         refresh_hours = self._cfg("PAVILION_REFRESH_HOURS", 1)
         if not current_items or self.shop_manager.should_refresh_shop(last_refresh_time, refresh_hours):
             if apply_rank_band:

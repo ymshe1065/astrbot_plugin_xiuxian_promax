@@ -87,19 +87,23 @@ class TestAlchemyFixes(unittest.IsolatedAsyncioTestCase):
         AlchemyManager = _imp("managers.alchemy_manager").AlchemyManager
         player = Player(user_id="u1", user_name="道友")
         mgr = AlchemyManager(_FakeDB(player), _FakeConfig(), _FakeStorage())
-        ok, text, rows = await mgr.get_available_recipes("u1")
+        ok, text, rows, card_lines = await mgr.get_available_recipes("u1")
         self.assertTrue(ok)
         self.assertIn("[1] 炼气丹", text)
         self.assertIn("灵草x2(✓)", text)
         self.assertIn("灵石x100", text)
         self.assertIn("可炼制", text)
+        # 图片卡片改为整行展示材料，且用文字标识拥有状态
+        card_text = "\n".join(card_lines)
+        self.assertIn("灵草 ×2（拥有 3/2 · 足够）", card_text)
+        self.assertIn("灵石 ×100（持有 0/100 · 缺100）", card_text)
 
     async def test_recipe_list_only_shows_learned(self):
         Player = _imp("models").Player
         AlchemyManager = _imp("managers.alchemy_manager").AlchemyManager
         player = Player(user_id="u1", user_name="道友", learned_recipes="[1]")
         mgr = AlchemyManager(_FakeDB(player), _FakeConfig(), _FakeStorage())
-        ok, text, rows = await mgr.get_available_recipes("u1")
+        ok, text, rows, card_lines = await mgr.get_available_recipes("u1")
         self.assertTrue(ok)
         self.assertIn("[1] 炼气丹", text)
         self.assertNotIn("[2] 聚气丹", text)

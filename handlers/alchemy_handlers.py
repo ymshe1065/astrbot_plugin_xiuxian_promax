@@ -13,17 +13,17 @@ class AlchemyHandlers:
     async def handle_recipes(self, event: AstrMessageEvent):
         """已学丹药配方（图片卡片展示，失败降级为文本）"""
         user_id = event.get_sender_id()
-        success, msg, rows = await self.alchemy_mgr.get_available_recipes(user_id)
+        success, msg, rows, card_lines = await self.alchemy_mgr.get_available_recipes(user_id)
         player = await self.db.get_player_by_id(user_id)
         display_name = (player.user_name if player else "") or user_id or "道友"
         try:
             from ..utils.image_generator import render_card_async, card_enabled
-            if rows and card_enabled("CARD_ALCHEMY"):
+            if card_lines and card_enabled("CARD_ALCHEMY"):
                 card_path = await render_card_async(
                     "craft",
                     f"{display_name} 的已学丹方",
                     f"共 {len(rows)} 个配方",
-                    sections=[{"name": "已学丹方", "rows": rows}],
+                    sections=[{"name": "已学丹方", "lines": card_lines}],
                     footer="💡 /学习丹方 <ID或名称> · /炼丹 <ID> 炼制",
                 )
                 if card_path:
