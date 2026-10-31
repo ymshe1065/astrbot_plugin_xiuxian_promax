@@ -91,6 +91,20 @@ class ConfigManager:
             logger.error(f"加载物品数据失败: {e}")
             return {}
 
+    def _merge_new_equipment(self):
+        """把新系装备合并进 items_data；旧 items.json 保持不变，实现新老分离。"""
+        data = getattr(self, "new_equipment_data", {}) or {}
+        merged = 0
+        for name, cfg in data.items():
+            if not isinstance(cfg, dict):
+                continue
+            if name in self.items_data:
+                logger.warning(f"新装备与旧 items.json 同名：{name}，已保留旧配置")
+                continue
+            self.items_data[name] = cfg
+            merged += 1
+        logger.info(f"新系装备加载完成：{merged} 件")
+
     def _merge_special_equipment(self):
         """把特殊装备合并进 items_data；同名时以 items.json 为准并告警。"""
         data = getattr(self, "special_equipment_data", {}) or {}
@@ -110,6 +124,9 @@ class ConfigManager:
         self.level_data = self._load_json_data(config_dir / "level_config.json")
         self.body_level_data = self._load_json_data(config_dir / "body_level_config.json")
         self.items_data = self._load_items_data(config_dir / "items.json")
+        # 新系装备与旧 items.json 分离维护；旧装备保持原 50/50 配置。
+        self.new_equipment_data = self._load_items_data(config_dir / "items_v2.json")
+        self._merge_new_equipment()
         # 特殊手套/戒指（120 件）单独维护，加载后合并进统一物品目录。
         self.special_equipment_data = self._load_items_data(config_dir / "special_equipment.json")
         self._merge_special_equipment()

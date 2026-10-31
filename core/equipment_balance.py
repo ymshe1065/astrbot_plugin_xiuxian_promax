@@ -6,6 +6,69 @@ QUALITY = {"一般": 1.0, "良好": 1.05, "极佳": 1.10, "大师": 1.15}
 RANK_LEVEL = ItemRules.RANK_REQ_LEVEL
 SLOT_BUDGET = {"weapon": (.18, 0), "head": (0, .06), "body": (0, .12),
                "gloves": (.06, 0), "boots": (0, .04), "ring1": (.04, 0), "amulet": (.02, .04)}
+
+# 新装备倾向：攻击/防御总预算不变，只改变物法/物防法防分配。
+# 旧装备带有显式 equipment_rates，继续沿用旧版 50/50，不走这里。
+PROFILE_WEIGHTS = {
+    "physical": {"attack": (.80, .20), "defense": (.75, .25)},
+    "magic": {"attack": (.20, .80), "defense": (.25, .75)},
+    "hybrid": {"attack": (.50, .50), "defense": (.50, .50)},
+    "guardian": {"attack": (.40, .60), "defense": (.55, .45)},
+}
+PROFILE_LABELS = {
+    "physical": "物理",
+    "magic": "法术",
+    "hybrid": "混合",
+    "guardian": "守护",
+}
+
+# 职业被动：只强化长板，不补短板。数值与《职业重构总方案 v4》一致。
+CLASS_PASSIVES = {
+    "灵修": {"max_mp": .08, "magic_damage": .04},
+    "体修": {"max_hp": .06, "defense": .04},
+    "剑修": {"crit_rate": 2.0, "physical_damage": .03},
+    "魔修": {"lifesteal": 4.0, "physical_damage": .02, "magic_damage": .02},
+    "佛修": {"max_hp": .03, "defense": .06},
+    "鬼修": {"magic_damage": .04, "armor_penetration": 3.0},
+    "御兽": {},
+}
+
+
+def get_class_passive(player) -> dict:
+    return CLASS_PASSIVES.get(getattr(player, "cultivation_type", ""), {})
+
+
+def apply_class_passive_attributes(player, base: dict) -> dict:
+    """在境界模板上应用职业被动；只改长板相关属性。"""
+    data = get_class_passive(player)
+    if not data:
+        return base
+    out = dict(base)
+    if data.get("max_hp"):
+        out["max_hp"] = max(1, int(out.get("max_hp", 1) * (1 + data["max_hp"])))
+    if data.get("max_mp"):
+        out["max_mp"] = max(0, int(out.get("max_mp", 0) * (1 + data["max_mp"])))
+    if data.get("physical_damage"):
+        out["physical_damage"] = int(out.get("physical_damage", 0) * (1 + data["physical_damage"]))
+    if data.get("magic_damage"):
+        out["magic_damage"] = int(out.get("magic_damage", 0) * (1 + data["magic_damage"]))
+    if data.get("defense"):
+        out["physical_defense"] = int(out.get("physical_defense", 0) * (1 + data["defense"]))
+        out["magic_defense"] = int(out.get("magic_defense", 0) * (1 + data["defense"]))
+    return out
+
+
+def apply_class_passive_effects(player, effects: dict) -> dict:
+    """暴击/吸血/破甲属于特效层，在统一特效入口叠加。"""
+    data = get_class_passive(player)
+    out = dict(effects or {})
+    if data.get("crit_rate"):
+        out["crit_rate"] = out.get("crit_rate", 0) + data["crit_rate"]
+    if data.get("lifesteal"):
+        out["lifesteal"] = out.get("lifesteal", 0) + data["lifesteal"]
+    if data.get("armor_penetration"):
+        out["armor_penetration"] = out.get("armor_penetration", 0) + data["armor_penetration"]
+    return out
 ATTRIBUTE_LABELS = {"physical_damage": "物伤", "magic_damage": "法伤", "physical_defense": "物防",
                     "magic_defense": "法防", "mental_power": "精神力"}
 RATE_CAPS = {"physical_damage": .40, "magic_damage": .40, "physical_defense": .35,
@@ -168,27 +231,60 @@ def realm_attributes(player, config_manager=None):
     else:
         scale = int(160 * 1.25 ** min(level, 35))
     attack_factor, defense_factor, physical_share = {
-        "灵修": (1.0, 1.0, .2), "体修": (.95, 1.25, .9), "剑修": (1.15, .85, .95),
-        "魔修": (1.10, .9, .5), "佛修": (.85, 1.35, .5), "鬼修": (1.0, .9, .2),
-        "御兽": (.95, 1.0, .5),
-    }.get(player.cultivation_type, (1.0, 1.0, .2))
+        "灵修": (1.02, 1.00, .2), "体修": (1.02, 1.08, .9), "剑修": (1.05, .85, .95),
+        "魔修": (1.03, .9, .5), "佛修": (1.02, 1.15, .5), "鬼修": (1.04, .88, .2),
+        "御兽": (1.06, 1.05, .5),
+    }.get(player.cultivation_type, (1.02, 1.0, .2))
     attack = int(scale * attack_factor)
     defense = int(scale * .35 * defense_factor)
-    return {"physical_damage": int(attack * physical_share),
-            "magic_damage": attack - int(attack * physical_share),
-            "physical_defense": defense // 2, "magic_defense": defense - defense // 2,
-            "mental_power": max(50, scale // 5), "max_hp": scale * 8,
-            "max_mp": scale * 10, "defense_scale": scale}
+    base = {
+        "physical_damage": int(attack * physical_share),
+        "magic_damage": attack - int(attack * physical_share),
+        "physical_defense": defense // 2,
+        "magic_defense": defense - defense // 2,
+        "mental_power": max(50, scale // 5),
+        "max_hp": scale * 8,
+        "max_mp": scale * 10,
+        "defense_scale": scale,
+    }
+    return apply_class_passive_attributes(player, base)
+
+
+def get_equipment_profile(config) -> str:
+    """读取新装备倾向；旧装备返回 legacy，保持原有 50/50。"""
+    if not isinstance(config, dict):
+        return "legacy"
+    raw = str(config.get("profile", "") or "").strip().lower()
+    aliases = {
+        "phys": "physical", "物理": "physical",
+        "法系": "magic", "法术": "magic",
+        "双修": "hybrid", "混合": "hybrid",
+        "守护": "guardian", "防御": "guardian",
+    }
+    profile = aliases.get(raw, raw)
+    return profile if profile in PROFILE_WEIGHTS else "legacy"
 
 
 def equipment_rates(config):
-    """显式百分比优先；旧配置也按部位预算转化，禁止固定数值绕过。"""
-    if isinstance(config.get("equipment_rates"), dict):
-        return {key: min(cap, max(0, float(config["equipment_rates"].get(key, 0))))
+    """新装备按 profile 分配；旧装备保留显式 50/50 配置。"""
+    explicit = config.get("equipment_rates")
+    if isinstance(explicit, dict) and explicit:
+        return {key: min(cap, max(0, float(explicit.get(key, 0))))
                 for key, cap in RATE_CAPS.items()}
     slot = ItemRules.get_equip_slot(config)
     attack, defense = SLOT_BUDGET.get(slot, (0, 0))
-    # 物伤/法伤各自基于对应境界基础，不能将两者合并后二次放大。
+    profile = get_equipment_profile(config)
+    if profile != "legacy":
+        weights = PROFILE_WEIGHTS[profile]
+        attack_share, magic_share = weights["attack"]
+        pdef_share, mdef_share = weights["defense"]
+        return {
+            "physical_damage": attack * attack_share,
+            "magic_damage": attack * magic_share,
+            "physical_defense": defense * pdef_share,
+            "magic_defense": defense * mdef_share,
+        }
+    # 旧装备兜底：物法/物防法防对半。
     return {"physical_damage": attack, "magic_damage": attack,
             "physical_defense": defense, "magic_defense": defense}
 
@@ -206,8 +302,17 @@ def equipment_price(config):
     """按解锁境界与部位预算定价；同门槛同预算价格一致。"""
     level = ItemRules.get_required_level(config)
     rates = equipment_rates(config)
-    budget = max(rates.get("physical_damage", 0), rates.get("magic_damage", 0))
-    budget += max(rates.get("physical_defense", 0), rates.get("magic_defense", 0))
+    if get_equipment_profile(config) != "legacy":
+        # 新装备物法拆分后两边都算预算，避免物理/法术装备被单边压价。
+        budget = (
+            rates.get("physical_damage", 0)
+            + rates.get("magic_damage", 0)
+            + rates.get("physical_defense", 0)
+            + rates.get("magic_defense", 0)
+        )
+    else:
+        budget = max(rates.get("physical_damage", 0), rates.get("magic_damage", 0))
+        budget += max(rates.get("physical_defense", 0), rates.get("magic_defense", 0))
     budget += rates.get("mental_power", 0) * .5
     # 初始武器约600灵石；高境界逐级增长，基础部件价格低于武器。
     return max(50, round(600 * (1.45 ** level) * budget / .18 / 10) * 10)

@@ -91,7 +91,12 @@ class TestEquipmentBalance(unittest.TestCase):
         for config in {**self.cm.weapons_data, **self.cm.items_data}.values():
             if rules.normalize_equipment_type(config) not in rules.GEAR_TYPES:
                 continue
-            self.assertIn('equipment_rates', config)
+            is_v2 = int(config.get('balance_version') or 1) >= 2 and config.get('profile')
+            if is_v2:
+                self.assertNotIn('equipment_rates', config)
+                self.assertIn(config['profile'], self.balance.PROFILE_WEIGHTS)
+            else:
+                self.assertIn('equipment_rates', config)
             self.assertFalse(any(config.get(key) for key in (*self.balance.RATE_CAPS, 'atk', 'equip_effects')))
             if config.get('effect_quality_scaling'):
                 # 特殊装备无面板主属性，价格按同品阶灵纹同部位 ×0.9 单独定价

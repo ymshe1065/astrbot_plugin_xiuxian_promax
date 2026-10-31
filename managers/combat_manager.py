@@ -84,6 +84,11 @@ class CombatManager:
     # 溢出属性转换：每 1% 溢出暴击 -> +0.5% 暴伤；每 1% 溢出吸血 -> +0.5% 双攻
     CRIT_OVERFLOW_TO_CRIT_DAMAGE = 0.5
     LIFESTEAL_OVERFLOW_TO_ATTACK = 0.5
+    # v4 御兽：宠物总输出上限、辅助宠输出比例、护主承伤上限
+    # 当前 PvP 为 5 回合气血比例判定，宠物增伤对阈值极敏感，因此上限较低。
+    PET_TOTAL_DAMAGE_CAP = 0.015
+    PET_SUPPORT_DAMAGE_RATIO = 0.20
+    PET_GUARD_CAP = 0.0
     CRIT_RATE_CAP = 100.0
     LIFESTEAL_CAP = 100.0
     COUNTER_DAMAGE_CAP = 100.0
@@ -376,7 +381,9 @@ class CombatManager:
         magic_mult = float(pill_multipliers.get("magic_damage", 1.0) or 1.0)
         base_max_hp = int(int(base.get("max_hp", 1)) * (1 + overflow_bonus))
         max_hp = max(1, int(base_max_hp * (1 + max(-.5, min(.5, hp_buff)))))
+        from ..core.equipment_balance import get_class_passive
         max_mp = max(0, int(getattr(player, "max_spiritual_qi", 0) or 0))
+        max_mp = int(max_mp * (1 + float(get_class_passive(player).get("max_mp", 0) or 0)))
         raw_hp = int(getattr(player, "hp", 0) or 0)
         raw_mp = int(getattr(player, "spiritual_qi", 0) or 0)
         hp = min(max_hp, raw_hp) if raw_hp > 0 else max_hp
@@ -613,6 +620,8 @@ class CombatManager:
         # 装备增伤已进入装备百分比池，特效层不再二次放大。
         effects["physical_damage_multiplier"] = 1.0
         effects["magic_damage_multiplier"] = 1.0
+        from ..core.equipment_balance import apply_class_passive_effects
+        effects = apply_class_passive_effects(player, effects)
         return CombatManager.clamp_effects(effects)
 
     @staticmethod
@@ -661,7 +670,9 @@ class CombatManager:
         base_atk_total = max(1, base_phys + base_magic)
         base_max_hp = int(int(base.get("max_hp", 1)) * (1 + overflow_bonus))
         max_hp = max(1, int(base_max_hp * (1 + max(-.5, min(.5, hp_buff)))))
+        from ..core.equipment_balance import get_class_passive
         max_mp = max(0, int(getattr(player, "max_spiritual_qi", 0) or 0))
+        max_mp = int(max_mp * (1 + float(get_class_passive(player).get("max_mp", 0) or 0)))
         raw_hp = int(getattr(player, "hp", 0) or 0)
         raw_mp = int(getattr(player, "spiritual_qi", 0) or 0)
         hp = min(max_hp, raw_hp) if raw_hp > 0 else max_hp
@@ -1293,16 +1304,24 @@ class CombatManager:
             if support and support.alive:
                 attacker_pets.append(support)
         if attacker_pets:
-            pet_count = len(attacker_pets)
-            pet_factor = 1.0 / (1 + 0.4 * (pet_count - 1))
+            # v4：主战宠100%，辅助宠20%；总量受宠物输出上限约束。
+            main_pet = getattr(attacker, "pet", None)
+            pet_cap = max(1, int(attacker.atk * cls.PET_TOTAL_DAMAGE_CAP))
+            pet_total = 0
             for pet in attacker_pets:
-                pet_damage = int(round(random.uniform(0.95, 1.05), 2) * pet.atk * pet_factor)
+                is_main = pet is main_pet
+                ratio = 1.0 if is_main else cls.PET_SUPPORT_DAMAGE_RATIO
+                pet_damage = int(round(random.uniform(0.95, 1.05), 2) * pet.atk * ratio)
                 pet_damage = cls.apply_damage_reduction(pet_damage, physical_def, defender.defense_scale)
                 if pet.mechanic == "burn":
-                    burn = max(1, int(pet.atk * pet_factor * 0.3))
+                    burn = max(1, int(pet.atk * ratio * 0.3))
                     pet_damage += burn
                     logs.append(f"🔥 【{pet.name}】喷吐灵火，追加灼烧 {burn} 点伤害！")
+                room = max(0, pet_cap - pet_total)
+                if pet_damage > room:
+                    pet_damage = room
                 if pet_damage > 0:
+                    pet_total += pet_damage
                     final_damage += pet_damage
                     logs.append(f"🐾 【{pet.name}】协同攻击，追加 {pet_damage} 点伤害！")
                 if pet.mechanic == "dragon" and pet_damage > 0:
@@ -1317,7 +1336,7 @@ class CombatManager:
         defender_pets.extend(getattr(defender, "support_pets", None) or [])
         defender_pet = next((p for p in defender_pets if p and p.alive), None)
         if defender_pet and final_damage > 0:
-            incoming = int(final_damage * defender_pet.guard_rate)
+            incoming = int(final_damage * min(cls.PET_GUARD_CAP, defender_pet.guard_rate))
             if incoming > 0:
                 protected = min(incoming, defender_pet.hp)
                 pet_loss = cls.apply_damage_reduction(incoming, defender_pet.defense)

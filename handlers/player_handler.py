@@ -31,6 +31,17 @@ CULTIVATION_ALIASES = {
 }
 VALID_CULTIVATIONS = ["灵修", "体修", "魔修", "剑修", "鬼修", "佛修", "御兽"]
 
+# 只在创建角色时展示的职业定位；不写入 /我的信息，避免面板继续膨胀。
+CLASS_ROLE_INFO = {
+    "灵修": {"code": "balanced_mage", "name": "均衡法系", "desc": "攻防平衡，法术输出稳定，适合新手"},
+    "体修": {"code": "physical_tank", "name": "物理坦克", "desc": "防御最高，物伤为主，突破风险较高"},
+    "魔修": {"code": "hybrid_dps", "name": "物法综合", "desc": "高攻均衡，物法双修，综合能力强"},
+    "剑修": {"code": "physical_dps", "name": "物理爆发", "desc": "攻击最高、防御偏低，追求极限输出"},
+    "鬼修": {"code": "magic_dot", "name": "法系输出", "desc": "法术伤害为主，防御略低"},
+    "佛修": {"code": "defense_tank", "name": "防御坦克", "desc": "生存能力最强，输出偏低"},
+    "御兽": {"code": "pet_summoner", "name": "灵兽召唤", "desc": "多灵兽协同，强度依赖灵兽培养"},
+}
+
 __all__ = ["PlayerHandler"]
 
 class PlayerHandler:
@@ -137,12 +148,16 @@ class PlayerHandler:
                     cultivation_type = alias
                     break
             if not cultivation_type:
+                role_lines = "\n".join(
+                    f"【{name}】定位：{CLASS_ROLE_INFO[name]['name']}\n"
+                    f"  {CLASS_ROLE_INFO[name]['desc']}"
+                    for name in VALID_CULTIVATIONS
+                )
                 help_msg = (
                     "🌟 欢迎踏入修仙之路！\n"
                     "━━━━━━━━━━━━━━━\n"
                     "请选择你的修炼方式（发送：我要修仙 职业名）：\n\n"
-                    "【灵修】法系群攻，灵力充沛\n【体修】血厚防高，物理输出\n【魔修】高攻低防，吸血为生\n"
-                    "【剑修】极致物理爆发\n【鬼修】高闪避与法系伤害\n【佛修】超级肉盾，反伤\n【御兽】与灵兽协同作战\n"
+                    f"{role_lines}\n"
                     "━━━━━━━━━━━━━━━\n"
                     f"💡 使用方法：\n  {CMD_START_XIUXIAN} 剑修\n"
                     f"（也支持单字：{CMD_START_XIUXIAN} 剑）"
@@ -194,10 +209,15 @@ class PlayerHandler:
         root_name = new_player.spiritual_root.replace("灵根", "")
         root_description = self.cultivation_manager._get_root_description(root_name)
 
+        role_info = CLASS_ROLE_INFO.get(
+            new_player.cultivation_type, {"name": "未定义", "desc": "无"}
+        )
+        role_name, role_desc = role_info["name"], role_info["desc"]
         reply_msg = (
             f"🎉 恭喜道友 {event.get_sender_name()} 踏上仙途！\n"
             f"━━━━━━━━━━━━━━━\n"
             f"修炼方式：【{new_player.cultivation_type}】\n"
+            f"职业定位：{role_name} · {role_desc}\n"
             f"灵根：【{new_player.spiritual_root}】\n"
             f"评价：{root_description}\n"
             f"启动资金：{new_player.gold} 灵石\n"

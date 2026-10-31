@@ -408,13 +408,14 @@ class PetManager:
         if not states:
             return int(owner_atk), 0, {}, 0
 
-        pet_atk_mult = 1.0
-        if cultivation_type == "御兽":
-            count = len(states)
-            pet_atk_mult = 1 + 0.05 * (count - 1)
-            owner_atk = int(owner_atk * (1 + 0.03 * (count - 1)))
-
-        total_pet_atk = sum(int(stats["atk"] * pet_atk_mult) for _, stats in states)
+        # v4：多宠不再叠加主人攻击；主战宠100%，辅助宠20%。
+        total_pet_atk = 0
+        for index, (pet, stats) in enumerate(states):
+            is_main = int(pet.get("is_main") or 0) == 1 or index == 0
+            ratio = 1.0 if is_main else 0.2
+            if cultivation_type == "御兽":
+                ratio *= 1.04
+            total_pet_atk += int(stats["atk"] * ratio)
         main_pet = next((pet for pet, _ in states if int(pet.get("is_main") or 0) == 1), states[0][0])
         effects = self.get_pet_combat_effects(main_pet)
         defense_bonus = int(effects.get("defense_bonus", 0) or 0)
@@ -1276,12 +1277,10 @@ class PetManager:
                 state.defense = max(0, int(state.defense * (1 + pet_bonus)))
 
         if cultivation_type == "御兽":
-            count = len(states)
-            pet_damage_mult = 1 + 0.05 * (count - 1)
-            owner_atk_mult = 1 + 0.03 * (count - 1)
+            # v4：多宠不再叠加主人攻击；主战宠100%，辅助宠20%。
             for _, state in states:
-                state.atk = int(state.atk * pet_damage_mult)
-            owner_atk = int(owner_atk * owner_atk_mult)
+                state.atk = int(state.atk * 1.04)
+                state.defense = int(state.defense * 1.02)
 
         main_index = 0
         for index, (pet, _) in enumerate(states):

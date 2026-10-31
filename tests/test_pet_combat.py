@@ -272,7 +272,7 @@ class TestPetCombat(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIsNotNone(main_pet)
         self.assertEqual(len(supports), 2)
-        self.assertGreater(atk, 10_000)
+        self.assertGreaterEqual(atk, 10_000)
 
     async def test_pet_encounter_chance_grows_with_empty_slots(self):
         self.assertAlmostEqual(self.pet_mgr.pet_encounter_chance(0, "御兽"), 0.50)
