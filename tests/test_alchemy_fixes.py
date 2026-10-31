@@ -87,7 +87,7 @@ class TestAlchemyFixes(unittest.IsolatedAsyncioTestCase):
         AlchemyManager = _imp("managers.alchemy_manager").AlchemyManager
         player = Player(user_id="u1", user_name="道友")
         mgr = AlchemyManager(_FakeDB(player), _FakeConfig(), _FakeStorage())
-        ok, text = await mgr.get_available_recipes("u1")
+        ok, text, rows = await mgr.get_available_recipes("u1")
         self.assertTrue(ok)
         self.assertIn("[1] 炼气丹", text)
         self.assertIn("灵草x2(✓)", text)
@@ -99,7 +99,7 @@ class TestAlchemyFixes(unittest.IsolatedAsyncioTestCase):
         AlchemyManager = _imp("managers.alchemy_manager").AlchemyManager
         player = Player(user_id="u1", user_name="道友", learned_recipes="[1]")
         mgr = AlchemyManager(_FakeDB(player), _FakeConfig(), _FakeStorage())
-        ok, text = await mgr.get_available_recipes("u1")
+        ok, text, rows = await mgr.get_available_recipes("u1")
         self.assertTrue(ok)
         self.assertIn("[1] 炼气丹", text)
         self.assertNotIn("[2] 聚气丹", text)

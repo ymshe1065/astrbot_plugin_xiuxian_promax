@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v6.47.2 (修复：丹药误入储物戒)
+# AstrBot 插件：模拟修仙 v6.48.0 (经济重构 · 功法主动技能 · 装备二期)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v6.47.2-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v6.48.0-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.31.2 · **游戏版本:** v6.47.2 · **数据库:** v56
+> **插件版本:** v3.32.0 · **游戏版本:** v6.48.0 · **数据库:** v56
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，233 条帮助指令 / 233 条注册指令、16 个大系统、110 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,7 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>当前开发版 · 回收指令与旧指令清理（暂不提升版本号）</b></summary>
+<summary><b>本次更新 · v6.48.0（经济重构 · 功法主动技能 · 装备二期）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |
@@ -53,11 +53,27 @@
 | 装备总览 | `/我的装备` 的「加成总览」补齐特殊效果、装备生活加成、灵气容量与修为倍率。 |
 | 突破规则 | 删除突破灵石资费，不再检查或扣除灵石，`/突破信息` 同步移除资费行。 |
 | 材料展示 | 材料阁在材料名称后显示类别，例如 `材料[矿石]`、`材料[灵植]`；材料包显示对应类别。 |
+| 经济基准 | 新增 `docs/经济基准表.md`：以 24h 押镖名义镖银（48 趟/天）为底层锚点，由 `escort_manager.py` 常量自动生成校验；今后所有经济改动必须依据该表。 |
+| 押镖方案A | 镖银改为大境界台阶曲线：`9000×境界倍率`（炼气1.0 → 混元45.0，区间线性插值，±500 浮动），全游戏增长约 45 倍；L16=36,000，L35=405,000/趟。 |
+| 材料价格 | `material_catalog` 按 类别基准×品阶倍率 重建（灵植60/矿材72/妖兽90/灵液120），并作为材料价格的唯一数据源；`items.json` 同步。 |
+| 材料包 | 包价改为 期望材料价值÷0.8，杜绝买包套利；开出数量固定为 1个20% / 2个50% / 3个30%。 |
+| 丹方重构 | 为全部 215 种丹药补齐丹方；`pill_recipes.json` 为唯一丹方来源；丹药价=期望成本×1.5、丹方卷轴价=丹药价×10%；10 条旧“灵草”配方改为 灵植+品阶（地→玄、天→圣）。 |
+| 丹阁丹方 | 丹方阁每次随机刷新 10 个；新增 `/丹阁 突破丹方` 分区常驻全部突破丹方；回春散·凡方/聚灵散·凡方不再上架，创建角色即自动学会。 |
+| 已学丹方 | `/丹方` 改为图片卡片展示已学丹方（材料、成功率、可炼状态），失败自动降级为文本。 |
+| 符箓定价 | 34 张符图按 期望成本×1.35 统一重定价，成品符价格同步。 |
+| 拍卖 | 起拍价改为原价（`start_price_rate=1.0`，波动 0）；装备起拍价按统一估值计入品质与词条。 |
+| 统一估值 | 新增 `core/item_valuation.py`：基础价×品质倍率×(1+5%/词条)，回收 60%；回收与拍卖共用。 |
+| 工具脚本 | 新增 `scripts/generate_economy_baseline.py`（基准表生成/校验）、`scripts/rebuild_economy.py`（幂等重算材料/丹方/丹药/符箓价格）、`scripts/detect_price_anomalies.py`（装备价格全量异常检测）。 |
+| 功法技能 | 主修心法战斗化：5 元素各带一个主动技能（金破甲/木回春/水凝霜/火灼烧/土守御），第 2 回合自动释放；PvP 每场 1 次、PvE 每 6 回合可再放；固定蓝耗 500/4000/20000/100000。 |
+| 灵气资源 | 战斗每回合回蓝 10%、战报逐回合显示灵气；普攻不耗蓝、无法伤衰减；战斗结束 100% 真实扣蓝；调息恢复 5%→3%/分钟，建筑/装备回蓝增益同步重调。 |
+| 灵兽界面 | `/我的灵兽` 列出每只灵兽对主人的加成、机制效果（灼烧/护主/灵石/反哺）与全部灵兽的总加成，图片卡片同步展示。 |
+| 装备二期 | 新装备扩展到全部 12 品阶 × 8 槽位（含戒指2）× 4 职业倾向共 384 条，价格按《经济基准表》E(L)×劳动天数 定价，废弃 1.45^境界 指数价。 |
+| 版本同步 | 插件版本 v3.32.0，游戏版本 v6.48.0，数据库 v56；`/修仙帮助` 同步至 v6.48.0。 |
 
 </details>
 
-<details open>
-<summary><b>本次更新 · v6.47.2（丹药误入储物戒修复）</b></summary>
+<details>
+<summary><b>v6.47.2（丹药误入储物戒修复）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |

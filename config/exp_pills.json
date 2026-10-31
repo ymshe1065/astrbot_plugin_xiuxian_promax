@@ -7,7 +7,7 @@
         "subtype": "exp",
         "required_level_index": 0,
         "exp_gain": 500,
-        "price": 520,
+        "price": 390,
         "shop_weight": 1000
     },
     {
@@ -18,7 +18,7 @@
         "subtype": "exp",
         "required_level_index": 0,
         "exp_gain": 1000,
-        "price": 1100,
+        "price": 810,
         "shop_weight": 1000
     },
     {
@@ -29,7 +29,7 @@
         "subtype": "exp",
         "required_level_index": 0,
         "exp_gain": 1500,
-        "price": 1800,
+        "price": 1500,
         "shop_weight": 1000
     },
     {
@@ -40,7 +40,7 @@
         "subtype": "exp",
         "required_level_index": 3,
         "exp_gain": 2500,
-        "price": 3400,
+        "price": 3100,
         "shop_weight": 500
     },
     {
@@ -51,7 +51,7 @@
         "subtype": "exp",
         "required_level_index": 3,
         "exp_gain": 3500,
-        "price": 350,
+        "price": 7000,
         "shop_weight": 500
     },
     {
@@ -62,7 +62,7 @@
         "subtype": "exp",
         "required_level_index": 5,
         "exp_gain": 5000,
-        "price": 16000,
+        "price": 8200,
         "shop_weight": 500
     },
     {
@@ -73,7 +73,7 @@
         "subtype": "exp",
         "required_level_index": 7,
         "exp_gain": 8000,
-        "price": 800,
+        "price": 9400,
         "shop_weight": 500
     },
     {
@@ -84,7 +84,7 @@
         "subtype": "exp",
         "required_level_index": 10,
         "exp_gain": 12000,
-        "price": 1200,
+        "price": 13000,
         "shop_weight": 200
     },
     {
@@ -95,7 +95,7 @@
         "subtype": "exp",
         "required_level_index": 10,
         "exp_gain": 18000,
-        "price": 1800,
+        "price": 13000,
         "shop_weight": 200
     },
     {
@@ -106,7 +106,7 @@
         "subtype": "exp",
         "required_level_index": 12,
         "exp_gain": 25000,
-        "price": 2500,
+        "price": 13000,
         "shop_weight": 200
     },
     {
@@ -117,7 +117,7 @@
         "subtype": "exp",
         "required_level_index": 13,
         "exp_gain": 35000,
-        "price": 3500,
+        "price": 207000,
         "shop_weight": 100
     },
     {
@@ -128,7 +128,7 @@
         "subtype": "exp",
         "required_level_index": 13,
         "exp_gain": 50000,
-        "price": 5000,
+        "price": 207000,
         "shop_weight": 100
     },
     {
@@ -139,7 +139,7 @@
         "subtype": "exp",
         "required_level_index": 15,
         "exp_gain": 70000,
-        "price": 7000,
+        "price": 207000,
         "shop_weight": 100
     },
     {
@@ -150,7 +150,7 @@
         "subtype": "exp",
         "required_level_index": 16,
         "exp_gain": 100000,
-        "price": 10000,
+        "price": 207000,
         "shop_weight": 100
     },
     {
@@ -161,7 +161,7 @@
         "subtype": "exp",
         "required_level_index": 16,
         "exp_gain": 150000,
-        "price": 15000,
+        "price": 257000,
         "shop_weight": 50
     },
     {
@@ -172,7 +172,7 @@
         "subtype": "exp",
         "required_level_index": 18,
         "exp_gain": 220000,
-        "price": 22000,
+        "price": 257000,
         "shop_weight": 50
     },
     {
@@ -183,7 +183,7 @@
         "subtype": "exp",
         "required_level_index": 19,
         "exp_gain": 300000,
-        "price": 30000,
+        "price": 257000,
         "shop_weight": 50
     },
     {
@@ -194,7 +194,7 @@
         "subtype": "exp",
         "required_level_index": 22,
         "exp_gain": 450000,
-        "price": 45000,
+        "price": 379000,
         "shop_weight": 20
     },
     {
@@ -205,7 +205,7 @@
         "subtype": "exp",
         "required_level_index": 22,
         "exp_gain": 650000,
-        "price": 65000,
+        "price": 379000,
         "shop_weight": 20
     },
     {
@@ -216,7 +216,7 @@
         "subtype": "exp",
         "required_level_index": 24,
         "exp_gain": 900000,
-        "price": 90000,
+        "price": 379000,
         "shop_weight": 20
     },
     {
@@ -227,7 +227,7 @@
         "subtype": "exp",
         "required_level_index": 25,
         "exp_gain": 1300000,
-        "price": 130000,
+        "price": 562000,
         "shop_weight": 10
     },
     {
@@ -238,7 +238,7 @@
         "subtype": "exp",
         "required_level_index": 27,
         "exp_gain": 1800000,
-        "price": 180000,
+        "price": 562000,
         "shop_weight": 10
     },
     {
@@ -249,7 +249,7 @@
         "subtype": "exp",
         "required_level_index": 28,
         "exp_gain": 2500000,
-        "price": 250000,
+        "price": 562000,
         "shop_weight": 10
     },
     {
@@ -260,7 +260,7 @@
         "subtype": "exp",
         "required_level_index": 31,
         "exp_gain": 3500000,
-        "price": 350000,
+        "price": 832000,
         "shop_weight": 5
     },
     {
@@ -271,7 +271,7 @@
         "subtype": "exp",
         "required_level_index": 32,
         "exp_gain": 5000000,
-        "price": 500000,
+        "price": 832000,
         "shop_weight": 5
     },
     {
@@ -282,7 +282,7 @@
         "subtype": "exp",
         "required_level_index": 33,
         "exp_gain": 7000000,
-        "price": 700000,
+        "price": 832000,
         "shop_weight": 5
     },
     {
@@ -293,7 +293,7 @@
         "subtype": "exp",
         "required_level_index": 34,
         "exp_gain": 10000000,
-        "price": 1000000,
+        "price": 832000,
         "shop_weight": 5
     },
     {
@@ -304,7 +304,7 @@
         "subtype": "exp",
         "required_level_index": 35,
         "exp_gain": 15000000,
-        "price": 1500000,
+        "price": 1170000,
         "shop_weight": 1
     },
     {
@@ -315,7 +315,7 @@
         "subtype": "exp",
         "required_level_index": 35,
         "exp_gain": 22000000,
-        "price": 2200000,
+        "price": 1170000,
         "shop_weight": 1
     },
     {
@@ -326,7 +326,7 @@
         "subtype": "exp",
         "required_level_index": 35,
         "exp_gain": 30000000,
-        "price": 3000000,
+        "price": 1170000,
         "shop_weight": 1
     }
 ]

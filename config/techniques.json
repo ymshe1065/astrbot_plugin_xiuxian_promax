@@ -14,7 +14,17 @@
     "drop_weight": 20,
     "price": 30000,
     "volume": 1,
-    "stock_cap": 1
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "裂金破甲斩",
+      "trigger_round": 2,
+      "mp_cost": 500,
+      "type": "pierce",
+      "value": 0.2,
+      "target": "enemy",
+      "extra_damage": 0.5,
+      "description": "无视对方20%物防，并追加0.5倍攻击伤害。"
+    }
   },
   "太白裂空剑典": {
     "name": "太白裂空剑典",
@@ -31,7 +41,17 @@
     "drop_weight": 10,
     "price": 150000,
     "volume": 1,
-    "stock_cap": 1
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "裂金破甲斩",
+      "trigger_round": 2,
+      "mp_cost": 4000,
+      "type": "pierce",
+      "value": 0.3,
+      "target": "enemy",
+      "extra_damage": 0.7,
+      "description": "无视对方30%物防，并追加0.7倍攻击伤害。"
+    }
   },
   "白虎杀伐真经": {
     "name": "白虎杀伐真经",
@@ -48,7 +68,17 @@
     "drop_weight": 4,
     "price": 600000,
     "volume": 1,
-    "stock_cap": 1
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "裂金破甲斩",
+      "trigger_round": 2,
+      "mp_cost": 20000,
+      "type": "pierce",
+      "value": 0.4,
+      "target": "enemy",
+      "extra_damage": 0.9,
+      "description": "无视对方40%物防，并追加0.9倍攻击伤害。"
+    }
   },
   "诛仙戮神金章": {
     "name": "诛仙戮神金章",
@@ -65,7 +95,17 @@
     "drop_weight": 1,
     "price": 2500000,
     "volume": 1,
-    "stock_cap": 1
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "裂金破甲斩",
+      "trigger_round": 2,
+      "mp_cost": 100000,
+      "type": "pierce",
+      "value": 0.5,
+      "target": "enemy",
+      "extra_damage": 1.2,
+      "description": "无视对方50%物防，并追加1.2倍攻击伤害。"
+    }
   },
   "青木回春诀": {
     "name": "青木回春诀",
@@ -82,7 +122,16 @@
     "drop_weight": 20,
     "price": 30000,
     "volume": 1,
-    "stock_cap": 1
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "青木回春",
+      "trigger_round": 2,
+      "mp_cost": 500,
+      "type": "heal",
+      "value": 0.15,
+      "target": "enemy",
+      "description": "恢复15%已损失气血，溢出50%转护体。"
+    }
   },
   "万木长生经": {
     "name": "万木长生经",
@@ -99,7 +148,16 @@
     "drop_weight": 10,
     "price": 150000,
     "volume": 1,
-    "stock_cap": 1
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "青木回春",
+      "trigger_round": 2,
+      "mp_cost": 4000,
+      "type": "heal",
+      "value": 0.2,
+      "target": "enemy",
+      "description": "恢复20%已损失气血，溢出50%转护体。"
+    }
   },
   "青龙不死玄功": {
     "name": "青龙不死玄功",
@@ -116,7 +174,16 @@
     "drop_weight": 4,
     "price": 600000,
     "volume": 1,
-    "stock_cap": 1
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "青木回春",
+      "trigger_round": 2,
+      "mp_cost": 20000,
+      "type": "heal",
+      "value": 0.25,
+      "target": "enemy",
+      "description": "恢复25%已损失气血，溢出50%转护体。"
+    }
   },
   "建木通天录": {
     "name": "建木通天录",
@@ -133,7 +200,16 @@
     "drop_weight": 1,
     "price": 2500000,
     "volume": 1,
-    "stock_cap": 1
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "青木回春",
+      "trigger_round": 2,
+      "mp_cost": 100000,
+      "type": "heal",
+      "value": 0.3,
+      "target": "enemy",
+      "description": "恢复30%已损失气血，溢出50%转护体。"
+    }
   },
   "寒潭凝息诀": {
     "name": "寒潭凝息诀",
@@ -150,7 +226,16 @@
     "drop_weight": 20,
     "price": 30000,
     "volume": 1,
-    "stock_cap": 1
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "玄冰凝霜",
+      "trigger_round": 2,
+      "mp_cost": 500,
+      "type": "freeze",
+      "value": 0.5,
+      "target": "enemy",
+      "description": "对方下回合行动概率降至50%。"
+    }
   },
   "玄水化元经": {
     "name": "玄水化元经",
@@ -167,7 +252,16 @@
     "drop_weight": 10,
     "price": 150000,
     "volume": 1,
-    "stock_cap": 1
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "玄冰凝霜",
+      "trigger_round": 2,
+      "mp_cost": 4000,
+      "type": "freeze",
+      "value": 0.4,
+      "target": "enemy",
+      "description": "对方下回合行动概率降至40%。"
+    }
   },
   "北冥归墟真解": {
     "name": "北冥归墟真解",
@@ -184,7 +278,16 @@
     "drop_weight": 4,
     "price": 600000,
     "volume": 1,
-    "stock_cap": 1
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "玄冰凝霜",
+      "trigger_round": 2,
+      "mp_cost": 20000,
+      "type": "freeze",
+      "value": 0.3,
+      "target": "enemy",
+      "description": "对方下回合行动概率降至30%。"
+    }
   },
   "上善若水天章": {
     "name": "上善若水天章",
@@ -201,7 +304,16 @@
     "drop_weight": 1,
     "price": 2500000,
     "volume": 1,
-    "stock_cap": 1
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "玄冰凝霜",
+      "trigger_round": 2,
+      "mp_cost": 100000,
+      "type": "freeze",
+      "value": 0.2,
+      "target": "enemy",
+      "description": "对方下回合行动概率降至20%。"
+    }
   },
   "赤炎焚脉诀": {
     "name": "赤炎焚脉诀",
@@ -219,7 +331,16 @@
     "drop_weight": 20,
     "price": 30000,
     "volume": 1,
-    "stock_cap": 1
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "离火燎原",
+      "trigger_round": 2,
+      "mp_cost": 500,
+      "type": "burn",
+      "value": 0.02,
+      "target": "enemy",
+      "description": "灼烧3回合，每回合损失2%气血，并引爆已有灼烧。"
+    }
   },
   "离火燃天经": {
     "name": "离火燃天经",
@@ -237,7 +358,16 @@
     "drop_weight": 10,
     "price": 150000,
     "volume": 1,
-    "stock_cap": 1
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "离火燎原",
+      "trigger_round": 2,
+      "mp_cost": 4000,
+      "type": "burn",
+      "value": 0.03,
+      "target": "enemy",
+      "description": "灼烧3回合，每回合损失3%气血，并引爆已有灼烧。"
+    }
   },
   "朱雀涅槃真经": {
     "name": "朱雀涅槃真经",
@@ -255,7 +385,16 @@
     "drop_weight": 4,
     "price": 600000,
     "volume": 1,
-    "stock_cap": 1
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "离火燎原",
+      "trigger_round": 2,
+      "mp_cost": 20000,
+      "type": "burn",
+      "value": 0.04,
+      "target": "enemy",
+      "description": "灼烧3回合，每回合损失4%气血，并引爆已有灼烧。"
+    }
   },
   "焚世红莲天典": {
     "name": "焚世红莲天典",
@@ -273,7 +412,16 @@
     "drop_weight": 1,
     "price": 2500000,
     "volume": 1,
-    "stock_cap": 1
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "离火燎原",
+      "trigger_round": 2,
+      "mp_cost": 100000,
+      "type": "burn",
+      "value": 0.05,
+      "target": "enemy",
+      "description": "灼烧3回合，每回合损失5%气血，并引爆已有灼烧。"
+    }
   },
   "厚土镇岳诀": {
     "name": "厚土镇岳诀",
@@ -290,7 +438,16 @@
     "drop_weight": 20,
     "price": 30000,
     "volume": 1,
-    "stock_cap": 1
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "不动明王",
+      "trigger_round": 2,
+      "mp_cost": 500,
+      "type": "guard",
+      "value": 0.2,
+      "target": "enemy",
+      "description": "本回合与下回合减伤20%，并将10%防御转为攻击。"
+    }
   },
   "坤元不坏经": {
     "name": "坤元不坏经",
@@ -307,7 +464,16 @@
     "drop_weight": 10,
     "price": 150000,
     "volume": 1,
-    "stock_cap": 1
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "不动明王",
+      "trigger_round": 2,
+      "mp_cost": 4000,
+      "type": "guard",
+      "value": 0.27,
+      "target": "enemy",
+      "description": "本回合与下回合减伤27%，并将10%防御转为攻击。"
+    }
   },
   "金刚不坏体": {
     "name": "金刚不坏体",
@@ -324,7 +490,16 @@
     "drop_weight": 4,
     "price": 600000,
     "volume": 1,
-    "stock_cap": 1
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "不动明王",
+      "trigger_round": 2,
+      "mp_cost": 20000,
+      "type": "guard",
+      "value": 0.33,
+      "target": "enemy",
+      "description": "本回合与下回合减伤33%，并将10%防御转为攻击。"
+    }
   },
   "山河社稷天章": {
     "name": "山河社稷天章",
@@ -341,7 +516,16 @@
     "drop_weight": 1,
     "price": 2500000,
     "volume": 1,
-    "stock_cap": 1
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "不动明王",
+      "trigger_round": 2,
+      "mp_cost": 100000,
+      "type": "guard",
+      "value": 0.4,
+      "target": "enemy",
+      "description": "本回合与下回合减伤40%，并将10%防御转为攻击。"
+    }
   },
   "凡品功法：基础剑诀": {
     "name": "凡品功法：基础剑诀",

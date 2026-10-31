@@ -25,8 +25,23 @@ class EscortManager:
     ESCORT_EXP_BASE = 1000          # 押镖修为基础值（每趟 30 分钟）
     ESCORT_EXP_PER_LEVEL = 100      # 每级境界追加修为
     ESCORT_EXP_RANDOM = 100         # 修为随机浮动上限
-    ESCORT_GOLD_BASE = 4000         # 镖银基础值
-    ESCORT_GOLD_PER_LEVEL = 1500    # 每级境界追加镖银
+    ESCORT_GOLD_BASE = 9000         # 基准镖银（境界等级3，大境界台阶 ×1.0）
+    ESCORT_GOLD_RANDOM = 500        # 镖银对称浮动 ±500
+    # 方案A：大境界台阶曲线。境界等级 -> 镖银倍率，区间内线性插值，
+    # 全游戏约 45 倍增长；押镖收入是经济基准，改动必须同步 docs/经济基准表.md。
+    ESCORT_REALM_MULTIPLIERS = {
+        3: 1.0,    # 炼气
+        10: 1.6,   # 筑基
+        13: 2.5,   # 金丹
+        16: 4.0,   # 元婴
+        19: 6.5,   # 化神
+        22: 10.0,  # 炼虚
+        25: 16.0,  # 合体
+        28: 25.0,  # 大乘
+        31: 36.0,  # 渡劫
+        34: 44.0,  # 地仙
+        35: 45.0,  # 混元先天
+    }
     ESCORT_COMPANION_CAP = 0.08     # 绯烟押镖加成上限，防止旧数据超发
     ROB_ITEM = "迷神香"             # 劫镖消耗道具
     ROB_WIN_CUT = 0.3               # 劫镖基础分成 30%
@@ -95,6 +110,28 @@ class EscortManager:
             + random.randint(0, self.ESCORT_EXP_RANDOM),
         )
 
+    @classmethod
+    def calculate_escort_gold_base(cls, level_index: int) -> int:
+        """方案A基准镖银：大境界台阶 × 基础镖银，区间内线性插值，取整到 500。
+
+        名义值，不含劫镖期望损失（劫镖是转移项，不进入经济基准）。
+        """
+        points = sorted(cls.ESCORT_REALM_MULTIPLIERS.items())
+        low_level, low_mult = points[0]
+        high_level, high_mult = points[-1]
+        if level_index <= low_level:
+            mult = low_mult
+        elif level_index >= high_level:
+            mult = high_mult
+        else:
+            mult = low_mult
+            for (left_level, left_mult), (right_level, right_mult) in zip(points, points[1:]):
+                if left_level <= level_index <= right_level:
+                    span = max(1, right_level - left_level)
+                    mult = left_mult + (right_mult - left_mult) * (level_index - left_level) / span
+                    break
+        return int(round(cls.ESCORT_GOLD_BASE * mult / 500.0)) * 500
+
     async def start_escort(self, player: Player) -> Tuple[bool, str, Dict]:
         """接镖：进入押镖状态，期间奖励随时间增长，但可被劫"""
         user_id = player.user_id
@@ -110,12 +147,12 @@ class EscortManager:
             return False, f"❌ 你当前正{UserStatus.get_name(user_cd.type)}，无法押镖！", {}
 
         # 镖银与修为按境界浮动（v6.36.22 定位分离：镖银为主收益，修为仅作附带）
-        # 绯烟（押镖仙灵）只加镖银，不再连带放大修为
-        base = self.ESCORT_GOLD_BASE + player.level_index * self.ESCORT_GOLD_PER_LEVEL
+        # 方案A：镖银按大境界台阶曲线；绯烟（押镖仙灵）只加镖银，不再连带放大修为
+        base = self.calculate_escort_gold_base(player.level_index)
         escort_bonus = await self._companion_bonus(user_id, "escort")
         if escort_bonus > 0:
             base = int(base * (1 + min(escort_bonus, self.ESCORT_COMPANION_CAP)))
-        escort_gold = base + random.randint(-500, 1500)
+        escort_gold = base + random.randint(-self.ESCORT_GOLD_RANDOM, self.ESCORT_GOLD_RANDOM)
         escort_exp = self.calculate_escort_exp(player.level_index)
 
         now = int(time.time())

@@ -115,11 +115,11 @@ class TestEscortStartReward(unittest.IsolatedAsyncioTestCase):
         ok, _, rewards = await manager.start_escort(player)
         self.assertTrue(ok)
 
-        # 元婴初期：修为 2600~2700；镖银仍为 4000+1500×16 附近
+        # 元婴期（境界16）：修为 2600~2700；方案A镖银 9000×4.0=36000 ±500
         self.assertGreaterEqual(rewards["exp"], 2600)
         self.assertLessEqual(rewards["exp"], 2700)
-        self.assertGreaterEqual(rewards["gold"], 27000)
-        self.assertLessEqual(rewards["gold"], 30000)
+        self.assertGreaterEqual(rewards["gold"], 35500)
+        self.assertLessEqual(rewards["gold"], 36500)
 
         cd = await self.db.ext.get_user_cd("u1")
         extra = cd.get_extra_data()

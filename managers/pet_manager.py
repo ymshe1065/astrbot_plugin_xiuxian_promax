@@ -1153,6 +1153,56 @@ class PetManager:
 
         return effects
 
+    PET_MECHANIC_LABELS = {
+        "burn": "攻击附带灼烧",
+        "shield": "替主人承伤并增加防御",
+        "gold": "提升灵石收益",
+        "dragon": "全属性反哺·协战回血",
+    }
+    PET_EFFECT_LABELS = {
+        "crit_rate": "暴击率", "defense_bonus": "防御",
+        "counter_damage": "反伤", "lifesteal": "吸血",
+    }
+
+    def describe_pet_mechanic(self, pet: Optional[Dict]) -> str:
+        """灵兽机制说明（协战/护主/生活等）。"""
+        if not pet:
+            return "无"
+        try:
+            info = self.get_pet_info_for_level(pet.get("pet_type"), int(pet.get("level") or 1))
+            return self.PET_MECHANIC_LABELS.get(info.get("mechanic") or "", info.get("desc") or "无")
+        except Exception:
+            return "无"
+
+    def describe_pet_bonus(self, pet: Optional[Dict]) -> str:
+        """单只灵兽对主人的加成文本；复活中返回暂停说明。"""
+        if not pet:
+            return "无"
+        if int(pet.get("dead_until") or 0) > int(time.time()):
+            return "复活中（加成暂停）"
+        parts = []
+        for key, value in self.get_pet_combat_effects(pet).items():
+            label = self.PET_EFFECT_LABELS.get(key, key)
+            parts.append(f"{label}+{value:g}")
+        gold = self.get_gold_bonus(pet)
+        if gold > 0:
+            parts.append(f"灵石收益+{gold:.1%}")
+        return "，".join(parts) if parts else "无"
+
+    def aggregate_pet_bonuses(self, pets: Optional[List[Dict]]) -> dict:
+        """统计全部存活灵兽对主人的加成合计（战斗+生活）。"""
+        totals = {}
+        now = int(time.time())
+        for pet in pets or []:
+            if not pet or int(pet.get("dead_until") or 0) > now:
+                continue
+            for key, value in self.get_pet_combat_effects(pet).items():
+                totals[key] = float(totals.get(key, 0.0)) + float(value or 0)
+            gold = self.get_gold_bonus(pet)
+            if gold > 0:
+                totals["gold_bonus"] = float(totals.get("gold_bonus", 0.0)) + gold
+        return totals
+
     def get_life_bonus_from_pets(self, pets: Optional[List[Dict]], attr: str = "gold_bonus") -> float:
         """统计所有存活灵兽的生活类加成，同类效果按每只灵兽累加。"""
         total = 0.0

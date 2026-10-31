@@ -11,9 +11,26 @@ class AlchemyHandlers:
         self.alchemy_mgr = alchemy_mgr
 
     async def handle_recipes(self, event: AstrMessageEvent):
-        """丹药配方"""
+        """已学丹药配方（图片卡片展示，失败降级为文本）"""
         user_id = event.get_sender_id()
-        success, msg = await self.alchemy_mgr.get_available_recipes(user_id)
+        success, msg, rows = await self.alchemy_mgr.get_available_recipes(user_id)
+        player = await self.db.get_player_by_id(user_id)
+        display_name = (player.user_name if player else "") or user_id or "道友"
+        try:
+            from ..utils.image_generator import render_card_async, card_enabled
+            if rows and card_enabled("CARD_ALCHEMY"):
+                card_path = await render_card_async(
+                    "craft",
+                    f"{display_name} 的已学丹方",
+                    f"共 {len(rows)} 个配方",
+                    sections=[{"name": "已学丹方", "rows": rows}],
+                    footer="💡 /学习丹方 <ID或名称> · /炼丹 <ID> 炼制",
+                )
+                if card_path:
+                    yield event.image_result(card_path)
+                    return
+        except Exception:
+            pass
         yield event.plain_result(msg)
 
     async def handle_learn_recipe(self, event: AstrMessageEvent, identifier: str):

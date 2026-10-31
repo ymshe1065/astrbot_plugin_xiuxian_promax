@@ -90,7 +90,7 @@ class TestShopStockAndRankBand(unittest.TestCase):
         by_name = {r["name"]: r for r in recipes if r["rare"]}
         self.assertGreater(
             self.shop._pick_weight(by_name["《回春散·天方》"], "rare"),
-            self.shop._pick_weight(by_name["《回春散·凡方》"], "rare"),
+            self.shop._pick_weight(by_name["《炼气丹方》"], "rare"),
         )
 
 

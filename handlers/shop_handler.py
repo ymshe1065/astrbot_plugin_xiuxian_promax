@@ -84,12 +84,12 @@ class ShopHandler:
         return self._last_viewed_pavilion.get(self._sender_key(event), "")
 
     def _rare_recipe_count(self) -> int:
-        """丹方阁每次随机刷新的稀有丹方数量（突破丹方常驻，不占此名额）。"""
-        raw = self._cfg("PAVILION_RARE_RECIPE_COUNT", self._cfg("PAVILION_RECIPE_COUNT", 6))
+        """丹方阁每次随机刷新的丹方数量（突破丹方与初始已学丹方不占此名额）。"""
+        raw = self._cfg("PAVILION_RARE_RECIPE_COUNT", self._cfg("PAVILION_RECIPE_COUNT", 10))
         try:
             return max(0, int(raw))
         except (TypeError, ValueError):
-            return 6
+            return 10
 
     async def _ensure_pavilion_refreshed(self, pavilion_id: str, item_getter, count: int,
                                          apply_rank_band: bool = False, pick_mode: str = "") -> None:
@@ -128,6 +128,7 @@ class ShopHandler:
         jobs = [
             ("pill_pavilion", "丹阁", self.shop_manager.get_pills_for_display, self._cfg("PAVILION_PILL_COUNT", 20), ""),
             ("recipe_pavilion", "丹方阁", self.shop_manager.get_recipes_for_display, self._rare_recipe_count(), "rare"),
+            ("breakthrough_recipe_pavilion", "突破丹方", self.shop_manager.get_breakthrough_recipes_for_display, 0, ""),
             ("material_pavilion", "材料阁", self.shop_manager.get_materials_for_display, self._cfg("PAVILION_MATERIAL_COUNT", 20), ""),
             ("weapon_pavilion", "器阁", self.shop_manager.get_weapons_for_display, self._cfg("PAVILION_WEAPON_COUNT", 40), "common"),
             ("treasure_pavilion", "百宝阁", self.shop_manager.get_treasure_items_for_display, self._cfg("PAVILION_TREASURE_COUNT", 12), "rare"),
@@ -177,6 +178,7 @@ class ShopHandler:
         jobs = {
             "丹药": ("pill_pavilion", "丹阁", self.shop_manager.get_pills_for_display, self._cfg("PAVILION_PILL_COUNT", 20), ""),
             "丹方": ("recipe_pavilion", "丹方阁", self.shop_manager.get_recipes_for_display, self._rare_recipe_count(), "rare"),
+            "突破丹方": ("breakthrough_recipe_pavilion", "突破丹方", self.shop_manager.get_breakthrough_recipes_for_display, 0, ""),
             "材料": ("material_pavilion", "材料阁", self.shop_manager.get_materials_for_display, self._cfg("PAVILION_MATERIAL_COUNT", 20), ""),
         }
         if not section:
@@ -184,14 +186,15 @@ class ShopHandler:
                 "🏯 丹阁分区\n"
                 "━━━━━━━━━━━━━━━\n"
                 "  · /丹阁 丹药：成品丹药\n"
-                "  · /丹阁 丹方：可购买学习的丹方卷轴\n"
+                "  · /丹阁 丹方：随机刷新的丹方卷轴（每刷 10 个）\n"
+                "  · /丹阁 突破丹方：全部突破丹方（常驻）\n"
                 "  · /丹阁 材料：炼丹材料\n"
                 "━━━━━━━━━━━━━━━\n"
                 "💡 购买使用 /购买 <物品名> [数量]"
             )
             return
         if section not in jobs:
-            yield event.plain_result("❌ 丹阁分区只有：丹药、丹方、材料。")
+            yield event.plain_result("❌ 丹阁分区只有：丹药、丹方、突破丹方、材料。")
             return
         pavilion_id, name, getter, count, pick_mode = jobs[section]
         await self._ensure_pavilion_refreshed(pavilion_id, getter, count, pick_mode=pick_mode)

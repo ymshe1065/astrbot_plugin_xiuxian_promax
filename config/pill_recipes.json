@@ -13,7 +13,7 @@
                 "count": 2
             }
         ],
-        "price": 25,
+        "price": 50,
         "shop_weight": 1000,
         "desc": "记载炼气丹炼制方法的丹方。"
     },
@@ -31,7 +31,7 @@
                 "count": 3
             }
         ],
-        "price": 50,
+        "price": 80,
         "shop_weight": 800,
         "desc": "记载聚灵丹炼制方法的丹方。"
     },
@@ -49,7 +49,7 @@
                 "count": 4
             }
         ],
-        "price": 75,
+        "price": 150,
         "shop_weight": 600,
         "desc": "记载凝气丹炼制方法的丹方。"
     },
@@ -72,7 +72,7 @@
                 "count": 1
             }
         ],
-        "price": 125,
+        "price": 310,
         "shop_weight": 400,
         "desc": "记载培元丹炼制方法的丹方。"
     },
@@ -95,7 +95,7 @@
                 "count": 1
             }
         ],
-        "price": 250,
+        "price": 820,
         "shop_weight": 200,
         "desc": "记载玄灵丹炼制方法的丹方。"
     },
@@ -118,7 +118,7 @@
                 "count": 2
             }
         ],
-        "price": 500,
+        "price": 3700,
         "shop_weight": 150,
         "desc": "记载造化丹炼制方法的丹方。"
     },
@@ -141,7 +141,7 @@
                 "count": 2
             }
         ],
-        "price": 2500,
+        "price": 590,
         "shop_weight": 135,
         "desc": "记载筑基丹炼制方法的丹方。"
     },
@@ -164,7 +164,7 @@
                 "count": 2
             }
         ],
-        "price": 4000,
+        "price": 640,
         "shop_weight": 130,
         "desc": "记载固基丹·中炼制方法的丹方。"
     },
@@ -187,7 +187,7 @@
                 "count": 2
             }
         ],
-        "price": 6000,
+        "price": 670,
         "shop_weight": 125,
         "desc": "记载固基丹·后炼制方法的丹方。"
     },
@@ -215,7 +215,7 @@
                 "count": 1
             }
         ],
-        "price": 7500,
+        "price": 1100,
         "shop_weight": 120,
         "desc": "记载结丹丹炼制方法的丹方。"
     },
@@ -243,7 +243,7 @@
                 "count": 1
             }
         ],
-        "price": 12500,
+        "price": 1110,
         "shop_weight": 115,
         "desc": "记载温丹丹·中炼制方法的丹方。"
     },
@@ -271,7 +271,7 @@
                 "count": 1
             }
         ],
-        "price": 20000,
+        "price": 1200,
         "shop_weight": 110,
         "desc": "记载温丹丹·后炼制方法的丹方。"
     },
@@ -299,7 +299,7 @@
                 "count": 1
             }
         ],
-        "price": 25000,
+        "price": 1800,
         "shop_weight": 105,
         "desc": "记载凝婴丹炼制方法的丹方。"
     },
@@ -327,7 +327,7 @@
                 "count": 1
             }
         ],
-        "price": 40000,
+        "price": 1900,
         "shop_weight": 100,
         "desc": "记载养婴丹·中炼制方法的丹方。"
     },
@@ -355,7 +355,7 @@
                 "count": 1
             }
         ],
-        "price": 75000,
+        "price": 1910,
         "shop_weight": 95,
         "desc": "记载养婴丹·后炼制方法的丹方。"
     },
@@ -387,7 +387,7 @@
                 "count": 1
             }
         ],
-        "price": 100000,
+        "price": 6000,
         "shop_weight": 90,
         "desc": "记载化神丹炼制方法的丹方。"
     },
@@ -415,7 +415,7 @@
                 "count": 1
             }
         ],
-        "price": 175000,
+        "price": 6010,
         "shop_weight": 85,
         "desc": "记载温神丹·中炼制方法的丹方。"
     },
@@ -443,7 +443,7 @@
                 "count": 1
             }
         ],
-        "price": 300000,
+        "price": 6020,
         "shop_weight": 80,
         "desc": "记载温神丹·后炼制方法的丹方。"
     },
@@ -475,7 +475,7 @@
                 "count": 1
             }
         ],
-        "price": 400000,
+        "price": 50600,
         "shop_weight": 75,
         "desc": "记载炼虚丹炼制方法的丹方。"
     },
@@ -503,7 +503,7 @@
                 "count": 1
             }
         ],
-        "price": 750000,
+        "price": 50610,
         "shop_weight": 70,
         "desc": "记载破虚丹·中炼制方法的丹方。"
     },
@@ -531,7 +531,7 @@
                 "count": 1
             }
         ],
-        "price": 1250000,
+        "price": 50620,
         "shop_weight": 65,
         "desc": "记载破虚丹·后炼制方法的丹方。"
     },
@@ -564,7 +564,7 @@
                 "count": 1
             }
         ],
-        "price": 1500000,
+        "price": 92000,
         "shop_weight": 60,
         "desc": "记载合体丹炼制方法的丹方。"
     },
@@ -597,7 +597,7 @@
                 "count": 1
             }
         ],
-        "price": 2500000,
+        "price": 92010,
         "shop_weight": 55,
         "desc": "记载融合丹·中炼制方法的丹方。"
     },
@@ -630,7 +630,7 @@
                 "count": 1
             }
         ],
-        "price": 4000000,
+        "price": 93600,
         "shop_weight": 50,
         "desc": "记载融合丹·后炼制方法的丹方。"
     },
@@ -663,7 +663,7 @@
                 "count": 1
             }
         ],
-        "price": 5000000,
+        "price": 93700,
         "shop_weight": 45,
         "desc": "记载大乘丹炼制方法的丹方。"
     },
@@ -696,7 +696,7 @@
                 "count": 1
             }
         ],
-        "price": 10000000,
+        "price": 95300,
         "shop_weight": 40,
         "desc": "记载悟道丹·中炼制方法的丹方。"
     },
@@ -729,7 +729,7 @@
                 "count": 1
             }
         ],
-        "price": 17500000,
+        "price": 95400,
         "shop_weight": 35,
         "desc": "记载悟道丹·后炼制方法的丹方。"
     },
@@ -766,7 +766,7 @@
                 "count": 1
             }
         ],
-        "price": 25000000,
+        "price": 102000,
         "shop_weight": 30,
         "desc": "记载渡劫丹炼制方法的丹方。"
     },
@@ -799,7 +799,7 @@
                 "count": 1
             }
         ],
-        "price": 100000000,
+        "price": 102010,
         "shop_weight": 25,
         "desc": "记载地仙丹炼制方法的丹方。"
     },
@@ -832,7 +832,7 @@
                 "count": 1
             }
         ],
-        "price": 400000000,
+        "price": 102020,
         "shop_weight": 20,
         "desc": "记载天仙丹炼制方法的丹方。"
     },
@@ -865,7 +865,7 @@
                 "count": 1
             }
         ],
-        "price": 1500000000,
+        "price": 102030,
         "shop_weight": 15,
         "desc": "记载大罗金仙丹炼制方法的丹方。"
     },
@@ -898,7 +898,7 @@
                 "count": 1
             }
         ],
-        "price": 5000000000,
+        "price": 102040,
         "shop_weight": 10,
         "desc": "记载混元丹炼制方法的丹方。"
     },
@@ -907,129 +907,4023 @@
         "name": "回春散·凡方",
         "output_pill": "回春散·凡",
         "level_required": 0,
-        "materials": {
-            "灵草": 1,
-            "灵石": 100
-        },
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
         "success_rate": 80,
         "desc": "记载回春散·凡炼制方法的丹方。",
-        "price": 500
+        "price": 50,
+        "gold_cost": 100
     },
     {
         "id": 131,
         "name": "聚灵散·凡方",
         "output_pill": "聚灵散·凡",
         "level_required": 0,
-        "materials": {
-            "灵草": 1,
-            "灵石": 100
-        },
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
         "success_rate": 80,
         "desc": "记载聚灵散·凡炼制方法的丹方。",
-        "price": 500
+        "price": 50,
+        "gold_cost": 100
     },
     {
         "id": 132,
         "name": "回春散·黄方",
         "output_pill": "回春散·黄",
         "level_required": 3,
-        "materials": {
-            "灵草": 6,
-            "灵石": 300
-        },
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
         "success_rate": 71,
         "desc": "记载回春散·黄炼制方法的丹方。",
-        "price": 1500
+        "price": 50,
+        "gold_cost": 100
     },
     {
         "id": 133,
         "name": "聚灵散·黄方",
         "output_pill": "聚灵散·黄",
         "level_required": 3,
-        "materials": {
-            "灵草": 6,
-            "灵石": 300
-        },
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 1
+            }
+        ],
         "success_rate": 71,
         "desc": "记载聚灵散·黄炼制方法的丹方。",
-        "price": 1500
+        "price": 50,
+        "gold_cost": 100
     },
     {
         "id": 134,
         "name": "回春散·玄方",
         "output_pill": "回春散·玄",
         "level_required": 6,
-        "materials": {
-            "灵草": 12,
-            "灵石": 1000
-        },
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 2
+            }
+        ],
         "success_rate": 62,
         "desc": "记载回春散·玄炼制方法的丹方。",
-        "price": 5000
+        "price": 260,
+        "gold_cost": 500
     },
     {
         "id": 135,
         "name": "聚灵散·玄方",
         "output_pill": "聚灵散·玄",
         "level_required": 6,
-        "materials": {
-            "灵草": 12,
-            "灵石": 1000
-        },
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "黄品",
+                "count": 2
+            }
+        ],
         "success_rate": 62,
         "desc": "记载聚灵散·玄炼制方法的丹方。",
-        "price": 5000
+        "price": 260,
+        "gold_cost": 500
     },
     {
         "id": 136,
         "name": "回春散·地方",
         "output_pill": "回春散·地",
         "level_required": 9,
-        "materials": {
-            "灵草": 18,
-            "灵石": 5000
-        },
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
         "success_rate": 53,
         "desc": "记载回春散·地炼制方法的丹方。",
-        "price": 25000
+        "price": 330,
+        "gold_cost": 500
     },
     {
         "id": 137,
         "name": "聚灵散·地方",
         "output_pill": "聚灵散·地",
         "level_required": 9,
-        "materials": {
-            "灵草": 18,
-            "灵石": 5000
-        },
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 1
+            }
+        ],
         "success_rate": 53,
         "desc": "记载聚灵散·地炼制方法的丹方。",
-        "price": 25000
+        "price": 330,
+        "gold_cost": 500
     },
     {
         "id": 138,
         "name": "回春散·天方",
         "output_pill": "回春散·天",
         "level_required": 12,
-        "materials": {
-            "灵草": 24,
-            "灵石": 20000
-        },
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 1
+            }
+        ],
         "success_rate": 44,
         "desc": "记载回春散·天炼制方法的丹方。",
-        "price": 100000
+        "price": 6400,
+        "gold_cost": 2000
     },
     {
         "id": 139,
         "name": "聚灵散·天方",
         "output_pill": "聚灵散·天",
         "level_required": 12,
-        "materials": {
-            "灵草": 24,
-            "灵石": 20000
-        },
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 1
+            }
+        ],
         "success_rate": 44,
         "desc": "记载聚灵散·天炼制方法的丹方。",
-        "price": 100000
+        "price": 6400,
+        "gold_cost": 2000
+    },
+    {
+        "id": 200,
+        "name": "增元丹方",
+        "output_pill": "增元丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 4
+            }
+        ],
+        "gold_cost": 1500,
+        "success_rate": 63,
+        "price": 700,
+        "shop_weight": 200,
+        "desc": "记载增元丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 201,
+        "name": "碧灵丹方",
+        "output_pill": "碧灵丹",
+        "level_required": 7,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 4
+            }
+        ],
+        "gold_cost": 1500,
+        "success_rate": 63,
+        "price": 940,
+        "shop_weight": 200,
+        "desc": "记载碧灵丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 202,
+        "name": "紫府丹方",
+        "output_pill": "紫府丹",
+        "level_required": 10,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 5
+            }
+        ],
+        "gold_cost": 2000,
+        "success_rate": 62,
+        "price": 1300,
+        "shop_weight": 200,
+        "desc": "记载紫府丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 203,
+        "name": "黄龙丹方",
+        "output_pill": "黄龙丹",
+        "level_required": 10,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 5
+            }
+        ],
+        "gold_cost": 2000,
+        "success_rate": 62,
+        "price": 1300,
+        "shop_weight": 200,
+        "desc": "记载黄龙丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 204,
+        "name": "青云丹方",
+        "output_pill": "青云丹",
+        "level_required": 12,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 5
+            }
+        ],
+        "gold_cost": 2000,
+        "success_rate": 62,
+        "price": 1300,
+        "shop_weight": 200,
+        "desc": "记载青云丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 205,
+        "name": "天元丹方",
+        "output_pill": "天元丹",
+        "level_required": 13,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 5
+            }
+        ],
+        "gold_cost": 3000,
+        "success_rate": 61,
+        "price": 20700,
+        "shop_weight": 200,
+        "desc": "记载天元丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 206,
+        "name": "金阳丹方",
+        "output_pill": "金阳丹",
+        "level_required": 13,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 5
+            }
+        ],
+        "gold_cost": 3000,
+        "success_rate": 61,
+        "price": 20700,
+        "shop_weight": 200,
+        "desc": "记载金阳丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 207,
+        "name": "玄冥丹方",
+        "output_pill": "玄冥丹",
+        "level_required": 15,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 5
+            }
+        ],
+        "gold_cost": 3000,
+        "success_rate": 61,
+        "price": 20700,
+        "shop_weight": 200,
+        "desc": "记载玄冥丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 208,
+        "name": "太乙丹方",
+        "output_pill": "太乙丹",
+        "level_required": 16,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 5
+            }
+        ],
+        "gold_cost": 3000,
+        "success_rate": 61,
+        "price": 20700,
+        "shop_weight": 200,
+        "desc": "记载太乙丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 209,
+        "name": "九转灵丹方",
+        "output_pill": "九转灵丹",
+        "level_required": 16,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 6
+            }
+        ],
+        "gold_cost": 5000,
+        "success_rate": 60,
+        "price": 25700,
+        "shop_weight": 200,
+        "desc": "记载九转灵丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 210,
+        "name": "龙虎丹方",
+        "output_pill": "龙虎丹",
+        "level_required": 18,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 6
+            }
+        ],
+        "gold_cost": 5000,
+        "success_rate": 60,
+        "price": 25700,
+        "shop_weight": 200,
+        "desc": "记载龙虎丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 211,
+        "name": "凤凰涅槃丹方",
+        "output_pill": "凤凰涅槃丹",
+        "level_required": 19,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 6
+            }
+        ],
+        "gold_cost": 5000,
+        "success_rate": 60,
+        "price": 25700,
+        "shop_weight": 200,
+        "desc": "记载凤凰涅槃丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 212,
+        "name": "麒麟圣丹方",
+        "output_pill": "麒麟圣丹",
+        "level_required": 22,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 7
+            }
+        ],
+        "gold_cost": 20000,
+        "success_rate": 55,
+        "price": 37900,
+        "shop_weight": 200,
+        "desc": "记载麒麟圣丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 213,
+        "name": "紫霄神丹方",
+        "output_pill": "紫霄神丹",
+        "level_required": 22,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 7
+            }
+        ],
+        "gold_cost": 20000,
+        "success_rate": 55,
+        "price": 37900,
+        "shop_weight": 200,
+        "desc": "记载紫霄神丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 214,
+        "name": "九天玄丹方",
+        "output_pill": "九天玄丹",
+        "level_required": 24,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 7
+            }
+        ],
+        "gold_cost": 20000,
+        "success_rate": 55,
+        "price": 37900,
+        "shop_weight": 200,
+        "desc": "记载九天玄丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 215,
+        "name": "星辰造化丹方",
+        "output_pill": "星辰造化丹",
+        "level_required": 25,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 8
+            }
+        ],
+        "gold_cost": 50000,
+        "success_rate": 52,
+        "price": 56200,
+        "shop_weight": 200,
+        "desc": "记载星辰造化丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 216,
+        "name": "混元道丹方",
+        "output_pill": "混元道丹",
+        "level_required": 27,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 8
+            }
+        ],
+        "gold_cost": 50000,
+        "success_rate": 52,
+        "price": 56200,
+        "shop_weight": 200,
+        "desc": "记载混元道丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 217,
+        "name": "太极阴阳丹方",
+        "output_pill": "太极阴阳丹",
+        "level_required": 28,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 8
+            }
+        ],
+        "gold_cost": 50000,
+        "success_rate": 52,
+        "price": 56200,
+        "shop_weight": 200,
+        "desc": "记载太极阴阳丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 218,
+        "name": "先天造化丹方",
+        "output_pill": "先天造化丹",
+        "level_required": 31,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 9
+            }
+        ],
+        "gold_cost": 100000,
+        "success_rate": 50,
+        "price": 83200,
+        "shop_weight": 200,
+        "desc": "记载先天造化丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 219,
+        "name": "仙灵圣丹方",
+        "output_pill": "仙灵圣丹",
+        "level_required": 32,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 9
+            }
+        ],
+        "gold_cost": 100000,
+        "success_rate": 50,
+        "price": 83200,
+        "shop_weight": 200,
+        "desc": "记载仙灵圣丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 220,
+        "name": "九天神丹方",
+        "output_pill": "九天神丹",
+        "level_required": 33,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 9
+            }
+        ],
+        "gold_cost": 100000,
+        "success_rate": 50,
+        "price": 83200,
+        "shop_weight": 200,
+        "desc": "记载九天神丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 221,
+        "name": "大罗金丹方",
+        "output_pill": "大罗金丹",
+        "level_required": 34,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 9
+            }
+        ],
+        "gold_cost": 100000,
+        "success_rate": 50,
+        "price": 83200,
+        "shop_weight": 200,
+        "desc": "记载大罗金丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 222,
+        "name": "混沌初开丹方",
+        "output_pill": "混沌初开丹",
+        "level_required": 35,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 10
+            }
+        ],
+        "gold_cost": 200000,
+        "success_rate": 55,
+        "price": 117000,
+        "shop_weight": 200,
+        "desc": "记载混沌初开丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 223,
+        "name": "鸿蒙紫气丹方",
+        "output_pill": "鸿蒙紫气丹",
+        "level_required": 35,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 10
+            }
+        ],
+        "gold_cost": 200000,
+        "success_rate": 55,
+        "price": 117000,
+        "shop_weight": 200,
+        "desc": "记载鸿蒙紫气丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 224,
+        "name": "造化天道丹方",
+        "output_pill": "造化天道丹",
+        "level_required": 35,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 10
+            }
+        ],
+        "gold_cost": 200000,
+        "success_rate": 55,
+        "price": 117000,
+        "shop_weight": 200,
+        "desc": "记载造化天道丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 225,
+        "name": "回生丹方",
+        "output_pill": "回生丹",
+        "level_required": 32,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 9
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 4
+            }
+        ],
+        "gold_cost": 100000,
+        "success_rate": 50,
+        "price": 107000,
+        "shop_weight": 200,
+        "desc": "记载回生丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 226,
+        "name": "涅槃重生丹方",
+        "output_pill": "涅槃重生丹",
+        "level_required": 35,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 10
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 5
+            }
+        ],
+        "gold_cost": 200000,
+        "success_rate": 55,
+        "price": 143000,
+        "shop_weight": 200,
+        "desc": "记载涅槃重生丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 227,
+        "name": "修炼加速丹方",
+        "output_pill": "修炼加速丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 2
+            },
+            {
+                "category": "矿材",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 100,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 200,
+        "desc": "记载修炼加速丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 228,
+        "name": "灵气加速丹方",
+        "output_pill": "灵气加速丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 4
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 1500,
+        "success_rate": 63,
+        "price": 910,
+        "shop_weight": 200,
+        "desc": "记载灵气加速丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 229,
+        "name": "玄元加速丹方",
+        "output_pill": "玄元加速丹",
+        "level_required": 10,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 2000,
+        "success_rate": 62,
+        "price": 1600,
+        "shop_weight": 200,
+        "desc": "记载玄元加速丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 230,
+        "name": "天道加速丹方",
+        "output_pill": "天道加速丹",
+        "level_required": 13,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 3000,
+        "success_rate": 61,
+        "price": 30100,
+        "shop_weight": 200,
+        "desc": "记载天道加速丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 231,
+        "name": "混元加速丹方",
+        "output_pill": "混元加速丹",
+        "level_required": 16,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 6
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 3
+            }
+        ],
+        "gold_cost": 5000,
+        "success_rate": 60,
+        "price": 40100,
+        "shop_weight": 200,
+        "desc": "记载混元加速丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 232,
+        "name": "小力量丹方",
+        "output_pill": "小力量丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 2
+            },
+            {
+                "category": "矿材",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 100,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 200,
+        "desc": "记载小力量丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 233,
+        "name": "力量丹方",
+        "output_pill": "力量丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 4
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 1500,
+        "success_rate": 63,
+        "price": 910,
+        "shop_weight": 200,
+        "desc": "记载力量丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 234,
+        "name": "大力量丹方",
+        "output_pill": "大力量丹",
+        "level_required": 10,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 2000,
+        "success_rate": 62,
+        "price": 1600,
+        "shop_weight": 200,
+        "desc": "记载大力量丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 235,
+        "name": "巨力丹方",
+        "output_pill": "巨力丹",
+        "level_required": 13,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 3000,
+        "success_rate": 61,
+        "price": 30100,
+        "shop_weight": 200,
+        "desc": "记载巨力丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 236,
+        "name": "霸体丹方",
+        "output_pill": "霸体丹",
+        "level_required": 16,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 6
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 3
+            }
+        ],
+        "gold_cost": 5000,
+        "success_rate": 60,
+        "price": 40100,
+        "shop_weight": 200,
+        "desc": "记载霸体丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 237,
+        "name": "小灵智丹方",
+        "output_pill": "小灵智丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 2
+            },
+            {
+                "category": "矿材",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 100,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 200,
+        "desc": "记载小灵智丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 238,
+        "name": "灵智丹方",
+        "output_pill": "灵智丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 4
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 1500,
+        "success_rate": 63,
+        "price": 910,
+        "shop_weight": 200,
+        "desc": "记载灵智丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 239,
+        "name": "大灵智丹方",
+        "output_pill": "大灵智丹",
+        "level_required": 10,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 2000,
+        "success_rate": 62,
+        "price": 1600,
+        "shop_weight": 200,
+        "desc": "记载大灵智丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 240,
+        "name": "通灵丹方",
+        "output_pill": "通灵丹",
+        "level_required": 13,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 3000,
+        "success_rate": 61,
+        "price": 30100,
+        "shop_weight": 200,
+        "desc": "记载通灵丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 241,
+        "name": "天灵丹方",
+        "output_pill": "天灵丹",
+        "level_required": 16,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 6
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 3
+            }
+        ],
+        "gold_cost": 5000,
+        "success_rate": 60,
+        "price": 40100,
+        "shop_weight": 200,
+        "desc": "记载天灵丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 242,
+        "name": "铁骨丹方",
+        "output_pill": "铁骨丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 2
+            },
+            {
+                "category": "矿材",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 100,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 200,
+        "desc": "记载铁骨丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 243,
+        "name": "金刚丹方",
+        "output_pill": "金刚丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 4
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 1500,
+        "success_rate": 63,
+        "price": 910,
+        "shop_weight": 200,
+        "desc": "记载金刚丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 244,
+        "name": "不坏金身丹方",
+        "output_pill": "不坏金身丹",
+        "level_required": 10,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 2000,
+        "success_rate": 62,
+        "price": 1600,
+        "shop_weight": 200,
+        "desc": "记载不坏金身丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 245,
+        "name": "神体丹方",
+        "output_pill": "神体丹",
+        "level_required": 13,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 3000,
+        "success_rate": 61,
+        "price": 30100,
+        "shop_weight": 200,
+        "desc": "记载神体丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 246,
+        "name": "护灵丹方",
+        "output_pill": "护灵丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 2
+            },
+            {
+                "category": "矿材",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 100,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 200,
+        "desc": "记载护灵丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 247,
+        "name": "法罩丹方",
+        "output_pill": "法罩丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 4
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 1500,
+        "success_rate": 63,
+        "price": 910,
+        "shop_weight": 200,
+        "desc": "记载法罩丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 248,
+        "name": "灵盾丹方",
+        "output_pill": "灵盾丹",
+        "level_required": 10,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 2000,
+        "success_rate": 62,
+        "price": 1600,
+        "shop_weight": 200,
+        "desc": "记载灵盾丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 249,
+        "name": "天罡护体丹方",
+        "output_pill": "天罡护体丹",
+        "level_required": 13,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 3000,
+        "success_rate": 61,
+        "price": 30100,
+        "shop_weight": 200,
+        "desc": "记载天罡护体丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 250,
+        "name": "灵识丹方",
+        "output_pill": "灵识丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 2
+            },
+            {
+                "category": "矿材",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 100,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 200,
+        "desc": "记载灵识丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 251,
+        "name": "养神丹方",
+        "output_pill": "养神丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 4
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 1500,
+        "success_rate": 63,
+        "price": 910,
+        "shop_weight": 200,
+        "desc": "记载养神丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 252,
+        "name": "凝神丹方",
+        "output_pill": "凝神丹",
+        "level_required": 10,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 2000,
+        "success_rate": 62,
+        "price": 1600,
+        "shop_weight": 200,
+        "desc": "记载凝神丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 253,
+        "name": "通神丹方",
+        "output_pill": "通神丹",
+        "level_required": 13,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 3000,
+        "success_rate": 61,
+        "price": 30100,
+        "shop_weight": 200,
+        "desc": "记载通神丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 254,
+        "name": "增寿丹方",
+        "output_pill": "增寿丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 4
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 1500,
+        "success_rate": 63,
+        "price": 910,
+        "shop_weight": 200,
+        "desc": "记载增寿丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 255,
+        "name": "延年丹方",
+        "output_pill": "延年丹",
+        "level_required": 10,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 2000,
+        "success_rate": 62,
+        "price": 1600,
+        "shop_weight": 200,
+        "desc": "记载延年丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 256,
+        "name": "长生丹方",
+        "output_pill": "长生丹",
+        "level_required": 13,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 3000,
+        "success_rate": 61,
+        "price": 30100,
+        "shop_weight": 200,
+        "desc": "记载长生丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 257,
+        "name": "狂暴丹方",
+        "output_pill": "狂暴丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 4
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 1500,
+        "success_rate": 63,
+        "price": 910,
+        "shop_weight": 200,
+        "desc": "记载狂暴丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 258,
+        "name": "狂暴丹·改方",
+        "output_pill": "狂暴丹·改",
+        "level_required": 10,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 2000,
+        "success_rate": 62,
+        "price": 1600,
+        "shop_weight": 200,
+        "desc": "记载狂暴丹·改炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 259,
+        "name": "灵力爆发丹方",
+        "output_pill": "灵力爆发丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 4
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 1500,
+        "success_rate": 63,
+        "price": 910,
+        "shop_weight": 200,
+        "desc": "记载灵力爆发丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 260,
+        "name": "灵力爆发丹·改方",
+        "output_pill": "灵力爆发丹·改",
+        "level_required": 10,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 2000,
+        "success_rate": 62,
+        "price": 1600,
+        "shop_weight": 200,
+        "desc": "记载灵力爆发丹·改炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 261,
+        "name": "龟息丹方",
+        "output_pill": "龟息丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 4
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 1500,
+        "success_rate": 63,
+        "price": 910,
+        "shop_weight": 200,
+        "desc": "记载龟息丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 262,
+        "name": "玄武护体丹方",
+        "output_pill": "玄武护体丹",
+        "level_required": 10,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 2000,
+        "success_rate": 62,
+        "price": 1600,
+        "shop_weight": 200,
+        "desc": "记载玄武护体丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 263,
+        "name": "灵罩丹方",
+        "output_pill": "灵罩丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 4
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 1500,
+        "success_rate": 63,
+        "price": 910,
+        "shop_weight": 200,
+        "desc": "记载灵罩丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 264,
+        "name": "天罡结界丹方",
+        "output_pill": "天罡结界丹",
+        "level_required": 10,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 2000,
+        "success_rate": 62,
+        "price": 1600,
+        "shop_weight": 200,
+        "desc": "记载天罡结界丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 265,
+        "name": "平衡丹方",
+        "output_pill": "平衡丹",
+        "level_required": 10,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 2000,
+        "success_rate": 62,
+        "price": 1600,
+        "shop_weight": 200,
+        "desc": "记载平衡丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 266,
+        "name": "完美丹方",
+        "output_pill": "完美丹",
+        "level_required": 13,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 3000,
+        "success_rate": 61,
+        "price": 30100,
+        "shop_weight": 200,
+        "desc": "记载完美丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 267,
+        "name": "无缺丹方",
+        "output_pill": "无缺丹",
+        "level_required": 16,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 6
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 3
+            }
+        ],
+        "gold_cost": 5000,
+        "success_rate": 60,
+        "price": 40100,
+        "shop_weight": 200,
+        "desc": "记载无缺丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 268,
+        "name": "霸体狂暴丹方",
+        "output_pill": "霸体狂暴丹",
+        "level_required": 13,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 3000,
+        "success_rate": 61,
+        "price": 30100,
+        "shop_weight": 200,
+        "desc": "记载霸体狂暴丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 269,
+        "name": "灵力共鸣丹方",
+        "output_pill": "灵力共鸣丹",
+        "level_required": 13,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 3000,
+        "success_rate": 61,
+        "price": 30100,
+        "shop_weight": 200,
+        "desc": "记载灵力共鸣丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 270,
+        "name": "毒煞丹方",
+        "output_pill": "毒煞丹",
+        "level_required": 10,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 2000,
+        "success_rate": 62,
+        "price": 1600,
+        "shop_weight": 200,
+        "desc": "记载毒煞丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 271,
+        "name": "血煞丹方",
+        "output_pill": "血煞丹",
+        "level_required": 13,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 3000,
+        "success_rate": 61,
+        "price": 30100,
+        "shop_weight": 200,
+        "desc": "记载血煞丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 272,
+        "name": "魔灵丹方",
+        "output_pill": "魔灵丹",
+        "level_required": 10,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 2000,
+        "success_rate": 62,
+        "price": 1600,
+        "shop_weight": 200,
+        "desc": "记载魔灵丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 273,
+        "name": "噬魂丹方",
+        "output_pill": "噬魂丹",
+        "level_required": 13,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 3000,
+        "success_rate": 61,
+        "price": 30100,
+        "shop_weight": 200,
+        "desc": "记载噬魂丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 274,
+        "name": "疾风丹方",
+        "output_pill": "疾风丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 2
+            },
+            {
+                "category": "矿材",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 100,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 200,
+        "desc": "记载疾风丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 275,
+        "name": "闪电丹方",
+        "output_pill": "闪电丹",
+        "level_required": 10,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 2000,
+        "success_rate": 62,
+        "price": 1600,
+        "shop_weight": 200,
+        "desc": "记载闪电丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 276,
+        "name": "雷霆丹方",
+        "output_pill": "雷霆丹",
+        "level_required": 13,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 3000,
+        "success_rate": 61,
+        "price": 30100,
+        "shop_weight": 200,
+        "desc": "记载雷霆丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 277,
+        "name": "虚弱丹方",
+        "output_pill": "虚弱丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 2
+            },
+            {
+                "category": "矿材",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 100,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 200,
+        "desc": "记载虚弱丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 278,
+        "name": "衰弱丹方",
+        "output_pill": "衰弱丹",
+        "level_required": 10,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 4
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 1500,
+        "success_rate": 63,
+        "price": 1300,
+        "shop_weight": 200,
+        "desc": "记载衰弱丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 279,
+        "name": "爆发秘药方",
+        "output_pill": "爆发秘药",
+        "level_required": 13,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 3000,
+        "success_rate": 61,
+        "price": 30100,
+        "shop_weight": 200,
+        "desc": "记载爆发秘药炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 280,
+        "name": "守护秘药方",
+        "output_pill": "守护秘药",
+        "level_required": 13,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 3000,
+        "success_rate": 61,
+        "price": 30100,
+        "shop_weight": 200,
+        "desc": "记载守护秘药炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 281,
+        "name": "灵气容量丹方",
+        "output_pill": "灵气容量丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 4
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 1500,
+        "success_rate": 63,
+        "price": 910,
+        "shop_weight": 200,
+        "desc": "记载灵气容量丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 282,
+        "name": "玄灵容量丹方",
+        "output_pill": "玄灵容量丹",
+        "level_required": 10,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 2000,
+        "success_rate": 62,
+        "price": 1600,
+        "shop_weight": 200,
+        "desc": "记载玄灵容量丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 283,
+        "name": "天灵容量丹方",
+        "output_pill": "天灵容量丹",
+        "level_required": 13,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 3000,
+        "success_rate": 61,
+        "price": 30100,
+        "shop_weight": 200,
+        "desc": "记载天灵容量丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 284,
+        "name": "混元容量丹方",
+        "output_pill": "混元容量丹",
+        "level_required": 16,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 6
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 3
+            }
+        ],
+        "gold_cost": 5000,
+        "success_rate": 60,
+        "price": 40100,
+        "shop_weight": 200,
+        "desc": "记载混元容量丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 285,
+        "name": "小回灵丹方",
+        "output_pill": "小回灵丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 2
+            },
+            {
+                "category": "矿材",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 100,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 200,
+        "desc": "记载小回灵丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 286,
+        "name": "回灵丹方",
+        "output_pill": "回灵丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 4
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 1500,
+        "success_rate": 63,
+        "price": 910,
+        "shop_weight": 200,
+        "desc": "记载回灵丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 287,
+        "name": "大回灵丹方",
+        "output_pill": "大回灵丹",
+        "level_required": 10,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 2000,
+        "success_rate": 62,
+        "price": 1600,
+        "shop_weight": 200,
+        "desc": "记载大回灵丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 288,
+        "name": "满灵丹方",
+        "output_pill": "满灵丹",
+        "level_required": 13,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 3000,
+        "success_rate": 61,
+        "price": 30100,
+        "shop_weight": 200,
+        "desc": "记载满灵丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 289,
+        "name": "燃血丹方",
+        "output_pill": "燃血丹",
+        "level_required": 10,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 2000,
+        "success_rate": 62,
+        "price": 1600,
+        "shop_weight": 200,
+        "desc": "记载燃血丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 290,
+        "name": "焚命丹方",
+        "output_pill": "焚命丹",
+        "level_required": 13,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 3000,
+        "success_rate": 61,
+        "price": 30100,
+        "shop_weight": 200,
+        "desc": "记载焚命丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 291,
+        "name": "双修丹方",
+        "output_pill": "双修丹",
+        "level_required": 13,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 3000,
+        "success_rate": 61,
+        "price": 30100,
+        "shop_weight": 200,
+        "desc": "记载双修丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 292,
+        "name": "双防丹方",
+        "output_pill": "双防丹",
+        "level_required": 13,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 3000,
+        "success_rate": 61,
+        "price": 30100,
+        "shop_weight": 200,
+        "desc": "记载双防丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 293,
+        "name": "淬体丹方",
+        "output_pill": "淬体丹",
+        "level_required": 10,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 2000,
+        "success_rate": 62,
+        "price": 1600,
+        "shop_weight": 200,
+        "desc": "记载淬体丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 294,
+        "name": "炼魂丹方",
+        "output_pill": "炼魂丹",
+        "level_required": 10,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 2000,
+        "success_rate": 62,
+        "price": 1600,
+        "shop_weight": 200,
+        "desc": "记载炼魂丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 295,
+        "name": "疯狂丹方",
+        "output_pill": "疯狂丹",
+        "level_required": 16,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 6
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 3
+            }
+        ],
+        "gold_cost": 5000,
+        "success_rate": 60,
+        "price": 40100,
+        "shop_weight": 200,
+        "desc": "记载疯狂丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 296,
+        "name": "狂神丹方",
+        "output_pill": "狂神丹",
+        "level_required": 22,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 7
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 3
+            }
+        ],
+        "gold_cost": 20000,
+        "success_rate": 55,
+        "price": 53600,
+        "shop_weight": 200,
+        "desc": "记载狂神丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 297,
+        "name": "逆天丹方",
+        "output_pill": "逆天丹",
+        "level_required": 25,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 8
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 4
+            }
+        ],
+        "gold_cost": 50000,
+        "success_rate": 52,
+        "price": 78400,
+        "shop_weight": 200,
+        "desc": "记载逆天丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 298,
+        "name": "天命丹方",
+        "output_pill": "天命丹",
+        "level_required": 22,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 7
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 3
+            }
+        ],
+        "gold_cost": 20000,
+        "success_rate": 55,
+        "price": 53600,
+        "shop_weight": 200,
+        "desc": "记载天命丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 299,
+        "name": "混沌丹方",
+        "output_pill": "混沌丹",
+        "level_required": 25,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 8
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 4
+            }
+        ],
+        "gold_cost": 50000,
+        "success_rate": 52,
+        "price": 78400,
+        "shop_weight": 200,
+        "desc": "记载混沌丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 300,
+        "name": "神魔丹方",
+        "output_pill": "神魔丹",
+        "level_required": 31,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 9
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 4
+            }
+        ],
+        "gold_cost": 100000,
+        "success_rate": 50,
+        "price": 107000,
+        "shop_weight": 200,
+        "desc": "记载神魔丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 301,
+        "name": "劫运丹方",
+        "output_pill": "劫运丹",
+        "level_required": 13,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 3000,
+        "success_rate": 61,
+        "price": 30100,
+        "shop_weight": 200,
+        "desc": "记载劫运丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 302,
+        "name": "气运丹方",
+        "output_pill": "气运丹",
+        "level_required": 16,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 6
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 3
+            }
+        ],
+        "gold_cost": 5000,
+        "success_rate": 60,
+        "price": 40100,
+        "shop_weight": 200,
+        "desc": "记载气运丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 303,
+        "name": "天运丹方",
+        "output_pill": "天运丹",
+        "level_required": 22,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 7
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 3
+            }
+        ],
+        "gold_cost": 20000,
+        "success_rate": 55,
+        "price": 53600,
+        "shop_weight": 200,
+        "desc": "记载天运丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 304,
+        "name": "命运丹方",
+        "output_pill": "命运丹",
+        "level_required": 25,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 8
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 4
+            }
+        ],
+        "gold_cost": 50000,
+        "success_rate": 52,
+        "price": 78400,
+        "shop_weight": 200,
+        "desc": "记载命运丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 305,
+        "name": "小爆发丹方",
+        "output_pill": "小爆发丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 2
+            },
+            {
+                "category": "矿材",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 100,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 200,
+        "desc": "记载小爆发丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 306,
+        "name": "小灵爆丹方",
+        "output_pill": "小灵爆丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 2
+            },
+            {
+                "category": "矿材",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 100,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 200,
+        "desc": "记载小灵爆丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 307,
+        "name": "小坚盾丹方",
+        "output_pill": "小坚盾丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 2
+            },
+            {
+                "category": "矿材",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 100,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 200,
+        "desc": "记载小坚盾丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 308,
+        "name": "小法盾丹方",
+        "output_pill": "小法盾丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 2
+            },
+            {
+                "category": "矿材",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 100,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 200,
+        "desc": "记载小法盾丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 309,
+        "name": "玄黄丹方",
+        "output_pill": "玄黄丹",
+        "level_required": 16,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 6
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 3
+            }
+        ],
+        "gold_cost": 5000,
+        "success_rate": 60,
+        "price": 40100,
+        "shop_weight": 200,
+        "desc": "记载玄黄丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 310,
+        "name": "灵虚丹方",
+        "output_pill": "灵虚丹",
+        "level_required": 16,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 6
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 3
+            }
+        ],
+        "gold_cost": 5000,
+        "success_rate": 60,
+        "price": 40100,
+        "shop_weight": 200,
+        "desc": "记载灵虚丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 311,
+        "name": "破限丹·力方",
+        "output_pill": "破限丹·力",
+        "level_required": 22,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 7
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 3
+            }
+        ],
+        "gold_cost": 20000,
+        "success_rate": 55,
+        "price": 53600,
+        "shop_weight": 200,
+        "desc": "记载破限丹·力炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 312,
+        "name": "破限丹·灵方",
+        "output_pill": "破限丹·灵",
+        "level_required": 22,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 7
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 3
+            }
+        ],
+        "gold_cost": 20000,
+        "success_rate": 55,
+        "price": 53600,
+        "shop_weight": 200,
+        "desc": "记载破限丹·灵炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 313,
+        "name": "破限丹·盾方",
+        "output_pill": "破限丹·盾",
+        "level_required": 22,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 7
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 3
+            }
+        ],
+        "gold_cost": 20000,
+        "success_rate": 55,
+        "price": 53600,
+        "shop_weight": 200,
+        "desc": "记载破限丹·盾炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 314,
+        "name": "破限丹·灵盾方",
+        "output_pill": "破限丹·灵盾",
+        "level_required": 22,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 7
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 3
+            }
+        ],
+        "gold_cost": 20000,
+        "success_rate": 55,
+        "price": 53600,
+        "shop_weight": 200,
+        "desc": "记载破限丹·灵盾炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 315,
+        "name": "破限丹·神方",
+        "output_pill": "破限丹·神",
+        "level_required": 22,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 7
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 3
+            }
+        ],
+        "gold_cost": 20000,
+        "success_rate": 55,
+        "price": 53600,
+        "shop_weight": 200,
+        "desc": "记载破限丹·神炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 316,
+        "name": "破限丹·寿方",
+        "output_pill": "破限丹·寿",
+        "level_required": 22,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 7
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 3
+            }
+        ],
+        "gold_cost": 20000,
+        "success_rate": 55,
+        "price": 53600,
+        "shop_weight": 200,
+        "desc": "记载破限丹·寿炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 317,
+        "name": "透支丹方",
+        "output_pill": "透支丹",
+        "level_required": 13,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 3000,
+        "success_rate": 61,
+        "price": 30100,
+        "shop_weight": 200,
+        "desc": "记载透支丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 318,
+        "name": "极限透支丹方",
+        "output_pill": "极限透支丹",
+        "level_required": 16,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 6
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 3
+            }
+        ],
+        "gold_cost": 5000,
+        "success_rate": 60,
+        "price": 40100,
+        "shop_weight": 200,
+        "desc": "记载极限透支丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 319,
+        "name": "强体丹方",
+        "output_pill": "强体丹",
+        "level_required": 10,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 2000,
+        "success_rate": 62,
+        "price": 1600,
+        "shop_weight": 200,
+        "desc": "记载强体丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 320,
+        "name": "强灵丹方",
+        "output_pill": "强灵丹",
+        "level_required": 10,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 2000,
+        "success_rate": 62,
+        "price": 1600,
+        "shop_weight": 200,
+        "desc": "记载强灵丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 321,
+        "name": "体魄丹方",
+        "output_pill": "体魄丹",
+        "level_required": 10,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 2000,
+        "success_rate": 62,
+        "price": 1600,
+        "shop_weight": 200,
+        "desc": "记载体魄丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 322,
+        "name": "护神丹方",
+        "output_pill": "护神丹",
+        "level_required": 10,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 2000,
+        "success_rate": 62,
+        "price": 1600,
+        "shop_weight": 200,
+        "desc": "记载护神丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 323,
+        "name": "回春丹方",
+        "output_pill": "回春丹",
+        "level_required": 10,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 2000,
+        "success_rate": 62,
+        "price": 1600,
+        "shop_weight": 200,
+        "desc": "记载回春丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 324,
+        "name": "大回春丹方",
+        "output_pill": "大回春丹",
+        "level_required": 13,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 3000,
+        "success_rate": 61,
+        "price": 30100,
+        "shop_weight": 200,
+        "desc": "记载大回春丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 325,
+        "name": "重生丹方",
+        "output_pill": "重生丹",
+        "level_required": 16,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 6
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 3
+            }
+        ],
+        "gold_cost": 5000,
+        "success_rate": 60,
+        "price": 40100,
+        "shop_weight": 200,
+        "desc": "记载重生丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 326,
+        "name": "凝灵丹方",
+        "output_pill": "凝灵丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 4
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 1500,
+        "success_rate": 63,
+        "price": 910,
+        "shop_weight": 200,
+        "desc": "记载凝灵丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 327,
+        "name": "聚灵回复丹方",
+        "output_pill": "聚灵回复丹",
+        "level_required": 10,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 2000,
+        "success_rate": 62,
+        "price": 1600,
+        "shop_weight": 200,
+        "desc": "记载聚灵回复丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 328,
+        "name": "天灵回复丹方",
+        "output_pill": "天灵回复丹",
+        "level_required": 13,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 3000,
+        "success_rate": 61,
+        "price": 30100,
+        "shop_weight": 200,
+        "desc": "记载天灵回复丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 329,
+        "name": "融合丹方",
+        "output_pill": "融合丹",
+        "level_required": 16,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 6
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 3
+            }
+        ],
+        "gold_cost": 5000,
+        "success_rate": 60,
+        "price": 40100,
+        "shop_weight": 200,
+        "desc": "记载融合丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 330,
+        "name": "本源丹方",
+        "output_pill": "本源丹",
+        "level_required": 25,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 8
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 4
+            }
+        ],
+        "gold_cost": 50000,
+        "success_rate": 52,
+        "price": 78400,
+        "shop_weight": 200,
+        "desc": "记载本源丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 331,
+        "name": "万灵丹方",
+        "output_pill": "万灵丹",
+        "level_required": 31,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 9
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 4
+            }
+        ],
+        "gold_cost": 100000,
+        "success_rate": 50,
+        "price": 107000,
+        "shop_weight": 200,
+        "desc": "记载万灵丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 332,
+        "name": "至尊丹方",
+        "output_pill": "至尊丹",
+        "level_required": 35,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 10
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 5
+            }
+        ],
+        "gold_cost": 200000,
+        "success_rate": 55,
+        "price": 143000,
+        "shop_weight": 200,
+        "desc": "记载至尊丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 333,
+        "name": "逆命丹方",
+        "output_pill": "逆命丹",
+        "level_required": 13,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 3000,
+        "success_rate": 61,
+        "price": 30100,
+        "shop_weight": 200,
+        "desc": "记载逆命丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 334,
+        "name": "献祭丹方",
+        "output_pill": "献祭丹",
+        "level_required": 16,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 6
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 3
+            }
+        ],
+        "gold_cost": 5000,
+        "success_rate": 60,
+        "price": 40100,
+        "shop_weight": 200,
+        "desc": "记载献祭丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 335,
+        "name": "狂乱丹方",
+        "output_pill": "狂乱丹",
+        "level_required": 13,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 3000,
+        "success_rate": 61,
+        "price": 30100,
+        "shop_weight": 200,
+        "desc": "记载狂乱丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 336,
+        "name": "幸运丹方",
+        "output_pill": "幸运丹",
+        "level_required": 16,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 6
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 3
+            }
+        ],
+        "gold_cost": 5000,
+        "success_rate": 60,
+        "price": 40100,
+        "shop_weight": 200,
+        "desc": "记载幸运丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 337,
+        "name": "天命幸运丹方",
+        "output_pill": "天命幸运丹",
+        "level_required": 22,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 7
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 3
+            }
+        ],
+        "gold_cost": 20000,
+        "success_rate": 55,
+        "price": 53600,
+        "shop_weight": 200,
+        "desc": "记载天命幸运丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 338,
+        "name": "霉运丹方",
+        "output_pill": "霉运丹",
+        "level_required": 10,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 4
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 1500,
+        "success_rate": 63,
+        "price": 1300,
+        "shop_weight": 200,
+        "desc": "记载霉运丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 339,
+        "name": "洗髓丹方",
+        "output_pill": "洗髓丹",
+        "level_required": 25,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 8
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 4
+            }
+        ],
+        "gold_cost": 50000,
+        "success_rate": 52,
+        "price": 78400,
+        "shop_weight": 200,
+        "desc": "记载洗髓丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 340,
+        "name": "易筋丹方",
+        "output_pill": "易筋丹",
+        "level_required": 31,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 9
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 4
+            }
+        ],
+        "gold_cost": 100000,
+        "success_rate": 50,
+        "price": 107000,
+        "shop_weight": 200,
+        "desc": "记载易筋丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 341,
+        "name": "伐体丹方",
+        "output_pill": "伐体丹",
+        "level_required": 13,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 3000,
+        "success_rate": 61,
+        "price": 30100,
+        "shop_weight": 200,
+        "desc": "记载伐体丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 342,
+        "name": "换血丹方",
+        "output_pill": "换血丹",
+        "level_required": 22,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 7
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 3
+            }
+        ],
+        "gold_cost": 20000,
+        "success_rate": 55,
+        "price": 53600,
+        "shop_weight": 200,
+        "desc": "记载换血丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 343,
+        "name": "定魂丹方",
+        "output_pill": "定魂丹",
+        "level_required": 16,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 6
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 3
+            }
+        ],
+        "gold_cost": 5000,
+        "success_rate": 60,
+        "price": 40100,
+        "shop_weight": 200,
+        "desc": "记载定魂丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 344,
+        "name": "破劫丹方",
+        "output_pill": "破劫丹",
+        "level_required": 31,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 9
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 4
+            }
+        ],
+        "gold_cost": 100000,
+        "success_rate": 50,
+        "price": 107000,
+        "shop_weight": 200,
+        "desc": "记载破劫丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 345,
+        "name": "小回血丹方",
+        "output_pill": "小回血丹",
+        "level_required": 0,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "凡品",
+                "count": 2
+            },
+            {
+                "category": "矿材",
+                "tier": "凡品",
+                "count": 1
+            }
+        ],
+        "gold_cost": 100,
+        "success_rate": 85,
+        "price": 50,
+        "shop_weight": 200,
+        "desc": "记载小回血丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 346,
+        "name": "回血丹方",
+        "output_pill": "回血丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 4
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 1500,
+        "success_rate": 63,
+        "price": 910,
+        "shop_weight": 200,
+        "desc": "记载回血丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 347,
+        "name": "大回血丹方",
+        "output_pill": "大回血丹",
+        "level_required": 10,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 2000,
+        "success_rate": 62,
+        "price": 1600,
+        "shop_weight": 200,
+        "desc": "记载大回血丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 348,
+        "name": "满血丹方",
+        "output_pill": "满血丹",
+        "level_required": 13,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 3000,
+        "success_rate": 61,
+        "price": 30100,
+        "shop_weight": 200,
+        "desc": "记载满血丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 349,
+        "name": "气血容量丹方",
+        "output_pill": "气血容量丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 4
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 1500,
+        "success_rate": 63,
+        "price": 910,
+        "shop_weight": 200,
+        "desc": "记载气血容量丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 350,
+        "name": "玄血容量丹方",
+        "output_pill": "玄血容量丹",
+        "level_required": 10,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 2000,
+        "success_rate": 62,
+        "price": 1600,
+        "shop_weight": 200,
+        "desc": "记载玄血容量丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 351,
+        "name": "天血容量丹方",
+        "output_pill": "天血容量丹",
+        "level_required": 13,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 3000,
+        "success_rate": 61,
+        "price": 30100,
+        "shop_weight": 200,
+        "desc": "记载天血容量丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 352,
+        "name": "皇血容量丹方",
+        "output_pill": "皇血容量丹",
+        "level_required": 16,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 6
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 3
+            }
+        ],
+        "gold_cost": 5000,
+        "success_rate": 60,
+        "price": 40100,
+        "shop_weight": 200,
+        "desc": "记载皇血容量丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 353,
+        "name": "凝血丹方",
+        "output_pill": "凝血丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 4
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 1500,
+        "success_rate": 63,
+        "price": 910,
+        "shop_weight": 200,
+        "desc": "记载凝血丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 354,
+        "name": "聚血回复丹方",
+        "output_pill": "聚血回复丹",
+        "level_required": 10,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 2000,
+        "success_rate": 62,
+        "price": 1600,
+        "shop_weight": 200,
+        "desc": "记载聚血回复丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 355,
+        "name": "天血回复丹方",
+        "output_pill": "天血回复丹",
+        "level_required": 13,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 3000,
+        "success_rate": 61,
+        "price": 30100,
+        "shop_weight": 200,
+        "desc": "记载天血回复丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 356,
+        "name": "帝血丹方",
+        "output_pill": "帝血丹",
+        "level_required": 22,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 7
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 3
+            }
+        ],
+        "gold_cost": 20000,
+        "success_rate": 55,
+        "price": 53600,
+        "shop_weight": 200,
+        "desc": "记载帝血丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 357,
+        "name": "帝血容量丹方",
+        "output_pill": "帝血容量丹",
+        "level_required": 22,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 7
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 3
+            }
+        ],
+        "gold_cost": 20000,
+        "success_rate": 55,
+        "price": 53600,
+        "shop_weight": 200,
+        "desc": "记载帝血容量丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 358,
+        "name": "帝血回复丹方",
+        "output_pill": "帝血回复丹",
+        "level_required": 22,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 7
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 3
+            }
+        ],
+        "gold_cost": 20000,
+        "success_rate": 55,
+        "price": 53600,
+        "shop_weight": 200,
+        "desc": "记载帝血回复丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 359,
+        "name": "道血丹方",
+        "output_pill": "道血丹",
+        "level_required": 25,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 8
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 4
+            }
+        ],
+        "gold_cost": 50000,
+        "success_rate": 52,
+        "price": 78400,
+        "shop_weight": 200,
+        "desc": "记载道血丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 360,
+        "name": "道血容量丹方",
+        "output_pill": "道血容量丹",
+        "level_required": 25,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 8
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 4
+            }
+        ],
+        "gold_cost": 50000,
+        "success_rate": 52,
+        "price": 78400,
+        "shop_weight": 200,
+        "desc": "记载道血容量丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 361,
+        "name": "道血回复丹方",
+        "output_pill": "道血回复丹",
+        "level_required": 25,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 8
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 4
+            }
+        ],
+        "gold_cost": 50000,
+        "success_rate": 52,
+        "price": 78400,
+        "shop_weight": 200,
+        "desc": "记载道血回复丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 362,
+        "name": "仙血丹方",
+        "output_pill": "仙血丹",
+        "level_required": 31,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 9
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 4
+            }
+        ],
+        "gold_cost": 100000,
+        "success_rate": 50,
+        "price": 107000,
+        "shop_weight": 200,
+        "desc": "记载仙血丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 363,
+        "name": "仙血容量丹方",
+        "output_pill": "仙血容量丹",
+        "level_required": 31,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 9
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 4
+            }
+        ],
+        "gold_cost": 100000,
+        "success_rate": 50,
+        "price": 107000,
+        "shop_weight": 200,
+        "desc": "记载仙血容量丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 364,
+        "name": "仙血回复丹方",
+        "output_pill": "仙血回复丹",
+        "level_required": 31,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 9
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 4
+            }
+        ],
+        "gold_cost": 100000,
+        "success_rate": 50,
+        "price": 107000,
+        "shop_weight": 200,
+        "desc": "记载仙血回复丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 365,
+        "name": "混元血丹方",
+        "output_pill": "混元血丹",
+        "level_required": 35,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 10
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 5
+            }
+        ],
+        "gold_cost": 200000,
+        "success_rate": 55,
+        "price": 143000,
+        "shop_weight": 200,
+        "desc": "记载混元血丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 366,
+        "name": "混元血容丹方",
+        "output_pill": "混元血容丹",
+        "level_required": 35,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 10
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 5
+            }
+        ],
+        "gold_cost": 200000,
+        "success_rate": 55,
+        "price": 143000,
+        "shop_weight": 200,
+        "desc": "记载混元血容丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 367,
+        "name": "混元血回复丹方",
+        "output_pill": "混元血回复丹",
+        "level_required": 35,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 10
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 5
+            }
+        ],
+        "gold_cost": 200000,
+        "success_rate": 55,
+        "price": 143000,
+        "shop_weight": 200,
+        "desc": "记载混元血回复丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 368,
+        "name": "三品凝神增益丹方",
+        "output_pill": "三品凝神增益丹",
+        "level_required": 10,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 4
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 1500,
+        "success_rate": 63,
+        "price": 1300,
+        "shop_weight": 200,
+        "desc": "记载三品凝神增益丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 369,
+        "name": "四品破境增益丹方",
+        "output_pill": "四品破境增益丹",
+        "level_required": 3,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "玄品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "玄品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 2000,
+        "success_rate": 62,
+        "price": 1200,
+        "shop_weight": 200,
+        "desc": "记载四品破境增益丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 370,
+        "name": "五品渡劫增益丹方",
+        "output_pill": "五品渡劫增益丹",
+        "level_required": 13,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 5
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 2
+            }
+        ],
+        "gold_cost": 3000,
+        "success_rate": 61,
+        "price": 30100,
+        "shop_weight": 200,
+        "desc": "记载五品渡劫增益丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 371,
+        "name": "六品破境增益丹方",
+        "output_pill": "六品破境增益丹",
+        "level_required": 16,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 6
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 3
+            }
+        ],
+        "gold_cost": 5000,
+        "success_rate": 60,
+        "price": 40100,
+        "shop_weight": 200,
+        "desc": "记载六品破境增益丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
+    },
+    {
+        "id": 372,
+        "name": "七品化神增益丹方",
+        "output_pill": "七品化神增益丹",
+        "level_required": 22,
+        "materials": [
+            {
+                "category": "灵植",
+                "tier": "圣品",
+                "count": 7
+            },
+            {
+                "category": "矿材",
+                "tier": "圣品",
+                "count": 3
+            }
+        ],
+        "gold_cost": 20000,
+        "success_rate": 55,
+        "price": 53600,
+        "shop_weight": 200,
+        "desc": "记载七品化神增益丹炼制方法的丹方，学习后可用 /炼丹 炼制。"
     }
 ]

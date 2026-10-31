@@ -75,8 +75,8 @@
       "quality_weights": {"一般": 0, "良好": 0, "极佳": 30, "大师": 70}
     }
   ],
-  "start_price_rate": 0.2,
-  "start_price_fluctuation": 0.2,
+  "start_price_rate": 1.0,
+  "start_price_fluctuation": 0.0,
   "affix_counts": {
     "一般": 0,
     "良好": 1,

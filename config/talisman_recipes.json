@@ -7,10 +7,25 @@
     "level_required": 0,
     "success_rate": 80,
     "gold_cost": 300,
-    "materials": [{"category": "矿材", "tier": "凡品", "count": 1}, {"category": "灵植", "tier": "凡品", "count": 1}],
-    "effects": {"physical_damage_multiplier": 0.28, "magic_damage_multiplier": 0.28, "crit_rate_bonus": 12},
+    "materials": [
+      {
+        "category": "矿材",
+        "tier": "凡品",
+        "count": 1
+      },
+      {
+        "category": "灵植",
+        "tier": "凡品",
+        "count": 1
+      }
+    ],
+    "effects": {
+      "physical_damage_multiplier": 0.28,
+      "magic_damage_multiplier": 0.28,
+      "crit_rate_bonus": 12
+    },
     "duration": 15,
-    "price": 580,
+    "price": 730,
     "shop_weight": 200,
     "basic": true,
     "legacy": false
@@ -23,10 +38,25 @@
     "level_required": 3,
     "success_rate": 72,
     "gold_cost": 900,
-    "materials": [{"category": "矿材", "tier": "黄品", "count": 2}, {"category": "灵植", "tier": "黄品", "count": 1}],
-    "effects": {"physical_damage_multiplier": 0.35, "magic_damage_multiplier": 0.35, "crit_rate_bonus": 14},
+    "materials": [
+      {
+        "category": "矿材",
+        "tier": "黄品",
+        "count": 2
+      },
+      {
+        "category": "灵植",
+        "tier": "黄品",
+        "count": 1
+      }
+    ],
+    "effects": {
+      "physical_damage_multiplier": 0.35,
+      "magic_damage_multiplier": 0.35,
+      "crit_rate_bonus": 14
+    },
     "duration": 15,
-    "price": 5436,
+    "price": 2700,
     "shop_weight": 110,
     "basic": true,
     "legacy": false
@@ -39,10 +69,25 @@
     "level_required": 9,
     "success_rate": 68,
     "gold_cost": 2500,
-    "materials": [{"category": "矿材", "tier": "玄品", "count": 2}, {"category": "灵液", "tier": "玄品", "count": 1}],
-    "effects": {"physical_damage_multiplier": 0.43, "magic_damage_multiplier": 0.43, "crit_rate_bonus": 16},
+    "materials": [
+      {
+        "category": "矿材",
+        "tier": "玄品",
+        "count": 2
+      },
+      {
+        "category": "灵液",
+        "tier": "玄品",
+        "count": 1
+      }
+    ],
+    "effects": {
+      "physical_damage_multiplier": 0.43,
+      "magic_damage_multiplier": 0.43,
+      "crit_rate_bonus": 16
+    },
     "duration": 20,
-    "price": 44080,
+    "price": 8200,
     "shop_weight": 40,
     "basic": false,
     "legacy": false
@@ -55,10 +100,25 @@
     "level_required": 18,
     "success_rate": 62,
     "gold_cost": 12000,
-    "materials": [{"category": "矿材", "tier": "圣品", "count": 2}, {"category": "灵植", "tier": "圣品", "count": 1}],
-    "effects": {"physical_damage_multiplier": 0.5, "magic_damage_multiplier": 0.5, "crit_rate_bonus": 20},
+    "materials": [
+      {
+        "category": "矿材",
+        "tier": "圣品",
+        "count": 2
+      },
+      {
+        "category": "灵植",
+        "tier": "圣品",
+        "count": 1
+      }
+    ],
+    "effects": {
+      "physical_damage_multiplier": 0.5,
+      "magic_damage_multiplier": 0.5,
+      "crit_rate_bonus": 20
+    },
     "duration": 30,
-    "price": 308100,
+    "price": 115000,
     "shop_weight": 15,
     "basic": false,
     "legacy": false
@@ -71,10 +131,19 @@
     "level_required": 0,
     "success_rate": 84,
     "gold_cost": 200,
-    "materials": [{"category": "矿材", "tier": "凡品", "count": 2}],
-    "effects": {"physical_defense_multiplier": 0.26, "magic_defense_multiplier": 0.26},
+    "materials": [
+      {
+        "category": "矿材",
+        "tier": "凡品",
+        "count": 2
+      }
+    ],
+    "effects": {
+      "physical_defense_multiplier": 0.26,
+      "magic_defense_multiplier": 0.26
+    },
     "duration": 15,
-    "price": 480,
+    "price": 550,
     "shop_weight": 200,
     "basic": true,
     "legacy": false
@@ -87,10 +156,19 @@
     "level_required": 3,
     "success_rate": 74,
     "gold_cost": 800,
-    "materials": [{"category": "矿材", "tier": "黄品", "count": 2}],
-    "effects": {"physical_defense_multiplier": 0.33, "magic_defense_multiplier": 0.33},
+    "materials": [
+      {
+        "category": "矿材",
+        "tier": "黄品",
+        "count": 2
+      }
+    ],
+    "effects": {
+      "physical_defense_multiplier": 0.33,
+      "magic_defense_multiplier": 0.33
+    },
     "duration": 15,
-    "price": 3824,
+    "price": 2200,
     "shop_weight": 120,
     "basic": true,
     "legacy": false
@@ -103,10 +181,24 @@
     "level_required": 3,
     "success_rate": 75,
     "gold_cost": 850,
-    "materials": [{"category": "矿材", "tier": "黄品", "count": 2}, {"category": "妖兽", "tier": "黄品", "count": 1}],
-    "effects": {"physical_defense_multiplier": 0.33, "magic_defense_multiplier": 0.33},
+    "materials": [
+      {
+        "category": "矿材",
+        "tier": "黄品",
+        "count": 2
+      },
+      {
+        "category": "妖兽",
+        "tier": "黄品",
+        "count": 1
+      }
+    ],
+    "effects": {
+      "physical_defense_multiplier": 0.33,
+      "magic_defense_multiplier": 0.33
+    },
     "duration": 15,
-    "price": 5386,
+    "price": 2600,
     "shop_weight": 110,
     "basic": true,
     "legacy": false
@@ -119,10 +211,24 @@
     "level_required": 9,
     "success_rate": 67,
     "gold_cost": 2500,
-    "materials": [{"category": "矿材", "tier": "玄品", "count": 2}, {"category": "妖兽", "tier": "玄品", "count": 1}],
-    "effects": {"physical_defense_multiplier": 0.4, "magic_defense_multiplier": 0.4},
+    "materials": [
+      {
+        "category": "矿材",
+        "tier": "玄品",
+        "count": 2
+      },
+      {
+        "category": "妖兽",
+        "tier": "玄品",
+        "count": 1
+      }
+    ],
+    "effects": {
+      "physical_defense_multiplier": 0.4,
+      "magic_defense_multiplier": 0.4
+    },
     "duration": 20,
-    "price": 44080,
+    "price": 7900,
     "shop_weight": 40,
     "basic": false,
     "legacy": false
@@ -135,10 +241,24 @@
     "level_required": 18,
     "success_rate": 60,
     "gold_cost": 12000,
-    "materials": [{"category": "矿材", "tier": "圣品", "count": 3}, {"category": "妖兽", "tier": "圣品", "count": 1}],
-    "effects": {"physical_defense_multiplier": 0.5, "magic_defense_multiplier": 0.5},
+    "materials": [
+      {
+        "category": "矿材",
+        "tier": "圣品",
+        "count": 3
+      },
+      {
+        "category": "妖兽",
+        "tier": "圣品",
+        "count": 1
+      }
+    ],
+    "effects": {
+      "physical_defense_multiplier": 0.5,
+      "magic_defense_multiplier": 0.5
+    },
     "duration": 30,
-    "price": 406800,
+    "price": 165000,
     "shop_weight": 15,
     "basic": false,
     "legacy": false
@@ -151,10 +271,20 @@
     "level_required": 0,
     "success_rate": 76,
     "gold_cost": 350,
-    "materials": [{"category": "灵液", "tier": "凡品", "count": 2}],
-    "effects": {"frost_chance": 15, "frost_turns": 2, "frost_atk_reduction": 8},
+    "materials": [
+      {
+        "category": "灵液",
+        "tier": "凡品",
+        "count": 2
+      }
+    ],
+    "effects": {
+      "frost_chance": 15,
+      "frost_turns": 2,
+      "frost_atk_reduction": 8
+    },
     "duration": 15,
-    "price": 630,
+    "price": 1100,
     "shop_weight": 180,
     "basic": true,
     "legacy": false
@@ -167,10 +297,26 @@
     "level_required": 3,
     "success_rate": 72,
     "gold_cost": 900,
-    "materials": [{"category": "灵液", "tier": "黄品", "count": 2}, {"category": "妖兽", "tier": "黄品", "count": 1}],
-    "effects": {"freeze_chance": 10, "curse_chance": 20, "curse_defense_pct": 10, "curse_turns": 2},
+    "materials": [
+      {
+        "category": "灵液",
+        "tier": "黄品",
+        "count": 2
+      },
+      {
+        "category": "妖兽",
+        "tier": "黄品",
+        "count": 1
+      }
+    ],
+    "effects": {
+      "freeze_chance": 10,
+      "curse_chance": 20,
+      "curse_defense_pct": 10,
+      "curse_turns": 2
+    },
     "duration": 15,
-    "price": 5436,
+    "price": 3300,
     "shop_weight": 110,
     "basic": false,
     "legacy": false
@@ -183,10 +329,26 @@
     "level_required": 9,
     "success_rate": 66,
     "gold_cost": 2500,
-    "materials": [{"category": "灵液", "tier": "玄品", "count": 2}, {"category": "妖兽", "tier": "玄品", "count": 1}],
-    "effects": {"stun_chance": 12, "stun_turns": 1, "curse_defense_pct": 18, "curse_turns": 3},
+    "materials": [
+      {
+        "category": "灵液",
+        "tier": "玄品",
+        "count": 2
+      },
+      {
+        "category": "妖兽",
+        "tier": "玄品",
+        "count": 1
+      }
+    ],
+    "effects": {
+      "stun_chance": 12,
+      "stun_turns": 1,
+      "curse_defense_pct": 18,
+      "curse_turns": 3
+    },
     "duration": 20,
-    "price": 44080,
+    "price": 9200,
     "shop_weight": 40,
     "basic": false,
     "legacy": false
@@ -199,10 +361,26 @@
     "level_required": 18,
     "success_rate": 60,
     "gold_cost": 12000,
-    "materials": [{"category": "灵液", "tier": "圣品", "count": 2}, {"category": "妖兽", "tier": "圣品", "count": 1}],
-    "effects": {"stun_chance": 18, "stun_turns": 2, "curse_defense_pct": 25, "burn_heal_reduction": 30},
+    "materials": [
+      {
+        "category": "灵液",
+        "tier": "圣品",
+        "count": 2
+      },
+      {
+        "category": "妖兽",
+        "tier": "圣品",
+        "count": 1
+      }
+    ],
+    "effects": {
+      "stun_chance": 18,
+      "stun_turns": 2,
+      "curse_defense_pct": 25,
+      "burn_heal_reduction": 30
+    },
     "duration": 30,
-    "price": 308100,
+    "price": 176000,
     "shop_weight": 15,
     "basic": false,
     "legacy": false
@@ -215,10 +393,18 @@
     "level_required": 0,
     "success_rate": 85,
     "gold_cost": 250,
-    "materials": [{"category": "灵植", "tier": "凡品", "count": 3}],
-    "effects": {"heal_percent": 0.3},
+    "materials": [
+      {
+        "category": "灵植",
+        "tier": "凡品",
+        "count": 3
+      }
+    ],
+    "effects": {
+      "heal_percent": 0.3
+    },
     "duration": 15,
-    "price": 670,
+    "price": 690,
     "shop_weight": 200,
     "basic": true,
     "legacy": false
@@ -231,10 +417,23 @@
     "level_required": 3,
     "success_rate": 78,
     "gold_cost": 800,
-    "materials": [{"category": "灵植", "tier": "黄品", "count": 2}, {"category": "灵液", "tier": "黄品", "count": 1}],
-    "effects": {"heal_percent": 0.33},
+    "materials": [
+      {
+        "category": "灵植",
+        "tier": "黄品",
+        "count": 2
+      },
+      {
+        "category": "灵液",
+        "tier": "黄品",
+        "count": 1
+      }
+    ],
+    "effects": {
+      "heal_percent": 0.33
+    },
     "duration": 15,
-    "price": 5336,
+    "price": 2500,
     "shop_weight": 110,
     "basic": false,
     "legacy": false
@@ -247,10 +446,18 @@
     "level_required": 9,
     "success_rate": 70,
     "gold_cost": 2500,
-    "materials": [{"category": "灵植", "tier": "玄品", "count": 3}],
-    "effects": {"heal_percent": 0.36},
+    "materials": [
+      {
+        "category": "灵植",
+        "tier": "玄品",
+        "count": 3
+      }
+    ],
+    "effects": {
+      "heal_percent": 0.36
+    },
     "duration": 20,
-    "price": 44080,
+    "price": 7000,
     "shop_weight": 40,
     "basic": false,
     "legacy": false
@@ -263,10 +470,18 @@
     "level_required": 18,
     "success_rate": 62,
     "gold_cost": 12000,
-    "materials": [{"category": "灵植", "tier": "圣品", "count": 3}],
-    "effects": {"heal_percent": 0.41},
+    "materials": [
+      {
+        "category": "灵植",
+        "tier": "圣品",
+        "count": 3
+      }
+    ],
+    "effects": {
+      "heal_percent": 0.41
+    },
     "duration": 30,
-    "price": 308100,
+    "price": 105000,
     "shop_weight": 15,
     "basic": false,
     "legacy": false
@@ -279,10 +494,20 @@
     "level_required": 0,
     "success_rate": 80,
     "gold_cost": 300,
-    "materials": [{"category": "灵植", "tier": "凡品", "count": 2}],
-    "effects": {"alchemy_success_bonus": 10, "alchemy_quality_bonus": 6, "tribulation_shield": 2},
+    "materials": [
+      {
+        "category": "灵植",
+        "tier": "凡品",
+        "count": 2
+      }
+    ],
+    "effects": {
+      "alchemy_success_bonus": 10,
+      "alchemy_quality_bonus": 6,
+      "tribulation_shield": 2
+    },
     "duration": 15,
-    "price": 580,
+    "price": 710,
     "shop_weight": 200,
     "basic": true,
     "legacy": false
@@ -295,10 +520,25 @@
     "level_required": 3,
     "success_rate": 75,
     "gold_cost": 800,
-    "materials": [{"category": "灵植", "tier": "黄品", "count": 2}, {"category": "矿材", "tier": "黄品", "count": 1}],
-    "effects": {"alchemy_success_bonus": 12, "alchemy_quality_bonus": 8, "tribulation_shield": 4},
+    "materials": [
+      {
+        "category": "灵植",
+        "tier": "黄品",
+        "count": 2
+      },
+      {
+        "category": "矿材",
+        "tier": "黄品",
+        "count": 1
+      }
+    ],
+    "effects": {
+      "alchemy_success_bonus": 12,
+      "alchemy_quality_bonus": 8,
+      "tribulation_shield": 4
+    },
     "duration": 15,
-    "price": 5336,
+    "price": 2400,
     "shop_weight": 130,
     "basic": true,
     "legacy": false
@@ -311,10 +551,25 @@
     "level_required": 3,
     "success_rate": 72,
     "gold_cost": 900,
-    "materials": [{"category": "灵植", "tier": "黄品", "count": 2}, {"category": "灵液", "tier": "黄品", "count": 1}],
-    "effects": {"alchemy_success_bonus": 12, "alchemy_quality_bonus": 8, "tribulation_shield": 4},
+    "materials": [
+      {
+        "category": "灵植",
+        "tier": "黄品",
+        "count": 2
+      },
+      {
+        "category": "灵液",
+        "tier": "黄品",
+        "count": 1
+      }
+    ],
+    "effects": {
+      "alchemy_success_bonus": 12,
+      "alchemy_quality_bonus": 8,
+      "tribulation_shield": 4
+    },
     "duration": 15,
-    "price": 5436,
+    "price": 2900,
     "shop_weight": 110,
     "basic": false,
     "legacy": false
@@ -327,10 +582,25 @@
     "level_required": 9,
     "success_rate": 65,
     "gold_cost": 3000,
-    "materials": [{"category": "灵植", "tier": "玄品", "count": 3}, {"category": "矿材", "tier": "玄品", "count": 2}],
-    "effects": {"alchemy_success_bonus": 14, "alchemy_quality_bonus": 10, "tribulation_shield": 6},
+    "materials": [
+      {
+        "category": "灵植",
+        "tier": "玄品",
+        "count": 3
+      },
+      {
+        "category": "矿材",
+        "tier": "玄品",
+        "count": 2
+      }
+    ],
+    "effects": {
+      "alchemy_success_bonus": 14,
+      "alchemy_quality_bonus": 10,
+      "tribulation_shield": 6
+    },
     "duration": 20,
-    "price": 72300,
+    "price": 11000,
     "shop_weight": 45,
     "basic": false,
     "legacy": false
@@ -343,10 +613,30 @@
     "level_required": 18,
     "success_rate": 60,
     "gold_cost": 12000,
-    "materials": [{"category": "灵植", "tier": "圣品", "count": 3}, {"category": "矿材", "tier": "圣品", "count": 2}, {"category": "灵液", "tier": "圣品", "count": 1}],
-    "effects": {"alchemy_success_bonus": 18, "alchemy_quality_bonus": 13, "tribulation_shield": 9},
+    "materials": [
+      {
+        "category": "灵植",
+        "tier": "圣品",
+        "count": 3
+      },
+      {
+        "category": "矿材",
+        "tier": "圣品",
+        "count": 2
+      },
+      {
+        "category": "灵液",
+        "tier": "圣品",
+        "count": 1
+      }
+    ],
+    "effects": {
+      "alchemy_success_bonus": 18,
+      "alchemy_quality_bonus": 13,
+      "tribulation_shield": 9
+    },
     "duration": 30,
-    "price": 604200,
+    "price": 227000,
     "shop_weight": 15,
     "basic": false,
     "legacy": false
@@ -359,10 +649,20 @@
     "level_required": 0,
     "success_rate": 85,
     "gold_cost": 200,
-    "materials": [{"category": "矿材", "tier": "凡品", "count": 2}],
-    "effects": {"exploration_reward_multiplier": 0.25, "rift_reward_multiplier": 0.25, "drop_chance_bonus": 10},
+    "materials": [
+      {
+        "category": "矿材",
+        "tier": "凡品",
+        "count": 2
+      }
+    ],
+    "effects": {
+      "exploration_reward_multiplier": 0.25,
+      "rift_reward_multiplier": 0.25,
+      "drop_chance_bonus": 10
+    },
     "duration": 15,
-    "price": 480,
+    "price": 540,
     "shop_weight": 200,
     "basic": true,
     "legacy": false
@@ -375,10 +675,25 @@
     "level_required": 3,
     "success_rate": 78,
     "gold_cost": 700,
-    "materials": [{"category": "灵植", "tier": "黄品", "count": 1}, {"category": "妖兽", "tier": "黄品", "count": 1}],
-    "effects": {"exploration_reward_multiplier": 0.31, "rift_reward_multiplier": 0.31, "drop_chance_bonus": 13},
+    "materials": [
+      {
+        "category": "灵植",
+        "tier": "黄品",
+        "count": 1
+      },
+      {
+        "category": "妖兽",
+        "tier": "黄品",
+        "count": 1
+      }
+    ],
+    "effects": {
+      "exploration_reward_multiplier": 0.31,
+      "rift_reward_multiplier": 0.31,
+      "drop_chance_bonus": 13
+    },
     "duration": 15,
-    "price": 3724,
+    "price": 1900,
     "shop_weight": 110,
     "basic": false,
     "legacy": false
@@ -391,10 +706,25 @@
     "level_required": 9,
     "success_rate": 67,
     "gold_cost": 2500,
-    "materials": [{"category": "矿材", "tier": "玄品", "count": 2}, {"category": "妖兽", "tier": "玄品", "count": 1}],
-    "effects": {"exploration_reward_multiplier": 0.37, "rift_reward_multiplier": 0.37, "drop_chance_bonus": 16},
+    "materials": [
+      {
+        "category": "矿材",
+        "tier": "玄品",
+        "count": 2
+      },
+      {
+        "category": "妖兽",
+        "tier": "玄品",
+        "count": 1
+      }
+    ],
+    "effects": {
+      "exploration_reward_multiplier": 0.37,
+      "rift_reward_multiplier": 0.37,
+      "drop_chance_bonus": 16
+    },
     "duration": 20,
-    "price": 44080,
+    "price": 7900,
     "shop_weight": 40,
     "basic": false,
     "legacy": false
@@ -407,10 +737,25 @@
     "level_required": 18,
     "success_rate": 60,
     "gold_cost": 12000,
-    "materials": [{"category": "灵植", "tier": "圣品", "count": 2}, {"category": "妖兽", "tier": "圣品", "count": 2}],
-    "effects": {"exploration_reward_multiplier": 0.47, "rift_reward_multiplier": 0.47, "drop_chance_bonus": 21},
+    "materials": [
+      {
+        "category": "灵植",
+        "tier": "圣品",
+        "count": 2
+      },
+      {
+        "category": "妖兽",
+        "tier": "圣品",
+        "count": 2
+      }
+    ],
+    "effects": {
+      "exploration_reward_multiplier": 0.47,
+      "rift_reward_multiplier": 0.47,
+      "drop_chance_bonus": 21
+    },
     "duration": 30,
-    "price": 406800,
+    "price": 162000,
     "shop_weight": 15,
     "basic": false,
     "legacy": false
@@ -423,10 +768,20 @@
     "level_required": 0,
     "success_rate": 82,
     "gold_cost": 300,
-    "materials": [{"category": "灵液", "tier": "凡品", "count": 2}],
-    "effects": {"cultivation_multiplier": 0.18, "lifespan_regen_per_minute": 1, "luck_bonus": 2},
+    "materials": [
+      {
+        "category": "灵液",
+        "tier": "凡品",
+        "count": 2
+      }
+    ],
+    "effects": {
+      "cultivation_multiplier": 0.18,
+      "lifespan_regen_per_minute": 1,
+      "luck_bonus": 2
+    },
     "duration": 15,
-    "price": 580,
+    "price": 890,
     "shop_weight": 180,
     "basic": false,
     "legacy": false
@@ -439,10 +794,25 @@
     "level_required": 3,
     "success_rate": 70,
     "gold_cost": 1000,
-    "materials": [{"category": "灵植", "tier": "黄品", "count": 2}, {"category": "灵液", "tier": "黄品", "count": 1}],
-    "effects": {"cultivation_multiplier": 0.22, "lifespan_regen_per_minute": 2, "luck_bonus": 3},
+    "materials": [
+      {
+        "category": "灵植",
+        "tier": "黄品",
+        "count": 2
+      },
+      {
+        "category": "灵液",
+        "tier": "黄品",
+        "count": 1
+      }
+    ],
+    "effects": {
+      "cultivation_multiplier": 0.22,
+      "lifespan_regen_per_minute": 2,
+      "luck_bonus": 3
+    },
     "duration": 15,
-    "price": 5536,
+    "price": 3100,
     "shop_weight": 110,
     "basic": false,
     "legacy": false
@@ -455,10 +825,25 @@
     "level_required": 9,
     "success_rate": 66,
     "gold_cost": 2500,
-    "materials": [{"category": "灵植", "tier": "玄品", "count": 2}, {"category": "灵液", "tier": "玄品", "count": 1}],
-    "effects": {"cultivation_multiplier": 0.27, "lifespan_regen_per_minute": 2, "luck_bonus": 4},
+    "materials": [
+      {
+        "category": "灵植",
+        "tier": "玄品",
+        "count": 2
+      },
+      {
+        "category": "灵液",
+        "tier": "玄品",
+        "count": 1
+      }
+    ],
+    "effects": {
+      "cultivation_multiplier": 0.27,
+      "lifespan_regen_per_minute": 2,
+      "luck_bonus": 4
+    },
     "duration": 20,
-    "price": 44080,
+    "price": 8100,
     "shop_weight": 40,
     "basic": false,
     "legacy": false
@@ -471,10 +856,25 @@
     "level_required": 18,
     "success_rate": 60,
     "gold_cost": 12000,
-    "materials": [{"category": "灵植", "tier": "圣品", "count": 2}, {"category": "灵液", "tier": "圣品", "count": 1}],
-    "effects": {"cultivation_multiplier": 0.34, "lifespan_regen_per_minute": 3, "luck_bonus": 5},
+    "materials": [
+      {
+        "category": "灵植",
+        "tier": "圣品",
+        "count": 2
+      },
+      {
+        "category": "灵液",
+        "tier": "圣品",
+        "count": 1
+      }
+    ],
+    "effects": {
+      "cultivation_multiplier": 0.34,
+      "lifespan_regen_per_minute": 3,
+      "luck_bonus": 5
+    },
     "duration": 30,
-    "price": 308100,
+    "price": 135000,
     "shop_weight": 15,
     "basic": false,
     "legacy": false
@@ -487,10 +887,24 @@
     "level_required": 0,
     "success_rate": 83,
     "gold_cost": 250,
-    "materials": [{"category": "灵液", "tier": "凡品", "count": 1}, {"category": "灵植", "tier": "凡品", "count": 1}],
-    "effects": {"dodge_bonus": 9, "luck_bonus": 5},
+    "materials": [
+      {
+        "category": "灵液",
+        "tier": "凡品",
+        "count": 1
+      },
+      {
+        "category": "灵植",
+        "tier": "凡品",
+        "count": 1
+      }
+    ],
+    "effects": {
+      "dodge_bonus": 9,
+      "luck_bonus": 5
+    },
     "duration": 15,
-    "price": 530,
+    "price": 700,
     "shop_weight": 180,
     "basic": false,
     "legacy": false
@@ -503,10 +917,24 @@
     "level_required": 3,
     "success_rate": 76,
     "gold_cost": 800,
-    "materials": [{"category": "灵植", "tier": "黄品", "count": 2}, {"category": "妖兽", "tier": "黄品", "count": 1}],
-    "effects": {"dodge_bonus": 12, "luck_bonus": 7},
+    "materials": [
+      {
+        "category": "灵植",
+        "tier": "黄品",
+        "count": 2
+      },
+      {
+        "category": "妖兽",
+        "tier": "黄品",
+        "count": 1
+      }
+    ],
+    "effects": {
+      "dodge_bonus": 12,
+      "luck_bonus": 7
+    },
     "duration": 15,
-    "price": 5336,
+    "price": 2400,
     "shop_weight": 110,
     "basic": false,
     "legacy": false
@@ -519,10 +947,24 @@
     "level_required": 9,
     "success_rate": 68,
     "gold_cost": 2500,
-    "materials": [{"category": "灵液", "tier": "玄品", "count": 2}, {"category": "矿材", "tier": "玄品", "count": 1}],
-    "effects": {"dodge_bonus": 14, "luck_bonus": 8},
+    "materials": [
+      {
+        "category": "灵液",
+        "tier": "玄品",
+        "count": 2
+      },
+      {
+        "category": "矿材",
+        "tier": "玄品",
+        "count": 1
+      }
+    ],
+    "effects": {
+      "dodge_bonus": 14,
+      "luck_bonus": 8
+    },
     "duration": 20,
-    "price": 44080,
+    "price": 8700,
     "shop_weight": 40,
     "basic": false,
     "legacy": false
@@ -535,10 +977,24 @@
     "level_required": 18,
     "success_rate": 60,
     "gold_cost": 12000,
-    "materials": [{"category": "灵液", "tier": "圣品", "count": 2}, {"category": "灵植", "tier": "圣品", "count": 1}],
-    "effects": {"dodge_bonus": 18, "luck_bonus": 11},
+    "materials": [
+      {
+        "category": "灵液",
+        "tier": "圣品",
+        "count": 2
+      },
+      {
+        "category": "灵植",
+        "tier": "圣品",
+        "count": 1
+      }
+    ],
+    "effects": {
+      "dodge_bonus": 18,
+      "luck_bonus": 11
+    },
     "duration": 30,
-    "price": 308100,
+    "price": 162000,
     "shop_weight": 15,
     "basic": false,
     "legacy": false

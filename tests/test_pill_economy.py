@@ -162,7 +162,7 @@ class TestPillEconomy(unittest.TestCase):
         cls.recipes = list((cls.cm.pill_recipes_data or {}).values())
 
     def test_all_recipe_outputs_have_pills(self):
-        self.assertEqual(len(self.recipes), 42)
+        self.assertGreaterEqual(len(self.recipes), 200)
         for recipe in self.recipes:
             pill = self.rules.pill(recipe.get("output_pill", ""))
             self.assertIsNotNone(pill, f"缺少成品丹药: {recipe.get('output_pill')}")
@@ -188,4 +188,4 @@ class TestPillEconomy(unittest.TestCase):
                 f"{recipe['name']} 折后价不足以覆盖炼制成本",
             )
             checked += 1
-        self.assertEqual(checked, 42)
+        self.assertEqual(checked, len(self.recipes))

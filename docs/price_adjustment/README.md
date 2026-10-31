@@ -1,7 +1,8 @@
 # 物品价格调整执行包
 
-> 本目录是可执行价格表，尚未写入游戏配置。
-> 生成依据：《[物品价格调整报告.md](../物品价格调整报告.md)》。
+> 本目录是价格方案的参考快照。
+> **当前权威实现**：`scripts/rebuild_economy.py`（幂等重算材料/丹方/丹药/符箓价格并直接写入 config）+ `scripts/generate_economy_baseline.py`（押镖经济基准表）+ `scripts/detect_price_anomalies.py`（装备价格全量异常检测）。
+> 本目录 CSV 为历史快照，可能与最新配置不完全同步；经济数据以 `config/` 与上述脚本为准。
 
 ## 文件
 

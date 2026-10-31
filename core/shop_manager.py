@@ -662,23 +662,46 @@ class ShopManager:
             return False
         return pill.get('subtype') == 'breakthrough' or pill.get('type') == 'breakthrough'
 
+    # 初始已学丹方（创建角色即学会），不再上架丹方阁
+    INITIAL_LEARNED_RECIPE_IDS = (130, 131)
+
     def get_recipes_for_display(self, count: int) -> List[Dict]:
         """获取丹方卷轴用于丹方阁展示
 
-        突破丹方常驻提供（always_available=True），其余稀有丹方参与随机刷新。
+        回春散·凡方/聚灵散·凡方为初始已学丹方，不上架；
+        突破丹方另设“突破丹方”分区；其余丹方参与随机刷新。
         """
         recipes = []
         for item in self.config_manager.items_data.values():
-            if item.get('type') == '丹方' and item.get('price', 0) > 0:
-                permanent = self._is_breakthrough_recipe(item)
-                price = max(1, int(item.get('price') or 0))
-                recipes.append({
-                    'name': item['name'], 'type': 'recipe', 'price': item['price'],
-                    'rank': item.get('rank', '灵品'), 'data': item,
-                    'always_available': permanent, 'rare': not permanent,
-                    # 稀有模式按价格反推权重：越贵的丹方 pick_weight 越低，越容易入选
-                    'pick_weight': max(1, int(10_000_000 / price)),
-                })
+            if item.get('type') != '丹方' or int(item.get('price', 0) or 0) <= 0:
+                continue
+            if int(item.get('recipe_id') or -1) in self.INITIAL_LEARNED_RECIPE_IDS:
+                continue
+            if self._is_breakthrough_recipe(item):
+                continue
+            price = max(1, int(item.get('price') or 0))
+            recipes.append({
+                'name': item['name'], 'type': 'recipe', 'price': item['price'],
+                'rank': item.get('rank', '灵品'), 'data': item,
+                'always_available': False, 'rare': True,
+                # 稀有模式按价格反推权重：越贵的丹方 pick_weight 越低，越容易入选
+                'pick_weight': max(1, int(10_000_000 / price)),
+            })
+        return recipes
+
+    def get_breakthrough_recipes_for_display(self, count: int = 0) -> List[Dict]:
+        """突破丹方分区：全部突破丹方常驻（不受随机刷新数量限制）。"""
+        recipes = []
+        for item in self.config_manager.items_data.values():
+            if item.get('type') != '丹方' or int(item.get('price', 0) or 0) <= 0:
+                continue
+            if not self._is_breakthrough_recipe(item):
+                continue
+            recipes.append({
+                'name': item['name'], 'type': 'recipe', 'price': item['price'],
+                'rank': item.get('rank', '灵品'), 'data': item,
+                'always_available': True, 'rare': False, 'pick_weight': 1,
+            })
         return recipes
 
     # ===== 符阁 =====
@@ -768,7 +791,13 @@ class ShopManager:
             if raw_type not in ('材料', '材料包'):
                 continue
             rank = normalize_rank(item.get('rank'), '凡品')
-            price = int(item.get('price') or tier_price.get(rank, 50))
+            if raw_type == '材料':
+                # 材料价格以 material_catalog 为单一数据源
+                price = self.config_manager.get_item_price(item['name'])
+                if price <= 0:
+                    price = tier_price.get(rank, 50)
+            else:
+                price = int(item.get('price') or tier_price.get(rank, 50))
             item_type = 'material_package' if raw_type == '材料包' else 'material'
             category = self.get_material_category(item['name'], item)
             materials.append({
@@ -781,6 +810,8 @@ class ShopManager:
     # ===== 材料包 =====
     PACKAGE_OPEN_MIN = 1
     PACKAGE_OPEN_MAX = 3
+    # 开出数量分布：1 个 20% / 2 个 50% / 3 个 30%
+    PACKAGE_OPEN_WEIGHTS = [(1, 20), (2, 50), (3, 30)]
 
     def get_package_material_pool(self, category: str, tier: str) -> List[Tuple[str, int]]:
         """返回材料包可开出的 (材料名, 权重)；只取物品目录中真实存在的材料。
@@ -828,7 +859,11 @@ class ShopManager:
         if total_weight <= 0:
             return []
         gained: Dict[str, int] = {}
-        for _ in range(random.randint(self.PACKAGE_OPEN_MIN, self.PACKAGE_OPEN_MAX)):
+        open_count = random.choices(
+            [count for count, _ in self.PACKAGE_OPEN_WEIGHTS],
+            weights=[weight for _, weight in self.PACKAGE_OPEN_WEIGHTS],
+        )[0]
+        for _ in range(open_count):
             roll = random.uniform(0, total_weight)
             cumulative = 0
             picked = pool[-1][0]

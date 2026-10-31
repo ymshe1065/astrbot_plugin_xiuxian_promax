@@ -12,7 +12,8 @@ class RecoveryManager:
     NATURAL_INTERVAL = 300
     NATURAL_RATE = 0.01
     REST_INTERVAL = 60
-    REST_RATE = 0.05
+    REST_RATE = 0.03
+    REST_QI_BONUS_CAP = 1.0   # 调息回蓝增益合计封顶 +100%（3% → 最高 6%/分钟）
     INJURED_HP_RATIO = 0.20
 
     def __init__(self, db, config_manager=None):
@@ -54,7 +55,8 @@ class RecoveryManager:
                         result["natural_hp_regen_bonus"] += 0.10 * level
                         result["natural_qi_regen_bonus"] += 0.10 * level
                         result["rest_hp_regen_bonus"] += 0.05 * level
-                        result["rest_qi_regen_bonus"] += 0.05 * level
+                        # 回蓝增益下调：疗养殿每级 +4%
+                        result["rest_qi_regen_bonus"] += 0.04 * level
         except Exception:
             pass
 
@@ -71,7 +73,8 @@ class RecoveryManager:
                     result["rest_hp_regen_bonus"] += 0.10
                 if "聚灵池" in furniture:
                     result["natural_qi_regen_bonus"] += 0.15
-                    result["rest_qi_regen_bonus"] += 0.10
+                    # 回蓝增益下调：聚灵池调息回蓝 +8%
+                    result["rest_qi_regen_bonus"] += 0.08
         except Exception:
             pass
 
@@ -99,18 +102,30 @@ class RecoveryManager:
                     "natural_mp_regen_bonus": "natural_qi_regen_bonus",
                     "rest_mp_regen_bonus": "rest_qi_regen_bonus",
                 }
+                equipment_rest_qi = 0.0
                 for name in dict.fromkeys(names):
                     data = techniques_data.get(name) or items_data.get(name) or weapons_data.get(name) or {}
                     effects = data.get("effects") or {}
                     for key, value in effects.items():
                         target = aliases.get(key, key)
-                        if target in result:
-                            try:
-                                result[target] += float(value or 0)
-                            except (TypeError, ValueError):
-                                pass
+                        if target not in result:
+                            continue
+                        try:
+                            value = float(value or 0)
+                        except (TypeError, ValueError):
+                            continue
+                        if target == "rest_qi_regen_bonus":
+                            # 装备回蓝增益整体 ×0.8，单独累计后再并入
+                            equipment_rest_qi += value
+                        else:
+                            result[target] += value
+                result["rest_qi_regen_bonus"] += min(1.0, equipment_rest_qi * 0.8)
             except Exception:
                 pass
+        # 调息回蓝总增益封顶 +100%（基础 3% → 最高 6%/分钟）
+        result["rest_qi_regen_bonus"] = min(
+            self.REST_QI_BONUS_CAP, result["rest_qi_regen_bonus"]
+        )
         return result
 
     async def apply_lazy_recovery(self, player: Player, now: Optional[int] = None) -> Player:

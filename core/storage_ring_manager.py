@@ -470,19 +470,21 @@ class StorageRingManager:
     QUALITY_PRICE_MULT = {"一般": 1.0, "良好": 1.05, "极佳": 1.10, "大师": 1.15}
     RECYCLE_RATE = 0.60
 
-    def _item_base_price(self, item_name: str) -> int:
-        cfg = self.config_manager.get_item_config(item_name) or {}
-        if not cfg:
-            cfg = self.config_manager.get_material_info(item_name) or {}
+    def _recycle_value(self, item_name: str, quality: str = "一般", affixes=None) -> int:
+        from .item_valuation import recycle_value
         try:
-            return max(0, int(cfg.get("price", 0) or 0))
-        except (TypeError, ValueError):
-            return 0
-
-    def _recycle_value(self, item_name: str, quality: str = "一般") -> int:
-        base = self._item_base_price(item_name)
-        mult = self.QUALITY_PRICE_MULT.get(str(quality or "一般"), 1.0)
-        return max(0, int(round(base * mult * self.RECYCLE_RATE)))
+            return recycle_value(self.config_manager, item_name, quality, affixes)
+        except Exception:
+            base = 0
+            cfg = self.config_manager.get_item_config(item_name) or {}
+            if not cfg:
+                cfg = self.config_manager.get_material_info(item_name) or {}
+            try:
+                base = max(0, int(cfg.get("price", 0) or 0))
+            except (TypeError, ValueError):
+                base = 0
+            mult = self.QUALITY_PRICE_MULT.get(str(quality or "一般"), 1.0)
+            return max(0, int(round(base * mult * self.RECYCLE_RATE)))
 
     def _is_gear(self, item_name: str) -> bool:
         cfg = self.config_manager.items_data.get(item_name) or self.config_manager.weapons_data.get(item_name)
@@ -517,7 +519,7 @@ class StorageRingManager:
                 ))
                 for inst in insts[:max(0, count - recycled)]:
                     q = str(inst.get("quality") or "一般")
-                    value = self._recycle_value(item_name, q)
+                    value = self._recycle_value(item_name, q, inst.get("affixes"))
                     self.instance_manager.remove(player, int(inst.get("id", 0) or 0))
                     total_gold += value
                     recycled += 1

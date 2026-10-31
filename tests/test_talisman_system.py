@@ -101,10 +101,21 @@ class TestTalismanConfig(unittest.TestCase):
             self.assertFalse(cfg.get("legacy"), f"{recipe['name']} 不应标 legacy")
 
     def test_price_matches_cost_formula(self):
-        base = {"凡品": 100, "黄品": 1080, "玄品": 9900, "圣品": 70500}
+        import math
+        catalog = json.loads((ROOT / "config" / "material_catalog.json").read_text(encoding="utf-8"))
+        price_by_name = {m["name"]: int(m["price"]) for m in catalog["materials"]}
+        anchor = {}
+        for material in catalog["materials"]:
+            anchor[(material["category"], material["tier"])] = int(material["price"])
+
+        def ceil_to_nice(value):
+            step = 10 if value < 1_000 else 100 if value < 10_000 else 1_000 if value < 1_000_000 else 10_000
+            return max(step, int(math.ceil(value / step) * step))
+
         for recipe in self.recipes:
-            cost = sum(base[m["tier"]] * m["count"] for m in recipe["materials"])
-            expected = int(round(cost * 1.4 + recipe["gold_cost"]))
+            cost = sum(anchor[(m["category"], m["tier"])] * m["count"] for m in recipe["materials"])
+            success = float(recipe.get("success_rate") or 60) / 100.0
+            expected = ceil_to_nice((cost + recipe["gold_cost"]) / success * 1.35)
             self.assertEqual(recipe["price"], expected, recipe["name"])
             self.assertEqual(self.by_name[recipe["name"]]["price"], expected, recipe["name"])
 

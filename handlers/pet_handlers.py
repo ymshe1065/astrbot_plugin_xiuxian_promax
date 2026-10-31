@@ -69,9 +69,13 @@ class PetHandlers:
             next_lv = pet_info.get("next_evolution_level")
             evo_text = f"Lv.{next_lv} 进化" if next_lv else "已终极进化"
             species_tag = "" if stage_name in pet["pet_name"] else f" · {stage_name}"
+            bonus_text = self.pet_mgr.describe_pet_bonus(pet)
+            mechanic_text = self.pet_mgr.describe_pet_mechanic(pet)
             lines.append(f"{index}. 【{pet['pet_name']}】{main_tag}{species_tag}")
             lines.append(f"   Lv.{pet['level']} · {status} · {stage_name}（{evo_text}）")
             lines.append(f"   精力 {hp}/{max_hp} ({hp_pct}%) · 攻 {stats['atk']} · 防 {stats['defense']}")
+            lines.append(f"   加成：{bonus_text}")
+            lines.append(f"   效果：{mechanic_text}")
             sections.append({
                 "name": f"{index}. {pet['pet_name']}{main_tag}{species_tag}",
                 "rows": [
@@ -83,9 +87,29 @@ class PetHandlers:
                     ("状态", status),
                     ("攻击", str(stats["atk"])),
                     ("防御", str(stats["defense"])),
+                    ("加成", bonus_text),
+                    ("效果", mechanic_text),
                 ],
             })
         lines.append("━━━━━━━━━━━━━━━")
+        totals = self.pet_mgr.aggregate_pet_bonuses(pets)
+        total_parts = []
+        for key in ("crit_rate", "defense_bonus", "counter_damage", "lifesteal"):
+            if totals.get(key):
+                total_parts.append(f"{self.pet_mgr.PET_EFFECT_LABELS.get(key, key)}+{totals[key]:g}")
+        if totals.get("gold_bonus"):
+            total_parts.append(f"灵石收益+{totals['gold_bonus']:.1%}")
+        lines.append(f"📈 总加成：{'，'.join(total_parts) if total_parts else '无'}")
+        sections.append({
+            "name": "总加成",
+            "rows": [(label, value) for label, value in [
+                ("暴击率", f"+{totals['crit_rate']:g}" if totals.get("crit_rate") else "—"),
+                ("防御", f"+{totals['defense_bonus']:g}" if totals.get("defense_bonus") else "—"),
+                ("反伤", f"+{totals['counter_damage']:g}" if totals.get("counter_damage") else "—"),
+                ("吸血", f"+{totals['lifesteal']:g}" if totals.get("lifesteal") else "—"),
+                ("灵石收益", f"+{totals['gold_bonus']:.1%}" if totals.get("gold_bonus") else "—"),
+            ]],
+        })
         if len(pets) > slots:
             lines.append(f"⚠️ 当前仅允许 {slots} 只灵兽出战，超出槽位的灵兽不会参战")
         elif len(pets) < slots:

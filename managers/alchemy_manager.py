@@ -103,8 +103,14 @@ class AlchemyManager:
         return None
 
     # ===== 丹方学习 =====
+    # 创建角色即学会的基础丹方：回春散·凡方(130)、聚灵散·凡方(131)
+    INITIAL_LEARNED_RECIPE_IDS = (130, 131)
+
     def _default_recipe_ids(self) -> List[int]:
-        return sorted(self.recipes)[:3]
+        for recipe_id in self.INITIAL_LEARNED_RECIPE_IDS:
+            if recipe_id not in self.recipes:
+                return sorted(self.recipes)[:3]
+        return list(self.INITIAL_LEARNED_RECIPE_IDS)
 
     def get_learned_recipe_ids(self, player: Player) -> List[int]:
         try:
@@ -588,6 +594,7 @@ class AlchemyManager:
 
         learned = await self.ensure_learned_recipes(player)
         lines = ["📜 已学丹方列表", "━━━━━━━━━━━━━━━"]
+        rows = []
         # 这里只列出已学习丹方；未学习丹方请到 /丹阁 丹方 购买卷轴后学习。
         learned_ids = []
         for value in learned:
@@ -601,7 +608,7 @@ class AlchemyManager:
         if not learned_ids:
             lines.append("你还没有学习任何丹方。")
             lines.append("💡 前往 /丹阁 丹方 购买丹方卷轴，再使用 /学习丹方。")
-            return True, "\n".join(lines)
+            return True, "\n".join(lines), []
 
         for recipe_id in sorted(learned_ids):
             recipe = self.recipes[recipe_id]
@@ -624,9 +631,13 @@ class AlchemyManager:
             lines.append(f"[{recipe_id}] {recipe['name']}（{status}，成功率 {recipe.get('success_rate', 0):.0f}%）")
             if material_parts:
                 lines.append("   材料：" + "、".join(material_parts))
+            rows.append((
+                f"[{recipe_id}] {recipe['name']}（{status} · 成功率{recipe.get('success_rate', 0):.0f}%）",
+                "材料：" + "、".join(material_parts) if material_parts else "无材料消耗",
+            ))
         lines.append("━━━━━━━━━━━━━━━")
         lines.append("💡 /学习丹方 <ID或名称> 学习；/炼丹 <ID> 开始炼制")
-        return True, "\n".join(lines)
+        return True, "\n".join(lines), rows
 
     # ===== 炼制 =====
     async def craft_pill(self, user_id: str, pill_id: int, fire_choice: Optional[str] = None) -> Tuple[bool, str, Optional[Dict]]:

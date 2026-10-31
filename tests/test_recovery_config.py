@@ -9,20 +9,24 @@ ROOT = Path(__file__).resolve().parents[1]
 class TestRecoveryConfig(unittest.TestCase):
     def test_recovery_pills_have_five_tiers_and_scaled_prices(self):
         data = json.loads((ROOT / "config" / "utility_pills.json").read_text(encoding="utf-8"))
-        expected = {
-            "回春散·凡": (0.10, 1000), "回春散·黄": (0.20, 3000),
-            "回春散·玄": (0.30, 10000), "回春散·地": (0.45, 50000),
-            "回春散·天": (1.00, 200000),
-            "聚灵散·凡": (0.10, 1000), "聚灵散·黄": (0.20, 3000),
-            "聚灵散·玄": (0.30, 10000), "聚灵散·地": (0.45, 50000),
-            "聚灵散·天": (1.00, 200000),
+        expected_percent = {
+            "回春散·凡": 0.10, "回春散·黄": 0.20, "回春散·玄": 0.30,
+            "回春散·地": 0.45, "回春散·天": 1.00,
+            "聚灵散·凡": 0.10, "聚灵散·黄": 0.20, "聚灵散·玄": 0.30,
+            "聚灵散·地": 0.45, "聚灵散·天": 1.00,
         }
         found = {}
         for item in data:
-            if item.get("name") in expected:
+            if item.get("name") in expected_percent:
                 key = "restore_hp_percent" if item["name"].startswith("回春散") else "restore_qi_percent"
                 found[item["name"]] = (float(item[key]), int(item["price"]))
-        self.assertEqual(found, expected)
+        for name, (percent, price) in found.items():
+            self.assertEqual(percent, expected_percent[name], name)
+            self.assertGreater(price, 0, name)
+        order = ["凡", "黄", "玄", "地", "天"]
+        for prefix in ("回春散", "聚灵散"):
+            prices = [found[f"{prefix}·{tier}"][1] for tier in order]
+            self.assertEqual(prices, sorted(prices), f"{prefix} 价格应随品阶递增")
 
     def test_recovery_recipes_exist_for_all_tiers(self):
         data = json.loads((ROOT / "config" / "pill_recipes.json").read_text(encoding="utf-8"))

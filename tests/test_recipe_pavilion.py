@@ -52,25 +52,30 @@ class TestRecipePavilion(unittest.TestCase):
         cls.config_manager = _imp("config_manager").ConfigManager(ROOT)
         cls.shop_manager = _imp("core.shop_manager").ShopManager({}, cls.config_manager)
 
-    def test_breakthrough_recipes_are_permanent(self):
-        recipes = self.shop_manager.get_recipes_for_display(3)
-        permanent = [r for r in recipes if r["always_available"]]
-        rare = [r for r in recipes if r["rare"]]
-        self.assertEqual(len(permanent) + len(rare), len(recipes))
-        self.assertEqual(len(permanent), len(self.config_manager.pills_data))
-        self.assertTrue(all(r["type"] == "recipe" for r in permanent))
-        self.assertIn("《筑基丹方》", {r["name"] for r in permanent})
-        self.assertIn("《炼气丹方》", {r["name"] for r in rare})
+    def test_breakthrough_recipes_are_in_dedicated_section(self):
+        recipes = self.shop_manager.get_recipes_for_display(10)
+        breakthrough = self.shop_manager.get_breakthrough_recipes_for_display()
+        self.assertTrue(all(r["rare"] for r in recipes))
+        self.assertTrue(all(r["always_available"] for r in breakthrough))
+        self.assertEqual(len(breakthrough), len(self.config_manager.pills_data))
+        self.assertIn("《筑基丹方》", {r["name"] for r in breakthrough})
+        self.assertIn("《炼气丹方》", {r["name"] for r in recipes})
+        # 初始已学丹方不上架
+        self.assertNotIn("《回春散·凡方》", {r["name"] for r in recipes + breakthrough})
+        self.assertNotIn("《聚灵散·凡方》", {r["name"] for r in recipes + breakthrough})
 
     def test_pavilion_keeps_all_permanent_and_rotates_rare(self):
         generated = self.shop_manager.generate_pavilion_items(
-            self.shop_manager.get_recipes_for_display, 3
+            self.shop_manager.get_recipes_for_display, 10
         )
         permanent = [i for i in generated if i["always_available"]]
         rare = [i for i in generated if i["rare"]]
-        self.assertEqual(len(permanent), len(self.config_manager.pills_data))
-        self.assertEqual(len(rare), 3)
-        self.assertEqual(len(generated), len(permanent) + len(rare))
+        self.assertEqual(len(permanent), 0)
+        self.assertEqual(len(rare), 10)
+        breakthrough = self.shop_manager.generate_pavilion_items(
+            self.shop_manager.get_breakthrough_recipes_for_display, 0
+        )
+        self.assertEqual(len(breakthrough), len(self.config_manager.pills_data))
 
     def test_stale_recipe_price_is_refreshed_with_discount(self):
         item = {

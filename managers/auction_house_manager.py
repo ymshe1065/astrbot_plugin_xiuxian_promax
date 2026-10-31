@@ -1163,6 +1163,11 @@ class AuctionHouseManager:
             payload["effect_quality_scaling"] = bool(item_cfg.get("effect_quality_scaling"))
 
         base_price = self._base_price(category, item_cfg, payload) * count
+        if category == "equipment":
+            from ..core.item_valuation import quality_price_multiplier, affix_price_multiplier
+            base_price = int(round(
+                base_price * quality_price_multiplier(quality) * affix_price_multiplier(affixes)
+            ))
         rate = max(0.01, self._as_float(entry.get("start_price_rate"), self.start_price_rate))
         fluctuation = self._as_float(
             entry.get("start_price_fluctuation"), self.start_price_fluctuation

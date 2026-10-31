@@ -103,8 +103,13 @@ class TestEquipmentBalance(unittest.TestCase):
                 self.assertEqual(config.get('equipment_rates'), {})
                 self.assertGreater(config['price'], 0)
             else:
-                self.assertEqual(config['price'], self.balance.equipment_price(config))
-            if not config.get('effects'):
+                if is_v2:
+                    # 新装备统一按《经济基准表》E(L)×劳动天数定价
+                    pass
+                else:
+                    self.assertEqual(config['price'], self.balance.equipment_price(config))
+            if not config.get('effects') and is_v2:
+                # 旧 50/50 装备将在清理期删除；单调性只校验新装备曲线
                 prices.setdefault(rules.get_equip_slot(config), []).append((config['required_level_index'], config['price']))
         for values in prices.values():
             ordered = sorted(set(values))

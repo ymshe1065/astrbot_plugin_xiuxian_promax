@@ -56,6 +56,10 @@ class CombatStats:
     statuses: dict = field(default_factory=dict)
     status_resist: float = 0.0
     control_cd: int = 0
+    # 主修心法主动技能（自动大招）
+    active_skill: dict = field(default_factory=dict)
+    skill_last_round: int = 0
+    skill_casts: int = 0
 
 
 class CombatManager:
@@ -832,7 +836,30 @@ class CombatManager:
             magic_defense=magic_def,
             defense_scale=int(base.get("defense_scale", 0)),
             overflow_bonus=overflow_bonus,
+            active_skill=cls._main_technique_skill(player, config_manager),
         )
+
+    @staticmethod
+    def apply_mp_after_battle(player, result: dict, key: str) -> None:
+        """战斗 100% 真实扣蓝：把战斗结束后的灵气写回玩家。"""
+        try:
+            final_mp = max(0, int(result.get(key, 0) or 0))
+            player.spiritual_qi = final_mp
+            player.mp = final_mp
+        except Exception:
+            pass
+
+    @staticmethod
+    def _main_technique_skill(player, config_manager) -> dict:
+        """读取主修心法的主动技能配置；无技能返回空字典。"""
+        try:
+            name = getattr(player, "main_technique", "") or ""
+            techniques = getattr(config_manager, "techniques_data", {}) or {}
+            items = getattr(config_manager, "items_data", {}) or {}
+            data = techniques.get(name) or items.get(name) or {}
+            return dict(data.get("active_skill") or {})
+        except Exception:
+            return {}
 
     @staticmethod
     def calculate_combat_power(panel: Dict, mental_power: int = 0) -> int:
@@ -992,7 +1019,7 @@ class CombatManager:
     @classmethod
     def _decay_statuses(cls, stats: CombatStats) -> None:
         statuses = cls._ensure_statuses(stats)
-        for key in ("frost", "curse", "sunder"):
+        for key in ("frost", "curse", "sunder", "guard"):
             status = statuses.get(key)
             if not status:
                 continue
@@ -1117,10 +1144,103 @@ class CombatManager:
             logs.append(f"🪓 {attacker.name} 击破 {defender.name} 的护体，防御降低 {pct:.1f}%！")
 
     @classmethod
+    def _apply_active_skill(cls, attacker: CombatStats, defender: CombatStats,
+                            skill: dict, logs: List[str],
+                            pvp: bool = False, boss: bool = False,
+                            hard_pvp: bool = False) -> None:
+        """主修心法主动技能效果：金破甲/木回春/水凝霜/火灼烧/土守御。"""
+        skill_type = str(skill.get("type") or "")
+        value = float(skill.get("value") or 0)
+        statuses = cls._ensure_statuses(defender)
+        own_statuses = cls._ensure_statuses(attacker)
+        try:
+            if skill_type == "pierce":
+                extra = max(0.0, float(skill.get("extra_damage") or 0))
+                bonus = int((attacker.atk or 0) * extra)
+                if bonus > 0:
+                    defender.hp = max(0, int(defender.hp) - bonus)
+                    logs.append(f"🗡️ 破甲直伤 {bonus} 点！")
+                # 本回合普攻无视 value 比例的物防（_execute_attack 消费后清除）
+                own_statuses["skill_pierce"] = {"phys_ignore": max(0.0, min(1.0, value))}
+            elif skill_type == "heal":
+                lost = max(0, int(attacker.max_hp) - int(attacker.hp))
+                heal = int(lost * value)
+                if heal > 0:
+                    attacker.hp = min(attacker.max_hp, int(attacker.hp) + heal)
+                    logs.append(f"🌿 回春疗伤 +{heal} 气血（剩余 {attacker.hp}）")
+            elif skill_type == "freeze":
+                if "stun" not in statuses:
+                    statuses["freeze"] = {"turns": 1, "level": 2}
+                    attacker_status_cd = 2 if pvp else (3 if boss else 2)
+                    defender.control_cd = max(
+                        int(getattr(defender, "control_cd", 0) or 0), attacker_status_cd
+                    )
+                    logs.append(f"❄️ 玄冰凝霜生效，{defender.name} 下回合无法行动！")
+            elif skill_type == "burn":
+                dot_scale = 0.5 if pvp else (0.25 if boss else 1.0)
+                damage_pct = max(0.1, value * dot_scale)
+                old = statuses.get("burn")
+                if old:
+                    remaining = max(1, int(old.get("turns", 1) or 1))
+                    burst = max(1, int(defender.max_hp * float(old.get("damage_pct", 0) or 0) / 100.0 * remaining))
+                    defender.hp = max(0, int(defender.hp) - burst)
+                    logs.append(f"🔥 灼烧爆燃，{defender.name} 立即损失 {burst} 点气血！")
+                statuses["burn"] = {
+                    "turns": 3,
+                    "damage_pct": max(damage_pct, float((old or {}).get("damage_pct", 0) or 0)),
+                    "level": 2,
+                }
+                logs.append(f"🔥 离火燎原点燃 {defender.name}（3 回合，每回合 {damage_pct:.1f}% 最大生命）")
+            elif skill_type == "guard":
+                own_statuses["guard"] = {"turns": 2, "reduction": max(0.0, min(0.9, value))}
+                converted = int((attacker.defense or 0) * 0.10)
+                attacker.atk = int(attacker.atk) + converted
+                attacker.physical_atk = int(attacker.physical_atk) + converted
+                logs.append(f"🛡️ 不动明王：两回合减伤 {value:.0%}，防御转化攻击 +{converted}")
+        except Exception:
+            pass
+
+    @classmethod
     def _take_turn(cls, attacker: CombatStats, defender: CombatStats, pvp: bool = False,
-                   boss: bool = False, hard_pvp: bool = False) -> Tuple[int, List[str], int]:
-        """完整一回合：状态结算 + 主攻击 + 命中特效。"""
+                   boss: bool = False, hard_pvp: bool = False,
+                   round_num: int = 0) -> Tuple[int, List[str], int]:
+        """完整一回合：灵气回复 + 主动技能 + 状态结算 + 主攻击 + 命中特效。"""
         logs: List[str] = []
+
+        # 灵气资源：每回合回复 10% 上限
+        if getattr(attacker, "max_mp", 0) > 0:
+            regen = max(1, int(attacker.max_mp // 10))
+            attacker.mp = min(attacker.max_mp, int(attacker.mp) + regen)
+            logs.append(f"💠 {attacker.name} 灵气 +{regen}（{attacker.mp}/{attacker.max_mp}）")
+
+        # 主修心法主动技能：PvP 每场 1 次，PvE 每 6 回合可再放
+        skill = getattr(attacker, "active_skill", None) or {}
+        if skill and round_num > 0:
+            trigger = int(skill.get("trigger_round") or 2)
+            casts = int(getattr(attacker, "skill_casts", 0) or 0)
+            last = int(getattr(attacker, "skill_last_round", 0) or 0)
+            eligible = False
+            if casts == 0 and round_num >= trigger:
+                eligible = True
+            elif not pvp and not boss and casts > 0 and round_num >= last + 6:
+                eligible = True
+            if eligible:
+                cost = int(skill.get("mp_cost") or 0)
+                if int(attacker.mp) >= cost:
+                    attacker.mp = max(0, int(attacker.mp) - cost)
+                    attacker.skill_last_round = round_num
+                    attacker.skill_casts = casts + 1
+                    logs.append(
+                        f"💥 {attacker.name} 施展【{skill.get('name', '心法绝技')}】"
+                        f"（灵气 -{cost}，剩余 {attacker.mp}）"
+                    )
+                    cls._apply_active_skill(
+                        attacker, defender, skill, logs,
+                        pvp=pvp, boss=boss, hard_pvp=hard_pvp,
+                    )
+                else:
+                    logs.append(f"💠 {attacker.name} 灵气不足，无法施展【{skill.get('name', '心法绝技')}】")
+
         if cls._tick_statuses(attacker, logs, pvp=pvp):
             cls._decay_statuses(attacker)
             return 0, logs, 0
@@ -1220,6 +1340,14 @@ class CombatManager:
         physical_def = max(0, int(physical_def * defense_mult))
         magic_def = max(0, int(magic_def * defense_mult))
 
+        # 主修心法·金：破甲技能使本次普攻无视部分物防
+        skill_pierce = attacker_statuses.get("skill_pierce") or {}
+        phys_ignore = float(skill_pierce.get("phys_ignore", 0) or 0)
+        if phys_ignore > 0:
+            physical_def = max(0, int(physical_def * (1 - phys_ignore)))
+            logs.append(f"🗡️ 破甲生效，无视 {phys_ignore:.0%} 物防！")
+        attacker_statuses.pop("skill_pierce", None)
+
         # 5. 物理按物防、法术按法防分别减伤
         physical_final = (
             cls.apply_damage_reduction(int(physical_damage), physical_def, defender.defense_scale)
@@ -1230,6 +1358,13 @@ class CombatManager:
             if magic_damage > 0 else 0
         )
         final_damage = physical_final + magic_final
+        # 主修心法·土：不动明王减伤（持续2回合，覆盖本次攻击）
+        guard = defender_statuses.get("guard") or {}
+        guard_reduction = float(guard.get("reduction", 0) or 0)
+        if guard_reduction > 0 and final_damage > 0:
+            reduced = int(final_damage * (1 - guard_reduction))
+            logs.append(f"🛡️ {defender.name} 的不动明王抵消 {final_damage - reduced} 点伤害！")
+            final_damage = reduced
         if physical_final > 0 and magic_final > 0:
             logs.append(
                 f"🗡️ {attacker.name} 造成 {final_damage} 点伤害"
@@ -1423,7 +1558,7 @@ class CombatManager:
             combat_log.append(f"-- 第 {round_num} 回合 --")
             
             # 玩家1攻击
-            dmg1, logs1, heal1 = cls._take_turn(player1, player2, pvp=True)
+            dmg1, logs1, heal1 = cls._take_turn(player1, player2, pvp=True, round_num=round_num)
             player2.hp = max(0, player2.hp - dmg1)
             player1.hp = min(player1.max_hp, player1.hp + heal1)
             combat_log.extend(logs1)
@@ -1440,7 +1575,7 @@ class CombatManager:
             if player2.hp <= 0 or player1.hp <= 0: break
             
             # 玩家2攻击
-            dmg2, logs2, heal2 = cls._take_turn(player2, player1, pvp=True)
+            dmg2, logs2, heal2 = cls._take_turn(player2, player1, pvp=True, round_num=round_num)
             player1.hp = max(0, player1.hp - dmg2)
             player2.hp = min(player2.max_hp, player2.hp + heal2)
             combat_log.extend(logs2)
@@ -1557,7 +1692,7 @@ class CombatManager:
             combat_log.append(f"-- 第 {round_num} 回合 --")
             
             # 玩家1攻击
-            dmg1, logs1, heal1 = cls._take_turn(player1, player2, pvp=True, hard_pvp=True)
+            dmg1, logs1, heal1 = cls._take_turn(player1, player2, pvp=True, hard_pvp=True, round_num=round_num)
             player2.hp = max(0, player2.hp - dmg1)
             player1.hp = min(player1.max_hp, player1.hp + heal1)
             combat_log.extend(logs1)
@@ -1573,7 +1708,7 @@ class CombatManager:
             if player2.hp <= 0: break
             
             # 玩家2攻击
-            dmg2, logs2, heal2 = cls._take_turn(player2, player1, pvp=True, hard_pvp=True)
+            dmg2, logs2, heal2 = cls._take_turn(player2, player1, pvp=True, hard_pvp=True, round_num=round_num)
             player1.hp = max(0, player1.hp - dmg2)
             player2.hp = min(player2.max_hp, player2.hp + heal2)
             combat_log.extend(logs2)
@@ -1635,7 +1770,7 @@ class CombatManager:
             round_num += 1
             combat_log.append(f"-- 第 {round_num} 回合 --")
             
-            dmg, logs, heal = cls._take_turn(player, boss, boss=True)
+            dmg, logs, heal = cls._take_turn(player, boss, boss=True, round_num=round_num)
             boss.hp = max(0, boss.hp - dmg)
             total_damage_dealt += dmg
             player.hp = min(player.max_hp, player.hp + heal)
@@ -1644,7 +1779,7 @@ class CombatManager:
             
             if boss.hp <= 0: break
             
-            b_dmg, b_logs, b_heal = cls._take_turn(boss, player)
+            b_dmg, b_logs, b_heal = cls._take_turn(boss, player, round_num=round_num)
             player.hp = max(0, player.hp - b_dmg)
             combat_log.extend(b_logs)
             combat_log.append(f"{player.name} 剩余 HP: {max(0, player.hp)}")

@@ -250,11 +250,20 @@ class ConfigManager:
             name = self.get_recipe_scroll_name(recipe)
             if name in self.items_data:
                 continue
+            output = recipe.get("output_pill") or ""
+            pill_cfg = (
+                self.pills_data.get(output)
+                or self.exp_pills_data.get(output)
+                or self.utility_pills_data.get(output)
+                or self.items_data.get(output)
+                or {}
+            )
+            rank = pill_cfg.get("rank") if isinstance(pill_cfg, dict) else None
             self.items_data[name] = {
                 "id": f"recipe_scroll_{recipe.get('id')}",
                 "name": name,
                 "type": "丹方",
-                "rank": "灵品",
+                "rank": normalize_rank(rank, "灵品"),
                 "price": int(recipe.get("price") or 2000),
                 "shop_weight": int(recipe.get("shop_weight") or 10),
                 "volume": 1,
@@ -279,14 +288,30 @@ class ConfigManager:
             }
 
     def _inject_material_packages(self):
-        """注入材料包：购买后随机开出同类别同品级材料。"""
-        tier_price = {"凡品": 90, "黄品": 360, "玄品": 1500, "圣品": 6000}
+        """注入材料包：按材料目录期望价值定价，杜绝买包套利。
+
+        期望 = 同类别同品级材料价（shop_weight 加权平均）× 2 个；包价 = 期望 ÷ 0.8。
+        """
         categories = ["灵植", "矿材", "妖兽", "灵液"]
         for category in categories:
-            for tier, price in tier_price.items():
-                name = f"{category}包·{tier}"
-                if name in self.items_data:
+            for tier in ("凡品", "黄品", "玄品", "圣品"):
+                pool = []
+                weights = []
+                for material in self.material_catalog.values():
+                    if material.get("category") != category or material.get("tier") != tier:
+                        continue
+                    item = self.items_data.get(material.get("name")) or {}
+                    try:
+                        weight = int(item.get("shop_weight") or 1) or 1
+                    except (TypeError, ValueError):
+                        weight = 1
+                    pool.append(int(material.get("price") or 0))
+                    weights.append(weight)
+                if not pool:
                     continue
+                average = sum(p * w for p, w in zip(pool, weights)) / sum(weights)
+                price = max(10, int(round(average * 2 / 0.8 / 10.0) * 10))
+                name = f"{category}包·{tier}"
                 self.items_data[name] = {
                     "id": f"material_package_{category}_{tier}",
                     "name": name,
@@ -343,10 +368,19 @@ class ConfigManager:
         )
 
     def get_item_price(self, item_name: str) -> int:
-        """统一价格入口：配置价优先，缺失时按品级回退。"""
+        """统一价格入口：材料以 material_catalog 为单一数据源，其余取配置价。
+
+        材料价格只认目录价，避免 items.json 与 material_catalog 两处价格漂移。
+        """
+        material = self.get_material_info(item_name)
+        if material:
+            try:
+                catalog_price = int(material.get("price", 0) or 0)
+            except (TypeError, ValueError):
+                catalog_price = 0
+            if catalog_price > 0:
+                return catalog_price
         cfg = self.get_item_config(item_name) or {}
-        if not cfg:
-            cfg = self.get_material_info(item_name)
         try:
             price = int(cfg.get("price", 0) or 0)
         except (TypeError, ValueError):

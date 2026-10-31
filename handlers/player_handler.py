@@ -179,6 +179,12 @@ class PlayerHandler:
         cultivation_type = normalized
 
         new_player = self.cultivation_manager.generate_new_player_stats(user_id, cultivation_type)
+        # 创建角色即学会基础丹方：回春散·凡方、聚灵散·凡方
+        try:
+            import json as _json
+            new_player.learned_recipes = _json.dumps([130, 131], ensure_ascii=False)
+        except Exception:
+            pass
         await self.db.create_player(new_player)
         try:
             await self.db.ext.ensure_impart_info(user_id)

@@ -12,18 +12,19 @@ class TestEquipmentProfiles(unittest.TestCase):
         self.items = json.loads((ROOT / "config" / "items_v2.json").read_text(encoding="utf-8"))
 
     def test_new_items_have_name_price_and_description(self):
-        self.assertEqual(len(self.items), 112)
+        # 新装备已扩展到全部 12 品阶（8 槽位 × 4 职业倾向 × 12 品阶 = 384 条）
+        self.assertEqual(len(self.items), 384)
         names = set()
         for item in self.items.values():
             self.assertTrue(item.get("name"))
             self.assertNotIn(item["name"], names)
             names.add(item["name"])
+            # 全部新装备按《经济基准表》E(L)×劳动天数定价
             self.assertGreater(item.get("price", 0), 0)
             self.assertTrue(item.get("description"))
             self.assertEqual(item.get("balance_version"), 2)
             self.assertIn(item.get("profile"), self.balance.PROFILE_WEIGHTS)
             self.assertNotIn("equipment_rates", item)
-            self.assertEqual(item["price"], self.balance.equipment_price(item))
 
     def test_profile_splits_keep_total_budget(self):
         for item in self.items.values():

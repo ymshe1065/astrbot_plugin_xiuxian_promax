@@ -59,7 +59,7 @@
         "type": "材料",
         "rank": "玄品",
         "shop_weight": 900,
-        "price": 14400,
+        "price": 430,
         "volume": 1,
         "description": "这是一件玄品材料，蕴含着天地之力。"
     },
@@ -117,7 +117,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 47,
+        "price": 90,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -164,7 +164,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 159,
+        "price": 120,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -242,7 +242,7 @@
         "type": "材料",
         "rank": "玄品",
         "shop_weight": 900,
-        "price": 12100,
+        "price": 360,
         "volume": 1,
         "description": "这是一件玄品材料，蕴含着天地之力。"
     },
@@ -251,7 +251,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 117,
+        "price": 60,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -296,7 +296,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 149,
+        "price": 70,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -305,7 +305,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 159,
+        "price": 120,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -686,7 +686,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 134,
+        "price": 90,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -889,7 +889,7 @@
         "type": "丹药",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 54000,
+        "price": 37000,
         "volume": 1,
         "description": "这是一件凡品丹药，蕴含着天地之力。",
         "effect": {
@@ -1337,7 +1337,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 182,
+        "price": 90,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -1684,7 +1684,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 990,
-        "price": 300,
+        "price": 180,
         "volume": 1,
         "description": "这是一件黄品材料，蕴含着天地之力。"
     },
@@ -1796,7 +1796,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 990,
-        "price": 1910,
+        "price": 220,
         "volume": 1,
         "description": "这是一件黄品材料，蕴含着天地之力。"
     },
@@ -2039,7 +2039,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 163,
+        "price": 90,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -2720,7 +2720,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 990,
-        "price": 1040,
+        "price": 220,
         "volume": 1,
         "description": "这是一件黄品材料，蕴含着天地之力。"
     },
@@ -2775,7 +2775,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 990,
-        "price": 1160,
+        "price": 220,
         "volume": 1,
         "description": "这是一件黄品材料，蕴含着天地之力。"
     },
@@ -3233,7 +3233,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 88,
+        "price": 90,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -3425,7 +3425,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 167,
+        "price": 90,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -3557,7 +3557,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 132,
+        "price": 70,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -3775,7 +3775,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 990,
-        "price": 760,
+        "price": 300,
         "volume": 1,
         "description": "这是一件黄品材料，蕴含着天地之力。"
     },
@@ -4243,7 +4243,7 @@
         "type": "材料",
         "rank": "玄品",
         "shop_weight": 900,
-        "price": 19300,
+        "price": 360,
         "volume": 1,
         "description": "这是一件玄品材料，蕴含着天地之力。"
     },
@@ -4426,7 +4426,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 172,
+        "price": 90,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -4478,7 +4478,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 990,
-        "price": 170,
+        "price": 220,
         "volume": 1,
         "description": "这是一件黄品材料，蕴含着天地之力。"
     },
@@ -4596,7 +4596,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 192,
+        "price": 70,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -4676,7 +4676,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 990,
-        "price": 1620,
+        "price": 220,
         "volume": 1,
         "description": "这是一件黄品材料，蕴含着天地之力。"
     },
@@ -4813,7 +4813,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 990,
-        "price": 1040,
+        "price": 180,
         "volume": 1,
         "description": "这是一件黄品材料，蕴含着天地之力。"
     },
@@ -5828,7 +5828,7 @@
         "type": "材料",
         "rank": "玄品",
         "shop_weight": 900,
-        "price": 19200,
+        "price": 720,
         "volume": 1,
         "description": "这是一件玄品材料，蕴含着天地之力。"
     },
@@ -5856,7 +5856,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 93,
+        "price": 60,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -5918,7 +5918,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 990,
-        "price": 310,
+        "price": 300,
         "volume": 1,
         "description": "这是一件黄品材料，蕴含着天地之力。"
     },
@@ -6208,7 +6208,7 @@
         "type": "符箓",
         "rank": "黄品",
         "shop_weight": 120,
-        "price": 3824,
+        "price": 2200,
         "volume": 1,
         "description": "防御符·黄品，15分钟内生效。",
         "legacy": false
@@ -6294,7 +6294,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 990,
-        "price": 1240,
+        "price": 220,
         "volume": 1,
         "description": "这是一件黄品材料，蕴含着天地之力。"
     },
@@ -6367,7 +6367,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 53,
+        "price": 90,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -6759,7 +6759,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 104,
+        "price": 70,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -6881,7 +6881,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 12,
+        "price": 60,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -7005,7 +7005,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 106,
+        "price": 60,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -7238,7 +7238,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 156,
+        "price": 60,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -7263,7 +7263,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 83,
+        "price": 120,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -7406,7 +7406,7 @@
         "type": "材料",
         "rank": "圣品",
         "shop_weight": 1,
-        "price": 142000,
+        "price": 12000,
         "volume": 1,
         "description": "这是一件圣品材料，蕴含着天地之力。"
     },
@@ -7570,7 +7570,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 127,
+        "price": 90,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -7597,7 +7597,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 168,
+        "price": 70,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -7656,7 +7656,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 77,
+        "price": 120,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -7835,7 +7835,7 @@
         "type": "材料",
         "rank": "玄品",
         "shop_weight": 900,
-        "price": 12500,
+        "price": 540,
         "volume": 1,
         "description": "这是一件玄品材料，蕴含着天地之力。"
     },
@@ -7903,7 +7903,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 54,
+        "price": 90,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -8108,7 +8108,7 @@
         "type": "材料",
         "rank": "玄品",
         "shop_weight": 900,
-        "price": 2700,
+        "price": 360,
         "volume": 1,
         "description": "这是一件玄品材料，蕴含着天地之力。"
     },
@@ -8130,7 +8130,7 @@
         "type": "材料",
         "rank": "玄品",
         "shop_weight": 900,
-        "price": 1900,
+        "price": 540,
         "volume": 1,
         "description": "这是一件玄品材料，蕴含着天地之力。"
     },
@@ -8217,7 +8217,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 42,
+        "price": 90,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -8967,7 +8967,7 @@
         "type": "材料",
         "rank": "玄品",
         "shop_weight": 900,
-        "price": 16100,
+        "price": 360,
         "volume": 1,
         "description": "这是一件玄品材料，蕴含着天地之力。"
     },
@@ -9030,7 +9030,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 188,
+        "price": 60,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -9051,7 +9051,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 132,
+        "price": 90,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -9098,7 +9098,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 990,
-        "price": 780,
+        "price": 150,
         "volume": 1,
         "description": "这是一件黄品材料，蕴含着天地之力。"
     },
@@ -9224,7 +9224,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 131,
+        "price": 120,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -9566,7 +9566,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 24,
+        "price": 70,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -10085,7 +10085,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 25,
+        "price": 70,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -10237,7 +10237,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 77,
+        "price": 120,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -10246,7 +10246,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 53,
+        "price": 120,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -10525,7 +10525,7 @@
         "type": "材料",
         "rank": "玄品",
         "shop_weight": 900,
-        "price": 10800,
+        "price": 430,
         "volume": 1,
         "description": "这是一件玄品材料，蕴含着天地之力。"
     },
@@ -10713,7 +10713,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 990,
-        "price": 1880,
+        "price": 220,
         "volume": 1,
         "description": "这是一件黄品材料，蕴含着天地之力。"
     },
@@ -10740,7 +10740,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 51,
+        "price": 60,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -11150,7 +11150,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 48,
+        "price": 90,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -11159,7 +11159,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 990,
-        "price": 1470,
+        "price": 180,
         "volume": 1,
         "description": "这是一件黄品材料，蕴含着天地之力。"
     },
@@ -11257,7 +11257,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 29,
+        "price": 90,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -11440,7 +11440,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 67,
+        "price": 90,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -11517,7 +11517,7 @@
         "type": "材料",
         "rank": "玄品",
         "shop_weight": 900,
-        "price": 10500,
+        "price": 720,
         "volume": 1,
         "description": "这是一件玄品材料，蕴含着天地之力。"
     },
@@ -11526,7 +11526,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 143,
+        "price": 70,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -11548,7 +11548,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 990,
-        "price": 660,
+        "price": 220,
         "volume": 1,
         "description": "这是一件黄品材料，蕴含着天地之力。"
     },
@@ -11719,7 +11719,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 142,
+        "price": 60,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -11762,7 +11762,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 990,
-        "price": 1710,
+        "price": 150,
         "volume": 1,
         "description": "这是一件黄品材料，蕴含着天地之力。"
     },
@@ -12038,7 +12038,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 120,
+        "price": 70,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -12265,7 +12265,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 99,
+        "price": 60,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -12348,7 +12348,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 142,
+        "price": 70,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -12401,7 +12401,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 89,
+        "price": 60,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -12543,7 +12543,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 990,
-        "price": 520,
+        "price": 180,
         "volume": 1,
         "description": "这是一件黄品材料，蕴含着天地之力。"
     },
@@ -12666,7 +12666,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 21,
+        "price": 60,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -12705,7 +12705,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 133,
+        "price": 90,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -12828,7 +12828,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 990,
-        "price": 1290,
+        "price": 180,
         "volume": 1,
         "description": "这是一件黄品材料，蕴含着天地之力。"
     },
@@ -12906,7 +12906,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 990,
-        "price": 1410,
+        "price": 220,
         "volume": 1,
         "description": "这是一件黄品材料，蕴含着天地之力。"
     },
@@ -12915,7 +12915,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 127,
+        "price": 70,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -12924,7 +12924,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 990,
-        "price": 1800,
+        "price": 220,
         "volume": 1,
         "description": "这是一件黄品材料，蕴含着天地之力。"
     },
@@ -13134,7 +13134,7 @@
         "type": "符箓",
         "rank": "黄品",
         "shop_weight": 110,
-        "price": 5436,
+        "price": 2700,
         "volume": 1,
         "description": "攻击符·黄品，15分钟内生效。",
         "legacy": false
@@ -13193,7 +13193,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 12,
+        "price": 120,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -13215,7 +13215,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 171,
+        "price": 120,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -13279,7 +13279,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 31,
+        "price": 90,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -13485,7 +13485,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 165,
+        "price": 90,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -13585,7 +13585,7 @@
         "type": "材料",
         "rank": "玄品",
         "shop_weight": 900,
-        "price": 11900,
+        "price": 430,
         "volume": 1,
         "description": "这是一件玄品材料，蕴含着天地之力。"
     },
@@ -13594,7 +13594,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 91,
+        "price": 70,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -13824,7 +13824,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 990,
-        "price": 500,
+        "price": 220,
         "volume": 1,
         "description": "这是一件黄品材料，蕴含着天地之力。"
     },
@@ -13919,7 +13919,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 990,
-        "price": 200,
+        "price": 220,
         "volume": 1,
         "description": "这是一件黄品材料，蕴含着天地之力。"
     },
@@ -14042,7 +14042,7 @@
         "type": "材料",
         "rank": "玄品",
         "shop_weight": 900,
-        "price": 14800,
+        "price": 720,
         "volume": 1,
         "description": "这是一件玄品材料，蕴含着天地之力。"
     },
@@ -14102,7 +14102,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 46,
+        "price": 60,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -14123,7 +14123,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 43,
+        "price": 60,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -14151,7 +14151,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 169,
+        "price": 60,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -14564,7 +14564,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 990,
-        "price": 1480,
+        "price": 180,
         "volume": 1,
         "description": "这是一件黄品材料，蕴含着天地之力。"
     },
@@ -14645,7 +14645,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 990,
-        "price": 160,
+        "price": 150,
         "volume": 1,
         "description": "这是一件黄品材料，蕴含着天地之力。"
     },
@@ -14807,7 +14807,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 143,
+        "price": 120,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -15003,7 +15003,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 990,
-        "price": 520,
+        "price": 150,
         "volume": 1,
         "description": "这是一件黄品材料，蕴含着天地之力。"
     },
@@ -15012,7 +15012,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 990,
-        "price": 890,
+        "price": 300,
         "volume": 1,
         "description": "这是一件黄品材料，蕴含着天地之力。"
     },
@@ -15021,7 +15021,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 990,
-        "price": 1770,
+        "price": 220,
         "volume": 1,
         "description": "这是一件黄品材料，蕴含着天地之力。"
     },
@@ -15064,7 +15064,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 77,
+        "price": 90,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -15353,7 +15353,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 114,
+        "price": 70,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -15434,7 +15434,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 192,
+        "price": 70,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -15527,7 +15527,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 990,
-        "price": 1260,
+        "price": 220,
         "volume": 1,
         "description": "这是一件黄品材料，蕴含着天地之力。"
     },
@@ -15697,7 +15697,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 990,
-        "price": 1580,
+        "price": 220,
         "volume": 1,
         "description": "这是一件黄品材料，蕴含着天地之力。"
     },
@@ -15756,7 +15756,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 990,
-        "price": 1080,
+        "price": 220,
         "volume": 1,
         "description": "这是一件黄品材料，蕴含着天地之力。"
     },
@@ -15879,7 +15879,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 118,
+        "price": 60,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -16037,7 +16037,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 990,
-        "price": 1510,
+        "price": 180,
         "volume": 1,
         "description": "这是一件黄品材料，蕴含着天地之力。"
     },
@@ -16138,7 +16138,7 @@
         "type": "材料",
         "rank": "玄品",
         "shop_weight": 900,
-        "price": 6900,
+        "price": 540,
         "volume": 1,
         "description": "这是一件玄品材料，蕴含着天地之力。"
     },
@@ -16178,7 +16178,7 @@
         "type": "材料",
         "rank": "圣品",
         "shop_weight": 1,
-        "price": 51000,
+        "price": 14400,
         "volume": 1,
         "description": "这是一件圣品材料，蕴含着天地之力。"
     },
@@ -16260,7 +16260,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 183,
+        "price": 90,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -16310,7 +16310,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 161,
+        "price": 60,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -16530,7 +16530,7 @@
         "type": "材料",
         "rank": "圣品",
         "shop_weight": 1,
-        "price": 192000,
+        "price": 24000,
         "volume": 1,
         "description": "这是一件圣品材料，蕴含着天地之力。"
     },
@@ -16619,7 +16619,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 65,
+        "price": 60,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -16652,7 +16652,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 990,
-        "price": 110,
+        "price": 180,
         "volume": 1,
         "description": "这是一件黄品材料，蕴含着天地之力。"
     },
@@ -17025,7 +17025,7 @@
         "type": "材料",
         "rank": "玄品",
         "shop_weight": 900,
-        "price": 4300,
+        "price": 430,
         "volume": 1,
         "description": "这是一件玄品材料，蕴含着天地之力。"
     },
@@ -17064,7 +17064,7 @@
         "type": "符箓",
         "rank": "玄品",
         "shop_weight": 40,
-        "price": 44080,
+        "price": 8200,
         "volume": 1,
         "description": "攻击符·玄品，20分钟内生效。",
         "legacy": false
@@ -17157,7 +17157,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 185,
+        "price": 90,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -17230,7 +17230,7 @@
         "type": "材料",
         "rank": "玄品",
         "shop_weight": 900,
-        "price": 19400,
+        "price": 540,
         "volume": 1,
         "description": "这是一件玄品材料，蕴含着天地之力。"
     },
@@ -17288,7 +17288,7 @@
         "type": "材料",
         "rank": "玄品",
         "shop_weight": 900,
-        "price": 6800,
+        "price": 540,
         "volume": 1,
         "description": "这是一件玄品材料，蕴含着天地之力。"
     },
@@ -17641,7 +17641,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 27,
+        "price": 60,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -17965,7 +17965,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 183,
+        "price": 70,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -17974,7 +17974,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 46,
+        "price": 70,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -18062,7 +18062,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 108,
+        "price": 90,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -18194,7 +18194,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 12,
+        "price": 120,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -18487,7 +18487,7 @@
         "type": "材料",
         "rank": "玄品",
         "shop_weight": 900,
-        "price": 9900,
+        "price": 540,
         "volume": 1,
         "description": "这是一件玄品材料，蕴含着天地之力。"
     },
@@ -18720,7 +18720,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 990,
-        "price": 1780,
+        "price": 300,
         "volume": 1,
         "description": "这是一件黄品材料，蕴含着天地之力。"
     },
@@ -18999,7 +18999,7 @@
         "type": "材料",
         "rank": "圣品",
         "shop_weight": 1,
-        "price": 188000,
+        "price": 18000,
         "volume": 1,
         "description": "这是一件圣品材料，蕴含着天地之力。"
     },
@@ -19040,7 +19040,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 81,
+        "price": 90,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -19264,7 +19264,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 990,
-        "price": 310,
+        "price": 220,
         "volume": 1,
         "description": "这是一件黄品材料，蕴含着天地之力。"
     },
@@ -19531,7 +19531,7 @@
         "type": "材料",
         "rank": "玄品",
         "shop_weight": 900,
-        "price": 14400,
+        "price": 360,
         "volume": 1,
         "description": "这是一件玄品材料，蕴含着天地之力。"
     },
@@ -19879,7 +19879,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 990,
-        "price": 1690,
+        "price": 180,
         "volume": 1,
         "description": "这是一件黄品材料，蕴含着天地之力。"
     },
@@ -19888,7 +19888,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 100,
+        "price": 70,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -20046,7 +20046,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 84,
+        "price": 70,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -20165,7 +20165,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 183,
+        "price": 90,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -20705,7 +20705,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 990,
-        "price": 310,
+        "price": 300,
         "volume": 1,
         "description": "这是一件黄品材料，蕴含着天地之力。"
     },
@@ -20787,7 +20787,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 83,
+        "price": 60,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -20826,7 +20826,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 98,
+        "price": 60,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -20941,7 +20941,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 990,
-        "price": 690,
+        "price": 300,
         "volume": 1,
         "description": "这是一件黄品材料，蕴含着天地之力。"
     },
@@ -20987,7 +20987,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 132,
+        "price": 70,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -20996,7 +20996,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 93,
+        "price": 90,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -21065,7 +21065,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 990,
-        "price": 930,
+        "price": 150,
         "volume": 1,
         "description": "这是一件黄品材料，蕴含着天地之力。"
     },
@@ -21109,7 +21109,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 990,
-        "price": 1690,
+        "price": 150,
         "volume": 1,
         "description": "这是一件黄品材料，蕴含着天地之力。"
     },
@@ -21146,7 +21146,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 166,
+        "price": 70,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -21316,7 +21316,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 24,
+        "price": 90,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -21372,7 +21372,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 105,
+        "price": 70,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -21551,7 +21551,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 83,
+        "price": 90,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -21732,7 +21732,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 111,
+        "price": 60,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -22103,7 +22103,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 177,
+        "price": 90,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -22174,7 +22174,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 76,
+        "price": 60,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -22296,7 +22296,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 54,
+        "price": 90,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -22369,7 +22369,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 990,
-        "price": 1850,
+        "price": 180,
         "volume": 1,
         "description": "这是一件黄品材料，蕴含着天地之力。"
     },
@@ -22487,7 +22487,7 @@
         "type": "符箓",
         "rank": "黄品",
         "shop_weight": 110,
-        "price": 5536,
+        "price": 3100,
         "volume": 1,
         "description": "增益符·黄品，15分钟内生效。",
         "legacy": false
@@ -22527,7 +22527,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 45,
+        "price": 60,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -22637,7 +22637,7 @@
         "type": "材料",
         "rank": "玄品",
         "shop_weight": 900,
-        "price": 2500,
+        "price": 360,
         "volume": 1,
         "description": "这是一件玄品材料，蕴含着天地之力。"
     },
@@ -22646,7 +22646,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 990,
-        "price": 1130,
+        "price": 150,
         "volume": 1,
         "description": "这是一件黄品材料，蕴含着天地之力。"
     },
@@ -22655,7 +22655,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 990,
-        "price": 1780,
+        "price": 150,
         "volume": 1,
         "description": "这是一件黄品材料，蕴含着天地之力。"
     },
@@ -22770,7 +22770,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 20,
+        "price": 60,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -22891,7 +22891,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 999,
-        "price": 89,
+        "price": 90,
         "volume": 1,
         "description": "这是一件凡品材料，蕴含着天地之力。"
     },
@@ -22918,7 +22918,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 500,
-        "price": 500,
+        "price": 180,
         "volume": 1,
         "description": "用于炼器强化的基础材料。"
     },
@@ -22927,7 +22927,7 @@
         "type": "材料",
         "rank": "玄品",
         "shop_weight": 100,
-        "price": 2000,
+        "price": 430,
         "volume": 1,
         "description": "用于洗练装备词条的稀有材料。"
     },
@@ -22936,7 +22936,7 @@
         "type": "符箓",
         "rank": "黄品",
         "shop_weight": 130,
-        "price": 5336,
+        "price": 2400,
         "volume": 1,
         "description": "炼丹符·黄品，15分钟内生效。",
         "legacy": false
@@ -22946,7 +22946,7 @@
         "type": "材料",
         "rank": "玄品",
         "shop_weight": 40,
-        "price": 3000,
+        "price": 430,
         "volume": 1,
         "description": "蕴含空间之力的奇石，可用于储物戒附魔，永久扩充容量+5。"
     },
@@ -22969,7 +22969,7 @@
         "category": "灵植",
         "tier": "圣品",
         "shop_weight": 0,
-        "price": 36000,
+        "price": 12000,
         "volume": 1,
         "description": "血灵草与九叶灵芝交融而生的赤玉灵芝，气血与木灵相济。种植时消耗1株作为种苗。",
         "acquire_hint": "灵田 Lv.4 杂交（占2格，耗时与产物生长一致）：血灵草 + 九叶灵芝；也可在坊市购买"
@@ -22981,7 +22981,7 @@
         "category": "灵植",
         "tier": "圣品",
         "shop_weight": 0,
-        "price": 90000,
+        "price": 12000,
         "volume": 1,
         "description": "九叶灵芝与幽冥草在阴气中孕育出的仙芝，幽香中蕴含生机。种植时消耗1株作为种苗。",
         "acquire_hint": "灵田 Lv.5 杂交（占2格，耗时与产物生长一致）：九叶灵芝 + 幽冥草；也可在坊市购买"
@@ -23001,7 +23001,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 0,
-        "price": 100,
+        "price": 60,
         "volume": 1,
         "description": "灵田产出的基础灵植，可用于炼制低阶丹药。"
     },
@@ -23010,7 +23010,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 0,
-        "price": 300,
+        "price": 60,
         "volume": 1,
         "description": "蕴含气血之力的灵草，是常见的炼丹灵植。"
     },
@@ -23019,7 +23019,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 0,
-        "price": 800,
+        "price": 150,
         "volume": 1,
         "description": "性寒清心，常用于中阶丹药的灵植材料。"
     },
@@ -23028,7 +23028,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 0,
-        "price": 2000,
+        "price": 150,
         "volume": 1,
         "description": "炽热如火的灵花，可用于中高阶炼丹。"
     },
@@ -23037,7 +23037,7 @@
         "type": "材料",
         "rank": "玄品",
         "shop_weight": 0,
-        "price": 6000,
+        "price": 360,
         "volume": 1,
         "description": "九叶轮生的珍稀灵芝，是高阶丹药的重要灵植。"
     },
@@ -24020,7 +24020,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 60,
-        "price": 40,
+        "price": 70,
         "volume": 1,
         "description": "常见的炼器矿材，可用于炼器与制符。"
     },
@@ -24029,7 +24029,7 @@
         "type": "材料",
         "rank": "凡品",
         "shop_weight": 60,
-        "price": 30,
+        "price": 120,
         "volume": 1,
         "description": "破碎的灵石残片，蕴含微弱灵力。"
     },
@@ -24047,7 +24047,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 60,
-        "price": 160,
+        "price": 220,
         "volume": 1,
         "description": "灵兽皮毛，可制作符纸。"
     },
@@ -24056,7 +24056,7 @@
         "type": "材料",
         "rank": "黄品",
         "shop_weight": 60,
-        "price": 200,
+        "price": 220,
         "volume": 1,
         "description": "妖兽精血，蕴含狂暴灵力。"
     },
@@ -24065,7 +24065,7 @@
         "type": "材料",
         "rank": "玄品",
         "shop_weight": 60,
-        "price": 900,
+        "price": 430,
         "volume": 1,
         "description": "星辰之力凝结的矿石。"
     },
@@ -24074,7 +24074,7 @@
         "type": "材料",
         "rank": "玄品",
         "shop_weight": 60,
-        "price": 1200,
+        "price": 540,
         "volume": 1,
         "description": "灵兽内丹，可让灵兽吞噬直接提升1级。"
     },
@@ -24083,7 +24083,7 @@
         "type": "材料",
         "rank": "圣品",
         "shop_weight": 60,
-        "price": 6000,
+        "price": 12000,
         "volume": 1,
         "description": "罕见的天地灵材。"
     },
@@ -24101,7 +24101,7 @@
         "type": "材料",
         "rank": "玄品",
         "shop_weight": 60,
-        "price": 800,
+        "price": 720,
         "volume": 1,
         "description": "秘境中凝结的精华。"
     },
@@ -24221,7 +24221,7 @@
         "type": "符箓",
         "rank": "凡品",
         "shop_weight": 200,
-        "price": 580,
+        "price": 730,
         "volume": 1,
         "description": "攻击符·凡品，15分钟内生效。",
         "legacy": false
@@ -24231,7 +24231,7 @@
         "type": "符箓",
         "rank": "圣品",
         "shop_weight": 15,
-        "price": 308100,
+        "price": 115000,
         "volume": 1,
         "description": "攻击符·圣品，30分钟内生效。",
         "legacy": false
@@ -24241,7 +24241,7 @@
         "type": "符箓",
         "rank": "凡品",
         "shop_weight": 200,
-        "price": 480,
+        "price": 550,
         "volume": 1,
         "description": "防御符·凡品，15分钟内生效。",
         "legacy": false
@@ -24251,7 +24251,7 @@
         "type": "符箓",
         "rank": "黄品",
         "shop_weight": 110,
-        "price": 5386,
+        "price": 2600,
         "volume": 1,
         "description": "防御符·黄品，15分钟内生效。",
         "legacy": false
@@ -24261,7 +24261,7 @@
         "type": "符箓",
         "rank": "玄品",
         "shop_weight": 40,
-        "price": 44080,
+        "price": 7900,
         "volume": 1,
         "description": "防御符·玄品，20分钟内生效。",
         "legacy": false
@@ -24271,7 +24271,7 @@
         "type": "符箓",
         "rank": "圣品",
         "shop_weight": 15,
-        "price": 406800,
+        "price": 165000,
         "volume": 1,
         "description": "防御符·圣品，30分钟内生效。",
         "legacy": false
@@ -24281,7 +24281,7 @@
         "type": "符箓",
         "rank": "凡品",
         "shop_weight": 180,
-        "price": 630,
+        "price": 1100,
         "volume": 1,
         "description": "控制符·凡品，15分钟内生效。",
         "legacy": false
@@ -24291,7 +24291,7 @@
         "type": "符箓",
         "rank": "黄品",
         "shop_weight": 110,
-        "price": 5436,
+        "price": 3300,
         "volume": 1,
         "description": "控制符·黄品，15分钟内生效。",
         "legacy": false
@@ -24301,7 +24301,7 @@
         "type": "符箓",
         "rank": "玄品",
         "shop_weight": 40,
-        "price": 44080,
+        "price": 9200,
         "volume": 1,
         "description": "控制符·玄品，20分钟内生效。",
         "legacy": false
@@ -24311,7 +24311,7 @@
         "type": "符箓",
         "rank": "圣品",
         "shop_weight": 15,
-        "price": 308100,
+        "price": 176000,
         "volume": 1,
         "description": "控制符·圣品，30分钟内生效。",
         "legacy": false
@@ -24321,7 +24321,7 @@
         "type": "符箓",
         "rank": "凡品",
         "shop_weight": 200,
-        "price": 670,
+        "price": 690,
         "volume": 1,
         "description": "回复符·凡品，15分钟内生效。",
         "legacy": false
@@ -24331,7 +24331,7 @@
         "type": "符箓",
         "rank": "黄品",
         "shop_weight": 110,
-        "price": 5336,
+        "price": 2500,
         "volume": 1,
         "description": "回复符·黄品，15分钟内生效。",
         "legacy": false
@@ -24341,7 +24341,7 @@
         "type": "符箓",
         "rank": "玄品",
         "shop_weight": 40,
-        "price": 44080,
+        "price": 7000,
         "volume": 1,
         "description": "回复符·玄品，20分钟内生效。",
         "legacy": false
@@ -24351,7 +24351,7 @@
         "type": "符箓",
         "rank": "圣品",
         "shop_weight": 15,
-        "price": 308100,
+        "price": 105000,
         "volume": 1,
         "description": "回复符·圣品，30分钟内生效。",
         "legacy": false
@@ -24361,7 +24361,7 @@
         "type": "符箓",
         "rank": "凡品",
         "shop_weight": 200,
-        "price": 580,
+        "price": 710,
         "volume": 1,
         "description": "炼丹符·凡品，15分钟内生效。",
         "legacy": false
@@ -24371,7 +24371,7 @@
         "type": "符箓",
         "rank": "黄品",
         "shop_weight": 110,
-        "price": 5436,
+        "price": 2900,
         "volume": 1,
         "description": "炼丹符·黄品，15分钟内生效。",
         "legacy": false
@@ -24381,7 +24381,7 @@
         "type": "符箓",
         "rank": "玄品",
         "shop_weight": 45,
-        "price": 72300,
+        "price": 11000,
         "volume": 1,
         "description": "炼丹符·玄品，20分钟内生效。",
         "legacy": false
@@ -24391,7 +24391,7 @@
         "type": "符箓",
         "rank": "圣品",
         "shop_weight": 15,
-        "price": 604200,
+        "price": 227000,
         "volume": 1,
         "description": "炼丹符·圣品，30分钟内生效。",
         "legacy": false
@@ -24401,7 +24401,7 @@
         "type": "符箓",
         "rank": "凡品",
         "shop_weight": 200,
-        "price": 480,
+        "price": 540,
         "volume": 1,
         "description": "探索符·凡品，15分钟内生效。",
         "legacy": false
@@ -24411,7 +24411,7 @@
         "type": "符箓",
         "rank": "黄品",
         "shop_weight": 110,
-        "price": 3724,
+        "price": 1900,
         "volume": 1,
         "description": "探索符·黄品，15分钟内生效。",
         "legacy": false
@@ -24421,7 +24421,7 @@
         "type": "符箓",
         "rank": "玄品",
         "shop_weight": 40,
-        "price": 44080,
+        "price": 7900,
         "volume": 1,
         "description": "探索符·玄品，20分钟内生效。",
         "legacy": false
@@ -24431,7 +24431,7 @@
         "type": "符箓",
         "rank": "圣品",
         "shop_weight": 15,
-        "price": 406800,
+        "price": 162000,
         "volume": 1,
         "description": "探索符·圣品，30分钟内生效。",
         "legacy": false
@@ -24441,7 +24441,7 @@
         "type": "符箓",
         "rank": "凡品",
         "shop_weight": 180,
-        "price": 580,
+        "price": 890,
         "volume": 1,
         "description": "增益符·凡品，15分钟内生效。",
         "legacy": false
@@ -24451,7 +24451,7 @@
         "type": "符箓",
         "rank": "玄品",
         "shop_weight": 40,
-        "price": 44080,
+        "price": 8100,
         "volume": 1,
         "description": "增益符·玄品，20分钟内生效。",
         "legacy": false
@@ -24461,7 +24461,7 @@
         "type": "符箓",
         "rank": "圣品",
         "shop_weight": 15,
-        "price": 308100,
+        "price": 135000,
         "volume": 1,
         "description": "增益符·圣品，30分钟内生效。",
         "legacy": false
@@ -24471,7 +24471,7 @@
         "type": "符箓",
         "rank": "凡品",
         "shop_weight": 180,
-        "price": 530,
+        "price": 700,
         "volume": 1,
         "description": "遁术符·凡品，15分钟内生效。",
         "legacy": false
@@ -24481,7 +24481,7 @@
         "type": "符箓",
         "rank": "黄品",
         "shop_weight": 110,
-        "price": 5336,
+        "price": 2400,
         "volume": 1,
         "description": "遁术符·黄品，15分钟内生效。",
         "legacy": false
@@ -24491,7 +24491,7 @@
         "type": "符箓",
         "rank": "玄品",
         "shop_weight": 40,
-        "price": 44080,
+        "price": 8700,
         "volume": 1,
         "description": "遁术符·玄品，20分钟内生效。",
         "legacy": false
@@ -24501,7 +24501,7 @@
         "type": "符箓",
         "rank": "圣品",
         "shop_weight": 15,
-        "price": 308100,
+        "price": 162000,
         "volume": 1,
         "description": "遁术符·圣品，30分钟内生效。",
         "legacy": false

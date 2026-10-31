@@ -453,7 +453,7 @@ class TestAuctionHouse(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(inst[0]["quality"], "大师")
         self.assertEqual(inst[0]["affixes"][0]["name"], "暴击率")
 
-    async def test_start_price_is_around_twenty_percent_of_base_price(self):
+    async def test_start_price_equals_base_price(self):
         now = int(time.time())
         shop = _imp("core.shop_manager").ShopManager({}, self.config_manager)
         entries = [
@@ -466,9 +466,8 @@ class TestAuctionHouse(unittest.IsolatedAsyncioTestCase):
             self.assertIsNotNone(lot)
             found = shop.find_item_by_name(lot["item_name"])
             self.assertIsNotNone(found, lot["item_name"])
-            base = int(found["price"])
-            self.assertGreaterEqual(lot["start_price"], int(base * 0.16))
-            self.assertLessEqual(lot["start_price"], int(base * 0.24) + 1)
+            base = int(found["price"]) * int(lot.get("count", 1))
+            self.assertEqual(int(lot["start_price"]), base)
 
     async def test_technique_delivery_goes_to_storage_ring(self):
         await self._player("tech1", gold=0)
