@@ -626,7 +626,7 @@ class AdventureManager:
         for entry in dropped_items:
             item_name, qty, *rest = entry
             quality = rest[0] if rest else ""
-            success, _ = await self.storage_ring_manager.store_item(
+            success, _ = await self.storage_ring_manager.grant_item(
                 player, item_name, qty, silent=True,
                 external_transaction=external_transaction, quality=quality,
             )

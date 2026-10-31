@@ -532,16 +532,19 @@ class StorageRingHandler:
                 )
                 return
 
-            # 尝试存入储物戒
-            success, message = await self.storage_ring_manager.store_item(player, item_name, count, external_transaction=True, silent=True)
+            # 尝试发放：丹药进丹药背包，其余存入储物戒（兼容缺少 item_kind 的旧赠予）
+            success, message = await self.storage_ring_manager.grant_item(
+                player, item_name, count, external_transaction=True, silent=True
+            )
 
             if success:
                 await self.db.update_player(player, commit=False)
                 await self.db.conn.commit()
-                extra_hint = f"\n{message}" if message else ""
+                target_desc = "丹药背包" if self.storage_ring_manager.is_pill(item_name) else "储物戒"
+                extra_hint = f"\n{message}" if message and not self.storage_ring_manager.is_pill(item_name) else ""
                 yield event.plain_result(
                     f"✅ 已接收来自【{sender_name}】的赠予！\n"
-                    f"获得：【{item_name}】x{count}{extra_hint}"
+                    f"获得：【{item_name}】x{count}（已存入{target_desc}）{extra_hint}"
                 )
             else:
                 # 存入失败，回滚事务（这样 pending_gift 不会被删，物品还在）

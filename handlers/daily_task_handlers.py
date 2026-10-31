@@ -80,7 +80,7 @@ class DailyTaskHandlers:
             # 将奖励材料存入储物戒
             item_lines = []
             for item in items:
-                success_store, _ = await self.storage_ring_mgr.store_item(player, item["name"], item["count"], silent=True)
+                success_store, _ = await self.storage_ring_mgr.grant_item(player, item["name"], item["count"], silent=True)
                 if success_store:
                     item_lines.append(f"{item['name']} x{item['count']}")
                 else:

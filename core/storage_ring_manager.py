@@ -146,6 +146,47 @@ class StorageRingManager:
             return False, f"【{item_name}】是储物戒，不能存入另一个储物戒"
         return True, ""
 
+    async def grant_item(
+        self,
+        player: Player,
+        item_name: str,
+        count: int = 1,
+        *,
+        quality: str = "",
+        silent: bool = True,
+        external_transaction: bool = False,
+        allow_overflow: bool = True,
+    ) -> Tuple[bool, str]:
+        """发放奖励/掉落：丹药进入丹药背包，其余物品进入储物戒。
+
+        与 store_item 不同，此入口不会把丹药当成“不可存入物品”而丢弃，
+        用于所有系统奖励、掉落、任务结算等“给玩家物品”的场景。
+        """
+        count = max(0, int(count or 0))
+        if count <= 0:
+            return True, ""
+        if self.is_pill(item_name):
+            from .pill_manager import PillManager
+
+            pm = PillManager(self.db, self.config_manager)
+            await pm.add_pill_to_inventory(
+                player,
+                item_name,
+                count,
+                external_transaction=external_transaction,
+                quality=quality or PillManager.DEFAULT_QUALITY,
+            )
+            return True, f"【{item_name}】x{count} 已放入丹药背包"
+        return await self.store_item(
+            player,
+            item_name,
+            count,
+            silent=silent,
+            external_transaction=external_transaction,
+            allow_overflow=allow_overflow,
+            quality=quality,
+        )
+
     async def store_item(self, player: Player, item_name: str, count: int = 1, silent: bool = False, external_transaction: bool = False, allow_overflow: bool = True, quality: str = "") -> Tuple[bool, str]:
         can_store, reason = self.can_store_item(item_name)
         if not can_store:
@@ -259,7 +300,12 @@ class StorageRingManager:
                 fit = min(count, available // max(1, item_volume))
                 if fit > 0:
                     # 兼容旧格式：旧溢出记录只有名称和数量，无法恢复品质
-                    if self.is_equipment_item(item_name):
+                    if self.is_pill(item_name):
+                        # 丹药必须回到丹药背包，历史错误进入溢出仓库的丹药也在这里纠正
+                        await self.grant_item(
+                            fresh, item_name, fit, external_transaction=True
+                        )
+                    elif self.is_equipment_item(item_name):
                         self.instance_manager.create_instances(
                             fresh, item_name, fit,
                             quality=self.instance_manager.roll_quality(),
@@ -285,6 +331,7 @@ class StorageRingManager:
             # 同步调用方对象
             player.set_storage_ring_items(items)
             player.set_overflow_items(remaining)
+            player.set_pills_inventory(fresh.get_pills_inventory())
             player.set_equipment_instances(fresh.get_equipment_instances())
             await self.db.update_player(fresh)
             await self.db.conn.commit()

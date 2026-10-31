@@ -340,9 +340,11 @@ class ConfigManager:
         return int(RANK_PRICE.get(rank, 1000))
 
     def is_pill(self, item_name: str) -> bool:
-        if item_name in self.pills_data or item_name in self.exp_pills_data or item_name in self.utility_pills_data:
+        # 兼容“丹药名|品质”形式的背包 key，避免品质后缀让丹药被识别成普通物品
+        base_name = str(item_name or "").split("|", 1)[0]
+        if base_name in self.pills_data or base_name in self.exp_pills_data or base_name in self.utility_pills_data:
             return True
-        item_config = self.items_data.get(item_name)
+        item_config = self.items_data.get(base_name)
         if item_config and item_config.get("type") == "丹药":
             return True
         return False

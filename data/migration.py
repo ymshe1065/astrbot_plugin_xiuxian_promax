@@ -10,7 +10,7 @@ from astrbot.api import logger
 if TYPE_CHECKING:
     from ..config_manager import ConfigManager
 
-LATEST_DB_VERSION = 55  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求；v49: 统一物品品阶名称；v50: 仙市投资系统（基金/股票）；v51: 符箓熟练度与符图习得；v52: 仙市 v6（16 盘 + 赌场级波动 + 不对称日熔断）；v53: 拍卖会未开拍拍品按固定品阶曲线重建（并兼容分叉旧库补授符图）；v54: 灵田肥力上限按等级分级（旧值按百分比换算）；v55: 生活职业更换费用峰值与时间衰减
+LATEST_DB_VERSION = 56  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求；v49: 统一物品品阶名称；v50: 仙市投资系统（基金/股票）；v51: 符箓熟练度与符图习得；v52: 仙市 v6（16 盘 + 赌场级波动 + 不对称日熔断）；v53: 拍卖会未开拍拍品按固定品阶曲线重建（并兼容分叉旧库补授符图）；v54: 灵田肥力上限按等级分级（旧值按百分比换算）；v55: 生活职业更换费用峰值与时间衰减；v56: 误存进储物戒/溢出仓库的丹药迁回丹药背包
 
 MIGRATION_TASKS: Dict[int, Callable[[aiosqlite.Connection, ConfigManager], Awaitable[None]]] = {}
 
@@ -2244,3 +2244,84 @@ async def _migrate_to_v55(conn: aiosqlite.Connection, config_manager: ConfigMana
     await _add_column_if_missing(conn, "players", "life_skill_last_change_at", "INTEGER NOT NULL DEFAULT 0")
     await conn.commit()
     logger.info("v55迁移完成：生活职业更换费用字段已就绪")
+
+
+@migration(56)
+async def _migrate_to_v56(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """迁移到 v56 - 将误存进储物戒/溢出仓库的丹药迁回丹药背包。
+
+    历史版本的秘境丹药掉落早于 utility_pills 配置上线，掉落时被判定为普通物品
+    存进了储物戒；之后即使配置补齐，旧存档里的丹药也不会自动归位。
+    """
+    logger.info("开始迁移到 v56：丹药背包与储物戒归位")
+    pill_names = set()
+    try:
+        if config_manager:
+            pill_names = set(config_manager.get_all_pill_names())
+    except Exception as e:
+        logger.warning(f"v56迁移读取丹药配置失败: {e}")
+        pill_names = set()
+    if not pill_names:
+        logger.warning("v56迁移跳过：没有可识别的丹药配置")
+        return
+
+    quality_names = {"一般", "良好", "极佳", "大师"}
+    try:
+        quality_names.update(str(q) for q in config_manager.get_pill_quality_names() if q)
+    except Exception:
+        pass
+
+    def parse_dict(raw):
+        try:
+            value = json.loads(raw) if raw else {}
+        except Exception:
+            return {}
+        return value if isinstance(value, dict) else {}
+
+    async with conn.execute(
+        "SELECT user_id, pills_inventory, storage_ring_items, overflow_items FROM players"
+    ) as cursor:
+        rows = await cursor.fetchall()
+
+    moved_items = 0
+    moved_players = 0
+    for user_id, raw_pills, raw_storage, raw_overflow in rows:
+        pills = parse_dict(raw_pills)
+        storage = parse_dict(raw_storage)
+        overflow = parse_dict(raw_overflow)
+        changed = False
+
+        for bucket in (storage, overflow):
+            for item_name, raw_count in list(bucket.items()):
+                name = str(item_name)
+                base_name = name.split("|", 1)[0]
+                if base_name not in pill_names:
+                    continue
+                try:
+                    count = int(raw_count or 0)
+                except (TypeError, ValueError):
+                    count = 0
+                if count > 0:
+                    quality = name.rsplit("|", 1)[1] if "|" in name else "一般"
+                    if quality not in quality_names:
+                        quality = "一般"
+                    key = f"{base_name}|{quality}"
+                    pills[key] = int(pills.get(key, 0) or 0) + count
+                    moved_items += count
+                del bucket[item_name]
+                changed = True
+
+        if changed:
+            await conn.execute(
+                "UPDATE players SET pills_inventory = ?, storage_ring_items = ?, overflow_items = ? WHERE user_id = ?",
+                (
+                    json.dumps(pills, ensure_ascii=False),
+                    json.dumps(storage, ensure_ascii=False),
+                    json.dumps(overflow, ensure_ascii=False),
+                    user_id,
+                ),
+            )
+            moved_players += 1
+
+    await conn.commit()
+    logger.info(f"v56迁移完成：{moved_players} 名玩家的 {moved_items} 件丹药已迁回丹药背包")

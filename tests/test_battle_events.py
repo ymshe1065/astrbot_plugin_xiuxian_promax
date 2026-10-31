@@ -58,6 +58,9 @@ class FakeRing:
         self.items.append((item_name, count))
         return True, ""
 
+    async def grant_item(self, player, item_name, count=1, **kwargs):
+        return await self.store_item(player, item_name, count, **kwargs)
+
 
 class TestBattleEvents(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):

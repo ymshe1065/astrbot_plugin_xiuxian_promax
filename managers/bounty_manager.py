@@ -480,7 +480,7 @@ class BountyManager:
                 if dropped_items:
                     lines = []
                     for item_name, count in dropped_items:
-                        success, _ = await self.storage_ring_manager.store_item(player, item_name, count, silent=True)
+                        success, _ = await self.storage_ring_manager.grant_item(player, item_name, count, silent=True)
                         if success:
                             lines.append(f"  · {item_name} x{count}")
                         else:

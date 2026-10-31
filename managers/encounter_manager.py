@@ -194,7 +194,7 @@ class EncounterManager:
         if item and self.storage_ring_mgr and not fail:
             item_name = item.get("name", "")
             item_count = int(item.get("count", 1))
-            success, _ = await self.storage_ring_mgr.store_item(player, item_name, item_count, silent=True)
+            success, _ = await self.storage_ring_mgr.grant_item(player, item_name, item_count, silent=True)
             if success:
                 lines.append(f"📦 获得物品：【{item_name}】x{item_count}（已存入储物戒）")
             else:
@@ -212,7 +212,7 @@ class EncounterManager:
                     main_ratio=0.08,
                 )
                 if tech_name:
-                    stored, _ = await self.storage_ring_mgr.store_item(
+                    stored, _ = await self.storage_ring_mgr.grant_item(
                         player, tech_name, 1, silent=True
                     )
                     if stored:

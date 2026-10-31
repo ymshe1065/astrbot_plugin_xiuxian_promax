@@ -538,7 +538,7 @@ class RaidManager:
         if not self.storage_ring_mgr:
             return False
         try:
-            success, _ = await self.storage_ring_mgr.store_item(player, item_name, count, silent=True)
+            success, _ = await self.storage_ring_mgr.grant_item(player, item_name, count, silent=True)
             return bool(success)
         except Exception as e:
             logger.warning(f"团本掉落发放失败 {item_name}x{count}: {e}")

@@ -2510,7 +2510,7 @@ class XiuXianPlugin(Star):
                 item_name = festival.get("item")
                 item_count = festival.get("item_count", 1)
                 if item_name:
-                    await self.storage_ring_mgr.store_item(player, item_name, item_count, silent=True)
+                    await self.storage_ring_mgr.grant_item(player, item_name, item_count, silent=True)
                 
                 details.append(f"🎊 今天是【{festival['name']}】，额外获得 {festival_gold} 灵石、{festival['exp']} 修为及恩赐物品！")
             # ======================
@@ -3516,12 +3516,13 @@ class XiuXianPlugin(Star):
             idx = 0
         success, msg = await self.social_mgr.redeem_virtue(player, idx)
         if success and msg.startswith("__NEED_STORE__"):
-            # 物品类奖励：存入储物戒
+            # 物品类奖励：丹药进丹药背包，其余存入储物戒
             _, payload = msg.split("__NEED_STORE__", 1)
             item_name, count, note = payload.split("|", 2)
-            ok, smsg = await self.storage_ring_mgr.store_item(player, item_name, int(count), silent=True)
+            ok, smsg = await self.storage_ring_mgr.grant_item(player, item_name, int(count), silent=True)
             if ok:
-                yield event.plain_result(f"✅ {note}，【{item_name}】x{count} 已存入储物戒")
+                target = "丹药背包" if self.storage_ring_mgr.is_pill(item_name) else "储物戒"
+                yield event.plain_result(f"✅ {note}，【{item_name}】x{count} 已存入{target}")
             else:
                 yield event.plain_result(f"⚠️ {note}，但储物戒已满：{smsg}")
             return

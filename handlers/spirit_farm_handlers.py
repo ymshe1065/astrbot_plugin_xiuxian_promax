@@ -39,7 +39,9 @@ class SpiritFarmHandlers:
                     level_config = FARM_LEVELS.get(farm["level"], FARM_LEVELS[1])
                     farm_level = int(farm.get("level", 1) or 1)
                     now = int(_time.time())
-                    rows = []
+                    # 按格号归档，保证 1..max_slots 全部格位都展示（含空地）
+                    slot_rows = {}
+                    slot_occupied = set()
                     for job in collect_hybrid_jobs(farm["crops"]):
                         remaining = max(0, job["mature_time"] - now)
                         status = (
@@ -47,10 +49,13 @@ class SpiritFarmHandlers:
                             if remaining > 0 else "✅杂交完成"
                         )
                         slots_text = "/".join(f"格{slot}" for slot in job["slots"])
-                        rows.append((f"{slots_text} → {job['product']}", status))
+                        if job["slots"]:
+                            first_slot = job["slots"][0]
+                            slot_rows[first_slot] = (
+                                f"{slots_text} → {job['product']}", status
+                            )
+                        slot_occupied.update(job["slots"])
                     for crop in farm["crops"]:
-                        if len(rows) >= 8:
-                            break
                         if crop.get("name") == HYBRID_MARKER:
                             continue
                         slot = int(crop.get("slot") or 0)
@@ -59,7 +64,17 @@ class SpiritFarmHandlers:
                             status = f"还需{remaining // 3600}时{(remaining % 3600) // 60}分"
                         else:
                             status = "✅已成熟"
-                        rows.append((f"格{slot}. {crop['name']}", status))
+                        slot_rows[slot] = (f"格{slot}. {crop['name']}", status)
+                        slot_occupied.add(slot)
+                    max_slots = int(level_config["slots"])
+                    # 兼容历史数据中超出当前格数的作物，一并展示
+                    all_slots = sorted(s for s in (set(range(1, max_slots + 1)) | slot_occupied) if s > 0)
+                    rows = []
+                    for slot in all_slots:
+                        if slot in slot_rows:
+                            rows.append(slot_rows[slot])
+                        elif slot not in slot_occupied:
+                            rows.append((f"格{slot}. （空地）", "可种植"))
                     if not rows:
                         rows.append(("（空地）", "可种植"))
                     season_rows = []
@@ -82,7 +97,7 @@ class SpiritFarmHandlers:
                                 ("土壤肥力", f"{int(farm.get('fertility') or 0)}/{max_fertility}"),
                                 ("可种植", "、".join(get_herbs_for_level(farm_level))),
                             ] + season_rows + unlock_rows},
-                            {"name": "种植中", "rows": rows},
+                            {"name": "格位一览", "rows": rows},
                         ],
                         footer="/种植 <灵草名> [数量|格号区间|all] · /杂交 <草A> <草B> · /收获 · /铲除 <格号...|1-3|all>",
                     )

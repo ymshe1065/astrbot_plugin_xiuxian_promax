@@ -229,7 +229,7 @@ class ReincarnationManager:
                 )
                 desc = f"【{heirloom_name}·{(snapshot or {}).get('quality', '一般')}】"
             else:
-                success, msg = await self.storage_ring_mgr.store_item(
+                success, msg = await self.storage_ring_mgr.grant_item(
                     player, heirloom_name, 1, silent=True, external_transaction=True
                 )
                 if not success:

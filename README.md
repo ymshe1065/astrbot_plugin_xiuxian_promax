@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v6.47.0 (合并发布：一键接取任务·境界跌落·灵田肥力·自动施肥)
+# AstrBot 插件：模拟修仙 v6.47.2 (修复：丹药误入储物戒)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v6.47.0-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v6.47.2-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.31.0 · **游戏版本:** v6.47.0 · **数据库:** v55
+> **插件版本:** v3.31.2 · **游戏版本:** v6.47.2 · **数据库:** v56
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，233 条帮助指令 / 233 条注册指令、16 个大系统、110 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,33 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · v6.47.0（合并发布：一键接取任务 · 境界跌落替代死亡 · 灵田肥力 · 自动施肥）</b></summary>
+<summary><b>本次更新 · v6.47.2（丹药误入储物戒修复）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 丹药归位 | 修复六品破境增益丹等丹药进入储物戒的问题：新增统一发放入口，奖励/掉落中的丹药固定进入丹药背包，其余物品才进入储物戒。 |
+| 秘境掉落 | 秘境稀有丹药掉落改走统一发放入口，避免丹药被当作普通物品存入储物戒。 |
+| 其他发放 | 历练、奇遇、Boss、悬赏、日常任务、世界Boss、团本、江湖事件、节日奖励、师德兑换、传家宝解封等发放入口同步接入，防止后续新增丹药再次走错背包。 |
+| 历史数据 | 新增 DB v56 迁移：把旧存档中误存在储物戒/溢出仓库的丹药自动迁回丹药背包；`/领取溢出` 也会把丹药直接放回丹药背包。 |
+| 物品审计 | 已检查全部物品配置，仅「灵兽内丹」名称含“丹”但属于材料，其余丹药均能正确识别。 |
+| 版本同步 | 插件版本 v3.31.2，游戏版本 v6.47.2，数据库 v56；`/修仙帮助` 同步至 v6.47.2。 |
+
+</details>
+
+<details>
+<summary><b>v6.47.1（灵田卡片展示全部格位）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 卡片格位 | `/我的灵田` 图片卡片不再只显示前 8 行，按灵田当前等级展示全部格位（满级 20 格），未种植的格子以「空地 · 可种植」占位。 |
+| 杂交占位 | 杂交任务仍按占用的两个格位合并为一行（如「格5/格6 → 紫心莲」），不会重复占行。 |
+| 兼容数据 | 历史数据中格号超出当前等级的作物也会一并展示，避免遗漏。 |
+| 版本同步 | 插件版本 v3.31.1，游戏版本 v6.47.1，数据库 v55；`/修仙帮助` 同步至 v6.47.1。 |
+
+</details>
+
+<details>
+<summary><b>v6.47.0（合并发布：一键接取任务 · 境界跌落替代死亡 · 灵田肥力 · 自动施肥）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |
@@ -1182,6 +1208,8 @@ v6.43.0 仙市投资大改 每日16盘（07:00-22:30每时一盘）、盘前30�
 v6.46.1 仙市修复     修复 /申购 不响应：CMD_INVEST_SUBSCRIBE 被「仙市订阅」覆盖导致申购从未注册，且两处 handle_subscribe / handle_invest_subscribe 同名互相覆盖；拆出 CMD_INVEST_HINT_SUBSCRIBE 与 handle_hint_subscribe，新增指令注册静态回归测试
 v6.46.0 灵田肥力     肥力上限按等级分级 max(100,格数×20)（100/100/160/240/400），满格一茬固定消耗 40%；施肥改「+30% 上限」，收益系数改 肥力/上限，地板 20% 上限；DB v54 按百分比换算；新增 /自动代理 施肥 [阈值%] 独立施肥代理，收获前先补肥、ROI<1 自动跳过
 v6.45.0 秘境代理     /自动代理 秘境 <ID>：只发「秘境」会提示按境界选本，不自动选本、不限次数；到期自动完成探索并重新进入同一秘境；计入日常/称号/悬赏但不触发奇遇；/关闭代理 秘境 单独停止
+v6.47.2 丹药归位      修复六品破境增益丹等丹药误入储物戒；新增统一发放入口与 DB v56 历史丹药迁回；/领取溢出 丹药自动回丹药背包；插件 v3.31.2
+v6.47.1 灵田卡片      /我的灵田 图片卡片展示全部格位（满级20格），空地显示「可种植」占位，杂交双格合并为一行；插件 v3.31.1
 v6.47.0 合并发布     一键接取任务 /接取任务 all；突破失败/贷款逾期改为跌落一个大境界（回生丹抵消一次跌落）；生活职业更换费用峰值×2、72小时衰减；/铲除 支持区间与 all；/战力排行 紧凑文本榜；修复 /申购 未注册；DB v55，插件 v3.31.0
 ```
 

@@ -746,7 +746,7 @@ class PlayerHandler:
             item_name = festival.get("item")
             item_count = festival.get("item_count", 1)
             if item_name:
-                await self.storage_ring_mgr.store_item(player, item_name, item_count, silent=True)
+                await self.storage_ring_mgr.grant_item(player, item_name, item_count, silent=True)
             
             festival_msg = (
                 f"\n🎊【{festival['name']}】专属福利降临！🎊\n"

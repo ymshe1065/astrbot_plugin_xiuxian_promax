@@ -311,22 +311,18 @@ class RiftManager:
                 for entry in dropped_items:
                     item_name, count, *rest = entry
                     quality = rest[0] if rest else ""
-                    # 检查是否为丹药，丹药存入丹药背包，其他存入储物戒
+                    # 统一发放入口：丹药固定进入丹药背包，其余进入储物戒
                     is_pill = self._is_pill_item(item_name)
-                    if is_pill:
-                        # 存入丹药背包
-                        inventory = player.get_pills_inventory()
-                        pill_key = f"{item_name}|一般"
-                        inventory[pill_key] = inventory.get(pill_key, 0) + count
-                        player.set_pills_inventory(inventory)
-                        item_lines.append(f"  · {item_name} x{count}（丹药背包）")
-                    elif self.storage_ring_manager:
-                        success, _ = await self.storage_ring_manager.store_item(
-                            player, item_name, count, silent=True, quality=quality,
-                            external_transaction=True,
+                    if self.storage_ring_manager:
+                        success, _ = await self.storage_ring_manager.grant_item(
+                            player, item_name, count, quality=quality,
+                            silent=True, external_transaction=True,
                         )
                         if success:
-                            suffix = f"（{quality}）" if quality else ""
+                            if is_pill:
+                                suffix = "（丹药背包）"
+                            else:
+                                suffix = f"（{quality}）" if quality else ""
                             item_lines.append(f"  · {item_name} x{count}{suffix}")
                         else:
                             item_lines.append(f"  · {item_name} x{count}（储物戒已满，丢失）")
