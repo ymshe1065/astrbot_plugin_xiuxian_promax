@@ -79,6 +79,17 @@ class TestRecipePavilion(unittest.TestCase):
         self.assertIn("《炼气丹方》", names)
         self.assertNotIn("不存在的旧装备", names)
 
+    def test_breakthrough_recipes_are_unlimited_stock(self):
+        generated = self.shop_manager.generate_pavilion_items(
+            self.shop_manager.get_breakthrough_recipes_for_display, 0
+        )
+        self.assertTrue(generated)
+        for item in generated:
+            self.assertTrue(item.get("unlimited"))
+            self.assertEqual(item["stock"], self.shop_manager.MAX_UNLIMITED_STOCK)
+        text = self.shop_manager.format_pavilion_display("突破丹方", generated, 0, 0)
+        self.assertIn("不限量", text)
+
     def test_pavilion_keeps_all_permanent_and_rotates_rare(self):
         generated = self.shop_manager.generate_pavilion_items(
             self.shop_manager.get_recipes_for_display, 10

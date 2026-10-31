@@ -479,7 +479,8 @@ class ShopHandler:
             return
 
         stock = target_item.get('stock', 0)
-        if stock <= 0:
+        unlimited = bool(target_item.get('unlimited'))
+        if not unlimited and stock <= 0:
             yield event.plain_result(f"【{item_name}】已售罄，请等待货架刷新。")
             return
         limited_note = ""
@@ -491,7 +492,7 @@ class ShopHandler:
         if norm_type == 'talisman_recipe' and quantity > 1:
             quantity = 1
             limited_note = "⚠️ 符图每次限购 1 份，已按 1 份结算。\n"
-        if quantity > stock:
+        if not unlimited and quantity > stock:
             yield event.plain_result(f"【{item_name}】库存不足，当前库存: {stock}。")
             return
 
@@ -547,11 +548,14 @@ class ShopHandler:
                 )
                 return
 
-            reserved, _, remaining = await self.db.decrement_shop_item_stock(
-                pavilion_id, item_name, quantity,
-                external_transaction=True,
-                entry_key=self.shop_manager.shop_entry_key(target_item),
-            )
+            if unlimited:
+                reserved = True
+            else:
+                reserved, _, remaining = await self.db.decrement_shop_item_stock(
+                    pavilion_id, item_name, quantity,
+                    external_transaction=True,
+                    entry_key=self.shop_manager.shop_entry_key(target_item),
+                )
             if not reserved:
                 await self.db.conn.rollback()
                 yield event.plain_result(f"【{item_name}】已售罄，请等待刷新。")

@@ -291,6 +291,12 @@ class ShopManager:
         for item in items or []:
             if not isinstance(item, dict):
                 continue
+            # 常驻商品不限量（突破丹方等），旧货架也会在访问时自动补齐标记
+            if item.get('always_available'):
+                if not item.get('unlimited') or int(item.get('stock', 0) or 0) != self.MAX_UNLIMITED_STOCK:
+                    item['unlimited'] = True
+                    item['stock'] = self.MAX_UNLIMITED_STOCK
+                    changed = True
             # 符图用的是符名，与物品目录里的成品符同名，不能被回填成成品符
             if item.get("type") == "talisman_recipe":
                 continue
@@ -622,11 +628,15 @@ class ShopManager:
         for item in selected:
             discount = random.uniform(discount_min, discount_max)
             stock = self._calculate_stock(item.get('weight', 100), item.get('data'))
+            unlimited = bool(item.get('always_available'))
             result.append({
                 'name': item['name'], 'type': item['type'], 'rank': item['rank'],
                 'original_price': item['price'], 'discount': discount,
-                'price': int(item['price'] * discount), 'stock': stock, 'data': item.get('data', {}),
-                'always_available': bool(item.get('always_available')), 'rare': bool(item.get('rare')),
+                'price': int(item['price'] * discount),
+                'stock': self.MAX_UNLIMITED_STOCK if unlimited else stock,
+                'data': item.get('data', {}),
+                'always_available': unlimited, 'rare': bool(item.get('rare')),
+                'unlimited': unlimited,
                 'quality': self.roll_gear_quality() if self.is_gear_entry(item) else '',
             })
         self.dedupe_same_name_items(result)
@@ -835,6 +845,8 @@ class ShopManager:
     PACKAGE_OPEN_MAX = 3
     # 开出数量分布：1 个 20% / 2 个 50% / 3 个 30%
     PACKAGE_OPEN_WEIGHTS = [(1, 20), (2, 50), (3, 30)]
+    # 常驻商品库存占位（突破丹方等不限量）
+    MAX_UNLIMITED_STOCK = 999999
 
     def get_package_material_pool(self, category: str, tier: str) -> List[Tuple[str, int]]:
         """返回材料包可开出的 (材料名, 权重)；只取物品目录中真实存在的材料。
@@ -1071,7 +1083,10 @@ class ShopManager:
                     discount_text = f" [{round(item['discount'] * 10, 1)}折]"
                 elif item.get('discount', 1.0) > 1.0:
                     discount_text = f" [+{int((item['discount'] - 1.0) * 100)}%]"
-                stock_text = f"库存紧张:{stock}" if stock <= 3 else f"库存:{stock}"
+                if item.get('unlimited'):
+                    stock_text = "常驻·不限量"
+                else:
+                    stock_text = f"库存紧张:{stock}" if stock <= 3 else f"库存:{stock}"
                 permanent_text = " [常驻]" if item.get('always_available') else ""
 
                 # 获取物品效果描述
