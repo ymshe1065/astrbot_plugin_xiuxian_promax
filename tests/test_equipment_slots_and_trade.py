@@ -259,6 +259,32 @@ class TestSlots(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.im.get_instance(p, first["id"])["affixes"], [])
         self.assertTrue(self.im.get_instance(p, second["id"])["affixes"])
 
+    async def test_targeted_wash_uses_monster_material_and_specified_affix(self):
+        p = await self._player()
+        inst = await self.equip(p, self.weapon)
+        p.gold = 1_000_000
+        await self.ring.store_item(p, "洗练石", 2)
+        await self.ring.store_item(p, "诛仙龙骨铁", 2)
+        forge = _imp("managers.forge_manager").ForgeManager(self.db, self.cm, self.ring)
+        with patch("xiuxian_merge.managers.forge_manager.random.random", return_value=0.0):
+            ok, msg = await forge.targeted_wash(
+                p, "武器", "暴击率", "诛仙龙骨铁", 2
+            )
+        self.assertTrue(ok, msg)
+        affixes = self.im.get_instance(p, inst["id"])["affixes"]
+        self.assertEqual(affixes[-1]["key"], "crit_rate")
+        self.assertIn("暴击率+", affixes[-1]["display"])
+        self.assertIn("定向洗练成功", msg)
+
+    async def test_targeted_wash_rejects_non_monster_material(self):
+        p = await self._player()
+        await self.equip(p, self.weapon)
+        await self.ring.store_item(p, "洗练石", 1)
+        forge = _imp("managers.forge_manager").ForgeManager(self.db, self.cm, self.ring)
+        ok, msg = await forge.targeted_wash(p, "武器", "暴击率", "灵草", 1)
+        self.assertFalse(ok)
+        self.assertIn("不是妖兽材料", msg)
+
     async def test_accessory_group_alias_equips_amulet_and_rings(self):
         p = await self._player()
         p.level_index = 0

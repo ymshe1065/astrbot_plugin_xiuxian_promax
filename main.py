@@ -2667,6 +2667,15 @@ class XiuXianPlugin(Star):
                 if tmsg:
                     yield event.plain_result(tmsg)
 
+    @filter.command("炼器", "妖兽材料定向洗练装备词条")
+    @require_whitelist
+    async def handle_forge(self, event: AstrMessageEvent, args: GreedyStr):
+        async for r in self.forge_handlers.handle_forge(event, args): yield r
+        if get_event_flag(event, "targeted_wash_success", False):
+            tmsg = await self._title_bump(event.get_sender_id(), "forge_count")
+            if tmsg:
+                yield event.plain_result(tmsg)
+
     # ===== v6.4 天魔入侵 =====
     @filter.command("开启天魔入侵", "管理员开启活动")
     @require_whitelist
