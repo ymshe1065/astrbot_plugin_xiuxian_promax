@@ -138,7 +138,7 @@ CMD_INVEST_SUBSCRIBE = "申购"
 CMD_INVEST_REDEEM = "赎回"
 CMD_INVEST_HOLDINGS = "我的持仓"
 CMD_INVEST_ORDERS = "仙市流水"
-CMD_INVEST_SUBSCRIBE = "仙市订阅"
+CMD_INVEST_HINT_SUBSCRIBE = "仙市订阅"
 CMD_BOUNTY_LIST = "悬赏令"
 CMD_BOUNTY_ACCEPT = "接取悬赏"
 CMD_BOUNTY_STATUS = "悬赏状态"
@@ -2026,10 +2026,10 @@ class XiuXianPlugin(Star):
     async def handle_invest_orders(self, event: AstrMessageEvent):
         async for r in self.invest_handlers.handle_orders(event): yield r
 
-    @filter.command(CMD_INVEST_SUBSCRIBE, "开关仙市风声主动推送")
+    @filter.command(CMD_INVEST_HINT_SUBSCRIBE, "开关仙市风声主动推送")
     @require_whitelist
-    async def handle_invest_subscribe(self, event: AstrMessageEvent):
-        async for r in self.invest_handlers.handle_subscribe(event): yield r
+    async def handle_invest_hint_subscribe(self, event: AstrMessageEvent):
+        async for r in self.invest_handlers.handle_hint_subscribe(event): yield r
 
     # ===== 悬赏 =====
     @filter.command(CMD_BOUNTY_LIST, "查看悬赏任务")
