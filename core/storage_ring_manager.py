@@ -467,6 +467,133 @@ class StorageRingManager:
             await self.db.conn.rollback()
             raise
 
+    QUALITY_PRICE_MULT = {"一般": 1.0, "良好": 1.05, "极佳": 1.10, "大师": 1.15}
+    RECYCLE_RATE = 0.60
+
+    def _item_base_price(self, item_name: str) -> int:
+        cfg = self.config_manager.get_item_config(item_name) or {}
+        if not cfg:
+            cfg = self.config_manager.get_material_info(item_name) or {}
+        try:
+            return max(0, int(cfg.get("price", 0) or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    def _recycle_value(self, item_name: str, quality: str = "一般") -> int:
+        base = self._item_base_price(item_name)
+        mult = self.QUALITY_PRICE_MULT.get(str(quality or "一般"), 1.0)
+        return max(0, int(round(base * mult * self.RECYCLE_RATE)))
+
+    def _is_gear(self, item_name: str) -> bool:
+        cfg = self.config_manager.items_data.get(item_name) or self.config_manager.weapons_data.get(item_name)
+        return bool(cfg and ItemRules.is_equipment(cfg))
+
+    async def recycle_item(self, player: Player, item_name: str, count: int = 1, quality: str = "") -> Tuple[bool, str]:
+        """按 60% 配置价值回收储物戒物品/装备/丹药背包中的丹药。"""
+        if count <= 0:
+            return False, "数量必须大于0"
+        orig_player = player
+        await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            player = await self.db.get_player_by_id(player.user_id)
+            if not player:
+                await self.db.conn.rollback()
+                return False, "玩家数据不存在，请重新踏入仙途"
+
+            total_gold = 0
+            recycled = 0
+            details = []
+            items = player.get_storage_ring_items()
+            pills = player.get_pills_inventory()
+
+            # 1. 装备实例优先；未指定品质时从低品质开始回收，保护高品质装备。
+            if self._is_gear(item_name):
+                insts = self.instance_manager.list_instances(player, "storage", item_name)
+                if quality:
+                    insts = [x for x in insts if str(x.get("quality") or "一般") == quality]
+                insts.sort(key=lambda x: (
+                    self.QUALITY_PRICE_MULT.get(str(x.get("quality") or "一般"), 1.0),
+                    int(x.get("id", 0) or 0),
+                ))
+                for inst in insts[:max(0, count - recycled)]:
+                    q = str(inst.get("quality") or "一般")
+                    value = self._recycle_value(item_name, q)
+                    self.instance_manager.remove(player, int(inst.get("id", 0) or 0))
+                    total_gold += value
+                    recycled += 1
+                    details.append(f"{item_name}·{q}")
+                if recycled:
+                    orig_player.set_equipment_instances(player.get_equipment_instances())
+                # 旧存档可能还有同名计数；实例不足时继续走计数。
+                if not quality and recycled < count and int(items.get(item_name, 0) or 0) > 0:
+                    legacy = int(items.get(item_name, 0) or 0)
+                    take = min(legacy, count - recycled)
+                    value = self._recycle_value(item_name, "一般") * take
+                    if take >= legacy:
+                        del items[item_name]
+                    else:
+                        items[item_name] = legacy - take
+                    total_gold += value
+                    recycled += take
+                    details.append(f"{item_name}x{take}")
+
+            # 2. 丹药背包
+            if recycled < count and self.config_manager.is_pill(item_name):
+                matching = []
+                for key, amount in list(pills.items()):
+                    base, q = (key.rsplit("|", 1) + ["一般"])[:2] if "|" in key else (key, "一般")
+                    if base != item_name:
+                        continue
+                    if quality and q != quality:
+                        continue
+                    matching.append((self.QUALITY_PRICE_MULT.get(q, 1.0), key, q, int(amount or 0)))
+                for _, key, q, amount in sorted(matching):
+                    take = min(amount, count - recycled)
+                    if take <= 0:
+                        continue
+                    value = self._recycle_value(item_name, q) * take
+                    if take >= amount:
+                        del pills[key]
+                    else:
+                        pills[key] = amount - take
+                    total_gold += value
+                    recycled += take
+                    details.append(f"{item_name}·{q}x{take}")
+
+            # 3. 普通材料/符箓/丹方等堆叠物品
+            if recycled < count and item_name in items:
+                amount = int(items.get(item_name, 0) or 0)
+                take = min(amount, count - recycled)
+                value = self._recycle_value(item_name, quality or "一般") * take
+                if take >= amount:
+                    del items[item_name]
+                else:
+                    items[item_name] = amount - take
+                total_gold += value
+                recycled += take
+                details.append(f"{item_name}x{take}")
+
+            if recycled <= 0:
+                await self.db.conn.rollback()
+                return False, f"储物戒和丹药背包中没有可回收的【{item_name}】"
+
+            player.gold += total_gold
+            player.set_storage_ring_items(items)
+            player.set_pills_inventory(pills)
+            orig_player.gold = player.gold
+            orig_player.set_storage_ring_items(items)
+            orig_player.set_pills_inventory(pills)
+            await self.db.update_player(player)
+            await self.db.conn.commit()
+            name_text = "、".join(details[:5]) + ("…" if len(details) > 5 else "")
+            return True, (
+                f"♻️ 已回收 {name_text}\n"
+                f"获得灵石：{total_gold:,}（按配置价值 60%）"
+            )
+        except Exception:
+            await self.db.conn.rollback()
+            raise
+
     def check_upgrade_requirement(self, player: Player, new_ring_name: str) -> Tuple[bool, str]:
         ring_config = self.get_storage_ring_config(new_ring_name)
         if not ring_config:

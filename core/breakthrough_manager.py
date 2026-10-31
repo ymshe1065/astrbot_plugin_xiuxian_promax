@@ -119,14 +119,6 @@ class BreakthroughManager:
         if not can_breakthrough:
             return False, error_msg, False, False
 
-        # ===== 经济回收：突破需缴纳灵石（境界越高越贵）=====
-        breakthrough_cost = 1000 + player.level_index * 800
-        if player.gold < breakthrough_cost:
-            return False, (
-                f"❌ 突破需要缴纳 {breakthrough_cost:,} 灵石作为闭关资费（当前持有 {player.gold:,}）。\n"
-                f"💡 无论成败资费皆消耗，请做好万全准备再闯关。"
-            ), False, False
-
         # ===== 扣除玩家背包里的破境丹（支持品质）=====
         actual_pill_key = None
         quality_multiplier = 1.0
@@ -163,9 +155,7 @@ class BreakthroughManager:
 
         level_data = self.config_manager.get_level_data(player.cultivation_type)
 
-        # 3. 判定突破结果（资费已缴，无论成败不退）
-        player.gold -= breakthrough_cost
-        cost_note = f"\n💰 突破资费：-{breakthrough_cost:,} 灵石（剩余 {player.gold:,}）"
+        # 3. 判定突破结果（不再收取突破资费）
         random_value = random.random()
         breakthrough_success = random_value < success_rate
 
@@ -262,9 +252,6 @@ class BreakthroughManager:
 
             if loan_msg:
                 success_msg += f"\n\n{loan_msg}"
-            success_msg += (
-                f"\n💰 突破资费：-{breakthrough_cost:,} 灵石（剩余 {player.gold:,}）"
-            )
 
             # 师徒联动：弟子突破，师父得师德（v6.16）
             try:
@@ -312,7 +299,6 @@ class BreakthroughManager:
                         f"━━━━━━━━━━━━━━━\n"
                         f"请继续修炼，再接再厉！"
                     )
-                    resurrection_msg += cost_note
                     logger.info(f"玩家 {player.user_id} 突破失败触发回生丹，避免境界跌落")
                     return False, resurrection_msg, False, True
 
@@ -336,7 +322,6 @@ class BreakthroughManager:
                     f"━━━━━━━━━━━━━━━\n"
                     f"所幸保住性命，请重新修炼，再攀高峰！"
                 )
-                fall_msg += cost_note
                 logger.info(
                     f"玩家 {player.user_id} 突破失败并跌落境界：{current_level_name} -> {next_level_name}，"
                     f"实际境界 {fall_info['old_name']} -> {fall_info['new_name']}，"
@@ -359,7 +344,6 @@ class BreakthroughManager:
                     f"修为受损，损失了 {exp_penalty} 点修为\n"
                     f"当前修为：{player.experience}"
                 )
-                fail_msg += cost_note
                 fail_msg += "\n请继续修炼，再接再厉！"
                 logger.info(f"玩家 {player.user_id} 突破失败：{current_level_name} -> {next_level_name}，损失修为 {exp_penalty}")
                 return False, fail_msg, False, True

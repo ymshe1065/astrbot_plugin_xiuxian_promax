@@ -738,6 +738,27 @@ class ShopManager:
             })
         return recipes
 
+    MATERIAL_CATEGORY_LABELS = {
+        "矿材": "矿石",
+        "灵植": "灵植",
+        "妖兽": "妖兽",
+        "灵液": "灵液",
+        "特殊": "特殊",
+    }
+
+    def get_material_category(self, name: str, data: Dict = None) -> str:
+        """返回材料类别；兼容 material_catalog 与物品自带类别。"""
+        data = data or {}
+        category = data.get("category") or data.get("material_category") or ""
+        if not category:
+            info = {}
+            try:
+                info = self.config_manager.get_material_info(name) or {}
+            except Exception:
+                info = {}
+            category = info.get("category") or ""
+        return self.MATERIAL_CATEGORY_LABELS.get(category, category)
+
     def get_materials_for_display(self, count: int) -> List[Dict]:
         """获取材料用于材料阁展示；价格缺失时按品级补齐。"""
         tier_price = {'凡品': 10, '黄品': 30, '玄品': 120, '灵品': 200, '地品': 500, '天品': 900, '皇品': 1500, '圣品': 2000, '帝品': 3000, '道品': 4000, '仙品': 5000, '混元先天': 8000}
@@ -749,9 +770,11 @@ class ShopManager:
             rank = normalize_rank(item.get('rank'), '凡品')
             price = int(item.get('price') or tier_price.get(rank, 50))
             item_type = 'material_package' if raw_type == '材料包' else 'material'
+            category = self.get_material_category(item['name'], item)
             materials.append({
                 'name': item['name'], 'type': item_type, 'price': price,
-                'rank': rank, 'data': {**item, 'price': price},
+                'rank': rank, 'category': category,
+                'data': {**item, 'price': price, 'category': category},
             })
         return materials
 
@@ -972,6 +995,19 @@ class ShopManager:
                     continue
                 display_index += 1
                 type_label = type_label_map.get(item['type'], '物品')
+                if item.get('type') == 'material':
+                    category = self.get_material_category(
+                        item.get('name', ''), item.get('data') or {}
+                    )
+                    if category:
+                        type_label = f"材料[{category}]"
+                elif item.get('type') == 'material_package':
+                    data = item.get('data') or {}
+                    category = self.MATERIAL_CATEGORY_LABELS.get(
+                        str(data.get('package_category') or ''), str(data.get('package_category') or '')
+                    )
+                    if category:
+                        type_label = f"材料包[{category}]"
                 discount_text = ""
                 if item.get('discount', 1.0) < 1.0:
                     discount_text = f" [{round(item['discount'] * 10, 1)}折]"

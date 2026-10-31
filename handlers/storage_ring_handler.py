@@ -17,12 +17,10 @@ CMD_STORAGE_RING = "储物戒"
 CMD_STORE_ITEM = "存入"
 CMD_RETRIEVE_ITEM = "取出"
 CMD_UPGRADE_RING = "更换储物戒"
-CMD_DISCARD_ITEM = "丢弃"
+CMD_RECYCLE_ITEM = "回收"
 CMD_GIFT_ITEM = "赠予"
 CMD_ACCEPT_GIFT = "接收"
 CMD_REJECT_GIFT = "拒绝"
-CMD_STORE_ALL = "存入所有"
-CMD_RETRIEVE_ALL = "取出所有"
 CMD_SEARCH_ITEM = "搜索物品"
 CMD_VIEW_CATEGORY = "查看分类"
 
@@ -94,7 +92,7 @@ class StorageRingHandler:
             lines.append(f"\n{warning}\n")
 
         lines.append(f"\n{'=' * 28}\n")
-        lines.append(f"丢弃：{CMD_DISCARD_ITEM} 物品名 [数量]\n")
+        lines.append(f"回收：{CMD_RECYCLE_ITEM} 物品名 [数量]\n")
         lines.append(f"搜索：{CMD_SEARCH_ITEM} 关键词\n")
         lines.append(f"升级：{CMD_UPGRADE_RING} 储物戒名")
 
@@ -124,7 +122,7 @@ class StorageRingHandler:
                         ]},
                         {"name": "物品清单", "rows": rows},
                     ],
-                    footer=f"共 {len(items)} 种物品 · /装备 物品名 · /丢弃 物品名 [数量]",
+                    footer=f"共 {len(items)} 种物品 · /装备 物品名 · /回收 物品名 [数量]",
                 )
             if card_path:
                 yield event.image_result(card_path)
@@ -159,44 +157,45 @@ class StorageRingHandler:
             "📦 储物戒物品无需取出：\n"
             "  · 装备：直接发送 /装备 <物品名>\n"
             "  · 材料：炼丹、强化、护府等操作会自动从储物戒扣除\n"
-            "  · 销毁：请使用 /丢弃 <物品名> [数量]（不可恢复）\n"
+            "  · 回收：/回收 <物品名> [数量]（按配置价值 60% 返还灵石）\n"
             "⚠️ 为避免误删，/取出 已停用。"
         )
 
     @player_required
-    async def handle_discard_item(self, player: Player, event: AstrMessageEvent, args: str):
-        """丢弃储物戒中的物品"""
+    async def handle_recycle_item(self, player: Player, event: AstrMessageEvent, args: str):
+        """按 60% 配置价值回收储物戒/丹药背包物品。"""
         if not args or args.strip() == "":
             yield event.plain_result(
-                f"请指定要丢弃的物品\n"
-                f"用法：{CMD_DISCARD_ITEM} 物品名 [数量]\n"
-                f"示例：{CMD_DISCARD_ITEM} 精铁 5\n"
-                f"⚠️ 丢弃的物品将永久销毁！"
+                "♻️ 物品回收\n"
+                "━━━━━━━━━━━━━━━\n"
+                "用法：/回收 <物品名> [数量]\n"
+                "示例：/回收 噬魂铁 5\n"
+                "说明：装备、丹药、材料、符箓、丹方等均可回收，\n"
+                "按配置价值的 60% 返还灵石。"
             )
             return
 
         args = args.strip()
         parts = args.rsplit(" ", 1)
-
-        # 解析物品名和数量（isdigit 对 ²/① 等字符也返回 True，需限制为 ASCII 数字）
+        quality = ""
         if len(parts) == 2 and parts[1].isascii() and parts[1].isdigit():
             item_name = parts[0]
             count = int(parts[1])
         else:
             item_name = args
             count = 1
+        # 支持「物品名|品质」写法
+        if "|" in item_name:
+            item_name, quality = item_name.rsplit("|", 1)
 
         if count <= 0:
             yield event.plain_result("数量必须大于0")
             return
 
-        # 丢弃物品
-        success, message = await self.storage_ring_manager.discard_item(player, item_name, count)
-
-        if success:
-            yield event.plain_result(f"🗑️ {message}")
-        else:
-            yield event.plain_result(f"❌ {message}")
+        success, message = await self.storage_ring_manager.recycle_item(
+            player, item_name, count, quality
+        )
+        yield event.plain_result(("♻️ " if success else "❌ ") + message)
 
     async def _transfer_gold(
         self, player: Player, target: Player, amount: int, sender_name: str
@@ -798,28 +797,3 @@ class StorageRingHandler:
         lines.append(f"\n共找到 {len(matched)} 种物品")
         
         yield event.plain_result("".join(lines))
-
-    @player_required
-    async def handle_store_all(self, player: Player, event: AstrMessageEvent, category: str = None):
-        """批量存入物品（预留接口，实际物品来源需要其他系统配合）"""
-        yield event.plain_result(
-            f"📦 批量存入功能说明：\n"
-            f"当前物品会在以下情况自动存入储物戒：\n"
-            f"  · 商店购买物品\n"
-            f"  · 历练/秘境获得物品\n"
-            f"  · Boss击杀掉落\n"
-            f"  · 悬赏任务奖励\n"
-            f"  · 卸下装备\n"
-            f"\n所有物品获取后会自动存入储物戒"
-        )
-
-    @player_required
-    async def handle_retrieve_all(self, player: Player, event: AstrMessageEvent, category: str = None):
-        """说明批量取出已停用，避免整类材料被误删"""
-        yield event.plain_result(
-            "📦 批量取出已停用：\n"
-            "  · 装备：/装备 <物品名>\n"
-            "  · 材料：炼丹、强化、护府等操作会自动扣除\n"
-            "  · 销毁：/丢弃 <物品名> [数量]（不可恢复）\n"
-            "⚠️ 储物戒中的物品会安全保留。"
-        )

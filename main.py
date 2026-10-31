@@ -78,12 +78,11 @@ CMD_BUY = "购买"
 CMD_STORAGE_RING = "储物戒"
 CMD_RETRIEVE_ITEM = "取出"
 CMD_UPGRADE_RING = "更换储物戒"
-CMD_DISCARD_ITEM = "丢弃"
+CMD_RECYCLE_ITEM = "回收"
 CMD_GIFT_ITEM = "赠予"
 CMD_ACCEPT_GIFT = "接收"
 CMD_REJECT_GIFT = "拒绝"
 CMD_SEARCH_ITEM = "搜索物品"
-CMD_RETRIEVE_ALL = "取出所有"
 CMD_CREATE_SECT = "创建宗门"
 CMD_JOIN_SECT = "加入宗门"
 CMD_LEAVE_SECT = "退出宗门"
@@ -1370,22 +1369,6 @@ class XiuXianPlugin(Star):
             if tmsg:
                 yield event.plain_result(tmsg)
 
-    @filter.command("购买物品", "购买物品（/购买 的兼容别名）")
-    @require_whitelist
-    async def handle_buy_compact(self, event: AstrMessageEvent, item_name: str = ""):
-        # 兼容 "购买物品玄铁 5" / "购买物品 玄铁"：剥离"购买物品"前缀后走同一逻辑
-        try:
-            raw = (event.get_message_str() or "").strip().lstrip('/').lstrip('#').strip()
-        except Exception:
-            raw = ""
-        if raw.startswith("购买物品"):
-            raw = raw[len("购买物品"):].strip()
-        async for r in self.shop_handler.handle_buy(event, raw): yield r
-        if get_event_flag(event, "shop_buy", False):
-            tmsg = await self._title_bump(event.get_sender_id(), "buy_count")
-            if tmsg:
-                yield event.plain_result(tmsg)
-
     @filter.command(CMD_STORAGE_RING, "查看储物戒信息")
     @require_whitelist
     async def handle_storage_ring(self, event: AstrMessageEvent):
@@ -1401,10 +1384,10 @@ class XiuXianPlugin(Star):
     async def handle_upgrade_ring(self, event: AstrMessageEvent, ring_name: str = ""):
         async for r in self.storage_ring_handler.handle_upgrade_ring(event, ring_name): yield r
 
-    @filter.command(CMD_DISCARD_ITEM, "丢弃储物戒中的物品")
+    @filter.command(CMD_RECYCLE_ITEM, "按60%价值回收装备/丹药/材料等物品")
     @require_whitelist
-    async def handle_discard_item(self, event: AstrMessageEvent, args: GreedyStr):
-        async for r in self.storage_ring_handler.handle_discard_item(event, args): yield r
+    async def handle_recycle_item(self, event: AstrMessageEvent, args: GreedyStr):
+        async for r in self.storage_ring_handler.handle_recycle_item(event, args): yield r
 
     @filter.command(CMD_GIFT_ITEM, "赠予物品/丹药给其他玩家，或 /赠予 @人 灵石 数量 直接转账")
     @require_whitelist
@@ -2786,28 +2769,6 @@ class XiuXianPlugin(Star):
                 if tmsg: yield event.plain_result(tmsg)
         except Exception:
             pass
-
-    # ===== v6.6 宗门大比 =====
-    @filter.command("开启宗门大比", "管理员开启活动")
-    @require_whitelist
-    async def handle_start_sect_battle(self, event: AstrMessageEvent):
-        if not self._check_boss_admin(event):
-            yield event.plain_result("❌ 你没有权限！")
-            return
-        yield event.plain_result("ℹ️ 旧版全服宗门大比已下线，请由宗主使用 /宗门大比开启。")
-
-    @filter.command("结束宗门大比", "管理员结束活动")
-    @require_whitelist
-    async def handle_end_sect_battle(self, event: AstrMessageEvent):
-        if not self._check_boss_admin(event):
-            yield event.plain_result("❌ 你没有权限！")
-            return
-        yield event.plain_result("ℹ️ 旧版全服宗门大比已下线，新的宗门大比由宗主开启并自动结算。")
-
-    @filter.command("大比切磋", "旧版宗门切磋（已下线）")
-    @require_whitelist
-    async def handle_sect_battle(self, event: AstrMessageEvent, target: str = ""):
-        yield event.plain_result("ℹ️ 旧版大比切磋已下线，请由宗主使用 /宗门大比开启，成员用 /宗门大比报名。")
 
     # ===== v6.7 交易坊市 / v6.22 NPC问价 =====
     @filter.command("坊市", "查看玩家交易坊市")

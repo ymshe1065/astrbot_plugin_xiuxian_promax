@@ -191,6 +191,36 @@ class EquipmentHandler:
             detail = str(cfg.get("description"))
         return f"{name}（{tags}）：{detail}" if tags else f"{name}：{detail}"
 
+    def _aggregate_effect_parts(self, player: Player) -> list:
+        """汇总所有装备与词条的战斗特效，供“加成总览”使用。"""
+        effects = self.equipment_manager.get_gear_effects(player)
+        parts = []
+        for key, value in sorted(effects.items()):
+            try:
+                number = float(value or 0)
+            except (TypeError, ValueError):
+                continue
+            if abs(number) < 1e-9:
+                continue
+            label = self.equipment_manager.bonus_label(key)
+            text = self.equipment_manager.format_bonus_value(key, number)
+            parts.append(f"{label}{text}")
+        return parts
+
+    def _aggregate_gear_life_effects(self, gear: dict) -> dict:
+        """汇总所有已穿戴装备的生活类加成。"""
+        totals = {}
+        for _, (slot_name, _) in (gear or {}).items():
+            if not slot_name:
+                continue
+            cfg = self._item_config(slot_name) or {}
+            for key, value in (cfg.get("life_effects") or {}).items():
+                try:
+                    totals[key] = totals.get(key, 0.0) + float(value or 0)
+                except (TypeError, ValueError):
+                    continue
+        return totals
+
     @player_required
     async def handle_show_equipment(self, player: Player, event: AstrMessageEvent):
         """显示玩家当前装备；支持 /我的装备 比较 <装备名称>"""
@@ -270,6 +300,7 @@ class EquipmentHandler:
         # 总属性加成：相对境界基础的绝对增量，并附带百分比以便理解新规则
         rates = self.equipment_manager.get_equipment_rates(player)
         life_parts = []
+        effect_parts = self._aggregate_effect_parts(player)
         if equipped_items or rates:
             equipment_lines.append("\n--- 装备属性加成（境界基础×百分比）---\n")
             total_attrs = player.get_total_attributes(equipped_items, pill_multipliers, self.equipment_manager.get_base_attributes(player))
@@ -284,7 +315,9 @@ class EquipmentHandler:
             exp_multiplier = total_attrs["exp_multiplier"]
 
             from ..core.technique_bonus import TechniqueBonusManager
-            life = TechniqueBonusManager.collect_life_effects(player, self.config_manager)
+            life = dict(TechniqueBonusManager.collect_life_effects(player, self.config_manager))
+            for key, value in self._aggregate_gear_life_effects(gear).items():
+                life[key] = life.get(key, 0.0) + value
             life_parts = []
             if life.get("gold_bonus"):
                 life_parts.append(f"灵石收益+{life['gold_bonus']:.1%}")
@@ -296,6 +329,8 @@ class EquipmentHandler:
                 life_parts.append(f"气运+{int(life['luck_bonus'])}")
             if life_parts:
                 equipment_lines.append(f"🌿 生活加成：{' · '.join(life_parts)}\n")
+            if effect_parts:
+                equipment_lines.append(f"✨ 特殊加成：{' · '.join(effect_parts)}\n")
 
             def _line(label: str, bonus: int, rate_key: str) -> str:
                 rate = rates.get(rate_key, 0)
@@ -357,7 +392,8 @@ class EquipmentHandler:
                         {"name": "加成总览", "lines": [
                             f"物伤 +{physical_damage_bonus}（+{rates.get('physical_damage', 0):.1%}）· 法伤 +{magic_damage_bonus}（+{rates.get('magic_damage', 0):.1%}）",
                             f"物防 +{physical_defense_bonus}（+{rates.get('physical_defense', 0):.1%}）· 法防 +{magic_defense_bonus}（+{rates.get('magic_defense', 0):.1%}）",
-                            f"精神力 +{mental_power_bonus} · 修为倍率 +{exp_multiplier:.1%}",
+                            f"精神力 +{mental_power_bonus} · 灵气容量 +{max_spiritual_qi_bonus} · 修为倍率 +{exp_multiplier:.1%}",
+                            f"特殊加成：{' · '.join(effect_parts) if effect_parts else '无'}",
                             f"生活加成：{' · '.join(life_parts) if life_parts else '无'}",
                         ]},
                     ],

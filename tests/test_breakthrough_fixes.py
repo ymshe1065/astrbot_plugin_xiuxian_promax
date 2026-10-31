@@ -5,6 +5,7 @@ import sys
 import types
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT.parent))
@@ -42,6 +43,11 @@ sys.modules.setdefault("astrbot.api.all", all_mod)
 
 def _imp(module_path: str):
     return __import__(f"{PKG}.{module_path}", fromlist=["x"])
+
+
+class _DummyDB:
+    async def update_player(self, player):
+        return None
 
 
 class TestBreakthroughFixes(unittest.TestCase):
@@ -104,6 +110,19 @@ class TestBreakthroughFixes(unittest.TestCase):
         self.assertFalse(success)
         self.assertFalse(died)
         self.assertFalse(attempted)
+
+    def test_breakthrough_does_not_require_gold(self):
+        manager = self.BreakthroughManager(_DummyDB(), self.config_manager, {})
+        player = self.Player(user_id="u1", level_index=0, experience=500, gold=0)
+        with patch("random.random", return_value=0.0):
+            success, message, died, attempted = asyncio.run(
+                manager.execute_breakthrough(player)
+            )
+        self.assertTrue(success)
+        self.assertTrue(attempted)
+        self.assertFalse(died)
+        self.assertEqual(player.gold, 0)
+        self.assertNotIn("资费", message)
 
     def test_missing_pill_returns_not_attempted(self):
         manager = self._manager()

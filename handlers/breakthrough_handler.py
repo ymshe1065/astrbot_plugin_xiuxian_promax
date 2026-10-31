@@ -100,7 +100,6 @@ class BreakthroughHandler:
             f"所需修为：{required_exp}\n",
             f"当前修为：{player.experience}\n",
             f"修为状态：{exp_status}\n",
-            f"突破资费：{1000 + player.level_index * 800} 灵石（成败皆不退，当前持有 {player.gold}）\n",
             f"━━━━━━━━━━━━━━━\n",
             f"【突破成功率】\n",
             f"基础成功率：{base_success_rate:.1%}\n",

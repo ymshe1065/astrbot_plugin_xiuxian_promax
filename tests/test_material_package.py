@@ -70,6 +70,19 @@ class TestMaterialPackage(unittest.IsolatedAsyncioTestCase):
         self.assertIn("材料阁", text, text)
         self.assertNotIn("未知的物品类型", text, text)
 
+    def test_material_shop_shows_category_label(self):
+        shop = self.shop()
+        materials = shop.get_materials_for_display(2000)
+        ore = next(item for item in materials if item["name"] == "噬魂铁")
+        self.assertEqual(ore["category"], "矿石")
+        ore = {**ore, "stock": 5, "discount": 1.0, "always_available": False}
+        text = shop.format_pavilion_display("材料阁", [ore], 0, 0)
+        self.assertIn("材料[矿石]", text)
+        package = shop.find_item_by_name("矿材包·凡品")
+        package = {**package, "stock": 5, "discount": 1.0, "always_available": False}
+        package_text = shop.format_pavilion_display("材料阁", [package], 0, 0)
+        self.assertIn("材料包[矿石]", package_text)
+
     def test_package_pool_only_valid_materials(self):
         shop = self.shop()
         for category in ("灵植", "矿材", "妖兽", "灵液"):

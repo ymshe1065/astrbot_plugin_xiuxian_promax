@@ -143,6 +143,37 @@ class TestEquipmentCompare(unittest.IsolatedAsyncioTestCase):
         self.assertIn(tech, tech_text)
         self.assertRegex(tech_text, r"(灵石收益|掉落几率|冷却缩减|气运|修炼效率)")
 
+    async def test_overview_includes_aggregated_special_effects(self):
+        p = await self._player()
+        name = "测试总览戒"
+        self.cm.items_data[name] = {
+            "name": name, "type": "饰品", "subtype": "戒指", "equip_slot": "ring1",
+            "rank": "凡品", "required_level_index": 0, "price": 100,
+            "equipment_rates": {"physical_damage": 0.02, "magic_damage": 0.02},
+            "effects": {"crit_rate": 3, "lifesteal": 2},
+        }
+        await self.ring.store_item(p, name, 1)
+        p = await self.db.get_player_by_id(p.user_id)
+        inst = self.im.find_for_equip(p, name)
+        item = self.em.parse_item_from_name(name, self.cm.items_data, self.cm.weapons_data, inst)
+        await self.em.equip_item(p, item, inst["id"])
+        p = await self.db.get_player_by_id(p.user_id)
+
+        event = _FakeEvent(p.user_id, p.user_id)
+        event.image_result = lambda path: path
+        handler = self._handler()
+        image_module = _imp("utils.image_generator")
+        with patch.object(image_module, "card_enabled", return_value=True), \
+                patch.object(image_module, "render_card_async", new_callable=AsyncMock,
+                             return_value="card.jpg") as render:
+            results = [r async for r in handler.handle_show_equipment.__wrapped__(handler, p, event)]
+
+        self.assertEqual(results, ["card.jpg"])
+        overview = next(s for s in render.call_args.kwargs["sections"] if s["name"] == "加成总览")
+        text = "\n".join(overview["lines"])
+        self.assertIn("暴击率", text)
+        self.assertIn("吸血", text)
+
     async def test_compare_with_empty_slot_shows_actual_bonus(self):
         p = await self._player()
         await self.ring.store_item(p, self.weapon, 1)
