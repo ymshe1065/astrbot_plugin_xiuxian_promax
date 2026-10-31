@@ -2335,7 +2335,10 @@ async def _migrate_to_v57(conn: aiosqlite.Connection, config_manager: ConfigMana
 
     mapping = {}
     try:
-        path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "legacy_gear_rename.json")
+        path = _os.path.join(
+            _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))),
+            "config", "legacy_gear_rename.json",
+        )
         with open(path, encoding="utf-8") as handle:
             mapping = _json.load(handle)
     except Exception:

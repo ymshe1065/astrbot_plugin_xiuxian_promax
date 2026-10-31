@@ -107,7 +107,7 @@ class TestEconomyRebuild(unittest.TestCase):
 
     def test_legacy_gear_rename_map_resolves_to_new_items(self):
         rename = json.loads(
-            (ROOT / "data" / "legacy_gear_rename.json").read_text(encoding="utf-8")
+            (ROOT / "config" / "legacy_gear_rename.json").read_text(encoding="utf-8")
         )
         self.assertGreater(len(rename), 500)
         v2 = json.loads((ROOT / "config" / "items_v2.json").read_text(encoding="utf-8"))
