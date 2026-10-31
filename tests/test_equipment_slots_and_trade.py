@@ -1,8 +1,15 @@
 """多部位装备、旧存档迁移和交易图片回归。"""
 import json
+import os
+import sys
 import time
 import unittest
 from unittest.mock import AsyncMock, patch
+
+# 允许用包路径运行（python -m unittest astrbot_plugin_xiuxian_promax.tests.xxx）：
+# 下面按裸模块名导入同目录的 fixtures，需要把 tests 目录放进 sys.path。
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 import test_equipment_instances as fixtures
 from test_equipment_instances import _imp, _FakeEvent
 
@@ -266,7 +273,9 @@ class TestSlots(unittest.IsolatedAsyncioTestCase):
         await self.ring.store_item(p, "洗练石", 2)
         await self.ring.store_item(p, "诛仙龙骨铁", 2)
         forge = _imp("managers.forge_manager").ForgeManager(self.db, self.cm, self.ring)
-        with patch("xiuxian_merge.managers.forge_manager.random.random", return_value=0.0):
+        # 补丁目标必须用真实包名：仓库目录是 astrbot_plugin_xiuxian_promax，
+        # 写成 xiuxian_merge.managers... 会因模块不存在直接报 ModuleNotFoundError。
+        with patch(f"{fixtures.PKG}.managers.forge_manager.random.random", return_value=0.0):
             ok, msg = await forge.targeted_wash(
                 p, "武器", "暴击率", "诛仙龙骨铁", 2
             )
