@@ -19,7 +19,7 @@ __all__ = ["MiscHandler"]
 class MiscHandler:
     """杂项指令处理器 - 提供帮助信息、一键日常与强制解卡"""
 
-    VERSION = HELP_VERSION  # v6.46.0：灵田肥力分级（DB v54）+ 自动施肥代理（config_json 第三子系统）
+    VERSION = HELP_VERSION  # v6.46.1：修复 /申购 未注册（常量被「仙市订阅」覆盖 + 同名方法覆盖）
 
     def __init__(self, db: DataBase, config: dict = None):
         self.db = db

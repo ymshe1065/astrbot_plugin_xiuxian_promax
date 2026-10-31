@@ -215,13 +215,24 @@ class InvestHandlers:
     @player_required
     async def handle_subscribe(self, player: Player, event: AstrMessageEvent,
                                code: str = "", amount: str = ""):
+        # 指令名曾被另一处常量覆盖，导致只发 /申购 时连报错都看不到；
+        # 这里对空参数单独给用法，避免误报「金额必须是整数」。
+        raw_code = str(code or "").strip()
+        raw_amount = str(amount or "").strip().replace(",", "")
+        if not raw_code and not raw_amount:
+            yield event.plain_result(
+                "📈 基金申购：/申购 <基金代码> <金额>\n"
+                "💡 例：/申购 F01 10000（最低 1,000 灵石，按当前净值折算份额）\n"
+                "💡 发送 /仙市 查看可申购的基金代码与净值。"
+            )
+            return
+        if not raw_code:
+            yield event.plain_result("❌ 请输入基金代码，例如：/申购 F01 10000")
+            return
         try:
-            amount_int = int(str(amount).strip())
+            amount_int = int(raw_amount)
         except (TypeError, ValueError):
             yield event.plain_result("❌ 申购金额必须是整数，例如：/申购 F01 10000")
-            return
-        if not code:
-            yield event.plain_result("❌ 请输入基金代码，例如：/申购 F01 10000")
             return
 
         ok, msg = await self.invest_mgr.subscribe_fund(player, code, amount_int)
@@ -333,7 +344,7 @@ class InvestHandlers:
         yield event.plain_result("\n".join(lines))
 
     @player_required
-    async def handle_subscribe(self, player: Player, event: AstrMessageEvent):
+    async def handle_hint_subscribe(self, player: Player, event: AstrMessageEvent):
         """开关仙市风声主动推送（全局开关，控制是否向播报群推送 HH:30 风声）。"""
         current = await self.db.ext.get_system_config("invest_hint_subscribe")
         if current == "1":

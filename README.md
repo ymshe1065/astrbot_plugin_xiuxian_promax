@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v6.46.0 (灵田肥力分级·自动施肥)
+# AstrBot 插件：模拟修仙 v6.46.1 (灵田肥力分级·自动施肥·仙市申购修复)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v6.46.0-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v6.46.1-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.30.0 · **游戏版本:** v6.46.0 · **数据库:** v54
+> **插件版本:** v3.30.1 · **游戏版本:** v6.46.1 · **数据库:** v54
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，233 条帮助指令 / 233 条注册指令、16 个大系统、110 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -55,7 +55,20 @@
 </details>
 
 <details open>
-<summary><b>本次更新 · v6.46.0（灵田肥力分级 · 自动施肥代理）</b></summary>
+<summary><b>本次更新 · v6.46.1（仙市申购指令修复）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 申购失效 | 修复 `/申购` 完全不响应：`CMD_INVEST_SUBSCRIBE` 先被定义为「申购」，随后又被「仙市订阅」覆盖，导致申购从未注册、而「仙市订阅」被注册两次。现已拆为 `CMD_INVEST_HINT_SUBSCRIBE`。 |
+| 方法覆盖 | 修复同名方法互相覆盖：`main.py` 的 `handle_invest_subscribe` 与 `invest_handlers.py` 的 `handle_subscribe` 各定义两次，后者把基金申购整段顶掉（即使指令名修好也会串到风声开关）。风声开关改名为 `handle_hint_subscribe`。 |
+| 空参数提示 | 只发 `/申购` 时不再误报「金额必须是整数」，改为输出用法与示例；金额支持千分位写法（`1,000`）。 |
+| 影响范围 | 仅 `申购` 与 `仙市订阅` 两条指令；股票买卖、赎回、持仓、流水不受影响，基金申购业务逻辑本身无改动。 |
+| 回归测试 | 新增 `tests/test_command_registry.py` 9 个用例：静态校验指令名不重复、常量不重复赋值、处理方法不互相覆盖、仙市九条指令齐全，防止同类问题再次静默发生。 |
+
+</details>
+
+<details>
+<summary><b>v6.46.0（灵田肥力分级 · 自动施肥代理）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |
@@ -1145,6 +1158,7 @@ v6.35.4 丹方价格     丹方卷轴统一为成品丹药价格50%且低于单�
 v6.35.3 自动代理     /自动代理 必须指定押镖/宗门任务/灵田，仅已在押镖或宗门任务中可省略参数自动接管；/关闭代理 必须指定押镖/宗门任务/灵田/全部；提示与文档同步
 v6.35.2 坊市拍卖     坊市定价超过标准价值2倍时NPC不再问价，上架与/我的坊市同步提示；拍卖起拍价改为原价20%上下浮动；新增功法与主修心法拍品，默认拍品数提升至10件
 v6.43.0 仙市投资大改 每日16盘（07:00-22:30每时一盘）、盘前30分钟风声、σ4.5~8.5%、单盘±15%（S05±18%）、日熔断+400%/-75%、利好利空1:1、手续费0.15%、赎回费24/84盘阶梯；DB v52
+v6.46.1 仙市修复     修复 /申购 不响应：CMD_INVEST_SUBSCRIBE 被「仙市订阅」覆盖导致申购从未注册，且两处 handle_subscribe / handle_invest_subscribe 同名互相覆盖；拆出 CMD_INVEST_HINT_SUBSCRIBE 与 handle_hint_subscribe，新增指令注册静态回归测试
 v6.46.0 灵田肥力     肥力上限按等级分级 max(100,格数×20)（100/100/160/240/400），满格一茬固定消耗 40%；施肥改「+30% 上限」，收益系数改 肥力/上限，地板 20% 上限；DB v54 按百分比换算；新增 /自动代理 施肥 [阈值%] 独立施肥代理，收获前先补肥、ROI<1 自动跳过
 v6.45.0 秘境代理     /自动代理 秘境 <ID>：只发「秘境」会提示按境界选本，不自动选本、不限次数；到期自动完成探索并重新进入同一秘境；计入日常/称号/悬赏但不触发奇遇；/关闭代理 秘境 单独停止
 ```
