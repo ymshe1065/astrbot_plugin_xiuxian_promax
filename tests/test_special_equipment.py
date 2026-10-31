@@ -20,7 +20,7 @@ class TestSpecialEquipment(unittest.TestCase):
 
     def test_catalog_has_120_items_and_keeps_lingwen(self):
         self.assertEqual(len(self.special), 120)
-        lingwen = [n for n in self.cm.items_data if "灵纹" in n and ("手套" in n or "戒指" in n)]
+        lingwen = [n for n in self.cm.items_data if "灵纹" in n and ("法手" in n or "法戒" in n)]
         self.assertEqual(len(lingwen), 24)
         from collections import Counter
         ranks = Counter(cfg["rank"] for cfg in self.special.values())
@@ -40,9 +40,9 @@ class TestSpecialEquipment(unittest.TestCase):
         for name, cfg in self.cm.items_data.items():
             if "灵纹" not in name:
                 continue
-            if "手套" in name:
+            if "法手" in name:
                 reference[("gloves", cfg["rank"])] = cfg["price"]
-            elif "戒指" in name:
+            elif "法戒" in name:
                 reference[("ring", cfg["rank"])] = cfg["price"]
         self.assertEqual(len(reference), 24)
         for cfg in self.special.values():

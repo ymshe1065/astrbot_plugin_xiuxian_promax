@@ -73,7 +73,7 @@ class TestEquipmentInstances(unittest.IsolatedAsyncioTestCase):
         self.ring = self.core.StorageRingManager(self.db, self.cm)
         self.em = self.core.EquipmentManager(self.db, self.cm, self.ring)
         self.im = self.core.ItemInstanceManager(self.db, self.cm)
-        self.weapon = next(iter(self.cm.weapons_data.keys()))
+        self.weapon = "凡品·玄铁战剑"
 
     async def asyncTearDown(self):
         await self.db.close()
@@ -208,8 +208,8 @@ class TestEquipmentInstances(unittest.IsolatedAsyncioTestCase):
         p.level_index = 0
         await self.db.update_player(p)
         weapon = next(
-            name for name, cfg in self.cm.weapons_data.items()
-            if ItemRules.get_required_level(cfg) > 0
+            name for name, cfg in self.cm.items_data.items()
+            if cfg.get("equip_slot") == "weapon" and ItemRules.get_required_level(cfg) > 0
         )
         await self.ring.store_item(p, weapon, 1)
         p = await self.db.get_player_by_id("low")

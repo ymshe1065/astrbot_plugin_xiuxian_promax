@@ -429,7 +429,7 @@ class TestAuctionHouse(unittest.IsolatedAsyncioTestCase):
 
     async def test_lot_detail_uses_quality_adjusted_rates(self):
         lot = {
-            "item_name": "乾坤伞", "item_rank": "黄品", "item_quality": "大师", "count": 1,
+            "item_name": "凡品·玄铁战剑", "item_rank": "凡品", "item_quality": "大师", "count": 1,
             "payload_json": __import__("json").dumps({
                 "equipment_rates": {"physical_damage": 0.06, "magic_damage": 0.06},
             }),
@@ -441,14 +441,14 @@ class TestAuctionHouse(unittest.IsolatedAsyncioTestCase):
     async def test_equipment_delivery_keeps_quality_and_affixes(self):
         player = await self._player("eq1", gold=0)
         lot = {
-            "id": 999, "category": "equipment", "item_name": "乾坤伞", "count": 1,
+            "id": 999, "category": "equipment", "item_name": "凡品·玄铁战剑", "count": 1,
             "item_quality": "大师",
             "payload_json": '{"affixes":[{"name":"暴击率","value":5,"display":"暴击率+5%"}]}',
         }
         ok, msg = await self.manager._deliver_lot(lot, "eq1")
         self.assertTrue(ok, msg)
         fresh = await self.db.get_player_by_id("eq1")
-        inst = [x for x in fresh.get_equipment_instances() if x.get("name") == "乾坤伞"]
+        inst = [x for x in fresh.get_equipment_instances() if x.get("name") == "凡品·玄铁战剑"]
         self.assertEqual(len(inst), 1)
         self.assertEqual(inst[0]["quality"], "大师")
         self.assertEqual(inst[0]["affixes"][0]["name"], "暴击率")

@@ -46,7 +46,7 @@ class TestRecycle(unittest.IsolatedAsyncioTestCase):
         quality_mult = {"一般": 1.0, "良好": 1.05, "极佳": 1.10, "大师": 1.15}.get(
             inst.get("quality") or "一般", 1.0
         )
-        expected = int(self.cm.get_item_price(self.weapon) * quality_mult * 0.6)
+        expected = int(round(self.cm.get_item_price(self.weapon) * quality_mult * 0.6))
         ok, message = await self.manager.recycle_item(p, self.weapon, 1)
         self.assertTrue(ok, message)
         p = await self.db.get_player_by_id(p.user_id)

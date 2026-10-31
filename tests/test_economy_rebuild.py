@@ -105,6 +105,24 @@ class TestEconomyRebuild(unittest.TestCase):
         self.assertEqual(defaults["start_price_rate"], 1.0)
         self.assertEqual(defaults["start_price_fluctuation"], 0.0)
 
+    def test_legacy_gear_rename_map_resolves_to_new_items(self):
+        rename = json.loads(
+            (ROOT / "data" / "legacy_gear_rename.json").read_text(encoding="utf-8")
+        )
+        self.assertGreater(len(rename), 500)
+        v2 = json.loads((ROOT / "config" / "items_v2.json").read_text(encoding="utf-8"))
+        v2_names = {item["name"] for item in v2.values() if isinstance(item, dict)}
+        for old, new in rename.items():
+            self.assertNotEqual(old, new)
+            self.assertIn(new, v2_names, f"{old} -> {new} 不在新装备目录")
+        # 旧装备必须已从 items/weapons 配置中删除
+        items = json.loads((ROOT / "config" / "items.json").read_text(encoding="utf-8"))
+        weapons = json.loads((ROOT / "config" / "weapons.json").read_text(encoding="utf-8"))
+        removed_names = {item.get("name") for item in items.values() if isinstance(item, dict)}
+        removed_names |= {item.get("name") for item in (weapons if isinstance(weapons, list) else [])}
+        for old in rename:
+            self.assertNotIn(old, removed_names, old)
+
     def test_baseline_doc_in_sync_with_constants(self):
         proc = subprocess.run(
             [sys.executable, str(ROOT / "scripts" / "generate_economy_baseline.py"), "--check"],

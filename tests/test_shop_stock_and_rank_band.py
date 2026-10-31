@@ -27,8 +27,8 @@ class TestShopStockAndRankBand(unittest.TestCase):
 
     def test_legacy_equipment_stock_is_clamped_to_one(self):
         items = [
-            {"name": "凡品·灵纹手套", "type": "gloves", "stock": 5,
-             "data": self.cm.items_data["凡品·灵纹手套"]},
+            {"name": "凡品·灵纹法手", "type": "gloves", "stock": 5,
+             "data": self.cm.items_data["凡品·灵纹法手"]},
             {"name": "灵草", "type": "material", "stock": 5, "data": {"type": "材料"}},
         ]
         self.assertTrue(self.shop.ensure_items_have_stock(items))

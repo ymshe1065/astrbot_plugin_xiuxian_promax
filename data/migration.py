@@ -10,7 +10,7 @@ from astrbot.api import logger
 if TYPE_CHECKING:
     from ..config_manager import ConfigManager
 
-LATEST_DB_VERSION = 56  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求；v49: 统一物品品阶名称；v50: 仙市投资系统（基金/股票）；v51: 符箓熟练度与符图习得；v52: 仙市 v6（16 盘 + 赌场级波动 + 不对称日熔断）；v53: 拍卖会未开拍拍品按固定品阶曲线重建（并兼容分叉旧库补授符图）；v54: 灵田肥力上限按等级分级（旧值按百分比换算）；v55: 生活职业更换费用峰值与时间衰减；v56: 误存进储物戒/溢出仓库的丹药迁回丹药背包
+LATEST_DB_VERSION = 57  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求；v49: 统一物品品阶名称；v50: 仙市投资系统（基金/股票）；v51: 符箓熟练度与符图习得；v52: 仙市 v6（16 盘 + 赌场级波动 + 不对称日熔断）；v53: 拍卖会未开拍拍品按固定品阶曲线重建（并兼容分叉旧库补授符图）；v54: 灵田肥力上限按等级分级（旧值按百分比换算）；v55: 生活职业更换费用峰值与时间衰减；v56: 误存进储物戒/溢出仓库的丹药迁回丹药背包；v57: 旧50/50装备改名迁移到混合倾向新装备
 
 MIGRATION_TASKS: Dict[int, Callable[[aiosqlite.Connection, ConfigManager], Awaitable[None]]] = {}
 
@@ -2325,3 +2325,113 @@ async def _migrate_to_v56(conn: aiosqlite.Connection, config_manager: ConfigMana
 
     await conn.commit()
     logger.info(f"v56迁移完成：{moved_players} 名玩家的 {moved_items} 件丹药已迁回丹药背包")
+
+
+@migration(57)
+async def _migrate_to_v57(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """v57：旧 50/50 装备改名迁移到「混合」倾向新装备（品质/词条/挂单保留）。"""
+    import json as _json
+    import os as _os
+
+    mapping = {}
+    try:
+        path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "legacy_gear_rename.json")
+        with open(path, encoding="utf-8") as handle:
+            mapping = _json.load(handle)
+    except Exception:
+        pass
+    if not isinstance(mapping, dict) or not mapping:
+        return
+
+    def rename_dict(raw: str):
+        try:
+            data = _json.loads(raw or "{}")
+        except Exception:
+            return None
+        if not isinstance(data, dict):
+            return None
+        changed = False
+        for old, new in mapping.items():
+            if old in data:
+                count = int(data.pop(old) or 0)
+                data[new] = int(data.get(new, 0) or 0) + count
+                changed = True
+        return data if changed else None
+
+    def rename_instances(raw: str):
+        try:
+            data = _json.loads(raw or "[]")
+        except Exception:
+            return None
+        if not isinstance(data, list):
+            return None
+        changed = False
+        for entry in data:
+            if isinstance(entry, dict) and entry.get("name") in mapping:
+                entry["name"] = mapping[entry["name"]]
+                changed = True
+        return data if changed else None
+
+    def rename_shop_shelf(raw: str):
+        try:
+            data = _json.loads(raw or "[]")
+        except Exception:
+            return None
+        if not isinstance(data, list):
+            return None
+        changed = False
+        for entry in data:
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("name") in mapping:
+                entry["name"] = mapping[entry["name"]]
+                changed = True
+            inner = entry.get("data")
+            if isinstance(inner, dict) and inner.get("name") in mapping:
+                inner["name"] = mapping[inner["name"]]
+                changed = True
+        return data if changed else None
+
+    # 玩家：旧字段与 JSON 背包
+    for column in ("weapon", "armor"):
+        for old, new in mapping.items():
+            await conn.execute(f"UPDATE players SET {column} = ? WHERE {column} = ?", (new, old))
+
+    async with conn.execute(
+        "SELECT user_id, storage_ring_items, overflow_items, equipment_instances FROM players"
+    ) as cursor:
+        rows = await cursor.fetchall()
+    for row in rows:
+        user_id, storage_raw, overflow_raw, insts_raw = row
+        storage = rename_dict(storage_raw)
+        overflow = rename_dict(overflow_raw)
+        insts = rename_instances(insts_raw)
+        if storage is None and overflow is None and insts is None:
+            continue
+        await conn.execute(
+            "UPDATE players SET storage_ring_items = ?, overflow_items = ?, equipment_instances = ? WHERE user_id = ?",
+            (
+                _json.dumps(storage, ensure_ascii=False) if storage is not None else storage_raw,
+                _json.dumps(overflow, ensure_ascii=False) if overflow is not None else overflow_raw,
+                _json.dumps(insts, ensure_ascii=False) if insts is not None else insts_raw,
+                user_id,
+            ),
+        )
+
+    # 坊市挂单 / 拍卖拍品 / 待接收赠予 / 商店货架
+    for old, new in mapping.items():
+        await conn.execute("UPDATE auction_items SET item_name = ? WHERE item_name = ?", (new, old))
+        await conn.execute("UPDATE auction_house_lots SET item_name = ? WHERE item_name = ?", (new, old))
+        await conn.execute("UPDATE pending_gifts SET item_name = ? WHERE item_name = ?", (new, old))
+    async with conn.execute("SELECT shop_id, current_items FROM shop") as cursor:
+        shelves = await cursor.fetchall()
+    for shop_id, raw in shelves:
+        shelf = rename_shop_shelf(raw)
+        if shelf is not None:
+            await conn.execute(
+                "UPDATE shop SET current_items = ? WHERE shop_id = ?",
+                (_json.dumps(shelf, ensure_ascii=False), shop_id),
+            )
+
+    await conn.commit()
+    logger.info(f"v57迁移完成：{len(mapping)} 条旧装备改名映射已应用")
