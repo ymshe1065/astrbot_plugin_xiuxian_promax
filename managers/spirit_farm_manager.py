@@ -653,6 +653,38 @@ class SpiritFarmManager:
         )
         await self.db.conn.commit()
         return True, f"🪓 已铲除格{slot}的【{target.get('name', '灵草')}】。"
+
+    async def remove_crops(self, player: Player, slots: Optional[List[int]] = None) -> Tuple[bool, str]:
+        """批量铲除；slots 为 None 时铲除全部已种植格。"""
+        farm = await self.get_user_farm(player.user_id)
+        if not farm:
+            return False, "❌ 你还没有灵田！"
+        crops = farm.get("crops", [])
+        if not crops:
+            return False, "❌ 灵田里没有种植任何灵草。"
+        if slots is None:
+            slots = sorted({int(c.get("slot") or 0) for c in crops if int(c.get("slot") or 0) > 0})
+        else:
+            slots = sorted({int(s) for s in slots if int(s) > 0})
+        if not slots:
+            return False, "❌ 请指定要铲除的格子。"
+
+        success_slots = []
+        failed = []
+        for slot in slots:
+            ok, msg = await self.remove_crop(player, slot)
+            if ok:
+                success_slots.append((slot, msg))
+            else:
+                failed.append((slot, msg))
+        if not success_slots:
+            return False, "\n".join(msg for _, msg in failed)
+        lines = [f"🪓 批量铲除完成：成功 {len(success_slots)} 格"]
+        lines.extend(msg for _, msg in success_slots)
+        if failed:
+            lines.append(f"⚠️ 另有 {len(failed)} 格未铲除：")
+            lines.extend(msg for _, msg in failed)
+        return True, "\n".join(lines)
     
     async def harvest(self, player: Player, slots: Optional[List[int]] = None) -> Tuple[bool, str]:
         """收获灵草"""
@@ -1129,7 +1161,7 @@ class SpiritFarmManager:
             lines.append("（空）")
         
         lines.append("")
-        lines.append("💡 /种植 <灵草名> [数量|格号区间|all] | /收获 | /铲除 <格号>")
+        lines.append("💡 /种植 <灵草名> [数量|格号区间|all] | /收获 | /铲除 <格号...|1-3|all>")
         lines.append("🧬 /杂交 消耗父本各1株并占用2格，完成后产出1株杂交植株")
         lines.append("🌱 非杂交灵草可按灵田等级直接种植；杂交植株种植消耗1株，收获4株")
         

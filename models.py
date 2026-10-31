@@ -162,6 +162,9 @@ class Player:
     karma: int = 0  # 功德/业力（正为功德，负为业力）
     luck: int = 0  # 气运（本体气运，可来自奇遇/称号/词条/符箓）
     life_skill: str = ""  # 生活职业：炼器师/符箓师/阵法师
+    life_skill_changes: int = 0  # 已付费更换次数
+    life_skill_cost_peak: int = 0  # 上次更换后的费用峰值
+    life_skill_last_change_at: int = 0  # 上次更换时间戳
 
     # v6.16 师徒系统
     virtue_points: int = 0  # 师德点（徒弟突破时获得，可兑换奖励）

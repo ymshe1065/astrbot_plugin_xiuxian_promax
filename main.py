@@ -2159,16 +2159,18 @@ class XiuXianPlugin(Star):
                     if has_progress:
                         yield event.plain_result(bounty_msg.strip())
 
-    @filter.command(CMD_SPIRIT_FARM_REMOVE, "铲除指定格子的灵草")
+    @filter.command(CMD_SPIRIT_FARM_REMOVE, "批量铲除灵田灵草：格号/区间/all")
     @require_whitelist
     async def handle_spirit_farm_remove(self, event: AstrMessageEvent, slot: GreedyStr):
         args = resolve_greedy_args(event, slot, CMD_SPIRIT_FARM_REMOVE)
         async for r in self.spirit_farm_handlers.handle_remove_crop(event, args): yield r
         if get_event_flag(event, "farm_remove_ok", False):
             try:
-                await self.auto_proxy_mgr.clear_farm_plot(
-                    event.get_sender_id(), get_event_flag(event, "farm_remove_slot", 0)
-                )
+                removed_slots = get_event_flag(event, "farm_remove_slots", []) or []
+                for slot in removed_slots:
+                    await self.auto_proxy_mgr.clear_farm_plot(
+                        event.get_sender_id(), slot
+                    )
             except Exception as e:
                 logger.warning(f"【自动代理】铲除后同步灵田代理失败: {e}")
 

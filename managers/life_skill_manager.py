@@ -28,7 +28,12 @@ LIFE_SKILLS = {
     },
 }
 
-CHANGE_COST = 10000  # 改换职业费用
+CHANGE_BASE = 50_000
+CHANGE_LEVEL_FACTOR = 0.12
+CHANGE_GROWTH = 2.0
+CHANGE_DECAY_HOURS = 72
+CHANGE_MAX = 50_000_000
+_CHANGE_ROUND = 10_000
 
 
 class LifeSkillManager:
@@ -41,41 +46,120 @@ class LifeSkillManager:
     def get_skill(self, player: Player) -> str:
         return getattr(player, "life_skill", "") or ""
 
+    @staticmethod
+    def _round_cost(value: float) -> int:
+        if value <= 0:
+            return 0
+        return max(_CHANGE_ROUND, int(round(value / _CHANGE_ROUND) * _CHANGE_ROUND))
+
+    def base_change_cost(self, player: Player) -> int:
+        """当前境界的基础首次更换费用。"""
+        try:
+            level = max(0, int(getattr(player, "level_index", 0) or 0))
+        except (TypeError, ValueError):
+            level = 0
+        return self._round_cost(CHANGE_BASE * (1 + level * CHANGE_LEVEL_FACTOR))
+
+    def change_cost_details(self, player: Player, now: int = None) -> dict:
+        """返回基础费用、当前费用、峰值和距离最低费用的剩余时间。"""
+        now = int(now or time.time())
+        base = self.base_change_cost(player)
+        try:
+            peak = max(base, int(getattr(player, "life_skill_cost_peak", 0) or 0))
+            last = max(0, int(getattr(player, "life_skill_last_change_at", 0) or 0))
+        except (TypeError, ValueError):
+            peak, last = base, 0
+        if last <= 0 or peak <= base:
+            return {
+                "base": base, "current": base, "peak": base,
+                "remaining_seconds": 0, "decayed": True,
+            }
+        elapsed = max(0, now - last)
+        window = CHANGE_DECAY_HOURS * 3600
+        ratio = min(1.0, elapsed / window)
+        current = self._round_cost(base + (peak - base) * (1 - ratio))
+        current = max(base, min(peak, current))
+        remaining = max(0, window - elapsed)
+        return {
+            "base": base, "current": current, "peak": peak,
+            "remaining_seconds": remaining, "decayed": remaining <= 0,
+        }
+
+    def get_change_cost(self, player: Player, now: int = None) -> int:
+        return self.change_cost_details(player, now)["current"]
+
+    def _format_remaining(self, seconds: int) -> str:
+        seconds = max(0, int(seconds))
+        if seconds <= 0:
+            return "已降至基础费用"
+        hours, remainder = divmod(seconds, 3600)
+        minutes = remainder // 60
+        if hours:
+            return f"约 {hours} 小时 {minutes} 分钟后降至基础费用"
+        return f"约 {max(1, minutes)} 分钟后降至基础费用"
+
+    def _status_text(self, player: Player) -> str:
+        details = self.change_cost_details(player)
+        listing = "\n".join(f"  · {n}：{c['desc']}" for n, c in LIFE_SKILLS.items())
+        current_skill = self.get_skill(player) or "未选择"
+        changes = max(0, int(getattr(player, "life_skill_changes", 0) or 0))
+        return (
+            "⚒️ 生活职业\n"
+            "━━━━━━━━━━━━━━━\n"
+            f"当前职业：{current_skill}\n"
+            f"已付费更换：{changes} 次\n"
+            f"基础更换费用：{details['base']:,} 灵石\n"
+            f"当前更换费用：{details['current']:,} 灵石\n"
+            f"{self._format_remaining(details['remaining_seconds'])}\n"
+            f"{listing}\n"
+            "━━━━━━━━━━━━━━━\n"
+            "💡 首次选择免费；之后更换按当前费用扣费。\n"
+            "💡 用法：/选择生活职业 <名称>"
+        )
+
     async def choose_skill(self, player: Player, skill_name: str) -> Tuple[bool, str]:
-        """选择/改换生活职业"""
+        """选择/改换生活职业；费用按境界、次数和距上次更换时间计算。"""
         if skill_name not in LIFE_SKILLS:
-            listing = "\n".join(f"  · {n}：{c['desc']}" for n, c in LIFE_SKILLS.items())
-            current = self.get_skill(player) or "无"
-            return False, (
-                "⚒️ 生活职业\n"
-                "━━━━━━━━━━━━━━━\n"
-                f"当前职业：{current}\n"
-                f"{listing}\n"
-                "━━━━━━━━━━━━━━━\n"
-                "💡 用法：/选择生活职业 <名称>\n"
-                f"改换职业需消耗 {CHANGE_COST:,} 灵石"
-            )
+            return False, self._status_text(player)
 
         current = self.get_skill(player)
         if current == skill_name:
-            return False, f"❌ 你已经是【{skill_name}】了。"
+            return False, f"❌ 你已经是【{skill_name}】了。\n" + self._status_text(player)
 
-        cost = 0 if not current else CHANGE_COST
+        now = int(time.time())
+        details = self.change_cost_details(player, now)
+        cost = 0 if not current else details["current"]
         if cost and player.gold < cost:
-            return False, f"❌ 改换职业需要 {cost:,} 灵石。"
+            return False, (
+                f"❌ 改换职业需要 {cost:,} 灵石，当前只有 {player.gold:,}。\n"
+                f"{self._format_remaining(details['remaining_seconds'])}"
+            )
 
         player.gold -= cost
         player.life_skill = skill_name
+        if cost:
+            peak = self._round_cost(cost * CHANGE_GROWTH)
+            player.life_skill_cost_peak = min(CHANGE_MAX, max(details["base"], peak))
+            player.life_skill_last_change_at = now
+            player.life_skill_changes = max(0, int(getattr(player, "life_skill_changes", 0) or 0)) + 1
+        else:
+            # 首次选择免费；下一次更换从基础费用开始。
+            player.life_skill_cost_peak = details["base"]
+            player.life_skill_last_change_at = now
+            player.life_skill_changes = 0
         await self.db.update_player(player)
 
         info = LIFE_SKILLS[skill_name]
+        after = self.change_cost_details(player, now)
         return True, (
             f"⚒️ 生活职业设定成功！\n"
             f"━━━━━━━━━━━━━━━\n"
             f"你已成为一名【{skill_name}】\n"
             f"专精效果：{info['desc']}\n"
             f"{info['perk_hint']}"
-            + (f"\n花费：{cost:,} 灵石" if cost else "")
+            + (f"\n本次花费：{cost:,} 灵石" if cost else "\n首次选择免费")
+            + f"\n下次更换：{after['peak']:,} 灵石起"
+            + f"\n{self._format_remaining(after['remaining_seconds'])}"
         )
 
     # 日课按境界发符：发的这张决定你当天能白扛什么品阶的丹劫

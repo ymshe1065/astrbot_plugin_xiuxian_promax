@@ -1,9 +1,12 @@
 # handlers/spirit_farm_handlers.py
 """灵田处理器"""
+import re
+
 from astrbot.api.event import AstrMessageEvent
 from ..data import DataBase
 from ..managers.spirit_farm_manager import SpiritFarmManager, parse_plant_args
 from ..models import Player
+from ..utils.arg_parse import is_all_keyword, normalize_arg_text
 from .utils import player_required, set_event_flag
 
 __all__ = ["SpiritFarmHandlers"]
@@ -81,7 +84,7 @@ class SpiritFarmHandlers:
                             ] + season_rows + unlock_rows},
                             {"name": "种植中", "rows": rows},
                         ],
-                        footer="/种植 <灵草名> [数量|格号区间|all] · /杂交 <草A> <草B> · /收获 · /铲除 <格号>",
+                        footer="/种植 <灵草名> [数量|格号区间|all] · /杂交 <草A> <草B> · /收获 · /铲除 <格号...|1-3|all>",
                     )
             if card_path:
                 yield event.image_result(card_path)
@@ -156,16 +159,49 @@ class SpiritFarmHandlers:
 
     @player_required
     async def handle_remove_crop(self, player: Player, event: AstrMessageEvent, slot: str = ""):
-        """铲除指定格子的灵草"""
-        if not (slot or "").strip():
-            yield event.plain_result("❌ 请指定要铲除的格子序号，例如：/铲除 1")
+        """铲除指定/批量格子的灵草。"""
+        raw = normalize_arg_text(slot)
+        if not raw:
+            yield event.plain_result(
+                "❌ 请指定要铲除的格子，例如：/铲除 1、/铲除 1,2,3、/铲除 1-3、/铲除 all"
+            )
             return
-        try:
-            slot_index = int((slot or "").strip())
-        except ValueError:
-            yield event.plain_result("❌ 格子序号必须是数字，例如：/铲除 1")
-            return
-        success, msg = await self.mgr.remove_crop(player, slot_index)
+        slots = None
+        if not is_all_keyword(raw):
+            slots = []
+            for token in re.split(r"[\s,，、]+", raw):
+                if not token:
+                    continue
+                if "-" in token:
+                    parts = token.split("-", 1)
+                    try:
+                        start, end = int(parts[0]), int(parts[1])
+                    except ValueError:
+                        yield event.plain_result(f"❌ 无法识别格子范围：{token}")
+                        return
+                    if start > end:
+                        start, end = end, start
+                    slots.extend(range(start, end + 1))
+                else:
+                    try:
+                        slots.append(int(token))
+                    except ValueError:
+                        yield event.plain_result(f"❌ 无法识别格子序号：{token}")
+                        return
+            slots = sorted({s for s in slots if s > 0})
+            if not slots:
+                yield event.plain_result("❌ 请指定有效的格子序号。")
+                return
+        else:
+            farm = await self.mgr.get_user_farm(player.user_id)
+            if farm:
+                slots = sorted({
+                    int(c.get("slot") or 0)
+                    for c in farm.get("crops", [])
+                    if int(c.get("slot") or 0) > 0
+                })
+
+        success, msg = await self.mgr.remove_crops(player, slots)
         set_event_flag(event, "farm_remove_ok", bool(success))
-        set_event_flag(event, "farm_remove_slot", slot_index)
+        set_event_flag(event, "farm_remove_slots", slots or [])
         yield event.plain_result(msg)

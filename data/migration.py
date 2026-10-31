@@ -10,7 +10,7 @@ from astrbot.api import logger
 if TYPE_CHECKING:
     from ..config_manager import ConfigManager
 
-LATEST_DB_VERSION = 54  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求；v49: 统一物品品阶名称；v50: 仙市投资系统（基金/股票）；v51: 符箓熟练度与符图习得；v52: 仙市 v6（16 盘 + 赌场级波动 + 不对称日熔断）；v53: 拍卖会未开拍拍品按固定品阶曲线重建（并兼容分叉旧库补授符图）；v54: 灵田肥力上限按等级分级（旧值按百分比换算）
+LATEST_DB_VERSION = 55  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求；v49: 统一物品品阶名称；v50: 仙市投资系统（基金/股票）；v51: 符箓熟练度与符图习得；v52: 仙市 v6（16 盘 + 赌场级波动 + 不对称日熔断）；v53: 拍卖会未开拍拍品按固定品阶曲线重建（并兼容分叉旧库补授符图）；v54: 灵田肥力上限按等级分级（旧值按百分比换算）；v55: 生活职业更换费用峰值与时间衰减
 
 MIGRATION_TASKS: Dict[int, Callable[[aiosqlite.Connection, ConfigManager], Awaitable[None]]] = {}
 
@@ -357,6 +357,9 @@ async def _ensure_latest_columns(conn: aiosqlite.Connection):
     """终极兜底：确保 NPC、宗门、贷款等最新增量列/表齐全。"""
     await _add_column_if_missing(conn, "players", "karma", "INTEGER NOT NULL DEFAULT 0")
     await _add_column_if_missing(conn, "players", "life_skill", "TEXT NOT NULL DEFAULT ''")
+    await _add_column_if_missing(conn, "players", "life_skill_changes", "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(conn, "players", "life_skill_cost_peak", "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(conn, "players", "life_skill_last_change_at", "INTEGER NOT NULL DEFAULT 0")
     await _add_column_if_missing(conn, "players", "shield_start_time", "INTEGER NOT NULL DEFAULT 0")
     await _add_column_if_missing(conn, "players", "sect_debt", "INTEGER NOT NULL DEFAULT 0")
     await _add_column_if_missing(conn, "spirit_farms", "fertility", "INTEGER NOT NULL DEFAULT 100")
@@ -2230,3 +2233,14 @@ async def _migrate_to_v54(conn: aiosqlite.Connection, config_manager: ConfigMana
         scaled += max(0, int(cursor.rowcount or 0))
     await conn.commit()
     logger.info(f"v54迁移完成：已按百分比换算 {scaled} 块灵田的肥力")
+
+
+@migration(55)
+async def _migrate_to_v55(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """迁移到 v55 - 生活职业更换费用峰值与时间衰减。"""
+    logger.info("开始迁移到 v55：生活职业更换费用字段")
+    await _add_column_if_missing(conn, "players", "life_skill_changes", "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(conn, "players", "life_skill_cost_peak", "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(conn, "players", "life_skill_last_change_at", "INTEGER NOT NULL DEFAULT 0")
+    await conn.commit()
+    logger.info("v55迁移完成：生活职业更换费用字段已就绪")
