@@ -100,6 +100,12 @@ class ShopHandler:
             updated = self.shop_manager.ensure_items_have_stock(current_items) or updated
             updated = self.shop_manager.ensure_equipment_quality(current_items) or updated
             updated = self.shop_manager.refresh_item_data(current_items) or updated
+            kept, filtered = self.shop_manager.filter_stale_shelf_items(
+                current_items, exclude_breakthrough=(pavilion_id == "recipe_pavilion")
+            )
+            if filtered:
+                current_items = kept
+                updated = True
             if updated:
                 await self.db.update_shop_data(pavilion_id, last_refresh_time, current_items)
         refresh_hours = self._cfg("PAVILION_REFRESH_HOURS", 1)
@@ -142,6 +148,12 @@ class ShopHandler:
                     data_changed = self.shop_manager.dedupe_same_name_items(items)
                     data_changed = self.shop_manager.ensure_equipment_quality(items) or data_changed
                     data_changed = self.shop_manager.refresh_item_data(items) or data_changed
+                    kept, filtered = self.shop_manager.filter_stale_shelf_items(
+                        items, exclude_breakthrough=(pavilion_id == "recipe_pavilion")
+                    )
+                    if filtered:
+                        items[:] = kept
+                        data_changed = True
                     if data_changed:
                         await self.db.update_shop_data(pavilion_id, last_refresh, items)
                 refresh_hours = self._cfg("PAVILION_REFRESH_HOURS", 1)

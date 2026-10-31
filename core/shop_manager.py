@@ -689,6 +689,29 @@ class ShopManager:
             })
         return recipes
 
+    def filter_stale_shelf_items(self, items: List[Dict], exclude_breakthrough: bool = False) -> Tuple[List[Dict], bool]:
+        """清理货架：删除已不存在的物品；丹方阁剔除常驻突破丹方。
+
+        旧货架在数据库中持久化，配置删除/分区调整后需要在下一次访问时清理。
+        """
+        kept = []
+        changed = False
+        for item in items or []:
+            if not isinstance(item, dict):
+                changed = True
+                continue
+            data = item.get("data")
+            if exclude_breakthrough and item.get("type") == "recipe":
+                if self._is_breakthrough_recipe(data if isinstance(data, dict) else item):
+                    changed = True
+                    continue
+            name = item.get("name")
+            if not name or self.find_item_by_name(name) is None:
+                changed = True
+                continue
+            kept.append(item)
+        return kept, changed
+
     def get_breakthrough_recipes_for_display(self, count: int = 0) -> List[Dict]:
         """突破丹方分区：全部突破丹方常驻（不受随机刷新数量限制）。"""
         recipes = []

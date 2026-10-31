@@ -64,6 +64,21 @@ class TestRecipePavilion(unittest.TestCase):
         self.assertNotIn("《回春散·凡方》", {r["name"] for r in recipes + breakthrough})
         self.assertNotIn("《聚灵散·凡方》", {r["name"] for r in recipes + breakthrough})
 
+    def test_filter_stale_shelf_removes_breakthrough_and_deleted_names(self):
+        shelf = [
+            {"name": "《筑基丹方》", "type": "recipe", "price": 100,
+             "data": self.config_manager.items_data.get("《筑基丹方》", {})},
+            {"name": "《炼气丹方》", "type": "recipe", "price": 100,
+             "data": self.config_manager.items_data.get("《炼气丹方》", {})},
+            {"name": "不存在的旧装备", "type": "weapon", "price": 100, "data": {}},
+        ]
+        kept, changed = self.shop_manager.filter_stale_shelf_items(shelf, exclude_breakthrough=True)
+        self.assertTrue(changed)
+        names = {item["name"] for item in kept}
+        self.assertNotIn("《筑基丹方》", names)
+        self.assertIn("《炼气丹方》", names)
+        self.assertNotIn("不存在的旧装备", names)
+
     def test_pavilion_keeps_all_permanent_and_rotates_rare(self):
         generated = self.shop_manager.generate_pavilion_items(
             self.shop_manager.get_recipes_for_display, 10
