@@ -92,7 +92,8 @@ class ShopHandler:
             return 10
 
     async def _ensure_pavilion_refreshed(self, pavilion_id: str, item_getter, count: int,
-                                         apply_rank_band: bool = False, pick_mode: str = "") -> None:
+                                         apply_rank_band: bool = False, pick_mode: str = "",
+                                         stock_cap: int = 0) -> None:
         """确保阁楼已刷新"""
         last_refresh_time, current_items = await self.db.get_shop_data(pavilion_id)
         if current_items:
@@ -116,7 +117,9 @@ class ShopHandler:
                     self.shop_manager.resolve_rank_band(players, force=True)
                 except Exception:
                     pass
-            new_items = self.shop_manager.generate_pavilion_items(item_getter, count, pick_mode=pick_mode)
+            new_items = self.shop_manager.generate_pavilion_items(
+                item_getter, count, pick_mode=pick_mode, stock_cap=stock_cap
+            )
             await self.db.update_shop_data(pavilion_id, int(time.time()), new_items)
 
     async def auto_restock(self) -> Tuple[int, str]:
@@ -132,16 +135,16 @@ class ShopHandler:
         except Exception:
             pass
         jobs = [
-            ("pill_pavilion", "丹阁", self.shop_manager.get_pills_for_display, self._cfg("PAVILION_PILL_COUNT", 20), ""),
-            ("recipe_pavilion", "丹方阁", self.shop_manager.get_recipes_for_display, self._rare_recipe_count(), "rare"),
-            ("breakthrough_recipe_pavilion", "突破丹方", self.shop_manager.get_breakthrough_recipes_for_display, 0, ""),
-            ("material_pavilion", "材料阁", self.shop_manager.get_materials_for_display, self._cfg("PAVILION_MATERIAL_COUNT", 20), ""),
-            ("weapon_pavilion", "器阁", self.shop_manager.get_weapons_for_display, self._cfg("PAVILION_WEAPON_COUNT", 40), "common"),
-            ("treasure_pavilion", "百宝阁", self.shop_manager.get_treasure_items_for_display, self._cfg("PAVILION_TREASURE_COUNT", 12), "rare"),
-            ("talisman_pavilion", "符阁", self.shop_manager.get_talismans_for_display, self._cfg("PAVILION_TALISMAN_COUNT", 12), ""),
-            ("talisman_recipe_pavilion", "符阁·符图", self.shop_manager.get_talisman_recipes_for_display, self._cfg("PAVILION_TALISMAN_RECIPE_COUNT", 4), ""),
+            ("pill_pavilion", "丹阁", self.shop_manager.get_pills_for_display, self._cfg("PAVILION_PILL_COUNT", 20), "", 0),
+            ("recipe_pavilion", "丹方阁", self.shop_manager.get_recipes_for_display, self._rare_recipe_count(), "rare", 0),
+            ("breakthrough_recipe_pavilion", "突破丹方", self.shop_manager.get_breakthrough_recipes_for_display, 0, "", 0),
+            ("material_pavilion", "材料阁", self.shop_manager.get_materials_for_display, self._cfg("PAVILION_MATERIAL_COUNT", 20), "", 0),
+            ("weapon_pavilion", "器阁", self.shop_manager.get_weapons_for_display, self._cfg("PAVILION_WEAPON_COUNT", 40), "common", 0),
+            ("treasure_pavilion", "百宝阁", self.shop_manager.get_treasure_items_for_display, self._cfg("PAVILION_TREASURE_COUNT", 12), "rare", 5),
+            ("talisman_pavilion", "符阁", self.shop_manager.get_talismans_for_display, self._cfg("PAVILION_TALISMAN_COUNT", 12), "", 0),
+            ("talisman_recipe_pavilion", "符阁·符图", self.shop_manager.get_talisman_recipes_for_display, self._cfg("PAVILION_TALISMAN_RECIPE_COUNT", 4), "", 0),
         ]
-        for pavilion_id, name, getter, cnt, pick_mode in jobs:
+        for pavilion_id, name, getter, cnt, pick_mode, stock_cap in jobs:
             try:
                 last_refresh, items = await self.db.get_shop_data(pavilion_id)
                 if items:
@@ -160,13 +163,13 @@ class ShopHandler:
                 due = self.shop_manager.should_refresh_shop(last_refresh, refresh_hours)
                 if not items:
                     # 空货架（从未初始化）：立即上货
-                    new_items = self.shop_manager.generate_pavilion_items(getter, cnt, pick_mode=pick_mode)
+                    new_items = self.shop_manager.generate_pavilion_items(getter, cnt, pick_mode=pick_mode, stock_cap=stock_cap)
                     await self.db.update_shop_data(pavilion_id, int(_time.time()), new_items)
                     restocked += 1
                     details.append(name)
                     continue
                 if due:
-                    new_items = self.shop_manager.generate_pavilion_items(getter, cnt, pick_mode=pick_mode)
+                    new_items = self.shop_manager.generate_pavilion_items(getter, cnt, pick_mode=pick_mode, stock_cap=stock_cap)
                     await self.db.update_shop_data(pavilion_id, int(_time.time()), new_items)
                     restocked += 1
                     details.append(name)
@@ -175,7 +178,7 @@ class ShopHandler:
                 total = len(items)
                 on_sale = sum(1 for it in items if it.get('stock', 0) > 0)
                 if total > 0 and on_sale / total < 0.2:
-                    new_items = self.shop_manager.generate_pavilion_items(getter, cnt, pick_mode=pick_mode)
+                    new_items = self.shop_manager.generate_pavilion_items(getter, cnt, pick_mode=pick_mode, stock_cap=stock_cap)
                     await self.db.update_shop_data(pavilion_id, last_refresh, new_items)  # 保持刷新锚点不变
                     restocked += 1
                     details.append(f"{name}(售罄补货)")
@@ -288,7 +291,7 @@ class ShopHandler:
         count = self._cfg("PAVILION_TREASURE_COUNT", 12)
         await self._ensure_pavilion_refreshed(
             "treasure_pavilion", self.shop_manager.get_treasure_items_for_display, count,
-            apply_rank_band=True, pick_mode="rare",
+            apply_rank_band=True, pick_mode="rare", stock_cap=5,
         )
         self._remember_viewed_pavilion(event, "treasure_pavilion")
         last_refresh, items = await self.db.get_shop_data("treasure_pavilion")

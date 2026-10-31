@@ -592,7 +592,12 @@ class ShopManager:
             return False
         return (int(time.time()) - last_refresh_time) >= (refresh_hours * 3600)
 
-    def generate_pavilion_items(self, item_getter, count: int, pick_mode: str = "") -> List[Dict]:
+    # 百宝阁限量：这些类型每次刷新库存上限（1-5 个）
+    CONSUMABLE_SHELF_TYPES = ("pill", "exp_pill", "utility_pill", "inventory_pill", "material")
+
+    def generate_pavilion_items(
+        self, item_getter, count: int, pick_mode: str = "", stock_cap: int = 0
+    ) -> List[Dict]:
         """生成阁楼物品列表（带库存和折扣）
 
         item_getter 返回的条目若带 always_available=True，则视为常驻商品：
@@ -627,8 +632,11 @@ class ShopManager:
         result = []
         for item in selected:
             discount = random.uniform(discount_min, discount_max)
-            stock = self._calculate_stock(item.get('weight', 100), item.get('data'))
             unlimited = bool(item.get('always_available'))
+            stock = self._calculate_stock(item.get('weight', 100), item.get('data'))
+            # 百宝阁消耗品限量：丹药/材料每次刷新 1-5 个，避免大量囤积
+            if stock_cap and not unlimited and item.get('type') in self.CONSUMABLE_SHELF_TYPES:
+                stock = max(1, min(stock, stock_cap))
             result.append({
                 'name': item['name'], 'type': item['type'], 'rank': item['rank'],
                 'original_price': item['price'], 'discount': discount,

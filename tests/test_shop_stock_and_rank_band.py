@@ -85,6 +85,16 @@ class TestShopStockAndRankBand(unittest.TestCase):
         self.assertTrue(items)
         self.assertTrue(all(self.shop.rank_index(x["rank"]) == 0 for x in items))
 
+    def test_treasure_shelf_caps_consumable_stock_to_five(self):
+        generated = self.shop.generate_pavilion_items(
+            self.shop.get_treasure_items_for_display, 9999, pick_mode="rare", stock_cap=5
+        )
+        consumables = [it for it in generated if it.get("type") in self.shop.CONSUMABLE_SHELF_TYPES]
+        self.assertGreater(len(consumables), 0)
+        for item in consumables:
+            self.assertGreaterEqual(item["stock"], 1)
+            self.assertLessEqual(item["stock"], 5, item["name"])
+
     def test_rare_recipe_weight_prefers_high_value_scrolls(self):
         recipes = self.shop.get_recipes_for_display(9999)
         by_name = {r["name"]: r for r in recipes if r["rare"]}
