@@ -164,6 +164,7 @@ CMD_SPIRIT_EYE_CLAIM = "抢占灵眼"
 CMD_SPIRIT_EYE_COLLECT = "灵眼收取"
 CMD_SPIRIT_EYE_RELEASE = "释放灵眼"
 CMD_REBIRTH = "弃道重修"
+CMD_CHOOSE_ROOT = "选择灵根"
 CMD_AUTO_PROXY = "自动代理"
 CMD_AUTO_PROXY_OFF = "关闭代理"
 CMD_AUTO_PROXY_STATUS = "代理状态"
@@ -1247,10 +1248,15 @@ class XiuXianPlugin(Star):
     async def handle_stop_rest(self, event: AstrMessageEvent):
         async for r in self.recovery_handler.handle_stop_rest(event): yield r
 
-    @filter.command(CMD_REBIRTH, "弃道重修（7天一次）")
+    @filter.command(CMD_REBIRTH, "弃道重修（3天一次，保留仙缘/称号/灵根）")
     @require_whitelist
     async def handle_rebirth(self, event: AstrMessageEvent, confirm: str = ""):
         async for r in self.player_handler.handle_rebirth(event, confirm): yield r
+
+    @filter.command(CMD_CHOOSE_ROOT, "选择灵根（创号/重修三选一）")
+    @require_whitelist
+    async def handle_choose_root(self, event: AstrMessageEvent, choice: GreedyStr):
+        async for r in self.player_handler.handle_choose_root(event, choice): yield r
 
     @filter.command(CMD_START_CULTIVATION, "开始闭关修炼")
     @require_whitelist
@@ -1828,6 +1834,18 @@ class XiuXianPlugin(Star):
                     await self._title_bump(user_id, "luck_event")
             except Exception as e:
                 logger.warning(f"奇遇触发异常: {e}")
+
+            # 途中善举：概率触发「分出部分历练收获」的抉择
+            merit_msg = ""
+            if player and not encounter_msg:
+                try:
+                    merit_msg = await self.encounter_mgr.maybe_trigger_merit(
+                        player,
+                        reward_data.get("gold_reward", 0),
+                        reward_data.get("exp_reward", 0),
+                    )
+                except Exception as e:
+                    logger.warning(f"善举触发异常: {e}")
             from .utils.result_card import render_result_card
             card = await render_result_card(
                 "🚶 历练归来", msg, background="adventure",
@@ -1841,6 +1859,8 @@ class XiuXianPlugin(Star):
                 yield event.plain_result(msg)
             if encounter_msg:
                 yield event.plain_result(encounter_msg)
+            if merit_msg:
+                yield event.plain_result(merit_msg)
         else:
             yield event.plain_result(msg)
 
@@ -3005,9 +3025,16 @@ class XiuXianPlugin(Star):
         if last == today:
             yield event.plain_result("❌ 你今日已经行过善了，明日再来。")
             return
-        cost = 2000
+        from .karma_rules import charity_cost
+        bank_balance = 0
+        try:
+            bank_data = await self.db.ext.get_bank_account(player.user_id)
+            bank_balance = int(bank_data["balance"]) if bank_data else 0
+        except Exception:
+            bank_balance = 0
+        cost = charity_cost(player.gold, bank_balance)
         if player.gold < cost:
-            yield event.plain_result(f"❌ 行善需要捐献 {cost:,} 灵石（为贫苦散修购置丹药）。")
+            yield event.plain_result(f"❌ 行善需要捐献 {cost:,} 灵石（按你当前资产的 5% 计算）。")
             return
         player.gold -= cost
         player.karma = (getattr(player, "karma", 0) or 0) + 1
@@ -3022,7 +3049,7 @@ class XiuXianPlugin(Star):
         yield event.plain_result(
             "🪷 行善积德！\n"
             "━━━━━━━━━━━━━━━\n"
-            f"你捐献 {cost:,} 灵石济困扶危。\n"
+            f"你捐献 {cost:,} 灵石济困扶危（按当前资产 5% 计）。\n"
             f"功德 +1（当前功德 {player.karma}）\n"
             "✨ 功德可提升奇遇概率与突破成功率\n"
             "🌑 而偷窃、劫镖会积累业力，反向影响突破"

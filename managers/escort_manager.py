@@ -236,7 +236,6 @@ class EscortManager:
 
         player.gold += escort_gold
         player.experience += escort_exp
-        player.karma = (getattr(player, "karma", 0) or 0) + 1  # 护镖有功，功德+1
         # 只回写结算字段，避免旧快照覆盖并发更新后的气血/灵气
         await self.db.update_player_fields(
             user_id,
@@ -252,7 +251,7 @@ class EscortManager:
             f"你平安将镖车护送到了目的地！\n"
             f"获得镖银：+{escort_gold:,} 灵石\n"
             f"获得酬劳：+{escort_exp:,} 修为\n"
-            f"✨ 护镖有功，功德 +1（当前 {player.karma}）"
+            f"✨ 镖车平安抵达，此行功德不增不减"
         )
 
     async def quit_escort(self, player: Player) -> Tuple[bool, str]:

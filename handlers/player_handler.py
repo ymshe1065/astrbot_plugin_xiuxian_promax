@@ -17,7 +17,9 @@ CMD_PLAYER_INFO = "我的信息"
 CMD_START_CULTIVATION = "闭关"
 CMD_END_CULTIVATION = "出关"
 CMD_CHECK_IN = "签到"
-REBIRTH_COOLDOWN = 7 * 24 * 3600
+REBIRTH_COOLDOWN = 3 * 24 * 3600  # 弃道重修冷却 3 天
+CMD_CHOOSE_ROOT = "选择灵根"
+PENDING_ROOT_TIMEOUT = 600  # 灵根待选超时 10 分钟
 
 # 七大职业与别名（单字简称、常见写法），入口统一归一化
 CULTIVATION_ALIASES = {
@@ -127,8 +129,49 @@ class PlayerHandler:
         today_md = datetime.now().strftime("%m-%d")
         return self.FESTIVALS.get(today_md)
 
+    # ===== 创号：三选一灵根 =====
+    def _root_pending_key(self, prefix: str, user_id: str) -> str:
+        return f"{prefix}_{user_id}"
+
+    async def _save_root_pending(self, prefix: str, user_id: str, roots, extra=None) -> None:
+        import json as _json
+        await self.db.ext.set_system_config(
+            self._root_pending_key(prefix, user_id),
+            _json.dumps({"roots": list(roots), "created_at": int(time.time()), **(extra or {})}, ensure_ascii=False),
+        )
+
+    async def _load_root_pending(self, prefix: str, user_id: str):
+        import json as _json
+        try:
+            raw = await self.db.ext.get_system_config(self._root_pending_key(prefix, user_id))
+            data = _json.loads(raw) if raw else None
+        except Exception:
+            data = None
+        if not isinstance(data, dict) or not data.get("roots"):
+            return None
+        if int(time.time()) - int(data.get("created_at") or 0) > PENDING_ROOT_TIMEOUT:
+            await self._clear_root_pending(prefix, user_id)
+            return None
+        return data
+
+    async def _clear_root_pending(self, prefix: str, user_id: str) -> None:
+        try:
+            await self.db.ext.set_system_config(self._root_pending_key(prefix, user_id), "")
+        except Exception:
+            pass
+
+    def _format_root_choices(self, roots) -> str:
+        lines = ["🎲 你感应到 " + str(len(roots)) + " 条灵根之路：", "━━━━━━━━━━━━━━━"]
+        for idx, root in enumerate(roots, start=1):
+            name = root.replace("灵根", "")
+            speed = self.cultivation_manager._get_root_speed(name)
+            desc = self.cultivation_manager._get_root_description(name)
+            lines.append(f"{idx}. 【{name}灵根】{desc}（修炼 ×{speed:.2f}）")
+        lines.append("━━━━━━━━━━━━━━━")
+        return "\n".join(lines)
+
     async def handle_start_xiuxian(self, event: AstrMessageEvent, cultivation_type: str = ""):
-        """处理创建角色"""
+        """处理创建角色：先选职业，再从 3 条灵根中选 1 条。"""
         user_id = event.get_sender_id()
 
         if await self.db.get_player_by_id(user_id):
@@ -136,8 +179,6 @@ class PlayerHandler:
             return
 
         if not cultivation_type or cultivation_type.strip() == "":
-            # 参数为空时，从完整消息文本兜底提取职业关键词
-            # （兼容「我要修仙御兽」无空格、带 / 前缀等写法）
             raw_msg = ""
             try:
                 raw_msg = (event.get_message_str() or "").strip()
@@ -153,7 +194,7 @@ class PlayerHandler:
                     f"  {CLASS_ROLE_INFO[name]['desc']}"
                     for name in VALID_CULTIVATIONS
                 )
-                help_msg = (
+                yield event.plain_result(
                     "🌟 欢迎踏入修仙之路！\n"
                     "━━━━━━━━━━━━━━━\n"
                     "请选择你的修炼方式（发送：我要修仙 职业名）：\n\n"
@@ -162,11 +203,9 @@ class PlayerHandler:
                     f"💡 使用方法：\n  {CMD_START_XIUXIAN} 剑修\n"
                     f"（也支持单字：{CMD_START_XIUXIAN} 剑）"
                 )
-                yield event.plain_result(help_msg)
                 return
 
         cultivation_type = cultivation_type.strip().replace("　", " ").strip()
-        # 别名归一化：支持单字简称（灵/体/魔/剑/鬼/佛/兽）与常见写法
         normalized = CULTIVATION_ALIASES.get(cultivation_type, cultivation_type)
         if normalized not in VALID_CULTIVATIONS:
             yield event.plain_result(
@@ -176,10 +215,64 @@ class PlayerHandler:
                 f"例如：我要修仙 剑修"
             )
             return
-        cultivation_type = normalized
 
-        new_player = self.cultivation_manager.generate_new_player_stats(user_id, cultivation_type)
-        # 创建角色即学会基础丹方：回春散·凡方、聚灵散·凡方
+        roots = self.cultivation_manager.draw_spiritual_roots(3)
+        await self._save_root_pending("create_roots", user_id, roots, {"cultivation_type": normalized})
+        yield event.plain_result(
+            self._format_root_choices(roots)
+            + f"\n请发送：{CMD_CHOOSE_ROOT} 1/2/3 选择灵根（10 分钟内有效）"
+        )
+
+    async def handle_choose_root(self, event: AstrMessageEvent, choice: str = ""):
+        """选择灵根：创号或重修重随。"""
+        user_id = event.get_sender_id()
+        text = (choice or "").strip().translate(str.maketrans("１２３", "123"))
+        if not text.isdigit():
+            yield event.plain_result(f"❌ 请发送：{CMD_CHOOSE_ROOT} 1/2/3")
+            return
+        index = int(text) - 1
+
+        pending_create = await self._load_root_pending("create_roots", user_id)
+        if pending_create:
+            roots = pending_create.get("roots") or []
+            if not (0 <= index < len(roots)):
+                yield event.plain_result(f"❌ 请选择 1~{len(roots)} 之间的数字。")
+                return
+            cultivation_type = pending_create.get("cultivation_type") or "灵修"
+            if await self.db.get_player_by_id(user_id):
+                await self._clear_root_pending("create_roots", user_id)
+                yield event.plain_result("道友，你已踏入仙途，无需重复此举。")
+                return
+            reply = await self._finalize_create(event, cultivation_type, roots[index])
+            await self._clear_root_pending("create_roots", user_id)
+            yield event.plain_result(reply)
+            return
+
+        pending_rebirth = await self._load_root_pending("rebirth_roots", user_id)
+        if pending_rebirth:
+            player = await self.db.get_player_by_id(user_id)
+            if not player:
+                await self._clear_root_pending("rebirth_roots", user_id)
+                yield event.plain_result("❌ 未找到你的角色，无法重修。")
+                return
+            roots = pending_rebirth.get("roots") or []
+            if not (0 <= index < len(roots)):
+                yield event.plain_result(f"❌ 请选择 1~{len(roots)} 之间的数字。")
+                return
+            ok, msg = await self._perform_rebirth(player, roots[index])
+            if not ok:
+                yield event.plain_result(msg)
+                return
+            await self._clear_root_pending("rebirth_roots", user_id)
+            yield event.plain_result(msg)
+            return
+
+        yield event.plain_result("❌ 没有待选择的灵根，请先发送「我要修仙 职业」或「弃道重修 重随灵根」。")
+
+    async def _finalize_create(self, event: AstrMessageEvent, cultivation_type: str, root: str) -> str:
+        """按指定灵根创建角色并返回结果文本。"""
+        user_id = event.get_sender_id()
+        new_player = self.cultivation_manager.generate_new_player_stats(user_id, cultivation_type, root=root)
         try:
             import json as _json
             new_player.learned_recipes = _json.dumps([130, 131], ensure_ascii=False)
@@ -190,7 +283,6 @@ class PlayerHandler:
             await self.db.ext.ensure_impart_info(user_id)
         except Exception:
             pass
-        # 弃道重修次数保存在 system_config，跨角色保留；达到 3 次补发【百变星君】
         new_player_title_msg = ""
         try:
             raw_total = await self.db.ext.get_system_config(f"rebirth_total_{user_id}")
@@ -201,42 +293,31 @@ class PlayerHandler:
                 new_title, tmsg = tm.grant(new_player, "百变星君")
                 if new_title:
                     await self.db.update_player(new_player)
-                    if tmsg:
-                        new_player_title_msg = tmsg.strip()
-                    else:
-                        new_player_title_msg = ""
-                else:
-                    new_player_title_msg = ""
-            else:
-                new_player_title_msg = ""
+                    new_player_title_msg = tmsg.strip() if tmsg else ""
         except Exception:
             new_player_title_msg = ""
 
         root_name = new_player.spiritual_root.replace("灵根", "")
         root_description = self.cultivation_manager._get_root_description(root_name)
-
         role_info = CLASS_ROLE_INFO.get(
             new_player.cultivation_type, {"name": "未定义", "desc": "无"}
         )
-        role_name, role_desc = role_info["name"], role_info["desc"]
         reply_msg = (
             f"🎉 恭喜道友 {event.get_sender_name()} 踏上仙途！\n"
             f"━━━━━━━━━━━━━━━\n"
             f"修炼方式：【{new_player.cultivation_type}】\n"
-            f"职业定位：{role_name} · {role_desc}\n"
+            f"职业定位：{role_info['name']} · {role_info['desc']}\n"
             f"灵根：【{new_player.spiritual_root}】\n"
             f"评价：{root_description}\n"
             f"启动资金：{new_player.gold} 灵石\n"
             f"━━━━━━━━━━━━━━━\n"
             f"💡 发送「{CMD_PLAYER_INFO}」查看状态"
         )
-        
         tutorial_msg = await self.tutorial_mgr.check_and_advance(new_player, "create")
         reply_msg += tutorial_msg
         if new_player_title_msg:
             reply_msg += f"\n{new_player_title_msg}"
-        
-        yield event.plain_result(reply_msg)
+        return reply_msg
 
     @player_required
     async def handle_player_info(self, player: Player, event: AstrMessageEvent):
@@ -842,61 +923,177 @@ class PlayerHandler:
         except Exception:
             yield event.plain_result(reply_msg)
 
-    @player_required
-    async def handle_rebirth(self, player: Player, event: AstrMessageEvent, confirm_text: str = ""):
-        """弃道重修（7天冷却）"""
-        self.last_rebirth_success = False
+    def _rebirth_points(self, level_index: int, experience: int) -> int:
+        """重修仙缘点：方案B，约为飞升的 30%~60%。"""
+        import math
+        return 10 + max(0, int(level_index or 0)) + int(math.log10(max(int(experience or 0), 1)) * 5)
+
+    async def _rebirth_block_reason(self, player: Player):
         user_cd = await self.db.ext.get_user_cd(player.user_id)
         if user_cd and user_cd.type != UserStatus.IDLE:
-            status_name = UserStatus.get_name(user_cd.type)
-            yield event.plain_result(f"❌ 你当前正在「{status_name}」，无法弃道重修。")
-            return
-
+            return f"❌ 你当前正在「{UserStatus.get_name(user_cd.type)}」，无法弃道重修。"
         loan = await self.db.ext.get_active_loan(player.user_id)
         if loan:
-            yield event.plain_result("❌ 你仍有未结清的灵石贷款，无法重修。请先还款。")
-            return
-
+            return "❌ 你仍有未结清的灵石贷款，无法重修。请先还款。"
         key = f"rebirth_last_{player.user_id}"
         last_ts = await self.db.ext.get_system_config(key)
-        now = int(time.time())
         if last_ts:
-            diff = now - int(last_ts)
+            diff = int(time.time()) - int(last_ts)
             if diff < REBIRTH_COOLDOWN:
                 remaining = REBIRTH_COOLDOWN - diff
                 days = remaining // 86400
                 hours = (remaining % 86400) // 3600
                 minutes = (remaining % 3600) // 60
-                yield event.plain_result(
-                    "⌛ 弃道重修冷却中\n"
-                    "━━━━━━━━━━━━━━━\n"
-                    f"距离下次重修还需：{days}天{hours}小时{minutes}分钟"
-                )
-                return
+                return f"⌛ 弃道重修冷却中（{days}天{hours}小时{minutes}分钟后可再次重修）"
+        return None
 
-        if confirm_text.strip() != "确认":
+    async def handle_rebirth(self, player: Player, event: AstrMessageEvent, confirm_text: str = ""):
+        """弃道重修（方案B）：保留仙缘/转生次数/称号/灵根，3 天冷却。"""
+        self.last_rebirth_success = False
+        block = await self._rebirth_block_reason(player)
+        if block:
+            yield event.plain_result(block)
+            return
+
+        text = (confirm_text or "").strip()
+        if text == "重随灵根":
+            roots = self.cultivation_manager.draw_spiritual_roots(3)
+            await self._save_root_pending("rebirth_roots", player.user_id, roots)
             yield event.plain_result(
-                "⚠️ 弃道重修将删除当前角色的所有数据，并无法撤回！\n"
-                "限制：每7天只能重修一次，且必须在空闲状态、无贷款时使用。\n"
+                self._format_root_choices(roots)
+                + f"\n请发送：{CMD_CHOOSE_ROOT} 1/2/3 选择灵根并执行重修"
+                + "\n（将重置境界与身外之物，保留仙缘/转生次数/称号）"
+            )
+            return
+        if text != "确认":
+            yield event.plain_result(
+                "⚠️ 弃道重修将重置境界、修为、灵石、装备、宗门、洞府、灵田、灵兽等\n"
+                "保留：仙缘点、转生次数、称号、灵根\n"
                 "━━━━━━━━━━━━━━━\n"
-                "若你已做好准备，请发送：\n"
-                "弃道重修 确认"
+                "限制：3 天一次，需空闲且无贷款；不提供传家宝封印\n"
+                "确认发送：弃道重修 确认（保留灵根）\n"
+                "或发送：弃道重修 重随灵根（三选一换灵根）"
             )
             return
 
+        ok, msg = await self._perform_rebirth(player, player.spiritual_root.replace("灵根", ""))
+        if not ok:
+            yield event.plain_result(msg)
+            return
+        yield event.plain_result(msg)
+
+    async def _perform_rebirth(self, player: Player, root: str):
+        """执行重修重置：保留仙缘/转生次数/称号/灵根，清理身外之物。"""
+        block = await self._rebirth_block_reason(player)
+        if block:
+            return False, block
+
+        points = self._rebirth_points(player.level_index, player.experience)
+        base_player = self.cultivation_manager.generate_new_player_stats(
+            player.user_id, player.cultivation_type, root=root
+        )
+        base_player.spiritual_root = f"{root}灵根"
+
+        player.level_index = 0
+        player.experience = 0
+        player.gold = 1000
+        player.lifespan = base_player.lifespan
+        player.hp = base_player.hp
+        player.mp = base_player.mp
+        player.atk = base_player.atk
+        player.atkpractice = 0
+        player.spiritual_qi = base_player.spiritual_qi
+        player.max_spiritual_qi = base_player.max_spiritual_qi
+        player.blood_qi = base_player.blood_qi
+        player.max_blood_qi = base_player.max_blood_qi
+        player.magic_damage = base_player.magic_damage
+        player.physical_damage = base_player.physical_damage
+        player.magic_defense = base_player.magic_defense
+        player.physical_defense = base_player.physical_defense
+        player.mental_power = base_player.mental_power
+        player.spiritual_root = base_player.spiritual_root
+
+        player.weapon = ""
+        player.armor = ""
+        player.main_technique = ""
+        player.set_techniques_list([])
+        player.set_storage_ring_items({})
+        player.set_overflow_items({})
+        player.set_equipment_instances([])
+        player.set_equipped_instances({})
+        player.set_pills_inventory({})
+        player.active_pill_effects = "[]"
+        player.permanent_pill_gains = "{}"
+        player.has_resurrection_pill = False
+        player.resurrection_pill_quality = "一般"
+        player.has_debuff_shield = False
+        player.daily_pill_usage = "{}"
+
+        player.tutorial_step = 4
+        player.reincarnation_count += 1
+        player.fate_points += points
+        player.state = "空闲"
+        player.cultivation_start_time = 0
+
+        now = int(time.time())
+        await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            await self.db.update_player(player, commit=False)
+            if self.db.ext:
+                await self.db.ext.return_gifts_for_receiver(player.user_id, commit=False)
+            await self.db.conn.execute("DELETE FROM pending_gifts WHERE sender_id = ?", (player.user_id,))
+            await self.db.conn.execute("DELETE FROM auction_npc_offers WHERE seller_id = ?", (player.user_id,))
+            await self.db.conn.execute("DELETE FROM auction_items WHERE seller_id = ?", (player.user_id,))
+            await self.db.conn.execute("DELETE FROM bank_accounts WHERE user_id = ?", (player.user_id,))
+            await self.db.conn.execute("DELETE FROM auto_proxy WHERE user_id = ?", (player.user_id,))
+            await self.db.conn.execute("DELETE FROM blessed_lands WHERE user_id = ?", (player.user_id,))
+            await self.db.conn.execute("DELETE FROM spirit_farms WHERE user_id = ?", (player.user_id,))
+            await self.db.conn.execute(
+                "UPDATE spirit_eyes SET owner_id = NULL, owner_name = NULL, claim_time = NULL, last_collect_time = NULL WHERE owner_id = ?",
+                (player.user_id,),
+            )
+            await self.db.conn.execute("DELETE FROM npc_partners WHERE user_id = ?", (player.user_id,))
+            await self.db.conn.execute(
+                "DELETE FROM master_relations WHERE master_id = ? OR disciple_id = ?",
+                (player.user_id, player.user_id),
+            )
+            for table in (
+                "bounty_tasks", "daily_tasks", "combat_cooldowns", "combat_daily",
+                "world_boss_damage", "world_boss_raid_damage",
+                "dual_cultivation", "dual_cultivation_requests", "spar_requests", "sect_tournament_entries",
+            ):
+                if table in ("dual_cultivation_requests", "spar_requests"):
+                    await self.db.conn.execute(
+                        f"DELETE FROM {table} WHERE from_id = ? OR target_id = ?",
+                        (player.user_id, player.user_id),
+                    )
+                else:
+                    await self.db.conn.execute(f"DELETE FROM {table} WHERE user_id = ?", (player.user_id,))
+            await self.db.conn.execute(
+                "UPDATE sect_orders SET status = 'cancelled' WHERE status = 'active' AND (issuer_id = ? OR target_id = ?)",
+                (player.user_id, player.user_id),
+            )
+            await self.db.ext.set_user_free(player.user_id, commit=False)
+            await self.db.conn.commit()
+        except Exception as e:
+            await self.db.conn.rollback()
+            return False, f"❌ 重修结算失败，已回滚，请稍后再试。（{e}）"
+
+        await self.db.ext.set_system_config(f"rebirth_last_{player.user_id}", str(now))
         try:
             raw_total = await self.db.ext.get_system_config(f"rebirth_total_{player.user_id}")
             total = int(raw_total or 0) + 1
         except (TypeError, ValueError):
             total = 1
-        await self.db.delete_player_cascade(player.user_id)
-        await self.db.ext.set_system_config(key, str(now))
         await self.db.ext.set_system_config(f"rebirth_total_{player.user_id}", str(total))
         self.last_rebirth_success = True
 
-        yield event.plain_result(
-            "💀 你选择了弃道重修，旧生一切化为尘埃。\n"
+        return True, (
+            "💀 弃道重修完成！\n"
             "━━━━━━━━━━━━━━━\n"
-            "可立即使用「我要修仙」重新踏上仙途。\n"
-            "（7天内不可再次重修）"
+            f"保留：仙缘点 +{points}（当前 {player.fate_points}）、转生次数 {player.reincarnation_count}、称号、灵根【{player.spiritual_root}】\n"
+            "重置：境界、修为、灵石、装备、储物戒、丹药、功法\n"
+            "重置：宗门、洞府、灵田、灵兽、挂单、银行存款\n"
+            "━━━━━━━━━━━━━━━\n"
+            "可立即开始新的修行（3 天内不可再次重修）。"
         )

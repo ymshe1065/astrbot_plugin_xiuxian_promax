@@ -109,7 +109,8 @@ class BreakthroughHandler:
             info_lines.append(f"临时丹药加成：{temp_bonus:+.1%}\n")
         karma = getattr(player, "karma", 0) or 0
         if karma != 0:
-            karma_bonus = max(-0.10, min(0.10, karma * 0.01))
+            from ..karma_rules import karma_rate_bonus
+            karma_bonus = karma_rate_bonus(karma)
             if karma > 0:
                 info_lines.append(f"功德庇佑：{karma_bonus:+.1%}（功德 {karma}）\n")
             else:

@@ -90,6 +90,30 @@ class CultivationManager:
         _, selected_root = random.choice(weight_pool)
         return selected_root
 
+    def _get_root_speed(self, root_name: str) -> float:
+        """灵根对应的修炼速度倍率（用于展示）。"""
+        config_key = self.root_to_config_key.get(root_name)
+        if not config_key:
+            return 1.0
+        speeds = self.config.get("SPIRIT_ROOT_SPEEDS", {}) or {}
+        try:
+            return float(speeds.get(config_key, 1.0) or 1.0)
+        except (TypeError, ValueError):
+            return 1.0
+
+    def draw_spiritual_roots(self, count: int = 3) -> list:
+        """按现有权重抽多个不重复的灵根，供创号/重修三选一。"""
+        results = []
+        attempts = 0
+        while len(results) < max(1, int(count)) and attempts < max(20, count * 20):
+            root = self._get_random_spiritual_root()
+            attempts += 1
+            if root not in results:
+                results.append(root)
+        if not results:
+            results.append("金")
+        return results
+
     def _get_root_description(self, root_name: str) -> str:
         descriptions = {
             "伪": "【废柴】资质低劣，修炼如龟速",
@@ -105,8 +129,10 @@ class CultivationManager:
         }
         return descriptions.get(root_name, "【未知】神秘的灵根")
 
-    def generate_new_player_stats(self, user_id: str, cultivation_type: str = "灵修") -> Player:
-        root = self._get_random_spiritual_root()
+    def generate_new_player_stats(
+        self, user_id: str, cultivation_type: str = "灵修", root: str = ""
+    ) -> Player:
+        root = root or self._get_random_spiritual_root()
         initial_gold = self.config.get("VALUES", {}).get("INITIAL_GOLD", 1000)
 
         if cultivation_type == "体修":

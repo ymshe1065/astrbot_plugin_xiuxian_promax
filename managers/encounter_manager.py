@@ -82,6 +82,46 @@ class EncounterManager:
             f"💡 发送 /奇遇选择 <编号> 做出抉择（{self.CHOICE_EXPIRE // 60}分钟内有效，过期视作离开）"
         )
 
+    async def maybe_trigger_merit(self, player: Player, gold: int, exp: int, chance: int = None) -> Optional[str]:
+        """历练归来概率触发「途中善举」：分出部分收获接济灾民（不直接写功德）。"""
+        if not player or (int(gold or 0) <= 0 and int(exp or 0) <= 0):
+            return None
+        from ..karma_rules import MERIT_CHANCE, MERIT_RATIO, MERIT_KARMA, GOOD_KARMA
+        roll = MERIT_CHANCE if chance is None else int(chance)
+        if random.randint(1, 100) > roll:
+            return None
+        existing = await self.db.ext.get_system_config(self._storage_key(player.user_id))
+        if existing:
+            try:
+                expired = int(json.loads(existing).get("expire", 0)) <= int(time.time())
+            except Exception:
+                expired = True
+            if not expired:
+                return None
+        payload = {
+            "key": "__merit__",
+            "expire": int(time.time()) + self.CHOICE_EXPIRE,
+            "merit": {
+                "gold": int(gold or 0),
+                "exp": int(exp or 0),
+                "ratio": MERIT_RATIO,
+                "karma": MERIT_KARMA,
+            },
+        }
+        await self.db.ext.set_system_config(
+            self._storage_key(player.user_id), json.dumps(payload, ensure_ascii=False)
+        )
+        return (
+            "\n\n🪷【途中善举】\n"
+            "━━━━━━━━━━━━━━━\n"
+            "你带着本次历练的收获返程，途中遇到一群衣衫褴褛的散修，"
+            "正围着病重的同伴发愁，队伍里有人提议分出些收获接济他们。\n"
+            "  [1] 分出四成收获接济他们\n"
+            "  [2] 收下全部收获继续赶路\n"
+            "━━━━━━━━━━━━━━━\n"
+            f"💡 发送 /奇遇选择 <编号>（{self.CHOICE_EXPIRE // 60}分钟内有效）"
+        )
+
     async def resolve_choice(self, player: Player, choice: int) -> Tuple[bool, str]:
         """处理玩家的奇遇选择"""
         raw = await self.db.ext.get_system_config(self._storage_key(player.user_id))
@@ -97,6 +137,26 @@ class EncounterManager:
         if int(time.time()) > int(payload.get("expire", 0)):
             await self.db.ext.set_system_config(self._storage_key(player.user_id), "")
             return False, "⌛ 奇遇已消散于风中（超时未选择）。"
+
+        if payload.get("key") == "__merit__":
+            merit = payload.get("merit") or {}
+            gold = int(merit.get("gold", 0) or 0)
+            exp = int(merit.get("exp", 0) or 0)
+            ratio = float(merit.get("ratio", 0.4) or 0.4)
+            karma = int(merit.get("karma", 2) or 2)
+            if choice == 1:
+                loss_gold = int(gold * ratio)
+                loss_exp = int(exp * ratio)
+                player.gold = max(0, player.gold - loss_gold)
+                player.experience = max(0, player.experience - loss_exp)
+                player.karma = (getattr(player, "karma", 0) or 0) + karma
+                await self.db.update_player(player)
+                return True, (
+                    "🪷 你将四成收获留给了受灾的散修……\n"
+                    f"损失灵石 {loss_gold:,}、修为 {loss_exp:,}\n"
+                    "他们千恩万谢地离开了。"
+                )
+            return True, "🚶 你收下全部收获，继续赶路。"
 
         event = self.events.get(payload.get("key", ""))
         if not event:

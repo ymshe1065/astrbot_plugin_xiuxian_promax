@@ -62,11 +62,12 @@ class BreakthroughManager:
         if temp_bonus:
             info_lines.append(f"临时丹药加成：{temp_bonus:+.1%}")
 
-        # 功德/业力修正：每点 ±1%，上限 ±10%
+        # 功德/业力修正：每点 ±1%，正功德无上限，业力最低 -50%
+        from ..karma_rules import karma_rate_bonus
         karma = getattr(player, "karma", 0) or 0
         karma_bonus = 0.0
         if karma != 0:
-            karma_bonus = max(-0.10, min(0.10, karma * 0.01))
+            karma_bonus = karma_rate_bonus(karma)
             final_rate += karma_bonus
             if karma > 0:
                 info_lines.append(f"功德庇佑：{karma_bonus:+.1%}（功德 {karma}）")
@@ -195,6 +196,11 @@ class BreakthroughManager:
             player.magic_defense += magic_defense_gain
             player.mental_power += mental_power_gain
 
+            old_karma = getattr(player, "karma", 0) or 0
+            karma_note = ""
+            if old_karma:
+                player.karma = 0
+                karma_note = f"\n🪷 功德化入天劫，功德清零（原 {old_karma}）"
             await self.db.update_player(player)
             
             loan_msg = await self._handle_breakthrough_loan_repay(player)
@@ -250,6 +256,8 @@ class BreakthroughManager:
 
             logger.info(f"玩家 {player.user_id} 突破成功：{current_level_name} -> {next_level_name}")
 
+            if karma_note:
+                success_msg += karma_note
             if loan_msg:
                 success_msg += f"\n\n{loan_msg}"
 
