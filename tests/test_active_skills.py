@@ -91,6 +91,23 @@ class TestActiveSkillEngine(unittest.TestCase):
         self.assertEqual(p1.skill_casts, 1)
         self.assertLessEqual(p1.mp, 600)
 
+    def test_combat_log_shows_element_counter_and_final_mp(self):
+        p1 = self.CombatStats(
+            user_id="u1", name="甲", hp=10000, max_hp=10000, mp=1000, max_mp=1000,
+            atk=1000, defense=100, physical_atk=1000, magic_atk=0,
+            physical_defense=100, magic_defense=0, effects={}, element="金",
+        )
+        p2 = self.CombatStats(
+            user_id="u2", name="乙", hp=10000, max_hp=10000, mp=1000, max_mp=1000,
+            atk=1000, defense=100, physical_atk=1000, magic_atk=0,
+            physical_defense=100, magic_defense=0, effects={}, element="木",
+        )
+        result = self.CombatManager.player_vs_player(p1, p2, combat_type=1)
+        log = "\n".join(result["combat_log"])
+        self.assertIn("五行克制", log)
+        self.assertIn("战斗结束", log)
+        self.assertIn("灵气", log)
+
     def test_freeze_and_burn_statuses(self):
         freeze = {"name": "玄冰凝霜", "trigger_round": 2, "mp_cost": 500, "type": "freeze", "value": 0.5}
         burn = {"name": "离火燎原", "trigger_round": 2, "mp_cost": 500, "type": "burn", "value": 0.05}

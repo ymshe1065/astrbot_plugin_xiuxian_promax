@@ -79,6 +79,10 @@ class TestRecipePavilion(unittest.TestCase):
         self.assertIn("《炼气丹方》", names)
         self.assertNotIn("不存在的旧装备", names)
 
+    def test_buy_search_includes_breakthrough_pavilion(self):
+        handler_module = _imp("handlers.shop_handler")
+        self.assertIn("breakthrough_recipe_pavilion", handler_module.BUY_SEARCH_PAVILION_IDS)
+
     def test_breakthrough_recipes_are_unlimited_stock(self):
         generated = self.shop_manager.generate_pavilion_items(
             self.shop_manager.get_breakthrough_recipes_for_display, 0

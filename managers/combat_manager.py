@@ -1304,6 +1304,14 @@ class CombatManager:
         if elem_mult != 1.0:
             physical_damage *= elem_mult
             magic_damage *= elem_mult
+            if elem_mult > 1.0:
+                logs.append(
+                    f"☯️ 五行克制：{attacker.element}克{defender.element}，伤害 ×{elem_mult:.2f}"
+                )
+            else:
+                logs.append(
+                    f"☯️ 五行被克：{defender.element}克{attacker.element}，伤害 ×{elem_mult:.2f}"
+                )
 
         # 2. 一次攻击只判定一次暴击；暴击时物法两部分同时暴击
         base_crit = attacker.crit_rate
@@ -1618,7 +1626,11 @@ class CombatManager:
         else:
             p1_hp = max(1, real_p1_hp) if real_p1_hp > 0 else 1
             p2_hp = max(1, real_p2_hp) if real_p2_hp > 0 else 1
-            
+
+        combat_log.append(
+            f"🌀 战斗结束：{player1.name} 灵气 {player1.mp}/{player1.max_mp}，"
+            f"{player2.name} 灵气 {player2.mp}/{player2.max_mp}"
+        )
         combat_log = cls._shorten_combat_log(
             combat_log, round_num, winner, player1, player2
         )
@@ -1794,7 +1806,8 @@ class CombatManager:
         else:
             winner = "平局"
             reward = 0
-            
+
+        combat_log.append(f"🌀 战斗结束：{player.name} 灵气 {player.mp}/{player.max_mp}")
         return {
             "winner": winner, "combat_log": combat_log, "rounds": round_num,
             "player_final_hp": max(1, player.hp), "player_final_mp": player.mp,

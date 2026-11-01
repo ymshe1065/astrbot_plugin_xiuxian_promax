@@ -13,7 +13,15 @@ from ..config_manager import ConfigManager
 from ..rank_rules import normalize_rank
 from .utils import player_required, set_event_flag
 
-__all__ = ["ShopHandler"]
+__all__ = ["ShopHandler", "BUY_SEARCH_PAVILION_IDS"]
+
+# /购买 允许搜索的货架（突破丹方必须在内，否则《温神丹·中方》这类卷轴买不到）
+BUY_SEARCH_PAVILION_IDS = [
+    "pill_pavilion", "recipe_pavilion", "breakthrough_recipe_pavilion",
+    "material_pavilion", "weapon_pavilion",
+    "treasure_pavilion", "talisman_pavilion", "talisman_recipe_pavilion",
+]
+
 
 class ShopHandler:
     """商店处理器"""
@@ -395,10 +403,7 @@ class ShopHandler:
 
         优先返回仍有库存的货架；若全部售罄，则返回首个匹配条目，供购买流程提示“已售罄”。
         """
-        pavilion_ids = [
-            "pill_pavilion", "recipe_pavilion", "material_pavilion", "weapon_pavilion",
-            "treasure_pavilion", "talisman_pavilion", "talisman_recipe_pavilion",
-        ]
+        pavilion_ids = list(BUY_SEARCH_PAVILION_IDS)
         if preferred_pavilion in pavilion_ids:
             pavilion_ids.remove(preferred_pavilion)
             pavilion_ids.insert(0, preferred_pavilion)
