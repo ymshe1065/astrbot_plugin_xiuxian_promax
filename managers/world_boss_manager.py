@@ -881,11 +881,7 @@ class WorldBossManager:
                 pass
             try:
                 from .pet_manager import PetManager
-                pet_gold_bonus = await PetManager(self.db).get_life_bonus(
-                    target_player.user_id, "gold_bonus"
-                )
-                if pet_gold_bonus > 0:
-                    gold = int(gold * (1 + pet_gold_bonus))
+                gold = await PetManager(self.db).apply_gold_bonus(target_player, gold)
             except Exception:
                 pass
 

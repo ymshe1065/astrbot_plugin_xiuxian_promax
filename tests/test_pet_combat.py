@@ -225,6 +225,66 @@ class TestPetCombat(unittest.IsolatedAsyncioTestCase):
         self.assertAlmostEqual(self.pet_mgr.get_gold_bonus(pet), 0.1)
         self.assertAlmostEqual(await self.pet_mgr.get_life_bonus("u1"), 0.2)
 
+    async def test_max_level_pet_bonus_caps(self):
+        fox = {"pet_type": "九尾天狐", "level": 50, "dead_until": 0}
+        self.assertAlmostEqual(self.pet_mgr.get_pet_combat_effects(fox)["crit_rate"], 30.0, places=2)
+
+        ice = {"pet_type": "冰川巨兽", "level": 50, "dead_until": 0}
+        ice_effects = self.pet_mgr.get_pet_combat_effects(ice)
+        self.assertAlmostEqual(ice_effects["defense_bonus_pct"], 0.20, places=3)
+        self.assertAlmostEqual(ice_effects["counter_damage"], 20.0, places=2)
+
+        dragon = {"pet_type": "太古青龙", "level": 50, "dead_until": 0}
+        dragon_effects = self.pet_mgr.get_pet_combat_effects(dragon)
+        self.assertAlmostEqual(dragon_effects["crit_rate"], 20.0, places=2)
+        self.assertAlmostEqual(dragon_effects["lifesteal"], 12.0, places=2)
+
+        rat = {"pet_type": "吞金貔貅", "level": 50, "dead_until": 0}
+        self.assertAlmostEqual(self.pet_mgr.get_gold_bonus(rat), 0.298, places=3)
+        self.assertLessEqual(self.pet_mgr.get_gold_bonus(rat), self.pet_mgr.PET_GOLD_BONUS_CAP)
+
+    async def test_pet_defense_pct_and_guard_are_applied(self):
+        panel = {
+            "hp": 10000, "atk": 2000,
+            "physical_atk": 1000, "magic_atk": 1000,
+            "defense": 1000, "physical_defense": 500, "magic_defense": 500,
+            "crit_rate": 0, "crit_damage": 1.5, "lifesteal": 0, "counter_damage": 0,
+        }
+        self.CombatManager.apply_pet_lineup(
+            panel, None, [], {"defense_bonus_pct": 0.20}, None
+        )
+        self.assertEqual(panel["physical_defense"], 600)
+        self.assertEqual(panel["magic_defense"], 600)
+
+        class _Pet:
+            name = "冰川巨兽"
+            mechanic = "shield"
+
+            def __init__(self):
+                self.hp = 10000
+                self.max_hp = 10000
+                self.defense = 0
+                self.guard_rate = 0.20
+
+            @property
+            def alive(self):
+                return self.hp > 0
+
+        attacker = self.CombatStats(
+            user_id="u2", name="乙", hp=50000, max_hp=50000, mp=1, max_mp=1,
+            atk=10000, defense=0, physical_atk=10000, magic_atk=0, effects={},
+        )
+        defender = self.CombatStats(
+            user_id="u1", name="甲", hp=50000, max_hp=50000, mp=1, max_mp=1,
+            atk=1000, defense=0, effects={},
+        )
+        guard_pet = _Pet()
+        defender.pet = guard_pet
+        with patch("random.randint", return_value=0), patch("random.uniform", return_value=1.0):
+            _, logs, _ = self.CombatManager._execute_attack(attacker, defender)
+        self.assertTrue(any("挡下" in line for line in logs))
+        self.assertLess(guard_pet.hp, guard_pet.max_hp)
+
     async def test_feed_only_costs_gold(self):
         self.player.cultivation_type = "灵修"
         self.assertTrue((await self.pet_mgr.adopt_pet(self.player, "火灵狐"))[0])
@@ -242,7 +302,7 @@ class TestPetCombat(unittest.IsolatedAsyncioTestCase):
     async def test_pet_level_effects_strengthened(self):
         pet = {"pet_type": "火灵狐", "level": 10, "dead_until": 0}
         effects = self.pet_mgr.get_pet_combat_effects(pet)
-        self.assertAlmostEqual(effects["crit_rate"], 15.0)
+        self.assertAlmostEqual(effects["crit_rate"], 6.71, places=2)
 
     async def test_multi_pet_slots_exp_share_and_lineup(self):
         self.player.level_index = 10
@@ -309,7 +369,8 @@ class TestPetCombat(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(pets[0]["pet_type"], "炎灵狐")
         self.assertEqual(pets[0]["pet_name"], "炎灵狐 1")
         self.assertEqual(self.pet_mgr.get_pet_info(pets[0])["stage"], 1)
-        self.assertGreater(self.pet_mgr.get_pet_combat_effects(pets[0])["crit_rate"], 30.0)
+        self.assertGreater(self.pet_mgr.get_pet_combat_effects(pets[0])["crit_rate"], 10.0)
+        self.assertLessEqual(self.pet_mgr.get_pet_combat_effects(pets[0])["crit_rate"], 30.0)
 
         await self.conn.execute("UPDATE player_pets SET level = 40 WHERE id = ?", (pet["id"],))
         await self.conn.commit()
@@ -317,7 +378,8 @@ class TestPetCombat(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(pets[0]["pet_type"], "九尾天狐")
         self.assertEqual(pets[0]["pet_name"], "九尾天狐 1")
         self.assertEqual(self.pet_mgr.get_pet_info(pets[0])["stage"], 2)
-        self.assertGreater(self.pet_mgr.get_pet_combat_effects(pets[0])["crit_rate"], 45.0)
+        self.assertGreater(self.pet_mgr.get_pet_combat_effects(pets[0])["crit_rate"], 20.0)
+        self.assertLessEqual(self.pet_mgr.get_pet_combat_effects(pets[0])["crit_rate"], 30.0)
 
     async def test_overflow_conversion_and_counter_cap(self):
         raw_effects = {
@@ -328,10 +390,10 @@ class TestPetCombat(unittest.IsolatedAsyncioTestCase):
         }
         effects = dict(raw_effects)
         attack_mult = self.CombatManager.normalize_overflow_effects(effects)
-        self.assertAlmostEqual(attack_mult, 1.3)
+        self.assertAlmostEqual(attack_mult, 1.55)
         self.assertAlmostEqual(effects["crit_rate"], 100.0)
         self.assertAlmostEqual(effects["crit_damage"], 1.75)
-        self.assertAlmostEqual(effects["lifesteal"], 100.0)
+        self.assertAlmostEqual(effects["lifesteal"], 50.0)
         self.assertAlmostEqual(effects["counter_damage"], 100.0)
 
         panel = {
@@ -343,9 +405,10 @@ class TestPetCombat(unittest.IsolatedAsyncioTestCase):
         self.CombatManager.apply_pet_lineup(
             panel, None, [], dict(raw_effects), None
         )
-        self.assertEqual(panel["physical_atk"], 1300)
-        self.assertEqual(panel["magic_atk"], 1300)
-        self.assertEqual(panel["atk"], 2600)
+        self.assertEqual(panel["physical_atk"], 1550)
+        self.assertEqual(panel["magic_atk"], 1550)
+        self.assertEqual(panel["atk"], 3100)
+        self.assertEqual(panel["lifesteal"], 50.0)
         self.assertEqual(panel["counter_damage"], 100.0)
 
     async def test_ice_final_stage_is_glacier_beast(self):
@@ -366,7 +429,9 @@ class TestPetCombat(unittest.IsolatedAsyncioTestCase):
         await self.conn.commit()
         pets = await self.pet_mgr.get_pets("u1", apply_regen=False)
         self.assertEqual(pets[0]["pet_type"], "寻宝金鼠")
-        self.assertGreater(await self.pet_mgr.get_life_bonus("u1"), 0.3)
+        bonus = await self.pet_mgr.get_life_bonus("u1")
+        self.assertGreater(bonus, 0.15)
+        self.assertLessEqual(bonus, 0.30)
 
     async def test_feed_crossing_level_20_evolves_for_free(self):
         self.player.cultivation_type = "灵修"

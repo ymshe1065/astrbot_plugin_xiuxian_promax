@@ -6,8 +6,8 @@ import hashlib
 import json
 from typing import Any, Dict, List
 
-HELP_VERSION = "v6.49.0"
-HELP_HEADER = f"📖 修仙指令大全 {HELP_VERSION} (五行功法·五行共鸣·装备扩充)"
+HELP_VERSION = "v6.49.4"
+HELP_HEADER = f"📖 修仙指令大全 {HELP_VERSION} (灵兽平衡·吸血上限50%·符箓次数化)"
 HELP_HINT = "💡 提示：所有指令均可带 / 前缀使用"
 HELP_TITLE = "修仙指令大全"
 HELP_SUBTITLE = f"📖 {HELP_VERSION} · 所有指令均可带 / 前缀使用"
@@ -68,6 +68,7 @@ HELP_SECTIONS: List[Dict[str, Any]] = [
             "/符箓 (8 类共 34 张，含效果与熟练度) /符箓配方 (配方长图)",
             "/制符 <符名> [数量] (符箓师绘制；不带参数领每日护劫符)",
             "/使用符箓 <符名> [数量] (攻击/防御/控制/回复/炼丹/探索/增益/遁术)",
+            "探索符按次数生效：遁地/寻宝/破障/洞天分别 3/3/4/6 次历练或秘境",
             "/符阁 <符箓|符图> (成品符只卖凡/黄；玄品以上买符图自己画)",
             "熟练度决定成功率与额外产出：成功按张数×品阶记点，失败按半计",
             "丹劫按丹药品阶：凡/黄不渡劫；护劫符护盾 ≥ 劫数即保全，一张只挡一次",

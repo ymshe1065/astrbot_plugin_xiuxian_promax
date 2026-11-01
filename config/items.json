@@ -12149,7 +12149,7 @@
         "shop_weight": 200,
         "price": 540,
         "volume": 1,
-        "description": "探索符·凡品，15分钟内生效。",
+        "description": "探索符·凡品，接下来3次历练/秘境生效。",
         "legacy": false
     },
     "10031": {
@@ -12159,7 +12159,7 @@
         "shop_weight": 110,
         "price": 1900,
         "volume": 1,
-        "description": "探索符·黄品，15分钟内生效。",
+        "description": "探索符·黄品，接下来3次历练/秘境生效。",
         "legacy": false
     },
     "10032": {
@@ -12169,7 +12169,7 @@
         "shop_weight": 40,
         "price": 7900,
         "volume": 1,
-        "description": "探索符·玄品，20分钟内生效。",
+        "description": "探索符·玄品，接下来4次历练/秘境生效。",
         "legacy": false
     },
     "10033": {
@@ -12179,7 +12179,7 @@
         "shop_weight": 15,
         "price": 162000,
         "volume": 1,
-        "description": "探索符·圣品，30分钟内生效。",
+        "description": "探索符·圣品，接下来6次历练/秘境生效。",
         "legacy": false
     },
     "10034": {

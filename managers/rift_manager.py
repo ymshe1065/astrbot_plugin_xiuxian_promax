@@ -304,6 +304,7 @@ class RiftManager:
         # 7. 奖励、掉落与清空 CD 必须原子提交，避免结算中断后重复领取
         pet_encounter = None
         pet_msg = ""
+        consumed_talismans: List[Tuple[str, int]] = []
         try:
             await self.db.conn.execute("BEGIN IMMEDIATE")
             if dropped_items:
@@ -338,17 +339,20 @@ class RiftManager:
                 )
             except Exception:
                 pass
-            # 噬金鼠「灵石收益」统一作用于秘境收益
             try:
                 from .pet_manager import PetManager
-                pet_gold_bonus = await PetManager(self.db).get_life_bonus(player.user_id, "gold_bonus")
-                if pet_gold_bonus > 0:
-                    gold_reward = int(gold_reward * (1 + pet_gold_bonus))
+                gold_reward = await PetManager(self.db).apply_gold_bonus(player, gold_reward)
             except Exception:
                 pass
-
             player.experience += exp_reward
             player.gold += gold_reward
+
+            # 探索符按次数生效：本次秘境结算后扣减一次，与耗时无关
+            try:
+                from .talisman_manager import TalismanManager
+                consumed_talismans = TalismanManager.consume_run_charges(player, "rift")
+            except Exception:
+                consumed_talismans = []
             await self.db.update_player(player, commit=False)
 
             # 灵兽奇遇：秘境归来的空槽判定
@@ -370,6 +374,14 @@ class RiftManager:
             await self.db.conn.rollback()
             raise
 
+        talisman_hint = ""
+        if consumed_talismans:
+            lines = [
+                f"🧿 {name}：剩余 {left} 次历练/秘境" if left > 0 else f"🧿 {name}：次数已用尽"
+                for name, left in consumed_talismans
+            ]
+            talisman_hint = "\n" + "\n".join(lines)
+
         msg = f"""
 🌀 探索完成 - {rift_name}
 ━━━━━━━━━━━━━━━
@@ -377,7 +389,7 @@ class RiftManager:
 {event["desc"]}
 
 获得修为：+{exp_reward:,}
-获得灵石：+{gold_reward:,}{item_msg}{pet_msg}
+获得灵石：+{gold_reward:,}{item_msg}{pet_msg}{talisman_hint}
         """.strip()
         
         reward_data = {

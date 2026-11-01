@@ -164,7 +164,10 @@ class RankingManager:
                         player.cultivation_type,
                     )
                     pet_effect_data = dict(pet_effects or {})
-                    if "defense_bonus" not in pet_effect_data:
+                    if (
+                        "defense_bonus" not in pet_effect_data
+                        and "defense_bonus_pct" not in pet_effect_data
+                    ):
                         pet_effect_data["defense_bonus"] = _as_int(pet_def)
                     CombatManager.apply_pet_lineup(
                         combat_panel, None, [], pet_effect_data,

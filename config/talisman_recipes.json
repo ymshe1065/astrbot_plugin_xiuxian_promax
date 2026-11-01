@@ -661,6 +661,7 @@
       "rift_reward_multiplier": 0.25,
       "drop_chance_bonus": 10
     },
+    "uses": 3,
     "duration": 15,
     "price": 540,
     "shop_weight": 200,
@@ -692,6 +693,7 @@
       "rift_reward_multiplier": 0.31,
       "drop_chance_bonus": 13
     },
+    "uses": 3,
     "duration": 15,
     "price": 1900,
     "shop_weight": 110,
@@ -723,6 +725,7 @@
       "rift_reward_multiplier": 0.37,
       "drop_chance_bonus": 16
     },
+    "uses": 4,
     "duration": 20,
     "price": 7900,
     "shop_weight": 40,
@@ -754,6 +757,7 @@
       "rift_reward_multiplier": 0.47,
       "drop_chance_bonus": 21
     },
+    "uses": 6,
     "duration": 30,
     "price": 162000,
     "shop_weight": 15,

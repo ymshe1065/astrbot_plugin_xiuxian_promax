@@ -152,6 +152,22 @@ class TestTalismanRules(unittest.TestCase):
         )
         self.assertEqual(profile["effects"]["physical_defense_multiplier"], 0.33)
         self.assertEqual(profile["duration"], 15)
+        self.assertFalse(profile["run_scoped"])
+
+    def test_exploration_profile_is_run_scoped(self):
+        profile = self.rules.build_profile(
+            "寻宝符", "黄品", "探索",
+            effects={
+                "exploration_reward_multiplier": 0.31,
+                "rift_reward_multiplier": 0.31,
+                "drop_chance_bonus": 13,
+            },
+            duration=15,
+            uses=3,
+        )
+        self.assertTrue(profile["run_scoped"])
+        self.assertEqual(profile["uses"], 3)
+        self.assertEqual(self.rules.uses_from_duration(20), 4)
 
     def test_array_suffix_no_longer_grants_bonus(self):
         base = self.rules.build_profile("寒霜符", "凡品", "控制")

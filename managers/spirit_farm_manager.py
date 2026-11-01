@@ -792,6 +792,11 @@ class SpiritFarmManager:
                 )
             except Exception:
                 pass
+            try:
+                from .pet_manager import PetManager
+                total_gold = await PetManager(self.db).apply_gold_bonus(player, total_gold)
+            except Exception:
+                pass
             player.experience += total_exp
             player.gold += total_gold
             # 只回写收益字段，避免旧快照覆盖当前气血/灵气

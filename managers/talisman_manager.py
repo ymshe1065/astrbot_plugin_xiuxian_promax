@@ -11,6 +11,7 @@ from ..data.data_manager import DataBase
 from ..core.talisman_rules import (
     TIER_POWER, TIER_LEVEL, TIER_GOLD, TIER_PRICE, CATEGORY_KEYWORDS,
     NON_TALISMAN_ITEMS, infer_category, build_profile,
+    RUN_SCOPE_KEYS, is_run_scoped_effects,
     PROFICIENCY_TIERS, proficiency_level, proficiency_success, proficiency_gain,
 )
 from ..rank_rules import normalize_rank, rank_level
@@ -120,6 +121,7 @@ class TalismanManager:
             effects=raw_effects if isinstance(raw_effects, dict) else None,
             duration=recipe.get("duration"),
             description=recipe.get("desc", ""),
+            uses=recipe.get("uses"),
         )
 
     # ===== 配方 =====
@@ -263,9 +265,13 @@ class TalismanManager:
                 count = owned.get(name, 0)
                 can_craft = recipe.get("basic") or recipe.get("legacy") or name in learned
                 tag = "" if can_craft else "（符图未习得）"
+                if profile.get("run_scoped"):
+                    active_text = f"生效{profile['uses']}次历练/秘境"
+                else:
+                    active_text = f"持续{profile['duration']}分钟"
                 lines.append(
                     f"  · {name}（{profile['rank']}，持有{count}）{tag}\n"
-                    f"    {profile['description']}｜持续{profile['duration']}分钟"
+                    f"    {profile['description']}｜{active_text}"
                 )
         prof = self.get_proficiency(player)
         lines.append(
@@ -333,6 +339,7 @@ class TalismanManager:
                 "表中成功率为基础值，实际再叠加符箓师加成与熟练度加成。",
                 "材料按「类别 + 品阶」匹配：灵植 / 矿材 / 妖兽 / 灵液，可从丹阁材料、灵田、历练与秘境获取。",
                 "基础符免符图；标注「需符图」的需在 /符阁 符图 习得后方可绘制。",
+                "探索类符箓按次数生效（如寻宝符 3 次历练/秘境），不受历练/秘境耗时影响。",
                 "格式：符名｜品阶 境界｜灵石｜材料｜成功率。",
                 "/制符 <符名> [数量] 绘制；/使用符箓 <符名> [数量] 使用；/符箓 查看分类与持有数量。",
             ],
@@ -596,18 +603,73 @@ class TalismanManager:
             )
 
         now = int(time.time())
-        duration_minutes = int(profile["duration"]) * count + quality_minutes
-        duration = duration_minutes * 60
-        active = [
-            effect for effect in player.get_active_pill_effects()
-            if effect.get("talisman_name") != name
-        ]
         scaled = {}
         for key, value in effects.items():
             try:
                 scaled[key] = round(float(value) * quality_mult, 4)
             except (TypeError, ValueError):
                 continue
+
+        # 探索/秘境类符箓按次数生效：不写过期时间，改用 remaining_uses 计数，
+        # 保证 30~40 分钟的历练/秘境流程完整吃到加成。
+        if profile.get("run_scoped") and is_run_scoped_effects(effects):
+            base_uses = int(profile.get("uses", 1) or 1)
+            quality_uses = max(0, int(quality_minutes) // 5)
+            added_uses = base_uses * count + quality_uses
+            active = player.get_active_pill_effects()
+            existing = next(
+                (e for e in active if e.get("talisman_name") == name and e.get("remaining_uses") is not None),
+                None,
+            )
+            if existing is not None:
+                existing["remaining_uses"] = int(existing.get("remaining_uses") or 0) + added_uses
+                existing["quality"] = quality_name
+                for key, value in scaled.items():
+                    try:
+                        old = float(existing.get(key, 0) or 0)
+                    except (TypeError, ValueError):
+                        old = 0.0
+                    existing[key] = max(old, value)
+                total_uses = int(existing["remaining_uses"])
+            else:
+                active = [e for e in active if e.get("talisman_name") != name]
+                active.append({
+                    "pill_name": name,
+                    "talisman_name": name,
+                    "source": "talisman",
+                    "subtype": "talisman",
+                    "category": profile["category"],
+                    "quality": quality_name,
+                    "start_time": now,
+                    "expiry_time": 0,
+                    "duration_minutes": 0,
+                    "remaining_uses": added_uses,
+                    "last_tick_time": now,
+                    **scaled,
+                })
+                total_uses = added_uses
+            player.set_active_pill_effects(active)
+            items[name] = have - count
+            if items[name] <= 0:
+                del items[name]
+            player.set_storage_ring_items(items)
+            await self.db.update_player(player)
+            return True, (
+                f"✨ 使用【{name}】x{count} 成功！（{quality_name}）\n"
+                f"━━━━━━━━━━━━━━━\n"
+                f"类别：{profile['category']}\n"
+                f"效果：{profile['description']}\n"
+                f"本次生效：接下来 {added_uses} 次历练/秘境\n"
+                f"剩余次数：{total_uses} 次\n"
+                f"━━━━━━━━━━━━━━━"
+            )
+
+        duration_minutes = int(profile["duration"]) * count + quality_minutes
+        duration = duration_minutes * 60
+        active = [
+            effect for effect in player.get_active_pill_effects()
+            if effect.get("talisman_name") != name
+        ]
         active.append({
             "pill_name": name,
             "talisman_name": name,
@@ -747,10 +809,57 @@ class TalismanManager:
 
     # ===== 跨系统加成 =====
     @staticmethod
+    def consume_run_charges(player: Player, scope: str) -> List[Tuple[str, int]]:
+        """探索/历练结算后消耗一次探索符次数。
+
+        scope 为 ``adventure`` 或 ``rift``，只扣减对该玩法生效的符箓。
+        返回 [(符名, 剩余次数), ...]；剩余 0 次的效果会被移除。
+        """
+        scope_key = RUN_SCOPE_KEYS.get(scope)
+        if not scope_key:
+            return []
+        effects = player.get_active_pill_effects()
+        updated: List[Dict] = []
+        consumed: List[Tuple[str, int]] = []
+        changed = False
+        for effect in effects:
+            if effect.get("source") != "talisman" or effect.get("remaining_uses") is None:
+                updated.append(effect)
+                continue
+            if effect.get(scope_key) is None:
+                updated.append(effect)
+                continue
+            try:
+                left = int(effect.get("remaining_uses") or 0) - 1
+            except (TypeError, ValueError):
+                left = 0
+            changed = True
+            name = str(effect.get("talisman_name") or effect.get("pill_name") or "符箓")
+            if left > 0:
+                effect["remaining_uses"] = left
+                updated.append(effect)
+                consumed.append((name, left))
+            else:
+                consumed.append((name, 0))
+        if changed:
+            player.set_active_pill_effects(updated)
+        return consumed
+
+    @staticmethod
     def iter_active_effects(player: Player) -> Iterator[Dict]:
         now = int(time.time())
         for effect in player.get_active_pill_effects():
             if effect.get("source") != "talisman":
+                continue
+            # 次数制效果只认 remaining_uses，不受持续时间影响
+            remaining_uses = effect.get("remaining_uses")
+            if remaining_uses is not None:
+                try:
+                    if int(remaining_uses) <= 0:
+                        continue
+                except (TypeError, ValueError):
+                    continue
+                yield effect
                 continue
             expiry = effect.get("expiry_time", 0)
             try:

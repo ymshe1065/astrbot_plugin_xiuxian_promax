@@ -305,13 +305,13 @@ class TestCombatDualTrack(unittest.TestCase):
         boosted = dict(base)
         boosted["lifesteal"] = boosted.get("lifesteal", 0) + 150
         panel = cm.build_combat_panel(player, {}, None, config, dict(boosted))
-        self.assertEqual(panel["lifesteal"], 100)
+        self.assertEqual(panel["lifesteal"], 50)
         self.assertGreater(panel["atk"], plain["atk"])
 
         stats = cm.build_player_combat_stats(
             player, config, extra_effects={"lifesteal": 150}, pill_multipliers={}
         )
-        self.assertEqual(stats.effects["lifesteal"], 100)
+        self.assertEqual(stats.effects["lifesteal"], 50)
         self.assertEqual(panel["atk"], stats.atk)
         self.assertEqual(panel["physical_atk"], stats.physical_atk)
         self.assertEqual(panel["magic_atk"], stats.magic_atk)
@@ -338,7 +338,7 @@ class TestCombatDualTrack(unittest.TestCase):
                             '{"key":"lifesteal","value":25}]}',
         )
         effects = cm.collect_combat_effects(player, config)
-        # v6.36.9 起暴击/吸血总量上限为 100，不应再被旧的 50/15 上限截断
+        # 暴击上限 100；吸血自本版起上限 50，未超过上限时原样保留
         self.assertEqual(effects["crit_rate"], 60)
         self.assertEqual(effects["lifesteal"], 25)
 

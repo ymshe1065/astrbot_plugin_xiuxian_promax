@@ -1322,10 +1322,14 @@ class ShopManager:
                 effects=raw_effects if isinstance(raw_effects, dict) else None,
                 duration=recipe.get('duration'),
                 description=recipe.get('desc', ''),
+                uses=recipe.get('uses'),
             )
             details.append(f"类别：{profile['category']}")
             details.append(f"效果：{profile['description']}")
-            details.append(f"持续：{profile['duration']}分钟")
+            if profile.get("run_scoped"):
+                details.append(f"生效：{profile['uses']}次历练/秘境")
+            else:
+                details.append(f"持续：{profile['duration']}分钟")
             required = recipe.get("level_required")
             if required is None:
                 required = data.get("required_level_index")

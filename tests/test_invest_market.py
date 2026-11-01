@@ -344,13 +344,54 @@ class TestInvestMarket(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(int(fee), 20)
 
-    async def test_single_tick_lot_cap(self):
+    async def test_single_tick_lot_cap_removed(self):
+        """单盘单标的买入手数上限已放开：25 手可一次成交。"""
         await self.manager._settle_tick(10)
-        player = await self._player()
+        player = await self._player(gold=1_000_000)
         with self._patch_tick(10):
+            ok, msg = await self.manager.buy_stock(player, "S01", 25)
+        self.assertTrue(ok, msg)
+        rows = await self.manager._holdings_rows("u1")
+        self.assertEqual(int(float(rows[0]["shares"])), 2500)
+
+    async def test_single_tick_lot_cap_still_honored_when_set(self):
+        """把上限调回正数时仍需拦截，便于日后重新收紧。"""
+        await self.manager._settle_tick(10)
+        player = await self._player(gold=1_000_000)
+        module = sys.modules[self.InvestManager.__module__]
+        with mock.patch.object(module, "MAX_LOTS_PER_TICK", 20), self._patch_tick(10):
             ok, msg = await self.manager.buy_stock(player, "S01", 25)
         self.assertFalse(ok)
         self.assertIn("20", msg)
+
+    async def test_position_caps_removed(self):
+        """单只 50 万、总持仓 200 万市值上限已放开：150 手可一次成交。"""
+        await self.manager._settle_tick(10)
+        player = await self._player(gold=3_000_000)
+        price = await self._price("S01")
+        with self._patch_tick(10):
+            ok, msg = await self.manager.buy_stock(player, "S01", 150)
+        self.assertTrue(ok, msg)
+        rows = await self.manager._holdings_rows("u1")
+        self.assertEqual(int(float(rows[0]["shares"])), 15000)
+        # 成交市值必须已越过旧的 50 万单只上限，否则这个用例证明不了放开
+        self.assertGreater(15000 * price, 500_000)
+
+    async def test_position_caps_still_honored_when_set(self):
+        """把两个持仓上限调回正数时仍需拦截，便于日后重新收紧。"""
+        await self.manager._settle_tick(10)
+        player = await self._player(gold=3_000_000)
+        module = sys.modules[self.InvestManager.__module__]
+
+        with mock.patch.object(module, "MAX_POS_PER_STOCK", 500_000), self._patch_tick(10):
+            ok, msg = await self.manager.buy_stock(player, "S01", 150)
+        self.assertFalse(ok)
+        self.assertIn("单只持仓上限", msg)
+
+        with mock.patch.object(module, "MAX_POS_TOTAL", 100), self._patch_tick(10):
+            ok, msg = await self.manager.buy_stock(player, "S01", 1)
+        self.assertFalse(ok)
+        self.assertIn("总持仓上限", msg)
 
     async def test_closed_market_blocks_trade(self):
         await self.manager._settle_tick(10)

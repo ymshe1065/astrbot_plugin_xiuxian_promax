@@ -92,6 +92,16 @@ class PillHandler:
             for effect in active_effects:
                 pill_name = effect.get("pill_name", "未知丹药")
                 import time
+                icon = "🧿" if effect.get("source") == "talisman" else "🌟"
+                remaining_uses = effect.get("remaining_uses")
+                if remaining_uses is not None:
+                    try:
+                        uses = max(0, int(remaining_uses))
+                    except (TypeError, ValueError):
+                        uses = 0
+                    if uses > 0:
+                        effects_display.append(f"{icon} {pill_name} (剩余 {uses} 次历练/秘境)")
+                    continue
                 remaining_seconds = effect.get("expiry_time", 0) - int(time.time())
                 if remaining_seconds > 0:
                     remaining_minutes = remaining_seconds // 60
@@ -103,7 +113,6 @@ class PillHandler:
                     else:
                         time_str = f"{minutes}分钟"
 
-                    icon = "🧿" if effect.get("source") == "talisman" else "🌟"
                     effects_display.append(f"{icon} {pill_name} (剩余: {time_str})")
 
         # 检查回生丹状态

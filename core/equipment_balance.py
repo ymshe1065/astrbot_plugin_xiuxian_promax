@@ -125,7 +125,7 @@ GEAR_EFFECT_CAPS = {
 
 GLOBAL_EFFECT_CAPS = {
     "crit_rate": 100,
-    "lifesteal": 100,
+    "lifesteal": 50,
     "counter_damage": 100,
     "combo_rate": 30,
     "dodge": 20,

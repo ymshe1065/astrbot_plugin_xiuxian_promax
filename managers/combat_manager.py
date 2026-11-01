@@ -94,9 +94,10 @@ class CombatManager:
     # 当前 PvP 为 5 回合气血比例判定，宠物增伤对阈值极敏感，因此上限较低。
     PET_TOTAL_DAMAGE_CAP = 0.015
     PET_SUPPORT_DAMAGE_RATIO = 0.20
-    PET_GUARD_CAP = 0.0
+    # 护主承伤上限：单次伤害最多由灵兽代为承受 20%，避免高护主灵兽完全免疫。
+    PET_GUARD_CAP = 0.20
     CRIT_RATE_CAP = 100.0
-    LIFESTEAL_CAP = 100.0
+    LIFESTEAL_CAP = 50.0
     COUNTER_DAMAGE_CAP = 100.0
 
     @classmethod
@@ -650,7 +651,9 @@ class CombatManager:
         effects["magic_damage_multiplier"] = 1.0
         from ..core.equipment_balance import apply_class_passive_effects
         effects = apply_class_passive_effects(player, effects)
-        return CombatManager.clamp_effects(effects)
+        # 吸血保留到 normalize_overflow_effects 再按 50% 封顶并转换溢出，
+        # 不能在这里提前压到全局上限，否则装备/功法的溢出转换会失效。
+        return CombatManager.clamp_effects(effects, skip=("lifesteal",))
 
     @staticmethod
     def clamp_effects(effects: dict, skip: tuple = ()) -> dict:
@@ -965,6 +968,12 @@ class CombatManager:
             p_def, m_def = total_def // 2, total_def - total_def // 2
 
         effects = pet_effects or {}
+        bonus_pct = float(effects.get("defense_bonus_pct", 0) or 0)
+        if bonus_pct:
+            pct_def = int((p_def + m_def) * max(0.0, bonus_pct))
+            if pct_def:
+                p_def += pct_def // 2
+                m_def += pct_def - pct_def // 2
         bonus_def = int(effects.get("defense_bonus", 0) or 0)
         if bonus_def:
             p_def += bonus_def // 2
@@ -978,6 +987,9 @@ class CombatManager:
         else:
             merged = dict(getattr(stats, "effects", None) or {})
         for key, value in effects.items():
+            if key == "defense_bonus_pct":
+                # 百分比防御已折算进双防，不再写入效果字典。
+                continue
             if isinstance(value, (int, float)):
                 merged[key] = merged.get(key, 0) + value
             else:

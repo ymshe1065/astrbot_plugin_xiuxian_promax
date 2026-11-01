@@ -45,9 +45,9 @@ MAX_BACKFILL_TICKS = 112
 LOT_SIZE = 100
 FEE_RATE = 0.0015
 MIN_FEE = 20
-MAX_LOTS_PER_TICK = 20
-MAX_POS_PER_STOCK = 500_000
-MAX_POS_TOTAL = 2_000_000
+MAX_LOTS_PER_TICK = 0     # 单盘单标的买入手数上限；0 = 不限（仅受灵石余额约束）
+MAX_POS_PER_STOCK = 0     # 单只股票持仓市值上限；0 = 不限（灵石余额仍是硬约束）
+MAX_POS_TOTAL = 0         # 股票总持仓市值上限；0 = 不限
 LOAN_LIMIT_FOR_STOCK = 100_000
 
 # 赎回费阶梯：(持有盘数上限, 费率)，按顺序取第一个满足的
@@ -663,7 +663,7 @@ class InvestManager:
         code = (code or "").strip().upper()
         if lots <= 0:
             return False, "买入手数必须大于 0，1 手 = 100 股。"
-        if lots > MAX_LOTS_PER_TICK:
+        if MAX_LOTS_PER_TICK > 0 and lots > MAX_LOTS_PER_TICK:
             return False, f"单盘单标的最多买入 {MAX_LOTS_PER_TICK} 手，请分盘操作。"
 
         opened, why = self._check_market()
@@ -706,7 +706,7 @@ class InvestManager:
             held = next((r for r in rows if r["code"] == code), None)
             held_shares = float(held["shares"]) if held else 0.0
             new_value = (held_shares + shares) * price
-            if new_value > MAX_POS_PER_STOCK:
+            if MAX_POS_PER_STOCK > 0 and new_value > MAX_POS_PER_STOCK:
                 await self.db.conn.rollback()
                 return False, (
                     f"单只持仓上限 {MAX_POS_PER_STOCK:,} 灵石市值，"
@@ -719,7 +719,7 @@ class InvestManager:
                     if r["kind"] == "stock"
                 ) + shares * price
             )
-            if stock_total > MAX_POS_TOTAL:
+            if MAX_POS_TOTAL > 0 and stock_total > MAX_POS_TOTAL:
                 await self.db.conn.rollback()
                 return False, f"股票总持仓上限 {MAX_POS_TOTAL:,} 灵石市值，本次买入后将超出。"
 

@@ -94,17 +94,27 @@ class PetHandlers:
         lines.append("━━━━━━━━━━━━━━━")
         totals = self.pet_mgr.aggregate_pet_bonuses(pets)
         total_parts = []
-        for key in ("crit_rate", "defense_bonus", "counter_damage", "lifesteal"):
+        for key in ("crit_rate", "defense_bonus_pct", "defense_bonus", "counter_damage", "lifesteal"):
             if totals.get(key):
-                total_parts.append(f"{self.pet_mgr.PET_EFFECT_LABELS.get(key, key)}+{totals[key]:g}")
+                label = self.pet_mgr.PET_EFFECT_LABELS.get(key, key)
+                if key.endswith("_pct"):
+                    total_parts.append(f"{label}+{totals[key]:.1%}")
+                else:
+                    total_parts.append(f"{label}+{totals[key]:g}")
         if totals.get("gold_bonus"):
             total_parts.append(f"灵石收益+{totals['gold_bonus']:.1%}")
         lines.append(f"📈 总加成：{'，'.join(total_parts) if total_parts else '无'}")
+        defense_pct_text = (
+            f"+{totals['defense_bonus_pct']:.1%}" if totals.get("defense_bonus_pct") else ""
+        )
+        defense_flat_text = (
+            f"+{totals['defense_bonus']:g}" if totals.get("defense_bonus") else ""
+        )
         sections.append({
             "name": "总加成",
             "rows": [(label, value) for label, value in [
                 ("暴击率", f"+{totals['crit_rate']:g}" if totals.get("crit_rate") else "—"),
-                ("防御", f"+{totals['defense_bonus']:g}" if totals.get("defense_bonus") else "—"),
+                ("防御", " / ".join(x for x in (defense_pct_text, defense_flat_text) if x) or "—"),
                 ("反伤", f"+{totals['counter_damage']:g}" if totals.get("counter_damage") else "—"),
                 ("吸血", f"+{totals['lifesteal']:g}" if totals.get("lifesteal") else "—"),
                 ("灵石收益", f"+{totals['gold_bonus']:.1%}" if totals.get("gold_bonus") else "—"),

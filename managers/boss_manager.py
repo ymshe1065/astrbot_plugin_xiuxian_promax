@@ -326,6 +326,10 @@ HP：{max_hp}
                 )
             except Exception:
                 pass
+            try:
+                reward = await pet_mgr.apply_gold_bonus(player, reward)
+            except Exception:
+                pass
             player.gold += reward
             
             item_msg = ""
@@ -377,6 +381,10 @@ HP：{battle_result['player_final_hp']}/{player_stats.max_hp}
                     reward = TechniqueBonusManager.apply_gold_bonus(
                         player, reward, self.config_manager
                     )
+                except Exception:
+                    pass
+                try:
+                    reward = await pet_mgr.apply_gold_bonus(player, reward)
                 except Exception:
                     pass
                 player.gold += reward
