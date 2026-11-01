@@ -6,7 +6,7 @@ import json
 import math
 import random
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional, Tuple
 
 from astrbot.api import logger
@@ -183,8 +183,13 @@ class AuctionHouseManager:
         cycle_no = int(last.get("cycle_no") or 0) + 1 if last else 1
 
         # 每日 22:00 开拍；当天已过点则顺延到明天。
+        # 用日历日推进而非固定 +86400，避免夏令时切换当天错位一小时。
         today_start = self._at_hour(self._midnight(now), self.event_start_hour)
-        event_start = today_start if today_start > now + 300 else today_start + 86400
+        if today_start > now + 300:
+            event_start = today_start
+        else:
+            tomorrow = datetime.fromtimestamp(today_start) + timedelta(days=1)
+            event_start = self._at_hour(int(tomorrow.timestamp()), self.event_start_hour)
         cycle_start = self._midnight(event_start)
         announce_day = cycle_start
         announce_start = event_start

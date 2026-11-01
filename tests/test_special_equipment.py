@@ -13,10 +13,10 @@ class TestSpecialEquipment(unittest.TestCase):
         self.cm = _imp("config_manager").ConfigManager(ROOT)
         self.balance = _imp("core.equipment_balance")
         self.Player = _imp("models").Player
-        self.special = {
-            name: cfg for name, cfg in self.cm.items_data.items()
-            if cfg.get("effect_quality_scaling")
-        }
+        # 特殊装备以独立配置文件为准；五行武侠套装另走 elemental_equipment.json。
+        self.special = json.loads(
+            (ROOT / "config" / "special_equipment.json").read_text(encoding="utf-8")
+        )
 
     def test_catalog_has_120_items_and_keeps_lingwen(self):
         self.assertEqual(len(self.special), 120)

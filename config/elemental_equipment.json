@@ -1,0 +1,2326 @@
+{
+  "青锋雁翎刀": {
+    "id": "wx_qingfeng_weapon",
+    "name": "青锋雁翎刀",
+    "type": "武器",
+    "subtype": "武器",
+    "equip_slot": "weapon",
+    "rank": "黄品",
+    "required_level_index": 3,
+    "element": "金",
+    "description": "青锋镖局·刀身轻灵如雁翎，出鞘似寒塘掠影，有几率顺势再补一刀。",
+    "price": 194400,
+    "shop_weight": 0,
+    "drop_weight": 36,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "physical",
+    "legacy": false,
+    "effects": {
+      "extra_attack_chance": 12,
+      "extra_attack_ratio": 32
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "青锋玄色武巾": {
+    "id": "wx_qingfeng_head",
+    "name": "青锋玄色武巾",
+    "type": "防具",
+    "subtype": "头饰",
+    "equip_slot": "head",
+    "rank": "黄品",
+    "required_level_index": 3,
+    "element": "金",
+    "description": "青锋镖局·镖局趟子手标配，束发藏锋，临敌不乱。",
+    "price": 77760,
+    "shop_weight": 0,
+    "drop_weight": 36,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "physical",
+    "legacy": false,
+    "effects": {
+      "crit_rate": 4,
+      "dodge": 1
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "青锋镖师软甲": {
+    "id": "wx_qingfeng_body",
+    "name": "青锋镖师软甲",
+    "type": "防具",
+    "subtype": "甲胄",
+    "equip_slot": "body",
+    "rank": "黄品",
+    "required_level_index": 3,
+    "element": "金",
+    "description": "青锋镖局·粗布夹层暗缝铁片，挨了一记也要还一手。",
+    "price": 136080,
+    "shop_weight": 0,
+    "drop_weight": 36,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "physical",
+    "legacy": false,
+    "effects": {
+      "counter_damage": 6,
+      "status_resist": 6
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "青锋虎口护腕": {
+    "id": "wx_qingfeng_gloves",
+    "name": "青锋虎口护腕",
+    "type": "防具",
+    "subtype": "手套",
+    "equip_slot": "gloves",
+    "rank": "黄品",
+    "required_level_index": 3,
+    "element": "金",
+    "description": "青锋镖局·虎口缠牛皮，握刀不滑，连招更顺。",
+    "price": 77760,
+    "shop_weight": 0,
+    "drop_weight": 36,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "physical",
+    "legacy": false,
+    "effects": {
+      "combo_rate": 6,
+      "combo_extra_hit_ratio": 18
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "青锋踏风快靴": {
+    "id": "wx_qingfeng_boots",
+    "name": "青锋踏风快靴",
+    "type": "防具",
+    "subtype": "靴子",
+    "equip_slot": "boots",
+    "rank": "黄品",
+    "required_level_index": 3,
+    "element": "金",
+    "description": "青锋镖局·鞋底薄而韧，踏瓦无声，走镖逃命两相宜。",
+    "price": 58320,
+    "shop_weight": 0,
+    "drop_weight": 36,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "physical",
+    "legacy": false,
+    "effects": {
+      "dodge": 2,
+      "combo_rate": 3
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "青锋缠丝铁环": {
+    "id": "wx_qingfeng_ring1",
+    "name": "青锋缠丝铁环",
+    "type": "饰品",
+    "subtype": "戒指",
+    "equip_slot": "ring1",
+    "rank": "黄品",
+    "required_level_index": 3,
+    "element": "金",
+    "description": "青锋镖局·镖车铁箍改制，缠丝防滑，戴着不碍手。",
+    "price": 58320,
+    "shop_weight": 0,
+    "drop_weight": 36,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "physical",
+    "legacy": false,
+    "effects": {
+      "extra_attack_chance": 6,
+      "extra_attack_ratio": 14
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "青锋镖师铜环": {
+    "id": "wx_qingfeng_ring2",
+    "name": "青锋镖师铜环",
+    "type": "饰品",
+    "subtype": "戒指",
+    "equip_slot": "ring2",
+    "rank": "黄品",
+    "required_level_index": 3,
+    "element": "金",
+    "description": "青锋镖局·老镖师传下的铜环，见血封喉。",
+    "price": 58320,
+    "shop_weight": 0,
+    "drop_weight": 36,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "physical",
+    "legacy": false,
+    "effects": {
+      "crit_rate": 3,
+      "crit_damage": 0.06
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "青锋平安符": {
+    "id": "wx_qingfeng_amulet",
+    "name": "青锋平安符",
+    "type": "饰品",
+    "subtype": "护符",
+    "equip_slot": "amulet",
+    "rank": "黄品",
+    "required_level_index": 3,
+    "element": "金",
+    "description": "青锋镖局·镖局香火供出的平安符，只求一路顺风。",
+    "price": 58320,
+    "shop_weight": 0,
+    "drop_weight": 36,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "physical",
+    "legacy": false,
+    "effects": {
+      "status_resist": 10,
+      "lifesteal": 3
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "玄水寒渊剑": {
+    "id": "wx_xuanshui_weapon",
+    "name": "玄水寒渊剑",
+    "type": "武器",
+    "subtype": "武器",
+    "equip_slot": "weapon",
+    "rank": "玄品",
+    "required_level_index": 9,
+    "element": "水",
+    "description": "玄水剑庄·剑身如深潭寒铁，中者经脉凝滞，出手渐缓。",
+    "price": 291600,
+    "shop_weight": 0,
+    "drop_weight": 30,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "magic",
+    "legacy": false,
+    "effects": {
+      "frost_chance": 18,
+      "frost_atk_reduction": 12
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "玄水凝玉冠": {
+    "id": "wx_xuanshui_head",
+    "name": "玄水凝玉冠",
+    "type": "防具",
+    "subtype": "头饰",
+    "equip_slot": "head",
+    "rank": "玄品",
+    "required_level_index": 9,
+    "element": "水",
+    "description": "玄水剑庄·寒玉琢成，清心定神，法术运转更纯。",
+    "price": 116640,
+    "shop_weight": 0,
+    "drop_weight": 30,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "magic",
+    "legacy": false,
+    "effects": {
+      "magic_damage_multiplier": 0.05,
+      "status_resist": 10
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "玄水鲛绡袍": {
+    "id": "wx_xuanshui_body",
+    "name": "玄水鲛绡袍",
+    "type": "防具",
+    "subtype": "甲胄",
+    "equip_slot": "body",
+    "rank": "玄品",
+    "required_level_index": 9,
+    "element": "水",
+    "description": "玄水剑庄·鲛绡不沾水，寒气自生，衣袂过处霜华凝结。",
+    "price": 204120,
+    "shop_weight": 0,
+    "drop_weight": 30,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "magic",
+    "legacy": false,
+    "effects": {
+      "freeze_chance": 8,
+      "frost_turns": 3
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "玄水凝霜手": {
+    "id": "wx_xuanshui_gloves",
+    "name": "玄水凝霜手",
+    "type": "防具",
+    "subtype": "手套",
+    "equip_slot": "gloves",
+    "rank": "玄品",
+    "required_level_index": 9,
+    "element": "水",
+    "description": "玄水剑庄·掌心生霜，触敌即滞其步。",
+    "price": 116640,
+    "shop_weight": 0,
+    "drop_weight": 30,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "magic",
+    "legacy": false,
+    "effects": {
+      "frost_chance": 12,
+      "frost_dodge_reduction": 6
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "玄水凌波履": {
+    "id": "wx_xuanshui_boots",
+    "name": "玄水凌波履",
+    "type": "防具",
+    "subtype": "靴子",
+    "equip_slot": "boots",
+    "rank": "玄品",
+    "required_level_index": 9,
+    "element": "水",
+    "description": "玄水剑庄·踏波而行，敌手难捉其踪。",
+    "price": 87480,
+    "shop_weight": 0,
+    "drop_weight": 30,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "magic",
+    "legacy": false,
+    "effects": {
+      "dodge": 3,
+      "frost_dodge_reduction": 5
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "玄水寒玉指环": {
+    "id": "wx_xuanshui_ring1",
+    "name": "玄水寒玉指环",
+    "type": "饰品",
+    "subtype": "戒指",
+    "equip_slot": "ring1",
+    "rank": "玄品",
+    "required_level_index": 9,
+    "element": "水",
+    "description": "玄水剑庄·寒玉戒指，助长水系法术，指间常凝白雾。",
+    "price": 87480,
+    "shop_weight": 0,
+    "drop_weight": 30,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "magic",
+    "legacy": false,
+    "effects": {
+      "magic_damage_multiplier": 0.04,
+      "frost_chance": 6
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "玄水静心戒": {
+    "id": "wx_xuanshui_ring2",
+    "name": "玄水静心戒",
+    "type": "饰品",
+    "subtype": "戒指",
+    "equip_slot": "ring2",
+    "rank": "玄品",
+    "required_level_index": 9,
+    "element": "水",
+    "description": "玄水剑庄·静心凝神，抵御外邪，戒面如一泓秋水。",
+    "price": 87480,
+    "shop_weight": 0,
+    "drop_weight": 30,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "magic",
+    "legacy": false,
+    "effects": {
+      "status_resist": 14,
+      "freeze_chance": 5
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "玄水镇潮佩": {
+    "id": "wx_xuanshui_amulet",
+    "name": "玄水镇潮佩",
+    "type": "饰品",
+    "subtype": "护符",
+    "equip_slot": "amulet",
+    "rank": "玄品",
+    "required_level_index": 9,
+    "element": "水",
+    "description": "玄水剑庄·剑庄镇潮之佩，可压敌锋芒，定一方水气。",
+    "price": 87480,
+    "shop_weight": 0,
+    "drop_weight": 30,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "magic",
+    "legacy": false,
+    "effects": {
+      "freeze_chance": 8,
+      "frost_atk_reduction": 10
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "听雨飞剑": {
+    "id": "wx_tingyu_weapon",
+    "name": "听雨飞剑",
+    "type": "武器",
+    "subtype": "武器",
+    "equip_slot": "weapon",
+    "rank": "地品",
+    "required_level_index": 12,
+    "element": "木",
+    "description": "听雨楼·剑出如雨打芭蕉，点点追魂，防不胜防。",
+    "price": 421200,
+    "shop_weight": 0,
+    "drop_weight": 22,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "hybrid",
+    "legacy": false,
+    "effects": {
+      "crit_rate": 6,
+      "crit_damage": 0.1
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "听雨竹笠": {
+    "id": "wx_tingyu_head",
+    "name": "听雨竹笠",
+    "type": "防具",
+    "subtype": "头饰",
+    "equip_slot": "head",
+    "rank": "地品",
+    "required_level_index": 12,
+    "element": "木",
+    "description": "听雨楼·一蓑烟雨，竹笠压眉，藏形于市便无人识得。",
+    "price": 168480,
+    "shop_weight": 0,
+    "drop_weight": 22,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "hybrid",
+    "legacy": false,
+    "effects": {
+      "dodge": 3,
+      "status_resist": 10
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "听雨夜行衣": {
+    "id": "wx_tingyu_body",
+    "name": "听雨夜行衣",
+    "type": "防具",
+    "subtype": "甲胄",
+    "equip_slot": "body",
+    "rank": "地品",
+    "required_level_index": 12,
+    "element": "木",
+    "description": "听雨楼·夜色为衣，敌招落空便露破绽。",
+    "price": 294840,
+    "shop_weight": 0,
+    "drop_weight": 22,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "hybrid",
+    "legacy": false,
+    "effects": {
+      "dodge": 2,
+      "counter_damage": 6
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "听雨摘叶手": {
+    "id": "wx_tingyu_gloves",
+    "name": "听雨摘叶手",
+    "type": "防具",
+    "subtype": "手套",
+    "equip_slot": "gloves",
+    "rank": "地品",
+    "required_level_index": 12,
+    "element": "木",
+    "description": "听雨楼·摘叶飞花皆可伤人，出手极快。",
+    "price": 168480,
+    "shop_weight": 0,
+    "drop_weight": 22,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "hybrid",
+    "legacy": false,
+    "effects": {
+      "crit_rate": 5,
+      "combo_rate": 5
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "听雨踏萍靴": {
+    "id": "wx_tingyu_boots",
+    "name": "听雨踏萍靴",
+    "type": "防具",
+    "subtype": "靴子",
+    "equip_slot": "boots",
+    "rank": "地品",
+    "required_level_index": 12,
+    "element": "木",
+    "description": "听雨楼·点水踏萍，来去无痕。",
+    "price": 126360,
+    "shop_weight": 0,
+    "drop_weight": 22,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "hybrid",
+    "legacy": false,
+    "effects": {
+      "dodge": 3,
+      "combo_rate": 4
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "听雨落珠环": {
+    "id": "wx_tingyu_ring1",
+    "name": "听雨落珠环",
+    "type": "饰品",
+    "subtype": "戒指",
+    "equip_slot": "ring1",
+    "rank": "地品",
+    "required_level_index": 12,
+    "element": "木",
+    "description": "听雨楼·雨珠落环，声声催命。",
+    "price": 126360,
+    "shop_weight": 0,
+    "drop_weight": 22,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "hybrid",
+    "legacy": false,
+    "effects": {
+      "crit_damage": 0.1,
+      "crit_rate": 3
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "听雨藏锋戒": {
+    "id": "wx_tingyu_ring2",
+    "name": "听雨藏锋戒",
+    "type": "饰品",
+    "subtype": "戒指",
+    "equip_slot": "ring2",
+    "rank": "地品",
+    "required_level_index": 12,
+    "element": "木",
+    "description": "听雨楼·藏锋于指，专破护体真气。",
+    "price": 126360,
+    "shop_weight": 0,
+    "drop_weight": 22,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "hybrid",
+    "legacy": false,
+    "effects": {
+      "armor_penetration": 8,
+      "crit_rate": 3
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "听雨听风佩": {
+    "id": "wx_tingyu_amulet",
+    "name": "听雨听风佩",
+    "type": "饰品",
+    "subtype": "护符",
+    "equip_slot": "amulet",
+    "rank": "地品",
+    "required_level_index": 12,
+    "element": "木",
+    "description": "听雨楼·听风辨位，先发制人。",
+    "price": 126360,
+    "shop_weight": 0,
+    "drop_weight": 22,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "hybrid",
+    "legacy": false,
+    "effects": {
+      "dodge": 2,
+      "crit_rate": 4
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "血刀饮血": {
+    "id": "wx_xuedao_weapon",
+    "name": "血刀饮血",
+    "type": "武器",
+    "subtype": "武器",
+    "equip_slot": "weapon",
+    "rank": "圣品",
+    "required_level_index": 18,
+    "element": "火",
+    "description": "血刀门·刀饮人血，血愈沸而刀愈利。",
+    "price": 1101600,
+    "shop_weight": 0,
+    "drop_weight": 10,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "physical",
+    "legacy": false,
+    "effects": {
+      "lifesteal": 12,
+      "burn_chance": 15
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "血刀赤发箍": {
+    "id": "wx_xuedao_head",
+    "name": "血刀赤发箍",
+    "type": "防具",
+    "subtype": "头饰",
+    "equip_slot": "head",
+    "rank": "圣品",
+    "required_level_index": 18,
+    "element": "火",
+    "description": "血刀门·赤发披散，见血发狂，箍上铜钉映着火光。",
+    "price": 440640,
+    "shop_weight": 0,
+    "drop_weight": 10,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "physical",
+    "legacy": false,
+    "effects": {
+      "crit_rate": 8,
+      "crit_damage": 0.14
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "血刀赤鳞甲": {
+    "id": "wx_xuedao_body",
+    "name": "血刀赤鳞甲",
+    "type": "防具",
+    "subtype": "甲胄",
+    "equip_slot": "body",
+    "rank": "圣品",
+    "required_level_index": 18,
+    "element": "火",
+    "description": "血刀门·鳞甲浸血，越战越勇。",
+    "price": 771120,
+    "shop_weight": 0,
+    "drop_weight": 10,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "physical",
+    "legacy": false,
+    "effects": {
+      "counter_damage": 12,
+      "lifesteal": 8
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "血刀缚魂手": {
+    "id": "wx_xuedao_gloves",
+    "name": "血刀缚魂手",
+    "type": "防具",
+    "subtype": "手套",
+    "equip_slot": "gloves",
+    "rank": "圣品",
+    "required_level_index": 18,
+    "element": "火",
+    "description": "血刀门·掌风带煞，伤口难合，血热如焚。",
+    "price": 440640,
+    "shop_weight": 0,
+    "drop_weight": 10,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "physical",
+    "legacy": false,
+    "effects": {
+      "burn_chance": 14,
+      "burn_damage_pct": 4,
+      "burn_turns": 3
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "血刀踏血靴": {
+    "id": "wx_xuedao_boots",
+    "name": "血刀踏血靴",
+    "type": "防具",
+    "subtype": "靴子",
+    "equip_slot": "boots",
+    "rank": "圣品",
+    "required_level_index": 18,
+    "element": "火",
+    "description": "血刀门·踏血而行，杀意不减。",
+    "price": 330480,
+    "shop_weight": 0,
+    "drop_weight": 10,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "physical",
+    "legacy": false,
+    "effects": {
+      "lifesteal": 8,
+      "dodge": 2
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "血刀嗜血环": {
+    "id": "wx_xuedao_ring1",
+    "name": "血刀嗜血环",
+    "type": "饰品",
+    "subtype": "戒指",
+    "equip_slot": "ring1",
+    "rank": "圣品",
+    "required_level_index": 18,
+    "element": "火",
+    "description": "血刀门·环上血槽未干，渴饮不止。",
+    "price": 330480,
+    "shop_weight": 0,
+    "drop_weight": 10,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "physical",
+    "legacy": false,
+    "effects": {
+      "lifesteal": 10,
+      "crit_rate": 3
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "血刀焚心戒": {
+    "id": "wx_xuedao_ring2",
+    "name": "血刀焚心戒",
+    "type": "饰品",
+    "subtype": "戒指",
+    "equip_slot": "ring2",
+    "rank": "圣品",
+    "required_level_index": 18,
+    "element": "火",
+    "description": "血刀门·焚心之火，断敌疗伤之路。",
+    "price": 330480,
+    "shop_weight": 0,
+    "drop_weight": 10,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "physical",
+    "legacy": false,
+    "effects": {
+      "burn_chance": 12,
+      "burn_heal_reduction": 25
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "血刀血魄符": {
+    "id": "wx_xuedao_amulet",
+    "name": "血刀血魄符",
+    "type": "饰品",
+    "subtype": "护符",
+    "equip_slot": "amulet",
+    "rank": "圣品",
+    "required_level_index": 18,
+    "element": "火",
+    "description": "血刀门·以血为墨，画符护身，煞气自生。",
+    "price": 330480,
+    "shop_weight": 0,
+    "drop_weight": 10,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "physical",
+    "legacy": false,
+    "effects": {
+      "crit_rate": 6,
+      "lifesteal": 6
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "镇岳撼山鞭": {
+    "id": "wx_zhenyue_weapon",
+    "name": "镇岳撼山鞭",
+    "type": "武器",
+    "subtype": "武器",
+    "equip_slot": "weapon",
+    "rank": "仙品",
+    "required_level_index": 32,
+    "element": "土",
+    "description": "镇岳武库·鞭沉如岳，反震之力可裂石。",
+    "price": 7516800,
+    "shop_weight": 0,
+    "drop_weight": 4,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "guardian",
+    "legacy": false,
+    "effects": {
+      "counter_damage": 20,
+      "stun_chance": 10
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "镇岳铁鹞盔": {
+    "id": "wx_zhenyue_head",
+    "name": "镇岳铁鹞盔",
+    "type": "防具",
+    "subtype": "头饰",
+    "equip_slot": "head",
+    "rank": "仙品",
+    "required_level_index": 32,
+    "element": "土",
+    "description": "镇岳武库·铁鹞覆面，风雷不惊。",
+    "price": 3006720,
+    "shop_weight": 0,
+    "drop_weight": 4,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "guardian",
+    "legacy": false,
+    "effects": {
+      "status_resist": 25,
+      "stun_resist_pierce": 25
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "镇岳玄龟重铠": {
+    "id": "wx_zhenyue_body",
+    "name": "镇岳玄龟重铠",
+    "type": "防具",
+    "subtype": "甲胄",
+    "equip_slot": "body",
+    "rank": "仙品",
+    "required_level_index": 32,
+    "element": "土",
+    "description": "镇岳武库·玄龟甲叠打而成，守中藏反，重而不滞。",
+    "price": 5261760,
+    "shop_weight": 0,
+    "drop_weight": 4,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "guardian",
+    "legacy": false,
+    "effects": {
+      "counter_damage": 18,
+      "status_resist": 15
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "镇岳镇山手": {
+    "id": "wx_zhenyue_gloves",
+    "name": "镇岳镇山手",
+    "type": "防具",
+    "subtype": "手套",
+    "equip_slot": "gloves",
+    "rank": "仙品",
+    "required_level_index": 32,
+    "element": "土",
+    "description": "镇岳武库·一掌拍下，护体真气如壳剥落。",
+    "price": 3006720,
+    "shop_weight": 0,
+    "drop_weight": 4,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "guardian",
+    "legacy": false,
+    "effects": {
+      "sunder_chance": 15,
+      "sunder_pct": 6,
+      "sunder_turns": 3
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "镇岳磐石靴": {
+    "id": "wx_zhenyue_boots",
+    "name": "镇岳磐石靴",
+    "type": "防具",
+    "subtype": "靴子",
+    "equip_slot": "boots",
+    "rank": "仙品",
+    "required_level_index": 32,
+    "element": "土",
+    "description": "镇岳武库·立如磐石，撼之不动。",
+    "price": 2255040,
+    "shop_weight": 0,
+    "drop_weight": 4,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "guardian",
+    "legacy": false,
+    "effects": {
+      "status_resist": 18,
+      "counter_damage": 8
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "镇岳山河环": {
+    "id": "wx_zhenyue_ring1",
+    "name": "镇岳山河环",
+    "type": "饰品",
+    "subtype": "戒指",
+    "equip_slot": "ring1",
+    "rank": "仙品",
+    "required_level_index": 32,
+    "element": "土",
+    "description": "镇岳武库·环扣山河，震魄摄魂。",
+    "price": 2255040,
+    "shop_weight": 0,
+    "drop_weight": 4,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "guardian",
+    "legacy": false,
+    "effects": {
+      "stun_chance": 12,
+      "stun_turns": 1
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "镇岳磐心戒": {
+    "id": "wx_zhenyue_ring2",
+    "name": "镇岳磐心戒",
+    "type": "饰品",
+    "subtype": "戒指",
+    "equip_slot": "ring2",
+    "rank": "仙品",
+    "required_level_index": 32,
+    "element": "土",
+    "description": "镇岳武库·磐心守一，万邪不侵。",
+    "price": 2255040,
+    "shop_weight": 0,
+    "drop_weight": 4,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "guardian",
+    "legacy": false,
+    "effects": {
+      "status_resist": 20,
+      "stun_resist_pierce": 20
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "镇岳社稷佩": {
+    "id": "wx_zhenyue_amulet",
+    "name": "镇岳社稷佩",
+    "type": "饰品",
+    "subtype": "护符",
+    "equip_slot": "amulet",
+    "rank": "仙品",
+    "required_level_index": 32,
+    "element": "土",
+    "description": "镇岳武库·社稷在身，负重前行，反手自有雷霆。",
+    "price": 2255040,
+    "shop_weight": 0,
+    "drop_weight": 4,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "guardian",
+    "legacy": false,
+    "effects": {
+      "counter_damage": 12,
+      "lifesteal": 6
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "太白分光剑": {
+    "id": "el_taibai_weapon",
+    "name": "太白分光剑",
+    "type": "武器",
+    "subtype": "武器",
+    "equip_slot": "weapon",
+    "rank": "灵品",
+    "required_level_index": 10,
+    "element": "金",
+    "description": "太白兵库·剑分流光，专破护体真气。",
+    "price": 302400,
+    "shop_weight": 0,
+    "drop_weight": 26,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "physical",
+    "legacy": false,
+    "effects": {
+      "crit_rate": 7,
+      "armor_penetration": 10
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "太白金翎冠": {
+    "id": "el_taibai_head",
+    "name": "太白金翎冠",
+    "type": "防具",
+    "subtype": "头饰",
+    "equip_slot": "head",
+    "rank": "灵品",
+    "required_level_index": 10,
+    "element": "金",
+    "description": "太白兵库·金翎束发，出剑更快更狠。",
+    "price": 120960,
+    "shop_weight": 0,
+    "drop_weight": 26,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "physical",
+    "legacy": false,
+    "effects": {
+      "crit_damage": 0.12,
+      "crit_rate": 3
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "太白玄金甲": {
+    "id": "el_taibai_body",
+    "name": "太白玄金甲",
+    "type": "防具",
+    "subtype": "甲胄",
+    "equip_slot": "body",
+    "rank": "灵品",
+    "required_level_index": 10,
+    "element": "金",
+    "description": "太白兵库·玄金叠片，守中带刺。",
+    "price": 211680,
+    "shop_weight": 0,
+    "drop_weight": 26,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "physical",
+    "legacy": false,
+    "effects": {
+      "counter_damage": 8,
+      "status_resist": 8
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "太白断锋手": {
+    "id": "el_taibai_gloves",
+    "name": "太白断锋手",
+    "type": "防具",
+    "subtype": "手套",
+    "equip_slot": "gloves",
+    "rank": "灵品",
+    "required_level_index": 10,
+    "element": "金",
+    "description": "太白兵库·五指如钩，专拿兵刃破绽。",
+    "price": 120960,
+    "shop_weight": 0,
+    "drop_weight": 26,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "physical",
+    "legacy": false,
+    "effects": {
+      "armor_penetration": 8,
+      "sunder_chance": 10,
+      "sunder_pct": 4,
+      "sunder_turns": 3
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "太白逐风靴": {
+    "id": "el_taibai_boots",
+    "name": "太白逐风靴",
+    "type": "防具",
+    "subtype": "靴子",
+    "equip_slot": "boots",
+    "rank": "灵品",
+    "required_level_index": 10,
+    "element": "金",
+    "description": "太白兵库·踏风追影，连招不绝。",
+    "price": 90720,
+    "shop_weight": 0,
+    "drop_weight": 26,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "physical",
+    "legacy": false,
+    "effects": {
+      "dodge": 2,
+      "combo_rate": 4
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "太白庚金环": {
+    "id": "el_taibai_ring1",
+    "name": "太白庚金环",
+    "type": "饰品",
+    "subtype": "戒指",
+    "equip_slot": "ring1",
+    "rank": "灵品",
+    "required_level_index": 10,
+    "element": "金",
+    "description": "太白兵库·庚金铸环，锐气内敛。",
+    "price": 90720,
+    "shop_weight": 0,
+    "drop_weight": 26,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "physical",
+    "legacy": false,
+    "effects": {
+      "crit_rate": 4,
+      "armor_penetration": 6
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "太白藏锐戒": {
+    "id": "el_taibai_ring2",
+    "name": "太白藏锐戒",
+    "type": "饰品",
+    "subtype": "戒指",
+    "equip_slot": "ring2",
+    "rank": "灵品",
+    "required_level_index": 10,
+    "element": "金",
+    "description": "太白兵库·藏锐于指，一击见血。",
+    "price": 90720,
+    "shop_weight": 0,
+    "drop_weight": 26,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "physical",
+    "legacy": false,
+    "effects": {
+      "crit_damage": 0.1,
+      "crit_rate": 3
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "太白兵符": {
+    "id": "el_taibai_amulet",
+    "name": "太白兵符",
+    "type": "饰品",
+    "subtype": "护符",
+    "equip_slot": "amulet",
+    "rank": "灵品",
+    "required_level_index": 10,
+    "element": "金",
+    "description": "太白兵库·兵符在身，破甲如纸。",
+    "price": 90720,
+    "shop_weight": 0,
+    "drop_weight": 26,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "physical",
+    "legacy": false,
+    "effects": {
+      "armor_penetration": 7,
+      "crit_rate": 3
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "青囊回春杖": {
+    "id": "el_qingnang_weapon",
+    "name": "青囊回春杖",
+    "type": "武器",
+    "subtype": "武器",
+    "equip_slot": "weapon",
+    "rank": "天品",
+    "required_level_index": 13,
+    "element": "木",
+    "description": "青囊药庐·杖头青囊不枯，伤敌亦养己。",
+    "price": 486000,
+    "shop_weight": 0,
+    "drop_weight": 18,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "magic",
+    "legacy": false,
+    "effects": {
+      "lifesteal": 10,
+      "status_resist": 8
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "青囊百草冠": {
+    "id": "el_qingnang_head",
+    "name": "青囊百草冠",
+    "type": "防具",
+    "subtype": "头饰",
+    "equip_slot": "head",
+    "rank": "天品",
+    "required_level_index": 13,
+    "element": "木",
+    "description": "青囊药庐·百草编冠，百毒不侵。",
+    "price": 194400,
+    "shop_weight": 0,
+    "drop_weight": 18,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "magic",
+    "legacy": false,
+    "effects": {
+      "status_resist": 12,
+      "lifesteal": 4
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "青囊木灵袍": {
+    "id": "el_qingnang_body",
+    "name": "青囊木灵袍",
+    "type": "防具",
+    "subtype": "甲胄",
+    "equip_slot": "body",
+    "rank": "天品",
+    "required_level_index": 13,
+    "element": "木",
+    "description": "青囊药庐·木灵缠身，血气自回。",
+    "price": 340200,
+    "shop_weight": 0,
+    "drop_weight": 18,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "magic",
+    "legacy": false,
+    "effects": {
+      "lifesteal": 8,
+      "counter_damage": 6
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "青囊采药手": {
+    "id": "el_qingnang_gloves",
+    "name": "青囊采药手",
+    "type": "防具",
+    "subtype": "手套",
+    "equip_slot": "gloves",
+    "rank": "天品",
+    "required_level_index": 13,
+    "element": "木",
+    "description": "青囊药庐·采药如点穴，出手轻快。",
+    "price": 194400,
+    "shop_weight": 0,
+    "drop_weight": 18,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "magic",
+    "legacy": false,
+    "effects": {
+      "combo_rate": 5,
+      "lifesteal": 5
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "青囊踏青履": {
+    "id": "el_qingnang_boots",
+    "name": "青囊踏青履",
+    "type": "防具",
+    "subtype": "靴子",
+    "equip_slot": "boots",
+    "rank": "天品",
+    "required_level_index": 13,
+    "element": "木",
+    "description": "青囊药庐·踏青而行，瘴气难近。",
+    "price": 145800,
+    "shop_weight": 0,
+    "drop_weight": 18,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "magic",
+    "legacy": false,
+    "effects": {
+      "dodge": 3,
+      "status_resist": 8
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "青囊长生环": {
+    "id": "el_qingnang_ring1",
+    "name": "青囊长生环",
+    "type": "饰品",
+    "subtype": "戒指",
+    "equip_slot": "ring1",
+    "rank": "天品",
+    "required_level_index": 13,
+    "element": "木",
+    "description": "青囊药庐·环生青纹，生生不息。",
+    "price": 145800,
+    "shop_weight": 0,
+    "drop_weight": 18,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "magic",
+    "legacy": false,
+    "effects": {
+      "lifesteal": 8
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "青囊续命戒": {
+    "id": "el_qingnang_ring2",
+    "name": "青囊续命戒",
+    "type": "饰品",
+    "subtype": "戒指",
+    "equip_slot": "ring2",
+    "rank": "天品",
+    "required_level_index": 13,
+    "element": "木",
+    "description": "青囊药庐·续命一线，留得青山。",
+    "price": 145800,
+    "shop_weight": 0,
+    "drop_weight": 18,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "magic",
+    "legacy": false,
+    "effects": {
+      "status_resist": 12,
+      "lifesteal": 4
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "青囊药王佩": {
+    "id": "el_qingnang_amulet",
+    "name": "青囊药王佩",
+    "type": "饰品",
+    "subtype": "护符",
+    "equip_slot": "amulet",
+    "rank": "天品",
+    "required_level_index": 13,
+    "element": "木",
+    "description": "青囊药庐·药王遗佩，护住心脉。",
+    "price": 145800,
+    "shop_weight": 0,
+    "drop_weight": 18,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "magic",
+    "legacy": false,
+    "effects": {
+      "lifesteal": 6,
+      "status_resist": 10
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "北冥寒潮剑": {
+    "id": "el_beiming_weapon",
+    "name": "北冥寒潮剑",
+    "type": "武器",
+    "subtype": "武器",
+    "equip_slot": "weapon",
+    "rank": "皇品",
+    "required_level_index": 16,
+    "element": "水",
+    "description": "北冥海阁·剑引寒潮，中者经脉凝滞。",
+    "price": 777600,
+    "shop_weight": 0,
+    "drop_weight": 14,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "magic",
+    "legacy": false,
+    "effects": {
+      "frost_chance": 20,
+      "frost_atk_reduction": 15
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "北冥玄冰冠": {
+    "id": "el_beiming_head",
+    "name": "北冥玄冰冠",
+    "type": "防具",
+    "subtype": "头饰",
+    "equip_slot": "head",
+    "rank": "皇品",
+    "required_level_index": 16,
+    "element": "水",
+    "description": "北冥海阁·玄冰为冠，神念清明。",
+    "price": 311040,
+    "shop_weight": 0,
+    "drop_weight": 14,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "magic",
+    "legacy": false,
+    "effects": {
+      "magic_damage_multiplier": 0.05,
+      "status_resist": 12
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "北冥鲛绡袍": {
+    "id": "el_beiming_body",
+    "name": "北冥鲛绡袍",
+    "type": "防具",
+    "subtype": "甲胄",
+    "equip_slot": "body",
+    "rank": "皇品",
+    "required_level_index": 16,
+    "element": "水",
+    "description": "北冥海阁·鲛绡生寒，霜华不散。",
+    "price": 544320,
+    "shop_weight": 0,
+    "drop_weight": 14,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "magic",
+    "legacy": false,
+    "effects": {
+      "freeze_chance": 10,
+      "frost_turns": 4
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "北冥凝霜手": {
+    "id": "el_beiming_gloves",
+    "name": "北冥凝霜手",
+    "type": "防具",
+    "subtype": "手套",
+    "equip_slot": "gloves",
+    "rank": "皇品",
+    "required_level_index": 16,
+    "element": "水",
+    "description": "北冥海阁·掌覆寒霜，触敌滞步。",
+    "price": 311040,
+    "shop_weight": 0,
+    "drop_weight": 14,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "magic",
+    "legacy": false,
+    "effects": {
+      "frost_chance": 14,
+      "frost_dodge_reduction": 8
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "北冥踏浪履": {
+    "id": "el_beiming_boots",
+    "name": "北冥踏浪履",
+    "type": "防具",
+    "subtype": "靴子",
+    "equip_slot": "boots",
+    "rank": "皇品",
+    "required_level_index": 16,
+    "element": "水",
+    "description": "北冥海阁·踏浪无痕，寒潮随身。",
+    "price": 233280,
+    "shop_weight": 0,
+    "drop_weight": 14,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "magic",
+    "legacy": false,
+    "effects": {
+      "dodge": 4,
+      "frost_chance": 6
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "北冥寒魄环": {
+    "id": "el_beiming_ring1",
+    "name": "北冥寒魄环",
+    "type": "饰品",
+    "subtype": "戒指",
+    "equip_slot": "ring1",
+    "rank": "皇品",
+    "required_level_index": 16,
+    "element": "水",
+    "description": "北冥海阁·寒魄凝环，锁敌神魂。",
+    "price": 233280,
+    "shop_weight": 0,
+    "drop_weight": 14,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "magic",
+    "legacy": false,
+    "effects": {
+      "frost_chance": 10,
+      "freeze_chance": 5
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "北冥静潮戒": {
+    "id": "el_beiming_ring2",
+    "name": "北冥静潮戒",
+    "type": "饰品",
+    "subtype": "戒指",
+    "equip_slot": "ring2",
+    "rank": "皇品",
+    "required_level_index": 16,
+    "element": "水",
+    "description": "北冥海阁·静潮守心，万念不惊。",
+    "price": 233280,
+    "shop_weight": 0,
+    "drop_weight": 14,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "magic",
+    "legacy": false,
+    "effects": {
+      "status_resist": 16,
+      "freeze_chance": 6
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "北冥镇海佩": {
+    "id": "el_beiming_amulet",
+    "name": "北冥镇海佩",
+    "type": "饰品",
+    "subtype": "护符",
+    "equip_slot": "amulet",
+    "rank": "皇品",
+    "required_level_index": 16,
+    "element": "水",
+    "description": "北冥海阁·镇海之佩，压尽狂澜。",
+    "price": 233280,
+    "shop_weight": 0,
+    "drop_weight": 14,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "magic",
+    "legacy": false,
+    "effects": {
+      "freeze_chance": 10,
+      "frost_atk_reduction": 12
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "焚天赤霄刀": {
+    "id": "el_fentian_weapon",
+    "name": "焚天赤霄刀",
+    "type": "武器",
+    "subtype": "武器",
+    "equip_slot": "weapon",
+    "rank": "帝品",
+    "required_level_index": 22,
+    "element": "火",
+    "description": "焚天熔殿·刀锋赤霄，见血即燃。",
+    "price": 1944000,
+    "shop_weight": 0,
+    "drop_weight": 8,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "physical",
+    "legacy": false,
+    "effects": {
+      "burn_chance": 22,
+      "burn_damage_pct": 7
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "焚天赤焰冠": {
+    "id": "el_fentian_head",
+    "name": "焚天赤焰冠",
+    "type": "防具",
+    "subtype": "头饰",
+    "equip_slot": "head",
+    "rank": "帝品",
+    "required_level_index": 22,
+    "element": "火",
+    "description": "焚天熔殿·赤焰冲冠，战意如焚。",
+    "price": 777600,
+    "shop_weight": 0,
+    "drop_weight": 8,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "physical",
+    "legacy": false,
+    "effects": {
+      "crit_rate": 9,
+      "burn_chance": 8
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "焚天熔鳞甲": {
+    "id": "el_fentian_body",
+    "name": "焚天熔鳞甲",
+    "type": "防具",
+    "subtype": "甲胄",
+    "equip_slot": "body",
+    "rank": "帝品",
+    "required_level_index": 22,
+    "element": "火",
+    "description": "焚天熔殿·熔鳞护体，触之灼手。",
+    "price": 1360800,
+    "shop_weight": 0,
+    "drop_weight": 8,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "physical",
+    "legacy": false,
+    "effects": {
+      "counter_damage": 14,
+      "burn_chance": 8
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "焚天炎狱手": {
+    "id": "el_fentian_gloves",
+    "name": "焚天炎狱手",
+    "type": "防具",
+    "subtype": "手套",
+    "equip_slot": "gloves",
+    "rank": "帝品",
+    "required_level_index": 22,
+    "element": "火",
+    "description": "焚天熔殿·炎狱覆手，伤口难合。",
+    "price": 777600,
+    "shop_weight": 0,
+    "drop_weight": 8,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "physical",
+    "legacy": false,
+    "effects": {
+      "burn_chance": 16,
+      "burn_heal_reduction": 30
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "焚天踏火靴": {
+    "id": "el_fentian_boots",
+    "name": "焚天踏火靴",
+    "type": "防具",
+    "subtype": "靴子",
+    "equip_slot": "boots",
+    "rank": "帝品",
+    "required_level_index": 22,
+    "element": "火",
+    "description": "焚天熔殿·踏火而行，焚尽退路。",
+    "price": 583200,
+    "shop_weight": 0,
+    "drop_weight": 8,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "physical",
+    "legacy": false,
+    "effects": {
+      "dodge": 3,
+      "burn_chance": 8
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "焚天业火环": {
+    "id": "el_fentian_ring1",
+    "name": "焚天业火环",
+    "type": "饰品",
+    "subtype": "戒指",
+    "equip_slot": "ring1",
+    "rank": "帝品",
+    "required_level_index": 22,
+    "element": "火",
+    "description": "焚天熔殿·业火缠环，焚而不熄。",
+    "price": 583200,
+    "shop_weight": 0,
+    "drop_weight": 8,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "physical",
+    "legacy": false,
+    "effects": {
+      "burn_chance": 12,
+      "burn_damage_pct": 4
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "焚天燎原戒": {
+    "id": "el_fentian_ring2",
+    "name": "焚天燎原戒",
+    "type": "饰品",
+    "subtype": "戒指",
+    "equip_slot": "ring2",
+    "rank": "帝品",
+    "required_level_index": 22,
+    "element": "火",
+    "description": "焚天熔殿·一点火星，可燎原野。",
+    "price": 583200,
+    "shop_weight": 0,
+    "drop_weight": 8,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "physical",
+    "legacy": false,
+    "effects": {
+      "burn_chance": 12,
+      "burn_turns": 4
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "焚天火魄符": {
+    "id": "el_fentian_amulet",
+    "name": "焚天火魄符",
+    "type": "饰品",
+    "subtype": "护符",
+    "equip_slot": "amulet",
+    "rank": "帝品",
+    "required_level_index": 22,
+    "element": "火",
+    "description": "焚天熔殿·火魄为符，护身亦焚敌。",
+    "price": 583200,
+    "shop_weight": 0,
+    "drop_weight": 8,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "physical",
+    "legacy": false,
+    "effects": {
+      "burn_chance": 10,
+      "crit_rate": 5
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "厚土镇魂鞭": {
+    "id": "el_houtu_weapon",
+    "name": "厚土镇魂鞭",
+    "type": "武器",
+    "subtype": "武器",
+    "equip_slot": "weapon",
+    "rank": "道品",
+    "required_level_index": 28,
+    "element": "土",
+    "description": "厚土黄陵·鞭沉如岳，反震裂石。",
+    "price": 4860000,
+    "shop_weight": 0,
+    "drop_weight": 6,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "guardian",
+    "legacy": false,
+    "effects": {
+      "counter_damage": 20,
+      "stun_chance": 10
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "厚土玄龟盔": {
+    "id": "el_houtu_head",
+    "name": "厚土玄龟盔",
+    "type": "防具",
+    "subtype": "头饰",
+    "equip_slot": "head",
+    "rank": "道品",
+    "required_level_index": 28,
+    "element": "土",
+    "description": "厚土黄陵·玄龟覆面，风雷不惊。",
+    "price": 1944000,
+    "shop_weight": 0,
+    "drop_weight": 6,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "guardian",
+    "legacy": false,
+    "effects": {
+      "status_resist": 28,
+      "stun_resist_pierce": 25
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "厚土息壤甲": {
+    "id": "el_houtu_body",
+    "name": "厚土息壤甲",
+    "type": "防具",
+    "subtype": "甲胄",
+    "equip_slot": "body",
+    "rank": "道品",
+    "required_level_index": 28,
+    "element": "土",
+    "description": "厚土黄陵·息壤叠甲，守中藏反。",
+    "price": 3402000,
+    "shop_weight": 0,
+    "drop_weight": 6,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "guardian",
+    "legacy": false,
+    "effects": {
+      "counter_damage": 18,
+      "status_resist": 18
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "厚土镇岳手": {
+    "id": "el_houtu_gloves",
+    "name": "厚土镇岳手",
+    "type": "防具",
+    "subtype": "手套",
+    "equip_slot": "gloves",
+    "rank": "道品",
+    "required_level_index": 28,
+    "element": "土",
+    "description": "厚土黄陵·一掌落下，护体如壳剥落。",
+    "price": 1944000,
+    "shop_weight": 0,
+    "drop_weight": 6,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "guardian",
+    "legacy": false,
+    "effects": {
+      "sunder_chance": 18,
+      "sunder_pct": 7,
+      "sunder_turns": 3
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "厚土磐基靴": {
+    "id": "el_houtu_boots",
+    "name": "厚土磐基靴",
+    "type": "防具",
+    "subtype": "靴子",
+    "equip_slot": "boots",
+    "rank": "道品",
+    "required_level_index": 28,
+    "element": "土",
+    "description": "厚土黄陵·立如磐基，撼之不动。",
+    "price": 1458000,
+    "shop_weight": 0,
+    "drop_weight": 6,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "guardian",
+    "legacy": false,
+    "effects": {
+      "status_resist": 20,
+      "counter_damage": 8
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "厚土山河环": {
+    "id": "el_houtu_ring1",
+    "name": "厚土山河环",
+    "type": "饰品",
+    "subtype": "戒指",
+    "equip_slot": "ring1",
+    "rank": "道品",
+    "required_level_index": 28,
+    "element": "土",
+    "description": "厚土黄陵·环扣山河，震魄摄魂。",
+    "price": 1458000,
+    "shop_weight": 0,
+    "drop_weight": 6,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "guardian",
+    "legacy": false,
+    "effects": {
+      "stun_chance": 14,
+      "stun_turns": 1
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "厚土承天戒": {
+    "id": "el_houtu_ring2",
+    "name": "厚土承天戒",
+    "type": "饰品",
+    "subtype": "戒指",
+    "equip_slot": "ring2",
+    "rank": "道品",
+    "required_level_index": 28,
+    "element": "土",
+    "description": "厚土黄陵·承天守一，万邪不侵。",
+    "price": 1458000,
+    "shop_weight": 0,
+    "drop_weight": 6,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "guardian",
+    "legacy": false,
+    "effects": {
+      "status_resist": 22,
+      "stun_resist_pierce": 22
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  },
+  "厚土社稷佩": {
+    "id": "el_houtu_amulet",
+    "name": "厚土社稷佩",
+    "type": "饰品",
+    "subtype": "护符",
+    "equip_slot": "amulet",
+    "rank": "道品",
+    "required_level_index": 28,
+    "element": "土",
+    "description": "厚土黄陵·社稷在身，反手雷霆。",
+    "price": 1458000,
+    "shop_weight": 0,
+    "drop_weight": 6,
+    "volume": 1,
+    "balance_version": 2,
+    "profile": "guardian",
+    "legacy": false,
+    "effects": {
+      "counter_damage": 14,
+      "lifesteal": 6
+    },
+    "source_tags": [
+      "treasure",
+      "rift",
+      "adventure",
+      "auction",
+      "black_market"
+    ]
+  }
+}

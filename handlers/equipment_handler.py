@@ -262,9 +262,20 @@ class EquipmentHandler:
 
         gear = self.equipment_manager.get_gear_slots(player)
         gear_rows = [(ItemRules.SLOT_LABELS[slot], equipped_label(slot, name)) for slot, (name, _) in gear.items()]
+        from ..core.element_resonance import ElementResonance
+        resonance = ElementResonance.compute(player, self.config_manager)
+        resonance_desc = ElementResonance.describe(resonance)
+        resonance_bonus = ElementResonance.bonus_text(resonance)
+        resonance_text = resonance_desc + (f"（{resonance_bonus}）" if resonance_bonus else "")
+        resonance_card_rows = []
+        if resonance.get("main_element"):
+            resonance_card_rows.append(("五行共鸣", resonance_desc))
+            if resonance_bonus:
+                resonance_card_rows.append(("共鸣加成", resonance_bonus))
         equipment_lines = [f"=== {display_name} 的装备 ===\n"]
         equipment_lines.extend(f"【{label}】{name}\n" for label, name in gear_rows)
         equipment_lines.append(f"【主修心法】{player.main_technique or '未装备'}\n")
+        equipment_lines.append(f"【五行共鸣】{resonance_text}\n")
         equipment_lines.append("\n--- 单件加成 ---\n")
         for slot, (slot_name, slot_inst) in gear.items():
             label = ItemRules.SLOT_LABELS[slot]
@@ -364,6 +375,8 @@ class EquipmentHandler:
                 if element_of(player.main_technique) or element_of(player.weapon):
                     equip_rows.append(("五行属性",
                         element_of(player.main_technique) or element_of(player.weapon)))
+                if resonance.get("main_element"):
+                    equip_rows.extend(resonance_card_rows)
                 tech_lines = [f"{i}. {line}" for i, line in enumerate(technique_entries, 1)] or ["未装备"]
                 single_bonus_lines = []
                 for slot, (slot_name, slot_inst) in gear.items():

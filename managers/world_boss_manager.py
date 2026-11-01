@@ -533,23 +533,11 @@ class WorldBossManager:
         )
 
     def player_element(self, player: Player) -> str:
-        from .combat_manager import CombatManager
-        cm = CombatManager()
+        from ..core.element_resonance import ElementResonance
         try:
-            if self.config_manager and hasattr(self.config_manager, "get_item_element"):
-                element = (
-                    self.config_manager.get_item_element(player.main_technique)
-                    or self.config_manager.get_item_element(player.weapon)
-                )
-                if element:
-                    return element
+            return ElementResonance.resolve_main_element(player, self.config_manager)
         except Exception:
-            pass
-        return (
-            cm.get_element_from_name(player.main_technique)
-            or cm.get_element_from_name(player.weapon)
-            or ""
-        )
+            return ""
 
     async def calculate_realtime_components(self, player: Player) -> tuple:
         """返回 (物攻, 法攻, 总攻击)；灵兽协战按物理攻击计入。"""
