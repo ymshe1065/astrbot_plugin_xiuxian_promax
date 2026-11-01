@@ -45,7 +45,7 @@ MAX_BACKFILL_TICKS = 112
 LOT_SIZE = 100
 FEE_RATE = 0.0015
 MIN_FEE = 20
-MAX_LOTS_PER_TICK = 20
+MAX_LOTS_PER_TICK = 0     # 单盘单标的买入手数上限；0 = 不限（金额与持仓上限仍生效）
 MAX_POS_PER_STOCK = 500_000
 MAX_POS_TOTAL = 2_000_000
 LOAN_LIMIT_FOR_STOCK = 100_000
@@ -663,7 +663,7 @@ class InvestManager:
         code = (code or "").strip().upper()
         if lots <= 0:
             return False, "买入手数必须大于 0，1 手 = 100 股。"
-        if lots > MAX_LOTS_PER_TICK:
+        if MAX_LOTS_PER_TICK > 0 and lots > MAX_LOTS_PER_TICK:
             return False, f"单盘单标的最多买入 {MAX_LOTS_PER_TICK} 手，请分盘操作。"
 
         opened, why = self._check_market()

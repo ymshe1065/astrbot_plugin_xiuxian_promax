@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v6.49.0 (五行功法 · 装备扩充)
+# AstrBot 插件：模拟修仙 v6.49.1 (五行功法 · 装备扩充 · 仙市手数放开)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v6.49.0-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v6.49.1-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.33.0 · **游戏版本:** v6.49.0 · **数据库:** v57
+> **插件版本:** v3.33.1 · **游戏版本:** v6.49.1 · **数据库:** v57
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，233 条帮助指令 / 233 条注册指令、16 个大系统、110 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,7 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · v6.49.0（五行功法 · 装备扩充）</b></summary>
+<summary><b>本次更新 · v6.49.1（五行功法 · 装备扩充 · 仙市手数放开）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |
@@ -62,7 +62,8 @@
 | Boss 反伤 | 补全 `player_vs_boss` 的反伤结算：Boss 的反伤会反弹给玩家，玩家的反伤也会反弹给 Boss，且可正常触发击杀与胜负判定。 |
 | 面板一致 | 展示面板 `build_combat_panel` 补上五行共鸣，与实战 `build_player_combat_stats` 的双攻/双防/气血加成保持同一口径。 |
 | 排期修复 | 拍卖会跨日排期改用日历日推进，修复夏令时切换当天开拍时间提前一小时的问题。 |
-| 版本同步 | 插件版本 v3.33.0，游戏版本 v6.49.0，数据库 v57；`/修仙帮助` 同步至 v6.49.0。 |
+| 仙市手数 | 取消「单盘单标的 20 手」限购：`MAX_LOTS_PER_TICK` 改为 0 表示不限，`/买入股` 可一次买入任意手数；灵石余额、单只 50 万与总持仓 200 万市值上限照旧生效。 |
+| 版本同步 | 插件版本 v3.33.1，游戏版本 v6.49.1，数据库 v57；`/修仙帮助` 同步至 v6.49.1。 |
 
 </details>
 
