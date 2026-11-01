@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v6.49.1 (五行功法 · 装备扩充 · 仙市手数放开)
+# AstrBot 插件：模拟修仙 v6.49.2 (五行功法 · 装备扩充 · 仙市不限量)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v6.49.1-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v6.49.2-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.33.1 · **游戏版本:** v6.49.1 · **数据库:** v57
+> **插件版本:** v3.33.2 · **游戏版本:** v6.49.2 · **数据库:** v57
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，233 条帮助指令 / 233 条注册指令、16 个大系统、110 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,7 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · v6.49.1（五行功法 · 装备扩充 · 仙市手数放开）</b></summary>
+<summary><b>本次更新 · v6.49.2（五行功法 · 装备扩充 · 仙市不限量）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |
@@ -62,8 +62,9 @@
 | Boss 反伤 | 补全 `player_vs_boss` 的反伤结算：Boss 的反伤会反弹给玩家，玩家的反伤也会反弹给 Boss，且可正常触发击杀与胜负判定。 |
 | 面板一致 | 展示面板 `build_combat_panel` 补上五行共鸣，与实战 `build_player_combat_stats` 的双攻/双防/气血加成保持同一口径。 |
 | 排期修复 | 拍卖会跨日排期改用日历日推进，修复夏令时切换当天开拍时间提前一小时的问题。 |
-| 仙市手数 | 取消「单盘单标的 20 手」限购：`MAX_LOTS_PER_TICK` 改为 0 表示不限，`/买入股` 可一次买入任意手数；灵石余额、单只 50 万与总持仓 200 万市值上限照旧生效。 |
-| 版本同步 | 插件版本 v3.33.1，游戏版本 v6.49.1，数据库 v57；`/修仙帮助` 同步至 v6.49.1。 |
+| 仙市不限量 | 三道上限全部放开：`MAX_LOTS_PER_TICK`（单盘 20 手）、`MAX_POS_PER_STOCK`（单只 50 万市值）、`MAX_POS_TOTAL`（总持仓 200 万市值）均改为 0 = 不限，`/买入股` 可一次买入任意手数，唯一约束是灵石余额。三个常量保留为开关，改回正数即恢复限购。 |
+| 仙市风控 | 未动 `LOAN_LIMIT_FOR_STOCK`：贷款余额超 10 万灵石仍禁买股票，防止借钱加杠杆满仓。 |
+| 版本同步 | 插件版本 v3.33.2，游戏版本 v6.49.2，数据库 v57；`/修仙帮助` 同步至 v6.49.2。 |
 
 </details>
 
@@ -309,7 +310,7 @@
 | 定价模型 | 每盘涨跌 = 噪声 + 动量（0.25×上一盘）+ 7 日周期 + 消息项 + 均值回归（权重 0.08），单盘限幅 ±3%~±4%、日线熔断 ±7%~±10%。 |
 | 仙市消息 | 每日 07:00 与 15:00 各一条，先落库再结算其后四盘；形态分单边 / 脉冲 / 冲高回落 / 先抑后扬四种，趋势藏在措辞里不直接标注。 |
 | 交易规则 | 股票手续费 0.3% 双边、单笔最低 100 灵石；基金申购免费，赎回费按持有盘次 1.5% / 0.5% / 0，净值硬底 0.85。 |
-| 额度与准入 | 单盘单标的 20 手、单只持仓 50 万、总持仓 200 万；贷款余额超 10 万禁买股票，基金不接受贷款资金。 |
+| 额度与准入 | 买入手数、单只持仓、总持仓均不设上限，仅受灵石余额约束；贷款余额超 10 万禁买股票，基金不接受贷款资金。 |
 | 分红机制 | 每 21 盘派息 0.22%，需连续持有满 8 盘，清仓后起点重置。 |
 | 防推算 | 行情种子混入服务器密钥（首次启动随机生成落库），同一盘次重放结果一致，玩家无法本地推演套利。 |
 | 新增指令 | `/仙市` `/行情` `/买入股` `/卖出股` `/申购` `/赎回` `/我的持仓` `/仙市流水`（共 8 条）。 |
