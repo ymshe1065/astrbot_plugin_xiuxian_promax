@@ -174,6 +174,18 @@ class TestRootChoice(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(player.spiritual_root, f"{roots[1]}灵根")
         self.assertIn("踏上仙途", event2.results[-1])
 
+    async def test_handle_rebirth_is_wrapped_with_player_required(self):
+        handler, db = self._handler()
+        player = handler.cultivation_manager.generate_new_player_stats("u1", "剑修", root="火")
+        db.players["u1"] = player
+        event = _FakeEvent()
+        async for _ in handler.handle_rebirth(event, "确认"):
+            pass
+        # 通过装饰器注入 player，不应出现 event.user_id 之类异常；且功德/灵根保留
+        self.assertTrue(event.results)
+        self.assertEqual(player.level_index, 0)
+        self.assertEqual(player.spiritual_root, "火灵根")
+
     async def test_rebirth_keeps_root_and_meta(self):
         handler, db = self._handler()
         player = handler.cultivation_manager.generate_new_player_stats("u1", "剑修", root="火")

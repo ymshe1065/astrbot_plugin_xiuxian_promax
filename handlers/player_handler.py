@@ -947,6 +947,7 @@ class PlayerHandler:
                 return f"⌛ 弃道重修冷却中（{days}天{hours}小时{minutes}分钟后可再次重修）"
         return None
 
+    @player_required
     async def handle_rebirth(self, player: Player, event: AstrMessageEvent, confirm_text: str = ""):
         """弃道重修（方案B）：保留仙缘/转生次数/称号/灵根，3 天冷却。"""
         self.last_rebirth_success = False

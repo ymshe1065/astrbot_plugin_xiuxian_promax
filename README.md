@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v6.49.5 (灵兽内丹经验削弱)
+# AstrBot 插件：模拟修仙 v6.49.6 (重修重做 · 三选一灵根 · 功德重做)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v6.49.5-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v6.49.6-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.33.5 · **游戏版本:** v6.49.5 · **数据库:** v57
+> **插件版本:** v3.33.6 · **游戏版本:** v6.49.6 · **数据库:** v57
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，233 条帮助指令 / 233 条注册指令、16 个大系统、110 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,7 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>未发布 · 重修机制重做（方案B）与创号三选一灵根</b></summary>
+<summary><b>本次更新 · v6.49.6（重修重做 · 三选一灵根 · 功德重做）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |
@@ -57,6 +57,8 @@
 | 行善成本 | 捐献灵石 = max(2000, 当前灵石+银行存款的 5%)，每日一次。 |
 | 突破修正 | 每点功德 ±1%，正功德无上限（仍受 100% 与破境丹上限约束），业力最低 -50%；突破成功功德清零，失败保留。 |
 | 历练善举 | 历练归来 25% 概率出现「途中善举」抉择：分出四成本次收获接济灾民，或收下全部；文案只写行为不写功德。 |
+| 修复 | 补回 `handle_rebirth` 的 `@player_required`，修复“Event 没有 user_id”异常。 |
+| 版本同步 | 插件版本 v3.33.6，游戏版本 v6.49.6，数据库 v57；`/修仙帮助` 同步至 v6.49.6。 |
 
 </details>
 
