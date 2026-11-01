@@ -338,6 +338,15 @@ class RiftManager:
                 )
             except Exception:
                 pass
+            # 噬金鼠「灵石收益」统一作用于秘境收益
+            try:
+                from .pet_manager import PetManager
+                pet_gold_bonus = await PetManager(self.db).get_life_bonus(player.user_id, "gold_bonus")
+                if pet_gold_bonus > 0:
+                    gold_reward = int(gold_reward * (1 + pet_gold_bonus))
+            except Exception:
+                pass
+
             player.experience += exp_reward
             player.gold += gold_reward
             await self.db.update_player(player, commit=False)

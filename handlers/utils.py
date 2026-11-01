@@ -341,15 +341,19 @@ PURCHASE_BLOCKED_COMMANDS = (
 LOAN_SELF_DISPLAY_COMMANDS = ("我的信息", "银行", "还款")
 
 
-def _loan_identity(total_due: int, remaining_days: int) -> tuple[str, bool]:
-    """根据欠款金额和剩余时间返回 (身份标签, 是否暂停购买)。"""
-    if total_due >= LOAN_IDENTITY_BLOCK:
+def _loan_identity(total_due: int, remaining_days: int, level_index: int = 0) -> tuple[str, bool]:
+    """根据欠款金额、剩余时间与境界收入返回 (身份标签, 是否暂停购买)。"""
+    from ..loan_rules import debt_thresholds
+    thresholds = debt_thresholds(level_index)
+    high = thresholds["high"]
+    block = thresholds["block"]
+    if total_due >= block:
         return "🔴 老赖", True
-    if remaining_days <= 1 and total_due >= LOAN_IDENTITY_HIGH:
+    if remaining_days <= 1 and total_due >= high:
         return "🔴 紧急欠款人", True
-    if total_due >= LOAN_IDENTITY_HIGH:
+    if total_due >= high:
         return "🟠 欠款大户", False
-    if total_due >= LOAN_IDENTITY_WARN:
+    if total_due >= thresholds["warn"]:
         return "🟡 负债修士", False
     return "🟢 信用良好", False
 
@@ -517,7 +521,9 @@ async def _check_loan_status(db, player: Player, config_manager=None) -> dict:
             urgency = "🟡 提醒"
             time_str = f"{remaining_days} 天"
         
-        identity_label, purchase_blocked = _loan_identity(total_due, remaining_days)
+        identity_label, purchase_blocked = _loan_identity(
+            total_due, remaining_days, int(getattr(player, "level_index", 0) or 0)
+        )
         blocked_message = (
             f"🚫 欠款过多，购买类功能已暂停。\n"
             f"欠款：{total_due:,} 灵石\n"

@@ -5,6 +5,7 @@ from decimal import Decimal, ROUND_DOWN
 from typing import Tuple, List, Optional
 from ..data import DataBase
 from ..models import Player
+from ..loan_rules import loan_limit
 
 __all__ = ["BankManager"]
 
@@ -58,6 +59,15 @@ class BankManager:
         self.loan_hold_min = bank_config.get("LOAN_HOLD_MIN", DEFAULT_LOAN_HOLD_MIN)
         self.loan_hold_free_limit = bank_config.get("LOAN_HOLD_FREE_LIMIT", DEFAULT_LOAN_HOLD_FREE_LIMIT)
     
+    @staticmethod
+    def effective_loan_limit(player: Player) -> int:
+        """当前境界可贷额度（方案A：押镖日收入 × 0.5，保底 10 万、硬顶 1000 万）。"""
+        try:
+            level = int(getattr(player, "level_index", 0) or 0)
+        except (TypeError, ValueError):
+            level = 0
+        return loan_limit(level)
+
     def _required_holdings(self, amount: int) -> int:
         """大额贷款要求的最低持有金额。"""
         if amount <= self.loan_hold_free_limit:
@@ -284,8 +294,11 @@ class BankManager:
         if amount < self.min_loan_amount:
             return False, f"最小贷款金额为 {self.min_loan_amount:,} 灵石。"
         
-        if amount > self.max_loan_amount:
-            return False, f"最大贷款金额为 {self.max_loan_amount:,} 灵石。"
+        limit = self.effective_loan_limit(player)
+        if amount > limit:
+            return False, (
+                f"超过你的可贷额度：{limit:,} 灵石（按当前境界押镖日收入动态计算）。"
+            )
         
         await self.db.conn.execute("BEGIN IMMEDIATE")
         try:

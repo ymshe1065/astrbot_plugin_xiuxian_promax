@@ -108,6 +108,43 @@ class TestWorldBossDualTrack(unittest.IsolatedAsyncioTestCase):
         )
         self.assertGreater(dragon_damage, demon_damage)
 
+    async def test_simulate_battle_returns_combat_log(self):
+        mgr = self._manager()
+        CombatManager = _imp("managers.combat_manager").CombatManager
+        CombatStats = _imp("managers.combat_manager").CombatStats
+
+        def make(self_, name, hp, atk, element):
+            return CombatStats(
+                user_id=name, name=name, hp=hp, max_hp=hp, mp=1000, max_mp=1000,
+                atk=atk, defense=100, physical_atk=atk, magic_atk=0,
+                physical_defense=100, magic_defense=0, effects={}, element=element,
+            )
+
+        async def build_player(player):
+            return make(None, "玩家", 5000, 1200, "金")
+
+        def build_boss(boss, type_cfg):
+            return make(None, "深渊魔龙", 8000, 900, "木")
+
+        mgr.build_player_boss_stats = build_player
+        mgr.build_world_boss_combat_stats = build_boss
+        mgr.damage_floor_pct = 0
+        mgr.damage_cap_pct = 100
+        mgr.db = SimpleNamespace(update_player_fields=None)
+
+        async def update_fields(*a, **k):
+            return None
+
+        mgr.db.update_player_fields = update_fields
+        player = SimpleNamespace(user_id="u1", hp=5000, mp=1000, spiritual_qi=1000)
+        boss = {"boss_id": 1, "boss_name": "深渊魔龙", "max_hp": 1_000_000,
+                "current_hp": 1_000_000, "boss_type": "abyss_dragon", "element": "木"}
+        result = await mgr.simulate_battle(player, boss, {"element": "木"})
+        log = "\n".join(result["combat_log"])
+        self.assertIn("战斗开始", log)
+        self.assertIn("第 1 回合", log)
+        self.assertTrue(any("施展" in line or "五行" in line for line in result["combat_log"]))
+
 
 if __name__ == "__main__":
     unittest.main()

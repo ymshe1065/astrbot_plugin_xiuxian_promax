@@ -23,6 +23,20 @@ class RecoveryHandler:
         except Exception:
             return {}
 
+    async def _rest_rate_text(self, player: Player) -> str:
+        """拼出实际调息速率与加成说明。"""
+        try:
+            from ..managers.recovery_manager import RecoveryManager
+            rates = await RecoveryManager(self.db, self.config_manager).get_rest_rates(player)
+        except Exception:
+            return "每分钟恢复 3% 最大气血和灵气"
+        return (
+            f"每分钟恢复：气血 {rates['hp_rate'] * 100:.1f}% · 灵气 {rates['qi_rate'] * 100:.1f}%\n"
+            f"基础恢复：{rates['base'] * 100:.0f}%/分钟\n"
+            f"气血加成：+{rates['hp_bonus'] * 100:.0f}%（疗养殿/灵泉假山/装备）\n"
+            f"灵气加成：+{rates['qi_bonus'] * 100:.0f}%（疗养殿/聚灵池/装备，封顶 +{rates['qi_cap'] * 100:.0f}%）"
+        )
+
     @player_required
     async def handle_rest(self, player: Player, event: AstrMessageEvent):
         cd = await self.db.ext.get_user_cd(player.user_id)
@@ -30,8 +44,10 @@ class RecoveryHandler:
             await self.db.ext.create_user_cd(player.user_id)
             cd = await self.db.ext.get_user_cd(player.user_id)
         if int(cd.type) == int(UserStatus.RESTING):
+            rate_text = await self._rest_rate_text(player)
             yield event.plain_result(
                 "🧘 你正在调息中。\n"
+                f"{rate_text}\n"
                 "💡 发送 /收功 可以结束调息；气血和灵气满时会自动结束。"
             )
             return
@@ -56,10 +72,11 @@ class RecoveryHandler:
         )
         player.state = "调息中"
         await self.db.update_player(player)
+        rate_text = await self._rest_rate_text(player)
         yield event.plain_result(
             "🧘 开始调息\n"
             "━━━━━━━━━━━━━━━\n"
-            "每分钟恢复 5% 最大气血和灵气\n"
+            f"{rate_text}\n"
             "气血/灵气满时自动结束，不设冷却\n"
             "💡 发送 /收功 可提前结束"
         )

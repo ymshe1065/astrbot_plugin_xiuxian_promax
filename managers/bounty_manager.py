@@ -453,6 +453,15 @@ class BountyManager:
                 )
             except Exception:
                 pass
+            # 噬金鼠「灵石收益」统一作用于悬赏
+            try:
+                from .pet_manager import PetManager
+                pet_gold_bonus = await PetManager(self.db).get_life_bonus(player.user_id, "gold_bonus")
+                if pet_gold_bonus > 0:
+                    stone_reward = int(stone_reward * (1 + pet_gold_bonus))
+            except Exception:
+                pass
+
 
             await self.db.conn.execute(
                 "UPDATE bounty_tasks SET status = 2 WHERE user_id = ? AND status = 1",

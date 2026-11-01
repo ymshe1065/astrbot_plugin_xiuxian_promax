@@ -325,6 +325,15 @@ class BlessedLandManager:
             )
         except Exception:
             pass
+        # 噬金鼠「灵石收益」统一作用于灵田
+        try:
+            from .pet_manager import PetManager
+            pet_gold_bonus = await PetManager(self.db).get_life_bonus(player.user_id, "gold_bonus")
+            if pet_gold_bonus > 0:
+                gold_income = int(gold_income * (1 + pet_gold_bonus))
+        except Exception:
+            pass
+
 
         player.gold += gold_income
         player.experience += exp_income
@@ -410,6 +419,20 @@ class BlessedLandManager:
                 pending_gold = TechniqueBonusManager.apply_gold_bonus(
                     player, pending_gold, self.config_manager
                 )
+            except Exception:
+                pass
+            # 噬金鼠「灵石收益」统一作用于灵田
+            try:
+                from .pet_manager import PetManager
+                pet_gold_bonus = await PetManager(self.db).get_life_bonus(player.user_id, "gold_bonus")
+                if pet_gold_bonus > 0:
+                    pending_gold = int(pending_gold * (1 + pet_gold_bonus))
+            except Exception:
+                pass
+
+            try:
+                from .title_manager import TitleManager
+                pending_exp = int(pending_exp * (1 + TitleManager.get_exp_bonus(player)))
             except Exception:
                 pass
             player.gold += pending_gold

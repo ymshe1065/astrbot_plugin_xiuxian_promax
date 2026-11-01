@@ -279,7 +279,7 @@ class WorldBossManager:
         return stats
 
     async def simulate_battle(self, player: Player, boss: dict, type_cfg: dict) -> dict:
-        """PVP 规则 5 回合模拟世界 Boss，只返回结果，不返回逐回合战报。"""
+        """PVP 规则 5 回合模拟世界 Boss，返回结果与逐回合战报。"""
         from .combat_manager import CombatManager
 
         player_stats = await self.build_player_boss_stats(player)
@@ -319,6 +319,7 @@ class WorldBossManager:
             "boss_remaining": max(0, int(boss_stats.hp)),
             "player_remaining": max(0, int(player_stats.hp)),
             "rounds": int(result.get("rounds", 0) or 0),
+            "combat_log": [str(line) for line in (result.get("combat_log") or [])][:200],
         }
 
     def _load_tier_meta(self) -> Dict[int, dict]:
@@ -798,6 +799,11 @@ class WorldBossManager:
             f"你的剩余气血：{player_remaining:,}",
         ]
 
+        battle_log = battle.get("combat_log") or []
+        if battle_log:
+            msg.append("\n📜 战斗详情：")
+            msg.extend(battle_log)
+
         if is_kill:
             settle_msg = await self.settle_boss_kill(boss["boss_id"], player.user_id)
             msg.append("\n" + (settle_msg or "🎉 Boss已被击杀，奖励正在结算。"))
@@ -871,6 +877,15 @@ class WorldBossManager:
                 gold = TechniqueBonusManager.apply_gold_bonus(
                     target_player, gold, self.config_manager
                 )
+            except Exception:
+                pass
+            try:
+                from .pet_manager import PetManager
+                pet_gold_bonus = await PetManager(self.db).get_life_bonus(
+                    target_player.user_id, "gold_bonus"
+                )
+                if pet_gold_bonus > 0:
+                    gold = int(gold * (1 + pet_gold_bonus))
             except Exception:
                 pass
 

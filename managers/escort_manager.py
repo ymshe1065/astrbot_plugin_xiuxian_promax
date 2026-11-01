@@ -132,6 +132,41 @@ class EscortManager:
                     break
         return int(round(cls.ESCORT_GOLD_BASE * mult / 500.0)) * 500
 
+    async def _apply_escort_bonuses(self, player: Player, gold: int, exp: int) -> Tuple[int, int]:
+        """统一加成：称号/功法/噬金鼠。开镖即结算，结算直接发放。"""
+        try:
+            from .title_manager import TitleManager
+            gold_pct = float(TitleManager(None).get_active_bonus(player).get("gold_pct", 0) or 0)
+            if gold_pct:
+                gold = int(gold * (1 + gold_pct))
+        except Exception:
+            pass
+        try:
+            from ..core.technique_bonus import TechniqueBonusManager
+            gold = TechniqueBonusManager.apply_gold_bonus(player, gold, self.config_manager)
+        except Exception:
+            pass
+        try:
+            from .pet_manager import PetManager
+            pet_gold_bonus = await PetManager(self.db).get_life_bonus(player.user_id, "gold_bonus")
+            if pet_gold_bonus > 0:
+                gold = int(gold * (1 + pet_gold_bonus))
+        except Exception:
+            pass
+        try:
+            from .title_manager import TitleManager
+            title_exp = TitleManager.get_exp_bonus(player)
+            if title_exp > 0:
+                exp = int(exp * (1 + title_exp))
+        except Exception:
+            pass
+        try:
+            from ..core.technique_bonus import TechniqueBonusManager
+            exp = int(exp * (1 + TechniqueBonusManager.cultivation_bonus(player, self.config_manager)))
+        except Exception:
+            pass
+        return gold, exp
+
     async def start_escort(self, player: Player) -> Tuple[bool, str, Dict]:
         """接镖：进入押镖状态，期间奖励随时间增长，但可被劫"""
         user_id = player.user_id
@@ -154,11 +189,14 @@ class EscortManager:
             base = int(base * (1 + min(escort_bonus, self.ESCORT_COMPANION_CAP)))
         escort_gold = base + random.randint(-self.ESCORT_GOLD_RANDOM, self.ESCORT_GOLD_RANDOM)
         escort_exp = self.calculate_escort_exp(player.level_index)
+        # 统一口径：开镖即结算全部加成，提示值与最终到手一致（被劫扣减除外）
+        escort_gold, escort_exp = await self._apply_escort_bonuses(player, escort_gold, escort_exp)
 
         now = int(time.time())
         extra = {
             "escort_gold": escort_gold,
             "escort_exp": escort_exp,
+            "bonus_applied": 1,
         }
         await self.db.ext.set_user_busy(user_id, UserStatus.DELIVERING, now + self.ESCORT_DURATION, extra_data=extra)
 
@@ -192,21 +230,9 @@ class EscortManager:
         escort_gold = int(extra.get("escort_gold", 2000))
         escort_exp = int(extra.get("escort_exp", 1000))
 
-        # 称号「灵石%」加成真正生效（镖行新秀/金牌镖师/天下第一镖等）
-        try:
-            from .title_manager import TitleManager
-            gold_pct = float(TitleManager(None).get_active_bonus(player).get("gold_pct", 0) or 0)
-            if gold_pct:
-                escort_gold = int(escort_gold * (1 + gold_pct))
-        except Exception:
-            pass
-        try:
-            from ..core.technique_bonus import TechniqueBonusManager
-            escort_gold = TechniqueBonusManager.apply_gold_bonus(
-                player, escort_gold, self.config_manager
-            )
-        except Exception:
-            pass
+        # 开镖时已结算全部加成；旧存档（无 bonus_applied 标记）在结算时补算一次
+        if not extra.get("bonus_applied"):
+            escort_gold, escort_exp = await self._apply_escort_bonuses(player, escort_gold, escort_exp)
 
         player.gold += escort_gold
         player.experience += escort_exp

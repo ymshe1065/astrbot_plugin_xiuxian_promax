@@ -128,6 +128,20 @@ class RecoveryManager:
         )
         return result
 
+    async def get_rest_rates(self, player: Player) -> dict:
+        """调息实际速率：基础 3%/分钟 ×（1+加成），回蓝封顶 +100%。"""
+        bonuses = await self.get_bonuses(player)
+        hp_bonus = max(0.0, float(bonuses.get("rest_hp_regen_bonus", 0.0) or 0.0))
+        qi_bonus = max(0.0, float(bonuses.get("rest_qi_regen_bonus", 0.0) or 0.0))
+        return {
+            "base": self.REST_RATE,
+            "hp_bonus": hp_bonus,
+            "qi_bonus": min(self.REST_QI_BONUS_CAP, qi_bonus),
+            "hp_rate": self.REST_RATE * (1 + hp_bonus),
+            "qi_rate": self.REST_RATE * (1 + min(self.REST_QI_BONUS_CAP, qi_bonus)),
+            "qi_cap": self.REST_QI_BONUS_CAP,
+        }
+
     async def apply_lazy_recovery(self, player: Player, now: Optional[int] = None) -> Player:
         # 没有配置管理器时无法可靠计算境界气血上限；宁可不结算，
         # 也不能用回退模板把玩家当前气血压到错误上限。
