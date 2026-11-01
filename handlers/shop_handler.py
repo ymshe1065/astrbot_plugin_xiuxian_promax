@@ -570,6 +570,7 @@ class ShopHandler:
 
             if unlimited:
                 reserved = True
+                remaining = None
             else:
                 reserved, _, remaining = await self.db.decrement_shop_item_stock(
                     pavilion_id, item_name, quantity,
@@ -686,7 +687,10 @@ class ShopHandler:
             await self.db.conn.commit()
             
             result_lines.append(f"花费灵石: {total_price}，剩余: {player.gold}")
-            result_lines.append(f"剩余库存: {remaining}" if remaining > 0 else "该物品已售罄！")
+            if unlimited:
+                result_lines.append("该物品常驻出售，不限量。")
+            else:
+                result_lines.append(f"剩余库存: {remaining}" if remaining > 0 else "该物品已售罄！")
             if limited_note:
                 result_lines.insert(0, limited_note.strip())
             set_event_flag(event, "shop_buy", True)
