@@ -60,6 +60,8 @@ class CombatStats:
     active_skill: dict = field(default_factory=dict)
     skill_last_round: int = 0
     skill_casts: int = 0
+    # 五行共鸣明细（主属性、同属性件数、灵根共鸣与实际加成）
+    element_resonance: dict = field(default_factory=dict)
 
 
 class CombatManager:
@@ -248,13 +250,9 @@ class CombatManager:
 
     @staticmethod
     def get_element_from_name(name: str) -> str:
-        """从功法/心法/武器名称中推断五行属性（金木水火土）"""
-        if not name:
-            return ""
-        for e in ("金", "木", "水", "火", "土"):
-            if e in name:
-                return e
-        return ""
+        """从功法/心法/武器名称中推断五行属性（含雷/冰/风等变体映射）"""
+        from ..core.element_resonance import ElementResonance
+        return ElementResonance.infer_from_name(name)
 
     @classmethod
     def element_multiplier(cls, attacker_element: str, defender_element: str) -> float:
@@ -476,11 +474,37 @@ class CombatManager:
             effects["crit_damage"] = effects.get("crit_damage", 1.5) + float(
                 getattr(impart_info, "impart_burst_per", 0.0) or 0.0
             )
+        # 五行共鸣：与 build_player_combat_stats 同口径，展示面板必须包含共鸣加成。
+        resonance = {}
+        try:
+            from ..core.element_resonance import ElementResonance
+            resonance = ElementResonance.compute(player, config_manager)
+            for key, value in (resonance.get("effects") or {}).items():
+                effects[key] = effects.get(key, 0) + float(value or 0)
+        except Exception:
+            resonance = {}
         # 暴击/吸血溢出转换会改变双攻，展示面板也需先结算。
         overflow_attack_mult = CombatManager.normalize_overflow_effects(effects)
         if overflow_attack_mult != 1.0:
             physical_atk = max(0, int(physical_atk * overflow_attack_mult))
             magic_atk = max(0, int(magic_atk * overflow_attack_mult))
+        if resonance:
+            hp_pct = float(resonance.get("hp_pct", 0) or 0)
+            if hp_pct:
+                max_hp = max(1, int(max_hp * (1 + hp_pct)))
+                hp = max(1, int(hp * (1 + hp_pct)))
+            physical_atk = max(
+                0, int(physical_atk * (1 + float(resonance.get("physical_atk_pct", 0) or 0)))
+            )
+            magic_atk = max(
+                0, int(magic_atk * (1 + float(resonance.get("magic_atk_pct", 0) or 0)))
+            )
+            physical_def = max(
+                0, int(physical_def * (1 + float(resonance.get("physical_def_pct", 0) or 0)))
+            )
+            magic_def = max(
+                0, int(magic_def * (1 + float(resonance.get("magic_def_pct", 0) or 0)))
+            )
         atk = max(1, physical_atk + magic_atk)
         defense = max(0, physical_def + magic_def)
 
@@ -717,19 +741,12 @@ class CombatManager:
         except Exception:
             pass
 
-        if element is None and config_manager is not None:
+        if element is None:
             try:
-                element = (
-                    config_manager.get_item_element(player.main_technique)
-                    or config_manager.get_item_element(player.weapon)
-                )
+                from ..core.element_resonance import ElementResonance
+                element = ElementResonance.resolve_main_element(player, config_manager)
             except Exception:
                 element = ""
-        if not element:
-            element = (
-                cls.get_element_from_name(player.main_technique)
-                or cls.get_element_from_name(player.weapon)
-            )
 
         physical_mult = float(pill_multipliers.get("physical_damage", 1.0) or 1.0)
         magic_mult = float(pill_multipliers.get("magic_damage", 1.0) or 1.0)
@@ -810,10 +827,38 @@ class CombatManager:
         # 把传承会心并入统一特效池，确保溢出转换在所有战斗入口生效。
         if crit_rate:
             effects["crit_rate"] = effects.get("crit_rate", 0) + float(crit_rate or 0)
+
+        # 五行共鸣：主修心法决定主属性，同属性装备/功法与灵根提供额外加成。
+        resonance = {}
+        try:
+            from ..core.element_resonance import ElementResonance
+            resonance = ElementResonance.compute(player, config_manager, element=element)
+            for key, value in (resonance.get("effects") or {}).items():
+                effects[key] = effects.get(key, 0) + float(value or 0)
+        except Exception:
+            resonance = {}
+
         overflow_attack_mult = cls.normalize_overflow_effects(effects)
         if overflow_attack_mult != 1.0:
             physical_atk = max(0, int(physical_atk * overflow_attack_mult))
             magic_atk = max(0, int(magic_atk * overflow_attack_mult))
+        if resonance:
+            hp_pct = float(resonance.get("hp_pct", 0) or 0)
+            if hp_pct:
+                max_hp = max(1, int(max_hp * (1 + hp_pct)))
+                hp = max(1, int(hp * (1 + hp_pct)))
+            physical_atk = max(
+                0, int(physical_atk * (1 + float(resonance.get("physical_atk_pct", 0) or 0)))
+            )
+            magic_atk = max(
+                0, int(magic_atk * (1 + float(resonance.get("magic_atk_pct", 0) or 0)))
+            )
+            physical_def = max(
+                0, int(physical_def * (1 + float(resonance.get("physical_def_pct", 0) or 0)))
+            )
+            magic_def = max(
+                0, int(magic_def * (1 + float(resonance.get("magic_def_pct", 0) or 0)))
+            )
         final_atk = max(1, physical_atk + magic_atk)
         defense = max(0, physical_def + magic_def)
         return CombatStats(
@@ -837,6 +882,7 @@ class CombatManager:
             defense_scale=int(base.get("defense_scale", 0)),
             overflow_bonus=overflow_bonus,
             active_skill=cls._main_technique_skill(player, config_manager),
+            element_resonance=resonance,
         )
 
     @staticmethod
@@ -1788,13 +1834,33 @@ class CombatManager:
             player.hp = min(player.max_hp, player.hp + heal)
             combat_log.extend(logs)
             combat_log.append(f"{boss.name} 剩余 HP: {max(0, boss.hp)}")
-            
-            if boss.hp <= 0: break
+
+            # 反伤判定（Boss 的反伤特效反弹给玩家）
+            boss_counter = (boss.effects or {}).get("counter_damage", 0)
+            if boss_counter > 0 and dmg > 0:
+                reflect_dmg = int(dmg * (boss_counter / 100))
+                if reflect_dmg > 0:
+                    player.hp = max(0, player.hp - reflect_dmg)
+                    combat_log.append(f"🛡️ {boss.name} 触发反伤，反弹 {reflect_dmg} 点伤害！")
+                    combat_log.append(f"{player.name} 剩余 HP: {max(0, player.hp)}")
+
+            if boss.hp <= 0 or player.hp <= 0: break
             
             b_dmg, b_logs, b_heal = cls._take_turn(boss, player, round_num=round_num)
             player.hp = max(0, player.hp - b_dmg)
             combat_log.extend(b_logs)
             combat_log.append(f"{player.name} 剩余 HP: {max(0, player.hp)}")
+
+            # 反伤判定（玩家装备/功法的反伤特效反弹给 Boss）
+            player_counter = (player.effects or {}).get("counter_damage", 0)
+            if player_counter > 0 and b_dmg > 0:
+                reflect_dmg = int(b_dmg * (player_counter / 100))
+                if reflect_dmg > 0:
+                    boss.hp = max(0, boss.hp - reflect_dmg)
+                    total_damage_dealt += reflect_dmg
+                    combat_log.append(f"🛡️ {player.name} 触发反伤，反弹 {reflect_dmg} 点伤害！")
+                    combat_log.append(f"{boss.name} 剩余 HP: {max(0, boss.hp)}")
+
             combat_log.append("")
             
         if boss.hp <= 0:

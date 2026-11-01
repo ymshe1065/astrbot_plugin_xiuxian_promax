@@ -92,7 +92,8 @@
             "physical_defense": 0.108,
             "magic_defense": 0.108
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "水"
     },
     "1015": {
         "name": "幽冥丹",
@@ -198,7 +199,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "土"
     },
     "1028": {
         "name": "焚天录",
@@ -347,7 +349,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "水"
     },
     "1051": {
         "name": "万古液",
@@ -418,7 +421,8 @@
             "physical_defense": 0.054,
             "magic_defense": 0.054
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "水"
     },
     "1065": {
         "name": "万古丹",
@@ -464,7 +468,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "土"
     },
     "1072": {
         "name": "噬魂液",
@@ -575,7 +580,8 @@
             "physical_defense": 0.108,
             "magic_defense": 0.108
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "金"
     },
     "1086": {
         "name": "造化皮",
@@ -785,7 +791,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "水"
     },
     "1112": {
         "name": "诛仙丸",
@@ -864,7 +871,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "火"
     },
     "1122": {
         "name": "造化散",
@@ -963,7 +971,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "金"
     },
     "1129": {
         "name": "灭世录",
@@ -1091,7 +1100,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "水"
     },
     "1149": {
         "name": "乾坤丸",
@@ -1125,7 +1135,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "土"
     },
     "1151": {
         "name": "破军功",
@@ -1251,7 +1262,8 @@
             "physical_defense": 0.108,
             "magic_defense": 0.108
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "木"
     },
     "1165": {
         "name": "长生诀",
@@ -1289,7 +1301,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "木"
     },
     "1170": {
         "name": "太极丸",
@@ -1364,7 +1377,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "水"
     },
     "1175": {
         "name": "八卦皮",
@@ -1444,7 +1458,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "土"
     },
     "1184": {
         "name": "九幽功",
@@ -2282,7 +2297,8 @@
             "physical_defense": 0.108,
             "magic_defense": 0.108
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "木"
     },
     "1303": {
         "name": "八卦月华石皮",
@@ -2555,7 +2571,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "水"
     },
     "1344": {
         "name": "混元功",
@@ -2762,7 +2779,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "水"
     },
     "1373": {
         "name": "诛仙录",
@@ -2843,7 +2861,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "土"
     },
     "1382": {
         "name": "破军地火液",
@@ -3064,7 +3083,8 @@
             "physical_defense": 0.108,
             "magic_defense": 0.108
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "土"
     },
     "1409": {
         "name": "龙渊菩提子丹",
@@ -3119,7 +3139,8 @@
             "physical_defense": 0.036,
             "magic_defense": 0.036
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "火"
     },
     "1415": {
         "name": "两仪丸",
@@ -3194,7 +3215,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "木"
     },
     "1420": {
         "name": "日月仙露丸",
@@ -3638,7 +3660,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "水"
     },
     "1485": {
         "name": "两仪丹",
@@ -3828,7 +3851,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "火"
     },
     "1510": {
         "name": "星辰皮",
@@ -3912,7 +3936,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "木"
     },
     "1520": {
         "name": "乾坤谱",
@@ -4056,7 +4081,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "金"
     },
     "1535": {
         "name": "万古凤血丹",
@@ -4547,7 +4573,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "火"
     },
     "1613": {
         "name": "破军丹",
@@ -4581,7 +4608,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "火"
     },
     "1617": {
         "name": "两仪石",
@@ -4775,7 +4803,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "水"
     },
     "1639": {
         "name": "无极龙骨丹",
@@ -5232,7 +5261,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "金"
     },
     "1702": {
         "name": "混沌功",
@@ -5340,7 +5370,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "水"
     },
     "1714": {
         "name": "轮回雷霆木丸",
@@ -5410,7 +5441,8 @@
             "physical_defense": 0.036,
             "magic_defense": 0.036
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "水"
     },
     "1721": {
         "name": "紫电皮",
@@ -5450,7 +5482,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "金"
     },
     "1725": {
         "name": "鸿蒙仙露丸",
@@ -5570,7 +5603,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "火"
     },
     "1736": {
         "name": "青锋幽冥草丸",
@@ -5831,7 +5865,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "火"
     },
     "1775": {
         "name": "长生棍",
@@ -5853,7 +5888,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "木"
     },
     "1776": {
         "name": "混沌玄铁符",
@@ -5912,7 +5948,8 @@
             "physical_defense": 0.036,
             "magic_defense": 0.036
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "水"
     },
     "1780": {
         "name": "幽冥石",
@@ -5943,7 +5980,8 @@
             "physical_defense": 0.036,
             "magic_defense": 0.036
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "木"
     },
     "1787": {
         "name": "轮回日曜晶散",
@@ -6067,7 +6105,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "木"
     },
     "1802": {
         "name": "灭世仙露袍·1",
@@ -6089,7 +6128,8 @@
             "physical_defense": 0.108,
             "magic_defense": 0.108
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "水"
     },
     "1803": {
         "name": "星辰幽冥草液",
@@ -6207,7 +6247,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "土"
     },
     "1820": {
         "name": "破军草",
@@ -6259,7 +6300,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "土"
     },
     "1830": {
         "name": "乾坤石",
@@ -6398,7 +6440,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "土"
     },
     "1842": {
         "name": "轮回谱",
@@ -6608,7 +6651,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "木"
     },
     "1873": {
         "name": "日月月华石录",
@@ -6857,7 +6901,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "木"
     },
     "1902": {
         "name": "紫电功",
@@ -6917,7 +6962,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "土"
     },
     "1906": {
         "name": "山河录",
@@ -6956,7 +7002,8 @@
             "physical_defense": 0.108,
             "magic_defense": 0.108
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "火"
     },
     "1909": {
         "name": "青锋谱",
@@ -7148,7 +7195,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "木"
     },
     "1932": {
         "name": "噬魂幽冥草丹",
@@ -7377,7 +7425,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "木"
     },
     "1958": {
         "name": "龙渊菩提子棍",
@@ -7399,7 +7448,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "木"
     },
     "1960": {
         "name": "噬魂日曜晶液",
@@ -7490,7 +7540,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "土"
     },
     "1974": {
         "name": "造化草",
@@ -7593,7 +7644,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "土"
     },
     "1985": {
         "name": "九天雷霆木丸",
@@ -7644,7 +7696,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "木"
     },
     "1992": {
         "name": "山河陨铁液",
@@ -7798,7 +7851,8 @@
             "physical_defense": 0.054,
             "magic_defense": 0.054
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "木"
     },
     "2008": {
         "name": "破军仙露丸",
@@ -7877,7 +7931,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "土"
     },
     "2017": {
         "name": "四象月华石液",
@@ -8199,7 +8254,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "火"
     },
     "2061": {
         "name": "诛仙草",
@@ -8255,7 +8311,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "火"
     },
     "2068": {
         "name": "灭世精铁丹",
@@ -8633,7 +8690,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "水"
     },
     "2115": {
         "name": "寂灭菩提子录",
@@ -9167,7 +9225,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "金"
     },
     "2200": {
         "name": "九幽星辰沙液",
@@ -9455,7 +9514,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "水"
     },
     "2234": {
         "name": "幽冥精铁丸",
@@ -9670,7 +9730,8 @@
             "physical_defense": 0.054,
             "magic_defense": 0.054
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "水"
     },
     "2261": {
         "name": "九天阵",
@@ -9958,7 +10019,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "火"
     },
     "2301": {
         "name": "混沌星辰沙丹",
@@ -10862,7 +10924,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "金"
     },
     "2413": {
         "name": "万古星辰沙丹",
@@ -11086,7 +11149,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "水"
     },
     "2443": {
         "name": "混元月华石丹",
@@ -11235,7 +11299,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "火"
     },
     "2461": {
         "name": "八卦雷霆木液",
@@ -11399,7 +11464,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "金"
     },
     "2482": {
         "name": "灭世草",
@@ -11663,7 +11729,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "水"
     },
     "gear_slot_1_1": {
         "name": "圣品·灵纹戒指",
@@ -11685,7 +11752,8 @@
             "physical_defense": 0.0,
             "magic_defense": 0.0
         },
-        "balance_version": 1
+        "balance_version": 1,
+        "element": "水"
     },
     "legacy_1571": {
         "name": "精铁",
@@ -11793,7 +11861,8 @@
             "natural_hp_regen_bonus": 0.1,
             "rest_hp_regen_bonus": 0.15
         },
-        "required_level_index": 12
+        "required_level_index": 12,
+        "element": "木"
     },
     "rec_9002": {
         "id": "rec_9002",
@@ -11811,7 +11880,8 @@
             "natural_hp_regen_bonus": 0.15,
             "rest_hp_regen_bonus": 0.2
         },
-        "required_level_index": 12
+        "required_level_index": 12,
+        "element": "木"
     },
     "rec_9003": {
         "id": "rec_9003",
@@ -11829,7 +11899,8 @@
             "natural_qi_regen_bonus": 0.15,
             "rest_qi_regen_bonus": 0.2
         },
-        "required_level_index": 12
+        "required_level_index": 12,
+        "element": "木"
     },
     "rec_9004": {
         "id": "rec_9004",
@@ -11850,7 +11921,8 @@
             "rest_hp_regen_bonus": 0.1,
             "rest_qi_regen_bonus": 0.1
         },
-        "required_level_index": 15
+        "required_level_index": 15,
+        "element": "木"
     },
     "rec_9005": {
         "id": "rec_9005",
@@ -11871,7 +11943,8 @@
             "rest_hp_regen_bonus": 0.2,
             "rest_qi_regen_bonus": 0.2
         },
-        "required_level_index": 18
+        "required_level_index": 18,
+        "element": "水"
     },
     "rec_9006": {
         "id": "rec_9006",
@@ -11886,7 +11959,8 @@
         "effects": {
             "rest_hp_regen_bonus": 0.2,
             "rest_qi_regen_bonus": 0.2
-        }
+        },
+        "element": "木"
     },
     "10012": {
         "name": "烈焰符",

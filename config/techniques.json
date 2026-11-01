@@ -575,5 +575,1840 @@
     "price": 1200000,
     "volume": 1,
     "stock_cap": 2
+  },
+  "太白分光剑录": {
+    "name": "太白分光剑录",
+    "type": "main_technique",
+    "rank": "灵品",
+    "element": "金",
+    "description": "金系主修心法，以暴击破甲见长。绝技【分光断岳斩】：无视对方22%物防，并追加0.6倍攻击伤害。",
+    "effects": {
+      "crit_rate": 12,
+      "crit_damage": 0.4,
+      "armor_penetration": 9
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 30,
+    "drop_weight": 3,
+    "price": 900000,
+    "volume": 1,
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "分光断岳斩",
+      "trigger_round": 2,
+      "mp_cost": 40000,
+      "type": "pierce",
+      "value": 0.22,
+      "target": "enemy",
+      "description": "无视对方22%物防，并追加0.6倍攻击伤害。",
+      "extra_damage": 0.6
+    }
+  },
+  "庚金断岳真解": {
+    "name": "庚金断岳真解",
+    "type": "main_technique",
+    "rank": "地品",
+    "element": "金",
+    "description": "金系主修心法，以暴击破甲见长。绝技【庚金裂岳式】：无视对方25%物防，并追加0.7倍攻击伤害。",
+    "effects": {
+      "crit_rate": 13,
+      "crit_damage": 0.45,
+      "armor_penetration": 11
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 20,
+    "drop_weight": 2,
+    "price": 1200000,
+    "volume": 1,
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "庚金裂岳式",
+      "trigger_round": 2,
+      "mp_cost": 55000,
+      "type": "pierce",
+      "value": 0.25,
+      "target": "enemy",
+      "description": "无视对方25%物防，并追加0.7倍攻击伤害。",
+      "extra_damage": 0.7
+    }
+  },
+  "白虎啸天金章": {
+    "name": "白虎啸天金章",
+    "type": "main_technique",
+    "rank": "天品",
+    "element": "金",
+    "description": "金系主修心法，以暴击破甲见长。绝技【白虎啸天斩】：无视对方28%物防，并追加0.8倍攻击伤害。",
+    "effects": {
+      "crit_rate": 15,
+      "crit_damage": 0.52,
+      "armor_penetration": 13
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 15,
+    "drop_weight": 1,
+    "price": 1500000,
+    "volume": 1,
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "白虎啸天斩",
+      "trigger_round": 2,
+      "mp_cost": 70000,
+      "type": "pierce",
+      "value": 0.28,
+      "target": "enemy",
+      "description": "无视对方28%物防，并追加0.8倍攻击伤害。",
+      "extra_damage": 0.8
+    }
+  },
+  "金阙斩仙录": {
+    "name": "金阙斩仙录",
+    "type": "main_technique",
+    "rank": "皇品",
+    "element": "金",
+    "description": "金系主修心法，以暴击破甲见长。绝技【金阙诛邪斩】：无视对方30%物防，并追加0.9倍攻击伤害。",
+    "effects": {
+      "crit_rate": 16,
+      "crit_damage": 0.6,
+      "armor_penetration": 15
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 10,
+    "drop_weight": 1,
+    "price": 2000000,
+    "volume": 1,
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "金阙诛邪斩",
+      "trigger_round": 2,
+      "mp_cost": 90000,
+      "type": "pierce",
+      "value": 0.3,
+      "target": "enemy",
+      "description": "无视对方30%物防，并追加0.9倍攻击伤害。",
+      "extra_damage": 0.9
+    }
+  },
+  "戮圣诛仙金典": {
+    "name": "戮圣诛仙金典",
+    "type": "main_technique",
+    "rank": "帝品",
+    "element": "金",
+    "description": "金系主修心法，以暴击破甲见长。绝技【戮圣破军斩】：无视对方35%物防，并追加1.05倍攻击伤害。",
+    "effects": {
+      "crit_rate": 19,
+      "crit_damage": 0.75,
+      "armor_penetration": 18
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 6,
+    "drop_weight": 1,
+    "price": 4000000,
+    "volume": 1,
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "戮圣破军斩",
+      "trigger_round": 2,
+      "mp_cost": 150000,
+      "type": "pierce",
+      "value": 0.35,
+      "target": "enemy",
+      "description": "无视对方35%物防，并追加1.05倍攻击伤害。",
+      "extra_damage": 1.05
+    }
+  },
+  "太初庚金道经": {
+    "name": "太初庚金道经",
+    "type": "main_technique",
+    "rank": "道品",
+    "element": "金",
+    "description": "金系主修心法，以暴击破甲见长。绝技【太初庚金剑】：无视对方40%物防，并追加1.2倍攻击伤害。",
+    "effects": {
+      "crit_rate": 22,
+      "crit_damage": 0.92,
+      "armor_penetration": 22
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 3,
+    "drop_weight": 1,
+    "price": 8000000,
+    "volume": 1,
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "太初庚金剑",
+      "trigger_round": 2,
+      "mp_cost": 250000,
+      "type": "pierce",
+      "value": 0.4,
+      "target": "enemy",
+      "description": "无视对方40%物防，并追加1.2倍攻击伤害。",
+      "extra_damage": 1.2
+    }
+  },
+  "混元金母真经": {
+    "name": "混元金母真经",
+    "type": "main_technique",
+    "rank": "仙品",
+    "element": "金",
+    "description": "金系主修心法，以暴击破甲见长。绝技【金母斩仙诀】：无视对方45%物防，并追加1.35倍攻击伤害。",
+    "effects": {
+      "crit_rate": 25,
+      "crit_damage": 1.12,
+      "armor_penetration": 26
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 1,
+    "drop_weight": 1,
+    "price": 15000000,
+    "volume": 1,
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "金母斩仙诀",
+      "trigger_round": 2,
+      "mp_cost": 450000,
+      "type": "pierce",
+      "value": 0.45,
+      "target": "enemy",
+      "description": "无视对方45%物防，并追加1.35倍攻击伤害。",
+      "extra_damage": 1.35
+    }
+  },
+  "开天庚金本源经": {
+    "name": "开天庚金本源经",
+    "type": "main_technique",
+    "rank": "混元先天",
+    "element": "金",
+    "description": "金系主修心法，以暴击破甲见长。绝技【开天庚金斩】：无视对方50%物防，并追加1.5倍攻击伤害。",
+    "effects": {
+      "crit_rate": 28,
+      "crit_damage": 1.35,
+      "armor_penetration": 30
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 1,
+    "drop_weight": 1,
+    "price": 30000000,
+    "volume": 1,
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "开天庚金斩",
+      "trigger_round": 2,
+      "mp_cost": 800000,
+      "type": "pierce",
+      "value": 0.5,
+      "target": "enemy",
+      "description": "无视对方50%物防，并追加1.5倍攻击伤害。",
+      "extra_damage": 1.5
+    }
+  },
+  "青帝长生篇": {
+    "name": "青帝长生篇",
+    "type": "main_technique",
+    "rank": "灵品",
+    "element": "木",
+    "description": "木系主修心法，以吸血连击见长。绝技【青帝回春诀】：回复自身已损失气血的22%。",
+    "effects": {
+      "lifesteal": 8,
+      "combo_rate": 8,
+      "status_resist": 6
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 30,
+    "drop_weight": 3,
+    "price": 900000,
+    "volume": 1,
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "青帝回春诀",
+      "trigger_round": 2,
+      "mp_cost": 40000,
+      "type": "heal",
+      "value": 0.22,
+      "target": "enemy",
+      "description": "回复自身已损失气血的22%。"
+    }
+  },
+  "建木回春真解": {
+    "name": "建木回春真解",
+    "type": "main_technique",
+    "rank": "地品",
+    "element": "木",
+    "description": "木系主修心法，以吸血连击见长。绝技【建木长生式】：回复自身已损失气血的25%。",
+    "effects": {
+      "lifesteal": 9,
+      "combo_rate": 9,
+      "status_resist": 7
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 20,
+    "drop_weight": 2,
+    "price": 1200000,
+    "volume": 1,
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "建木长生式",
+      "trigger_round": 2,
+      "mp_cost": 55000,
+      "type": "heal",
+      "value": 0.25,
+      "target": "enemy",
+      "description": "回复自身已损失气血的25%。"
+    }
+  },
+  "青龙噬天功": {
+    "name": "青龙噬天功",
+    "type": "main_technique",
+    "rank": "天品",
+    "element": "木",
+    "description": "木系主修心法，以吸血连击见长。绝技【青龙噬天爪】：回复自身已损失气血的28%。",
+    "effects": {
+      "lifesteal": 10,
+      "combo_rate": 10,
+      "status_resist": 8
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 15,
+    "drop_weight": 1,
+    "price": 1500000,
+    "volume": 1,
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "青龙噬天爪",
+      "trigger_round": 2,
+      "mp_cost": 70000,
+      "type": "heal",
+      "value": 0.28,
+      "target": "enemy",
+      "description": "回复自身已损失气血的28%。"
+    }
+  },
+  "万木朝元天章": {
+    "name": "万木朝元天章",
+    "type": "main_technique",
+    "rank": "皇品",
+    "element": "木",
+    "description": "木系主修心法，以吸血连击见长。绝技【万木朝元功】：回复自身已损失气血的30%。",
+    "effects": {
+      "lifesteal": 11,
+      "combo_rate": 11,
+      "status_resist": 9
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 10,
+    "drop_weight": 1,
+    "price": 2000000,
+    "volume": 1,
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "万木朝元功",
+      "trigger_round": 2,
+      "mp_cost": 90000,
+      "type": "heal",
+      "value": 0.3,
+      "target": "enemy",
+      "description": "回复自身已损失气血的30%。"
+    }
+  },
+  "长生不朽木经": {
+    "name": "长生不朽木经",
+    "type": "main_technique",
+    "rank": "帝品",
+    "element": "木",
+    "description": "木系主修心法，以吸血连击见长。绝技【长生不朽印】：回复自身已损失气血的35%。",
+    "effects": {
+      "lifesteal": 13,
+      "combo_rate": 13,
+      "status_resist": 11
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 6,
+    "drop_weight": 1,
+    "price": 4000000,
+    "volume": 1,
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "长生不朽印",
+      "trigger_round": 2,
+      "mp_cost": 150000,
+      "type": "heal",
+      "value": 0.35,
+      "target": "enemy",
+      "description": "回复自身已损失气血的35%。"
+    }
+  },
+  "太乙青华道典": {
+    "name": "太乙青华道典",
+    "type": "main_technique",
+    "rank": "道品",
+    "element": "木",
+    "description": "木系主修心法，以吸血连击见长。绝技【太乙青华术】：回复自身已损失气血的40%。",
+    "effects": {
+      "lifesteal": 16,
+      "combo_rate": 16,
+      "status_resist": 14
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 3,
+    "drop_weight": 1,
+    "price": 8000000,
+    "volume": 1,
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "太乙青华术",
+      "trigger_round": 2,
+      "mp_cost": 250000,
+      "type": "heal",
+      "value": 0.4,
+      "target": "enemy",
+      "description": "回复自身已损失气血的40%。"
+    }
+  },
+  "东王公木德真经": {
+    "name": "东王公木德真经",
+    "type": "main_technique",
+    "rank": "仙品",
+    "element": "木",
+    "description": "木系主修心法，以吸血连击见长。绝技【东华木德符】：回复自身已损失气血的45%。",
+    "effects": {
+      "lifesteal": 19,
+      "combo_rate": 19,
+      "status_resist": 17
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 1,
+    "drop_weight": 1,
+    "price": 15000000,
+    "volume": 1,
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "东华木德符",
+      "trigger_round": 2,
+      "mp_cost": 450000,
+      "type": "heal",
+      "value": 0.45,
+      "target": "enemy",
+      "description": "回复自身已损失气血的45%。"
+    }
+  },
+  "混沌建木本源经": {
+    "name": "混沌建木本源经",
+    "type": "main_technique",
+    "rank": "混元先天",
+    "element": "木",
+    "description": "木系主修心法，以吸血连击见长。绝技【混沌建木生】：回复自身已损失气血的50%。",
+    "effects": {
+      "lifesteal": 22,
+      "combo_rate": 22,
+      "status_resist": 20
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 1,
+    "drop_weight": 1,
+    "price": 30000000,
+    "volume": 1,
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "混沌建木生",
+      "trigger_round": 2,
+      "mp_cost": 800000,
+      "type": "heal",
+      "value": 0.5,
+      "target": "enemy",
+      "description": "回复自身已损失气血的50%。"
+    }
+  },
+  "玄冥凝霜录": {
+    "name": "玄冥凝霜录",
+    "type": "main_technique",
+    "rank": "灵品",
+    "element": "水",
+    "description": "水系主修心法，以闪避反伤与冻结见长。绝技【玄冥凝霜咒】：冻结对方一回合，使其无法行动。",
+    "effects": {
+      "dodge": 7,
+      "counter_damage": 12,
+      "freeze_chance": 6
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 30,
+    "drop_weight": 3,
+    "price": 900000,
+    "volume": 1,
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "玄冥凝霜咒",
+      "trigger_round": 2,
+      "mp_cost": 40000,
+      "type": "freeze",
+      "value": 0.5,
+      "target": "enemy",
+      "description": "冻结对方一回合，使其无法行动。"
+    }
+  },
+  "北冥吞海真经": {
+    "name": "北冥吞海真经",
+    "type": "main_technique",
+    "rank": "地品",
+    "element": "水",
+    "description": "水系主修心法，以闪避反伤与冻结见长。绝技【北冥吞海式】：冻结对方一回合，使其无法行动。",
+    "effects": {
+      "dodge": 8,
+      "counter_damage": 13,
+      "freeze_chance": 7
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 20,
+    "drop_weight": 2,
+    "price": 1200000,
+    "volume": 1,
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "北冥吞海式",
+      "trigger_round": 2,
+      "mp_cost": 55000,
+      "type": "freeze",
+      "value": 0.5,
+      "target": "enemy",
+      "description": "冻结对方一回合，使其无法行动。"
+    }
+  },
+  "天河倒卷天章": {
+    "name": "天河倒卷天章",
+    "type": "main_technique",
+    "rank": "天品",
+    "element": "水",
+    "description": "水系主修心法，以闪避反伤与冻结见长。绝技【天河倒卷诀】：冻结对方一回合，使其无法行动。",
+    "effects": {
+      "dodge": 9,
+      "counter_damage": 15,
+      "freeze_chance": 8
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 15,
+    "drop_weight": 1,
+    "price": 1500000,
+    "volume": 1,
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "天河倒卷诀",
+      "trigger_round": 2,
+      "mp_cost": 70000,
+      "type": "freeze",
+      "value": 0.5,
+      "target": "enemy",
+      "description": "冻结对方一回合，使其无法行动。"
+    }
+  },
+  "玄水镇渊宝典": {
+    "name": "玄水镇渊宝典",
+    "type": "main_technique",
+    "rank": "皇品",
+    "element": "水",
+    "description": "水系主修心法，以闪避反伤与冻结见长。绝技【玄水镇渊印】：冻结对方一回合，使其无法行动。",
+    "effects": {
+      "dodge": 10,
+      "counter_damage": 17,
+      "freeze_chance": 9
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 10,
+    "drop_weight": 1,
+    "price": 2000000,
+    "volume": 1,
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "玄水镇渊印",
+      "trigger_round": 2,
+      "mp_cost": 90000,
+      "type": "freeze",
+      "value": 0.5,
+      "target": "enemy",
+      "description": "冻结对方一回合，使其无法行动。"
+    }
+  },
+  "弱水三千道经": {
+    "name": "弱水三千道经",
+    "type": "main_technique",
+    "rank": "帝品",
+    "element": "水",
+    "description": "水系主修心法，以闪避反伤与冻结见长。绝技【弱水三千咒】：冻结对方一回合，使其无法行动。",
+    "effects": {
+      "dodge": 12,
+      "counter_damage": 20,
+      "freeze_chance": 11
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 6,
+    "drop_weight": 1,
+    "price": 4000000,
+    "volume": 1,
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "弱水三千咒",
+      "trigger_round": 2,
+      "mp_cost": 150000,
+      "type": "freeze",
+      "value": 0.5,
+      "target": "enemy",
+      "description": "冻结对方一回合，使其无法行动。"
+    }
+  },
+  "太一真水道典": {
+    "name": "太一真水道典",
+    "type": "main_technique",
+    "rank": "道品",
+    "element": "水",
+    "description": "水系主修心法，以闪避反伤与冻结见长。绝技【太一真水诀】：冻结对方一回合，使其无法行动。",
+    "effects": {
+      "dodge": 14,
+      "counter_damage": 24,
+      "freeze_chance": 13
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 3,
+    "drop_weight": 1,
+    "price": 8000000,
+    "volume": 1,
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "太一真水诀",
+      "trigger_round": 2,
+      "mp_cost": 250000,
+      "type": "freeze",
+      "value": 0.5,
+      "target": "enemy",
+      "description": "冻结对方一回合，使其无法行动。"
+    }
+  },
+  "共工玄水道经": {
+    "name": "共工玄水道经",
+    "type": "main_technique",
+    "rank": "仙品",
+    "element": "水",
+    "description": "水系主修心法，以闪避反伤与冻结见长。绝技【共工玄水阵】：冻结对方一回合，使其无法行动。",
+    "effects": {
+      "dodge": 16,
+      "counter_damage": 28,
+      "freeze_chance": 16
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 1,
+    "drop_weight": 1,
+    "price": 15000000,
+    "volume": 1,
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "共工玄水阵",
+      "trigger_round": 2,
+      "mp_cost": 450000,
+      "type": "freeze",
+      "value": 0.5,
+      "target": "enemy",
+      "description": "冻结对方一回合，使其无法行动。"
+    }
+  },
+  "混元重水本源经": {
+    "name": "混元重水本源经",
+    "type": "main_technique",
+    "rank": "混元先天",
+    "element": "水",
+    "description": "水系主修心法，以闪避反伤与冻结见长。绝技【混元重水咒】：冻结对方一回合，使其无法行动。",
+    "effects": {
+      "dodge": 18,
+      "counter_damage": 32,
+      "freeze_chance": 20
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 1,
+    "drop_weight": 1,
+    "price": 30000000,
+    "volume": 1,
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "混元重水咒",
+      "trigger_round": 2,
+      "mp_cost": 800000,
+      "type": "freeze",
+      "value": 0.5,
+      "target": "enemy",
+      "description": "冻结对方一回合，使其无法行动。"
+    }
+  },
+  "离火照世篇": {
+    "name": "离火照世篇",
+    "type": "main_technique",
+    "rank": "灵品",
+    "element": "火",
+    "description": "火系主修心法，以灼烧降疗见长。绝技【离火照世焰】：点燃对方3回合，每回合损失6%最大生命。",
+    "effects": {
+      "burn_chance": 8,
+      "burn_damage_pct": 3,
+      "burn_heal_reduction": 8
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 30,
+    "drop_weight": 3,
+    "price": 900000,
+    "volume": 1,
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "离火照世焰",
+      "trigger_round": 2,
+      "mp_cost": 40000,
+      "type": "burn",
+      "value": 0.06,
+      "target": "enemy",
+      "description": "点燃对方3回合，每回合损失6%最大生命。"
+    }
+  },
+  "朱雀焚天录": {
+    "name": "朱雀焚天录",
+    "type": "main_technique",
+    "rank": "地品",
+    "element": "火",
+    "description": "火系主修心法，以灼烧降疗见长。绝技【朱雀焚天翼】：点燃对方3回合，每回合损失7%最大生命。",
+    "effects": {
+      "burn_chance": 10,
+      "burn_damage_pct": 4,
+      "burn_heal_reduction": 10
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 20,
+    "drop_weight": 2,
+    "price": 1200000,
+    "volume": 1,
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "朱雀焚天翼",
+      "trigger_round": 2,
+      "mp_cost": 55000,
+      "type": "burn",
+      "value": 0.07,
+      "target": "enemy",
+      "description": "点燃对方3回合，每回合损失7%最大生命。"
+    }
+  },
+  "大日焚空真经": {
+    "name": "大日焚空真经",
+    "type": "main_technique",
+    "rank": "天品",
+    "element": "火",
+    "description": "火系主修心法，以灼烧降疗见长。绝技【大日焚空印】：点燃对方3回合，每回合损失8%最大生命。",
+    "effects": {
+      "burn_chance": 12,
+      "burn_damage_pct": 5,
+      "burn_heal_reduction": 12
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 15,
+    "drop_weight": 1,
+    "price": 1500000,
+    "volume": 1,
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "大日焚空印",
+      "trigger_round": 2,
+      "mp_cost": 70000,
+      "type": "burn",
+      "value": 0.08,
+      "target": "enemy",
+      "description": "点燃对方3回合，每回合损失8%最大生命。"
+    }
+  },
+  "红莲业火天章": {
+    "name": "红莲业火天章",
+    "type": "main_technique",
+    "rank": "皇品",
+    "element": "火",
+    "description": "火系主修心法，以灼烧降疗见长。绝技【红莲业火莲】：点燃对方3回合，每回合损失9%最大生命。",
+    "effects": {
+      "burn_chance": 14,
+      "burn_damage_pct": 6,
+      "burn_heal_reduction": 15
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 10,
+    "drop_weight": 1,
+    "price": 2000000,
+    "volume": 1,
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "红莲业火莲",
+      "trigger_round": 2,
+      "mp_cost": 90000,
+      "type": "burn",
+      "value": 0.09,
+      "target": "enemy",
+      "description": "点燃对方3回合，每回合损失9%最大生命。"
+    }
+  },
+  "焚天煮海道典": {
+    "name": "焚天煮海道典",
+    "type": "main_technique",
+    "rank": "帝品",
+    "element": "火",
+    "description": "火系主修心法，以灼烧降疗见长。绝技【焚天煮海焰】：点燃对方3回合，每回合损失10%最大生命。",
+    "effects": {
+      "burn_chance": 17,
+      "burn_damage_pct": 7,
+      "burn_heal_reduction": 18
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 6,
+    "drop_weight": 1,
+    "price": 4000000,
+    "volume": 1,
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "焚天煮海焰",
+      "trigger_round": 2,
+      "mp_cost": 150000,
+      "type": "burn",
+      "value": 0.1,
+      "target": "enemy",
+      "description": "点燃对方3回合，每回合损失10%最大生命。"
+    }
+  },
+  "太乙离火道经": {
+    "name": "太乙离火道经",
+    "type": "main_technique",
+    "rank": "道品",
+    "element": "火",
+    "description": "火系主修心法，以灼烧降疗见长。绝技【太乙离火符】：点燃对方3回合，每回合损失11%最大生命。",
+    "effects": {
+      "burn_chance": 20,
+      "burn_damage_pct": 8,
+      "burn_heal_reduction": 22
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 3,
+    "drop_weight": 1,
+    "price": 8000000,
+    "volume": 1,
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "太乙离火符",
+      "trigger_round": 2,
+      "mp_cost": 250000,
+      "type": "burn",
+      "value": 0.11,
+      "target": "enemy",
+      "description": "点燃对方3回合，每回合损失11%最大生命。"
+    }
+  },
+  "金乌太阳真经": {
+    "name": "金乌太阳真经",
+    "type": "main_technique",
+    "rank": "仙品",
+    "element": "火",
+    "description": "火系主修心法，以灼烧降疗见长。绝技【金乌太阳火】：点燃对方3回合，每回合损失12%最大生命。",
+    "effects": {
+      "burn_chance": 24,
+      "burn_damage_pct": 9,
+      "burn_heal_reduction": 28
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 1,
+    "drop_weight": 1,
+    "price": 15000000,
+    "volume": 1,
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "金乌太阳火",
+      "trigger_round": 2,
+      "mp_cost": 450000,
+      "type": "burn",
+      "value": 0.12,
+      "target": "enemy",
+      "description": "点燃对方3回合，每回合损失12%最大生命。"
+    }
+  },
+  "混沌离火本源经": {
+    "name": "混沌离火本源经",
+    "type": "main_technique",
+    "rank": "混元先天",
+    "element": "火",
+    "description": "火系主修心法，以灼烧降疗见长。绝技【混沌离火焚】：点燃对方3回合，每回合损失15%最大生命。",
+    "effects": {
+      "burn_chance": 28,
+      "burn_damage_pct": 10,
+      "burn_heal_reduction": 35
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 1,
+    "drop_weight": 1,
+    "price": 30000000,
+    "volume": 1,
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "混沌离火焚",
+      "trigger_round": 2,
+      "mp_cost": 800000,
+      "type": "burn",
+      "value": 0.15,
+      "target": "enemy",
+      "description": "点燃对方3回合，每回合损失15%最大生命。"
+    }
+  },
+  "戊土镇山篇": {
+    "name": "戊土镇山篇",
+    "type": "main_technique",
+    "rank": "灵品",
+    "element": "土",
+    "description": "土系主修心法，以反伤守御见长。绝技【戊土镇山印】：两回合减伤30%，并将防御的10%转化为攻击。",
+    "effects": {
+      "counter_damage": 14,
+      "status_resist": 8,
+      "defense_bonus": 80
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 30,
+    "drop_weight": 3,
+    "price": 900000,
+    "volume": 1,
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "戊土镇山印",
+      "trigger_round": 2,
+      "mp_cost": 40000,
+      "type": "guard",
+      "value": 0.3,
+      "target": "enemy",
+      "description": "两回合减伤30%，并将防御的10%转化为攻击。"
+    }
+  },
+  "坤元厚土真解": {
+    "name": "坤元厚土真解",
+    "type": "main_technique",
+    "rank": "地品",
+    "element": "土",
+    "description": "土系主修心法，以反伤守御见长。绝技【坤元厚土式】：两回合减伤32%，并将防御的10%转化为攻击。",
+    "effects": {
+      "counter_damage": 16,
+      "status_resist": 10,
+      "defense_bonus": 100
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 20,
+    "drop_weight": 2,
+    "price": 1200000,
+    "volume": 1,
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "坤元厚土式",
+      "trigger_round": 2,
+      "mp_cost": 55000,
+      "type": "guard",
+      "value": 0.32,
+      "target": "enemy",
+      "description": "两回合减伤32%，并将防御的10%转化为攻击。"
+    }
+  },
+  "不动明王天章": {
+    "name": "不动明王天章",
+    "type": "main_technique",
+    "rank": "天品",
+    "element": "土",
+    "description": "土系主修心法，以反伤守御见长。绝技【不动明王身】：两回合减伤35%，并将防御的10%转化为攻击。",
+    "effects": {
+      "counter_damage": 18,
+      "status_resist": 12,
+      "defense_bonus": 130
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 15,
+    "drop_weight": 1,
+    "price": 1500000,
+    "volume": 1,
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "不动明王身",
+      "trigger_round": 2,
+      "mp_cost": 70000,
+      "type": "guard",
+      "value": 0.35,
+      "target": "enemy",
+      "description": "两回合减伤35%，并将防御的10%转化为攻击。"
+    }
+  },
+  "山河永固宝典": {
+    "name": "山河永固宝典",
+    "type": "main_technique",
+    "rank": "皇品",
+    "element": "土",
+    "description": "土系主修心法，以反伤守御见长。绝技【山河永固诀】：两回合减伤38%，并将防御的10%转化为攻击。",
+    "effects": {
+      "counter_damage": 20,
+      "status_resist": 14,
+      "defense_bonus": 170
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 10,
+    "drop_weight": 1,
+    "price": 2000000,
+    "volume": 1,
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "山河永固诀",
+      "trigger_round": 2,
+      "mp_cost": 90000,
+      "type": "guard",
+      "value": 0.38,
+      "target": "enemy",
+      "description": "两回合减伤38%，并将防御的10%转化为攻击。"
+    }
+  },
+  "后土承天道经": {
+    "name": "后土承天道经",
+    "type": "main_technique",
+    "rank": "帝品",
+    "element": "土",
+    "description": "土系主修心法，以反伤守御见长。绝技【后土承天印】：两回合减伤42%，并将防御的10%转化为攻击。",
+    "effects": {
+      "counter_damage": 23,
+      "status_resist": 17,
+      "defense_bonus": 220
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 6,
+    "drop_weight": 1,
+    "price": 4000000,
+    "volume": 1,
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "后土承天印",
+      "trigger_round": 2,
+      "mp_cost": 150000,
+      "type": "guard",
+      "value": 0.42,
+      "target": "enemy",
+      "description": "两回合减伤42%，并将防御的10%转化为攻击。"
+    }
+  },
+  "太一厚土道典": {
+    "name": "太一厚土道典",
+    "type": "main_technique",
+    "rank": "道品",
+    "element": "土",
+    "description": "土系主修心法，以反伤守御见长。绝技【太一厚土符】：两回合减伤46%，并将防御的10%转化为攻击。",
+    "effects": {
+      "counter_damage": 27,
+      "status_resist": 20,
+      "defense_bonus": 280
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 3,
+    "drop_weight": 1,
+    "price": 8000000,
+    "volume": 1,
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "太一厚土符",
+      "trigger_round": 2,
+      "mp_cost": 250000,
+      "type": "guard",
+      "value": 0.46,
+      "target": "enemy",
+      "description": "两回合减伤46%，并将防御的10%转化为攻击。"
+    }
+  },
+  "镇元厚土真经": {
+    "name": "镇元厚土真经",
+    "type": "main_technique",
+    "rank": "仙品",
+    "element": "土",
+    "description": "土系主修心法，以反伤守御见长。绝技【镇元厚土阵】：两回合减伤50%，并将防御的10%转化为攻击。",
+    "effects": {
+      "counter_damage": 31,
+      "status_resist": 24,
+      "defense_bonus": 350
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 1,
+    "drop_weight": 1,
+    "price": 15000000,
+    "volume": 1,
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "镇元厚土阵",
+      "trigger_round": 2,
+      "mp_cost": 450000,
+      "type": "guard",
+      "value": 0.5,
+      "target": "enemy",
+      "description": "两回合减伤50%，并将防御的10%转化为攻击。"
+    }
+  },
+  "混沌息壤本源经": {
+    "name": "混沌息壤本源经",
+    "type": "main_technique",
+    "rank": "混元先天",
+    "element": "土",
+    "description": "土系主修心法，以反伤守御见长。绝技【混沌息壤镇】：两回合减伤55%，并将防御的10%转化为攻击。",
+    "effects": {
+      "counter_damage": 35,
+      "status_resist": 28,
+      "defense_bonus": 450
+    },
+    "exp_multiplier": 0.0,
+    "shop_weight": 1,
+    "drop_weight": 1,
+    "price": 30000000,
+    "volume": 1,
+    "stock_cap": 1,
+    "active_skill": {
+      "name": "混沌息壤镇",
+      "trigger_round": 2,
+      "mp_cost": 800000,
+      "type": "guard",
+      "value": 0.55,
+      "target": "enemy",
+      "description": "两回合减伤55%，并将防御的10%转化为攻击。"
+    }
+  },
+  "太白养锋诀": {
+    "name": "太白养锋诀",
+    "type": "technique",
+    "rank": "灵品",
+    "element": "金",
+    "description": "灵品金系生活功法：灵石收益+4.0%；掉落几率+4.0%。",
+    "exp_multiplier": 0.0,
+    "life_effects": {
+      "gold_bonus": 0.04,
+      "drop_bonus": 0.04
+    },
+    "shop_weight": 80,
+    "drop_weight": 8,
+    "price": 300000,
+    "volume": 1,
+    "stock_cap": 2
+  },
+  "庚金聚宝录": {
+    "name": "庚金聚宝录",
+    "type": "technique",
+    "rank": "地品",
+    "element": "金",
+    "description": "地品金系生活功法：灵石收益+5.0%；掉落几率+5.0%。",
+    "exp_multiplier": 0.0,
+    "life_effects": {
+      "gold_bonus": 0.05,
+      "drop_bonus": 0.05
+    },
+    "shop_weight": 60,
+    "drop_weight": 6,
+    "price": 450000,
+    "volume": 1,
+    "stock_cap": 2
+  },
+  "白虎衔金经": {
+    "name": "白虎衔金经",
+    "type": "technique",
+    "rank": "天品",
+    "element": "金",
+    "description": "天品金系生活功法：灵石收益+6.0%；掉落几率+6.0%。",
+    "exp_multiplier": 0.0,
+    "life_effects": {
+      "gold_bonus": 0.06,
+      "drop_bonus": 0.06
+    },
+    "shop_weight": 40,
+    "drop_weight": 4,
+    "price": 600000,
+    "volume": 1,
+    "stock_cap": 2
+  },
+  "金阙藏锋篇": {
+    "name": "金阙藏锋篇",
+    "type": "technique",
+    "rank": "皇品",
+    "element": "金",
+    "description": "皇品金系生活功法：灵石收益+8.0%；掉落几率+8.0%。",
+    "exp_multiplier": 0.0,
+    "life_effects": {
+      "gold_bonus": 0.08,
+      "drop_bonus": 0.08
+    },
+    "shop_weight": 25,
+    "drop_weight": 3,
+    "price": 900000,
+    "volume": 1,
+    "stock_cap": 2
+  },
+  "诛仙炼金章": {
+    "name": "诛仙炼金章",
+    "type": "technique",
+    "rank": "圣品",
+    "element": "金",
+    "description": "圣品金系生活功法：灵石收益+10.0%；掉落几率+10.0%。",
+    "exp_multiplier": 0.0,
+    "life_effects": {
+      "gold_bonus": 0.1,
+      "drop_bonus": 0.1
+    },
+    "shop_weight": 15,
+    "drop_weight": 2,
+    "price": 1200000,
+    "volume": 1,
+    "stock_cap": 2
+  },
+  "帝金铸世录": {
+    "name": "帝金铸世录",
+    "type": "technique",
+    "rank": "帝品",
+    "element": "金",
+    "description": "帝品金系生活功法：灵石收益+12.0%；掉落几率+12.0%。",
+    "exp_multiplier": 0.0,
+    "life_effects": {
+      "gold_bonus": 0.12,
+      "drop_bonus": 0.12
+    },
+    "shop_weight": 8,
+    "drop_weight": 1,
+    "price": 2000000,
+    "volume": 1,
+    "stock_cap": 2
+  },
+  "太初金华道篇": {
+    "name": "太初金华道篇",
+    "type": "technique",
+    "rank": "道品",
+    "element": "金",
+    "description": "道品金系生活功法：灵石收益+15.0%；掉落几率+15.0%。",
+    "exp_multiplier": 0.0,
+    "life_effects": {
+      "gold_bonus": 0.15,
+      "drop_bonus": 0.15
+    },
+    "shop_weight": 4,
+    "drop_weight": 1,
+    "price": 3500000,
+    "volume": 1,
+    "stock_cap": 2
+  },
+  "西华金母宝录": {
+    "name": "西华金母宝录",
+    "type": "technique",
+    "rank": "仙品",
+    "element": "金",
+    "description": "仙品金系生活功法：灵石收益+18.0%；掉落几率+18.0%。",
+    "exp_multiplier": 0.0,
+    "life_effects": {
+      "gold_bonus": 0.18,
+      "drop_bonus": 0.18
+    },
+    "shop_weight": 2,
+    "drop_weight": 1,
+    "price": 6000000,
+    "volume": 1,
+    "stock_cap": 2
+  },
+  "混元金精本源经": {
+    "name": "混元金精本源经",
+    "type": "technique",
+    "rank": "混元先天",
+    "element": "金",
+    "description": "混元先天金系生活功法：灵石收益+22.0%；掉落几率+22.0%。",
+    "exp_multiplier": 0.0,
+    "life_effects": {
+      "gold_bonus": 0.22,
+      "drop_bonus": 0.22
+    },
+    "shop_weight": 1,
+    "drop_weight": 1,
+    "price": 12000000,
+    "volume": 1,
+    "stock_cap": 2
+  },
+  "青帝养荣篇": {
+    "name": "青帝养荣篇",
+    "type": "technique",
+    "rank": "灵品",
+    "element": "木",
+    "description": "灵品木系生活功法：掉落几率+4.0%；修炼效率+3.0%。",
+    "exp_multiplier": 0.03,
+    "life_effects": {
+      "drop_bonus": 0.04
+    },
+    "shop_weight": 80,
+    "drop_weight": 8,
+    "price": 300000,
+    "volume": 1,
+    "stock_cap": 2
+  },
+  "建木培元录": {
+    "name": "建木培元录",
+    "type": "technique",
+    "rank": "地品",
+    "element": "木",
+    "description": "地品木系生活功法：掉落几率+5.0%；修炼效率+4.0%。",
+    "exp_multiplier": 0.04,
+    "life_effects": {
+      "drop_bonus": 0.05
+    },
+    "shop_weight": 60,
+    "drop_weight": 6,
+    "price": 450000,
+    "volume": 1,
+    "stock_cap": 2
+  },
+  "青龙纳灵经": {
+    "name": "青龙纳灵经",
+    "type": "technique",
+    "rank": "天品",
+    "element": "木",
+    "description": "天品木系生活功法：掉落几率+6.0%；修炼效率+5.0%。",
+    "exp_multiplier": 0.05,
+    "life_effects": {
+      "drop_bonus": 0.06
+    },
+    "shop_weight": 40,
+    "drop_weight": 4,
+    "price": 600000,
+    "volume": 1,
+    "stock_cap": 2
+  },
+  "万木朝春章": {
+    "name": "万木朝春章",
+    "type": "technique",
+    "rank": "皇品",
+    "element": "木",
+    "description": "皇品木系生活功法：掉落几率+8.0%；修炼效率+6.0%。",
+    "exp_multiplier": 0.06,
+    "life_effects": {
+      "drop_bonus": 0.08
+    },
+    "shop_weight": 25,
+    "drop_weight": 3,
+    "price": 900000,
+    "volume": 1,
+    "stock_cap": 2
+  },
+  "长生青华典": {
+    "name": "长生青华典",
+    "type": "technique",
+    "rank": "圣品",
+    "element": "木",
+    "description": "圣品木系生活功法：掉落几率+10.0%；修炼效率+8.0%。",
+    "exp_multiplier": 0.08,
+    "life_effects": {
+      "drop_bonus": 0.1
+    },
+    "shop_weight": 15,
+    "drop_weight": 2,
+    "price": 1200000,
+    "volume": 1,
+    "stock_cap": 2
+  },
+  "帝流青木录": {
+    "name": "帝流青木录",
+    "type": "technique",
+    "rank": "帝品",
+    "element": "木",
+    "description": "帝品木系生活功法：掉落几率+12.0%；修炼效率+10.0%。",
+    "exp_multiplier": 0.1,
+    "life_effects": {
+      "drop_bonus": 0.12
+    },
+    "shop_weight": 8,
+    "drop_weight": 1,
+    "price": 2000000,
+    "volume": 1,
+    "stock_cap": 2
+  },
+  "太乙青襄道篇": {
+    "name": "太乙青襄道篇",
+    "type": "technique",
+    "rank": "道品",
+    "element": "木",
+    "description": "道品木系生活功法：掉落几率+15.0%；修炼效率+12.0%。",
+    "exp_multiplier": 0.12,
+    "life_effects": {
+      "drop_bonus": 0.15
+    },
+    "shop_weight": 4,
+    "drop_weight": 1,
+    "price": 3500000,
+    "volume": 1,
+    "stock_cap": 2
+  },
+  "东华木德宝经": {
+    "name": "东华木德宝经",
+    "type": "technique",
+    "rank": "仙品",
+    "element": "木",
+    "description": "仙品木系生活功法：掉落几率+18.0%；修炼效率+15.0%。",
+    "exp_multiplier": 0.15,
+    "life_effects": {
+      "drop_bonus": 0.18
+    },
+    "shop_weight": 2,
+    "drop_weight": 1,
+    "price": 6000000,
+    "volume": 1,
+    "stock_cap": 2
+  },
+  "混元青木本源篇": {
+    "name": "混元青木本源篇",
+    "type": "technique",
+    "rank": "混元先天",
+    "element": "木",
+    "description": "混元先天木系生活功法：掉落几率+22.0%；修炼效率+20.0%。",
+    "exp_multiplier": 0.2,
+    "life_effects": {
+      "drop_bonus": 0.22
+    },
+    "shop_weight": 1,
+    "drop_weight": 1,
+    "price": 12000000,
+    "volume": 1,
+    "stock_cap": 2
+  },
+  "玄冥润灵诀": {
+    "name": "玄冥润灵诀",
+    "type": "technique",
+    "rank": "灵品",
+    "element": "水",
+    "description": "灵品水系生活功法：冷却缩减+2.0%；灵石收益+4.0%。",
+    "exp_multiplier": 0.0,
+    "life_effects": {
+      "cooldown_reduction": 0.02,
+      "gold_bonus": 0.04
+    },
+    "shop_weight": 80,
+    "drop_weight": 8,
+    "price": 300000,
+    "volume": 1,
+    "stock_cap": 2
+  },
+  "北冥聚元录": {
+    "name": "北冥聚元录",
+    "type": "technique",
+    "rank": "地品",
+    "element": "水",
+    "description": "地品水系生活功法：冷却缩减+2.5%；灵石收益+5.0%。",
+    "exp_multiplier": 0.0,
+    "life_effects": {
+      "cooldown_reduction": 0.025,
+      "gold_bonus": 0.05
+    },
+    "shop_weight": 60,
+    "drop_weight": 6,
+    "price": 450000,
+    "volume": 1,
+    "stock_cap": 2
+  },
+  "天河洗髓经": {
+    "name": "天河洗髓经",
+    "type": "technique",
+    "rank": "天品",
+    "element": "水",
+    "description": "天品水系生活功法：冷却缩减+3.0%；灵石收益+6.0%。",
+    "exp_multiplier": 0.0,
+    "life_effects": {
+      "cooldown_reduction": 0.03,
+      "gold_bonus": 0.06
+    },
+    "shop_weight": 40,
+    "drop_weight": 4,
+    "price": 600000,
+    "volume": 1,
+    "stock_cap": 2
+  },
+  "玄水藏珠章": {
+    "name": "玄水藏珠章",
+    "type": "technique",
+    "rank": "皇品",
+    "element": "水",
+    "description": "皇品水系生活功法：冷却缩减+4.0%；灵石收益+8.0%。",
+    "exp_multiplier": 0.0,
+    "life_effects": {
+      "cooldown_reduction": 0.04,
+      "gold_bonus": 0.08
+    },
+    "shop_weight": 25,
+    "drop_weight": 3,
+    "price": 900000,
+    "volume": 1,
+    "stock_cap": 2
+  },
+  "上善玄水典": {
+    "name": "上善玄水典",
+    "type": "technique",
+    "rank": "圣品",
+    "element": "水",
+    "description": "圣品水系生活功法：冷却缩减+5.0%；灵石收益+10.0%。",
+    "exp_multiplier": 0.0,
+    "life_effects": {
+      "cooldown_reduction": 0.05,
+      "gold_bonus": 0.1
+    },
+    "shop_weight": 15,
+    "drop_weight": 2,
+    "price": 1200000,
+    "volume": 1,
+    "stock_cap": 2
+  },
+  "帝流玄水录": {
+    "name": "帝流玄水录",
+    "type": "technique",
+    "rank": "帝品",
+    "element": "水",
+    "description": "帝品水系生活功法：冷却缩减+6.0%；灵石收益+12.0%。",
+    "exp_multiplier": 0.0,
+    "life_effects": {
+      "cooldown_reduction": 0.06,
+      "gold_bonus": 0.12
+    },
+    "shop_weight": 8,
+    "drop_weight": 1,
+    "price": 2000000,
+    "volume": 1,
+    "stock_cap": 2
+  },
+  "太一真水道篇": {
+    "name": "太一真水道篇",
+    "type": "technique",
+    "rank": "道品",
+    "element": "水",
+    "description": "道品水系生活功法：冷却缩减+8.0%；灵石收益+15.0%。",
+    "exp_multiplier": 0.0,
+    "life_effects": {
+      "cooldown_reduction": 0.08,
+      "gold_bonus": 0.15
+    },
+    "shop_weight": 4,
+    "drop_weight": 1,
+    "price": 3500000,
+    "volume": 1,
+    "stock_cap": 2
+  },
+  "共工玄水宝经": {
+    "name": "共工玄水宝经",
+    "type": "technique",
+    "rank": "仙品",
+    "element": "水",
+    "description": "仙品水系生活功法：冷却缩减+10.0%；灵石收益+18.0%。",
+    "exp_multiplier": 0.0,
+    "life_effects": {
+      "cooldown_reduction": 0.1,
+      "gold_bonus": 0.18
+    },
+    "shop_weight": 2,
+    "drop_weight": 1,
+    "price": 6000000,
+    "volume": 1,
+    "stock_cap": 2
+  },
+  "混元重水本源篇": {
+    "name": "混元重水本源篇",
+    "type": "technique",
+    "rank": "混元先天",
+    "element": "水",
+    "description": "混元先天水系生活功法：冷却缩减+12.0%；灵石收益+22.0%。",
+    "exp_multiplier": 0.0,
+    "life_effects": {
+      "cooldown_reduction": 0.12,
+      "gold_bonus": 0.22
+    },
+    "shop_weight": 1,
+    "drop_weight": 1,
+    "price": 12000000,
+    "volume": 1,
+    "stock_cap": 2
+  },
+  "离火养元诀": {
+    "name": "离火养元诀",
+    "type": "technique",
+    "rank": "灵品",
+    "element": "火",
+    "description": "灵品火系生活功法：灵石收益+4.0%；修炼效率+3.0%。",
+    "exp_multiplier": 0.03,
+    "life_effects": {
+      "gold_bonus": 0.04
+    },
+    "shop_weight": 80,
+    "drop_weight": 8,
+    "price": 300000,
+    "volume": 1,
+    "stock_cap": 2
+  },
+  "朱雀聚灵录": {
+    "name": "朱雀聚灵录",
+    "type": "technique",
+    "rank": "地品",
+    "element": "火",
+    "description": "地品火系生活功法：灵石收益+5.0%；修炼效率+4.0%。",
+    "exp_multiplier": 0.04,
+    "life_effects": {
+      "gold_bonus": 0.05
+    },
+    "shop_weight": 60,
+    "drop_weight": 6,
+    "price": 450000,
+    "volume": 1,
+    "stock_cap": 2
+  },
+  "大日炼神经": {
+    "name": "大日炼神经",
+    "type": "technique",
+    "rank": "天品",
+    "element": "火",
+    "description": "天品火系生活功法：灵石收益+6.0%；修炼效率+5.0%。",
+    "exp_multiplier": 0.05,
+    "life_effects": {
+      "gold_bonus": 0.06
+    },
+    "shop_weight": 40,
+    "drop_weight": 4,
+    "price": 600000,
+    "volume": 1,
+    "stock_cap": 2
+  },
+  "红莲业火章": {
+    "name": "红莲业火章",
+    "type": "technique",
+    "rank": "皇品",
+    "element": "火",
+    "description": "皇品火系生活功法：灵石收益+8.0%；修炼效率+6.0%。",
+    "exp_multiplier": 0.06,
+    "life_effects": {
+      "gold_bonus": 0.08
+    },
+    "shop_weight": 25,
+    "drop_weight": 3,
+    "price": 900000,
+    "volume": 1,
+    "stock_cap": 2
+  },
+  "焚天赤炎典": {
+    "name": "焚天赤炎典",
+    "type": "technique",
+    "rank": "圣品",
+    "element": "火",
+    "description": "圣品火系生活功法：灵石收益+10.0%；修炼效率+8.0%。",
+    "exp_multiplier": 0.08,
+    "life_effects": {
+      "gold_bonus": 0.1
+    },
+    "shop_weight": 15,
+    "drop_weight": 2,
+    "price": 1200000,
+    "volume": 1,
+    "stock_cap": 2
+  },
+  "帝炎焚世录": {
+    "name": "帝炎焚世录",
+    "type": "technique",
+    "rank": "帝品",
+    "element": "火",
+    "description": "帝品火系生活功法：灵石收益+12.0%；修炼效率+10.0%。",
+    "exp_multiplier": 0.1,
+    "life_effects": {
+      "gold_bonus": 0.12
+    },
+    "shop_weight": 8,
+    "drop_weight": 1,
+    "price": 2000000,
+    "volume": 1,
+    "stock_cap": 2
+  },
+  "太乙离火道篇": {
+    "name": "太乙离火道篇",
+    "type": "technique",
+    "rank": "道品",
+    "element": "火",
+    "description": "道品火系生活功法：灵石收益+15.0%；修炼效率+12.0%。",
+    "exp_multiplier": 0.12,
+    "life_effects": {
+      "gold_bonus": 0.15
+    },
+    "shop_weight": 4,
+    "drop_weight": 1,
+    "price": 3500000,
+    "volume": 1,
+    "stock_cap": 2
+  },
+  "金乌太阳宝经": {
+    "name": "金乌太阳宝经",
+    "type": "technique",
+    "rank": "仙品",
+    "element": "火",
+    "description": "仙品火系生活功法：灵石收益+18.0%；修炼效率+15.0%。",
+    "exp_multiplier": 0.15,
+    "life_effects": {
+      "gold_bonus": 0.18
+    },
+    "shop_weight": 2,
+    "drop_weight": 1,
+    "price": 6000000,
+    "volume": 1,
+    "stock_cap": 2
+  },
+  "混元离火本源篇": {
+    "name": "混元离火本源篇",
+    "type": "technique",
+    "rank": "混元先天",
+    "element": "火",
+    "description": "混元先天火系生活功法：灵石收益+22.0%；修炼效率+20.0%。",
+    "exp_multiplier": 0.2,
+    "life_effects": {
+      "gold_bonus": 0.22
+    },
+    "shop_weight": 1,
+    "drop_weight": 1,
+    "price": 12000000,
+    "volume": 1,
+    "stock_cap": 2
+  },
+  "戊土培元诀": {
+    "name": "戊土培元诀",
+    "type": "technique",
+    "rank": "灵品",
+    "element": "土",
+    "description": "灵品土系生活功法：气运+3；掉落几率+4.0%。",
+    "exp_multiplier": 0.0,
+    "life_effects": {
+      "luck_bonus": 3,
+      "drop_bonus": 0.04
+    },
+    "shop_weight": 80,
+    "drop_weight": 8,
+    "price": 300000,
+    "volume": 1,
+    "stock_cap": 2
+  },
+  "坤元聚宝录": {
+    "name": "坤元聚宝录",
+    "type": "technique",
+    "rank": "地品",
+    "element": "土",
+    "description": "地品土系生活功法：气运+4；掉落几率+5.0%。",
+    "exp_multiplier": 0.0,
+    "life_effects": {
+      "luck_bonus": 4,
+      "drop_bonus": 0.05
+    },
+    "shop_weight": 60,
+    "drop_weight": 6,
+    "price": 450000,
+    "volume": 1,
+    "stock_cap": 2
+  },
+  "不动镇山经": {
+    "name": "不动镇山经",
+    "type": "technique",
+    "rank": "天品",
+    "element": "土",
+    "description": "天品土系生活功法：气运+5；掉落几率+6.0%。",
+    "exp_multiplier": 0.0,
+    "life_effects": {
+      "luck_bonus": 5,
+      "drop_bonus": 0.06
+    },
+    "shop_weight": 40,
+    "drop_weight": 4,
+    "price": 600000,
+    "volume": 1,
+    "stock_cap": 2
+  },
+  "山河永固章": {
+    "name": "山河永固章",
+    "type": "technique",
+    "rank": "皇品",
+    "element": "土",
+    "description": "皇品土系生活功法：气运+6；掉落几率+8.0%。",
+    "exp_multiplier": 0.0,
+    "life_effects": {
+      "luck_bonus": 6,
+      "drop_bonus": 0.08
+    },
+    "shop_weight": 25,
+    "drop_weight": 3,
+    "price": 900000,
+    "volume": 1,
+    "stock_cap": 2
+  },
+  "后土承天典": {
+    "name": "后土承天典",
+    "type": "technique",
+    "rank": "圣品",
+    "element": "土",
+    "description": "圣品土系生活功法：气运+8；掉落几率+10.0%。",
+    "exp_multiplier": 0.0,
+    "life_effects": {
+      "luck_bonus": 8,
+      "drop_bonus": 0.1
+    },
+    "shop_weight": 15,
+    "drop_weight": 2,
+    "price": 1200000,
+    "volume": 1,
+    "stock_cap": 2
+  },
+  "帝土镇世录": {
+    "name": "帝土镇世录",
+    "type": "technique",
+    "rank": "帝品",
+    "element": "土",
+    "description": "帝品土系生活功法：气运+10；掉落几率+12.0%。",
+    "exp_multiplier": 0.0,
+    "life_effects": {
+      "luck_bonus": 10,
+      "drop_bonus": 0.12
+    },
+    "shop_weight": 8,
+    "drop_weight": 1,
+    "price": 2000000,
+    "volume": 1,
+    "stock_cap": 2
+  },
+  "太一厚土道篇": {
+    "name": "太一厚土道篇",
+    "type": "technique",
+    "rank": "道品",
+    "element": "土",
+    "description": "道品土系生活功法：气运+12；掉落几率+15.0%。",
+    "exp_multiplier": 0.0,
+    "life_effects": {
+      "luck_bonus": 12,
+      "drop_bonus": 0.15
+    },
+    "shop_weight": 4,
+    "drop_weight": 1,
+    "price": 3500000,
+    "volume": 1,
+    "stock_cap": 2
+  },
+  "镇元厚土宝经": {
+    "name": "镇元厚土宝经",
+    "type": "technique",
+    "rank": "仙品",
+    "element": "土",
+    "description": "仙品土系生活功法：气运+15；掉落几率+18.0%。",
+    "exp_multiplier": 0.0,
+    "life_effects": {
+      "luck_bonus": 15,
+      "drop_bonus": 0.18
+    },
+    "shop_weight": 2,
+    "drop_weight": 1,
+    "price": 6000000,
+    "volume": 1,
+    "stock_cap": 2
+  },
+  "混元息壤本源篇": {
+    "name": "混元息壤本源篇",
+    "type": "technique",
+    "rank": "混元先天",
+    "element": "土",
+    "description": "混元先天土系生活功法：气运+20；掉落几率+22.0%。",
+    "exp_multiplier": 0.0,
+    "life_effects": {
+      "luck_bonus": 20,
+      "drop_bonus": 0.22
+    },
+    "shop_weight": 1,
+    "drop_weight": 1,
+    "price": 12000000,
+    "volume": 1,
+    "stock_cap": 2
   }
 }

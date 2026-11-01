@@ -287,11 +287,18 @@ class PlayerHandler:
         combat_power = CombatManager.calculate_combat_power(
             combat_panel, total_attrs["mental_power"]
         )
-        element_name = (
-            self.config_manager.get_item_element(player.main_technique)
-            or self.config_manager.get_item_element(player.weapon)
-            or "无"
-        )
+        from ..core.element_resonance import ElementResonance
+        resonance = ElementResonance.compute(player, self.config_manager)
+        element_name = resonance.get("main_element") or "无"
+        resonance_desc = ElementResonance.describe(resonance)
+        resonance_bonus = ElementResonance.bonus_text(resonance)
+        resonance_text = resonance_desc + (f"（{resonance_bonus}）" if resonance_bonus else "")
+        # 卡片按行折行，描述与加成拆成两行，避免长括号被拆到单独一行。
+        resonance_card_rows = []
+        if resonance.get("main_element"):
+            resonance_card_rows.append(("五行共鸣", resonance_desc))
+            if resonance_bonus:
+                resonance_card_rows.append(("共鸣加成", resonance_bonus))
         from ..managers.luck_manager import LuckManager
         luck_parts = LuckManager.get_breakdown(player, self.config_manager)
         luck_total = luck_parts["total"]
@@ -386,6 +393,7 @@ class PlayerHandler:
             f"  暴击：{combat_panel['crit_rate']:.1f}% | 暴伤：{combat_panel['crit_damage'] * 100:.1f}%\n"
             f"  吸血：{combat_panel['lifesteal']:.1f}% | 反伤：{combat_panel['counter_damage']:.1f}%\n"
             f"  五行：{element_name}\n"
+            f"  五行共鸣：{resonance_text}\n"
         )
 
         reply_msg += (
@@ -484,6 +492,7 @@ class PlayerHandler:
                             ("气运", f"{luck_total}"),
                             ("生活职业", getattr(player, "life_skill", "") or "无"),
                             ("五行属性", element_name),
+                            *resonance_card_rows,
                             ("化身", self._avatar_status(player)),
                         ]},
                         {"name": "属性", "rows": attribute_rows},

@@ -55,16 +55,22 @@ class TestActiveSkillConfig(unittest.TestCase):
 
     def test_all_main_techniques_have_active_skill(self):
         main = [v for v in self.techniques.values() if v.get("type") == "main_technique"]
-        self.assertEqual(len(main), 20)
+        self.assertEqual(len(main), 60)
+        self.assertEqual(
+            {cfg["rank"] for cfg in main},
+            {"凡品", "黄品", "玄品", "灵品", "地品", "天品", "皇品", "圣品", "帝品", "道品", "仙品", "混元先天"},
+        )
+        mp_cost = {
+            "凡品": 500, "黄品": 4000, "玄品": 20000, "灵品": 40000,
+            "地品": 55000, "天品": 70000, "皇品": 90000, "圣品": 100000,
+            "帝品": 150000, "道品": 250000, "仙品": 450000, "混元先天": 800000,
+        }
         for cfg in main:
             skill = cfg.get("active_skill")
             self.assertIsNotNone(skill, cfg.get("name"))
             self.assertEqual(skill.get("trigger_round"), 2)
-            self.assertEqual(
-                skill.get("mp_cost"),
-                {"凡品": 500, "黄品": 4000, "玄品": 20000, "圣品": 100000}[cfg["rank"]],
-                cfg.get("name"),
-            )
+            self.assertEqual(skill.get("mp_cost"), mp_cost[cfg["rank"]], cfg.get("name"))
+            self.assertIn(skill.get("type"), {"pierce", "heal", "freeze", "burn", "guard"}, cfg.get("name"))
 
 
 class TestActiveSkillEngine(unittest.TestCase):

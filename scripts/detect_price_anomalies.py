@@ -63,7 +63,7 @@ def stat_budget(item: dict) -> float:
 def main() -> int:
     rows = []
     all_items = []
-    for file in ("items.json", "weapons.json", "special_equipment.json", "items_v2.json"):
+    for file in ("items.json", "weapons.json", "special_equipment.json", "items_v2.json", "elemental_equipment.json"):
         for item in load(file):
             if isinstance(item, dict):
                 item = dict(item)
