@@ -253,17 +253,42 @@ class PetHandlers:
         success, msg = await self.pet_mgr.devour_pet(player, pet_selector)
         yield event.plain_result(msg)
 
+    @staticmethod
+    def _parse_devour_count(token: str):
+        """解析吞噬数量：正整数或 all/全部/满 表示用光全部。"""
+        text = (token or "").strip().lower()
+        if text in ("all", "全部", "max", "满", "用完"):
+            return 0
+        if text.isdigit() and int(text) > 0:
+            return int(text)
+        return None
+
     @player_required
     async def handle_devour_item(self, player: Player, event: AstrMessageEvent, args: str = ""):
         args = (args or "").strip()
         if not args:
             yield event.plain_result(
-                "用法：/灵兽吞噬 <灵兽序号或名字> [灵兽内丹]\n"
-                f"💡 每颗【灵兽内丹】提供当前等级升级需求 {int(self.pet_mgr.PET_CORE_EXP_RATIO * 100)}% 的经验（最高 Lv.50）。"
+                "用法：/灵兽吞噬 <灵兽序号或名字> [灵兽内丹] [数量|all]\n"
+                f"💡 每颗【灵兽内丹】提供当前等级升级需求 {int(self.pet_mgr.PET_CORE_EXP_RATIO * 100)}% 的经验（最高 Lv.50）。\n"
+                "💡 示例：/灵兽吞噬 1 5 · /灵兽吞噬 1 all · /灵兽吞噬 1 灵兽内丹 10"
             )
             return
-        parts = args.split(None, 1)
+        parts = args.split()
         selector = parts[0]
-        item_name = parts[1].strip() if len(parts) > 1 else self.pet_mgr.PET_CORE_ITEM
-        success, msg = await self.pet_mgr.devour_item(player, selector, item_name)
+        item_name = self.pet_mgr.PET_CORE_ITEM
+        count = 1
+        if len(parts) == 2:
+            parsed = self._parse_devour_count(parts[1])
+            if parsed is None:
+                item_name = parts[1]
+            else:
+                count = parsed
+        elif len(parts) >= 3:
+            item_name = parts[1]
+            parsed = self._parse_devour_count(parts[2])
+            if parsed is None:
+                yield event.plain_result("❌ 数量参数无效，请使用正整数或 all。")
+                return
+            count = parsed
+        success, msg = await self.pet_mgr.devour_item(player, selector, item_name, count)
         yield event.plain_result(msg)

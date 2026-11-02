@@ -1069,8 +1069,12 @@ class PetManager:
         player: Player,
         selector: str = "",
         item_name: str = PET_CORE_ITEM,
+        count: int = 1,
     ) -> Tuple[bool, str]:
-        """让指定灵兽吞噬灵兽内丹，按当前等级需求比例获得经验。"""
+        """让指定灵兽吞噬灵兽内丹，按当前等级需求比例获得经验。
+
+        ``count <= 0`` 表示一次性使用背包中尽可能多的内丹（直到满级或耗尽）。
+        """
         item_name = (item_name or "").strip() or self.PET_CORE_ITEM
         if item_name != self.PET_CORE_ITEM:
             return False, f"❌ 目前只有【{self.PET_CORE_ITEM}】可以用于灵兽吞噬。"
@@ -1093,23 +1097,41 @@ class PetManager:
         if old_level >= self.MAX_PET_LEVEL:
             return False, f"❌ 【{pet['pet_name']}】已经满级（Lv.{self.MAX_PET_LEVEL}）。"
 
-        if self._storage_item_count(player, item_name) <= 0:
+        available = self._storage_item_count(player, item_name)
+        if available <= 0:
             return False, f"❌ 储物戒中没有【{item_name}】，可前往材料阁购买或秘境获取。"
 
-        ok, msg = await self._consume_storage_item(player, item_name, 1)
+        try:
+            requested = int(count)
+        except (TypeError, ValueError):
+            requested = 1
+        use_limit = available if requested <= 0 else min(requested, available)
+
+        pet_name = pet["pet_name"]
+        old_exp = int(pet.get("exp") or 0)
+        new_level = old_level
+        new_exp = old_exp
+        gain_exp = 0
+        used = 0
+        while used < use_limit and new_level < self.MAX_PET_LEVEL:
+            gain = max(1, int(new_level * 500 * self.PET_CORE_EXP_RATIO))
+            new_exp += gain
+            gain_exp += gain
+            used += 1
+            while new_level < self.MAX_PET_LEVEL and new_exp >= new_level * 500:
+                new_exp -= new_level * 500
+                new_level += 1
+            if new_level >= self.MAX_PET_LEVEL:
+                new_exp = 0
+                break
+
+        if used <= 0:
+            return False, f"❌ 【{pet_name}】无法继续吞噬【{item_name}】。"
+
+        ok, msg = await self._consume_storage_item(player, item_name, used)
         if not ok:
             return False, msg
 
-        pet_name = pet["pet_name"]
-        old_exp = 0 if old_level >= self.MAX_PET_LEVEL else int(pet.get("exp") or 0)
-        gain_exp = max(1, int(old_level * 500 * self.PET_CORE_EXP_RATIO))
-        new_level = old_level
-        new_exp = old_exp + gain_exp
-        while new_level < self.MAX_PET_LEVEL and new_exp >= new_level * 500:
-            new_exp -= new_level * 500
-            new_level += 1
-        if new_level >= self.MAX_PET_LEVEL:
-            new_exp = 0
         evolution = await self.ensure_pet_evolution(pet, commit=False, level=new_level)
 
         owner_hp, owner_atk = self._owner_realm_stats(player)
@@ -1134,11 +1156,9 @@ class PetManager:
         if new_level >= self.MAX_PET_LEVEL:
             progress_text = f"Lv.{new_level}（已满级）"
         else:
-            progress_text = (
-                f"Lv.{new_level} {new_exp}/{new_level * 500}"
-            )
+            progress_text = f"Lv.{new_level} {new_exp}/{new_level * 500}"
         lines = [
-            f"🐾 【{pet_name}】吞噬了【{item_name}】！",
+            f"🐾 【{pet_name}】吞噬了 {used} 颗【{item_name}】！",
             f"✨ 经验 +{gain_exp}（当前 {progress_text}）",
         ]
         if new_level > old_level:
@@ -1148,6 +1168,10 @@ class PetManager:
                 f"🌟 境界突破！【{evolution['from']}】进化为【{evolution['to']}】，"
                 "本体数值与加成效果大幅提升！"
             )
+        if requested > available:
+            lines.append(f"📦 背包仅剩 {available} 颗，已全部使用。")
+        elif new_level >= self.MAX_PET_LEVEL and remaining > 0:
+            lines.append(f"📦 已满级，剩余 {remaining} 颗未使用。")
         lines.append(f"📦 剩余【{item_name}】：{remaining} 颗")
         lines.append(
             f"当前精力：{new_hp}/{stats['max_hp']} · 攻击：{stats['atk']} · 防御：{stats['defense']}"

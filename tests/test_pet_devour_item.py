@@ -149,6 +149,58 @@ class TestPetDevourItem(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(pet["exp"], 50)
         self.assertEqual(pet["pet_type"], "炎灵狐")
 
+    async def test_devour_multiple_and_all_cores(self):
+        ok, _ = await self.pet_mgr.adopt_pet(self.player, "火灵狐")
+        self.assertTrue(ok)
+        await self._give_core(12)
+
+        # 指定数量：3 颗 = 150 经验
+        ok, msg = await self.pet_mgr.devour_item(self.player, "1", count=3)
+        self.assertTrue(ok, msg)
+        self.assertIn("吞噬了 3 颗", msg)
+        pet = await self.pet_mgr.get_pet("u1")
+        self.assertEqual(pet["level"], 1)
+        self.assertEqual(pet["exp"], 150)
+        self.assertEqual(self.storage_mgr.get_item_count(self.player, "灵兽内丹"), 9)
+
+        # all：剩余 9 颗全部使用，7 颗升到 Lv.2，另 2 颗继续累计经验
+        ok, msg = await self.pet_mgr.devour_item(self.player, "1", count=0)
+        self.assertTrue(ok, msg)
+        self.assertIn("吞噬了 9 颗", msg)
+        pet = await self.pet_mgr.get_pet("u1")
+        self.assertEqual(pet["level"], 2)
+        self.assertEqual(pet["exp"], 200)
+        self.assertEqual(self.storage_mgr.get_item_count(self.player, "灵兽内丹"), 0)
+
+    async def test_devour_stops_at_max_level_and_reports_leftover(self):
+        ok, _ = await self.pet_mgr.adopt_pet(self.player, "火灵狐")
+        self.assertTrue(ok)
+        await self.conn.execute(
+            "UPDATE player_pets SET level = 49, exp = 24000 WHERE user_id = ?", ("u1",)
+        )
+        await self.conn.commit()
+        await self._give_core(100)
+
+        ok, msg = await self.pet_mgr.devour_item(self.player, "1", count=0)
+        self.assertTrue(ok, msg)
+        self.assertIn("吞噬了 1 颗", msg)
+        self.assertIn("已满级", msg)
+        pet = await self.pet_mgr.get_pet("u1")
+        self.assertEqual(pet["level"], 50)
+        self.assertEqual(pet["exp"], 0)
+        self.assertEqual(self.storage_mgr.get_item_count(self.player, "灵兽内丹"), 99)
+
+    async def test_devour_count_clamps_to_available(self):
+        ok, _ = await self.pet_mgr.adopt_pet(self.player, "火灵狐")
+        self.assertTrue(ok)
+        await self._give_core(2)
+
+        ok, msg = await self.pet_mgr.devour_item(self.player, "1", count=10)
+        self.assertTrue(ok, msg)
+        self.assertIn("吞噬了 2 颗", msg)
+        self.assertIn("背包仅剩 2 颗", msg)
+        self.assertEqual(self.storage_mgr.get_item_count(self.player, "灵兽内丹"), 0)
+
     async def test_rejects_other_item_and_dead_pet(self):
         ok, _ = await self.pet_mgr.adopt_pet(self.player, "火灵狐")
         self.assertTrue(ok)
