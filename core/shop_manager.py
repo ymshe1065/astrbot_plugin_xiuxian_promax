@@ -772,7 +772,9 @@ class ShopManager:
     def get_talisman_recipes_for_display(self, count: int) -> List[Dict]:
         """获取符阁·符图货架：只卖需要习得的符图，基础配方不上架。
 
-        黄品符图常驻（学习门槛低），玄品以上稀有刷新。
+        黄品符图常驻（学习门槛低）；带护劫护盾的符图（避劫符/混元符等）
+        同样常驻——丹劫按品阶点名护盾，护劫符必须随时买得到；
+        其余玄品以上稀有刷新。
         """
         recipes = []
         for name, recipe in (getattr(self.config_manager, "talisman_recipes_data", {}) or {}).items():
@@ -786,7 +788,9 @@ class ShopManager:
             price = int(int(recipe.get("price", 0) or 0) * 0.8)
             if price <= 0:
                 continue
-            permanent = rank == "黄品"
+            effects = recipe.get("effects") if isinstance(recipe.get("effects"), dict) else {}
+            is_shield_talisman = int(effects.get("tribulation_shield", 0) or 0) > 0
+            permanent = rank == "黄品" or is_shield_talisman
             recipes.append({
                 'name': name, 'type': 'talisman_recipe', 'price': price,
                 'rank': rank,

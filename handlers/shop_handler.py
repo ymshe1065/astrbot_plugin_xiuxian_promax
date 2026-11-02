@@ -129,6 +129,17 @@ class ShopHandler:
                     await self.db.ext.set_system_config("shop_recipe_fingerprint", expected)
             except Exception:
                 pass
+        # 符图货架指纹：配方数变化或常驻规则调整（v6.49.9 护劫符符图转常驻）时强制重建，
+        # 让老服务器更新插件后立刻能看到常驻的混元符符图，不必等刷新周期
+        if pavilion_id == "talisman_recipe_pavilion":
+            try:
+                expected = f"talisman-recipes-{len(self.config_manager.talisman_recipes_data or {})}-v2"
+                stored = await self.db.ext.get_system_config("shop_talisman_recipe_fingerprint")
+                if stored != expected:
+                    last_refresh_time = 0
+                    await self.db.ext.set_system_config("shop_talisman_recipe_fingerprint", expected)
+            except Exception:
+                pass
         refresh_hours = self._cfg("PAVILION_REFRESH_HOURS", 1)
         if not current_items or self.shop_manager.should_refresh_shop(last_refresh_time, refresh_hours):
             if apply_rank_band:
@@ -260,7 +271,7 @@ class ShopHandler:
                 "🏯 符阁分区\n"
                 "━━━━━━━━━━━━━━━\n"
                 "  · /符阁 符箓：凡品与黄品成品符\n"
-                "  · /符阁 符图：玄品以上符箓的绘制图纸\n"
+                "  · /符阁 符图：玄品以上符箓的绘制图纸（护劫符符图常驻）\n"
                 "━━━━━━━━━━━━━━━\n"
                 "💡 玄品以上成品符只能由符箓师绘制\n"
                 "💡 购买使用 /购买 <物品名> [数量]"

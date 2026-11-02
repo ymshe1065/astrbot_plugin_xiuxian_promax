@@ -382,6 +382,19 @@ class TestTribulation(unittest.IsolatedAsyncioTestCase):
         player = self._player({"引雷符": 1})
         self.assertIsNone(self.Manager.pick_shield_talisman(player, 6, self.cm))
 
+    def test_shield_options_name_required_talisman(self):
+        # 丹劫失败文案按劫数点名最省的护劫符：帝品劫数 7 只有混元符(9)够
+        options = self.Manager.shield_talisman_options(7, self.cm)
+        self.assertTrue(options)
+        self.assertEqual(options[0][0], "混元符")
+        self.assertEqual(options[0][1], 9)
+        self.assertEqual(options[0][2], "圣品")
+        # 劫数 1：最省的稳魂符(2)排首位
+        options = self.Manager.shield_talisman_options(1, self.cm)
+        self.assertEqual(options[0][0], "稳魂符")
+        # 劫数 10 超出所有护盾：无解返回空
+        self.assertEqual(self.Manager.shield_talisman_options(10, self.cm), [])
+
     def test_consume_shield_removes_one(self):
         player = self._player({"避劫符": 2})
         used = self.Manager.consume_shield_talisman(player, self.cm, 6)
@@ -427,6 +440,16 @@ class TestPavilion(unittest.IsolatedAsyncioTestCase):
         for name in names:
             self.assertFalse(self.cm.talisman_recipes_data[name].get("basic"))
         self.assertIn("聚灵符", names)
+
+    def test_shield_talisman_recipes_permanent(self):
+        # v6.49.9：护劫符符图（避劫符/混元符）必须常驻符阁·符图，
+        # 否则高品丹劫点名混元符却买不到，提示成死路
+        shop = self.ShopManager({}, self.cm)
+        entries = {e["name"]: e for e in shop.get_talisman_recipes_for_display(8)}
+        for name in ("避劫符", "混元符", "聚灵符"):
+            self.assertIn(name, entries)
+            self.assertTrue(entries[name]["always_available"], f"{name} 符图应常驻")
+            self.assertFalse(entries[name]["rare"])
 
     def test_treasure_pavilion_has_no_talisman(self):
         shop = self.ShopManager({}, self.cm)

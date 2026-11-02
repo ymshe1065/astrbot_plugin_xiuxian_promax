@@ -744,6 +744,30 @@ class TalismanManager:
         return best
 
     @staticmethod
+    def shield_talisman_options(demand: int, config_manager=None) -> List[Tuple[str, int, str]]:
+        """配方表中能挡住 ``demand`` 劫数的护劫符：[(符名, 护盾, 品阶)]，按护盾升序。
+
+        用于丹劫失败文案精准点名所需符箓（如帝品劫数 7 → 混元符·护盾 9），
+        避免笼统提示「护劫符」误导玩家去买低阶符。
+        """
+        if demand <= 0 or config_manager is None:
+            return []
+        manager = TalismanManager(None, config_manager, None)
+        options: List[Tuple[str, int, str]] = []
+        for name in (getattr(config_manager, "talisman_recipes_data", {}) or {}):
+            try:
+                profile = manager.get_talisman_profile(name)
+            except Exception:
+                continue
+            if profile.get("category") != "炼丹":
+                continue
+            shield = int(profile.get("effects", {}).get("tribulation_shield", 0) or 0)
+            if shield >= demand:
+                options.append((name, shield, profile.get("rank", "凡品")))
+        options.sort(key=lambda x: (x[1], x[0]))
+        return options
+
+    @staticmethod
     def best_shield_available(player: Player, config_manager=None) -> int:
         """玩家手上（含已激活）能拿出的最高护盾，用于丹劫失败文案。"""
         manager = TalismanManager(None, config_manager, None)

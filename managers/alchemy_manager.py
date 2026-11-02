@@ -836,6 +836,28 @@ class AlchemyManager:
                 await self.db.update_player(player, commit=False)
 
                 if pill_ruined:
+                    # 精准点名能挡此劫的护劫符：凡/黄成品符阁直购，玄品以上走常驻符图
+                    shield_hint = f"💡 此丹为{pill_rank}，丹劫需护盾 ≥ {demand}"
+                    options = []
+                    try:
+                        from .talisman_manager import TalismanManager
+                        options = TalismanManager.shield_talisman_options(demand, self.config_manager)
+                    except Exception:
+                        options = []
+                    if options:
+                        tal_name, tal_shield, tal_rank = options[0]
+                        if tal_rank in ("凡品", "黄品"):
+                            shield_hint += (
+                                f"\n💡 可挡此劫的护劫符：【{tal_name}】(护盾 {tal_shield})，"
+                                f"成品可在 /符阁 符箓 购买，或由符箓师 /制符 {tal_name} 绘制"
+                            )
+                        else:
+                            shield_hint += (
+                                f"\n💡 可挡此劫的护劫符：【{tal_name}】({tal_rank}·护盾 {tal_shield})，"
+                                f"符图常驻 /符阁 符图，习得后由符箓师 /制符 {tal_name} 绘制"
+                            )
+                    else:
+                        shield_hint += "；护劫符可在 /符阁 购买，或由符箓师绘制"
                     msg = f"""
 💔 丹劫毁丹
 ━━━━━━━━━━━━━━━
@@ -847,7 +869,7 @@ class AlchemyManager:
 品质：{quality}
 {tribulation_msg}
 
-💡 此丹为{pill_rank}，丹劫需护盾 ≥ {demand}；护劫符可在 /符阁 符箓 购买，或由符箓师绘制
+{shield_hint}
                     """.strip()
                     await self.db.conn.commit()
                     return True, msg, {
