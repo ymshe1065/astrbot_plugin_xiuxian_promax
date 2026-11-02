@@ -35,6 +35,16 @@ class EquipmentHandler:
         except Exception:
             pass
 
+    def _element_tag(self, name: str) -> str:
+        """装备/功法名后的五行标注；未标注五行时返回空串，不留空括号。"""
+        if not name:
+            return ""
+        try:
+            element = self.config_manager.get_item_element(name) or ""
+        except Exception:
+            element = ""
+        return f"（{element}）" if element else ""
+
     # ===== /我的装备 比较 <装备名称> =====
     def _item_config(self, name: str) -> dict:
         cm = self.config_manager
@@ -125,7 +135,7 @@ class EquipmentHandler:
         lines = []
 
         if current is None:
-            lines.append(f"⚖️ 【{name}·{quality}】 → 空槽位【{slot_label}】")
+            lines.append(f"⚖️ 【{name}{self._element_tag(name)}·{quality}】 → 空槽位【{slot_label}】")
             lines.append("该部位当前未装备，穿戴后实际加成为：")
             if candidate_values:
                 lines.extend(
@@ -137,7 +147,10 @@ class EquipmentHandler:
         else:
             current_name = current.get("name", "")
             current_quality = current.get("quality", "一般")
-            lines.append(f"⚖️ 【{name}·{quality}】 vs 已穿戴【{current_name}·{current_quality}】")
+            lines.append(
+                f"⚖️ 【{name}{self._element_tag(name)}·{quality}】 vs "
+                f"已穿戴【{current_name}{self._element_tag(current_name)}·{current_quality}】"
+            )
             lines.append(f"部位：{slot_label}")
             lines.append("━━━━━━━━━━━━━━━")
             current_values = em.item_bonus_values(player, current_name, current)
@@ -258,7 +271,8 @@ class EquipmentHandler:
             if not name:
                 return "未装备"
             inst = self.equipment_manager.instance_manager.get_instance(player, equipped_map.get(slot, 0))
-            return f"{name}·{inst.get('quality', '一般')}" if inst else name
+            tag = self._element_tag(name)
+            return f"{name}{tag}·{inst.get('quality', '一般')}" if inst else f"{name}{tag}"
 
         gear = self.equipment_manager.get_gear_slots(player)
         gear_rows = [(ItemRules.SLOT_LABELS[slot], equipped_label(slot, name)) for slot, (name, _) in gear.items()]
@@ -284,12 +298,12 @@ class EquipmentHandler:
                 continue
             slot_quality = (slot_inst or {}).get("quality", "一般")
             equipment_lines.append(
-                f"{label} {slot_name}·{slot_quality}："
+                f"{label} {slot_name}{self._element_tag(slot_name)}·{slot_quality}："
                 f"{self.equipment_manager.describe_item_bonus(player, slot_name, slot_inst)}\n"
             )
         if player.main_technique:
             equipment_lines.append(
-                f"主修心法 {player.main_technique}："
+                f"主修心法 {player.main_technique}{self._element_tag(player.main_technique)}："
                 f"{self.equipment_manager.describe_item_bonus(player, player.main_technique)}\n"
             )
         physical_damage_bonus = magic_damage_bonus = physical_defense_bonus = magic_defense_bonus = 0
@@ -371,7 +385,9 @@ class EquipmentHandler:
             from ..utils.image_generator import render_card_async, card_enabled
             if card_enabled("CARD_EQUIP"):
                 element_of = lambda n: (self.config_manager.get_item_element(n) if n else "")
-                equip_rows = gear_rows + [("主修心法", player.main_technique or "未装备")]
+                equip_rows = gear_rows + [("主修心法",
+                    f"{player.main_technique}{self._element_tag(player.main_technique)}"
+                    if player.main_technique else "未装备")]
                 if element_of(player.main_technique) or element_of(player.weapon):
                     equip_rows.append(("五行属性",
                         element_of(player.main_technique) or element_of(player.weapon)))
@@ -386,12 +402,12 @@ class EquipmentHandler:
                         continue
                     slot_quality = (slot_inst or {}).get("quality", "一般")
                     single_bonus_lines.append(
-                        f"{label} {slot_name}·{slot_quality}："
+                        f"{label} {slot_name}{self._element_tag(slot_name)}·{slot_quality}："
                         f"{self.equipment_manager.describe_item_bonus(player, slot_name, slot_inst)}"
                     )
                 if player.main_technique:
                     single_bonus_lines.append(
-                        f"主修心法 {player.main_technique}："
+                        f"主修心法 {player.main_technique}{self._element_tag(player.main_technique)}："
                         f"{self.equipment_manager.describe_item_bonus(player, player.main_technique)}"
                     )
                 card_path = await render_card_async(

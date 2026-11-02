@@ -250,6 +250,21 @@ class XiuXianPlugin(Star):
         self.blessed_land_mgr = BlessedLandManager(self.db, self.config_manager)
         self.blessed_land_handlers = BlessedLandHandlers(self.db, self.blessed_land_mgr)
         self.spirit_farm_mgr = SpiritFarmManager(self.db, self.storage_ring_mgr, self.config_manager)
+        # 季节轮转天数：默认 2 天/季（8 天一轮），可由 VALUES.FARM_SEASON_DAYS 调整
+        try:
+            from .managers.spirit_farm_manager import configure_season_period, get_season_progress
+            values = self.config.get("VALUES", {}) or {}
+            period = configure_season_period(
+                values.get("FARM_SEASON_DAYS", self.config.get("FARM_SEASON_DAYS", 2))
+            )
+            season = get_season_progress()
+            # 季节不落库、纯按系统日期推导，这里打印一次便于核对重启后是否“卡在冬天”
+            logger.info(
+                f"灵田季节：{season['name']}（{period} 天/季，{season['cycle_text']}，"
+                f"下次换季 {season['next_change_text']}）"
+            )
+        except Exception as e:
+            logger.warning(f"季节周期配置读取失败，使用默认值: {e}")
         self.spirit_farm_handlers = SpiritFarmHandlers(self.db, self.spirit_farm_mgr)
         self.dual_cult_mgr = DualCultivationManager(self.db)
         self.dual_cult_handlers = DualCultivationHandlers(self.db, self.dual_cult_mgr)
@@ -3152,6 +3167,45 @@ class XiuXianPlugin(Star):
             logger.warning(f"符箓配方长图生成失败，降级文本: {e}")
         yield event.plain_result(self.talisman_mgr.format_recipe_text())
 
+    @filter.command("符箓书", "查看已掌握符图、材料缺口与当前可画张数")
+    @require_whitelist
+    @with_player_lock
+    async def handle_talisman_craft_book(self, event: AstrMessageEvent):
+        async for r in self._run_talisman_craft_book(event):
+            yield r
+
+    @filter.command("可制符箓", "查看已掌握符图与可画张数(别名)")
+    @require_whitelist
+    @with_player_lock
+    async def handle_talisman_craft_book_alias(self, event: AstrMessageEvent):
+        async for r in self._run_talisman_craft_book(event):
+            yield r
+
+    async def _run_talisman_craft_book(self, event: AstrMessageEvent):
+        """符箓书：已掌握符图 + 实际成功率/工费/材料缺口/可画张数（与 /制符 同源）。"""
+        player = await self.db.get_player_by_id(event.get_sender_id())
+        if not player:
+            yield event.plain_result("❌ 道友尚未踏入仙途。")
+            return
+        msg, card_lines, craftable = self.talisman_mgr.build_craft_book(player)
+        try:
+            from .utils.image_generator import render_card_async, card_enabled
+            if card_lines and card_enabled("CARD_TALISMAN_RECIPE"):
+                display_name = getattr(player, "user_name", "") or player.user_id or "道友"
+                card_path = await render_card_async(
+                    "craft",
+                    f"{display_name} 的符箓书",
+                    f"可画 {craftable} 种 · 熟练度 {self.talisman_mgr.get_proficiency(player)['name']}",
+                    sections=[{"name": "已掌握符箓", "lines": card_lines}],
+                    footer="💡 /制符 <符名> [数量] 绘制 · /符箓 查看图鉴",
+                )
+                if card_path:
+                    yield event.image_result(card_path)
+                    return
+        except Exception as e:
+            logger.warning(f"符箓书卡片生成失败，降级文本: {e}")
+        yield event.plain_result(msg)
+
     @filter.command("制符", "绘制符箓；不带参数领取符箓师每日护劫符")
     @require_whitelist
     @idle_player_lock
@@ -3258,14 +3312,16 @@ class XiuXianPlugin(Star):
     @filter.command("季节", "查看当前灵田季节与加成")
     @require_whitelist
     async def handle_season_info(self, event: AstrMessageEvent):
-        from .managers.spirit_farm_manager import SEASON_EFFECTS, get_current_season_index
-        season = SEASON_EFFECTS[get_current_season_index()]
-        idx = get_current_season_index()
+        from .managers.spirit_farm_manager import get_season_progress
+        season = get_season_progress()
+        idx = season["index"]
         order = ["春", "夏", "秋", "冬"]
         lines = [
             f"{season['icon']} 当前季节：【{season['name']}】",
             "━━━━━━━━━━━━━━━",
             season["desc"],
+            f"⏳ {season['cycle_text']}，{season['change_text']}（当前：{order[idx]}季）",
+            f"🕛 下次换季：{season['next_change_text']}（本地时间零点整）",
             "━━━━━━━━━━━━━━━",
             "四季轮转表：",
             f"  🌱 春·生发：生长+33%，产量+10%",
@@ -3273,7 +3329,9 @@ class XiuXianPlugin(Star):
             f"  🍂 秋·丰收：全灵草产量+25%",
             f"  ❄️ 冬·蛰藏：生长放缓50%，冰心草不受影响",
             "━━━━━━━━━━━━━━━",
-            f"季节按现实时间每约一周自动轮转（当前：{order[idx]}季）",
+            "🌱 春 → ☀️ 夏 → 🍂 秋 → ❄️ 冬，每轮回 4 个季节",
+            "📅 季节由系统日期决定（年内第几天 ÷ 周期），重启不会改变季节",
+            "🌿 换季时地里的灵草会按剩余比例自动调整成熟时间",
             "💡 发送 /种植 <灵草名> [数量|1-20|all] 把握季节加成",
         ]
         yield event.plain_result("\n".join(lines))

@@ -325,6 +325,8 @@ class TestAutoProxyFarm(unittest.IsolatedAsyncioTestCase):
         self.assertEqual({c["slot"] for c in jobs}, {1, 2})
         now = int(time.time())
         for crop in crops.values():
+            # 成熟时间现在由「基础时长 + 季节速率」推算，用回溯种植时间模拟时光流逝
+            crop["plant_time"] = now - 86400 * 5
             crop["mature_time"] = now - 1
         await self._set_crops(list(crops.values()))
 
@@ -343,7 +345,7 @@ class TestAutoProxyFarm(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(ok)
         self.assertIn("种苗不足", msg)
 
-    async def test_harvest_normal_crop_yields_four(self):
+    async def test_harvest_normal_crop_yields_two(self):
         now = int(time.time())
         await self._set_crops([
             {"name": "灵草", "slot": 1, "plant_time": now - 7200, "mature_time": now - 1},
@@ -354,8 +356,8 @@ class TestAutoProxyFarm(unittest.IsolatedAsyncioTestCase):
 
         ok, msg = await self.farm_mgr.harvest(player)
         self.assertTrue(ok, msg)
-        self.assertEqual(storage.items.get("灵草"), 4)
-        self.assertIn("每株产出4份", msg)
+        self.assertEqual(storage.items.get("灵草"), 2)
+        self.assertIn("每株产出2份", msg)
 
     async def test_remove_crop_cancels_whole_hybrid_job(self):
         await self.conn.execute(
@@ -454,7 +456,11 @@ class TestAutoProxyFarm(unittest.IsolatedAsyncioTestCase):
         crops = await self._crops()
         self.assertEqual(crops[1]["name"], "冰火双生花")
         self.assertGreater(crops[1]["mature_time"], now)
-        self.assertEqual(storage.items.get("冰火双生花"), 3)
+        # 收获份数由 HERB_YIELD_PER_CROP 决定，补种消耗 1 株
+        farm_mod = _imp("managers.spirit_farm_manager")
+        self.assertEqual(
+            storage.items.get("冰火双生花"), farm_mod.HERB_YIELD_PER_CROP - 1
+        )
 
     async def test_remove_crop_validates_slot(self):
         now = int(time.time())

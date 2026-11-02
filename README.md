@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v6.49.9 (丹劫提示修复 · 护劫符符图常驻)
+# AstrBot 插件：模拟修仙 v6.50.0 (符阁三问修复 · 季节轮转 · 丹劫预警)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v6.49.9-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v6.50.0-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.33.9 · **游戏版本:** v6.49.9 · **数据库:** v57
+> **插件版本:** v3.33.9 · **游戏版本:** v6.50.0 · **数据库:** v57
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，233 条帮助指令 / 233 条注册指令、16 个大系统、110 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,30 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · v6.49.9（丹劫提示修复 · 护劫符符图常驻）</b></summary>
+<summary><b>本次更新 · v6.50.0（符阁三问修复 · 季节轮转 · 丹劫预警）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 符图同名消歧 | 符阁符图货架名统一为「符名·符图」；`/购买 避劫符` 买成品符，`/购买 避劫符·符图`（兼容 `避劫符符图`、`符图避劫符`、`避劫符（符图）`）才买符图；扣库存改用货架条目真实名，不再误报售罄。 |
+| 已学符图死锁 | 修复「已掌握符图后买同名成品符被 learn_recipe 拦下并回滚」的问题，同名成品符现在始终买得到。 |
+| 符箓书 | 新增 `/符箓书`（别名 `/可制符箓`）：只列已掌握符图，给出实际成功率、单张工费、材料拥有/需求、可画张数与卡点；与 `/制符` 共用 `resolve_craft_params`，界面数字即实际结算。 |
+| 护劫符图常驻 | 聚灵符·符图、避劫符·符图、混元符·符图改为符阁常驻不限量，判定依据是配置里的 `tribulation_shield`，日后新增护劫符自动常驻；非护劫类玄品以上仍稀有刷新。 |
+| 符图单独定价 | 新增 `recipe_price` 字段只作用于符图：混元符·符图 18.1 万 → **5.4 万**；成品符仍按成本公式定价（22.7 万），符箓师绘制不亏本。 |
+| 空货架兜底 | 符图阁从未建架或被清空时，`/购买 <符名>·符图` 会先按规则建架再补常驻条目，不再出现「丹劫提示让去买、实际买不到」。 |
+| 丹劫预警 | `/炼丹` 入炉提示给出丹药品阶、劫数、渡劫率、当前最高护盾与补齐途径；**背包（含已激活）已有够用的护劫符时完全不提示**，护盾不足时明确缺多少。 |
+| 丹劫毁丹提示 | 毁丹文案按劫数**点名实际所需护劫符**（如帝品劫 7 → 混元符·护盾 9），并按品阶区分获取途径：凡/黄成品符阁直购，玄品以上 `/购买 <符名>·符图` 习得后 `/制符` 绘制。 |
+| 装备五行 | `/我的装备`、`/储物戒` 装备区与 `比较` 表头在装备名后标注五行；「五行属性」聚合行保持原样。 |
+| 季节轮转 | 每季由 7 天改为 **2 天**（`FARM_SEASON_DAYS` 可配 1-30）；`/季节` 显示下次换季精确时间，启动日志打印当前季节、周期与下次换季。 |
+| 季节成熟 | 作物只存基础时长，成熟时间按各季速率分段积分，换季时剩余时间自动伸缩；季节由系统日期推导、不落库，同一天重启不影响。 |
+| 灵植配平 | 最长 12 小时（保证能在 1 个季节内成熟）；每株成熟产出由 4 份下调为 2 份（`HERB_YIELD_PER_CROP`），抑制短周期带来的素材通胀。 |
+
+- 符图后缀只影响展示与购买匹配，`/制符`、习得记录、配方数据仍用基础符名。
+- 测试：新增季节轮转/成熟时间、符箓书、符阁消歧、护劫符图 4 组测试，全量 648 例通过。
+
+</details>
+
+<details>
+<summary><b>v6.49.9（丹劫提示修复 · 护劫符符图常驻）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |

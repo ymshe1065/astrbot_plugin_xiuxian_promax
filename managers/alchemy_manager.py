@@ -381,6 +381,46 @@ class AlchemyManager:
             text += f"\n  ⚠️ 材料冲突/不足：{missing_labels}"
         return text, ready
 
+    def tribulation_hint(self, player: Player, output_pill: str, recipe: Dict = None) -> str:
+        """开炉前的丹劫提示：手上已有够用的护劫符时返回空串（不打扰玩家）。
+
+        丹劫是概率事件，但一旦落下且护盾不足就直接毁丹，所以在投料前提醒，
+        而不是等丹药烧成灰之后再告诉玩家「护劫符可在 /符阁 购买」。
+        """
+        try:
+            pill_rank = self._pill_rank_of(output_pill, recipe)
+            demand = int(TRIBULATION_DEMAND.get(pill_rank, 0) or 0)
+            trigger = int(TRIBULATION_RATE.get(pill_rank, 0) or 0)
+        except Exception:
+            return ""
+        if demand <= 0 or trigger <= 0:
+            return ""
+        try:
+            from .talisman_manager import TalismanManager
+            has_talisman = TalismanManager.pick_shield_talisman(
+                player, demand, self.config_manager
+            ) is not None
+            if not has_talisman:
+                # 已激活的护劫符同样算「背包里备好了」
+                has_talisman = int(
+                    TalismanManager.get_active_max_bonus(player, "tribulation_shield") or 0
+                ) >= demand
+            best = int(TalismanManager.best_shield_available(player, self.config_manager) or 0)
+        except Exception:
+            return ""
+        if has_talisman:
+            return ""
+        lines = [f"⚡ 丹劫预警：此丹为【{pill_rank}】，成丹有 {trigger}% 概率引劫（需护盾 ≥ {demand}）"]
+        if best > 0:
+            lines.append(f"   你手上最高护盾只有 {best}，劫雷落下丹药必毁")
+        else:
+            lines.append("   你身上没有护劫符，劫雷落下丹药必毁")
+        lines.append(
+            "   💡 护劫符图已常驻：/符阁 符图 → /购买 避劫符·符图（盾6）、混元符·符图（盾9）；"
+            "成品符看 /符阁 符箓"
+        )
+        return "\n".join(lines)
+
     # ===== 五行/职业炼丹加成 =====
     def _pill_rank_of(self, output_pill: str, recipe: Dict = None) -> str:
         """丹药品阶：先查四张配置表，都查不到按丹方需求等级兜底。"""
@@ -486,6 +526,7 @@ class AlchemyManager:
         requirements: str = "",
         output_pill: str = "",
         success_rate: float = 0,
+        tribulation_hint: str = "",
     ) -> Tuple[bool, str]:
         state = {"pill_id": pill_id, "recipe": recipe_name, "expire": int(time.time()) + 180}
         await self.db.ext.set_system_config(
@@ -499,6 +540,9 @@ class AlchemyManager:
         header.append(requirements or "  · 无")
         if success_rate:
             header.append(f"基础成功率：{success_rate:.0f}%")
+        if tribulation_hint:
+            header.append("━━━━━━━━━━━━━━━")
+            header.extend(tribulation_hint.splitlines())
         header.extend([
             "━━━━━━━━━━━━━━━",
             "正在炼制，请选择火候：",
@@ -697,6 +741,7 @@ class AlchemyManager:
                 requirements,
                 recipe.get("output_pill", ""),
                 recipe.get("success_rate", 0),
+                self.tribulation_hint(player, recipe.get("output_pill", ""), recipe),
             ) + (
                 {"success": False, "pending_fire": True},
             )
@@ -854,7 +899,7 @@ class AlchemyManager:
                         else:
                             shield_hint += (
                                 f"\n💡 可挡此劫的护劫符：【{tal_name}】({tal_rank}·护盾 {tal_shield})，"
-                                f"符图常驻 /符阁 符图，习得后由符箓师 /制符 {tal_name} 绘制"
+                                f"符图常驻不限量：/购买 {tal_name}·符图，习得后由符箓师 /制符 {tal_name} 绘制"
                             )
                     else:
                         shield_hint += "；护劫符可在 /符阁 购买，或由符箓师绘制"

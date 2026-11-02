@@ -119,6 +119,52 @@ class TestEquipmentCompare(unittest.IsolatedAsyncioTestCase):
         self.assertIn(self.weapon, bonus_text)
         self.assertIn("物伤", bonus_text)
 
+    async def test_card_shows_element_beside_gear_name(self):
+        p = await self._player()
+        await self.ring.store_item(p, self.weapon, 1)
+        p = await self.db.get_player_by_id(p.user_id)
+        inst = self.im.find_for_equip(p, self.weapon)
+        item = self.em.parse_item_from_name(self.weapon, self.cm.items_data, self.cm.weapons_data, inst)
+        await self.em.equip_item(p, item, inst["id"])
+        p = await self.db.get_player_by_id(p.user_id)
+        element = self.cm.get_item_element(self.weapon)
+        self.assertTrue(element, "测试武器应带五行属性")
+
+        event = _FakeEvent(p.user_id, p.user_id)
+        event.image_result = lambda path: path
+        handler = self._handler()
+        image_module = _imp("utils.image_generator")
+        with patch.object(image_module, "card_enabled", return_value=True), \
+                patch.object(image_module, "render_card_async", new_callable=AsyncMock,
+                             return_value="card.jpg") as render:
+            [r async for r in handler.handle_show_equipment.__wrapped__(handler, p, event)]
+
+        sections = {s["name"]: s for s in render.call_args.kwargs["sections"]}
+        gear_text = "\n".join(f"{label} {value}" for label, value in sections["装备栏"]["rows"])
+        self.assertIn(f"{self.weapon}（{element}）", gear_text)
+        bonus_text = "\n".join(sections["单件加成"]["lines"])
+        self.assertIn(f"{self.weapon}（{element}）", bonus_text)
+        # 聚合的「五行属性」行保持原样
+        self.assertIn(("五行属性", element), sections["装备栏"]["rows"])
+
+    async def test_text_fallback_shows_element_beside_gear_name(self):
+        p = await self._player()
+        await self.ring.store_item(p, self.weapon, 1)
+        p = await self.db.get_player_by_id(p.user_id)
+        inst = self.im.find_for_equip(p, self.weapon)
+        item = self.em.parse_item_from_name(self.weapon, self.cm.items_data, self.cm.weapons_data, inst)
+        await self.em.equip_item(p, item, inst["id"])
+        p = await self.db.get_player_by_id(p.user_id)
+        element = self.cm.get_item_element(self.weapon)
+
+        event = _FakeEvent(p.user_id, p.user_id)
+        handler = self._handler()
+        image_module = _imp("utils.image_generator")
+        with patch.object(image_module, "card_enabled", return_value=False):
+            results = [r async for r in handler.handle_show_equipment.__wrapped__(handler, p, event)]
+        text = "\n".join(results)
+        self.assertIn(f"{self.weapon}（{element}）", text)
+
     async def test_card_shows_per_technique_bonus(self):
         p = await self._player()
         tech = next(
@@ -185,6 +231,9 @@ class TestEquipmentCompare(unittest.IsolatedAsyncioTestCase):
         self.assertIn("空槽位", text)
         self.assertIn("物伤", text)
         self.assertIn("适用境界", text)
+        # 比较表头也要带五行，避免玩家看不出共鸣方向
+        element = self.cm.get_item_element(self.weapon)
+        self.assertIn(f"{self.weapon}（{element}）", text)
 
     async def test_compare_with_equipped_slot_shows_delta(self):
         p = await self._player()
@@ -210,6 +259,58 @@ class TestEquipmentCompare(unittest.IsolatedAsyncioTestCase):
         text = "\n".join(results)
         self.assertIn("vs 已穿戴", text)
         self.assertIn("▲", text)
+        # 双方都要有五行标注
+        self.assertIn(f"{strong}", text)
+        self.assertIn(f"{self.weapon}（{self.cm.get_item_element(self.weapon)}）", text)
+
+
+class TestStorageRingElementTag(unittest.IsolatedAsyncioTestCase):
+    """储物戒装备区也要标五行：装备区是玩家找共鸣装备的第一入口。"""
+
+    async def asyncSetUp(self):
+        await fixtures.TestEquipmentInstances.asyncSetUp(self)
+
+    asyncTearDown = fixtures.TestEquipmentInstances.asyncTearDown
+    _player = fixtures.TestEquipmentInstances._player
+
+    def _handler(self):
+        return _imp("handlers.storage_ring_handler").StorageRingHandler(self.db, self.cm)
+
+    async def test_text_gear_rows_show_element(self):
+        p = await self._player()
+        await self.ring.store_item(p, self.weapon, 1)
+        p = await self.db.get_player_by_id(p.user_id)
+        element = self.cm.get_item_element(self.weapon)
+        self.assertTrue(element, "测试武器应带五行属性")
+
+        handler = self._handler()
+        event = _FakeEvent(p.user_id, p.user_id)
+        image_module = _imp("utils.image_generator")
+        with patch.object(image_module, "card_enabled", return_value=False):
+            results = [r async for r in handler.handle_storage_ring.__wrapped__(handler, p, event)]
+        text = "\n".join(results)
+        self.assertIn(f"{self.weapon}（{element}）", text)
+
+    async def test_card_gear_rows_show_element(self):
+        p = await self._player()
+        await self.ring.store_item(p, self.weapon, 1)
+        p = await self.db.get_player_by_id(p.user_id)
+        element = self.cm.get_item_element(self.weapon)
+
+        handler = self._handler()
+        event = _FakeEvent(p.user_id, p.user_id)
+        event.image_result = lambda path: path
+        image_module = _imp("utils.image_generator")
+        with patch.object(image_module, "card_enabled", return_value=True), \
+                patch.object(image_module, "render_card_async", new_callable=AsyncMock,
+                             return_value="card.jpg") as render:
+            [r async for r in handler.handle_storage_ring.__wrapped__(handler, p, event)]
+        rows = {
+            label: value
+            for section in render.call_args.kwargs["sections"]
+            for label, value in section.get("rows", [])
+        }
+        self.assertIn(f"{self.weapon}（{element}）", rows)
 
 
 if __name__ == "__main__":

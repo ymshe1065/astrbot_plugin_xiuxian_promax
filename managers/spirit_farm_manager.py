@@ -25,16 +25,17 @@ __all__ = ["SpiritFarmManager"]
 # 灵草配置 (wither_time: 成熟后枯萎时间，默认48小时)
 # unlock_level: 灵田达到该等级后方可种植
 SPIRIT_HERBS = {
+    # 时长与收益按「单格单日产出」配平，最长 12 小时（保证任何灵草都能在 1 个季节内成熟）
     "灵草": {"grow_time": 3600, "exp_yield": 500, "gold_yield": 100, "wither_time": 172800, "unlock_level": 1},
     "血灵草": {"grow_time": 7200, "exp_yield": 1500, "gold_yield": 300, "wither_time": 172800, "unlock_level": 1},
-    "冰心草": {"grow_time": 14400, "exp_yield": 4000, "gold_yield": 800, "wither_time": 172800, "unlock_level": 2},
-    "火焰花": {"grow_time": 28800, "exp_yield": 10000, "gold_yield": 2000, "wither_time": 172800, "unlock_level": 3},
-    "九叶灵芝": {"grow_time": 86400, "exp_yield": 30000, "gold_yield": 6000, "wither_time": 172800, "unlock_level": 4},
-    "幽冥草": {"grow_time": 172800, "exp_yield": 100000, "gold_yield": 25000, "wither_time": 172800, "unlock_level": 5},
+    "冰心草": {"grow_time": 10800, "exp_yield": 3000, "gold_yield": 600, "wither_time": 172800, "unlock_level": 2},
+    "火焰花": {"grow_time": 14400, "exp_yield": 5000, "gold_yield": 1000, "wither_time": 172800, "unlock_level": 3},
+    "九叶灵芝": {"grow_time": 28800, "exp_yield": 10000, "gold_yield": 2000, "wither_time": 172800, "unlock_level": 4},
+    "幽冥草": {"grow_time": 43200, "exp_yield": 25000, "gold_yield": 6250, "wither_time": 172800, "unlock_level": 5},
     # 杂交灵草：需先通过 /杂交 获得种苗，种植时消耗 1 株
-    "冰火双生花": {"grow_time": 43200, "exp_yield": 25000, "gold_yield": 8000, "wither_time": 172800, "unlock_level": 5, "hybrid_only": True},
-    "血玉灵芝": {"grow_time": 86400, "exp_yield": 60000, "gold_yield": 15000, "wither_time": 172800, "unlock_level": 4, "hybrid_only": True},
-    "九幽仙芝": {"grow_time": 172800, "exp_yield": 150000, "gold_yield": 35000, "wither_time": 172800, "unlock_level": 5, "hybrid_only": True},
+    "冰火双生花": {"grow_time": 21600, "exp_yield": 12500, "gold_yield": 4000, "wither_time": 172800, "unlock_level": 5, "hybrid_only": True},
+    "血玉灵芝": {"grow_time": 36000, "exp_yield": 25000, "gold_yield": 6250, "wither_time": 172800, "unlock_level": 4, "hybrid_only": True},
+    "九幽仙芝": {"grow_time": 43200, "exp_yield": 37500, "gold_yield": 8750, "wither_time": 172800, "unlock_level": 5, "hybrid_only": True},
 }
 
 # 杂交配方：材料 -> 产物
@@ -45,7 +46,14 @@ HYBRID_RECIPES = {
 }
 
 # ===== 季节系统（v6.14）=====
-# 按年内第几周自动轮转（每约一周一换，无需存储，全服同步可预测）
+# 按「年内第几天」自动轮转，全服同步、无需存储、可预测。
+# 周期默认 2 天（8 天走完四季），可由 VALUES.FARM_SEASON_DAYS 调整（1-30）。
+# 生长时间不再在种植时写死：作物只存基础时长 grow_base，成熟时间 = 按时段积分季节速率得出，
+# 换季时剩余时间会自动按比例伸缩（见 compute_crop_mature_time / sync_crop_season_progress）。
+SEASON_PERIOD_DAYS = 2
+MIN_SEASON_PERIOD_DAYS = 1
+MAX_SEASON_PERIOD_DAYS = 30
+
 SEASON_EFFECTS = {
     0: {"name": "春·生发", "icon": "🌱",
         "desc": "万物生发：所有灵草生长速度+33%，产量+10%",
@@ -64,29 +72,181 @@ SEASON_EFFECTS = {
 }
 
 
+def configure_season_period(days=None) -> int:
+    """设置每季天数（插件启动时由 VALUES.FARM_SEASON_DAYS 注入），返回生效值。
+
+    季节完全由「本地日期」推导，与进程启动时刻无关：同一天内无论重启多少次，
+    季节索引都不变。这里只影响周期长度，不保存任何季节状态。
+    """
+    global SEASON_PERIOD_DAYS
+    previous = SEASON_PERIOD_DAYS
+    try:
+        value = int(days)
+    except (TypeError, ValueError):
+        logger.warning(f"季节周期配置无效（{days!r}），继续使用 {SEASON_PERIOD_DAYS} 天/季")
+        return SEASON_PERIOD_DAYS
+    SEASON_PERIOD_DAYS = max(MIN_SEASON_PERIOD_DAYS, min(MAX_SEASON_PERIOD_DAYS, value))
+    if SEASON_PERIOD_DAYS != previous:
+        logger.info(
+            f"灵田季节周期：{previous} → {SEASON_PERIOD_DAYS} 天/季（配置值 {days!r}）"
+        )
+    return SEASON_PERIOD_DAYS
+
+
+def get_next_season_change_ts() -> int:
+    """下一次换季的本地时间戳（当天 00:00 对齐）。"""
+    lt = time.localtime()
+    midnight = int(time.time()) - (lt.tm_hour * 3600 + lt.tm_min * 60 + lt.tm_sec)
+    return midnight + get_season_days_left() * 86400
+
+
+def get_next_season_change_text() -> str:
+    """下次换季的「月-日 00:00」文案。"""
+    return time.strftime("%m-%d %H:%M", time.localtime(get_next_season_change_ts()))
+
+
+def season_index_at(ts: float) -> int:
+    """指定时刻的季节索引（0春1夏2秋3冬）：从每年 1 月 1 日起按周期轮转。"""
+    lt = time.localtime(ts)
+    return ((lt.tm_yday - 1) // SEASON_PERIOD_DAYS) % 4
+
+
 def get_current_season_index() -> int:
-    """当前季节索引（0春1夏2秋3冬）：年内第几周 % 4"""
-    return (time.localtime().tm_yday // 7) % 4
+    """当前季节索引（0春1夏2秋3冬）：从每年 1 月 1 日起按周期轮转，每季天数固定。"""
+    return season_index_at(time.time())
+
+
+def get_season_days_left() -> int:
+    """距离下次换季还有几天（含今天，今晚就是换季夜时返回 1）。"""
+    period = SEASON_PERIOD_DAYS
+    elapsed = (time.localtime().tm_yday - 1) % period
+    return period - elapsed
+
+
+def get_season_progress() -> dict:
+    """季节展示信息：季节配置 + 索引/周期/剩余天数/换季文案。"""
+    index = get_current_season_index()
+    season = dict(SEASON_EFFECTS[index])
+    days_left = get_season_days_left()
+    season.update({
+        "index": index,
+        "period_days": SEASON_PERIOD_DAYS,
+        "days_left": days_left,
+        "cycle_text": f"每 {SEASON_PERIOD_DAYS} 天轮转",
+        "change_text": "今晚换季" if days_left <= 1 else f"{days_left} 天后换季",
+        "next_change_at": get_next_season_change_ts(),
+        "next_change_text": get_next_season_change_text(),
+    })
+    return season
 
 
 def get_current_season() -> dict:
     return SEASON_EFFECTS[get_current_season_index()]
 
 
+def season_growth_mult_at(herb_name: str, ts: float) -> float:
+    """指定时刻某灵草的生长时长倍率（越小越快），季节由此刻决定。"""
+    season = SEASON_EFFECTS[season_index_at(ts)]
+    boost = season.get("boost_herbs", [])
+    if "*" in boost or herb_name in boost:
+        return float(season.get("boost_growth", season["growth_mult"]))
+    return float(season["growth_mult"])
+
+
 def get_season_growth_mult(herb_name: str) -> float:
     """某灵草在当前季节的生长时长倍率（越小越快）"""
-    season = get_current_season()
-    boost = season.get("boost_herbs", [])
-    if "*" in boost:
-        return season["growth_mult"]
-    if herb_name in boost:
-        return season.get("boost_growth", season["growth_mult"])
-    return season["growth_mult"]
+    return season_growth_mult_at(herb_name, time.time())
 
 
 def get_season_yield_mult() -> float:
     """当前季节的产量倍率"""
     return get_current_season()["yield_mult"]
+
+
+def _next_season_start(ts: float) -> int:
+    """ts 之后的下一个换季零点（本地时间）。"""
+    lt = time.localtime(ts)
+    midnight = int(ts) - (lt.tm_hour * 3600 + lt.tm_min * 60 + lt.tm_sec)
+    elapsed_days = (lt.tm_yday - 1) % SEASON_PERIOD_DAYS
+    return midnight + (SEASON_PERIOD_DAYS - elapsed_days) * 86400
+
+
+def _base_progress(herb_name: str, start: float, until: float) -> float:
+    """[start, until] 内按各时段季节速率折算出的「基础生长秒数」。"""
+    start, until = int(start), int(until)
+    if until <= start:
+        return 0.0
+    total = 0.0
+    t = start
+    for _ in range(20000):
+        if t >= until:
+            break
+        nxt = _next_season_start(t)
+        seg_end = min(until, nxt if nxt > t else t + 86400)
+        total += (seg_end - t) / max(0.01, season_growth_mult_at(herb_name, t))
+        t = seg_end
+    return total
+
+
+def compute_crop_mature_time(herb_name: str, plant_time: float, grow_base: float) -> int:
+    """按季节速率积分推算成熟时刻：换季后剩余时间按比例伸缩。"""
+    plant_time = int(plant_time)
+    need = float(grow_base or 0)
+    if need <= 0:
+        return plant_time
+    t = plant_time
+    for _ in range(20000):
+        nxt = _next_season_start(t)
+        seg_end = nxt if nxt > t else t + 86400
+        mult = max(0.01, season_growth_mult_at(herb_name, t))
+        rate = 1.0 / mult  # 每现实秒推进的基础秒数
+        capacity = (seg_end - t) * rate
+        if need <= capacity:
+            return int(t + need / rate)
+        need -= capacity
+        t = seg_end
+    return int(t)
+
+
+def sync_crop_season_progress(crops: List[Dict]) -> bool:
+    """把作物的成熟时间对齐到当前季节；返回是否有改动（需要回写库）。
+
+    新数据存 grow_base（配置里的基础秒数），成熟时间每次按季节积分重算；
+    旧数据没有 grow_base，则用原成熟时间反推基础秒数，保证迁移当刻时间点不变。
+    """
+    changed = False
+    for crop in crops or []:
+        if not isinstance(crop, dict):
+            continue
+        herb = crop.get("product") if crop.get("name") == HYBRID_MARKER else crop.get("name")
+        config = SPIRIT_HERBS.get(herb)
+        if not config:
+            continue
+        try:
+            plant_time = int(crop.get("plant_time") or 0)
+            stored = int(crop.get("mature_time") or 0)
+        except (TypeError, ValueError):
+            continue
+        if plant_time <= 0:
+            continue
+        try:
+            base = float(crop.get("grow_base") or 0)
+        except (TypeError, ValueError):
+            base = 0.0
+        if base <= 0:
+            anchor = stored if stored > plant_time else plant_time + int(config["grow_time"])
+            base = round(_base_progress(herb, plant_time, anchor), 3)
+            if base <= 0:
+                base = float(config["grow_time"])
+            crop["grow_base"] = base
+            changed = True
+            if stored > plant_time:
+                continue  # 旧数据沿用原成熟时间，之后换季再按比例推动
+        new_mature = compute_crop_mature_time(herb, plant_time, base)
+        if new_mature != stored:
+            crop["mature_time"] = new_mature
+            changed = True
+    return changed
 
 
 # ===== 种植参数解析（v6.36.27）=====
@@ -267,6 +427,8 @@ FERTILIZE_GAIN_RATIO = 0.30
 FERTILIZE_COST = 2000
 # 肥力地板：上限的 20%，见底收益系数即 0.2
 FERTILITY_FLOOR_RATIO = 0.20
+# 单格单次收获的灵草份数（原为 4，周期缩短后下调以抑制素材通胀）
+HERB_YIELD_PER_CROP = 2
 
 
 class SpiritFarmManager:
@@ -381,6 +543,19 @@ class SpiritFarmManager:
                 data["crops"] = self._normalize_crop_slots(
                     data["crops"], self.get_max_slots(data)
                 )
+                # 换季后成熟时间按比例伸缩：读取即对齐，有改动才回写
+                if sync_crop_season_progress(data["crops"]):
+                    try:
+                        await self.db.conn.execute(
+                            "UPDATE spirit_farms SET crops = ? WHERE user_id = ?",
+                            (json.dumps(data["crops"], ensure_ascii=False), user_id)
+                        )
+                        await self.db.conn.commit()
+                    except Exception:
+                        try:
+                            await self.db.conn.rollback()
+                        except Exception:
+                            pass
                 return data
             return None
     
@@ -507,17 +682,19 @@ class SpiritFarmManager:
                 return False, f"❌ 扣除【{herb_name}】种苗失败：{seed_msg}"
             consumed_seeds = plant_count
 
-        # 批量种植（成熟时间受季节影响）
+        # 批量种植：只记录基础时长，成熟时间随季节动态推算
         herb_config = SPIRIT_HERBS[herb_name]
         plant_time = int(time.time())
-        grow_time = int(herb_config["grow_time"] * get_season_growth_mult(herb_name))
-        mature_time = plant_time + grow_time
+        grow_base = int(herb_config["grow_time"])
+        grow_time = int(grow_base * get_season_growth_mult(herb_name))
+        mature_time = compute_crop_mature_time(herb_name, plant_time, grow_base)
 
         for slot in free_slots[:plant_count]:
             crops.append({
                 "name": herb_name,
                 "slot": slot,
                 "plant_time": plant_time,
+                "grow_base": grow_base,
                 "mature_time": mature_time
             })
         self._normalize_crop_slots(crops, max_slots)
@@ -535,7 +712,9 @@ class SpiritFarmManager:
             raise
 
         season = get_current_season()
-        grow_hours = grow_time // 3600
+        hours, mins = divmod(max(60, grow_time), 3600)
+        mins //= 60
+        grow_text = f"{hours} 小时{mins} 分钟" if hours else f"{mins} 分钟"
         season_note = ""
         if get_season_growth_mult(herb_name) != 1.0:
             season_note = f"\n{season['icon']} 当前季节【{season['name']}】影响了生长速度"
@@ -554,8 +733,9 @@ class SpiritFarmManager:
         tail = ("\n" + "\n".join(notes)) if notes else ""
         return True, (
             f"🌱 成功种植【{herb_name}】×{plant_count}{scope_note}！\n"
-            f"成熟时间：约 {grow_hours} 小时"
+            f"成熟时间：约 {grow_text}"
             f"{season_note}\n"
+            f"💡 换季时成熟时间会按比例自动前后调整，无需重种\n"
             f"当前种植：{len(crops)}/{max_slots}"
             f"{tail}"
         )
@@ -595,12 +775,13 @@ class SpiritFarmManager:
                     continue
                 consumed.append((herb_name, 1))
             herb_config = SPIRIT_HERBS[herb_name]
-            grow_time = int(herb_config["grow_time"] * get_season_growth_mult(herb_name))
+            grow_base = int(herb_config["grow_time"])
             crops.append({
                 "name": herb_name,
                 "slot": slot,
                 "plant_time": plant_time,
-                "mature_time": plant_time + grow_time,
+                "grow_base": grow_base,
+                "mature_time": compute_crop_mature_time(herb_name, plant_time, grow_base),
             })
             used_slots.add(slot)
             planted.append(f"格{slot} {herb_name}")
@@ -780,8 +961,8 @@ class SpiritFarmManager:
             total_exp += int(herb_config["exp_yield"] * fertility_mult * season_mult * output_mult)
             total_gold += int(herb_config["gold_yield"] * fertility_mult * season_mult * output_mult)
             harvest_details.append(herb_name)
-            # 统一规则：每株成功种植的灵草收获 4 株
-            herb_counts[herb_name] = herb_counts.get(herb_name, 0) + 4
+            # 统一规则：每株成功种植的灵草收获 HERB_YIELD_PER_CROP 份
+            herb_counts[herb_name] = herb_counts.get(herb_name, 0) + HERB_YIELD_PER_CROP
         
         # 应用奖励
         if total_exp > 0 or total_gold > 0:
@@ -834,7 +1015,7 @@ class SpiritFarmManager:
             msg_lines.append(f"🧬 杂交完成：{', '.join(f'{name}×1' for name in hybrid_details)}")
 
         if harvest_details:
-            msg_lines.append(f"收获：{', '.join(harvest_details)}（每株产出4份）")
+            msg_lines.append(f"收获：{', '.join(harvest_details)}（每株产出{HERB_YIELD_PER_CROP}份）")
             msg_lines.append(f"获得修为：+{total_exp:,}")
             msg_lines.append(f"获得灵石：+{total_gold:,}")
             if fertility_mult < 1.0:
@@ -1002,8 +1183,9 @@ class SpiritFarmManager:
             consumed.append((herb, 1))
 
         now = int(time.time())
-        grow_time = int(SPIRIT_HERBS[product]["grow_time"] * get_season_growth_mult(product))
-        mature_time = now + grow_time
+        grow_base = int(SPIRIT_HERBS[product]["grow_time"])
+        grow_time = int(grow_base * get_season_growth_mult(product))
+        mature_time = compute_crop_mature_time(product, now, grow_base)
         job_id = f"{now}-{random.randint(1000, 9999)}"
         parents = sorted(key)
         for slot in free_slots[:HYBRID_PLOT_COST]:
@@ -1014,6 +1196,7 @@ class SpiritFarmManager:
                 "product": product,
                 "parents": parents,
                 "plant_time": now,
+                "grow_base": grow_base,
                 "mature_time": mature_time,
             })
         self._normalize_crop_slots(crops, max_slots)
@@ -1101,7 +1284,7 @@ class SpiritFarmManager:
         crops = farm["crops"]
         now = int(time.time())
         
-        season = get_current_season()
+        season = get_season_progress()
         farm_level = int(farm.get("level", 1) or 1)
         max_fertility = self.get_max_fertility(farm)
         fertility = int(farm.get("fertility") or 0)
@@ -1112,7 +1295,7 @@ class SpiritFarmManager:
             "━━━━━━━━━━━━━━━",
             f"占用格数：{len(crops)}/{level_config['slots']}",
             f"土壤肥力：{fertility}/{max_fertility}{fertility_note}",
-            f"{season['icon']} 当前季节：【{season['name']}】{season['desc']}",
+            f"{season['icon']} 当前季节：【{season['name']}】{season['change_text']}｜{season['desc']}",
             f"🌿 可种植：{'、'.join(get_herbs_for_level(farm_level))}",
         ]
         next_level, next_herbs = get_next_unlock(farm_level)

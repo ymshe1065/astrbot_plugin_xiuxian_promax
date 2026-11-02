@@ -17,6 +17,13 @@ class ShopManager:
     """商店管理器，负责商店物品生成、刷新和购买"""
 
     RANK_BAND_TTL = 300
+    # 符图（一次性习得）与成品符同名，货架名统一加此后缀区分
+    TALISMAN_RECIPE_SUFFIX = "·符图"
+    # 玩家可能写出的各种“符图”写法，购买时统一归一化为基础符名
+    _TALISMAN_RECIPE_MARKERS = (
+        "·符图", "・符图", "•符图", "∙符图", "·符圖",
+        "（符图）", "(符图)", "【符图】", "[符图]",
+    )
     # 百宝阁分区排序：装备 > 符箓 > 丹药 > 功法 > 材料
     TYPE_ORDER = {
         "weapon": 0, "armor": 0, "head": 0, "body": 0, "gloves": 0,
@@ -209,6 +216,105 @@ class ShopManager:
             "quality": item.get("quality"),
         }
 
+    # ===== 符图 / 成品符同名处理 =====
+    @classmethod
+    def talisman_recipe_entry_name(cls, base_name: str) -> str:
+        """符图货架条目名：基础符名 + ·符图，与同名成品符区分。"""
+        return f"{base_name}{cls.TALISMAN_RECIPE_SUFFIX}"
+
+    @classmethod
+    def is_talisman_recipe_entry(cls, item: Dict) -> bool:
+        if not isinstance(item, dict):
+            return False
+        if item.get("type") == "talisman_recipe":
+            return True
+        data = item.get("data") if isinstance(item.get("data"), dict) else {}
+        return data.get("type") == "符图"
+
+    @classmethod
+    def split_talisman_query(cls, name: str) -> Tuple[str, bool]:
+        """把购买输入拆成（基础符名, 是否明确指向符图）。
+
+        `寻宝符·符图`、`寻宝符符图`、`符图寻宝符`、`寻宝符（符图）` 都会归一化为
+        `("寻宝符", True)`；裸名 `寻宝符` 返回 `("寻宝符", False)`，由调用方决定
+        优先成品符还是符图。
+        """
+        text = (name or "").strip()
+        for marker in cls._TALISMAN_RECIPE_MARKERS:
+            if text.endswith(marker):
+                return text[: -len(marker)].strip(), True
+        if text.endswith("符图") and len(text) > 2:
+            return text[:-2].strip(), True
+        if text.startswith("符图") and len(text) > 2:
+            return text[2:].strip(), True
+        return text, False
+
+    @classmethod
+    def entry_base_name(cls, item: Dict) -> str:
+        """货架条目的基础名：符图条目去掉 `·符图` 后缀，其余原样返回。"""
+        name = str((item or {}).get("name") or "")
+        if cls.is_talisman_recipe_entry(item):
+            return cls.split_talisman_query(name)[0]
+        return name
+
+    @staticmethod
+    def recipe_tribulation_shield(recipe: Dict) -> int:
+        """符图对应的丹劫护盾值（0 表示不是护劫类）。"""
+        if not isinstance(recipe, dict):
+            return 0
+        effects = recipe.get("effects")
+        if isinstance(effects, dict):
+            try:
+                shield = int(float(effects.get("tribulation_shield", 0) or 0))
+                if shield > 0:
+                    return shield
+            except (TypeError, ValueError):
+                pass
+        if str(recipe.get("category") or "") == "炼丹":
+            try:
+                from .talisman_rules import shield_of_rank
+                return int(shield_of_rank(recipe.get("rank")))
+            except Exception:
+                return 0
+        return 0
+
+    @classmethod
+    def is_tribulation_shield_recipe(cls, recipe: Dict) -> bool:
+        """是否护劫类符图（避劫/稳魂/引雷/混元等，带 tribulation_shield 效果）。
+
+        这类符图必须常驻：丹劫是概率事件，玩家凑不出护盾时丹药会直接毁丹，
+        靠稀有刷新买会让「护劫」变成看运气。
+        """
+        return cls.recipe_tribulation_shield(recipe) > 0
+
+    def has_talisman_recipe(self, base_name: str) -> bool:
+        """该符名是否有需要习得的符图（基础符与 legacy 推演符视为无需符图）。"""
+        recipe = (getattr(self.config_manager, "talisman_recipes_data", {}) or {}).get(base_name)
+        if not isinstance(recipe, dict):
+            return False
+        if recipe.get("basic") or recipe.get("legacy"):
+            return False
+        try:
+            return int(recipe.get("shop_weight", 0) or 0) > 0
+        except (TypeError, ValueError):
+            return False
+
+    def talisman_recipe_shelf_price(self, base_name: str) -> int:
+        """符图在货架上的基准价（未打折）。
+
+        符图可以单独定价：配置里的 `recipe_price` 只作用于符图，成品符仍走
+        `price`（受定价公式约束，需覆盖材料与成功率）。护劫符图必须买得到，
+        所以允许把符图价压到成品价以下，而不影响制符生意的成本线。
+        """
+        recipe = (getattr(self.config_manager, "talisman_recipes_data", {}) or {}).get(base_name)
+        if not isinstance(recipe, dict):
+            return 0
+        try:
+            price = int(recipe.get("recipe_price") or recipe.get("price") or 0)
+        except (TypeError, ValueError):
+            return 0
+        return int(price * 0.8)
+
     def dedupe_same_name_items(self, items: List[Dict]) -> bool:
         """合并同名货架条目：保留首个条目的价格/品质，库存累加到首个条目。
 
@@ -297,8 +403,36 @@ class ShopManager:
                     item['unlimited'] = True
                     item['stock'] = self.MAX_UNLIMITED_STOCK
                     changed = True
-            # 符图用的是符名，与物品目录里的成品符同名，不能被回填成成品符
-            if item.get("type") == "talisman_recipe":
+            # 符图用的是符名，与物品目录里的成品符同名，不能被回填成成品符；
+            # 同时把旧货架的裸名迁移成「符名·符图」，避免展示层面仍然同名。
+            if self.is_talisman_recipe_entry(item):
+                base_name = self.entry_base_name(item)
+                expected_name = self.talisman_recipe_entry_name(base_name)
+                if item.get("name") != expected_name:
+                    item["name"] = expected_name
+                    changed = True
+                data = item.get("data") if isinstance(item.get("data"), dict) else None
+                if data is not None and data.get("base_name") != base_name:
+                    data["base_name"] = base_name
+                    if not data.get("name"):
+                        data["name"] = base_name
+                    changed = True
+                if not item.get("id"):
+                    item["id"] = f"recipe:{base_name}"
+                    changed = True
+                # 符图单独定价后，旧货架不能一直挂着旧价：按配置重算基准价，保留原折扣
+                base_price = self.talisman_recipe_shelf_price(base_name)
+                if base_price > 0:
+                    try:
+                        discount = float(item.get("discount") or 1.0)
+                    except (TypeError, ValueError):
+                        discount = 1.0
+                    new_price = int(base_price * discount)
+                    if (int(item.get("original_price") or 0) != base_price
+                            or int(item.get("price") or 0) != new_price):
+                        item["original_price"] = base_price
+                        item["price"] = new_price
+                        changed = True
                 continue
             current = self.resolve_current_item_data(item)
             if not current:
@@ -650,6 +784,68 @@ class ShopManager:
         self.dedupe_same_name_items(result)
         return self.sort_pavilion_items(result)
 
+    def sync_permanent_entries(self, items: List[Dict], item_getter, count: int = 0) -> bool:
+        """把配置里标记为常驻（always_available）的条目补进已存在的货架。
+
+        用于「常驻商品新增」的场景（如护劫类符图改为常驻）：旧货架不会自动多出条目，
+        等到下次整体刷新可能已经过去很久。这里在读取时顺带补齐条目、补上限量标记。
+        返回 True 表示货架有改动，调用方需要回写。
+        """
+        if not isinstance(items, list):
+            return False
+        try:
+            entries = item_getter(max(8, int(count or 0) * 2, len(items) + 4))
+        except Exception:
+            return False
+        if not entries:
+            return False
+
+        def shelf_key(entry: Dict) -> str:
+            if self.is_talisman_recipe_entry(entry):
+                return self.entry_base_name(entry)
+            return str(entry.get("name") or "")
+
+        index: Dict[str, Dict] = {}
+        for item in items:
+            if isinstance(item, dict):
+                index.setdefault(shelf_key(item), item)
+
+        discount_min = self._cfg("SHOP_DISCOUNT_MIN", 0.8)
+        discount_max = self._cfg("SHOP_DISCOUNT_MAX", 1.2)
+        changed = False
+        for entry in entries:
+            if not isinstance(entry, dict) or not entry.get("always_available"):
+                continue
+            key = shelf_key(entry)
+            current = index.get(key)
+            if current is None:
+                discount = random.uniform(discount_min, discount_max)
+                new_item = {
+                    'name': entry['name'], 'type': entry['type'], 'rank': entry.get('rank', '凡品'),
+                    'original_price': entry['price'], 'discount': discount,
+                    'price': int(entry['price'] * discount),
+                    'stock': self.MAX_UNLIMITED_STOCK,
+                    'data': entry.get('data', {}),
+                    'always_available': True, 'rare': False,
+                    'unlimited': True,
+                    'quality': self.roll_gear_quality() if self.is_gear_entry(entry) else '',
+                }
+                if entry.get('id'):
+                    new_item['id'] = entry['id']
+                items.append(new_item)
+                index[key] = new_item
+                changed = True
+                continue
+            # 已在货架上但仍是「稀有/限量」：补成常驻不限量
+            if not current.get('always_available') or not current.get('unlimited') \
+                    or int(current.get('stock', 0) or 0) != self.MAX_UNLIMITED_STOCK:
+                current['always_available'] = True
+                current['rare'] = False
+                current['unlimited'] = True
+                current['stock'] = self.MAX_UNLIMITED_STOCK
+                changed = True
+        return changed
+
     def get_pills_for_display(self, count: int) -> List[Dict]:
         """获取丹药列表用于丹阁展示"""
         all_pills = []
@@ -772,8 +968,7 @@ class ShopManager:
     def get_talisman_recipes_for_display(self, count: int) -> List[Dict]:
         """获取符阁·符图货架：只卖需要习得的符图，基础配方不上架。
 
-        黄品符图常驻（学习门槛低）；带护劫护盾的符图（避劫符/混元符等）
-        同样常驻——丹劫按品阶点名护盾，护劫符必须随时买得到；
+        常驻规则：黄品符图（学习门槛低）+ 全部护劫类符图（丹劫靠运气买不到就毁丹）。
         其余玄品以上稀有刷新。
         """
         recipes = []
@@ -785,22 +980,30 @@ class ShopManager:
             if int(recipe.get("shop_weight", 0) or 0) <= 0:
                 continue
             rank = normalize_rank(recipe.get("rank"), "凡品")
-            price = int(int(recipe.get("price", 0) or 0) * 0.8)
+            price = self.talisman_recipe_shelf_price(name)
             if price <= 0:
                 continue
-            effects = recipe.get("effects") if isinstance(recipe.get("effects"), dict) else {}
-            is_shield_talisman = int(effects.get("tribulation_shield", 0) or 0) > 0
-            permanent = rank == "黄品" or is_shield_talisman
+            shield = self.recipe_tribulation_shield(recipe)
+            permanent = rank == "黄品" or shield > 0
+            recipe_name = self.talisman_recipe_entry_name(name)
+            description = f"记载{name}绘制方法的符图，购买后即可 /制符 {name}。"
+            if shield > 0:
+                description += f"（护劫：可保全劫数 ≤ {shield} 的丹劫，常驻上架）"
             recipes.append({
-                'name': name, 'type': 'talisman_recipe', 'price': price,
+                'name': recipe_name, 'type': 'talisman_recipe', 'price': price,
                 'rank': rank,
+                'id': f"recipe:{name}",
                 'data': {
                     'type': '符图',
+                    'id': f"recipe:{name}",
                     'name': name,
+                    'base_name': name,
+                    'display_name': recipe_name,
                     'rank': rank,
                     'level_required': int(recipe.get('level_required', 0) or 0),
                     'category': recipe.get('category', ''),
-                    'description': f"记载{name}绘制方法的符图，购买后即可 /制符 {name}。",
+                    'tribulation_shield': shield,
+                    'description': description,
                 },
                 'always_available': permanent, 'rare': not permanent,
             })
@@ -1062,7 +1265,8 @@ class ShopManager:
             'main_technique': '心法', 'technique': '功法',
             'pill': '破境丹', 'exp_pill': '修为丹', 'utility_pill': '功能丹',
             'inventory_pill': '丹药', 'legacy_pill': '丹药', 'recipe': '丹方',
-            'material': '材料', 'material_package': '材料包', 'accessory': '饰品', '符箓': '符箓'
+            'material': '材料', 'material_package': '材料包', 'accessory': '饰品', '符箓': '符箓',
+            'talisman_recipe': '符图',
         }
 
         lines = [f"=== {pavilion_name} ===\n"]
@@ -1310,7 +1514,9 @@ class ShopManager:
                 required = 0
             if required:
                 details.append(f"适用境界: {self._format_applicable_realm(data, required)}")
-            details.append(f"绘制需求: /制符 {item_data['name']}")
+            # 货架名带「·符图」后缀，绘制指令要用基础符名
+            craft_name = data.get('base_name') or data.get('name') or self.entry_base_name(item_data)
+            details.append(f"绘制需求: /制符 {craft_name}")
 
         elif item_type == '符箓':
             from .talisman_rules import NON_TALISMAN_ITEMS, build_profile

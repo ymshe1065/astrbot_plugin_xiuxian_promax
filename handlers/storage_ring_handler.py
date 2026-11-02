@@ -45,6 +45,16 @@ class StorageRingHandler:
         self.config_manager = config_manager
         self.storage_ring_manager = StorageRingManager(db, config_manager)
 
+    def _element_tag(self, name: str) -> str:
+        """装备名后的五行标注；未标注五行时返回空串，不留空括号。"""
+        if not name:
+            return ""
+        try:
+            element = self.config_manager.get_item_element(name) or ""
+        except Exception:
+            element = ""
+        return f"（{element}）" if element else ""
+
     @player_required
     async def handle_storage_ring(self, player: Player, event: AstrMessageEvent):
         """显示储物戒信息"""
@@ -69,10 +79,11 @@ class StorageRingHandler:
                 if cat_items:
                     lines.append(f"【{category}】\n")
                     for item_name, count in cat_items:
+                        label = f"{item_name}{self._element_tag(item_name)}" if category == "装备" else item_name
                         if count > 1:
-                            lines.append(f"  · {item_name}×{count}\n")
+                            lines.append(f"  · {label}×{count}\n")
                         else:
-                            lines.append(f"  · {item_name}\n")
+                            lines.append(f"  · {label}\n")
         else:
             lines.append("【存储物品】空\n")
 
@@ -105,9 +116,11 @@ class StorageRingHandler:
             if card_enabled("CARD_BAG"):
                 enchant = ring_info.get("enchant", 0)
                 rows = []
+                gear_names = {name for name, _ in self._categorize_items(items).get("装备", [])}
                 # 名称完整显示，不做省略；物品较多时由渲染器自动加长图片
                 for item_name, count in items.items():
-                    rows.append((item_name, f"x{count}"))
+                    label = f"{item_name}{self._element_tag(item_name)}" if item_name in gear_names else item_name
+                    rows.append((label, f"x{count}"))
                 if not rows:
                     rows.append(("空空如也", "—"))
                 card_path = await render_card_async(
