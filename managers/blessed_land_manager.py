@@ -325,6 +325,11 @@ class BlessedLandManager:
             )
         except Exception:
             pass
+        try:
+            from .pet_manager import PetManager
+            gold_income = await PetManager(self.db).apply_gold_bonus(player, gold_income)
+        except Exception:
+            pass
 
         player.gold += gold_income
         player.experience += exp_income
@@ -410,6 +415,11 @@ class BlessedLandManager:
                 pending_gold = TechniqueBonusManager.apply_gold_bonus(
                     player, pending_gold, self.config_manager
                 )
+            except Exception:
+                pass
+            try:
+                from .pet_manager import PetManager
+                pending_gold = await PetManager(self.db).apply_gold_bonus(player, pending_gold)
             except Exception:
                 pass
             player.gold += pending_gold

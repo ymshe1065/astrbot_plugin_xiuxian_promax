@@ -160,6 +160,11 @@ class EncounterManager:
                     )
                 except Exception:
                     pass
+                try:
+                    from .pet_manager import PetManager
+                    gold = await PetManager(self.db).apply_gold_bonus(player, gold)
+                except Exception:
+                    pass
             player.gold = max(0, player.gold + gold)
             lines.append(f"{'获得' if gold > 0 else '损失'}灵石：{gold:+,}")
         if exp:

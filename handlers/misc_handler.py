@@ -19,7 +19,7 @@ __all__ = ["MiscHandler"]
 class MiscHandler:
     """杂项指令处理器 - 提供帮助信息、一键日常与强制解卡"""
 
-    VERSION = HELP_VERSION  # v6.49.3：探索类符箓改为按次数生效；v6.49.2 为仙市取消三道限购；DB v57
+    VERSION = HELP_VERSION  # v6.49.4：灵兽数值平衡；吸血全局上限调整为 50%；DB v57
 
     def __init__(self, db: DataBase, config: dict = None):
         self.db = db

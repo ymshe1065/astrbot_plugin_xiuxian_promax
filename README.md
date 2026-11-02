@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v6.49.3 (符箓次数化 · 仙市不限量)
+# AstrBot 插件：模拟修仙 v6.49.4 (灵兽平衡 · 吸血上限 50%)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v6.49.3-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v6.49.4-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.33.3 · **游戏版本:** v6.49.3 · **数据库:** v57
+> **插件版本:** v3.33.4 · **游戏版本:** v6.49.4 · **数据库:** v57
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，233 条帮助指令 / 233 条注册指令、16 个大系统、110 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,24 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · v6.49.3（符箓次数化 · 探索收益修复）</b></summary>
+<summary><b>本次更新 · v6.49.4（灵兽数值平衡 · 吸血上限 50%）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 灵兽被动重构 | 灵兽被动改为「等级平方根成长 × 进化阶段倍率」，四系满级（Lv.50 终阶）上限统一收敛，避免低阶高等级宠物直接顶穿玩家全局上限。 |
+| 单宠上限 | 九尾天狐暴击 +30%；冰川巨兽主人防御 +20%、反伤 +20%；太古青龙暴击 +20%、吸血 +12%；单个吞金貔貅灵石收益 +30%，多只灵兽仍分别叠加。 |
+| 灵石成长 | 噬金鼠每级灵石加成下调，Lv.1 保持 10%，Lv.50 约 29.8%，单只封顶 30%，不再出现单宠 90%+ 的溢出。 |
+| 防御结算 | 冰晶兽改为按主人双防百分比加成；名片、战力榜、切磋/决斗、Boss、世界 Boss、宗门战等入口统一经 `apply_pet_lineup` 计入，避免低境界被固定防御碾压。 |
+| 护主生效 | 修复 `PET_GUARD_CAP=0` 导致护主率永远为 0 的问题：灵兽现在会真实替主人承伤，单次最多代为承受 20%。 |
+| 吸血上限 | 吸血全局上限由 100% 调整为 **50%**，溢出转换机制不变：每 1% 溢出吸血仍转换为 +0.5% 物攻与法攻；名片、战力榜与实战同口径。 |
+| 生活加成 | 噬金鼠灵石收益已接入签到/一键日常、历练、押镖、悬赏、秘境、宗门战、世界 Boss、Boss 挑战、江湖事件、福地洞天、灵田等灵石结算入口，与功法生活加成同口径；复活中的灵兽不提供任何战斗或生活加成。 |
+| 展示同步 | `/我的灵兽` 总加成与单宠加成区分「防御百分比」与「固定防御」，吸血溢出后按 50% 展示。 |
+| 版本同步 | 插件版本 v3.33.4，游戏版本 v6.49.4，数据库 v57；`/修仙帮助` 同步至 v6.49.4。 |
+
+</details>
+
+<details>
+<summary><b>v6.49.3（符箓次数化 · 探索收益修复）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |

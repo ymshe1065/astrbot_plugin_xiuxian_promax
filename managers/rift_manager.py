@@ -339,6 +339,11 @@ class RiftManager:
                 )
             except Exception:
                 pass
+            try:
+                from .pet_manager import PetManager
+                gold_reward = await PetManager(self.db).apply_gold_bonus(player, gold_reward)
+            except Exception:
+                pass
             player.experience += exp_reward
             player.gold += gold_reward
 

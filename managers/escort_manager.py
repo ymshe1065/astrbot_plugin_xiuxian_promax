@@ -207,6 +207,11 @@ class EscortManager:
             )
         except Exception:
             pass
+        try:
+            from .pet_manager import PetManager
+            escort_gold = await PetManager(self.db).apply_gold_bonus(player, escort_gold)
+        except Exception:
+            pass
 
         player.gold += escort_gold
         player.experience += escort_exp

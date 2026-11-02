@@ -453,6 +453,11 @@ class BountyManager:
                 )
             except Exception:
                 pass
+            try:
+                from .pet_manager import PetManager
+                stone_reward = await PetManager(self.db).apply_gold_bonus(player, stone_reward)
+            except Exception:
+                pass
 
             await self.db.conn.execute(
                 "UPDATE bounty_tasks SET status = 2 WHERE user_id = ? AND status = 1",

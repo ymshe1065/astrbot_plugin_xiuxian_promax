@@ -873,6 +873,11 @@ class WorldBossManager:
                 )
             except Exception:
                 pass
+            try:
+                from .pet_manager import PetManager
+                gold = await PetManager(self.db).apply_gold_bonus(target_player, gold)
+            except Exception:
+                pass
 
             await self.db.add_player_gold(target_player.user_id, gold)
             target_player.gold += gold

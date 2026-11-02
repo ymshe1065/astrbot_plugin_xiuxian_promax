@@ -144,8 +144,19 @@ class PetManager:
     EXP_SHARE_OTHER = 0.10
     # 每级属性/被动效果统一加强倍率（1.5 = 提升 50%）
     PET_LEVEL_BONUS_MULT = 1.5
-    PET_EFFECT_SCALE = 0.1 * PET_LEVEL_BONUS_MULT
-    GOLD_BONUS_PER_LEVEL = 0.005 * PET_LEVEL_BONUS_MULT
+    # 单只灵兽满级（Lv.50 终阶）对主人的战斗加成上限。
+    # 灵兽被动按等级平方根曲线成长，进化阶段再提供一次跃升，避免低阶宠物
+    # 因等级虚高或进化倍率叠加而直接顶穿玩家全局上限。
+    PET_MAX_COMBAT_EFFECTS = {
+        "火灵狐": {"crit_rate": 30.0},
+        "冰晶兽": {"defense_bonus_pct": 0.20, "counter_damage": 20.0},
+        "噬金鼠": {},
+        "青龙幼崽": {"crit_rate": 20.0, "lifesteal": 12.0},
+    }
+    PET_EFFECT_CURVE_POWER = 0.5
+    # 单个噬金鼠满级灵石收益上限；多只灵兽仍可分别叠加。
+    PET_GOLD_BONUS_CAP = 0.30
+    GOLD_BONUS_PER_LEVEL = 0.001
 
     # 灵兽吞噬：指定内丹让灵兽直接提升等级
     PET_CORE_ITEM = "灵兽内丹"
@@ -419,6 +430,9 @@ class PetManager:
         main_pet = next((pet for pet, _ in states if int(pet.get("is_main") or 0) == 1), states[0][0])
         effects = self.get_pet_combat_effects(main_pet)
         defense_bonus = int(effects.get("defense_bonus", 0) or 0)
+        defense_pct = float(effects.get("defense_bonus_pct", 0) or 0)
+        if defense_pct:
+            defense_bonus += int(int(owner_def or 0) * defense_pct)
         return int(owner_atk), total_pet_atk, effects, defense_bonus
 
     async def get_max_pet_level(self, user_id: str) -> int:
@@ -1136,21 +1150,21 @@ class PetManager:
         if not pet_info:
             return {}
 
-        base_val = pet_info["val"] * level * self.PET_EFFECT_SCALE
+        base_type = pet_info.get("base_type", pet.get("pet_type"))
+        max_effects = self.PET_MAX_COMBAT_EFFECTS.get(base_type) or {}
+        if not max_effects:
+            return {}
+
+        chain = self.PET_EVOLUTIONS.get(base_type) or []
+        final_mult = float(chain[-1].get("effect_mult", 2.0) or 2.0) if chain else 2.0
+        stage_mult = float(pet_info.get("effect_mult", 1.0) or 1.0)
+        stage_factor = min(1.0, stage_mult / final_mult) if final_mult > 0 else 1.0
+        progress = (min(level, self.MAX_PET_LEVEL) / self.MAX_PET_LEVEL) ** self.PET_EFFECT_CURVE_POWER
+        factor = max(0.0, progress * stage_factor)
 
         effects = {}
-        if pet_info["attr"] == "crit_rate":
-            effects["crit_rate"] = base_val
-        elif pet_info["attr"] == "defense":
-            effects["defense_bonus"] = base_val
-            effects["counter_damage"] = min(
-                100.0,
-                level * 0.2 * self.PET_LEVEL_BONUS_MULT * float(pet_info.get("effect_mult", 1.0)),
-            )
-        elif pet_info["attr"] == "all":
-            effects["crit_rate"] = base_val
-            effects["lifesteal"] = base_val / 2
-
+        for key, cap in max_effects.items():
+            effects[key] = float(cap) * factor
         return effects
 
     PET_MECHANIC_LABELS = {
@@ -1160,7 +1174,7 @@ class PetManager:
         "dragon": "全属性反哺·协战回血",
     }
     PET_EFFECT_LABELS = {
-        "crit_rate": "暴击率", "defense_bonus": "防御",
+        "crit_rate": "暴击率", "defense_bonus": "防御", "defense_bonus_pct": "防御",
         "counter_damage": "反伤", "lifesteal": "吸血",
     }
 
@@ -1183,7 +1197,10 @@ class PetManager:
         parts = []
         for key, value in self.get_pet_combat_effects(pet).items():
             label = self.PET_EFFECT_LABELS.get(key, key)
-            parts.append(f"{label}+{value:g}")
+            if key.endswith("_pct"):
+                parts.append(f"{label}+{value:.1%}")
+            else:
+                parts.append(f"{label}+{value:g}")
         gold = self.get_gold_bonus(pet)
         if gold > 0:
             parts.append(f"灵石收益+{gold:.1%}")
@@ -1218,12 +1235,32 @@ class PetManager:
                 continue
             if attr == "gold_bonus":
                 per_level = self.GOLD_BONUS_PER_LEVEL * float(pet_info.get("effect_mult", 1.0))
-                total += float(pet_info["val"]) + max(0, level - 1) * per_level
+                per_pet = float(pet_info["val"]) + max(0, level - 1) * per_level
+                total += min(self.PET_GOLD_BONUS_CAP, per_pet)
         return total
 
     async def get_life_bonus(self, user_id: str, attr: str = "gold_bonus") -> float:
         pets = await self._query_pets(user_id)
         return self.get_life_bonus_from_pets(pets, attr)
+
+    async def apply_gold_bonus(self, player_or_id, amount: int) -> int:
+        """把全部存活灵兽的灵石收益加成应用到一次灵石奖励上。"""
+        try:
+            value = int(amount)
+        except (TypeError, ValueError):
+            return 0
+        if value <= 0 or self.db is None:
+            return value
+        user_id = getattr(player_or_id, "user_id", player_or_id)
+        if not user_id:
+            return value
+        try:
+            bonus = await self.get_life_bonus(str(user_id), "gold_bonus")
+        except Exception:
+            return value
+        if bonus <= 0:
+            return value
+        return int(value * (1 + bonus))
 
     def get_gold_bonus(self, pet: Optional[Dict]) -> float:
         return self.get_life_bonus_from_pets([pet] if pet else [], "gold_bonus")
