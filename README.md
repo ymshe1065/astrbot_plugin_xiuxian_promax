@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v6.49.2 (五行功法 · 装备扩充 · 仙市不限量)
+# AstrBot 插件：模拟修仙 v6.49.3 (符箓次数化 · 仙市不限量)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v6.49.2-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v6.49.3-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.33.2 · **游戏版本:** v6.49.2 · **数据库:** v57
+> **插件版本:** v3.33.3 · **游戏版本:** v6.49.3 · **数据库:** v57
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，233 条帮助指令 / 233 条注册指令、16 个大系统、110 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,22 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · v6.49.2（五行功法 · 装备扩充 · 仙市不限量）</b></summary>
+<summary><b>本次更新 · v6.49.3（符箓次数化 · 探索收益修复）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 生效逻辑 | 探索类符箓（遁地符/寻宝符/破障符/洞天符）不再按 15~30 分钟计时，改为按次数生效，避免历练/秘境 30~40 分钟的流程还没结算符箓就已过期。 |
+| 次数配置 | 四张探索符默认生效 3/3/4/6 次历练或秘境，配方可用 `uses` 字段调整；使用多张可累加次数。 |
+| 结算扣次 | 历练与秘境结算时各扣减一次，秘境自动代理同样生效；结算消息会提示符箓剩余次数。 |
+| 品质兼容 | 一般/上品/极品分别额外提供 0/1/2 次，效果倍率仍按品质放大；重复使用同名符箓按较高倍率保留并累加次数。 |
+| 展示同步 | `/符箓`、`/物品信息`、`/丹药背包` 的生效描述改为「剩余 X 次历练/秘境」，不再显示分钟数。 |
+| 兼容性 | 仅使用现有 `active_pill_effects` JSON 字段，不改数据库结构；旧存档中按时间生效的探索符仍会自然到期。 |
+| 版本同步 | 插件版本 v3.33.3，游戏版本 v6.49.3，数据库 v57；`/修仙帮助` 同步至 v6.49.3。 |
+
+</details>
+
+<details>
+<summary><b>v6.49.2（五行功法 · 装备扩充 · 仙市不限量）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |

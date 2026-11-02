@@ -38,6 +38,14 @@ NON_TALISMAN_ITEMS = {"化身傀儡"}
 # 符箓持续分钟数，按品阶递增
 DURATION_BY_RANK = {"凡品": 15, "黄品": 15, "玄品": 20, "圣品": 30}
 
+# 探索/秘境收益类效果按「次数」生效，避免 15~30 分钟的时限覆盖不了
+# 30~40 分钟的历练/秘境流程。配方可用 uses 字段覆盖默认折算。
+RUN_SCOPED_EFFECT_KEYS = ("exploration_reward_multiplier", "rift_reward_multiplier")
+RUN_SCOPE_KEYS = {
+    "adventure": "exploration_reward_multiplier",
+    "rift": "rift_reward_multiplier",
+}
+
 # ===== 丹劫刻度：丹药按品阶给劫数，符箓按品阶给护盾 =====
 # 判定只有一句：护盾 >= 劫数 即保全。高品阶符向下兼容是这条判定的自然结果。
 TRIBULATION_DEMAND: Dict[str, int] = {
@@ -147,6 +155,22 @@ def shield_of_rank(rank: str) -> int:
     return int(SHIELD_BY_RANK.get(normalize_rank(rank, "凡品"), 0))
 
 
+def is_run_scoped_effects(effects: Optional[Dict]) -> bool:
+    """是否为「按历练/秘境次数」生效的探索类效果。"""
+    if not isinstance(effects, dict):
+        return False
+    return any(key in effects for key in RUN_SCOPED_EFFECT_KEYS)
+
+
+def uses_from_duration(duration: int) -> int:
+    """没有显式 uses 时，按每 5 分钟折算 1 次，至少 1 次。"""
+    try:
+        minutes = int(duration or 0)
+    except (TypeError, ValueError):
+        minutes = 0
+    return max(1, minutes // 5)
+
+
 def tribulation_demand_of(pill_rank: str) -> int:
     return int(TRIBULATION_DEMAND.get(normalize_rank(pill_rank, ""), 0) or 0)
 
@@ -235,11 +259,13 @@ def build_profile(
     effects: Optional[Dict] = None,
     duration: Optional[int] = None,
     description: str = "",
+    uses: Optional[int] = None,
 ) -> Dict:
     """根据符名、品阶、分类推演符箓效果。
 
     配方里显式写了 ``effects`` 时以配置为准（不再靠名字猜），
     否则按品阶系数走公式——legacy 符与自动配方走后者。
+    探索/秘境类效果返回 ``run_scoped`` 与 ``uses``，按次数而非时间生效。
     """
     rank = normalize_rank(rank, "凡品")
     power = float(TIER_POWER.get(rank, 0.25))
@@ -253,11 +279,14 @@ def build_profile(
                 parsed[str(key)] = float(value)
             except (TypeError, ValueError):
                 continue
+        run_scoped = is_run_scoped_effects(parsed)
         return {
             "name": name,
             "rank": rank,
             "category": category,
             "duration": dur,
+            "uses": int(uses or uses_from_duration(dur)),
+            "run_scoped": run_scoped,
             "effects": parsed,
             "description": description or _describe(category, parsed) or "特殊效果",
         }
@@ -300,6 +329,8 @@ def build_profile(
         "rank": rank,
         "category": category,
         "duration": dur,
+        "uses": int(uses or uses_from_duration(dur)),
+        "run_scoped": is_run_scoped_effects(effects),
         "effects": effects,
         "description": description or _describe(category, effects) or "特殊效果",
     }
@@ -308,11 +339,13 @@ def build_profile(
 __all__ = [
     "TIER_POWER", "TIER_LEVEL", "TIER_GOLD", "TIER_PRICE",
     "CATEGORY_KEYWORDS", "NON_TALISMAN_ITEMS", "DURATION_BY_RANK",
+    "RUN_SCOPED_EFFECT_KEYS", "RUN_SCOPE_KEYS",
     "TRIBULATION_DEMAND", "TRIBULATION_RATE", "SHIELD_BY_RANK", "CONTROL_BY_RANK",
     "FALLBACK_RANK_BY_LEVEL",
     "PROFICIENCY_TIERS", "PROFICIENCY_RANK_POINTS", "PROFICIENCY_RANK_THRESHOLD",
     "PROFICIENCY_SUCCESS_MIN", "PROFICIENCY_SUCCESS_MAX", "FAIL_POINTS_RATIO",
     "infer_category", "build_profile", "shield_of_rank", "tribulation_demand_of",
     "tribulation_rate_of", "pill_rank_of", "rank_from_level",
+    "is_run_scoped_effects", "uses_from_duration",
     "proficiency_level", "proficiency_tier", "proficiency_success", "proficiency_gain",
 ]

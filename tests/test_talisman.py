@@ -122,6 +122,34 @@ class TestTalismanSystem(unittest.IsolatedAsyncioTestCase):
         self.assertGreater(self.TalismanManager.get_active_bonus(player, "exploration_reward_multiplier"), 0)
         self.assertGreater(self.TalismanManager.get_active_bonus(player, "drop_chance_bonus"), 0)
 
+    async def test_exploration_talisman_uses_run_charges(self):
+        from unittest.mock import patch
+        player = self._player()
+        player.storage_ring_items = json.dumps({"寻宝符": 2}, ensure_ascii=False)
+        await self.db.create_player(player)
+        with patch.object(self.talisman, "_roll_quality", return_value=("一般", 1.0, 0)):
+            ok, msg = await self.talisman.use_talisman(player, "寻宝符", 2)
+        self.assertTrue(ok, msg)
+
+        effect = next(
+            e for e in player.get_active_pill_effects()
+            if e.get("talisman_name") == "寻宝符"
+        )
+        self.assertEqual(effect.get("remaining_uses"), 6)
+        self.assertEqual(effect.get("expiry_time"), 0)
+        self.assertGreater(
+            self.TalismanManager.get_active_bonus(player, "exploration_reward_multiplier"), 0
+        )
+
+        for expected in (5, 4, 3, 2, 1):
+            consumed = self.TalismanManager.consume_run_charges(player, "adventure")
+            self.assertEqual(consumed, [("寻宝符", expected)])
+        consumed = self.TalismanManager.consume_run_charges(player, "adventure")
+        self.assertEqual(consumed, [("寻宝符", 0)])
+        self.assertEqual(
+            self.TalismanManager.get_active_bonus(player, "exploration_reward_multiplier"), 0
+        )
+
     async def test_craft_consumes_materials_and_outputs_talisman(self):
         from unittest.mock import patch
         player = self._player(level_index=0)

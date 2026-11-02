@@ -307,6 +307,7 @@ class AdventureManager:
 
         rewards = self._calculate_rewards(player, route, effective_duration, event)
         pet_encounter = None
+        consumed_talismans: List[Tuple[str, int]] = []
         
         # 开始事务
         await self.db.conn.execute("BEGIN IMMEDIATE")
@@ -364,6 +365,13 @@ class AdventureManager:
                 pass
             player.experience += rewards["exp"]
             player.gold += rewards["gold"]
+
+            # 探索符按次数生效：本次历练结算后扣减一次，与耗时无关
+            try:
+                from .talisman_manager import TalismanManager
+                consumed_talismans = TalismanManager.consume_run_charges(player, "adventure")
+            except Exception:
+                consumed_talismans = []
             
             # 一次更新玩家对象；不要在外层事务里提前 commit
             await self.db.update_player(player, commit=False)
@@ -390,6 +398,13 @@ class AdventureManager:
             )
 
         fatigue_hint = f"\n⏳ 该路线休整：{fatigue // 60} 分钟" if fatigue else ""
+        talisman_hint = ""
+        if consumed_talismans:
+            lines = [
+                f"🧿 {name}：剩余 {left} 次历练/秘境" if left > 0 else f"🧿 {name}：次数已用尽"
+                for name, left in consumed_talismans
+            ]
+            talisman_hint = "\n" + "\n".join(lines)
         display_minutes = effective_duration // 60
         msg = (
             f"🚶 历练归来 · {route['name']}\n"
@@ -400,6 +415,7 @@ class AdventureManager:
             f"获得灵石：+{rewards['gold']:,}"
             f"{item_msg}"
             f"{pet_msg}"
+            f"{talisman_hint}"
             f"\n━━━━━━━━━━━━━━━\n"
             f"当前修为：{player.experience:,}\n"
             f"当前灵石：{player.gold:,}"
