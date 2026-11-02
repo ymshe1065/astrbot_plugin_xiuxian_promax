@@ -281,7 +281,126 @@ class TalismanManager:
         lines.append("\n💡 /制符 <符名> [数量] 绘制；/使用符箓 <符名> [数量] 使用")
         lines.append("💡 /符阁 符箓 买成品符，/符阁 符图 买玄品以上符图")
         lines.append("💡 /符箓配方 查看全部配方长图（材料、灵石、成功率）")
+        lines.append("💡 /符箓书 只看自己已掌握、当前真能画几张")
         return "\n".join(lines)
+
+    # ===== 符箓书：我能画哪些 =====
+    def build_craft_book(self, player: Player) -> Tuple[str, List[str], int]:
+        """列出「已能绘制」的符箓：实际成功率、单张工费、材料缺口、可画张数与卡点。
+
+        与 /制符 共用 resolve_craft_params，保证界面数字与实际结算同源。
+        返回 (文本消息, 卡片行, 可画条目数)。
+        """
+        learned_entries: List[Tuple[str, Dict]] = []
+        locked_names: List[str] = []
+        for name, recipe in self.iter_recipes():
+            if self.is_recipe_learned(player, name, recipe):
+                learned_entries.append((name, recipe))
+            else:
+                locked_names.append(name)
+
+        prof = self.get_proficiency(player)
+        is_master = player.life_skill == "符箓师"
+        slots = self.storage_ring_manager.get_available_slots(player) if self.storage_ring_manager else 0
+        held = player.get_storage_ring_items()
+
+        lines = ["🖌️ 符箓书 · 可绘制符箓", "━━━━━━━━━━━━━━━"]
+        card_lines: List[str] = []
+        notices: List[str] = []
+        if not is_master:
+            notices.append("⚠️ 当前生活职业不是【符箓师】，暂时无法绘制（/选择生活职业 符箓师）")
+        lines.extend(notices)
+
+        if not learned_entries:
+            lines.append("你还没有掌握任何符箓的绘制方法。")
+            lines.append("💡 基础符人人在册；需要符图的到 /符阁 符图 购买，购买后即可 /制符。")
+            return "\n".join(lines), [], 0
+
+        craftable = 0
+        total_possible = 0
+        current_category = ""
+        for name, recipe in learned_entries:
+            params = self.resolve_craft_params(player, name, recipe)
+            if not params:
+                continue
+            category = recipe.get("category") or self._infer_category(name)
+            if category != current_category:
+                current_category = category
+                lines.append(f"\n【{category}】")
+                if card_lines:
+                    card_lines.append("")
+
+            mat_cap = min(
+                [m["have"] // m["need"] for m in params["materials"] if m["need"] > 0],
+                default=99,
+            )
+            gold_cap = player.gold // params["gold_cost"] if params["gold_cost"] > 0 else 99
+            slot_cap = slots // params["volume"] if params["volume"] > 0 else 99
+            possible = max(0, min(mat_cap, gold_cap, slot_cap))
+
+            gate_blocked = player.level_index < params["level_required"]
+            if gate_blocked:
+                possible = 0
+            if possible > 0:
+                craftable += 1
+                total_possible += possible * params["volume"]
+
+            held_note = f"｜持有{held.get(name, 0)}张" if held.get(name) else ""
+            lines.append(
+                f"· {name}（{params['rank']}）{held_note}\n"
+                f"  成功率 {params['success_rate']:.0f}%｜工费 {params['gold_cost']:,}/张"
+                f"｜每张占 {params['volume']} 格"
+            )
+
+            mat_parts = []
+            card_mat_parts = []
+            for mat in params["materials"]:
+                enough = mat["have"] >= mat["need"]
+                mark = "✓" if enough else f"缺{mat['need'] - mat['have']}"
+                mat_parts.append(f"{mat['label']} {mat['have']}/{mat['need']}（{mark}）")
+                card_mat_parts.append(f"{mat['label']} {mat['have']}/{mat['need']} {mark}")
+            lines.append("  材料：" + ("、".join(mat_parts) if mat_parts else "无需材料"))
+
+            if gate_blocked:
+                lines.append(
+                    f"  ⚠️ 需境界等级 {params['level_required']}"
+                    f"（当前 {player.level_index}），暂不可画"
+                )
+                status = f"需境界 {params['level_required']}"
+            elif possible <= 0:
+                if mat_cap <= 0:
+                    reason = "材料不足"
+                elif gold_cap <= 0:
+                    reason = "灵石不足"
+                else:
+                    reason = "储物戒空间不足"
+                lines.append(f"  ❌ {reason}，当前画不了")
+                status = reason
+            else:
+                caps = [f"材料限{mat_cap}", f"灵石限{gold_cap}", f"格位限{slot_cap}"]
+                lines.append(f"  ✅ 可画 {possible} 张（{' · '.join(caps)}）")
+                status = f"可画 {possible} 张"
+
+            card_lines.append(
+                f"[{category}] {name}（{params['rank']} · 成功率{params['success_rate']:.0f}%"
+                f" · {params['gold_cost']:,}灵石/张）"
+            )
+            card_lines.append("   · 材料：" + ("、".join(card_mat_parts) if card_mat_parts else "无需材料"))
+            card_lines.append(f"   · {status}")
+
+        lines.append("━━━━━━━━━━━━━━━")
+        lines.append(
+            f"已掌握 {len(learned_entries)} 张｜当前可画 {craftable} 种、合计 {total_possible} 张"
+            f"｜熟练度 {prof['name']}（{prof['points']}/{prof['next_points']}）"
+        )
+        if self.storage_ring_manager:
+            lines.append(f"储物戒空格：{slots}｜灵石：{player.gold:,}")
+        if locked_names:
+            preview = "、".join(locked_names[:6]) + ("…" if len(locked_names) > 6 else "")
+            lines.append(f"🔒 符图未习得 {len(locked_names)} 张：{preview}")
+            lines.append("💡 /符阁 符图 查看在售符图，/购买 <符名>·符图 习得")
+        lines.append("💡 /制符 <符名> [数量] 绘制；/符箓 查看全部符箓图鉴")
+        return "\n".join(lines), card_lines, craftable
 
     # ===== 配方总览 =====
     RECIPE_CATEGORY_ORDER = ["攻击", "防御", "控制", "回复", "炼丹", "探索", "增益", "遁术"]
@@ -445,6 +564,52 @@ class TalismanManager:
         return True, "", consumed
 
     # ===== 绘制 =====
+    def resolve_craft_params(self, player: Player, name: str, recipe: Optional[Dict] = None) -> Optional[Dict]:
+        """解析一张符的实际绘制参数，供 /制符 与 /符箓书 共用。
+
+        界面显示的工费、成功率、材料缺口必须与实际结算同源，否则玩家照着界面
+        算账会翻车，因此两边统一走这里。
+        """
+        recipe = recipe or self.get_recipe(name)
+        if not recipe:
+            return None
+        rank = normalize_rank(recipe.get("rank"), "凡品")
+        prof = self.get_proficiency(player)
+        extra_rate = float(prof.get("extra", 0) or 0)
+        discount = float(prof.get("cost_discount", 0) or 0)
+        is_master = player.life_skill == "符箓师"
+        base_gold = int(recipe.get("gold_cost", 0) or 0)
+        if is_master:
+            base_gold = int(base_gold * 0.8)
+        unit_gold = int(round(base_gold * (1 - discount / 100.0)))
+        success_rate = proficiency_success(recipe.get("success_rate", 75), rank, prof["points"])
+        if is_master:
+            success_rate = min(99.0, success_rate + 10)
+
+        items = player.get_storage_ring_items()
+        materials: List[Dict] = []
+        for spec in (recipe.get("materials") or []):
+            if not isinstance(spec, dict):
+                continue
+            need = int(spec.get("count", 0) or 0)
+            have = sum(value for _, value in self._material_stacks(items, spec))
+            label = spec.get("name") or f"{spec.get('tier', '')}{spec.get('category', '')}"
+            materials.append({"label": label, "need": need, "have": have})
+
+        return {
+            "name": name,
+            "recipe": recipe,
+            "rank": rank,
+            "level_required": int(recipe.get("level_required", 0) or 0),
+            "gold_cost": unit_gold,
+            "success_rate": success_rate,
+            "extra_rate": extra_rate,
+            "is_master": is_master,
+            "materials": materials,
+            "volume": int(self._item_data(name).get("volume", 1) or 1),
+            "prof": prof,
+        }
+
     async def craft_talisman(self, player: Player, name: str, count: int = 1) -> Tuple[bool, str]:
         count = max(1, min(100, int(count or 1)))
         recipe = self.get_recipe(name)
@@ -457,26 +622,20 @@ class TalismanManager:
         if not self.is_recipe_learned(player, name, recipe):
             return False, f"❌ 尚未学会【{name}】的绘制方法，可到 /符阁 符图 购买符图。"
 
-        level_required = int(recipe.get("level_required", 0) or 0)
+        params = self.resolve_craft_params(player, name, recipe)
+        level_required = params["level_required"]
         if player.level_index < level_required:
             return False, f"❌ 绘制【{name}】需要达到境界等级 {level_required}。"
 
-        rank = normalize_rank(recipe.get("rank"), "凡品")
-        volume = int(self._item_data(name).get("volume", 1) or 1)
+        rank = params["rank"]
+        volume = params["volume"]
         if self.storage_ring_manager.get_available_slots(player) < volume:
             return False, "❌ 储物戒空间不足，绘制失败（符材未消耗）。"
 
-        prof = self.get_proficiency(player)
-        extra_rate = float(prof.get("extra", 0) or 0)
-        discount = float(prof.get("cost_discount", 0) or 0)
-        is_master = player.life_skill == "符箓师"
-        base_gold = int(recipe.get("gold_cost", 0) or 0)
-        if is_master:
-            base_gold = int(base_gold * 0.8)
-        unit_gold = int(round(base_gold * (1 - discount / 100.0)))
-        success_rate = proficiency_success(recipe.get("success_rate", 75), rank, prof["points"])
-        if is_master:
-            success_rate = min(99.0, success_rate + 10)
+        prof = params["prof"]
+        extra_rate = params["extra_rate"]
+        unit_gold = params["gold_cost"]
+        success_rate = params["success_rate"]
 
         made = 0
         failed = 0

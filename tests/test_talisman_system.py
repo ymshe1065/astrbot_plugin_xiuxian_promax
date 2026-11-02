@@ -424,9 +424,13 @@ class TestPavilion(unittest.IsolatedAsyncioTestCase):
         entries = shop.get_talisman_recipes_for_display(4)
         names = {e["name"] for e in entries}
         self.assertTrue(names)
-        for name in names:
-            self.assertFalse(self.cm.talisman_recipes_data[name].get("basic"))
-        self.assertIn("聚灵符", names)
+        for entry in entries:
+            # 符图货架名统一带 ·符图 后缀，与同名成品符区分
+            self.assertTrue(entry["name"].endswith("·符图"), entry["name"])
+            base = entry["data"]["base_name"]
+            self.assertEqual(entry["name"], f"{base}·符图")
+            self.assertFalse(self.cm.talisman_recipes_data[base].get("basic"))
+        self.assertIn("聚灵符·符图", names)
 
     def test_treasure_pavilion_has_no_talisman(self):
         shop = self.ShopManager({}, self.cm)
@@ -435,10 +439,25 @@ class TestPavilion(unittest.IsolatedAsyncioTestCase):
             self.assertNotEqual((entry.get("data") or {}).get("type"), "符箓")
 
     def test_recipe_price_is_discounted(self):
+        """符图货架价 = 符图基准价 × 0.8；符图可用 recipe_price 单独定价。"""
         shop = self.ShopManager({}, self.cm)
         for entry in shop.get_talisman_recipes_for_display(4):
-            base = int(self.cm.talisman_recipes_data[entry["name"]]["price"])
+            recipe = self.cm.talisman_recipes_data[entry["data"]["base_name"]]
+            base = int(recipe.get("recipe_price") or recipe["price"])
             self.assertEqual(entry["price"], int(base * 0.8))
+
+    def test_shield_recipe_can_be_priced_below_pill(self):
+        """护劫符图可单独压价：图纸便宜，成品符仍按成本公式定价。
+
+        丹劫提示会把玩家直接指向符阁，图纸太贵等于提示作废；但成品符售价不能
+        跟着降，否则符箓师画一张亏一张（圣品材料成本约 8.9 万）。
+        """
+        shop = self.ShopManager({}, self.cm)
+        entries = {e["data"]["base_name"]: e for e in shop.get_talisman_recipes_for_display(4)}
+        hunyuan = entries["混元符"]
+        pill_price = int(self.cm.items_data["混元符"]["price"])
+        self.assertLess(hunyuan["price"], pill_price)
+        self.assertEqual(hunyuan["price"], shop.talisman_recipe_shelf_price("混元符"))
 
 
 if __name__ == "__main__":

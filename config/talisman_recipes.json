@@ -637,6 +637,7 @@
     },
     "duration": 30,
     "price": 227000,
+    "recipe_price": 68000,
     "shop_weight": 15,
     "basic": false,
     "legacy": false

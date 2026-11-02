@@ -338,6 +338,7 @@ class CalamityManager:
         """仙界日历：未来事件预告"""
         local = time.localtime()
         season_idx = get_season_index_pub()
+        season_period, season_left = get_season_cycle()
         seasons = ["🌱 春·生发", "☀️ 夏·炎灼", "🍂 秋·丰收", "❄️ 冬·蛰藏"]
         wday_names = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
 
@@ -368,7 +369,7 @@ class CalamityManager:
             "📅 仙界日历",
             "━━━━━━━━━━━━━━━",
             f"今日：{wday_names[local.tm_wday]} · {local.tm_mon}月{local.tm_mday}日",
-            f"当前季节：{seasons[season_idx]}（每约一周轮转）",
+            f"当前季节：{seasons[season_idx]}（每 {season_period} 天轮转，{season_left} 天后换季）",
             f"魔潮状态：{'🌑 肆虐中！/抵御魔潮 参与抵御' if tide_active else ('🌫 余波未散，修炼-20%' if aftermath else '🌤 风平浪静')}",
             "━━━━━━━━━━━━━━━",
             "【事件预告】",
@@ -383,5 +384,18 @@ class CalamityManager:
 
 
 def get_season_index_pub() -> int:
-    """供日历使用的季节索引（避免循环导入 spirit_farm_manager）"""
-    return (time.localtime().tm_yday // 7) % 4
+    """供日历使用的季节索引（延迟导入，避免循环导入 spirit_farm_manager）"""
+    try:
+        from .spirit_farm_manager import get_current_season_index
+        return get_current_season_index()
+    except Exception:
+        return (time.localtime().tm_yday - 1) // 3 % 4
+
+
+def get_season_cycle() -> tuple:
+    """(每季天数, 距换季剩余天数)；灵田模块不可用时给保守默认值。"""
+    try:
+        from .spirit_farm_manager import SEASON_PERIOD_DAYS, get_season_days_left
+        return int(SEASON_PERIOD_DAYS), int(get_season_days_left())
+    except Exception:
+        return 3, 1

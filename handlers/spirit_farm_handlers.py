@@ -79,9 +79,12 @@ class SpiritFarmHandlers:
                         rows.append(("（空地）", "可种植"))
                     season_rows = []
                     try:
-                        from ..managers.spirit_farm_manager import get_current_season
-                        season = get_current_season()
-                        season_rows.append(("当前季节", f"{season['icon']} {season['name']}"))
+                        from ..managers.spirit_farm_manager import get_season_progress
+                        season = get_season_progress()
+                        season_rows.append((
+                            "当前季节",
+                            f"{season['icon']} {season['name']} · {season['change_text']}",
+                        ))
                     except Exception:
                         pass
                     next_level, next_herbs = get_next_unlock(farm_level)
@@ -136,7 +139,7 @@ class SpiritFarmHandlers:
                 lines.append(f"{mark} {name} - {hours}小时 (修为+{int(cfg['exp_yield']):,}){note}")
             lines.extend([
                 "━━━━━━━━━━━━━━━",
-                "🌱 所有灵草统一：种1收4（普通灵草可直接种植）",
+                "🌱 所有灵草统一：种1收2（普通灵草可直接种植）",
                 "🧬 杂交需占用2格，耗时与产物生长时间一致，完成后 /收获 领取1株：",
                 format_hybrid_recipes(farm_level),
                 "━━━━━━━━━━━━━━━",

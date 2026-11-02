@@ -313,7 +313,7 @@ class TestFarmFertility(unittest.IsolatedAsyncioTestCase):
         control = await self._new_player("u1", gold=100000)
         await self._new_farm("u1", level=5, fertility=240)
         await self._set_farm(
-            "u1", crops=self._mature_crops("冰心草", 10)
+            "u1", crops=self._mature_crops("火焰花", 10)
         )
         await self.conn.execute(
             "INSERT INTO auto_proxy (user_id, enabled, task_type, origin, config_json) "
@@ -331,7 +331,7 @@ class TestFarmFertility(unittest.IsolatedAsyncioTestCase):
         treat = await self._new_player("u2", gold=100000)
         await self._new_farm("u2", level=5, fertility=240)
         await self._set_farm(
-            "u2", crops=self._mature_crops("冰心草", 10)
+            "u2", crops=self._mature_crops("火焰花", 10)
         )
         await self.conn.execute(
             "INSERT INTO auto_proxy (user_id, enabled, task_type, origin, config_json) "
@@ -396,7 +396,7 @@ class TestFarmFertility(unittest.IsolatedAsyncioTestCase):
     async def test_fertilize_insufficient_gold_notifies_once(self):
         player = await self._new_player(gold=500)
         await self._new_farm(level=5, fertility=240)
-        await self._set_farm(crops=self._mature_crops("冰心草", 10))
+        await self._set_farm(crops=self._mature_crops("火焰花", 10))
         await self.conn.execute(
             "INSERT INTO auto_proxy (user_id, enabled, task_type, origin, config_json) "
             "VALUES (?, 1, '', 'umo://g', ?)",
