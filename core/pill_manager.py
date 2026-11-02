@@ -233,6 +233,14 @@ class PillManager:
         has_changes = False
 
         for effect in effects:
+            # 历史数据里可能混入非 dict 元素（旧格式/外部导入），直接 .get 会抛异常，
+            # 导致 /丹药背包 整条指令静默失败。这里跳过并顺手清理。
+            if not isinstance(effect, dict):
+                has_changes = True
+                logger.warning(
+                    f"玩家 {player.user_id} 的临时丹药效果存在非法条目，已丢弃：{effect!r}"
+                )
+                continue
             if self._apply_periodic_effects(player, effect, current_time):
                 has_changes = True
 
@@ -997,7 +1005,7 @@ class PillManager:
             grouped.setdefault(base_name, {})[quality] = grouped.setdefault(base_name, {}).get(quality, 0) + count
 
         lines = ["--- 丹药背包 ---"]
-        for base_name in sorted(grouped):
+        for base_name in sorted(grouped, key=str):
             pill_data = self.get_pill_by_name(base_name)
             rank = pill_data.get("rank", "未知") if pill_data else "未知"
             parts = []
@@ -1005,6 +1013,11 @@ class PillManager:
                 count = grouped[base_name].get(quality, 0)
                 if count:
                     parts.append(f"{quality}×{count}")
+            # 非标准品质（历史数据/外部导入）也要列出来，否则玩家有丹却看不到
+            for quality, count in grouped[base_name].items():
+                if quality in self.QUALITY_ORDER or not count:
+                    continue
+                parts.append(f"{quality}×{count}")
             if not parts:
                 continue
             lines.append(f"[{rank}] {base_name}（{'、'.join(parts)}）")

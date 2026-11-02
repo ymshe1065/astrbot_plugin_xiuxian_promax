@@ -1,5 +1,6 @@
 # handlers/pill_handler.py
 
+from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent
 from ..data import DataBase
 from ..core import PillManager, ItemRules
@@ -77,6 +78,22 @@ class PillHandler:
             player: 玩家对象
             event: 事件对象
         """
+        try:
+            message = await self._render_pill_bag(player)
+        except Exception:
+            # 以前这里异常会直接冒泡，玩家侧表现成「发指令没反应」，服主也看不到原因
+            logger.exception(
+                "丹药背包读取失败 user=%s", getattr(player, "user_id", "?")
+            )
+            yield event.plain_result(
+                "❌ 丹药背包读取失败，已记录日志。\n"
+                "💡 可先发送 /服用丹药 或在 /储物戒 确认丹药状态，并把上面的日志发给服主。"
+            )
+            return
+        yield event.plain_result(message)
+
+    async def _render_pill_bag(self, player: Player) -> str:
+        """拼装丹药背包文本；读取失败由调用方兜底提示。"""
         # 先更新临时效果
         await self.pill_manager.update_temporary_effects(player)
 
@@ -85,11 +102,15 @@ class PillHandler:
 
         # 获取当前生效的临时效果
         active_effects = player.get_active_pill_effects()
+        if not isinstance(active_effects, list):
+            active_effects = []
         effects_display = []
 
         if active_effects:
             effects_display.append("\n--- 当前生效的临时效果 ---")
             for effect in active_effects:
+                if not isinstance(effect, dict):
+                    continue
                 pill_name = effect.get("pill_name", "未知丹药")
                 import time
                 icon = "🧿" if effect.get("source") == "talisman" else "🌟"
@@ -128,7 +149,7 @@ class PillHandler:
         if resurrection_status:
             full_message += resurrection_status
 
-        yield event.plain_result(full_message)
+        return full_message
 
     @player_required
     async def handle_pill_info(self, player: Player, event: AstrMessageEvent, pill_name: str = ""):
