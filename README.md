@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v6.50.1 (秘境高阶装备掉率下调)
+# AstrBot 插件：模拟修仙 v6.50.2 (切原石掉落重做)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v6.50.1-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v6.50.2-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.33.9 · **游戏版本:** v6.50.1 · **数据库:** v57
+> **插件版本:** v3.33.9 · **游戏版本:** v6.50.2 · **数据库:** v57
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，233 条帮助指令 / 233 条注册指令、16 个大系统、110 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,24 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · v6.50.1（秘境高阶装备掉率下调）</b></summary>
+<summary><b>本次更新 · v6.50.2（切原石掉落重做）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 原石降价 | 单块 10,000 → **5,000 灵石**，一次最多 10 块，扣费与掉落同一事务。 |
+| 材料改矿材为主 | 材料掉落中**矿材占 80%**，其余 20% 为妖兽/灵植/灵液；不再以灵植灵液填满背包。 |
+| 品阶梯度 | 矿材按品阶递减：凡品 6 份（42%）/ 黄品 4 份（32%）/ 玄品 2 份（23%）/ **圣品 1 份（3%）**；非矿材份数为 4/2/1/1。 |
+| 装备掉率不变 | 法器总掉率仍 **4.9%**（玄品 3.92% / 圣品 0.98%），护府令彩蛋 0.1%（×3）。 |
+| 收益实测 | 10 万块实测：单块名义价值 4,633（**投入的 92.7%**）、全回收 2,780（**55.6%**）；平均占 1 格、3.81 件。 |
+| 十连体验 | 均值 45,758、中位 19,340，回本（≥5 万）概率 **10.3%**；平均 20.3 块出一件装备、98.5 块出一件圣品。 |
+| 可调项 | `GambleManager` 的 `STONE_PRICE` / `STONE_ORE_SHARE` / `STONE_ORE_TABLE` / `STONE_MATERIAL_TABLE`。 |
+| 掉落池兜底 | 只收「能存进储物戒」的物品，某品阶池为空时按「先降后升」退阶，绝不切出空气。 |
+| 测试 | 新增 `tests/test_gamble_stone.py`（15 例，含 6 万次抽样与端到端扣费落库），全量 712 例通过。 |
+
+</details>
+
+<details>
+<summary><b>v6.50.1（秘境高阶装备掉率下调）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |

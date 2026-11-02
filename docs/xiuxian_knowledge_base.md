@@ -5,7 +5,7 @@ language: zh-CN
 audience:
   - AI 问答助手
   - 玩家
-game_version: v6.50.1
+game_version: v6.50.2
 content_type: game_mechanics_reference
 chunk_strategy: heading
 keywords:
@@ -1179,6 +1179,11 @@ keywords:
 | `/更换储物戒 <名>` | 更换储物戒 |
 | `/储物戒附魔 [数]` | 用空间石扩容 |
 
+> **赌石（`/切原石`）**：每块 5,000 灵石，每次最多 10 块，即时结算、无冷却，扣费与掉落同一事务。
+> 掉落以矿材为主（约 80% 矿材，其余为妖兽/灵植/灵液），份数与掉率随品阶递减：凡品 6 份（42%）/ 黄品 4 份（32%）/ 玄品 2 份（23%）/ 圣品 1 份（3%）。
+> 另有 4.9% 出玄品或圣品法器（其中圣品约 0.98%）、0.1% 出护府令×3。
+> 单块期望物品价值约 4,600 灵石（全部回收约 2,800）；要攒某一种材料，等材料阁/百宝阁刷新直接买更划算，切石的价值主要在 4.9% 的装备。
+
 ### 7.7 洞天与灵田
 
 | 指令 | 说明 |
@@ -1440,4 +1445,4 @@ keywords:
 - 玩家数据保存在 `data/plugin_data/astrbot_plugin_xiuxian_promax/xiuxian_data_lite.db`。
 - 插件使用 SQLite 数据库；启动时如检测到结构变更会自动迁移，升级前建议备份数据目录。
 - 升级/更新前建议备份整个 `astrbot_plugin_xiuxian_promax` 数据目录。
-- 插件版本以 `metadata.yaml` 与 README 为准；本文对应 v6.50.1，数据库 v57。
+- 插件版本以 `metadata.yaml` 与 README 为准；本文对应 v6.50.2，数据库 v57。

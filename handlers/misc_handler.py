@@ -19,7 +19,7 @@ __all__ = ["MiscHandler"]
 class MiscHandler:
     """杂项指令处理器 - 提供帮助信息、一键日常与强制解卡"""
 
-    VERSION = HELP_VERSION  # v6.50.1：秘境高阶（越阶）装备掉率下调，秘境装备掉率 6/9/12/12/12；DB v57
+    VERSION = HELP_VERSION  # v6.50.2：切原石掉落改为矿材为主（80%）并按品阶梯度掉落，原石 10000 → 5000；DB v57
 
     def __init__(self, db: DataBase, config: dict = None):
         self.db = db

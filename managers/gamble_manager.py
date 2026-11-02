@@ -9,88 +9,170 @@ from ..rank_rules import RANK_NAMES, normalize_rank
 
 class GambleManager:
     """赌石与黑市管理器"""
+
+    # ===== 切原石定价与掉落表 =====
+    # 单块原石价：旧版 10000 灵石 / 块，与材料侧价值严重脱节（期望回收仅 24%），
+    # 且 80% 的结果是 5 个凡品材料（约 400 灵石），体验极差。改为 5000 / 块。
+    STONE_PRICE = 5000
+    STONE_MAX_COUNT = 10
+    # 装备总概率与「圣品占比」保持不变：玄品 3.92% / 圣品 0.98%
+    STONE_GEAR_CHANCE = 0.049
+    STONE_SAINT_GEAR_SHARE = 0.20
+    STONE_EGG_CHANCE = 0.001
+    # 材料掉落：矿材占 80%，其余 20% 为妖兽/灵植/灵液
+    STONE_ORE_SHARE = 0.80
+    # (品阶, 每块份数, 权重)：品阶越高份数越少、权重越低，形成梯度
+    STONE_ORE_TABLE = (("凡品", 6, 42), ("黄品", 4, 32), ("玄品", 2, 23), ("圣品", 1, 3))
+    STONE_MATERIAL_TABLE = (("凡品", 4, 42), ("黄品", 2, 32), ("玄品", 1, 23), ("圣品", 1, 3))
+    STONE_RANKS = ("凡品", "黄品", "玄品", "圣品")
+    STONE_FLAVOR = {
+        "圣品装备": ("🌌 天地异象！你切出了传说中的", "！"),
+        "玄品装备": ("🎉 金光四射！你切出了", "！"),
+        "彩蛋": ("🌠 石中藏宝！你切出了", "！"),
+        "圣品": ("🌟 矿脉交辉！你切出了", "！"),
+        "玄品": ("✨ 切出了", "（灵矿）"),
+        "黄品": ("切出了", "（寻常矿料）"),
+        "凡品": ("切出了", "（碎石渣）"),
+    }
+
     def __init__(self, db: DataBase, config_manager, storage_ring_mgr):
         self.db = db
         self.config_manager = config_manager
         self.storage_ring_mgr = storage_ring_mgr
+        self._stone_pools = None
+
+    # ===== 掉落池：只收「能存进储物戒」的物品，避免切出后静默丢失 =====
+    def _can_store(self, item_name: str) -> bool:
+        if not self.storage_ring_mgr:
+            return True
+        try:
+            can_store, _ = self.storage_ring_mgr.can_store_item(item_name)
+            return bool(can_store)
+        except Exception:
+            return False
+
+    def _stone_pool_cache(self):
+        """按 (类别, 品阶) 分桶的材料池 + 按品阶分桶的法器池，首次使用时构建。"""
+        if self._stone_pools is not None:
+            return self._stone_pools
+        items = getattr(self.config_manager, "items_data", {}) or {}
+        catalog = getattr(self.config_manager, "material_catalog", {}) or {}
+        materials, gears = {}, {}
+        for name, info in catalog.items():
+            item = items.get(name)
+            if not isinstance(item, dict) or item.get("type") != "材料":
+                continue
+            if not self._can_store(name):
+                continue
+            info = info if isinstance(info, dict) else {}
+            category = info.get("category") or ""
+            rank = normalize_rank(info.get("tier") or item.get("rank"), "凡品")
+            materials.setdefault((category, rank), []).append(name)
+        for item in items.values():
+            if not isinstance(item, dict) or item.get("type") != "法器":
+                continue
+            name = item.get("name")
+            if not name or not self._can_store(name):
+                continue
+            rank = normalize_rank(item.get("rank"), "凡品")
+            gears.setdefault(rank, []).append(name)
+        self._stone_pools = (materials, gears)
+        return self._stone_pools
+
+    @classmethod
+    def _rank_fallback(cls, rank: str):
+        """该品阶无可用物品时，先往下退，再往上找。"""
+        ranks = list(cls.STONE_RANKS)
+        index = ranks.index(rank) if rank in ranks else 0
+        return [ranks[index]] + ranks[:index][::-1] + ranks[index + 1:]
+
+    def _roll_stone_material(self, table, categories, rng) -> dict:
+        materials, _ = self._stone_pool_cache()
+        ranks = [rank for rank, _, _ in table]
+        weights = [weight for _, _, weight in table]
+        rank = rng.choices(ranks, weights=weights, k=1)[0]
+        qty = next(q for r, q, _ in table if r == rank)
+        for candidate in self._rank_fallback(rank):
+            pool = []
+            for category in categories:
+                pool.extend(materials.get((category, candidate), []))
+            if pool:
+                return {"kind": "material", "rank": candidate, "name": rng.choice(pool), "qty": qty}
+        return {"kind": "dust", "rank": rank, "name": None, "qty": 0}
+
+    def _roll_stone_gear(self, rng) -> dict:
+        _, gears = self._stone_pool_cache()
+        rank = "圣品" if rng.random() < self.STONE_SAINT_GEAR_SHARE else "玄品"
+        for candidate in self._rank_fallback(rank):
+            pool = gears.get(candidate)
+            if pool:
+                return {"kind": "gear", "rank": candidate, "name": rng.choice(pool), "qty": 1}
+        return {"kind": "dust", "rank": rank, "name": None, "qty": 0}
+
+    def roll_stone_loot(self, rng=None) -> list:
+        """开一块原石的掉落；返回列表便于以后扩展成「一块出多件」。"""
+        rng = rng or random
+        roll = rng.random()
+        if roll < self.STONE_GEAR_CHANCE:
+            return [self._roll_stone_gear(rng)]
+        if roll < self.STONE_GEAR_CHANCE + self.STONE_EGG_CHANCE:
+            return [{"kind": "egg", "rank": "", "name": "护府令", "qty": 3}]
+        if rng.random() < self.STONE_ORE_SHARE:
+            return [self._roll_stone_material(self.STONE_ORE_TABLE, ("矿材",), rng)]
+        return [self._roll_stone_material(self.STONE_MATERIAL_TABLE, ("妖兽", "灵植", "灵液"), rng)]
+
+    def _loot_label(self, loot: dict) -> str:
+        name, qty = loot.get("name"), int(loot.get("qty") or 0)
+        kind, rank = loot.get("kind"), loot.get("rank", "")
+        if not name:
+            return f"{'碎石渣一堆' if kind == 'dust' else '一团碎屑'}，一无所获（可掉落物品池为空）"
+        if kind == "gear":
+            prefix, suffix = self.STONE_FLAVOR["圣品装备" if rank == "圣品" else "玄品装备"]
+        elif kind == "egg":
+            prefix, suffix = self.STONE_FLAVOR["彩蛋"]
+        else:
+            prefix, suffix = self.STONE_FLAVOR.get(rank, ("切出了", ""))
+        return f"{prefix}【{name}】" + (f"x{qty}" if qty > 1 else "") + suffix
+
+    async def _award_loot(self, player: Player, loot: dict) -> str:
+        label = self._loot_label(loot)
+        name = loot.get("name")
+        if not name:
+            return label
+        success, reason = await self.storage_ring_mgr.store_item(
+            player, name, int(loot.get("qty") or 1), silent=True, external_transaction=True
+        )
+        if success:
+            return label
+        return f"{label}\n   ⚠️ 未能存入储物戒：{reason}"
 
     async def cut_stone(self, player: Player, count: int) -> Tuple[bool, str]:
         """切原石"""
-        if count <= 0 or count > 10:
-            return False, "❌ 一次最多切 10 块原石。"
-            
-        total_cost = 10000 * count
+        if count <= 0 or count > self.STONE_MAX_COUNT:
+            return False, f"❌ 一次最多切 {self.STONE_MAX_COUNT} 块原石。"
+
+        total_cost = self.STONE_PRICE * count
         if player.gold < total_cost:
             return False, f"❌ 灵石不足！切 {count} 块原石需要 {total_cost:,} 灵石。"
 
         player.gold -= total_cost
-
-        # ===== 修复点：动态获取可用物品池，防止出现配置里没有的“幽灵物品” =====
-        # 只从可存入储物戒的物品中抽取（排除丹药/储物戒），避免切出后静默丢失
-        all_items = [
-            item for item in self.config_manager.items_data.values()
-            if isinstance(item, dict) and item.get("name")
-        ]
-
-        def get_random_by_rank(rank: str, types: tuple = ()):
-            pool = []
-            for item in all_items:
-                if item.get("rank") != rank:
-                    continue
-                if types and item.get("type") not in types:
-                    continue
-                can_store, _ = self.storage_ring_mgr.can_store_item(item["name"])
-                if can_store:
-                    pool.append(item["name"])
-            if not pool:
-                # 指定类型缺失时退回该品阶所有可存物品；仍为空则放弃本次掉落
-                return get_random_by_rank(rank) if types else None
-            return random.choice(pool)
-
-        async def award(name: str, qty: int, prefix: str, suffix: str = "") -> str:
-            if not name:
-                return f"{prefix}一团碎屑，一无所获（可掉落物品池为空）"
-            label = f"{prefix}【{name}】" + (f"x{qty}" if qty > 1 else "") + suffix
-            success, reason = await self.storage_ring_mgr.store_item(
-                player, name, qty, silent=True, external_transaction=True
-            )
-            if success:
-                return label
-            return f"{label}\n   ⚠️ 未能存入储物戒：{reason}"
 
         results = []
         # 扣费与所有掉落放入同一事务，避免中途异常时灵石被扣而物品丢失
         await self.db.conn.execute("BEGIN IMMEDIATE")
         try:
             for _ in range(count):
-                roll = random.random()
-                if roll < 0.80:
-                    # 80% 废料（凡品材料；材料体积为1，确保能放入基础储物戒）
-                    item_name = get_random_by_rank("凡品", ("材料",))
-                    results.append(await award(item_name, 5, "切出了", "（废料）"))
-                elif roll < 0.95:
-                    # 15% 稀有材料（黄品）
-                    item_name = get_random_by_rank("黄品", ("材料",))
-                    results.append(await award(item_name, 1, "✨ 切出了", "！"))
-                elif roll < 0.999:
-                    # 4.9% 玄品/圣品法宝
-                    rank_pool = "圣品" if random.random() < 0.2 else "玄品"
-                    item_name = get_random_by_rank(rank_pool, ("法器",))
-                    results.append(await award(item_name, 1, "🎉 金光四射！切出了", "！"))
-                else:
-                    # 0.1% 极其稀有的彩蛋
-                    results.append(
-                        await award("护府令", 3, "🌌 天地异象！你切出了传说中的", "！")
-                    )
+                for loot in self.roll_stone_loot():
+                    results.append(await self._award_loot(player, loot))
 
             await self.db.update_player(player, commit=False)
             await self.db.conn.commit()
         except Exception:
             await self.db.conn.rollback()
             raise
-        
+
         msg = [
-            f"⛏️ 你花费了 {total_cost:,} 灵石，切开了 {count} 块原石：",
+            f"⛏️ 你花费了 {total_cost:,} 灵石，切开了 {count} 块原石（{self.STONE_PRICE:,}/块）：",
             "━━━━━━━━━━━━━━━",
             "\n".join(results),
             "━━━━━━━━━━━━━━━",
