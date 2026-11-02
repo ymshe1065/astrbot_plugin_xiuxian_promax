@@ -259,7 +259,7 @@ class PetHandlers:
         if not args:
             yield event.plain_result(
                 "用法：/灵兽吞噬 <灵兽序号或名字> [灵兽内丹]\n"
-                "💡 每颗【灵兽内丹】可让指定灵兽直接提升 1 级（最高 Lv.50）。"
+                f"💡 每颗【灵兽内丹】提供当前等级升级需求 {int(self.pet_mgr.PET_CORE_EXP_RATIO * 100)}% 的经验（最高 Lv.50）。"
             )
             return
         parts = args.split(None, 1)

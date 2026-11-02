@@ -101,23 +101,28 @@ class TestPetDevourItem(unittest.IsolatedAsyncioTestCase):
         self.player.set_storage_ring_items({"灵兽内丹": count})
         await self.db.update_player(self.player)
 
-    async def test_devour_core_raises_level_and_consumes_item(self):
+    async def test_devour_core_grants_exp_and_levels_up(self):
         ok, _ = await self.pet_mgr.adopt_pet(self.player, "火灵狐")
         self.assertTrue(ok)
-        await self._give_core(2)
+        await self._give_core(10)
 
         ok, msg = await self.pet_mgr.devour_item(self.player, "1")
         self.assertTrue(ok, msg)
-        self.assertIn("Lv.1 → Lv.2", msg)
+        # Lv.1 升级需求 500，每颗内丹提供 10% = 50 经验
+        self.assertIn("经验 +50", msg)
+        self.assertNotIn("等级提升", msg)
 
+        pet = await self.pet_mgr.get_pet("u1")
+        self.assertEqual(pet["level"], 1)
+        self.assertEqual(pet["exp"], 50)
+        self.assertEqual(self.storage_mgr.get_item_count(self.player, "灵兽内丹"), 9)
+
+        for _ in range(9):
+            ok, _ = await self.pet_mgr.devour_item(self.player, "1", "灵兽内丹")
+            self.assertTrue(ok)
         pet = await self.pet_mgr.get_pet("u1")
         self.assertEqual(pet["level"], 2)
-        self.assertEqual(self.storage_mgr.get_item_count(self.player, "灵兽内丹"), 1)
-
-        ok, _ = await self.pet_mgr.devour_item(self.player, "1", "灵兽内丹")
-        self.assertTrue(ok)
-        pet = await self.pet_mgr.get_pet("u1")
-        self.assertEqual(pet["level"], 3)
+        self.assertEqual(pet["exp"], 0)
         self.assertEqual(self.storage_mgr.get_item_count(self.player, "灵兽内丹"), 0)
 
         ok, msg = await self.pet_mgr.devour_item(self.player, "1")
@@ -127,18 +132,21 @@ class TestPetDevourItem(unittest.IsolatedAsyncioTestCase):
     async def test_devour_core_triggers_evolution(self):
         ok, _ = await self.pet_mgr.adopt_pet(self.player, "火灵狐")
         self.assertTrue(ok)
+        # Lv.19 需求 9500，内丹给 950 经验；8600 + 950 刚好升级
         await self.conn.execute(
-            "UPDATE player_pets SET level = 19, exp = 0 WHERE user_id = ?", ("u1",)
+            "UPDATE player_pets SET level = 19, exp = 8600 WHERE user_id = ?", ("u1",)
         )
         await self.conn.commit()
         await self._give_core(1)
 
         ok, msg = await self.pet_mgr.devour_item(self.player, "1")
         self.assertTrue(ok, msg)
+        self.assertIn("经验 +950", msg)
         self.assertIn("进化为【炎灵狐】", msg)
 
         pet = await self.pet_mgr.get_pet("u1")
         self.assertEqual(pet["level"], 20)
+        self.assertEqual(pet["exp"], 50)
         self.assertEqual(pet["pet_type"], "炎灵狐")
 
     async def test_rejects_other_item_and_dead_pet(self):

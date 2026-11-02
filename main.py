@@ -2755,7 +2755,7 @@ class XiuXianPlugin(Star):
     async def handle_devour_pet(self, event: AstrMessageEvent, args: GreedyStr):
         async for r in self.pet_handlers.handle_devour(event, args): yield r
 
-    @filter.command("灵兽吞噬", "让指定灵兽吞噬灵兽内丹，直接提升等级")
+    @filter.command("灵兽吞噬", "让指定灵兽吞噬灵兽内丹，按比例获得经验")
     @require_whitelist
     async def handle_devour_pet_item(self, event: AstrMessageEvent, args: GreedyStr):
         uid = event.get_sender_id()

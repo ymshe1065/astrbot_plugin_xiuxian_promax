@@ -19,7 +19,7 @@ __all__ = ["MiscHandler"]
 class MiscHandler:
     """杂项指令处理器 - 提供帮助信息、一键日常与强制解卡"""
 
-    VERSION = HELP_VERSION  # v6.49.4：灵兽数值平衡；吸血全局上限调整为 50%；DB v57
+    VERSION = HELP_VERSION  # v6.49.5：灵兽内丹改为按等级需求 10% 提供经验；DB v57
 
     def __init__(self, db: DataBase, config: dict = None):
         self.db = db

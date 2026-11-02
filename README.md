@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v6.49.4 (灵兽平衡 · 吸血上限 50%)
+# AstrBot 插件：模拟修仙 v6.49.5 (灵兽内丹经验削弱)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v6.49.4-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v6.49.5-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.33.4 · **游戏版本:** v6.49.4 · **数据库:** v57
+> **插件版本:** v3.33.5 · **游戏版本:** v6.49.5 · **数据库:** v57
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，233 条帮助指令 / 233 条注册指令、16 个大系统、110 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,20 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · v6.49.4（灵兽数值平衡 · 吸血上限 50%）</b></summary>
+<summary><b>本次更新 · v6.49.5（灵兽内丹经验削弱）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 内丹调整 | `/灵兽吞噬` 不再直接提升 1 级，改为每颗内丹提供当前等级升级需求的 **10% 经验**（如 Lv.19 约 950 经验），约 10 颗升 1 级。 |
+| 升级结算 | 经验可正常溢出升级，继续支持 Lv.20 / Lv.40 自动进化；满级后不再累计经验。 |
+| 提示同步 | 吞噬结果展示本次获得经验与当前等级经验进度，`/灵兽吞噬` 帮助文案同步新口径。 |
+| 平衡影响 | 降低内丹对高等级灵兽的速成能力，御兽多宠培养不再依赖内丹一键拉满。 |
+| 版本同步 | 插件版本 v3.33.5，游戏版本 v6.49.5，数据库 v57；`/修仙帮助` 同步至 v6.49.5。 |
+
+</details>
+
+<details>
+<summary><b>v6.49.4（灵兽数值平衡 · 吸血上限 50%）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |
@@ -1039,7 +1052,7 @@
 | 系统 | 内容 |
 |------|------|
 | ⚔️ **七大门派** | 灵修/体修/魔修/剑修/鬼修/佛修/御兽，各带专属倍率 |
-| 🐾 **灵兽协战** | 御兽多槽位、其他职业固定 1 槽；Lv20/Lv40 自动进化（火灵狐→炎灵狐→九尾天狐等），本体与加成飞跃；主战切换/自定义命名，每回合协战并替主人承伤；御兽开局免费自选、喂养折扣、修为共享与兽群指挥；喂养仅耗灵石，生活加成按每只灵兽叠加；历练/秘境空槽可触发免费灵兽奇遇；`/灵兽吞噬` 消耗灵兽内丹可直接提升灵兽等级 |
+| 🐾 **灵兽协战** | 御兽多槽位、其他职业固定 1 槽；Lv20/Lv40 自动进化（火灵狐→炎灵狐→九尾天狐等），本体与加成飞跃；主战切换/自定义命名，每回合协战并替主人承伤；御兽开局免费自选、喂养折扣、修为共享与兽群指挥；喂养仅耗灵石，生活加成按每只灵兽叠加；历练/秘境空槽可触发免费灵兽奇遇；`/灵兽吞噬` 消耗灵兽内丹可按比例提供灵兽经验 |
 | 🗺️ **60条历练路线** | 炼气一层→渡劫期每层都有专属路线，风险收益各异 |
 | 🎲 **110+ 奇遇** | Roguelike 三选一事件，善行/恶行影响因果 |
 | 🏅 **110 称号图鉴** | 凡/灵/地/天/圣/帝六品阶，最高品阶自动生效；同品阶优先当前佩戴，否则取最近获得 |
