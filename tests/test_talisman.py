@@ -127,7 +127,7 @@ class TestTalismanSystem(unittest.IsolatedAsyncioTestCase):
         player = self._player()
         player.storage_ring_items = json.dumps({"寻宝符": 2}, ensure_ascii=False)
         await self.db.create_player(player)
-        with patch.object(self.talisman, "_roll_quality", return_value=("一般", 1.0, 0)):
+        with patch.object(self.talisman, "_roll_quality", return_value=("一般", 1.0, 0.0, 0)):
             ok, msg = await self.talisman.use_talisman(player, "寻宝符", 2)
         self.assertTrue(ok, msg)
 

@@ -19,7 +19,7 @@ __all__ = ["MiscHandler"]
 class MiscHandler:
     """杂项指令处理器 - 提供帮助信息、一键日常与强制解卡"""
 
-    VERSION = HELP_VERSION  # v6.50.3：丹药背包/临时丹药效果脏数据全面加固（源头过滤非 dict、数值字段容错归一），指令无变化
+    VERSION = HELP_VERSION  # v6.50.4：符箓时长改按「用途 × 品阶」分档、同名续时，新增 /我的状态；DB v57
 
     def __init__(self, db: DataBase, config: dict = None):
         self.db = db

@@ -69,6 +69,7 @@ CMD_BREAKTHROUGH_INFO = "突破信息"
 CMD_USE_PILL = "服用丹药"
 CMD_SHOW_PILLS = "丹药背包"
 CMD_PILL_INFO = "丹药信息"
+CMD_MY_STATUS = "我的状态"
 CMD_PILL_PAVILION = "丹阁"
 CMD_TALISMAN_PAVILION = "符阁"
 CMD_WEAPON_PAVILION = "器阁"
@@ -1350,6 +1351,11 @@ class XiuXianPlugin(Star):
     @require_whitelist
     async def handle_show_pills(self, event: AstrMessageEvent):
         async for r in self.pill_handler.handle_show_pills(event): yield r
+
+    @filter.command(CMD_MY_STATUS, "查看当前所有持续状态与剩余时间")
+    @require_whitelist
+    async def handle_my_status(self, event: AstrMessageEvent):
+        async for r in self.pill_handler.handle_my_status(event): yield r
 
     @filter.command(CMD_PILL_INFO, "查看丹药信息")
     @require_whitelist

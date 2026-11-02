@@ -151,7 +151,8 @@ class TestTalismanRules(unittest.TestCase):
             effects={"physical_defense_multiplier": 0.33},
         )
         self.assertEqual(profile["effects"]["physical_defense_multiplier"], 0.33)
-        self.assertEqual(profile["duration"], 15)
+        # 时长按「品类 × 品阶」取：防御·黄品 = 30 分钟
+        self.assertEqual(profile["duration"], 30)
         self.assertFalse(profile["run_scoped"])
 
     def test_exploration_profile_is_run_scoped(self):
@@ -251,7 +252,7 @@ class TestTalismanManager(unittest.IsolatedAsyncioTestCase):
         items["山河符"] = 1
         items["金刚符"] = 1
         player.set_storage_ring_items(items)
-        with mock.patch.object(mgr, "_roll_quality", return_value=("一般", 1.0, 0)):
+        with mock.patch.object(mgr, "_roll_quality", return_value=("一般", 1.0, 0.0, 0)):
             await mgr.use_talisman(player, "山河符", 1)
             await mgr.use_talisman(player, "金刚符", 1)
         effects = self.Manager.collect_active_combat_effects(player)

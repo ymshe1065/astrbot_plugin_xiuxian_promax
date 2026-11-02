@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v6.50.3 (丹药背包脏数据加固)
+# AstrBot 插件：模拟修仙 v6.50.4 (符箓时长与我的状态)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v6.50.3-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v6.50.4-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.33.10 · **游戏版本:** v6.50.3 · **数据库:** v57
+> **插件版本:** v3.33.10 · **游戏版本:** v6.50.4 · **数据库:** v57
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，233 条帮助指令 / 233 条注册指令、16 个大系统、110 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,24 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · v6.50.3（丹药背包脏数据加固）</b></summary>
+<summary><b>本次更新 · v6.50.4（符箓时长与我的状态）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 时长按用途分档 | 原 15/15/20/30 分钟（凡品与黄品完全相同）改为按「用途 × 品阶」二维表：增益 60/120/180/**360**、炼丹 60/90/120/180、防御 20/30/60/90、遁术 20/30/45/60、攻击与控制 15/20/30/45。 |
+| 品阶映射依据 | 解锁等级对齐丹药：符箓凡/黄/玄/圣（0/3/9/18）↔ 丹药凡/灵/地/皇（0/3/10/16）。鸿蒙符升至 **120 分钟**（对灵气加速丹）。 |
+| 只有 5 类吃时长 | 回复符使用即回血、炼丹符按层数挡丹劫、探索符按次数生效，这三类改时长无意义，只剩展示值。 |
+| 同名续时 | 原逻辑删掉旧效果重建（149 分钟被 14 分钟覆盖）；现改为顺延 `expiry_time`，品质与效果值取高，**不加时长封顶**。 |
+| 品质按比例加时 | 固定 +5/+10 分钟 → 上品 +8%、极品 **+15%**，短符 5 分钟保底（15 分钟符极品 = 20 分钟）。 |
+| 新增 `/我的状态` | 列出当前全部生效状态：状态名（名·品质）、剩余时间或剩余次数、效果明细；按到期先后排序，末尾汇总修炼速度（含 ×3 上限）、攻防倍率、突破加成。 |
+| 效果文案统一 | 新增 `core/active_effects.py`，效果字段 → 中文映射一份共用，避免同一效果在三个界面三种说法。 |
+| 经济影响 | 化神中期折算修为/灵石：疾风 5.9、鸿蒙 4.1、天机 2.9、大道 0.4，落在丹药中位区间，**价格未调整**。 |
+| 测试 | 新增 `tests/test_talisman_duration.py`（14 例）与 `tests/test_my_status_command.py`（10 例），全量 **743 例**通过。 |
+
+</details>
+
+<details>
+<summary><b>v6.50.3（丹药背包脏数据加固）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |

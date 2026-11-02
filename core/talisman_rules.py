@@ -35,8 +35,34 @@ CATEGORY_KEYWORDS = [
 
 NON_TALISMAN_ITEMS = {"化身傀儡"}
 
-# 符箓持续分钟数，按品阶递增
+# 符箓持续分钟数：先按用途分族，再按品阶分档。
+# 参考丹药的时长口径——修炼增益 60~720、战斗爆发 15~60、回复 60~180，
+# 而不是所有品类一律 15 分钟。品阶档位与丹药解锁等级一一对应：
+# 凡品(0)↔凡品丹、黄品(3)↔灵品丹、玄品(9)↔地品丹、圣品(18)↔天品/皇品丹。
+# 回复类（使用即刻回血）、炼丹类（护盾按层扣）、探索类（按次数）不吃时长，
+# 这里的数值只用于展示与旧字段兼容，不参与实际结算。
+DURATION_BY_CATEGORY: Dict[str, Dict[str, int]] = {
+    "增益": {"凡品": 60, "黄品": 120, "玄品": 180, "圣品": 360},
+    "炼丹": {"凡品": 60, "黄品": 90, "玄品": 120, "圣品": 180},
+    "防御": {"凡品": 20, "黄品": 30, "玄品": 60, "圣品": 90},
+    "遁术": {"凡品": 20, "黄品": 30, "玄品": 45, "圣品": 60},
+    "攻击": {"凡品": 15, "黄品": 20, "玄品": 30, "圣品": 45},
+    "控制": {"凡品": 15, "黄品": 20, "玄品": 30, "圣品": 45},
+    "回复": {"凡品": 15, "黄品": 20, "玄品": 30, "圣品": 45},
+    "探索": {"凡品": 15, "黄品": 15, "玄品": 20, "圣品": 30},
+}
+
+# 品类未知时的兜底阶梯（legacy 符 / 自动生成配方）
 DURATION_BY_RANK = {"凡品": 15, "黄品": 15, "玄品": 20, "圣品": 30}
+
+
+def duration_of(category: str, rank: str, fallback: int = 0) -> int:
+    """品类 × 品阶 → 持续分钟数；品类未知时退回按品阶的兜底表。"""
+    rank = normalize_rank(rank, "凡品")
+    table = DURATION_BY_CATEGORY.get(category or "")
+    if table and rank in table:
+        return int(table[rank])
+    return int(fallback or DURATION_BY_RANK.get(rank, 15))
 
 # 探索/秘境收益类效果按「次数」生效，避免 15~30 分钟的时限覆盖不了
 # 30~40 分钟的历练/秘境流程。配方可用 uses 字段覆盖默认折算。
@@ -270,7 +296,7 @@ def build_profile(
     rank = normalize_rank(rank, "凡品")
     power = float(TIER_POWER.get(rank, 0.25))
     category = category or infer_category(name)
-    dur = int(duration or DURATION_BY_RANK.get(rank, 15))
+    dur = int(duration or duration_of(category, rank))
 
     if isinstance(effects, dict) and effects:
         parsed: Dict[str, float] = {}
@@ -339,6 +365,7 @@ def build_profile(
 __all__ = [
     "TIER_POWER", "TIER_LEVEL", "TIER_GOLD", "TIER_PRICE",
     "CATEGORY_KEYWORDS", "NON_TALISMAN_ITEMS", "DURATION_BY_RANK",
+    "DURATION_BY_CATEGORY", "duration_of",
     "RUN_SCOPED_EFFECT_KEYS", "RUN_SCOPE_KEYS",
     "TRIBULATION_DEMAND", "TRIBULATION_RATE", "SHIELD_BY_RANK", "CONTROL_BY_RANK",
     "FALLBACK_RANK_BY_LEVEL",
