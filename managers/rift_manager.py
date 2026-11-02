@@ -8,6 +8,7 @@ import time
 from typing import Tuple, List, Optional, Dict, TYPE_CHECKING
 from astrbot.api import logger
 from ..data.data_manager import DataBase
+from ..data.default_configs import RIFT_CONFIG
 from ..models_extended import Rift, UserStatus
 from ..models import Player
 from .task_penalty import calc_abandon_penalty, charge_abandon_penalty
@@ -21,6 +22,8 @@ class RiftManager:
     
     # 默认秘境探索时长（秒）
     DEFAULT_DURATION = 1800
+    # 缺省配置（补齐旧配置文件缺失的新键）
+    DEFAULT_CONFIG = RIFT_CONFIG
     
     # 秘境物品掉落表（按秘境等级分组）
     RIFT_DROP_TABLE = {
@@ -102,7 +105,12 @@ class RiftManager:
         self.db = db
         self.config_manager = config_manager
         self.storage_ring_manager = storage_ring_manager
-        self.config = config_manager.rift_config if config_manager else {}
+        # 旧存档的 rift_config.json 可能缺少新增键（如 equipment_up_rank_weight），
+        # 这里用缺省配置补齐顶层键，避免读不到时掉率被当成 0 而完全不掉装备。
+        merged = dict(self.DEFAULT_CONFIG)
+        if config_manager and isinstance(config_manager.rift_config, dict):
+            merged.update(config_manager.rift_config)
+        self.config = merged
         self.explore_duration = self.config.get("default_duration", self.DEFAULT_DURATION)
     
     def _get_level_name(self, level_index: int) -> str:
@@ -550,6 +558,7 @@ class RiftManager:
                     self.config_manager,
                     player.level_index,
                     self.config.get("equipment_slot_weights"),
+                    up_rank_weight=self._equipment_up_rank_weight(rift_level),
                 )
                 if drop:
                     dropped_items.append((drop["name"], 1, drop["quality"]))
@@ -558,6 +567,22 @@ class RiftManager:
                 logger.warning(f"秘境装备掉落判定失败：{e}")
 
         return dropped_items
+
+    def _equipment_up_rank_weight(self, rift_level: int) -> float:
+        """越阶（基准 +1）装备权重：按秘境等级读取，缺省 1.0（原行为）。
+
+        支持两种写法：
+        - 映射：``{"1": 1.0, "2": 0.7, "3": 0.5, "4": 0.35, "5": 0.25}``
+        - 标量：``0.25``（所有秘境统一）
+        """
+        from ..core.equipment_drop import DEFAULT_UP_RANK_WEIGHT
+        raw = self.config.get("equipment_up_rank_weight", DEFAULT_UP_RANK_WEIGHT)
+        if isinstance(raw, dict):
+            raw = raw.get(str(rift_level), raw.get(rift_level, DEFAULT_UP_RANK_WEIGHT))
+        try:
+            return max(0.0, float(raw))
+        except (TypeError, ValueError):
+            return DEFAULT_UP_RANK_WEIGHT
     
     def _roll_pill_drops(self, rift_level: int) -> List[Tuple[str, int]]:
         """

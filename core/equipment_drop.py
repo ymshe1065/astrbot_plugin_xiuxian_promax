@@ -5,6 +5,9 @@
 - 装备每次只掉 1 件；
 - 部位按权重随机；
 - 品阶以玩家境界为基准 ±1 阶，中间偏置；
+- 越阶（基准 +1，即「高阶装备」）概率可由调用方用 ``up_rank_weight`` 压低，
+  权重 1.0 = 原行为（−1 : 0 : +1 = 1 : 3 : 1，越阶 20%），0 = 不掉越阶；
+- 越阶权重只削「越阶」这一档，低阶与基准阶的相对比例不变；
 - 区间内无可用装备时向最近品阶扩展；
 - 掉落实例时 roll 品质，保持与商店/拍卖一致。
 """
@@ -19,9 +22,13 @@ from .item_rules import ItemRules
 
 __all__ = [
     "DEFAULT_SLOT_WEIGHTS",
+    "DEFAULT_UP_RANK_WEIGHT",
     "build_equipment_pool",
     "roll_equipment_drop",
 ]
+
+# 越阶（基准 +1）默认权重：与低一阶、基准阶的比例为 1 : 3 : 1，即越阶 20%
+DEFAULT_UP_RANK_WEIGHT = 1.0
 
 DEFAULT_SLOT_WEIGHTS: Dict[str, int] = {
     "weapon": 16,
@@ -85,11 +92,23 @@ def _weighted_choice(entries: List[dict], weight_of, rng: random.Random) -> Opti
     return rng.choices(entries, weights=weights, k=1)[0]
 
 
-def _pick_rank_index(base: int, rng: random.Random) -> List[int]:
-    """基准 ±1 阶，中间权重高；返回按权重抽取顺序的候选索引。"""
+def _pick_rank_index(
+    base: int,
+    rng: random.Random,
+    up_rank_weight: float = DEFAULT_UP_RANK_WEIGHT,
+) -> List[int]:
+    """基准 ±1 阶，中间权重高；返回按权重抽取顺序的候选索引。
+
+    ``up_rank_weight`` 只作用于「基准 +1」这一档，用来削秘境高阶装备掉率：
+    0 表示完全不掉越阶，1.0 表示原 1:3:1 分布（越阶 20%）。
+    """
+    try:
+        up_weight = max(0.0, float(up_rank_weight))
+    except (TypeError, ValueError):
+        up_weight = DEFAULT_UP_RANK_WEIGHT
     indices = [base - 1, base, base + 1]
-    weights = [1.0, 3.0, 1.0]
-    valid = [(i, w) for i, w in zip(indices, weights) if 0 <= i < len(RANK_NAMES)]
+    weights = [1.0, 3.0, up_weight]
+    valid = [(i, w) for i, w in zip(indices, weights) if 0 <= i < len(RANK_NAMES) and w > 0]
     if not valid:
         return []
     total = sum(w for _, w in valid)
@@ -115,8 +134,12 @@ def roll_equipment_drop(
     player_level_index: int,
     slot_weights: Optional[Dict[str, int]] = None,
     rng: Optional[random.Random] = None,
+    up_rank_weight: float = DEFAULT_UP_RANK_WEIGHT,
 ) -> Optional[dict]:
-    """返回 {"name", "quality", "slot", "rank"} 或 None。"""
+    """返回 {"name", "quality", "slot", "rank"} 或 None。
+
+    ``up_rank_weight``：越阶（基准 +1）档的权重，1.0 为原行为，越小越少掉高阶装备。
+    """
     rng = rng or random
     pool = build_equipment_pool(config_manager)
     weights = dict(DEFAULT_SLOT_WEIGHTS)
@@ -139,7 +162,7 @@ def roll_equipment_drop(
         base_index = 0
 
     slot_entries = pool.get(chosen_slot, [])
-    rank_candidates = _pick_rank_index(base_index, rng)
+    rank_candidates = _pick_rank_index(base_index, rng, up_rank_weight)
     by_rank: Dict[int, List[dict]] = {}
     for entry in slot_entries:
         index = _rank_index(entry["config"].get("rank", ""))

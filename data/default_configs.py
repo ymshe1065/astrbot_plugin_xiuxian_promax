@@ -50,7 +50,8 @@ BOSS_CONFIG = {
 
 RIFT_CONFIG = {
     "default_duration": 1800, # 30分钟
-    "equipment_drop_chances": {"1": 6, "2": 10, "3": 15, "4": 18, "5": 22},
+    "equipment_drop_chances": {"1": 6, "2": 9, "3": 12, "4": 12, "5": 12},
+    "equipment_up_rank_weight": {"1": 1.0, "2": 0.7, "3": 0.5, "4": 0.35, "5": 0.25},
     "equipment_slot_weights": {
         "weapon": 16, "armor": 16, "head": 12, "boots": 12,
         "amulet": 12, "gloves": 16, "ring": 16,

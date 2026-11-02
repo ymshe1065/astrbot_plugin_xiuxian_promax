@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v6.50.0 (符阁三问修复 · 季节轮转 · 丹劫预警)
+# AstrBot 插件：模拟修仙 v6.50.1 (秘境高阶装备掉率下调)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v6.50.0-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v6.50.1-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.33.9 · **游戏版本:** v6.50.0 · **数据库:** v57
+> **插件版本:** v3.33.9 · **游戏版本:** v6.50.1 · **数据库:** v57
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，233 条帮助指令 / 233 条注册指令、16 个大系统、110 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,20 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · v6.50.0（符阁三问修复 · 季节轮转 · 丹劫预警）</b></summary>
+<summary><b>本次更新 · v6.50.1（秘境高阶装备掉率下调）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 秘境装备掉率 | 1~5 级由 6%/10%/15%/18%/22% 下调为 6%/9%/12%/12%/12%，越高阶秘境降幅越大。 |
+| 越阶装备 | 新增 `equipment_up_rank_weight`：越阶（比自身境界高一档）占比由固定 20% 改为按秘境深度递减 20%/16.7%/13%/7.1%/5.9%；只压越阶这一档，低阶与基准阶 1:3 比例不变。 |
+| 收益变化 | 秘境5 装备全部回收期望 79,663 → **39,878 灵石/小时**（-50%）；单越阶装备 15,906 → 2,309（-85%）。历练掉落不受影响。 |
+| 可调项 | `config/rift_config.json` 的 `equipment_drop_chances` / `equipment_up_rank_weight`，填 0 即完全不掉越阶；旧配置缺新键时按缺省补齐。 |
+| 测试 | 新增 `tests/test_rift_equipment_drop_nerf.py`（14 例），全量 686 例通过。 |
+
+</details>
+
+<details>
+<summary><b>v6.50.0（符阁三问修复 · 季节轮转 · 丹劫预警）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |
