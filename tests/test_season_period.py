@@ -172,28 +172,58 @@ class TestSeasonMatureTime(unittest.TestCase):
             self.assertEqual(self.sf.get_current_season_index(), 1)
 
     def test_sync_recomputes_stale_mature_time(self):
-        # 旧逻辑按种植瞬间倍率算成 1/4 00:00，同步后应变成 1/3 16:00（提前）
+        # 旧逻辑按 48 小时算成 1/4 00:00；按当前配置（幽冥草 12 小时）同步后应为 1/2 09:00
         crop = {"name": "幽冥草", "slot": 1, "plant_time": _ts(1, 2),
                 "grow_base": 172800, "mature_time": _ts(1, 4)}
         self.assertTrue(self.sf.sync_crop_season_progress([crop]))
-        self.assertEqual(crop["mature_time"], _ts(1, 3, 16))
+        self.assertEqual(crop["grow_base"], 43200)
+        self.assertEqual(crop["mature_time"], _ts(1, 2, 9))
 
-    def test_sync_backfills_legacy_crop_without_changing_time(self):
+    def test_sync_backfills_legacy_crop_using_current_config(self):
+        # 旧数据只有 mature_time，回填基础时长时以配置为准：8 小时 × 春季 0.75 = 6 小时
         legacy = {"name": "九叶灵芝", "slot": 1, "plant_time": _ts(1, 1),
                   "mature_time": _ts(1, 2)}
         self.assertTrue(self.sf.sync_crop_season_progress([legacy]))
-        self.assertIn("grow_base", legacy)
-        self.assertEqual(legacy["mature_time"], _ts(1, 2))
+        self.assertEqual(legacy["grow_base"], 28800)
+        self.assertEqual(legacy["mature_time"], _ts(1, 1, 6))
         # 第二轮同步保持稳定，不再反复改
         self.assertFalse(self.sf.sync_crop_season_progress([legacy]))
-        self.assertEqual(legacy["mature_time"], _ts(1, 2))
+        self.assertEqual(legacy["mature_time"], _ts(1, 1, 6))
+
+    def test_polluted_grow_base_is_rebased_to_config(self):
+        """历史迁移把基础时长放大过（74.7h），读取时应自愈回配置值。"""
+        crop = {"name": "幽冥草", "slot": 1, "plant_time": _ts(1, 2),
+                "grow_base": 268920, "mature_time": _ts(1, 4)}
+        self.assertTrue(self.sf.sync_crop_season_progress([crop]))
+        self.assertEqual(crop["grow_base"], 43200)
+        self.assertEqual(crop["mature_time"], _ts(1, 2, 9))
+
+    def test_legacy_long_crop_is_shortened_not_stretched(self):
+        """回归：v6.50.0 前种下的幽冥草（旧 48h）不应拖成「还需 66 小时」。"""
+        now = _ts(1, 2, 18)
+        crop = {"name": "幽冥草", "slot": 1, "plant_time": _ts(1, 2),
+                "mature_time": _ts(1, 4)}  # 旧版 48 小时的残留
+        with patch.object(self.sf.time, "time", return_value=now):
+            self.sf.sync_crop_season_progress([crop])
+        self.assertLessEqual(crop["mature_time"], now)
+
+    def test_mature_crop_stays_mature_when_config_lengthens(self):
+        """配置把时长调长，已成熟的作物也不许变回未成熟。"""
+        now = _ts(1, 3)
+        crop = {"name": "幽冥草", "slot": 1, "plant_time": _ts(1, 1),
+                "grow_base": 43200, "mature_time": _ts(1, 1, 9)}
+        with patch.object(self.sf.time, "time", return_value=now):
+            with patch.dict(self.sf.SPIRIT_HERBS["幽冥草"], {"grow_time": 172800}):
+                self.sf.sync_crop_season_progress([crop])
+        self.assertLessEqual(crop["mature_time"], _ts(1, 1, 9))
 
     def test_sync_handles_hybrid_jobs(self):
         hybrid = {"name": self.sf.HYBRID_MARKER, "job_id": "j1", "slot": 1,
                   "product": "幽冥草", "plant_time": _ts(1, 2),
                   "grow_base": 172800, "mature_time": _ts(1, 4)}
         self.assertTrue(self.sf.sync_crop_season_progress([hybrid]))
-        self.assertEqual(hybrid["mature_time"], _ts(1, 3, 16))
+        self.assertEqual(hybrid["grow_base"], 43200)
+        self.assertEqual(hybrid["mature_time"], _ts(1, 2, 9))
 
     def test_mature_crop_never_regresses(self):
         # 已经成熟的作物，换季不会把它变回未成熟

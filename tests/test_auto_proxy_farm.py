@@ -141,10 +141,15 @@ class TestAutoProxyFarm(unittest.IsolatedAsyncioTestCase):
 
     async def test_enable_farm_harvests_and_replants_selected_slots(self):
         now = int(time.time())
+        # 第 3 格数据按配置自洽（冰心草基础 3 小时），避免同步时被重算成别的时长
+        farm_mod = _imp("managers.spirit_farm_manager")
+        base3 = int(farm_mod.SPIRIT_HERBS["冰心草"]["grow_time"])
+        mature3 = farm_mod.compute_crop_mature_time("冰心草", now, base3)
         await self._set_crops([
             {"name": "灵草", "slot": 1, "plant_time": now - 7200, "mature_time": now - 1},
             {"name": "血灵草", "slot": 2, "plant_time": now - 7200, "mature_time": now - 1},
-            {"name": "冰心草", "slot": 3, "plant_time": now, "mature_time": now + 3600},
+            {"name": "冰心草", "slot": 3, "plant_time": now,
+             "grow_base": base3, "mature_time": mature3},
         ])
 
         ok, msg = await self.manager.enable("u1", "umo://g", "灵田 1 2")
@@ -160,7 +165,7 @@ class TestAutoProxyFarm(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(crops[2]["name"], "血灵草")
         self.assertGreater(crops[2]["mature_time"], now)
         self.assertEqual(crops[3]["name"], "冰心草")
-        self.assertLess(crops[3]["mature_time"], now + 7200)
+        self.assertEqual(crops[3]["mature_time"], mature3)
 
     async def test_process_due_replants_after_maturity(self):
         now = int(time.time())
