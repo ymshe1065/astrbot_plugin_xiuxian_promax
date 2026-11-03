@@ -9,6 +9,7 @@ from astrbot.api import logger
 
 from ..core.storage_ring_manager import StorageRingManager
 from ..core.warehouse_manager import WarehouseManager
+from ..core.item_display import equipment_label, item_label
 from ..data import DataBase
 from ..config_manager import ConfigManager
 from ..models import Player
@@ -84,7 +85,7 @@ class WarehouseHandler:
                     continue
                 lines.append(f"【{cat}】\n")
                 for name, count in rows[:12]:
-                    lines.append(f"  · {name}×{count}\n")
+                    lines.append(f"  · {item_label(name, self.config_manager)}×{count}\n")
                 if len(rows) > 12:
                     lines.append(f"  · …共 {len(rows)} 种\n")
         else:
@@ -93,7 +94,7 @@ class WarehouseHandler:
         if equipment:
             lines.append(f"\n【装备实例】{len(equipment)} 件\n")
             for inst in equipment[:8]:
-                lines.append(f"  · {inst.get('name')}·{inst.get('quality') or '一般'}\n")
+                lines.append(f"  · {equipment_label(inst, self.config_manager)}\n")
             if len(equipment) > 8:
                 lines.append("  · …\n")
 
@@ -208,11 +209,14 @@ class WarehouseHandler:
             if shown >= 12:
                 break
             lines.append(
-                f"  · {entry['name']}×{entry['count']}（{entry['unit'] * entry['count']:,}）\n"
+                f"  · {item_label(entry['name'], self.config_manager)}×{entry['count']}"
+                f"（{entry['unit'] * entry['count']:,}）\n"
             )
             shown += 1
         for entry in plan["equipment"][:6]:
-            lines.append(f"  · {entry['name']}·{entry['quality']}（{entry['unit']:,}）\n")
+            lines.append(
+                f"  · {equipment_label(entry, self.config_manager)}（{entry['unit']:,}）\n"
+            )
             shown += 1
         for entry in plan["pills"][:6]:
             lines.append(

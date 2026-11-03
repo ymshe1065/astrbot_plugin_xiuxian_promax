@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v6.52.0 (洞天仓库与一键操作)
+# AstrBot 插件：模拟修仙 v6.52.1 (物品标注与洞天仓库)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v6.52.0-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v6.52.1-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.33.12 · **游戏版本:** v6.52.0 · **数据库:** v57
+> **插件版本:** v3.33.13 · **游戏版本:** v6.52.1 · **数据库:** v57
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，233 条帮助指令 / 233 条注册指令、16 个大系统、110 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,22 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · v6.52.0（洞天仓库与一键操作）</b></summary>
+<summary><b>本次更新 · v6.52.1（储物戒与仓库物品标注）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 统一标注 | 储物戒、藏宝阁、搜索结果的每一行物品都带「名（种类·细分 \| 品阶）」：`万古铁（材料·矿材 \| 黄品）`、`鸿蒙符（符箓·增益 \| 黄品）`、`幽冥袍（装备·甲胄 \| 圣品）`。品阶取材料目录的 `tier` 或物品配置的 `rank`，都没有时只显示种类。 |
+| 材料的细分 | 灵植 / 矿材 / 妖兽 / 灵液 / 特殊 来自 `material_catalog`，而不是笼统的「材料」——玩家翻戒指时能一眼分辨该拿去炼丹还是炼器。 |
+| 装备的部位 | 走 `ItemRules.normalize_equipment_type` 归一后映射为武器 / 头饰 / 甲胄 / 手套 / 靴子 / 戒指 / 护符，兼容 `法器+subtype`、`equip_slot`、老 `body/head/ring` 三套写法。五行不再单独占一个括号，改为 `幽冥袍（装备·甲胄·水 \| 圣品）`，避免两个括号相连。 |
+| 仓库装备实例 | 原来只显示「名·品质」，现在补上部位与品阶：`幽冥袍（装备·甲胄 \| 圣品）·极品`，品质与词条仍在。 |
+| 覆盖位置 | `/储物戒` 文本与图片卡片、`/搜索物品`、溢出仓库清单、`/仓库` 分类列表与装备实例、`/一键回收` 预览。 |
+| 一个坑 | 功法在装备槽位表里也占一格（`technique`），若先走 `is_equipment` 判定，心法会被标成「装备·心法」。现在非装备类别（材料/符箓/丹药/丹方/功法）先判，装备判定放在最后。 |
+| 测试 | 新增 `tests/test_item_display.py`（13 例：材料分类、装备部位、功法不误判、符箓用途、丹方、无配置兜底、五行合并），修正 2 个断言旧格式的历史用例，全量 **790 例**通过。 |
+
+</details>
+
+<details>
+<summary><b>v6.52.0（洞天仓库与一键操作）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |

@@ -7,6 +7,7 @@ from astrbot.api import logger
 from astrbot.api.all import At, Plain
 from ..data import DataBase
 from ..core import StorageRingManager, ItemRules, PillManager
+from ..core.item_display import item_label, item_tag
 from ..core.realm_rules import format_applicable_realm
 from ..core.item_instance_manager import ItemInstanceManager
 from ..config_manager import ConfigManager
@@ -55,6 +56,14 @@ class StorageRingHandler:
             element = ""
         return f"（{element}）" if element else ""
 
+    def _item_label(self, name: str) -> str:
+        """物品名 + 种类/品阶标注；装备把五行并进同一个括号。"""
+        tag = item_tag(name, self.config_manager)
+        element = self._element_tag(name)
+        if tag and element:
+            return f"{name}{tag[:-1]}·{element[1:-1]}）"
+        return f"{name}{tag}{element}"
+
     @player_required
     async def handle_storage_ring(self, player: Player, event: AstrMessageEvent):
         """显示储物戒信息"""
@@ -79,7 +88,7 @@ class StorageRingHandler:
                 if cat_items:
                     lines.append(f"【{category}】\n")
                     for item_name, count in cat_items:
-                        label = f"{item_name}{self._element_tag(item_name)}" if category == "装备" else item_name
+                        label = self._item_label(item_name)
                         if count > 1:
                             lines.append(f"  · {label}×{count}\n")
                         else:
@@ -92,7 +101,7 @@ class StorageRingHandler:
             overflow_total = sum(int(v or 0) for v in overflow.values())
             lines.append(f"\n【溢出仓库】{len(overflow)} 种 / {overflow_total} 件\n")
             for name, count in list(overflow.items())[:10]:
-                lines.append(f"  · {name}×{count}\n")
+                lines.append(f"  · {item_label(name, self.config_manager)}×{count}\n")
             if len(overflow) > 10:
                 lines.append("  · ...\n")
             lines.append(f"领取：/领取溢出\n")
@@ -117,11 +126,9 @@ class StorageRingHandler:
             if card_enabled("CARD_BAG"):
                 enchant = ring_info.get("enchant", 0)
                 rows = []
-                gear_names = {name for name, _ in self._categorize_items(items).get("装备", [])}
                 # 名称完整显示，不做省略；物品较多时由渲染器自动加长图片
                 for item_name, count in items.items():
-                    label = f"{item_name}{self._element_tag(item_name)}" if item_name in gear_names else item_name
-                    rows.append((label, f"x{count}"))
+                    rows.append((self._item_label(item_name), f"x{count}"))
                 if not rows:
                     rows.append(("空空如也", "—"))
                 card_path = await render_card_async(
@@ -807,7 +814,7 @@ class StorageRingHandler:
         
         lines = [f"=== 搜索结果：{keyword} ===\n"]
         for item_name, count in matched:
-            lines.append(f"  · {item_name}×{count}\n")
+            lines.append(f"  · {self._item_label(item_name)}×{count}\n")
         lines.append(f"\n共找到 {len(matched)} 种物品")
         
         yield event.plain_result("".join(lines))
