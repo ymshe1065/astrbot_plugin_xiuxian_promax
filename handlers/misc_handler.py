@@ -19,7 +19,7 @@ __all__ = ["MiscHandler"]
 class MiscHandler:
     """杂项指令处理器 - 提供帮助信息、一键日常与强制解卡"""
 
-    VERSION = HELP_VERSION  # v6.50.5：世界Boss/团本/江湖事件掉落品质与难度递增修正
+    VERSION = HELP_VERSION  # v6.50.5：世界Boss/团本/江湖事件掉落重做、心法绝技查询；含 v6.50.4 符箓时长分档与 /我的状态；DB v57
 
     def __init__(self, db: DataBase, config: dict = None):
         self.db = db

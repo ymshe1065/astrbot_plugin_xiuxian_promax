@@ -2,9 +2,12 @@
 
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent
+import time
+
 from ..data import DataBase
 from ..core import PillManager, ItemRules
 from ..core.pill_manager import _safe_int
+from ..core.active_effects import describe_effects, describe_remaining, status_title
 from ..core.realm_rules import format_applicable_realm
 from ..models import Player
 from ..config_manager import ConfigManager
@@ -13,6 +16,7 @@ from .utils import player_required
 CMD_USE_PILL = "服用丹药"
 CMD_SHOW_PILLS = "丹药背包"
 CMD_PILL_INFO = "丹药信息"
+CMD_MY_STATUS = "我的状态"
 
 __all__ = ["PillHandler"]
 
@@ -151,6 +155,114 @@ class PillHandler:
             full_message += resurrection_status
 
         return full_message
+
+    @player_required
+    async def handle_my_status(self, player: Player, event: AstrMessageEvent):
+        """处理 /我的状态：列出所有生效中的限时状态。"""
+        try:
+            message = await self._render_my_status(player)
+        except Exception:
+            logger.exception(
+                "我的状态读取失败 user=%s", getattr(player, "user_id", "?")
+            )
+            yield event.plain_result(
+                "❌ 状态读取失败，已记录日志。\n"
+                "💡 可先发送 /丹药背包 确认状态是否正常，并把上面的日志发给服主。"
+            )
+            return
+        yield event.plain_result(message)
+
+    async def _render_my_status(self, player: Player) -> str:
+        """拼装「状态名 + 状态效果 + 剩余时间」清单。"""
+        now = int(time.time())
+        await self.pill_manager.update_temporary_effects(player)
+
+        effects = player.get_active_pill_effects()
+        if not isinstance(effects, list):
+            effects = []
+
+        def _expiry(effect) -> int:
+            try:
+                return int(effect.get("expiry_time") or 0)
+            except (TypeError, ValueError):
+                return 0
+
+        valid = []
+        for effect in effects:
+            if not isinstance(effect, dict):
+                continue
+            if effect.get("remaining_uses") is not None:
+                valid.append(effect)
+                continue
+            expiry = _expiry(effect)
+            if expiry <= 0 or expiry > now:
+                valid.append(effect)
+
+        def sort_key(effect):
+            # 限时类按到期先后（快过期的在前），次数类居中，待触发的垫底
+            if effect.get("remaining_uses") is not None:
+                return (1, 0, str(effect.get("talisman_name") or effect.get("pill_name") or ""))
+            expiry = _expiry(effect)
+            if expiry <= 0:
+                return (2, 0, "")
+            return (0, expiry, "")
+
+        valid.sort(key=sort_key)
+
+        lines = ["🧿 我的状态", "━━━━━━━━━━━━━━━"]
+        if not valid:
+            lines.append("当前没有生效中的丹药或符箓状态。")
+        else:
+            lines.append(f"共 {len(valid)} 个状态生效中：")
+            for effect in valid:
+                icon = "📜" if effect.get("source") == "talisman" else "🌟"
+                lines.append(
+                    f"\n{icon} {status_title(effect)}　{describe_remaining(effect, now)}"
+                )
+                lines.append(f"   {describe_effects(effect)}")
+
+        extras = []
+        try:
+            multipliers = self.pill_manager.calculate_pill_attribute_effects(player)
+        except Exception:
+            multipliers = {}
+        cultivation = float(multipliers.get("cultivation_speed", 1.0) or 1.0)
+        if cultivation > 1.0 + 1e-6:
+            try:
+                cap = float(self.config_manager.pill_quality_data.get("temporary_effect_cap", 3.0))
+            except Exception:
+                cap = 3.0
+            extras.append(
+                f"📈 修炼速度 ×{cultivation:.2f}（+{(cultivation - 1) * 100:.0f}%，上限 ×{cap:.1f}）"
+            )
+        for key, label in (
+            ("physical_damage", "物伤"),
+            ("magic_damage", "法伤"),
+            ("physical_defense", "物防"),
+            ("magic_defense", "法防"),
+        ):
+            value = float(multipliers.get(key, 1.0) or 1.0)
+            if abs(value - 1.0) > 1e-3:
+                extras.append(f"⚔️ {label} ×{value:.2f}")
+        try:
+            breakthrough = self.pill_manager.get_breakthrough_modifiers(player)
+            bonus = float(breakthrough.get("temp_bonus") or 0)
+            if bonus:
+                extras.append(f"🎯 突破成功率 +{bonus * 100:.0f}%")
+        except Exception:
+            pass
+        if player.has_resurrection_pill:
+            res_quality = getattr(player, "resurrection_pill_quality", "一般") or "一般"
+            extras.append(f"🛡️ 回生丹（{res_quality}）：可抵消一次境界跌落")
+
+        if extras:
+            lines.append("\n━━━━━━━━━━━━━━━")
+            lines.extend(extras)
+
+        if valid:
+            lines.append("\n💡 同名符箓再次使用会续时，不会覆盖剩余时间")
+        lines.append("💡 /丹药背包 看丹药存量；/符箓 看符箓存量")
+        return "\n".join(lines)
 
     @player_required
     async def handle_pill_info(self, player: Player, event: AstrMessageEvent, pill_name: str = ""):

@@ -8,6 +8,7 @@ from typing import Dict, Iterator, List, Optional, Tuple, TYPE_CHECKING
 
 from ..models import Player
 from ..data.data_manager import DataBase
+from ..core.active_effects import format_duration
 from ..core.talisman_rules import (
     TIER_POWER, TIER_LEVEL, TIER_GOLD, TIER_PRICE, CATEGORY_KEYWORDS,
     NON_TALISMAN_ITEMS, infer_category, build_profile,
@@ -73,11 +74,16 @@ TALISMAN_NON_COMBAT_KEYS = {
 }
 
 # 使用符箓时的品质档位（复用炼丹三档口径）
+# 第 3 位：按符箓基础时长的比例加时（长符收益更明显，不再固定 +5/+10 分钟）
+# 第 4 位：探索类符箓的额外生效次数（这类按次数结算，不吃时长）
 TALISMAN_QUALITY = (
-    ("极品", 1.4, 10),
-    ("上品", 1.2, 5),
-    ("一般", 1.0, 0),
+    ("极品", 1.4, 0.15, 2),
+    ("上品", 1.2, 0.08, 1),
+    ("一般", 1.0, 0.0, 0),
 )
+
+# 加时下限：短符（15~20 分钟）按比例算出来只有 2 分钟，给个保底
+QUALITY_MIN_BONUS_MINUTES = 5
 
 
 class TalismanManager:
@@ -231,8 +237,11 @@ class TalismanManager:
             return
         player.talisman_exp = self.get_proficiency_points(player) + int(points)
 
-    def _roll_quality(self, extra_rate: float) -> Tuple[str, float, int]:
-        """极品/上品率随熟练度额外产出加成提升，返回 (档位, 倍率, 加时分钟)。"""
+    def _roll_quality(self, extra_rate: float) -> Tuple[str, float, float, int]:
+        """极品/上品率随熟练度额外产出加成提升。
+
+        返回 (档位, 效果倍率, 加时比例, 探索类额外次数)。
+        """
         bonus = max(0.0, float(extra_rate or 0)) * 0.5
         roll = random.randint(1, 100)
         if roll <= 3 + bonus:
@@ -268,7 +277,7 @@ class TalismanManager:
                 if profile.get("run_scoped"):
                     active_text = f"生效{profile['uses']}次历练/秘境"
                 else:
-                    active_text = f"持续{profile['duration']}分钟"
+                    active_text = f"持续{format_duration(profile['duration'])}"
                 lines.append(
                     f"  · {name}（{profile['rank']}，持有{count}）{tag}\n"
                     f"    {profile['description']}｜{active_text}"
@@ -735,7 +744,7 @@ class TalismanManager:
 
         profile = self.get_talisman_profile(name)
         prof = self.get_proficiency(player)
-        quality_name, quality_mult, quality_minutes = self._roll_quality(prof.get("extra", 0))
+        quality_name, quality_mult, quality_ratio, quality_uses_bonus = self._roll_quality(prof.get("extra", 0))
         scale = quality_mult * count
         effects = profile["effects"]
 
@@ -773,8 +782,7 @@ class TalismanManager:
         # 保证 30~40 分钟的历练/秘境流程完整吃到加成。
         if profile.get("run_scoped") and is_run_scoped_effects(effects):
             base_uses = int(profile.get("uses", 1) or 1)
-            quality_uses = max(0, int(quality_minutes) // 5)
-            added_uses = base_uses * count + quality_uses
+            added_uses = base_uses * count + quality_uses_bonus
             active = player.get_active_pill_effects()
             existing = next(
                 (e for e in active if e.get("talisman_name") == name and e.get("remaining_uses") is not None),
@@ -823,25 +831,65 @@ class TalismanManager:
                 f"━━━━━━━━━━━━━━━"
             )
 
-        duration_minutes = int(profile["duration"]) * count + quality_minutes
-        duration = duration_minutes * 60
-        active = [
-            effect for effect in player.get_active_pill_effects()
-            if effect.get("talisman_name") != name
-        ]
-        active.append({
-            "pill_name": name,
-            "talisman_name": name,
-            "source": "talisman",
-            "subtype": "talisman",
-            "category": profile["category"],
-            "quality": quality_name,
-            "start_time": now,
-            "expiry_time": now + duration,
-            "duration_minutes": duration_minutes,
-            "last_tick_time": now,
-            **scaled,
-        })
+        base_duration = int(profile["duration"])
+        added_minutes = base_duration * count
+        if quality_ratio > 0:
+            # 品质按比例加时；短符按比例只有两三分钟，给个保底
+            added_minutes += max(
+                QUALITY_MIN_BONUS_MINUTES,
+                int(round(base_duration * count * quality_ratio)),
+            )
+        added_seconds = added_minutes * 60
+
+        # 同名符箓续时而非覆盖：已有剩余时间不清零，直接往后顺延。
+        effect_list = player.get_active_pill_effects()
+        existing = next(
+            (e for e in effect_list
+             if isinstance(e, dict)
+             and e.get("talisman_name") == name
+             and e.get("remaining_uses") is None),
+            None,
+        )
+        if existing is not None:
+            base_expiry = max(int(existing.get("expiry_time") or 0), now)
+            total_left_seconds = base_expiry + added_seconds - now
+            existing["expiry_time"] = base_expiry + added_seconds
+            existing["duration_minutes"] = int(total_left_seconds // 60)
+            # 品质取更高的一档，效果值也取高，避免续时反而变弱
+            existing["quality"] = quality_name
+            for key, value in scaled.items():
+                try:
+                    old_value = float(existing.get(key, 0) or 0)
+                except (TypeError, ValueError):
+                    old_value = 0.0
+                existing[key] = max(old_value, value)
+            active = effect_list
+            left_text = format_duration(max(1, total_left_seconds // 60))
+            result_hint = (
+                f"续时：+{format_duration(added_minutes)}\n"
+                f"剩余：{left_text}\n"
+            )
+        else:
+            active = [
+                effect for effect in effect_list
+                if effect.get("talisman_name") != name
+            ]
+            duration_minutes = added_minutes
+            active.append({
+                "pill_name": name,
+                "talisman_name": name,
+                "source": "talisman",
+                "subtype": "talisman",
+                "category": profile["category"],
+                "quality": quality_name,
+                "start_time": now,
+                "expiry_time": now + added_seconds,
+                "duration_minutes": duration_minutes,
+                "last_tick_time": now,
+                **scaled,
+            })
+            result_hint = f"持续：{format_duration(added_minutes)}\n"
+
         player.set_active_pill_effects(active)
         items[name] = have - count
         if items[name] <= 0:
@@ -853,7 +901,7 @@ class TalismanManager:
             f"━━━━━━━━━━━━━━━\n"
             f"类别：{profile['category']}\n"
             f"效果：{profile['description']}\n"
-            f"持续：{duration_minutes}分钟\n"
+            f"{result_hint}"
             f"━━━━━━━━━━━━━━━"
         )
 

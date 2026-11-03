@@ -24,7 +24,6 @@
       "magic_damage_multiplier": 0.28,
       "crit_rate_bonus": 12
     },
-    "duration": 15,
     "price": 730,
     "shop_weight": 200,
     "basic": true,
@@ -55,7 +54,6 @@
       "magic_damage_multiplier": 0.35,
       "crit_rate_bonus": 14
     },
-    "duration": 15,
     "price": 2700,
     "shop_weight": 110,
     "basic": true,
@@ -86,7 +84,6 @@
       "magic_damage_multiplier": 0.43,
       "crit_rate_bonus": 16
     },
-    "duration": 20,
     "price": 8200,
     "shop_weight": 40,
     "basic": false,
@@ -117,7 +114,6 @@
       "magic_damage_multiplier": 0.5,
       "crit_rate_bonus": 20
     },
-    "duration": 30,
     "price": 115000,
     "shop_weight": 15,
     "basic": false,
@@ -142,7 +138,6 @@
       "physical_defense_multiplier": 0.26,
       "magic_defense_multiplier": 0.26
     },
-    "duration": 15,
     "price": 550,
     "shop_weight": 200,
     "basic": true,
@@ -167,7 +162,6 @@
       "physical_defense_multiplier": 0.33,
       "magic_defense_multiplier": 0.33
     },
-    "duration": 15,
     "price": 2200,
     "shop_weight": 120,
     "basic": true,
@@ -197,7 +191,6 @@
       "physical_defense_multiplier": 0.33,
       "magic_defense_multiplier": 0.33
     },
-    "duration": 15,
     "price": 2600,
     "shop_weight": 110,
     "basic": true,
@@ -227,7 +220,6 @@
       "physical_defense_multiplier": 0.4,
       "magic_defense_multiplier": 0.4
     },
-    "duration": 20,
     "price": 7900,
     "shop_weight": 40,
     "basic": false,
@@ -257,7 +249,6 @@
       "physical_defense_multiplier": 0.5,
       "magic_defense_multiplier": 0.5
     },
-    "duration": 30,
     "price": 165000,
     "shop_weight": 15,
     "basic": false,
@@ -283,7 +274,6 @@
       "frost_turns": 2,
       "frost_atk_reduction": 8
     },
-    "duration": 15,
     "price": 1100,
     "shop_weight": 180,
     "basic": true,
@@ -315,7 +305,6 @@
       "curse_defense_pct": 10,
       "curse_turns": 2
     },
-    "duration": 15,
     "price": 3300,
     "shop_weight": 110,
     "basic": false,
@@ -347,7 +336,6 @@
       "curse_defense_pct": 18,
       "curse_turns": 3
     },
-    "duration": 20,
     "price": 9200,
     "shop_weight": 40,
     "basic": false,
@@ -379,7 +367,6 @@
       "curse_defense_pct": 25,
       "burn_heal_reduction": 30
     },
-    "duration": 30,
     "price": 176000,
     "shop_weight": 15,
     "basic": false,
@@ -403,7 +390,6 @@
     "effects": {
       "heal_percent": 0.3
     },
-    "duration": 15,
     "price": 690,
     "shop_weight": 200,
     "basic": true,
@@ -432,7 +418,6 @@
     "effects": {
       "heal_percent": 0.33
     },
-    "duration": 15,
     "price": 2500,
     "shop_weight": 110,
     "basic": false,
@@ -456,7 +441,6 @@
     "effects": {
       "heal_percent": 0.36
     },
-    "duration": 20,
     "price": 7000,
     "shop_weight": 40,
     "basic": false,
@@ -480,7 +464,6 @@
     "effects": {
       "heal_percent": 0.41
     },
-    "duration": 30,
     "price": 105000,
     "shop_weight": 15,
     "basic": false,
@@ -506,7 +489,6 @@
       "alchemy_quality_bonus": 6,
       "tribulation_shield": 2
     },
-    "duration": 15,
     "price": 710,
     "shop_weight": 200,
     "basic": true,
@@ -537,7 +519,6 @@
       "alchemy_quality_bonus": 8,
       "tribulation_shield": 4
     },
-    "duration": 15,
     "price": 2400,
     "shop_weight": 130,
     "basic": true,
@@ -568,7 +549,6 @@
       "alchemy_quality_bonus": 8,
       "tribulation_shield": 4
     },
-    "duration": 15,
     "price": 2900,
     "shop_weight": 110,
     "basic": false,
@@ -599,7 +579,6 @@
       "alchemy_quality_bonus": 10,
       "tribulation_shield": 6
     },
-    "duration": 20,
     "price": 11000,
     "shop_weight": 45,
     "basic": false,
@@ -635,7 +614,6 @@
       "alchemy_quality_bonus": 13,
       "tribulation_shield": 9
     },
-    "duration": 30,
     "price": 227000,
     "recipe_price": 68000,
     "shop_weight": 15,
@@ -663,7 +641,6 @@
       "drop_chance_bonus": 10
     },
     "uses": 3,
-    "duration": 15,
     "price": 540,
     "shop_weight": 200,
     "basic": true,
@@ -695,7 +672,6 @@
       "drop_chance_bonus": 13
     },
     "uses": 3,
-    "duration": 15,
     "price": 1900,
     "shop_weight": 110,
     "basic": false,
@@ -727,7 +703,6 @@
       "drop_chance_bonus": 16
     },
     "uses": 4,
-    "duration": 20,
     "price": 7900,
     "shop_weight": 40,
     "basic": false,
@@ -759,7 +734,6 @@
       "drop_chance_bonus": 21
     },
     "uses": 6,
-    "duration": 30,
     "price": 162000,
     "shop_weight": 15,
     "basic": false,
@@ -785,7 +759,6 @@
       "lifespan_regen_per_minute": 1,
       "luck_bonus": 2
     },
-    "duration": 15,
     "price": 890,
     "shop_weight": 180,
     "basic": false,
@@ -816,7 +789,6 @@
       "lifespan_regen_per_minute": 2,
       "luck_bonus": 3
     },
-    "duration": 15,
     "price": 3100,
     "shop_weight": 110,
     "basic": false,
@@ -847,7 +819,6 @@
       "lifespan_regen_per_minute": 2,
       "luck_bonus": 4
     },
-    "duration": 20,
     "price": 8100,
     "shop_weight": 40,
     "basic": false,
@@ -878,7 +849,6 @@
       "lifespan_regen_per_minute": 3,
       "luck_bonus": 5
     },
-    "duration": 30,
     "price": 135000,
     "shop_weight": 15,
     "basic": false,
@@ -908,7 +878,6 @@
       "dodge_bonus": 9,
       "luck_bonus": 5
     },
-    "duration": 15,
     "price": 700,
     "shop_weight": 180,
     "basic": false,
@@ -938,7 +907,6 @@
       "dodge_bonus": 12,
       "luck_bonus": 7
     },
-    "duration": 15,
     "price": 2400,
     "shop_weight": 110,
     "basic": false,
@@ -968,7 +936,6 @@
       "dodge_bonus": 14,
       "luck_bonus": 8
     },
-    "duration": 20,
     "price": 8700,
     "shop_weight": 40,
     "basic": false,
@@ -998,7 +965,6 @@
       "dodge_bonus": 18,
       "luck_bonus": 11
     },
-    "duration": 30,
     "price": 162000,
     "shop_weight": 15,
     "basic": false,
