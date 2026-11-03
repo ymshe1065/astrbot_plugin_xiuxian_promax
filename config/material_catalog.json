@@ -1217,6 +1217,13 @@
       "tier": "玄品",
       "price": 720,
       "volume": 1
+    },
+    {
+      "name": "天外陨核",
+      "category": "天材",
+      "tier": "帝品",
+      "price": 88000,
+      "volume": 1
     }
   ]
 }

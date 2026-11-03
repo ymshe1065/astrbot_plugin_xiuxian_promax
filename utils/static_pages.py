@@ -6,8 +6,8 @@ import hashlib
 import json
 from typing import Any, Dict, List
 
-HELP_VERSION = "v6.55.0"
-HELP_HEADER = f"📖 修仙指令大全 {HELP_VERSION} (单格50堆叠上限)"
+HELP_VERSION = "v6.56.0"
+HELP_HEADER = f"📖 修仙指令大全 {HELP_VERSION} (周本 + 仓库取出制)"
 HELP_HINT = "💡 提示：所有指令均可带 / 前缀使用"
 HELP_TITLE = "修仙指令大全"
 HELP_SUBTITLE = f"📖 {HELP_VERSION} · 所有指令均可带 / 前缀使用"
@@ -40,8 +40,12 @@ HELP_SECTIONS: List[Dict[str, Any]] = [
         "icon": "⚔️",
         "lines": [
             "/切磋 @人 /接受切磋 /拒绝切磋 /决斗 @人",
+            "/心法 [名称] /技能 [名称] 查询主修心法绝技（PvP 每场1次，PvE 每6回合自动释放）",
             "/挑战世界Boss /世界Boss状态 /世界Boss",
             "/挑战团本 /团本状态 /世界团本 /团本排行",
+            "/周本 /周本创建 [队名] /周本加入 <编号> /周本离开 /周本备战 [推荐|清单]",
+            "/周本开始 (开战预览) /周本确认 /周本取消 /周本状态 /周本排行",
+            "周本为每周刷新的 1~8 人高难团队副本：天道压制归一化面板、20 回合真实伤害、战后气血写回可重伤、按伤害分掉落",
             "/讨伐 /追捕 /挑战通缉犯 /江湖事件 /通缉令",
             "/传承挑战 @人 /传承信息 /传承排行",
         ],
@@ -157,6 +161,7 @@ HELP_SECTIONS: List[Dict[str, Any]] = [
         "lines": [
             "/仙界管理 /修仙诊断",
             "/生成世界Boss /生成Boss /开启团本 [1-3] /结束团本 /开启魔潮",
+            "/刷新周本 /结束周本 /重置周本CD <玩家ID或道号>",
             "/生成江湖事件 [wanted/beast/demon/guardian] [1-5]",
             "/开启天魔入侵 [1-48] /结束天魔入侵",
         ],

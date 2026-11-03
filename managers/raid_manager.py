@@ -26,7 +26,7 @@ class RaidManager:
         "chaos_palace": {
             "name": "混沌天宫", "element": "土", "difficulty": 3, "icon": "🏯",
             "phases": 4, "hp_mult": 2.5, "min_level": 12, "min_players": 4,
-            "drop_table": "high", "expire_hours": 72,
+            "drop_table": "legend", "expire_hours": 72,
             "desc": "混沌古天宫现世，四重天阙皆由太古神纹守护，乃当世最凶险的团本。",
         },
     }
@@ -104,12 +104,14 @@ class RaidManager:
         if not cfg:
             cfg = next((v for v in self._types.values() if v.get("name") == raid.get("boss_name")), None)
         if not cfg:
+            diff = int(raid.get("difficulty") or 1)
             cfg = {
                 "name": raid.get("boss_name") or "未知团本", "element": raid.get("element") or "",
-                "difficulty": int(raid.get("difficulty") or 1), "icon": "🏯",
+                "difficulty": diff, "icon": "🏯",
                 "phases": int(raid.get("total_phases") or 3), "hp_mult": 1.0,
                 "min_level": int(raid.get("min_level") or 6), "min_players": self.min_players,
-                "drop_table": "high", "expire_hours": self.expire_hours, "desc": "",
+                "drop_table": self._drop_table_for_difficulty(diff),
+                "expire_hours": self.expire_hours, "desc": "",
             }
         cfg = dict(cfg)
         cfg.setdefault("difficulty", int(raid.get("difficulty") or 1))
@@ -117,9 +119,18 @@ class RaidManager:
         cfg.setdefault("min_level", int(raid.get("min_level") or 6))
         cfg.setdefault("min_players", self.min_players)
         cfg.setdefault("element", raid.get("element") or "")
-        cfg.setdefault("drop_table", "high")
+        cfg.setdefault(
+            "drop_table",
+            self._drop_table_for_difficulty(int(cfg.get("difficulty") or 1)),
+        )
         cfg.setdefault("icon", "🏯")
         return cfg
+
+    @staticmethod
+    def _drop_table_for_difficulty(difficulty: int) -> str:
+        return {1: "mid", 2: "high", 3: "legend"}.get(
+            max(1, min(3, int(difficulty or 1))), "legend"
+        )
 
     def _choose_raid_key(self, difficulty: Optional[int] = None, max_level: Optional[int] = None) -> str:
         if difficulty:
@@ -503,7 +514,12 @@ class RaidManager:
                 bonus_drop = self.world_boss_mgr.roll_drop(drop_table) if self.world_boss_mgr else None
                 if bonus_drop:
                     drops_to_grant.append(bonus_drop)
-            rolls = 3 if is_killer else (2 if rank <= 3 else 1)
+            if is_killer:
+                rolls = 2 + min(4, diff)
+            elif rank <= 3:
+                rolls = 3 if diff >= 3 else 2
+            else:
+                rolls = 2 if diff >= 3 else 1
             for _ in range(rolls):
                 drop = self.world_boss_mgr.roll_drop(drop_table) if self.world_boss_mgr else None
                 if drop:
@@ -521,10 +537,27 @@ class RaidManager:
                     drops_to_grant.append((tech_name, 1))
             except Exception:
                 pass
-            for item_name, count in drops_to_grant:
-                stored = await self._store_item(target_player, item_name, count)
+            role = "killer" if is_killer else ("top3" if rank <= 3 else "participate")
+            equipment = (
+                self.world_boss_mgr.roll_equipment_reward(
+                    target_player, role, diff, source="raid"
+                )
+                if self.world_boss_mgr
+                else None
+            )
+            if equipment:
+                drops_to_grant.append(
+                    (equipment["name"], 1, str(equipment.get("quality") or ""))
+                )
+            for entry in drops_to_grant:
+                item_name, count = entry[0], entry[1]
+                quality = str(entry[2]) if len(entry) > 2 else ""
+                stored = await self._store_item(
+                    target_player, item_name, count, quality=quality
+                )
                 bucket = collected if stored else lost
-                bucket[item_name] = bucket.get(item_name, 0) + count
+                label = f"{item_name}（{quality}）" if quality else item_name
+                bucket[label] = bucket.get(label, 0) + count
             item_lines = [f"{name}x{count}" for name, count in collected.items()]
             item_lines.extend(f"{name}x{count}（储物戒已满）" for name, count in lost.items())
 
@@ -539,11 +572,18 @@ class RaidManager:
         self.last_settle_msg = "\n".join(msg)
         return self.last_settle_msg
 
-    async def _store_item(self, player: Player, item_name: str, count: int) -> bool:
+    async def _store_item(
+        self, player: Player, item_name: str, count: int, quality: str = ""
+    ) -> bool:
         if not self.storage_ring_mgr:
             return False
         try:
-            success, _ = await self.storage_ring_mgr.grant_item(player, item_name, count, silent=True)
+            kwargs = {"silent": True}
+            if quality:
+                kwargs["quality"] = quality
+            success, _ = await self.storage_ring_mgr.grant_item(
+                player, item_name, count, **kwargs
+            )
             return bool(success)
         except Exception as e:
             logger.warning(f"团本掉落发放失败 {item_name}x{count}: {e}")

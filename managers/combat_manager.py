@@ -902,11 +902,10 @@ class CombatManager:
     def _main_technique_skill(player, config_manager) -> dict:
         """读取主修心法的主动技能配置；无技能返回空字典。"""
         try:
-            name = getattr(player, "main_technique", "") or ""
-            techniques = getattr(config_manager, "techniques_data", {}) or {}
-            items = getattr(config_manager, "items_data", {}) or {}
-            data = techniques.get(name) or items.get(name) or {}
-            return dict(data.get("active_skill") or {})
+            from ..core.technique_skill import get_active_skill
+            return get_active_skill(
+                config_manager, getattr(player, "main_technique", "") or ""
+            )
         except Exception:
             return {}
 
@@ -1067,6 +1066,18 @@ class CombatManager:
             status = statuses.get(key)
             if status and int(status.get("turns", 0) or 0) > 0:
                 status["turns"] = int(status["turns"]) - 1
+                if key == "freeze" and "action_rate" in status:
+                    try:
+                        action_rate = max(0.0, min(1.0, float(status.get("action_rate", 0) or 0)))
+                    except (TypeError, ValueError):
+                        action_rate = 0.0
+                    if random.random() < action_rate:
+                        if status["turns"] <= 0:
+                            statuses.pop(key, None)
+                        logs.append(
+                            f"❄️ {stats.name} 挣脱冻结，仍可行动！"
+                        )
+                        continue
                 if status["turns"] <= 0:
                     statuses.pop(key, None)
                 logs.append(f"❄️ {stats.name} 处于{label}状态，本回合无法行动！" if key == "freeze"
@@ -1228,15 +1239,28 @@ class CombatManager:
                     logs.append(f"🌿 回春疗伤 +{heal} 气血（剩余 {attacker.hp}）")
             elif skill_type == "freeze":
                 if "stun" not in statuses:
-                    statuses["freeze"] = {"turns": 1, "level": 2}
+                    # value 为“行动概率”：0 表示完全冻结，0.5 表示 50% 概率行动
+                    action_rate = max(0.0, min(1.0, value))
+                    statuses["freeze"] = {
+                        "turns": 1,
+                        "level": 2,
+                        "action_rate": action_rate,
+                    }
                     attacker_status_cd = 2 if pvp else (3 if boss else 2)
                     defender.control_cd = max(
                         int(getattr(defender, "control_cd", 0) or 0), attacker_status_cd
                     )
-                    logs.append(f"❄️ 玄冰凝霜生效，{defender.name} 下回合无法行动！")
+                    if action_rate <= 0:
+                        logs.append(f"❄️ 玄冰凝霜生效，{defender.name} 下回合无法行动！")
+                    else:
+                        logs.append(
+                            f"❄️ 玄冰凝霜生效，{defender.name} 下回合行动概率降至 "
+                            f"{action_rate:.0%}！"
+                        )
             elif skill_type == "burn":
                 dot_scale = 0.5 if pvp else (0.25 if boss else 1.0)
-                damage_pct = max(0.1, value * dot_scale)
+                # value 是小数（0.02 = 2%），状态里的 damage_pct 是百分点
+                damage_pct = max(0.1, value * 100.0 * dot_scale)
                 old = statuses.get("burn")
                 if old:
                     remaining = max(1, int(old.get("turns", 1) or 1))
@@ -1271,7 +1295,7 @@ class CombatManager:
             attacker.mp = min(attacker.max_mp, int(attacker.mp) + regen)
             logs.append(f"💠 {attacker.name} 灵气 +{regen}（{attacker.mp}/{attacker.max_mp}）")
 
-        # 主修心法主动技能：PvP 每场 1 次，PvE 每 6 回合可再放
+        # 主修心法主动技能：PvP 每场 1 次；PvE（含 Boss）每 6 回合可再放
         skill = getattr(attacker, "active_skill", None) or {}
         if skill and round_num > 0:
             trigger = int(skill.get("trigger_round") or 2)
@@ -1280,7 +1304,7 @@ class CombatManager:
             eligible = False
             if casts == 0 and round_num >= trigger:
                 eligible = True
-            elif not pvp and not boss and casts > 0 and round_num >= last + 6:
+            elif not pvp and casts > 0 and round_num >= last + 6:
                 eligible = True
             if eligible:
                 cost = int(skill.get("mp_cost") or 0)

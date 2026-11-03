@@ -61,6 +61,8 @@ from .auto_proxy_handlers import AutoProxyHandlers
 from .battle_event_handlers import BattleEventHandlers
 # v6.40 仙市投资系统
 from .invest_handlers import InvestHandlers
+# v6.51 周常 Boss（周本）
+from .weekly_boss_handlers import WeeklyBossHandlers
 
 __all__ = [
     "PlayerHandler", "RecoveryHandler", "MiscHandler", "EquipmentHandler", "BreakthroughHandler",
@@ -72,5 +74,5 @@ __all__ = [
     "DailyTaskHandlers", "WorldBossHandlers", "RaidHandlers", "RobberyHandlers", "ReincarnationHandlers",
     "GambleHandlers", "ForgeHandlers", "DemonInvasionHandlers", "PetHandlers",
     "AuctionHandlers", "AuctionHouseHandlers", "SectShopHandler", "AutoProxyHandlers", "BattleEventHandlers",
-    "InvestHandlers"
+    "InvestHandlers", "WeeklyBossHandlers"
 ]

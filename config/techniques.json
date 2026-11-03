@@ -20,10 +20,10 @@
       "trigger_round": 2,
       "mp_cost": 500,
       "type": "pierce",
-      "value": 0.2,
+      "value": 0.15,
       "target": "enemy",
-      "extra_damage": 0.5,
-      "description": "无视对方20%物防，并追加0.5倍攻击伤害。"
+      "extra_damage": 0.4,
+      "description": "无视对方15%物防，并追加0.4倍攻击伤害。"
     }
   },
   "太白裂空剑典": {
@@ -47,10 +47,10 @@
       "trigger_round": 2,
       "mp_cost": 4000,
       "type": "pierce",
-      "value": 0.3,
+      "value": 0.18,
       "target": "enemy",
-      "extra_damage": 0.7,
-      "description": "无视对方30%物防，并追加0.7倍攻击伤害。"
+      "extra_damage": 0.5,
+      "description": "无视对方18%物防，并追加0.5倍攻击伤害。"
     }
   },
   "白虎杀伐真经": {
@@ -74,10 +74,10 @@
       "trigger_round": 2,
       "mp_cost": 20000,
       "type": "pierce",
-      "value": 0.4,
+      "value": 0.2,
       "target": "enemy",
-      "extra_damage": 0.9,
-      "description": "无视对方40%物防，并追加0.9倍攻击伤害。"
+      "extra_damage": 0.55,
+      "description": "无视对方20%物防，并追加0.55倍攻击伤害。"
     }
   },
   "诛仙戮神金章": {
@@ -101,10 +101,10 @@
       "trigger_round": 2,
       "mp_cost": 100000,
       "type": "pierce",
-      "value": 0.5,
+      "value": 0.33,
       "target": "enemy",
-      "extra_damage": 1.2,
-      "description": "无视对方50%物防，并追加1.2倍攻击伤害。"
+      "extra_damage": 0.95,
+      "description": "无视对方33%物防，并追加0.95倍攻击伤害。"
     }
   },
   "青木回春诀": {
@@ -130,7 +130,7 @@
       "type": "heal",
       "value": 0.15,
       "target": "enemy",
-      "description": "恢复15%已损失气血，溢出50%转护体。"
+      "description": "恢复15%已损失气血。"
     }
   },
   "万木长生经": {
@@ -154,9 +154,9 @@
       "trigger_round": 2,
       "mp_cost": 4000,
       "type": "heal",
-      "value": 0.2,
+      "value": 0.18,
       "target": "enemy",
-      "description": "恢复20%已损失气血，溢出50%转护体。"
+      "description": "恢复18%已损失气血。"
     }
   },
   "青龙不死玄功": {
@@ -180,9 +180,9 @@
       "trigger_round": 2,
       "mp_cost": 20000,
       "type": "heal",
-      "value": 0.25,
+      "value": 0.2,
       "target": "enemy",
-      "description": "恢复25%已损失气血，溢出50%转护体。"
+      "description": "恢复20%已损失气血。"
     }
   },
   "建木通天录": {
@@ -206,9 +206,9 @@
       "trigger_round": 2,
       "mp_cost": 100000,
       "type": "heal",
-      "value": 0.3,
+      "value": 0.32,
       "target": "enemy",
-      "description": "恢复30%已损失气血，溢出50%转护体。"
+      "description": "恢复32%已损失气血。"
     }
   },
   "寒潭凝息诀": {
@@ -310,9 +310,9 @@
       "trigger_round": 2,
       "mp_cost": 100000,
       "type": "freeze",
-      "value": 0.2,
+      "value": 0.0,
       "target": "enemy",
-      "description": "对方下回合行动概率降至20%。"
+      "description": "冻结对方一回合，使其无法行动。"
     }
   },
   "赤炎焚脉诀": {
@@ -418,9 +418,9 @@
       "trigger_round": 2,
       "mp_cost": 100000,
       "type": "burn",
-      "value": 0.05,
+      "value": 0.09,
       "target": "enemy",
-      "description": "灼烧3回合，每回合损失5%气血，并引爆已有灼烧。"
+      "description": "灼烧3回合，每回合损失9%气血，并引爆已有灼烧。"
     }
   },
   "厚土镇岳诀": {
@@ -496,9 +496,9 @@
       "trigger_round": 2,
       "mp_cost": 20000,
       "type": "guard",
-      "value": 0.33,
+      "value": 0.29,
       "target": "enemy",
-      "description": "本回合与下回合减伤33%，并将10%防御转为攻击。"
+      "description": "本回合与下回合减伤29%，并将10%防御转为攻击。"
     }
   },
   "山河社稷天章": {
@@ -1038,7 +1038,7 @@
       "trigger_round": 2,
       "mp_cost": 40000,
       "type": "freeze",
-      "value": 0.5,
+      "value": 0.0,
       "target": "enemy",
       "description": "冻结对方一回合，使其无法行动。"
     }
@@ -1065,7 +1065,7 @@
       "trigger_round": 2,
       "mp_cost": 55000,
       "type": "freeze",
-      "value": 0.5,
+      "value": 0.0,
       "target": "enemy",
       "description": "冻结对方一回合，使其无法行动。"
     }
@@ -1092,7 +1092,7 @@
       "trigger_round": 2,
       "mp_cost": 70000,
       "type": "freeze",
-      "value": 0.5,
+      "value": 0.0,
       "target": "enemy",
       "description": "冻结对方一回合，使其无法行动。"
     }
@@ -1119,7 +1119,7 @@
       "trigger_round": 2,
       "mp_cost": 90000,
       "type": "freeze",
-      "value": 0.5,
+      "value": 0.0,
       "target": "enemy",
       "description": "冻结对方一回合，使其无法行动。"
     }
@@ -1146,7 +1146,7 @@
       "trigger_round": 2,
       "mp_cost": 150000,
       "type": "freeze",
-      "value": 0.5,
+      "value": 0.0,
       "target": "enemy",
       "description": "冻结对方一回合，使其无法行动。"
     }
@@ -1173,7 +1173,7 @@
       "trigger_round": 2,
       "mp_cost": 250000,
       "type": "freeze",
-      "value": 0.5,
+      "value": 0.0,
       "target": "enemy",
       "description": "冻结对方一回合，使其无法行动。"
     }
@@ -1200,7 +1200,7 @@
       "trigger_round": 2,
       "mp_cost": 450000,
       "type": "freeze",
-      "value": 0.5,
+      "value": 0.0,
       "target": "enemy",
       "description": "冻结对方一回合，使其无法行动。"
     }
@@ -1227,7 +1227,7 @@
       "trigger_round": 2,
       "mp_cost": 800000,
       "type": "freeze",
-      "value": 0.5,
+      "value": 0.0,
       "target": "enemy",
       "description": "冻结对方一回合，使其无法行动。"
     }

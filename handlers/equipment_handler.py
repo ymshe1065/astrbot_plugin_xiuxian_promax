@@ -3,6 +3,7 @@
 from astrbot.api.event import AstrMessageEvent
 from ..data import DataBase
 from ..core import EquipmentManager, PillManager, StorageRingManager, ItemRules
+from ..core.technique_skill import get_active_skill, skill_brief, skill_summary_lines
 from ..config_manager import ConfigManager
 from ..models import Player
 from .utils import player_required, resolve_greedy_args
@@ -10,6 +11,7 @@ from .utils import player_required, resolve_greedy_args
 CMD_SHOW_EQUIPMENT = "我的装备"
 CMD_EQUIP_ITEM = "装备"
 CMD_UNEQUIP_ITEM = "卸下"
+CMD_TECHNIQUE_INFO = "心法"
 
 __all__ = ["EquipmentHandler"]
 
@@ -204,6 +206,59 @@ class EquipmentHandler:
             detail = str(cfg.get("description"))
         return f"{name}（{tags}）：{detail}" if tags else f"{name}：{detail}"
 
+    @player_required
+    async def handle_technique_info(self, player: Player, event: AstrMessageEvent, name: str = ""):
+        """查看主修心法的主动绝技；不填名称时查看当前装备的心法。"""
+        query = (name or "").strip()
+        target = query or (getattr(player, "main_technique", "") or "")
+        if not target:
+            yield event.plain_result(
+                "💡 你尚未装备主修心法，无法查看当前绝技。\n"
+                f"用法：/{CMD_TECHNIQUE_INFO} <心法名>\n"
+                f"示例：/{CMD_TECHNIQUE_INFO} 庚金锐锋诀"
+            )
+            return
+
+        cfg = self._item_config(target)
+        if not cfg:
+            yield event.plain_result(f"未找到心法【{target}】，请检查名称。")
+            return
+        if cfg.get("type") != "main_technique":
+            if cfg.get("type") == "technique":
+                tip = f"【{target}】是普通功法，没有主动绝技。"
+            else:
+                tip = f"【{target}】不是主修心法，没有主动绝技。"
+            yield event.plain_result(
+                f"{tip}\n💡 使用 /物品信息 {target} 查看完整加成。"
+            )
+            return
+
+        skill = dict(cfg.get("active_skill") or {})
+        rank = str(cfg.get("rank", "") or "")
+        element = str(cfg.get("element", "") or "")
+        tags = "·".join(tag for tag in (rank, element) if tag)
+        lines = [f"📖 【心法绝技】{target}" + (f"（{tags}）" if tags else ""), "━━━━━━━━━━━━━━━"]
+        lines.extend(skill_summary_lines(skill) or ["该心法没有配置主动绝技。"])
+
+        passive = self.equipment_manager.describe_item_bonus(player, target)
+        if passive and passive != "无额外加成":
+            lines.append(f"被动：{passive}")
+
+        if getattr(player, "main_technique", "") == target:
+            current = int(getattr(player, "spiritual_qi", 0) or 0)
+            maximum = int(getattr(player, "max_spiritual_qi", 0) or 0)
+            lines.append(f"当前灵气：{current:,} / {maximum:,}")
+            try:
+                cost = int(skill.get("mp_cost") or 0)
+            except (TypeError, ValueError):
+                cost = 0
+            if cost and current < cost:
+                lines.append(f"⚠️ 当前灵气不足 {cost:,}，战斗中需先回蓝才能施展。")
+
+        lines.append("━━━━━━━━━━━━━━━")
+        lines.append(f"💡 /物品信息 {target} 查看完整属性；/我的装备 查看已装备心法")
+        yield event.plain_result("\n".join(lines))
+
     def _aggregate_effect_parts(self, player: Player) -> list:
         """汇总所有装备与词条的战斗特效，供“加成总览”使用。"""
         effects = self.equipment_manager.get_gear_effects(player)
@@ -306,6 +361,9 @@ class EquipmentHandler:
                 f"主修心法 {player.main_technique}{self._element_tag(player.main_technique)}："
                 f"{self.equipment_manager.describe_item_bonus(player, player.main_technique)}\n"
             )
+            main_skill = get_active_skill(self.config_manager, player.main_technique)
+            if main_skill:
+                equipment_lines.append(f"心法绝技 {skill_brief(main_skill)}\n")
         physical_damage_bonus = magic_damage_bonus = physical_defense_bonus = magic_defense_bonus = 0
         mental_power_bonus = max_spiritual_qi_bonus = exp_multiplier = 0
 
@@ -388,6 +446,9 @@ class EquipmentHandler:
                 equip_rows = gear_rows + [("主修心法",
                     f"{player.main_technique}{self._element_tag(player.main_technique)}"
                     if player.main_technique else "未装备")]
+                main_skill = get_active_skill(self.config_manager, player.main_technique)
+                if main_skill:
+                    equip_rows.append(("心法绝技", skill_brief(main_skill)))
                 if element_of(player.main_technique) or element_of(player.weapon):
                     equip_rows.append(("五行属性",
                         element_of(player.main_technique) or element_of(player.weapon)))

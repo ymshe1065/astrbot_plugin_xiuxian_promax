@@ -334,6 +334,23 @@ def get_next_unlock(level: int) -> Tuple[Optional[int], List[str]]:
     return next_level, locked[next_level]
 
 
+def get_next_level_unlock(level: int) -> Tuple[Optional[int], List[str]]:
+    """返回下一级的格数/肥力/灵草解锁内容；已满级返回 (None, [])。"""
+    level = int(level or 1)
+    next_level = level + 1
+    config = FARM_LEVELS.get(next_level)
+    if not config:
+        return None, []
+    parts = [
+        f"格数 {config['slots']}",
+        f"肥力上限 {config['max_fertility']}",
+    ]
+    herb_level, herbs = get_next_unlock(level)
+    if herbs and herb_level == next_level:
+        parts.append("灵草 " + "、".join(herbs))
+    return next_level, parts
+
+
 def requires_seed(herb_name: str) -> bool:
     """杂交灵草需消耗同名种苗才能种植"""
     return bool(SPIRIT_HERBS.get(herb_name, {}).get("hybrid_only"))
@@ -405,8 +422,15 @@ FARM_LEVELS = {
     2: {"slots": 5, "upgrade_cost": 15000, "max_fertility": 100},
     3: {"slots": 8, "upgrade_cost": 50000, "max_fertility": 160},
     4: {"slots": 12, "upgrade_cost": 150000, "max_fertility": 240},
-    5: {"slots": 20, "upgrade_cost": 0, "max_fertility": 400},  # 最高级
+    5: {"slots": 20, "upgrade_cost": 300000, "max_fertility": 400},
+    # v6.50.7：等级上限由 Lv.5 提升到 Lv.10，每级追加 4 格
+    6: {"slots": 24, "upgrade_cost": 600000, "max_fertility": 480},
+    7: {"slots": 28, "upgrade_cost": 1200000, "max_fertility": 560},
+    8: {"slots": 32, "upgrade_cost": 2400000, "max_fertility": 640},
+    9: {"slots": 36, "upgrade_cost": 4800000, "max_fertility": 720},
+    10: {"slots": 40, "upgrade_cost": 0, "max_fertility": 800},  # 最高级
 }
+MAX_FARM_LEVEL = max(FARM_LEVELS)
 
 # 施肥：恢复上限的 30%，成本固定 2000 灵石
 FERTILIZE_GAIN_RATIO = 0.30
@@ -575,7 +599,7 @@ class SpiritFarmManager:
             "种植格数：3\n"
             f"可种植：{unlocked}\n"
             "━━━━━━━━━━━━━━━\n"
-            "💡 升级灵田可解锁更高级的灵草"
+            "💡 升级灵田可解锁更高级的灵草与更多格数"
         )
     
     async def plant_herb(
@@ -1215,8 +1239,8 @@ class SpiritFarmManager:
             return False, "❌ 你还没有灵田！"
         
         current_level = farm["level"]
-        if current_level >= 5:
-            return False, "❌ 灵田已达最高等级！"
+        if current_level >= MAX_FARM_LEVEL:
+            return False, f"❌ 灵田已达最高等级 Lv.{MAX_FARM_LEVEL}！"
         
         level_config = FARM_LEVELS.get(current_level, FARM_LEVELS[1])
         cost = level_config["upgrade_cost"]
@@ -1250,9 +1274,11 @@ class SpiritFarmManager:
         msg_lines.append(f"🌱 肥力上限提升到 {new_max}（当前 {new_fertility}/{new_max}）")
         if unlocked:
             msg_lines.append(f"🌿 新解锁灵草：{'、'.join(unlocked)}")
-        next_level, next_herbs = get_next_unlock(new_level)
+        next_level, next_unlocks = get_next_level_unlock(new_level)
         if next_level is not None:
-            msg_lines.append(f"🔒 下一级 Lv.{next_level} 解锁：{'、'.join(next_herbs)}")
+            msg_lines.append(f"🔒 下一级 Lv.{next_level} 解锁：{'、'.join(next_unlocks)}")
+        else:
+            msg_lines.append(f"🏆 已达到灵田最高等级 Lv.{MAX_FARM_LEVEL}")
         return True, "\n".join(msg_lines)
     
     async def get_farm_info(self, user_id: str) -> str:
@@ -1285,9 +1311,11 @@ class SpiritFarmManager:
             f"{season['icon']} 当前季节：【{season['name']}】{season['change_text']}｜{season['desc']}",
             f"🌿 可种植：{'、'.join(get_herbs_for_level(farm_level))}",
         ]
-        next_level, next_herbs = get_next_unlock(farm_level)
+        next_level, next_unlocks = get_next_level_unlock(farm_level)
         if next_level is not None:
-            lines.append(f"🔒 Lv.{next_level} 解锁：{'、'.join(next_herbs)}")
+            lines.append(f"🔒 Lv.{next_level} 解锁：{'、'.join(next_unlocks)}")
+        else:
+            lines.append(f"🏆 已达灵田最高等级 Lv.{MAX_FARM_LEVEL}")
         normal_crop_count = sum(1 for c in crops if c.get("name") != HYBRID_MARKER)
         if normal_crop_count:
             gain = self.get_gain_per_fertilize(farm)

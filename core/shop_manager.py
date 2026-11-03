@@ -1597,6 +1597,8 @@ class ShopManager:
                 )
             if attrs:
                 details.append(f"效果: {', '.join(attrs)}")
+            from .technique_skill import skill_summary_lines
+            details.extend(skill_summary_lines(data.get("active_skill") or {}))
             details.append(f"适用境界: {self._format_applicable_realm(data)}")
 
         elif item_type == 'storage_ring':

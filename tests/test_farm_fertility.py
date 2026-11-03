@@ -151,18 +151,52 @@ class TestFarmFertility(unittest.IsolatedAsyncioTestCase):
     # ===== 肥力上限分级 =====
 
     def test_max_fertility_by_level(self):
-        expected = {1: 100, 2: 100, 3: 160, 4: 240, 5: 400}
+        expected = {
+            1: 100, 2: 100, 3: 160, 4: 240, 5: 400,
+            6: 480, 7: 560, 8: 640, 9: 720, 10: 800,
+        }
         for level, ceiling in expected.items():
             self.assertEqual(self.farm_mgr.get_max_fertility(level), ceiling)
             self.assertEqual(self.farm_mgr.get_max_fertility({"level": level}), ceiling)
         self.assertEqual(self.farm_mgr.get_max_fertility(None), 100)
         self.assertEqual(self.farm_mgr.get_max_fertility({"level": 99}), 100)
 
+    def test_slots_extend_to_level_ten(self):
+        expected = {
+            5: 20, 6: 24, 7: 28, 8: 32, 9: 36, 10: 40,
+        }
+        for level, slots in expected.items():
+            self.assertEqual(self.farm_mgr.get_max_slots({"level": level}), slots)
+        self.assertEqual(self.farm_mod.MAX_FARM_LEVEL, 10)
+
+    async def test_upgrade_from_level_five_to_six(self):
+        player = await self._new_player(gold=10_000_000)
+        await self._new_farm(level=5, fertility=400)
+
+        ok, msg = await self.farm_mgr.upgrade_farm(player)
+        self.assertTrue(ok, msg)
+        self.assertIn("Lv.6", msg)
+        self.assertIn("24", msg)
+        self.assertEqual(await self._fertility(), 480)
+        fresh = await self.db.get_player_by_id("u1")
+        self.assertEqual(fresh.gold, 10_000_000 - 300_000)
+
+    async def test_upgrade_stops_at_level_ten(self):
+        player = await self._new_player(gold=10_000_000)
+        await self._new_farm(level=10, fertility=800)
+
+        ok, msg = await self.farm_mgr.upgrade_farm(player)
+        self.assertFalse(ok)
+        self.assertIn("最高等级", msg)
+        self.assertIn("Lv.10", msg)
+        self.assertEqual(await self._fertility(), 800)
+
     def test_gain_per_fertilize_is_30_percent_of_cap(self):
         self.assertEqual(self.farm_mgr.get_gain_per_fertilize(1), 30)
         self.assertEqual(self.farm_mgr.get_gain_per_fertilize(3), 48)
         self.assertEqual(self.farm_mgr.get_gain_per_fertilize(4), 72)
         self.assertEqual(self.farm_mgr.get_gain_per_fertilize(5), 120)
+        self.assertEqual(self.farm_mgr.get_gain_per_fertilize(10), 240)
 
     # ===== 收获扣肥力 =====
 

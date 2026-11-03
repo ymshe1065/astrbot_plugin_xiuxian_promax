@@ -162,5 +162,32 @@ class TestBalanceFixes(unittest.IsolatedAsyncioTestCase):
             self.assertIn(self.ItemInstanceManager.roll_quality(), self.ItemInstanceManager.QUALITY_MULTIPLIER)
 
 
+class TestStorageRingProgression(unittest.TestCase):
+    """储物戒容量与境界门槛应平滑递增，避免后期出现断层。"""
+
+    @classmethod
+    def setUpClass(cls):
+        data = json.loads((ROOT / "config" / "storage_rings.json").read_text(encoding="utf-8"))
+        cls.rings = sorted(data.values(), key=lambda r: int(r["capacity"]))
+        cls.levels = json.loads((ROOT / "config" / "level_config.json").read_text(encoding="utf-8"))
+
+    def test_capacity_and_required_level_are_monotonic(self):
+        for prev, cur in zip(self.rings, self.rings[1:]):
+            self.assertGreater(int(cur["capacity"]), int(prev["capacity"]))
+            self.assertGreaterEqual(
+                int(cur["required_level_index"]), int(prev["required_level_index"])
+            )
+        for ring in self.rings:
+            self.assertLess(int(ring["required_level_index"]), len(self.levels))
+
+    def test_late_game_curve_has_no_big_gap(self):
+        late_rings = [r for r in self.rings if int(r["capacity"]) >= 200]
+        for prev, cur in zip(late_rings, late_rings[1:]):
+            ratio = int(cur["capacity"]) / int(prev["capacity"])
+            level_gap = int(cur["required_level_index"]) - int(prev["required_level_index"])
+            self.assertLessEqual(ratio, 1.5, f"{prev['name']} → {cur['name']} 容量跳涨过大")
+            self.assertLessEqual(level_gap, 3, f"{prev['name']} → {cur['name']} 境界间隔过大")
+
+
 if __name__ == "__main__":
     unittest.main()
