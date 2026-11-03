@@ -2,6 +2,7 @@
 """信息卡片渲染器 v3 - 国风绢帛·墨金·多字体层次"""
 from __future__ import annotations
 
+import json
 import os
 import re
 import uuid
@@ -508,10 +509,32 @@ def render_card(
         CARD_TEMP_DIR.mkdir(parents=True, exist_ok=True)
         out_path = CARD_TEMP_DIR / f"card_{uuid.uuid4().hex[:12]}.jpg"
         canvas.convert("RGB").save(str(out_path), format="JPEG", quality=92)
+        # 结构化 sidecar：网页端读同名字段直接原生渲染，不必再看位图
+        try:
+            payload = {
+                "bg": bg_name,
+                "title": title,
+                "subtitle": subtitle,
+                "sections": [
+                    {
+                        "name": sec.get("name", ""),
+                        "rows": [[str(lbl), str(val)] for lbl, val in sec.get("rows", [])],
+                        "lines": [str(x) for x in sec.get("lines", [])],
+                    }
+                    for sec in sections
+                ],
+                "footer": footer,
+            }
+            out_path.with_suffix(".json").write_text(
+                json.dumps(payload, ensure_ascii=False), encoding="utf-8"
+            )
+        except Exception:
+            pass
         try:
             cards = sorted(CARD_TEMP_DIR.glob("card_*.jpg"), key=os.path.getmtime)
             for old in cards[:-40]:
                 old.unlink(missing_ok=True)
+                old.with_suffix(".json").unlink(missing_ok=True)
         except Exception:
             pass
         return str(out_path)
