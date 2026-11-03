@@ -5,7 +5,7 @@
 - 等级与物品都挂在 ``players`` 上（``warehouse_level`` / ``warehouse_items``），
   不挂 ``blessed_lands``——洞天进阶是 DELETE + INSERT 重建整行，挂那张表会丢数据。
 - 等级上限由**当前洞天品质**决定，运行时不落库。
-- 容量单位与储物戒一致：可堆叠物品每种 1 格（数量不限），装备实例按体积逐件占格。
+- 容量单位与储物戒一致：可堆叠物品每格 50 个（超出占新格），装备实例按体积逐件占格。
 """
 
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
@@ -106,11 +106,11 @@ class WarehouseManager:
 
     def get_used_slots(self, player: Player) -> int:
         used = 0
-        for name in self.get_items(player):
+        for name, count in self.get_items(player).items():
             if self.storage_ring_manager.is_equipment_item(name):
                 used += self.storage_ring_manager._get_item_volume(name)
             else:
-                used += 1
+                used += self.storage_ring_manager.stack_slots(count)
         for inst in self.instance_manager.list_instances(player, "warehouse"):
             used += self.storage_ring_manager._get_item_volume(inst.get("name", ""))
         return used
@@ -318,16 +318,19 @@ class WarehouseManager:
         want = stacked if count is None else int(count)
         if want <= 0:
             return False, "❌ 取出数量必须大于 0。"
-        took = min(want, stacked)
-        if not self.storage_ring_manager.can_accept(fresh, name, took):
-            return False, self._space_error(fresh, name, took)
+
+        owned = int(ring_items.get(name, 0) or 0)
+        room = self._fit_count(owned, min(want, stacked), self.storage_ring_manager.get_available_slots(fresh))
+        if room <= 0:
+            return False, self._space_error(fresh, name, min(want, stacked))
+        took = min(want, stacked, room)
 
         left = stacked - took
         if left > 0:
             wh_items[name] = left
         else:
             wh_items.pop(name, None)
-        ring_items[name] = int(ring_items.get(name, 0) or 0) + took
+        ring_items[name] = owned + took
 
         lines = [
             "📤 取出成功",
@@ -336,7 +339,11 @@ class WarehouseManager:
         ]
         lines.append(f"仓库剩余：×{left}" if left > 0 else "仓库中该物品已清空")
         if took < want:
-            lines.append(f"⚠️ 仓库只有 ×{stacked}，已全部取出")
+            if stacked < want:
+                lines.append(f"⚠️ 仓库只有 ×{stacked}，已全部取出")
+            else:
+                left_slots = self.storage_ring_manager.get_available_slots(fresh)
+                lines.append(f"⚠️ 储物戒只剩 {left_slots} 格，只取了放得下的部分")
         return True, "\n".join(lines)
 
     def _take_instances(
@@ -388,21 +395,26 @@ class WarehouseManager:
 
     def _space_error(self, fresh: Player, name: str, count: int) -> str:
         available = self.storage_ring_manager.get_available_slots(fresh)
-        per = (
-            max(1, self.storage_ring_manager._get_item_volume(name))
-            if self.storage_ring_manager.is_equipment_item(name)
-            else 1
-        )
-        need = per * max(1, int(count or 1))
-        if not self.storage_ring_manager.is_equipment_item(name):
-            tail = "💡 该物品戒指里已有存货时可无限堆叠，占用 0 格，请检查物品种类。"
-        else:
+        count = max(1, int(count or 1))
+        if self.storage_ring_manager.is_equipment_item(name):
+            need = max(1, self.storage_ring_manager._get_item_volume(name)) * count
             tail = "💡 先 /一键回收 清掉占格物品，或分件取出。"
+        else:
+            owned = int(fresh.get_storage_ring_items().get(name, 0) or 0)
+            need = self.storage_ring_manager.extra_slots(owned, count)
+            tail = (
+                f"💡 每格堆叠 {StorageRingManager.STACK_LIMIT} 个，"
+                f"先 /一键回收 腾格子，或减少取出数量。"
+            )
         return (
             f"❌ 储物戒空间不足！\n"
             f"取出【{name}】需要 {need} 格，当前只剩 {available} 格。\n"
             f"{tail}"
         )
+
+    def _fit_count(self, owned: int, count: int, available: int) -> int:
+        """在 available 个空格下，还能往里放多少个可堆叠物品。"""
+        return max(0, min(int(count), self.storage_ring_manager.room_for(owned, available)))
 
     async def _transfer(
         self, player: Player, category: str, to_warehouse: bool
@@ -432,18 +444,24 @@ class WarehouseManager:
                 if count <= 0:
                     continue
 
-                if to_warehouse:
-                    # 仓库已有同名栈或还有空位即可整批转入
-                    fits = int(dst.get(name, 0) or 0) > 0 or self.get_available_slots(fresh) >= 1
-                else:
-                    fits = self.storage_ring_manager.can_accept(fresh, name, count)
-                if not fits:
+                # 每格 50 个：放不下的部分留在原处，能搬多少搬多少
+                owned_dst = int(dst.get(name, 0) or 0)
+                available_dst = (
+                    self.get_available_slots(fresh) if to_warehouse
+                    else self.storage_ring_manager.get_available_slots(fresh)
+                )
+                take = self._fit_count(owned_dst, count, available_dst)
+                if take <= 0:
                     skipped.append(f"{name}×{count}")
                     continue
 
-                del src[name]
-                dst[name] = int(dst.get(name, 0) or 0) + count
-                moved.append(f"{name}×{count}")
+                if take < count:
+                    src[name] = count - take
+                    skipped.append(f"{name}×{count - take}")
+                else:
+                    del src[name]
+                dst[name] = owned_dst + take
+                moved.append(f"{name}×{take}")
                 # 立即写回，后续容量判定才看得到本轮已占用的格数
                 fresh.set_storage_ring_items(ring_items)
                 fresh.set_warehouse_items(wh_items)

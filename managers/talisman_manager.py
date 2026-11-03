@@ -344,12 +344,16 @@ class TalismanManager:
                 default=99,
             )
             gold_cap = player.gold // params["gold_cost"] if params["gold_cost"] > 0 else 99
-            # 符箓可堆叠：已有同名符箓或还剩空位时，绘制张数不受格数限制（整批叠进 1 格）
+            # 符箓可堆叠但每格 50 张，绘制张数受剩余格位限制
             try:
                 held_same = int(held.get(name, 0) or 0)
             except (TypeError, ValueError):
                 held_same = 0
-            slot_cap = 99 if (held_same > 0 or slots >= 1) else 0
+            if self.storage_ring_manager:
+                slot_cap = min(99, self.storage_ring_manager.room_for(held_same, slots))
+            else:
+                slot_cap = 0
+            slot_cap = max(0, slot_cap)
             possible = max(0, min(mat_cap, gold_cap, slot_cap))
 
             gate_blocked = player.level_index < params["level_required"]
@@ -697,9 +701,14 @@ class TalismanManager:
             return False, f"❌ 绘制【{name}】需要达到境界等级 {level_required}。"
 
         rank = params["rank"]
-        # 可堆叠：本次产出的符箓全部叠进同一栈，只占 1 格
-        if not self.storage_ring_manager.can_accept(player, name, 1):
+        # 可堆叠但每格 50 张：绘制张数先夹到格位放得下的量，避免静默落溢出仓库
+        held_same = int(player.get_storage_ring_items().get(name, 0) or 0)
+        room = self.storage_ring_manager.room_for(
+            held_same, self.storage_ring_manager.get_available_slots(player)
+        )
+        if room <= 0:
             return False, "❌ 储物戒空间不足，绘制失败（符材未消耗）。"
+        count = min(count, room)
 
         prof = params["prof"]
         extra_rate = params["extra_rate"]

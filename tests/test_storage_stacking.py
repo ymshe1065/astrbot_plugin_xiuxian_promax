@@ -60,21 +60,28 @@ class _RingFixture(unittest.IsolatedAsyncioTestCase):
 
 
 class TestStacking(_RingFixture):
-    async def test_same_material_stacks_in_one_slot(self):
+    async def test_each_slot_holds_fifty(self):
+        """单格 50 个上限：100 个占 2 格，500 个占 10 格。"""
         p = await self._player()
         base = self.ring.get_used_slots(p)
         ok, msg = await self.ring.store_item(p, "玄铁", 100)
         self.assertTrue(ok, msg)
         p = await self.db.get_player_by_id("u1")
-        self.assertEqual(self.ring.get_used_slots(p), base + 1)
+        self.assertEqual(self.ring.get_used_slots(p), base + 2)
         self.assertEqual(p.get_storage_ring_items().get("玄铁"), 100)
 
-        # 继续叠加不占新格
-        ok, msg = await self.ring.store_item(p, "玄铁", 500)
+        # 继续叠加，超出 50 的部分逐格增加
+        ok, msg = await self.ring.store_item(p, "玄铁", 400)
         self.assertTrue(ok, msg)
         p = await self.db.get_player_by_id("u1")
-        self.assertEqual(self.ring.get_used_slots(p), base + 1)
-        self.assertEqual(p.get_storage_ring_items().get("玄铁"), 600)
+        self.assertEqual(self.ring.get_used_slots(p), base + 10)
+        self.assertEqual(p.get_storage_ring_items().get("玄铁"), 500)
+
+        # 500 → 550 刚好再占一格
+        ok, msg = await self.ring.store_item(p, "玄铁", 50)
+        self.assertTrue(ok, msg)
+        p = await self.db.get_player_by_id("u1")
+        self.assertEqual(self.ring.get_used_slots(p), base + 11)
 
     async def test_new_kind_takes_one_slot(self):
         p = await self._player()
@@ -85,19 +92,26 @@ class TestStacking(_RingFixture):
         p = await self.db.get_player_by_id("u1")
         self.assertEqual(self.ring.get_used_slots(p), base + 2)
 
-    async def test_full_ring_still_accepts_same_stack(self):
+    async def test_full_ring_accepts_within_same_slot(self):
+        """戒指满格时，未满 50 的那一格仍可继续叠加。"""
         p = await self._player()
         cap = self.ring.get_total_capacity(p)
-        p.storage_ring_items = json.dumps(
-            {f"测试材料{i}": 1 for i in range(cap)}, ensure_ascii=False
-        )
+        stack = {f"测试材料{i}": 1 for i in range(cap)}
+        stack["测试材料0"] = 30
+        p.storage_ring_items = json.dumps(stack, ensure_ascii=False)
         await self.db.update_player(p)
+        p = await self.db.get_player_by_id("u1")
         self.assertEqual(self.ring.get_available_slots(p), 0)
-        self.assertTrue(self.ring.can_accept(p, "测试材料0", 999))
-        ok, msg = await self.ring.store_item(p, "测试材料0", 999, allow_overflow=False)
+        self.assertEqual(self.ring.stack_slots(30), 1)
+
+        self.assertTrue(self.ring.can_accept(p, "测试材料0", 20))
+        ok, msg = await self.ring.store_item(p, "测试材料0", 20, allow_overflow=False)
         self.assertTrue(ok, msg)
         p = await self.db.get_player_by_id("u1")
-        self.assertEqual(p.get_storage_ring_items().get("测试材料0"), 1000)
+        self.assertEqual(p.get_storage_ring_items().get("测试材料0"), 50)
+
+        # 该格已满，再放一个就需要新格 → 拒绝
+        self.assertFalse(self.ring.can_accept(p, "测试材料0", 1))
 
     async def test_full_ring_rejects_new_kind(self):
         p = await self._player()
@@ -110,6 +124,23 @@ class TestStacking(_RingFixture):
         ok, msg = await self.ring.store_item(p, "玄铁", 1, allow_overflow=False)
         self.assertFalse(ok)
         self.assertIn("容量不足", msg)
+
+    async def test_slot_count_helpers(self):
+        """stack_slots / extra_slots / room_for 的边界值。"""
+        self.assertEqual(self.ring.stack_slots(0), 0)
+        self.assertEqual(self.ring.stack_slots(1), 1)
+        self.assertEqual(self.ring.stack_slots(50), 1)
+        self.assertEqual(self.ring.stack_slots(51), 2)
+        self.assertEqual(self.ring.stack_slots(120), 3)
+        # 从 49 加到 51：跨格，占 1 个新格；加到 101 占 2 个新格
+        self.assertEqual(self.ring.extra_slots(49, 2), 1)
+        self.assertEqual(self.ring.extra_slots(49, 52), 2)
+        self.assertEqual(self.ring.extra_slots(50, 50), 1)
+        # 剩余格能装多少
+        self.assertEqual(self.ring.room_for(0, 0), 0)
+        self.assertEqual(self.ring.room_for(0, 1), 50)
+        self.assertEqual(self.ring.room_for(30, 1), 70)
+        self.assertEqual(self.ring.room_for(50, 2), 100)
 
     async def test_equipment_still_takes_one_slot_each(self):
         p = await self._player()
@@ -129,7 +160,7 @@ class TestStacking(_RingFixture):
         # 装备不堆叠：按实例逐件占格（体积由配置的 volume 决定）
         self.assertEqual(self.ring.get_used_slots(p), base + vol * 3)
 
-    async def test_claim_overflow_takes_whole_stack(self):
+    async def test_claim_overflow_fills_one_slot(self):
         p = await self._player()
         cap = self.ring.get_total_capacity(p)
         p.storage_ring_items = json.dumps(
@@ -138,7 +169,7 @@ class TestStacking(_RingFixture):
         p.overflow_items = json.dumps({"玄铁": 5000}, ensure_ascii=False)
         await self.db.update_player(p)
 
-        # 腾出一格后整批取回（5000 个仍只占 1 格）
+        # 腾出一格只能取回 50 个，其余留在溢出仓库
         items = p.get_storage_ring_items()
         items.pop("测试材料0", None)
         p.set_storage_ring_items(items)
@@ -147,8 +178,17 @@ class TestStacking(_RingFixture):
         claimed, msg = await self.ring.claim_overflow(p)
         self.assertEqual(claimed, 1, msg)
         p = await self.db.get_player_by_id("u1")
-        self.assertEqual(p.get_storage_ring_items().get("玄铁"), 5000)
-        self.assertFalse(p.get_overflow_items())
+        self.assertEqual(p.get_storage_ring_items().get("玄铁"), 50)
+        self.assertEqual(p.get_overflow_items().get("玄铁"), 4950)
+        # 再腾一格可继续取回
+        items = p.get_storage_ring_items()
+        items.pop("测试材料1", None)
+        p.set_storage_ring_items(items)
+        await self.db.update_player(p)
+        await self.ring.claim_overflow(p)
+        p = await self.db.get_player_by_id("u1")
+        self.assertEqual(p.get_storage_ring_items().get("玄铁"), 100)
+        self.assertEqual(p.get_overflow_items().get("玄铁"), 4900)
 
 
 class TestEnchantNoCap(_RingFixture):

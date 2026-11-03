@@ -112,7 +112,7 @@ class StorageRingHandler:
             lines.append(f"\n{warning}\n")
 
         lines.append(f"\n{'=' * 28}\n")
-        lines.append("📦 材料/符箓/丹方可无限堆叠，每种只占 1 格\n")
+        lines.append(f"📦 材料/符箓/丹方每格堆叠 {StorageRingManager.STACK_LIMIT} 个，超出占新格\n")
         lines.append(f"回收：{CMD_RECYCLE_ITEM} 物品名 [数量]\n")
         lines.append(f"搜索：{CMD_SEARCH_ITEM} 关键词\n")
         lines.append(f"升级：{CMD_UPGRADE_RING} 储物戒名")
@@ -140,7 +140,7 @@ class StorageRingHandler:
                             ("容量", f"{ring_info['used']}/{ring_info['capacity']}"),
                             ("空间附魔", f"+{enchant}" if enchant else "无"),
                             ("剩余空间", f"{ring_info['available']}"),
-                            ("堆叠规则", "材料等每种占 1 格"),
+                            ("堆叠规则", f"每格 {StorageRingManager.STACK_LIMIT} 个"),
                         ]},
                         {"name": "物品清单", "rows": rows},
                     ],

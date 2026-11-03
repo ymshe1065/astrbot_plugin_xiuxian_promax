@@ -64,11 +64,11 @@ class TestOverflow(unittest.IsolatedAsyncioTestCase):
         await self.db.update_player(player)
         self.assertEqual(self.ring.get_available_slots(player), 0)
 
-        # 同种物品仍可无限叠加，不占新格
-        ok, msg = await self.ring.store_item(player, "测试材料0", 99, allow_overflow=False)
+        # 同种物品在该格未满 50 前仍可叠加，不占新格
+        ok, msg = await self.ring.store_item(player, "测试材料0", 49, allow_overflow=False)
         self.assertTrue(ok, msg)
         player = await self.db.get_player_by_id("u1")
-        self.assertEqual(player.get_storage_ring_items().get("测试材料0"), 100)
+        self.assertEqual(player.get_storage_ring_items().get("测试材料0"), 50)
 
         # 新种类才会挤爆容量
         ok, msg = await self.ring.store_item(player, "玄铁", 1)

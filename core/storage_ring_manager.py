@@ -16,12 +16,13 @@ class StorageRingManager:
 
     计容规则：
     - 装备按实例逐件占格（使用物品配置的 volume）
-    - 材料 / 符箓 / 丹方 / 杂物等可堆叠物品「每种占 1 格」，数量不设上限
+    - 材料 / 符箓 / 丹方 / 杂物等可堆叠物品「每格 50 个」，超出部分往下占新格
     - 丹药不占储物戒（走独立丹药背包）
     """
 
     PILL_TYPES = ["丹药"]
 
+    STACK_LIMIT = 50                 # 单格堆叠上限（存量与仓库共用）
     ENCHANT_ITEM = "空间石"          # 附魔材料
     ENCHANT_BONUS_PER_STONE = 5      # 每颗空间石 +5 容量
     # 空间附魔不设上限：容量只受空间石持有量限制
@@ -102,11 +103,42 @@ class StorageRingManager:
                 return 1
         return 1
 
+    @staticmethod
+    def stack_slots(count: int) -> int:
+        """可堆叠物品占格数：每 STACK_LIMIT（50）个占 1 格，不足一格按一格算。"""
+        try:
+            amount = int(count or 0)
+        except (TypeError, ValueError):
+            return 0
+        if amount <= 0:
+            return 0
+        limit = StorageRingManager.STACK_LIMIT
+        return (amount + limit - 1) // limit
+
+    def extra_slots(self, owned: int, add: int) -> int:
+        """从 owned 个增加到 owned + add 个需要的新增格数。"""
+        try:
+            owned = int(owned or 0)
+            add = int(add or 0)
+        except (TypeError, ValueError):
+            return 0
+        return self.stack_slots(owned + add) - self.stack_slots(owned)
+
+    def room_for(self, owned: int, available: int) -> int:
+        """available 个空格下，已有 owned 个时还能再放入多少个同类物品。"""
+        try:
+            owned = max(0, int(owned or 0))
+            available = max(0, int(available or 0))
+        except (TypeError, ValueError):
+            return 0
+        limit = self.STACK_LIMIT
+        return (self.stack_slots(owned) + available) * limit - owned
+
     def get_used_slots(self, player: Player) -> int:
         """获取已使用的容量数。
 
-        装备实例逐件计格；材料/符箓/丹方/杂物等可堆叠物品每种只占 1 格，
-        数量不设上限（同一物品堆到多少都只算 1 格）。
+        装备实例逐件计格；材料/符箓/丹方/杂物等可堆叠物品每 50 个占 1 格，
+        超出 50 的部分继续占新格（例如 120 个占 3 格）。
         """
         items = player.get_storage_ring_items()
         used_volume = 0
@@ -121,7 +153,7 @@ class StorageRingManager:
                 # 兼容旧存档中按名称堆叠的装备
                 used_volume += self._get_item_volume(item_name) * amount
             else:
-                used_volume += 1
+                used_volume += self.stack_slots(amount)
         for inst in self.instance_manager.list_instances(player, "storage"):
             used_volume += self._get_item_volume(inst.get("name", ""))
         return used_volume
@@ -134,7 +166,7 @@ class StorageRingManager:
     def can_accept(self, player: Player, item_name: str, count: int = 1) -> bool:
         """判断储物戒还能否再收下 count 个该物品（按堆叠规则计算占地）。
 
-        装备逐件占格；可堆叠物品已有同名栈时不占新格。
+        装备逐件占格；可堆叠物品每 50 个 1 格，已有存货时只需补足新增格数。
         """
         try:
             count = int(count or 0)
@@ -149,9 +181,7 @@ class StorageRingManager:
             owned = int(items.get(item_name, 0) or 0)
         except (TypeError, ValueError):
             owned = 0
-        if owned > 0:
-            return True
-        return self.get_available_slots(player) >= 1
+        return self.get_available_slots(player) >= self.extra_slots(owned, count)
 
     def get_space_warning(self, player: Player) -> Optional[str]:
         available = self.get_available_slots(player)
@@ -248,12 +278,12 @@ class StorageRingManager:
             if self.is_equipment_item(item_name):
                 required_volume = item_volume * count
             else:
-                # 可堆叠物品：已有同名栈时叠加不占新格，新种类占 1 格
+                # 可堆叠物品：每 50 个 1 格，已有存货时只算新增格数
                 try:
                     owned = int(items.get(item_name, 0) or 0)
                 except (TypeError, ValueError):
                     owned = 0
-                required_volume = 0 if owned > 0 else 1
+                required_volume = self.extra_slots(owned, count)
             available = self.get_available_slots(player)
 
             if available < required_volume:
@@ -348,12 +378,13 @@ class StorageRingManager:
                 if self.is_equipment_item(item_name):
                     fit = min(count, available // max(1, item_volume))
                 else:
-                    # 可堆叠物品：已有同名栈或还有空位就能整批取回（占 1 格）
+                    # 可堆叠物品：已有存货 + 剩余空格能装多少取多少（每格 50）
                     try:
                         owned = int(items.get(item_name, 0) or 0)
                     except (TypeError, ValueError):
                         owned = 0
-                    fit = count if (owned > 0 or available >= 1) else 0
+                    room = (self.stack_slots(owned) + available) * self.STACK_LIMIT - owned
+                    fit = max(0, min(count, room))
                 if fit > 0:
                     # 兼容旧格式：旧溢出记录只有名称和数量，无法恢复品质
                     if self.is_pill(item_name):

@@ -157,7 +157,8 @@ class TestWarehouseTransfer(_Base):
         p = await self.db.get_player_by_id("u1")
         self.assertEqual(p.get_storage_ring_items(), {})
         self.assertEqual(p.get_warehouse_items().get("玄铁"), 500)
-        self.assertEqual(self.wh.get_used_slots(p), 2)
+        # 每格 50：玄铁 500 占 10 格，灵草 20 占 1 格
+        self.assertEqual(self.wh.get_used_slots(p), 11)
         self.assertEqual(self.ring.get_used_slots(p), 0)
         self.assertLess(self.ring.get_used_slots(p), ring_used)
 
@@ -166,6 +167,34 @@ class TestWarehouseTransfer(_Base):
         p = await self.db.get_player_by_id("u1")
         self.assertEqual(p.get_storage_ring_items().get("玄铁"), 500)
         self.assertEqual(p.get_warehouse_items(), {})
+
+    async def test_warehouse_slots_count_every_fifty(self):
+        """仓库与储物戒同规则：每格 50 个，超出占新格。"""
+        p = await self.db.get_player_by_id("u1")
+        p.warehouse_items = json.dumps({"玄铁": 120, "灵草": 30}, ensure_ascii=False)
+        await self.db.update_player(p)
+        p = await self.db.get_player_by_id("u1")
+        # 玄铁 120 → 3 格，灵草 30 → 1 格
+        self.assertEqual(self.wh.get_used_slots(p), 4)
+        self.assertEqual(self.wh.get_available_slots(p), 46)
+
+    async def test_transfer_partial_when_warehouse_has_one_slot(self):
+        """仓库只剩 1 格时，一键转移只搬得下 50 个，其余留在储物戒。"""
+        p = self.p
+        p.warehouse_items = json.dumps(
+            {f"填充{i}": 1 for i in range(49)}, ensure_ascii=False
+        )
+        await self.db.update_player(p)
+        p = await self.db.get_player_by_id("u1")
+        await self.ring.store_item(p, "玄铁", 120)
+        p = await self.db.get_player_by_id("u1")
+
+        ok, msg = await self.wh.transfer_in(p)
+        self.assertTrue(ok, msg)
+        p = await self.db.get_player_by_id("u1")
+        self.assertEqual(p.get_warehouse_items().get("玄铁"), 50)
+        self.assertEqual(p.get_storage_ring_items().get("玄铁"), 70)
+        self.assertIn("70", msg)
 
     async def test_transfer_by_category(self):
         p = self.p
@@ -599,6 +628,23 @@ class TestTakeItem(_Base):
         ok, msg = await self.wh.transfer_out_item(p, "不存在的东西", 1)
         self.assertFalse(ok)
         self.assertIn("没有", msg)
+
+    async def test_take_partial_when_ring_has_one_slot(self):
+        """戒指只剩 1 格时，取全部也只能取 50 个，其余留在仓库。"""
+        p = await self._stock({"玄铁": 500})
+        cap = self.ring.get_total_capacity(p)
+        p.storage_ring_items = json.dumps(
+            {f"占位{i}": 1 for i in range(cap - 1)}, ensure_ascii=False
+        )
+        await self.db.update_player(p)
+        p = await self.db.get_player_by_id("u1")
+
+        ok, msg = await self.wh.transfer_out_item(p, "玄铁")
+        self.assertTrue(ok, msg)
+        p = await self.db.get_player_by_id("u1")
+        self.assertEqual(p.get_storage_ring_items().get("玄铁"), 50)
+        self.assertEqual(p.get_warehouse_items().get("玄铁"), 450)
+        self.assertIn("放得下的部分", msg)
 
     async def test_take_zero_rejected(self):
         p = await self._stock({"玄铁": 5})

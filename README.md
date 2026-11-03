@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v6.54.0 (单件精确取出)
+# AstrBot 插件：模拟修仙 v6.55.0 (单格50堆叠上限)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v6.54.0-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v6.55.0-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.33.14 · **游戏版本:** v6.54.0 · **数据库:** v57
+> **插件版本:** v3.33.14 · **游戏版本:** v6.55.0 · **数据库:** v57
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，234 条帮助指令 / 234 条注册指令、16 个大系统、110 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,21 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · v6.54.0（单件精确取出）</b></summary>
+<summary><b>本次更新 · v6.55.0（单格 50 堆叠上限）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 容量规则反转 | v6.51.0 的「每种 1 格、数量不限」改为**每格最多 50 个**：储物戒与仓库同规则，超出部分继续占新格（120 个玄铁 = 3 格，500 个 = 10 格）。装备仍按实例逐件占格。 |
+| 判定同步 | `get_used_slots`（戒指/仓库）、`store_item` 容量预检、`can_accept`、`claim_overflow` 全部改按 `ceil(数量/50)` 计容，并新增 `stack_slots` / `extra_slots` / `room_for` 三个工具方法统一口径。 |
+| 转移与取出 | 一键转移与 `/取出` 改为**能搬多少搬多少**：仓库只剩 1 格时，120 个材料只转 50 个，其余留在原处并在回执里报剩余数，不再整批失败。 |
+| 制符 | `/符箓书` 的可画张数与 `/制符` 的实际张数都受格位限制（每格 50 张），避免产出静默落进溢出仓库。 |
+| 面板文案 | `/储物戒` 底部与卡片「堆叠规则」改为「每格 50 个」，帮助页同步。 |
+| 测试 | 反转 6 个按「每种 1 格」写的用例，新增 `stack_slots/extra_slots/room_for` 边界、仓库跨格计容、仓库仅剩 1 格的部分转移、戒指仅剩 1 格的部分取出共 4 例，全量 **822 例**通过。 |
+
+</details>
+
+<details>
+<summary><b>v6.54.0（单件精确取出）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |
@@ -96,7 +110,7 @@
 | 一键转移 / 取回 | `/一键转移 [材料\|符箓\|丹方\|装备]` 把储物戒物品搬进仓库，`/一键取回` 反向。**装备实例也支持**（`location="warehouse"`，品质与词条原样保留）。仓库满时只搬能放下的，剩下的留在原处并列出清单。 |
 | 一键回收（两步） | `/一键回收` 只出预览（种类、数量、预计灵石），需再发 `/一键回收 确认` 才执行。**装备默认跳过**，单价 ≥10,000 灵石的物品默认保留（避免误卖帝品材料），预览 60 秒内有效。 |
 | 统一取物层 | 仓库不是"只能看"的地方：`retrieve_item` / `discard_item` / `get_item_count` 全部加仓库兜底，炼丹、制符、附魔、灵兽喂养、坊市上架都能直接吃仓库里的材料，不需要先取回来。炼丹/制符这两个"先规划后落库"的路径改为同时扣两个容器。（**v6.53.0 起作废**：仓库物品必须先取出，见上） |
-| 容量兜底 | 仓库按同一套堆叠规则计容：材料每种 1 格、装备按体积逐件占格，与储物戒规则一致，不会出现"同一件东西在两边占格不一样"。 |
+| 容量兜底 | 仓库按同一套堆叠规则计容：材料每种 1 格（**v6.55.0 起为每格 50 个**）、装备按体积逐件占格，与储物戒规则一致，不会出现"同一件东西在两边占格不一样"。 |
 | 测试 | 新增 `tests/test_warehouse.py`（24 例：开通/升级/上限/进阶不丢、转移与取回、仓库满降级、跨容器扣料、两步回收），全量 **777 例**通过。 |
 
 </details>
@@ -106,7 +120,7 @@
 
 | 范围 | 变更 |
 | --- | --- |
-| 无限堆叠 | 材料 / 符箓 / 丹方 / 杂物改为**每种只占 1 格、数量不限**：1000 个玄铁 = 1 格，30 颗空间石从 30 格降为 1 格。装备仍按实例逐件占格，丹药仍走独立背包。 |
+| 无限堆叠 | 材料 / 符箓 / 丹方 / 杂物改为**每种只占 1 格、数量不限**：1000 个玄铁 = 1 格，30 颗空间石从 30 格降为 1 格。装备仍按实例逐件占格，丹药仍走独立背包。**v6.55.0 起作废**：改为每格最多 50 个。 |
 | 容量判定同步 | 不止改显示：`get_used_slots` 之外，`store_item` 的容量预检（原 `volume × count`，掉 100 个材料会误判占 100 格）与 `/领取溢出` 的批量取回一并改为按「新种类占 1 格」计算，否则堆叠只是数字好看。 |
 | 附魔解除上限 | 删除 `ENCHANT_MAX = 50` 硬上限，空间石可无限叠加扩容（每颗 +5 格），仅受持有量限制；本批附魔会提示消耗数量。 |
 | 换戒附魔保留 | 实测确认附魔存在 `permanent_bonus.storage_enchant`，**随人不随戒**：玄铁戒（50）附魔 +50 → 换星辰戒（80）总容量 130 → 换乾坤戒（120）总容量 170，换戒不丢。 |

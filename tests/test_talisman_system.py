@@ -59,6 +59,8 @@ class _FakeDB:
 class _FakeRing:
     """储物戒替身：只关心已用槽位，避免测试依赖完整 StorageRingManager。"""
 
+    STACK_LIMIT = 50
+
     def __init__(self):
         self.stored = {}
 
@@ -67,6 +69,9 @@ class _FakeRing:
 
     def can_accept(self, player, item_name, count=1):
         return True
+
+    def room_for(self, owned, available):
+        return max(0, int(available or 0) * self.STACK_LIMIT) + (self.STACK_LIMIT - int(owned or 0) % self.STACK_LIMIT) % self.STACK_LIMIT
 
     async def store_item(self, player, name, count=1, silent=False, **kwargs):
         items = player.get_storage_ring_items()
