@@ -590,6 +590,8 @@ input:focus, textarea:focus { outline: none; }
   .main.panel-hidden { grid-template-columns: 1fr; }
   .topbar { padding: 9px 13px; }
   .only-desktop { display: none; }
+  /* 移动端由底部导航切换，隐藏看板内重复的 Tab 条，避免两套切换器并存 */
+  .panel-tabs { display: none; }
   .msgs { padding: 12px 13px 6px; gap: 9px; }
   .msg { max-width: 88%; }
   .msg.bot { max-width: 94%; }

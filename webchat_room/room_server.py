@@ -64,11 +64,23 @@ def online_players(room_id: str) -> list[str]:
 # ---------- 生命周期 ----------
 
 
+@web.middleware
+async def _cache_control(request: web.Request, handler):
+    """静态资源走协商缓存：ETag 命中返回 304，改动后立刻拉新的。
+
+    不设 Cache-Control 时浏览器会启发式强缓存，改完代码用户刷新也看不到变化。
+    """
+    resp = await handler(request)
+    if request.path.startswith("/static/"):
+        resp.headers["Cache-Control"] = "no-cache, must-revalidate"
+    return resp
+
+
 async def start(host: str, port: int) -> None:
     global _runner, _site
     if _site is not None:
         return
-    app = web.Application()
+    app = web.Application(middlewares=[_cache_control])
     app.router.add_get("/", _index)
     app.router.add_get("/api/commands", _api_commands)
     app.router.add_get("/api/health", _api_health)
@@ -204,8 +216,29 @@ def _drop(room_id: str, ws: web.WebSocketResponse) -> None:
 _INDEX_HTML = STATIC_DIR / "index.html"
 
 
+def _asset_ver() -> str:
+    """静态资源版本号取三者 mtime 最大值，任一文件改动即失效旧缓存。"""
+    latest = 0.0
+    for name in ("index.html", "app.css", "app.js"):
+        path = STATIC_DIR / name
+        if path.exists():
+            latest = max(latest, path.stat().st_mtime)
+    return str(int(latest))
+
+
 async def _index(_request: web.Request) -> web.Response:
-    return web.FileResponse(_INDEX_HTML)
+    try:
+        html = _INDEX_HTML.read_text(encoding="utf-8").replace(
+            "__ASSET_VER__", _asset_ver()
+        )
+    except OSError:
+        return web.FileResponse(_INDEX_HTML)
+    return web.Response(
+        text=html,
+        content_type="text/html",
+        charset="utf-8",
+        headers={"Cache-Control": "no-cache, must-revalidate"},
+    )
 
 
 async def _api_commands(_request: web.Request) -> web.Response:
