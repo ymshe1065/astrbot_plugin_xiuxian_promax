@@ -344,7 +344,12 @@ class TalismanManager:
                 default=99,
             )
             gold_cap = player.gold // params["gold_cost"] if params["gold_cost"] > 0 else 99
-            slot_cap = slots // params["volume"] if params["volume"] > 0 else 99
+            # 符箓可堆叠：已有同名符箓或还剩空位时，绘制张数不受格数限制（整批叠进 1 格）
+            try:
+                held_same = int(held.get(name, 0) or 0)
+            except (TypeError, ValueError):
+                held_same = 0
+            slot_cap = 99 if (held_same > 0 or slots >= 1) else 0
             possible = max(0, min(mat_cap, gold_cap, slot_cap))
 
             gate_blocked = player.level_index < params["level_required"]
@@ -352,13 +357,12 @@ class TalismanManager:
                 possible = 0
             if possible > 0:
                 craftable += 1
-                total_possible += possible * params["volume"]
+                total_possible += possible
 
             held_note = f"｜持有{held.get(name, 0)}张" if held.get(name) else ""
             lines.append(
                 f"· {name}（{params['rank']}）{held_note}\n"
-                f"  成功率 {params['success_rate']:.0f}%｜工费 {params['gold_cost']:,}/张"
-                f"｜每张占 {params['volume']} 格"
+                f"  成功率 {params['success_rate']:.0f}%｜工费 {params['gold_cost']:,}/张｜可堆叠"
             )
 
             mat_parts = []
@@ -637,8 +641,8 @@ class TalismanManager:
             return False, f"❌ 绘制【{name}】需要达到境界等级 {level_required}。"
 
         rank = params["rank"]
-        volume = params["volume"]
-        if self.storage_ring_manager.get_available_slots(player) < volume:
+        # 可堆叠：本次产出的符箓全部叠进同一栈，只占 1 格
+        if not self.storage_ring_manager.can_accept(player, name, 1):
             return False, "❌ 储物戒空间不足，绘制失败（符材未消耗）。"
 
         prof = params["prof"]
@@ -655,8 +659,6 @@ class TalismanManager:
         # 逐张结算：扣料 → 扣灵石 → 判成功，材料耗尽即停并回报已完成张数
         for _ in range(count):
             if player.gold < unit_gold:
-                break
-            if self.storage_ring_manager.get_available_slots(player) < volume:
                 break
             ok, msg, consumed = self._consume_materials(player, recipe)
             if not ok:
@@ -677,8 +679,6 @@ class TalismanManager:
         if attempted == 0:
             if player.gold < unit_gold:
                 return False, f"❌ 灵石不足！绘制【{name}】需要 {unit_gold:,} 灵石（你有 {player.gold:,}）。"
-            if self.storage_ring_manager.get_available_slots(player) < volume:
-                return False, "❌ 储物戒空间不足，绘制失败（符材未消耗）。"
             return False, "❌ 符材不足，无法绘制。"
 
         # 熟练点：成功按张数×品阶系数，失败按 50% 给，否则新手永远练不起来

@@ -12,13 +12,19 @@ if TYPE_CHECKING:
 
 
 class StorageRingManager:
-    """储物戒管理器 - 容量制（支持空间附魔扩容）"""
+    """储物戒管理器 - 容量制（支持空间附魔扩容）
+
+    计容规则：
+    - 装备按实例逐件占格（使用物品配置的 volume）
+    - 材料 / 符箓 / 丹方 / 杂物等可堆叠物品「每种占 1 格」，数量不设上限
+    - 丹药不占储物戒（走独立丹药背包）
+    """
 
     PILL_TYPES = ["丹药"]
 
     ENCHANT_ITEM = "空间石"          # 附魔材料
     ENCHANT_BONUS_PER_STONE = 5      # 每颗空间石 +5 容量
-    ENCHANT_MAX = 50                 # 附魔上限（+50 容量）
+    # 空间附魔不设上限：容量只受空间石持有量限制
 
     def __init__(self, db: "DataBase", config_manager: "ConfigManager"):
         self.db = db
@@ -41,22 +47,18 @@ class StorageRingManager:
         return self.get_ring_capacity(player.storage_ring) + self.get_enchant_bonus(player)
 
     async def enchant_ring(self, player: Player, stone_count: int = 1) -> Tuple[bool, str]:
-        """空间附魔：消耗空间石永久扩充储物戒容量"""
+        """空间附魔：消耗空间石永久扩充储物戒容量（不设上限）"""
         if stone_count <= 0:
             return False, "❌ 请输入有效的空间石数量。"
 
         current_enchant = self.get_enchant_bonus(player)
-        if current_enchant >= self.ENCHANT_MAX:
-            return False, f"❌ 空间附魔已达上限（+{self.ENCHANT_MAX}容量）。"
-
-        stones_usable = min(stone_count, (self.ENCHANT_MAX - current_enchant) // self.ENCHANT_BONUS_PER_STONE)
-        if stones_usable <= 0:
-            return False, f"❌ 剩余可附魔空间不足 {self.ENCHANT_BONUS_PER_STONE} 点，无法继续。"
-
-        need = stones_usable
+        need = int(stone_count)
         if not self.has_item(player, self.ENCHANT_ITEM, need):
             have = self.get_item_count(player, self.ENCHANT_ITEM)
-            return False, f"❌ 空间石不足（拥有 {have}，需要 {need}）。"
+            return False, (
+                f"❌ 空间石不足（拥有 {have}，需要 {need}）。\n"
+                f"每颗空间石可扩容 +{self.ENCHANT_BONUS_PER_STONE} 格。"
+            )
 
         success, msg = await self.retrieve_item(player, self.ENCHANT_ITEM, need)
         if not success:
@@ -101,11 +103,25 @@ class StorageRingManager:
         return 1
 
     def get_used_slots(self, player: Player) -> int:
-        """获取已使用的容量数（含装备实例）"""
+        """获取已使用的容量数。
+
+        装备实例逐件计格；材料/符箓/丹方/杂物等可堆叠物品每种只占 1 格，
+        数量不设上限（同一物品堆到多少都只算 1 格）。
+        """
         items = player.get_storage_ring_items()
         used_volume = 0
         for item_name, count in items.items():
-            used_volume += self._get_item_volume(item_name) * int(count or 0)
+            try:
+                amount = int(count or 0)
+            except (TypeError, ValueError):
+                amount = 0
+            if amount <= 0:
+                continue
+            if self.is_equipment_item(item_name):
+                # 兼容旧存档中按名称堆叠的装备
+                used_volume += self._get_item_volume(item_name) * amount
+            else:
+                used_volume += 1
         for inst in self.instance_manager.list_instances(player, "storage"):
             used_volume += self._get_item_volume(inst.get("name", ""))
         return used_volume
@@ -115,15 +131,37 @@ class StorageRingManager:
         used = self.get_used_slots(player)
         return max(0, capacity - used)
 
+    def can_accept(self, player: Player, item_name: str, count: int = 1) -> bool:
+        """判断储物戒还能否再收下 count 个该物品（按堆叠规则计算占地）。
+
+        装备逐件占格；可堆叠物品已有同名栈时不占新格。
+        """
+        try:
+            count = int(count or 0)
+        except (TypeError, ValueError):
+            count = 0
+        if count <= 0:
+            return True
+        if self.is_equipment_item(item_name):
+            return self.get_available_slots(player) >= self._get_item_volume(item_name) * count
+        items = player.get_storage_ring_items()
+        try:
+            owned = int(items.get(item_name, 0) or 0)
+        except (TypeError, ValueError):
+            owned = 0
+        if owned > 0:
+            return True
+        return self.get_available_slots(player) >= 1
+
     def get_space_warning(self, player: Player) -> Optional[str]:
         available = self.get_available_slots(player)
         capacity = self.get_total_capacity(player)
         used = self.get_used_slots(player)
 
         if available <= 0:
-            return f"⚠️ 储物戒已满！({used}/{capacity}容量)"
+            return f"⚠️ 储物戒已满！({used}/{capacity}格)"
         elif available <= capacity * 0.2:
-            return f"⚠️ 储物戒空间不足！仅剩{available}容量({used}/{capacity}容量)"
+            return f"⚠️ 储物戒空间不足！仅剩{available}格({used}/{capacity}格)"
         return None
 
     GEAR_TYPES = {"weapon", "armor", "head", "body", "boots", "gloves", "ring", "amulet", "accessory"}
@@ -205,11 +243,19 @@ class StorageRingManager:
                 player = fresh_player
                 
             items = player.get_storage_ring_items()
-            
+
             item_volume = self._get_item_volume(item_name)
-            required_volume = item_volume * count
+            if self.is_equipment_item(item_name):
+                required_volume = item_volume * count
+            else:
+                # 可堆叠物品：已有同名栈时叠加不占新格，新种类占 1 格
+                try:
+                    owned = int(items.get(item_name, 0) or 0)
+                except (TypeError, ValueError):
+                    owned = 0
+                required_volume = 0 if owned > 0 else 1
             available = self.get_available_slots(player)
-            
+
             if available < required_volume:
                 if allow_overflow:
                     if self.is_equipment_item(item_name):
@@ -232,7 +278,9 @@ class StorageRingManager:
                 if not external_transaction:
                     await self.db.conn.rollback()
                 capacity = self.get_total_capacity(player)
-                return False, f"储物戒容量不足！需要 {required_volume}，仅剩 {available}（上限{capacity}）"
+                return False, (
+                    f"储物戒容量不足！还需要 {required_volume} 格，仅剩 {available} 格（上限 {capacity} 格）"
+                )
 
             if self.is_equipment_item(item_name):
                 self.instance_manager.create_instances(
@@ -248,7 +296,7 @@ class StorageRingManager:
                 used = self.get_used_slots(player)
                 if silent:
                     return True, ""
-                return True, f"已将【{item_name}】x{count} 存入储物戒（{used}/{capacity}容量）"
+                return True, f"已将【{item_name}】x{count} 存入储物戒（{used}/{capacity}格）"
 
             items[item_name] = items.get(item_name, 0) + count
             player.set_storage_ring_items(items)
@@ -266,7 +314,7 @@ class StorageRingManager:
                 return True, ""
 
             warning = self.get_space_warning(player)
-            msg = f"已将【{item_name}】x{count} 存入储物戒（{used}/{capacity}容量）"
+            msg = f"已将【{item_name}】x{count} 存入储物戒（{used}/{capacity}格）"
             if warning:
                 msg += f"\n{warning}"
             return True, msg
@@ -297,7 +345,15 @@ class StorageRingManager:
                     continue
                 item_volume = self._get_item_volume(item_name)
                 available = self.get_available_slots(fresh)
-                fit = min(count, available // max(1, item_volume))
+                if self.is_equipment_item(item_name):
+                    fit = min(count, available // max(1, item_volume))
+                else:
+                    # 可堆叠物品：已有同名栈或还有空位就能整批取回（占 1 格）
+                    try:
+                        owned = int(items.get(item_name, 0) or 0)
+                    except (TypeError, ValueError):
+                        owned = 0
+                    fit = count if (owned > 0 or available >= 1) else 0
                 if fit > 0:
                     # 兼容旧格式：旧溢出记录只有名称和数量，无法恢复品质
                     if self.is_pill(item_name):
@@ -362,7 +418,7 @@ class StorageRingManager:
                     await self.db.conn.commit()
                     capacity = self.get_total_capacity(player)
                     used = self.get_used_slots(player)
-                    return True, f"已从储物戒取出【{item_name}】x{count}（{used}/{capacity}容量）"
+                    return True, f"已从储物戒取出【{item_name}】x{count}（{used}/{capacity}格）"
                 # 兼容旧名称堆叠
                 legacy = int(items.get(item_name, 0) or 0)
                 if legacy >= count:
@@ -399,7 +455,7 @@ class StorageRingManager:
 
             capacity = self.get_total_capacity(player)
             used = self.get_used_slots(player)
-            return True, f"已从储物戒取出【{item_name}】x{count}（{used}/{capacity}容量）"
+            return True, f"已从储物戒取出【{item_name}】x{count}（{used}/{capacity}格）"
         except Exception:
             await self.db.conn.rollback()
             raise
@@ -424,7 +480,7 @@ class StorageRingManager:
                     await self.db.conn.commit()
                     capacity = self.get_total_capacity(player)
                     used = self.get_used_slots(player)
-                    return True, f"已丢弃【{item_name}】x{count}（{used}/{capacity}容量）"
+                    return True, f"已丢弃【{item_name}】x{count}（{used}/{capacity}格）"
                 legacy = int(items.get(item_name, 0) or 0)
                 if legacy >= count:
                     if legacy <= count:
@@ -462,7 +518,7 @@ class StorageRingManager:
 
             capacity = self.get_total_capacity(player)
             used = self.get_used_slots(player)
-            return True, f"已丢弃【{item_name}】x{discard_count}（{used}/{capacity}容量）"
+            return True, f"已丢弃【{item_name}】x{discard_count}（{used}/{capacity}格）"
         except Exception:
             await self.db.conn.rollback()
             raise

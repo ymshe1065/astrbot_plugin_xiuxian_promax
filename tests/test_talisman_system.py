@@ -65,6 +65,9 @@ class _FakeRing:
     def get_available_slots(self, player):
         return 99
 
+    def can_accept(self, player, item_name, count=1):
+        return True
+
     async def store_item(self, player, name, count=1, silent=False, **kwargs):
         items = player.get_storage_ring_items()
         items[name] = items.get(name, 0) + int(count)

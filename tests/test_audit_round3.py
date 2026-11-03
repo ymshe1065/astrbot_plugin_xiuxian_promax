@@ -36,8 +36,11 @@ class TestGiftAndRing(unittest.IsolatedAsyncioTestCase):
         sender = await self._player("sender")
         receiver = await self._player("receiver")
         # 把赠送者储物戒塞满，退回时应进入溢出仓库而不是被忽略
+        # 可堆叠物品每种只占 1 格，因此用 capacity 种不同物品占满
         capacity = self.ring.get_total_capacity(sender)
-        sender.storage_ring_items = json.dumps({"灵草": capacity}, ensure_ascii=False)
+        sender.storage_ring_items = json.dumps(
+            {f"测试材料{i}": 1 for i in range(capacity)}, ensure_ascii=False
+        )
         await self.db.update_player(sender)
         await self.db.ext.create_pending_gift(
             receiver_id="receiver", sender_id="sender", sender_name="sender",
@@ -67,7 +70,7 @@ class TestGiftAndRing(unittest.IsolatedAsyncioTestCase):
         ok, msg = await self.ring.retrieve_item(p, "玄铁", 1)
         self.assertTrue(ok, msg)
         total = self.ring.get_total_capacity(p)
-        self.assertIn(f"/{total}容量", msg)
+        self.assertIn(f"/{total}格", msg)
         p = await self.db.get_player_by_id("u1")
         self.assertLessEqual(self.ring.get_used_slots(p), total)
 

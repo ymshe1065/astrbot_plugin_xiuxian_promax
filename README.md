@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v6.50.4 (符箓时长与我的状态)
+# AstrBot 插件：模拟修仙 v6.51.0 (储物戒堆叠与附魔解禁)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v6.50.4-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v6.51.0-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.33.10 · **游戏版本:** v6.50.4 · **数据库:** v57
+> **插件版本:** v3.33.11 · **游戏版本:** v6.51.0 · **数据库:** v57
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，233 条帮助指令 / 233 条注册指令、16 个大系统、110 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,22 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · v6.50.4（符箓时长与我的状态）</b></summary>
+<summary><b>本次更新 · v6.51.0（储物戒堆叠与附魔解禁）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 无限堆叠 | 材料 / 符箓 / 丹方 / 杂物改为**每种只占 1 格、数量不限**：1000 个玄铁 = 1 格，30 颗空间石从 30 格降为 1 格。装备仍按实例逐件占格，丹药仍走独立背包。 |
+| 容量判定同步 | 不止改显示：`get_used_slots` 之外，`store_item` 的容量预检（原 `volume × count`，掉 100 个材料会误判占 100 格）与 `/领取溢出` 的批量取回一并改为按「新种类占 1 格」计算，否则堆叠只是数字好看。 |
+| 附魔解除上限 | 删除 `ENCHANT_MAX = 50` 硬上限，空间石可无限叠加扩容（每颗 +5 格），仅受持有量限制；本批附魔会提示消耗数量。 |
+| 换戒附魔保留 | 实测确认附魔存在 `permanent_bonus.storage_enchant`，**随人不随戒**：玄铁戒（50）附魔 +50 → 换星辰戒（80）总容量 130 → 换乾坤戒（120）总容量 170，换戒不丢。 |
+| 绘符容量判定 | 制符的逐张容量预检改为「整批产出叠进 1 格」，避免满格时明明能叠加却提示空间不足；`/符箓书` 的「每张占 X 格」改为「可堆叠」。 |
+| 文案与帮助 | 全站「X/Y容量」统一为「X/Y格」，储物戒面板新增「堆叠规则」行；`/储物戒` 底部提示材料可堆叠。 |
+| 测试 | 新增 `tests/test_storage_stacking.py`（10 例：堆叠计容 / 满格叠加 / 溢出整批取回 / 附魔无上限 / 换戒保留），同步修正 3 个依赖旧计容语义的历史用例，全量 **753 例**通过。 |
+
+</details>
+
+<details>
+<summary><b>v6.50.4（符箓时长与我的状态）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |
