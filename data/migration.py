@@ -372,6 +372,9 @@ async def _ensure_latest_columns(conn: aiosqlite.Connection):
     await _add_column_if_missing(conn, "players", "equipment_instances", "TEXT NOT NULL DEFAULT '[]'")
     await _add_column_if_missing(conn, "players", "equipped_instances", "TEXT NOT NULL DEFAULT '{}'")
     await _add_column_if_missing(conn, "players", "luck", "INTEGER NOT NULL DEFAULT 0")
+    # 洞天仓库（藏宝阁）：等级 0 表示未开通；物品挂玩家身上，进阶洞天不会丢
+    await _add_column_if_missing(conn, "players", "warehouse_level", "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(conn, "players", "warehouse_items", "TEXT NOT NULL DEFAULT '{}'")
     await _add_column_if_missing(conn, "boss", "archetype", "TEXT NOT NULL DEFAULT 'balanced'")
     await _ensure_trade_v39(conn)
     await _ensure_npc_v29_tables(conn)
@@ -662,6 +665,8 @@ async def _create_all_tables_v2(conn: aiosqlite.Connection):
             pills_inventory TEXT NOT NULL DEFAULT '{}',
             storage_ring TEXT NOT NULL DEFAULT '基础储物戒',
             storage_ring_items TEXT NOT NULL DEFAULT '{}',
+            warehouse_level INTEGER NOT NULL DEFAULT 0,
+            warehouse_items TEXT NOT NULL DEFAULT '{}',
             
             daily_pill_usage TEXT NOT NULL DEFAULT '{}',
             last_daily_reset TEXT NOT NULL DEFAULT '',

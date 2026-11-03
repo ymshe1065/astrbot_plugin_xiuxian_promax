@@ -169,12 +169,12 @@ class AlchemyManager:
 
         scroll_name = self.config_manager.get_recipe_scroll_name(recipe) if self.config_manager else f"《{recipe.get('name')}》"
         ring_items = player.get_storage_ring_items()
-        if ring_items.get(scroll_name, 0) > 0:
-            if ring_items[scroll_name] <= 1:
-                del ring_items[scroll_name]
-            else:
-                ring_items[scroll_name] -= 1
+        warehouse_items = player.get_warehouse_items()
+        from ..core.storage_ring_manager import StorageRingManager as _SRM
+
+        if _SRM.deduct_from_snapshots(ring_items, warehouse_items, scroll_name, 1) > 0:
             player.set_storage_ring_items(ring_items)
+            player.set_warehouse_items(warehouse_items)
             cost_note = f"消耗丹方卷轴【{scroll_name}】x1"
         else:
             price = int(recipe.get("price", 0) or 0)
@@ -244,9 +244,18 @@ class AlchemyManager:
                         "count": int(material.get("count", 0) or 0),
                     }
 
+    def _items_snapshot(self, player: Player) -> Dict[str, int]:
+        """储物戒 + 洞天仓库的合并快照（只读，用于规划与展示）。"""
+        if self.storage_ring_manager:
+            try:
+                return self.storage_ring_manager.merged_items(player)
+            except Exception:
+                pass
+        return dict(player.get_storage_ring_items())
+
     def _find_material_stacks(self, player: Player, spec: Dict) -> List[Tuple[str, int]]:
         stacks = []
-        for item_name, count in player.get_storage_ring_items().items():
+        for item_name, count in self._items_snapshot(player).items():
             try:
                 count = int(count)
             except (TypeError, ValueError):
@@ -303,7 +312,7 @@ class AlchemyManager:
     def _plan_materials(self, player: Player, recipe: Dict):
         """模拟扣料：具名材料优先预留，避免被同类/同阶泛材料提前吃掉。"""
         available = {}
-        for item_name, count in player.get_storage_ring_items().items():
+        for item_name, count in self._items_snapshot(player).items():
             try:
                 count = int(count)
             except (TypeError, ValueError):
@@ -341,16 +350,18 @@ class AlchemyManager:
             return False, "❌ 材料不足！\n" + "\n".join(f"  · {m}" for m in missing), []
 
         ring_items = player.get_storage_ring_items()
+        warehouse = player.get_warehouse_items()
+        from ..core.storage_ring_manager import StorageRingManager as _SRM
+
         consumed = []
         for _, taken in plan:
             for item_name, take in taken:
-                left = int(ring_items.get(item_name, 0) or 0) - take
-                if left <= 0:
-                    ring_items.pop(item_name, None)
-                else:
-                    ring_items[item_name] = left
-                consumed.append(f"{item_name}×{take}")
+                # 先扣储物戒，不足再从洞天仓库补
+                got = _SRM.deduct_from_snapshots(ring_items, warehouse, item_name, take)
+                if got > 0:
+                    consumed.append(f"{item_name}×{got}")
         player.set_storage_ring_items(ring_items)
+        player.set_warehouse_items(warehouse)
         return True, "", consumed
 
     def format_recipe_requirements(self, player: Player, recipe: Dict) -> Tuple[str, bool]:

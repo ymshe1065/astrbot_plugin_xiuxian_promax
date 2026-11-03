@@ -418,7 +418,21 @@ class StorageRingManager:
                     await self.db.conn.commit()
                     capacity = self.get_total_capacity(player)
                     used = self.get_used_slots(player)
-                    return True, f"已从储物戒取出【{item_name}】x{count}（{used}/{capacity}格）"
+                    return True, f"已取出【{item_name}】x{count}（{used}/{capacity}格）"
+                # 储物戒实例不够时，从洞天仓库补（仓库里的装备也允许被消耗/交易）
+                wh_insts = self.instance_manager.list_instances(player, "warehouse", item_name)
+                if len(insts) + len(wh_insts) >= count:
+                    need = count - len(insts)
+                    for inst in sorted(insts, key=lambda x: int(x.get("id", 0) or 0)):
+                        self.instance_manager.remove(player, int(inst.get("id", 0) or 0))
+                    for inst in sorted(wh_insts, key=lambda x: int(x.get("id", 0) or 0))[:need]:
+                        self.instance_manager.remove(player, int(inst.get("id", 0) or 0))
+                    orig_player.set_equipment_instances(player.get_equipment_instances())
+                    await self.db.update_player(player)
+                    await self.db.conn.commit()
+                    capacity = self.get_total_capacity(player)
+                    used = self.get_used_slots(player)
+                    return True, f"已取出【{item_name}】x{count}（{used}/{capacity}格）"
                 # 兼容旧名称堆叠
                 legacy = int(items.get(item_name, 0) or 0)
                 if legacy >= count:
@@ -430,23 +444,36 @@ class StorageRingManager:
                     orig_player.set_storage_ring_items(items)
                     await self.db.update_player(player)
                     await self.db.conn.commit()
-                    return True, f"已从储物戒取出【{item_name}】x{count}"
+                    return True, f"已取出【{item_name}】x{count}"
                 await self.db.conn.rollback()
-                return False, f"储物戒中【{item_name}】数量不足（当前：{len(insts) + legacy}个）"
+                return False, (
+                    f"储物戒与仓库中【{item_name}】数量不足"
+                    f"（当前：{len(insts) + len(wh_insts) + legacy}个）"
+                )
 
-            if item_name not in items:
+            warehouse = player.get_warehouse_items()
+            ring_have = int(items.get(item_name, 0) or 0)
+            wh_have = int(warehouse.get(item_name, 0) or 0)
+            if ring_have + wh_have < count:
                 await self.db.conn.rollback()
-                return False, f"储物戒中没有【{item_name}】"
+                if ring_have + wh_have <= 0:
+                    return False, f"储物戒和仓库中都没有【{item_name}】"
+                return False, f"【{item_name}】数量不足（当前：{ring_have + wh_have}个）"
 
-            current_count = items[item_name]
-            if count > current_count:
-                await self.db.conn.rollback()
-                return False, f"储物戒中【{item_name}】数量不足（当前：{current_count}个）"
-
-            if count >= current_count:
-                del items[item_name]
-            else:
-                items[item_name] = current_count - count
+            take_ring = min(ring_have, count)
+            take_wh = count - take_ring
+            if take_ring:
+                if take_ring >= ring_have:
+                    items.pop(item_name, None)
+                else:
+                    items[item_name] = ring_have - take_ring
+            if take_wh:
+                if take_wh >= wh_have:
+                    warehouse.pop(item_name, None)
+                else:
+                    warehouse[item_name] = wh_have - take_wh
+                player.set_warehouse_items(warehouse)
+                orig_player.set_warehouse_items(warehouse)
 
             player.set_storage_ring_items(items)
             orig_player.set_storage_ring_items(items)  # 同步调用方对象
@@ -472,15 +499,21 @@ class StorageRingManager:
 
             if self.is_equipment_item(item_name):
                 insts = self.instance_manager.list_instances(player, "storage", item_name)
-                if len(insts) >= count:
-                    for inst in sorted(insts, key=lambda x: int(x.get("id", 0) or 0))[:count]:
+                wh_insts = self.instance_manager.list_instances(player, "warehouse", item_name)
+                if len(insts) + len(wh_insts) >= count:
+                    need = count
+                    for inst in sorted(insts, key=lambda x: int(x.get("id", 0) or 0))[:need]:
                         self.instance_manager.remove(player, int(inst.get("id", 0) or 0))
+                        need -= 1
+                    if need > 0:
+                        for inst in sorted(wh_insts, key=lambda x: int(x.get("id", 0) or 0))[:need]:
+                            self.instance_manager.remove(player, int(inst.get("id", 0) or 0))
                     orig_player.set_equipment_instances(player.get_equipment_instances())
                     await self.db.update_player(player)
                     await self.db.conn.commit()
                     capacity = self.get_total_capacity(player)
                     used = self.get_used_slots(player)
-                    return True, f"已丢弃【{item_name}】x{count}（{used}/{capacity}格）"
+                    return True, f"已消耗【{item_name}】x{count}（{used}/{capacity}格）"
                 legacy = int(items.get(item_name, 0) or 0)
                 if legacy >= count:
                     if legacy <= count:
@@ -491,25 +524,37 @@ class StorageRingManager:
                     orig_player.set_storage_ring_items(items)
                     await self.db.update_player(player)
                     await self.db.conn.commit()
-                    return True, f"已丢弃【{item_name}】x{count}"
+                    return True, f"已消耗【{item_name}】x{count}"
                 await self.db.conn.rollback()
-                return False, f"储物戒中【{item_name}】数量不足（当前：{len(insts) + legacy}个）"
+                return False, (
+                    f"储物戒与仓库中【{item_name}】数量不足"
+                    f"（当前：{len(insts) + len(wh_insts) + legacy}个）"
+                )
 
-            if item_name not in items:
+            warehouse = player.get_warehouse_items()
+            ring_have = int(items.get(item_name, 0) or 0)
+            wh_have = int(warehouse.get(item_name, 0) or 0)
+            if ring_have + wh_have < count:
                 await self.db.conn.rollback()
-                return False, f"储物戒中没有【{item_name}】"
+                if ring_have + wh_have <= 0:
+                    return False, f"储物戒和仓库中都没有【{item_name}】"
+                return False, f"【{item_name}】数量不足（当前：{ring_have + wh_have}个）"
 
-            current_count = items[item_name]
-            if count > current_count:
-                await self.db.conn.rollback()
-                return False, f"储物戒中【{item_name}】数量不足（当前：{current_count}个）"
-
-            if count >= current_count:
-                del items[item_name]
-                discard_count = current_count
-            else:
-                items[item_name] = current_count - count
-                discard_count = count
+            take_ring = min(ring_have, count)
+            take_wh = count - take_ring
+            if take_ring:
+                if take_ring >= ring_have:
+                    items.pop(item_name, None)
+                else:
+                    items[item_name] = ring_have - take_ring
+            if take_wh:
+                if take_wh >= wh_have:
+                    warehouse.pop(item_name, None)
+                else:
+                    warehouse[item_name] = wh_have - take_wh
+                player.set_warehouse_items(warehouse)
+                orig_player.set_warehouse_items(warehouse)
+            discard_count = count
 
             player.set_storage_ring_items(items)
             orig_player.set_storage_ring_items(items)  # 同步调用方对象
@@ -652,6 +697,218 @@ class StorageRingManager:
             await self.db.conn.rollback()
             raise
 
+    # ===== 一键回收 =====
+
+    EXPENSIVE_THRESHOLD = 10000  # 单价达到该值的物品默认保留，交由玩家单独回收
+
+    def _unit_price(self, item_name: str) -> int:
+        """物品配置单价（用于"贵重物品保护"判定，不含品质与折扣）。"""
+        cfg = self.config_manager.get_item_config(item_name) or {}
+        if not cfg:
+            cfg = self.config_manager.items_data.get(item_name) or {}
+        if not cfg:
+            cfg = self.config_manager.get_material_info(item_name) or {}
+        try:
+            return max(0, int(cfg.get("price", 0) or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    def plan_bulk_recycle(
+        self,
+        player: Player,
+        include_equipment: bool = False,
+        include_warehouse: bool = False,
+        include_pills: bool = False,
+        expensive_threshold: int = 0,
+    ) -> dict:
+        """生成一键回收清单（不落库）。
+
+        - 堆叠物品：储物戒 + 可选仓库
+        - 装备实例：默认不回收，``include_equipment`` 打开后按实例逐件计入
+        - 丹药：默认不回收，``include_pills`` 打开后计入丹药背包
+        - 单价 ≥ ``expensive_threshold`` 的物品进入 ``kept``，不回收
+        """
+        threshold = self.EXPENSIVE_THRESHOLD if expensive_threshold is None else expensive_threshold
+        if expensive_threshold == 0:
+            threshold = self.EXPENSIVE_THRESHOLD
+        plan = {"stacks": [], "pills": [], "equipment": [], "kept": [], "total": 0}
+
+        containers = [("storage", player.get_storage_ring_items())]
+        if include_warehouse:
+            containers.append(("warehouse", player.get_warehouse_items()))
+
+        for where, items in containers:
+            for name, raw in sorted((items or {}).items()):
+                try:
+                    count = int(raw or 0)
+                except (TypeError, ValueError):
+                    continue
+                if count <= 0:
+                    continue
+                if self.is_equipment_item(name):
+                    continue  # 旧存档按名称堆叠的装备单独处理
+                if self.is_pill(name):
+                    continue
+                price = self._unit_price(name)
+                if threshold > 0 and price >= threshold:
+                    plan["kept"].append({"name": name, "count": count, "price": price})
+                    continue
+                unit = self._recycle_value(name, "一般")
+                plan["stacks"].append(
+                    {"name": name, "count": count, "unit": unit, "where": where}
+                )
+                plan["total"] += unit * count
+
+        if include_equipment:
+            for where in ("storage", "warehouse") if include_warehouse else ("storage",):
+                for inst in self.instance_manager.list_instances(player, where):
+                    name = inst.get("name", "")
+                    if not name:
+                        continue
+                    quality = str(inst.get("quality") or "一般")
+                    value = self._recycle_value(name, quality, inst.get("affixes"))
+                    plan["equipment"].append(
+                        {
+                            "id": int(inst.get("id", 0) or 0),
+                            "name": name,
+                            "quality": quality,
+                            "unit": value,
+                            "where": where,
+                        }
+                    )
+                    plan["total"] += value
+
+        if include_pills:
+            for key, raw in sorted((player.get_pills_inventory() or {}).items()):
+                try:
+                    count = int(raw or 0)
+                except (TypeError, ValueError):
+                    continue
+                if count <= 0:
+                    continue
+                base, quality = (
+                    (key.rsplit("|", 1) + ["一般"])[:2] if "|" in key else (key, "一般")
+                )
+                price = self._unit_price(base)
+                if threshold > 0 and price >= threshold:
+                    plan["kept"].append({"name": base, "count": count, "price": price})
+                    continue
+                unit = self._recycle_value(base, quality)
+                plan["pills"].append(
+                    {"key": key, "name": base, "quality": quality, "count": count, "unit": unit}
+                )
+                plan["total"] += unit * count
+
+        return plan
+
+    async def apply_bulk_recycle(self, player: Player, plan: dict) -> Tuple[bool, str]:
+        """执行一键回收（单事务）。以实际持有量为准，计划与实物不符时只扣实际数量。"""
+        if not plan or plan.get("total", 0) <= 0:
+            return False, "没有可回收的物品"
+        orig_player = player
+        await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            player = await self.db.get_player_by_id(player.user_id)
+            if not player:
+                await self.db.conn.rollback()
+                return False, "玩家数据不存在，请重新踏入仙途"
+
+            total_gold = 0
+            kinds = 0
+            count_total = 0
+            ring_items = player.get_storage_ring_items()
+            warehouse_items = player.get_warehouse_items()
+            pills = player.get_pills_inventory()
+
+            for entry in plan.get("stacks", []):
+                name = entry.get("name", "")
+                want = int(entry.get("count", 0) or 0)
+                unit = int(entry.get("unit", 0) or 0)
+                if want <= 0 or unit <= 0:
+                    continue
+                got = 0
+                for container in (ring_items, warehouse_items):
+                    if got >= want:
+                        break
+                    try:
+                        have = int(container.get(name, 0) or 0)
+                    except (TypeError, ValueError):
+                        have = 0
+                    if have <= 0:
+                        continue
+                    take = min(have, want - got)
+                    if take >= have:
+                        container.pop(name, None)
+                    else:
+                        container[name] = have - take
+                    got += take
+                if got > 0:
+                    total_gold += unit * got
+                    count_total += got
+                    kinds += 1
+
+            for entry in plan.get("pills", []):
+                key = entry.get("key", "")
+                want = int(entry.get("count", 0) or 0)
+                unit = int(entry.get("unit", 0) or 0)
+                try:
+                    have = int(pills.get(key, 0) or 0)
+                except (TypeError, ValueError):
+                    have = 0
+                take = min(have, want)
+                if take <= 0 or unit <= 0:
+                    continue
+                if take >= have:
+                    pills.pop(key, None)
+                else:
+                    pills[key] = have - take
+                total_gold += unit * take
+                count_total += take
+                kinds += 1
+
+            equipment_sold = 0
+            for entry in plan.get("equipment", []):
+                inst_id = int(entry.get("id", 0) or 0)
+                unit = int(entry.get("unit", 0) or 0)
+                inst = self.instance_manager.get_instance(player, inst_id)
+                if not inst or unit <= 0:
+                    continue
+                if self.instance_manager.remove(player, inst_id):
+                    total_gold += unit
+                    equipment_sold += 1
+
+            if total_gold <= 0:
+                await self.db.conn.rollback()
+                return False, "没有可回收的物品（物品已变动，请重新发送 /一键回收）"
+
+            player.gold += total_gold
+            player.set_storage_ring_items(ring_items)
+            player.set_warehouse_items(warehouse_items)
+            player.set_pills_inventory(pills)
+            orig_player.gold = player.gold
+            orig_player.set_storage_ring_items(ring_items)
+            orig_player.set_warehouse_items(warehouse_items)
+            orig_player.set_pills_inventory(pills)
+            orig_player.set_equipment_instances(player.get_equipment_instances())
+            await self.db.update_player(player)
+            await self.db.conn.commit()
+        except Exception:
+            await self.db.conn.rollback()
+            raise
+
+        parts = []
+        if count_total:
+            parts.append(f"{kinds} 种共 {count_total:,} 件")
+        if equipment_sold:
+            parts.append(f"装备 {equipment_sold} 件")
+        return True, (
+            f"♻️ 一键回收完成\n"
+            f"━━━━━━━━━━━━━━━\n"
+            f"已回收：{'、'.join(parts) if parts else '—'}\n"
+            f"获得灵石：{total_gold:,}（按配置价值 60%）\n"
+            f"当前灵石：{player.gold:,}"
+        )
+
     def check_upgrade_requirement(self, player: Player, new_ring_name: str) -> Tuple[bool, str]:
         ring_config = self.get_storage_ring_config(new_ring_name)
         if not ring_config:
@@ -765,11 +1022,62 @@ class StorageRingManager:
         rings.sort(key=lambda x: x["capacity"])
         return rings
 
+    @staticmethod
+    def merged_items(player: Player) -> dict:
+        """储物戒 + 洞天仓库的合并快照，用于"持有量"统计与扣料规划。
+
+        注意：仅供读取/规划，落库请走 ``retrieve_item`` / ``discard_item``
+        或 ``deduct_from_snapshots``。
+        """
+        merged: Dict[str, int] = {}
+        for source in (player.get_storage_ring_items(), player.get_warehouse_items()):
+            for name, raw in (source or {}).items():
+                try:
+                    amount = int(raw or 0)
+                except (TypeError, ValueError):
+                    continue
+                if amount > 0:
+                    merged[name] = merged.get(name, 0) + amount
+        return merged
+
+    @staticmethod
+    def deduct_from_snapshots(ring: dict, warehouse: dict, item_name: str, count: int) -> int:
+        """在内存快照中按「储物戒 → 仓库」顺序扣减，返回实际扣减数量。
+
+        供炼丹/制符这类"先规划、后统一落库"的纯内存路径使用。
+        """
+        try:
+            count = int(count or 0)
+        except (TypeError, ValueError):
+            return 0
+        if count <= 0:
+            return 0
+        taken = 0
+        for container in (ring, warehouse):
+            if taken >= count or not isinstance(container, dict):
+                continue
+            try:
+                have = int(container.get(item_name, 0) or 0)
+            except (TypeError, ValueError):
+                have = 0
+            if have <= 0:
+                continue
+            take = min(have, count - taken)
+            if take >= have:
+                container.pop(item_name, None)
+            else:
+                container[item_name] = have - take
+            taken += take
+        return taken
+
     def get_item_count(self, player: Player, item_name: str) -> int:
         items = player.get_storage_ring_items()
         count = int(items.get(item_name, 0) or 0)
+        warehouse = player.get_warehouse_items()
+        count += int(warehouse.get(item_name, 0) or 0)
         if self.is_equipment_item(item_name):
             count += self.instance_manager.count_storage(player, item_name)
+            count += len(self.instance_manager.list_instances(player, "warehouse", item_name))
         return count
 
     def has_item(self, player: Player, item_name: str, count: int = 1) -> bool:

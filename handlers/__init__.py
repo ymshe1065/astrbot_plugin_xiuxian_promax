@@ -9,6 +9,7 @@ from .breakthrough_handler import BreakthroughHandler
 from .pill_handler import PillHandler
 from .shop_handler import ShopHandler
 from .storage_ring_handler import StorageRingHandler
+from .warehouse_handler import WarehouseHandler
 
 # 宗门与战斗
 from .sect_handlers import SectHandlers
@@ -63,7 +64,7 @@ from .invest_handlers import InvestHandlers
 
 __all__ = [
     "PlayerHandler", "RecoveryHandler", "MiscHandler", "EquipmentHandler", "BreakthroughHandler",
-    "PillHandler", "ShopHandler", "StorageRingHandler", "SectHandlers", 
+    "PillHandler", "ShopHandler", "StorageRingHandler", "WarehouseHandler", "SectHandlers", 
     "BossHandlers", "CombatHandlers", "RankingHandlers", "RiftHandlers", 
     "AdventureHandlers", "AlchemyHandlers", "ImpartHandlers", "NicknameHandler", 
     "BankHandlers", "BountyHandlers", "ImpartPkHandlers", "BlessedLandHandlers", 

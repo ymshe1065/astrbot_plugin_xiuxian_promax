@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v6.51.0 (储物戒堆叠与附魔解禁)
+# AstrBot 插件：模拟修仙 v6.52.0 (洞天仓库与一键操作)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v6.51.0-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v6.52.0-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.33.11 · **游戏版本:** v6.51.0 · **数据库:** v57
+> **插件版本:** v3.33.12 · **游戏版本:** v6.52.0 · **数据库:** v57
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，233 条帮助指令 / 233 条注册指令、16 个大系统、110 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,22 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · v6.51.0（储物戒堆叠与附魔解禁）</b></summary>
+<summary><b>本次更新 · v6.52.0（洞天仓库与一键操作）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 藏宝阁（洞天仓库） | `/洞天装修 藏宝阁` 30,000 灵石开通，初始 50 格；`/升级仓库` 每级 +50 格，费用 `15000×1.15^(等级-1)`。等级上限跟**洞天品质**：小洞天 5 / 中洞天 10 / 大洞天 15 / 福地 20 / 洞天福地 30（最满 1,500 格）。 |
+| 数据落点 | 等级与物品挂在 `players`（`warehouse_level` / `warehouse_items`），**不挂 `blessed_lands`**——洞天进阶是 DELETE + INSERT 重建整行，挂那张表一进阶就全丢。飞升清空物品但保留等级（买断资产）。 |
+| 一键转移 / 取回 | `/一键转移 [材料\|符箓\|丹方\|装备]` 把储物戒物品搬进仓库，`/一键取回` 反向。**装备实例也支持**（`location="warehouse"`，品质与词条原样保留）。仓库满时只搬能放下的，剩下的留在原处并列出清单。 |
+| 一键回收（两步） | `/一键回收` 只出预览（种类、数量、预计灵石），需再发 `/一键回收 确认` 才执行。**装备默认跳过**，单价 ≥10,000 灵石的物品默认保留（避免误卖帝品材料），预览 60 秒内有效。 |
+| 统一取物层 | 仓库不是"只能看"的地方：`retrieve_item` / `discard_item` / `get_item_count` 全部加仓库兜底，炼丹、制符、附魔、灵兽喂养、坊市上架都能直接吃仓库里的材料，不需要先取回来。炼丹/制符这两个"先规划后落库"的路径改为同时扣两个容器。 |
+| 容量兜底 | 仓库按同一套堆叠规则计容：材料每种 1 格、装备按体积逐件占格，与储物戒规则一致，不会出现"同一件东西在两边占格不一样"。 |
+| 测试 | 新增 `tests/test_warehouse.py`（24 例：开通/升级/上限/进阶不丢、转移与取回、仓库满降级、跨容器扣料、两步回收），全量 **777 例**通过。 |
+
+</details>
+
+<details>
+<summary><b>v6.51.0（储物戒堆叠与附魔解禁）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |

@@ -144,6 +144,10 @@ class Player:
     equipment_instances: str = "[]"  # 装备实例列表（JSON数组）
     equipped_instances: str = "{}"  # 已装备实例槽位映射（JSON对象）
 
+    # 洞天仓库（藏宝阁）：等级 0 表示未开通；物品随人不随洞天，进阶洞天不丢
+    warehouse_level: int = 0
+    warehouse_items: str = "{}"  # 仓库中的可堆叠物品（JSON字符串，格式：{item_name: count}）
+
     # Phase 1: 每日限制系统
     daily_pill_usage: str = "{}"  # 每日丹药使用次数（JSON字符串，格式：{pill_id: count}）
     last_daily_reset: str = ""  # 上次每日重置日期（格式：YYYY-MM-DD）
@@ -261,6 +265,14 @@ class Player:
     def set_overflow_items(self, items: dict):
         """设置溢出仓库物品"""
         self.overflow_items = json.dumps(items, ensure_ascii=False)
+
+    def get_warehouse_items(self) -> dict:
+        """获取洞天仓库物品"""
+        return self._load_json_field(self.warehouse_items, {})
+
+    def set_warehouse_items(self, items: dict):
+        """设置洞天仓库物品"""
+        self.warehouse_items = json.dumps(items, ensure_ascii=False)
 
     def get_equipment_instances(self) -> list:
         """获取装备实例列表"""

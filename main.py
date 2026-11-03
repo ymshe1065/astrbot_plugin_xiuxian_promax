@@ -17,7 +17,7 @@ from .handlers.utils import (
 )
 from .handlers import (
     MiscHandler, PlayerHandler, RecoveryHandler, EquipmentHandler, BreakthroughHandler,
-    PillHandler, ShopHandler, StorageRingHandler,
+    PillHandler, ShopHandler, StorageRingHandler, WarehouseHandler,
     SectHandlers, BossHandlers, CombatHandlers, RankingHandlers,
     RiftHandlers, AdventureHandlers, AlchemyHandlers, ImpartHandlers,
     NicknameHandler, BankHandlers, BountyHandlers, ImpartPkHandlers,
@@ -210,6 +210,7 @@ class XiuXianPlugin(Star):
         self.pill_handler = PillHandler(self.db, self.config_manager)
         self.shop_handler = ShopHandler(self.db, self.config, self.config_manager)
         self.storage_ring_handler = StorageRingHandler(self.db, self.config_manager)
+        self.warehouse_handler = WarehouseHandler(self.db, self.config_manager)
         
         from .core import StorageRingManager
         self.storage_ring_mgr = StorageRingManager(self.db, self.config_manager)
@@ -1416,6 +1417,36 @@ class XiuXianPlugin(Star):
     async def handle_recycle_item(self, event: AstrMessageEvent, args: GreedyStr):
         async for r in self.storage_ring_handler.handle_recycle_item(event, args): yield r
 
+    # ===== v6.52 洞天仓库（藏宝阁）与批量操作 =====
+    @filter.command("仓库", "查看洞天仓库")
+    @require_whitelist
+    async def handle_warehouse(self, event: AstrMessageEvent):
+        async for r in self.warehouse_handler.handle_warehouse(event): yield r
+
+    @filter.command("升级仓库", "扩建洞天仓库（+50 格/级）")
+    @require_whitelist
+    @idle_player_lock
+    async def handle_upgrade_warehouse(self, event: AstrMessageEvent, args: GreedyStr):
+        async for r in self.warehouse_handler.handle_upgrade_warehouse(event, args): yield r
+
+    @filter.command("一键转移", "把储物戒物品转入洞天仓库")
+    @require_whitelist
+    @idle_player_lock
+    async def handle_transfer_in(self, event: AstrMessageEvent, category: str = ""):
+        async for r in self.warehouse_handler.handle_transfer_in(event, category): yield r
+
+    @filter.command("一键取回", "把洞天仓库物品取回储物戒")
+    @require_whitelist
+    @idle_player_lock
+    async def handle_transfer_out(self, event: AstrMessageEvent, category: str = ""):
+        async for r in self.warehouse_handler.handle_transfer_out(event, category): yield r
+
+    @filter.command("一键回收", "预览并批量回收储物戒物品（两步确认）")
+    @require_whitelist
+    @idle_player_lock
+    async def handle_bulk_recycle(self, event: AstrMessageEvent, args: GreedyStr):
+        async for r in self.warehouse_handler.handle_bulk_recycle(event, args): yield r
+
     @filter.command(CMD_GIFT_ITEM, "赠予物品/丹药给其他玩家，或 /赠予 @人 灵石 数量 直接转账")
     @require_whitelist
     async def handle_gift_item(self, event: AstrMessageEvent, args: str = ""):
@@ -1431,8 +1462,7 @@ class XiuXianPlugin(Star):
     async def handle_reject_gift(self, event: AstrMessageEvent):
         async for r in self.storage_ring_handler.handle_reject_gift(event): yield r
 
-    @filter.command(CMD_SEARCH_ITEM, "搜索储物戒物品")
-    @require_whitelist
+    @filter.command(CMD_SEARCH_ITEM, "搜索储物戒物品")    @require_whitelist
     async def handle_search_item(self, event: AstrMessageEvent, keyword: str = ""):
         async for r in self.storage_ring_handler.handle_search_item(event, keyword): yield r
 
