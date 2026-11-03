@@ -146,13 +146,11 @@ async def _media(request: web.Request) -> web.Response:
     return web.FileResponse(path)
 
 
-async def _index(_request: web.Request) -> web.Response:    return web.json_response(
-        {
-            "service": "webroom",
-            "rooms": {rid: online_players(rid) for rid in _rooms},
-            "usage": "ws://<host>:<port>/ws/<room_id>?player=<玩家名>",
-        }
-    )
+_INDEX_HTML = Path(__file__).parent / "static" / "index.html"
+
+
+async def _index(_request: web.Request) -> web.Response:
+    return web.FileResponse(_INDEX_HTML)
 
 
 async def _ws_handler(request: web.Request) -> web.WebSocketResponse:
