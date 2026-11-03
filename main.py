@@ -1447,6 +1447,12 @@ class XiuXianPlugin(Star):
     async def handle_transfer_out_legacy(self, event: AstrMessageEvent, category: str = ""):
         async for r in self.warehouse_handler.handle_transfer_out(event, category): yield r
 
+    @filter.command("取出", "从仓库取出指定物品的指定数量（留空数量=全部）")
+    @require_whitelist
+    @idle_player_lock
+    async def handle_take_item(self, event: AstrMessageEvent, args: GreedyStr):
+        async for r in self.warehouse_handler.handle_take_item(event, args): yield r
+
     @filter.command("一键回收", "预览并批量回收储物戒物品（两步确认）")
     @require_whitelist
     @idle_player_lock

@@ -11,6 +11,7 @@
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 from ..models import Player
+from .item_display import item_label
 from .item_instance_manager import ItemInstanceManager
 from .storage_ring_manager import StorageRingManager
 
@@ -235,6 +236,173 @@ class WarehouseManager:
         if not self.is_open(player):
             return False, "❌ 你还没有【藏宝阁】。"
         return await self._transfer(player, category, to_warehouse=False)
+
+    def list_item_names(self, player: Player) -> List[str]:
+        """仓库里出现过的全部物品名（可堆叠栈 + 装备实例），供前台做名称匹配。"""
+        names = set(self.get_items(player))
+        for inst in self.instance_manager.list_instances(player, "warehouse"):
+            name = str(inst.get("name") or "")
+            if name:
+                names.add(name)
+        return sorted(names)
+
+    async def transfer_out_item(
+        self, player: Player, item_name: str, count: Optional[int] = None
+    ) -> Tuple[bool, str]:
+        """仓库 → 储物戒，只搬指定物品的指定数量（``count=None`` 表示全部）。
+
+        与 ``transfer_out`` 的区别：那条按分类整批搬，这条精确到单件物品，
+        装备按件数取、可堆叠物品按数量取，方便给储物戒留出格位。
+        """
+        if not self.is_open(player):
+            return False, "❌ 你还没有【藏宝阁】。使用 /洞天装修 藏宝阁 修建。"
+        name = (item_name or "").strip()
+        if not name:
+            return False, "❌ 请指定要取出的物品名。"
+
+        await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            fresh = await self.db.get_player_by_id(player.user_id)
+            if not fresh:
+                await self.db.conn.rollback()
+                return False, "玩家数据不存在，请重新踏入仙途"
+
+            ring_items = fresh.get_storage_ring_items()
+            wh_items = self.get_items(fresh)
+            instances = self.instance_manager.list_instances(fresh, "warehouse", name)
+            stacked = int(wh_items.get(name, 0) or 0)
+
+            if instances:
+                ok, msg = self._take_instances(fresh, name, instances, count)
+            elif stacked > 0:
+                ok, msg = self._take_stacked(fresh, name, stacked, ring_items, wh_items, count)
+            else:
+                await self.db.conn.rollback()
+                return False, self._missing_line(fresh, name)
+
+            if not ok:
+                await self.db.conn.rollback()
+                return False, msg
+
+            fresh.set_storage_ring_items(ring_items)
+            fresh.set_warehouse_items(wh_items)
+            player.set_storage_ring_items(ring_items)
+            player.set_warehouse_items(wh_items)
+            player.set_equipment_instances(fresh.get_equipment_instances())
+            await self.db.update_player(fresh)
+            await self.db.conn.commit()
+        except Exception:
+            await self.db.conn.rollback()
+            raise
+
+        return True, "\n".join([
+            msg,
+            "━━━━━━━━━━━━━━━",
+            f"储物戒：{self.storage_ring_manager.get_used_slots(fresh)}/"
+            f"{self.storage_ring_manager.get_total_capacity(fresh)}格"
+            f"｜仓库：{self.get_used_slots(fresh)}/{self.get_capacity(fresh)}格",
+        ])
+
+    # ----- 单件取出的两种分支 -----
+
+    def _take_stacked(
+        self,
+        fresh: Player,
+        name: str,
+        stacked: int,
+        ring_items: Dict[str, int],
+        wh_items: Dict[str, int],
+        count: Optional[int],
+    ) -> Tuple[bool, str]:
+        """可堆叠物品：按数量从仓库栈搬到戒指栈。"""
+        want = stacked if count is None else int(count)
+        if want <= 0:
+            return False, "❌ 取出数量必须大于 0。"
+        took = min(want, stacked)
+        if not self.storage_ring_manager.can_accept(fresh, name, took):
+            return False, self._space_error(fresh, name, took)
+
+        left = stacked - took
+        if left > 0:
+            wh_items[name] = left
+        else:
+            wh_items.pop(name, None)
+        ring_items[name] = int(ring_items.get(name, 0) or 0) + took
+
+        lines = [
+            "📤 取出成功",
+            "━━━━━━━━━━━━━━━",
+            f"{item_label(name, self.config_manager)}×{took}（仓库 → 储物戒）",
+        ]
+        lines.append(f"仓库剩余：×{left}" if left > 0 else "仓库中该物品已清空")
+        if took < want:
+            lines.append(f"⚠️ 仓库只有 ×{stacked}，已全部取出")
+        return True, "\n".join(lines)
+
+    def _take_instances(
+        self,
+        fresh: Player,
+        name: str,
+        instances: List[Dict],
+        count: Optional[int],
+    ) -> Tuple[bool, str]:
+        """装备实例：按件数搬，逐件占格，放不下的留在仓库。"""
+        total = len(instances)
+        want = total if count is None else int(count)
+        if want <= 0:
+            return False, "❌ 取出数量必须大于 0。"
+
+        volume = max(1, self.storage_ring_manager._get_item_volume(name))
+        room = self.storage_ring_manager.get_available_slots(fresh) // volume
+        if room <= 0:
+            return False, self._space_error(fresh, name, 1)
+
+        take = min(want, total, room)
+        moved = [
+            inst for inst in instances[:take]
+            if self.instance_manager.move(fresh, int(inst.get("id", 0) or 0), "storage")
+        ]
+        if not moved:
+            return False, f"❌ 取出【{name}】失败，请稍后重试。"
+
+        qualities = {str(x.get("quality") or "一般") for x in moved}
+        q_tail = f"·{qualities.pop()}" if len(qualities) == 1 else ""
+        left = total - len(moved)
+        lines = [
+            "📤 取出成功",
+            "━━━━━━━━━━━━━━━",
+            f"{item_label(name, self.config_manager)}×{len(moved)}{q_tail}（仓库 → 储物戒）",
+        ]
+        lines.append(f"仓库剩余：{left} 件" if left > 0 else "仓库中该装备已清空")
+        if left > 0 and len(moved) < want:
+            lines.append("⚠️ 储物戒空间不足，只取出了放得下的部分")
+        return True, "\n".join(lines)
+
+    def _missing_line(self, fresh: Player, name: str) -> str:
+        ring = fresh.get_storage_ring_items()
+        in_ring = int(ring.get(name, 0) or 0) > 0 or bool(
+            self.instance_manager.list_instances(fresh, "storage", name)
+        )
+        tail = "\n💡 这件东西已经在储物戒里了，不用再取。" if in_ring else "\n💡 /仓库 查看仓库清单。"
+        return f"❌ 仓库里没有【{name}】{tail}"
+
+    def _space_error(self, fresh: Player, name: str, count: int) -> str:
+        available = self.storage_ring_manager.get_available_slots(fresh)
+        per = (
+            max(1, self.storage_ring_manager._get_item_volume(name))
+            if self.storage_ring_manager.is_equipment_item(name)
+            else 1
+        )
+        need = per * max(1, int(count or 1))
+        if not self.storage_ring_manager.is_equipment_item(name):
+            tail = "💡 该物品戒指里已有存货时可无限堆叠，占用 0 格，请检查物品种类。"
+        else:
+            tail = "💡 先 /一键回收 清掉占格物品，或分件取出。"
+        return (
+            f"❌ 储物戒空间不足！\n"
+            f"取出【{name}】需要 {need} 格，当前只剩 {available} 格。\n"
+            f"{tail}"
+        )
 
     async def _transfer(
         self, player: Player, category: str, to_warehouse: bool

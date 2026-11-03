@@ -72,11 +72,15 @@ class TestCommandRegistry(unittest.TestCase):
         self.assertEqual(missing, [], f"引用了未定义的指令常量：{missing}")
 
     def test_warehouse_commands_registered(self):
-        """一键取出是主命令，一键取回保留为旧名别名。"""
+        """一键取出是主命令，一键取回保留为旧名别名；单件取出另有一条。"""
         # 仓库系命令用字面量注册，_registered_commands 只认 CMD_* 常量，故直接查源码
         self.assertIn('@filter.command("一键转移"', self.source)
         self.assertIn('@filter.command("一键取出"', self.source)
         self.assertIn('@filter.command("一键取回"', self.source)
+        self.assertIn('@filter.command("取出"', self.source)
+        # 同一处理方法被两条指令共用是允许的，但方法名不能重复定义
+        self.assertEqual(self.source.count("async def handle_take_item"), 1)
+        self.assertEqual(self.source.count("async def handle_transfer_out("), 1)
 
     def test_invest_commands_registered(self):
         """仙市七件套必须全部注册为独立指令。"""

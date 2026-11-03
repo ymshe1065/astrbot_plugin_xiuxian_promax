@@ -19,7 +19,7 @@ __all__ = ["MiscHandler"]
 class MiscHandler:
     """杂项指令处理器 - 提供帮助信息、一键日常与强制解卡"""
 
-    VERSION = HELP_VERSION  # v6.53.0：仓库物品须 /一键取出 才可用、仙市风声 50%+保底并显示下盘；DB v57
+    VERSION = HELP_VERSION  # v6.54.0：新增 /取出 单件精确取物；仓库仍须取到戒指才可消耗；DB v57
 
     def __init__(self, db: DataBase, config: dict = None):
         self.db = db

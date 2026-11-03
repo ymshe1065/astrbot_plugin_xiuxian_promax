@@ -546,5 +546,164 @@ class TestBulkRecycleHandler(_Base):
         self.assertIn("过期", msg)
 
 
+class TestTakeItem(_Base):
+    """单件取出：/取出 物品名 [数量]"""
+
+    async def asyncSetUp(self):
+        await super().asyncSetUp()
+        self.p = await self._open_warehouse(1)
+        self.module = _imp("handlers.warehouse_handler")
+
+    async def _stock(self, items):
+        p = await self.db.get_player_by_id("u1")
+        p.warehouse_items = json.dumps(items, ensure_ascii=False)
+        await self.db.update_player(p)
+        return await self.db.get_player_by_id("u1")
+
+    async def _fill_ring(self):
+        """把储物戒塞满，返回占满后的 player。"""
+        p = await self.db.get_player_by_id("u1")
+        cap = self.ring.get_total_capacity(p)
+        p.storage_ring_items = json.dumps(
+            {f"占位{i}": 1 for i in range(cap)}, ensure_ascii=False
+        )
+        await self.db.update_player(p)
+        return await self.db.get_player_by_id("u1")
+
+    async def test_take_partial_count(self):
+        p = await self._stock({"玄铁": 100})
+        ok, msg = await self.wh.transfer_out_item(p, "玄铁", 30)
+        self.assertTrue(ok, msg)
+        p = await self.db.get_player_by_id("u1")
+        self.assertEqual(p.get_storage_ring_items().get("玄铁"), 30)
+        self.assertEqual(p.get_warehouse_items().get("玄铁"), 70)
+
+    async def test_take_all_when_count_omitted(self):
+        p = await self._stock({"玄铁": 42})
+        ok, msg = await self.wh.transfer_out_item(p, "玄铁")
+        self.assertTrue(ok, msg)
+        p = await self.db.get_player_by_id("u1")
+        self.assertEqual(p.get_storage_ring_items().get("玄铁"), 42)
+        self.assertNotIn("玄铁", p.get_warehouse_items())
+
+    async def test_take_more_than_stock_clamps(self):
+        p = await self._stock({"玄铁": 8})
+        ok, msg = await self.wh.transfer_out_item(p, "玄铁", 999)
+        self.assertTrue(ok, msg)
+        p = await self.db.get_player_by_id("u1")
+        self.assertEqual(p.get_storage_ring_items().get("玄铁"), 8)
+        self.assertIn("只有", msg)
+
+    async def test_take_unknown_item(self):
+        p = await self._stock({"玄铁": 5})
+        ok, msg = await self.wh.transfer_out_item(p, "不存在的东西", 1)
+        self.assertFalse(ok)
+        self.assertIn("没有", msg)
+
+    async def test_take_zero_rejected(self):
+        p = await self._stock({"玄铁": 5})
+        ok, msg = await self.wh.transfer_out_item(p, "玄铁", 0)
+        self.assertFalse(ok)
+        self.assertIn("大于 0", msg)
+
+    async def test_take_requires_open_warehouse(self):
+        p = await self.db.get_player_by_id("u1")
+        p.warehouse_level = 0
+        await self.db.update_player(p)
+        p = await self.db.get_player_by_id("u1")
+        ok, msg = await self.wh.transfer_out_item(p, "玄铁", 1)
+        self.assertFalse(ok)
+        self.assertIn("藏宝阁", msg)
+
+    async def test_ring_full_blocks_new_stack(self):
+        p = await self._stock({"玄铁": 5})
+        p = await self._fill_ring()
+        self.assertEqual(self.ring.get_available_slots(p), 0)
+        ok, msg = await self.wh.transfer_out_item(p, "玄铁", 1)
+        self.assertFalse(ok)
+        self.assertIn("空间不足", msg)
+        p = await self.db.get_player_by_id("u1")
+        self.assertEqual(p.get_warehouse_items().get("玄铁"), 5)
+
+    async def test_ring_full_still_takes_existing_stack(self):
+        """戒指里已有同名栈时，再取多少都不占新格。"""
+        p = await self._stock({"玄铁": 5})
+        p = await self._fill_ring()
+        ring = p.get_storage_ring_items()
+        ring["玄铁"] = 1
+        p.storage_ring_items = json.dumps(ring, ensure_ascii=False)
+        await self.db.update_player(p)
+        p = await self.db.get_player_by_id("u1")
+
+        ok, msg = await self.wh.transfer_out_item(p, "玄铁", 5)
+        self.assertTrue(ok, msg)
+        p = await self.db.get_player_by_id("u1")
+        self.assertEqual(p.get_storage_ring_items().get("玄铁"), 6)
+
+    async def test_take_equipment_by_piece(self):
+        p = self.p
+        name = await self._equipment_name()
+        self.im.create_instances(p, name, 3, quality="良品", location="warehouse")
+        await self.db.update_player(p)
+        p = await self.db.get_player_by_id("u1")
+        self.assertEqual(len(self.im.list_instances(p, "warehouse", name)), 3)
+
+        ok, msg = await self.wh.transfer_out_item(p, name, 1)
+        self.assertTrue(ok, msg)
+        p = await self.db.get_player_by_id("u1")
+        self.assertEqual(len(self.im.list_instances(p, "storage", name)), 1)
+        self.assertEqual(len(self.im.list_instances(p, "warehouse", name)), 2)
+        self.assertIn("2 件", msg)
+
+    async def test_take_equipment_keeps_quality(self):
+        p = self.p
+        name = await self._equipment_name()
+        self.im.create_instances(p, name, 1, quality="大师", location="warehouse")
+        await self.db.update_player(p)
+        p = await self.db.get_player_by_id("u1")
+        ok, msg = await self.wh.transfer_out_item(p, name)
+        self.assertTrue(ok, msg)
+        p = await self.db.get_player_by_id("u1")
+        insts = self.im.list_instances(p, "storage", name)
+        self.assertEqual(len(insts), 1)
+        self.assertEqual(insts[0].get("quality"), "大师")
+
+    async def test_item_already_in_ring_hint(self):
+        p = await self.db.get_player_by_id("u1")
+        await self.ring.store_item(p, "玄铁", 3)
+        p = await self.db.get_player_by_id("u1")
+        ok, msg = await self.wh.transfer_out_item(p, "玄铁", 1)
+        self.assertFalse(ok)
+        self.assertIn("储物戒里", msg)
+
+
+class TestTakeArgsParse(unittest.TestCase):
+    """前台参数解析与名称匹配"""
+
+    def setUp(self):
+        self.module = _imp("handlers.warehouse_handler")
+
+    def test_split_name_and_count(self):
+        split = self.module._split_take_args
+        self.assertEqual(split("聚气丹 30"), ("聚气丹", 30))
+        self.assertEqual(split("聚气丹x30"), ("聚气丹", 30))
+        self.assertEqual(split("聚气丹×30"), ("聚气丹", 30))
+        self.assertEqual(split("聚气丹 全部"), ("聚气丹", None))
+        self.assertEqual(split("聚气丹"), ("聚气丹", None))
+        self.assertEqual(split("  玄铁   12 "), ("玄铁", 12))
+        self.assertEqual(split("30"), ("", None))
+
+    def test_resolve_name(self):
+        resolve = self.module._resolve_name
+        names = ["玄铁", "玄铁剑", "聚气丹"]
+        self.assertEqual(resolve("玄铁", names), ("玄铁", []))
+        self.assertEqual(resolve("聚气", names), ("聚气丹", []))
+        name, hits = resolve("玄铁", ["玄铁剑", "玄铁矿"])
+        self.assertEqual(name, "")
+        self.assertEqual(hits, ["玄铁剑", "玄铁矿"])
+        name, hits = resolve("不存在", names)
+        self.assertEqual((name, hits), ("", []))
+
+
 if __name__ == "__main__":
     unittest.main()

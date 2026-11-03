@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v6.53.0 (仓库取出与风声保底)
+# AstrBot 插件：模拟修仙 v6.54.0 (单件精确取出)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v6.53.0-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v6.54.0-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,10 +31,10 @@
 
 ---
 
-> **插件版本:** v3.33.14 · **游戏版本:** v6.53.0 · **数据库:** v57
+> **插件版本:** v3.33.14 · **游戏版本:** v6.54.0 · **数据库:** v57
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
-一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，233 条帮助指令 / 233 条注册指令、16 个大系统、110 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
+一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，234 条帮助指令 / 234 条注册指令、16 个大系统、110 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
 
 ---
 
@@ -43,7 +43,20 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · v6.53.0（仓库取出制与仙市风声保底）</b></summary>
+<summary><b>本次更新 · v6.54.0（单件精确取出）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 新指令 `/取出` | `/取出 <物品名> [数量]`：从仓库只取某一种物品的指定数量，解决「一键取出」只能整类搬、容易把戒指塞满的问题。数量留空 = 该物品全部取出，也支持 `/取出 聚气丹 x30`、`/取出 聚气丹 全部`。 |
+| 装备按件 | 装备实例按件数取，品质与词条原样保留；戒指放不下几件就只取几件，剩余留在仓库并在回执里说明件数。 |
+| 名称容错 | 精确匹配优先，其次唯一子串匹配（`/取出 聚气` 能命中「聚气丹」）；命中多个时列出候选让玩家补全，找不到时提示 `/仓库` 查清单。 |
+| 容量判定 | 可堆叠物品沿用「已有同名栈则 0 格、新种类占 1 格」；戒指已满且是新材料时直接拒绝，并提示先 `/一键回收` 或分次取。 |
+| 测试 | 新增 `tests/test_warehouse.py::TestTakeItem` 与 `TestTakeArgsParse`（13 例：部分取、全取、超量夹取、未知物品、0 数量、未开通、戒指满、同名栈仍可进、装备按件与保品质、解析与模糊匹配），全量 **818 例**通过。 |
+
+</details>
+
+<details>
+<summary><b>v6.53.0（仓库取出制与仙市风声保底）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |

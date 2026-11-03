@@ -1,8 +1,9 @@
 # handlers/warehouse_handler.py
-"""洞天仓库与批量操作：/仓库 /升级仓库 /一键转移 /一键取回 /一键回收。"""
+"""洞天仓库与批量操作：/仓库 /升级仓库 /一键转移 /一键取出 /取出 /一键回收。"""
 
+import re
 import time
-from typing import Dict, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api import logger
@@ -25,6 +26,7 @@ CMD_UPGRADE_WAREHOUSE = "升级仓库"
 CMD_TRANSFER_IN = "一键转移"
 CMD_TRANSFER_OUT = "一键取出"
 CMD_TRANSFER_OUT_ALIAS = "一键取回"  # 旧命令，仍可用
+CMD_TAKE_ITEM = "取出"
 CMD_BULK_RECYCLE = "一键回收"
 
 CATEGORIES = TRANSFER_GROUPS
@@ -57,7 +59,59 @@ def _category_usage(cmd: str) -> str:
         f"用法：/{cmd} [分类]\n"
         f"分类：{groups}（留空 = 全部）\n"
         f"材料细分：{subs}\n"
-        f"示例：/{cmd} 灵植　/{cmd} 装备"
+        f"示例：/{cmd} 灵植　/{cmd} 装备\n"
+        f"💡 只取某一种：/{CMD_TAKE_ITEM} 物品名 [数量]"
+    )
+
+
+_COUNT_TAIL_RE = re.compile(r"^(?:[x×*＊]\s*)?(\d+)$")
+_COUNT_INLINE_RE = re.compile(r"^(.+?)[x×*＊](\d+)$")
+_ALL_WORDS = ("all", "ALL", "全部", "满", "都")
+
+
+def _split_take_args(raw: str) -> Tuple[str, Optional[int]]:
+    """把「物品名 [数量]」拆成 (名称, 数量)；数量为 None 表示全部。
+
+    支持 ``聚气丹 30`` / ``聚气丹 x30`` / ``聚气丹×30`` / ``聚气丹 全部``。
+    单段纯数字视为漏了物品名，返回空名交给调用方提示用法。
+    """
+    text = (raw or "").replace("　", " ").strip()
+    if not text:
+        return "", None
+    if text.isdigit():
+        return "", None
+
+    inline = _COUNT_INLINE_RE.match(text)
+    if inline:
+        return inline.group(1).strip(), int(inline.group(2))
+
+    parts = text.split()
+    if len(parts) >= 2:
+        last = parts[-1]
+        hit = _COUNT_TAIL_RE.match(last)
+        if hit:
+            return " ".join(parts[:-1]), int(hit.group(1))
+        if last in _ALL_WORDS:
+            return " ".join(parts[:-1]), None
+    return text, None
+
+
+def _resolve_name(raw: str, names: List[str]) -> Tuple[str, List[str]]:
+    """名称匹配：精确优先，其次唯一子串；命中多个时返回候选列表。"""
+    if raw in names:
+        return raw, []
+    hits = [n for n in names if raw in n]
+    if len(hits) == 1:
+        return hits[0], []
+    return "", sorted(hits)
+
+
+def _take_usage() -> str:
+    return (
+        f"用法：/{CMD_TAKE_ITEM} 物品名 [数量]\n"
+        f"数量留空 = 该物品全部取出；装备按件数算\n"
+        f"示例：/{CMD_TAKE_ITEM} 聚气丹 30　/{CMD_TAKE_ITEM} 灵草　/{CMD_TAKE_ITEM} 青锋剑 1\n"
+        f"💡 按大类整批搬：/{CMD_TRANSFER_OUT} 灵植"
     )
 
 
@@ -128,6 +182,7 @@ class WarehouseHandler:
         else:
             lines.append("🏆 已达当前洞天上限，进阶洞天可继续扩建\n")
         lines.append(f"存入：/{CMD_TRANSFER_IN}　取出：/{CMD_TRANSFER_OUT} [分类]\n")
+        lines.append(f"单件取出：/{CMD_TAKE_ITEM} 物品名 [数量]\n")
         lines.append("⚠️ 仓库物品不能直接炼丹/制符，使用前先取到储物戒\n")
         lines.append(f"详情：/{CMD_WAREHOUSE}")
 
@@ -172,6 +227,49 @@ class WarehouseHandler:
             yield event.plain_result(_category_usage(CMD_TRANSFER_OUT))
             return
         ok, msg = await self.warehouse_manager.transfer_out(player, category)
+        yield event.plain_result(msg)
+
+    # ===== /取出 单件指定数量 =====
+
+    @player_required
+    async def handle_take_item(self, player: Player, event: AstrMessageEvent, args: str = ""):
+        text = (args or "").strip()
+        if not text:
+            yield event.plain_result(_take_usage())
+            return
+
+        raw_name, count = _split_take_args(text)
+        if not raw_name:
+            yield event.plain_result(_take_usage())
+            return
+
+        if not self.warehouse_manager.is_open(player):
+            yield event.plain_result(
+                "❌ 你还没有【藏宝阁】。\n"
+                f"修建：/洞天装修 藏宝阁（{WarehouseManager.OPEN_COST:,} 灵石）"
+            )
+            return
+
+        names = self.warehouse_manager.list_item_names(player)
+        if not names:
+            yield event.plain_result("🏛️ 藏宝阁里空空如也，没有可取的物品。")
+            return
+
+        name, candidates = _resolve_name(raw_name, names)
+        if not name:
+            if candidates:
+                listing = "、".join(candidates[:8]) + ("…" if len(candidates) > 8 else "")
+                yield event.plain_result(
+                    f"❓ 「{raw_name}」匹配到多个物品：\n{listing}\n"
+                    f"💡 请输入完整物品名，例如 /{CMD_TAKE_ITEM} {candidates[0]} 10"
+                )
+            else:
+                yield event.plain_result(
+                    f"❌ 仓库里没有含「{raw_name}」的物品。\n💡 /{CMD_WAREHOUSE} 查看清单。"
+                )
+            return
+
+        ok, msg = await self.warehouse_manager.transfer_out_item(player, name, count)
         yield event.plain_result(msg)
 
     # ===== /一键回收 =====
