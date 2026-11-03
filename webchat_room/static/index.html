@@ -2,282 +2,113 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="theme-color" content="#f0e8da">
 <title>修仙聊天室</title>
-<style>
-  :root {
-    --bg: #f4f1ea;
-    --panel: #ffffff;
-    --ink: #3a3128;
-    --dim: #8a7f70;
-    --accent: #8b5e34;
-    --accent-soft: #efe4d3;
-    --bot-bg: #fdf8ef;
-    --bot-border: #e3d5bd;
-    --me-bg: #e7f0e4;
-    --sys: #a89c8c;
-    --danger: #b04a3a;
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
-    background: var(--bg);
-    color: var(--ink);
-    height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .card {
-    background: var(--panel);
-    border-radius: 12px;
-    box-shadow: 0 4px 24px rgba(60,45,25,.12);
-    width: min(860px, 96vw);
-    height: min(680px, 94vh);
-    display: none;
-    flex-direction: column;
-    overflow: hidden;
-  }
-  .card.active { display: flex; }
-
-  /* ---- 登录 ---- */
-  #login {
-    background: var(--panel);
-    border-radius: 12px;
-    box-shadow: 0 4px 24px rgba(60,45,25,.12);
-    padding: 40px 48px;
-    width: min(400px, 92vw);
-    text-align: center;
-  }
-  #login h1 { font-size: 26px; margin-bottom: 6px; letter-spacing: 4px; }
-  #login p.sub { color: var(--dim); font-size: 13px; margin-bottom: 28px; }
-  #login label { display: block; text-align: left; font-size: 13px; color: var(--dim); margin: 14px 0 6px; }
-  #login input {
-    width: 100%; padding: 10px 12px; font-size: 15px;
-    border: 1px solid #d8cec0; border-radius: 8px; outline: none;
-    background: #fbf9f5;
-  }
-  #login input:focus { border-color: var(--accent); }
-  #login button {
-    margin-top: 26px; width: 100%; padding: 11px;
-    font-size: 16px; letter-spacing: 6px; cursor: pointer;
-    background: var(--accent); color: #fff; border: none; border-radius: 8px;
-  }
-  #login button:hover { filter: brightness(1.08); }
-  #login .err { color: var(--danger); font-size: 13px; margin-top: 10px; min-height: 18px; }
-
-  /* ---- 聊天区 ---- */
-  header {
-    display: flex; align-items: center; gap: 12px;
-    padding: 12px 18px; background: var(--accent-soft);
-    border-bottom: 1px solid #e0d2ba;
-  }
-  header .title { font-weight: bold; font-size: 16px; letter-spacing: 2px; }
-  header .room-tag {
-    font-size: 12px; background: #fff; border: 1px solid #dccdb2;
-    padding: 2px 10px; border-radius: 10px; color: var(--accent);
-  }
-  header .conn { margin-left: auto; font-size: 12px; color: var(--dim); }
-  header .conn.on { color: #4a7c46; }
-  .main { flex: 1; display: flex; min-height: 0; }
-  #msgs {
-    flex: 1; overflow-y: auto; padding: 16px 20px;
-    display: flex; flex-direction: column; gap: 10px;
-  }
-  .side {
-    width: 150px; border-left: 1px solid #ece4d6; padding: 14px 12px;
-    font-size: 13px; overflow-y: auto;
-  }
-  .side h3 { font-size: 12px; color: var(--dim); margin-bottom: 10px; font-weight: normal; }
-  .side li { list-style: none; padding: 4px 2px; color: var(--ink); }
-
-  .msg { max-width: 78%; padding: 8px 12px; border-radius: 10px; line-height: 1.55; font-size: 14px; word-break: break-word; white-space: pre-wrap; }
-  .msg .who { font-size: 12px; color: var(--dim); margin-bottom: 2px; }
-  .msg .time { font-size: 11px; color: var(--dim); margin-left: 8px; }
-  .msg.player { align-self: flex-start; background: #f7f3ec; border: 1px solid #eadfcb; }
-  .msg.me { align-self: flex-end; background: var(--me-bg); border: 1px solid #cfe0ca; }
-  .msg.bot { align-self: flex-start; background: var(--bot-bg); border: 1px solid var(--bot-border); }
-  .msg.bot .who { color: var(--accent); font-weight: bold; }
-  .msg.bot img { max-width: 320px; max-height: 320px; border-radius: 8px; margin-top: 6px; display: block; cursor: zoom-in; }
-  .msg.sys {
-    align-self: center; background: none; color: var(--sys);
-    font-size: 12px; padding: 2px;
-  }
-  .msg.err { align-self: center; background: none; color: var(--danger); font-size: 12px; padding: 2px; }
-
-  footer { display: flex; gap: 10px; padding: 12px 16px; border-top: 1px solid #ece4d6; background: #fbf9f5; }
-  footer input {
-    flex: 1; padding: 10px 12px; font-size: 14px;
-    border: 1px solid #d8cec0; border-radius: 8px; outline: none; background: #fff;
-  }
-  footer input:focus { border-color: var(--accent); }
-  footer button {
-    padding: 10px 22px; font-size: 14px; cursor: pointer;
-    background: var(--accent); color: #fff; border: none; border-radius: 8px;
-  }
-  footer button:disabled { opacity: .5; cursor: default; }
-</style>
+<link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
 
-<!-- 登录 -->
-<div id="login">
-  <h1>修 仙 聊 天 室</h1>
-  <p class="sub">聚灵谷 · 同道共聚一室，与道友切磋论道</p>
-  <label>道号（你的名字）</label>
-  <input id="inName" maxlength="20" placeholder="例如：云无月">
-  <label>房间</label>
-  <input id="inRoom" maxlength="30" value="room_main">
-  <button id="btnJoin">进 入</button>
-  <div class="err" id="loginErr"></div>
-</div>
-
-<!-- 聊天 -->
-<div class="card" id="chat">
-  <header>
-    <span class="title">修仙聊天室</span>
-    <span class="room-tag" id="roomTag"></span>
-    <span class="conn" id="connState">未连接</span>
-  </header>
-  <div class="main">
-    <div id="msgs"></div>
-    <div class="side">
-      <h3>在线同修</h3>
-      <ul id="online"></ul>
-    </div>
+<!-- ============ 登录 ============ -->
+<div id="login" class="screen">
+  <div class="login-card">
+    <div class="login-mark">☯</div>
+    <h1>修 仙 聊 天 室</h1>
+    <p class="sub">聚灵谷 · 同道共聚一室</p>
+    <label for="inName">道号</label>
+    <input id="inName" maxlength="20" placeholder="例如：云无月" autocomplete="nickname">
+    <label for="inRoom">洞府房间</label>
+    <input id="inRoom" maxlength="30" value="room_main">
+    <button id="btnJoin" class="btn-primary">踏 入 仙 途</button>
+    <div class="err" id="loginErr"></div>
   </div>
-  <footer>
-    <input id="inMsg" maxlength="2000" placeholder="输入消息或指令，如 /修仙帮助 …（Enter 发送）">
-    <button id="btnSend">发送</button>
-  </footer>
 </div>
 
-<script>
-(() => {
-  const $ = id => document.getElementById(id);
-  let ws = null, myName = "", myRoom = "", reconnectTimer = null, manualClose = false;
+<!-- ============ 主界面 ============ -->
+<div id="app" hidden>
 
-  // 记住道号
-  $("inName").value = localStorage.getItem("webroom_name") || "";
+  <!-- 顶部：播报横幅 -->
+  <div id="banner" class="banner" hidden>
+    <span class="banner-icon">📢</span>
+    <div class="banner-text" id="bannerText"></div>
+    <button class="banner-close" id="bannerClose" aria-label="关闭">×</button>
+  </div>
 
-  $("btnJoin").onclick = join;
-  $("inName").addEventListener("keydown", e => { if (e.key === "Enter") $("inRoom").focus(); });
-  $("inRoom").addEventListener("keydown", e => { if (e.key === "Enter") join(); });
-  $("btnSend").onclick = send;
-  $("inMsg").addEventListener("keydown", e => { if (e.key === "Enter") send(); });
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">☯</span>
+      <span class="brand-text">修仙聊天室</span>
+    </div>
+    <span class="room-tag" id="roomTag"></span>
+    <div class="topbar-right">
+      <span class="conn" id="connState">未连接</span>
+      <button class="icon-btn only-desktop" id="btnTogglePanel" title="收起/展开看板">⟨</button>
+    </div>
+  </header>
 
-  function join() {
-    const name = $("inName").value.trim();
-    const room = $("inRoom").value.trim() || "room_main";
-    if (!name) { $("loginErr").textContent = "请先报上道号"; return; }
-    localStorage.setItem("webroom_name", name);
-    myName = name; myRoom = room;
-    $("loginErr").textContent = "";
-    $("login").style.display = "none";
-    $("chat").classList.add("active");
-    $("roomTag").textContent = room;
-    connect();
-  }
+  <main class="main">
+    <!-- 聊天区 -->
+    <section class="chat-pane" id="chatPane">
+      <div class="msgs" id="msgs"></div>
 
-  function connect() {
-    manualClose = false;
-    const proto = location.protocol === "https:" ? "wss" : "ws";
-    setConn("连接中…", false);
-    ws = new WebSocket(`${proto}://${location.host}/ws/${encodeURIComponent(myRoom)}?player=${encodeURIComponent(myName)}`);
-    ws.onopen = () => setConn("已连接", true);
-    ws.onclose = e => {
-      setConn("已断开", false);
-      if (manualClose) return;
-      addSys(e.reason ? decodeURIComponent(e.reason) : "连接断开，5 秒后重连…");
-      clearTimeout(reconnectTimer);
-      reconnectTimer = setTimeout(connect, 5000);
-    };
-    ws.onmessage = onMsg;
-    ws.onerror = () => setConn("连接异常", false);
-  }
+      <div class="quick-options" id="quickOptions" hidden></div>
 
-  function send() {
-    const text = $("inMsg").value.trim();
-    if (!text || !ws || ws.readyState !== 1) return;
-    ws.send(JSON.stringify({ action: "msg", text }));
-    $("inMsg").value = "";
-  }
+      <div class="composer">
+        <button class="composer-btn" id="btnQuick" title="快捷指令">☰</button>
+        <textarea id="inMsg" rows="1" maxlength="2000"
+                  placeholder="发消息或 /指令…"></textarea>
+        <button class="composer-btn send" id="btnSend" title="发送">➤</button>
+      </div>
+    </section>
 
-  function onMsg(ev) {
-    let m;
-    try { m = JSON.parse(ev.data); } catch { return; }
-    switch (m.type) {
-      case "hello":
-        setOnline(m.online || [myName]);
-        addSys(`欢迎 ${myName}，当前在线 ${m.online.length} 人`);
-        break;
-      case "chat": addChat(m.from, m.text, m.ts, m.from === myName); break;
-      case "bot":  addBot(m.text || "", m.images || [], m.ts); break;
-      case "sys":  addSys(m.text); refreshOnline(); break;
-      case "error": addErr(m.text); break;
-      case "online": setOnline(m.players || []); break;
-      case "pong": break;
-    }
-  }
+    <!-- 看板 -->
+    <aside class="panel-pane" id="panelPane">
+      <div class="panel-tabs" role="tablist">
+        <button class="panel-tab active" data-tab="status" role="tab">状态</button>
+        <button class="panel-tab" data-tab="bag" role="tab">储物戒</button>
+        <button class="panel-tab" data-tab="cmds" role="tab">指令</button>
+      </div>
+      <div class="panel-body">
+        <div class="panel-view active" data-view="status" id="viewStatus"></div>
+        <div class="panel-view" data-view="bag" id="viewBag"></div>
+        <div class="panel-view" data-view="cmds" id="viewCmds"></div>
+      </div>
+    </aside>
+  </main>
 
-  function refreshOnline() {
-    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ action: "online" }));
-  }
+  <!-- 移动端底部导航 -->
+  <nav class="mobile-nav">
+    <button class="mnav active" data-nav="chat"><span>💬</span>聊天</button>
+    <button class="mnav" data-nav="status"><span>☯</span>状态</button>
+    <button class="mnav" data-nav="bag"><span>🎒</span>储物戒</button>
+    <button class="mnav" data-nav="cmds"><span>⚡</span>指令</button>
+  </nav>
 
-  function setConn(text, on) {
-    $("connState").textContent = text;
-    $("connState").className = "conn" + (on ? " on" : "");
-  }
+  <div class="drawer-mask" id="drawerMask" hidden></div>
+</div>
 
-  function setOnline(players) {
-    $("online").innerHTML = players
-      .map(p => `<li>${p === myName ? p + "（我）" : p}</li>`).join("");
-  }
+<!-- ============ 参数输入弹层 ============ -->
+<div class="sheet-mask" id="sheetMask" hidden>
+  <div class="sheet" id="sheet">
+    <div class="sheet-head">
+      <span id="sheetTitle">输入参数</span>
+      <button class="sheet-close" id="sheetClose">×</button>
+    </div>
+    <div class="sheet-hint" id="sheetHint"></div>
+    <input id="sheetInput" autocomplete="off" enterkeyhint="done">
+    <button class="btn-primary" id="sheetOk">发 送</button>
+  </div>
+</div>
 
-  function fmt(ts) {
-    const d = ts ? new Date(ts * 1000) : new Date();
-    return d.toTimeString().slice(0, 5);
-  }
+<!-- ============ 图片全屏查看 ============ -->
+<div class="viewer" id="viewer" hidden>
+  <img id="viewerImg" alt="">
+  <button class="viewer-close" id="viewerClose" aria-label="关闭">×</button>
+  <div class="viewer-tip">双指缩放 / 双击放大 / 拖动查看</div>
+</div>
 
-  function addChat(from, text, ts, isMe) {
-    appendMsg({
-      cls: isMe ? "me" : "player",
-      html: isMe
-        ? `${escapeHtml(text)}<span class="time">${fmt(ts)}</span>`
-        : `<div class="who">${escapeHtml(from)}<span class="time">${fmt(ts)}</span></div>${escapeHtml(text)}`
-    });
-  }
+<div class="toast" id="toast" hidden></div>
 
-  function addBot(text, images, ts) {
-    const imgs = images
-      .map(u => `<img src="${escapeHtml(u)}" onclick="window.open(this.src)">`)
-      .join("");
-    if (!text && !imgs) return;
-    appendMsg({
-      cls: "bot",
-      html: `<div class="who">系统[仙人]<span class="time">${fmt(ts)}</span></div>` +
-            escapeHtml(text) + imgs
-    });
-  }
-
-  function addSys(text) { appendMsg({ cls: "sys", text }); }
-  function addErr(text) { appendMsg({ cls: "err", text }); }
-
-  function appendMsg({ cls, html, text }) {
-    const div = document.createElement("div");
-    div.className = "msg " + cls;
-    if (html) div.innerHTML = html;
-    else div.textContent = text;
-    $("msgs").appendChild(div);
-    while ($("msgs").children.length > 300) $("msgs").firstChild.remove();
-    $("msgs").scrollTop = $("msgs").scrollHeight;
-  }
-
-  function escapeHtml(s) {
-    return String(s ?? "").replace(/[&<>"']/g,
-      c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  }
-})();
-</script>
+<script src="/static/app.js"></script>
 </body>
 </html>

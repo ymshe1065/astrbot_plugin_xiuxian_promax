@@ -33,7 +33,28 @@ FONT_SEMI = RES_DIR / "SourceHanSerifSC-SemiBold.otf"   # 数值：清晰醒目
 FONT_MED = RES_DIR / "SourceHanSerifSC-Medium.otf"      # 字段名/正文
 FONT_XINGKAI = RES_DIR / "MaShanZheng-Regular.ttf"      # 行楷：副标题/脚注墨迹
 FONT_EMOJI = RES_DIR / "OpenMoji-black-glyf.ttf"        # OpenMoji：装饰符号（程序镀金）
-CARD_TEMP_DIR = Path(tempfile.gettempdir()) / "xiuxian_cards"
+
+
+def _resolve_card_dir() -> Path:
+    """卡片落盘目录：优先 AstrBot data 目录（重启不丢），否则退回系统临时目录。
+
+    网页端要按文件名读取同名 .json sidecar，必须保证路径稳定。
+    """
+    try:
+        from astrbot.core.utils.astrbot_path import get_astrbot_data_path
+
+        base = Path(get_astrbot_data_path()) / "xiuxian_cards"
+    except Exception:
+        base = Path(tempfile.gettempdir()) / "xiuxian_cards"
+    try:
+        base.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        base = Path(tempfile.gettempdir()) / "xiuxian_cards"
+        base.mkdir(parents=True, exist_ok=True)
+    return base
+
+
+CARD_TEMP_DIR = _resolve_card_dir()
 
 # emoji 渲染：需要 109px 的 OpenMoji 无所谓，但 Noto 需要固定尺寸；OpenMoji 自由
 EMOJI_RENDER_SIZE = 96  # emoji 高清渲染基准，之后缩放
@@ -512,6 +533,7 @@ def render_card(
         # 结构化 sidecar：网页端读同名字段直接原生渲染，不必再看位图
         try:
             payload = {
+                "id": out_path.stem,
                 "bg": bg_name,
                 "title": title,
                 "subtitle": subtitle,

@@ -84,6 +84,9 @@ class WebroomAdapter(Platform):
         player_id: str,
         player_name: str,
         text: str,
+        req_id: str | None = None,
+        private: bool = False,
+        want_card: bool = False,
     ) -> AstrBotMessage:
         abm = AstrBotMessage()
         abm.self_id = ADAPTER_NAME
@@ -99,6 +102,9 @@ class WebroomAdapter(Platform):
             "player": player_id,
             "player_name": player_name,
             "text": text,
+            "req_id": req_id,
+            "private": private,
+            "want_card": want_card,
         }
         abm.timestamp = int(time.time())
         return abm
@@ -110,6 +116,10 @@ class WebroomAdapter(Platform):
             platform_meta=self.meta(),
             session_id=message.session_id,
         )
+        raw = message.raw_message if isinstance(message.raw_message, dict) else {}
+        event.req_id = raw.get("req_id") or None
+        event.private = bool(raw.get("private"))
+        event.want_card = bool(raw.get("want_card"))
         return event
 
     async def on_player_message(
@@ -118,8 +128,13 @@ class WebroomAdapter(Platform):
         player_id: str,
         player_name: str,
         text: str,
+        req_id: str | None = None,
+        private: bool = False,
+        want_card: bool = False,
     ) -> None:
-        abm = await self.convert_message(room_id, player_id, player_name, text)
+        abm = await self.convert_message(
+            room_id, player_id, player_name, text, req_id, private, want_card
+        )
         self.commit_event(self.create_event(abm))
 
     # ---------- 世界事件播报（context.send_message 的落点） ----------
@@ -137,7 +152,7 @@ class WebroomAdapter(Platform):
                 texts.append(comp.text)
         text = "".join(texts).strip()
         if text:
-            await room_server.broadcast_bot(room_id, text)
+            await room_server.broadcast_broadcast(room_id, {"text": text})
         await super().send_by_session(session, message_chain)
 
 
