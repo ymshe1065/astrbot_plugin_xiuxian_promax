@@ -276,6 +276,14 @@ class TestStorageRingElementTag(unittest.IsolatedAsyncioTestCase):
     def _handler(self):
         return _imp("handlers.storage_ring_handler").StorageRingHandler(self.db, self.cm)
 
+    def _assert_gear_label(self, label, element):
+        """装备行现在统一为「名（装备·部位·五行 | 品阶）」，五行并入同一个括号。"""
+        self.assertTrue(label.startswith(self.weapon), label)
+        self.assertEqual(label.count("（"), 1, label)
+        self.assertIn("装备·", label)
+        self.assertIn(element, label)
+        self.assertIn("|", label)
+
     async def test_text_gear_rows_show_element(self):
         p = await self._player()
         await self.ring.store_item(p, self.weapon, 1)
@@ -289,7 +297,10 @@ class TestStorageRingElementTag(unittest.IsolatedAsyncioTestCase):
         with patch.object(image_module, "card_enabled", return_value=False):
             results = [r async for r in handler.handle_storage_ring.__wrapped__(handler, p, event)]
         text = "\n".join(results)
-        self.assertIn(f"{self.weapon}（{element}）", text)
+        gear_lines = [line for line in text.splitlines() if self.weapon in line]
+        self.assertTrue(gear_lines, text)
+        for line in gear_lines:
+            self._assert_gear_label(line.split("· ", 1)[-1].rsplit("×", 1)[0], element)
 
     async def test_card_gear_rows_show_element(self):
         p = await self._player()
@@ -310,7 +321,10 @@ class TestStorageRingElementTag(unittest.IsolatedAsyncioTestCase):
             for section in render.call_args.kwargs["sections"]
             for label, value in section.get("rows", [])
         }
-        self.assertIn(f"{self.weapon}（{element}）", rows)
+        gear_rows = [label for label in rows if self.weapon in label]
+        self.assertTrue(gear_rows, rows)
+        for label in gear_rows:
+            self._assert_gear_label(label, element)
 
 
 if __name__ == "__main__":

@@ -3,6 +3,7 @@
 import asyncio
 import json
 import re
+import time
 import unittest
 
 from test_equipment_instances import _imp, _FakeEvent, ROOT
@@ -92,6 +93,57 @@ class TestPillBagAsync(unittest.IsolatedAsyncioTestCase):
         out = await self._render(self.player)
         self.assertEqual(len(out), 1)
         self.assertIn("丹药背包读取失败", out[0])
+
+    async def test_model_filters_non_dict_effects(self):
+        """模型层读取口必须过滤非 dict 脏条目，保护所有调用方。"""
+        self.player.active_pill_effects = json.dumps(["脏数据", {"pill_name": "聚气丹"}, 123])
+        self.assertEqual(self.player.get_active_pill_effects(), [{"pill_name": "聚气丹"}])
+
+    async def test_string_expiry_time_renders(self):
+        """脏数据：expiry_time 是数字字符串时也应正确归一并正常展示。"""
+        now = int(time.time())
+        self.player.active_pill_effects = json.dumps([
+            {"pill_name": "聚气丹", "expiry_time": str(now + 3600)}
+        ])
+        await self.db.update_player(self.player)
+        player = await self.db.get_player_by_id(self.player.user_id)
+
+        text = (await self._render(player))[0]
+        self.assertNotIn("读取失败", text)
+        self.assertIn("聚气丹", text)
+        self.assertIn("剩余", text)
+
+    async def test_unparseable_expiry_does_not_break_bag(self):
+        """脏数据：expiry_time 无法解析时丢弃展示该条，其余效果与背包照常渲染。"""
+        now = int(time.time())
+        self.player.active_pill_effects = json.dumps([
+            {"pill_name": "坏数据丹", "expiry_time": "abc"},
+            {"pill_name": "聚气丹", "expiry_time": now + 3600},
+        ])
+        await self.db.update_player(self.player)
+        player = await self.db.get_player_by_id(self.player.user_id)
+
+        text = (await self._render(player))[0]
+        self.assertNotIn("读取失败", text)
+        self.assertIn("聚气丹", text)
+
+    async def test_string_periodic_values_still_settle(self):
+        """脏数据：每分钟恢复值是数字字符串时，周期结算照常生效且不崩。"""
+        now = int(time.time())
+        self.player.spiritual_qi = 0
+        self.player.max_spiritual_qi = 1000
+        self.player.active_pill_effects = json.dumps([
+            {"pill_name": "回春丹", "expiry_time": str(now + 3600),
+             "last_tick_time": str(now - 600), "spiritual_qi_regen_per_minute": "5"}
+        ])
+        await self.db.update_player(self.player)
+        player = await self.db.get_player_by_id(self.player.user_id)
+
+        text = (await self._render(player))[0]
+        self.assertNotIn("读取失败", text)
+        # player_required 内部会重新读档，结算结果需从库里验证
+        settled = await self.db.get_player_by_id(self.player.user_id)
+        self.assertGreater(settled.spiritual_qi, 0)
 
 
 if __name__ == "__main__":

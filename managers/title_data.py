@@ -136,6 +136,7 @@ TITLES = [
     T("百炼成圣", 5, "enhance_count", condition=100, atk=380, phys_def=300),
     T("驯兽神王", 5, "pet_level", condition=50, atk=380, crit=12),
     T("镇魔大元帅", 5, "demon_catch", condition=20, atk=380, crit=12),
+    T("天外镇守者", 5, "weekly_boss_clear", condition=1, atk=420, crit=12, lifesteal=6),
 
     # ========== 帝品（唯一性/隐藏，8）==========
     T("灭世魔神·帝", 6, "manual", atk=600, crit=15, lifesteal=8),

@@ -169,11 +169,12 @@ class AlchemyManager:
 
         scroll_name = self.config_manager.get_recipe_scroll_name(recipe) if self.config_manager else f"《{recipe.get('name')}》"
         ring_items = player.get_storage_ring_items()
-        if ring_items.get(scroll_name, 0) > 0:
-            if ring_items[scroll_name] <= 1:
-                del ring_items[scroll_name]
+        if int(ring_items.get(scroll_name, 0) or 0) > 0:
+            left = int(ring_items.get(scroll_name, 0) or 0) - 1
+            if left <= 0:
+                ring_items.pop(scroll_name, None)
             else:
-                ring_items[scroll_name] -= 1
+                ring_items[scroll_name] = left
             player.set_storage_ring_items(ring_items)
             cost_note = f"消耗丹方卷轴【{scroll_name}】x1"
         else:
@@ -244,9 +245,21 @@ class AlchemyManager:
                         "count": int(material.get("count", 0) or 0),
                     }
 
+    def _items_snapshot(self, player: Player) -> Dict[str, int]:
+        """储物戒快照（只读）。
+
+        仓库物品不算数：炼丹只吃戒指里的材料，仓库里的必须先 /一键取出。
+        """
+        if self.storage_ring_manager:
+            try:
+                return self.storage_ring_manager.ring_items(player)
+            except Exception:
+                pass
+        return dict(player.get_storage_ring_items())
+
     def _find_material_stacks(self, player: Player, spec: Dict) -> List[Tuple[str, int]]:
         stacks = []
-        for item_name, count in player.get_storage_ring_items().items():
+        for item_name, count in self._items_snapshot(player).items():
             try:
                 count = int(count)
             except (TypeError, ValueError):
@@ -303,7 +316,7 @@ class AlchemyManager:
     def _plan_materials(self, player: Player, recipe: Dict):
         """模拟扣料：具名材料优先预留，避免被同类/同阶泛材料提前吃掉。"""
         available = {}
-        for item_name, count in player.get_storage_ring_items().items():
+        for item_name, count in self._items_snapshot(player).items():
             try:
                 count = int(count)
             except (TypeError, ValueError):
@@ -335,21 +348,47 @@ class AlchemyManager:
             plan.append((spec, taken))
         return not missing, missing, plan
 
+    def _warehouse_note(self, player: Player, recipe: Dict) -> str:
+        """仓库里有对应材料时提示先取出：否则玩家只看到"材料不足"，找不到东西。"""
+        warehouse = {
+            name: int(raw or 0)
+            for name, raw in (player.get_warehouse_items() or {}).items()
+            if int(raw or 0) > 0
+        }
+        if not warehouse:
+            return ""
+        hits: List[str] = []
+        for spec in recipe.get("materials", []) or []:
+            total = sum(count for _, count in self._iter_available_stacks(warehouse, spec))
+            if total <= 0:
+                continue
+            label = spec.get("name") or f"{spec.get('tier', '')}{spec.get('category', '')}材料"
+            hits.append(f"{label}×{total}")
+        if not hits:
+            return ""
+        return f"\n　💡 仓库里有：{'、'.join(hits[:5])}，先 /一键取出 再炼。"
+
     def _consume_materials(self, player: Player, recipe: Dict) -> Tuple[bool, str, List[str]]:
         ok, missing, plan = self._plan_materials(player, recipe)
         if not ok:
-            return False, "❌ 材料不足！\n" + "\n".join(f"  · {m}" for m in missing), []
+            text = "❌ 材料不足！\n" + "\n".join(f"  · {m}" for m in missing)
+            return False, text + self._warehouse_note(player, recipe), []
 
         ring_items = player.get_storage_ring_items()
+
         consumed = []
         for _, taken in plan:
             for item_name, take in taken:
-                left = int(ring_items.get(item_name, 0) or 0) - take
+                have = int(ring_items.get(item_name, 0) or 0)
+                got = min(have, take)
+                if got <= 0:
+                    continue
+                left = have - got
                 if left <= 0:
                     ring_items.pop(item_name, None)
                 else:
                     ring_items[item_name] = left
-                consumed.append(f"{item_name}×{take}")
+                consumed.append(f"{item_name}×{got}")
         player.set_storage_ring_items(ring_items)
         return True, "", consumed
 

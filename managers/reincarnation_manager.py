@@ -116,6 +116,8 @@ class ReincarnationManager:
         
         player.set_storage_ring_items({})
         player.set_overflow_items({})
+        # 仓库物品随飞升清空，等级保留（买断的永久资产，与储物戒同理）
+        player.set_warehouse_items({})
         player.set_equipment_instances([])
         player.set_equipped_instances({})
         player.set_pills_inventory({})

@@ -59,11 +59,19 @@ class _FakeDB:
 class _FakeRing:
     """储物戒替身：只关心已用槽位，避免测试依赖完整 StorageRingManager。"""
 
+    STACK_LIMIT = 50
+
     def __init__(self):
         self.stored = {}
 
     def get_available_slots(self, player):
         return 99
+
+    def can_accept(self, player, item_name, count=1):
+        return True
+
+    def room_for(self, owned, available):
+        return max(0, int(available or 0) * self.STACK_LIMIT) + (self.STACK_LIMIT - int(owned or 0) % self.STACK_LIMIT) % self.STACK_LIMIT
 
     async def store_item(self, player, name, count=1, silent=False, **kwargs):
         items = player.get_storage_ring_items()
@@ -151,7 +159,8 @@ class TestTalismanRules(unittest.TestCase):
             effects={"physical_defense_multiplier": 0.33},
         )
         self.assertEqual(profile["effects"]["physical_defense_multiplier"], 0.33)
-        self.assertEqual(profile["duration"], 15)
+        # 时长按「品类 × 品阶」取：防御·黄品 = 30 分钟
+        self.assertEqual(profile["duration"], 30)
         self.assertFalse(profile["run_scoped"])
 
     def test_exploration_profile_is_run_scoped(self):
@@ -251,7 +260,7 @@ class TestTalismanManager(unittest.IsolatedAsyncioTestCase):
         items["山河符"] = 1
         items["金刚符"] = 1
         player.set_storage_ring_items(items)
-        with mock.patch.object(mgr, "_roll_quality", return_value=("一般", 1.0, 0)):
+        with mock.patch.object(mgr, "_roll_quality", return_value=("一般", 1.0, 0.0, 0)):
             await mgr.use_talisman(player, "山河符", 1)
             await mgr.use_talisman(player, "金刚符", 1)
         effects = self.Manager.collect_active_combat_effects(player)

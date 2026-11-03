@@ -10,7 +10,7 @@ from astrbot.api import logger
 if TYPE_CHECKING:
     from ..config_manager import ConfigManager
 
-LATEST_DB_VERSION = 58  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求；v49: 统一物品品阶名称；v50: 仙市投资系统（基金/股票）；v51: 符箓熟练度与符图习得；v52: 仙市 v6（16 盘 + 赌场级波动 + 不对称日熔断）；v53: 拍卖会未开拍拍品按固定品阶曲线重建（并兼容分叉旧库补授符图）；v54: 灵田肥力上限按等级分级（旧值按百分比换算）；v55: 生活职业更换费用峰值与时间衰减；v56: 误存进储物戒/溢出仓库的丹药迁回丹药背包；v57: 旧50/50装备改名迁移到混合倾向新装备
+LATEST_DB_VERSION = 59  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求；v49: 统一物品品阶名称；v50: 仙市投资系统（基金/股票）；v51: 符箓熟练度与符图习得；v52: 仙市 v6（16 盘 + 赌场级波动 + 不对称日熔断）；v53: 拍卖会未开拍拍品按固定品阶曲线重建（并兼容分叉旧库补授符图）；v54: 灵田肥力上限按等级分级（旧值按百分比换算）；v55: 生活职业更换费用峰值与时间衰减；v56: 误存进储物戒/溢出仓库的丹药迁回丹药背包；v57: 旧50/50装备改名迁移到混合倾向新装备
 
 MIGRATION_TASKS: Dict[int, Callable[[aiosqlite.Connection, ConfigManager], Awaitable[None]]] = {}
 
@@ -353,6 +353,94 @@ async def _ensure_talisman_v51(conn: aiosqlite.Connection, grant_legacy: bool = 
     )
 
 
+async def _ensure_weekly_boss_v58(conn: aiosqlite.Connection):
+    """创建 v58 周常 Boss（周本）相关表（新库/旧库共用）。"""
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS weekly_boss_cycles (
+            cycle_id TEXT PRIMARY KEY,
+            boss_type TEXT NOT NULL DEFAULT '',
+            boss_name TEXT NOT NULL DEFAULT '',
+            element TEXT NOT NULL DEFAULT '',
+            baseline_level INTEGER NOT NULL DEFAULT 0,
+            start_time INTEGER NOT NULL DEFAULT 0,
+            end_time INTEGER NOT NULL DEFAULT 0,
+            status INTEGER NOT NULL DEFAULT 1,
+            created_at INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS weekly_boss_runs (
+            run_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            cycle_id TEXT NOT NULL,
+            leader_id TEXT NOT NULL,
+            team_name TEXT NOT NULL DEFAULT '',
+            member_count INTEGER NOT NULL DEFAULT 0,
+            max_hp INTEGER NOT NULL DEFAULT 0,
+            current_hp INTEGER NOT NULL DEFAULT 0,
+            round INTEGER NOT NULL DEFAULT 0,
+            status INTEGER NOT NULL DEFAULT 0,
+            total_damage INTEGER NOT NULL DEFAULT 0,
+            log_json TEXT NOT NULL DEFAULT '[]',
+            created_at INTEGER NOT NULL DEFAULT 0,
+            started_at INTEGER NOT NULL DEFAULT 0,
+            ended_at INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS weekly_boss_members (
+            run_id INTEGER NOT NULL,
+            user_id TEXT NOT NULL,
+            joined_at INTEGER NOT NULL DEFAULT 0,
+            damage INTEGER NOT NULL DEFAULT 0,
+            healing INTEGER NOT NULL DEFAULT 0,
+            deaths INTEGER NOT NULL DEFAULT 0,
+            pill_loadout TEXT NOT NULL DEFAULT '{}',
+            normalized_panel TEXT NOT NULL DEFAULT '{}',
+            reward_claimed INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (run_id, user_id)
+        )
+    """)
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS weekly_boss_claims (
+            cycle_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            run_id INTEGER NOT NULL DEFAULT 0,
+            claimed_at INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (cycle_id, user_id)
+        )
+    """)
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS weekly_boss_leaderboard (
+            cycle_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            best_damage INTEGER NOT NULL DEFAULT 0,
+            best_share REAL NOT NULL DEFAULT 0,
+            clears INTEGER NOT NULL DEFAULT 0,
+            updated_at INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (cycle_id, user_id)
+        )
+    """)
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS weekly_boss_attempts (
+            cycle_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            used INTEGER NOT NULL DEFAULT 0,
+            updated_at INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (cycle_id, user_id)
+        )
+    """)
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_weekly_boss_runs_cycle ON weekly_boss_runs(cycle_id, status)"
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_weekly_boss_members_user ON weekly_boss_members(user_id)"
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_weekly_boss_leaderboard_cycle "
+        "ON weekly_boss_leaderboard(cycle_id, best_damage DESC)"
+    )
+
+
 async def _ensure_latest_columns(conn: aiosqlite.Connection):
     """终极兜底：确保 NPC、宗门、贷款等最新增量列/表齐全。"""
     await _add_column_if_missing(conn, "players", "karma", "INTEGER NOT NULL DEFAULT 0")
@@ -372,6 +460,9 @@ async def _ensure_latest_columns(conn: aiosqlite.Connection):
     await _add_column_if_missing(conn, "players", "equipment_instances", "TEXT NOT NULL DEFAULT '[]'")
     await _add_column_if_missing(conn, "players", "equipped_instances", "TEXT NOT NULL DEFAULT '{}'")
     await _add_column_if_missing(conn, "players", "luck", "INTEGER NOT NULL DEFAULT 0")
+    # 洞天仓库（藏宝阁）：等级 0 表示未开通；物品挂玩家身上，进阶洞天不会丢
+    await _add_column_if_missing(conn, "players", "warehouse_level", "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(conn, "players", "warehouse_items", "TEXT NOT NULL DEFAULT '{}'")
     await _add_column_if_missing(conn, "boss", "archetype", "TEXT NOT NULL DEFAULT 'balanced'")
     await _ensure_trade_v39(conn)
     await _ensure_npc_v29_tables(conn)
@@ -398,6 +489,7 @@ async def _ensure_latest_columns(conn: aiosqlite.Connection):
     await _add_column_if_missing(conn, "player_pets", "dead_until", "INTEGER NOT NULL DEFAULT 0")
     await _add_column_if_missing(conn, "player_pets", "slot", "INTEGER NOT NULL DEFAULT 1")
     await _add_column_if_missing(conn, "player_pets", "is_main", "INTEGER NOT NULL DEFAULT 1")
+    await _ensure_weekly_boss_v58(conn)
     await conn.commit()
 
 class MigrationManager:
@@ -662,6 +754,8 @@ async def _create_all_tables_v2(conn: aiosqlite.Connection):
             pills_inventory TEXT NOT NULL DEFAULT '{}',
             storage_ring TEXT NOT NULL DEFAULT '基础储物戒',
             storage_ring_items TEXT NOT NULL DEFAULT '{}',
+            warehouse_level INTEGER NOT NULL DEFAULT 0,
+            warehouse_items TEXT NOT NULL DEFAULT '{}',
             
             daily_pill_usage TEXT NOT NULL DEFAULT '{}',
             last_daily_reset TEXT NOT NULL DEFAULT '',
@@ -2442,7 +2536,16 @@ async def _migrate_to_v57(conn: aiosqlite.Connection, config_manager: ConfigMana
 
 @migration(58)
 async def _migrate_to_v58(conn: aiosqlite.Connection, config_manager: ConfigManager):
-    """v58：功德机制重做，清空所有玩家既有功德（业力）数值。"""
+    """v58：新增周常 Boss（周本）周期/队伍/成员/领奖/周榜/次数表。"""
+    logger.info("开始迁移到 v58：周常 Boss（周本）数据表")
+    await _ensure_weekly_boss_v58(conn)
+    await conn.commit()
+    logger.info("v58迁移完成：周本数据表已建立")
+
+
+@migration(59)
+async def _migrate_to_v59(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """v59：功德机制重做，清空所有玩家既有功德（业力）数值。"""
     await conn.execute("UPDATE players SET karma = 0")
     await conn.commit()
-    logger.info("v58迁移完成：全服玩家功德已清零")
+    logger.info("v59迁移完成：全服玩家功德已清零")

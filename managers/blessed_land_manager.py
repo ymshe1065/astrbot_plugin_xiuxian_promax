@@ -46,6 +46,8 @@ FURNITURES: Dict[str, dict] = {
     "灵泉假山": {"price": 50000, "desc": "洞天灵石产出+10%", "effect": "income"},
     "回春榻": {"price": 15000, "desc": "自然气血恢复+15%，调息气血恢复+10%", "effect": "recovery"},
     "聚灵池": {"price": 15000, "desc": "自然灵气恢复+15%，调息灵气恢复+10%", "effect": "recovery"},
+    # 藏宝阁不是普通家具：购买即开通洞天仓库，后续用 /升级仓库 扩建
+    "藏宝阁": {"price": 30000, "desc": "开通洞天仓库（50 格，可扩建），/一键转移 存取", "effect": "warehouse"},
 }
 
 # 洞天配置
@@ -86,7 +88,16 @@ class BlessedLandManager:
         return bool(land) and name in (land.get("furniture_list") or [])
 
     async def buy_furniture(self, player: Player, name: str) -> Tuple[bool, str]:
-        """购买并放置洞天家具"""
+        """购买并放置洞天家具（藏宝阁特殊：开通洞天仓库）"""
+        # 藏宝阁走仓库开通流程，不进家具列表（避免重复放置）
+        if name == "藏宝阁":
+            from ..core.warehouse_manager import WarehouseManager
+
+            manager = WarehouseManager(self.db, self.config_manager)
+            if manager.get_level(player) > 0:
+                return False, "❌ 你的洞天已经修建了【藏宝阁】，可使用 /升级仓库 扩建。"
+            return await manager.open_warehouse(player)
+
         config = FURNITURES.get(name)
         if not config:
             available = "\n".join(f"  · {n}（{c['price']:,}灵石）：{c['desc']}" for n, c in FURNITURES.items())

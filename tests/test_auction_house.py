@@ -308,7 +308,9 @@ class TestAuctionHouse(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(lot["highest_bidder"], "p1")
         self.assertEqual(lot["status"], "countdown")
-        self.assertEqual(int(lot["bid_deadline"]), now + 60)
+        # 出价截止 = 出价时刻 + 60s；测试取 now 与真实出价时刻可能跨秒，故用区间断言
+        self.assertGreaterEqual(int(lot["bid_deadline"]), now + 59)
+        self.assertLessEqual(int(lot["bid_deadline"]), now + 61)
 
         ok, _ = await self.manager.bid(p2, "1100")
         self.assertTrue(ok)

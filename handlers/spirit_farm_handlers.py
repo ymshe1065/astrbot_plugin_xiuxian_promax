@@ -31,7 +31,7 @@ class SpiritFarmHandlers:
             if card_enabled("CARD_FARM"):
                 from ..managers.spirit_farm_manager import (
                     FARM_LEVELS, HYBRID_MARKER, collect_hybrid_jobs,
-                    get_herbs_for_level, get_next_unlock,
+                    get_herbs_for_level, get_next_level_unlock,
                 )
                 import time as _time
                 farm = await self.mgr.get_user_farm(player.user_id)
@@ -87,8 +87,8 @@ class SpiritFarmHandlers:
                         ))
                     except Exception:
                         pass
-                    next_level, next_herbs = get_next_unlock(farm_level)
-                    unlock_rows = [("下一档解锁", f"Lv.{next_level} " + "、".join(next_herbs))] if next_level else []
+                    next_level, next_unlocks = get_next_level_unlock(farm_level)
+                    unlock_rows = [("下一档解锁", f"Lv.{next_level} " + "、".join(next_unlocks))] if next_level else []
                     max_fertility = self.mgr.get_max_fertility(farm)
                     card_path = await render_card_async(
                         "spirit",
@@ -149,7 +149,7 @@ class SpiritFarmHandlers:
                 "   /种植 灵草 all    （种满所有空格）",
                 "💡 也可紧贴书写：/种植 灵草6、/种植 灵草1-20、/种植 灵草all",
                 "💡 /种植 all 不写灵草时，自动沿用灵田里种得最多的灵草",
-                "💡 提升灵田等级可解锁更高级灵草：/升级灵田",
+                "💡 提升灵田等级可解锁更高级灵草与更多格数：/升级灵田",
             ])
             yield event.plain_result("\n".join(lines))
             return

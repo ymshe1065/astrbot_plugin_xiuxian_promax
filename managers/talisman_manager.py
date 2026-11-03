@@ -8,6 +8,7 @@ from typing import Dict, Iterator, List, Optional, Tuple, TYPE_CHECKING
 
 from ..models import Player
 from ..data.data_manager import DataBase
+from ..core.active_effects import format_duration
 from ..core.talisman_rules import (
     TIER_POWER, TIER_LEVEL, TIER_GOLD, TIER_PRICE, CATEGORY_KEYWORDS,
     NON_TALISMAN_ITEMS, infer_category, build_profile,
@@ -73,11 +74,16 @@ TALISMAN_NON_COMBAT_KEYS = {
 }
 
 # 使用符箓时的品质档位（复用炼丹三档口径）
+# 第 3 位：按符箓基础时长的比例加时（长符收益更明显，不再固定 +5/+10 分钟）
+# 第 4 位：探索类符箓的额外生效次数（这类按次数结算，不吃时长）
 TALISMAN_QUALITY = (
-    ("极品", 1.4, 10),
-    ("上品", 1.2, 5),
-    ("一般", 1.0, 0),
+    ("极品", 1.4, 0.15, 2),
+    ("上品", 1.2, 0.08, 1),
+    ("一般", 1.0, 0.0, 0),
 )
+
+# 加时下限：短符（15~20 分钟）按比例算出来只有 2 分钟，给个保底
+QUALITY_MIN_BONUS_MINUTES = 5
 
 
 class TalismanManager:
@@ -231,8 +237,11 @@ class TalismanManager:
             return
         player.talisman_exp = self.get_proficiency_points(player) + int(points)
 
-    def _roll_quality(self, extra_rate: float) -> Tuple[str, float, int]:
-        """极品/上品率随熟练度额外产出加成提升，返回 (档位, 倍率, 加时分钟)。"""
+    def _roll_quality(self, extra_rate: float) -> Tuple[str, float, float, int]:
+        """极品/上品率随熟练度额外产出加成提升。
+
+        返回 (档位, 效果倍率, 加时比例, 探索类额外次数)。
+        """
         bonus = max(0.0, float(extra_rate or 0)) * 0.5
         roll = random.randint(1, 100)
         if roll <= 3 + bonus:
@@ -250,7 +259,7 @@ class TalismanManager:
             category = recipe.get("category") or self._infer_category(name)
             by_category.setdefault(category, []).append((name, recipe))
 
-        owned = player.get_storage_ring_items()
+        owned = self._owned_snapshot(player)
         learned = self.get_learned_recipes(player)
         rank_order = {"凡品": 0, "黄品": 1, "玄品": 2, "圣品": 3}
         category_order = ["攻击", "防御", "控制", "回复", "炼丹", "探索", "增益", "遁术"]
@@ -268,7 +277,7 @@ class TalismanManager:
                 if profile.get("run_scoped"):
                     active_text = f"生效{profile['uses']}次历练/秘境"
                 else:
-                    active_text = f"持续{profile['duration']}分钟"
+                    active_text = f"持续{format_duration(profile['duration'])}"
                 lines.append(
                     f"  · {name}（{profile['rank']}，持有{count}）{tag}\n"
                     f"    {profile['description']}｜{active_text}"
@@ -302,7 +311,7 @@ class TalismanManager:
         prof = self.get_proficiency(player)
         is_master = player.life_skill == "符箓师"
         slots = self.storage_ring_manager.get_available_slots(player) if self.storage_ring_manager else 0
-        held = player.get_storage_ring_items()
+        held = self._owned_snapshot(player)
 
         lines = ["🖌️ 符箓书 · 可绘制符箓", "━━━━━━━━━━━━━━━"]
         card_lines: List[str] = []
@@ -335,7 +344,16 @@ class TalismanManager:
                 default=99,
             )
             gold_cap = player.gold // params["gold_cost"] if params["gold_cost"] > 0 else 99
-            slot_cap = slots // params["volume"] if params["volume"] > 0 else 99
+            # 符箓可堆叠但每格 50 张，绘制张数受剩余格位限制
+            try:
+                held_same = int(held.get(name, 0) or 0)
+            except (TypeError, ValueError):
+                held_same = 0
+            if self.storage_ring_manager:
+                slot_cap = min(99, self.storage_ring_manager.room_for(held_same, slots))
+            else:
+                slot_cap = 0
+            slot_cap = max(0, slot_cap)
             possible = max(0, min(mat_cap, gold_cap, slot_cap))
 
             gate_blocked = player.level_index < params["level_required"]
@@ -343,13 +361,12 @@ class TalismanManager:
                 possible = 0
             if possible > 0:
                 craftable += 1
-                total_possible += possible * params["volume"]
+                total_possible += possible
 
             held_note = f"｜持有{held.get(name, 0)}张" if held.get(name) else ""
             lines.append(
                 f"· {name}（{params['rank']}）{held_note}\n"
-                f"  成功率 {params['success_rate']:.0f}%｜工费 {params['gold_cost']:,}/张"
-                f"｜每张占 {params['volume']} 格"
+                f"  成功率 {params['success_rate']:.0f}%｜工费 {params['gold_cost']:,}/张｜可堆叠"
             )
 
             mat_parts = []
@@ -513,6 +530,19 @@ class TalismanManager:
             return info
         return {}
 
+    def _owned_snapshot(self, player: Player) -> Dict[str, int]:
+        """储物戒持有量（不含仓库）。
+
+        仓库里的符材不能直接拿来制符——玩家必须先 /一键取出，
+        否则界面提示"材料够"却炼不出来。
+        """
+        if self.storage_ring_manager:
+            try:
+                return self.storage_ring_manager.ring_items(player)
+            except Exception:
+                pass
+        return dict(player.get_storage_ring_items())
+
     def _material_stacks(self, items: Dict, spec: Dict) -> List[Tuple[str, int]]:
         stacks = []
         for item_name, count in items.items():
@@ -534,8 +564,38 @@ class TalismanManager:
             stacks.append((item_name, count))
         return stacks
 
+    def _warehouse_note(self, player: Player, specs: List[Dict]) -> str:
+        """仓库里有符材时提示先取出，避免玩家看着"符材不足"却找不到东西。"""
+        warehouse = {
+            name: int(raw or 0)
+            for name, raw in (player.get_warehouse_items() or {}).items()
+            if int(raw or 0) > 0
+        }
+        if not warehouse:
+            return ""
+        hits: List[str] = []
+        for spec in specs:
+            total = sum(count for _, count in self._material_stacks(warehouse, spec))
+            if total <= 0:
+                continue
+            label = spec.get("name") or f"{spec.get('tier', '')}{spec.get('category', '')}"
+            hits.append(f"{label}×{total}")
+        if not hits:
+            return ""
+        return f"\n　💡 仓库里有：{'、'.join(hits[:5])}，先 /一键取出 再制符。"
+
     def _consume_materials(self, player: Player, recipe: Dict) -> Tuple[bool, str, List[str]]:
-        items = player.get_storage_ring_items()
+        ring_items = player.get_storage_ring_items()
+        # 只认储物戒：仓库符材需先 /一键取出
+        items: Dict[str, int] = {}
+        for name, raw in (ring_items or {}).items():
+            try:
+                amount = int(raw or 0)
+            except (TypeError, ValueError):
+                continue
+            if amount > 0:
+                items[name] = amount
+
         specs = recipe.get("materials", []) or []
         missing = []
         for spec in specs:
@@ -544,7 +604,9 @@ class TalismanManager:
                 label = spec.get("name") or f"{spec.get('tier', '')}{spec.get('category', '')}"
                 missing.append(f"{label}（需要{spec.get('count')}，拥有{count}）")
         if missing:
-            return False, "❌ 符材不足！\n" + "\n".join(f"  · {m}" for m in missing), []
+            text = "❌ 符材不足！\n" + "\n".join(f"  · {m}" for m in missing)
+            note = self._warehouse_note(player, specs)
+            return False, text + note, []
 
         consumed = []
         for spec in specs:
@@ -553,14 +615,25 @@ class TalismanManager:
                 if remaining <= 0:
                     break
                 take = min(remaining, have)
-                left = int(items.get(item_name, 0)) - take
+                got = 0
+                have_ring = int(ring_items.get(item_name, 0) or 0)
+                if have_ring > 0:
+                    got = min(have_ring, take)
+                    left = have_ring - got
+                    if left <= 0:
+                        ring_items.pop(item_name, None)
+                    else:
+                        ring_items[item_name] = left
+                if got <= 0:
+                    continue
+                left = int(items.get(item_name, 0) or 0) - got
                 if left <= 0:
-                    del items[item_name]
+                    items.pop(item_name, None)
                 else:
                     items[item_name] = left
-                remaining -= take
-                consumed.append(f"{item_name}×{take}")
-        player.set_storage_ring_items(items)
+                remaining -= got
+                consumed.append(f"{item_name}×{got}")
+        player.set_storage_ring_items(ring_items)
         return True, "", consumed
 
     # ===== 绘制 =====
@@ -586,7 +659,7 @@ class TalismanManager:
         if is_master:
             success_rate = min(99.0, success_rate + 10)
 
-        items = player.get_storage_ring_items()
+        items = self._owned_snapshot(player)
         materials: List[Dict] = []
         for spec in (recipe.get("materials") or []):
             if not isinstance(spec, dict):
@@ -628,9 +701,14 @@ class TalismanManager:
             return False, f"❌ 绘制【{name}】需要达到境界等级 {level_required}。"
 
         rank = params["rank"]
-        volume = params["volume"]
-        if self.storage_ring_manager.get_available_slots(player) < volume:
+        # 可堆叠但每格 50 张：绘制张数先夹到格位放得下的量，避免静默落溢出仓库
+        held_same = int(player.get_storage_ring_items().get(name, 0) or 0)
+        room = self.storage_ring_manager.room_for(
+            held_same, self.storage_ring_manager.get_available_slots(player)
+        )
+        if room <= 0:
             return False, "❌ 储物戒空间不足，绘制失败（符材未消耗）。"
+        count = min(count, room)
 
         prof = params["prof"]
         extra_rate = params["extra_rate"]
@@ -646,8 +724,6 @@ class TalismanManager:
         # 逐张结算：扣料 → 扣灵石 → 判成功，材料耗尽即停并回报已完成张数
         for _ in range(count):
             if player.gold < unit_gold:
-                break
-            if self.storage_ring_manager.get_available_slots(player) < volume:
                 break
             ok, msg, consumed = self._consume_materials(player, recipe)
             if not ok:
@@ -668,8 +744,6 @@ class TalismanManager:
         if attempted == 0:
             if player.gold < unit_gold:
                 return False, f"❌ 灵石不足！绘制【{name}】需要 {unit_gold:,} 灵石（你有 {player.gold:,}）。"
-            if self.storage_ring_manager.get_available_slots(player) < volume:
-                return False, "❌ 储物戒空间不足，绘制失败（符材未消耗）。"
             return False, "❌ 符材不足，无法绘制。"
 
         # 熟练点：成功按张数×品阶系数，失败按 50% 给，否则新手永远练不起来
@@ -721,7 +795,11 @@ class TalismanManager:
         items = player.get_storage_ring_items()
         have = int(items.get(name, 0) or 0)
         if have < count:
-            return False, f"❌ 你的储物戒中没有足够的【{name}】（拥有 {have}，需要 {count}）。"
+            # 只认储物戒：仓库里的符箓要先 /一键取出，避免"能点用却扣不到"
+            return False, (
+                f"❌ 储物戒中【{name}】不足（拥有 {have}，需要 {count}）。\n"
+                f"　仓库里的符箓请先 /一键取出 符箓"
+            )
         if name in NON_TALISMAN_ITEMS:
             return False, f"❌ 【{name}】需使用 /激活化身，不能作为符箓消耗。"
         if self._item_data(name).get("type") != "符箓":
@@ -735,7 +813,7 @@ class TalismanManager:
 
         profile = self.get_talisman_profile(name)
         prof = self.get_proficiency(player)
-        quality_name, quality_mult, quality_minutes = self._roll_quality(prof.get("extra", 0))
+        quality_name, quality_mult, quality_ratio, quality_uses_bonus = self._roll_quality(prof.get("extra", 0))
         scale = quality_mult * count
         effects = profile["effects"]
 
@@ -773,8 +851,7 @@ class TalismanManager:
         # 保证 30~40 分钟的历练/秘境流程完整吃到加成。
         if profile.get("run_scoped") and is_run_scoped_effects(effects):
             base_uses = int(profile.get("uses", 1) or 1)
-            quality_uses = max(0, int(quality_minutes) // 5)
-            added_uses = base_uses * count + quality_uses
+            added_uses = base_uses * count + quality_uses_bonus
             active = player.get_active_pill_effects()
             existing = next(
                 (e for e in active if e.get("talisman_name") == name and e.get("remaining_uses") is not None),
@@ -823,25 +900,65 @@ class TalismanManager:
                 f"━━━━━━━━━━━━━━━"
             )
 
-        duration_minutes = int(profile["duration"]) * count + quality_minutes
-        duration = duration_minutes * 60
-        active = [
-            effect for effect in player.get_active_pill_effects()
-            if effect.get("talisman_name") != name
-        ]
-        active.append({
-            "pill_name": name,
-            "talisman_name": name,
-            "source": "talisman",
-            "subtype": "talisman",
-            "category": profile["category"],
-            "quality": quality_name,
-            "start_time": now,
-            "expiry_time": now + duration,
-            "duration_minutes": duration_minutes,
-            "last_tick_time": now,
-            **scaled,
-        })
+        base_duration = int(profile["duration"])
+        added_minutes = base_duration * count
+        if quality_ratio > 0:
+            # 品质按比例加时；短符按比例只有两三分钟，给个保底
+            added_minutes += max(
+                QUALITY_MIN_BONUS_MINUTES,
+                int(round(base_duration * count * quality_ratio)),
+            )
+        added_seconds = added_minutes * 60
+
+        # 同名符箓续时而非覆盖：已有剩余时间不清零，直接往后顺延。
+        effect_list = player.get_active_pill_effects()
+        existing = next(
+            (e for e in effect_list
+             if isinstance(e, dict)
+             and e.get("talisman_name") == name
+             and e.get("remaining_uses") is None),
+            None,
+        )
+        if existing is not None:
+            base_expiry = max(int(existing.get("expiry_time") or 0), now)
+            total_left_seconds = base_expiry + added_seconds - now
+            existing["expiry_time"] = base_expiry + added_seconds
+            existing["duration_minutes"] = int(total_left_seconds // 60)
+            # 品质取更高的一档，效果值也取高，避免续时反而变弱
+            existing["quality"] = quality_name
+            for key, value in scaled.items():
+                try:
+                    old_value = float(existing.get(key, 0) or 0)
+                except (TypeError, ValueError):
+                    old_value = 0.0
+                existing[key] = max(old_value, value)
+            active = effect_list
+            left_text = format_duration(max(1, total_left_seconds // 60))
+            result_hint = (
+                f"续时：+{format_duration(added_minutes)}\n"
+                f"剩余：{left_text}\n"
+            )
+        else:
+            active = [
+                effect for effect in effect_list
+                if effect.get("talisman_name") != name
+            ]
+            duration_minutes = added_minutes
+            active.append({
+                "pill_name": name,
+                "talisman_name": name,
+                "source": "talisman",
+                "subtype": "talisman",
+                "category": profile["category"],
+                "quality": quality_name,
+                "start_time": now,
+                "expiry_time": now + added_seconds,
+                "duration_minutes": duration_minutes,
+                "last_tick_time": now,
+                **scaled,
+            })
+            result_hint = f"持续：{format_duration(added_minutes)}\n"
+
         player.set_active_pill_effects(active)
         items[name] = have - count
         if items[name] <= 0:
@@ -853,7 +970,7 @@ class TalismanManager:
             f"━━━━━━━━━━━━━━━\n"
             f"类别：{profile['category']}\n"
             f"效果：{profile['description']}\n"
-            f"持续：{duration_minutes}分钟\n"
+            f"{result_hint}"
             f"━━━━━━━━━━━━━━━"
         )
 
@@ -955,7 +1072,10 @@ class TalismanManager:
             return None
         name = pick[0]
         items = player.get_storage_ring_items()
-        left = int(items.get(name, 0) or 0) - 1
+        have = int(items.get(name, 0) or 0)
+        if have <= 0:
+            return None
+        left = have - 1
         if left <= 0:
             items.pop(name, None)
         else:

@@ -171,23 +171,6 @@ def _next_season_start(ts: float) -> int:
     return midnight + (SEASON_PERIOD_DAYS - elapsed_days) * 86400
 
 
-def _base_progress(herb_name: str, start: float, until: float) -> float:
-    """[start, until] 内按各时段季节速率折算出的「基础生长秒数」。"""
-    start, until = int(start), int(until)
-    if until <= start:
-        return 0.0
-    total = 0.0
-    t = start
-    for _ in range(20000):
-        if t >= until:
-            break
-        nxt = _next_season_start(t)
-        seg_end = min(until, nxt if nxt > t else t + 86400)
-        total += (seg_end - t) / max(0.01, season_growth_mult_at(herb_name, t))
-        t = seg_end
-    return total
-
-
 def compute_crop_mature_time(herb_name: str, plant_time: float, grow_base: float) -> int:
     """按季节速率积分推算成熟时刻：换季后剩余时间按比例伸缩。"""
     plant_time = int(plant_time)
@@ -212,9 +195,10 @@ def sync_crop_season_progress(crops: List[Dict]) -> bool:
     """把作物的成熟时间对齐到当前季节；返回是否有改动（需要回写库）。
 
     新数据存 grow_base（配置里的基础秒数），成熟时间每次按季节积分重算；
-    旧数据没有 grow_base，则用原成熟时间反推基础秒数，保证迁移当刻时间点不变。
+    基础时长与当前配置不一致（旧版本遗留或迁移时被放大）时按配置重置。
     """
     changed = False
+    now = int(time.time())
     for crop in crops or []:
         if not isinstance(crop, dict):
             continue
@@ -233,16 +217,18 @@ def sync_crop_season_progress(crops: List[Dict]) -> bool:
             base = float(crop.get("grow_base") or 0)
         except (TypeError, ValueError):
             base = 0.0
-        if base <= 0:
-            anchor = stored if stored > plant_time else plant_time + int(config["grow_time"])
-            base = round(_base_progress(herb, plant_time, anchor), 3)
-            if base <= 0:
-                base = float(config["grow_time"])
+        config_base = float(config["grow_time"])
+        # 基础时长一律以当前配置为准。旧数据没有 grow_base，或存的是旧版本折算出的
+        # 失真值（v6.50.0 前幽冥草 48h、九叶灵芝 24h，迁移时又按新的换季表放大 1.5~1.8 倍），
+        # 若沿用会把 12 小时的作物拖成「种了 6 小时还剩 66 小时」的僵尸田。
+        if base <= 0 or abs(base - config_base) > 1:
+            base = config_base
             crop["grow_base"] = base
             changed = True
-            if stored > plant_time:
-                continue  # 旧数据沿用原成熟时间，之后换季再按比例推动
         new_mature = compute_crop_mature_time(herb, plant_time, base)
+        # 已成熟的作物不回退：即使配置把时长调长，也不许变回未成熟状态
+        if 0 < stored <= now and new_mature > stored:
+            new_mature = stored
         if new_mature != stored:
             crop["mature_time"] = new_mature
             changed = True
@@ -348,6 +334,23 @@ def get_next_unlock(level: int) -> Tuple[Optional[int], List[str]]:
     return next_level, locked[next_level]
 
 
+def get_next_level_unlock(level: int) -> Tuple[Optional[int], List[str]]:
+    """返回下一级的格数/肥力/灵草解锁内容；已满级返回 (None, [])。"""
+    level = int(level or 1)
+    next_level = level + 1
+    config = FARM_LEVELS.get(next_level)
+    if not config:
+        return None, []
+    parts = [
+        f"格数 {config['slots']}",
+        f"肥力上限 {config['max_fertility']}",
+    ]
+    herb_level, herbs = get_next_unlock(level)
+    if herbs and herb_level == next_level:
+        parts.append("灵草 " + "、".join(herbs))
+    return next_level, parts
+
+
 def requires_seed(herb_name: str) -> bool:
     """杂交灵草需消耗同名种苗才能种植"""
     return bool(SPIRIT_HERBS.get(herb_name, {}).get("hybrid_only"))
@@ -419,8 +422,15 @@ FARM_LEVELS = {
     2: {"slots": 5, "upgrade_cost": 15000, "max_fertility": 100},
     3: {"slots": 8, "upgrade_cost": 50000, "max_fertility": 160},
     4: {"slots": 12, "upgrade_cost": 150000, "max_fertility": 240},
-    5: {"slots": 20, "upgrade_cost": 0, "max_fertility": 400},  # 最高级
+    5: {"slots": 20, "upgrade_cost": 300000, "max_fertility": 400},
+    # v6.50.7：等级上限由 Lv.5 提升到 Lv.10，每级追加 4 格
+    6: {"slots": 24, "upgrade_cost": 600000, "max_fertility": 480},
+    7: {"slots": 28, "upgrade_cost": 1200000, "max_fertility": 560},
+    8: {"slots": 32, "upgrade_cost": 2400000, "max_fertility": 640},
+    9: {"slots": 36, "upgrade_cost": 4800000, "max_fertility": 720},
+    10: {"slots": 40, "upgrade_cost": 0, "max_fertility": 800},  # 最高级
 }
+MAX_FARM_LEVEL = max(FARM_LEVELS)
 
 # 施肥：恢复上限的 30%，成本固定 2000 灵石
 FERTILIZE_GAIN_RATIO = 0.30
@@ -589,7 +599,7 @@ class SpiritFarmManager:
             "种植格数：3\n"
             f"可种植：{unlocked}\n"
             "━━━━━━━━━━━━━━━\n"
-            "💡 升级灵田可解锁更高级的灵草"
+            "💡 升级灵田可解锁更高级的灵草与更多格数"
         )
     
     async def plant_herb(
@@ -686,7 +696,6 @@ class SpiritFarmManager:
         herb_config = SPIRIT_HERBS[herb_name]
         plant_time = int(time.time())
         grow_base = int(herb_config["grow_time"])
-        grow_time = int(grow_base * get_season_growth_mult(herb_name))
         mature_time = compute_crop_mature_time(herb_name, plant_time, grow_base)
 
         for slot in free_slots[:plant_count]:
@@ -712,7 +721,8 @@ class SpiritFarmManager:
             raise
 
         season = get_current_season()
-        hours, mins = divmod(max(60, grow_time), 3600)
+        # 文案按真实积分结果给，而不是「基础时长 × 当前季节倍率」的近似值
+        hours, mins = divmod(max(60, mature_time - plant_time), 3600)
         mins //= 60
         grow_text = f"{hours} 小时{mins} 分钟" if hours else f"{mins} 分钟"
         season_note = ""
@@ -1184,7 +1194,6 @@ class SpiritFarmManager:
 
         now = int(time.time())
         grow_base = int(SPIRIT_HERBS[product]["grow_time"])
-        grow_time = int(grow_base * get_season_growth_mult(product))
         mature_time = compute_crop_mature_time(product, now, grow_base)
         job_id = f"{now}-{random.randint(1000, 9999)}"
         parents = sorted(key)
@@ -1211,13 +1220,15 @@ class SpiritFarmManager:
             await self._refund_items(player, consumed)
             raise
 
-        hours = max(1, grow_time // 3600)
+        hours, mins = divmod(max(60, mature_time - now), 3600)
+        mins //= 60
+        cost_text = f"{hours} 小时{mins} 分钟" if hours else f"{mins} 分钟"
         return True, (
             f"🧬 杂交开始！\n"
             f"━━━━━━━━━━━━━━━\n"
             f"配方：{' + '.join(parents)} → {product}\n"
             f"占用格子：格{free_slots[0]}、格{free_slots[1]}（共 {HYBRID_PLOT_COST} 格）\n"
-            f"预计产出：{product}×1，耗时约 {hours} 小时\n"
+            f"预计产出：{product}×1，耗时约 {cost_text}\n"
             f"💡 完成后发送 /收获 领取；种植杂交植株时消耗1株"
         )
 
@@ -1228,8 +1239,8 @@ class SpiritFarmManager:
             return False, "❌ 你还没有灵田！"
         
         current_level = farm["level"]
-        if current_level >= 5:
-            return False, "❌ 灵田已达最高等级！"
+        if current_level >= MAX_FARM_LEVEL:
+            return False, f"❌ 灵田已达最高等级 Lv.{MAX_FARM_LEVEL}！"
         
         level_config = FARM_LEVELS.get(current_level, FARM_LEVELS[1])
         cost = level_config["upgrade_cost"]
@@ -1263,9 +1274,11 @@ class SpiritFarmManager:
         msg_lines.append(f"🌱 肥力上限提升到 {new_max}（当前 {new_fertility}/{new_max}）")
         if unlocked:
             msg_lines.append(f"🌿 新解锁灵草：{'、'.join(unlocked)}")
-        next_level, next_herbs = get_next_unlock(new_level)
+        next_level, next_unlocks = get_next_level_unlock(new_level)
         if next_level is not None:
-            msg_lines.append(f"🔒 下一级 Lv.{next_level} 解锁：{'、'.join(next_herbs)}")
+            msg_lines.append(f"🔒 下一级 Lv.{next_level} 解锁：{'、'.join(next_unlocks)}")
+        else:
+            msg_lines.append(f"🏆 已达到灵田最高等级 Lv.{MAX_FARM_LEVEL}")
         return True, "\n".join(msg_lines)
     
     async def get_farm_info(self, user_id: str) -> str:
@@ -1298,9 +1311,11 @@ class SpiritFarmManager:
             f"{season['icon']} 当前季节：【{season['name']}】{season['change_text']}｜{season['desc']}",
             f"🌿 可种植：{'、'.join(get_herbs_for_level(farm_level))}",
         ]
-        next_level, next_herbs = get_next_unlock(farm_level)
+        next_level, next_unlocks = get_next_level_unlock(farm_level)
         if next_level is not None:
-            lines.append(f"🔒 Lv.{next_level} 解锁：{'、'.join(next_herbs)}")
+            lines.append(f"🔒 Lv.{next_level} 解锁：{'、'.join(next_unlocks)}")
+        else:
+            lines.append(f"🏆 已达灵田最高等级 Lv.{MAX_FARM_LEVEL}")
         normal_crop_count = sum(1 for c in crops if c.get("name") != HYBRID_MARKER)
         if normal_crop_count:
             gain = self.get_gain_per_fertilize(farm)

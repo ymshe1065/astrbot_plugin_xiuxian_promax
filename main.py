@@ -17,7 +17,7 @@ from .handlers.utils import (
 )
 from .handlers import (
     MiscHandler, PlayerHandler, RecoveryHandler, EquipmentHandler, BreakthroughHandler,
-    PillHandler, ShopHandler, StorageRingHandler,
+    PillHandler, ShopHandler, StorageRingHandler, WarehouseHandler,
     SectHandlers, BossHandlers, CombatHandlers, RankingHandlers,
     RiftHandlers, AdventureHandlers, AlchemyHandlers, ImpartHandlers,
     NicknameHandler, BankHandlers, BountyHandlers, ImpartPkHandlers,
@@ -25,7 +25,7 @@ from .handlers import (
     DailyTaskHandlers, WorldBossHandlers, RaidHandlers, RobberyHandlers, ReincarnationHandlers,
     GambleHandlers, ForgeHandlers, DemonInvasionHandlers, PetHandlers,
     AuctionHandlers, AuctionHouseHandlers, SectShopHandler, AutoProxyHandlers, BattleEventHandlers,
-    InvestHandlers
+    InvestHandlers, WeeklyBossHandlers
 )
 from .managers import (
     CombatManager, SectManager, BossManager, RiftManager,
@@ -36,7 +36,7 @@ from .managers import (
     TutorialManager, GambleManager, ForgeManager, GlobalEventManager,
     DemonInvasionManager, PetManager,
     AuctionManager, AuctionHouseManager, EscortManager, EncounterManager, LifeSkillManager, TalismanManager, CalamityManager,
-    AutoProxyManager, BattleEventManager, InvestManager
+    AutoProxyManager, BattleEventManager, InvestManager, WeeklyBossManager
 )
 from .models_extended import UserStatus
 
@@ -64,11 +64,14 @@ CMD_CHECK_IN = "签到"
 CMD_SHOW_EQUIPMENT = "我的装备"
 CMD_EQUIP_ITEM = "装备"
 CMD_UNEQUIP_ITEM = "卸下"
+CMD_TECHNIQUE_INFO = "心法"
+CMD_SKILL_INFO = "技能"
 CMD_BREAKTHROUGH = "突破"
 CMD_BREAKTHROUGH_INFO = "突破信息"
 CMD_USE_PILL = "服用丹药"
 CMD_SHOW_PILLS = "丹药背包"
 CMD_PILL_INFO = "丹药信息"
+CMD_MY_STATUS = "我的状态"
 CMD_PILL_PAVILION = "丹阁"
 CMD_TALISMAN_PAVILION = "符阁"
 CMD_WEAPON_PAVILION = "器阁"
@@ -209,6 +212,7 @@ class XiuXianPlugin(Star):
         self.pill_handler = PillHandler(self.db, self.config_manager)
         self.shop_handler = ShopHandler(self.db, self.config, self.config_manager)
         self.storage_ring_handler = StorageRingHandler(self.db, self.config_manager)
+        self.warehouse_handler = WarehouseHandler(self.db, self.config_manager)
         
         from .core import StorageRingManager
         self.storage_ring_mgr = StorageRingManager(self.db, self.config_manager)
@@ -280,6 +284,11 @@ class XiuXianPlugin(Star):
         self.world_boss_handlers = WorldBossHandlers(self.db, self.world_boss_mgr)
         self.raid_mgr = RaidManager(self.db, self.config_manager, self.storage_ring_mgr, self.world_boss_mgr)
         self.raid_handlers = RaidHandlers(self.db, self.raid_mgr)
+        # v6.51 周常 Boss（周本）
+        self.weekly_boss_mgr = WeeklyBossManager(
+            self.db, self.config_manager, self.storage_ring_mgr, self.world_boss_mgr
+        )
+        self.weekly_boss_handlers = WeeklyBossHandlers(self.db, self.weekly_boss_mgr)
         self.battle_event_mgr = BattleEventManager(
             self.db, self.config_manager, self.storage_ring_mgr, self.world_boss_mgr
         )
@@ -347,6 +356,7 @@ class XiuXianPlugin(Star):
         self.player_handler.title_hooks = self.title_hooks
         self.world_boss_mgr.title_mgr = self.title_mgr
         self.raid_mgr.title_mgr = self.title_mgr
+        self.weekly_boss_mgr.title_mgr = self.title_mgr
 
         # v6.26 自动代理
         self.auto_proxy_mgr = AutoProxyManager(
@@ -456,6 +466,8 @@ class XiuXianPlugin(Star):
         self.auction_house_task = asyncio.create_task(self._schedule_auction_house())
         # v6.40 仙市投资系统
         self.invest_task = asyncio.create_task(self._schedule_invest())
+        # v6.51 周常 Boss（周本）周期维护
+        self.weekly_boss_task = asyncio.create_task(self._schedule_weekly_boss())
         
         logger.info("【修仙插件】已加载。")
 
@@ -469,7 +481,8 @@ class XiuXianPlugin(Star):
                      getattr(self, "auto_proxy_task", None),
                      getattr(self, "battle_event_task", None),
                      getattr(self, "auction_house_task", None),
-                     getattr(self, "invest_task", None)):
+                     getattr(self, "invest_task", None),
+                     getattr(self, "weekly_boss_task", None)):
             if task: task.cancel()
         await self.db.close()
         logger.info("【修仙插件】已卸载。")
@@ -572,6 +585,41 @@ class XiuXianPlugin(Star):
                 retry_count += 1
                 delay = min(60 * (2 ** retry_count), max_retry_delay)
                 logger.info(f"【修仙插件】团本任务将在 {delay} 秒后重试（第{retry_count}次）")
+                await asyncio.sleep(delay)
+
+    async def _schedule_weekly_boss(self):
+        """周常 Boss：跨周自动开启新周期、广播、清理超时准备队伍。"""
+        retry_count = 0
+        max_retry_delay = 3600
+        while True:
+            try:
+                await self.db.ensure_connection()
+                if not self.weekly_boss_mgr.enabled:
+                    await asyncio.sleep(3600)
+                    continue
+                cycle = await self.weekly_boss_mgr.ensure_current_cycle()
+                await self.weekly_boss_mgr.expire_runs()
+
+                last_cycle = await self.db.ext.get_system_config("weekly_boss_last_cycle")
+                if str(last_cycle or "") != str(cycle.get("cycle_id", "")):
+                    await self.db.ext.set_system_config(
+                        "weekly_boss_last_cycle", str(cycle.get("cycle_id", ""))
+                    )
+                    await self._broadcast_world_boss_spawn(
+                        "👹【周常 Boss】本周新目标降临！\n"
+                        f"🌌 {cycle.get('boss_name', '')}（{cycle.get('element', '')}属性）\n"
+                        f"🏔️ 天道压制基准：level {cycle.get('baseline_level', 0)}\n"
+                        "👥 支持 1~8 人组队，发送 /周本 查看机制与命令。"
+                    )
+                retry_count = 0
+                await asyncio.sleep(300)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"周本周期任务异常: {e}")
+                retry_count += 1
+                delay = min(60 * (2 ** retry_count), max_retry_delay)
+                logger.info(f"【修仙插件】周本任务将在 {delay} 秒后重试（第{retry_count}次）")
                 await asyncio.sleep(delay)
 
     async def _schedule_demon_check(self):
@@ -1307,6 +1355,16 @@ class XiuXianPlugin(Star):
     async def handle_show_equipment(self, event: AstrMessageEvent):
         async for r in self.equipment_handler.handle_show_equipment(event): yield r
 
+    @filter.command(CMD_TECHNIQUE_INFO, "查看主修心法的主动绝技")
+    @require_whitelist
+    async def handle_technique_info(self, event: AstrMessageEvent, technique_name: str = ""):
+        async for r in self.equipment_handler.handle_technique_info(event, technique_name): yield r
+
+    @filter.command(CMD_SKILL_INFO, "查看主修心法绝技（同 /心法）")
+    @require_whitelist
+    async def handle_skill_info(self, event: AstrMessageEvent, technique_name: str = ""):
+        async for r in self.equipment_handler.handle_technique_info(event, technique_name): yield r
+
     @filter.command(CMD_EQUIP_ITEM, "装备物品")
     @require_whitelist
     async def handle_equip_item(self, event: AstrMessageEvent, item_name: GreedyStr):
@@ -1355,6 +1413,11 @@ class XiuXianPlugin(Star):
     @require_whitelist
     async def handle_show_pills(self, event: AstrMessageEvent):
         async for r in self.pill_handler.handle_show_pills(event): yield r
+
+    @filter.command(CMD_MY_STATUS, "查看当前所有持续状态与剩余时间")
+    @require_whitelist
+    async def handle_my_status(self, event: AstrMessageEvent):
+        async for r in self.pill_handler.handle_my_status(event): yield r
 
     @filter.command(CMD_PILL_INFO, "查看丹药信息")
     @require_whitelist
@@ -1415,6 +1478,48 @@ class XiuXianPlugin(Star):
     async def handle_recycle_item(self, event: AstrMessageEvent, args: GreedyStr):
         async for r in self.storage_ring_handler.handle_recycle_item(event, args): yield r
 
+    # ===== v6.52 洞天仓库（藏宝阁）与批量操作 =====
+    @filter.command("仓库", "查看洞天仓库")
+    @require_whitelist
+    async def handle_warehouse(self, event: AstrMessageEvent):
+        async for r in self.warehouse_handler.handle_warehouse(event): yield r
+
+    @filter.command("升级仓库", "扩建洞天仓库（+50 格/级）")
+    @require_whitelist
+    @idle_player_lock
+    async def handle_upgrade_warehouse(self, event: AstrMessageEvent, args: GreedyStr):
+        async for r in self.warehouse_handler.handle_upgrade_warehouse(event, args): yield r
+
+    @filter.command("一键转移", "把储物戒物品转入洞天仓库")
+    @require_whitelist
+    @idle_player_lock
+    async def handle_transfer_in(self, event: AstrMessageEvent, category: str = ""):
+        async for r in self.warehouse_handler.handle_transfer_in(event, category): yield r
+
+    @filter.command("一键取出", "把洞天仓库物品搬到储物戒（使用前必须先取出）")
+    @require_whitelist
+    @idle_player_lock
+    async def handle_transfer_out(self, event: AstrMessageEvent, category: str = ""):
+        async for r in self.warehouse_handler.handle_transfer_out(event, category): yield r
+
+    @filter.command("一键取回", "旧命令，等同 /一键取出")
+    @require_whitelist
+    @idle_player_lock
+    async def handle_transfer_out_legacy(self, event: AstrMessageEvent, category: str = ""):
+        async for r in self.warehouse_handler.handle_transfer_out(event, category): yield r
+
+    @filter.command("取出", "从仓库取出指定物品的指定数量（留空数量=全部）")
+    @require_whitelist
+    @idle_player_lock
+    async def handle_take_item(self, event: AstrMessageEvent, args: GreedyStr):
+        async for r in self.warehouse_handler.handle_take_item(event, args): yield r
+
+    @filter.command("一键回收", "预览并批量回收储物戒物品（两步确认）")
+    @require_whitelist
+    @idle_player_lock
+    async def handle_bulk_recycle(self, event: AstrMessageEvent, args: GreedyStr):
+        async for r in self.warehouse_handler.handle_bulk_recycle(event, args): yield r
+
     @filter.command(CMD_GIFT_ITEM, "赠予物品/丹药给其他玩家，或 /赠予 @人 灵石 数量 直接转账")
     @require_whitelist
     async def handle_gift_item(self, event: AstrMessageEvent, args: str = ""):
@@ -1430,8 +1535,7 @@ class XiuXianPlugin(Star):
     async def handle_reject_gift(self, event: AstrMessageEvent):
         async for r in self.storage_ring_handler.handle_reject_gift(event): yield r
 
-    @filter.command(CMD_SEARCH_ITEM, "搜索储物戒物品")
-    @require_whitelist
+    @filter.command(CMD_SEARCH_ITEM, "搜索储物戒物品")    @require_whitelist
     async def handle_search_item(self, event: AstrMessageEvent, keyword: str = ""):
         async for r in self.storage_ring_handler.handle_search_item(event, keyword): yield r
 
@@ -2427,6 +2531,101 @@ class XiuXianPlugin(Star):
         success, msg = await self.raid_mgr.force_end_raid()
         yield event.plain_result(msg)
 
+    # ===== v6.51 周常 Boss（周本）=====
+    @filter.command("周本", "查看周常 Boss 玩法与本周状态")
+    @require_whitelist
+    async def handle_weekly_boss_info(self, event: AstrMessageEvent):
+        async for r in self.weekly_boss_handlers.handle_info(event):
+            yield r
+
+    @filter.command("周本创建", "创建周本队伍，可指定队名")
+    @require_whitelist
+    async def handle_weekly_boss_create(self, event: AstrMessageEvent, team_name: GreedyStr):
+        async for r in self.weekly_boss_handlers.handle_create(event, team_name):
+            yield r
+
+    @filter.command("周本加入", "加入周本队伍，参数为队伍编号")
+    @require_whitelist
+    async def handle_weekly_boss_join(self, event: AstrMessageEvent, run_id: GreedyStr):
+        async for r in self.weekly_boss_handlers.handle_join(event, run_id):
+            yield r
+
+    @filter.command("周本离开", "离开或解散当前周本队伍")
+    @require_whitelist
+    async def handle_weekly_boss_leave(self, event: AstrMessageEvent):
+        async for r in self.weekly_boss_handlers.handle_leave(event):
+            yield r
+
+    @filter.command("周本备战", "设置本次周本携带的丹药清单")
+    @require_whitelist
+    async def handle_weekly_boss_loadout(self, event: AstrMessageEvent, args: GreedyStr):
+        async for r in self.weekly_boss_handlers.handle_set_loadout(event, args):
+            yield r
+
+    @filter.command("周本开始", "队长发起周本开战预览")
+    @require_whitelist
+    async def handle_weekly_boss_start(self, event: AstrMessageEvent):
+        async for r in self.weekly_boss_handlers.handle_start(event):
+            yield r
+
+    @filter.command("周本确认", "确认周本开战预览并消耗次数")
+    @require_whitelist
+    async def handle_weekly_boss_confirm(self, event: AstrMessageEvent):
+        async for r in self.weekly_boss_handlers.handle_confirm(event):
+            yield r
+        broadcast_msg = get_event_flag(event, "weekly_boss_broadcast_msg", None)
+        if broadcast_msg:
+            await self._broadcast_world_boss_spawn(broadcast_msg)
+        if get_event_flag(event, "weekly_boss_finished", False):
+            user_id = event.get_sender_id()
+            await self.db.ext.add_task_progress(user_id, "boss_damage", 1)
+            await self._title_bump(user_id, "boss_damage")
+
+    @filter.command("周本取消", "取消本次周本开战确认")
+    @require_whitelist
+    async def handle_weekly_boss_cancel(self, event: AstrMessageEvent):
+        async for r in self.weekly_boss_handlers.handle_cancel(event):
+            yield r
+
+    @filter.command("周本状态", "查看本周周本队伍与战报")
+    @require_whitelist
+    async def handle_weekly_boss_status(self, event: AstrMessageEvent):
+        async for r in self.weekly_boss_handlers.handle_status(event):
+            yield r
+
+    @filter.command("周本排行", "查看本周周本伤害榜")
+    @require_whitelist
+    async def handle_weekly_boss_ranking(self, event: AstrMessageEvent):
+        async for r in self.weekly_boss_handlers.handle_ranking(event):
+            yield r
+
+    @filter.command("刷新周本", "手动刷新本周周本(管理员)")
+    @require_whitelist
+    async def handle_weekly_boss_refresh(self, event: AstrMessageEvent):
+        if not self._check_boss_admin(event):
+            yield event.plain_result("❌ 你没有权限！")
+            return
+        async for r in self.weekly_boss_handlers.handle_refresh(event):
+            yield r
+
+    @filter.command("结束周本", "强制结束本周周本(管理员)")
+    @require_whitelist
+    async def handle_weekly_boss_end(self, event: AstrMessageEvent):
+        if not self._check_boss_admin(event):
+            yield event.plain_result("❌ 你没有权限！")
+            return
+        async for r in self.weekly_boss_handlers.handle_end(event):
+            yield r
+
+    @filter.command("重置周本CD", "重置指定玩家本周周本次数(管理员)")
+    @require_whitelist
+    async def handle_weekly_boss_reset_cd(self, event: AstrMessageEvent, target: GreedyStr):
+        if not self._check_boss_admin(event):
+            yield event.plain_result("❌ 你没有权限！")
+            return
+        async for r in self.weekly_boss_handlers.handle_reset_cd(event, target):
+            yield r
+
     # ===== v6.1 洞府掠夺 =====
     @filter.command("开启护府", "使用护府令保护洞天")
     @require_whitelist
@@ -2845,7 +3044,7 @@ class XiuXianPlugin(Star):
     async def handle_my_market_alias(self, event: AstrMessageEvent):
         async for r in self.auction_handlers.handle_my_market(event): yield r
 
-    @filter.command("坊市卖出", "接受NPC问价并卖出商品")
+    @filter.command("坊市卖出", "接受NPC问价并卖出商品（all=一键卖出全部问价）")
     @require_whitelist
     async def handle_market_accept_offer(self, event: AstrMessageEvent, offer_id: str = "0"):
         async for r in self.auction_handlers.handle_accept_offer(event, offer_id): yield r

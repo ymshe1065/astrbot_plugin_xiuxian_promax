@@ -125,7 +125,10 @@ class TestEquipmentInstances(unittest.IsolatedAsyncioTestCase):
     async def test_equipment_overflow_and_claim_creates_instance(self):
         p = await self._player()
         cap = self.ring.get_total_capacity(p)
-        p.storage_ring_items = json.dumps({"灵草": cap}, ensure_ascii=False)
+        # 可堆叠物品每种只占 1 格，用 cap 种不同物品把戒指占满
+        p.storage_ring_items = json.dumps(
+            {f"测试材料{i}": 1 for i in range(cap)}, ensure_ascii=False
+        )
         await self.db.update_player(p)
         ok, msg = await self.ring.store_item(p, self.weapon, 1)
         self.assertTrue(ok)

@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import time
+from typing import Optional
 
 from astrbot.api.event import AstrMessageEvent
 
@@ -53,6 +54,17 @@ def _fmt_price(value: float, kind: str) -> str:
     return f"{value:.4f}" if kind == "fund" else f"{value:.2f}"
 
 
+def _hint_lines(label: str, hint: Optional[dict]) -> list:
+    """渲染一段风声；盘面平静也要显示，否则玩家不知道这盘没消息。"""
+    if not hint:
+        return []
+    prefix = "全市场 · " if hint.get("code") == "*" else ""
+    body = [LINE, label, f"· {prefix}{hint.get('title') or '盘面平静'}"]
+    if hint.get("detail"):
+        body.append(f"　{hint['detail']}")
+    return body
+
+
 class InvestHandlers:
     """仙市投资处理器"""
 
@@ -77,16 +89,13 @@ class InvestHandlers:
             headline = "「 仙市 · 已收市 」"
 
         lines = [headline]
-        hint = data.get("current_hint")
-        if hint and hint.get("pattern") not in (None, "calm", ""):
-            lines.extend([LINE, "当盘风声"])
-            prefix = "全市场 · " if hint["code"] == "*" else ""
-            lines.append(f"· {prefix}{hint['title']}")
-            if hint.get("detail"):
-                lines.append(f"　{hint['detail']}")
-        elif hint:
-            lines.extend([LINE, "当盘风声"])
-            lines.append(f"· {hint.get('title', '盘面平静')}")
+        # 当盘 + 下盘两段：下盘风声提前生成，不订阅也能在面板里看到
+        lines.extend(_hint_lines("当盘风声", data.get("current_hint")))
+        next_hint = data.get("next_hint")
+        next_label = "下盘风声"
+        if next_hint and next_hint.get("hour") is not None:
+            next_label = f"下盘风声 · {int(next_hint['hour']):02d}:00"
+        lines.extend(_hint_lines(next_label, next_hint))
 
         lines.append(LINE)
         lines.append("股票")
@@ -351,12 +360,13 @@ class InvestHandlers:
             await self.db.ext.set_system_config("invest_hint_subscribe", "0")
             yield event.plain_result(
                 "🔕 已关闭仙市风声主动推送。\n"
-                "仍可随时用「/仙市」查看当盘风声。"
+                "「/仙市」面板仍会显示当盘与下盘风声，不受订阅影响。"
             )
         else:
             await self.db.ext.set_system_config("invest_hint_subscribe", "1")
             yield event.plain_result(
                 "🔔 已开启仙市风声主动推送。\n"
                 "每个 HH:30（06:30–21:30）向播报群推送下一盘风声，提前半小时可抢跑。\n"
-                "注意：只有「真消息」才推送，「盘面平静」不打扰。"
+                "注意：只有「真消息」才推送，「盘面平静」不打扰；\n"
+                "面板随时可查，无需订阅。"
             )

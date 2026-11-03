@@ -53,6 +53,24 @@
         "required_level_index": 20,
         "price": 200000
     },
+    "紫府储物戒": {
+        "name": "紫府储物戒",
+        "type": "storage_ring",
+        "rank": "帝品",
+        "description": "以紫府灵晶淬炼而成，内蕴一方洞天，可容纳炼虚修士的全部家当。",
+        "capacity": 270,
+        "required_level_index": 22,
+        "price": 400000
+    },
+    "太乙储物戒": {
+        "name": "太乙储物戒",
+        "type": "storage_ring",
+        "rank": "帝品",
+        "description": "太乙玄铁铸就，空间法则自成循环，容量更胜紫府。",
+        "capacity": 370,
+        "required_level_index": 25,
+        "price": 700000
+    },
     "混元储物戒": {
         "name": "混元储物戒",
         "type": "storage_ring",
@@ -61,6 +79,15 @@
         "capacity": 500,
         "required_level_index": 27,
         "price": 1000000
+    },
+    "渡厄储物戒": {
+        "name": "渡厄储物戒",
+        "type": "storage_ring",
+        "rank": "仙品",
+        "description": "渡劫修士以雷劫余威淬炼，空间稳固如狱，可护诸般宝物渡过天劫。",
+        "capacity": 680,
+        "required_level_index": 30,
+        "price": 3000000
     },
     "太虚储物戒": {
         "name": "太虚储物戒",

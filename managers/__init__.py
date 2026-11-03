@@ -57,6 +57,7 @@ from .battle_event_manager import BattleEventManager
 # v6.26 自动代理
 from .auto_proxy_manager import AutoProxyManager
 from .invest_manager import InvestManager
+from .weekly_boss_manager import WeeklyBossManager
 
 __all__ = [
     "CombatManager", "CombatStats", "SectManager", "BossManager", "RiftManager",
@@ -66,5 +67,5 @@ __all__ = [
     "DailyTaskManager", "WorldBossManager", "RaidManager", "RobberyManager", "TutorialManager", "ReincarnationManager",
     "GambleManager", "ForgeManager", "GlobalEventManager", "DemonInvasionManager", "PetManager",
     "AuctionManager", "AuctionHouseManager", "EscortManager", "EncounterManager", "LifeSkillManager", "TalismanManager", "CalamityManager", "LuckManager",
-    "AutoProxyManager", "BattleEventManager", "InvestManager"
+    "AutoProxyManager", "BattleEventManager", "InvestManager", "WeeklyBossManager"
 ]

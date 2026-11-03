@@ -90,7 +90,7 @@ class BattleEventManager:
         2: {"rank": "丙", "min_level": 0, "weight": 28, "hp_mult": 0.40, "cooldown": 180, "expire_hours": 2, "drop_table": "low"},
         3: {"rank": "乙", "min_level": 3, "weight": 18, "hp_mult": 0.60, "cooldown": 240, "expire_hours": 2, "drop_table": "mid"},
         4: {"rank": "甲", "min_level": 6, "weight": 11, "hp_mult": 0.85, "cooldown": 300, "expire_hours": 3, "drop_table": "mid"},
-        5: {"rank": "S", "min_level": 12, "weight": 5, "hp_mult": 1.20, "cooldown": 360, "expire_hours": 3, "drop_table": "high"},
+        5: {"rank": "S", "min_level": 12, "weight": 5, "hp_mult": 1.20, "cooldown": 360, "expire_hours": 3, "drop_table": "legend"},
     }
 
     TIER_REWARDS: Dict[int, dict] = {
@@ -654,12 +654,13 @@ class BattleEventManager:
             lost: Dict[str, int] = {}
             if not escaped:
                 if is_killer:
-                    rolls = 2 + tier
+                    # S 级尾刀 7 次（6+1），避免超过神话世界Boss与混沌团本
+                    rolls = 2 + min(4, tier)
                 elif rank_no <= 3:
                     rolls = 2
                 else:
                     rolls = 1 if random.random() < 0.6 else 0
-                drops_to_grant: List[Tuple[str, int]] = []
+                drops_to_grant: List[Tuple] = []
                 if is_killer and self.world_boss_mgr:
                     first_drop = self.world_boss_mgr.roll_drop(drop_table)
                     if first_drop:
@@ -682,10 +683,28 @@ class BattleEventManager:
                         drops_to_grant.append((tech_name, 1))
                 except Exception:
                     pass
-                for item_name, count in drops_to_grant:
-                    stored = await self._store_item(target_player, item_name, count)
+                if self.world_boss_mgr:
+                    role = (
+                        "killer"
+                        if is_killer
+                        else ("top3" if rank_no <= 3 else "participate")
+                    )
+                    equipment = self.world_boss_mgr.roll_equipment_reward(
+                        target_player, role, tier, source="event"
+                    )
+                    if equipment:
+                        drops_to_grant.append(
+                            (equipment["name"], 1, str(equipment.get("quality") or ""))
+                        )
+                for entry in drops_to_grant:
+                    item_name, count = entry[0], entry[1]
+                    quality = str(entry[2]) if len(entry) > 2 else ""
+                    stored = await self._store_item(
+                        target_player, item_name, count, quality=quality
+                    )
                     bucket = collected if stored else lost
-                    bucket[item_name] = bucket.get(item_name, 0) + count
+                    label = f"{item_name}（{quality}）" if quality else item_name
+                    bucket[label] = bucket.get(label, 0) + count
 
             item_lines = [f"{name}x{count}" for name, count in collected.items()]
             item_lines.extend(f"{name}x{count}（储物戒已满）" for name, count in lost.items())
@@ -700,12 +719,17 @@ class BattleEventManager:
         self.last_settle_msg = "\n".join(header)
         return self.last_settle_msg
 
-    async def _store_item(self, player: Player, item_name: str, count: int) -> bool:
+    async def _store_item(
+        self, player: Player, item_name: str, count: int, quality: str = ""
+    ) -> bool:
         if not self.storage_ring_mgr:
             return False
         try:
+            kwargs = {"silent": True}
+            if quality:
+                kwargs["quality"] = quality
             success, _ = await self.storage_ring_mgr.grant_item(
-                player, item_name, count, silent=True
+                player, item_name, count, **kwargs
             )
             return bool(success)
         except Exception as exc:

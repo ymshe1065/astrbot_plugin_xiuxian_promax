@@ -57,8 +57,20 @@ class TestOverflow(unittest.IsolatedAsyncioTestCase):
         await self.db.create_player(player)
         player = await self.db.get_player_by_id("u1")
         cap = self.ring.get_total_capacity(player)
-        player.storage_ring_items = json.dumps({"灵草": cap}, ensure_ascii=False)
+        # 可堆叠物品每种只占 1 格，因此用 cap 种不同物品把戒指占满
+        player.storage_ring_items = json.dumps(
+            {f"测试材料{i}": 1 for i in range(cap)}, ensure_ascii=False
+        )
         await self.db.update_player(player)
+        self.assertEqual(self.ring.get_available_slots(player), 0)
+
+        # 同种物品在该格未满 50 前仍可叠加，不占新格
+        ok, msg = await self.ring.store_item(player, "测试材料0", 49, allow_overflow=False)
+        self.assertTrue(ok, msg)
+        player = await self.db.get_player_by_id("u1")
+        self.assertEqual(player.get_storage_ring_items().get("测试材料0"), 50)
+
+        # 新种类才会挤爆容量
         ok, msg = await self.ring.store_item(player, "玄铁", 1)
         self.assertTrue(ok)
         self.assertIn("溢出", msg)

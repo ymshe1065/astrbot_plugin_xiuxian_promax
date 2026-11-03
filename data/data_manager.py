@@ -182,8 +182,8 @@ class DataBase:
                 storage_ring, storage_ring_items, overflow_items, equipment_instances, equipped_instances,
                 daily_pill_usage, last_daily_reset, shield_start_time, shield_expire_time,
                 tutorial_step, reincarnation_count, fate_points, permanent_bonus, luck,
-                talisman_exp, talisman_recipes
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                talisman_exp, talisman_recipes, warehouse_level, warehouse_items
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 player.user_id,
@@ -246,6 +246,8 @@ class DataBase:
                 getattr(player, "luck", 0),
                 getattr(player, "talisman_exp", 0),
                 getattr(player, "talisman_recipes", "[]"),
+                int(getattr(player, "warehouse_level", 0) or 0),
+                getattr(player, "warehouse_items", "{}"),
             )
         )
         await self.conn.commit()
@@ -343,7 +345,9 @@ class DataBase:
                 life_skill_last_change_at = ?,
                 virtue_points = ?,
                 talisman_exp = ?,
-                talisman_recipes = ?
+                talisman_recipes = ?,
+                warehouse_level = ?,
+                warehouse_items = ?
             WHERE user_id = ?
             """,
             (
@@ -412,6 +416,8 @@ class DataBase:
                 getattr(player, "virtue_points", 0),
                 getattr(player, "talisman_exp", 0),
                 getattr(player, "talisman_recipes", "[]"),
+                int(getattr(player, "warehouse_level", 0) or 0),
+                getattr(player, "warehouse_items", "{}"),
                 player.user_id
             )
         )

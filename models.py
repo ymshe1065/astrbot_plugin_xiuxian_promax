@@ -144,6 +144,10 @@ class Player:
     equipment_instances: str = "[]"  # 装备实例列表（JSON数组）
     equipped_instances: str = "{}"  # 已装备实例槽位映射（JSON对象）
 
+    # 洞天仓库（藏宝阁）：等级 0 表示未开通；物品随人不随洞天，进阶洞天不丢
+    warehouse_level: int = 0
+    warehouse_items: str = "{}"  # 仓库中的可堆叠物品（JSON字符串，格式：{item_name: count}）
+
     # Phase 1: 每日限制系统
     daily_pill_usage: str = "{}"  # 每日丹药使用次数（JSON字符串，格式：{pill_id: count}）
     last_daily_reset: str = ""  # 上次每日重置日期（格式：YYYY-MM-DD）
@@ -218,8 +222,13 @@ class Player:
         self.techniques = json.dumps(techniques_list, ensure_ascii=False)
 
     def get_active_pill_effects(self) -> List[dict]:
-        """获取当前生效的临时丹药效果列表"""
-        return self._load_json_field(self.active_pill_effects, [])
+        """获取当前生效的临时丹药效果列表
+
+        历史存档可能混入非 dict 条目（旧格式/外部导入），在唯一读取口统一
+        过滤，避免各调用方直接 .get 时抛 AttributeError 导致整条指令无响应。
+        """
+        effects = self._load_json_field(self.active_pill_effects, [])
+        return [effect for effect in effects if isinstance(effect, dict)]
 
     def set_active_pill_effects(self, effects: List[dict]):
         """设置当前生效的临时丹药效果"""
@@ -256,6 +265,14 @@ class Player:
     def set_overflow_items(self, items: dict):
         """设置溢出仓库物品"""
         self.overflow_items = json.dumps(items, ensure_ascii=False)
+
+    def get_warehouse_items(self) -> dict:
+        """获取洞天仓库物品"""
+        return self._load_json_field(self.warehouse_items, {})
+
+    def set_warehouse_items(self, items: dict):
+        """设置洞天仓库物品"""
+        self.warehouse_items = json.dumps(items, ensure_ascii=False)
 
     def get_equipment_instances(self) -> list:
         """获取装备实例列表"""
