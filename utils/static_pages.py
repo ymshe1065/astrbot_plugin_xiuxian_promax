@@ -6,8 +6,8 @@ import hashlib
 import json
 from typing import Any, Dict, List
 
-HELP_VERSION = "v6.50.3"
-HELP_HEADER = f"📖 修仙指令大全 {HELP_VERSION} (丹药背包脏数据加固)"
+HELP_VERSION = "v6.50.5"
+HELP_HEADER = f"📖 修仙指令大全 {HELP_VERSION} (世界Boss团本掉落重做)"
 HELP_HINT = "💡 提示：所有指令均可带 / 前缀使用"
 HELP_TITLE = "修仙指令大全"
 HELP_SUBTITLE = f"📖 {HELP_VERSION} · 所有指令均可带 / 前缀使用"
@@ -40,6 +40,7 @@ HELP_SECTIONS: List[Dict[str, Any]] = [
         "icon": "⚔️",
         "lines": [
             "/切磋 @人 /接受切磋 /拒绝切磋 /决斗 @人",
+            "/心法 [名称] /技能 [名称] 查询主修心法绝技（PvP 每场1次，PvE 每6回合自动释放）",
             "/挑战世界Boss /世界Boss状态 /世界Boss",
             "/挑战团本 /团本状态 /世界团本 /团本排行",
             "/讨伐 /追捕 /挑战通缉犯 /江湖事件 /通缉令",

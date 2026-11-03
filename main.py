@@ -64,6 +64,8 @@ CMD_CHECK_IN = "签到"
 CMD_SHOW_EQUIPMENT = "我的装备"
 CMD_EQUIP_ITEM = "装备"
 CMD_UNEQUIP_ITEM = "卸下"
+CMD_TECHNIQUE_INFO = "心法"
+CMD_SKILL_INFO = "技能"
 CMD_BREAKTHROUGH = "突破"
 CMD_BREAKTHROUGH_INFO = "突破信息"
 CMD_USE_PILL = "服用丹药"
@@ -1301,6 +1303,16 @@ class XiuXianPlugin(Star):
     @require_whitelist
     async def handle_show_equipment(self, event: AstrMessageEvent):
         async for r in self.equipment_handler.handle_show_equipment(event): yield r
+
+    @filter.command(CMD_TECHNIQUE_INFO, "查看主修心法的主动绝技")
+    @require_whitelist
+    async def handle_technique_info(self, event: AstrMessageEvent, technique_name: str = ""):
+        async for r in self.equipment_handler.handle_technique_info(event, technique_name): yield r
+
+    @filter.command(CMD_SKILL_INFO, "查看主修心法绝技（同 /心法）")
+    @require_whitelist
+    async def handle_skill_info(self, event: AstrMessageEvent, technique_name: str = ""):
+        async for r in self.equipment_handler.handle_technique_info(event, technique_name): yield r
 
     @filter.command(CMD_EQUIP_ITEM, "装备物品")
     @require_whitelist

@@ -52,6 +52,10 @@ class TestActiveSkillConfig(unittest.TestCase):
         cls.techniques = json.loads(
             (ROOT / "config" / "techniques.json").read_text(encoding="utf-8")
         )
+        cls.ranks = [
+            "凡品", "黄品", "玄品", "灵品", "地品", "天品",
+            "皇品", "圣品", "帝品", "道品", "仙品", "混元先天",
+        ]
 
     def test_all_main_techniques_have_active_skill(self):
         main = [v for v in self.techniques.values() if v.get("type") == "main_technique"]
@@ -71,6 +75,39 @@ class TestActiveSkillConfig(unittest.TestCase):
             self.assertEqual(skill.get("trigger_round"), 2)
             self.assertEqual(skill.get("mp_cost"), mp_cost[cfg["rank"]], cfg.get("name"))
             self.assertIn(skill.get("type"), {"pierce", "heal", "freeze", "burn", "guard"}, cfg.get("name"))
+
+    def test_skill_values_progress_with_rank(self):
+        """同系绝技随品阶递进，不再出现圣品弱于帝品、玄品弱于灵品等倒挂。"""
+        for element in ("金", "木", "水", "火", "土"):
+            rows = sorted(
+                (
+                    v for v in self.techniques.values()
+                    if v.get("type") == "main_technique" and v.get("element") == element
+                ),
+                key=lambda cfg: self.ranks.index(cfg["rank"]),
+            )
+            values = [float(cfg["active_skill"]["value"]) for cfg in rows]
+            if element == "水":
+                # 水系 value 是“行动概率”，越高阶应越低（0 = 完全冻结）
+                self.assertEqual(values, sorted(values, reverse=True), element)
+            else:
+                self.assertEqual(values, sorted(values), element)
+            if element == "金":
+                extra = [float(cfg["active_skill"].get("extra_damage") or 0) for cfg in rows]
+                self.assertEqual(extra, sorted(extra), element)
+
+    def test_heal_text_matches_implementation(self):
+        """木系实际只回复已损失气血，不再保留未实现的溢出护体描述。"""
+        for cfg in self.techniques.values():
+            skill = cfg.get("active_skill") or {}
+            if skill.get("type") == "heal":
+                self.assertNotIn("溢出", str(skill.get("description") or ""), cfg.get("name"))
+
+    def test_water_high_ranks_are_full_freeze(self):
+        for cfg in self.techniques.values():
+            skill = cfg.get("active_skill") or {}
+            if skill.get("type") == "freeze" and cfg["rank"] in self.ranks[3:]:
+                self.assertEqual(float(skill.get("value") or 0), 0.0, cfg.get("name"))
 
 
 class TestActiveSkillEngine(unittest.TestCase):
@@ -135,6 +172,40 @@ class TestActiveSkillEngine(unittest.TestCase):
         self.CombatManager._apply_active_skill(attacker2, self._stats("u4", "丁"), guard, [])
         self.assertIn("guard", attacker2.statuses)
         self.assertGreater(attacker2.atk, 1000)
+
+    def test_burn_value_is_converted_to_percentage_points(self):
+        """0.02 表示 2%，PvE 灼烧每回合应按 2% 最大生命结算。"""
+        burn = {"name": "赤炎焚脉诀", "type": "burn", "value": 0.02}
+        defender = self._stats("u2", "乙")
+        logs = []
+        self.CombatManager._apply_active_skill(self._stats("u1", "甲"), defender, burn, logs)
+        self.assertAlmostEqual(defender.statuses["burn"]["damage_pct"], 2.0, places=3)
+        self.assertEqual(defender.statuses["burn"]["turns"], 3)
+        self.assertTrue(any("2.0%" in line for line in logs))
+
+    def test_freeze_uses_action_rate(self):
+        freeze = {"name": "玄冰凝霜", "type": "freeze", "value": 0.2}
+        defender = self._stats("u2", "乙")
+        self.CombatManager._apply_active_skill(self._stats("u1", "甲"), defender, freeze, [])
+        self.assertAlmostEqual(defender.statuses["freeze"]["action_rate"], 0.2, places=3)
+
+        # action_rate=1 必定挣脱，action_rate=0 必定无法行动
+        free = self._stats("u3", "丙")
+        free.statuses["freeze"] = {"turns": 1, "action_rate": 1.0}
+        self.assertFalse(self.CombatManager._tick_statuses(free, []))
+        locked = self._stats("u4", "丁")
+        locked.statuses["freeze"] = {"turns": 1, "action_rate": 0.0}
+        self.assertTrue(self.CombatManager._tick_statuses(locked, []))
+
+    def test_skill_summary_contains_cost_and_effect(self):
+        skill = {"name": "裂金破甲斩", "trigger_round": 2, "mp_cost": 500,
+                 "type": "pierce", "value": 0.15, "extra_damage": 0.4,
+                 "description": "无视对方15%物防，并追加0.4倍攻击伤害。"}
+        text = "\n".join(_imp("core.technique_skill").skill_summary_lines(skill))
+        self.assertIn("裂金破甲斩", text)
+        self.assertIn("500", text)
+        self.assertIn("15%", text)
+        self.assertIn("第 2 回合", text)
 
 
 class TestPetBonusDisplay(unittest.TestCase):

@@ -53,12 +53,12 @@ class WorldBossManager:
         },
         "venom_queen": {
             "name": "万毒蛛后", "element": "木", "tier": 3, "icon": "🕷️",
-            "hp_mult": 2.2, "min_level": 9, "drop_table": "high",
+            "hp_mult": 2.2, "min_level": 9, "drop_table": "legend",
             "desc": "万毒之源的蛛后，丝网遮天，毒雾可蚀仙骨。",
         },
         "thunder_qilin": {
             "name": "雷罚麒麟", "element": "金", "tier": 3, "icon": "⚡",
-            "hp_mult": 2.5, "min_level": 12, "drop_table": "high",
+            "hp_mult": 2.5, "min_level": 12, "drop_table": "legend",
             "desc": "代天行罚的雷霆麒麟，蹄落之处天雷滚滚，万法辟易。",
         },
     }
@@ -97,6 +97,8 @@ class WorldBossManager:
         3: {"label": "神话级", "weight": 10},
     }
 
+    # 掉落表按档位严格递增：low 550 / mid 1065 / high 1701 / legend 2038（按材料售价折算单次期望）
+    # high 与 legend 加入圣品机缘，避免最高难度仍只掉玄品材料。
     DROP_TABLES: Dict[str, List[dict]] = {
         "low": [
             {"name": "洗练石", "weight": 32, "min": 1, "max": 2},
@@ -105,21 +107,43 @@ class WorldBossManager:
             {"name": "噬魂铁", "weight": 18, "min": 1, "max": 2},
         ],
         "mid": [
-            {"name": "洗练石", "weight": 24, "min": 1, "max": 3},
-            {"name": "星辰铁", "weight": 22, "min": 2, "max": 4},
-            {"name": "九天骨", "weight": 20, "min": 1, "max": 2},
-            {"name": "混沌皮", "weight": 18, "min": 1, "max": 2},
-            {"name": "空间石", "weight": 16, "min": 1, "max": 1},
+            {"name": "洗练石", "weight": 20, "min": 1, "max": 3},
+            {"name": "星辰铁", "weight": 20, "min": 2, "max": 4},
+            {"name": "九天骨", "weight": 18, "min": 1, "max": 2},
+            {"name": "混沌皮", "weight": 16, "min": 1, "max": 2},
+            {"name": "寂灭液", "weight": 10, "min": 1, "max": 2},
+            {"name": "秘境精华", "weight": 8, "min": 1, "max": 1},
+            {"name": "天材地宝", "weight": 1, "min": 1, "max": 1},
         ],
         "high": [
-            {"name": "洗练石", "weight": 20, "min": 2, "max": 4},
-            {"name": "八卦日曜晶皮", "weight": 18, "min": 1, "max": 2},
-            {"name": "诛仙龙骨铁", "weight": 18, "min": 1, "max": 2},
-            {"name": "噬魂幽冥草草", "weight": 16, "min": 1, "max": 2},
-            {"name": "紫电草", "weight": 14, "min": 1, "max": 2},
-            {"name": "寂灭液", "weight": 14, "min": 1, "max": 1},
+            {"name": "洗练石", "weight": 18, "min": 2, "max": 4},
+            {"name": "八卦日曜晶皮", "weight": 16, "min": 1, "max": 2},
+            {"name": "诛仙龙骨铁", "weight": 16, "min": 1, "max": 2},
+            {"name": "寂灭液", "weight": 12, "min": 1, "max": 2},
+            {"name": "秘境精华", "weight": 10, "min": 1, "max": 2},
+            {"name": "天材地宝", "weight": 2, "min": 1, "max": 1},
+            {"name": "四象皮", "weight": 1, "min": 1, "max": 1},
+            {"name": "混元铁", "weight": 1, "min": 1, "max": 1},
+        ],
+        "legend": [
+            {"name": "洗练石", "weight": 15, "min": 2, "max": 4},
+            {"name": "寂灭液", "weight": 12, "min": 2, "max": 3},
+            {"name": "秘境精华", "weight": 10, "min": 1, "max": 2},
+            {"name": "八卦日曜晶皮", "weight": 10, "min": 1, "max": 2},
+            {"name": "诛仙龙骨铁", "weight": 10, "min": 1, "max": 2},
+            {"name": "天材地宝", "weight": 2, "min": 1, "max": 1},
+            {"name": "四象皮", "weight": 1, "min": 1, "max": 1},
+            {"name": "混元铁", "weight": 1, "min": 1, "max": 1},
         ],
     }
+
+    # 尾刀/前3/参与的独立装备掉率（每人每次结算最多 1 件），按档位递增。
+    EQUIPMENT_CHANCES: Dict[str, Dict[str, tuple]] = {
+        "world_boss": {"killer": (20, 4), "top3": (8, 2), "participate": (3, 1)},
+        "raid": {"killer": (25, 5), "top3": (10, 3), "participate": (4, 2)},
+        "event": {"killer": (18, 3), "top3": (7, 2), "participate": (2, 1)},
+    }
+    EQUIPMENT_CHANCE_CAPS: Dict[str, int] = {"killer": 45, "top3": 20, "participate": 10}
 
     TIER_REWARDS: Dict[int, dict] = {
         1: {"rank1": 30000, "top3": 15000, "participate": 5000, "killer": 50000},
@@ -644,6 +668,37 @@ class WorldBossManager:
                 return str(item.get("name", "")), random.randint(low, high)
         return None
 
+    def roll_equipment_reward(
+        self,
+        player: Player,
+        role: str,
+        tier: int,
+        source: str = "world_boss",
+    ) -> Optional[dict]:
+        """按角色与档位判定独立装备掉落，返回 {"name","quality",...} 或 None。
+
+        装备品阶以玩家境界为基准 ±1，越阶权重随档位降低；每人每次结算最多 1 件。
+        """
+        chance_cfg = self.EQUIPMENT_CHANCES.get(source) or self.EQUIPMENT_CHANCES["world_boss"]
+        base, per_tier = chance_cfg.get(role, chance_cfg["participate"])
+        tier = max(1, int(tier or 1))
+        chance = int(base) + int(per_tier) * (tier - 1)
+        chance = min(self.EQUIPMENT_CHANCE_CAPS.get(role, 10), max(0, chance))
+        if chance <= 0 or random.randint(1, 100) > chance:
+            return None
+        try:
+            from ..core.equipment_drop import roll_equipment_drop
+
+            up_rank_weight = max(0.3, 0.8 - 0.15 * (tier - 1))
+            return roll_equipment_drop(
+                self.config_manager,
+                player.level_index,
+                up_rank_weight=up_rank_weight,
+            )
+        except Exception as e:
+            logger.warning(f"Boss/团本装备掉落判定失败：{e}")
+            return None
+
     async def _grant_title_async(self, player: Player) -> str:
         if not self.title_mgr:
             return ""
@@ -898,7 +953,8 @@ class WorldBossManager:
             lost = {}
             drops_to_grant = []
             if is_killer:
-                first_drop = self.roll_drop("mid" if tier >= 2 else "low")
+                # 尾刀附加掉落使用当前 Boss 档位，不再把神话级降成 mid
+                first_drop = self.roll_drop(drop_table)
                 if first_drop:
                     drops_to_grant.append(first_drop)
             for _ in range(rolls):
@@ -918,10 +974,23 @@ class WorldBossManager:
                     drops_to_grant.append((tech_name, 1))
             except Exception:
                 pass
-            for item_name, count in drops_to_grant:
-                stored = await self._store_item(target_player, item_name, count)
+            role = "killer" if is_killer else ("top3" if rank <= 3 else "participate")
+            equipment = self.roll_equipment_reward(
+                target_player, role, tier, source="world_boss"
+            )
+            if equipment:
+                drops_to_grant.append(
+                    (equipment["name"], 1, str(equipment.get("quality") or ""))
+                )
+            for entry in drops_to_grant:
+                item_name, count = entry[0], entry[1]
+                quality = str(entry[2]) if len(entry) > 2 else ""
+                stored = await self._store_item(
+                    target_player, item_name, count, quality=quality
+                )
                 bucket = collected if stored else lost
-                bucket[item_name] = bucket.get(item_name, 0) + count
+                label = f"{item_name}（{quality}）" if quality else item_name
+                bucket[label] = bucket.get(label, 0) + count
             item_lines = [f"{name}x{count}" for name, count in collected.items()]
             item_lines.extend(f"{name}x{count}（储物戒已满）" for name, count in lost.items())
 
@@ -943,11 +1012,18 @@ class WorldBossManager:
         self.last_settle_msg = "\n".join(msg)
         return self.last_settle_msg
 
-    async def _store_item(self, player: Player, item_name: str, count: int) -> bool:
+    async def _store_item(
+        self, player: Player, item_name: str, count: int, quality: str = ""
+    ) -> bool:
         if not self.storage_ring_mgr:
             return False
         try:
-            success, _ = await self.storage_ring_mgr.grant_item(player, item_name, count, silent=True)
+            kwargs = {"silent": True}
+            if quality:
+                kwargs["quality"] = quality
+            success, _ = await self.storage_ring_mgr.grant_item(
+                player, item_name, count, **kwargs
+            )
             return bool(success)
         except Exception as e:
             logger.warning(f"世界Boss掉落发放失败 {item_name}x{count}: {e}")
