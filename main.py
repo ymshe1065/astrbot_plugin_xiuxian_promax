@@ -184,6 +184,15 @@ class XiuXianPlugin(Star):
         _current_dir = Path(__file__).parent
         self.config_manager = ConfigManager(_current_dir)
 
+        # ===== 网页聊天室（路线B）：注册 webroom 平台适配器 =====
+        # 必须在插件加载阶段注册（早于 platform_manager 初始化），注册失败不影响插件其余功能
+        try:
+            from .webchat_room.bootstrap import bootstrap_webroom
+
+            bootstrap_webroom()
+        except Exception as e:
+            logger.warning(f"【修仙插件】webroom 平台适配器注册失败（不影响 QQ 端）: {e}")
+
         files_config = self.config.get("FILES", {})
         db_filename = files_config.get("DATABASE_FILE", "xiuxian_data_v2.db")
         plugin_data_path = StarTools.get_data_dir("astrbot_plugin_xiuxian_promax")
@@ -1530,7 +1539,8 @@ class XiuXianPlugin(Star):
     async def handle_reject_gift(self, event: AstrMessageEvent):
         async for r in self.storage_ring_handler.handle_reject_gift(event): yield r
 
-    @filter.command(CMD_SEARCH_ITEM, "搜索储物戒物品")    @require_whitelist
+    @filter.command(CMD_SEARCH_ITEM, "搜索储物戒物品")
+    @require_whitelist
     async def handle_search_item(self, event: AstrMessageEvent, keyword: str = ""):
         async for r in self.storage_ring_handler.handle_search_item(event, keyword): yield r
 
