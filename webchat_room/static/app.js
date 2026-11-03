@@ -30,6 +30,7 @@
     manualClose: false,
     connected: false,
     cmdCatalog: null,
+    argSpec: null,           // 带参指令规格，来自 /api/commands
     unread: { status: 0, bag: 0 },
   };
 
@@ -870,9 +871,19 @@
   }
 
   /* ================= 指令分发 ================= */
-  function dispatchCommand(cmd) {
+  function dispatchCommand(cmd, opts = {}) {
     if (!cmd) return;
     const text = cmd.startsWith("/") ? cmd : `/${cmd}`;
+
+    // 带参指令先补参数，别把半截命令发出去换一句报错
+    if (!opts.noCheck) {
+      const miss = missingArgs(text);
+      if (miss) {
+        openSheet(miss.name, miss.hint, `/${miss.name}`, miss.preset);
+        return;
+      }
+    }
+
     // 看板常驻类指令：结果只进对应面板（注意中文后没有 \b 词边界）
     if (/^\/我的信息(?:\s|$)/.test(text)) {
       sendCmd(text, { panel: "status", card: true, silent: true });
@@ -885,6 +896,23 @@
       return;
     }
     sendCmd(text, { card: true });
+  }
+
+  /** 命令是否缺必填参数；缺则返回弹层所需信息 */
+  function missingArgs(text) {
+    const spec = S.argSpec || {};
+    const parts = text.trim().split(/\s+/);
+    const name = parts[0].replace(/^\//, "");
+    const rule = spec[name];
+    if (!rule) return null;
+    const have = parts.length - 1;
+    const need = rule.min || 1;
+    if (have >= need) return null;
+    return {
+      name,
+      hint: rule.example ? `${rule.hint}，例：${rule.example}` : rule.hint,
+      preset: have ? parts.slice(1).join(" ") : "",
+    };
   }
 
   /* ================= 面板 ================= */
@@ -953,6 +981,7 @@
     try {
       const r = await fetch("/api/commands");
       S.cmdCatalog = await r.json();
+      S.argSpec = S.cmdCatalog.arg_spec || {};
       renderCommandGrid();
     } catch {
       /* 忽略：离线时指令格为空 */
@@ -995,8 +1024,10 @@
           b.className = "cmd-btn" + (it.tone === "gold" ? " gold" : "");
           b.innerHTML = `<span>${esc(it.label)}</span>` + (it.arg ? `<span class="arg-hint">需填参</span>` : "");
           b.addEventListener("click", () => {
-            if (it.arg) openSheet(it.label, it.arg, it.cmd);
-            else {
+            if (it.arg) {
+              const rule = (S.argSpec || {})[it.cmd.replace(/^\//, "")];
+              openSheet(it.label, rule ? `${rule.hint}，例：${rule.example}` : it.arg, it.cmd);
+            } else {
               dispatchCommand(it.cmd);
               closeDrawer();
             }
@@ -1043,9 +1074,14 @@
       return;
     }
     const text = `${sheetCtx.cmd} ${val}`;
+    const miss = missingArgs(text);
+    if (miss) {
+      toast(`还差参数：${miss.hint.split("，")[0]}`);
+      return;
+    }
     closeSheet();
     closeDrawer();
-    dispatchCommand(text);
+    dispatchCommand(text, { noCheck: true });
   }
 
   /* ================= 播报横幅 ================= */

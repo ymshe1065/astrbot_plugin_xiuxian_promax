@@ -77,7 +77,8 @@ def _parse_kv_pairs(line: str) -> list[list[str]]:
 def _valid_cmd(cmd: str) -> bool:
     """过滤掉 0/500 这类被误认成指令的分数。"""
     body = cmd.lstrip("/").strip()
-    if not body or len(body) > 30:
+    # 插件里没有单字指令，「时间/时」这种是被斜杠切出来的残渣
+    if len(body) < 2 or len(body) > 30:
         return False
     if re.fullmatch(r"[\d\s.,:%+\-/]+", body):
         return False

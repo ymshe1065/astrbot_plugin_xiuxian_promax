@@ -147,7 +147,73 @@ CATEGORIES: list[dict[str, Any]] = [
 # 看板常驻卡片：进房后预热拉取
 PANEL_PREFETCH = ["/我的信息"]
 
+# 带参指令规格：空着发出去只会收到「请输入 xx」的报错，点按钮时应先弹输入框。
+# 键为不带 / 的指令名；min 是至少需要的参数个数；hint 给输入框提示，example 给可直接照抄的样例。
+# 只收「必填」的指令——丹阁/符阁/心法/行情这类留空合法的不放进来。
+ARG_SPEC: dict[str, dict[str, Any]] = {
+    # 交易与储物
+    "购买": {"hint": "物品名 数量", "example": "炼气丹 1", "min": 1},
+    "取出": {"hint": "物品名 数量", "example": "炼气丹 5", "min": 1},
+    "回收": {"hint": "物品名 数量", "example": "炼气丹 1", "min": 1},
+    "赠予": {"hint": "道号 物品名 数量", "example": "云无月 炼气丹 1", "min": 2},
+    "装备": {"hint": "物品名", "example": "青锋剑", "min": 1},
+    "卸下": {"hint": "戒指1/戒指2/功法/装备名", "example": "戒指1", "min": 1},
+    "更换储物戒": {"hint": "储物戒名", "example": "纳物戒", "min": 1},
+    "物品信息": {"hint": "物品名", "example": "炼气丹", "min": 1},
+    "丹药信息": {"hint": "丹药名", "example": "炼气丹", "min": 1},
+    "搜索物品": {"hint": "关键词", "example": "丹", "min": 1},
+    "服用丹药": {"hint": "丹药名 数量", "example": "炼气丹 1", "min": 1},
+    "炼丹": {"hint": "丹方名", "example": "聚气丹", "min": 1},
+    "学习丹方": {"hint": "丹方名", "example": "聚气丹", "min": 1},
+    # 仙市
+    "买入股": {"hint": "股票代码 手数（1 手 = 100 股）", "example": "S01 2", "min": 2},
+    "卖出股": {"hint": "股票代码 手数", "example": "S01 1", "min": 2},
+    "申购": {"hint": "基金代码 金额", "example": "F01 10000", "min": 2},
+    "赎回": {"hint": "基金代码 份额", "example": "F01 100", "min": 2},
+    # 秘境与历练
+    "探索秘境": {"hint": "秘境ID（见秘境列表，1-5）", "example": "1", "min": 1},
+    "开始历练": {"hint": "历练路线", "example": "青云山", "min": 1},
+    "接取悬赏": {"hint": "悬赏编号", "example": "1", "min": 1},
+    "抢占灵眼": {"hint": "灵眼编号", "example": "1", "min": 1},
+    # 宗门
+    "加入宗门": {"hint": "宗门名", "example": "青云宗", "min": 1},
+    "创建宗门": {"hint": "宗门名", "example": "青云宗", "min": 1},
+    "宗门捐献": {"hint": "灵石数量", "example": "1000", "min": 1},
+    "改道号": {"hint": "新道号", "example": "云无月", "min": 1},
+    "宗主传位": {"hint": "道号", "example": "云无月", "min": 1},
+    "踢出成员": {"hint": "道号", "example": "云无月", "min": 1},
+    "职位变更": {"hint": "道号 职位", "example": "云无月 长老", "min": 2},
+    # 钱庄与洞天
+    "存灵石": {"hint": "数量", "example": "1000", "min": 1},
+    "取灵石": {"hint": "数量", "example": "1000", "min": 1},
+    "贷款": {"hint": "数量", "example": "1000", "min": 1},
+    "还款": {"hint": "数量", "example": "1000", "min": 1},
+    "突破贷款": {"hint": "数量", "example": "1000", "min": 1},
+    "购买洞天": {"hint": "洞天类型编号", "example": "1", "min": 1},
+    "升级洞天": {"hint": "升级项", "example": "灵气", "min": 1},
+    "进阶洞天": {"hint": "目标类型编号", "example": "2", "min": 1},
+    # 灵田
+    "种植": {"hint": "种子名", "example": "聚灵草", "min": 1},
+    "铲除": {"hint": "田块编号", "example": "1", "min": 1},
+    # 社交与修行
+    "决斗": {"hint": "对手道号", "example": "云无月", "min": 1},
+    "切磋": {"hint": "对手道号", "example": "云无月", "min": 1},
+    "双修": {"hint": "道号", "example": "云无月", "min": 1},
+    "讨伐": {"hint": "讨伐目标", "example": "1", "min": 1},
+    "传承挑战": {"hint": "目标道号", "example": "云无月", "min": 1},
+    "突破": {"hint": "确认突破（可带破境丹）", "example": "确认突破", "min": 1},
+    "选择灵根": {"hint": "灵根选项（1-3）", "example": "1", "min": 1},
+    "我要修仙": {"hint": "修炼方式（体修/灵修）", "example": "灵修", "min": 1},
+    "自动代理": {"hint": "任务类型", "example": "押镖", "min": 1},
+    "关闭代理": {"hint": "任务类型", "example": "押镖", "min": 1},
+}
+
 
 def all_commands() -> dict[str, Any]:
     total = sum(len(c["items"]) for c in CATEGORIES)
-    return {"categories": CATEGORIES, "total": total, "prefetch": PANEL_PREFETCH}
+    return {
+        "categories": CATEGORIES,
+        "total": total,
+        "prefetch": PANEL_PREFETCH,
+        "arg_spec": ARG_SPEC,
+    }
