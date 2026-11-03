@@ -20,6 +20,7 @@ from aiohttp import WSMsgType, web
 from astrbot.api import logger
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 
+from . import accounts as accounts_store
 from . import commands as commands_catalog
 
 if TYPE_CHECKING:
@@ -27,6 +28,9 @@ if TYPE_CHECKING:
 
 MEDIA_DIR = Path(get_astrbot_data_path()) / "webroom" / "imgs"
 STATIC_DIR = Path(__file__).parent / "static"
+
+# 全服唯一聊天室：不做房间区分，所有账号都进这里
+ROOM_ID = "room_main"
 
 # room_id -> {ws: {"player_id": str, "player_name": str}}
 _rooms: dict[str, dict[web.WebSocketResponse, dict[str, str]]] = {}
@@ -53,7 +57,7 @@ def set_adapter(adapter: WebroomAdapter) -> None:
 
 
 def room_name(room_id: str) -> str:
-    return f"房间 {room_id}"
+    return "修仙聊天室"
 
 
 def online_players(room_id: str) -> list[str]:
@@ -81,9 +85,17 @@ async def start(host: str, port: int) -> None:
     if _site is not None:
         return
     app = web.Application(middlewares=[_cache_control])
+    accounts_store.init()
     app.router.add_get("/", _index)
     app.router.add_get("/api/commands", _api_commands)
     app.router.add_get("/api/health", _api_health)
+    app.router.add_post("/api/register", _api_register)
+    app.router.add_post("/api/login", _api_login)
+    app.router.add_get("/api/me", _api_me)
+    app.router.add_post("/api/nick", _api_nick)
+    app.router.add_post("/api/password", _api_password)
+    app.router.add_get("/ws", _ws_handler)
+    # 旧链接 /ws/{room} 仍然可用，房间号已忽略
     app.router.add_get("/ws/{room_id}", _ws_handler)
     app.router.add_get("/media/{filename}", _media)
     app.router.add_get("/cards/{filename}", _card_image)
@@ -250,9 +262,117 @@ async def _api_health(_request: web.Request) -> web.Response:
         {
             "ok": True,
             "adapter": _adapter is not None,
+            "accounts": accounts_store.count(),
             "rooms": {rid: online_players(rid) for rid in _rooms},
         }
     )
+
+
+# ---------- 账号 API ----------
+
+
+async def _read_json(request: web.Request) -> dict:
+    try:
+        data = await request.json()
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _bearer(request: web.Request) -> str:
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        return auth[7:].strip()
+    return request.query.get("token", "").strip()
+
+
+def _token_user(request: web.Request) -> dict | None:
+    username = accounts_store.parse_token(_bearer(request))
+    if not username:
+        return None
+    return accounts_store.get(username)
+
+
+async def _api_register(request: web.Request) -> web.Response:
+    data = await _read_json(request)
+    ok, msg = accounts_store.register(
+        str(data.get("username", "")),
+        str(data.get("password", "")),
+        str(data.get("nick", "")),
+    )
+    if not ok:
+        return web.json_response({"ok": False, "error": msg}, status=400)
+    user = accounts_store.get(str(data.get("username", "")))
+    assert user is not None
+    return web.json_response(
+        {
+            "ok": True,
+            "token": accounts_store.make_token(user["username"]),
+            "username": user["username"],
+            "nick": user["nick"],
+        }
+    )
+
+
+async def _api_login(request: web.Request) -> web.Response:
+    data = await _read_json(request)
+    ok, msg, user = accounts_store.verify(
+        str(data.get("username", "")), str(data.get("password", ""))
+    )
+    if not ok or user is None:
+        return web.json_response({"ok": False, "error": msg}, status=401)
+    return web.json_response(
+        {
+            "ok": True,
+            "token": accounts_store.make_token(user["username"]),
+            "username": user["username"],
+            "nick": user["nick"],
+        }
+    )
+
+
+async def _api_me(request: web.Request) -> web.Response:
+    user = _token_user(request)
+    if user is None:
+        return web.json_response({"ok": False, "error": "登录已过期"}, status=401)
+    return web.json_response({"ok": True, **user})
+
+
+async def _api_nick(request: web.Request) -> web.Response:
+    user = _token_user(request)
+    if user is None:
+        return web.json_response({"ok": False, "error": "登录已过期"}, status=401)
+    data = await _read_json(request)
+    ok, msg = accounts_store.set_nick(user["username"], str(data.get("nick", "")))
+    if not ok:
+        return web.json_response({"ok": False, "error": msg}, status=400)
+    fresh = accounts_store.get(user["username"]) or user
+    # 在线连接同步新昵称，之后发消息立即用新名字
+    for info in (_rooms.get(ROOM_ID) or {}).values():
+        if info.get("username") == user["username"]:
+            info["player_name"] = fresh["nick"]
+    await broadcast(
+        ROOM_ID,
+        {
+            "type": "sys",
+            "text": f"{user['nick']} 改名为 {fresh['nick']}",
+            "ts": int(time.time()),
+        },
+    )
+    return web.json_response({"ok": True, "username": fresh["username"], "nick": fresh["nick"]})
+
+
+async def _api_password(request: web.Request) -> web.Response:
+    user = _token_user(request)
+    if user is None:
+        return web.json_response({"ok": False, "error": "登录已过期"}, status=401)
+    data = await _read_json(request)
+    ok, msg = accounts_store.set_password(
+        user["username"], str(data.get("old", "")), str(data.get("new", ""))
+    )
+    if not ok:
+        return web.json_response({"ok": False, "error": msg}, status=400)
+    return web.json_response({"ok": True, "message": msg})
 
 
 def _safe_name(filename: str) -> bool:
@@ -299,28 +419,35 @@ async def _card_image(request: web.Request) -> web.Response:
 
 
 async def _ws_handler(request: web.Request) -> web.WebSocketResponse:
-    room_id = request.match_info["room_id"].strip()
-    player_name = request.query.get("player", "").strip()
-    if not room_id or not player_name:
-        return web.json_response({"error": "缺少 room_id 或 player 参数"}, status=400)
-    if len(player_name) > 20 or len(room_id) > 30:
-        return web.json_response({"error": "道号或房间名过长"}, status=400)
+    # 房间固定，登录态靠 token 判定
+    token = request.query.get("token", "").strip()
+    username = accounts_store.parse_token(token)
+    user = accounts_store.get(username) if username else None
+    if user is None:
+        return web.json_response({"error": "未登录或登录已过期"}, status=401)
+
+    room_id = ROOM_ID
+    player_name = user["nick"]
 
     ws = web.WebSocketResponse(heartbeat=30, max_msg_size=4 * 1024 * 1024)
     await ws.prepare(request)
 
-    # 顶号：同名玩家旧连接踢下线
+    # 顶号：同一账号的旧连接踢下线（换设备/重开页面）
     conns = _rooms.setdefault(room_id, {})
     for old_ws, info in list(conns.items()):
-        if info["player_name"] == player_name:
+        if info.get("username") == user["username"]:
             try:
                 await old_ws.close(code=4001, message=b"replaced by new login")
             except Exception:
                 pass
             _drop(room_id, old_ws)
     conns = _rooms.setdefault(room_id, {})
-    player_id = f"web_{player_name}"
-    conns[ws] = {"player_id": player_id, "player_name": player_name}
+    player_id = f"web_{user['username']}"
+    conns[ws] = {
+        "player_id": player_id,
+        "player_name": player_name,
+        "username": user["username"],
+    }
 
     await broadcast(
         room_id,
@@ -331,6 +458,8 @@ async def _ws_handler(request: web.Request) -> web.WebSocketResponse:
             "type": "hello",
             "room": room_id,
             "player": player_name,
+            "nick": player_name,
+            "username": user["username"],
             "online": online_players(room_id),
             "prefetch": commands_catalog.PANEL_PREFETCH,
         }
@@ -399,6 +528,7 @@ async def _handle_client_message(room_id: str, ws: web.WebSocketResponse, raw: s
             "type": "chat",
             "room": room_id,
             "from": info["player_name"],
+            "username": info.get("username", ""),
             "text": text,
             "ts": int(time.time()),
         }

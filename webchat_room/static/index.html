@@ -15,11 +15,23 @@
     <div class="login-mark">☯</div>
     <h1>修 仙 聊 天 室</h1>
     <p class="sub">聚灵谷 · 同道共聚一室</p>
-    <label for="inName">道号</label>
-    <input id="inName" maxlength="20" placeholder="例如：云无月" autocomplete="nickname">
-    <label for="inRoom">洞府房间</label>
-    <input id="inRoom" maxlength="30" value="room_main">
-    <button id="btnJoin" class="btn-primary">踏 入 仙 途</button>
+
+    <div class="auth-tabs" role="tablist">
+      <button class="auth-tab active" data-mode="login" role="tab">登 录</button>
+      <button class="auth-tab" data-mode="register" role="tab">注 册</button>
+    </div>
+
+    <label for="inUser">道号（账号）</label>
+    <input id="inUser" maxlength="16" placeholder="2-16 位，中文 / 字母 / 数字"
+           autocomplete="username" autocapitalize="off" spellcheck="false">
+    <label for="inPwd">密码</label>
+    <input id="inPwd" type="password" maxlength="64" placeholder="至少 6 位"
+           autocomplete="current-password">
+    <div id="nickField" hidden>
+      <label for="inNick">昵称（可选）</label>
+      <input id="inNick" maxlength="16" placeholder="留空则与道号相同" autocomplete="nickname">
+    </div>
+    <button id="btnAuth" class="btn-primary">登 入</button>
     <div class="err" id="loginErr"></div>
   </div>
 </div>
@@ -39,9 +51,13 @@
       <span class="brand-mark">☯</span>
       <span class="brand-text">修仙聊天室</span>
     </div>
-    <span class="room-tag" id="roomTag"></span>
+    <span class="room-tag" id="onlineTag">在线 1</span>
     <div class="topbar-right">
       <span class="conn" id="connState">未连接</span>
+      <button class="me-btn" id="btnMe" title="账号设置">
+        <span class="me-dot" id="meDot">我</span>
+        <span class="me-nick" id="meNick">我</span>
+      </button>
       <button class="icon-btn only-desktop" id="btnTogglePanel" title="收起/展开看板">⟨</button>
     </div>
   </header>
@@ -97,6 +113,36 @@
     <div class="sheet-hint" id="sheetHint"></div>
     <input id="sheetInput" autocomplete="off" enterkeyhint="done">
     <button class="btn-primary" id="sheetOk">发 送</button>
+  </div>
+</div>
+
+<!-- ============ 账号设置 ============ -->
+<div class="sheet-mask" id="accMask" hidden>
+  <div class="sheet acc-sheet">
+    <div class="sheet-head">
+      <span>账号设置</span>
+      <button class="sheet-close" id="accClose">×</button>
+    </div>
+    <div class="acc-id">
+      <span class="me-dot big" id="accDot">我</span>
+      <div class="acc-id-text">
+        <div class="acc-nick" id="accNickShow">我</div>
+        <div class="acc-user" id="accUser">—</div>
+      </div>
+    </div>
+    <label for="accNick">昵称</label>
+    <input id="accNick" maxlength="16" placeholder="群里显示的名字">
+    <button class="btn-primary" id="accSaveNick">保存昵称</button>
+
+    <div class="acc-divider"></div>
+
+    <label for="accOld">原密码</label>
+    <input id="accOld" type="password" maxlength="64" autocomplete="current-password">
+    <label for="accNew">新密码</label>
+    <input id="accNew" type="password" maxlength="64" autocomplete="new-password">
+    <button class="btn-ghost" id="accSavePwd">修改密码</button>
+    <button class="btn-ghost danger" id="accLogout">退出登录</button>
+    <div class="err" id="accErr"></div>
   </div>
 </div>
 

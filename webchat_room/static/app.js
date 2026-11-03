@@ -10,12 +10,17 @@
   const isMobile = () => window.matchMedia("(max-width: 900px)").matches;
   const CACHE_KEY = "xiuxian_room_cache_v1";
   const CACHE_MAX = 80;
+  const AUTH_KEY = "xiuxian_auth_v1";
+  const ROOM = "room_main"; // 全服唯一聊天室
 
   /* ================= 状态 ================= */
   const S = {
     ws: null,
-    me: "",
-    room: "",
+    me: "",                  // 昵称（显示名）
+    username: "",            // 账号（玩家标识 web_<username>）
+    token: "",
+    room: ROOM,
+    authMode: "login",
     seq: 0,
     pending: new Map(),      // req_id -> { cmd, panel }
     cards: new Map(),        // card id -> card
@@ -27,6 +32,234 @@
     cmdCatalog: null,
     unread: { status: 0, bag: 0 },
   };
+
+  /* ================= 账号 ================= */
+  function loadAuth() {
+    try {
+      return JSON.parse(localStorage.getItem(AUTH_KEY) || "null");
+    } catch {
+      return null;
+    }
+  }
+
+  function saveAuth(a) {
+    localStorage.setItem(AUTH_KEY, JSON.stringify(a));
+  }
+
+  function cacheKey() {
+    return `${CACHE_KEY}_${S.username || "anon"}`;
+  }
+
+  /** 名字 → 稳定的头像底色 */
+  function avatarColor(name) {
+    const palette = ["#b5654a", "#7a8b5a", "#5d7f9e", "#9b6b9e", "#a8843f", "#4f8b7d", "#8b6b4a", "#6b7fa8"];
+    let h = 0;
+    for (const ch of String(name || "我")) h = (h * 31 + ch.codePointAt(0)) >>> 0;
+    return palette[h % palette.length];
+  }
+
+  /** 取首字做头像 */
+  function initial(name) {
+    const s = String(name || "我").trim();
+    return s ? Array.from(s)[0].toUpperCase() : "我";
+  }
+
+  function updateMeUI() {
+    const n = S.me || "我";
+    $("meNick").textContent = n;
+    $("meDot").textContent = initial(n);
+    $("meDot").style.background = avatarColor(n);
+    $("accNickShow").textContent = n;
+    $("accUser").textContent = "@" + (S.username || "");
+    $("accDot").textContent = initial(n);
+    $("accDot").style.background = avatarColor(n);
+    $("accNick").value = n;
+  }
+
+  function setAuthMode(mode) {
+    S.authMode = mode;
+    document.querySelectorAll(".auth-tab").forEach((t) => {
+      t.classList.toggle("active", t.dataset.mode === mode);
+    });
+    $("nickField").hidden = mode !== "register";
+    $("btnAuth").textContent = mode === "register" ? "注 册 并 进 入" : "登 入";
+    $("inPwd").setAttribute("autocomplete", mode === "register" ? "new-password" : "current-password");
+    $("loginErr").textContent = "";
+  }
+
+  async function submitAuth() {
+    const username = $("inUser").value.trim();
+    const password = $("inPwd").value;
+    const nick = $("inNick").value.trim();
+    const fail = (msg) => ($("loginErr").textContent = msg);
+
+    if (!username) return fail("请先报上道号");
+    if (!password) return fail("请填写密码");
+    if (S.authMode === "register" && password.length < 6) return fail("密码至少 6 位");
+
+    $("btnAuth").disabled = true;
+    try {
+      const path = S.authMode === "register" ? "/api/register" : "/api/login";
+      const r = await fetch(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password, nick }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!d.ok) return fail(d.error || "登录失败，稍后再试");
+      saveAuth({ token: d.token, username: d.username, nick: d.nick });
+      enterRoom(d);
+    } catch {
+      fail("网络异常，稍后再试");
+    } finally {
+      $("btnAuth").disabled = false;
+    }
+  }
+
+  function enterRoom(auth) {
+    S.token = auth.token;
+    S.username = auth.username;
+    S.me = auth.nick || auth.username;
+    S.room = ROOM;
+    $("loginErr").textContent = "";
+    $("login").hidden = true;
+    $("login").style.display = "none";
+    $("app").hidden = false;
+    updateMeUI();
+    connect();
+    loadCatalog();
+    setupViewport();
+    replayCache();
+  }
+
+  function logout(msg = "") {
+    S.manualClose = true;
+    if (S.ws) {
+      try { S.ws.close(); } catch { /* ignore */ }
+      S.ws = null;
+    }
+    clearTimeout(S.reconnectTimer);
+    localStorage.removeItem(AUTH_KEY);
+    localStorage.removeItem(cacheKey());
+    S.me = "";
+    S.username = "";
+    S.token = "";
+    S.connected = false;
+    $("accMask").hidden = true;
+    $("app").hidden = true;
+    $("login").hidden = false;
+    $("login").style.display = "";
+    $("inPwd").value = "";
+    setAuthMode("login");
+    $("loginErr").textContent = msg;
+  }
+
+  /** token 是否还有效（网络异常时按有效处理，避免误踢） */
+  async function sessionAlive() {
+    try {
+      const r = await fetch("/api/me", { headers: { Authorization: "Bearer " + S.token } });
+      return r.ok;
+    } catch {
+      return true;
+    }
+  }
+
+  function openAccount() {
+    updateMeUI();
+    $("accErr").textContent = "";
+    $("accOld").value = "";
+    $("accNew").value = "";
+    $("accMask").hidden = false;
+  }
+
+  async function saveNick() {
+    const nick = $("accNick").value.trim();
+    if (!nick) return ($("accErr").textContent = "昵称不能为空");
+    if (nick === S.me) return ($("accErr").textContent = "昵称没有变化");
+    try {
+      const r = await fetch("/api/nick", {
+        method: "POST",
+        headers: { Authorization: "Bearer " + S.token, "Content-Type": "application/json" },
+        body: JSON.stringify({ nick }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!d.ok) return ($("accErr").textContent = d.error || "保存失败");
+      S.me = d.nick;
+      updateMeUI();
+      $("accMask").hidden = true;
+      toast("昵称已更新");
+    } catch {
+      $("accErr").textContent = "网络异常，稍后再试";
+    }
+  }
+
+  async function savePwd() {
+    const oldPwd = $("accOld").value;
+    const newPwd = $("accNew").value;
+    if (!oldPwd || !newPwd) return ($("accErr").textContent = "请填写原密码和新密码");
+    if (newPwd.length < 6) return ($("accErr").textContent = "新密码至少 6 位");
+    try {
+      const r = await fetch("/api/password", {
+        method: "POST",
+        headers: { Authorization: "Bearer " + S.token, "Content-Type": "application/json" },
+        body: JSON.stringify({ old: oldPwd, new: newPwd }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!d.ok) return ($("accErr").textContent = d.error || "修改失败");
+      $("accOld").value = "";
+      $("accNew").value = "";
+      $("accErr").textContent = "";
+      toast("密码已修改");
+    } catch {
+      $("accErr").textContent = "网络异常，稍后再试";
+    }
+  }
+
+  /* ================= 连接 ================= */
+  let failCount = 0;
+
+  function connect() {
+    S.manualClose = false;
+    setConn("连接中…", false);
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    const url = `${proto}://${location.host}/ws?token=${encodeURIComponent(S.token)}`;
+    let ws;
+    try {
+      ws = new WebSocket(url);
+    } catch {
+      setConn("连接失败", false);
+      scheduleReconnect();
+      return;
+    }
+    S.ws = ws;
+    ws.onopen = () => {
+      S.connected = true;
+      failCount = 0;
+      setConn("已连接", true);
+      refreshOnline();
+      // 连接就绪后再拉看板（首次连接与断线重连都走这里）
+      loadPanel("status");
+    };
+    ws.onclose = async (e) => {
+      S.connected = false;
+      setConn("已断开", false);
+      if (S.manualClose) return;
+      if (e.code === 4001) {
+        addSys("账号在其他地方登录，本连接已断开");
+        return;
+      }
+      failCount += 1;
+      // 连续失败先确认登录态，过期就直接回登录页，不要无限重连
+      if (failCount >= 2 && !(await sessionAlive())) {
+        logout("登录已过期，请重新登录");
+        return;
+      }
+      addSys("连接断开，正在重连…");
+      scheduleReconnect();
+    };
+    ws.onerror = () => setConn("连接异常", false);
+    ws.onmessage = onMessage;
+  }
 
   /* ================= 工具 ================= */
   const esc = (s) =>
@@ -55,65 +288,6 @@
     return `r${Date.now().toString(36)}${S.seq}`;
   }
 
-  /* ================= 连接 ================= */
-  function join() {
-    const name = $("inName").value.trim();
-    const room = $("inRoom").value.trim() || "room_main";
-    if (!name) {
-      $("loginErr").textContent = "请先报上道号";
-      return;
-    }
-    localStorage.setItem("xiuxian_room_name", name);
-    localStorage.setItem("xiuxian_room_id", room);
-    S.me = name;
-    S.room = room;
-    $("loginErr").textContent = "";
-    $("login").hidden = true;
-    $("login").style.display = "none";
-    $("app").hidden = false;
-    $("roomTag").textContent = room;
-    connect();
-    loadCatalog();
-    setupViewport();
-    replayCache();
-  }
-
-  function connect() {
-    S.manualClose = false;
-    setConn("连接中…", false);
-    const proto = location.protocol === "https:" ? "wss" : "ws";
-    const url = `${proto}://${location.host}/ws/${encodeURIComponent(S.room)}?player=${encodeURIComponent(S.me)}`;
-    let ws;
-    try {
-      ws = new WebSocket(url);
-    } catch {
-      setConn("连接失败", false);
-      scheduleReconnect();
-      return;
-    }
-    S.ws = ws;
-    ws.onopen = () => {
-      S.connected = true;
-      setConn("已连接", true);
-      refreshOnline();
-      // 连接就绪后再拉看板（首次连接与断线重连都走这里）
-      loadPanel("status");
-    };
-    ws.onclose = (e) => {
-      S.connected = false;
-      setConn("已断开", false);
-      if (S.manualClose) return;
-      if (e.code === 4001) {
-        addSys("账号在其他地方登录，本连接已断开");
-        return;
-      }
-      addSys("连接断开，正在重连…");
-      scheduleReconnect();
-    };
-    ws.onerror = () => setConn("连接异常", false);
-    ws.onmessage = onMessage;
-  }
-
   function scheduleReconnect() {
     clearTimeout(S.reconnectTimer);
     S.reconnectTimer = setTimeout(() => {
@@ -129,6 +303,10 @@
 
   function refreshOnline() {
     if (S.ws && S.ws.readyState === 1) S.ws.send(JSON.stringify({ action: "online" }));
+  }
+
+  function setOnline(list) {
+    $("onlineTag").textContent = `在线 ${(list || []).length}`;
   }
 
   /* ================= 发送 ================= */
@@ -184,11 +362,15 @@
     }
     switch (m.type) {
       case "hello":
-        addSys(`欢迎 ${S.me}，本室在线 ${(m.online || []).length} 人`);
+        if (m.nick) { S.me = m.nick; updateMeUI(); }
+        if (m.username) S.username = m.username;
+        setOnline(m.online);
+        addSys(`欢迎 ${S.me} 来到修仙聊天室`);
         refreshOnline();
         break;
       case "chat":
-        addChat(m.from, m.text, m.ts, m.from === S.me);
+        // 用账号判断是不是自己，昵称可以随时改
+        addChat(m.from, m.text, m.ts, m.username ? m.username === S.username : m.from === S.me);
         break;
       case "bot":
         addBotMessage(m);
@@ -207,6 +389,7 @@
         addError(m.text);
         break;
       case "online":
+        setOnline(m.players);
         break;
       case "pong":
         break;
@@ -259,12 +442,15 @@
   }
 
   function addChat(from, text, ts, isMe) {
-    const div = document.createElement("div");
-    div.className = "msg " + (isMe ? "me" : "player");
-    div.innerHTML = isMe
-      ? `${escapeWithMarks(text)}<div class="time-line">${fmtTime(ts)}</div>`
-      : `<div class="who">${esc(from)}<span class="time">${fmtTime(ts)}</span></div>${escapeWithMarks(text)}`;
-    appendNode(div);
+    const row = document.createElement("div");
+    row.className = "msg-row" + (isMe ? " right" : "");
+    row.innerHTML =
+      `<div class="avatar" style="background:${avatarColor(from)}">${esc(initial(from))}</div>` +
+      `<div class="msg-col">` +
+      `<div class="who">${esc(from)}<span class="time">${fmtTime(ts)}</span></div>` +
+      `<div class="bubble">${escapeWithMarks(text)}</div>` +
+      `</div>`;
+    appendNode(row);
     cachePush({ t: "chat", from, text, ts, me: isMe });
   }
 
@@ -283,18 +469,26 @@
   }
 
   function addBotText(text, ts = null, options = null, images = null) {
-    const div = document.createElement("div");
-    div.className = "msg bot";
+    const row = document.createElement("div");
+    row.className = "msg-row bot-row";
     const tone = classifyTone(text);
-    if (tone) div.classList.add(tone);
-    let html = `<div class="who">仙人<span class="time">${fmtTime(ts)}</span></div>`;
+    if (tone) row.classList.add(tone);
+
+    const col = document.createElement("div");
+    col.className = "msg-col";
+    let html = `<div class="who bot-who">仙人<span class="time">${fmtTime(ts)}</span></div>`;
+    html += `<div class="bubble">`;
     if (text) html += escapeWithMarks(text);
     (images || []).forEach((u) => {
       html += `<img src="${esc(u)}" data-full="${esc(u)}" alt="">`;
     });
-    div.innerHTML = html;
-    bindImages(div);
-    appendNode(div, { force: true });
+    html += `</div>`;
+    col.innerHTML = html;
+
+    row.innerHTML = `<div class="avatar bot-avatar">☯</div>`;
+    row.appendChild(col);
+    bindImages(row);
+    appendNode(row, { force: true });
     if (text) cachePush({ t: "bot", text, ts });
     if (options?.length) showQuickOptions(options);
   }
@@ -978,21 +1172,23 @@
     return Math.hypot(dx, dy);
   }
 
-  /* ================= 本地缓存（最近消息） ================= */
+  /* ================= 本地缓存（最近消息，按账号隔离） ================= */
   function cachePush(evt) {
     try {
-      const arr = JSON.parse(localStorage.getItem(CACHE_KEY) || "[]");
+      const key = cacheKey();
+      const arr = JSON.parse(localStorage.getItem(key) || "[]");
       arr.push({ ...evt, room: S.room, at: Date.now() });
       while (arr.length > CACHE_MAX) arr.shift();
-      localStorage.setItem(CACHE_KEY, JSON.stringify(arr));
+      localStorage.setItem(key, JSON.stringify(arr));
     } catch {
       /* 忽略配额错误 */
     }
   }
 
   function replayCache() {
+    if (!S.username) return;
     try {
-      const arr = JSON.parse(localStorage.getItem(CACHE_KEY) || "[]");
+      const arr = JSON.parse(localStorage.getItem(cacheKey()) || "[]");
       const recent = arr.filter((e) => e.room === S.room && Date.now() - e.at < 12 * 3600 * 1000).slice(-40);
       if (!recent.length) return;
       addSys("—— 以下是最近的记录 ——");
@@ -1032,15 +1228,26 @@
 
   /* ================= 事件绑定 ================= */
   function bindEvents() {
-    $("inName").value = localStorage.getItem("xiuxian_room_name") || "";
-    $("inRoom").value = localStorage.getItem("xiuxian_room_id") || "room_main";
-    $("btnJoin").addEventListener("click", join);
-    $("inName").addEventListener("keydown", (e) => {
-      if (e.key === "Enter") $("inRoom").focus();
+    // 登录 / 注册
+    document.querySelectorAll(".auth-tab").forEach((t) => {
+      t.addEventListener("click", () => setAuthMode(t.dataset.mode));
     });
-    $("inRoom").addEventListener("keydown", (e) => {
-      if (e.key === "Enter") join();
+    $("btnAuth").addEventListener("click", submitAuth);
+    [$("inUser"), $("inPwd"), $("inNick")].forEach((el) => {
+      el.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") submitAuth();
+      });
     });
+
+    // 账号设置
+    $("btnMe").addEventListener("click", openAccount);
+    $("accClose").addEventListener("click", () => ($("accMask").hidden = true));
+    $("accMask").addEventListener("click", (e) => {
+      if (e.target === $("accMask")) $("accMask").hidden = true;
+    });
+    $("accSaveNick").addEventListener("click", saveNick);
+    $("accSavePwd").addEventListener("click", savePwd);
+    $("accLogout").addEventListener("click", () => logout("已退出登录"));
 
     const input = $("inMsg");
     const autosize = () => {
@@ -1131,7 +1338,7 @@
 
     // 页面回前台：自动重连
     document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible" && !S.connected && !S.manualClose && S.me) {
+      if (document.visibilityState === "visible" && !S.connected && !S.manualClose && S.token) {
         connect();
       }
     });
@@ -1141,6 +1348,7 @@
       if (e.key !== "Escape") return;
       if (!$("viewer").hidden) return closeViewer();
       if (!$("sheetMask").hidden) return closeSheet();
+      if (!$("accMask").hidden) return ($("accMask").hidden = true);
       closeDrawer();
     });
   }
@@ -1148,14 +1356,29 @@
   /* ================= 启动 ================= */
   bindEvents();
 
-  // 支持 ?name=道号&room=房间 直接进入（书签/分享链接）
+  // 有登录态就自动进入，否则停在登录页
+  (async () => {
+    setAuthMode("login");
+    const saved = loadAuth();
+    if (!saved || !saved.token) return;
+    try {
+      const r = await fetch("/api/me", {
+        headers: { Authorization: "Bearer " + saved.token },
+      });
+      if (!r.ok) {
+        localStorage.removeItem(AUTH_KEY);
+        return;
+      }
+      const me = await r.json();
+      enterRoom({ token: saved.token, username: me.username, nick: me.nick });
+    } catch {
+      /* 服务未就绪时留在登录页 */
+    }
+  })();
+
+  // ?u=账号 预填道号（书签用）
   const qs = new URLSearchParams(location.search);
-  const autoName = qs.get("name") || qs.get("player");
-  if (autoName) {
-    $("inName").value = autoName;
-    if (qs.get("room")) $("inRoom").value = qs.get("room");
-    join();
-  }
+  if (qs.get("u")) $("inUser").value = qs.get("u");
 
   window.addEventListener("resize", () => {
     if (!isMobile()) {
