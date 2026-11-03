@@ -23,6 +23,13 @@ __all__ = ["WarehouseManager", "WAREHOUSE_FURNITURE"]
 # 洞天装修入口名称（与 blessed_land_manager.FURNITURES 对齐）
 WAREHOUSE_FURNITURE = "藏宝阁"
 
+# 材料细分（来自 material_catalog），一键取出支持按此筛选
+MATERIAL_CATEGORIES = ("灵植", "矿材", "妖兽", "灵液", "特殊")
+# 粗分类（仓库面板的分组、一键操作都认）
+TRANSFER_GROUPS = ("材料", "符箓", "丹方", "装备")
+# 一键转移/取出的全部可用分类：粗分类 + 材料细分
+TRANSFER_CATEGORIES = TRANSFER_GROUPS + MATERIAL_CATEGORIES
+
 
 class WarehouseManager:
     """洞天仓库管理器"""
@@ -200,6 +207,23 @@ class WarehouseManager:
             return "丹方"
         return "材料"
 
+    def material_category_of(self, item_name: str) -> str:
+        """材料细分：灵植 / 矿材 / 妖兽 / 灵液 / 特殊；非材料返回空串。"""
+        if self.category_of(item_name) != "材料":
+            return ""
+        info = self.config_manager.get_material_info(item_name) or {}
+        return str(info.get("category") or "")
+
+    def matches_category(self, item_name: str, category: str) -> bool:
+        """分类筛选：粗类（材料/符箓/丹方/装备）或材料细分都认。"""
+        if not category:
+            return True
+        if category in TRANSFER_GROUPS:
+            return self.category_of(item_name) == category
+        if category in MATERIAL_CATEGORIES:
+            return self.material_category_of(item_name) == category
+        return False
+
     async def transfer_in(self, player: Player, category: str = "") -> Tuple[bool, str]:
         """储物戒 → 仓库。仓库放不下的留在储物戒并报告。"""
         if not self.is_open(player):
@@ -232,7 +256,7 @@ class WarehouseManager:
 
             # 可堆叠物品
             for name in sorted(src.keys()):
-                if category and self.category_of(name) != category:
+                if category and not self.matches_category(name, category):
                     continue
                 if self.storage_ring_manager.is_equipment_item(name):
                     continue
@@ -260,7 +284,7 @@ class WarehouseManager:
             src_loc, dst_loc = ("storage", "warehouse") if to_warehouse else ("warehouse", "storage")
             for inst in self.instance_manager.list_instances(fresh, src_loc):
                 name = inst.get("name", "")
-                if category and self.category_of(name) != category:
+                if category and not self.matches_category(name, category):
                     continue
                 if to_warehouse:
                     if self.get_available_slots(fresh) < self.storage_ring_manager._get_item_volume(name):

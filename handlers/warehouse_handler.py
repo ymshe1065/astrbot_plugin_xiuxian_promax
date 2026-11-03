@@ -8,7 +8,12 @@ from astrbot.api.event import AstrMessageEvent
 from astrbot.api import logger
 
 from ..core.storage_ring_manager import StorageRingManager
-from ..core.warehouse_manager import WarehouseManager
+from ..core.warehouse_manager import (
+    MATERIAL_CATEGORIES,
+    TRANSFER_CATEGORIES,
+    TRANSFER_GROUPS,
+    WarehouseManager,
+)
 from ..core.item_display import equipment_label, item_label
 from ..data import DataBase
 from ..config_manager import ConfigManager
@@ -18,10 +23,12 @@ from .utils import player_required
 CMD_WAREHOUSE = "仓库"
 CMD_UPGRADE_WAREHOUSE = "升级仓库"
 CMD_TRANSFER_IN = "一键转移"
-CMD_TRANSFER_OUT = "一键取回"
+CMD_TRANSFER_OUT = "一键取出"
+CMD_TRANSFER_OUT_ALIAS = "一键取回"  # 旧命令，仍可用
 CMD_BULK_RECYCLE = "一键回收"
 
-CATEGORIES = ("材料", "符箓", "丹方", "装备")
+CATEGORIES = TRANSFER_GROUPS
+TRANSFER_KINDS = TRANSFER_CATEGORIES
 RECYCLE_TTL = 60  # 预览有效期（秒）
 
 # 待确认的回收清单：user_id -> (生成时间, plan)
@@ -31,13 +38,27 @@ __all__ = ["WarehouseHandler"]
 
 
 def _parse_category(raw: str) -> Tuple[str, bool]:
-    """从参数里解析分类；返回 (分类, 是否合法)。空表示全部。"""
+    """从参数里解析分类；返回 (分类, 是否合法)。空表示全部。
+
+    支持粗分类（材料/符箓/丹方/装备）与材料细分（灵植/矿材/妖兽/灵液/特殊）。
+    """
     text = (raw or "").strip()
     if not text:
         return "", True
-    if text in CATEGORIES:
+    if text in TRANSFER_KINDS:
         return text, True
     return "", False
+
+
+def _category_usage(cmd: str) -> str:
+    groups = "、".join(CATEGORIES)
+    subs = "、".join(MATERIAL_CATEGORIES)
+    return (
+        f"用法：/{cmd} [分类]\n"
+        f"分类：{groups}（留空 = 全部）\n"
+        f"材料细分：{subs}\n"
+        f"示例：/{cmd} 灵植　/{cmd} 装备"
+    )
 
 
 class WarehouseHandler:
@@ -106,7 +127,8 @@ class WarehouseHandler:
             lines.append(f"升级：/{CMD_UPGRADE_WAREHOUSE}（下一级 {info['next_cost']:,} 灵石 · +{WarehouseManager.SLOTS_PER_LEVEL} 格）\n")
         else:
             lines.append("🏆 已达当前洞天上限，进阶洞天可继续扩建\n")
-        lines.append(f"存入：/{CMD_TRANSFER_IN}　取回：/{CMD_TRANSFER_OUT}\n")
+        lines.append(f"存入：/{CMD_TRANSFER_IN}　取出：/{CMD_TRANSFER_OUT} [分类]\n")
+        lines.append("⚠️ 仓库物品不能直接炼丹/制符，使用前先取到储物戒\n")
         lines.append(f"详情：/{CMD_WAREHOUSE}")
 
         yield event.plain_result("".join(lines))
@@ -132,17 +154,13 @@ class WarehouseHandler:
         ok, msg = await self.warehouse_manager.upgrade_warehouse(player, times)
         yield event.plain_result(("🏛️ " if ok else "❌ ") + msg)
 
-    # ===== /一键转移 与 /一键取回 =====
+    # ===== /一键转移 与 /一键取出 =====
 
     @player_required
     async def handle_transfer_in(self, player: Player, event: AstrMessageEvent, args: str = ""):
         category, valid = _parse_category(args)
         if not valid:
-            yield event.plain_result(
-                f"用法：/{CMD_TRANSFER_IN} [分类]\n"
-                f"分类：{'、'.join(CATEGORIES)}（留空 = 全部）\n"
-                f"示例：/{CMD_TRANSFER_IN} 材料"
-            )
+            yield event.plain_result(_category_usage(CMD_TRANSFER_IN))
             return
         ok, msg = await self.warehouse_manager.transfer_in(player, category)
         yield event.plain_result(msg)
@@ -151,10 +169,7 @@ class WarehouseHandler:
     async def handle_transfer_out(self, player: Player, event: AstrMessageEvent, args: str = ""):
         category, valid = _parse_category(args)
         if not valid:
-            yield event.plain_result(
-                f"用法：/{CMD_TRANSFER_OUT} [分类]\n"
-                f"分类：{'、'.join(CATEGORIES)}（留空 = 全部）"
-            )
+            yield event.plain_result(_category_usage(CMD_TRANSFER_OUT))
             return
         ok, msg = await self.warehouse_manager.transfer_out(player, category)
         yield event.plain_result(msg)

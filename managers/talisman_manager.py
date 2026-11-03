@@ -527,10 +527,14 @@ class TalismanManager:
         return {}
 
     def _owned_snapshot(self, player: Player) -> Dict[str, int]:
-        """储物戒 + 洞天仓库的合并持有量，用于展示与选符。"""
+        """储物戒持有量（不含仓库）。
+
+        仓库里的符材不能直接拿来制符——玩家必须先 /一键取出，
+        否则界面提示"材料够"却炼不出来。
+        """
         if self.storage_ring_manager:
             try:
-                return self.storage_ring_manager.merged_items(player)
+                return self.storage_ring_manager.ring_items(player)
             except Exception:
                 pass
         return dict(player.get_storage_ring_items())
@@ -556,21 +560,37 @@ class TalismanManager:
             stacks.append((item_name, count))
         return stacks
 
-    def _consume_materials(self, player: Player, recipe: Dict) -> Tuple[bool, str, List[str]]:
-        from ..core.storage_ring_manager import StorageRingManager as _SRM
+    def _warehouse_note(self, player: Player, specs: List[Dict]) -> str:
+        """仓库里有符材时提示先取出，避免玩家看着"符材不足"却找不到东西。"""
+        warehouse = {
+            name: int(raw or 0)
+            for name, raw in (player.get_warehouse_items() or {}).items()
+            if int(raw or 0) > 0
+        }
+        if not warehouse:
+            return ""
+        hits: List[str] = []
+        for spec in specs:
+            total = sum(count for _, count in self._material_stacks(warehouse, spec))
+            if total <= 0:
+                continue
+            label = spec.get("name") or f"{spec.get('tier', '')}{spec.get('category', '')}"
+            hits.append(f"{label}×{total}")
+        if not hits:
+            return ""
+        return f"\n　💡 仓库里有：{'、'.join(hits[:5])}，先 /一键取出 再制符。"
 
+    def _consume_materials(self, player: Player, recipe: Dict) -> Tuple[bool, str, List[str]]:
         ring_items = player.get_storage_ring_items()
-        warehouse_items = player.get_warehouse_items()
-        # 合并快照：符材放在洞天仓库里也能直接制符
+        # 只认储物戒：仓库符材需先 /一键取出
         items: Dict[str, int] = {}
-        for source in (ring_items, warehouse_items):
-            for name, raw in (source or {}).items():
-                try:
-                    amount = int(raw or 0)
-                except (TypeError, ValueError):
-                    continue
-                if amount > 0:
-                    items[name] = items.get(name, 0) + amount
+        for name, raw in (ring_items or {}).items():
+            try:
+                amount = int(raw or 0)
+            except (TypeError, ValueError):
+                continue
+            if amount > 0:
+                items[name] = amount
 
         specs = recipe.get("materials", []) or []
         missing = []
@@ -580,7 +600,9 @@ class TalismanManager:
                 label = spec.get("name") or f"{spec.get('tier', '')}{spec.get('category', '')}"
                 missing.append(f"{label}（需要{spec.get('count')}，拥有{count}）")
         if missing:
-            return False, "❌ 符材不足！\n" + "\n".join(f"  · {m}" for m in missing), []
+            text = "❌ 符材不足！\n" + "\n".join(f"  · {m}" for m in missing)
+            note = self._warehouse_note(player, specs)
+            return False, text + note, []
 
         consumed = []
         for spec in specs:
@@ -589,7 +611,15 @@ class TalismanManager:
                 if remaining <= 0:
                     break
                 take = min(remaining, have)
-                got = _SRM.deduct_from_snapshots(ring_items, warehouse_items, item_name, take)
+                got = 0
+                have_ring = int(ring_items.get(item_name, 0) or 0)
+                if have_ring > 0:
+                    got = min(have_ring, take)
+                    left = have_ring - got
+                    if left <= 0:
+                        ring_items.pop(item_name, None)
+                    else:
+                        ring_items[item_name] = left
                 if got <= 0:
                     continue
                 left = int(items.get(item_name, 0) or 0) - got
@@ -600,7 +630,6 @@ class TalismanManager:
                 remaining -= got
                 consumed.append(f"{item_name}×{got}")
         player.set_storage_ring_items(ring_items)
-        player.set_warehouse_items(warehouse_items)
         return True, "", consumed
 
     # ===== 绘制 =====
@@ -757,26 +786,11 @@ class TalismanManager:
         items = player.get_storage_ring_items()
         have = int(items.get(name, 0) or 0)
         if have < count:
-            # 符箓可堆叠：不够时先从洞天仓库补到储物戒（只占 1 格）
-            warehouse = player.get_warehouse_items()
-            wh_have = int(warehouse.get(name, 0) or 0)
-            if have + wh_have < count:
-                return False, (
-                    f"❌ 储物戒与仓库中【{name}】不足"
-                    f"（拥有 {have + wh_have}，需要 {count}）。"
-                )
-            need = count - have
-            if self.storage_ring_manager and not self.storage_ring_manager.can_accept(player, name, need):
-                return False, "❌ 储物戒没有空间，无法从仓库取出符箓，请先清理储物戒。"
-            take = min(need, wh_have)
-            if take >= wh_have:
-                warehouse.pop(name, None)
-            else:
-                warehouse[name] = wh_have - take
-            items[name] = have + take
-            player.set_storage_ring_items(items)
-            player.set_warehouse_items(warehouse)
-            have += take
+            # 只认储物戒：仓库里的符箓要先 /一键取出，避免"能点用却扣不到"
+            return False, (
+                f"❌ 储物戒中【{name}】不足（拥有 {have}，需要 {count}）。\n"
+                f"　仓库里的符箓请先 /一键取出 符箓"
+            )
         if name in NON_TALISMAN_ITEMS:
             return False, f"❌ 【{name}】需使用 /激活化身，不能作为符箓消耗。"
         if self._item_data(name).get("type") != "符箓":
@@ -982,9 +996,7 @@ class TalismanManager:
             return None
         manager = TalismanManager(None, config_manager, None)
         best: Optional[Tuple[str, int]] = None
-        from ..core.storage_ring_manager import StorageRingManager as _SRM
-
-        for name, raw_count in (_SRM.merged_items(player) or {}).items():
+        for name, raw_count in (player.get_storage_ring_items() or {}).items():
             try:
                 if int(raw_count or 0) <= 0:
                     continue
@@ -1027,9 +1039,7 @@ class TalismanManager:
         """玩家手上（含已激活）能拿出的最高护盾，用于丹劫失败文案。"""
         manager = TalismanManager(None, config_manager, None)
         best = 0
-        from ..core.storage_ring_manager import StorageRingManager as _SRM
-
-        for name, raw_count in (_SRM.merged_items(player) or {}).items():
+        for name, raw_count in (player.get_storage_ring_items() or {}).items():
             try:
                 if int(raw_count or 0) <= 0:
                     continue
@@ -1052,14 +1062,16 @@ class TalismanManager:
         if not pick:
             return None
         name = pick[0]
-        from ..core.storage_ring_manager import StorageRingManager as _SRM
-
         items = player.get_storage_ring_items()
-        warehouse = player.get_warehouse_items()
-        if _SRM.deduct_from_snapshots(items, warehouse, name, 1) <= 0:
+        have = int(items.get(name, 0) or 0)
+        if have <= 0:
             return None
+        left = have - 1
+        if left <= 0:
+            items.pop(name, None)
+        else:
+            items[name] = left
         player.set_storage_ring_items(items)
-        player.set_warehouse_items(warehouse)
         return name
 
     @staticmethod

@@ -1435,10 +1435,16 @@ class XiuXianPlugin(Star):
     async def handle_transfer_in(self, event: AstrMessageEvent, category: str = ""):
         async for r in self.warehouse_handler.handle_transfer_in(event, category): yield r
 
-    @filter.command("一键取回", "把洞天仓库物品取回储物戒")
+    @filter.command("一键取出", "把洞天仓库物品搬到储物戒（使用前必须先取出）")
     @require_whitelist
     @idle_player_lock
     async def handle_transfer_out(self, event: AstrMessageEvent, category: str = ""):
+        async for r in self.warehouse_handler.handle_transfer_out(event, category): yield r
+
+    @filter.command("一键取回", "旧命令，等同 /一键取出")
+    @require_whitelist
+    @idle_player_lock
+    async def handle_transfer_out_legacy(self, event: AstrMessageEvent, category: str = ""):
         async for r in self.warehouse_handler.handle_transfer_out(event, category): yield r
 
     @filter.command("一键回收", "预览并批量回收储物戒物品（两步确认）")

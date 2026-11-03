@@ -169,12 +169,13 @@ class AlchemyManager:
 
         scroll_name = self.config_manager.get_recipe_scroll_name(recipe) if self.config_manager else f"《{recipe.get('name')}》"
         ring_items = player.get_storage_ring_items()
-        warehouse_items = player.get_warehouse_items()
-        from ..core.storage_ring_manager import StorageRingManager as _SRM
-
-        if _SRM.deduct_from_snapshots(ring_items, warehouse_items, scroll_name, 1) > 0:
+        if int(ring_items.get(scroll_name, 0) or 0) > 0:
+            left = int(ring_items.get(scroll_name, 0) or 0) - 1
+            if left <= 0:
+                ring_items.pop(scroll_name, None)
+            else:
+                ring_items[scroll_name] = left
             player.set_storage_ring_items(ring_items)
-            player.set_warehouse_items(warehouse_items)
             cost_note = f"消耗丹方卷轴【{scroll_name}】x1"
         else:
             price = int(recipe.get("price", 0) or 0)
@@ -245,10 +246,13 @@ class AlchemyManager:
                     }
 
     def _items_snapshot(self, player: Player) -> Dict[str, int]:
-        """储物戒 + 洞天仓库的合并快照（只读，用于规划与展示）。"""
+        """储物戒快照（只读）。
+
+        仓库物品不算数：炼丹只吃戒指里的材料，仓库里的必须先 /一键取出。
+        """
         if self.storage_ring_manager:
             try:
-                return self.storage_ring_manager.merged_items(player)
+                return self.storage_ring_manager.ring_items(player)
             except Exception:
                 pass
         return dict(player.get_storage_ring_items())
@@ -344,24 +348,48 @@ class AlchemyManager:
             plan.append((spec, taken))
         return not missing, missing, plan
 
+    def _warehouse_note(self, player: Player, recipe: Dict) -> str:
+        """仓库里有对应材料时提示先取出：否则玩家只看到"材料不足"，找不到东西。"""
+        warehouse = {
+            name: int(raw or 0)
+            for name, raw in (player.get_warehouse_items() or {}).items()
+            if int(raw or 0) > 0
+        }
+        if not warehouse:
+            return ""
+        hits: List[str] = []
+        for spec in recipe.get("materials", []) or []:
+            total = sum(count for _, count in self._iter_available_stacks(warehouse, spec))
+            if total <= 0:
+                continue
+            label = spec.get("name") or f"{spec.get('tier', '')}{spec.get('category', '')}材料"
+            hits.append(f"{label}×{total}")
+        if not hits:
+            return ""
+        return f"\n　💡 仓库里有：{'、'.join(hits[:5])}，先 /一键取出 再炼。"
+
     def _consume_materials(self, player: Player, recipe: Dict) -> Tuple[bool, str, List[str]]:
         ok, missing, plan = self._plan_materials(player, recipe)
         if not ok:
-            return False, "❌ 材料不足！\n" + "\n".join(f"  · {m}" for m in missing), []
+            text = "❌ 材料不足！\n" + "\n".join(f"  · {m}" for m in missing)
+            return False, text + self._warehouse_note(player, recipe), []
 
         ring_items = player.get_storage_ring_items()
-        warehouse = player.get_warehouse_items()
-        from ..core.storage_ring_manager import StorageRingManager as _SRM
 
         consumed = []
         for _, taken in plan:
             for item_name, take in taken:
-                # 先扣储物戒，不足再从洞天仓库补
-                got = _SRM.deduct_from_snapshots(ring_items, warehouse, item_name, take)
-                if got > 0:
-                    consumed.append(f"{item_name}×{got}")
+                have = int(ring_items.get(item_name, 0) or 0)
+                got = min(have, take)
+                if got <= 0:
+                    continue
+                left = have - got
+                if left <= 0:
+                    ring_items.pop(item_name, None)
+                else:
+                    ring_items[item_name] = left
+                consumed.append(f"{item_name}×{got}")
         player.set_storage_ring_items(ring_items)
-        player.set_warehouse_items(warehouse)
         return True, "", consumed
 
     def format_recipe_requirements(self, player: Player, recipe: Dict) -> Tuple[str, bool]:

@@ -71,6 +71,13 @@ class TestCommandRegistry(unittest.TestCase):
         missing = [c for c in _registered_commands(self.source) if c.startswith("<未定义:")]
         self.assertEqual(missing, [], f"引用了未定义的指令常量：{missing}")
 
+    def test_warehouse_commands_registered(self):
+        """一键取出是主命令，一键取回保留为旧名别名。"""
+        # 仓库系命令用字面量注册，_registered_commands 只认 CMD_* 常量，故直接查源码
+        self.assertIn('@filter.command("一键转移"', self.source)
+        self.assertIn('@filter.command("一键取出"', self.source)
+        self.assertIn('@filter.command("一键取回"', self.source)
+
     def test_invest_commands_registered(self):
         """仙市七件套必须全部注册为独立指令。"""
         commands = set(_registered_commands(self.source))

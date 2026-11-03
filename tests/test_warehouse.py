@@ -177,6 +177,47 @@ class TestWarehouseTransfer(_Base):
         p = await self.db.get_player_by_id("u1")
         self.assertEqual(len(p.get_warehouse_items()), 2)
 
+    async def test_transfer_out_by_material_subcategory(self):
+        """一键取出支持材料细分：灵植 / 矿材 / 妖兽 各取各的。"""
+        p = self.p
+        await self.ring.store_item(p, "九天草", 5)
+        await self.ring.store_item(p, "万古铁", 5)
+        await self.ring.store_item(p, "九天骨", 5)
+        p = await self.db.get_player_by_id("u1")
+        ok, msg = await self.wh.transfer_in(p)
+        self.assertTrue(ok, msg)
+        p = await self.db.get_player_by_id("u1")
+        self.assertEqual(len(p.get_warehouse_items()), 3)
+
+        ok, msg = await self.wh.transfer_out(p, "灵植")
+        self.assertTrue(ok, msg)
+        p = await self.db.get_player_by_id("u1")
+        self.assertEqual(p.get_storage_ring_items().get("九天草"), 5)
+        self.assertNotIn("万古铁", p.get_storage_ring_items())
+        self.assertNotIn("九天骨", p.get_storage_ring_items())
+        self.assertEqual(p.get_warehouse_items().get("万古铁"), 5)
+        self.assertEqual(p.get_warehouse_items().get("九天骨"), 5)
+
+    async def test_transfer_out_equipment_category_only(self):
+        p = self.p
+        name = await self._equipment_name()
+        self.im.create_instances(p, name, 1, quality="良品", location="warehouse")
+        await self.db.update_player(p)
+        p.warehouse_items = json.dumps({"万古铁": 3}, ensure_ascii=False)
+        await self.db.update_player(p)
+        p = await self.db.get_player_by_id("u1")
+        ok, msg = await self.wh.transfer_out(p, "装备")
+        self.assertTrue(ok, msg)
+        p = await self.db.get_player_by_id("u1")
+        self.assertEqual(len(self.im.list_instances(p, "storage", name)), 1)
+        self.assertEqual(p.get_warehouse_items().get("万古铁"), 3)
+
+    def test_category_parser_accepts_subtypes(self):
+        handlers = _imp("handlers.warehouse_handler")
+        for cat in ("材料", "符箓", "丹方", "装备", "灵植", "矿材", "妖兽", "灵液", "特殊"):
+            self.assertEqual(handlers._parse_category(cat), (cat, True))
+        self.assertEqual(handlers._parse_category("随便写"), ("", False))
+
     async def test_transfer_equipment_keeps_quality(self):
         p = self.p
         name = await self._equipment_name()
@@ -254,48 +295,50 @@ class TestWarehouseConsumption(_Base):
         await super().asyncSetUp()
         self.p = await self._open_warehouse(1)
 
-    async def test_get_item_count_merges_warehouse(self):
+    async def test_item_count_ignores_warehouse(self):
+        """仓库里的东西不算「持有」：消耗前必须先取到戒指。"""
         p = self.p
         p.warehouse_items = json.dumps({"玄铁": 7}, ensure_ascii=False)
         await self.db.update_player(p)
         p = await self.db.get_player_by_id("u1")
-        self.assertEqual(self.ring.get_item_count(p, "玄铁"), 7)
-        self.assertTrue(self.ring.has_item(p, "玄铁", 5))
-        self.assertEqual(self.ring.merged_items(p).get("玄铁"), 7)
+        self.assertEqual(self.ring.get_item_count(p, "玄铁"), 0)
+        self.assertFalse(self.ring.has_item(p, "玄铁", 1))
+        self.assertEqual(self.ring.ring_items(p), {})
 
-    async def test_retrieve_item_falls_back_to_warehouse(self):
+    async def test_retrieve_item_rejects_warehouse_only(self):
         p = self.p
         p.warehouse_items = json.dumps({"玄铁": 7}, ensure_ascii=False)
         await self.db.update_player(p)
         p = await self.db.get_player_by_id("u1")
         ok, msg = await self.ring.retrieve_item(p, "玄铁", 4)
-        self.assertTrue(ok, msg)
+        self.assertFalse(ok, msg)
+        self.assertIn("储物戒", msg)
         p = await self.db.get_player_by_id("u1")
-        self.assertEqual(p.get_warehouse_items().get("玄铁"), 3)
-        self.assertNotIn("玄铁", p.get_storage_ring_items())
+        self.assertEqual(p.get_warehouse_items().get("玄铁"), 7)
 
-    async def test_discard_item_falls_back_to_warehouse(self):
+    async def test_discard_item_rejects_warehouse_only(self):
         p = self.p
         p.warehouse_items = json.dumps({"玄铁": 7}, ensure_ascii=False)
         await self.db.update_player(p)
         p = await self.db.get_player_by_id("u1")
         ok, msg = await self.ring.discard_item(p, "玄铁", 2)
-        self.assertTrue(ok, msg)
+        self.assertFalse(ok, msg)
         p = await self.db.get_player_by_id("u1")
-        self.assertEqual(p.get_warehouse_items().get("玄铁"), 5)
+        self.assertEqual(p.get_warehouse_items().get("玄铁"), 7)
 
-    async def test_enchant_uses_warehouse_stones(self):
+    async def test_enchant_ignores_warehouse_stones(self):
         p = self.p
         p.warehouse_items = json.dumps({"空间石": 10}, ensure_ascii=False)
         await self.db.update_player(p)
         p = await self.db.get_player_by_id("u1")
         ok, msg = await self.ring.enchant_ring(p, 10)
-        self.assertTrue(ok, msg)
+        self.assertFalse(ok, msg)
         p = await self.db.get_player_by_id("u1")
-        self.assertEqual(self.ring.get_enchant_bonus(p), 50)
-        self.assertNotIn("空间石", p.get_warehouse_items())
+        self.assertEqual(self.ring.get_enchant_bonus(p), 0)
+        self.assertEqual(p.get_warehouse_items().get("空间石"), 10)
 
-    async def test_alchemy_consumes_warehouse_materials(self):
+    async def test_alchemy_ignores_warehouse_materials(self):
+        """炼丹只认储物戒：仓库有料也要先取出，否则判定材料不足。"""
         recipe = {
             "name": "测试丹",
             "materials": [{"name": "玄铁", "count": 2}],
@@ -309,11 +352,34 @@ class TestWarehouseConsumption(_Base):
         Alchemy = _imp("managers.alchemy_manager").AlchemyManager
         mgr = Alchemy(self.db, self.cm, self.ring)
         ok, msg, consumed = mgr._consume_materials(p, recipe)
+        self.assertFalse(ok, msg)
+        self.assertIn("材料不足", msg)
+        self.assertIn("一键取出", msg)
+        self.assertEqual(p.get_warehouse_items().get("玄铁"), 5)
+
+    async def test_alchemy_consumes_after_taking_out(self):
+        """取到戒指之后正常消耗。"""
+        recipe = {
+            "name": "测试丹",
+            "materials": [{"name": "玄铁", "count": 2}],
+            "gold_cost": 0,
+        }
+        p = self.p
+        p.warehouse_items = json.dumps({"玄铁": 5}, ensure_ascii=False)
+        await self.db.update_player(p)
+        p = await self.db.get_player_by_id("u1")
+        ok, msg = await self.wh.transfer_out(p, "材料")
+        self.assertTrue(ok, msg)
+        p = await self.db.get_player_by_id("u1")
+
+        Alchemy = _imp("managers.alchemy_manager").AlchemyManager
+        mgr = Alchemy(self.db, self.cm, self.ring)
+        ok, msg, consumed = mgr._consume_materials(p, recipe)
         self.assertTrue(ok, msg)
         self.assertEqual(consumed, ["玄铁×2"])
-        self.assertEqual(p.get_warehouse_items().get("玄铁"), 3)
+        self.assertEqual(p.get_storage_ring_items().get("玄铁"), 3)
 
-    async def test_craft_talisman_consumes_warehouse_materials(self):
+    async def test_craft_talisman_ignores_warehouse_materials(self):
         Talisman = _imp("managers.talisman_manager").TalismanManager
         recipes = self.cm.talisman_recipes_data
         recipe = recipes[0] if isinstance(recipes, list) else next(iter(recipes.values()))
@@ -341,10 +407,11 @@ class TestWarehouseConsumption(_Base):
 
         mgr = Talisman(self.db, self.cm, self.ring)
         ok, msg, consumed = mgr._consume_materials(p, recipe)
-        self.assertTrue(ok, msg)
-        self.assertTrue(consumed)
+        self.assertFalse(ok, msg)
+        self.assertIn("符材不足", msg)
+        self.assertIn("一键取出", msg)
         for name, before in supply.items():
-            self.assertLess(p.get_warehouse_items().get(name, 0), before)
+            self.assertEqual(p.get_warehouse_items().get(name, 0), before)
 
 
 class TestBulkRecycle(_Base):
