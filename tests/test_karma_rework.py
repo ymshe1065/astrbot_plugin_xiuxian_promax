@@ -121,5 +121,28 @@ class TestMeritChoice(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(player.karma, 0)
 
 
+class TestKarmaMigration(unittest.IsolatedAsyncioTestCase):
+    async def test_v58_clears_all_karma(self):
+        try:
+            import aiosqlite
+        except Exception:
+            self.skipTest("aiosqlite 不可用")
+        migration = _imp("data.migration")
+        conn = await aiosqlite.connect(":memory:")
+        try:
+            await conn.execute("CREATE TABLE players (user_id TEXT, karma INTEGER)")
+            await conn.executemany(
+                "INSERT INTO players (user_id, karma) VALUES (?, ?)",
+                [("u1", 10), ("u2", -3), ("u3", 0)],
+            )
+            await conn.commit()
+            await migration._migrate_to_v58(conn, None)
+            async with conn.execute("SELECT user_id, karma FROM players ORDER BY user_id") as cur:
+                rows = await cur.fetchall()
+            self.assertEqual([r[1] for r in rows], [0, 0, 0])
+        finally:
+            await conn.close()
+
+
 if __name__ == "__main__":
     unittest.main()

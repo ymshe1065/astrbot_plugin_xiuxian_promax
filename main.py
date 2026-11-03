@@ -1265,7 +1265,12 @@ class XiuXianPlugin(Star):
 
     @filter.command(CMD_REBIRTH, "弃道重修（3天一次，保留仙缘/称号/灵根）")
     @require_whitelist
-    async def handle_rebirth(self, event: AstrMessageEvent, confirm: str = ""):
+    async def handle_rebirth(self, event: AstrMessageEvent, confirm: GreedyStr):
+        async for r in self.player_handler.handle_rebirth(event, confirm): yield r
+
+    @filter.command("重修", "弃道重修别名（/重修 御兽、/重修 确认）")
+    @require_whitelist
+    async def handle_rebirth_alias(self, event: AstrMessageEvent, confirm: GreedyStr):
         async for r in self.player_handler.handle_rebirth(event, confirm): yield r
 
     @filter.command(CMD_CHOOSE_ROOT, "选择灵根（创号/重修三选一）")
