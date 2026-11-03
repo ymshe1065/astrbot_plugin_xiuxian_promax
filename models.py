@@ -218,8 +218,13 @@ class Player:
         self.techniques = json.dumps(techniques_list, ensure_ascii=False)
 
     def get_active_pill_effects(self) -> List[dict]:
-        """获取当前生效的临时丹药效果列表"""
-        return self._load_json_field(self.active_pill_effects, [])
+        """获取当前生效的临时丹药效果列表
+
+        历史存档可能混入非 dict 条目（旧格式/外部导入），在唯一读取口统一
+        过滤，避免各调用方直接 .get 时抛 AttributeError 导致整条指令无响应。
+        """
+        effects = self._load_json_field(self.active_pill_effects, [])
+        return [effect for effect in effects if isinstance(effect, dict)]
 
     def set_active_pill_effects(self, effects: List[dict]):
         """设置当前生效的临时丹药效果"""

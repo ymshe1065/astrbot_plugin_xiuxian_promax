@@ -12,6 +12,31 @@ from ..config_manager import ConfigManager
 from .item_rules import ItemRules
 
 
+def _safe_int(value, default: int = 0) -> int:
+    """脏数据容错转 int：字符串数字自动归一，None/乱码等非法值返回默认值。
+
+    历史存档/外部导入的 active_pill_effects 里，expiry_time、每分钟恢复值等
+    字段可能是字符串甚至乱码，直接参与比较/运算会抛 TypeError，把整条
+    /丹药背包 指令打挂。所有对脏字段的算术运算都必须先过这一层。
+    """
+    if isinstance(value, bool):
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_float(value, default: float = 0.0) -> float:
+    """脏数据容错转 float，语义同 _safe_int。"""
+    if isinstance(value, bool):
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 class PillManager:
     """丹药管理器 - 处理丹药效果、属性加成和限制机制"""
 
@@ -241,10 +266,19 @@ class PillManager:
                     f"玩家 {player.user_id} 的临时丹药效果存在非法条目，已丢弃：{effect!r}"
                 )
                 continue
-            if self._apply_periodic_effects(player, effect, current_time):
+            try:
+                if self._apply_periodic_effects(player, effect, current_time):
+                    has_changes = True
+            except Exception:
+                # 字段类型脏（如时间戳/恢复值是无法解析的字符串）时丢弃该条效果，
+                # 不让单条脏数据拖垮整个丹药背包
                 has_changes = True
+                logger.warning(
+                    f"玩家 {player.user_id} 的临时丹药效果字段损坏，已丢弃：{effect!r}"
+                )
+                continue
 
-            expiry_time = effect.get("expiry_time", 0)
+            expiry_time = _safe_int(effect.get("expiry_time", 0))
             if expiry_time <= 0 or current_time < expiry_time:
                 updated_effects.append(effect)
             else:
@@ -889,26 +923,26 @@ class PillManager:
         }
 
         for effect in effects:
-            expiry_time = effect.get("expiry_time", 0)
+            expiry_time = _safe_int(effect.get("expiry_time", 0))
             if expiry_time > 0 and current_time >= expiry_time:
                 continue
             if "physical_damage_multiplier" in effect:
-                multipliers["physical_damage"] += effect["physical_damage_multiplier"]
+                multipliers["physical_damage"] += _safe_float(effect["physical_damage_multiplier"])
             if "magic_damage_multiplier" in effect:
-                multipliers["magic_damage"] += effect["magic_damage_multiplier"]
+                multipliers["magic_damage"] += _safe_float(effect["magic_damage_multiplier"])
             if "physical_defense_multiplier" in effect:
-                multipliers["physical_defense"] += effect["physical_defense_multiplier"]
+                multipliers["physical_defense"] += _safe_float(effect["physical_defense_multiplier"])
             if "magic_defense_multiplier" in effect:
-                multipliers["magic_defense"] += effect["magic_defense_multiplier"]
+                multipliers["magic_defense"] += _safe_float(effect["magic_defense_multiplier"])
             if "cultivation_multiplier" in effect:
-                multipliers["cultivation_speed"] += effect["cultivation_multiplier"]
+                multipliers["cultivation_speed"] += _safe_float(effect["cultivation_multiplier"])
 
         permanent_gains = player.get_permanent_pill_gains()
         level_key = f"level_{player.level_index}"
         if level_key in permanent_gains:
             level_gains = permanent_gains[level_key]
-            if "cultivation_multiplier" in level_gains:
-                multipliers["cultivation_speed"] += level_gains["cultivation_multiplier"]
+            if isinstance(level_gains, dict) and "cultivation_multiplier" in level_gains:
+                multipliers["cultivation_speed"] += _safe_float(level_gains["cultivation_multiplier"])
 
         try:
             cultivation_cap = float(self.config_manager.pill_quality_data.get("temporary_effect_cap", 3.0))
@@ -933,7 +967,7 @@ class PillManager:
 
         bonus_groups = {}
         for effect in effects:
-            expiry_time = effect.get("expiry_time", 0)
+            expiry_time = _safe_int(effect.get("expiry_time", 0))
             if expiry_time > 0 and current_time >= expiry_time:
                 continue
 
@@ -944,7 +978,7 @@ class PillManager:
                 if any(x in pill_name for x in ["凝神增益丹", "破境增益丹", "渡劫增益丹", "化神增益丹"]):
                     group = "zengyi"
                 
-                current_bonus = effect.get("breakthrough_bonus", 0)
+                current_bonus = _safe_float(effect.get("breakthrough_bonus", 0))
                 if group not in bonus_groups or current_bonus > bonus_groups[group]:
                     bonus_groups[group] = current_bonus
 
@@ -955,7 +989,9 @@ class PillManager:
         permanent_multiplier = 1.0
         permanent_gains = player.get_permanent_pill_gains()
         for level_gain in permanent_gains.values():
-            permanent_multiplier *= level_gain.get("death_protection_multiplier", 1.0)
+            if not isinstance(level_gain, dict):
+                continue
+            permanent_multiplier *= _safe_float(level_gain.get("death_protection_multiplier", 1.0), 1.0)
 
         return {
             "temp_bonus": temp_bonus,
@@ -1027,9 +1063,14 @@ class PillManager:
 
     def _apply_periodic_effects(self, player: Player, effect: dict, current_time: int) -> bool:
         """根据时间自动结算持续恢复/扣减"""
-        expiry_time = effect.get("expiry_time", 0)
+        # 所有时间/数值字段先经 _safe_int 归一：脏存档里这些字段可能是字符串，
+        # 直接参与 min()/减法会抛 TypeError
+        expiry_time = _safe_int(effect.get("expiry_time", 0))
         tick_limit = min(current_time, expiry_time) if expiry_time > 0 else current_time
-        last_tick = effect.get("last_tick_time", effect.get("start_time", current_time))
+        last_tick = _safe_int(
+            effect.get("last_tick_time", effect.get("start_time", current_time)),
+            current_time,
+        )
 
         if tick_limit <= last_tick:
             return False
@@ -1043,27 +1084,27 @@ class PillManager:
         changed = False
 
         if "lifespan_cost_per_minute" in effect:
-            total_cost = effect["lifespan_cost_per_minute"] * minutes
+            total_cost = _safe_int(effect["lifespan_cost_per_minute"]) * minutes
             player.lifespan = max(0, player.lifespan - total_cost)
             changed = True
 
         if "lifespan_regen_per_minute" in effect:
-            total_regen = effect["lifespan_regen_per_minute"] * minutes
+            total_regen = _safe_int(effect["lifespan_regen_per_minute"]) * minutes
             player.lifespan += total_regen
             changed = True
 
         if "spiritual_qi_regen_per_minute" in effect:
-            total_qi = effect["spiritual_qi_regen_per_minute"] * minutes
+            total_qi = _safe_int(effect["spiritual_qi_regen_per_minute"]) * minutes
             player.spiritual_qi = min(player.max_spiritual_qi, player.spiritual_qi + total_qi)
             changed = True
 
         if "blood_qi_regen_per_minute" in effect:
-            total_blood = effect["blood_qi_regen_per_minute"] * minutes
+            total_blood = _safe_int(effect["blood_qi_regen_per_minute"]) * minutes
             player.blood_qi = min(player.max_blood_qi, player.blood_qi + total_blood)
             changed = True
 
         if "blood_qi_cost_per_minute" in effect:
-            total_cost = effect["blood_qi_cost_per_minute"] * minutes
+            total_cost = _safe_int(effect["blood_qi_cost_per_minute"]) * minutes
             player.blood_qi = max(0, player.blood_qi - total_cost)
             changed = True
 

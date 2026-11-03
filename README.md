@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v6.50.2 (切原石掉落重做)
+# AstrBot 插件：模拟修仙 v6.50.3 (丹药背包脏数据加固)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v6.50.2-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v6.50.3-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.33.9 · **游戏版本:** v6.50.2 · **数据库:** v57
+> **插件版本:** v3.33.10 · **游戏版本:** v6.50.3 · **数据库:** v57
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，233 条帮助指令 / 233 条注册指令、16 个大系统、110 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,21 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · v6.50.2（切原石掉落重做）</b></summary>
+<summary><b>本次更新 · v6.50.3（丹药背包脏数据加固）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 问题修复 | 修复部分玩家发送 `/丹药背包` 完全无响应：存档 `active_pill_effects` 混入脏数据（非 dict 条目 / 字符串数值字段）时渲染抛异常被静默吞掉。 |
+| 源头过滤 | `Player.get_active_pill_effects()` 统一过滤非 dict 脏条目，一处修复保护战斗、突破、符箓、气运等全部 19 处读取点。 |
+| 数值归一 | `expiry_time`、`last_tick_time`、每分钟恢复/扣减等字段全部经 `_safe_int` / `_safe_float` 容错归一：字符串数字自动转正，乱码按默认值处理。 |
+| 单条隔离 | 周期结算逐条 try/except：单条效果字段损坏只丢弃该条并记录日志，不再拖垮整个背包渲染；兜底提示「丹药背包读取失败」保留。 |
+| 连带加固 | 战斗倍率计算与突破增益结算（`calculate_pill_attribute_effects` / `get_breakthrough_modifiers`）同步防脏数据崩溃。 |
+| 测试 | `tests/test_pill_bag_command.py` 新增 4 例（字符串 expiry / 乱码 expiry / 字符串恢复值 / 模型层过滤），全量 716 例通过。 |
+
+</details>
+
+<details>
+<summary><b>v6.50.2（切原石掉落重做）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |

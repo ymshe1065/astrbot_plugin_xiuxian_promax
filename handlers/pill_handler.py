@@ -4,6 +4,7 @@ from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent
 from ..data import DataBase
 from ..core import PillManager, ItemRules
+from ..core.pill_manager import _safe_int
 from ..core.realm_rules import format_applicable_realm
 from ..models import Player
 from ..config_manager import ConfigManager
@@ -123,7 +124,7 @@ class PillHandler:
                     if uses > 0:
                         effects_display.append(f"{icon} {pill_name} (剩余 {uses} 次历练/秘境)")
                     continue
-                remaining_seconds = effect.get("expiry_time", 0) - int(time.time())
+                remaining_seconds = _safe_int(effect.get("expiry_time", 0)) - int(time.time())
                 if remaining_seconds > 0:
                     remaining_minutes = remaining_seconds // 60
                     hours = remaining_minutes // 60
