@@ -23,3 +23,6 @@ Desktop.ini
 
 # 临时规划文档（仅本地持久化，不提交）
 _planning_tmp/
+
+# 动画生成器的中间产物（帧数据、逐帧截图，可用 scripts/anim 重新生成）
+scripts/anim/gen/
