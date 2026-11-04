@@ -136,6 +136,12 @@ class TitleManager:
                         bonus = {}
                     met = int(bonus.get("alchemy_furnace", 0) or 0) >= cond
 
+                elif how == "rebirth":
+                    # 弃道重修不删号、不走 create_player；与重修结算同源读 rebirth_total_
+                    raw = await self.db.ext.get_system_config(f"rebirth_total_{player.user_id}")
+                    val = int(raw) if raw and raw.isdigit() else 0
+                    met = val >= cond
+
                 # 外部事件累进类：读 system_config
                 elif how not in ("manual", "furnace_max"):
                     ck = f"title_cnt_{how}_{player.user_id}"

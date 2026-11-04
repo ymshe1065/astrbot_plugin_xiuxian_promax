@@ -10,7 +10,7 @@ from astrbot.api import logger
 if TYPE_CHECKING:
     from ..config_manager import ConfigManager
 
-LATEST_DB_VERSION = 58  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求；v49: 统一物品品阶名称；v50: 仙市投资系统（基金/股票）；v51: 符箓熟练度与符图习得；v52: 仙市 v6（16 盘 + 赌场级波动 + 不对称日熔断）；v53: 拍卖会未开拍拍品按固定品阶曲线重建（并兼容分叉旧库补授符图）；v54: 灵田肥力上限按等级分级（旧值按百分比换算）；v55: 生活职业更换费用峰值与时间衰减；v56: 误存进储物戒/溢出仓库的丹药迁回丹药背包；v57: 旧50/50装备改名迁移到混合倾向新装备；v58: 周常 Boss（周本）周期/队伍/成员/领奖/周榜/次数表
+LATEST_DB_VERSION = 60  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求；v49: 统一物品品阶名称；v50: 仙市投资系统（基金/股票）；v51: 符箓熟练度与符图习得；v52: 仙市 v6（16 盘 + 赌场级波动 + 不对称日熔断）；v53: 拍卖会未开拍拍品按固定品阶曲线重建（并兼容分叉旧库补授符图）；v54: 灵田肥力上限按等级分级（旧值按百分比换算）；v55: 生活职业更换费用峰值与时间衰减；v56: 误存进储物戒/溢出仓库的丹药迁回丹药背包；v57: 旧50/50装备改名迁移到混合倾向新装备；v58: 周常 Boss（周本）周期/队伍/成员/领奖/周榜/次数表；v59: 仙市分红/风声唯一索引（结算幂等，先去重再建索引）；v60: 功德机制重做，清空全服既有功德（业力）
 
 MIGRATION_TASKS: Dict[int, Callable[[aiosqlite.Connection, ConfigManager], Awaitable[None]]] = {}
 
@@ -482,6 +482,7 @@ async def _ensure_latest_columns(conn: aiosqlite.Connection):
     await _ensure_auction_house_v47(conn)
     await _ensure_combat_limits_v48(conn)
     await _ensure_invest_v50(conn)
+    await _ensure_invest_unique_indexes_v59(conn)
     await _ensure_talisman_v51(conn, grant_legacy=False)
     await _add_column_if_missing(conn, "player_pets", "max_hp", "INTEGER NOT NULL DEFAULT 0")
     await _add_column_if_missing(conn, "player_pets", "hp", "INTEGER NOT NULL DEFAULT 0")
@@ -2028,6 +2029,40 @@ async def _ensure_invest_v50(conn: aiosqlite.Connection):
     )
 
 
+async def _ensure_invest_unique_indexes_v59(conn: aiosqlite.Connection):
+    """v59：仙市结算幂等所需的唯一索引（先去重再建索引）。
+
+    - invest_dividends(user_id, code, tick)：同一人同一标的同一盘的分红只能落一条，
+      配合 _pay_dividends 的 INSERT OR IGNORE 防止并发/重跑重复发分红；
+    - invest_events(trade_day, slot)：每盘只有一条风声，配合 _ensure_news 的
+      事务内复查 + INSERT OR IGNORE 防止并发重复生成。
+
+    历史数据可能因并发竞态已存在重复行：先尝试直接建索引（幂等、免全表扫描），
+    失败（存在重复）时按「保留最早一条」去重后重建。
+    """
+    index_statements = (
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_inv_div_unique "
+        "ON invest_dividends(user_id, code, tick)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_inv_events_slot_unique "
+        "ON invest_events(trade_day, slot)",
+    )
+    dedup_statements = (
+        "DELETE FROM invest_dividends WHERE id NOT IN "
+        "(SELECT MIN(id) FROM invest_dividends GROUP BY user_id, code, tick)",
+        "DELETE FROM invest_events WHERE id NOT IN "
+        "(SELECT MIN(id) FROM invest_events GROUP BY trade_day, slot)",
+    )
+    try:
+        for sql in index_statements:
+            await conn.execute(sql)
+    except Exception as e:
+        logger.warning(f"v59 唯一索引创建受阻（存在重复数据），先去重再重建: {e}")
+        for sql in dedup_statements:
+            await conn.execute(sql)
+        for sql in index_statements:
+            await conn.execute(sql)
+
+
 @migration(48)
 async def _migrate_to_v48(conn: aiosqlite.Connection, config_manager: ConfigManager):
     """迁移到 v48 - 每日切磋/决斗次数与切磋邀请。"""
@@ -2541,3 +2576,22 @@ async def _migrate_to_v58(conn: aiosqlite.Connection, config_manager: ConfigMana
     await _ensure_weekly_boss_v58(conn)
     await conn.commit()
     logger.info("v58迁移完成：周本数据表已建立")
+
+
+@migration(59)
+async def _migrate_to_v59(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """v59：仙市分红/风声唯一索引（结算幂等）。历史重复数据先去重再建索引。"""
+    logger.info("开始迁移到 v59：仙市结算幂等唯一索引")
+    await _ensure_invest_v50(conn)
+    await _ensure_invest_unique_indexes_v59(conn)
+    await conn.commit()
+    logger.info("v59迁移完成：invest_dividends/invest_events 唯一索引已建立")
+
+
+@migration(60)
+async def _migrate_to_v60(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """v60：功德机制重做，清空所有玩家既有功德（业力）数值。"""
+    logger.info("开始迁移到 v60：全服玩家功德清零")
+    await conn.execute("UPDATE players SET karma = 0")
+    await conn.commit()
+    logger.info("v60迁移完成：全服玩家功德已清零")

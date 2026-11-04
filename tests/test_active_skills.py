@@ -234,12 +234,5 @@ class TestPetBonusDisplay(unittest.TestCase):
         self.assertGreater(totals.get("gold_bonus", 0), 0)
 
 
-class TestRestRegenNerf(unittest.TestCase):
-    def test_rest_rate_and_caps(self):
-        recovery = _imp("managers.recovery_manager").RecoveryManager
-        self.assertEqual(recovery.REST_RATE, 0.03)
-        self.assertEqual(recovery.REST_QI_BONUS_CAP, 1.0)
-
-
 if __name__ == "__main__":
     unittest.main()

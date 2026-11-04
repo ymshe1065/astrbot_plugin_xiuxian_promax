@@ -108,7 +108,8 @@ class WarehouseManager:
         used = 0
         for name, count in self.get_items(player).items():
             if self.storage_ring_manager.is_equipment_item(name):
-                used += self.storage_ring_manager._get_item_volume(name)
+                # 遗留的装备堆叠条目：逐件占格，与 _space_error/_take_instances 同口径
+                used += self.storage_ring_manager._get_item_volume(name) * count
             else:
                 used += self.storage_ring_manager.stack_slots(count)
         for inst in self.instance_manager.list_instances(player, "warehouse"):

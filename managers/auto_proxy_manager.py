@@ -164,6 +164,19 @@ class AutoProxyManager:
         config["fertilize"] = fert
         return config
 
+    @staticmethod
+    def _any_proxy_active(task_type: Any, config: dict) -> bool:
+        """任一代理是否仍在运行：押镖/宗门任务、灵田、施肥、秘境。
+
+        用于计算总开关 enabled，避免关闭其中一项时静默杀死其它代理。
+        """
+        return (
+            bool(task_type)
+            or bool((config.get("farm") or {}).get("enabled"))
+            or bool((config.get("fertilize") or {}).get("enabled"))
+            or bool((config.get("rift") or {}).get("enabled"))
+        )
+
     @classmethod
     def _farm_enabled(cls, row: Optional[dict]) -> bool:
         return bool(cls._load_config(row)["farm"].get("enabled"))
@@ -536,9 +549,7 @@ class AutoProxyManager:
             farm_cfg["tasks"] = {}
             action = "灵田代理已关闭。"
 
-        keep_enabled = bool(row.get("task_type")) or bool(farm_cfg.get("enabled")) or bool(
-            config["fertilize"].get("enabled")
-        )
+        keep_enabled = self._any_proxy_active(row.get("task_type"), config)
         await self._write_state(
             user_id,
             keep_enabled,
@@ -616,7 +627,7 @@ class AutoProxyManager:
             farm_cfg["exclude"] = []
         if not remain:
             farm_cfg["enabled"] = False
-        keep_enabled = bool(row.get("task_type")) or bool(farm_cfg.get("enabled"))
+        keep_enabled = self._any_proxy_active(row.get("task_type"), config)
         await self._write_state(
             user_id,
             keep_enabled,
@@ -675,7 +686,16 @@ class AutoProxyManager:
 
         harvest_msg = ""
         if harvest_slots:
-            _, harvest_msg = await self.farm_mgr.harvest(player, slots=harvest_slots)
+            ok, harvest_msg = await self.farm_mgr.harvest(player, slots=harvest_slots)
+            if ok:
+                # 对照手动 /收获 流程补记日常任务/称号/悬赏进度
+                harvest_count = int(
+                    (getattr(self.farm_mgr, "last_harvest_counts", {}) or {}).get(user_id, 0)
+                    or 0
+                )
+                bounty_msg = await self._record_farm_progress(user_id, player, harvest_count)
+                if bounty_msg:
+                    harvest_msg = f"{harvest_msg}\n{bounty_msg}" if harvest_msg else bounty_msg
 
         farm_after = await self.farm_mgr.get_user_farm(user_id) or {"crops": []}
         used_slots = {int(c.get("slot") or 0) for c in farm_after.get("crops", [])}
@@ -957,6 +977,12 @@ class AutoProxyManager:
             )
 
         row = await self.get(user_id) or {}
+        if (row.get("task_type") or "").strip():
+            # 秘境与押镖/宗门任务互斥：不再静默取消进行中的任务代理
+            return False, (
+                "❌ 当前有进行中的代理任务（押镖/宗门任务），"
+                "请先 /关闭代理 后再开启秘境代理。"
+            )
         config = self._load_config(row)
         rift_cfg = config["rift"]
         rift_cfg["enabled"] = True
@@ -1025,6 +1051,36 @@ class AutoProxyManager:
             "🛑 秘境代理已关闭。\n"
             "当前这次探索不会中断，可继续 /完成探索 领取奖励。"
         )
+
+    async def _record_farm_progress(
+        self, user_id: str, player: Any, count: int
+    ) -> str:
+        """自动灵田收获后补记日常任务/称号/悬赏进度（口径与手动 /收获 一致）。
+
+        返回悬赏进度提示（无则为空字符串），由调用方拼进通知消息。
+        """
+        if count <= 0:
+            return ""
+        try:
+            await self.db.ext.add_task_progress(user_id, "harvest", count)
+        except Exception as e:
+            logger.warning(f"【自动代理】灵田日常进度写入失败: {e}")
+        if self.title_bump:
+            try:
+                await self.title_bump(user_id, "harvest_count", count)
+            except Exception as e:
+                logger.warning(f"【自动代理】灵田称号计数失败: {e}")
+        bounty_msg = ""
+        if self.bounty_mgr:
+            try:
+                has_progress, msg = await self.bounty_mgr.add_bounty_progress(
+                    player, "harvest", count
+                )
+                if has_progress and msg:
+                    bounty_msg = msg.strip()
+            except Exception as e:
+                logger.warning(f"【自动代理】灵田悬赏进度失败: {e}")
+        return bounty_msg
 
     async def _record_rift_progress(self, user_id: str, player: Any):
         """自动结算秘境后补记日常任务/称号/悬赏进度（奇遇仍只手动触发）。"""

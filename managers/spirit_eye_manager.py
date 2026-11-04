@@ -144,16 +144,33 @@ class SpiritEyeManager:
         hours = min(24, int(hours_passed))
         exp_income = eye["exp_per_hour"] * hours
         
-        player.experience += exp_income
-        await self.db.update_player(player)
-        
         # 未达上限时保留不足1小时的余数；达到24小时上限时按当前时间结算
         next_collect = now if hours >= 24 else last_collect + hours * 3600
-        await self.db.conn.execute(
-            "UPDATE spirit_eyes SET last_collect_time = ? WHERE owner_id = ?",
-            (next_collect, player.user_id)
-        )
-        await self.db.conn.commit()
+        # 单一事务：先推进结算时间戳（带旧值幂等条件）再入账修为，
+        # 消除“已给修为未推进时间戳”的重复收取窗口
+        await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            cursor = await self.db.conn.execute(
+                "UPDATE spirit_eyes SET last_collect_time = ? "
+                "WHERE owner_id = ? AND COALESCE(last_collect_time, claim_time, 0) = ?",
+                (next_collect, player.user_id, last_collect)
+            )
+            if cursor.rowcount == 0:
+                # 并发下已被其它收取流程结算，放弃本次避免重复发放
+                await self.db.conn.rollback()
+                return False, "❌ 灵眼收益刚刚已被收取，请稍后再试。"
+            await self.db.conn.execute(
+                "UPDATE players SET experience = experience + ? WHERE user_id = ?",
+                (exp_income, player.user_id)
+            )
+            await self.db.conn.commit()
+        except Exception:
+            try:
+                await self.db.conn.rollback()
+            except Exception:
+                pass
+            raise
+        player.experience += exp_income
         
         return True, (
             f"✅ 灵眼收取成功！\n"

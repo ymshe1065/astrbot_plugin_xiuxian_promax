@@ -76,17 +76,6 @@ class CombatManager:
     DAMAGE_VARIANCE_MIN = 0.70
     DAMAGE_VARIANCE_MAX = 1.30
 
-    # 基础攻击的物法占比：职业只决定基础盘，物伤/法伤仍全额计入对应分轨
-    ATTACK_PROFILES = {
-        "体修": (0.8, 0.2),
-        "剑修": (0.8, 0.2),
-        "鬼修": (0.2, 0.8),
-        "灵修": (0.3, 0.7),
-        "魔修": (0.5, 0.5),
-        "佛修": (0.4, 0.6),
-        "御兽": (0.5, 0.5),
-    }
-
     # 溢出属性转换：每 1% 溢出暴击 -> +0.5% 暴伤；每 1% 溢出吸血 -> +0.5% 双攻
     CRIT_OVERFLOW_TO_CRIT_DAMAGE = 0.5
     LIFESTEAL_OVERFLOW_TO_ATTACK = 0.5
@@ -135,11 +124,6 @@ class CombatManager:
 
         return attack_mult
 
-    @classmethod
-    def get_attack_profile(cls, cultivation_type: str = "") -> Tuple[float, float]:
-        """返回 (物理占比, 法术占比)，未知职业默认均衡。"""
-        return cls.ATTACK_PROFILES.get(cultivation_type, (0.5, 0.5))
-
     @staticmethod
     def calculate_effective_experience(experience: int, cap: int) -> int:
         """境界内修为全额生效，超出部分按 30%/15%/5% 分段衰减。"""
@@ -186,46 +170,6 @@ class CombatManager:
         if effective <= cap:
             return 0.0
         return min(cls.MAX_OVERFLOW_BONUS, (effective - cap) / cap)
-
-    @classmethod
-    def calculate_attack_components(
-        cls,
-        experience: int,
-        atkpractice: int = 0,
-        atk_buff: float = 0.0,
-        physical_damage: int = 0,
-        magic_damage: int = 0,
-        cultivation_type: str = "灵修",
-    ) -> Dict[str, int]:
-        """按职业占比拆分基础攻击，并叠加物伤/法伤。
-
-        物攻 + 法攻仍等于原 calculate_atk 的总攻击，保证战力口径稳定。
-        """
-        base_atk = int(experience) // 10
-        practice_bonus = int(atkpractice or 0) * 0.04
-
-        class_multiplier = 1.0
-        if cultivation_type == "剑修":
-            class_multiplier = 1.5
-        elif cultivation_type == "魔修":
-            class_multiplier = 1.3
-        elif cultivation_type == "佛修":
-            class_multiplier = 0.6
-
-        base_total = int(
-            base_atk * (1 + practice_bonus + float(atk_buff or 0)) * class_multiplier
-        )
-        physical_share, magic_share = cls.get_attack_profile(cultivation_type)
-        physical_base = int(base_total * physical_share)
-        magic_base = base_total - physical_base
-
-        physical_atk = max(0, physical_base + int(physical_damage or 0))
-        magic_atk = max(0, magic_base + int(magic_damage or 0))
-        return {
-            "physical_atk": physical_atk,
-            "magic_atk": magic_atk,
-            "atk": physical_atk + magic_atk,
-        }
 
     @staticmethod
     def resolve_attack_components(stats: CombatStats) -> Tuple[int, int]:
@@ -277,25 +221,6 @@ class CombatManager:
         
         return hp, mp
     
-    @staticmethod
-    def calculate_atk(experience: int, atkpractice: int = 0, atk_buff: float = 0.0, physical_damage: int = 0, magic_damage: int = 0, cultivation_type: str = "灵修") -> int:
-        """根据修为、攻击修炼等级和物伤/法伤计算攻击力（加入了职业分化）"""
-        base_atk = experience // 10
-        practice_bonus = atkpractice * 0.04  # 每级4%加成
-        
-        # 职业专属攻击加成
-        class_multiplier = 1.0
-        if cultivation_type == "剑修":
-            class_multiplier = 1.5 # 剑修伤害提升 50%
-        elif cultivation_type == "魔修":
-            class_multiplier = 1.3 # 魔修伤害提升 30%
-        elif cultivation_type == "佛修":
-            class_multiplier = 0.6 # 佛修伤害降低 40%
-            
-        total_atk = int(base_atk * (1 + practice_bonus + atk_buff) * class_multiplier) + physical_damage + magic_damage
-        
-        return max(total_atk, 1)  # 至少为1
-
     @staticmethod
     def calculate_equipment_bonus(player, config_manager) -> Dict:
         """计算武器/防具对战斗面板的加成，兼容两套装备配置与装备实例品质。"""
@@ -1884,6 +1809,9 @@ class CombatManager:
             
             b_dmg, b_logs, b_heal = cls._take_turn(boss, player, round_num=round_num)
             player.hp = max(0, player.hp - b_dmg)
+            # Boss 回合的治疗（吸血/技能回血）不应被丢弃，回补到 Boss 自身
+            if b_heal > 0:
+                boss.hp = min(boss.max_hp, boss.hp + b_heal)
             combat_log.extend(b_logs)
             combat_log.append(f"{player.name} 剩余 HP: {max(0, player.hp)}")
 

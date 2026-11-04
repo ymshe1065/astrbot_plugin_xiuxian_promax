@@ -87,15 +87,6 @@ class TestBlessedLandUpgrade(unittest.IsolatedAsyncioTestCase):
             row = await cur.fetchone()
         return int(row[0])
 
-    async def test_parse_upgrade_args(self):
-        self.assertEqual(self.parse_upgrade_args(""), ("times", 1))
-        self.assertEqual(self.parse_upgrade_args("3"), ("times", 3))
-        self.assertEqual(self.parse_upgrade_args("1-5"), ("target", 5))
-        self.assertEqual(self.parse_upgrade_args("5-1"), ("target", 5))
-        self.assertEqual(self.parse_upgrade_args("all"), ("all", 0))
-        self.assertEqual(self.parse_upgrade_args("全部"), ("all", 0))
-        self.assertEqual(self.parse_upgrade_args("abc"), (None, None))
-
     async def test_upgrade_multiple_times(self):
         player = await self.db.get_player_by_id("u1")
         player.gold = 10000

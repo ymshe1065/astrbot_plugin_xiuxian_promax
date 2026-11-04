@@ -106,12 +106,34 @@ class AuctionHandlers:
 
     @player_required
     async def handle_accept_offer(self, player: Player, event: AstrMessageEvent, offer_id: str = "0"):
-        """接受NPC问价并卖出"""
+        """接受NPC问价并卖出（offer_id=all 时一键卖出所有待处理问价）"""
+        raw = str(offer_id or "").strip()
+        if raw.lower() in {"all", "全部"}:
+            success_count, fail_count, total_gold, details = await self.auction_mgr.accept_all_offers(player)
+            if success_count == 0 and fail_count == 0:
+                yield event.plain_result(
+                    "🕊️ 当前没有可接受的NPC问价。\n"
+                    "💡 先发送 /我的坊市 查看上架状态。"
+                )
+                return
+            lines = [
+                "✅ 一键卖出完成" if fail_count == 0 else "⚠️ 一键卖出已处理",
+                "━━━━━━━━━━━━━━━",
+                f"成交：{success_count} 件 · 失败：{fail_count} 件",
+                f"获得灵石：{total_gold:,}（NPC收购免税）",
+            ]
+            if details:
+                lines.append("───────────────")
+                lines.extend(details)
+            yield event.plain_result("\n".join(lines))
+            return
+
         try:
-            oid = int(offer_id)
+            oid = int(raw)
         except ValueError:
             yield event.plain_result(
                 "❌ 请输入正确的问价编号！例如：/坊市卖出 1\n"
+                "💡 输入 /坊市卖出 all 可一键卖出当前所有问价。\n"
                 "💡 先发送 /我的坊市 查看NPC问价。"
             )
             return

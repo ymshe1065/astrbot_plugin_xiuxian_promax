@@ -501,12 +501,14 @@ class BountyManager:
 
         rewards = json.loads(active["rewards"])
         diff_name = rewards.get("difficulty_name", rewards.get("difficulty", "未知"))
+        # 展示实发值（含称号/功法/灵兽加成，与 player.gold/experience 实际入账同源），
+        # 而非加成前的基础奖励，避免消息与实际发放不一致。
         return True, (
             f"✅ 悬赏完成（{diff_name}）！\n"
             f"任务：{active['bounty_name']}\n"
             f"━━━━━━━━━━━━━━━\n"
-            f"获得灵石：+{rewards.get('stone', 0):,}\n"
-            f"获得修为：+{rewards.get('exp', 0):,}{item_msg}"
+            f"获得灵石：+{int(stone_reward):,}\n"
+            f"获得修为：+{int(exp_reward):,}{item_msg}"
         )
 
     async def abandon_bounty(self, player: Player) -> Tuple[bool, str]:

@@ -12,6 +12,9 @@ from .utils import player_required
 __all__ = ["ImpartPkHandlers"]
 
 IMPART_CHALLENGE_COOLDOWN = 300
+# 防无限刷：被挑战方冷却（秒）与同一对玩家每日挑战上限
+IMPART_DEFENDER_COOLDOWN = 300
+IMPART_PAIR_DAILY_LIMIT = 3
 
 
 class ImpartPkHandlers:
@@ -64,11 +67,37 @@ class ImpartPkHandlers:
             yield event.plain_result("❌ 对方还未踏入修仙之路。")
             return
         
+        # 防无限刷①：被挑战方冷却（300秒），禁止短时间内反复针对同一目标
+        def_cd_key = f"impart_pk_def_cd_{target_id}"
+        def_cd_raw = await self.db.ext.get_system_config(def_cd_key)
+        if def_cd_raw and def_cd_raw.isdigit() and now < int(def_cd_raw):
+            remain = int(def_cd_raw) - now
+            yield event.plain_result(
+                f"❌ 对方刚被挑战过，请 {remain // 60} 分 {remain % 60} 秒后再来。"
+            )
+            return
+
+        # 防无限刷②：同一 挑战者→防守者 组合每日挑战上限（3 次）
+        pair_key = f"impart_pk_pair_{time.strftime('%Y-%m-%d')}_{player.user_id}_{target_id}"
+        pair_raw = await self.db.ext.get_system_config(pair_key)
+        pair_count = int(pair_raw) if (pair_raw and pair_raw.isdigit()) else 0
+        if pair_count >= IMPART_PAIR_DAILY_LIMIT:
+            yield event.plain_result(
+                f"❌ 今日对该道侣的挑战次数已达上限（{IMPART_PAIR_DAILY_LIMIT} 次），请明日再来。"
+            )
+            return
+
         # 发起挑战
         wins, log, rewards = await self.impart_pk_mgr.challenge_impart(player, target)
+        after_now = int(time.time())
         await self.db.ext.set_system_config(
-            cd_key, str(int(time.time()) + IMPART_CHALLENGE_COOLDOWN)
+            cd_key, str(after_now + IMPART_CHALLENGE_COOLDOWN)
         )
+        # 挑战结束后写入被挑战方冷却与同对每日计数
+        await self.db.ext.set_system_config(
+            def_cd_key, str(after_now + IMPART_DEFENDER_COOLDOWN)
+        )
+        await self.db.ext.set_system_config(pair_key, str(pair_count + 1))
         
         if wins:
             result_msg = (
@@ -85,6 +114,10 @@ class ImpartPkHandlers:
                 f"损失修为：-{rewards.get('exp_loss', 0):,}\n"
             )
         
+        # 战报展示：challenge_impart 返回末尾数行战报，拼进结果消息，避免接收后被丢弃
+        if log:
+            result_msg += f"━━━━━━━━━━━━━━━\n📜 战报：\n{log}\n"
+
         yield event.plain_result(result_msg)
     
     @player_required
@@ -107,12 +140,12 @@ class ImpartPkHandlers:
         """从消息中提取用户ID"""
         if not msg:
             return ""
-        # 匹配 @xxx 或纯数字
+        # 匹配 @xxx（CQ 码）
         at_match = re.search(r'\[CQ:at,qq=(\d+)\]', msg)
         if at_match:
             return at_match.group(1)
-        # 纯数字
-        num_match = re.search(r'(\d{5,12})', msg)
-        if num_match:
-            return num_match.group(1)
+        # 仅当参数整体为纯数字时才作为ID（fullmatch），避免命中消息中的任意长数字
+        cleaned = msg.strip().lstrip("@").strip()
+        if re.fullmatch(r'\d{5,12}', cleaned):
+            return cleaned
         return ""

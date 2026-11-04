@@ -36,6 +36,9 @@ class ReincarnationManager:
             heirloom_name = heirloom_name.strip()
             im = ItemInstanceManager(self.db, self.config_manager)
             instances = im.list_instances(player, "storage", heirloom_name)
+            if not instances:
+                # 支持直接封印当前穿戴中的装备（飞升重置会清空装备栏，无需先卸下）
+                instances = im.list_instances(player, "equipped", heirloom_name)
             if instances:
                 inst = sorted(instances, key=lambda x: int(x.get("id", 0) or 0))[0]
                 snapshot = {k: v for k, v in inst.items() if k != "id"}
@@ -50,7 +53,7 @@ class ReincarnationManager:
             else:
                 items = player.get_storage_ring_items()
                 if heirloom_name not in items or items[heirloom_name] <= 0:
-                    return False, f"❌ 你的储物戒中并没有【{heirloom_name}】，无法将其封印为传家宝。"
+                    return False, f"❌ 你的储物戒与已装备栏中都没有【{heirloom_name}】，无法将其封印为传家宝。"
                 items[heirloom_name] -= 1
                 if items[heirloom_name] <= 0:
                     del items[heirloom_name]
@@ -149,6 +152,34 @@ class ReincarnationManager:
             await self.db.conn.execute("DELETE FROM pending_gifts WHERE sender_id = ?", (player.user_id,))
             await self.db.conn.execute("DELETE FROM auction_npc_offers WHERE seller_id = ?", (player.user_id,))
             await self.db.conn.execute("DELETE FROM auction_items WHERE seller_id = ?", (player.user_id,))
+            # v6.57.0: 仙市与拍卖会(v6.35)资产同样必须清空，否则分红/退款会打进转生后的新号
+            for _tbl in ("invest_holdings", "invest_orders", "invest_dividends",
+                         "auction_house_bids", "auction_house_entries"):
+                try:
+                    await self.db.conn.execute(f"DELETE FROM {_tbl} WHERE user_id = ?", (player.user_id,))
+                except Exception:
+                    pass  # 旧存档可能尚未迁移出这些表，缺失时跳过
+            try:
+                # 进行中的拍品：飞升者为最高出价人时摘除其出价（锁定资金随飞升作废），
+                # 否则落槌后 _deliver_lot_atomic 会把拍品发给转生新号（资产携带）
+                await self.db.conn.execute(
+                    "UPDATE auction_house_lots SET highest_bidder='', highest_bid=0 "
+                    "WHERE highest_bidder=? AND status='live'",
+                    (player.user_id,),
+                )
+                # 已中标未领取的拍品直接作废（'cancelled' 不在任何投递/领取查询的状态集合内）
+                await self.db.conn.execute(
+                    "UPDATE auction_house_lots SET winner_id='', delivery_status='cancelled' "
+                    "WHERE winner_id=? AND delivery_status IN ('pending','delivering')",
+                    (player.user_id,),
+                )
+                # 未偿贷款随飞升作废，否则逾期定时任务会对转生新号置坏账并跌落境界
+                await self.db.conn.execute(
+                    "DELETE FROM bank_loans WHERE user_id=? AND status IN ('active','overdue')",
+                    (player.user_id,),
+                )
+            except Exception:
+                pass  # 旧存档缺表时跳过
             await self.db.conn.execute("DELETE FROM bank_accounts WHERE user_id = ?", (player.user_id,))
             await self.db.conn.execute("DELETE FROM auto_proxy WHERE user_id = ?", (player.user_id,))
             await self.db.conn.execute("DELETE FROM blessed_lands WHERE user_id = ?", (player.user_id,))
@@ -161,6 +192,7 @@ class ReincarnationManager:
                 "bounty_tasks", "daily_tasks", "combat_cooldowns", "combat_daily",
                 "world_boss_damage", "world_boss_raid_damage",
                 "dual_cultivation", "dual_cultivation_requests", "spar_requests", "sect_tournament_entries",
+                "weekly_boss_members", "weekly_boss_claims", "weekly_boss_leaderboard", "weekly_boss_attempts",
             ):
                 if table in ("dual_cultivation_requests", "spar_requests"):
                     await self.db.conn.execute(
@@ -172,6 +204,10 @@ class ReincarnationManager:
             await self.db.conn.execute(
                 "UPDATE sect_orders SET status = 'cancelled' WHERE status = 'active' AND (issuer_id = ? OR target_id = ?)",
                 (player.user_id, player.user_id),
+            )
+            await self.db.conn.execute(
+                "DELETE FROM system_config WHERE key IN (?, ?)",
+                (f"tide_contrib_{player.user_id}", f"tide_bless_{player.user_id}"),
             )
             await self.db.ext.set_user_free(player.user_id, commit=False)
             await self.db.conn.commit()

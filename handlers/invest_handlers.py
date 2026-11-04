@@ -263,6 +263,9 @@ class InvestHandlers:
             except ValueError:
                 yield event.plain_result("❌ 份额必须是数字或「全部」，例如：/赎回 F01 1000")
                 return
+            if shares_value < 0:
+                yield event.plain_result("❌ 份额必须为正数或「全部」，例如：/赎回 F01 1000")
+                return
 
         ok, msg = await self.invest_mgr.redeem_fund(player, code, shares_value)
         prefix = "✅" if ok else "❌"

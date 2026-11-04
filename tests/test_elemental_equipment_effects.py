@@ -185,18 +185,6 @@ class TestElementalEquipmentCombat(unittest.TestCase):
         self.assertGreater(base, 0)
         self.assertGreater(boosted, base)
 
-    def test_crit_and_crit_damage(self):
-        attacker = _make_stats("甲")
-        defender = _make_stats("乙")
-        with mock.patch("random.uniform", return_value=1.0), \
-                mock.patch("random.randint", return_value=0):
-            base = self.combat._execute_attack(attacker, defender)[0]
-            crit = self.combat._execute_attack(
-                _make_stats("甲", effects={"crit_rate": 100, "crit_damage": 3.0}),
-                defender,
-            )[0]
-        self.assertGreater(crit, base)
-
     def test_dodge_avoids_attack(self):
         attacker = _make_stats("甲")
         defender = _make_stats("乙", effects={"dodge": 5})

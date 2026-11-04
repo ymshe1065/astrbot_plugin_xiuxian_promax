@@ -115,6 +115,21 @@ class TestMarketNpcOffers(unittest.IsolatedAsyncioTestCase):
             row = await cursor.fetchone()
             return dict(row) if row else None
 
+    async def _insert_offer(self, auction_id: int, offer_price: int, count: int = 2,
+                            listed_price: int = 50, status: str = "pending",
+                            expire_in: int = 3600):
+        now = int(time.time())
+        await self.conn.execute(
+            "INSERT INTO auction_npc_offers "
+            "(auction_id, seller_id, item_name, count, listed_price, offer_price, "
+            "npc_name, create_time, expire_time, status, responded_time) "
+            "VALUES (?, 'seller', '测试灵草', ?, ?, ?, '青阳散修', ?, ?, ?, 0)",
+            (auction_id, count, listed_price, offer_price, now, now + expire_in, status),
+        )
+        await self.conn.commit()
+        async with self.conn.execute("SELECT last_insert_rowid()") as cursor:
+            return (await cursor.fetchone())[0]
+
     async def test_offer_price_within_configured_range_and_accept(self):
         now = int(time.time())
         auction_id = await self._insert_listing(price=50, count=2)
@@ -176,6 +191,46 @@ class TestMarketNpcOffers(unittest.IsolatedAsyncioTestCase):
         pending = [o for o in await self._offers() if o["status"] == "pending"]
         self.assertEqual(len(pending), 1)
 
+
+    async def test_accept_all_sells_every_pending_offer(self):
+        listing_a = await self._insert_listing(price=50, count=2, item_name="测试灵草")
+        listing_b = await self._insert_listing(price=100, count=1, item_name="测试矿石")
+        await self._insert_offer(listing_a, offer_price=60, count=2, listed_price=50)
+        await self._insert_offer(listing_b, offer_price=110, count=1, listed_price=100)
+
+        player = await self.db.get_player_by_id("seller")
+        ok_count, fail_count, total_gold, details = await self.manager.accept_all_offers(player)
+
+        self.assertEqual((ok_count, fail_count), (2, 0))
+        self.assertEqual(total_gold, 60 * 2 + 110)
+        self.assertEqual(len(details), 2)
+        player = await self.db.get_player_by_id("seller")
+        self.assertEqual(player.gold, total_gold)
+        self.assertIsNone(await self._listing(listing_a))
+        self.assertIsNone(await self._listing(listing_b))
+        self.assertEqual(await self._offers(), [])
+
+    async def test_accept_all_picks_highest_offer_per_listing(self):
+        listing_id = await self._insert_listing(price=50, count=2)
+        await self._insert_offer(listing_id, offer_price=55, count=2, listed_price=50)
+        await self._insert_offer(listing_id, offer_price=70, count=2, listed_price=50)
+
+        player = await self.db.get_player_by_id("seller")
+        ok_count, fail_count, total_gold, details = await self.manager.accept_all_offers(player)
+
+        self.assertEqual((ok_count, fail_count), (1, 0))
+        self.assertEqual(total_gold, 70 * 2)
+        player = await self.db.get_player_by_id("seller")
+        self.assertEqual(player.gold, 70 * 2)
+        self.assertIsNone(await self._listing(listing_id))
+        self.assertEqual(await self._offers(), [])
+
+    async def test_accept_all_without_pending_offer_returns_empty(self):
+        await self._insert_listing(price=50, count=2)
+        player = await self.db.get_player_by_id("seller")
+
+        result = await self.manager.accept_all_offers(player)
+        self.assertEqual(result, (0, 0, 0, []))
 
     async def test_overpriced_listing_gets_no_npc_offer(self):
         now = int(time.time())

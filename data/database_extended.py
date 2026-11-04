@@ -957,7 +957,12 @@ class DatabaseExtended:
         await self.conn.commit()
     
     async def _return_gift_to_sender(self, gift: dict):
-        """把赠予请求中的物品退回发送者，避免过期/清理时资产消失。"""
+        """把赠予请求中的物品退回发送者，避免过期/清理时资产消失。
+
+        全程运行在 BEGIN IMMEDIATE 写事务内（已有外层事务时自动加入）：
+        先重读发送者最新的 JSON 字段，再定向 UPDATE 涉及的列，
+        避免用旧快照全字段回写覆盖发送者的其它并发存档。
+        """
         sender_id = gift.get("sender_id")
         item_name = gift.get("item_name")
         try:
@@ -966,76 +971,81 @@ class DatabaseExtended:
             count = 0
         if not sender_id or not item_name or count <= 0:
             return
-        async with self.conn.execute(
-            "SELECT pills_inventory, storage_ring_items FROM players WHERE user_id = ?",
-            (sender_id,),
-        ) as cursor:
-            row = await cursor.fetchone()
-        if not row:
-            return
-        try:
-            pills = json.loads(row[0]) if row[0] else {}
-        except Exception:
-            pills = {}
-        try:
-            storage = json.loads(row[1]) if row[1] else {}
-        except Exception:
-            storage = {}
-        if not isinstance(pills, dict):
-            pills = {}
-        if not isinstance(storage, dict):
-            storage = {}
-        equipment_instances = None
-        if gift.get("item_kind") == "pill":
-            quality = gift.get("item_quality") or "一般"
-            key = f"{item_name}|{quality}"
-            pills[key] = int(pills.get(key, 0) or 0) + count
-        elif gift.get("item_kind") == "equipment":
+        async with self._transaction():
             async with self.conn.execute(
-                "SELECT equipment_instances FROM players WHERE user_id = ?", (sender_id,)
+                "SELECT pills_inventory, storage_ring_items FROM players WHERE user_id = ?",
+                (sender_id,),
             ) as cursor:
-                eq_row = await cursor.fetchone()
+                row = await cursor.fetchone()
+            if not row:
+                return
             try:
-                equipment_instances = json.loads(eq_row[0]) if eq_row and eq_row[0] else []
+                pills = json.loads(row[0]) if row[0] else {}
             except Exception:
-                equipment_instances = []
-            if not isinstance(equipment_instances, list):
-                equipment_instances = []
-            for inst in equipment_instances:
-                if isinstance(inst, dict) and int(inst.get("id", 0) or 0) == int(gift.get("instance_id", 0) or 0):
-                    # 过期赠予退回溢出位置，避免直接塞满储物戒；玩家可用 /领取溢出 取回
-                    inst["location"] = "overflow"
-                    inst["slot"] = ""
-                    break
-        else:
-            storage[item_name] = int(storage.get(item_name, 0) or 0) + count
-        if equipment_instances is not None:
-            await self.conn.execute(
-                "UPDATE players SET pills_inventory = ?, storage_ring_items = ?, equipment_instances = ? WHERE user_id = ?",
-                (json.dumps(pills, ensure_ascii=False), json.dumps(storage, ensure_ascii=False),
-                 json.dumps(equipment_instances, ensure_ascii=False), sender_id),
-            )
-        else:
-            await self.conn.execute(
-                "UPDATE players SET pills_inventory = ?, storage_ring_items = ? WHERE user_id = ?",
-                (json.dumps(pills, ensure_ascii=False), json.dumps(storage, ensure_ascii=False), sender_id),
-            )
+                pills = {}
+            try:
+                storage = json.loads(row[1]) if row[1] else {}
+            except Exception:
+                storage = {}
+            if not isinstance(pills, dict):
+                pills = {}
+            if not isinstance(storage, dict):
+                storage = {}
+            equipment_instances = None
+            if gift.get("item_kind") == "pill":
+                quality = gift.get("item_quality") or "一般"
+                key = f"{item_name}|{quality}"
+                pills[key] = int(pills.get(key, 0) or 0) + count
+            elif gift.get("item_kind") == "equipment":
+                async with self.conn.execute(
+                    "SELECT equipment_instances FROM players WHERE user_id = ?", (sender_id,)
+                ) as cursor:
+                    eq_row = await cursor.fetchone()
+                try:
+                    equipment_instances = json.loads(eq_row[0]) if eq_row and eq_row[0] else []
+                except Exception:
+                    equipment_instances = []
+                if not isinstance(equipment_instances, list):
+                    equipment_instances = []
+                for inst in equipment_instances:
+                    if isinstance(inst, dict) and int(inst.get("id", 0) or 0) == int(gift.get("instance_id", 0) or 0):
+                        # 过期赠予退回溢出位置，避免直接塞满储物戒；玩家可用 /领取溢出 取回
+                        inst["location"] = "overflow"
+                        inst["slot"] = ""
+                        break
+            else:
+                storage[item_name] = int(storage.get(item_name, 0) or 0) + count
+            if equipment_instances is not None:
+                await self.conn.execute(
+                    "UPDATE players SET pills_inventory = ?, storage_ring_items = ?, equipment_instances = ? WHERE user_id = ?",
+                    (json.dumps(pills, ensure_ascii=False), json.dumps(storage, ensure_ascii=False),
+                     json.dumps(equipment_instances, ensure_ascii=False), sender_id),
+                )
+            else:
+                await self.conn.execute(
+                    "UPDATE players SET pills_inventory = ?, storage_ring_items = ? WHERE user_id = ?",
+                    (json.dumps(pills, ensure_ascii=False), json.dumps(storage, ensure_ascii=False), sender_id),
+                )
 
     async def cleanup_expired_gifts(self):
         """清理过期赠予请求：物品退回发送者，而不是直接删除。"""
         import time
         now = int(time.time())
-        async with self.conn.execute(
-            "SELECT id, sender_id, item_name, count, item_kind, item_quality, instance_id "
-            "FROM pending_gifts WHERE expires_at < ?",
-            (now,),
-        ) as cursor:
-            rows = [dict(r) for r in await cursor.fetchall()]
-        for gift in rows:
-            await self._return_gift_to_sender(gift)
-            await self.conn.execute("DELETE FROM pending_gifts WHERE id = ?", (gift["id"],))
-        if rows:
-            await self.conn.commit()
+        async with self._transaction():
+            async with self.conn.execute(
+                "SELECT id, sender_id, item_name, count, item_kind, item_quality, instance_id "
+                "FROM pending_gifts WHERE expires_at < ?",
+                (now,),
+            ) as cursor:
+                rows = [dict(r) for r in await cursor.fetchall()]
+            for gift in rows:
+                # DELETE+rowcount 幂等抢占：已被其它流程处理的记录直接跳过，避免重复退回
+                cursor = await self.conn.execute(
+                    "DELETE FROM pending_gifts WHERE id = ?", (gift["id"],)
+                )
+                if cursor.rowcount <= 0:
+                    continue
+                await self._return_gift_to_sender(gift)
 
     async def return_gifts_for_receiver(self, receiver_id: str, commit: bool = True):
         """接收者被删除/弃道前，把待接收赠予退回发送者。"""
@@ -1046,8 +1056,13 @@ class DatabaseExtended:
         ) as cursor:
             rows = [dict(r) for r in await cursor.fetchall()]
         for gift in rows:
+            # DELETE+rowcount 幂等抢占：已被接收/清理流程处理的记录跳过退回
+            cursor = await self.conn.execute(
+                "DELETE FROM pending_gifts WHERE id = ?", (gift["id"],)
+            )
+            if cursor.rowcount <= 0:
+                continue
             await self._return_gift_to_sender(gift)
-            await self.conn.execute("DELETE FROM pending_gifts WHERE id = ?", (gift["id"],))
         if rows and commit:
             await self.conn.commit()
     

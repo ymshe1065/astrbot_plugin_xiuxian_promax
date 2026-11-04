@@ -1,5 +1,6 @@
 # handlers/shop_handler.py
 
+import json
 import time
 import re
 import random
@@ -7,6 +8,7 @@ from typing import Tuple
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api import AstrBotConfig, logger
 from ..data import DataBase
+from ..data.data_manager import _find_shop_entry_index
 from ..core import ShopManager, EquipmentManager, PillManager, StorageRingManager, ItemRules
 from ..models import Player
 from ..config_manager import ConfigManager
@@ -105,22 +107,34 @@ class ShopHandler:
                                          apply_rank_band: bool = False, pick_mode: str = "",
                                          stock_cap: int = 0) -> None:
         """确保阁楼已刷新"""
-        last_refresh_time, current_items = await self.db.get_shop_data(pavilion_id)
-        if current_items:
-            updated = self.shop_manager.dedupe_same_name_items(current_items)
-            updated = self.shop_manager.ensure_items_have_stock(current_items) or updated
-            updated = self.shop_manager.ensure_equipment_quality(current_items) or updated
-            updated = self.shop_manager.refresh_item_data(current_items) or updated
-            # 配置里新增的常驻商品（如护劫类符图）不等整轮刷新，读取时直接补上
-            updated = self.shop_manager.sync_permanent_entries(current_items, item_getter, count) or updated
-            kept, filtered = self.shop_manager.filter_stale_shelf_items(
-                current_items, exclude_breakthrough=(pavilion_id == "recipe_pavilion")
-            )
-            if filtered:
-                current_items = kept
-                updated = True
-            if updated:
-                await self.db.update_shop_data(pavilion_id, last_refresh_time, current_items)
+        # 货架「读取→数据修复→回写」放进同一 BEGIN IMMEDIATE 事务：
+        # 回写前基于事务内重读的最新货架，避免旧快照 INSERT OR REPLACE
+        # 把并发购买的原子扣库存覆盖回滚
+        await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            last_refresh_time, current_items = await self.db.get_shop_data(pavilion_id)
+            if current_items:
+                updated = self.shop_manager.dedupe_same_name_items(current_items)
+                updated = self.shop_manager.ensure_items_have_stock(current_items) or updated
+                updated = self.shop_manager.ensure_equipment_quality(current_items) or updated
+                updated = self.shop_manager.refresh_item_data(current_items) or updated
+                # 配置里新增的常驻商品（如护劫类符图）不等整轮刷新，读取时直接补上
+                updated = self.shop_manager.sync_permanent_entries(current_items, item_getter, count) or updated
+                kept, filtered = self.shop_manager.filter_stale_shelf_items(
+                    current_items, exclude_breakthrough=(pavilion_id == "recipe_pavilion")
+                )
+                if filtered:
+                    current_items = kept
+                    updated = True
+                if updated:
+                    await self.db.conn.execute(
+                        "UPDATE shop SET current_items = ?, last_refresh_time = ? WHERE shop_id = ?",
+                        (json.dumps(current_items, ensure_ascii=False), last_refresh_time, pavilion_id),
+                    )
+            await self.db.conn.commit()
+        except Exception:
+            await self.db.conn.rollback()
+            raise
         # 丹方总数变化（新增/删除丹方）时强制重建丹方货架，避免旧货架残留
         if pavilion_id in ("recipe_pavilion", "breakthrough_recipe_pavilion"):
             try:
@@ -179,20 +193,31 @@ class ShopHandler:
         ]
         for pavilion_id, name, getter, cnt, pick_mode, stock_cap in jobs:
             try:
-                last_refresh, items = await self.db.get_shop_data(pavilion_id)
-                if items:
-                    data_changed = self.shop_manager.dedupe_same_name_items(items)
-                    data_changed = self.shop_manager.ensure_equipment_quality(items) or data_changed
-                    data_changed = self.shop_manager.refresh_item_data(items) or data_changed
-                    data_changed = self.shop_manager.sync_permanent_entries(items, getter, cnt) or data_changed
-                    kept, filtered = self.shop_manager.filter_stale_shelf_items(
-                        items, exclude_breakthrough=(pavilion_id == "recipe_pavilion")
-                    )
-                    if filtered:
-                        items[:] = kept
-                        data_changed = True
-                    if data_changed:
-                        await self.db.update_shop_data(pavilion_id, last_refresh, items)
+                # 读取+修复回写放进 BEGIN IMMEDIATE 事务，写回基于事务内重读的最新货架，
+                # 避免旧快照覆盖并发购买的原子扣库存
+                await self.db.conn.execute("BEGIN IMMEDIATE")
+                try:
+                    last_refresh, items = await self.db.get_shop_data(pavilion_id)
+                    if items:
+                        data_changed = self.shop_manager.dedupe_same_name_items(items)
+                        data_changed = self.shop_manager.ensure_equipment_quality(items) or data_changed
+                        data_changed = self.shop_manager.refresh_item_data(items) or data_changed
+                        data_changed = self.shop_manager.sync_permanent_entries(items, getter, cnt) or data_changed
+                        kept, filtered = self.shop_manager.filter_stale_shelf_items(
+                            items, exclude_breakthrough=(pavilion_id == "recipe_pavilion")
+                        )
+                        if filtered:
+                            items[:] = kept
+                            data_changed = True
+                        if data_changed:
+                            await self.db.conn.execute(
+                                "UPDATE shop SET current_items = ?, last_refresh_time = ? WHERE shop_id = ?",
+                                (json.dumps(items, ensure_ascii=False), last_refresh, pavilion_id),
+                            )
+                    await self.db.conn.commit()
+                except Exception:
+                    await self.db.conn.rollback()
+                    raise
                 refresh_hours = self._cfg("PAVILION_REFRESH_HOURS", 1)
                 due = self.shop_manager.should_refresh_shop(last_refresh, refresh_hours)
                 if not items:
@@ -640,6 +665,30 @@ class ShopHandler:
         await self.db.conn.execute("BEGIN IMMEDIATE")
         try:
             player = await self.db.get_player_by_id(event.get_sender_id())
+
+            # 事务内重读货架条目：下单后货架可能已被刷新/调价，
+            # 价格与下单价不一致时中止购买，避免按过期价格结算
+            _, shelf_items = await self.db.get_shop_data(pavilion_id)
+            entry_idx = _find_shop_entry_index(
+                shelf_items, target_item['name'],
+                self.shop_manager.shop_entry_key(target_item), quantity,
+            )
+            if entry_idx >= 0:
+                try:
+                    fresh_price = int(shelf_items[entry_idx].get('price', price) or 0)
+                except (TypeError, ValueError):
+                    fresh_price = int(price)
+                if fresh_price != int(price):
+                    await self.db.conn.rollback()
+                    yield event.plain_result(
+                        f"⚠️ 货架已刷新：【{target_item['name']}】价格已由 {price:,} 变为 {fresh_price:,} 灵石，请重新购买。"
+                    )
+                    return
+            elif not unlimited:
+                await self.db.conn.rollback()
+                yield event.plain_result(f"❌ 货架已刷新，【{target_item['name']}】已下架，请重新购买。")
+                return
+
             if player.gold < total_price:
                 await self.db.conn.rollback()
                 yield event.plain_result(

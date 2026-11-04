@@ -155,12 +155,31 @@ class GambleManager:
         if player.gold < total_cost:
             return False, f"❌ 灵石不足！切 {count} 块原石需要 {total_cost:,} 灵石。"
 
-        player.gold -= total_cost
-
         results = []
         # 扣费与所有掉落放入同一事务，避免中途异常时灵石被扣而物品丢失
         await self.db.conn.execute("BEGIN IMMEDIATE")
         try:
+            # 事务内重读最新灵石并同步回调用方对象：后续 update_player 全字段回写
+            # 不会再拿旧快照覆盖并发入账
+            fresh = await self.db.get_player_by_id(player.user_id)
+            if not fresh:
+                await self.db.conn.rollback()
+                return False, "❌ 角色数据异常，请重新踏入仙途。"
+            player.gold = fresh.gold
+
+            # 条件原子扣款：余额不足时 rowcount=0，绝不透支
+            cursor = await self.db.conn.execute(
+                "UPDATE players SET gold = gold - ? WHERE user_id = ? AND gold >= ?",
+                (total_cost, player.user_id, total_cost),
+            )
+            if not cursor.rowcount:
+                await self.db.conn.rollback()
+                return False, (
+                    f"❌ 灵石不足！切 {count} 块原石需要 {total_cost:,} 灵石，"
+                    f"你当前只有 {fresh.gold:,}。"
+                )
+            player.gold -= total_cost
+
             for _ in range(count):
                 for loot in self.roll_stone_loot():
                     results.append(await self._award_loot(player, loot))
@@ -409,14 +428,42 @@ class GambleManager:
             return False, "❌ 本小时你已经买过这件商品了，请等待下次刷新。"
 
         target = items[index - 1]
-        if player.gold < target["price"]:
-            return False, f"❌ 灵石不足！需要 {target['price']:,} 灵石。"
+        price = int(target.get("price") or 0)
+        if player.gold < price:
+            return False, f"❌ 灵石不足！需要 {price:,} 灵石。"
 
         if target.get("fake"):
-            player.gold -= target["price"]
-            penalty_hp = int(player.hp * 0.2) if player.hp > 0 else 0
-            player.hp = max(1, player.hp - penalty_hp)
-            await self.db.update_player(player)
+            # 假货：扣灵石与扣气血放入同一事务，条件原子扣款防止并发透支
+            await self.db.conn.execute("BEGIN IMMEDIATE")
+            try:
+                cursor = await self.db.conn.execute(
+                    "UPDATE players SET gold = gold - ? WHERE user_id = ? AND gold >= ?",
+                    (price, player.user_id, price),
+                )
+                if not cursor.rowcount:
+                    await self.db.conn.rollback()
+                    fresh = await self.db.get_player_by_id(player.user_id)
+                    have = fresh.gold if fresh else player.gold
+                    return False, (
+                        f"❌ 灵石不足！需要 {price:,} 灵石，"
+                        f"你当前只有 {have:,}。"
+                    )
+                # 事务内重读最新气血；死亡状态（hp<=0）保持原值不再扣血
+                fresh = await self.db.get_player_by_id(player.user_id)
+                cur_hp = fresh.hp if fresh else player.hp
+                penalty_hp = int(cur_hp * 0.2) if cur_hp > 0 else 0
+                new_hp = max(1, cur_hp - penalty_hp) if cur_hp > 0 else cur_hp
+                if cur_hp > 0 and new_hp != cur_hp:
+                    await self.db.conn.execute(
+                        "UPDATE players SET hp = ? WHERE user_id = ?",
+                        (new_hp, player.user_id),
+                    )
+                await self.db.conn.commit()
+                player.gold = fresh.gold if fresh else player.gold - price
+                player.hp = new_hp
+            except Exception:
+                await self.db.conn.rollback()
+                raise
             await self._mark_black_market_bought(player.user_id, index)
             return True, (
                 f"🤢 你买下了【{target['name']}】，结果发现是个假货！\n"
@@ -434,36 +481,65 @@ class GambleManager:
         except Exception:
             is_pill = data.get("type") == "丹药"
 
-        player.gold -= target["price"]
-        await self.db.update_player(player)
-
-        if is_pill:
-            inventory = player.get_pills_inventory()
-            pill_key = f"{target['name']}|一般"
-            inventory[pill_key] = inventory.get(pill_key, 0) + 1
-            player.set_pills_inventory(inventory)
-            await self.db.update_player(player)
-            await self._mark_black_market_bought(player.user_id, index)
-            return True, (
-                f"✅ 交易成功！你获得了【{target['name']}】x1，已放入丹药背包。\n"
-                f"消耗灵石：{target['price']:,}"
+        # 先条件原子扣灵石（防并发透支），发货失败再原路退回，绝不"扣钱又丢货"
+        await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            cursor = await self.db.conn.execute(
+                "UPDATE players SET gold = gold - ? WHERE user_id = ? AND gold >= ?",
+                (price, player.user_id, price),
             )
+            if not cursor.rowcount:
+                await self.db.conn.rollback()
+                fresh = await self.db.get_player_by_id(player.user_id)
+                have = fresh.gold if fresh else player.gold
+                return False, (
+                    f"❌ 灵石不足！需要 {price:,} 灵石，"
+                    f"你当前只有 {have:,}。"
+                )
 
-        ok, store_msg = await self.storage_ring_mgr.store_item(
-            player, target["name"], 1, silent=True,
-            quality=target.get("quality") or "",
-        )
+            if is_pill:
+                # 丹药在事务内基于最新数据直接入背包，避免旧快照覆盖并发入账
+                fresh = await self.db.get_player_by_id(player.user_id)
+                if fresh:
+                    inventory = fresh.get_pills_inventory()
+                    pill_key = f"{target['name']}|一般"
+                    inventory[pill_key] = inventory.get(pill_key, 0) + 1
+                    fresh.set_pills_inventory(inventory)
+                    await self.db.update_player(fresh, commit=False)
+                await self.db.conn.commit()
+                player.gold = fresh.gold if fresh else player.gold - price
+                if fresh:
+                    player.set_pills_inventory(fresh.get_pills_inventory())
+                await self._mark_black_market_bought(player.user_id, index)
+                return True, (
+                    f"✅ 交易成功！你获得了【{target['name']}】x1，已放入丹药背包。\n"
+                    f"消耗灵石：{price:,}"
+                )
+            await self.db.conn.commit()
+            player.gold -= price
+        except Exception:
+            await self.db.conn.rollback()
+            raise
+
+        # 非丹药走储物戒入库；store_item 自带事务与失败回滚，异常也不吞灵石
+        try:
+            ok, store_msg = await self.storage_ring_mgr.store_item(
+                player, target["name"], 1, silent=True,
+                quality=target.get("quality") or "",
+            )
+        except Exception as e:
+            ok, store_msg = False, f"入库异常：{e}"
         if not ok:
             # 储物戒满/类型不可存：退回灵石，绝不发幽灵物品
-            player.gold += target["price"]
-            await self.db.update_player(player)
+            await self.db.add_player_gold(player.user_id, price)
+            player.gold += price
             return False, (
                 f"❌ 购买【{target['name']}】失败：{store_msg}\n"
-                f"灵石已退回：{target['price']:,}"
+                f"灵石已退回：{price:,}"
             )
 
         await self._mark_black_market_bought(player.user_id, index)
         return True, (
             f"✅ 交易成功！你获得了【{target['name']}】x1，已存入储物戒。\n"
-            f"消耗灵石：{target['price']:,}"
+            f"消耗灵石：{price:,}"
         )

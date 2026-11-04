@@ -5,6 +5,7 @@ import json
 import random
 import re
 from typing import Tuple, Optional, Dict, List, Any, TYPE_CHECKING
+from uuid import uuid4
 
 try:
     from astrbot.api import logger
@@ -974,7 +975,7 @@ class SpiritFarmManager:
             # 统一规则：每株成功种植的灵草收获 HERB_YIELD_PER_CROP 份
             herb_counts[herb_name] = herb_counts.get(herb_name, 0) + HERB_YIELD_PER_CROP
         
-        # 应用奖励
+        # 应用奖励（收益字段先在事务外计算好加成）
         if total_exp > 0 or total_gold > 0:
             try:
                 from ..core.technique_bonus import TechniqueBonusManager
@@ -988,35 +989,55 @@ class SpiritFarmManager:
                 total_gold = await PetManager(self.db).apply_gold_bonus(player, total_gold)
             except Exception:
                 pass
-            player.experience += total_exp
-            player.gold += total_gold
-            # 只回写收益字段，避免旧快照覆盖当前气血/灵气
-            await self.db.update_player_fields(
-                player.user_id,
-                experience=player.experience,
-                gold=player.gold,
-            )
-        
-        # 将灵草存入储物戒
-        stored_items = []
-        if self.storage_ring_manager:
-            for herb_name, count in herb_counts.items():
-                success, _ = await self.storage_ring_manager.store_item(player, herb_name, count, silent=True)
-                if success:
-                    stored_items.append(f"{herb_name}×{count}")
-                else:
-                    stored_items.append(f"{herb_name}×{count}（储物戒已满，丢失）")
-        
-        # 更新灵田（收获消耗肥力，每株-8，最低为上限的20%；杂交领取不额外扣肥力）
+
+        # 单一 BEGIN IMMEDIATE 事务：删除已收作物 + 收益增量落库并 commit，
+        # 之后才存灵草；任何后续失败都不会导致重复结算（宁可丢奖励不可重复收获）
+        # 收获消耗肥力：每株-8，最低为上限的20%；杂交领取不额外扣肥力
         new_fertility = fertility
         if mature_crops:
             floor = int(max_fertility * FERTILITY_FLOOR_RATIO)
             new_fertility = max(floor, fertility - 8 * len(mature_crops))
-        await self.db.conn.execute(
-            "UPDATE spirit_farms SET crops = ?, fertility = ? WHERE user_id = ?",
-            (json.dumps(remaining_crops), new_fertility, player.user_id)
-        )
-        await self.db.conn.commit()
+        await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            if total_exp > 0 or total_gold > 0:
+                # 定向原子增量，避免旧快照回写覆盖并发改动
+                await self.db.conn.execute(
+                    "UPDATE players SET experience = experience + ?, gold = gold + ? "
+                    "WHERE user_id = ?",
+                    (total_exp, total_gold, player.user_id)
+                )
+            await self.db.conn.execute(
+                "UPDATE spirit_farms SET crops = ?, fertility = ? WHERE user_id = ?",
+                (json.dumps(remaining_crops), new_fertility, player.user_id)
+            )
+            await self.db.conn.commit()
+        except Exception:
+            try:
+                await self.db.conn.rollback()
+            except Exception:
+                pass
+            raise
+        player.experience += total_exp
+        player.gold += total_gold
+
+        # 将灵草存入储物戒（结算已落库；存放失败只记录日志并提示，绝不重复结算）
+        stored_items = []
+        store_failed = False
+        if self.storage_ring_manager:
+            for herb_name, count in herb_counts.items():
+                try:
+                    success, _ = await self.storage_ring_manager.store_item(player, herb_name, count, silent=True)
+                except Exception as e:
+                    logger.warning(f"【灵田】灵草存放异常 {herb_name}×{count}: {e}")
+                    success = False
+                if success:
+                    stored_items.append(f"{herb_name}×{count}")
+                else:
+                    store_failed = True
+                    stored_items.append(f"{herb_name}×{count}（储物戒已满，丢失）")
+                    logger.warning(
+                        f"【灵田】灵草存放失败 {herb_name}×{count}（user={player.user_id}），结算已完成不回滚"
+                    )
 
         # 构建返回消息
         msg_lines = ["🌾 收获结果", "━━━━━━━━━━━━━━━"]
@@ -1043,6 +1064,8 @@ class SpiritFarmManager:
             msg_lines.append(f"📦 存入储物戒：")
             for item in stored_items:
                 msg_lines.append(f"  {item}")
+            if store_failed:
+                msg_lines.append("⚠️ 灵草存放失败（储物戒已满），本次收获已结算，请联系管理员。")
         
         if withered_crops:
             withered_names = [c["name"] for c in withered_crops]
@@ -1195,7 +1218,8 @@ class SpiritFarmManager:
         now = int(time.time())
         grow_base = int(SPIRIT_HERBS[product]["grow_time"])
         mature_time = compute_crop_mature_time(product, now, grow_base)
-        job_id = f"{now}-{random.randint(1000, 9999)}"
+        # uuid 后缀避免同秒并发发起杂交时 job_id 碰撞
+        job_id = f"{now}-{uuid4().hex[:12]}"
         parents = sorted(key)
         for slot in free_slots[:HYBRID_PLOT_COST]:
             crops.append({
@@ -1366,6 +1390,6 @@ class SpiritFarmManager:
         lines.append("")
         lines.append("💡 /种植 <灵草名> [数量|格号区间|all] | /收获 | /铲除 <格号...|1-3|all>")
         lines.append("🧬 /杂交 消耗父本各1株并占用2格，完成后产出1株杂交植株")
-        lines.append("🌱 非杂交灵草可按灵田等级直接种植；杂交植株种植消耗1株，收获4株")
+        lines.append(f"🌱 非杂交灵草可按灵田等级直接种植；杂交植株种植消耗1株，种1收{HERB_YIELD_PER_CROP}")
         
         return "\n".join(lines)

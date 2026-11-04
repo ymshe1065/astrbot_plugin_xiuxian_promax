@@ -809,8 +809,17 @@ class StorageRingManager:
                 unit = int(entry.get("unit", 0) or 0)
                 if want <= 0 or unit <= 0:
                     continue
+                # 严格按预览记录的来源容器扣减，避免把预览范围外（如仓库）的同名物品一并回收；
+                # 兼容缺少 where 字段的旧预览，退回原有的 储物戒→仓库 顺序
+                where = entry.get("where", "")
+                if where == "storage":
+                    containers = (ring_items,)
+                elif where == "warehouse":
+                    containers = (warehouse_items,)
+                else:
+                    containers = (ring_items, warehouse_items)
                 got = 0
-                for container in (ring_items, warehouse_items):
+                for container in containers:
                     if got >= want:
                         break
                     try:
@@ -855,6 +864,10 @@ class StorageRingManager:
                 unit = int(entry.get("unit", 0) or 0)
                 inst = self.instance_manager.get_instance(player, inst_id)
                 if not inst or unit <= 0:
+                    continue
+                # 预览后实例被挪去别的容器（储物戒↔仓库）时跳过，严格按预览来源回收
+                planned_where = entry.get("where", "")
+                if planned_where and str(inst.get("location", "")) != planned_where:
                     continue
                 if self.instance_manager.remove(player, inst_id):
                     total_gold += unit

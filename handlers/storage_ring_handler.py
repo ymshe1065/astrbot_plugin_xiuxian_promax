@@ -196,7 +196,9 @@ class StorageRingHandler:
             )
             return
 
-        args = args.strip()
+        args = args.strip().replace("　", " ")
+        # 兼容全角数字（与商店 /购买 分支同口径）
+        args = args.translate(str.maketrans("０１２３４５６７８９", "0123456789"))
         parts = args.rsplit(" ", 1)
         quality = ""
         if len(parts) == 2 and parts[1].isascii() and parts[1].isdigit():
@@ -290,6 +292,10 @@ class StorageRingHandler:
 
         # 合并文本内容并移除命令前缀
         text_content = "".join(text_parts).strip()
+        # 兼容全角空格/数字（与商店 /购买 分支同口径）
+        text_content = text_content.replace("　", " ").translate(
+            str.maketrans("０１２３４５６７８９", "0123456789")
+        )
         for prefix in ["#赠予", "/赠予", "赠予"]:
             if text_content.startswith(prefix):
                 text_content = text_content[len(prefix):].strip()
@@ -508,11 +514,18 @@ class StorageRingHandler:
             item_kind = gift.get("item_kind", "item")
             item_quality = gift.get("item_quality", "")
 
-            # 先删除请求记录，防止并发卡出多份
-            await self.db.conn.execute("DELETE FROM pending_gifts WHERE id = ?", (gift_id,))
+            # 先删除请求记录，防止并发卡出多份（DELETE+rowcount 幂等抢占）
+            cursor = await self.db.conn.execute(
+                "DELETE FROM pending_gifts WHERE id = ?", (gift_id,)
+            )
+            if cursor.rowcount <= 0:
+                await self.db.conn.rollback()
+                yield event.plain_result("该赠予请求已被处理，请刷新后重试。")
+                return
 
             if item_kind == "equipment":
                 im = ItemInstanceManager(self.db, self.config_manager)
+                # 事务内重读发送者最新行，保证下面的定向回写基于最新数据
                 sender = await self.db.get_player_by_id(gift.get("sender_id"))
                 inst = im.get_instance(sender, gift.get("instance_id", 0)) if sender else None
                 if not inst:
@@ -528,7 +541,11 @@ class StorageRingHandler:
                     await self.db.conn.rollback()
                     yield event.plain_result("❌ 装备实例转移失败，请稍后再试。")
                     return
-                await self.db.update_player(sender, commit=False)
+                # 发送者只定向回写 equipment_instances 列，避免全字段覆盖其并发存档
+                await self.db.conn.execute(
+                    "UPDATE players SET equipment_instances = ? WHERE user_id = ?",
+                    (sender.equipment_instances, sender.user_id),
+                )
                 await self.db.update_player(player, commit=False)
                 await self.db.conn.commit()
                 yield event.plain_result(
@@ -643,7 +660,11 @@ class StorageRingHandler:
                     await self.db.conn.rollback()
                     yield event.plain_result("❌ 装备实例退回失败，请稍后再试。")
                     return
-                await self.db.update_player(sender_player, commit=False)
+                # 发送者只定向回写 equipment_instances 列，避免全字段覆盖其并发存档
+                await self.db.conn.execute(
+                    "UPDATE players SET equipment_instances = ? WHERE user_id = ?",
+                    (sender_player.equipment_instances, sender_id),
+                )
                 await self.db.conn.commit()
                 yield event.plain_result(
                     f"已拒绝来自【{sender_name}】的赠予\n"
@@ -658,7 +679,11 @@ class StorageRingHandler:
                 inventory = sender_player.get_pills_inventory()
                 inventory[pill_key] = int(inventory.get(pill_key, 0)) + count
                 sender_player.set_pills_inventory(inventory)
-                await self.db.update_player(sender_player, commit=False)
+                # 定向回写丹药背包列，避免全字段覆盖发送者的并发存档
+                await self.db.conn.execute(
+                    "UPDATE players SET pills_inventory = ? WHERE user_id = ?",
+                    (sender_player.pills_inventory, sender_id),
+                )
                 await self.db.conn.commit()
                 yield event.plain_result(
                     f"已拒绝来自【{sender_name}】的赠予\n"
@@ -676,7 +701,12 @@ class StorageRingHandler:
                     f"❌ 退回失败：{store_msg}\n赠予请求已保留，请让赠送者清理储物戒后重试。"
                 )
                 return
-            await self.db.update_player(sender_player, commit=False)
+            # 定向回写储物戒/溢出/装备实例三列，避免全字段覆盖发送者的并发存档
+            await self.db.conn.execute(
+                "UPDATE players SET storage_ring_items = ?, overflow_items = ?, equipment_instances = ? WHERE user_id = ?",
+                (sender_player.storage_ring_items, sender_player.overflow_items,
+                 sender_player.equipment_instances, sender_id),
+            )
             await self.db.conn.commit()
             label = f"{item_name}·{item_quality}" if item_quality else item_name
             yield event.plain_result(

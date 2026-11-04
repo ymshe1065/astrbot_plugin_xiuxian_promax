@@ -144,6 +144,8 @@ class EncounterManager:
             exp = int(merit.get("exp", 0) or 0)
             ratio = float(merit.get("ratio", 0.4) or 0.4)
             karma = int(merit.get("karma", 2) or 2)
+            # 一经选择立即清除，防止180秒窗口内重复 /奇遇选择 刷功德
+            await self.db.ext.set_system_config(self._storage_key(player.user_id), "")
             if choice == 1:
                 loss_gold = int(gold * ratio)
                 loss_exp = int(exp * ratio)
