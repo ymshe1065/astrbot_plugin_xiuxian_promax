@@ -3,6 +3,7 @@ import sys
 import types
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT.parent))
@@ -137,9 +138,13 @@ class TestTechniqueSystem(unittest.TestCase):
             cfg["name"] for cfg in self.cm.techniques_data.values()
             if cfg.get("type") == "main_technique"
         }
-        picked = self.TBM.roll_technique_drop(
-            player, self.cm, base_chance=100, allow_main=True, main_ratio=1.0
-        )
+        # roll_technique_drop 的掉落概率上限固定为 95%（与奇遇等概率触发一致，永不为 100% 必掉），
+        # 因此 base_chance=100 仍有 5% 概率直接返回空串。这里把随机闸门固定为必中，
+        # 只验证“掉落时取到的是配置的主修心法”，避免用例随随机状态偶发失败。
+        with patch("random.random", return_value=0.0):
+            picked = self.TBM.roll_technique_drop(
+                player, self.cm, base_chance=100, allow_main=True, main_ratio=1.0
+            )
         self.assertIn(picked, names)
 
 
