@@ -3039,7 +3039,7 @@ class XiuXianPlugin(Star):
     async def handle_my_market_alias(self, event: AstrMessageEvent):
         async for r in self.auction_handlers.handle_my_market(event): yield r
 
-    @filter.command("坊市卖出", "接受NPC问价并卖出商品")
+    @filter.command("坊市卖出", "接受NPC问价并卖出商品（all=一键卖出全部问价）")
     @require_whitelist
     async def handle_market_accept_offer(self, event: AstrMessageEvent, offer_id: str = "0"):
         async for r in self.auction_handlers.handle_accept_offer(event, offer_id): yield r

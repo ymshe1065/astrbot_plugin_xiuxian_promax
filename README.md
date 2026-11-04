@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v6.56.0 (周本 + 储物戒与仓库取出制)
+# AstrBot 插件：模拟修仙 v6.56.1 (坊市一键卖出)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v6.56.0-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v6.56.1-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.33.17 · **游戏版本:** v6.56.0 · **数据库:** v58
+> **插件版本:** v3.33.18 · **游戏版本:** v6.56.1 · **数据库:** v58
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，257 条帮助指令 / 257 条注册指令、17 个大系统、111 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,20 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · v6.56.0（合并周本线与储物戒/仓库线）</b></summary>
+<summary><b>本次更新 · v6.56.1（坊市一键卖出）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 新用法 | `/坊市卖出 all`（也支持 `全部`）一键接受当前所有待处理 NPC 问价，无需逐个输入问价编号。 |
+| 取价规则 | 同一挂单若存在多条待处理问价，只按其中**最高单价**成交，避免误卖低价；成交后整单商品与相关问价一并移除。 |
+| 回执 | 汇总显示成交件数、失败件数、获得灵石总额与每笔成交明细；没有可卖问价时给出 `/我的坊市` 提示。 |
+| 兼容 | `/坊市卖出 <问价ID>` 保持原行为；`/我的坊市` 底部新增一键卖出提示，`/修仙帮助` 同步。 |
+| 版本同步 | 插件版本 v3.33.18，游戏版本 v6.56.1，数据库 v58（无结构变更）。 |
+
+</details>
+
+<details>
+<summary><b>v6.56.0（合并周本线与储物戒/仓库线）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |

@@ -559,6 +559,7 @@ class AuctionManager:
         msg.append("━━━━━━━━━━━━━━━")
         if offers:
             msg.append("💡 /坊市卖出 <问价ID> 接受问价并卖出")
+            msg.append("💡 /坊市卖出 all 一键卖出所有待处理问价")
             msg.append("💡 /坊市等待 <问价ID> 放弃本次问价，继续等待")
         msg.append("💡 /坊市下架 <坊市ID> 撤回商品")
         if self.npc_enabled:
@@ -571,6 +572,53 @@ class AuctionManager:
     @_serialized
     async def accept_offer(self, player: Player, offer_id: int) -> Tuple[bool, str]:
         """接受NPC问价，按问价卖出整件商品"""
+        ok, msg, _, _ = await self._accept_offer_impl(player, offer_id)
+        return ok, msg
+
+    @_serialized
+    async def accept_all_offers(self, player: Player) -> Tuple[int, int, int, list]:
+        """一键接受当前所有待处理NPC问价（同一挂单只取最高报价）。
+
+        返回 (成交数, 失败数, 获得灵石, 明细行)。
+        """
+        now = int(time.time())
+        await self._expire_seller_offers(player.user_id, now)
+
+        async with self.db.conn.execute(
+            "SELECT * FROM auction_npc_offers "
+            "WHERE seller_id = ? AND status = 'pending' AND expire_time > ? "
+            "ORDER BY auction_id, offer_price DESC, id",
+            (player.user_id, now),
+        ) as cursor:
+            offers = [dict(r) for r in await cursor.fetchall()]
+
+        if not offers:
+            return 0, 0, 0, []
+
+        # 同一挂单通常只有一个待处理问价；若存在并发残留，只取报价最高的一条
+        best_offers = {}
+        for offer in offers:
+            auction_id = offer["auction_id"]
+            if auction_id not in best_offers:
+                best_offers[auction_id] = offer
+
+        success_count = 0
+        fail_count = 0
+        total_gold = 0
+        details = []
+        for offer in best_offers.values():
+            ok, msg, gold, summary = await self._accept_offer_impl(player, offer["id"])
+            if ok:
+                success_count += 1
+                total_gold += gold
+                details.append(f"• {summary}")
+            else:
+                fail_count += 1
+                details.append(f"• ⚠️ 问价#{offer['id']} 未成交：{msg}")
+        return success_count, fail_count, total_gold, details
+
+    async def _accept_offer_impl(self, player: Player, offer_id: int) -> Tuple[bool, str, int, str]:
+        """内部成交逻辑，返回 (成功, 消息, 获得灵石, 成交简述)。调用方需持有 self._lock。"""
         now = int(time.time())
         await self.db.conn.execute("BEGIN IMMEDIATE")
         try:
@@ -580,17 +628,17 @@ class AuctionManager:
                 row = await cursor.fetchone()
             if not row:
                 await self.db.conn.rollback()
-                return False, "❌ 该问价不存在或已结束。"
+                return False, "❌ 该问价不存在或已结束。", 0, ""
             offer = dict(row)
 
             player = await self.db.get_player_by_id(player.user_id) or player
 
             if offer["seller_id"] != player.user_id:
                 await self.db.conn.rollback()
-                return False, "❌ 只能处理自己的NPC问价。"
+                return False, "❌ 只能处理自己的NPC问价。", 0, ""
             if offer["status"] != "pending":
                 await self.db.conn.rollback()
-                return False, "❌ 该问价已失效，请查看 /我的坊市。"
+                return False, "❌ 该问价已失效，请查看 /我的坊市。", 0, ""
             if offer["expire_time"] <= now:
                 await self.db.conn.execute(
                     "UPDATE auction_npc_offers SET status = 'expired', responded_time = ? WHERE id = ?",
@@ -598,7 +646,7 @@ class AuctionManager:
                 )
                 await self._schedule_next_offer(offer["auction_id"], now)
                 await self.db.conn.commit()
-                return False, "⏰ 该NPC问价已过期，已继续等待下一位买家。"
+                return False, "⏰ 该NPC问价已过期，已继续等待下一位买家。", 0, ""
 
             async with self.db.conn.execute(
                 "SELECT * FROM auction_items WHERE id = ?", (offer["auction_id"],)
@@ -609,18 +657,18 @@ class AuctionManager:
                     "DELETE FROM auction_npc_offers WHERE auction_id = ?", (offer["auction_id"],)
                 )
                 await self.db.conn.commit()
-                return False, "❌ 该商品已不在坊市，问价自动取消。"
+                return False, "❌ 该商品已不在坊市，问价自动取消。", 0, ""
             item = dict(row)
 
             if item["seller_id"] != player.user_id:
                 await self.db.conn.rollback()
-                return False, "❌ 商品归属异常，无法交易。"
+                return False, "❌ 商品归属异常，无法交易。", 0, ""
 
             if item.get("item_kind") == "equipment":
                 im = self._instance_manager()
                 if not im or not im.remove(player, int(item.get("instance_id", 0) or 0)):
                     await self.db.conn.rollback()
-                    return False, "❌ 装备实例已不存在，交易取消，请联系管理员。"
+                    return False, "❌ 装备实例已不存在，交易取消，请联系管理员。", 0, ""
                 await self.db.update_player(player, commit=False)
 
             total = offer["offer_price"] * item["count"]
@@ -633,6 +681,10 @@ class AuctionManager:
             )
             await self.db.conn.commit()
 
+            summary = (
+                f"【{self._display_name(item)}】x{item['count']} · "
+                f"{offer['npc_name']} {offer['offer_price']:,}/件 · 获得 {total:,} 灵石"
+            )
             return True, (
                 f"✅ NPC交易达成！\n"
                 f"━━━━━━━━━━━━━━━\n"
@@ -640,11 +692,11 @@ class AuctionManager:
                 f"商品：【{self._display_name(item)}】x{item['count']}\n"
                 f"成交价：{offer['offer_price']:,}/件（定价 {item['price']:,}）\n"
                 f"获得灵石：{total:,}（NPC收购免税）"
-            )
+            ), total, summary
         except Exception as e:
             await self.db.conn.rollback()
             logger.error(f"坊市NPC问价卖出异常: {e}")
-            return False, "❌ 交易异常，已取消，请稍后再试。"
+            return False, "❌ 交易异常，已取消，请稍后再试。", 0, ""
 
     @_serialized
     async def decline_offer(self, player: Player, offer_id: int) -> Tuple[bool, str]:
