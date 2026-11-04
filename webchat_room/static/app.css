@@ -453,7 +453,11 @@ input:focus, textarea:focus { outline: none; }
   border: 1px solid rgba(var(--jade-rgb), .2);
   border-radius: 20px; padding: 2px 10px;
   letter-spacing: .3px;
+  cursor: pointer; font-family: inherit;
+  transition: background .15s, border-color .15s;
 }
+.room-tag:hover { background: rgba(var(--jade-rgb), .16); border-color: rgba(var(--jade-rgb), .34); }
+.room-tag:active { transform: scale(.97); }
 .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 .conn { font-size: 11.5px; color: var(--dim); }
 .conn.on { color: var(--ok); }
@@ -530,10 +534,18 @@ input:focus, textarea:focus { outline: none; }
   box-shadow: 0 1px 4px rgba(var(--shade-rgb), .18);
   user-select: none;
 }
+.avatar.has-img, .me-dot.has-img {
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  color: transparent; text-shadow: none;
+}
 .avatar.bot-avatar {
-  background: var(--bot-avatar-grad);
-  color: var(--gold); font-size: 16px;
+  /* 机器人就是大肥鱼：两套皮肤都用同一个形象，只有底色跟着主题走 */
+  background: #fff url("/static/img/whale_logo.png") center / 100% no-repeat;
+  color: transparent; font-size: 0;
   border: 1px solid var(--card-line);
+  box-shadow: 0 1px 4px rgba(var(--shade-rgb), .18);
 }
 
 .msg-col { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; }
@@ -1054,7 +1066,15 @@ input:focus, textarea:focus { outline: none; }
 .tmpl-btn:hover { background: var(--accent-soft); border-color: rgba(var(--accent-rgb), .26); }
 
 /* ================= 账号设置弹层 ================= */
-.acc-sheet { padding-bottom: calc(20px + var(--safe-b)); }
+.acc-sheet {
+  padding-bottom: calc(20px + var(--safe-b));
+  /* 内容比屏幕高时内部滚动，不要顶出视口 */
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.acc-sheet::-webkit-scrollbar { width: 5px; }
+.acc-sheet::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: 3px; }
 .acc-id { display: flex; align-items: center; gap: 12px; margin: 10px 0 6px; }
 .acc-id-text { min-width: 0; }
 .acc-nick {
@@ -1068,6 +1088,82 @@ input:focus, textarea:focus { outline: none; }
 }
 .acc-sheet .btn-primary { margin-top: 12px; letter-spacing: 1px; padding: 10px; font-size: 14.5px; }
 .acc-divider { height: 1px; background: var(--line-soft); margin: 18px 0 4px; }
+
+/* QQ 存档绑定 */
+.bind-state {
+  font-size: 13px; color: var(--ink); margin: 2px 0 8px;
+  padding: 8px 10px; border-radius: 8px; background: var(--line-soft);
+}
+.bind-state.on { color: var(--accent); background: rgba(var(--accent-rgb), .1); }
+.bind-row { display: flex; gap: 8px; align-items: stretch; }
+.bind-row input { flex: 1; min-width: 0; }
+.acc-sheet .bind-row .btn-primary {
+  flex: 0 0 auto; width: auto; margin-top: 0; padding: 0 18px;
+  font-size: 13px; letter-spacing: 1px;
+}
+.acc-sheet #btnUnbind { margin-top: 8px; }
+.bind-tip { font-size: 12px; color: var(--dim); line-height: 1.55; margin-top: 8px; }
+
+/* 在线名单 */
+.online-sheet {
+  display: flex; flex-direction: column;
+  max-height: min(72vh, 540px);
+  padding-bottom: calc(10px + var(--safe-b));
+}
+.online-count {
+  font-style: normal; font-weight: 400; font-size: 12.5px;
+  color: var(--dim); margin-left: 5px;
+}
+.online-list { overflow-y: auto; margin-top: 6px; min-height: 60px; }
+.online-list::-webkit-scrollbar { width: 5px; }
+.online-list::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: 3px; }
+.online-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.online-row:last-child { border-bottom: none; }
+.online-avatar { width: 34px; height: 34px; border-radius: 10px; font-size: 14px; }
+.online-info { flex: 1; min-width: 0; }
+.online-nick {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 14px; color: var(--ink); font-weight: 500;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.online-me {
+  font-size: 10px; font-weight: 400; color: var(--accent);
+  background: rgba(var(--accent-rgb), .1);
+  border-radius: 4px; padding: 0 4px; flex: 0 0 auto;
+}
+.online-user { font-size: 11.5px; color: var(--dim); margin-top: 1px; }
+.online-dot {
+  width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto;
+  background: var(--jade); box-shadow: 0 0 0 3px rgba(var(--jade-rgb), .16);
+}
+.online-empty { text-align: center; color: var(--dim); font-size: 13px; padding: 26px 0; }
+
+/* 头像选择：内置 + 上传 */
+.avatar-pick { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.av-opt {
+  width: 38px; height: 38px; flex: 0 0 auto;
+  border-radius: 10px; border: 2px solid transparent;
+  background-color: var(--accent-2);
+  background-size: cover; background-position: center; background-repeat: no-repeat;
+  color: #fff; font-size: 14px; font-weight: 600; font-family: inherit;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 1px 4px rgba(var(--shade-rgb), .16);
+  transition: transform .12s, border-color .15s, box-shadow .15s;
+}
+.av-opt:hover { transform: translateY(-1px); }
+.av-opt.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), .16);
+}
+.av-upload {
+  background: var(--field); color: var(--dim);
+  border: 1.5px dashed var(--line); font-size: 19px; font-weight: 400;
+}
+.avatar-tip { font-size: 11.5px; color: var(--dim); margin-top: 8px; min-height: 17px; line-height: 1.4; }
 
 /* 主题选择：色块即预览 */
 .theme-pick { display: flex; gap: 8px; margin-top: 8px; }
@@ -1101,9 +1197,9 @@ input:focus, textarea:focus { outline: none; }
 
 /* 桌面端弹层居中（移动端仍从底部升起） */
 @media (min-width: 901px) {
-  .acc-sheet { border-radius: 16px; }
-  #accMask, #sheetMask { align-items: center; }
-  #accMask .sheet, #sheetMask .sheet {
+  .acc-sheet, .online-sheet { border-radius: 16px; }
+  #accMask, #sheetMask, #onlineMask { align-items: center; }
+  #accMask .sheet, #sheetMask .sheet, #onlineMask .sheet {
     border-radius: 14px; max-width: 400px;
     animation: popIn .18s ease-out;
     box-shadow: 0 18px 50px rgba(var(--shade-rgb), .28);

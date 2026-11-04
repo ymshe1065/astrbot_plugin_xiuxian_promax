@@ -3,7 +3,8 @@
 
 - SQLite 存储，密码 PBKDF2-SHA256 加盐哈希，明文绝不落盘
 - token 用 HMAC 自签（含过期时间），服务重启后仍有效，不需要 Redis
-- 账号名 = 插件侧的玩家标识（sender_id = web_<账号名>），改昵称不影响存档
+- 账号名默认就是插件侧的玩家标识（sender_id = web_<账号名>），改昵称不影响存档
+- 绑定 QQ 号后存档标识改为该 QQ 号（players.user_id），与旧机器人数据对齐
 """
 from __future__ import annotations
 
@@ -30,9 +31,11 @@ TOKEN_TTL = 7 * 24 * 3600  # 7 天
 PBKDF2_ROUNDS = 200_000
 
 USERNAME_RE = re.compile(r"^[\u4e00-\u9fa5A-Za-z0-9_]{2,16}$")
+QQ_RE = re.compile(r"^[1-9]\d{4,11}$")
 NICK_MAX = 16
 PWD_MIN = 6
 PWD_MAX = 64
+AVATAR_MAX = 200
 
 _lock = threading.Lock()
 _conn: sqlite3.Connection | None = None
@@ -66,9 +69,25 @@ def init() -> None:
                 nick       TEXT NOT NULL,
                 pwd        TEXT NOT NULL,
                 created    INTEGER NOT NULL,
-                last_login INTEGER NOT NULL DEFAULT 0
+                last_login INTEGER NOT NULL DEFAULT 0,
+                avatar     TEXT NOT NULL DEFAULT '',
+                qq         TEXT NOT NULL DEFAULT '',
+                player_key TEXT NOT NULL DEFAULT ''
             )
             """
+        )
+        # 老库补列（头像为空 = 用昵称首字）
+        cols = {row["name"] for row in _conn.execute("PRAGMA table_info(users)")}
+        if "avatar" not in cols:
+            _conn.execute("ALTER TABLE users ADD COLUMN avatar TEXT NOT NULL DEFAULT ''")
+        if "qq" not in cols:
+            _conn.execute("ALTER TABLE users ADD COLUMN qq TEXT NOT NULL DEFAULT ''")
+        if "player_key" not in cols:
+            _conn.execute("ALTER TABLE users ADD COLUMN player_key TEXT NOT NULL DEFAULT ''")
+        # 一个 QQ 号只能被一个网页账号绑定（空串不参与唯一约束）
+        _conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_qq "
+            "ON users(qq) WHERE qq <> ''"
         )
         _conn.commit()
 
@@ -140,7 +159,8 @@ def _norm(username: str) -> str:
 
 def get(username: str) -> dict[str, Any] | None:
     row = _db().execute(
-        "SELECT username, nick, created, last_login FROM users WHERE username = ?",
+        "SELECT username, nick, avatar, created, last_login, qq, player_key "
+        "FROM users WHERE username = ?",
         (_norm(username),),
     ).fetchone()
     return dict(row) if row else None
@@ -175,7 +195,8 @@ def verify(username: str, password: str) -> tuple[bool, str, dict[str, Any] | No
     """校验密码。返回 (ok, 提示语, 用户信息)。"""
     username = _norm(username)
     row = _db().execute(
-        "SELECT username, nick, pwd FROM users WHERE username = ?", (username,)
+        "SELECT username, nick, avatar, pwd, qq, player_key FROM users WHERE username = ?",
+        (username,),
     ).fetchone()
     if row is None:
         return False, "账号不存在，先去注册", None
@@ -188,7 +209,17 @@ def verify(username: str, password: str) -> tuple[bool, str, dict[str, Any] | No
             (int(time.time()), username),
         )
         db.commit()
-    return True, "登录成功", {"username": row["username"], "nick": row["nick"]}
+    return (
+        True,
+        "登录成功",
+        {
+            "username": row["username"],
+            "nick": row["nick"],
+            "avatar": row["avatar"] or "",
+            "qq": row["qq"] or "",
+            "player_key": row["player_key"] or "",
+        },
+    )
 
 
 def set_nick(username: str, nick: str) -> tuple[bool, str]:
@@ -204,6 +235,24 @@ def set_nick(username: str, nick: str) -> tuple[bool, str]:
         if cur.rowcount == 0:
             return False, "账号不存在"
     return True, "昵称已更新"
+
+
+def set_avatar(username: str, avatar: str) -> tuple[bool, str]:
+    """设置头像：空串 = 回到昵称首字；其余为可访问的图片 URL。"""
+    avatar = (avatar or "").strip()
+    if len(avatar) > AVATAR_MAX:
+        return False, "头像标识过长"
+    if avatar and not avatar.startswith("/"):
+        return False, "头像标识非法"
+    with _lock:
+        db = _db()
+        cur = db.execute(
+            "UPDATE users SET avatar = ? WHERE username = ?", (avatar, _norm(username))
+        )
+        db.commit()
+        if cur.rowcount == 0:
+            return False, "账号不存在"
+    return True, "头像已更新"
 
 
 def set_password(username: str, old: str, new: str) -> tuple[bool, str]:
@@ -222,3 +271,53 @@ def set_password(username: str, old: str, new: str) -> tuple[bool, str]:
 def count() -> int:
     row = _db().execute("SELECT COUNT(*) AS c FROM users").fetchone()
     return int(row["c"]) if row else 0
+
+
+# ---------- QQ 存档绑定（单向：网页账号 -> QQ 号存档） ----------
+
+
+def player_key_of(user: dict[str, Any]) -> str:
+    """网页账号实际使用的存档 key。
+
+    未绑定时是 web_<账号名>（兼容现有存档）；绑定后直接是 QQ 号，
+    于是和旧 QQ 机器人的 players.user_id 完全对齐，业务层无需任何改动。
+    """
+    key = str((user or {}).get("player_key") or "").strip()
+    return key or f"web_{(user or {}).get('username', '')}"
+
+
+def bind_qq(username: str, qq: str) -> tuple[bool, str]:
+    """把网页账号的存档指针指向某个 QQ 号。不搬数据、不覆盖任何存档。"""
+    qq = (qq or "").strip()
+    if not QQ_RE.match(qq):
+        return False, "QQ 号格式不对，请填 5-12 位数字"
+    username = _norm(username)
+    with _lock:
+        db = _db()
+        if db.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone() is None:
+            return False, "账号不存在"
+        taken = db.execute(
+            "SELECT username FROM users WHERE qq = ? AND username <> ?", (qq, username)
+        ).fetchone()
+        if taken is not None:
+            return False, f"该 QQ 号已被「{taken['username']}」绑定"
+        db.execute(
+            "UPDATE users SET qq = ?, player_key = ? WHERE username = ?",
+            (qq, qq, username),
+        )
+        db.commit()
+    return True, "绑定成功"
+
+
+def unbind_qq(username: str) -> tuple[bool, str]:
+    """解除绑定：回到 web_<账号名> 那份独立存档，QQ 存档原样保留。"""
+    username = _norm(username)
+    with _lock:
+        db = _db()
+        cur = db.execute(
+            "UPDATE users SET qq = '', player_key = '' WHERE username = ?", (username,)
+        )
+        db.commit()
+        if cur.rowcount == 0:
+            return False, "账号不存在"
+    return True, "已解除绑定"

@@ -1,17 +1,18 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-theme="xian">
+<html lang="zh-CN" data-theme="fish">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
-<meta name="theme-color" id="metaTheme" content="#f4eee1">
+<meta name="theme-color" id="metaTheme" content="#eef4ff">
 <link rel="icon" id="favicon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='%23a33b2a'/%3E%3C/svg%3E">
 <title>修仙聊天室</title>
 <script>
-/* 首屏定主题：必须在 CSS 生效前跑，否则会闪一下默认皮肤 */
+/* 首屏定主题：必须在 CSS 生效前跑，否则会闪一下默认皮肤
+ * 默认皮肤 = 大肥鱼（fish）；用户手动切过才用记录里的值。 */
 (function () {
   try {
-    var t = localStorage.getItem("xiuxian_theme_v1");
-    if (t !== "fish" && t !== "xian") t = "xian";
+    var t = localStorage.getItem("xiuxian_theme_v2");
+    if (t !== "fish" && t !== "xian") t = "fish";
     document.documentElement.setAttribute("data-theme", t);
   } catch (e) {}
 })();
@@ -64,7 +65,7 @@
       <span class="brand-mark" id="brandMark">☯</span>
       <span class="brand-text">修仙聊天室</span>
     </div>
-    <span class="room-tag" id="onlineTag">在线 1</span>
+    <button class="room-tag" id="onlineTag" type="button" title="查看在线名单">在线 1</button>
     <div class="topbar-right">
       <span class="conn" id="connState">未连接</span>
       <button class="icon-btn" id="btnTheme" title="切换主题" aria-label="切换主题">🐋</button>
@@ -148,9 +149,25 @@
         <div class="acc-user" id="accUser">—</div>
       </div>
     </div>
+
+    <label>头像</label>
+    <div class="avatar-pick" id="avatarPick"></div>
+    <input type="file" id="avatarFile" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+    <div class="avatar-tip" id="avatarTip">点选内置头像，或上传一张自己的（自动裁成方形）</div>
+
     <label for="accNick">昵称</label>
     <input id="accNick" maxlength="16" placeholder="群里显示的名字">
     <button class="btn-primary" id="accSaveNick">保存昵称</button>
+
+    <div class="acc-divider"></div>
+    <label>QQ 存档绑定</label>
+    <div class="bind-state" id="bindState">读取中…</div>
+    <div class="bind-row">
+      <input id="bindQq" inputmode="numeric" maxlength="12" placeholder="旧机器人的 QQ 号" autocomplete="off">
+      <button class="btn-primary" id="btnBind" type="button">绑 定</button>
+    </div>
+    <button class="btn-ghost" id="btnUnbind" type="button" hidden>解除绑定，回到网页存档</button>
+    <div class="bind-tip" id="bindTip">绑定后直接用旧 QQ 角色继续玩。</div>
 
     <div class="acc-divider"></div>
     <label>外观主题</label>
@@ -172,6 +189,17 @@
     <button class="btn-ghost" id="accSavePwd">修改密码</button>
     <button class="btn-ghost danger" id="accLogout">退出登录</button>
     <div class="err" id="accErr"></div>
+  </div>
+</div>
+
+<!-- ============ 在线名单 ============ -->
+<div class="sheet-mask" id="onlineMask" hidden>
+  <div class="sheet online-sheet">
+    <div class="sheet-head">
+      <span>在线同道 <em class="online-count" id="onlineCount">0</em></span>
+      <button class="sheet-close" id="onlineClose">×</button>
+    </div>
+    <div class="online-list" id="onlineList"></div>
   </div>
 </div>
 

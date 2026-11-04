@@ -12,12 +12,17 @@
   const CACHE_MAX = 80;
   const AUTH_KEY = "xiuxian_auth_v1";
   const ROOM = "room_main"; // 全服唯一聊天室
+  const BOT_NAME = "大肥鱼"; // 机器人显示名（聊天气泡里的落款）
+  // 内置头像，与后端 PRESET_AVATARS 保持一致
+  const PRESETS = ["taiji", "sword", "cloud", "moon", "lotus", "bamboo", "cauldron", "fish", "star"];
 
   /* ================= 状态 ================= */
   const S = {
     ws: null,
     me: "",                  // 昵称（显示名）
     username: "",            // 账号（玩家标识 web_<username>）
+    avatar: "",              // 头像 URL（空 = 昵称首字）
+    online: [],              // 在线名单 [{username, nick, avatar}]
     token: "",
     room: ROOM,
     authMode: "login",
@@ -65,16 +70,43 @@
     return s ? Array.from(s)[0].toUpperCase() : "我";
   }
 
+  /** 头像内联样式：有图用背景图，没图用色彩 + 首字 */
+  function avatarStyle(name, avatar) {
+    // 注意用单引号：这串会作为 style="..." 的值写进 HTML，双引号会提前闭合属性
+    if (avatar) return `background-image:url('${esc(avatar)}')`;
+    return `background:${avatarColor(name)}`;
+  }
+
+  function avatarHtml(name, avatar, cls = "") {
+    const inner = avatar ? "" : esc(initial(name));
+    return `<div class="avatar ${cls}${avatar ? " has-img" : ""}" style="${avatarStyle(name, avatar)}">${inner}</div>`;
+  }
+
+  /** 把已有的头像元素（顶栏/账号弹层）刷成新头像 */
+  function paintAvatar(el, name, avatar) {
+    if (!el) return;
+    if (avatar) {
+      el.classList.add("has-img");
+      el.textContent = "";
+      el.style.background = "";
+      el.style.backgroundImage = `url("${avatar}")`;
+    } else {
+      el.classList.remove("has-img");
+      el.style.backgroundImage = "";
+      el.textContent = initial(name);
+      el.style.background = avatarColor(name);
+    }
+  }
+
   function updateMeUI() {
     const n = S.me || "我";
     $("meNick").textContent = n;
-    $("meDot").textContent = initial(n);
-    $("meDot").style.background = avatarColor(n);
+    paintAvatar($("meDot"), n, S.avatar);
     $("accNickShow").textContent = n;
     $("accUser").textContent = "@" + (S.username || "");
-    $("accDot").textContent = initial(n);
-    $("accDot").style.background = avatarColor(n);
+    paintAvatar($("accDot"), n, S.avatar);
     $("accNick").value = n;
+    paintAvatarPick();
   }
 
   function setAuthMode(mode) {
@@ -108,7 +140,7 @@
       });
       const d = await r.json().catch(() => ({}));
       if (!d.ok) return fail(d.error || "登录失败，稍后再试");
-      saveAuth({ token: d.token, username: d.username, nick: d.nick });
+      saveAuth({ token: d.token, username: d.username, nick: d.nick, avatar: d.avatar || "" });
       enterRoom(d);
     } catch {
       fail("网络异常，稍后再试");
@@ -121,6 +153,7 @@
     S.token = auth.token;
     S.username = auth.username;
     S.me = auth.nick || auth.username;
+    S.avatar = auth.avatar || "";
     S.room = ROOM;
     $("loginErr").textContent = "";
     $("login").hidden = true;
@@ -144,6 +177,8 @@
     localStorage.removeItem(cacheKey());
     S.me = "";
     S.username = "";
+    S.avatar = "";
+    S.online = [];
     S.token = "";
     S.connected = false;
     $("accMask").hidden = true;
@@ -170,7 +205,62 @@
     $("accErr").textContent = "";
     $("accOld").value = "";
     $("accNew").value = "";
+    $("avatarTip").textContent = "点选内置头像，或上传一张自己的（自动裁成方形）";
+    loadBindStatus();
     $("accMask").hidden = false;
+  }
+
+  /* ---------- 头像 ---------- */
+  function paintAvatarPick() {
+    const box = $("avatarPick");
+    if (!box) return;
+    const cur = S.avatar || "";
+    let html = `<button class="av-opt${cur ? "" : " active"}" data-val="" type="button"
+      title="默认（昵称首字）" style="background:${avatarColor(S.me)}">${esc(initial(S.me))}</button>`;
+    PRESETS.forEach((name) => {
+      const url = `/static/img/avatars/${name}.svg`;
+      html += `<button class="av-opt${cur === url ? " active" : ""}" data-val="${esc(url)}"
+        type="button" style="background-image:url('${esc(url)}')" title="内置头像"></button>`;
+    });
+    html += `<button class="av-opt av-upload" data-upload="1" type="button" title="上传图片">＋</button>`;
+    box.innerHTML = html;
+  }
+
+  async function saveAvatar(payload) {
+    const tip = (t) => ($("avatarTip").textContent = t);
+    try {
+      const r = await fetch("/api/avatar", {
+        method: "POST",
+        headers: { Authorization: "Bearer " + S.token, "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!d.ok) return tip(d.error || "头像保存失败");
+      S.avatar = d.avatar || "";
+      updateMeUI();
+      tip(S.avatar ? "头像已更换" : "已恢复默认头像");
+      toast("头像已更新");
+    } catch {
+      tip("网络异常，稍后再试");
+    }
+  }
+
+  async function onAvatarFile(ev) {
+    const file = ev.target.files && ev.target.files[0];
+    ev.target.value = ""; // 允许重复选同一张
+    if (!file) return;
+    const tip = (t) => ($("avatarTip").textContent = t);
+    if (!/^image\//.test(file.type)) return tip("请选一张图片");
+    if (file.size > 2 * 1024 * 1024) return tip("图片太大了，选 2MB 以内的");
+    tip("正在处理图片…");
+    const dataUrl = await new Promise((resolve) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(String(fr.result || ""));
+      fr.onerror = () => resolve("");
+      fr.readAsDataURL(file);
+    });
+    if (!dataUrl) return tip("这张图读不出来，换一张");
+    await saveAvatar({ image: dataUrl });
   }
 
   async function saveNick() {
@@ -214,6 +304,95 @@
     } catch {
       $("accErr").textContent = "网络异常，稍后再试";
     }
+  }
+
+  /* ---------- QQ 存档绑定 ---------- */
+  async function apiBind(path, body) {
+    try {
+      const r = await fetch(path, {
+        method: "POST",
+        headers: { Authorization: "Bearer " + S.token, "Content-Type": "application/json" },
+        body: JSON.stringify(body || {}),
+      });
+      return await r.json().catch(() => ({}));
+    } catch {
+      return { ok: false, error: "网络异常，稍后再试" };
+    }
+  }
+
+  async function loadBindStatus() {
+    const state = $("bindState");
+    const tip = $("bindTip");
+    const input = $("bindQq");
+    const bindBtn = $("btnBind");
+    const unbindBtn = $("btnUnbind");
+    try {
+      const r = await fetch("/api/bind/status", {
+        headers: { Authorization: "Bearer " + S.token },
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!d.ok) {
+        state.textContent = "绑定状态读取失败";
+        return;
+      }
+      if (d.qq) {
+        state.textContent = "已绑定 QQ " + d.qq;
+        state.classList.add("on");
+        input.value = d.qq;
+        input.disabled = true;
+        bindBtn.hidden = true;
+        unbindBtn.hidden = false;
+        const base = d.save
+          ? "已找到旧存档：境界 " + d.save.level_index + " · " +
+            (d.save.cultivation_type || "修士") + "。现在发消息即使用这份存档。"
+          : "该 QQ 号暂无存档数据。";
+        tip.textContent = base + (d.web_save ? " 网页原存档已保留，解绑即可回到它。" : "");
+      } else {
+        state.textContent = "未绑定 · 使用网页独立存档";
+        state.classList.remove("on");
+        input.value = "";
+        input.disabled = false;
+        bindBtn.hidden = false;
+        unbindBtn.hidden = true;
+        const mine = d.web_save
+          ? "当前网页存档：境界 " + d.web_save.level_index + " · " +
+            (d.web_save.cultivation_type || "修士") + "。"
+          : "";
+        tip.textContent = mine +
+          "填旧机器人的 QQ 号即可接着玩；网页当前存档会保留，解绑可回到它。";
+      }
+    } catch {
+      state.textContent = "网络异常，稍后再试";
+    }
+  }
+
+  async function bindQq() {
+    const qq = $("bindQq").value.trim();
+    if (!/^[1-9]\d{4,11}$/.test(qq)) {
+      $("bindTip").textContent = "请填 5-12 位数字 QQ 号";
+      return;
+    }
+    $("btnBind").disabled = true;
+    $("bindTip").textContent = "正在查找旧存档…";
+    const d = await apiBind("/api/bind", { qq });
+    $("btnBind").disabled = false;
+    if (!d.ok) {
+      $("bindTip").textContent = d.error || "绑定失败";
+      return;
+    }
+    await loadBindStatus();
+    toast(d.web_save ? "已切到 QQ 存档，网页原存档已保留" : "已绑定旧存档");
+  }
+
+  async function unbindQq() {
+    if (!confirm("解除后会回到网页自己的存档，QQ 存档仍会保留。确定吗？")) return;
+    const d = await apiBind("/api/bind/unbind", {});
+    if (!d.ok) {
+      $("bindTip").textContent = d.error || "解绑失败";
+      return;
+    }
+    await loadBindStatus();
+    toast("已解除绑定");
   }
 
   /* ================= 连接 ================= */
@@ -306,8 +485,62 @@
     if (S.ws && S.ws.readyState === 1) S.ws.send(JSON.stringify({ action: "online" }));
   }
 
+  /** 在线名单兼容两种格式：纯昵称数组（旧） / 带头像的对象数组 */
+  function normalizeOnline(list) {
+    return (list || [])
+      .map((p) =>
+        typeof p === "string"
+          ? { username: "", nick: p, avatar: "" }
+          : {
+              username: String(p.username || ""),
+              nick: String(p.nick || p.username || ""),
+              avatar: String(p.avatar || ""),
+            }
+      )
+      .filter((p) => p.nick);
+  }
+
   function setOnline(list) {
-    $("onlineTag").textContent = `在线 ${(list || []).length}`;
+    S.online = normalizeOnline(list);
+    $("onlineTag").textContent = `在线 ${S.online.length}`;
+    if (!$("onlineMask").hidden) renderOnline();
+  }
+
+  function isMe(p) {
+    return !!S.username && p.username === S.username;
+  }
+
+  function renderOnline() {
+    const box = $("onlineList");
+    $("onlineCount").textContent = String(S.online.length);
+    if (!S.online.length) {
+      box.innerHTML = `<div class="online-empty">此刻只有你，独自修行中</div>`;
+      return;
+    }
+    // 自己排最前，其余按昵称
+    const rows = [...S.online].sort((a, b) => {
+      const d = (isMe(b) ? 1 : 0) - (isMe(a) ? 1 : 0);
+      return d || a.nick.localeCompare(b.nick, "zh-Hans-CN");
+    });
+    box.innerHTML = rows
+      .map(
+        (p) =>
+          `<div class="online-row">` +
+          avatarHtml(p.nick, p.avatar, "online-avatar") +
+          `<div class="online-info">` +
+          `<div class="online-nick">${esc(p.nick)}${isMe(p) ? '<span class="online-me">我</span>' : ""}</div>` +
+          `<div class="online-user">@${esc(p.username || p.nick)}</div>` +
+          `</div>` +
+          `<span class="online-dot"></span>` +
+          `</div>`
+      )
+      .join("");
+  }
+
+  function openOnline() {
+    $("onlineMask").hidden = false;
+    renderOnline();
+    refreshOnline();
   }
 
   /* ================= 发送 ================= */
@@ -342,7 +575,7 @@
       })
     );
     if (!opts.silent && !opts.panel) {
-      addChat(S.me, text, null, true);
+      addChat(S.me, text, null, true, S.avatar);
     }
     // 兜底：20 秒未收到回复则丢弃等待态
     setTimeout(() => {
@@ -363,15 +596,23 @@
     }
     switch (m.type) {
       case "hello":
-        if (m.nick) { S.me = m.nick; updateMeUI(); }
+        if (m.nick) { S.me = m.nick; }
         if (m.username) S.username = m.username;
+        if (typeof m.avatar === "string") S.avatar = m.avatar;
+        updateMeUI();
         setOnline(m.online);
         addSys(`欢迎 ${S.me} 来到修仙聊天室`);
         refreshOnline();
         break;
       case "chat":
         // 用账号判断是不是自己，昵称可以随时改
-        addChat(m.from, m.text, m.ts, m.username ? m.username === S.username : m.from === S.me);
+        addChat(
+          m.from,
+          m.text,
+          m.ts,
+          m.username ? m.username === S.username : m.from === S.me,
+          m.avatar || ""
+        );
         break;
       case "bot":
         addBotMessage(m);
@@ -389,8 +630,23 @@
       case "error":
         addError(m.text);
         break;
+      case "presence":
       case "online":
         setOnline(m.players);
+        // 别的设备改了昵称/头像时，自己也跟着刷
+        {
+          const mine = (m.players || []).find((p) => p && p.username && p.username === S.username);
+          if (mine) {
+            const changed =
+              (typeof mine.avatar === "string" && mine.avatar !== S.avatar) ||
+              (mine.nick && mine.nick !== S.me);
+            if (changed) {
+              if (typeof mine.avatar === "string") S.avatar = mine.avatar;
+              if (mine.nick) S.me = mine.nick;
+              updateMeUI();
+            }
+          }
+        }
         break;
       case "pong":
         break;
@@ -442,17 +698,17 @@
     scrollBottom(opts.force);
   }
 
-  function addChat(from, text, ts, isMe) {
+  function addChat(from, text, ts, isMe, avatar = "") {
     const row = document.createElement("div");
     row.className = "msg-row" + (isMe ? " right" : "");
     row.innerHTML =
-      `<div class="avatar" style="background:${avatarColor(from)}">${esc(initial(from))}</div>` +
+      avatarHtml(from, avatar || (isMe ? S.avatar : "")) +
       `<div class="msg-col">` +
       `<div class="who">${esc(from)}<span class="time">${fmtTime(ts)}</span></div>` +
       `<div class="bubble">${escapeWithMarks(text)}</div>` +
       `</div>`;
     appendNode(row);
-    cachePush({ t: "chat", from, text, ts, me: isMe });
+    cachePush({ t: "chat", from, text, ts, me: isMe, avatar });
   }
 
   function addSys(text) {
@@ -477,7 +733,7 @@
 
     const col = document.createElement("div");
     col.className = "msg-col";
-    let html = `<div class="who bot-who">仙人<span class="time">${fmtTime(ts)}</span></div>`;
+    let html = `<div class="who bot-who">${BOT_NAME}<span class="time">${fmtTime(ts)}</span></div>`;
     html += `<div class="bubble">`;
     if (text) html += escapeWithMarks(text);
     (images || []).forEach((u) => {
@@ -486,7 +742,7 @@
     html += `</div>`;
     col.innerHTML = html;
 
-    row.innerHTML = `<div class="avatar bot-avatar">☯</div>`;
+    row.innerHTML = `<div class="avatar bot-avatar"></div>`;
     row.appendChild(col);
     bindImages(row);
     appendNode(row, { force: true });
@@ -1389,7 +1645,7 @@
       if (!recent.length) return;
       addSys("—— 以下是最近的记录 ——");
       recent.forEach((e) => {
-        if (e.t === "chat") addChat(e.from, e.text, Math.floor(e.at / 1000), e.me);
+        if (e.t === "chat") addChat(e.from, e.text, Math.floor(e.at / 1000), e.me, e.avatar || "");
         else if (e.t === "bot") addBotText(e.text, Math.floor(e.at / 1000));
       });
       addSys("—— 记录结束 ——");
@@ -1423,11 +1679,11 @@
   }
 
   /* ================= 主题 =================
-   * xian 宣纸玉简（默认） / fish 大肥鱼·浅蓝鱼缸
+   * fish 大肥鱼·浅蓝鱼缸（默认） / xian 宣纸玉简
    * 只切 data-theme，视觉全交给 CSS 变量；这里只管文案、图标和持久化。
    * 大肥鱼的 logo 不写在文案里，交给 CSS 背景图（brand/mark 留空即可）。
    */
-  const THEME_KEY = "xiuxian_theme_v1";
+  const THEME_KEY = "xiuxian_theme_v2";
   const FAVICON = {
     xian: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='%23a33b2a'/%3E%3C/svg%3E",
     fish: "/static/img/whale_favicon.png",
@@ -1452,10 +1708,10 @@
       btn: "☯",
     },
   };
-  let theme = "xian";
+  let theme = "fish";
 
   function applyTheme(name, persist) {
-    theme = THEMES[name] ? name : "xian";
+    theme = THEMES[name] ? name : "fish";
     const t = THEMES[theme];
     document.documentElement.setAttribute("data-theme", theme);
     document.body.dataset.theme = theme;
@@ -1482,7 +1738,7 @@
   }
 
   function initTheme() {
-    let start = "xian";
+    let start = "fish";
     try {
       const saved = localStorage.getItem(THEME_KEY);
       if (saved === "fish" || saved === "xian") start = saved;
@@ -1511,7 +1767,33 @@
     });
     $("accSaveNick").addEventListener("click", saveNick);
     $("accSavePwd").addEventListener("click", savePwd);
+    $("btnBind").addEventListener("click", bindQq);
+    $("btnUnbind").addEventListener("click", unbindQq);
+    $("bindQq").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") bindQq();
+    });
     $("accLogout").addEventListener("click", () => logout("已退出登录"));
+
+    // 头像：内置可点选，也可上传
+    $("avatarPick").addEventListener("click", (e) => {
+      const btn = e.target.closest(".av-opt");
+      if (!btn) return;
+      if (btn.dataset.upload) {
+        $("avatarFile").click();
+        return;
+      }
+      const val = btn.dataset.val || "";
+      if (val === (S.avatar || "")) return;
+      saveAvatar(val ? { preset: val.split("/").pop().replace(/\.svg$/, "") } : {});
+    });
+    $("avatarFile").addEventListener("change", onAvatarFile);
+
+    // 在线名单
+    $("onlineTag").addEventListener("click", openOnline);
+    $("onlineClose").addEventListener("click", () => ($("onlineMask").hidden = true));
+    $("onlineMask").addEventListener("click", (e) => {
+      if (e.target === $("onlineMask")) $("onlineMask").hidden = true;
+    });
 
     // 主题切换：顶栏快捷按钮 / 登录页小字 / 账号设置里的色块
     $("btnTheme").addEventListener("click", toggleTheme);
@@ -1673,5 +1955,9 @@
     openViewer,
     setTheme: applyTheme,
     getTheme: () => theme,
+    getAvatar: () => S.avatar,
+    setAvatar: saveAvatar,
+    getOnline: () => S.online,
+    openOnline,
   };
 })();

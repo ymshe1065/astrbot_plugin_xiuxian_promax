@@ -3,7 +3,8 @@
 
 - 通过 register_platform_adapter 注册为 platform type "webroom"，
   后台配置 {"type": "webroom", "enable": true, ...} 即可实例化。
-- 玩家身份: sender.user_id = "web_<玩家名>"（get_sender_id() 的返回值）
+- 玩家身份: sender.user_id = "web_<玩家名>"（get_sender_id() 的返回值）；
+  玩家在账号设置里绑定了 QQ 号后，这里直接变成该 QQ 号，与旧 QQ 机器人存档对齐
 - 房间即群: session_id = room_id, group_id = room_id（get_group_id() 的返回值）
 - UMO 形如 webroom:GroupMessage:room_main，与插件的定时世界播报格式天然匹配。
 """
