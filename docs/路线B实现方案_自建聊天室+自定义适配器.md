@@ -157,6 +157,52 @@ python3 -m venv .venv
 | `astrbot` | 适配器 `webroom_adapter.py` | 需 Python 3.10+，仅真实链路需要 |
 | `aiosqlite` | 插件存档库 | AstrBot 环境自带 |
 
+### 4.7 真实链路本地运行（AstrBot + webroom）
+
+前端预览只能验证 UI；要看**真实机器人回复**（指令解析、存档、图片渲染），需要完整 AstrBot。
+
+**固定路径约定**（已在本机落地，实测占用 ≈ 706 MB）：
+
+```
+~/.astrbot-runtime/
+├── python/   独立 CPython 3.12.16（免编译，24 MB 包 → 73 MB）
+├── venv/     AstrBot 4.29.4 运行环境（633 MB，含 65 个依赖）
+└── data/     AstrBot 根数据目录
+    ├── cmd_config.json                 # platform 段需含 webroom 实例
+    ├── config/astrbot_plugin_xiuxian_promax_config.json
+    ├── plugins/astrbot_plugin_xiuxian_promax -> 本仓库（软链，改代码即时生效）
+    ├── plugin_data/astrbot_plugin_xiuxian_promax/   # 玩家存档 sqlite
+    └── webroom/imgs/                   # 机器人回复的图片
+```
+
+**必备配置**
+
+`data/cmd_config.json` 的 `platform` 段：
+
+```json
+[{ "id": "webroom", "type": "webroom", "enable": true, "host": "127.0.0.1", "port": 6198 }]
+```
+
+`data/config/astrbot_plugin_xiuxian_promax_config.json` 的 `ACCESS_CONTROL`（房间 ID 即群号，不填则世界播报会跳过）：
+
+```json
+{ "WHITELIST_GROUPS": ["room_main"], "BROADCAST_GROUPS": ["room_main"] }
+```
+
+**启停**
+
+```bash
+scripts/astrbot_local.sh start     # 后台启动，等端口就绪
+scripts/astrbot_local.sh status    # 面板 6199 / 聊天室 6198 状态
+scripts/astrbot_local.sh logs 80   # 看日志
+scripts/astrbot_local.sh stop
+```
+
+浏览器打开 <http://127.0.0.1:6198/>，昵称随意、房间填 `room_main`；面板 <http://127.0.0.1:6199/>（初始账号 `astrbot`，初始密码见首次启动日志，可用 `astrbot password` 重置）。
+
+**已实测通过的链路**：`/修仙帮助`（返回帮助图，落盘 `data/webroom/imgs` 后经 `/media/<file>` 访问）→ `/我要修仙 灵修` → `/选择灵根 1` → `/签到` → `/我的信息`，均为真实的插件逻辑与存档写库。
+
+
 
 ---
 
