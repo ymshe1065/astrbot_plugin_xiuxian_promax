@@ -149,7 +149,9 @@ class PlayerHandler:
             data = _json.loads(raw) if raw else None
         except Exception:
             data = None
-        if not isinstance(data, dict) or not data.get("roots"):
+        if not isinstance(data, dict):
+            return None
+        if not (data.get("roots") or data.get("cultivation_type") or data.get("life_skill")):
             return None
         if int(time.time()) - int(data.get("created_at") or 0) > PENDING_ROOT_TIMEOUT:
             await self._clear_root_pending(prefix, user_id)
@@ -250,22 +252,27 @@ class PlayerHandler:
             yield event.plain_result(reply)
             return
 
-        pending_rebirth = await self._load_root_pending("rebirth_roots", user_id)
+        pending_rebirth = await self._load_root_pending("rebirth_options", user_id)
         if pending_rebirth:
             player = await self.db.get_player_by_id(user_id)
             if not player:
-                await self._clear_root_pending("rebirth_roots", user_id)
+                await self._clear_root_pending("rebirth_options", user_id)
                 yield event.plain_result("❌ 未找到你的角色，无法重修。")
                 return
             roots = pending_rebirth.get("roots") or []
             if not (0 <= index < len(roots)):
                 yield event.plain_result(f"❌ 请选择 1~{len(roots)} 之间的数字。")
                 return
-            ok, msg = await self._perform_rebirth(player, roots[index])
+            ok, msg = await self._perform_rebirth(
+                player,
+                roots[index],
+                cultivation_type=str(pending_rebirth.get("cultivation_type") or ""),
+                life_skill=str(pending_rebirth.get("life_skill") or ""),
+            )
             if not ok:
                 yield event.plain_result(msg)
                 return
-            await self._clear_root_pending("rebirth_roots", user_id)
+            await self._clear_root_pending("rebirth_options", user_id)
             yield event.plain_result(msg)
             return
 
@@ -951,7 +958,7 @@ class PlayerHandler:
 
     @player_required
     async def handle_rebirth(self, player: Player, event: AstrMessageEvent, confirm_text: str = ""):
-        """弃道重修（方案B）：保留仙缘/转生次数/称号/灵根，3 天冷却。"""
+        """弃道重修（方案B）：保留仙缘/转生次数/称号/灵根，可免费重选职业与生活职业。"""
         self.last_rebirth_success = False
         block = await self._rebirth_block_reason(player)
         if block:
@@ -959,29 +966,117 @@ class PlayerHandler:
             return
 
         text = (confirm_text or "").strip()
-        if text == "重随灵根":
-            async for r in self._reroll_rebirth_roots(player, event):
-                yield r
-            return
-        if text != "确认":
+        pending = await self._load_root_pending("rebirth_options", player.user_id) or {}
+        current_type = pending.get("cultivation_type") or player.cultivation_type
+        from ..managers.life_skill_manager import LIFE_SKILLS
+        current_life = pending.get("life_skill") or (getattr(player, "life_skill", "") or "未选择")
+
+        # 支持多种写法：/弃道重修 御兽、/重修 御兽、/弃道重修 职业 御兽、/弃道重修 生活职业 炼丹师
+        def _record(field: str, value: str) -> None:
+            pending[field] = value
+
+        normalized_text = text.replace(" ", "")
+        if text.startswith(("重选职业", "职业")):
+            value = text.split("职业", 1)[1].strip() if "职业" in text else ""
+            normalized = CULTIVATION_ALIASES.get(value, value)
+            if normalized not in VALID_CULTIVATIONS:
+                yield event.plain_result(
+                    "❌ 职业选择错误，请从：灵修 / 体修 / 魔修 / 剑修 / 鬼修 / 佛修 / 御兽 中选择。"
+                )
+                return
+            _record("cultivation_type", normalized)
+            await self._save_root_pending("rebirth_options", player.user_id, pending.get("roots") or [],
+                                          {k: v for k, v in pending.items() if k not in ("roots", "created_at")})
             yield event.plain_result(
-                "⚠️ 弃道重修将重置境界、修为、灵石、装备、宗门、洞府、灵田、灵兽等\n"
-                "保留：仙缘点、转生次数、称号、灵根\n"
-                "━━━━━━━━━━━━━━━\n"
-                "限制：3 天一次，需空闲且无贷款；不提供传家宝封印\n"
-                "确认发送：弃道重修 确认（保留灵根）\n"
-                f"或发送：弃道重修 重随灵根（三选一换灵根，每轮上限 {REBIRTH_ROOT_REROLL_LIMIT} 次，每次消耗 {REBIRTH_ROOT_REROLL_COST} 仙缘点）"
+                f"✅ 已记录重选职业：【{normalized}】\n"
+                "再次发送「弃道重修 确认」执行，或继续选择灵根/生活职业。"
             )
             return
 
-        ok, msg = await self._perform_rebirth(player, player.spiritual_root.replace("灵根", ""))
+        if text.startswith(("生活职业", "生活")):
+            value = text.split("生活职业", 1)[1].strip() if "生活职业" in text else text.split("生活", 1)[1].strip()
+            if value not in LIFE_SKILLS:
+                listing = " / ".join(LIFE_SKILLS.keys())
+                yield event.plain_result(f"❌ 生活职业只有：{listing}")
+                return
+            _record("life_skill", value)
+            await self._save_root_pending("rebirth_options", player.user_id, pending.get("roots") or [],
+                                          {k: v for k, v in pending.items() if k not in ("roots", "created_at")})
+            yield event.plain_result(
+                f"✅ 已记录重选生活职业：【{value}】（重修后免费生效）\n"
+                "再次发送「弃道重修 确认」执行。"
+            )
+            return
+
+        if normalized_text in ("重随灵根", "换灵根", "重抽灵根"):
+            text = "重随灵根"
+
+        # 直接输入职业/生活职业名也能识别
+        if text not in ("重随灵根", "确认", "确定", "执行"):
+            normalized = CULTIVATION_ALIASES.get(text, text)
+            if normalized in VALID_CULTIVATIONS:
+                _record("cultivation_type", normalized)
+                await self._save_root_pending("rebirth_options", player.user_id, pending.get("roots") or [],
+                                              {k: v for k, v in pending.items() if k not in ("roots", "created_at")})
+                yield event.plain_result(
+                    f"✅ 已记录重选职业：【{normalized}】\n"
+                    "再次发送「弃道重修 确认」执行。"
+                )
+                return
+            if text in LIFE_SKILLS:
+                _record("life_skill", text)
+                await self._save_root_pending("rebirth_options", player.user_id, pending.get("roots") or [],
+                                              {k: v for k, v in pending.items() if k not in ("roots", "created_at")})
+                yield event.plain_result(
+                    f"✅ 已记录重选生活职业：【{text}】\n"
+                    "再次发送「弃道重修 确认」执行。"
+                )
+                return
+
+        if text in ("确认", "确定", "执行"):
+            text = "确认"
+        elif text != "重随灵根":
+            text = "__help__"
+
+        if text == "重随灵根":
+            async for r in self._reroll_rebirth_roots(player, event, pending):
+                yield r
+            return
+
+        if text == "__help__":
+            yield event.plain_result(
+                "⚠️ 弃道重修将重置境界、修为、灵石、装备、宗门、洞府、灵田、灵兽等\n"
+                "保留：仙缘点、转生次数、称号、灵根\n"
+                f"当前：职业【{current_type}】· 生活职业【{current_life}】· 灵根【{player.spiritual_root}】\n"
+                "━━━━━━━━━━━━━━━\n"
+                "可选操作（也支持 /重修 简写）：\n"
+                "  /弃道重修 御兽                （直接重选职业）\n"
+                "  /弃道重修 炼丹师              （直接重选生活职业）\n"
+                "  /弃道重修 职业 体修            （指定职业）\n"
+                "  /弃道重修 生活职业 炼丹师      （指定生活职业）\n"
+                f"  /弃道重修 重随灵根            （三选一换灵根，每轮上限 {REBIRTH_ROOT_REROLL_LIMIT} 次，每次消耗 {REBIRTH_ROOT_REROLL_COST} 仙缘点）\n"
+                "  /弃道重修 确认                （按当前选择执行）\n"
+                "职业：灵修/体修/魔修/剑修/鬼修/佛修/御兽\n"
+                "生活职业：炼器师/符箓师/阵法师/炼丹师\n"
+                "限制：3 天一次，需空闲且无贷款；职业与生活职业重选免费；不提供传家宝封印。"
+            )
+            return
+
+        ok, msg = await self._perform_rebirth(
+            player,
+            player.spiritual_root.replace("灵根", ""),
+            cultivation_type=str(pending.get("cultivation_type") or ""),
+            life_skill=str(pending.get("life_skill") or ""),
+        )
         if not ok:
             yield event.plain_result(msg)
             return
+        await self._clear_root_pending("rebirth_options", player.user_id)
         yield event.plain_result(msg)
 
-    async def _reroll_rebirth_roots(self, player: Player, event: AstrMessageEvent):
-        """重随灵根：每轮重修最多刷新 REBIRTH_ROOT_REROLL_LIMIT 次，每次消耗仙缘点。"""
+    async def _reroll_rebirth_roots(self, player: Player, event: AstrMessageEvent, pending: dict = None):
+        """重随灵根：每轮重修最多刷新 REBIRTH_ROOT_REROLL_LIMIT 次，每次消耗仙缘点；保留已选职业/生活职业。"""
+        pending = pending or {}
         key = f"rebirth_root_reroll_{player.user_id}"
         try:
             raw = await self.db.ext.get_system_config(key)
@@ -1012,26 +1107,31 @@ class PlayerHandler:
         used += 1
         await self.db.ext.set_system_config(key, str(used))
         roots = self.cultivation_manager.draw_spiritual_roots(3)
-        await self._save_root_pending("rebirth_roots", player.user_id, roots)
+        extra = {k: v for k, v in pending.items() if k not in ("roots", "created_at")}
+        extra["cultivation_type"] = extra.get("cultivation_type") or player.cultivation_type
+        extra["life_skill"] = str(extra.get("life_skill") or getattr(player, "life_skill", "") or "")
+        await self._save_root_pending("rebirth_options", player.user_id, roots, extra)
         yield event.plain_result(
             self._format_root_choices(roots)
             + f"\n请发送：{CMD_CHOOSE_ROOT} 1/2/3 选择灵根并执行重修"
-            + "\n（将重置境界与身外之物，保留仙缘/转生次数/称号）"
+            + f"\n当前已选：职业【{extra['cultivation_type']}】· 生活职业【{extra['life_skill'] or '未选择'}】"
             + f"\n🌀 灵根刷新：{used}/{REBIRTH_ROOT_REROLL_LIMIT} 次 · 本次消耗 {REBIRTH_ROOT_REROLL_COST} 仙缘点（剩余 {player.fate_points}）"
         )
 
-    async def _perform_rebirth(self, player: Player, root: str):
-        """执行重修重置：保留仙缘/转生次数/称号/灵根，清理身外之物。"""
+    async def _perform_rebirth(self, player: Player, root: str, cultivation_type: str = "", life_skill: str = ""):
+        """执行重修重置：保留仙缘/转生次数/称号/灵根；可选免费换职业/生活职业。"""
         block = await self._rebirth_block_reason(player)
         if block:
             return False, block
 
+        target_type = cultivation_type if cultivation_type in VALID_CULTIVATIONS else player.cultivation_type
         points = self._rebirth_points(player.level_index, player.experience)
         base_player = self.cultivation_manager.generate_new_player_stats(
-            player.user_id, player.cultivation_type, root=root
+            player.user_id, target_type, root=root
         )
         base_player.spiritual_root = f"{root}灵根"
 
+        player.cultivation_type = base_player.cultivation_type
         player.level_index = 0
         player.experience = 0
         player.gold = 1000
@@ -1066,6 +1166,13 @@ class PlayerHandler:
         player.resurrection_pill_quality = "一般"
         player.has_debuff_shield = False
         player.daily_pill_usage = "{}"
+
+        if life_skill:
+            player.life_skill = life_skill
+        # 重修后生活职业计费清零（下次更换从基础费用开始）
+        player.life_skill_changes = 0
+        player.life_skill_cost_peak = 0
+        player.life_skill_last_change_at = 0
 
         player.tutorial_step = 4
         player.reincarnation_count += 1
@@ -1175,10 +1282,12 @@ class PlayerHandler:
             except Exception:
                 title_msg = ""
 
+        life_line = f"、生活职业【{player.life_skill}】" if getattr(player, "life_skill", "") else ""
         return True, (
             "💀 弃道重修完成！\n"
             "━━━━━━━━━━━━━━━\n"
             f"保留：仙缘点 +{points}（当前 {player.fate_points}）、转生次数 {player.reincarnation_count}、称号、灵根【{player.spiritual_root}】\n"
+            f"新身份：职业【{player.cultivation_type}】{life_line}\n"
             "重置：境界、修为、灵石、装备、储物戒、丹药、功法\n"
             f"重置：宗门（{sect_note}）、洞府、灵田、灵兽、挂单、银行存款\n"
             "━━━━━━━━━━━━━━━\n"

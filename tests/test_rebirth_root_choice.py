@@ -199,6 +199,66 @@ class TestRootChoice(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(player.level_index, 0)
         self.assertEqual(player.spiritual_root, "火灵根")
 
+    async def test_rebirth_accepts_plain_class_and_life_skill(self):
+        handler, db = self._handler()
+        player = handler.cultivation_manager.generate_new_player_stats("u1", "鬼修", root="火")
+        db.players["u1"] = player
+        event = _FakeEvent()
+        async for _ in handler.handle_rebirth(event, "御兽"):
+            pass
+        pending = await handler._load_root_pending("rebirth_options", "u1")
+        self.assertEqual(pending.get("cultivation_type"), "御兽")
+        async for _ in handler.handle_rebirth(event, "炼丹师"):
+            pass
+        pending = await handler._load_root_pending("rebirth_options", "u1")
+        self.assertEqual(pending.get("life_skill"), "炼丹师")
+
+    async def test_rebirth_can_change_class_and_life_skill(self):
+        handler, db = self._handler()
+        player = handler.cultivation_manager.generate_new_player_stats("u1", "剑修", root="火")
+        player.level_index = 10
+        player.life_skill = "符箓师"
+        player.life_skill_changes = 3
+        player.life_skill_cost_peak = 50000
+        db.players["u1"] = player
+        event = _FakeEvent()
+        async for _ in handler.handle_rebirth(event, "职业 体修"):
+            pass
+        pending = await handler._load_root_pending("rebirth_options", "u1")
+        self.assertEqual(pending.get("cultivation_type"), "体修")
+        async for _ in handler.handle_rebirth(event, "生活职业 炼丹师"):
+            pass
+        pending = await handler._load_root_pending("rebirth_options", "u1")
+        self.assertEqual(pending.get("life_skill"), "炼丹师")
+
+        ok, msg = await handler._perform_rebirth(
+            player, "火",
+            cultivation_type=pending.get("cultivation_type"),
+            life_skill=pending.get("life_skill"),
+        )
+        self.assertTrue(ok, msg)
+        self.assertEqual(player.cultivation_type, "体修")
+        self.assertEqual(player.life_skill, "炼丹师")
+        self.assertEqual(player.life_skill_changes, 0)
+        self.assertEqual(player.life_skill_cost_peak, 0)
+        self.assertEqual(player.life_skill_last_change_at, 0)
+
+    async def test_choose_root_applies_pending_class_and_life(self):
+        handler, db = self._handler()
+        player = handler.cultivation_manager.generate_new_player_stats("u1", "剑修", root="火")
+        player.level_index = 10
+        db.players["u1"] = player
+        roots = ["水", "木", "金"]
+        await handler._save_root_pending("rebirth_options", "u1", roots, {
+            "cultivation_type": "魔修", "life_skill": "阵法师",
+        })
+        event = _FakeEvent()
+        async for _ in handler.handle_choose_root(event, "1"):
+            pass
+        self.assertEqual(player.cultivation_type, "魔修")
+        self.assertEqual(player.life_skill, "阵法师")
+        self.assertEqual(player.spiritual_root, "水灵根")
+
     async def test_rebirth_keeps_root_and_meta(self):
         handler, db = self._handler()
         player = handler.cultivation_manager.generate_new_player_stats("u1", "剑修", root="火")

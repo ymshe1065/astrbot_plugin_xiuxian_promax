@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v6.57.0 (全模块审计修复)
+# AstrBot 插件：模拟修仙 v6.58.0 (重修重选职业 + 全模块审计修复)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v6.57.0-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v6.58.0-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.33.19 · **游戏版本:** v6.57.0 · **数据库:** v59
+> **插件版本:** v3.34.0 · **游戏版本:** v6.58.0 · **数据库:** v60
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，257 条帮助指令 / 257 条注册指令、17 个大系统、111 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,20 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · v6.57.0（全模块审计修复 + 灵根刷新制）</b></summary>
+<summary><b>本次更新 · v6.58.0（重修重选职业 + 两线合流）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 两线合流 | 合并远端「重修改造/功德迁移」线与本地 v6.57.0「全模块审计修复」线；数据库迁移重新编号：**v59 = 仙市幂等唯一索引，v60 = 全服功德清零**。 |
+| 重修重选职业 | `/弃道重修` 支持 `职业 <职业>`、`生活职业 <职业>`，也可直接发职业名（如 `/弃道重修 御兽`、`/弃道重修 炼丹师`）**免费重选**，`确认` 后生效；新增 `/重修` 简写别名；重修后生活职业更换计费清零。 |
+| 灵根刷新兼容 | `重随灵根` 保留 v6.57.0 的每轮 5 次、每次 20 仙缘点原子扣费限制，且刷新灵根时**保留已记录的职业/生活职业重选项**，不再互相覆盖。 |
+| 功德清零 | DB v60 迁移：清空所有玩家既有功德（业力），按行善/历练善举重新积累。 |
+| 版本同步 | 插件版本 v3.34.0，游戏版本 v6.58.0，数据库 v60；`/修仙帮助` 与指令大全同步。 |
+
+</details>
+
+<details>
+<summary><b>v6.57.0（全模块审计修复 + 灵根刷新制）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |
@@ -72,7 +85,7 @@
 | 取价规则 | 同一挂单若存在多条待处理问价，只按其中**最高单价**成交，避免误卖低价；成交后整单商品与相关问价一并移除。 |
 | 回执 | 汇总显示成交件数、失败件数、获得灵石总额与每笔成交明细；没有可卖问价时给出 `/我的坊市` 提示。 |
 | 兼容 | `/坊市卖出 <问价ID>` 保持原行为；`/我的坊市` 底部新增一键卖出提示，`/修仙帮助` 同步。 |
-| 版本同步 | 插件版本 v3.33.18，游戏版本 v6.56.1，数据库 v58（无结构变更）。 |
+| 版本同步 | 插件版本 v3.33.18，游戏版本 v6.56.1，数据库 v58（后续 v59/v60 见上）。 |
 
 </details>
 
@@ -408,7 +421,9 @@
 | 突破修正 | 每点功德 ±1%，正功德无上限（仍受 100% 与破境丹上限约束），业力最低 -50%；突破成功功德清零，失败保留。 |
 | 历练善举 | 历练归来 25% 概率出现「途中善举」抉择：分出四成本次收获接济灾民，或收下全部；文案只写行为不写功德。 |
 | 修复 | 补回 `handle_rebirth` 的 `@player_required`，修复“Event 没有 user_id”异常。 |
-| 版本同步 | 插件版本 v3.33.6，游戏版本 v6.49.6，数据库 v57；`/修仙帮助` 同步至 v6.49.6。 |
+| 重修职业 | `弃道重修 职业 体修` / `弃道重修 生活职业 炼丹师` 可免费重选，确认后生效；重修后生活职业更换计费清零。 |
+| 功德清零 | 新增 DB v58 迁移：清空所有玩家既有功德，按行善/历练善举重新积累。 |
+| 版本同步 | 插件版本 v3.33.6，游戏版本 v6.49.6，数据库 v58；`/修仙帮助` 同步至 v6.49.6。 |
 
 </details>
 
