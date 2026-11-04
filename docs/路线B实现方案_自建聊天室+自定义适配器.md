@@ -135,6 +135,29 @@ class WebroomAdapter(Platform):
 
 后台「平台适配器」新增 `webroom` 类型实例（WebUI 会因 `config_metadata` 渲染表单：host/port/rooms），启用即生效；QQ/OneBot 照常并行运行。
 
+### 4.6 本地预览（无需 AstrBot）
+
+只想调前端（登录、在线列表、消息气泡、系统提示）时，不必安装完整 AstrBot：
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install "aiohttp>=3.9"
+
+.venv/bin/python scripts/dev_webroom.py            # 仅房间服务，浏览器开 http://127.0.0.1:6198/
+.venv/bin/python scripts/dev_webroom.py --demo     # 附带演示机器人回合
+.venv/bin/python scripts/dev_webroom.py --port 6200 --host 0.0.0.0
+```
+
+`scripts/dev_webroom.py` 用轻量桩替掉 `astrbot.api.logger` 与 `get_astrbot_data_path`，
+因此**不加载修仙插件、也不产生真实机器人回复**；真实链路仍需在 AstrBot 后台启用 `webroom` 平台实例。
+
+| 依赖 | 用途 | 说明 |
+|------|------|------|
+| `aiohttp` | room_server 的 HTTP + WebSocket | 已写入 `requirements.txt`；AstrBot 自身也依赖它 |
+| `astrbot` | 适配器 `webroom_adapter.py` | 需 Python 3.10+，仅真实链路需要 |
+| `aiosqlite` | 插件存档库 | AstrBot 环境自带 |
+
+
 ---
 
 ## 五、里程碑
