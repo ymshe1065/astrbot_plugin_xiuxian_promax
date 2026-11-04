@@ -12251,5 +12251,15 @@
         "volume": 1,
         "description": "遁术符·圣品，30分钟内生效。",
         "legacy": false
+    },
+    "10041": {
+        "name": "天外陨核",
+        "type": "材料",
+        "rank": "帝品",
+        "shop_weight": 0,
+        "price": 88000,
+        "volume": 1,
+        "description": "周常 Boss 击破后残留的界外核心，蕴含被天道压制的伟力，仅能在周本奖励中获得。",
+        "legacy": false
     }
 }
