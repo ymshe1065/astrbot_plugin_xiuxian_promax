@@ -1422,6 +1422,74 @@
     fit();
   }
 
+  /* ================= 主题 =================
+   * xian 宣纸玉简（默认） / fish 大肥鱼·浅蓝鱼缸
+   * 只切 data-theme，视觉全交给 CSS 变量；这里只管文案、图标和持久化。
+   * 大肥鱼的 logo 不写在文案里，交给 CSS 背景图（brand/mark 留空即可）。
+   */
+  const THEME_KEY = "xiuxian_theme_v1";
+  const FAVICON = {
+    xian: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='%23a33b2a'/%3E%3C/svg%3E",
+    fish: "/static/img/whale_logo.png",
+  };
+  const THEMES = {
+    xian: {
+      name: "宣纸玉简",
+      next: "大肥鱼",
+      meta: "#f4eee1",
+      brand: "☯",
+      mark: "☯",
+      sub: "聚灵谷 · 同道共聚一室",
+      btn: "",
+    },
+    fish: {
+      name: "大肥鱼 · 浅蓝鱼缸",
+      next: "宣纸玉简",
+      meta: "#eef4ff",
+      brand: "",
+      mark: "",
+      sub: "一缸浅水 · 一起摸鱼吃饭",
+      btn: "☯",
+    },
+  };
+  let theme = "xian";
+
+  function applyTheme(name, persist) {
+    theme = THEMES[name] ? name : "xian";
+    const t = THEMES[theme];
+    document.documentElement.setAttribute("data-theme", theme);
+    document.body.dataset.theme = theme;
+    if ($("metaTheme")) $("metaTheme").setAttribute("content", t.meta);
+    if ($("brandMark")) $("brandMark").textContent = t.brand;
+    if ($("loginMark")) $("loginMark").textContent = t.mark;
+    if ($("loginSub")) $("loginSub").textContent = t.sub;
+    if ($("favicon")) $("favicon").setAttribute("href", FAVICON[theme]);
+    if ($("btnTheme")) {
+      $("btnTheme").textContent = t.btn;
+      $("btnTheme").title = "切换到" + t.next;
+    }
+    if ($("loginTheme")) $("loginTheme").textContent = "换个皮肤 · " + t.next;
+    document.querySelectorAll(".theme-opt").forEach((el) => {
+      el.classList.toggle("on", el.dataset.themeVal === theme);
+    });
+    if (persist) {
+      try { localStorage.setItem(THEME_KEY, theme); } catch (e) { /* 隐私模式 */ }
+    }
+  }
+
+  function toggleTheme() {
+    applyTheme(theme === "xian" ? "fish" : "xian", true);
+  }
+
+  function initTheme() {
+    let start = "xian";
+    try {
+      const saved = localStorage.getItem(THEME_KEY);
+      if (saved === "fish" || saved === "xian") start = saved;
+    } catch (e) { /* ignore */ }
+    applyTheme(start, false);
+  }
+
   /* ================= 事件绑定 ================= */
   function bindEvents() {
     // 登录 / 注册
@@ -1444,6 +1512,13 @@
     $("accSaveNick").addEventListener("click", saveNick);
     $("accSavePwd").addEventListener("click", savePwd);
     $("accLogout").addEventListener("click", () => logout("已退出登录"));
+
+    // 主题切换：顶栏快捷按钮 / 登录页小字 / 账号设置里的色块
+    $("btnTheme").addEventListener("click", toggleTheme);
+    $("loginTheme").addEventListener("click", toggleTheme);
+    document.querySelectorAll(".theme-opt").forEach((el) => {
+      el.addEventListener("click", () => applyTheme(el.dataset.themeVal, true));
+    });
 
     const input = $("inMsg");
     const autosize = () => {
@@ -1557,6 +1632,7 @@
 
   /* ================= 启动 ================= */
   bindEvents();
+  initTheme();
 
   // 有登录态就自动进入，否则停在登录页
   (async () => {
@@ -1591,5 +1667,11 @@
   });
 
   // 暴露少量调试接口
-  window.__xiuxian = { sendCmd, dispatchCommand, openViewer };
+  window.__xiuxian = {
+    sendCmd,
+    dispatchCommand,
+    openViewer,
+    setTheme: applyTheme,
+    getTheme: () => theme,
+  };
 })();
