@@ -6,6 +6,7 @@
 import asyncio
 import json
 import random
+import sqlite3
 import time
 from typing import Tuple, List, Optional, Dict
 from ..data.data_manager import DataBase
@@ -26,7 +27,7 @@ SECT_BUILDINGS: Dict[str, dict] = {
     "商堂": {"max_level": 5, "base_cost": 6000, "unlock_level": 2, "desc": "宗门贡献商店价格-2%/级"},
     "任务堂": {"max_level": 5, "base_cost": 6000, "unlock_level": 3, "desc": "日常任务修为/灵石奖励+3%/级"},
     "护山大阵": {"max_level": 5, "base_cost": 10000, "unlock_level": 4, "desc": "宗门战被掠夺灵石-5%/级"},
-    "疗养殿": {"max_level": 5, "base_cost": 8000, "unlock_level": 2, "desc": "自然恢复+10%/级，调息恢复+5%/级"},
+    "疗养殿": {"max_level": 5, "base_cost": 8000, "unlock_level": 2, "desc": "自然恢复+10%/级，调息回血+5%/级，调息回蓝+4%/级"},
 }
 
 SECT_LEVEL_THRESHOLDS = [(1, 0), (2, 10000), (3, 30000), (4, 60000), (5, 100000)]
@@ -34,6 +35,8 @@ SECT_ORDER_PENALTY = 500
 SECT_ORDER_MAX_HOURS = 72
 SECT_TOURNAMENT_DURATION = 1800
 SECT_TOURNAMENT_COOLDOWN = 86400
+# 报名不足被取消时的较短冷却（1小时），与正常完赛的24小时CD区分，防止反复开比刷屏
+SECT_TOURNAMENT_CANCEL_COOLDOWN = 3600
 SECT_TOURNAMENT_MAX_PLAYERS = 32
 SECT_WAR_DECLARE_COST = 10000
 SECT_WAR_COOLDOWN = 72 * 3600
@@ -121,12 +124,36 @@ class SectManager:
             return await self._add_sect_exp_locked(sect_id, amount)
 
     async def _add_sect_exp_locked(self, sect_id: int, amount: int) -> Tuple[int, int, bool]:
-        sect = await self.db.ext.get_sect_by_id(sect_id)
-        if not sect:
+        amount = max(0, int(amount))
+        async with self.db.conn.execute(
+            "SELECT sect_level FROM sects WHERE sect_id = ?", (sect_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+        if not row:
             return 0, 0, False
-        old_level, new_level, leveled = self.apply_sect_exp(sect, amount)
-        await self.db.ext.update_sect(sect)
-        return old_level, new_level, leveled
+        old_level = int(row[0] or 1)
+        # 定向增量更新，避免旧快照全字段回写覆盖并发改动
+        await self.db.conn.execute(
+            "UPDATE sects SET sect_exp = sect_exp + ? WHERE sect_id = ?",
+            (amount, sect_id)
+        )
+        # 升级判定所需数据在 UPDATE 后重读
+        async with self.db.conn.execute(
+            "SELECT sect_exp FROM sects WHERE sect_id = ?", (sect_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+        new_exp = int(row[0] or 0) if row else 0
+        new_level = 1
+        for level, threshold in SECT_LEVEL_THRESHOLDS:
+            if new_exp >= threshold:
+                new_level = level
+        if new_level != old_level:
+            await self.db.conn.execute(
+                "UPDATE sects SET sect_level = ? WHERE sect_id = ?",
+                (new_level, sect_id)
+            )
+        await self.db.conn.commit()
+        return old_level, new_level, new_level > old_level
 
     def get_level_up_text(self, old_level: int, new_level: int) -> str:
         if new_level <= old_level:
@@ -265,17 +292,41 @@ class SectManager:
         valid, error = self._validate_sect_name(sect_name)
         if not valid: return False, error
         if await self.db.ext.get_sect_by_name(sect_name): return False, f"❌ 宗门名称『{sect_name}』已被使用！"
-        
+
+        # 单一 BEGIN IMMEDIATE 事务：扣灵石与建宗原子完成，撞 UNIQUE 时回滚退款
+        await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            cursor = await self.db.conn.execute(
+                "UPDATE players SET gold = gold - ? WHERE user_id = ? AND gold >= ?",
+                (required_stone, user_id, required_stone)
+            )
+            if cursor.rowcount == 0:
+                await self.db.conn.rollback()
+                return False, f"❌ 创建宗门需要 {required_stone} 灵石！"
+            try:
+                cursor = await self.db.conn.execute(
+                    """
+                    INSERT INTO sects (
+                        sect_name, sect_owner, sect_scale, sect_used_stone,
+                        sect_fairyland, sect_materials, mainbuff, secbuff, elixir_room_level
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (sect_name, user_id, 100, 0, 0, 100, "0", "0", 0)
+                )
+                sect_id = cursor.lastrowid
+            except sqlite3.IntegrityError:
+                # 并发下同名宗门抢先创建：回滚事务，灵石原路退回
+                await self.db.conn.rollback()
+                return False, f"❌ 宗门名称『{sect_name}』已被使用！"
+            await self.db.conn.commit()
+        except Exception:
+            try:
+                await self.db.conn.rollback()
+            except Exception:
+                pass
+            raise
+
         player.gold -= required_stone
-        await self.db.update_player(player)
-        
-        new_sect = Sect(
-            sect_id=0, sect_name=sect_name, sect_owner=user_id, sect_scale=100, sect_used_stone=0,
-            sect_fairyland=0, sect_materials=100, mainbuff="0", secbuff="0", elixir_room_level=0,
-            sect_level=1, sect_exp=0, sect_war_cd_until=0,
-            sect_war_protect_until=0, sect_tournament_cd_until=0,
-        )
-        sect_id = await self.db.ext.create_sect(new_sect)
         await self.db.ext.update_player_sect_info(user_id, sect_id, 0)
         
         buff_info = await self.db.ext.get_buff_info(user_id)
@@ -363,20 +414,36 @@ class SectManager:
         if stone_amount <= 0: return False, "❌ 捐献数量必须大于0！"
         if player.gold < stone_amount: return False, f"❌ 你的灵石不足！当前拥有 {player.gold} 灵石。"
         
-        # 原子增减：余额校验放进 UPDATE，避免并发捐献透支后仍增加贡献
-        cursor = await self.db.conn.execute(
-            "UPDATE players SET gold = gold - ?, sect_contribution = sect_contribution + ? "
-            "WHERE user_id = ? AND gold >= ?",
-            (stone_amount, stone_amount, user_id, stone_amount)
-        )
-        if cursor.rowcount == 0:
-            await self.db.conn.rollback()
-            return False, f"❌ 你的灵石不足！当前拥有 {player.gold} 灵石。"
-        await self.db.conn.commit()
+        # 单一 BEGIN IMMEDIATE 事务：扣玩家灵石与宗门入账原子完成
+        await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            cursor = await self.db.conn.execute(
+                "UPDATE players SET gold = gold - ?, sect_contribution = sect_contribution + ? "
+                "WHERE user_id = ? AND gold >= ?",
+                (stone_amount, stone_amount, user_id, stone_amount)
+            )
+            if cursor.rowcount == 0:
+                await self.db.conn.rollback()
+                return False, f"❌ 你的灵石不足！当前拥有 {player.gold} 灵石。"
+            cursor = await self.db.conn.execute(
+                "UPDATE sects SET sect_used_stone = sect_used_stone + ?, sect_scale = sect_scale + ? "
+                "WHERE sect_id = ?",
+                (stone_amount, stone_amount * 10, player.sect_id)
+            )
+            if cursor.rowcount == 0:
+                # 宗门已被解散：回滚事务，原子退回已扣的灵石与贡献
+                await self.db.conn.rollback()
+                return False, "❌ 宗门已不存在（可能刚刚被解散），捐献已退回。"
+            await self.db.conn.commit()
+        except Exception:
+            try:
+                await self.db.conn.rollback()
+            except Exception:
+                pass
+            raise
         # 同步内存对象，供后续消息展示
         player.gold -= stone_amount
         player.sect_contribution += stone_amount
-        await self.db.ext.donate_to_sect(player.sect_id, stone_amount)
         old_level, new_level, leveled = await self.add_sect_exp(player.sect_id, stone_amount)
         order_msg = await self.record_order_progress(user_id, "donate", stone_amount)
         level_msg = self.get_level_up_text(old_level, new_level) if leveled else ""
@@ -930,22 +997,32 @@ class SectManager:
         tournament = dict(row)
         if int(tournament["registration_end"]) <= int(time.time()):
             return False, "❌ 报名已经截止。"
-        async with self.db.conn.execute(
-            "SELECT COUNT(*) FROM sect_tournament_entries WHERE tournament_id = ?",
-            (tournament["id"],),
-        ) as cursor:
-            count = (await cursor.fetchone())[0]
-        if count >= SECT_TOURNAMENT_MAX_PLAYERS:
-            return False, f"❌ 报名人数已满（{SECT_TOURNAMENT_MAX_PLAYERS} 人）。"
-        cursor = await self.db.conn.execute(
-            "INSERT OR IGNORE INTO sect_tournament_entries (tournament_id, user_id, seed) "
-            "VALUES (?, ?, ?)",
-            (tournament["id"], user_id, count + 1),
-        )
-        if cursor.rowcount == 0:
+        # 单一事务内 recount + INSERT，避免并发报名超出名额上限
+        await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            async with self.db.conn.execute(
+                "SELECT COUNT(*) FROM sect_tournament_entries WHERE tournament_id = ?",
+                (tournament["id"],),
+            ) as cursor:
+                count = (await cursor.fetchone())[0]
+            if count >= SECT_TOURNAMENT_MAX_PLAYERS:
+                await self.db.conn.rollback()
+                return False, f"❌ 报名人数已满（{SECT_TOURNAMENT_MAX_PLAYERS} 人）。"
+            cursor = await self.db.conn.execute(
+                "INSERT OR IGNORE INTO sect_tournament_entries (tournament_id, user_id, seed) "
+                "VALUES (?, ?, ?)",
+                (tournament["id"], user_id, count + 1),
+            )
+            if cursor.rowcount == 0:
+                await self.db.conn.commit()
+                return False, "❌ 你已经报名过了。"
             await self.db.conn.commit()
-            return False, "❌ 你已经报名过了。"
-        await self.db.conn.commit()
+        except Exception:
+            try:
+                await self.db.conn.rollback()
+            except Exception:
+                pass
+            raise
         return True, f"✅ 报名成功！当前报名人数：{min(count + 1, SECT_TOURNAMENT_MAX_PLAYERS)} 人。"
 
     async def get_tournament_status(self, user_id: str) -> Tuple[bool, str]:
@@ -1141,9 +1218,15 @@ class SectManager:
         ) as cursor:
             entrants = [row[0] for row in await cursor.fetchall()]
         if len(entrants) < 2:
+            now = int(time.time())
             await self.db.conn.execute(
                 "UPDATE sect_tournaments SET status = 'cancelled', finished_at = ? WHERE id = ?",
-                (int(time.time()), tid),
+                (now, tid),
+            )
+            # 取消也写入较短冷却（1小时），与正常完赛CD区分，防止无成本反复开比
+            await self.db.conn.execute(
+                "UPDATE sects SET sect_tournament_cd_until = ? WHERE sect_id = ?",
+                (now + SECT_TOURNAMENT_CANCEL_COOLDOWN, tournament["sect_id"]),
             )
             await self.db.conn.commit()
             return tournament.get("origin", ""), "⚔️ 宗门大比报名人数不足 2 人，已取消。"

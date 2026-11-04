@@ -44,7 +44,20 @@ def _imp(module_path: str):
 
 
 class _FakeConn:
-    async def execute(self, *a, **k):
+    def __init__(self):
+        # 记录事务内执行过的 SQL，供断言"冷却/计数已随事务写入 system_config"
+        self.executed = []
+
+    def system_config_writes(self):
+        """提取 INSERT INTO system_config 的 (key, value) 对"""
+        out = {}
+        for sql, params in self.executed:
+            if "INSERT INTO system_config" in (sql or "") and params:
+                out[params[0]] = params[1]
+        return out
+
+    async def execute(self, sql=None, params=None, *a, **k):
+        self.executed.append((sql, params))
         return None
 
     async def commit(self):
@@ -208,8 +221,11 @@ class TestRootChoice(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(player.reincarnation_count, 2)
         self.assertIn("测试称号", player.permanent_bonus)
         self.assertEqual(player.get_storage_ring_items(), {})
-        self.assertTrue(db.ext.config_store.get("rebirth_last_u1", "").isdigit())
-        self.assertEqual(db.ext.config_store.get("rebirth_total_u1"), "1")
+        # v6.57.0: 冷却/累计次数/灵根刷新计数改为随重修事务原生 SQL 写入 system_config
+        cfg_writes = db.conn.system_config_writes()
+        self.assertTrue(str(cfg_writes.get("rebirth_last_u1", "")).isdigit())
+        self.assertEqual(cfg_writes.get("rebirth_total_u1"), "1")
+        self.assertEqual(cfg_writes.get("rebirth_root_reroll_u1"), "0")
         self.assertIn("弃道重修完成", msg)
 
 

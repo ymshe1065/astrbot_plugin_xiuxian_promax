@@ -125,6 +125,25 @@ class TestStacking(_RingFixture):
         self.assertFalse(ok)
         self.assertIn("容量不足", msg)
 
+    async def test_full_ring_routes_to_overflow_by_default(self):
+        """满员时默认（allow_overflow=True）存入新品种会进溢出仓库并明确提示。
+
+        迁移自原 test_overflow.py：堆叠/领取段与 test_full_ring_accepts_within_same_slot、
+        test_claim_overflow_fills_one_slot 重复，仅保留独有的默认溢出路由断言。
+        """
+        p = await self._player()
+        cap = self.ring.get_total_capacity(p)
+        p.storage_ring_items = json.dumps(
+            {f"测试材料{i}": 1 for i in range(cap)}, ensure_ascii=False
+        )
+        await self.db.update_player(p)
+        ok, msg = await self.ring.store_item(p, "玄铁", 1)
+        self.assertTrue(ok)
+        self.assertIn("溢出", msg)
+        p = await self.db.get_player_by_id("u1")
+        self.assertEqual(p.get_overflow_items().get("玄铁"), 1)
+        self.assertNotIn("玄铁", p.get_storage_ring_items())
+
     async def test_slot_count_helpers(self):
         """stack_slots / extra_slots / room_for 的边界值。"""
         self.assertEqual(self.ring.stack_slots(0), 0)

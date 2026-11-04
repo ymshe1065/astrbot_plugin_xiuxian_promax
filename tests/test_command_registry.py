@@ -88,6 +88,11 @@ class TestCommandRegistry(unittest.TestCase):
         expected = {"仙市", "行情", "买入股", "卖出股", "申购", "赎回", "我的持仓", "仙市流水", "仙市订阅"}
         self.assertTrue(expected.issubset(commands), f"缺失指令：{expected - commands}")
 
+    def test_pill_bag_command_registered(self):
+        """丹药背包 经 CMD_SHOW_PILLS 常量注册且只出现一次（自 test_pill_bag_command.py 归并）。"""
+        self.assertIn('CMD_SHOW_PILLS = "丹药背包"', self.source)
+        self.assertEqual(self.source.count("@filter.command(CMD_SHOW_PILLS"), 1)
+
 
 class TestInvestHandlerMethods(unittest.TestCase):
     """申购与风声订阅曾经共用 handle_subscribe，后者把前者整段覆盖掉。"""

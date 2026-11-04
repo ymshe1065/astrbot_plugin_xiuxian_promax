@@ -50,12 +50,15 @@ class WeeklyBossHandlers:
 
     @player_required
     async def handle_confirm(self, player: Player, event: AstrMessageEvent):
+        # 防串线：weekly_boss_mgr 为共享单例，last_broadcast_msg 可能被并发调用覆盖。
+        # 这里“调用前清空 + 调用后立即读取并清空”，确保只取本次 confirm_battle 产生的广播。
+        self.weekly_boss_mgr.last_broadcast_msg = None
         success, msg = await self.weekly_boss_mgr.confirm_battle(player)
         set_event_flag(event, "weekly_boss_finished", bool(success))
         broadcast_msg = getattr(self.weekly_boss_mgr, "last_broadcast_msg", None)
+        self.weekly_boss_mgr.last_broadcast_msg = None
         if broadcast_msg:
             set_event_flag(event, "weekly_boss_broadcast_msg", broadcast_msg)
-            self.weekly_boss_mgr.last_broadcast_msg = None
         yield event.plain_result(msg)
 
     @player_required

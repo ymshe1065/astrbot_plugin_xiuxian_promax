@@ -130,16 +130,15 @@ class TestWorldBossDualTrack(unittest.IsolatedAsyncioTestCase):
         mgr.build_world_boss_combat_stats = build_boss
         mgr.damage_floor_pct = 0
         mgr.damage_cap_pct = 100
-        mgr.db = SimpleNamespace(update_player_fields=None)
-
-        async def update_fields(*a, **k):
-            return None
-
-        mgr.db.update_player_fields = update_fields
+        # v6.57.0: simulate_battle 已纯函数化（模拟过程零落库）；db 置 None 作守卫，触碰数据库会立即报错
+        mgr.db = None
         player = SimpleNamespace(user_id="u1", hp=5000, mp=1000, spiritual_qi=1000)
         boss = {"boss_id": 1, "boss_name": "深渊魔龙", "max_hp": 1_000_000,
                 "current_hp": 1_000_000, "boss_type": "abyss_dragon", "element": "木"}
         result = await mgr.simulate_battle(player, boss, {"element": "木"})
+        # 新契约：战损气血/灵气随结果返回，由调用方在事务提交后写回
+        self.assertIn("player_final_hp", result)
+        self.assertIn("player_final_mp", result)
         log = "\n".join(result["combat_log"])
         self.assertIn("战斗开始", log)
         self.assertIn("第 1 回合", log)

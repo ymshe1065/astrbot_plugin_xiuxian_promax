@@ -86,8 +86,18 @@ class ImpartPkManager:
             def_stats.hp = min(def_stats.max_hp, def_stats.hp + heal)
             battle_log.extend(logs)
 
-        # 判定胜负
-        attacker_wins = def_stats.hp <= 0 or (atk_stats.hp > 0 and atk_stats.hp >= def_stats.hp)
+        # 判定胜负（打满回合按血量百分比判定，与 combat_manager 切磋/决斗口径一致；
+        # 平局判防守方胜，避免挑战者靠“拖平”反复刷传承加成）
+        atk_ratio = atk_stats.hp / atk_stats.max_hp if atk_stats.max_hp > 0 else 0
+        def_ratio = def_stats.hp / def_stats.max_hp if def_stats.max_hp > 0 else 0
+        if def_stats.hp <= 0 and atk_stats.hp > 0:
+            attacker_wins = True
+        elif atk_stats.hp <= 0:
+            # 挑战者被击杀（含同归于尽）判防守方胜
+            attacker_wins = False
+        else:
+            # 打满回合未分生死：按剩余血量百分比判定，相等则判防守方胜
+            attacker_wins = atk_ratio > def_ratio
         
         rewards = {}
         if attacker_wins:

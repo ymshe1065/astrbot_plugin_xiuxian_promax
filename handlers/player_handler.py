@@ -18,6 +18,8 @@ CMD_START_CULTIVATION = "闭关"
 CMD_END_CULTIVATION = "出关"
 CMD_CHECK_IN = "签到"
 REBIRTH_COOLDOWN = 3 * 24 * 3600  # 弃道重修冷却 3 天
+REBIRTH_ROOT_REROLL_LIMIT = 5   # 每轮重修灵根刷新次数上限
+REBIRTH_ROOT_REROLL_COST = 20   # 每次灵根刷新消耗的仙缘点
 CMD_CHOOSE_ROOT = "选择灵根"
 PENDING_ROOT_TIMEOUT = 600  # 灵根待选超时 10 分钟
 
@@ -509,7 +511,7 @@ class PlayerHandler:
             else: time_str = f"🟡 {remaining_days}天"
             
             identity_label, purchase_blocked = _loan_identity(
-                total_due, max(0, remaining_days)
+                total_due, max(0, remaining_days), player.level_index
             )
             reply_msg += (
                 f"\n🏷️ 身份：{identity_label}（欠款 {total_due:,} 灵石）\n"
@@ -878,9 +880,9 @@ class PlayerHandler:
         await self.db.ext.add_task_progress(player.user_id, "check_in", 1)
         # 称号：累计签到
         try:
-            self._last_checkin_title = await self.title_hooks.bump(player, "checkin_count") if getattr(self, "title_hooks", None) else ""
+            checkin_title_msg = await self.title_hooks.bump(player, "checkin_count") if getattr(self, "title_hooks", None) else ""
         except Exception:
-            self._last_checkin_title = ""
+            checkin_title_msg = ""
 
         reply_msg = (
             "✅ 签到成功！\n"
@@ -891,7 +893,7 @@ class PlayerHandler:
             "明日再来，莫要忘记哦~"
         )
         reply_msg += festival_msg
-        title_msg = getattr(self, "_last_checkin_title", "") or ""
+        title_msg = checkin_title_msg or ""
         if title_msg:
             reply_msg += f"\n{title_msg}"
 
@@ -958,13 +960,8 @@ class PlayerHandler:
 
         text = (confirm_text or "").strip()
         if text == "重随灵根":
-            roots = self.cultivation_manager.draw_spiritual_roots(3)
-            await self._save_root_pending("rebirth_roots", player.user_id, roots)
-            yield event.plain_result(
-                self._format_root_choices(roots)
-                + f"\n请发送：{CMD_CHOOSE_ROOT} 1/2/3 选择灵根并执行重修"
-                + "\n（将重置境界与身外之物，保留仙缘/转生次数/称号）"
-            )
+            async for r in self._reroll_rebirth_roots(player, event):
+                yield r
             return
         if text != "确认":
             yield event.plain_result(
@@ -973,7 +970,7 @@ class PlayerHandler:
                 "━━━━━━━━━━━━━━━\n"
                 "限制：3 天一次，需空闲且无贷款；不提供传家宝封印\n"
                 "确认发送：弃道重修 确认（保留灵根）\n"
-                "或发送：弃道重修 重随灵根（三选一换灵根）"
+                f"或发送：弃道重修 重随灵根（三选一换灵根，每轮上限 {REBIRTH_ROOT_REROLL_LIMIT} 次，每次消耗 {REBIRTH_ROOT_REROLL_COST} 仙缘点）"
             )
             return
 
@@ -982,6 +979,46 @@ class PlayerHandler:
             yield event.plain_result(msg)
             return
         yield event.plain_result(msg)
+
+    async def _reroll_rebirth_roots(self, player: Player, event: AstrMessageEvent):
+        """重随灵根：每轮重修最多刷新 REBIRTH_ROOT_REROLL_LIMIT 次，每次消耗仙缘点。"""
+        key = f"rebirth_root_reroll_{player.user_id}"
+        try:
+            raw = await self.db.ext.get_system_config(key)
+            used = int(raw or 0)
+        except (TypeError, ValueError):
+            used = 0
+        if used >= REBIRTH_ROOT_REROLL_LIMIT:
+            yield event.plain_result(
+                f"❌ 本轮重修的灵根刷新次数已用完（{used}/{REBIRTH_ROOT_REROLL_LIMIT}）。\n"
+                f"💡 可发送「弃道重修 确认」以当前灵根【{player.spiritual_root}】直接重修。"
+            )
+            return
+        if player.fate_points < REBIRTH_ROOT_REROLL_COST:
+            yield event.plain_result(
+                f"❌ 仙缘点不足：每次刷新灵根需 {REBIRTH_ROOT_REROLL_COST} 点，当前 {player.fate_points} 点。\n"
+                "💡 也可发送「弃道重修 确认」保留当前灵根直接重修。"
+            )
+            return
+        # 原子扣减，防并发多扣/少扣
+        cursor = await self.db.conn.execute(
+            "UPDATE players SET fate_points = fate_points - ? WHERE user_id = ? AND fate_points >= ?",
+            (REBIRTH_ROOT_REROLL_COST, player.user_id, REBIRTH_ROOT_REROLL_COST),
+        )
+        if getattr(cursor, "rowcount", 0) == 0:
+            yield event.plain_result(f"❌ 仙缘点不足，刷新灵根需 {REBIRTH_ROOT_REROLL_COST} 点。")
+            return
+        player.fate_points = max(0, player.fate_points - REBIRTH_ROOT_REROLL_COST)
+        used += 1
+        await self.db.ext.set_system_config(key, str(used))
+        roots = self.cultivation_manager.draw_spiritual_roots(3)
+        await self._save_root_pending("rebirth_roots", player.user_id, roots)
+        yield event.plain_result(
+            self._format_root_choices(roots)
+            + f"\n请发送：{CMD_CHOOSE_ROOT} 1/2/3 选择灵根并执行重修"
+            + "\n（将重置境界与身外之物，保留仙缘/转生次数/称号）"
+            + f"\n🌀 灵根刷新：{used}/{REBIRTH_ROOT_REROLL_LIMIT} 次 · 本次消耗 {REBIRTH_ROOT_REROLL_COST} 仙缘点（剩余 {player.fate_points}）"
+        )
 
     async def _perform_rebirth(self, player: Player, root: str):
         """执行重修重置：保留仙缘/转生次数/称号/灵根，清理身外之物。"""
@@ -1037,9 +1074,41 @@ class PlayerHandler:
         player.cultivation_start_time = 0
 
         now = int(time.time())
+        try:
+            raw_total = await self.db.ext.get_system_config(f"rebirth_total_{player.user_id}")
+            total = int(raw_total or 0) + 1
+        except (TypeError, ValueError):
+            total = 1
+        old_sect_id = int(getattr(player, "sect_id", 0) or 0)
+        sect_note = "已了结宗门因果"
+        player.sect_id = 0
+        player.sect_position = 4
+        player.sect_contribution = 0
+        player.sect_task = 0
         await self.db.conn.execute("BEGIN IMMEDIATE")
         try:
             await self.db.update_player(player, commit=False)
+            if old_sect_id:
+                sect = await self.db.ext.get_sect_by_id(old_sect_id)
+                if sect and sect.sect_owner == player.user_id:
+                    members = await self.db.ext.get_sect_members(old_sect_id)
+                    successor = next((m for m in members if m.user_id != player.user_id), None)
+                    if successor:
+                        await self.db.conn.execute(
+                            "UPDATE sects SET sect_owner = ? WHERE sect_id = ?",
+                            (successor.user_id, old_sect_id),
+                        )
+                        await self.db.conn.execute(
+                            "UPDATE players SET sect_position = 0 WHERE user_id = ?",
+                            (successor.user_id,),
+                        )
+                        sect_note = f"宗主已传位给【{successor.user_name or '弟子'}】"
+                    else:
+                        await self.db.ext.delete_sect(old_sect_id)
+                        sect_note = "宗门无人继承，已解散"
+                else:
+                    sect_note = "已退出原宗门"
+            await self.db.conn.execute("DELETE FROM player_pets WHERE user_id = ?", (player.user_id,))
             if self.db.ext:
                 await self.db.ext.return_gifts_for_receiver(player.user_id, commit=False)
             await self.db.conn.execute("DELETE FROM pending_gifts WHERE sender_id = ?", (player.user_id,))
@@ -1074,27 +1143,45 @@ class PlayerHandler:
                 "UPDATE sect_orders SET status = 'cancelled' WHERE status = 'active' AND (issuer_id = ? OR target_id = ?)",
                 (player.user_id, player.user_id),
             )
+            # 冷却/累计次数/灵根刷新计数同事务落库：并发 /选择灵根 无法绕过冷却检查
+            for cfg_key, cfg_val in (
+                (f"rebirth_last_{player.user_id}", str(now)),
+                (f"rebirth_total_{player.user_id}", str(total)),
+                (f"rebirth_root_reroll_{player.user_id}", "0"),
+            ):
+                await self.db.conn.execute(
+                    "INSERT INTO system_config (key, value, updated_at) VALUES (?, ?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = ?",
+                    (cfg_key, cfg_val, now, cfg_val, now),
+                )
             await self.db.ext.set_user_free(player.user_id, commit=False)
             await self.db.conn.commit()
         except Exception as e:
             await self.db.conn.rollback()
             return False, f"❌ 重修结算失败，已回滚，请稍后再试。（{e}）"
 
-        await self.db.ext.set_system_config(f"rebirth_last_{player.user_id}", str(now))
-        try:
-            raw_total = await self.db.ext.get_system_config(f"rebirth_total_{player.user_id}")
-            total = int(raw_total or 0) + 1
-        except (TypeError, ValueError):
-            total = 1
-        await self.db.ext.set_system_config(f"rebirth_total_{player.user_id}", str(total))
         self.last_rebirth_success = True
+
+        # 称号【百变星君】：累计重修满 3 次即时授予（原先只在建号时检查，重修玩家永远漏发）
+        title_msg = ""
+        if total >= 3:
+            try:
+                from ..managers.title_manager import TitleManager
+                tm = TitleManager(self.db)
+                new_title, tmsg = tm.grant(player, "百变星君")
+                if new_title:
+                    await self.db.update_player(player)
+                    title_msg = (tmsg or "").strip()
+            except Exception:
+                title_msg = ""
 
         return True, (
             "💀 弃道重修完成！\n"
             "━━━━━━━━━━━━━━━\n"
             f"保留：仙缘点 +{points}（当前 {player.fate_points}）、转生次数 {player.reincarnation_count}、称号、灵根【{player.spiritual_root}】\n"
             "重置：境界、修为、灵石、装备、储物戒、丹药、功法\n"
-            "重置：宗门、洞府、灵田、灵兽、挂单、银行存款\n"
+            f"重置：宗门（{sect_note}）、洞府、灵田、灵兽、挂单、银行存款\n"
             "━━━━━━━━━━━━━━━\n"
             "可立即开始新的修行（3 天内不可再次重修）。"
+            + (f"\n{title_msg}" if title_msg else "")
         )

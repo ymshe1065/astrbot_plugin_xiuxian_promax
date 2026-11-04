@@ -3,6 +3,7 @@ import asyncio
 import json
 import random
 import time
+from collections import deque
 from typing import List, Optional, Tuple
 
 from ..data import DataBase
@@ -25,6 +26,8 @@ class DemonInvasionManager:
         self.event_mgr = event_mgr or GlobalEventManager(db)
         self._lock = asyncio.Lock()
         self.last_event_msg = ""
+        # 定时任务/结束指令触发的结算消息单独走广播通道，避免与玩家指令通道串扰
+        self._scheduled_msgs = deque(maxlen=8)
 
     def _normalize_hours(self, duration_hours) -> int:
         try:
@@ -36,6 +39,12 @@ class DemonInvasionManager:
     def pop_last_event_msg(self) -> str:
         msg = self.last_event_msg
         self.last_event_msg = ""
+        return msg
+
+    def pop_last_scheduled_msg(self) -> str:
+        """取出并清空定时任务/结束指令通道里的最新结算消息。"""
+        msg = self._scheduled_msgs[-1] if self._scheduled_msgs else ""
+        self._scheduled_msgs.clear()
         return msg
 
     async def start_invasion(self, duration_hours: int = 24) -> Tuple[bool, str]:
@@ -74,14 +83,21 @@ class DemonInvasionManager:
                 await self.db.ext.set_system_config(
                     "demon_invasion_list", json.dumps(demon_ids)
                 )
+                # 记录初始天魔名单：中途被揪出的天魔结算时不再领安慰奖
+                await self.db.ext.set_system_config(
+                    "demon_invasion_original_list", json.dumps(demon_ids)
+                )
             except Exception:
                 await self.db.ext.set_system_config("demon_invasion_active", "0")
                 await self.db.ext.set_system_config("demon_invasion_list", "[]")
+                await self.db.ext.set_system_config("demon_invasion_original_list", "[]")
                 await self.db.ext.set_system_config("demon_invasion_end_time", "0")
                 await self.event_mgr.release(GlobalEventManager.EVENT_DEMON)
                 raise
 
+            # 清空两个消息通道：上一场的旧结算消息不会漏进本场广播
             self.last_event_msg = ""
+            self._scheduled_msgs.clear()
             return True, (
                 f"天魔已降临！{demon_count}名修士被附体。"
                 f"活动时长：{duration_hours}小时。"
@@ -90,13 +106,14 @@ class DemonInvasionManager:
     async def end_invasion(self) -> Tuple[bool, str]:
         """结束天魔入侵并结算（管理员或超时任务调用）"""
         async with self._lock:
-            return await self._finish_locked(reward_demons=True)
+            return await self._finish_locked(reward_demons=True, scheduled=True)
 
     async def _finish_locked(
         self,
         reward_demons: bool,
         demon_ids: Optional[List[str]] = None,
         exclude_ids: Optional[List[str]] = None,
+        scheduled: bool = False,
     ) -> Tuple[bool, str]:
         is_active = await self.db.ext.get_system_config("demon_invasion_active")
         if is_active != "1":
@@ -110,18 +127,28 @@ class DemonInvasionManager:
             except (TypeError, ValueError, json.JSONDecodeError):
                 demon_ids = []
 
+        # 初始名单：中途被揪出的天魔不领安慰奖，也不重复计奖
+        original_list_str = await self.db.ext.get_system_config(
+            "demon_invasion_original_list"
+        )
+        try:
+            original_ids = json.loads(original_list_str) if original_list_str else []
+        except (TypeError, ValueError, json.JSONDecodeError):
+            original_ids = []
+
         if reward_demons:
             for uid in demon_ids:
                 await self.db.add_player_gold(uid, self.DEMON_REWARD)
 
         all_players = await self.db.get_all_players()
-        demon_set = set(demon_ids) | set(exclude_ids or [])
+        demon_set = set(demon_ids) | set(original_ids) | set(exclude_ids or [])
         for p in all_players:
             if p.user_id not in demon_set:
                 await self.db.add_player_gold(p.user_id, self.MORTAL_REWARD)
 
         await self.db.ext.set_system_config("demon_invasion_active", "0")
         await self.db.ext.set_system_config("demon_invasion_list", "[]")
+        await self.db.ext.set_system_config("demon_invasion_original_list", "[]")
         await self.db.ext.set_system_config("demon_invasion_end_time", "0")
         await self.event_mgr.release(GlobalEventManager.EVENT_DEMON)
 
@@ -137,7 +164,11 @@ class DemonInvasionManager:
                 f"全服正道修士获得 {self.MORTAL_REWARD:,} 灵石慰劳。"
             )
 
-        self.last_event_msg = msg
+        # 定时任务/结束指令触发的结算走独立广播通道，玩家指令通道不受污染
+        if scheduled:
+            self._scheduled_msgs.append(msg)
+        else:
+            self.last_event_msg = msg
         return True, msg
 
     async def catch_demon(
@@ -151,6 +182,11 @@ class DemonInvasionManager:
 
             if str(target_id) == str(player.user_id):
                 return False, "❌ 不能查验自己。"
+
+            # 先确认目标存在：查无此人时不消耗照妖镜、不触发反噬
+            target_player = await self.db.get_player_by_id(target_id)
+            if not target_player:
+                return False, "❌ 查无此人，对方尚未踏入仙途。"
 
             if not storage_ring_mgr.has_item(player, "照妖镜", 1):
                 return False, "❌ 你没有【照妖镜】，无法查验。"

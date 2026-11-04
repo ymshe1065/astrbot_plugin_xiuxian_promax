@@ -194,10 +194,12 @@ class TestGlobalEvents(unittest.IsolatedAsyncioTestCase):
 
         ok, msg = await self.tide.start_tide(12)
         self.assertTrue(ok, msg)
+        # v6.57.0: 手动开启魔潮不再占用当天的自动名额，
+        # tide_auto_<日期> 键只由定时 auto_check（周六/月初）路径写入
         marker = await self.db.ext.get_system_config(
             f"tide_auto_{time.strftime('%Y%m%d')}"
         )
-        self.assertEqual(marker, "1")
+        self.assertIsNone(marker)
 
         player = await self.db.get_player_by_id("u0")
         ok, msg = await self.tide.resist(player, 10000)

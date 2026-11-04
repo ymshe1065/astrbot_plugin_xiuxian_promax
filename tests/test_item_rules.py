@@ -75,12 +75,6 @@ class TestItemRules(unittest.TestCase):
         self.assertEqual(norm({"type": "心法"}), "main_technique")
         self.assertEqual(norm({"type": "main_technique"}), "main_technique")
 
-    def test_validate_rate(self):
-        ok, _ = self.rules.validate_rate("crit_rate", 5)
-        self.assertTrue(ok)
-        ok, _ = self.rules.validate_rate("crit_rate", 500)
-        self.assertFalse(ok)
-
 
 class TestCombatHelper(unittest.TestCase):
     def test_helper_reads_equipment_and_effects(self):

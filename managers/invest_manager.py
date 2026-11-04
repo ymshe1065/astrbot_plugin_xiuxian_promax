@@ -3,8 +3,8 @@
 
 三条设计前提，改动前请先读：
 
-1. **时间以 UTC+8 计**，每日 8 盘（07/09/…/21 点），23:00–次日 07:00 封盘。
-   21:00–23:00 是尾盘：价格冻结但可以买卖。
+1. **时间以 UTC+8 计**，每日 16 盘（07:00–22:00 每整点一盘），07:00–23:00 为开市，
+   23:00–次日 07:00 封盘。
 2. **价格只在盘次边界结算**，查询纯读。反复刷 `/仙市` 不会改变任何价格，
    这是防止「刷新等高价」的根本手段，不要为了「看起来实时」把结算塞进查询路径。
 3. **所有随机都走 ``_rng()``**，种子 = md5(参数 : 服务器密钥)。密钥首次启动随机生成并落库，
@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import math
 import random
@@ -192,6 +193,11 @@ class InvestManager:
         self.config_manager = config_manager
         self._secret: Optional[str] = None
         self._ready = False
+        # 结算互斥：后台 60 秒定时任务与玩家指令可能并发触发同一盘结算，
+        # 全程持锁保证同一时刻只有一条结算流程在推进。
+        self._settle_lock = asyncio.Lock()
+        # 连续结算失败的盘次计数（防刷屏/便于定位卡死的盘）
+        self._tick_failures: Dict[int, int] = {}
 
     # ===== 时间与盘次 =====
 
@@ -366,7 +372,17 @@ class InvestManager:
     # ===== 结算 =====
 
     async def settle_to(self, moment: Optional[datetime] = None) -> int:
-        """把行情推进到 moment 所在盘次，返回实际推进的盘数。重复调用无副作用。"""
+        """把行情推进到 moment 所在盘次，返回实际推进的盘数。重复调用无副作用。
+
+        全程持有实例级结算锁：后台定时任务与玩家指令并发结算同一盘时，
+        只有一条流程真正推进（分红/风声另有唯一索引 + INSERT OR IGNORE 幂等兜底）。
+        锁内不再获取任何玩家级锁，避免交叉死锁。
+        """
+        async with self._settle_lock:
+            return await self._settle_to_locked(moment)
+
+    async def _settle_to_locked(self, moment: Optional[datetime] = None) -> int:
+        """settle_to 的锁内实现（调用方需持有 self._settle_lock）。"""
         await self.ensure_ready()
         target = self.tick_of(moment)
         last = await self._get_last_tick()
@@ -379,15 +395,23 @@ class InvestManager:
 
         start = max(last + 1, target - MAX_BACKFILL_TICKS + 1)
         moved = 0
+        settled_upto = last  # 最后一次成功结算的盘次
         for tick in range(start, target + 1):
             try:
                 await self._settle_tick(tick)
-                moved += 1
             except Exception as exc:  # 单盘失败不应拖垮整个循环
-                logger.error(f"【仙市】第 {tick} 盘结算失败: {exc}")
+                # 只记录失败并中断本轮：last_tick 不推进到失败盘，下轮重试。
+                # 绝不把未结算的盘标记为已完成（宁可反复重试并报错，也不跳盘吞行情）。
+                fails = self._tick_failures.get(tick, 0) + 1
+                self._tick_failures[tick] = fails
+                logger.error(f"【仙市】第 {tick} 盘结算失败（连续第 {fails} 次）: {exc}")
                 break
-        await self._set_last_tick(target)
-        await self.db.conn.commit()
+            self._tick_failures.pop(tick, None)
+            settled_upto = tick
+            moved += 1
+        if settled_upto > last:
+            await self._set_last_tick(settled_upto)
+            await self.db.conn.commit()
         return moved
 
     async def _settle_tick(self, tick: int):
@@ -544,43 +568,54 @@ class InvestManager:
 
         用确定性种子生成；peek_hint 提前调用本函数时会把结果落库，
         settle 时再次调用发现已存在则跳过，保证风声与结算用同一条消息。
+
+        并发安全：整段包在 BEGIN IMMEDIATE 事务里，事务内复查 + INSERT OR IGNORE
+        （invest_events(trade_day, slot) 有唯一索引兜底），风声推送任务与结算任务
+        同时生成同一盘也只会落一条。
         """
-        exists = await self._scalar(
-            "SELECT COUNT(*) FROM invest_events WHERE trade_day = ? AND slot = ?", (day, slot)
-        )
-        if exists:
-            return
+        await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            exists = await self._scalar(
+                "SELECT COUNT(*) FROM invest_events WHERE trade_day = ? AND slot = ?", (day, slot)
+            )
+            if exists:
+                await self.db.conn.commit()
+                return
 
-        # 保底：连续两盘都是「盘面平静」，这一盘强制给真消息。
-        # 先查库里已生成的前两盘，算出的连续平静盘数不影响随机序列（roll 照常消耗）。
-        calm_streak = await self._calm_streak_before(day, slot)
-        forced = calm_streak >= CALM_STREAK_FORCE
+            # 保底：连续两盘都是「盘面平静」，这一盘强制给真消息。
+            # 先查库里已生成的前两盘，算出的连续平静盘数不影响随机序列（roll 照常消耗）。
+            calm_streak = await self._calm_streak_before(day, slot)
+            forced = calm_streak >= CALM_STREAK_FORCE
 
-        rng = self._rng(day, slot, "news")
-        if not forced and rng.random() >= NEWS_CHANCE:
-            # 盘面平静：无 bias
-            title = rng.choice(CALM_NEWS)
-            pattern, direction, code, detail = "calm", 0, "", ""
-        elif rng.random() < MARKET_NEWS_CHANCE:
-            # 全市场消息
-            code = "*"
-            pattern, direction, title, detail = rng.choice(MARKET_NEWS)
-        else:
-            # 个股消息：先掷方向（1:1），再从该标的下对应方向的消息里抽
-            code = rng.choice(sorted(NEWS_POOL.keys()))
-            direction = 1 if rng.random() < 0.5 else -1
-            candidates = [n for n in NEWS_POOL[code] if n[1] == direction]
-            if not candidates:  # 兜底：该标的某方向无文案时回退到全池
-                candidates = NEWS_POOL[code]
-            pattern, direction, title, detail = rng.choice(candidates)
+            rng = self._rng(day, slot, "news")
+            if not forced and rng.random() >= NEWS_CHANCE:
+                # 盘面平静：无 bias
+                title = rng.choice(CALM_NEWS)
+                pattern, direction, code, detail = "calm", 0, "", ""
+            elif rng.random() < MARKET_NEWS_CHANCE:
+                # 全市场消息
+                code = "*"
+                pattern, direction, title, detail = rng.choice(MARKET_NEWS)
+            else:
+                # 个股消息：先掷方向（1:1），再从该标的下对应方向的消息里抽
+                code = rng.choice(sorted(NEWS_POOL.keys()))
+                direction = 1 if rng.random() < 0.5 else -1
+                candidates = [n for n in NEWS_POOL[code] if n[1] == direction]
+                if not candidates:  # 兜底：该标的某方向无文案时回退到全池
+                    candidates = NEWS_POOL[code]
+                pattern, direction, title, detail = rng.choice(candidates)
 
-        strength = round(self._rng(day, slot, "strength").uniform(0.7, 1.3), 4)
-        await self.db.conn.execute(
-            "INSERT INTO invest_events "
-            "(trade_day, slot, code, pattern, direction, base_bias, strength, title, detail) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (day, slot, code, pattern, direction, 0.0, strength, title, detail),
-        )
+            strength = round(self._rng(day, slot, "strength").uniform(0.7, 1.3), 4)
+            await self.db.conn.execute(
+                "INSERT OR IGNORE INTO invest_events "
+                "(trade_day, slot, code, pattern, direction, base_bias, strength, title, detail) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (day, slot, code, pattern, direction, 0.0, strength, title, detail),
+            )
+            await self.db.conn.commit()
+        except Exception:
+            await self.db.conn.rollback()
+            raise
 
     async def _load_news_window(self, day: int, slot: int) -> List[dict]:
         """加载「当盘 + 前 3 盘」的消息，用于结算时叠加 bias（消息影响 4 盘）。"""
@@ -646,21 +681,27 @@ class InvestManager:
             amount = int(float(row["shares"]) * float(row["price"]) * float(row["dividend_rate"]))
             if amount <= 0:
                 continue
-            await self.db.conn.execute(
-                "UPDATE players SET gold = gold + ? WHERE user_id = ?", (amount, row["user_id"])
-            )
-            await self.db.conn.execute(
-                "INSERT INTO invest_dividends (user_id, code, amount, tick, created_at) "
+            # 幂等：先落分红流水（(user_id, code, tick) 唯一索引 + OR IGNORE），
+            # 插入被忽略说明该盘分红已发过（并发/重跑），绝不能再入账灵石。
+            cursor = await self.db.conn.execute(
+                "INSERT OR IGNORE INTO invest_dividends (user_id, code, amount, tick, created_at) "
                 "VALUES (?, ?, ?, ?, ?)",
                 (row["user_id"], row["code"], amount, tick, now_ts),
+            )
+            if not cursor.rowcount:
+                continue
+            await self.db.conn.execute(
+                "UPDATE players SET gold = gold + ? WHERE user_id = ?", (amount, row["user_id"])
             )
 
     # ===== 交易辅助 =====
 
     async def _active_loan(self, user_id: str) -> int:
+        # 未清贷款口径与银行一致：active 与 overdue 都算，且按「剩余本金」
+        # （principal - paid_principal，钳为 0）求和，部分还款后不再虚高。
         value = await self._scalar(
-            "SELECT COALESCE(SUM(principal), 0) FROM bank_loans "
-            "WHERE user_id = ? AND status = 'active'",
+            "SELECT COALESCE(SUM(MAX(0, principal - COALESCE(paid_principal, 0))), 0) "
+            "FROM bank_loans WHERE user_id = ? AND status IN ('active', 'overdue')",
             (user_id,),
         )
         return int(value or 0)
@@ -928,8 +969,10 @@ class InvestManager:
         )
 
     async def redeem_fund(self, player: Player, code: str, shares: float) -> Tuple[bool, str]:
-        """shares <= 0 表示全部赎回。"""
+        """shares == 0 表示全部赎回；负数直接拒绝（防止误落入全部赎回分支）。"""
         code = (code or "").strip().upper()
+        if shares < 0:
+            return False, "份额必须为正数或「全部」。"
         opened, why = self._check_market()
         if not opened:
             return False, why

@@ -45,7 +45,7 @@ FURNITURES: Dict[str, dict] = {
     "灵兽窝":   {"price": 3000, "desc": "喂养灵兽消耗-20%", "effect": "pet_feed"},
     "灵泉假山": {"price": 50000, "desc": "洞天灵石产出+10%", "effect": "income"},
     "回春榻": {"price": 15000, "desc": "自然气血恢复+15%，调息气血恢复+10%", "effect": "recovery"},
-    "聚灵池": {"price": 15000, "desc": "自然灵气恢复+15%，调息灵气恢复+10%", "effect": "recovery"},
+    "聚灵池": {"price": 15000, "desc": "自然灵气恢复+15%，调息灵气恢复+8%", "effect": "recovery"},
     # 藏宝阁不是普通家具：购买即开通洞天仓库，后续用 /升级仓库 扩建
     "藏宝阁": {"price": 30000, "desc": "开通洞天仓库（50 格，可扩建），/一键转移 存取", "effect": "warehouse"},
 }
@@ -346,15 +346,32 @@ class BlessedLandManager:
             pass
 
 
+        # 单一 BEGIN IMMEDIATE 事务：先推进结算时间戳（带旧值幂等条件）再发放收益，
+        # 消除“已给钱未推进时间戳”导致的重复收取窗口（宁可丢奖励不可重复结算）
+        await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            cursor = await self.db.conn.execute(
+                "UPDATE blessed_lands SET last_collect_time = ? "
+                "WHERE user_id = ? AND last_collect_time = ?",
+                (settled_until, player.user_id, last_collect)
+            )
+            if cursor.rowcount == 0:
+                # 并发下已被其它收取流程结算，放弃本次避免重复发放
+                await self.db.conn.rollback()
+                return False, "❌ 洞天产出刚刚已被收取，请稍后再试。"
+            await self.db.conn.execute(
+                "UPDATE players SET gold = gold + ?, experience = experience + ? WHERE user_id = ?",
+                (gold_income, exp_income, player.user_id)
+            )
+            await self.db.conn.commit()
+        except Exception:
+            try:
+                await self.db.conn.rollback()
+            except Exception:
+                pass
+            raise
         player.gold += gold_income
         player.experience += exp_income
-        await self.db.update_player(player)
-        
-        await self.db.conn.execute(
-            "UPDATE blessed_lands SET last_collect_time = ? WHERE user_id = ?",
-            (settled_until, player.user_id)
-        )
-        await self.db.conn.commit()
         
         shield_penalty_pct = 10 if getattr(player, "life_skill", "") == "阵法师" else 20
         shield_note = (

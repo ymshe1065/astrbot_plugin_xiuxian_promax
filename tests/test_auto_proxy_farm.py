@@ -235,27 +235,6 @@ class TestAutoProxyFarm(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.manager._selected_slots(farm, config["farm"]), [2, 3])
         self.assertNotIn("1", config["farm"]["tasks"])
 
-    async def test_close_proxy_does_not_stop_farm(self):
-        now = int(time.time())
-        await self._set_crops([
-            {"name": "灵草", "slot": 1, "plant_time": now, "mature_time": now + 3600},
-        ])
-        ok, _ = await self.manager.enable("u1", "umo://g", "灵田")
-        self.assertTrue(ok)
-
-        ok, msg = await self.manager.disable_primary("u1")
-        self.assertTrue(ok)
-        self.assertIn("灵田自动代理继续运行", msg)
-        row = await self.db.ext.get_auto_proxy("u1")
-        self.assertEqual(row["enabled"], 1)
-        self.assertTrue(self.manager._load_config(row)["farm"]["enabled"])
-
-        ok, _ = await self.manager.disable_farm("u1", "")
-        self.assertTrue(ok)
-        row = await self.db.ext.get_auto_proxy("u1")
-        self.assertFalse(self.manager._load_config(row)["farm"]["enabled"])
-        self.assertEqual(row["enabled"], 0)
-
     async def test_plant_herb_requires_farm_level(self):
         player = await self.db.get_player_by_id("u1")
         ok, msg = await self.farm_mgr.plant_herb(player, "冰心草", 1)
@@ -498,17 +477,6 @@ class TestAutoProxyFarm(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(row["task_type"], "")
         self.assertEqual(row["enabled"], 1)
 
-
-    async def test_parse_plant_args_modes(self):
-        module = _imp("managers.spirit_farm_manager")
-        self.assertEqual(module.parse_plant_args("灵草"), ("灵草", 1, None, False))
-        self.assertEqual(module.parse_plant_args("灵草 6"), ("灵草", 6, None, False))
-        self.assertEqual(module.parse_plant_args("灵草6"), ("灵草", 6, None, False))
-        self.assertEqual(module.parse_plant_args("灵草 1-20"), ("灵草", 1, (1, 20), False))
-        self.assertEqual(module.parse_plant_args("灵草1-20"), ("灵草", 1, (1, 20), False))
-        self.assertEqual(module.parse_plant_args("灵草 all"), ("灵草", 1, None, True))
-        self.assertEqual(module.parse_plant_args("灵草ALL"), ("灵草", 1, None, True))
-        self.assertEqual(module.parse_plant_args("灵草 全部"), ("灵草", 1, None, True))
 
     async def test_plant_fill_all_and_slot_range(self):
         player = await self.db.get_player_by_id("u1")

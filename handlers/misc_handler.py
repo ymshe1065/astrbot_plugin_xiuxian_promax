@@ -12,14 +12,14 @@ except ImportError:
     logger = logging.getLogger("xiuxian.misc_handler")
 
 from ..utils.static_pages import build_help_text, HELP_VERSION
-from .utils import player_required, with_player_lock, set_event_flag
+from .utils import player_required, set_event_flag
 
 __all__ = ["MiscHandler"]
 
 class MiscHandler:
     """杂项指令处理器 - 提供帮助信息、一键日常与强制解卡"""
 
-    VERSION = HELP_VERSION  # v6.56.1：/坊市卖出 all 一键卖出全部待处理问价；DB v58（无结构变更）
+    VERSION = HELP_VERSION  # v6.57.0：全模块并发/资金安全修复 + 重随灵根5次×20仙缘；DB v59（invest 唯一索引）
 
     def __init__(self, db: DataBase, config: dict = None):
         self.db = db
@@ -65,7 +65,8 @@ class MiscHandler:
         )
         yield event.plain_result(msg)
 
-    @with_player_lock
+    # 注意：入口 main.py::handle_force_unlock 已持有同一把玩家锁，
+    # 此处不可再叠加 with_player_lock/player_required，否则同锁嵌套会死锁。
     async def handle_force_unlock(self, event: AstrMessageEvent):
         """强制解卡（不走忙碌状态拦截，保证任何时候都能自救）"""
         set_event_flag(event, "unlock_success", False)

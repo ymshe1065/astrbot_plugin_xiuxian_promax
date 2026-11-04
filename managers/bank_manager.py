@@ -3,6 +3,7 @@
 import time
 from decimal import Decimal, ROUND_DOWN
 from typing import Tuple, List, Optional
+from astrbot.api import logger
 from ..data import DataBase
 from ..models import Player
 from ..loan_rules import loan_limit
@@ -116,6 +117,19 @@ class BankManager:
         
         return int(interest.quantize(Decimal('1'), rounding=ROUND_DOWN))
     
+    def _settle_interest_time(self, balance: int, last_interest_time: int, now: int) -> Tuple[int, int]:
+        """结算旧余额的整天利息，返回 (应入账利息, 新计息起点)。
+
+        计息起点只按「整天」前移，不清掉不足一天的零头进度；
+        只有 claim_interest 才把起点重置为当前时间。
+        频繁存取款不再丢失计息进度，也不会重复结算已入账的整天利息。
+        """
+        pending_interest = self._calculate_interest(balance, last_interest_time)
+        if last_interest_time <= 0:
+            return pending_interest, now  # 首次建户：从此刻开始计息
+        days_passed = max(0, (now - last_interest_time) // 86400)
+        return pending_interest, last_interest_time + days_passed * 86400
+    
     async def deposit(self, player: Player, amount: int) -> Tuple[bool, str]:
         """存入灵石"""
         if amount <= 0:
@@ -139,12 +153,13 @@ class BankManager:
             await self.db.update_player(player, commit=False)
 
             now = int(time.time())
-            # 先结算旧余额已产生的利息，再重置计息起点；防止临领取前大额存入套取历史利息
-            pending_interest = self._calculate_interest(
-                current_balance, bank_data["last_interest_time"] if bank_data else 0
+            # 先结算旧余额已产生的整天利息（防临领取前大额存入套取历史利息），
+            # 计息起点只按整天前移，不再重置为当前时间——频繁存取不清零头进度
+            last_interest_time = int(bank_data["last_interest_time"]) if bank_data else 0
+            pending_interest, interest_time = self._settle_interest_time(
+                current_balance, last_interest_time, now
             )
             new_balance = current_balance + pending_interest + amount
-            interest_time = now
             
             # 直接底层 SQL 更新账户
             await self.db.conn.execute(
@@ -175,10 +190,13 @@ class BankManager:
             bank_data = await self.db.ext.get_bank_account(player.user_id)
 
             now = int(time.time())
-            # 取款同样先结算利息并重置计息起点，保证存取款前后的利息归属清晰
-            pending_interest = self._calculate_interest(
-                bank_data["balance"], bank_data["last_interest_time"]
-            ) if bank_data else 0
+            # 取款同样只结算整天利息并按整天前移计息起点，保证存取款前后的利息归属清晰
+            if bank_data:
+                pending_interest, interest_time = self._settle_interest_time(
+                    int(bank_data["balance"]), int(bank_data["last_interest_time"]), now
+                )
+            else:
+                pending_interest, interest_time = 0, now
             available = (bank_data["balance"] if bank_data else 0) + pending_interest
             if not bank_data or available < amount:
                 await self.db.conn.rollback()
@@ -188,7 +206,7 @@ class BankManager:
             
             await self.db.conn.execute(
                 "INSERT INTO bank_accounts (user_id, balance, last_interest_time) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET balance = excluded.balance, last_interest_time = excluded.last_interest_time",
-                (player.user_id, new_balance, now)
+                (player.user_id, new_balance, interest_time)
             )
             
             player.gold += amount
@@ -491,7 +509,13 @@ class BankManager:
             raise
     
     async def check_and_process_overdue_loans(self) -> List[dict]:
-        """检查并处理逾期贷款 - 逾期玩家掉落一个大境界（不再删除角色）"""
+        """检查并处理逾期贷款 - 逾期玩家掉落一个大境界（不再删除角色）
+
+        与指令路径 handlers/utils._check_loan_status 存在竞态：每笔贷款单独包
+        BEGIN IMMEDIATE 事务，事务内用条件 UPDATE 抢占（只有仍是 active/overdue
+        的贷款才能转坏账），rowcount=0 说明已被其他路径处理或已还清，直接跳过，
+        杜绝同一笔贷款双重跌境。
+        """
         now = int(time.time())
         overdue_loans = await self.db.ext.get_overdue_loans(now)
         processed = []
@@ -499,41 +523,48 @@ class BankManager:
         from ..core.realm_penalty import fall_one_major_realm
 
         for loan in overdue_loans:
-            player = await self.db.get_player_by_id(loan["user_id"])
-            if not player:
-                await self.db.conn.execute(
-                    "UPDATE bank_loans SET status = 'bad_debt' WHERE id = ?",
+            await self.db.conn.execute("BEGIN IMMEDIATE")
+            try:
+                # 事务内条件更新抢占这笔贷款；已坏账/已还清的不会被重复处罚
+                cursor = await self.db.conn.execute(
+                    "UPDATE bank_loans SET status = 'bad_debt' "
+                    "WHERE id = ? AND status IN ('active', 'overdue')",
                     (loan["id"],),
                 )
-                await self.db.conn.commit()
-                continue
+                if not cursor.rowcount:
+                    await self.db.conn.rollback()
+                    continue
 
-            player_name = player.user_name or f"道友{player.user_id[:6]}"
+                player = await self.db.get_player_by_id(loan["user_id"])
+                if not player:
+                    # 角色已不存在：贷款直接转坏账（上面的条件更新已生效）
+                    await self.db.conn.commit()
+                    continue
 
-            fall_info = fall_one_major_realm(player, self.config_manager)
-            await self.db.update_player_fields(
-                player.user_id,
-                level_index=player.level_index,
-                experience=player.experience,
-            )
+                player_name = player.user_name or f"道友{player.user_id[:6]}"
 
-            # 贷款转为坏账，避免同一笔欠款每小时重复触发境界跌落
-            await self.db.conn.execute(
-                "UPDATE bank_loans SET status = 'bad_debt' WHERE id = ?",
-                (loan["id"],),
-            )
-
-            # 写流水
-            now = int(time.time())
-            await self.db.conn.execute(
-                "INSERT INTO bank_transactions (user_id, trans_type, amount, balance_after, description, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (
-                    loan["user_id"], "bank_kill", 0, 0,
-                    f"逾期未还款，境界跌落：{fall_info['old_name']}→{fall_info['new_name']}",
-                    now,
+                fall_info = fall_one_major_realm(player, self.config_manager)
+                # 境界跌落用定向 UPDATE 持久化，避免旧快照全字段覆盖丢失并发修改
+                await self.db.conn.execute(
+                    "UPDATE players SET level_index = ?, experience = ? WHERE user_id = ?",
+                    (player.level_index, player.experience, player.user_id),
                 )
-            )
-            await self.db.conn.commit()
+
+                # 写流水；跌境 + 置坏账 + 流水同一事务提交
+                now = int(time.time())
+                await self.db.conn.execute(
+                    "INSERT INTO bank_transactions (user_id, trans_type, amount, balance_after, description, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        loan["user_id"], "bank_kill", 0, 0,
+                        f"逾期未还款，境界跌落：{fall_info['old_name']}→{fall_info['new_name']}",
+                        now,
+                    )
+                )
+                await self.db.conn.commit()
+            except Exception as e:
+                await self.db.conn.rollback()
+                logger.error(f"处理逾期贷款失败（id={loan.get('id')}）: {e}")
+                continue
 
             processed.append({
                 **loan,

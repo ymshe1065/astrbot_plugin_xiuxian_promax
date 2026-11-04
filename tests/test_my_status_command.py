@@ -1,29 +1,13 @@
 # tests/test_my_status_command.py
 # /我的状态：列出所有生效中的限时状态（状态名 / 效果 / 剩余时间或次数）。
-import re
 import time
 import unittest
 
-from test_equipment_instances import ROOT, _FakeEvent, _imp
+from test_equipment_instances import _FakeEvent, _imp
 
 
 def _pill_handler(db, cm):
     return _imp("handlers.pill_handler").PillHandler(db, cm)
-
-
-class TestMyStatusRegistered(unittest.TestCase):
-    def test_command_registered_once(self):
-        source = (ROOT / "main.py").read_text(encoding="utf-8")
-        self.assertIn('CMD_MY_STATUS = "我的状态"', source)
-        hits = re.findall(r"@filter\.command\(\s*CMD_MY_STATUS\b", source)
-        self.assertEqual(len(hits), 1, "我的状态 指令注册次数异常")
-
-    def test_handler_wired(self):
-        source = (ROOT / "main.py").read_text(encoding="utf-8")
-        self.assertIn("handle_my_status", source)
-        handler = (ROOT / "handlers" / "pill_handler.py").read_text(encoding="utf-8")
-        self.assertIn("async def handle_my_status", handler)
-        self.assertIn("async def _render_my_status", handler)
 
 
 class TestMyStatusRender(unittest.IsolatedAsyncioTestCase):

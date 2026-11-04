@@ -1,6 +1,7 @@
 # managers/social_manager.py
 """社交系统 v6.16 - NPC道侣（仙灵结缘）+ 师徒系统"""
 import json
+import sqlite3
 import time
 from typing import Tuple, Optional, Dict
 
@@ -61,8 +62,10 @@ MAX_COMPANION_LEVEL = 10
 class SocialManager:
     """NPC道侣 + 师徒管理器"""
 
-    def __init__(self, db: DataBase):
+    def __init__(self, db: DataBase, config_manager=None):
         self.db = db
+        # 可选：功法加成需要配置管理器（未注入时相关加成自动跳过）
+        self.config_manager = config_manager
 
     # ================= NPC 道侣 =================
 
@@ -113,13 +116,25 @@ class SocialManager:
         land_ok, land_msg = await self.require_blessed_land(player.user_id)
         if not land_ok:
             return False, land_msg
-        # 与真人双修互斥：有待处理的双修请求（作为发起者）时不可结缘
+        # 与真人双修互斥：有待处理的双修请求时不可结缘（区分发出/收到）
         async with self.db.conn.execute(
-            "SELECT COUNT(*) FROM dual_cultivation_requests WHERE from_id = ?", (player.user_id,)
+            "SELECT target_id FROM dual_cultivation_requests WHERE from_id = ? LIMIT 1",
+            (player.user_id,),
+        ) as cursor:
+            sent_row = await cursor.fetchone()
+        if sent_row:
+            target = await self.db.get_player_by_id(str(sent_row[0]))
+            target_name = target.user_name if target and target.user_name else str(sent_row[0])[:8]
+            return False, (
+                f"❌ 你向【{target_name}】发出的双修请求尚未处理，"
+                "请等待其回应或过期，再考虑仙灵结缘。"
+            )
+        async with self.db.conn.execute(
+            "SELECT COUNT(*) FROM dual_cultivation_requests WHERE target_id = ?", (player.user_id,)
         ) as cursor:
             cnt = (await cursor.fetchone())[0]
         if cnt > 0:
-            return False, "❌ 你有未处理的双修请求，请先 /拒绝双修 或等对方回应，再考虑仙灵结缘。"
+            return False, "❌ 你收到未处理的双修请求，请先 /拒绝双修 或等对方回应，再考虑仙灵结缘。"
         if player.gold < COMPANION_COST:
             return False, f"❌ 结缘需要 {COMPANION_COST:,} 灵石（三书六礼总要有的）。"
 
@@ -221,6 +236,8 @@ class SocialManager:
 
         hours = min(24, int(hours_passed))
         credit_start = max(land["last_collect_time"], now - hours * 3600)
+        # 与正常收取一致：保留不足 1 小时的余数，避免频繁代收永久损失小数小时收益
+        settled_until = now if hours_passed >= 24 else land["last_collect_time"] + hours * 3600
         output_mult = player.shield_output_multiplier(credit_start, now)
         gold_income = land["gold_per_hour"] * hours
         # 灵泉假山加成
@@ -232,36 +249,86 @@ class SocialManager:
             pass
         gold_income = int(gold_income * output_mult)
 
+        # 修为产出（口径对齐 blessed_land_manager.collect_income：上限+护府折减+称号加成）
+        exp_income = 0
+        try:
+            from .blessed_land_manager import BLESSED_LANDS
+            land_cfg = BLESSED_LANDS.get(land["land_type"], BLESSED_LANDS[1])
+            max_exp_per_hour = land_cfg.get("max_exp_per_hour", 5000)
+            exp_income = int(player.experience * land["exp_bonus"] * hours * 0.01)
+            exp_income = min(exp_income, max_exp_per_hour * hours)
+            exp_income = int(exp_income * output_mult)
+            from .title_manager import TitleManager
+            exp_income = int(exp_income * (1 + TitleManager.get_exp_bonus(player)))
+        except Exception:
+            pass
+        # 功法金币加成（config_manager 未注入时为无操作）
+        try:
+            from ..core.technique_bonus import TechniqueBonusManager
+            gold_income = TechniqueBonusManager.apply_gold_bonus(
+                player, gold_income, self.config_manager
+            )
+        except Exception:
+            pass
+        # 灵兽「灵石收益」加成
+        try:
+            from .pet_manager import PetManager
+            pet_gold_bonus = await PetManager(self.db).get_life_bonus(player.user_id, "gold_bonus")
+            if pet_gold_bonus > 0:
+                gold_income = int(gold_income * (1 + pet_gold_bonus))
+        except Exception:
+            pass
+
         spirit_cut = int(gold_income * 0.20)
         player_cut = gold_income - spirit_cut
 
-        # 洞天产出进洞天主人账上；仙灵消耗 1 点情缘作为谢礼
-        await self.db.add_player_gold(player.user_id, player_cut)
-        await self.db.conn.execute(
-            "UPDATE blessed_lands SET last_collect_time = ? WHERE user_id = ?",
-            (now, player.user_id)
-        )
-        await self.db.conn.execute(
-            "UPDATE npc_partners SET bond = bond - 1 WHERE user_id = ?",
-            (player.user_id,)
-        )
-        await self.db.conn.commit()
+        # 单一事务：先推进结算时间戳（带旧值幂等条件）再入账，消除“已给钱未推进时间戳”窗口；
+        # 仙灵消耗 1 点情缘作为谢礼
+        await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            cursor = await self.db.conn.execute(
+                "UPDATE blessed_lands SET last_collect_time = ? "
+                "WHERE user_id = ? AND last_collect_time = ?",
+                (settled_until, player.user_id, land["last_collect_time"])
+            )
+            if cursor.rowcount == 0:
+                # 并发下已被其它收取流程结算，放弃本次避免重复发放
+                await self.db.conn.rollback()
+                return False, "❌ 洞天产出刚被收取过了，请稍后再试。"
+            await self.db.conn.execute(
+                "UPDATE players SET gold = gold + ?, experience = experience + ? WHERE user_id = ?",
+                (player_cut, exp_income, player.user_id)
+            )
+            await self.db.conn.execute(
+                "UPDATE npc_partners SET bond = bond - 1 WHERE user_id = ?",
+                (player.user_id,)
+            )
+            await self.db.conn.commit()
+        except Exception:
+            try:
+                await self.db.conn.rollback()
+            except Exception:
+                pass
+            raise
+        player.gold += player_cut
+        player.experience += exp_income
 
         cfg = SPIRIT_COMPANIONS.get(comp["npc_id"], {})
         shield_note = ""
         if output_mult < 1.0:
             penalty_pct = 10 if getattr(player, "life_skill", "") == "阵法师" else 20
-            shield_note = f"\n⚠️ 护府大阵生效期间，代收灵石按 -{penalty_pct}% 折算"
+            shield_note = f"\n⚠️ 护府大阵生效期间，代收产出按 -{penalty_pct}% 折算"
         return True, (
             f"🏔️【仙灵代收】\n"
             f"━━━━━━━━━━━━━━━\n"
             f"道侣【{comp['npc_id']}】（{cfg.get('title', '')}）代你巡视洞天，\n"
             f"收得闲置产出 {hours} 小时：\n"
             f"💰 灵石：+{player_cut:,}（仙灵情谊分成 {spirit_cut:,}）\n"
+            f"✨ 修为：+{exp_income:,}\n"
             f"💞 消耗情缘 1 点（剩余 {comp['bond'] - 1}）"
             f"{shield_note}\n"
             f"━━━━━━━━━━━━━━━\n"
-            f"💡 洞天已重新计时，/洞天收取 正常收取不受影响"
+            f"💡 洞天已重新计时（不足1小时的余数已保留），/洞天收取 正常收取不受影响"
         )
 
     def companion_bonus(self, user_id: str, perk_type: str) -> float:
@@ -321,11 +388,35 @@ class SocialManager:
             return False, f"❌ 对方门下弟子已满（{self.MAX_DISCIPLES} 人），暂时不再收徒。"
 
         now = int(time.time())
-        await self.db.conn.execute(
-            "INSERT INTO master_relations (master_id, disciple_id, created_at, graduated) VALUES (?, ?, ?, 0)",
-            (master_id, disciple.user_id, now)
-        )
-        await self.db.conn.commit()
+        # 事务内 recount + 条件插入，防止并发拜师超出名额上限
+        await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            async with self.db.conn.execute(
+                "SELECT COUNT(*) FROM master_relations WHERE master_id = ? AND graduated = 0",
+                (master_id,),
+            ) as cursor:
+                count = (await cursor.fetchone())[0]
+            if count >= self.MAX_DISCIPLES:
+                await self.db.conn.rollback()
+                return False, f"❌ 师父门下已满（{self.MAX_DISCIPLES} 人），暂时不再收徒。"
+            await self.db.conn.execute(
+                "INSERT INTO master_relations (master_id, disciple_id, created_at, graduated) VALUES (?, ?, ?, 0)",
+                (master_id, disciple.user_id, now)
+            )
+            await self.db.conn.commit()
+        except sqlite3.IntegrityError:
+            # disciple_id UNIQUE：并发下已被他人抢先收为弟子
+            try:
+                await self.db.conn.rollback()
+            except Exception:
+                pass
+            return False, "❌ 你已有师父，无法再拜他人。"
+        except Exception:
+            try:
+                await self.db.conn.rollback()
+            except Exception:
+                pass
+            raise
         return True, (
             f"🍚 拜师成功！\n"
             f"━━━━━━━━━━━━━━━\n"
@@ -362,13 +453,17 @@ class SocialManager:
         if d.level_index < 10:
             dn = d.user_name or disciple_id[:8]
             return False, f"❌ 弟子【{dn}】尚未达到筑基期（境界10），尚需打磨。"
-        # 奖励双方
+        # 奖励双方（弟子侧用定向原子增量，避免旧快照全字段回写覆盖并发改动）
         d_reward_gold, d_reward_exp = 30000, 20000
         m_reward_gold = 20000
+        await self.db.conn.execute(
+            "UPDATE players SET gold = gold + ?, experience = experience + ?, "
+            "fate_points = fate_points + ? WHERE user_id = ?",
+            (d_reward_gold, d_reward_exp, 20, disciple_id)
+        )
         d.gold += d_reward_gold
         d.experience += d_reward_exp
         d.fate_points = getattr(d, "fate_points", 0) + 20
-        await self.db.update_player(d)
         await self.db.add_player_gold(master.user_id, m_reward_gold)
         await self.db.conn.execute(
             "UPDATE master_relations SET graduated = 1 WHERE id = ?", (rel["id"],)
@@ -455,6 +550,24 @@ class SocialManager:
                 f"🏅 兑换成功！{title_msg.strip()}\n"
                 f"消耗师德 {goods['cost']}，剩余 {player.virtue_points}"
             )
-        player.virtue_points = vp - goods["cost"]
-        await self.db.update_player(player)
-        return True, f"__NEED_STORE__{goods['item']}|{goods['count']}|兑换【{goods['name']}】成功（消耗师德 {goods['cost']}，剩余 {player.virtue_points}）"
+        # 物品类契约：不预先扣点。main.py 先发放物品，成功后调用 commit_virtue_payment
+        # 以原子条件 UPDATE 扣点（余额不足返回 False，由调用方决定补偿/提示）。
+        expected_left = vp - goods["cost"]
+        return True, (
+            f"__NEED_STORE__{goods['item']}|{goods['count']}|"
+            f"兑换【{goods['name']}】成功（消耗师德 {goods['cost']}，剩余 {expected_left}）"
+            f"|{goods['cost']}"
+        )
+
+    async def commit_virtue_payment(self, user_id: str, cost: int) -> bool:
+        """物品类兑换发放成功后真正扣除师德点（原子条件更新）。
+
+        返回是否扣除成功；False 表示余额不足（并发消耗），调用方应提示玩家。
+        """
+        cursor = await self.db.conn.execute(
+            "UPDATE players SET virtue_points = virtue_points - ? "
+            "WHERE user_id = ? AND virtue_points >= ?",
+            (cost, user_id, cost)
+        )
+        await self.db.conn.commit()
+        return cursor.rowcount > 0

@@ -362,19 +362,8 @@ HP：{battle_result['player_final_hp']}/{player_stats.max_hp}
         else:
             boss.hp = battle_result["boss_final_hp"]
             await self.db.ext.update_boss(boss)
-            
-            result_msg = f"""
-💀 挑战失败
-━━━━━━━━━━━━━━━
 
-你被『{boss.boss_name}』击败了！
-
-战斗回合数：{battle_result['rounds']}
-安慰奖：{reward}灵石
-
-{boss.boss_name} 剩余HP：{boss.hp}/{boss.max_hp}
-            """.strip()
-            
+            # 先结算实际入账的安慰奖（含功法/灵兽加成），再展示到消息中，避免显示加成前数值
             if reward > 0:
                 try:
                     from ..core.technique_bonus import TechniqueBonusManager
@@ -388,6 +377,18 @@ HP：{battle_result['player_final_hp']}/{player_stats.max_hp}
                 except Exception:
                     pass
                 player.gold += reward
+
+            result_msg = f"""
+💀 挑战失败
+━━━━━━━━━━━━━━━
+
+你被『{boss.boss_name}』击败了！
+
+战斗回合数：{battle_result['rounds']}
+安慰奖：{reward}灵石
+
+{boss.boss_name} 剩余HP：{boss.hp}/{boss.max_hp}
+            """.strip()
         
         player.hp = battle_result["player_final_hp"]
         player.spiritual_qi = max(0, int(battle_result.get("player_final_mp", 0) or 0))

@@ -2,24 +2,14 @@
 # /丹药背包 回归：这条指令以前没有测试覆盖，读取失败会静默冒泡，玩家侧表现成「发指令没反应」。
 import asyncio
 import json
-import re
 import time
 import unittest
 
-from test_equipment_instances import _imp, _FakeEvent, ROOT
+from test_equipment_instances import _imp, _FakeEvent
 
 
 def _pill_handler(db, cm):
     return _imp("handlers.pill_handler").PillHandler(db, cm)
-
-
-class TestPillBagCommand(unittest.TestCase):
-    def test_command_registered_once(self):
-        """指令必须注册且只注册一次，否则后注册的会顶掉前者。"""
-        source = (ROOT / "main.py").read_text(encoding="utf-8")
-        hits = re.findall(r"@filter\.command\(\s*CMD_SHOW_PILLS\b", source)
-        self.assertEqual(len(hits), 1, "丹药背包 指令注册次数异常")
-        self.assertIn('CMD_SHOW_PILLS = "丹药背包"', source)
 
 
 class TestPillBagAsync(unittest.IsolatedAsyncioTestCase):

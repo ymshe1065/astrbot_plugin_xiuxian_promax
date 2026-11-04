@@ -2,6 +2,7 @@
 # 固定接口列表页图片生成测试：/修仙帮助 调用时自动生成并复用图片
 import asyncio
 import sys
+import tempfile
 import types
 import unittest
 from pathlib import Path
@@ -119,6 +120,21 @@ class TestStaticPageContent(unittest.TestCase):
 
 @unittest.skipUnless(HAS_PIL, "需要 Pillow 才能生成图片（pip install Pillow）")
 class TestStaticImageGeneration(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        # 输出重定向到临时目录：测试运行不再重写 git 跟踪的 resources/generated/
+        # （OUTPUT_DIR/MANIFEST_PATH 均为模块级全局，image_path/read_manifest 等在调用时读取）
+        self._generator = _imp("utils.static_image_generator")
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self._real_out = self._generator.OUTPUT_DIR
+        self._real_manifest = self._generator.MANIFEST_PATH
+        self._generator.OUTPUT_DIR = Path(self._tmpdir.name)
+        self._generator.MANIFEST_PATH = self._generator.OUTPUT_DIR / "manifest.json"
+
+    async def asyncTearDown(self):
+        self._generator.OUTPUT_DIR = self._real_out
+        self._generator.MANIFEST_PATH = self._real_manifest
+        self._tmpdir.cleanup()
+
     async def test_ensure_page_auto_generates_and_reuses_help_image(self):
         pages = _imp("utils.static_pages")
         generator = _imp("utils.static_image_generator")

@@ -17,13 +17,19 @@ class BattleEventHandlers:
 
     @player_required
     async def handle_attack(self, player: Player, event: AstrMessageEvent):
+        # 防串线：battle_event_mgr 为共享单例，last_kill/last_settle_msg 可能被并发调用覆盖。
+        # “调用前清空 + 调用后立即读取并清空”，确保 last_kill（用于称号计数）只对本次调用产生的击杀生效。
+        self.battle_event_mgr.last_kill = False
+        self.battle_event_mgr.last_settle_msg = None
         success, msg = await self.battle_event_mgr.challenge_event(player)
         set_event_flag(event, "battle_event_attack", bool(success))
-        set_event_flag(event, "battle_event_kill", bool(self.battle_event_mgr.last_kill))
+        killed = bool(self.battle_event_mgr.last_kill)
+        self.battle_event_mgr.last_kill = False
         settle_msg = getattr(self.battle_event_mgr, "last_settle_msg", None)
+        self.battle_event_mgr.last_settle_msg = None
+        set_event_flag(event, "battle_event_kill", killed)
         if settle_msg:
             set_event_flag(event, "battle_event_settle_msg", settle_msg)
-            self.battle_event_mgr.last_settle_msg = None
         yield event.plain_result(msg)
 
     async def handle_status(self, event: AstrMessageEvent):

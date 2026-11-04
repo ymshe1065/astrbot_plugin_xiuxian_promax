@@ -926,14 +926,19 @@ class PillManager:
             expiry_time = _safe_int(effect.get("expiry_time", 0))
             if expiry_time > 0 and current_time >= expiry_time:
                 continue
-            if "physical_damage_multiplier" in effect:
-                multipliers["physical_damage"] += _safe_float(effect["physical_damage_multiplier"])
-            if "magic_damage_multiplier" in effect:
-                multipliers["magic_damage"] += _safe_float(effect["magic_damage_multiplier"])
-            if "physical_defense_multiplier" in effect:
-                multipliers["physical_defense"] += _safe_float(effect["physical_defense_multiplier"])
-            if "magic_defense_multiplier" in effect:
-                multipliers["magic_defense"] += _safe_float(effect["magic_defense_multiplier"])
+            # 符箓来源的攻防倍率由 TalismanManager.merge_into_combat_effects 合并进战斗 effects，
+            # 这里再累加会双重计入（攻击符伤害被乘两次），故跳过四个攻防倍率键。
+            # 符箓的修炼加速（cultivation_multiplier）不进战斗面板，仍在此处累加。
+            from_talisman = effect.get("source") == "talisman"
+            if not from_talisman:
+                if "physical_damage_multiplier" in effect:
+                    multipliers["physical_damage"] += _safe_float(effect["physical_damage_multiplier"])
+                if "magic_damage_multiplier" in effect:
+                    multipliers["magic_damage"] += _safe_float(effect["magic_damage_multiplier"])
+                if "physical_defense_multiplier" in effect:
+                    multipliers["physical_defense"] += _safe_float(effect["physical_defense_multiplier"])
+                if "magic_defense_multiplier" in effect:
+                    multipliers["magic_defense"] += _safe_float(effect["magic_defense_multiplier"])
             if "cultivation_multiplier" in effect:
                 multipliers["cultivation_speed"] += _safe_float(effect["cultivation_multiplier"])
 

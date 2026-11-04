@@ -322,18 +322,8 @@ class WorldBossManager:
         final_damage = int(max_hp * damage_percent / 100)
         if final_damage <= 0 and raw_damage <= 0:
             final_damage = 0
-        try:
-            await self.db.update_player_fields(
-                player.user_id,
-                hp=max(1, int(player_stats.hp)),
-                mp=max(0, int(player_stats.mp)),
-                spiritual_qi=max(0, int(player_stats.mp)),
-            )
-            player.hp = max(1, int(player_stats.hp))
-            player.spiritual_qi = max(0, int(player_stats.mp))
-            player.mp = player.spiritual_qi
-        except Exception:
-            pass
+        # 不在此处落库：把战损后的气血/灵气随结果返回，由调用方在事务成功提交后统一写回。
+        # 否则事务回滚（Boss 已被击杀 / CD 复核失败等）后，玩家气血无法恢复。
         return {
             "damage": max(0, final_damage),
             "raw_damage": max(0, raw_damage),
@@ -342,6 +332,8 @@ class WorldBossManager:
             "killed": int(boss_stats.hp) <= 0,
             "boss_remaining": max(0, int(boss_stats.hp)),
             "player_remaining": max(0, int(player_stats.hp)),
+            "player_final_hp": max(1, int(player_stats.hp)),
+            "player_final_mp": max(0, int(player_stats.mp)),
             "rounds": int(result.get("rounds", 0) or 0),
             "combat_log": [str(line) for line in (result.get("combat_log") or [])][:200],
         }
@@ -840,6 +832,21 @@ class WorldBossManager:
             await self.db.conn.rollback()
             logger.error(f"世界Boss战斗异常: {e}")
             return False, "❌ 战斗异常，请稍后再试。"
+
+        # 事务已成功提交，此时才把玩家战损后的气血/灵气写回。
+        # 任一提前 return 分支（Boss 已被击杀 / 已逃遁 / 无剩余血量 / CD 复核失败）都不会执行到这里，
+        # 从而避免“先落库再回滚导致气血不恢复”的问题。
+        try:
+            final_hp = max(1, int(battle.get("player_final_hp") or player_remaining or 1))
+            final_mp = max(0, int(battle.get("player_final_mp") or 0))
+            await self.db.update_player_fields(
+                player.user_id, hp=final_hp, mp=final_mp, spiritual_qi=final_mp,
+            )
+            player.hp = final_hp
+            player.spiritual_qi = final_mp
+            player.mp = final_mp
+        except Exception as exc:
+            logger.warning(f"世界Boss战后气血写回失败: {exc}")
 
         self.last_challenge_ok = True
 

@@ -270,6 +270,8 @@ class TestSlots(unittest.IsolatedAsyncioTestCase):
         p = await self._player()
         inst = await self.equip(p, self.weapon)
         p.gold = 1_000_000
+        # v6.57.0: 洗练费用改为 DB 条件原子扣款，夹具的内存 gold 必须先落库
+        await self.db.update_player(p)
         await self.ring.store_item(p, "洗练石", 2)
         await self.ring.store_item(p, "诛仙龙骨铁", 2)
         forge = _imp("managers.forge_manager").ForgeManager(self.db, self.cm, self.ring)

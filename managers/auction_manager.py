@@ -181,24 +181,27 @@ class AuctionManager:
                 if inventory[pill_key] <= 0:
                     del inventory[pill_key]
                 player.set_pills_inventory(inventory)
-                await self.db.update_player(player)
 
                 now = int(time.time())
                 next_offer_time = self._next_offer_time_for_listing(
                     {"item_kind": "pill", "item_name": base_name,
                      "item_quality": quality, "price": price}, now
                 )
+                # 背包扣减与挂单写入合并为同一事务：任一失败整体回滚，
+                # 再回补内存背包，杜绝"丹药没了但没上架"的中间态
+                await self.db.conn.execute("BEGIN IMMEDIATE")
                 try:
+                    await self.db.update_player(player, commit=False)
                     await self.db.conn.execute(
                         "INSERT INTO auction_items (seller_id, item_name, count, price, create_time, next_offer_time, item_kind, item_quality) VALUES (?, ?, ?, ?, ?, ?, 'pill', ?)",
                         (player.user_id, base_name, count, price, now, next_offer_time, quality)
                     )
                     await self.db.conn.commit()
                 except Exception as e:
+                    await self.db.conn.rollback()
                     inventory[pill_key] = int(inventory.get(pill_key, 0)) + count
                     player.set_pills_inventory(inventory)
-                    await self.db.update_player(player)
-                    logger.error(f"丹药上架失败，已恢复背包: {e}")
+                    logger.error(f"丹药上架失败，事务已回滚: {e}")
                     return False, "❌ 上架失败，丹药已退回背包。"
                 total = price * count
                 tip = self._listing_npc_tip(next_offer_time)
@@ -248,26 +251,27 @@ class AuctionManager:
         if isinstance(item_info, dict) and item_info.get("bound"):
             return False, f"❌【{item_name}】是角色绑定物品，无法上架坊市交易！"
 
-        # 从储物戒扣除物品
-        success, msg = await self.storage_ring_mgr.retrieve_item(player, item_name, count)
-        if not success:
-            return False, f"❌ 扣除物品失败：{msg}"
-
-        # 写入坊市表
+        # 扣除物品与挂单写入合并为同一事务（retrieve_item 嵌套事务自动降级
+        # SAVEPOINT）：任一失败整体回滚，物品留在储物戒，无需手动补偿
         now = int(time.time())
         next_offer_time = self._next_offer_time_for_listing(
             {"item_kind": "item", "item_name": item_name,
              "item_quality": "", "price": price}, now
         )
+        await self.db.conn.execute("BEGIN IMMEDIATE")
         try:
+            success, msg = await self.storage_ring_mgr.retrieve_item(player, item_name, count)
+            if not success:
+                await self.db.conn.rollback()
+                return False, f"❌ 扣除物品失败：{msg}"
             await self.db.conn.execute(
                 "INSERT INTO auction_items (seller_id, item_name, count, price, create_time, next_offer_time, item_kind, item_quality, instance_id) VALUES (?, ?, ?, ?, ?, ?, 'item', '', 0)",
                 (player.user_id, item_name, count, price, now, next_offer_time)
             )
             await self.db.conn.commit()
         except Exception as e:
-            await self.storage_ring_mgr.store_item(player, item_name, count, silent=True)
-            logger.error(f"物品上架失败，已恢复储物戒: {e}")
+            await self.db.conn.rollback()
+            logger.error(f"物品上架失败，事务已回滚: {e}")
             return False, "❌ 上架失败，物品已退回储物戒。"
 
         total = price * count

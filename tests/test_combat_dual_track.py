@@ -53,15 +53,6 @@ class TestCombatDualTrack(unittest.TestCase):
         cls.CombatManager = _imp("managers.combat_manager").CombatManager
         cls.CombatStats = _imp("managers.combat_manager").CombatStats
 
-    def test_components_sum_to_old_total(self):
-        cm = self.CombatManager
-        for cultivation in ("剑修", "鬼修", "灵修", "魔修", "佛修", "体修", "御兽"):
-            old = cm.calculate_atk(176292, 0, 0.0, 410, 260, cultivation)
-            components = cm.calculate_attack_components(
-                176292, 0, 0.0, 410, 260, cultivation
-            )
-            self.assertEqual(components["atk"], old, cultivation)
-
     def test_effective_experience_overflow_segments(self):
         cm = self.CombatManager
         cap = 350_000

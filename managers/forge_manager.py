@@ -82,12 +82,36 @@ class ForgeManager:
         if not self.storage_ring_mgr.has_item(player, "强化石", cost_stone):
             return False, f"❌ 你的储物戒里没有足够的【强化石】。\n需要：{cost_stone}个"
 
-        if player.gold < cost_sword:
-            return False, f"❌ 灵石不足！需要 {cost_sword:,} 灵石。"
+        # 条件原子扣灵石：余额不足时 rowcount=0，杜绝并发透支/旧快照覆盖入账
+        await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            cursor = await self.db.conn.execute(
+                "UPDATE players SET gold = gold - ? WHERE user_id = ? AND gold >= ?",
+                (cost_sword, player.user_id, cost_sword),
+            )
+            if not cursor.rowcount:
+                await self.db.conn.rollback()
+                fresh = await self.db.get_player_by_id(player.user_id)
+                have = fresh.gold if fresh else player.gold
+                return False, (
+                    f"❌ 灵石不足！需要 {cost_sword:,} 灵石，你当前只有 {have:,}。"
+                )
+            fresh = await self.db.get_player_by_id(player.user_id)
+            await self.db.conn.commit()
+        except Exception:
+            await self.db.conn.rollback()
+            raise
+        if fresh:
+            player.gold = fresh.gold
+        else:
+            player.gold -= cost_sword
 
-        # 扣除物品
-        await self.storage_ring_mgr.retrieve_item(player, "强化石", cost_stone)
-        player.gold -= cost_sword
+        # 扣除强化石（retrieve_item 自带事务与回滚）；失败则原路退回灵石
+        ok, msg = await self.storage_ring_mgr.retrieve_item(player, "强化石", cost_stone)
+        if not ok:
+            await self.db.add_player_gold(player.user_id, cost_sword)
+            player.gold += cost_sword
+            return False, f"❌ 扣除强化石失败：{msg}\n灵石已退回：{cost_sword:,}"
 
         # 判定成功率
         success_rate = max(0.2, 1.0 - current_level * 0.05)
@@ -95,10 +119,13 @@ class ForgeManager:
         if random.random() < success_rate:
             data["forge_level"] = current_level + 1
             player.permanent_bonus = json.dumps(data)
-            await self.db.update_player(player)
+            # 只定向回写炼器字段，避免全字段覆盖抹掉并发期间的其他修改
+            await self.db.update_player_fields(
+                player.user_id, permanent_bonus=player.permanent_bonus
+            )
             return True, f"✨ 炼器成功！你的炼器等级提升至 +{current_level + 1}。\n（全属性基础攻击/防御获得加成）{skill_note}"
         else:
-            await self.db.update_player(player)
+            # 失败无需回写：灵石与强化石均已各自原子持久化
             return False, f"💥 炼器失败！由于火候不佳，消耗了材料和灵石，但等级未提升（当前 +{current_level}）。{skill_note}"
 
     async def wash_equipment(self, player: Player, slot: str = "") -> Tuple[bool, str]:
@@ -168,7 +195,19 @@ class ForgeManager:
                 affixes.pop(0)
             data["affixes"] = affixes
             player.permanent_bonus = json.dumps(data)
-        await self.db.update_player(player)
+
+        # 重读最新数据合并本次洗练结果，避免旧快照全字段覆盖并发入账
+        fresh = await self.db.get_player_by_id(player.user_id)
+        if fresh:
+            fresh.set_equipment_instances(player.get_equipment_instances())
+            if not target_instance:
+                # 仅旧版全局词条分支会修改 permanent_bonus；实例分支不复制，
+                # 防止用旧值覆盖并发期间炼器强化等修改
+                fresh.permanent_bonus = player.permanent_bonus
+            await self.db.update_player(fresh)
+            player.gold = fresh.gold
+        else:
+            await self.db.update_player(player)
         
         msg = [
             "✨ 洗练成功！你获得了新词条：",
@@ -256,20 +295,51 @@ class ForgeManager:
         gold_cost = int(tier_rule["gold"] * (1 + (count - 1) * 0.5))
         if getattr(player, "life_skill", "") == "炼器师":
             gold_cost //= 2
-        if player.gold < gold_cost:
-            return False, f"❌ 灵石不足！需要 {gold_cost:,} 灵石。"
+
+        # 条件原子扣灵石：余额不足 rowcount=0，杜绝并发透支/旧快照覆盖入账
+        await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            cursor = await self.db.conn.execute(
+                "UPDATE players SET gold = gold - ? WHERE user_id = ? AND gold >= ?",
+                (gold_cost, player.user_id, gold_cost),
+            )
+            if not cursor.rowcount:
+                await self.db.conn.rollback()
+                fresh = await self.db.get_player_by_id(player.user_id)
+                have = fresh.gold if fresh else player.gold
+                return False, (
+                    f"❌ 灵石不足！需要 {gold_cost:,} 灵石，你当前只有 {have:,}。"
+                )
+            fresh = await self.db.get_player_by_id(player.user_id)
+            await self.db.conn.commit()
+        except Exception:
+            await self.db.conn.rollback()
+            raise
+        if fresh:
+            player.gold = fresh.gold
+        else:
+            player.gold -= gold_cost
 
         ok, msg = await self.storage_ring_mgr.retrieve_item(player, material_name, count)
         if not ok:
-            return False, f"❌ 扣除妖兽材料失败：{msg}"
+            # 材料扣除失败：原路退回灵石
+            await self.db.add_player_gold(player.user_id, gold_cost)
+            player.gold += gold_cost
+            return False, f"❌ 扣除妖兽材料失败：{msg}\n灵石已退回：{gold_cost:,}"
         ok, msg = await self.storage_ring_mgr.retrieve_item(player, "洗练石", 1)
         if not ok:
-            return False, f"❌ 扣除洗练石失败：{msg}"
-        player.gold -= gold_cost
+            # 洗练石扣除失败：退回材料与灵石
+            try:
+                await self.storage_ring_mgr.store_item(player, material_name, count, silent=True)
+            except Exception:
+                pass
+            await self.db.add_player_gold(player.user_id, gold_cost)
+            player.gold += gold_cost
+            return False, f"❌ 扣除洗练石失败：{msg}\n已退回【{material_name}】×{count} 与灵石 {gold_cost:,}。"
 
         success_rate = min(0.98, tier_rule["success"] + (count - 1) * 0.05)
         if random.random() >= success_rate:
-            await self.db.update_player(player)
+            # 失败路径：灵石与材料均已各自原子持久化，无需再全字段回写
             return False, (
                 f"💥 定向洗练失败！\n"
                 f"已消耗【{material_name}】×{count}、洗练石×1、{gold_cost:,}灵石。\n"
@@ -305,7 +375,14 @@ class ForgeManager:
                 instances[index] = target
                 break
         im.save(player, instances)
-        await self.db.update_player(player)
+        # 重读最新数据合并本次洗练结果，避免旧快照全字段覆盖并发入账
+        fresh = await self.db.get_player_by_id(player.user_id)
+        if fresh:
+            fresh.set_equipment_instances(player.get_equipment_instances())
+            await self.db.update_player(fresh)
+            player.gold = fresh.gold
+        else:
+            await self.db.update_player(player)
 
         lines = [
             "✨ 定向洗练成功！",
