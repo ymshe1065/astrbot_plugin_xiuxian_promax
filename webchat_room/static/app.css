@@ -213,11 +213,17 @@ html[data-theme="fish"] {
   --kai: "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", system-ui, sans-serif;
 }
 
-/* —— 形象：民间大肥鱼（蓝发 / 呆毛 / 鲸尾 / 白围裙 / 抱白饭碗）—— */
+/* —— 形象：民间大肥鱼（蓝发 / 呆毛 / 白蕾丝头饰 / 女仆装）—— */
+/* 圆形头像：白描边 + 外圈淡蓝光环，像一枚浮在水里的徽章 */
 html[data-theme="fish"] .login-mark {
-  display: block; width: 124px; height: 124px; margin: -6px auto 6px;
+  display: block; width: 128px; height: 128px; margin: -8px auto 10px;
   font-size: 0; color: transparent; opacity: 1;
-  background: url("/static/img/whale_logo_side.png") center / contain no-repeat;
+  border-radius: 50%;
+  background: url("/static/img/whale_logo.png") center / 100% no-repeat;
+  box-shadow:
+    0 0 0 3px #fff,
+    0 0 0 4px rgba(var(--accent-rgb), .18),
+    0 10px 26px rgba(var(--accent-rgb), .22);
 }
 html[data-theme="fish"] .brand-mark {
   width: 26px; height: 26px; font-size: 0; color: transparent; opacity: 1;
@@ -240,7 +246,7 @@ html[data-theme="fish"] .login-card::after {
   content: ""; transform: none; border-radius: 50%;
   width: 30px; height: 30px;
   border: 1.5px solid rgba(var(--accent-rgb), .28);
-  background: #fff url("/static/img/whale_logo.png") center / 88% no-repeat;
+  background: url("/static/img/whale_logo.png") center / 100% no-repeat;
 }
 html[data-theme="fish"] .login-card h1 { letter-spacing: 5px; text-indent: 5px; }
 
@@ -283,8 +289,8 @@ html[data-theme="fish"] .msg-row.right .bubble b { color: #fff3cf; }
 html[data-theme="fish"] .msg-row.right .who { color: var(--ink-2); }
 html[data-theme="fish"] .bot-avatar {
   font-size: 0; color: transparent;
-  background: #fff url("/static/img/whale_logo.png") center / 88% no-repeat;
-  border: 1px solid rgba(var(--accent-rgb), .16);
+  background: url("/static/img/whale_logo.png") center / 100% no-repeat;
+  border: 1px solid rgba(var(--accent-rgb), .22);
 }
 
 /* 一点水色：进度条 / 发送键 / 当前页签 */
