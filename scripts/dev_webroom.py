@@ -2,7 +2,7 @@
 """webroom 前端本地预览启动器（开发用，不参与插件运行）。
 
 作用：不依赖完整 AstrBot，只用 aiohttp 把 webchat_room/room_server 拉起来，
-方便单独调试 static/index.html（登录、在线列表、消息气泡、系统提示）。
+方便单独调试 static/ 前端（账号登录、在线列表、消息气泡、看板、卡片渲染）。
 
 用法::
 
@@ -13,6 +13,9 @@
 说明：本脚本用轻量桩替代 astrbot 的 logger 与数据目录，因此**不会**加载修仙插件、
 也不会产生真实机器人回复（加 --demo 时由桩适配器回一条演示文本）。
 真实链路请用 AstrBot 后台「平台适配」新增 type=webroom 实例。
+
+房间服务已改为**账号制**（单一主聊天室，无房间号）：首次打开页面先在登录页注册账号，
+或直接用 --demo 自动创建并打印的演示账号登录。
 """
 from __future__ import annotations
 
@@ -80,31 +83,54 @@ class _DemoAdapter:
     def __init__(self) -> None:
         self._count = 0
 
-    async def on_player_message(self, room_id: str, player_id: str, player_name: str, text: str) -> None:
+    async def on_player_message(
+        self,
+        room_id: str,
+        player_id: str,
+        player_name: str,
+        text: str,
+        req_id: str | None = None,
+        private: bool = False,
+        want_card: bool = False,
+    ) -> None:
         from webchat_room import room_server
 
         self._count += 1
         await asyncio.sleep(0.15)
         await room_server.broadcast_bot(
             room_id,
-            f"【演示机器人】收到第 {self._count} 条消息：「{text}」\n"
-            f"（这是本地预览桩，真实回复需要在 AstrBot 里启用 webroom 平台）",
+            f"【演示机器人】{player_name} 的第 {self._count} 条消息：「{text}」\n"
+            f"（本地预览桩，真实回复需在 AstrBot 里启用 webroom 平台）",
         )
 
 
 async def _main(args: argparse.Namespace) -> None:
     _install_astrbot_stubs()
 
-    from webchat_room import room_server
+    from webchat_room import accounts, room_server
 
     if args.demo:
         room_server.set_adapter(_DemoAdapter())
 
     await room_server.start(args.host, args.port)
+
+    demo_user = "demo"
+    demo_pwd = "demo123456"
+    if args.demo:
+        # 已存在会返回失败，属于正常情况（本地预览要能反复启动）
+        accounts.register(demo_user, demo_pwd, "演示道友")
+        my = accounts.get(demo_user) or {}
+        demo_pwd_note = f"{demo_user} / {demo_pwd}"
+        if my.get("nick"):
+            demo_pwd_note += f"（昵称：{my['nick']}）"
+    else:
+        demo_pwd_note = "页面自行注册（登录页「注册」标签）"
+
     print("=" * 60, flush=True)
-    print(f"  修仙网页聊天室（本地预览）", flush=True)
+    print("  修仙网页聊天室（本地预览）", flush=True)
     print(f"  打开浏览器访问: http://{args.host}:{args.port}/", flush=True)
-    print(f"  WebSocket    : ws://{args.host}:{args.port}/ws/<房间>?player=<昵称>", flush=True)
+    print(f"  演示账号     : {demo_pwd_note}", flush=True)
+    print(f"  WebSocket    : ws://{args.host}:{args.port}/ws?token=<登录返回的 token>", flush=True)
     print(f"  演示机器人   : {'开启' if args.demo else '关闭（加 --demo 开启）'}", flush=True)
     print("  Ctrl+C 退出", flush=True)
     print("=" * 60, flush=True)

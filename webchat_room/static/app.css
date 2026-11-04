@@ -716,6 +716,64 @@ input:focus, textarea:focus { outline: none; }
 }
 .sheet input:focus { border-color: var(--accent-2); }
 
+/* 弹层内动作切换（点卡片实体后选 行情/买入/卖出） */
+.sheet-acts {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  margin: 0 0 10px;
+}
+.act-chip {
+  font-size: 12.5px; padding: 5px 12px; border-radius: 20px;
+  background: rgba(163, 59, 42, .06);
+  border: 1px solid rgba(163, 59, 42, .2);
+  color: #8a3f28; letter-spacing: .3px;
+  transition: background .12s, border-color .12s;
+}
+.act-chip:hover { background: rgba(163, 59, 42, .12); }
+.act-chip.on {
+  background: linear-gradient(180deg, #b8482f, #8e2f22);
+  border-color: transparent; color: #fff; font-weight: 600;
+}
+.sheet-foot { display: flex; gap: 8px; margin-top: 14px; }
+.sheet-foot .btn-primary { width: auto; flex: 1; margin-top: 0; }
+.btn-ghost {
+  padding: 12px 16px; border-radius: 9px; font-size: 14px;
+  color: var(--accent); background: rgba(163, 59, 42, .05);
+  border: 1px solid rgba(163, 59, 42, .2);
+  white-space: nowrap;
+}
+.btn-ghost:hover { background: rgba(163, 59, 42, .11); }
+
+/* 卡片内可点实体（股票/基金代码） */
+.entity-chip {
+  display: inline-flex; align-items: center;
+  padding: 1px 7px; margin: 0 1px; border-radius: 5px;
+  font-size: .92em; font-weight: 600; letter-spacing: .4px;
+  color: #8a3f28; background: rgba(163, 59, 42, .07);
+  border: 1px solid rgba(163, 59, 42, .2);
+  font-variant-numeric: tabular-nums;
+  transition: background .12s;
+}
+.entity-chip:hover { background: rgba(163, 59, 42, .15); }
+.entity-chip:active { transform: scale(.97); }
+
+/* 指令模板行（/行情 <代码> /买入股 <代码> <手>）拆成按钮 */
+.tmpl-line {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  padding: 6px 0;
+}
+/* 出现在键值对里时：左侧保留「指令」，右侧排按钮 */
+.card-row.tmpl-row { align-items: center; flex-wrap: wrap; padding: 4px 0; }
+.card-row.tmpl-row .k { min-width: auto; }
+.tmpl-row .tmpl-line { flex: 1; justify-content: flex-end; padding: 0; }
+.tmpl-note { font-size: 12.5px; color: var(--card-dim); }
+.tmpl-btn {
+  font-size: 12.5px; padding: 4px 11px; border-radius: 6px;
+  color: #7a6448; background: rgba(255, 255, 255, .6);
+  border: 1px solid rgba(138, 108, 66, .22);
+  transition: background .12s, border-color .12s;
+}
+.tmpl-btn:hover { background: var(--accent-soft); border-color: rgba(163, 59, 42, .26); }
+
 /* ================= 账号设置弹层 ================= */
 .acc-sheet { padding-bottom: calc(20px + var(--safe-b)); }
 .acc-id { display: flex; align-items: center; gap: 12px; margin: 10px 0 6px; }

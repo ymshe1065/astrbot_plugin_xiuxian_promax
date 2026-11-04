@@ -137,19 +137,24 @@ class WebroomAdapter(Platform):
 
 ### 4.6 本地预览（无需 AstrBot）
 
-只想调前端（登录、在线列表、消息气泡、系统提示）时，不必安装完整 AstrBot：
+只想调前端（账号登录、在线列表、消息气泡、看板、卡片渲染）时，不必安装完整 AstrBot：
 
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install "aiohttp>=3.9"
 
 .venv/bin/python scripts/dev_webroom.py            # 仅房间服务，浏览器开 http://127.0.0.1:6198/
-.venv/bin/python scripts/dev_webroom.py --demo     # 附带演示机器人回合
+.venv/bin/python scripts/dev_webroom.py --demo     # 附带演示机器人回合，并自动创建演示账号
 .venv/bin/python scripts/dev_webroom.py --port 6200 --host 0.0.0.0
 ```
 
+`--demo` 启动时会自动创建（已存在则跳过）演示账号 **`demo / demo123456`**（昵称「演示道友」），
+在登录页直接用即可；不加 `--demo` 则在页面自行注册。
+
 `scripts/dev_webroom.py` 用轻量桩替掉 `astrbot.api.logger` 与 `get_astrbot_data_path`，
 因此**不加载修仙插件、也不产生真实机器人回复**；真实链路仍需在 AstrBot 后台启用 `webroom` 平台实例。
+
+> 房间服务自 v3 起改成**账号制**：单一主聊天室，前端不再填房间号；WebSocket 走 `/ws?token=<登录 token>`。
 
 | 依赖 | 用途 | 说明 |
 |------|------|------|
@@ -198,7 +203,13 @@ scripts/astrbot_local.sh logs 80   # 看日志
 scripts/astrbot_local.sh stop
 ```
 
-浏览器打开 <http://127.0.0.1:6198/>，昵称随意、房间填 `room_main`；面板 <http://127.0.0.1:6199/>（初始账号 `astrbot`，初始密码见首次启动日志，可用 `astrbot password` 重置）。
+> `scripts/astrbot_local.sh` 依赖 `lsof` 与 `venv/bin`，**仅适用于 Linux / macOS**。
+> Windows 下等价命令：`$env:PYTHONPATH=""; cd <运行时目录>; astrbot run`（后台运行，改代码后需重启）。
+
+浏览器打开 <http://127.0.0.1:6198/>，先在**登录页注册账号**（或登录已有账号）即可进入主聊天室；
+前端不再填房间号，服务端固定使用 `room_main`。
+面板端口以 `ASTRBOT_DASHBOARD_PORT` 为准（脚本默认 6199，本机实测环境为 6185）；
+初始账号 `astrbot`，初始密码见首次启动日志，可用 `astrbot password` 重置。
 
 **已实测通过的链路**：`/修仙帮助`（返回帮助图，落盘 `data/webroom/imgs` 后经 `/media/<file>` 访问）→ `/我要修仙 灵修` → `/选择灵根 1` → `/签到` → `/我的信息`，均为真实的插件逻辑与存档写库。
 

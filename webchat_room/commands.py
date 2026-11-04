@@ -28,6 +28,7 @@ CATEGORIES: list[dict[str, Any]] = [
             {"cmd": "/突破信息", "label": "突破信息", "panel": True},
             {"cmd": "/突破", "label": "突破", "tone": "gold", "arg": "确认突破"},
             {"cmd": "/我的状态", "label": "我的状态"},
+            {"cmd": "/重修", "label": "弃道重修"},
         ],
     },
     {
@@ -70,6 +71,9 @@ CATEGORIES: list[dict[str, Any]] = [
             {"cmd": "/仙市", "label": "仙市", "panel": True},
             {"cmd": "/行情", "label": "行情", "panel": True},
             {"cmd": "/我的持仓", "label": "我的持仓", "panel": True},
+            {"cmd": "/我的坊市", "label": "我的坊市", "panel": True},
+            {"cmd": "/坊市卖出", "label": "坊市卖出", "arg": "问价编号 或 all"},
+            {"cmd": "/黑市", "label": "黑市", "panel": True},
         ],
     },
     {
@@ -137,7 +141,7 @@ CATEGORIES: list[dict[str, Any]] = [
             {"cmd": "/决斗", "label": "决斗", "arg": "道号"},
             {"cmd": "/切磋", "label": "切磋", "arg": "道号"},
             {"cmd": "/双修", "label": "双修", "arg": "道号"},
-            {"cmd": "/讨伐", "label": "讨伐", "arg": "目标"},
+            {"cmd": "/讨伐", "label": "讨伐"},
             {"cmd": "/江湖事件", "label": "江湖事件", "panel": True},
             {"cmd": "/修仙帮助", "label": "修仙帮助", "panel": True},
         ],
@@ -170,6 +174,13 @@ ARG_SPEC: dict[str, dict[str, Any]] = {
     "卖出股": {"hint": "股票代码 手数", "example": "S01 1", "min": 2},
     "申购": {"hint": "基金代码 金额", "example": "F01 10000", "min": 2},
     "赎回": {"hint": "基金代码 份额", "example": "F01 100", "min": 2},
+    # 坊市（NPC 问价与上架）
+    "坊市上架": {"hint": "物品名 价格", "example": "青锋剑 500", "min": 2},
+    "坊市下架": {"hint": "我的上架编号", "example": "1", "min": 1},
+    "坊市购买": {"hint": "商品编号", "example": "1", "min": 1},
+    "坊市卖出": {"hint": "问价编号 或 all（一键卖出全部）", "example": "all", "min": 1},
+    "坊市等待": {"hint": "问价编号", "example": "1", "min": 1},
+    "黑市购买": {"hint": "商品编号", "example": "1", "min": 1},
     # 秘境与历练
     "探索秘境": {"hint": "秘境ID（见秘境列表，1-5）", "example": "1", "min": 1},
     "开始历练": {"hint": "历练路线", "example": "青云山", "min": 1},
@@ -195,11 +206,16 @@ ARG_SPEC: dict[str, dict[str, Any]] = {
     # 灵田
     "种植": {"hint": "种子名", "example": "聚灵草", "min": 1},
     "铲除": {"hint": "田块编号", "example": "1", "min": 1},
+    # 兑换与事件
+    "仙缘兑换": {"hint": "兑换项编号", "example": "1", "min": 1},
+    "师德兑换": {"hint": "兑换项编号", "example": "1", "min": 1},
+    "奇遇选择": {"hint": "选项编号", "example": "1", "min": 1},
+    "抵御魔潮": {"hint": "捐献灵石数", "example": "1000", "min": 1},
     # 社交与修行
     "决斗": {"hint": "对手道号", "example": "云无月", "min": 1},
     "切磋": {"hint": "对手道号", "example": "云无月", "min": 1},
     "双修": {"hint": "道号", "example": "云无月", "min": 1},
-    "讨伐": {"hint": "讨伐目标", "example": "1", "min": 1},
+    # 注：v7 起「/讨伐」不再吃参数（直接攻击当前江湖事件），故不入表，避免误弹输入框
     "传承挑战": {"hint": "目标道号", "example": "云无月", "min": 1},
     "突破": {"hint": "确认突破（可带破境丹）", "example": "确认突破", "min": 1},
     "选择灵根": {"hint": "灵根选项（1-3）", "example": "1", "min": 1},

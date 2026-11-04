@@ -580,18 +580,31 @@
 
     // 3) 卡脚：提示 + 动作
     const actions = card.actions || [];
+    // 卡片正文/页脚里已成按钮的命令，避免和卡脚动作重复
+    const tmplCmds = card._tmplCmds || (card._tmplCmds = new Set());
     if (card.footer || actions.length || card.raw) {
       const foot = document.createElement("div");
       foot.className = "card-foot";
       if (card.footer) {
-        const t = document.createElement("div");
-        t.innerHTML = highlightNumbers(card.footer);
-        foot.appendChild(t);
+        String(card.footer)
+          .split("\n")
+          .forEach((ln) => {
+            const tmpl = parseTmplLine(ln);
+            if (tmpl) {
+              tmpl.items.forEach((it) => tmplCmds.add(it.cmd));
+              foot.appendChild(renderTmplLine(tmpl));
+              return;
+            }
+            const t = document.createElement("div");
+            t.innerHTML = valueHtml(ln);
+            foot.appendChild(t);
+          });
       }
-      if (actions.length) {
+      const rest = actions.filter((a) => !tmplCmds.has(a.cmd)).slice(0, 8);
+      if (rest.length) {
         const bar = document.createElement("div");
         bar.className = "actions";
-        actions.slice(0, 8).forEach((a) => {
+        rest.forEach((a) => {
           const b = document.createElement("button");
           b.className = "act-btn";
           b.textContent = a.label || a.cmd;
@@ -650,6 +663,23 @@
       const list = document.createElement("div");
       list.className = "card-rows";
       rows.forEach(([k, v]) => {
+        // 「指令：/行情 <代码>　/买入股 <代码> <手>」被解析成键值对，这里还原成按钮行
+        const tmpl = parseTmplLine(String(v ?? ""));
+        if (tmpl) {
+          tmpl.items.forEach((it) => {
+            if (!card._tmplCmds) card._tmplCmds = new Set();
+            card._tmplCmds.add(it.cmd);
+          });
+          const wrap = document.createElement("div");
+          wrap.className = "card-row tmpl-row";
+          const kEl = document.createElement("div");
+          kEl.className = "k";
+          kEl.textContent = k;
+          wrap.appendChild(kEl);
+          wrap.appendChild(renderTmplLine(tmpl));
+          list.appendChild(wrap);
+          return;
+        }
         const row = document.createElement("div");
         row.className = "card-row";
         row.innerHTML = `<div class="k">${esc(k)}</div><div class="v">${rowValueHtml(k, v)}</div>`;
@@ -677,6 +707,12 @@
     lines
       .filter((l) => !bulletLines.includes(l))
       .forEach((ln) => {
+        // 「指令：/行情 <代码>　/买入股 <代码> <手>」这类模板行拆成可点按钮
+        const tmpl = parseTmplLine(ln);
+        if (tmpl) {
+          box.appendChild(renderTmplLine(tmpl));
+          return;
+        }
         const d = document.createElement("div");
         d.className = "card-line";
         d.innerHTML = valueHtml(ln);
@@ -692,6 +728,56 @@
     const cmd = m[0].trim();
     if (/<|>/.test(cmd)) return null;
     return cmd;
+  }
+
+  /**
+   * 指令模板行解析：`指令：/行情 <代码>　/买入股 <代码> <手>`
+   * 命令间常用全角空格分隔，且可能已带具体代码（/买入股 S01 <手数>）。
+   * 至少两个命令才算模板行，否则交给普通文本渲染。
+   */
+  const TMPL_CMD_RE = /[/／]([\u4e00-\u9fffA-Za-z][\u4e00-\u9fffA-Za-z0-9]{1,11})/g;
+  function parseTmplLine(line) {
+    const hits = [...String(line).matchAll(TMPL_CMD_RE)];
+    if (hits.length < 2) return null;
+    const items = hits.map((h, i) => {
+      const from = h.index + h[0].length;
+      const to = i + 1 < hits.length ? hits[i + 1].index : line.length;
+      const args = line.slice(from, to).replace(/[\s\u3000]+/g, " ").trim();
+      return { cmd: `/${h[1]}`, label: h[1], args };
+    });
+    const note = line
+      .slice(0, hits[0].index)
+      .replace(/^[·•\s\u3000]+/, "")
+      .replace(/[：:，,。\s\u3000]+$/, "")
+      .trim();
+    return { items, note };
+  }
+
+  function renderTmplLine(tmpl) {
+    const box = document.createElement("div");
+    box.className = "tmpl-line";
+    if (tmpl.note) {
+      const n = document.createElement("span");
+      n.className = "tmpl-note";
+      n.textContent = tmpl.note;
+      box.appendChild(n);
+    }
+    tmpl.items.forEach((it) => {
+      const b = document.createElement("button");
+      b.className = "tmpl-btn";
+      b.textContent = it.label;
+      b.addEventListener("click", () => {
+        // 行里已带具体代码（/买入股 S01）→ 直接开对应动作并预填
+        const code = (it.args.match(/[SF]\d{2,3}/) || [])[0];
+        if (code && /行情|买入股|卖出股|申购|赎回/.test(it.label)) {
+          openEntitySheet(code, it.cmd);
+          return;
+        }
+        dispatchCommand(it.cmd);
+      });
+      box.appendChild(b);
+    });
+    return box;
   }
 
   /** 进度条：修为 0/500、气血 1280/1280 这类比直接显示数字直观 */
@@ -715,7 +801,49 @@
   function valueHtml(v) {
     const s = String(v ?? "");
     if (!s || s === "—" || s === "-") return '<span class="muted">—</span>';
+    // 含股票/基金代码的文本走实体链接化，点代码可直接发起操作
+    if (/[SF]\d{2,3}/.test(s)) return linkifyEntities(s);
     return highlightNumbers(s);
+  }
+
+  /** 把文本里的 S01 / F01 这类代码变成可点实体（中文后无 \b，用显式边界） */
+  const ENTITY_RE = /(^|[^A-Za-z0-9_])([SF]\d{2,3})(?![A-Za-z0-9_])/g;
+  function linkifyEntities(text) {
+    const raw = String(text ?? "");
+    let out = "";
+    let last = 0;
+    let m;
+    ENTITY_RE.lastIndex = 0;
+    while ((m = ENTITY_RE.exec(raw)) !== null) {
+      const code = m[2];
+      const start = m.index + m[1].length;
+      out += esc(raw.slice(last, start));
+      out += `<button class="entity-chip" data-code="${esc(code)}">${esc(code)}</button>`;
+      last = start + code.length;
+    }
+    out += esc(raw.slice(last));
+    return out;
+  }
+
+  /** 点卡片里的 S01/F01 → 弹层预填代码，可在对应动作间切换 */
+  function openEntitySheet(code, cmd = "") {
+    const isFund = /^F/i.test(code);
+    const actions = isFund
+      ? [
+          { label: "行情", cmd: "/行情", hint: "基金代码", example: code },
+          { label: "申购", cmd: "/申购", hint: "基金代码 金额", example: `${code} 10000` },
+          { label: "赎回", cmd: "/赎回", hint: "基金代码 份额", example: `${code} 100` },
+        ]
+      : [
+          { label: "行情", cmd: "/行情", hint: "股票代码", example: code },
+          { label: "买入股", cmd: "/买入股", hint: "股票代码 手数（1 手 = 100 股）", example: `${code} 2` },
+          { label: "卖出股", cmd: "/卖出股", hint: "股票代码 手数", example: `${code} 1` },
+        ];
+    const cur = actions.find((a) => a.cmd === cmd) || actions[1];
+    openSheet(cur.label, `${cur.hint}，例：${cur.example}`, cur.cmd, code, {
+      example: cur.example,
+      actions,
+    });
   }
 
   /** 物品芯片 */
@@ -879,7 +1007,7 @@
     if (!opts.noCheck) {
       const miss = missingArgs(text);
       if (miss) {
-        openSheet(miss.name, miss.hint, `/${miss.name}`, miss.preset);
+        openSheet(miss.name, miss.hint, `/${miss.name}`, miss.preset, { example: miss.example });
         return;
       }
     }
@@ -912,6 +1040,7 @@
       name,
       hint: rule.example ? `${rule.hint}，例：${rule.example}` : rule.hint,
       preset: have ? parts.slice(1).join(" ") : "",
+      example: rule.example || "",
     };
   }
 
@@ -1047,11 +1176,42 @@
 
   /* ================= 参数弹层 ================= */
   let sheetCtx = null;
-  function openSheet(title, hint, cmd, preset = "") {
-    sheetCtx = { cmd, preset };
+  function openSheet(title, hint, cmd, preset = "", opts = {}) {
+    const { example = "", actions = [] } = opts || {};
+    sheetCtx = { cmd, preset, example };
     $("sheetTitle").textContent = title;
     $("sheetHint").textContent = hint ? `填写：${hint}` : "";
     $("sheetInput").value = preset ? `${preset} ` : "";
+
+    // 动作切换：点卡片实体后可换 行情/买入/卖出，输入框保留已填代码
+    const acts = $("sheetActs");
+    acts.innerHTML = "";
+    if (actions.length) {
+      actions.forEach((a) => {
+        const b = document.createElement("button");
+        b.className = "act-chip" + (a.cmd === cmd ? " on" : "");
+        b.textContent = a.label;
+        b.addEventListener("click", () => {
+          openSheet(a.label, `${a.hint}，例：${a.example}`, a.cmd, preset || a.preset || "", {
+            example: a.example,
+            actions,
+          });
+        });
+        acts.appendChild(b);
+      });
+      acts.hidden = false;
+    } else {
+      acts.hidden = true;
+    }
+
+    const ex = $("sheetExample");
+    ex.hidden = !example;
+    ex.onclick = () => {
+      $("sheetInput").value = example;
+      $("sheetInput").focus();
+      $("sheetInput").setSelectionRange(example.length, example.length);
+    };
+
     $("sheetMask").hidden = false;
     setTimeout(() => {
       $("sheetInput").focus();
@@ -1364,6 +1524,12 @@
         e.preventDefault();
         submitSheet();
       }
+    });
+
+    // 卡片内实体（S01/F01）：点一下直接带出代码
+    document.addEventListener("click", (e) => {
+      const chip = e.target.closest && e.target.closest(".entity-chip");
+      if (chip && chip.dataset.code) openEntitySheet(chip.dataset.code);
     });
 
     // 播报横幅
