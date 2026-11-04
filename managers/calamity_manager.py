@@ -4,6 +4,8 @@ import asyncio
 import time
 from typing import Optional, Tuple
 
+from astrbot.api import logger
+
 from ..data.data_manager import DataBase
 from ..models import Player
 from .global_event_manager import GlobalEventManager
@@ -82,9 +84,12 @@ class CalamityManager:
                 await self.db.ext.set_system_config(self.KEY_TARGET, str(target))
                 await self.db.ext.set_system_config(self.KEY_PROGRESS, "0")
                 await self.db.ext.set_system_config(self.KEY_SCALE, scale or "manual")
-                await self.db.ext.set_system_config(
-                    f"tide_auto_{time.strftime('%Y%m%d')}", "1"
-                )
+                # 只有定时自动开启（周六/月初）才占用当天的自动名额；
+                # 管理员手动开启不应顶掉今晚的定时魔潮
+                if (scale or "manual") != "manual":
+                    await self.db.ext.set_system_config(
+                        f"tide_auto_{time.strftime('%Y%m%d')}", "1"
+                    )
             except Exception:
                 await self.db.ext.set_system_config(self.KEY_ACTIVE, "0")
                 await self.event_mgr.release(GlobalEventManager.EVENT_TIDE)
@@ -206,11 +211,45 @@ class CalamityManager:
             )
 
     async def _settle_success_locked(self) -> Tuple[bool, str]:
-        """抵御成功结算（调用方需持有 self._lock）"""
-        async with self.db.conn.execute(
-            "SELECT key, value FROM system_config WHERE key LIKE 'tide_contrib_%'"
-        ) as cursor:
-            rows = await cursor.fetchall()
+        """抵御成功结算（调用方需持有 self._lock）
+
+        先在同一个事务里完成「快照捐献名单 + 删除名单 + 重置事件状态」，
+        事务提交后再逐个发奖。这样即使发奖中途崩溃/重启，重跑也不会再次
+        读到捐献名单，杜绝重复发钱；单个玩家发奖失败只记日志（宁丢不刷）。
+        """
+        await self.db.ext.ensure_system_config_table()
+        now = int(time.time())
+
+        await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            async with self.db.conn.execute(
+                "SELECT key, value FROM system_config WHERE key LIKE 'tide_contrib_%'"
+            ) as cursor:
+                rows = await cursor.fetchall()
+
+            await self.db.conn.execute(
+                "DELETE FROM system_config WHERE key LIKE 'tide_contrib_%'"
+            )
+            reset_pairs = (
+                (self.KEY_ACTIVE, "0"),
+                (self.KEY_AFTERMATH, ""),
+                (self.KEY_PROGRESS, "0"),
+                (self.KEY_END, "0"),
+                (self.KEY_TARGET, "0"),
+                (self.KEY_SCALE, ""),
+                ("tide_settled_at", str(now)),
+            )
+            for key, value in reset_pairs:
+                await self.db.conn.execute(
+                    "INSERT INTO system_config (key, value, updated_at) VALUES (?, ?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET "
+                    "value = excluded.value, updated_at = excluded.updated_at",
+                    (key, value, now),
+                )
+            await self.db.conn.commit()
+        except Exception:
+            await self.db.conn.rollback()
+            raise
 
         bonus_note = ""
         for key, value in rows:
@@ -219,10 +258,15 @@ class CalamityManager:
                 refund = int(int(value) * 0.15)
             except (TypeError, ValueError):
                 refund = 0
-            await self.db.add_player_gold(uid, refund + 3000)
-            await self.db.ext.set_system_config(
-                f"tide_bless_{uid}", str(int(time.time()) + 86400)
-            )
+            try:
+                await self.db.add_player_gold(uid, refund + 3000)
+                await self.db.ext.set_system_config(
+                    f"tide_bless_{uid}", str(int(time.time()) + 86400)
+                )
+            except Exception as e:
+                logger.warning(
+                    f"【魔潮结算】给 {uid} 发放奖励失败（应发 {refund + 3000:,} 灵石）: {e}"
+                )
 
         if rows:
             bonus_note = (
@@ -230,17 +274,6 @@ class CalamityManager:
                 f"\n🌟 义士获得 24 小时【天道庇佑】：闭关收益 +10%"
             )
 
-        await self.db.conn.execute(
-            "DELETE FROM system_config WHERE key LIKE 'tide_contrib_%'"
-        )
-        await self.db.conn.commit()
-
-        await self.db.ext.set_system_config(self.KEY_ACTIVE, "0")
-        await self.db.ext.set_system_config(self.KEY_AFTERMATH, "")
-        await self.db.ext.set_system_config(self.KEY_PROGRESS, "0")
-        await self.db.ext.set_system_config(self.KEY_END, "0")
-        await self.db.ext.set_system_config(self.KEY_TARGET, "0")
-        await self.db.ext.set_system_config(self.KEY_SCALE, "")
         await self.event_mgr.release(GlobalEventManager.EVENT_TIDE)
 
         return True, (

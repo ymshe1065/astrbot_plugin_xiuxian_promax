@@ -530,19 +530,35 @@ class WeeklyBossManager:
             return False, f"❌ 本周挑战次数已用尽（{used}/{self.attempts_per_week}）。"
 
         now = int(time.time())
+        rejected = False
         try:
             async with self.db.transaction() as conn:
-                await conn.execute(
-                    "INSERT INTO weekly_boss_members (run_id, user_id, joined_at) VALUES (?, ?, ?)",
-                    (rid, player.user_id, now),
+                # 条件 INSERT：仅当“当前人数 < 上限”且“尚未加入”时才插入，
+                # 计数守卫与插入在同一条 SQL/同一事务内完成，防止并发 join 突破人数上限。
+                cursor = await conn.execute(
+                    """
+                    INSERT INTO weekly_boss_members (run_id, user_id, joined_at)
+                    SELECT ?, ?, ?
+                     WHERE (SELECT COUNT(*) FROM weekly_boss_members WHERE run_id = ?) < ?
+                       AND NOT EXISTS (
+                           SELECT 1 FROM weekly_boss_members WHERE run_id = ? AND user_id = ?
+                       )
+                    """,
+                    (rid, player.user_id, now, rid, self.max_players, rid, player.user_id),
                 )
-                await conn.execute(
-                    "UPDATE weekly_boss_runs SET member_count = member_count + 1 WHERE run_id = ?",
-                    (rid,),
-                )
+                if cursor.rowcount == 0:
+                    rejected = True
+                else:
+                    await conn.execute(
+                        "UPDATE weekly_boss_runs SET member_count = member_count + 1 WHERE run_id = ?",
+                        (rid,),
+                    )
         except Exception as exc:
             logger.error(f"【周本】加入队伍失败: {exc}")
             return False, "❌ 加入队伍失败，请稍后重试。"
+
+        if rejected:
+            return False, f"❌ 队伍已满（{self.max_players} 人）或你已在这支队伍里。"
 
         return True, (
             f"✅ 已加入周本队伍 #{rid}【{run.get('team_name', '')}】\n"
@@ -1303,48 +1319,74 @@ class WeeklyBossManager:
             if round_no >= self.soft_enrage_round and round_no == self.soft_enrage_round:
                 round_notes.append("🔥 Boss 进入软狂暴，伤害 ×1.5 并持续攀升！")
 
-            # 天罚：70% 真伤 + 30% 物法混合伤害
-            for member in alive:
-                raw = self._boss_action_damage(member, 0.065 * enrage)
-                true_part = int(raw * 0.7)
-                typed_part = max(0, raw - true_part)
-                typed = self._apply_typed_damage(member, typed_part, 0.5)
-                self._hit_member(member, true_part + typed)
-                if member["hp"] <= 0:
-                    round_notes.append(f"💀 {member['name']} 被天罚击倒")
-            round_notes.append(f"天罚 -{self._pct(0.065 * enrage)}最大气血（真伤 70%）")
+            # 周本 Boss 行动为自定义实现（天罚/崩山/噬元），不走 _take_turn，
+            # 因此玩家挂在 Boss 身上的状态需在此手动结算：
+            #   - 灼烧等 DOT 对 Boss 真实血量（boss.hp）结算伤害
+            #   - 眩晕/冰冻等控制使 Boss 跳过本次行动
+            boss_status_logs: List[str] = []
+            boss_controlled = CombatManager._tick_statuses(boss, boss_status_logs)
+            CombatManager._decay_statuses(boss)
+            round_notes.extend(boss_status_logs)
 
-            # 崩山：每 3 回合点杀一名存活成员
-            living = [m for m in members if m["alive"]]
-            if round_no % 3 == 0 and living:
-                target = random.choice(living)
-                raw = self._boss_action_damage(target, 0.16 * enrage)
-                typed = self._apply_typed_damage(target, raw, 0.5)
-                self._hit_member(target, typed)
-                round_notes.append(f"⛰️ 崩山→{target['name']} -{self._pct(0.16 * enrage)}（防御减免后）")
-                if target["hp"] <= 0:
-                    round_notes.append(f"💀 {target['name']} 被崩山击倒")
+            if boss.hp <= 0:
+                # DOT 直接把 Boss 磨死
+                result = "clear"
+                round_summaries.append(f"R{round_no}: Boss 被持续伤害击破")
+                break
 
-            # 噬元：第 5/10/15 回合，真伤 + 2 回合禁疗
-            if round_no in (5, 10, 15):
-                for member in [m for m in members if m["alive"]]:
-                    raw = self._boss_action_damage(member, 0.08 * enrage)
-                    self._hit_member(member, raw)
-                    member["heal_reduction_until"] = max(
-                        member.get("heal_reduction_until", 0), round_no + 2
-                    )
-                round_notes.append("🩸 噬元爆发：全体 8% 真伤，治疗 -50%（2 回合）")
+            if boss_controlled:
+                round_notes.append(f"⚡ {boss_name} 处于控制状态，跳过本次行动！")
+            else:
+                # 天罚：70% 真伤 + 30% 物法混合伤害
+                for member in alive:
+                    raw = self._boss_action_damage(member, 0.065 * enrage)
+                    true_part = int(raw * 0.7)
+                    typed_part = max(0, raw - true_part)
+                    typed = self._apply_typed_damage(member, typed_part, 0.5)
+                    self._hit_member(member, true_part + typed)
+                    if member["hp"] <= 0:
+                        round_notes.append(f"💀 {member['name']} 被天罚击倒")
+                round_notes.append(f"天罚 -{self._pct(0.065 * enrage)}最大气血（真伤 70%）")
+
+                # 崩山：每 3 回合点杀一名存活成员
+                living = [m for m in members if m["alive"]]
+                if round_no % 3 == 0 and living:
+                    target = random.choice(living)
+                    raw = self._boss_action_damage(target, 0.16 * enrage)
+                    typed = self._apply_typed_damage(target, raw, 0.5)
+                    self._hit_member(target, typed)
+                    round_notes.append(f"⛰️ 崩山→{target['name']} -{self._pct(0.16 * enrage)}（防御减免后）")
+                    if target["hp"] <= 0:
+                        round_notes.append(f"💀 {target['name']} 被崩山击倒")
+
+                # 噬元：第 5/10/15 回合，真伤 + 2 回合禁疗
+                if round_no in (5, 10, 15):
+                    for member in [m for m in members if m["alive"]]:
+                        raw = self._boss_action_damage(member, 0.08 * enrage)
+                        self._hit_member(member, raw)
+                        member["heal_reduction_until"] = max(
+                            member.get("heal_reduction_until", 0), round_no + 2
+                        )
+                    round_notes.append("🩸 噬元爆发：全体 8% 真伤，治疗 -50%（2 回合）")
 
             # ===== 玩家行动 =====
             team_damage = 0
             for member in [m for m in members if m["alive"]]:
+                # 双轨血量：先把真实战斗血量同步进归一化面板，使主动技能治疗
+                # （按面板损失血量计算并回写面板 hp）能正确反映本轮真实战损，
+                # 行动结束后再把面板治疗量统一落回真实血量轨道，避免治疗丢失。
+                member["stats"].hp = member["hp"]
+                hp_before_action = member["hp"]
                 damage, action_logs, heal = CombatManager._take_turn(
                     member["stats"], boss, pvp=False, boss=True, round_num=round_no
                 )
                 damage = max(0, int(damage))
-                if heal > 0:
+                # 本次行动中面板 hp 的增量（主动技能治疗/龙息反哺等）+ 返回的吸血，
+                # 一并落到真实血量 member["hp"]（上限为 member 的最大HP）。
+                gained = max(0, int(member["stats"].hp) - hp_before_action) + max(0, int(heal))
+                if gained > 0:
                     before = member["hp"]
-                    member["hp"] = min(member["max_hp"], member["hp"] + int(heal))
+                    member["hp"] = min(member["max_hp"], member["hp"] + gained)
                     member["healing"] += member["hp"] - before
 
                 if boss_shield > 0 and damage > 0:

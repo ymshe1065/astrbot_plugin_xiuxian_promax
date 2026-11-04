@@ -354,7 +354,7 @@ class XiuXianPlugin(Star):
 
         # v6.16 NPC道侣 & 师徒
         from .managers.social_manager import SocialManager
-        self.social_mgr = SocialManager(self.db)
+        self.social_mgr = SocialManager(self.db, self.config_manager)
         # PlayerHandler 需要仙灵加成引用（构造时先占位，稍后注入）
         self.player_handler.social_mgr_ref = self.social_mgr
 
@@ -649,7 +649,7 @@ class XiuXianPlugin(Star):
                         success, msg = await self.demon_mgr.end_invasion()
                         if success:
                             logger.info(f"【修仙插件】天魔入侵自动结算：{msg}")
-                            self.demon_mgr.pop_last_event_msg()
+                            self.demon_mgr.pop_last_scheduled_msg()
                             await self._broadcast_world_boss_spawn(msg)
             except asyncio.CancelledError:
                 break
@@ -1097,6 +1097,15 @@ class XiuXianPlugin(Star):
         except Exception as e:
             logger.error(f"【修仙插件】广播异常: {e}")
 
+    async def _broadcast_boss_spawn(self, boss):
+        """广播旧版Boss降临（/生成Boss 管理员指令收尾）"""
+        msg = (
+            f"⚔️ 强敌降临！Boss【{boss.boss_name}】（{boss.boss_level}）已现身！\n"
+            f"❤️ 气血：{boss.max_hp:,}\n"
+            "💡 发送 /挑战Boss 参与讨伐！"
+        )
+        await self._broadcast_world_boss_spawn(msg)
+
     async def _broadcast_boss_defeat(self, player_name: str, battle_result: dict):
         """兼容旧版 Boss 击杀广播"""
         from astrbot.api.event import MessageChain
@@ -1322,13 +1331,21 @@ class XiuXianPlugin(Star):
 
     @filter.command(CMD_REBIRTH, "弃道重修（3天一次，保留仙缘/称号/灵根）")
     @require_whitelist
-    async def handle_rebirth(self, event: AstrMessageEvent, confirm: str = ""):
+    async def handle_rebirth(self, event: AstrMessageEvent, confirm: GreedyStr):
+        async for r in self.player_handler.handle_rebirth(event, confirm): yield r
+
+    @filter.command("重修", "弃道重修别名（/重修 御兽、/重修 确认）")
+    @require_whitelist
+    async def handle_rebirth_alias(self, event: AstrMessageEvent, confirm: GreedyStr):
         async for r in self.player_handler.handle_rebirth(event, confirm): yield r
 
     @filter.command(CMD_CHOOSE_ROOT, "选择灵根（创号/重修三选一）")
     @require_whitelist
     async def handle_choose_root(self, event: AstrMessageEvent, choice: GreedyStr):
-        async for r in self.player_handler.handle_choose_root(event, choice): yield r
+        # 手动加玩家锁：创号路径此时角色尚不存在，不能用 with_player_lock（其会因查无玩家而拦截）；
+        # 无锁时并发双发会与 _perform_rebirth 竞态，导致仙缘重复发放/重修计数翻倍。
+        async with get_player_lock(event.get_sender_id()):
+            async for r in self.player_handler.handle_choose_root(event, choice): yield r
 
     @filter.command(CMD_START_CULTIVATION, "开始闭关修炼")
     @require_whitelist
@@ -1490,37 +1507,31 @@ class XiuXianPlugin(Star):
 
     @filter.command("升级仓库", "扩建洞天仓库（+50 格/级）")
     @require_whitelist
-    @idle_player_lock
     async def handle_upgrade_warehouse(self, event: AstrMessageEvent, args: GreedyStr):
         async for r in self.warehouse_handler.handle_upgrade_warehouse(event, args): yield r
 
     @filter.command("一键转移", "把储物戒物品转入洞天仓库")
     @require_whitelist
-    @idle_player_lock
     async def handle_transfer_in(self, event: AstrMessageEvent, category: str = ""):
         async for r in self.warehouse_handler.handle_transfer_in(event, category): yield r
 
     @filter.command("一键取出", "把洞天仓库物品搬到储物戒（使用前必须先取出）")
     @require_whitelist
-    @idle_player_lock
     async def handle_transfer_out(self, event: AstrMessageEvent, category: str = ""):
         async for r in self.warehouse_handler.handle_transfer_out(event, category): yield r
 
     @filter.command("一键取回", "旧命令，等同 /一键取出")
     @require_whitelist
-    @idle_player_lock
     async def handle_transfer_out_legacy(self, event: AstrMessageEvent, category: str = ""):
         async for r in self.warehouse_handler.handle_transfer_out(event, category): yield r
 
     @filter.command("取出", "从仓库取出指定物品的指定数量（留空数量=全部）")
     @require_whitelist
-    @idle_player_lock
     async def handle_take_item(self, event: AstrMessageEvent, args: GreedyStr):
         async for r in self.warehouse_handler.handle_take_item(event, args): yield r
 
     @filter.command("一键回收", "预览并批量回收储物戒物品（两步确认）")
     @require_whitelist
-    @idle_player_lock
     async def handle_bulk_recycle(self, event: AstrMessageEvent, args: GreedyStr):
         async for r in self.warehouse_handler.handle_bulk_recycle(event, args): yield r
 
@@ -2409,6 +2420,8 @@ class XiuXianPlugin(Star):
             return
         success, msg = await self.world_boss_mgr.spawn_boss()
         yield event.plain_result(msg)
+        if success:
+            await self._broadcast_world_boss_spawn(msg)
 
     # ===== v6.34 江湖战斗小事件 =====
     async def _run_battle_event_attack(self, event: AstrMessageEvent):
@@ -2465,12 +2478,19 @@ class XiuXianPlugin(Star):
             yield event.plain_result("❌ 你没有权限！")
             return
         force_type = event_type.strip() or None
+        if force_type and force_type not in self.battle_event_mgr.EVENT_TYPES:
+            valid = "/".join(self.battle_event_mgr.EVENT_TYPES.keys())
+            yield event.plain_result(f"❌ 未知事件类型「{force_type}」，可选：{valid}")
+            return
         force_tier = None
         if tier.strip():
             try:
                 force_tier = int(tier.strip())
             except ValueError:
                 yield event.plain_result("❌ 等级必须是数字，例如：/生成江湖事件 wanted 5")
+                return
+            if not (1 <= force_tier <= 5):
+                yield event.plain_result("❌ 等级范围为 1-5，例如：/生成江湖事件 wanted 5")
                 return
         success, msg, _ = await self.battle_event_mgr.spawn_event(force_type, force_tier)
         if success:
@@ -2701,6 +2721,8 @@ class XiuXianPlugin(Star):
         if player.last_check_in_date != today:
             check_in_gold_min = self.config.get("VALUES", {}).get("CHECK_IN_GOLD_MIN", 50)
             check_in_gold_max = self.config.get("VALUES", {}).get("CHECK_IN_GOLD_MAX", 500)
+            if check_in_gold_min > check_in_gold_max:
+                check_in_gold_min, check_in_gold_max = check_in_gold_max, check_in_gold_min
             check_in_gold = random.randint(check_in_gold_min, check_in_gold_max)
             try:
                 from .managers.pet_manager import PetManager
@@ -2927,7 +2949,7 @@ class XiuXianPlugin(Star):
             return
         success, msg = await self.demon_mgr.end_invasion()
         if success:
-            self.demon_mgr.pop_last_event_msg()
+            self.demon_mgr.pop_last_scheduled_msg()
             await self._broadcast_world_boss_spawn(msg)
         yield event.plain_result(msg)
 
@@ -2966,6 +2988,7 @@ class XiuXianPlugin(Star):
     @filter.command("喂养灵兽", "消耗资源提升灵兽等级")
     @require_whitelist
     async def handle_feed_pet(self, event: AstrMessageEvent, args: GreedyStr):
+        args = resolve_greedy_args(event, args, "喂养灵兽")
         uid = event.get_sender_id()
         before = await self.pet_mgr.get_max_pet_level(uid)
         async for r in self.pet_handlers.handle_feed(event, args): yield r
@@ -2981,27 +3004,32 @@ class XiuXianPlugin(Star):
     @filter.command("灵兽出战", "设置出战的主战灵兽")
     @require_whitelist
     async def handle_set_main_pet(self, event: AstrMessageEvent, args: GreedyStr):
+        args = resolve_greedy_args(event, args, "灵兽出战")
         async for r in self.pet_handlers.handle_set_main(event, args): yield r
 
     @filter.command("灵兽改名", "给灵兽改一个名字")
     @require_whitelist
     async def handle_rename_pet(self, event: AstrMessageEvent, args: GreedyStr):
+        args = resolve_greedy_args(event, args, "灵兽改名")
         async for r in self.pet_handlers.handle_rename(event, args): yield r
 
     # ===== v6.5.1 新增：放生与吞噬 =====
     @filter.command("放生灵兽", "放生指定灵兽")
     @require_whitelist
     async def handle_release_pet(self, event: AstrMessageEvent, args: GreedyStr):
+        args = resolve_greedy_args(event, args, "放生灵兽")
         async for r in self.pet_handlers.handle_release(event, args): yield r
 
     @filter.command("吞噬灵兽", "吞噬指定灵兽，返还部分资源")
     @require_whitelist
     async def handle_devour_pet(self, event: AstrMessageEvent, args: GreedyStr):
+        args = resolve_greedy_args(event, args, "吞噬灵兽")
         async for r in self.pet_handlers.handle_devour(event, args): yield r
 
     @filter.command("灵兽吞噬", "让指定灵兽吞噬灵兽内丹，按比例获得经验")
     @require_whitelist
     async def handle_devour_pet_item(self, event: AstrMessageEvent, args: GreedyStr):
+        args = resolve_greedy_args(event, args, "灵兽吞噬")
         uid = event.get_sender_id()
         before = await self.pet_mgr.get_max_pet_level(uid)
         async for r in self.pet_handlers.handle_devour_item(event, args): yield r
@@ -3049,7 +3077,7 @@ class XiuXianPlugin(Star):
     async def handle_my_market_alias(self, event: AstrMessageEvent):
         async for r in self.auction_handlers.handle_my_market(event): yield r
 
-    @filter.command("坊市卖出", "接受NPC问价并卖出商品")
+    @filter.command("坊市卖出", "接受NPC问价并卖出商品（all=一键卖出全部问价）")
     @require_whitelist
     async def handle_market_accept_offer(self, event: AstrMessageEvent, offer_id: str = "0"):
         async for r in self.auction_handlers.handle_accept_offer(event, offer_id): yield r
@@ -3534,7 +3562,7 @@ class XiuXianPlugin(Star):
             "━━━━━━━━━━━━━━━",
             "四季轮转表：",
             f"  🌱 春·生发：生长+33%，产量+10%",
-            f"  ☀️ 夏·炎灼：阳性灵草（火焰花/血灵草）生长+33%",
+            f"  ☀️ 夏·炎灼：阳性灵草（火焰花/血灵草/冰火双生花）生长+33%",
             f"  🍂 秋·丰收：全灵草产量+25%",
             f"  ❄️ 冬·蛰藏：生长放缓50%，冰心草不受影响",
             "━━━━━━━━━━━━━━━",
@@ -3771,15 +3799,19 @@ class XiuXianPlugin(Star):
             idx = 0
         success, msg = await self.social_mgr.redeem_virtue(player, idx)
         if success and msg.startswith("__NEED_STORE__"):
-            # 物品类奖励：丹药进丹药背包，其余存入储物戒
+            # 物品类奖励：先发货、成功后再扣师德点，避免储物戒已满时扣点不到货
             _, payload = msg.split("__NEED_STORE__", 1)
-            item_name, count, note = payload.split("|", 2)
+            parts = payload.split("|", 3)
+            item_name, count, note = parts[0], parts[1], parts[2]
+            cost = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else 0
             ok, smsg = await self.storage_ring_mgr.grant_item(player, item_name, int(count), silent=True)
             if ok:
+                if cost > 0:
+                    await self.social_mgr.commit_virtue_payment(event.get_sender_id(), cost)
                 target = "丹药背包" if self.storage_ring_mgr.is_pill(item_name) else "储物戒"
                 yield event.plain_result(f"✅ {note}，【{item_name}】x{count} 已存入{target}")
             else:
-                yield event.plain_result(f"⚠️ {note}，但储物戒已满：{smsg}")
+                yield event.plain_result(f"❌ {note} 兑换失败，师德点未扣除。储物戒已满：{smsg}")
             return
         yield event.plain_result(msg)
 

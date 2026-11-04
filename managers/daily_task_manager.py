@@ -152,9 +152,11 @@ class DailyTaskManager:
         if current_level_count >= max_limit:
             return False, "", f"❌ 你今日的【{level}阶】任务接取次数已用尽（上限 {max_limit} 次）。"
 
-        # 从今日随机池中抽取（去掉已在进行中的同名任务）
+        # 从今日随机池中抽取（排除进行中+已完成待领取的同名任务，口径与 show_board 一致）
         daily_pool = self.get_daily_pool(player.user_id, level)
-        active_tasks = await self.db.ext.get_user_active_tasks(player.user_id)
+        active_tasks = await self.db.ext.get_user_active_tasks(
+            player.user_id, include_completed=True
+        )
         doing_titles = {t["title"] for t in active_tasks}
         candidates = [(i, tpl) for i, tpl in daily_pool if tpl["title"] not in doing_titles]
         if not candidates:

@@ -135,6 +135,75 @@ class WebroomAdapter(Platform):
 
 后台「平台适配器」新增 `webroom` 类型实例（WebUI 会因 `config_metadata` 渲染表单：host/port/rooms），启用即生效；QQ/OneBot 照常并行运行。
 
+### 4.6 本地预览（无需 AstrBot）
+
+只想调前端（登录、在线列表、消息气泡、系统提示）时，不必安装完整 AstrBot：
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install "aiohttp>=3.9"
+
+.venv/bin/python scripts/dev_webroom.py            # 仅房间服务，浏览器开 http://127.0.0.1:6198/
+.venv/bin/python scripts/dev_webroom.py --demo     # 附带演示机器人回合
+.venv/bin/python scripts/dev_webroom.py --port 6200 --host 0.0.0.0
+```
+
+`scripts/dev_webroom.py` 用轻量桩替掉 `astrbot.api.logger` 与 `get_astrbot_data_path`，
+因此**不加载修仙插件、也不产生真实机器人回复**；真实链路仍需在 AstrBot 后台启用 `webroom` 平台实例。
+
+| 依赖 | 用途 | 说明 |
+|------|------|------|
+| `aiohttp` | room_server 的 HTTP + WebSocket | 已写入 `requirements.txt`；AstrBot 自身也依赖它 |
+| `astrbot` | 适配器 `webroom_adapter.py` | 需 Python 3.10+，仅真实链路需要 |
+| `aiosqlite` | 插件存档库 | AstrBot 环境自带 |
+
+### 4.7 真实链路本地运行（AstrBot + webroom）
+
+前端预览只能验证 UI；要看**真实机器人回复**（指令解析、存档、图片渲染），需要完整 AstrBot。
+
+**固定路径约定**（已在本机落地，实测占用 ≈ 706 MB）：
+
+```
+~/.astrbot-runtime/
+├── python/   独立 CPython 3.12.16（免编译，24 MB 包 → 73 MB）
+├── venv/     AstrBot 4.29.4 运行环境（633 MB，含 65 个依赖）
+└── data/     AstrBot 根数据目录
+    ├── cmd_config.json                 # platform 段需含 webroom 实例
+    ├── config/astrbot_plugin_xiuxian_promax_config.json
+    ├── plugins/astrbot_plugin_xiuxian_promax -> 本仓库（软链，改代码即时生效）
+    ├── plugin_data/astrbot_plugin_xiuxian_promax/   # 玩家存档 sqlite
+    └── webroom/imgs/                   # 机器人回复的图片
+```
+
+**必备配置**
+
+`data/cmd_config.json` 的 `platform` 段：
+
+```json
+[{ "id": "webroom", "type": "webroom", "enable": true, "host": "127.0.0.1", "port": 6198 }]
+```
+
+`data/config/astrbot_plugin_xiuxian_promax_config.json` 的 `ACCESS_CONTROL`（房间 ID 即群号，不填则世界播报会跳过）：
+
+```json
+{ "WHITELIST_GROUPS": ["room_main"], "BROADCAST_GROUPS": ["room_main"] }
+```
+
+**启停**
+
+```bash
+scripts/astrbot_local.sh start     # 后台启动，等端口就绪
+scripts/astrbot_local.sh status    # 面板 6199 / 聊天室 6198 状态
+scripts/astrbot_local.sh logs 80   # 看日志
+scripts/astrbot_local.sh stop
+```
+
+浏览器打开 <http://127.0.0.1:6198/>，昵称随意、房间填 `room_main`；面板 <http://127.0.0.1:6199/>（初始账号 `astrbot`，初始密码见首次启动日志，可用 `astrbot password` 重置）。
+
+**已实测通过的链路**：`/修仙帮助`（返回帮助图，落盘 `data/webroom/imgs` 后经 `/media/<file>` 访问）→ `/我要修仙 灵修` → `/选择灵根 1` → `/签到` → `/我的信息`，均为真实的插件逻辑与存档写库。
+
+
+
 ---
 
 ## 五、里程碑

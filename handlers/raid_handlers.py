@@ -13,12 +13,15 @@ class RaidHandlers:
 
     @player_required
     async def handle_challenge(self, player: Player, event: AstrMessageEvent):
+        # 防串线：raid_mgr 为共享单例，last_broadcast_msg 可能被并发调用覆盖。
+        # “调用前清空 + 调用后立即读取并清空”，确保只取本次 challenge_raid 产生的广播。
+        self.raid_mgr.last_broadcast_msg = None
         success, msg = await self.raid_mgr.challenge_raid(player)
         set_event_flag(event, "raid_challenge", bool(success))
         broadcast_msg = getattr(self.raid_mgr, "last_broadcast_msg", None)
+        self.raid_mgr.last_broadcast_msg = None
         if broadcast_msg:
             set_event_flag(event, "raid_broadcast_msg", broadcast_msg)
-            self.raid_mgr.last_broadcast_msg = None
         yield event.plain_result(msg)
 
     async def handle_status(self, event: AstrMessageEvent):

@@ -1,10 +1,15 @@
 # handlers/sect_handlers.py
+import re
+
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api.all import At
 from ..managers.sect_manager import SectManager
 from ..data.data_manager import DataBase
 from ..models_extended import UserStatus
 from .utils import set_event_flag
+
+# 平台把 at 渲染成文本时形如 [At:xxx] / [CQ:at,qq=xxx]，需从命令参数中剔除
+_AT_TOKEN_RE = re.compile(r"\[[^\[\]]*(?:At:|CQ:at)[^\[\]]*\]", re.IGNORECASE)
 
 class SectHandlers:
     def __init__(self, db: DataBase, sect_mgr: SectManager):
@@ -162,7 +167,17 @@ class SectHandlers:
             if isinstance(component, At):
                 target_id = str(component.qq)
                 break
-        parts = [p for p in (args or "").strip().split() if not p.startswith("@")]
+        # 过滤 @xxx 与平台渲染的 [At:xxx] / [CQ:at,...] 文本 token，防止占掉命令类型位；
+        # 若未解析到 At 组件，则从文本 token 中提取目标 ID 兜底
+        parts = []
+        for p in (args or "").strip().split():
+            if p.startswith("@") or _AT_TOKEN_RE.fullmatch(p):
+                if not target_id:
+                    digits = re.findall(r"\d{5,}", p)
+                    if digits:
+                        target_id = digits[0]
+                continue
+            parts.append(p)
         if target_id:
             if len(parts) < 3:
                 yield event.plain_result("❌ 用法：/宗门命令 @人 捐献 1000 24")

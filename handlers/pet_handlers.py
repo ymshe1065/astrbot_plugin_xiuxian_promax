@@ -163,7 +163,18 @@ class PetHandlers:
                 evolution = " → ".join(stage["name"] for stage in chain) if chain else key
                 available_lines.append(f"· {key}：{info['desc']}\n    进化：{evolution}")
             available = "\n".join(available_lines)
-            free_note = "（御兽职业首次契约免费）" if getattr(player, "cultivation_type", "") == "御兽" and not pets else ""
+            # 与 pet_manager.adopt_pet 的一次性标记同口径：标记已用则不再显示“免费”
+            free_note = ""
+            if getattr(player, "cultivation_type", "") == "御兽" and not pets:
+                first_free_used = False
+                try:
+                    first_free_used = bool(
+                        await self.db.ext.get_system_config(f"pet_first_free_{player.user_id}")
+                    )
+                except Exception:
+                    first_free_used = False
+                if not first_free_used:
+                    free_note = "（御兽职业首次契约免费）"
             yield event.plain_result(
                 f"请指定你要契约的灵兽名称{free_note}：\n{available}\n"
                 f"当前槽位：{len(pets)}/{slots}\n💡 发送 `/孵化灵兽 <名字>` 契约一只。"
@@ -270,25 +281,70 @@ class PetHandlers:
             yield event.plain_result(
                 "用法：/灵兽吞噬 <灵兽序号或名字> [灵兽内丹] [数量|all]\n"
                 f"💡 每颗【灵兽内丹】提供当前等级升级需求 {int(self.pet_mgr.PET_CORE_EXP_RATIO * 100)}% 的经验（最高 Lv.50）。\n"
-                "💡 示例：/灵兽吞噬 1 5 · /灵兽吞噬 1 all · /灵兽吞噬 1 灵兽内丹 10"
+                "💡 示例：/灵兽吞噬 1 5 · /灵兽吞噬 1 all · /灵兽吞噬 1 灵兽内丹 10\n"
+                "💡 默认灵兽名含空格（如「火灵狐 1」），可直接写：/灵兽吞噬 火灵狐 1 灵兽内丹 5"
             )
             return
-        parts = args.split()
-        selector = parts[0]
+
+        pets = await self.pet_mgr.get_pets(player.user_id)
+        if not pets:
+            yield event.plain_result("❌ 你还没有灵兽，请先使用 /孵化灵兽 契约。")
+            return
+
+        # 与 /灵兽改名 同策略：优先用现有宠物名做最长前缀匹配，
+        # 兼容「火灵狐 1 灵兽内丹 5」这类带空格默认名写法
+        selector = ""
+        rest = args
+        for pet in sorted(pets, key=lambda p: len(p.get("pet_name", "")), reverse=True):
+            name = pet.get("pet_name", "")
+            if not name:
+                continue
+            if rest == name:
+                selector, rest = name, ""
+                break
+            if rest.startswith(name) and len(rest) > len(name) and rest[len(name)].isspace():
+                selector = name
+                rest = rest[len(name):].strip()
+                break
+        if not selector:
+            # 回退：首词作选择器（序号或不含空格的名字）
+            tokens = rest.split(None, 1)
+            selector = tokens[0]
+            rest = tokens[1].strip() if len(tokens) > 1 else ""
+
         item_name = self.pet_mgr.PET_CORE_ITEM
         count = 1
-        if len(parts) == 2:
-            parsed = self._parse_devour_count(parts[1])
-            if parsed is None:
-                item_name = parts[1]
+        if rest:
+            tokens = rest.split()
+            if len(tokens) == 1:
+                parsed = self._parse_devour_count(tokens[0])
+                if parsed is None:
+                    item_name = tokens[0]
+                else:
+                    count = parsed
             else:
+                item_name = tokens[0]
+                parsed = self._parse_devour_count(tokens[1])
+                if parsed is None:
+                    yield event.plain_result("❌ 数量参数无效，请使用正整数或 all。")
+                    return
                 count = parsed
-        elif len(parts) >= 3:
-            item_name = parts[1]
-            parsed = self._parse_devour_count(parts[2])
-            if parsed is None:
-                yield event.plain_result("❌ 数量参数无效，请使用正整数或 all。")
+
+        # 选择器命中多只同品种灵兽时列出序号，避免静默喂错宠物
+        if selector and not selector.isdigit() and not any(
+            p.get("pet_name") == selector for p in pets
+        ):
+            matches = [
+                p for p in pets
+                if p.get("pet_type") == selector
+                or self.pet_mgr.get_base_type(p.get("pet_type")) == selector
+            ]
+            if len(matches) > 1:
+                lines = [f"⚠️ 你有 {len(matches)} 只灵兽匹配【{selector}】，请用序号指定："]
+                for index, pet in enumerate(pets, 1):
+                    lines.append(f"{index}. {pet.get('pet_name', '')}")
+                yield event.plain_result("\n".join(lines))
                 return
-            count = parsed
+
         success, msg = await self.pet_mgr.devour_item(player, selector, item_name, count)
         yield event.plain_result(msg)

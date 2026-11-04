@@ -44,7 +44,20 @@ def _imp(module_path: str):
 
 
 class _FakeConn:
-    async def execute(self, *a, **k):
+    def __init__(self):
+        # 记录事务内执行过的 SQL，供断言"冷却/计数已随事务写入 system_config"
+        self.executed = []
+
+    def system_config_writes(self):
+        """提取 INSERT INTO system_config 的 (key, value) 对"""
+        out = {}
+        for sql, params in self.executed:
+            if "INSERT INTO system_config" in (sql or "") and params:
+                out[params[0]] = params[1]
+        return out
+
+    async def execute(self, sql=None, params=None, *a, **k):
+        self.executed.append((sql, params))
         return None
 
     async def commit(self):
@@ -186,6 +199,66 @@ class TestRootChoice(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(player.level_index, 0)
         self.assertEqual(player.spiritual_root, "火灵根")
 
+    async def test_rebirth_accepts_plain_class_and_life_skill(self):
+        handler, db = self._handler()
+        player = handler.cultivation_manager.generate_new_player_stats("u1", "鬼修", root="火")
+        db.players["u1"] = player
+        event = _FakeEvent()
+        async for _ in handler.handle_rebirth(event, "御兽"):
+            pass
+        pending = await handler._load_root_pending("rebirth_options", "u1")
+        self.assertEqual(pending.get("cultivation_type"), "御兽")
+        async for _ in handler.handle_rebirth(event, "炼丹师"):
+            pass
+        pending = await handler._load_root_pending("rebirth_options", "u1")
+        self.assertEqual(pending.get("life_skill"), "炼丹师")
+
+    async def test_rebirth_can_change_class_and_life_skill(self):
+        handler, db = self._handler()
+        player = handler.cultivation_manager.generate_new_player_stats("u1", "剑修", root="火")
+        player.level_index = 10
+        player.life_skill = "符箓师"
+        player.life_skill_changes = 3
+        player.life_skill_cost_peak = 50000
+        db.players["u1"] = player
+        event = _FakeEvent()
+        async for _ in handler.handle_rebirth(event, "职业 体修"):
+            pass
+        pending = await handler._load_root_pending("rebirth_options", "u1")
+        self.assertEqual(pending.get("cultivation_type"), "体修")
+        async for _ in handler.handle_rebirth(event, "生活职业 炼丹师"):
+            pass
+        pending = await handler._load_root_pending("rebirth_options", "u1")
+        self.assertEqual(pending.get("life_skill"), "炼丹师")
+
+        ok, msg = await handler._perform_rebirth(
+            player, "火",
+            cultivation_type=pending.get("cultivation_type"),
+            life_skill=pending.get("life_skill"),
+        )
+        self.assertTrue(ok, msg)
+        self.assertEqual(player.cultivation_type, "体修")
+        self.assertEqual(player.life_skill, "炼丹师")
+        self.assertEqual(player.life_skill_changes, 0)
+        self.assertEqual(player.life_skill_cost_peak, 0)
+        self.assertEqual(player.life_skill_last_change_at, 0)
+
+    async def test_choose_root_applies_pending_class_and_life(self):
+        handler, db = self._handler()
+        player = handler.cultivation_manager.generate_new_player_stats("u1", "剑修", root="火")
+        player.level_index = 10
+        db.players["u1"] = player
+        roots = ["水", "木", "金"]
+        await handler._save_root_pending("rebirth_options", "u1", roots, {
+            "cultivation_type": "魔修", "life_skill": "阵法师",
+        })
+        event = _FakeEvent()
+        async for _ in handler.handle_choose_root(event, "1"):
+            pass
+        self.assertEqual(player.cultivation_type, "魔修")
+        self.assertEqual(player.life_skill, "阵法师")
+        self.assertEqual(player.spiritual_root, "水灵根")
+
     async def test_rebirth_keeps_root_and_meta(self):
         handler, db = self._handler()
         player = handler.cultivation_manager.generate_new_player_stats("u1", "剑修", root="火")
@@ -208,8 +281,11 @@ class TestRootChoice(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(player.reincarnation_count, 2)
         self.assertIn("测试称号", player.permanent_bonus)
         self.assertEqual(player.get_storage_ring_items(), {})
-        self.assertTrue(db.ext.config_store.get("rebirth_last_u1", "").isdigit())
-        self.assertEqual(db.ext.config_store.get("rebirth_total_u1"), "1")
+        # v6.57.0: 冷却/累计次数/灵根刷新计数改为随重修事务原生 SQL 写入 system_config
+        cfg_writes = db.conn.system_config_writes()
+        self.assertTrue(str(cfg_writes.get("rebirth_last_u1", "")).isdigit())
+        self.assertEqual(cfg_writes.get("rebirth_total_u1"), "1")
+        self.assertEqual(cfg_writes.get("rebirth_root_reroll_u1"), "0")
         self.assertIn("弃道重修完成", msg)
 
 

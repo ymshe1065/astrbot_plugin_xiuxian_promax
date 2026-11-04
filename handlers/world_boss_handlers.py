@@ -14,12 +14,15 @@ class WorldBossHandlers:
     @player_required
     async def handle_challenge(self, player: Player, event: AstrMessageEvent):
         """挑战世界Boss"""
+        # 防串线：wb_mgr 为共享单例，last_settle_msg 可能被并发调用覆盖。
+        # “调用前清空 + 调用后立即读取并清空”，确保只取本次 challenge_boss 产生的结算消息。
+        self.wb_mgr.last_settle_msg = None
         success, msg = await self.wb_mgr.challenge_boss(player)
         set_event_flag(event, "world_boss_challenge", bool(success))
         settle_msg = getattr(self.wb_mgr, "last_settle_msg", None)
+        self.wb_mgr.last_settle_msg = None
         if settle_msg:
             set_event_flag(event, "world_boss_settle_msg", settle_msg)
-            self.wb_mgr.last_settle_msg = None
         yield event.plain_result(msg)
 
     async def handle_query(self, event: AstrMessageEvent):

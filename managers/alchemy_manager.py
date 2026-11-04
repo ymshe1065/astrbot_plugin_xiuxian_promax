@@ -670,10 +670,10 @@ class AlchemyManager:
         return "一般"
 
     # ===== 丹方列表 =====
-    async def get_available_recipes(self, user_id: str) -> Tuple[bool, str]:
+    async def get_available_recipes(self, user_id: str) -> Tuple[bool, str, list, list]:
         player = await self.db.get_player_by_id(user_id) if self.db else None
         if not player:
-            return False, "❌ 你还未踏入修仙之路！"
+            return False, "❌ 你还未踏入修仙之路！", [], []
 
         learned = await self.ensure_learned_recipes(player)
         lines = ["📜 已学丹方列表", "━━━━━━━━━━━━━━━"]

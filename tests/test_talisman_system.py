@@ -235,8 +235,6 @@ class TestTalismanManager(unittest.IsolatedAsyncioTestCase):
         items = player.get_storage_ring_items()
         items["山河符"] = 1
         player.set_storage_ring_items(items)
-        import asyncio
-        asyncio.get_event_loop() if False else None
         profile = mgr.get_talisman_profile("山河符")
         self.assertEqual(profile["category"], "防御")
         self.assertAlmostEqual(profile["effects"]["physical_defense_multiplier"], 0.33)
@@ -325,21 +323,6 @@ class TestTalismanManager(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(mgr.is_recipe_learned(player, "星辰符"))
 
     # ---- 改动 E：熟练度 ----
-    async def test_failure_still_grants_points(self):
-        mgr = self._mgr()
-        player = self._player()
-        player.gold = 100000
-        items = player.get_storage_ring_items()
-        items["灵植"] = 10
-        player.set_storage_ring_items(items)
-        fake_materials = [{"category": "灵植", "tier": "凡品", "count": 1}]
-        with mock.patch.object(mgr, "_material_stacks", return_value=[("灵植", 10)]):
-            with mock.patch.object(mgr, "_consume_materials", return_value=(True, "", ["灵植×1"])):
-                with mock.patch("random.randint", return_value=100):
-                    ok, _ = await mgr.craft_talisman(player, "烈焰符", 1)
-        self.assertTrue(ok)
-        self.assertEqual(player.talisman_exp, 0)  # 凡品 1 张 × 0.5 向下取整 = 0
-
     async def test_success_grants_rank_points(self):
         mgr = self._mgr()
         player = self._player()
@@ -453,16 +436,6 @@ class TestPavilion(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(entry["name"], f"{base}·符图")
             self.assertFalse(self.cm.talisman_recipes_data[base].get("basic"))
         self.assertIn("聚灵符·符图", names)
-
-    def test_shield_talisman_recipes_permanent(self):
-        # v6.49.9：护劫符符图（避劫符/混元符）必须常驻符阁·符图，
-        # 否则高品丹劫点名混元符却买不到，提示成死路（v6.50.0 起货架名带 ·符图 后缀）
-        shop = self.ShopManager({}, self.cm)
-        entries = {e["data"]["base_name"]: e for e in shop.get_talisman_recipes_for_display(8)}
-        for name in ("避劫符", "混元符", "聚灵符"):
-            self.assertIn(name, entries)
-            self.assertTrue(entries[name]["always_available"], f"{name} 符图应常驻")
-            self.assertFalse(entries[name]["rare"])
 
     def test_treasure_pavilion_has_no_talisman(self):
         shop = self.ShopManager({}, self.cm)

@@ -5,7 +5,7 @@ language: zh-CN
 audience:
   - AI 问答助手
   - 玩家
-game_version: v6.56.0
+game_version: v6.56.1
 content_type: item_catalog
 chunk_strategy: heading
 keywords:

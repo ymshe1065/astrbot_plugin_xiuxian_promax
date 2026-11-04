@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 from ..rank_rules import RANK_LEVELS, rank_level
 
@@ -263,21 +263,6 @@ def normalize_rate(value: Any, as_percent: bool = False) -> float:
     return number / 100.0 if abs(number) > 1 else number
 
 
-def validate_rate(key: str, value: Any) -> Tuple[bool, str]:
-    if key not in _RATE_KEYS:
-        return True, ""
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return False, f"{key} 不是有效数字：{value!r}"
-    if key in ("crit_rate", "lifesteal", "counter_damage", "combo_rate", "status_resist", "dodge"):
-        if number < 0 or number > 100:
-            return False, f"{key} 应在 0-100 之间，当前为 {number}"
-    elif number < -10 or number > 10:
-        return False, f"{key} 倍率异常，当前为 {number}"
-    return True, ""
-
-
 class ItemRules:
     GEAR_TYPES = GEAR_TYPES
     SLOT_LABELS = SLOT_LABELS
@@ -298,4 +283,3 @@ class ItemRules:
     format_bonus_rate = staticmethod(format_bonus_rate)
     TEMPORARY_COMBAT_BONUS_CAP = TEMPORARY_COMBAT_BONUS_CAP
     normalize_rate = staticmethod(normalize_rate)
-    validate_rate = staticmethod(validate_rate)

@@ -628,13 +628,14 @@ class AuctionHouseManager:
             )
 
     async def bid(self, player: Player, amount_text: str) -> Tuple[bool, str]:
-        now = int(time.time())
         try:
             amount = int(str(amount_text).strip().replace(",", ""))
         except (TypeError, ValueError):
             return False, "❌ 出价必须是纯数字，例如：/拍卖会出价 5000"
 
         async with self._lock:
+            # 入锁后再取当前时间：避免排队等锁期间 now 过期，导致落槌/超时判定失真
+            now = int(time.time())
             event = await self._ensure_event_locked(now)
             if not event or event["phase"] != "live":
                 return False, "❌ 当前没有正在进行的拍卖会。"

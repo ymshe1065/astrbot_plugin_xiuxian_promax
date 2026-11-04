@@ -88,22 +88,19 @@ class CombatHandlers:
         await self.db.conn.execute("SAVEPOINT combat_daily_pair")
         try:
             for uid in unique_ids:
-                async with self.db.conn.execute(
-                    f"SELECT {field} FROM combat_daily WHERE user_id = ? AND day = ?",
-                    (uid, today),
-                ) as cursor:
-                    row = await cursor.fetchone()
-                current = int(row[0] or 0) if row else 0
-                if current >= limit:
+                # 条件式 UPSERT：次数守卫与自增在同一条 SQL 内完成，
+                # 避免 “先 SELECT 检查再 INSERT” 之间的并发窗口导致超限。
+                # rowcount=0 说明 DO UPDATE 的 WHERE 守卫未通过（已达上限）。
+                cursor = await self.db.conn.execute(
+                    f"""INSERT INTO combat_daily (user_id, day, {field}) VALUES (?, ?, 1)
+                        ON CONFLICT(user_id, day) DO UPDATE SET {field} = {field} + 1
+                        WHERE {field} < ?""",
+                    (uid, today, limit),
+                )
+                if cursor.rowcount == 0:
                     await self.db.conn.execute("ROLLBACK TO SAVEPOINT combat_daily_pair")
                     await self.db.conn.execute("RELEASE SAVEPOINT combat_daily_pair")
                     return False, uid
-            for uid in unique_ids:
-                await self.db.conn.execute(
-                    f"""INSERT INTO combat_daily (user_id, day, {field}) VALUES (?, ?, 1)
-                        ON CONFLICT(user_id, day) DO UPDATE SET {field} = {field} + 1""",
-                    (uid, today),
-                )
             await self.db.conn.execute("RELEASE SAVEPOINT combat_daily_pair")
             return True, None
         except Exception:
@@ -212,15 +209,12 @@ class CombatHandlers:
 
         if valid_at_ids: return valid_at_ids[-1]
         if arg:
-            cleaned = arg.strip().lstrip("@")
-            if cleaned.isdigit() and cleaned != sender_id and cleaned != self_id: return cleaned
-        
-        message_text = ""
-        if hasattr(event, "message_str"): message_text = event.message_str or ""
-        numbers = re.findall(r'\d{5,}', message_text)
-        for num in numbers:
-            if num != sender_id and num != self_id: return num
-                
+            cleaned = arg.strip().lstrip("@").strip()
+            # 仅当参数整体为纯数字时才作为ID（fullmatch），
+            # 不再扫描整条消息里的任意长数字，避免命中金额/时间戳等无关数字。
+            if re.fullmatch(r"\d+", cleaned) and cleaned != sender_id and cleaned != self_id:
+                return cleaned
+
         return None
 
     def _calculate_equipment_bonus(self, player) -> dict:
@@ -261,11 +255,18 @@ class CombatHandlers:
             stats, main_pet, support_pets, pet_effects, final_atk
         )
         
-        if int(player.hp or 0) <= 0:
+        # 战前准备：若已阵亡（hp<=0）先恢复到满血；atk 缓存随面板刷新
+        restore_hp = int(player.hp or 0) <= 0
+        if restore_hp:
             player.hp = stats.max_hp
         player.mp = int(player.spiritual_qi or 0)
         player.atk = stats.atk
-        await self.db.update_player(player)
+        # 仅定向更新本次真正变化的列（hp/mp/atk），
+        # 避免用旧快照全字段回写覆盖目标玩家的并发修改（灵石/修为/装备等）。
+        fields = {"mp": player.mp, "atk": player.atk}
+        if restore_hp:
+            fields["hp"] = player.hp
+        await self.db.update_player_fields(player.user_id, **fields)
 
         return stats
 
@@ -352,6 +353,19 @@ class CombatHandlers:
             )
             return
 
+        # 重伤检查：目标气血过低（≤20%）时禁止被拖入决斗，避免恃强凌弱刷人
+        try:
+            from ..managers.recovery_manager import RecoveryManager
+            recovery = RecoveryManager(self.db, self.config_manager)
+            if await recovery.is_injured(target_player):
+                target_name = target_player.user_name or target_id[:8]
+                yield event.plain_result(
+                    f"❌ 【{target_name}】身受重伤（气血 ≤20%），无法被拖入决斗。"
+                )
+                return
+        except Exception:
+            pass
+
         p1_stats = await self._prepare_combat_stats(user_id)
         p2_stats = await self._prepare_combat_stats(target_id)
         if not p1_stats or not p2_stats:
@@ -380,6 +394,8 @@ class CombatHandlers:
         await self.db.ext.update_player_hp_mp(user_id, max(1, p1_stats.hp), max(0, p1_stats.mp))
         await self.db.ext.update_player_hp_mp(target_id, max(1, p2_stats.hp), max(0, p2_stats.mp))
         await self._update_combat_cooldown(user_id, "duel")
+        # 与发起者一致：决斗对目标也造成真实战损，同样为目标写入决斗 CD
+        await self._update_combat_cooldown(target_id, "duel")
         
         log_lines = result['combat_log']
         final_log = "\n".join(log_lines)
@@ -503,6 +519,23 @@ class CombatHandlers:
             yield event.plain_result(f"❌ 你当前正{acceptor_busy}，无法接受切磋。")
             return
 
+        # 重伤检查：任一方气血过低（≤20%）时禁止切磋，避免带伤被拖入战斗
+        try:
+            from ..managers.recovery_manager import RecoveryManager
+            recovery = RecoveryManager(self.db, self.config_manager)
+            if await recovery.is_injured(initiator):
+                yield event.plain_result(
+                    f"❌【{initiator_name}】身受重伤（气血 ≤20%），无法进行切磋。"
+                )
+                return
+            if await recovery.is_injured(player):
+                yield event.plain_result(
+                    "❌ 你身受重伤（气血 ≤20%），请先调息恢复后再切磋。"
+                )
+                return
+        except Exception:
+            pass
+
         now = int(time.time())
         spar_limit = self._daily_limit("spar_daily_limit", 3)
         initiator_usage = await self._get_daily_usage(initiator_id)
@@ -542,13 +575,18 @@ class CombatHandlers:
             return
 
         # 所有校验通过后再原子抢占请求，避免对方忙碌/次数不足时白白吞掉邀请。
+        # WHERE 带上 expires_at > now，防止抢占到校验期间刚好过期的邀请。
+        now_ts = int(time.time())
         cursor = await self.db.conn.execute(
-            "DELETE FROM spar_requests WHERE id = ? AND target_id = ?",
-            (request["id"], acceptor_id),
+            "DELETE FROM spar_requests WHERE id = ? AND target_id = ? AND expires_at > ?",
+            (request["id"], acceptor_id, now_ts),
         )
         await self.db.conn.commit()
         if cursor.rowcount == 0:
-            yield event.plain_result("❌ 该切磋邀请已被处理，请重新邀请。")
+            if int(request.get("expires_at", 0) or 0) <= now_ts:
+                yield event.plain_result("❌ 该切磋邀请已过期，请重新邀请。")
+            else:
+                yield event.plain_result("❌ 该切磋邀请已被处理，请重新邀请。")
             return
 
         consumed, blocked_uid = await self._consume_daily_pair(
@@ -571,8 +609,14 @@ class CombatHandlers:
         set_event_flag(event, "spar_result", result)
         await self._save_pet_states(p1_stats, p2_stats)
 
-        await self.db.ext.update_player_hp_mp(initiator_id, max(1, p1_stats.hp), max(0, p1_stats.mp))
-        await self.db.ext.update_player_hp_mp(acceptor_id, max(1, p2_stats.hp), max(0, p2_stats.mp))
+        # 切磋（combat_type=1）不计真实战损：使用 manager 返回的满血值写回，
+        # 避免把战斗内残血（p1_stats.hp/p2_stats.hp）误落库导致切磋后气血被削。
+        p1_final_hp = max(1, int(result.get("player1_final_hp", p1_stats.max_hp)))
+        p2_final_hp = max(1, int(result.get("player2_final_hp", p2_stats.max_hp)))
+        p1_final_mp = max(0, int(result.get("player1_final_mp", p1_stats.mp)))
+        p2_final_mp = max(0, int(result.get("player2_final_mp", p2_stats.mp)))
+        await self.db.ext.update_player_hp_mp(initiator_id, p1_final_hp, p1_final_mp)
+        await self.db.ext.update_player_hp_mp(acceptor_id, p2_final_hp, p2_final_mp)
         await self._update_combat_cooldown(initiator_id, "spar")
         await self._update_combat_cooldown(acceptor_id, "spar")
 
