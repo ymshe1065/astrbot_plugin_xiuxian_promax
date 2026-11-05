@@ -7,6 +7,7 @@ from ..managers.sect_manager import SectManager
 from ..data.data_manager import DataBase
 from ..models_extended import UserStatus
 from .utils import set_event_flag
+from ..utils.user_ref import resolve_user_id
 
 # 平台把 at 渲染成文本时形如 [At:xxx] / [CQ:at,qq=xxx]，需从命令参数中剔除
 _AT_TOKEN_RE = re.compile(r"\[[^\[\]]*(?:At:|CQ:at)[^\[\]]*\]", re.IGNORECASE)
@@ -88,10 +89,10 @@ class SectHandlers:
                 break
         
         if not target_id:
-            if target.isdigit(): target_id = target
-        
+            target_id = await resolve_user_id(self.db, target)
+
         if not target_id:
-            yield event.plain_result("❌ 请指定要踢出的成员（At或输入ID）")
+            yield event.plain_result("❌ 请指定要踢出的成员（At、ID 或道号）")
             return
 
         success, msg = await self.sect_mgr.kick_member(user_id, target_id)
@@ -106,11 +107,11 @@ class SectHandlers:
                 target_id = str(component.qq)
                 break
         
-        if not target_id and target.isdigit():
-             target_id = target
-             
         if not target_id:
-            yield event.plain_result("❌ 请指定传位目标（At或输入ID）")
+            target_id = await resolve_user_id(self.db, target)
+
+        if not target_id:
+            yield event.plain_result("❌ 请指定传位目标（At、ID 或道号）")
             return
 
         success, msg = await self.sect_mgr.transfer_ownership(user_id, target_id)
@@ -125,11 +126,11 @@ class SectHandlers:
                 target_id = str(component.qq)
                 break
         
-        if not target_id and target.isdigit():
-             target_id = target
-             
         if not target_id:
-            yield event.plain_result("❌ 请指定目标（At或输入ID）")
+            target_id = await resolve_user_id(self.db, target)
+
+        if not target_id:
+            yield event.plain_result("❌ 请指定目标（At、ID 或道号）")
             return
 
         success, msg = await self.sect_mgr.change_position(user_id, target_id, position)

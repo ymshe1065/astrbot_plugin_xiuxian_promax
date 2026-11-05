@@ -970,7 +970,7 @@
       "box-shadow:0 8px 24px rgba(60,45,25,.18);padding:5px;min-width:132px;font-size:13.5px";
     const ops = [
       ["装备", `/装备 ${name}`],
-      ["取出", `/取出 ${name}`],
+      ["详情", `/物品信息 ${name}`],
       ["回收", `/回收 ${name}`],
       ["赠予", `/赠予 `, true],
     ];
@@ -983,8 +983,12 @@
       b.addEventListener("mouseleave", () => (b.style.background = ""));
       b.addEventListener("click", () => {
         closeCtxMenu();
-        if (needArg) openSheet(label + " 物品", `${label}给谁？`, cmd, name);
-        else dispatchCommand(cmd);
+        if (needArg) {
+          // 物品菜单点「赠予」：先选对象，选完自动把当前物品带进第二段
+          openSheet("赠予 物品", "选择赠予对象", "/赠予", "", {
+            seed: { index: 1, value: name },
+          });
+        } else dispatchCommand(cmd);
       });
       menu.appendChild(b);
     });
@@ -1174,25 +1178,75 @@
     draw();
   }
 
-  /* ================= 参数弹层 ================= */
+  /* ================= 参数弹层 =================
+   * 分两段：
+   * 1) 后端 /api/arg_options 给出当前字段的真实候选（储物戒装备、职业、宗门成员…），
+   *    点候选即写入该字段并自动进入下一段；
+   * 2) 没有候选的字段（金额、数量等）保留手动输入。
+   */
   let sheetCtx = null;
+  let sheetSeq = 0;
+  const SHEET_PICK_LIMIT = 12;
+
+  function normalizeCmd(cmd) {
+    const text = String(cmd || "").trim();
+    if (!text) return "";
+    return text.startsWith("/") ? text : `/${text}`;
+  }
+
+  function sheetApi() {
+    return (S.cmdCatalog && S.cmdCatalog.arg_spec) || S.argSpec || {};
+  }
+
   function openSheet(title, hint, cmd, preset = "", opts = {}) {
-    const { example = "", actions = [] } = opts || {};
-    sheetCtx = { cmd, preset, example };
+    const { example = "", actions = [], seed = null } = opts || {};
+    const cmdText = normalizeCmd(cmd);
+    const presetValues = String(preset || "").trim()
+      ? String(preset).trim().split(/\s+/).filter(Boolean)
+      : [];
+    sheetCtx = {
+      title,
+      hint: hint || "",
+      cmd: cmdText,
+      name: cmdText.replace(/^\//, ""),
+      values: presetValues,
+      chosen: presetValues.map((v) => ({ value: v, label: v })),
+      data: null,
+      example,
+      actions,
+      seed,
+      expanded: false,
+      filter: "",
+    };
+    sheetSeq += 1;
     $("sheetTitle").textContent = title;
     $("sheetHint").textContent = hint ? `填写：${hint}` : "";
-    $("sheetInput").value = preset ? `${preset} ` : "";
+    $("sheetInput").value = "";
+    $("sheetFilter").value = "";
+    $("sheetInput").style.display = "";
+    $("sheetChosen").innerHTML = "";
+    $("sheetChosen").hidden = true;
+    $("sheetPicks").hidden = true;
+    $("sheetOptList").innerHTML = "";
+    $("sheetMore").hidden = true;
+    $("sheetSkip").hidden = true;
+    $("sheetExample").hidden = !example;
+    $("sheetExample").onclick = () => {
+      $("sheetInput").value = example;
+      $("sheetInput").focus();
+      $("sheetInput").setSelectionRange(example.length, example.length);
+    };
 
-    // 动作切换：点卡片实体后可换 行情/买入/卖出，输入框保留已填代码
+    // 动作切换：点卡片实体后可换 行情/买入/卖出，已填代码保留
     const acts = $("sheetActs");
     acts.innerHTML = "";
     if (actions.length) {
       actions.forEach((a) => {
         const b = document.createElement("button");
-        b.className = "act-chip" + (a.cmd === cmd ? " on" : "");
+        b.className = "act-chip" + (normalizeCmd(a.cmd) === cmdText ? " on" : "");
         b.textContent = a.label;
         b.addEventListener("click", () => {
-          openSheet(a.label, `${a.hint}，例：${a.example}`, a.cmd, preset || a.preset || "", {
+          openSheet(a.label, `${a.hint}，例：${a.example}`, a.cmd, preset, {
             example: a.example,
             actions,
           });
@@ -1204,44 +1258,238 @@
       acts.hidden = true;
     }
 
-    const ex = $("sheetExample");
-    ex.hidden = !example;
-    ex.onclick = () => {
-      $("sheetInput").value = example;
-      $("sheetInput").focus();
-      $("sheetInput").setSelectionRange(example.length, example.length);
-    };
-
     $("sheetMask").hidden = false;
-    setTimeout(() => {
-      $("sheetInput").focus();
-      const v = $("sheetInput").value;
-      $("sheetInput").setSelectionRange(v.length, v.length);
-    }, 60);
+    loadSheetField();
   }
 
   function closeSheet() {
+    sheetSeq += 1;
     $("sheetMask").hidden = true;
     sheetCtx = null;
     $("sheetInput").blur();
   }
 
-  function submitSheet() {
-    if (!sheetCtx) return;
-    const val = $("sheetInput").value.trim();
-    if (!val) {
-      toast("请填写内容");
+  async function loadSheetField() {
+    const ctx = sheetCtx;
+    if (!ctx) return;
+    const seq = ++sheetSeq;
+    $("sheetInput").value = "";
+    $("sheetInput").placeholder = "加载可选内容…";
+    try {
+      const qs = new URLSearchParams({
+        cmd: ctx.cmd,
+        values: JSON.stringify(ctx.values),
+      });
+      const r = await fetch(`/api/arg_options?${qs.toString()}`, {
+        headers: { Authorization: "Bearer " + S.token },
+      });
+      const data = await r.json().catch(() => null);
+      if (seq !== sheetSeq || sheetCtx !== ctx) return;
+      if (!data || data.ok === false) {
+        if (data && data.reason === "no_options") {
+          applyManualSheet(ctx, data);
+        } else {
+          applyManualSheet(ctx, data || {});
+          $("sheetHint").textContent = (data && data.error) || "候选加载失败，可直接手动输入";
+        }
+        return;
+      }
+      ctx.data = data;
+
+      // 从物品菜单点「赠予」时，选完对象后自动补上物品
+      if (ctx.seed && !ctx.seed.used && ctx.seed.index === ctx.values.length && ctx.seed.value) {
+        ctx.seed.used = true;
+        ctx.values.push(ctx.seed.value);
+        ctx.chosen.push({ value: ctx.seed.value, label: ctx.seed.value });
+        await loadSheetField();
+        return;
+      }
+
+      if (data.done) {
+        renderSheetDone(ctx, data);
+        return;
+      }
+      renderSheetField(ctx, data);
+    } catch {
+      if (seq !== sheetSeq || sheetCtx !== ctx) return;
+      applyManualSheet(ctx, {});
+      $("sheetHint").textContent = "网络异常，可直接手动输入";
+    }
+  }
+
+  function renderChosen(ctx) {
+    const box = $("sheetChosen");
+    box.innerHTML = "";
+    if (!ctx.chosen.length) {
+      box.hidden = true;
       return;
     }
-    const text = `${sheetCtx.cmd} ${val}`;
-    const miss = missingArgs(text);
-    if (miss) {
-      toast(`还差参数：${miss.hint.split("，")[0]}`);
+    ctx.chosen.forEach((item, idx) => {
+      const chip = document.createElement("button");
+      chip.className = "chosen-chip";
+      chip.innerHTML = `<span>${esc(item.label)}</span><b>×</b>`;
+      chip.title = "点此撤销该参数及其后的选择";
+      chip.addEventListener("click", () => {
+        ctx.values = ctx.values.slice(0, idx);
+        ctx.chosen = ctx.chosen.slice(0, idx);
+        ctx.expanded = false;
+        ctx.filter = "";
+        $("sheetFilter").value = "";
+        loadSheetField();
+      });
+      box.appendChild(chip);
+    });
+    box.hidden = false;
+  }
+
+  function renderSheetField(ctx, data) {
+    renderChosen(ctx);
+    const field = data.field || {};
+    const options = data.options || [];
+    const label = field.label || data.hint || ctx.hint || "参数";
+    $("sheetHint").textContent = `第 ${data.index + 1} 步：${label}` + (data.message ? ` · ${data.message}` : "");
+    $("sheetInput").placeholder = options.length ? `也可手动输入${label}` : label;
+    $("sheetInput").style.display = "";
+    $("sheetSkip").hidden = !field.optional;
+    // 全局示例只在第一段/纯手动指令出现，避免把「炼气丹 5」塞进数量字段
+    const showExample = !options.length && !!ctx.example && Number(data.index || 0) === 0;
+    $("sheetExample").hidden = !showExample;
+    const isLast = !!field.key && Number(data.index || 0) + 1 >= Number(data.total || 1);
+    $("sheetOk").textContent = field.optional || isLast ? "发 送" : "下 一 步";
+
+    const picks = $("sheetPicks");
+    if (!options.length) {
+      picks.hidden = true;
+      $("sheetPickCount").textContent = "";
+      $("sheetMore").hidden = true;
+      if (data.message) $("sheetHint").textContent += `（${data.message}）`;
       return;
     }
+    picks.hidden = false;
+    $("sheetPickLabel").textContent = label;
+    drawSheetOptions(ctx);
+  }
+
+  function drawSheetOptions(ctx) {
+    const data = ctx.data || {};
+    const all = data.options || [];
+    const kw = String(ctx.filter || "").trim().toLowerCase();
+    const list = kw
+      ? all.filter((o) =>
+          `${o.label || ""} ${o.value || ""} ${o.desc || ""} ${o.group || ""}`.toLowerCase().includes(kw)
+        )
+      : all;
+    const shown = ctx.expanded ? list : list.slice(0, SHEET_PICK_LIMIT);
+
+    $("sheetPickCount").textContent = kw ? `${shown.length}/${all.length} 项` : `共 ${all.length} 项`;
+    const box = $("sheetOptList");
+    box.innerHTML = "";
+    if (!list.length) {
+      const empty = document.createElement("div");
+      empty.className = "picks-empty";
+      empty.textContent = kw ? "没有匹配的候选，可直接手动输入" : (data.message || "暂无可选内容，可手动输入");
+      box.appendChild(empty);
+      $("sheetMore").hidden = true;
+      return;
+    }
+    shown.forEach((opt) => {
+      const b = document.createElement("button");
+      b.className = "pick-item";
+      b.innerHTML =
+        `<span class="pick-main"><span class="pick-label">${esc(opt.label || opt.value)}</span>` +
+        (opt.desc ? `<span class="pick-desc">${esc(opt.desc)}</span>` : "") +
+        `</span><span class="pick-go">›</span>`;
+      b.addEventListener("click", () => pickSheetOption(opt));
+      box.appendChild(b);
+    });
+    const more = $("sheetMore");
+    more.hidden = list.length <= SHEET_PICK_LIMIT;
+    more.textContent = ctx.expanded ? "收起" : `展开全部 ${list.length} 条 ›`;
+    more.onclick = () => {
+      ctx.expanded = !ctx.expanded;
+      drawSheetOptions(ctx);
+    };
+  }
+
+  function applyManualSheet(ctx, data) {
+    renderChosen(ctx);
+    const field = (data && data.field) || {};
+    const label = field.label || ctx.hint || "参数";
+    $("sheetHint").textContent = data.message ? `${label} · ${data.message}` : (ctx.hint ? `填写：${ctx.hint}` : label);
+    $("sheetInput").style.display = "";
+    $("sheetInput").placeholder = label;
+    $("sheetPicks").hidden = true;
+    $("sheetMore").hidden = true;
+    $("sheetSkip").hidden = true;
+    const showExample = !!ctx.example && Number((data && data.index) || 0) === 0;
+    $("sheetExample").hidden = !showExample;
+    $("sheetOk").textContent = "发 送";
+  }
+
+  function renderSheetDone(ctx, data) {
+    renderChosen(ctx);
+    $("sheetHint").textContent = data.message || "参数已填完，可以发送";
+    $("sheetInput").style.display = "none";
+    $("sheetPicks").hidden = true;
+    $("sheetMore").hidden = true;
+    $("sheetSkip").hidden = true;
+    $("sheetExample").hidden = true;
+    $("sheetOk").textContent = "发 送";
+  }
+
+  function pickSheetOption(opt) {
+    const ctx = sheetCtx;
+    if (!ctx) return;
+    ctx.values.push(String(opt.value));
+    ctx.chosen.push({ value: String(opt.value), label: opt.label || opt.value });
+    ctx.expanded = false;
+    ctx.filter = "";
+    $("sheetFilter").value = "";
+    loadSheetField().then(() => {
+      if (sheetCtx === ctx && ctx.data && ctx.data.done) submitSheet({ auto: true });
+    });
+  }
+
+  function submitSheet(opts = {}) {
+    const ctx = sheetCtx;
+    if (!ctx) return;
+    const data = ctx.data || {};
+    const field = data.field || null;
+
+    if (!data.done) {
+      const val = $("sheetInput").value.trim();
+      if (val) {
+        ctx.values.push(val);
+        ctx.chosen.push({ value: val, label: val });
+        ctx.expanded = false;
+        ctx.filter = "";
+        $("sheetFilter").value = "";
+        // 有字段计划时继续拉下一段；没有计划（纯手动指令）直接发送
+        if (field) {
+          loadSheetField().then(() => {
+            if (sheetCtx === ctx && ctx.data && ctx.data.done) submitSheet({ auto: true });
+          });
+          return;
+        }
+      } else if (field && !field.optional) {
+        toast(`请选择或填写：${field.label || "参数"}`);
+        return;
+      } else if (!field) {
+        toast("请填写内容");
+        return;
+      }
+    }
+
+    const need = Number(data.min || (sheetApi()[ctx.name] || {}).min || 1);
+    if (ctx.values.length < need) {
+      toast("参数还没填完");
+      return;
+    }
+    const text = `${ctx.cmd} ${ctx.values.join(" ")}`.trim();
     closeSheet();
     closeDrawer();
     dispatchCommand(text, { noCheck: true });
+    if (opts.auto) toast("已按所选参数发送");
   }
 
   /* ================= 播报横幅 ================= */
@@ -1260,7 +1508,7 @@
   function showQuickOptions(options) {
     const box = $("quickOptions");
     box.innerHTML = "";
-    options.slice(0, 6).forEach((o) => {
+    options.slice(0, 12).forEach((o) => {
       const b = document.createElement("button");
       b.className = "qopt";
       b.textContent = o.label;
@@ -1593,7 +1841,13 @@
     $("sheetMask").addEventListener("click", (e) => {
       if (e.target === $("sheetMask")) closeSheet();
     });
-    $("sheetOk").addEventListener("click", submitSheet);
+    $("sheetOk").addEventListener("click", () => submitSheet());
+    $("sheetSkip").addEventListener("click", () => submitSheet());
+    $("sheetFilter").addEventListener("input", (e) => {
+      if (!sheetCtx) return;
+      sheetCtx.filter = e.target.value;
+      drawSheetOptions(sheetCtx);
+    });
     $("sheetInput").addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         e.preventDefault();

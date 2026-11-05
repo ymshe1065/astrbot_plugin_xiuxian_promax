@@ -22,9 +22,11 @@ from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 
 from . import accounts as accounts_store
 from . import commands as commands_catalog
+from .arg_options import build_arg_options
 
 if TYPE_CHECKING:
     from .webroom_adapter import WebroomAdapter
+    from ..main import XiuXianPlugin
 
 MEDIA_DIR = Path(get_astrbot_data_path()) / "webroom" / "imgs"
 STATIC_DIR = Path(__file__).parent / "static"
@@ -35,6 +37,7 @@ ROOM_ID = "room_main"
 # room_id -> {ws: {"player_id": str, "player_name": str}}
 _rooms: dict[str, dict[web.WebSocketResponse, dict[str, str]]] = {}
 _adapter: WebroomAdapter | None = None
+_plugin: "XiuXianPlugin | None" = None
 _runner: web.AppRunner | None = None
 _site: web.TCPSite | None = None
 
@@ -54,6 +57,12 @@ def save_image_b64(data_b64: str) -> str:
 def set_adapter(adapter: WebroomAdapter) -> None:
     global _adapter
     _adapter = adapter
+
+
+def set_plugin(plugin: "XiuXianPlugin") -> None:
+    """注入插件实例，供 /api/arg_options 读取玩家真实存档。"""
+    global _plugin
+    _plugin = plugin
 
 
 def room_name(room_id: str) -> str:
@@ -88,6 +97,7 @@ async def start(host: str, port: int) -> None:
     accounts_store.init()
     app.router.add_get("/", _index)
     app.router.add_get("/api/commands", _api_commands)
+    app.router.add_get("/api/arg_options", _api_arg_options)
     app.router.add_get("/api/health", _api_health)
     app.router.add_post("/api/register", _api_register)
     app.router.add_post("/api/login", _api_login)
@@ -255,6 +265,34 @@ async def _index(_request: web.Request) -> web.Response:
 
 async def _api_commands(_request: web.Request) -> web.Response:
     return web.json_response(commands_catalog.all_commands())
+
+
+async def _api_arg_options(request: web.Request) -> web.Response:
+    """按指令 + 已填参数返回下一段的可点候选（储物戒物品、职业、宗门成员等）。"""
+    user = _token_user(request)
+    if user is None:
+        return web.json_response({"ok": False, "error": "登录已过期"}, status=401)
+    if _plugin is None:
+        return web.json_response({"ok": False, "error": "插件尚未就绪"}, status=503)
+
+    cmd = str(request.query.get("cmd", "") or "")
+    values = [str(v) for v in request.query.getall("value", []) if str(v).strip()]
+    raw_values = str(request.query.get("values", "") or "").strip()
+    if raw_values:
+        try:
+            parsed = json.loads(raw_values)
+        except Exception:
+            parsed = None
+        if isinstance(parsed, list):
+            values = [str(v) for v in parsed if str(v).strip()]
+
+    user_id = f"web_{user['username']}"
+    try:
+        data = await build_arg_options(_plugin, user_id, cmd, values)
+    except Exception as exc:
+        logger.exception("[webroom] 读取参数候选失败")
+        return web.json_response({"ok": False, "error": f"候选读取失败：{exc}"}, status=500)
+    return web.json_response(data)
 
 
 async def _api_health(_request: web.Request) -> web.Response:

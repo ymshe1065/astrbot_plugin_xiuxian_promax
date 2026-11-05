@@ -8,6 +8,7 @@ from ..data import DataBase
 from ..managers.impart_pk_manager import ImpartPkManager
 from ..models import Player
 from .utils import player_required
+from ..utils.user_ref import resolve_user_id
 
 __all__ = ["ImpartPkHandlers"]
 
@@ -34,7 +35,9 @@ class ImpartPkHandlers:
                 if isinstance(comp, At):
                     target_id = str(getattr(comp, "qq", "") or getattr(comp, "target", ""))
                     break
-        target_id = target_id or self._extract_user_id(target_info)
+        target_id = target_id or self._extract_user_id(target_info) or str(target_info or "").strip().lstrip("@")
+        if target_id:
+            target_id = await resolve_user_id(self.db, target_id) or target_id
         if not target_id:
             yield event.plain_result(
                 "⚔️ 传承挑战\n"

@@ -26,9 +26,10 @@ CATEGORIES: list[dict[str, Any]] = [
             {"cmd": "/调息", "label": "调息"},
             {"cmd": "/收功", "label": "收功"},
             {"cmd": "/突破信息", "label": "突破信息", "panel": True},
-            {"cmd": "/突破", "label": "突破", "tone": "gold", "arg": "确认突破"},
+            {"cmd": "/突破", "label": "突破", "tone": "gold"},
             {"cmd": "/我的状态", "label": "我的状态"},
             {"cmd": "/重修", "label": "弃道重修"},
+            {"cmd": "/我要修仙", "label": "我要修仙", "arg": "职业"},
         ],
     },
     {
@@ -98,7 +99,7 @@ CATEGORIES: list[dict[str, Any]] = [
             {"cmd": "/秘境列表", "label": "秘境列表", "panel": True},
             {"cmd": "/探索秘境", "label": "探索秘境", "arg": "秘境ID"},
             {"cmd": "/完成探索", "label": "完成探索"},
-            {"cmd": "/开始历练", "label": "开始历练"},
+            {"cmd": "/开始历练", "label": "开始历练", "arg": "路线名"},
             {"cmd": "/历练状态", "label": "历练状态"},
             {"cmd": "/世界Boss", "label": "世界Boss", "panel": True},
             {"cmd": "/挑战Boss", "label": "挑战Boss", "tone": "gold"},
@@ -157,7 +158,7 @@ PANEL_PREFETCH = ["/我的信息"]
 ARG_SPEC: dict[str, dict[str, Any]] = {
     # 交易与储物
     "购买": {"hint": "物品名 数量", "example": "炼气丹 1", "min": 1},
-    "取出": {"hint": "物品名 数量", "example": "炼气丹 5", "min": 1},
+    "取出": {"hint": "藏宝阁物品名 数量", "example": "炼气丹 5", "min": 1},
     "回收": {"hint": "物品名 数量", "example": "炼气丹 1", "min": 1},
     "赠予": {"hint": "道号 物品名 数量", "example": "云无月 炼气丹 1", "min": 2},
     "装备": {"hint": "物品名", "example": "青锋剑", "min": 1},
@@ -167,15 +168,15 @@ ARG_SPEC: dict[str, dict[str, Any]] = {
     "丹药信息": {"hint": "丹药名", "example": "炼气丹", "min": 1},
     "搜索物品": {"hint": "关键词", "example": "丹", "min": 1},
     "服用丹药": {"hint": "丹药名 数量", "example": "炼气丹 1", "min": 1},
-    "炼丹": {"hint": "丹方名", "example": "聚气丹", "min": 1},
-    "学习丹方": {"hint": "丹方名", "example": "聚气丹", "min": 1},
+    "炼丹": {"hint": "丹方编号（如 3）", "example": "3 猛火", "min": 1},
+    "学习丹方": {"hint": "丹方名或编号", "example": "聚气丹", "min": 1},
     # 仙市
     "买入股": {"hint": "股票代码 手数（1 手 = 100 股）", "example": "S01 2", "min": 2},
     "卖出股": {"hint": "股票代码 手数", "example": "S01 1", "min": 2},
     "申购": {"hint": "基金代码 金额", "example": "F01 10000", "min": 2},
     "赎回": {"hint": "基金代码 份额", "example": "F01 100", "min": 2},
     # 坊市（NPC 问价与上架）
-    "坊市上架": {"hint": "物品名 价格", "example": "青锋剑 500", "min": 2},
+    "坊市上架": {"hint": "物品名 [品质] 数量 单价", "example": "青锋剑 1 500", "min": 3},
     "坊市下架": {"hint": "我的上架编号", "example": "1", "min": 1},
     "坊市购买": {"hint": "商品编号", "example": "1", "min": 1},
     "坊市卖出": {"hint": "问价编号 或 all（一键卖出全部）", "example": "all", "min": 1},
@@ -201,7 +202,7 @@ ARG_SPEC: dict[str, dict[str, Any]] = {
     "还款": {"hint": "数量", "example": "1000", "min": 1},
     "突破贷款": {"hint": "数量", "example": "1000", "min": 1},
     "购买洞天": {"hint": "洞天类型编号", "example": "1", "min": 1},
-    "升级洞天": {"hint": "升级项", "example": "灵气", "min": 1},
+    "升级洞天": {"hint": "次数 / 目标等级（如 1-5）/ all", "example": "3", "min": 1},
     "进阶洞天": {"hint": "目标类型编号", "example": "2", "min": 1},
     # 灵田
     "种植": {"hint": "种子名", "example": "聚灵草", "min": 1},
@@ -217,9 +218,8 @@ ARG_SPEC: dict[str, dict[str, Any]] = {
     "双修": {"hint": "道号", "example": "云无月", "min": 1},
     # 注：v7 起「/讨伐」不再吃参数（直接攻击当前江湖事件），故不入表，避免误弹输入框
     "传承挑战": {"hint": "目标道号", "example": "云无月", "min": 1},
-    "突破": {"hint": "确认突破（可带破境丹）", "example": "确认突破", "min": 1},
     "选择灵根": {"hint": "灵根选项（1-3）", "example": "1", "min": 1},
-    "我要修仙": {"hint": "修炼方式（体修/灵修）", "example": "灵修", "min": 1},
+    "我要修仙": {"hint": "职业（灵修/体修/魔修/剑修/鬼修/佛修/御兽）", "example": "剑修", "min": 1},
     "自动代理": {"hint": "任务类型", "example": "押镖", "min": 1},
     "关闭代理": {"hint": "任务类型", "example": "押镖", "min": 1},
 }

@@ -411,6 +411,14 @@ class XiuXianPlugin(Star):
         self.broadcast_groups = broadcast_groups or list(self.whitelist_groups)
         self.boss_admins = [str(a) for a in access_control_config.get("BOSS_ADMINS", [])]
 
+        # 网页聊天室参数候选：注入插件实例，供 /api/arg_options 读取真实存档
+        try:
+            from .webchat_room import room_server as _room_server
+
+            _room_server.set_plugin(self)
+        except Exception as e:
+            logger.warning(f"【修仙插件】webroom 参数候选注入失败（不影响指令执行）: {e}")
+
         logger.info(f"【修仙插件】XiuXianPlugin 初始化完成，数据库路径: {db_path}")
 
     def _check_access(self, event: AstrMessageEvent) -> bool:

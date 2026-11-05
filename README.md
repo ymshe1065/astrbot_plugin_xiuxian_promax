@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v7.0.0 (重修改造 + 全模块审计修复)
+# AstrBot 插件：模拟修仙 v7.0.1 (网页聊天室参数候选)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v7.0.0-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v7.0.1-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.35.0 · **游戏版本:** v7.0.0 · **数据库:** v60
+> **插件版本:** v3.35.1 · **游戏版本:** v7.0.1 · **数据库:** v60
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，258 条帮助指令 / 258 条注册指令、17 个大系统、111 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,23 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · v7.0.0（重修改造 + 全模块审计修复 · 大版本）</b></summary>
+<summary><b>本次更新 · v7.0.1（网页聊天室参数候选）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 参数弹层重做 | 网页聊天室 `/装备`、`/赠予`、`/购买`、`/我要修仙` 等带参指令不再只弹输入框：后端新增 `/api/arg_options`，按指令与已填参数返回**下一段真实候选**，前端以可筛选、可展开、可滚动的列表展示，点选即填入并自动进入下一段。 |
+| 候选来源 | 装备/卸下/回收/赠予读取储物戒装备实例与丹药背包；取出读取藏宝阁（洞天仓库）；购买读取当前货架；炼丹读取已学丹方；坊市/黑市读取真实挂单与问价；秘境/历练/悬赏/灵眼/宗门/洞天/灵田/奇遇/仙缘/师德/社交/自动代理均读取当前存档数据。 |
+| 七职业完整展示 | `/我要修仙` 参数弹层列出完整七职业（灵修、体修、魔修、剑修、鬼修、佛修、御兽）；同时放宽快捷选项上限，不再只显示前 6 条。 |
+| 多段参数 | `/赠予` 按「对象 → 物品 → 数量」逐段选择；已选项以标签展示，可点击撤销并从该段重选；可选字段可直接「跳过」。 |
+| 网页玩家目标 | 修复 `web_<账号>` 非数字用户 ID 在赠予、决斗、切磋、双修、传承挑战、宗门踢人/传位/职位变更中无法作为目标的问题，并支持直接填写道号。 |
+| 细节修正 | `/突破` 不再被误判为必须带参；`/炼丹` 提示改为丹方编号；`/升级洞天` 提示支持次数/目标等级/all；`/开始历练` 按钮补路线名参数；`/坊市上架` 修正为「物品 → 数量 → 单价」三段，避免漏填数量导致上架失败。 |
+| 数据库 | 无结构变更，仍为 **v60**，旧存档无需迁移。 |
+| 版本同步 | 插件版本 v3.35.1，游戏版本 v7.0.1，数据库 v60；`/修仙帮助` 版本号同步。 |
+
+</details>
+
+<details>
+<summary><b>v7.0.0（重修改造 + 全模块审计修复 · 大版本）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |

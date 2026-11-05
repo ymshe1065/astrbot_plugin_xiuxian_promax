@@ -13,6 +13,7 @@ from ..core.item_instance_manager import ItemInstanceManager
 from ..config_manager import ConfigManager
 from ..models import Player
 from .utils import player_required
+from ..utils.user_ref import resolve_user_id
 
 CMD_STORAGE_RING = "储物戒"
 CMD_STORE_ITEM = "存入"
@@ -301,13 +302,14 @@ class StorageRingHandler:
                 text_content = text_content[len(prefix):].strip()
                 break
         
-        # 如果没有从At组件获取到target_id，尝试从文本解析纯数字QQ号
+        # 如果没有从At组件获取到target_id，尝试解析文本里的目标（QQ号 / web_账号 / 道号）
         if not target_id and text_content:
             parts = text_content.split(None, 1)
             if len(parts) >= 1:
                 potential_id = parts[0].lstrip('@')
-                if potential_id.isdigit() and len(potential_id) >= 5:
-                    target_id = potential_id
+                resolved = await resolve_user_id(self.db, potential_id)
+                if resolved:
+                    target_id = resolved
                     text_content = parts[1].strip() if len(parts) > 1 else ""
 
         # 解析物品名和数量

@@ -267,7 +267,7 @@ def extract_options(raw: str) -> list[dict[str, str]]:
             lm = re.match(r"^【([^】]{1,14})】", rest)
             label = lm.group(1) if lm else re.sub(r"[（(].*?[）)]$", "", rest)[:12]
             opts.append({"label": label, "cmd": _normalize_cmd(f"{base_cmd} {num}")})
-            if len(opts) >= 6:
+            if len(opts) >= 12:
                 break
         if len(opts) >= 2:
             return opts
@@ -287,7 +287,7 @@ def extract_options(raw: str) -> list[dict[str, str]]:
         seen.add(label)
         cmd = f"{base} {label}".strip() if base else label
         options.append({"label": label, "cmd": _normalize_cmd(cmd)})
-        if len(options) >= 6:
+        if len(options) >= 12:
             break
     if len(options) >= 2:
         return options
@@ -299,7 +299,7 @@ def extract_options(raw: str) -> list[dict[str, str]]:
     if len(heads) < 2:
         return []
     out: list[dict[str, str]] = []
-    for h in heads[:8]:
+    for h in heads[:16]:
         h = h.strip()
         if not h:
             continue

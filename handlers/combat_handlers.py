@@ -9,6 +9,7 @@ from ..core import EquipmentManager, PillManager
 from .utils import player_required, set_event_flag
 from ..models import Player
 from ..models_extended import UserStatus
+from ..utils.user_ref import resolve_user_id
 
 DUEL_COOLDOWN = 300
 SPAR_COOLDOWN = 60
@@ -210,10 +211,11 @@ class CombatHandlers:
         if valid_at_ids: return valid_at_ids[-1]
         if arg:
             cleaned = arg.strip().lstrip("@").strip()
-            # 仅当参数整体为纯数字时才作为ID（fullmatch），
-            # 不再扫描整条消息里的任意长数字，避免命中金额/时间戳等无关数字。
-            if re.fullmatch(r"\d+", cleaned) and cleaned != sender_id and cleaned != self_id:
-                return cleaned
+            # 兼容纯数字 QQ、web_<账号> 与道号；不再扫描整条消息里的任意长数字，
+            # 避免命中金额/时间戳等无关数字。
+            resolved = await resolve_user_id(self.db, cleaned)
+            if resolved and resolved != sender_id and resolved != self_id:
+                return resolved
 
         return None
 

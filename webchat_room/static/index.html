@@ -126,8 +126,19 @@
     </div>
     <div class="sheet-hint" id="sheetHint"></div>
     <div class="sheet-acts" id="sheetActs" hidden></div>
+    <div class="sheet-chosen" id="sheetChosen" hidden></div>
+    <div class="sheet-picks" id="sheetPicks" hidden>
+      <div class="picks-head">
+        <span id="sheetPickLabel">可选内容</span>
+        <span class="picks-count" id="sheetPickCount"></span>
+      </div>
+      <input id="sheetFilter" class="picks-filter" autocomplete="off" placeholder="筛选（输入名称关键字）">
+      <div class="picks-list" id="sheetOptList"></div>
+      <button class="picks-more" id="sheetMore" hidden>展开全部</button>
+    </div>
     <input id="sheetInput" autocomplete="off" enterkeyhint="done">
     <div class="sheet-foot">
+      <button class="btn-ghost" id="sheetSkip" hidden>跳过</button>
       <button class="btn-ghost" id="sheetExample" hidden>用示例</button>
       <button class="btn-primary" id="sheetOk">发 送</button>
     </div>
