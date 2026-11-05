@@ -87,5 +87,70 @@ class TestCardSidecarEntries(unittest.TestCase):
         self.assertEqual([e["name"] for e in card["sections"][0]["entries"]], ["无极骨"])
 
 
+class TestPavilionItemPromotion(unittest.TestCase):
+    """百宝阁按品阶分区，单区常常只有 1~2 件，不能因为件数少就退回纯文本。"""
+
+    def setUp(self):
+        self.mod = _load("card_sidecar_promo", "webchat_room/card_sidecar.py")
+
+    def _promote(self, name, lines):
+        section = {"name": name, "rows": [], "lines": list(lines)}
+        self.mod._promote_lines_to_items(section)
+        return section
+
+    HUANG = [
+        "皇品·噬血手套[火] - 369,413灵石 · 库存1",
+        "品级: 皇品",
+        "五行: 火",
+        "描述: 攻击时吸取 8% 伤害转化为自身气血。",
+        "属性: 境界基础物伤+6.0%、境界基础法伤+6.0%",
+        "同属性加法叠加；每落后3级效率×80%，最低20%",
+        "部位: 手套 · 适用境界: 元婴期初期-元婴期中期（体修：钢筋境初期-钢筋境中期）",
+        "龙虎丹 - 292,075灵石 · 库存1",
+        "品级: 皇品",
+        "描述: 皇品修为丹药，龙虎交汇修为大进",
+        "效果: 立即获得修为：+220000",
+    ]
+
+    def test_two_items_are_promoted(self):
+        """两件商品的分区过去卡在「条目数 >= 3」的门槛上，整段平铺成纯文本。"""
+        section = self._promote("皇品区", self.HUANG)
+        self.assertEqual(len(section["items"]), 2)
+        self.assertEqual(section["lines"], [])
+
+    def test_single_item_is_promoted(self):
+        section = self._promote("皇品区", self.HUANG[:7])
+        self.assertEqual(len(section["items"]), 1)
+        self.assertEqual(section["items"][0]["title"], "噬血手套[火]")
+        self.assertIn(["五行", "火"], section["items"][0]["rows"])
+
+    def test_rank_prefix_and_rank_row_are_deduped(self):
+        """分区名已写品阶，标题前缀与「品级」行不再重复；原名留在 name 里。"""
+        section = self._promote("皇品区", self.HUANG)
+        first = section["items"][0]
+        self.assertEqual(first["title"], "噬血手套[火]")
+        self.assertEqual(first["name"], "皇品·噬血手套[火]")
+        self.assertNotIn(["品级", "皇品"], first["rows"])
+        # 不带前缀的条目保持原名，不凭空造 name
+        self.assertNotIn("name", section["items"][1])
+
+    def test_section_without_rank_keeps_row(self):
+        section = self._promote("在售清单", self.HUANG)
+        self.assertEqual(section["items"][0]["title"], "皇品·噬血手套[火]")
+        self.assertIn(["品级", "皇品"], section["items"][0]["rows"])
+
+    def test_plain_section_is_not_promoted(self):
+        """普通分区里的数字不能被当成商品标题。"""
+        section = self._promote("境界", [
+            "等级 1 - 10",
+            "修为 100/500",
+            "灵石 1,200,000",
+            "说明: 每提升一级增加少量属性",
+        ])
+        self.assertNotIn("items", section)
+        self.assertEqual(len(section["lines"]), 4)
+
+
+
 if __name__ == "__main__":
     unittest.main()
