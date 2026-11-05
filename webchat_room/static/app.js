@@ -644,16 +644,19 @@
     if (S.ws && S.ws.readyState === 1) S.ws.send(JSON.stringify({ action: "online" }));
   }
 
-  /** 在线名单兼容两种格式：纯昵称数组（旧） / 带头像的对象数组 */
+  /** 成员名单兼容两种格式：纯昵称数组（旧） / 带 online 标记的对象数组 */
   function normalizeOnline(list) {
     return (list || [])
       .map((p) =>
         typeof p === "string"
-          ? { username: "", nick: p, avatar: "" }
+          ? { username: "", nick: p, avatar: "", online: true, seen: 0 }
           : {
               username: String(p.username || ""),
               nick: String(p.nick || p.username || ""),
               avatar: String(p.avatar || ""),
+              // 老服务端没有 online 字段，一律当在线
+              online: p.online !== false,
+              seen: Number(p.seen || 0),
             }
       )
       .filter((p) => p.nick);
@@ -661,7 +664,11 @@
 
   function setOnline(list) {
     S.online = normalizeOnline(list);
-    $("onlineTag").textContent = `在线 ${S.online.length}`;
+    const total = S.online.length;
+    const on = S.online.filter((p) => p.online).length;
+    // 有离线成员时显示「在线 3/12」，全员在线时保持原来的「在线 3」
+    $("onlineTag").textContent =
+      total > on ? `在线 ${on}/${total}` : `在线 ${on}`;
     if (!$("onlineMask").hidden) renderOnline();
   }
 
@@ -671,29 +678,32 @@
 
   function renderOnline() {
     const box = $("onlineList");
-    $("onlineCount").textContent = String(S.online.length);
-    if (!S.online.length) {
-      box.innerHTML = `<div class="online-empty">此刻只有你，独自修行中</div>`;
+    const total = S.online.length;
+    const online = S.online.filter((p) => p.online);
+    const offline = S.online.filter((p) => !p.online);
+    $("onlineCount").textContent = `${online.length}/${total}`;
+    if (!total) {
+      box.innerHTML = `<div class="online-empty">还没有人来过这间屋子</div>`;
       return;
     }
-    // 自己排最前，其余按昵称
-    const rows = [...S.online].sort((a, b) => {
-      const d = (isMe(b) ? 1 : 0) - (isMe(a) ? 1 : 0);
-      return d || a.nick.localeCompare(b.nick, "zh-Hans-CN");
-    });
-    box.innerHTML = rows
-      .map(
-        (p) =>
-          `<div class="online-row">` +
-          avatarHtml(p.nick, p.avatar, "online-avatar") +
-          `<div class="online-info">` +
-          `<div class="online-nick">${esc(p.nick)}${isMe(p) ? '<span class="online-me">我</span>' : ""}</div>` +
-          `<div class="online-user">@${esc(p.username || p.nick)}</div>` +
-          `</div>` +
-          `<span class="online-dot"></span>` +
-          `</div>`
-      )
-      .join("");
+    // 自己排最前，其余维持服务端顺序（最近进过房间的在前）
+    const sortMe = (list) =>
+      [...list].sort((a, b) => (isMe(b) ? 1 : 0) - (isMe(a) ? 1 : 0));
+    const rowHtml = (p) =>
+      `<div class="online-row${p.online ? "" : " off"}">` +
+      avatarHtml(p.nick, p.avatar, "online-avatar") +
+      `<div class="online-info">` +
+      `<div class="online-nick">${esc(p.nick)}${isMe(p) ? '<span class="online-me">我</span>' : ""}</div>` +
+      `<div class="online-user">@${esc(p.username || p.nick)}</div>` +
+      `</div>` +
+      `<span class="online-dot${p.online ? "" : " off"}"></span>` +
+      `</div>`;
+    const groupHtml = (label, list) =>
+      list.length
+        ? `<div class="online-group">${label} ${list.length}</div>` +
+          sortMe(list).map(rowHtml).join("")
+        : "";
+    box.innerHTML = groupHtml("在线", online) + groupHtml("离线", offline);
   }
 
   function openOnline() {
@@ -1407,7 +1417,9 @@
     const lines = sec.lines || [];
     const bulletLines = lines.filter((l) => /^[·•]\s*\S/.test(l));
     // 以 · 开头的行多为「导航/选项」，带指令的直接做成可点条目
+    let bulletsRendered = false;
     if (bulletLines.length && bulletLines.length >= lines.length * 0.6) {
+      bulletsRendered = true;
       const list = document.createElement("div");
       list.className = "bullet-list";
       bulletLines.forEach((ln) => {
@@ -1422,7 +1434,8 @@
       box.appendChild(list);
     }
     lines
-      .filter((l) => !bulletLines.includes(l))
+      // 只有真的渲染成条目列表时才跳过这些行，否则「· 风声标题」会被整行吞掉
+      .filter((l) => !(bulletsRendered && bulletLines.includes(l)))
       .forEach((ln) => {
         // 「指令：/行情 <代码>　/买入股 <代码> <手>」这类模板行拆成可点按钮
         const tmpl = parseTmplLine(ln);
@@ -1431,7 +1444,10 @@
           return;
         }
         const d = document.createElement("div");
-        d.className = "card-line";
+        const isBullet = /^[·•]\s*\S/.test(ln);
+        // 行首全角缩进＝上一条的补充说明（插件里只有风声这类正文这么写）
+        const isDetail = !isBullet && /^\u3000+\S/.test(ln);
+        d.className = "card-line" + (isBullet ? " bullet" : "") + (isDetail ? " detail" : "");
         d.innerHTML = valueHtml(ln);
         box.appendChild(d);
       });

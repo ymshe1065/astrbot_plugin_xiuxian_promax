@@ -72,13 +72,27 @@ def _info(username, nick):
     }
 
 
+def _fresh_db():
+    """重建一个干净账号库。
+
+    Windows 上没关闭的 sqlite 连接会一直占着文件，直接 unlink 会抛
+    PermissionError（WinError 32），所以先 close 再删。
+    """
+    if accounts._conn is not None:
+        try:
+            accounts._conn.close()
+        except Exception:
+            pass
+        accounts._conn = None
+    db_path = accounts.STORE_DIR / "accounts.db"
+    if db_path.exists():
+        db_path.unlink()
+    accounts.init()
+
+
 class SettingsTest(unittest.TestCase):
     def setUp(self):
-        accounts._conn = None
-        db_path = accounts.STORE_DIR / "accounts.db"
-        if db_path.exists():
-            db_path.unlink()
-        accounts.init()
+        _fresh_db()
         accounts.register("alice", "secret1", "阿狸")
 
     def test_defaults(self):
@@ -105,11 +119,7 @@ class SettingsTest(unittest.TestCase):
 
 class NoticeStoreTest(unittest.TestCase):
     def setUp(self):
-        accounts._conn = None
-        db_path = accounts.STORE_DIR / "accounts.db"
-        if db_path.exists():
-            db_path.unlink()
-        accounts.init()
+        _fresh_db()
         accounts.register("bob", "secret1", "小博")
 
     def test_notice_lifecycle(self):
@@ -135,11 +145,7 @@ class NoticeStoreTest(unittest.TestCase):
 
 class AudienceTest(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        accounts._conn = None
-        db_path = accounts.STORE_DIR / "accounts.db"
-        if db_path.exists():
-            db_path.unlink()
-        accounts.init()
+        _fresh_db()
         accounts.register("alice", "secret1", "阿狸")
         accounts.register("bob", "secret1", "小博")
 
@@ -229,11 +235,7 @@ class AudienceTest(unittest.IsolatedAsyncioTestCase):
 
 class NotifyPlayerTest(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        accounts._conn = None
-        db_path = accounts.STORE_DIR / "accounts.db"
-        if db_path.exists():
-            db_path.unlink()
-        accounts.init()
+        _fresh_db()
         accounts.register("alice", "secret1", "阿狸")
         accounts.register("bob", "secret1", "小博")
         self.alice = FakeWS()

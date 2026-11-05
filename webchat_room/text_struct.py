@@ -193,10 +193,12 @@ def parse_text(raw: str) -> dict[str, Any] | None:
             kv_count += len(pairs)
             continue
 
+        # 保留行首缩进（「　正文」是上一行的补充说明，缩进本身有语义）
+        body = line.rstrip()
         if cur_rec is not None:
-            cur_rec.setdefault("lines", []).append(s)
+            cur_rec.setdefault("lines", []).append(body)
         else:
-            ensure_section()["lines"].append(s)
+            ensure_section()["lines"].append(body)
 
     # 丢掉全空的分区
     sections = [s for s in sections if s["rows"] or s["lines"]]

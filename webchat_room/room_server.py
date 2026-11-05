@@ -121,14 +121,59 @@ def online_detail(room_id: str) -> list[dict[str, Any]]:
     return sorted(seen.values(), key=lambda p: p["nick"])
 
 
+def room_members(room_id: str) -> list[dict[str, Any]]:
+    """房间成员名单：所有进过房间的账号，带在线/离线标记。
+
+    在线的人排前面，同段内按最近进过房间的时间倒序。断线不删人，
+    只是标记为离线——这样列表就是「进过房间的人」而不是「此刻在线的人」。
+    """
+    conns = _rooms.get(room_id) or {}
+    live: dict[str, dict[str, Any]] = {}
+    for info in conns.values():
+        username = str(info.get("username") or "")
+        if username and username not in live:
+            live[username] = info
+
+    members: list[dict[str, Any]] = []
+    listed: set[str] = set()
+    for m in accounts_store.list_room_members():
+        username = m["username"]
+        listed.add(username)
+        info = live.get(username) or {}
+        members.append(
+            {
+                "username": username,
+                "nick": info.get("player_name") or m["nick"] or username,
+                "avatar": info.get("avatar") or m["avatar"] or "",
+                "online": bool(info),
+                "seen": int(m.get("seen") or 0),
+            }
+        )
+    # 在线但成员表里还没有的（老库刚补列、或写库失败），也要出现在名单里
+    for username, info in live.items():
+        if username in listed:
+            continue
+        members.append(
+            {
+                "username": username,
+                "nick": info.get("player_name") or username,
+                "avatar": info.get("avatar") or "",
+                "online": True,
+                "seen": 0,
+            }
+        )
+    members.sort(key=lambda p: (0 if p["online"] else 1, -int(p.get("seen") or 0)))
+    return members
+
+
 async def broadcast_presence(room_id: str) -> None:
-    """在线名单变化时推给房间所有人，前端据此刷新列表和计数。"""
+    """成员名单变化时推给房间所有人，前端据此刷新列表和计数。"""
     await broadcast(
         room_id,
         {
             "type": "presence",
             "room": room_id,
-            "players": online_detail(room_id),
+            "players": room_members(room_id),
             "ts": int(time.time()),
         },
     )
@@ -1241,11 +1286,9 @@ async def _ws_handler(request: web.Request) -> web.WebSocketResponse:
         "username": user["username"],
         "avatar": user.get("avatar", "") or "",
     }
+    # 记一笔「来过房间」，离线后仍留在成员名单里
+    accounts_store.touch_room(user["username"])
 
-    await broadcast(
-        room_id,
-        {"type": "sys", "text": f"{player_name} 进入了房间", "ts": int(time.time())},
-    )
     await broadcast_presence(room_id)
     await ws.send_json(
         {
@@ -1255,7 +1298,7 @@ async def _ws_handler(request: web.Request) -> web.WebSocketResponse:
             "nick": player_name,
             "username": user["username"],
             "avatar": user.get("avatar", "") or "",
-            "online": online_detail(room_id),
+            "online": room_members(room_id),
             "prefetch": commands_catalog.PANEL_PREFETCH,
             "settings": accounts_store.get_settings(user["username"]),
             "unread": accounts_store.count_unread(user["username"]),
@@ -1273,10 +1316,7 @@ async def _ws_handler(request: web.Request) -> web.WebSocketResponse:
         info = conns.get(ws)
         _drop(room_id, ws)
         if info:
-            await broadcast(
-                room_id,
-                {"type": "sys", "text": f"{info['player_name']} 离开了房间", "ts": int(time.time())},
-            )
+            # 离开不发系统提示，只刷新成员名单（人变成离线）
             await broadcast_presence(room_id)
             logger.info(f"[webroom] {info['player_name']} 离开 {room_id}")
     return ws
@@ -1298,7 +1338,7 @@ async def _handle_client_message(room_id: str, ws: web.WebSocketResponse, raw: s
         return
     if action == "online":
         await send_to_ws(
-            ws, {"type": "presence", "players": online_detail(room_id)}
+            ws, {"type": "presence", "players": room_members(room_id)}
         )
         return
     if action == "recall":

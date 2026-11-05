@@ -96,7 +96,8 @@ def init() -> None:
                 avatar     TEXT NOT NULL DEFAULT '',
                 qq         TEXT NOT NULL DEFAULT '',
                 player_key TEXT NOT NULL DEFAULT '',
-                settings   TEXT NOT NULL DEFAULT '{}'
+                settings   TEXT NOT NULL DEFAULT '{}',
+                room_seen  INTEGER NOT NULL DEFAULT 0
             )
             """
         )
@@ -110,6 +111,9 @@ def init() -> None:
             _conn.execute("ALTER TABLE users ADD COLUMN player_key TEXT NOT NULL DEFAULT ''")
         if "settings" not in cols:
             _conn.execute("ALTER TABLE users ADD COLUMN settings TEXT NOT NULL DEFAULT '{}'")
+        # 进过房间的时间：0 = 从没进过，房间成员列表据此区分在线/离线
+        if "room_seen" not in cols:
+            _conn.execute("ALTER TABLE users ADD COLUMN room_seen INTEGER NOT NULL DEFAULT 0")
         # 一个 QQ 号只能被一个网页账号绑定（空串不参与唯一约束）
         _conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_qq "
@@ -318,6 +322,36 @@ def set_password(username: str, old: str, new: str) -> tuple[bool, str]:
 def count() -> int:
     row = _db().execute("SELECT COUNT(*) AS c FROM users").fetchone()
     return int(row["c"]) if row else 0
+
+
+# ---------- 房间成员（进过房间的账号） ----------
+
+
+def touch_room(username: str) -> None:
+    """记录账号最近一次进入房间的时间；进过房间的人才会出现在成员列表里。"""
+    name = _norm(username)
+    if not name:
+        return
+    conn = _db()
+    conn.execute("UPDATE users SET room_seen = ? WHERE username = ?", (int(time.time()), name))
+    conn.commit()
+
+
+def list_room_members() -> list[dict[str, Any]]:
+    """所有进过房间的账号，最近进过的排前面。"""
+    rows = _db().execute(
+        "SELECT username, nick, avatar, room_seen FROM users "
+        "WHERE room_seen > 0 ORDER BY room_seen DESC, nick ASC"
+    ).fetchall()
+    return [
+        {
+            "username": row["username"],
+            "nick": row["nick"] or row["username"],
+            "avatar": row["avatar"] or "",
+            "seen": int(row["room_seen"] or 0),
+        }
+        for row in rows
+    ]
 
 
 # ---------- QQ 存档绑定（单向：网页账号 -> QQ 号存档） ----------
