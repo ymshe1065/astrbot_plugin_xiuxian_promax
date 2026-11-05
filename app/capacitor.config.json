@@ -1,0 +1,27 @@
+{
+  "appId": "com.feiyuxiuxian.app",
+  "appName": "肥鱼修仙",
+  "webDir": "www",
+  "server": {
+    "url": "http://8.130.86.71:8888/",
+    "cleartext": true,
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": true
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 2000,
+      "backgroundColor": "#eef4ff",
+      "showSpinner": false,
+      "androidScaleType": "CENTER_CROP",
+      "splashFullScreen": true,
+      "splashImmersive": true
+    },
+    "App": {
+      "appId": "com.feiyuxiuxian.app",
+      "appName": "肥鱼修仙"
+    }
+  }
+}

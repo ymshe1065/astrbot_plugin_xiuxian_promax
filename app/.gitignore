@@ -1,0 +1,23 @@
+# Capacitor / Node
+node_modules/
+dist/
+*.log
+
+# Android 构建产物
+android/.gradle/
+android/app/build/
+android/build/
+android/local.properties
+android/captures/
+android/.idea/
+*.iml
+
+# iOS 构建产物
+ios/App/build/
+ios/App/Pods/
+ios/App/App.xcworkspace/
+ios/App/App.xcodeproj/project.xcworkspace/xcuserdata/
+ios/App/App.xcodeproj/xcuserdata/
+*.xcuserstate
+
+# 临时生成脚本产物（图标源是可复现的）
