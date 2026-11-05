@@ -111,6 +111,24 @@ class TestItemDisplay(unittest.TestCase):
         self.assertEqual(self.dis.item_tag("万古铁", None), "")
         self.assertEqual(self.dis.item_tag("", self.cm), "")
 
+    # ===== 展示名回落成指令参数 =====
+
+    def test_strip_item_tag_from_display_label(self):
+        # 储物戒芯片点「详情」时传的是展示名，查询前必须去掉括号介绍
+        self.assertEqual(
+            self.dis.strip_item_tag("无极骨（材料·妖兽 | 玄品）"), "无极骨"
+        )
+        self.assertEqual(self.dis.strip_item_tag("筑基丹（丹药·突破 | 灵品）"), "筑基丹")
+        self.assertEqual(self.dis.strip_item_tag("某丹方（丹方）"), "某丹方")
+
+    def test_strip_item_tag_keeps_plain_name_and_quality_suffix(self):
+        self.assertEqual(self.dis.strip_item_tag("无极骨"), "无极骨")
+        self.assertEqual(
+            self.dis.strip_item_tag("幽冥袍（装备·甲胄 | 圣品）·极品"), "幽冥袍"
+        )
+        # 物品名自带括号但不是展示标签时不能误删
+        self.assertEqual(self.dis.strip_item_tag("空间石（绑定）"), "空间石（绑定）")
+
     # ===== 调用点 =====
 
     def test_storage_handler_label_merges_element(self):

@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, Optional
 
 from .item_rules import ItemRules
@@ -134,6 +135,20 @@ def item_label(item_name: str, config_manager: Any = None) -> str:
     return f"{item_name}{item_tag(item_name, config_manager)}"
 
 
+# 展示后缀：仅匹配 item_tag 生成的格式，避免误删物品名自带的括号
+_DISPLAY_TAG_RE = re.compile(
+    r"[（(](?:材料|丹药|丹方|符箓|装备|功法)(?:·[^（）()|]+)?(?:\s*\|[^（）()]+)?[）)]"
+    r"(?:·[^（）()·]+)?\s*$"
+)
+
+
+def strip_item_tag(label: str) -> str:
+    """把「无极骨（材料·妖兽 | 玄品）」还原成可查询的「无极骨」。"""
+    raw = str(label or "").strip()
+    stripped = _DISPLAY_TAG_RE.sub("", raw).strip()
+    return stripped or raw
+
+
 def equipment_label(instance: Dict[str, Any], config_manager: Any = None) -> str:
     """装备实例：名称（装备·部位 | 品阶）·品质。
 
@@ -152,5 +167,6 @@ __all__ = [
     "item_meta",
     "item_tag",
     "item_label",
+    "strip_item_tag",
     "equipment_label",
 ]

@@ -10,6 +10,7 @@ from astrbot.api import AstrBotConfig, logger
 from ..data import DataBase
 from ..data.data_manager import _find_shop_entry_index
 from ..core import ShopManager, EquipmentManager, PillManager, StorageRingManager, ItemRules
+from ..core.item_display import strip_item_tag
 from ..models import Player
 from ..config_manager import ConfigManager
 from ..rank_rules import normalize_rank
@@ -858,7 +859,7 @@ class ShopHandler:
             )
             return
 
-        query = item_name.strip()
+        query = strip_item_tag(item_name)
         query_base, explicit_recipe = self.shop_manager.split_talisman_query(query)
         if explicit_recipe:
             recipe = (getattr(self.config_manager, "talisman_recipes_data", {}) or {}).get(query_base)

@@ -17,6 +17,7 @@ import re
 import sqlite3
 import time
 import uuid
+from collections import OrderedDict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -65,6 +66,11 @@ _adapter: WebroomAdapter | None = None
 _plugin: "XiuXianPlugin | None" = None
 _runner: web.AppRunner | None = None
 _site: web.TCPSite | None = None
+
+# 最近发出的公屏消息：撤回时校验发送者，避免撤回别人的消息。
+# 只保存在内存里，重启后历史消息不能再撤回（与聊天记录不落库的策略一致）。
+_RECENT_MSG_LIMIT = 800
+_recent_msgs: "OrderedDict[str, dict[str, Any]]" = OrderedDict()
 
 
 # ---------- 图片落盘 ----------
@@ -152,6 +158,7 @@ async def start(host: str, port: int) -> None:
     app.router.add_get("/", _index)
     app.router.add_get("/api/commands", _api_commands)
     app.router.add_get("/api/arg_options", _api_arg_options)
+    app.router.add_get("/api/equip_context", _api_equip_context)
     app.router.add_get("/api/proxy", _api_proxy)
     app.router.add_post("/api/proxy/toggle", _api_proxy_toggle)
     app.router.add_get("/api/health", _api_health)
@@ -186,6 +193,7 @@ async def stop() -> None:
         for ws in list(conns):
             await ws.close(code=1001, message=b"server shutdown")
     _rooms.clear()
+    _recent_msgs.clear()
     if _runner is not None:
         await _runner.cleanup()
     _runner = None
@@ -293,6 +301,59 @@ def _drop(room_id: str, ws: web.WebSocketResponse) -> None:
             _rooms.pop(room_id, None)
 
 
+# ---------- 撤回 ----------
+
+
+def _remember_msg(
+    room_id: str, msg_id: str, info: dict[str, str], text: str, ts: int
+) -> None:
+    """记录最近消息的发送者，供撤回鉴权。"""
+    _recent_msgs[msg_id] = {
+        "room": room_id,
+        "username": info.get("username", ""),
+        "nick": info.get("player_name", ""),
+        "text": text,
+        "ts": ts,
+    }
+    while len(_recent_msgs) > _RECENT_MSG_LIMIT:
+        _recent_msgs.popitem(last=False)
+
+
+async def _handle_recall(
+    room_id: str, ws: web.WebSocketResponse, data: dict[str, Any]
+) -> None:
+    info = _rooms.get(room_id, {}).get(ws)
+    if info is None:
+        await send_to_ws(ws, {"type": "recall_fail", "text": "尚未完成连接握手"})
+        return
+
+    msg_id = str(data.get("msg_id") or "").strip()[:64]
+    record = _recent_msgs.get(msg_id) if msg_id else None
+    if not record or record.get("room") != room_id:
+        await send_to_ws(
+            ws, {"type": "recall_fail", "msg_id": msg_id, "text": "消息已过期，无法撤回"}
+        )
+        return
+    if record.get("username") != info.get("username"):
+        await send_to_ws(
+            ws, {"type": "recall_fail", "msg_id": msg_id, "text": "只能撤回自己的消息"}
+        )
+        return
+
+    _recent_msgs.pop(msg_id, None)
+    await broadcast(
+        room_id,
+        {
+            "type": "recall",
+            "room": room_id,
+            "msg_id": msg_id,
+            "username": record.get("username", ""),
+            "nick": record.get("nick", ""),
+            "ts": int(time.time()),
+        },
+    )
+
+
 # ---------- HTTP 资源 ----------
 
 
@@ -355,6 +416,152 @@ async def _api_arg_options(request: web.Request) -> web.Response:
         logger.exception("[webroom] 读取参数候选失败")
         return web.json_response({"ok": False, "error": f"候选读取失败：{exc}"}, status=500)
     return web.json_response(data)
+
+
+async def _api_equip_context(request: web.Request) -> web.Response:
+    """物品快捷菜单的装备上下文：是否可装备、槽位占用与需要怎么替换。"""
+    user = _token_user(request)
+    if user is None:
+        return web.json_response({"ok": False, "error": "登录已过期"}, status=401)
+    if _plugin is None:
+        return web.json_response({"ok": False, "error": "插件尚未就绪"}, status=503)
+
+    item_name = str(request.query.get("item", "") or "").strip()
+    if item_name:
+        try:
+            from ..core.item_display import strip_item_tag
+
+            item_name = strip_item_tag(item_name)
+        except Exception:
+            pass
+    if not item_name:
+        return web.json_response({"ok": False, "error": "缺少物品名称"}, status=400)
+
+    user_id = accounts_store.player_key_of(user)
+    try:
+        player = await _plugin.db.get_player_by_id(user_id)
+    except Exception as exc:
+        logger.exception("[webroom] 读取装备上下文失败")
+        return web.json_response({"ok": False, "error": f"读取失败：{exc}"}, status=500)
+    if player is None:
+        return web.json_response({"ok": False, "error": "尚未创建角色，请先 /我要修仙"})
+
+    try:
+        from ..core.item_rules import ItemRules
+
+        cm = _plugin.config_manager
+        config = (
+            cm.items_data.get(item_name)
+            or cm.weapons_data.get(item_name)
+            or (getattr(cm, "techniques_data", {}) or {}).get(item_name)
+        )
+        if not isinstance(config, dict):
+            return web.json_response(
+                {"ok": True, "item": item_name, "equippable": False, "type": "", "needs_choice": False,
+                 "choices": [], "already_equipped": False, "hint": "未找到该物品的配置"}
+            )
+
+        item_type = ItemRules.normalize_equipment_type(config)
+        if item_type not in ItemRules.EQUIPPABLE_TYPES:
+            return web.json_response(
+                {"ok": True, "item": item_name, "equippable": False, "type": item_type, "needs_choice": False,
+                 "choices": [], "already_equipped": False, "hint": "该物品不是可装备类型"}
+            )
+
+        result: dict[str, Any] = {
+            "ok": True,
+            "item": item_name,
+            "equippable": True,
+            "type": item_type,
+            "needs_choice": False,
+            "choices": [],
+            "already_equipped": False,
+            "hint": "",
+        }
+        manager = _plugin.equipment_handler.equipment_manager
+        slots = manager.get_gear_slots(player)
+
+        def _choice(value: str, label: str, desc: str = "") -> dict[str, str]:
+            return {"value": value, "label": label, "desc": desc}
+
+        if item_type in ItemRules.GEAR_TYPES:
+            if item_type == "ring":
+                ring_slots = [
+                    ("戒指1", "ring1", slots.get("ring1", ("", None))[0]),
+                    ("戒指2", "ring2", slots.get("ring2", ("", None))[0]),
+                ]
+                same = [label for label, _key, name in ring_slots if name == item_name]
+                if same:
+                    result["already_equipped"] = True
+                    result["hint"] = f"【{item_name}】已装备在{same[0]}"
+                    return web.json_response(result)
+                occupied = [(label, name) for label, _key, name in ring_slots if name]
+                if len(occupied) >= 2:
+                    result["needs_choice"] = True
+                    result["choices"] = [
+                        _choice(label, f"{label}：替换【{name}】", "两枚戒指都已占用")
+                        for label, name in occupied
+                    ]
+                    result["hint"] = "两枚戒指均已装备，请选择要替换的槽位"
+                else:
+                    free = next(label for label, _key, name in ring_slots if not name)
+                    result["hint"] = f"将装备到{free}（有空闲槽位，直接装备）"
+                return web.json_response(result)
+
+            slot = ItemRules.SLOT_BY_TYPE.get(item_type, "")
+            slot = "armor" if slot == "body" else slot
+            current_name = (slots.get(slot, ("", None))[0] if slot else "") or ""
+            if slot and current_name == item_name:
+                result["already_equipped"] = True
+                result["hint"] = f"【{item_name}】已装备在{ItemRules.SLOT_LABELS.get(slot, slot)}"
+                return web.json_response(result)
+            if current_name:
+                slot_label = ItemRules.SLOT_LABELS.get(slot, slot)
+                result["needs_choice"] = True
+                result["choices"] = [
+                    _choice(slot_label, f"{slot_label}：替换【{current_name}】", "该部位已有装备")
+                ]
+                result["hint"] = f"{slot_label}已装备【{current_name}】，确认后替换"
+            else:
+                result["hint"] = f"将装备到{ItemRules.SLOT_LABELS.get(slot, slot)}（槽位空闲）"
+            return web.json_response(result)
+
+        if item_type == "main_technique":
+            current = str(getattr(player, "main_technique", "") or "")
+            if current == item_name:
+                result["already_equipped"] = True
+                result["hint"] = f"【{item_name}】已是当前主修心法"
+            elif current:
+                result["needs_choice"] = True
+                result["choices"] = [
+                    _choice("", f"心法：替换【{current}】", "主修心法已有装备，确认后替换")
+                ]
+                result["hint"] = f"当前主修心法为【{current}】，确认后替换"
+            else:
+                result["hint"] = "将装备为主修心法"
+            return web.json_response(result)
+
+        if item_type == "technique":
+            techniques = [str(name) for name in player.get_techniques_list() if str(name)]
+            if item_name in techniques:
+                result["already_equipped"] = True
+                result["hint"] = f"【{item_name}】已装备（栏位 {techniques.index(item_name) + 1}）"
+                return web.json_response(result)
+            if len(techniques) >= 3:
+                result["needs_choice"] = True
+                result["choices"] = [
+                    _choice(str(index), f"栏位 {index}：替换【{name}】", "功法栏已满")
+                    for index, name in enumerate(techniques[:3], 1)
+                ]
+                result["hint"] = "功法栏已满（3/3），请选择要替换的栏位"
+            else:
+                result["hint"] = f"将装备到空余栏位（当前 {len(techniques)}/3）"
+            return web.json_response(result)
+    except Exception as exc:
+        logger.exception("[webroom] 解析装备上下文失败")
+        return web.json_response({"ok": False, "error": f"解析失败：{exc}"}, status=500)
+
+    return web.json_response(result)
 
 
 async def _api_proxy(request: web.Request) -> web.Response:
@@ -890,6 +1097,9 @@ async def _handle_client_message(room_id: str, ws: web.WebSocketResponse, raw: s
             ws, {"type": "presence", "players": online_detail(room_id)}
         )
         return
+    if action == "recall":
+        await _handle_recall(room_id, ws, data)
+        return
     if action not in ("msg", "cmd"):
         await send_to_ws(ws, {"type": "error", "text": f"未知 action: {action}"})
         return
@@ -912,15 +1122,19 @@ async def _handle_client_message(room_id: str, ws: web.WebSocketResponse, raw: s
     want_card = bool(data.get("card"))
 
     if not private:
-        # 公屏消息：广播给房间（含发送者自己）
+        # 公屏消息：广播给房间（含发送者自己），附带消息 id 供撤回
+        ts = int(time.time())
+        msg_id = uuid.uuid4().hex[:16]
+        _remember_msg(room_id, msg_id, info, text, ts)
         payload = {
             "type": "chat",
             "room": room_id,
+            "msg_id": msg_id,
             "from": info["player_name"],
             "username": info.get("username", ""),
             "avatar": info.get("avatar", ""),
             "text": text,
-            "ts": int(time.time()),
+            "ts": ts,
         }
         conns = _rooms.get(room_id, {})
         dead = []

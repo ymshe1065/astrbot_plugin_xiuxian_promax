@@ -37,6 +37,7 @@
     cmdCatalog: null,
     argSpec: null,           // 带参指令规格，来自 /api/commands
     unread: { status: 0, bag: 0 },
+    msgSeq: 0,               // 本地消息临时 id（指令回显等不上公屏的消息）
   };
 
   /* ================= 账号 ================= */
@@ -553,6 +554,41 @@
     return true;
   }
 
+  /** 撤回消息：公屏消息交给服务端广播，本地指令回显直接移除 */
+  function recallMessage(msg, edit) {
+    if (!msg || !msg.id) return;
+    const row = findMsgRow(msg.id);
+    if (row) row.dataset.recalled = "1";
+    if (edit) fillComposer(msg.text);
+    if (msg.local) {
+      removeChatMessage(msg.id);
+      addSys("你撤回了一条消息");
+      if (!edit) toast("已撤回");
+      return;
+    }
+    if (!S.ws || S.ws.readyState !== 1) {
+      if (row) delete row.dataset.recalled;
+      toast("尚未连接，无法撤回");
+      return;
+    }
+    S.ws.send(JSON.stringify({ action: "recall", msg_id: msg.id }));
+    if (!edit) toast("正在撤回…");
+  }
+
+  /** 把待编辑内容放回输入框，光标停在末尾 */
+  function fillComposer(text) {
+    const input = $("inMsg");
+    input.value = String(text ?? "");
+    input.dispatchEvent(new Event("input"));
+    input.focus();
+    try {
+      const end = input.value.length;
+      input.setSelectionRange(end, end);
+    } catch {
+      /* 部分浏览器不支持，忽略 */
+    }
+  }
+
   /**
    * 发指令并等待定向回复
    * @param {string} text 指令原文
@@ -575,7 +611,7 @@
       })
     );
     if (!opts.silent && !opts.panel) {
-      addChat(S.me, text, null, true, S.avatar);
+      addChat(S.me, text, null, true, S.avatar, { local: true });
     }
     // 兜底：20 秒未收到回复则丢弃等待态
     setTimeout(() => {
@@ -611,8 +647,15 @@
           m.text,
           m.ts,
           m.username ? m.username === S.username : m.from === S.me,
-          m.avatar || ""
+          m.avatar || "",
+          { id: m.msg_id || "" }
         );
+        break;
+      case "recall":
+        applyRecall(m);
+        break;
+      case "recall_fail":
+        addError(m.text || "撤回失败");
         break;
       case "bot":
         addBotMessage(m);
@@ -698,17 +741,75 @@
     scrollBottom(opts.force);
   }
 
-  function addChat(from, text, ts, isMe, avatar = "") {
+  function nextLocalMsgId() {
+    S.msgSeq += 1;
+    return `m${Date.now().toString(36)}${S.msgSeq}`;
+  }
+
+  function findMsgRow(id) {
+    if (!id) return null;
+    return Array.from($("msgs").querySelectorAll(".msg-row[data-msg-id]")).find(
+      (r) => r.dataset.msgId === id
+    ) || null;
+  }
+
+  /** 撤回广播：所有在线端同步移除气泡，并留一条系统提示 */
+  function applyRecall(m) {
+    const id = m && m.msg_id;
+    if (!id) return;
+    removeChatMessage(id);
+    const mine = !!m.username && m.username === S.username;
+    addSys(mine ? "你撤回了一条消息" : `${m.nick || m.from || "对方"} 撤回了一条消息`);
+  }
+
+  function removeChatMessage(id) {
+    const row = findMsgRow(id);
+    if (row) row.remove();
+    cacheDropMsg(id);
+  }
+
+  /**
+   * @param {object} meta 消息元信息：{ id, local, persist }
+   *   id      公屏消息用服务端 msg_id，本地回显则自动生成
+   *   local   仅本端可见（指令回显），撤回不需要通知服务端
+   *   persist 是否写入本地缓存（回放历史时传 false，避免重复入栈）
+   */
+  function addChat(from, text, ts, isMe, avatar = "", meta = {}) {
+    const id = meta.id || nextLocalMsgId();
     const row = document.createElement("div");
     row.className = "msg-row" + (isMe ? " right" : "");
+    row.dataset.msgId = id;
+    row.dataset.msgLocal = meta.local ? "1" : "";
     row.innerHTML =
       avatarHtml(from, avatar || (isMe ? S.avatar : "")) +
       `<div class="msg-col">` +
       `<div class="who">${esc(from)}<span class="time">${fmtTime(ts)}</span></div>` +
       `<div class="bubble">${escapeWithMarks(text)}</div>` +
       `</div>`;
+
+    if (isMe) {
+      const col = row.querySelector(".msg-col");
+      const more = document.createElement("button");
+      more.type = "button";
+      more.className = "msg-more";
+      more.title = "消息操作";
+      more.setAttribute("aria-label", "消息操作");
+      more.textContent = "⋯";
+      more.addEventListener("click", (e) => {
+        e.stopPropagation();
+        openMsgMenu(more, { id, text, local: !!meta.local });
+      });
+      col.appendChild(more);
+      row.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        openMsgMenu(row, { id, text, local: !!meta.local });
+      });
+    }
+
     appendNode(row);
-    cachePush({ t: "chat", from, text, ts, me: isMe, avatar });
+    if (meta.persist !== false) {
+      cachePush({ t: "chat", id, from, text, ts, me: isMe, avatar, local: !!meta.local });
+    }
   }
 
   function addSys(text) {
@@ -1117,11 +1218,24 @@
       const chip = document.createElement("button");
       chip.className = "chip";
       const m = String(cnt).match(/x?\s*(\d+)/i);
+      const total = m ? Number(m[1]) : 1;
       chip.innerHTML = `<span>${esc(name)}</span>` + (m ? `<span class="cnt">×${m[1]}</span>` : "");
-      chip.addEventListener("click", (e) => openItemMenu(name, e.currentTarget));
+      chip.addEventListener("click", (e) => openItemMenu(name, e.currentTarget, total));
       box.appendChild(chip);
     });
     return box;
+  }
+
+  /** 展示名「无极骨（材料·妖兽 | 玄品）」→ 指令参数「无极骨」 */
+  function bareItemName(label) {
+    const raw = String(label ?? "").trim();
+    const stripped = raw
+      .replace(
+        /[（(](?:材料|丹药|丹方|符箓|装备|功法)(?:·[^（）()|]+)?(?:\s*\|[^（）()]+)?[）)](?:·[^（）()·]+)?\s*$/,
+        ""
+      )
+      .trim();
+    return stripped || raw;
   }
 
   /** 装备槽位 */
@@ -1210,7 +1324,7 @@
     return box;
   }
 
-  /* ---- 物品操作菜单 ---- */
+  /* ---- 浮层操作菜单 ---- */
   let ctxMenu = null;
   function closeCtxMenu() {
     if (ctxMenu) {
@@ -1218,36 +1332,8 @@
       ctxMenu = null;
     }
   }
-  function openItemMenu(name, anchor) {
-    closeCtxMenu();
-    const menu = document.createElement("div");
-    menu.style.cssText =
-      "position:fixed;z-index:70;background:#fff;border:1px solid #e5dbcb;border-radius:10px;" +
-      "box-shadow:0 8px 24px rgba(60,45,25,.18);padding:5px;min-width:132px;font-size:13.5px";
-    const ops = [
-      ["装备", `/装备 ${name}`],
-      ["详情", `/物品信息 ${name}`],
-      ["回收", `/回收 ${name}`],
-      ["赠予", `/赠予 `, true],
-    ];
-    ops.forEach(([label, cmd, needArg]) => {
-      const b = document.createElement("button");
-      b.textContent = label;
-      b.style.cssText =
-        "display:block;width:100%;text-align:left;padding:8px 12px;border-radius:7px;color:#3a3128";
-      b.addEventListener("mouseenter", () => (b.style.background = "#f5efe4"));
-      b.addEventListener("mouseleave", () => (b.style.background = ""));
-      b.addEventListener("click", () => {
-        closeCtxMenu();
-        if (needArg) {
-          // 物品菜单点「赠予」：先选对象，选完自动把当前物品带进第二段
-          openSheet("赠予 物品", "选择赠予对象", "/赠予", "", {
-            seed: { index: 1, value: name },
-          });
-        } else dispatchCommand(cmd);
-      });
-      menu.appendChild(b);
-    });
+
+  function mountCtxMenu(menu, anchor) {
     document.body.appendChild(menu);
     const r = anchor.getBoundingClientRect();
     const top = Math.min(r.bottom + 6, window.innerHeight - menu.offsetHeight - 12);
@@ -1256,6 +1342,117 @@
     menu.style.left = `${Math.max(10, left)}px`;
     ctxMenu = menu;
     setTimeout(() => document.addEventListener("click", closeCtxMenu, { once: true }), 0);
+  }
+
+  function ctxMenuButton(label, onClick) {
+    const b = document.createElement("button");
+    b.textContent = label;
+    b.style.cssText =
+      "display:block;width:100%;text-align:left;padding:8px 12px;border-radius:7px;color:#3a3128";
+    b.addEventListener("mouseenter", () => (b.style.background = "#f5efe4"));
+    b.addEventListener("mouseleave", () => (b.style.background = ""));
+    b.addEventListener("click", () => {
+      closeCtxMenu();
+      onClick();
+    });
+    return b;
+  }
+
+  function newCtxMenu() {
+    closeCtxMenu();
+    const menu = document.createElement("div");
+    menu.style.cssText =
+      "position:fixed;z-index:70;background:#fff;border:1px solid #e5dbcb;border-radius:10px;" +
+      "box-shadow:0 8px 24px rgba(60,45,25,.18);padding:5px;min-width:132px;font-size:13.5px";
+    return menu;
+  }
+
+  /** 物品展示标签里的种类：装备 / 功法 / 其他 */
+  function itemMenuTag(label) {
+    const m = String(label || "").match(/[（(](装备|功法)(?:·([^（）()|]+))?/);
+    if (!m) return { kind: "", sub: "" };
+    return { kind: m[1], sub: String(m[2] || "").trim() };
+  }
+
+  function openItemMenu(name, anchor, total = 1) {
+    const rawLabel = String(name || "").trim();
+    name = bareItemName(rawLabel);
+    const tag = itemMenuTag(rawLabel);
+    const equippable = tag.kind === "装备" || tag.kind === "功法";
+    const isGear = tag.kind === "装备";
+    const count = Math.max(1, Number(total) || 1);
+    const menu = newCtxMenu();
+    const ops = [];
+    if (equippable) ops.push(["装备", () => quickEquip(name)]);
+    ops.push(["详情", () => dispatchCommand(`/物品信息 ${name}`)]);
+    ops.push(["回收", () => recycleItem(name, count)]);
+    ops.push(["赠予", () => giftItem(name, count, isGear)]);
+    ops.forEach(([label, onClick]) => menu.appendChild(ctxMenuButton(label, onClick)));
+    mountCtxMenu(menu, anchor);
+  }
+
+  /** 回收：弹窗选择数量，默认当前全部数量 */
+  function recycleItem(name, total) {
+    const count = String(Math.max(1, Number(total) || 1));
+    openSheet("回收物品", "确认要回收的数量", "/回收", name, {
+      defaults: { count, 1: count },
+    });
+  }
+
+  /** 赠予：先选对象 → 物品已带入 → 数量默认全部（装备实例默认 1） */
+  function giftItem(name, total, isGear) {
+    const count = String(isGear ? 1 : Math.max(1, Number(total) || 1));
+    openSheet("赠予 物品", "选择赠予对象", "/赠予", "", {
+      seed: { index: 1, value: name },
+      defaults: { count, 2: count },
+    });
+  }
+
+  /** 装备：先查槽位占用，必要时弹层选择替换 */
+  async function quickEquip(name) {
+    let data = null;
+    try {
+      const r = await fetch(`/api/equip_context?item=${encodeURIComponent(name)}`, {
+        headers: { Authorization: "Bearer " + S.token },
+      });
+      data = await r.json().catch(() => null);
+    } catch {
+      data = null;
+    }
+    if (!data || data.ok === false) {
+      toast((data && data.error) || "装备信息读取失败");
+      return;
+    }
+    if (!data.equippable) {
+      toast(data.hint || "该物品不可装备");
+      return;
+    }
+    if (data.already_equipped) {
+      toast(data.hint || "该物品已装备");
+      return;
+    }
+    const choices = Array.isArray(data.choices) ? data.choices : [];
+    if (data.needs_choice && choices.length) {
+      openChoiceSheet("装备替换", data.hint || "请选择要替换的栏位", choices, (value) => {
+        dispatchCommand(`/装备 ${name} ${value}`.trim());
+      });
+      return;
+    }
+    if (data.hint) toast(data.hint);
+    dispatchCommand(`/装备 ${name}`);
+  }
+
+  /** 复用参数弹层展示自定义候选项 */
+  function openChoiceSheet(title, hint, choices, onPick) {
+    openSheet(title, hint, "/装备", "", { choices, onPick });
+  }
+
+  /** 自己消息的操作菜单：撤回 / 撤回后带回输入框重新编辑 */
+  function openMsgMenu(anchor, msg) {
+    const menu = newCtxMenu();
+    menu.appendChild(ctxMenuButton("撤回", () => recallMessage(msg, false)));
+    menu.appendChild(ctxMenuButton("重新编辑", () => recallMessage(msg, true)));
+    mountCtxMenu(menu, anchor);
   }
 
   /* ================= 指令分发 ================= */
@@ -1634,7 +1831,7 @@
   }
 
   function openSheet(title, hint, cmd, preset = "", opts = {}) {
-    const { example = "", actions = [], seed = null } = opts || {};
+    const { example = "", actions = [], seed = null, defaults = {}, choices = [], onPick = null } = opts || {};
     const cmdText = normalizeCmd(cmd);
     const presetValues = String(preset || "").trim()
       ? String(preset).trim().split(/\s+/).filter(Boolean)
@@ -1650,6 +1847,9 @@
       example,
       actions,
       seed,
+      defaults,
+      choices,
+      onPick,
       expanded: false,
       filter: "",
     };
@@ -1694,6 +1894,20 @@
     }
 
     $("sheetMask").hidden = false;
+    if (choices.length) {
+      sheetCtx.data = {
+        index: 0,
+        total: 1,
+        field: { label: "选择" },
+        options: choices,
+        done: false,
+        message: hint || "",
+      };
+      renderSheetField(sheetCtx, sheetCtx.data);
+      $("sheetInput").style.display = "none";
+      $("sheetOk").textContent = "取 消";
+      return;
+    }
     loadSheetField();
   }
 
@@ -1777,14 +1991,39 @@
     box.hidden = false;
   }
 
+  /** 取当前字段的预填默认值 */
+  function sheetDefaultValue(ctx, data) {
+    const defaults = ctx.defaults || {};
+    const index = Number((data && data.index) || 0);
+    const key = (data && data.field && data.field.key) || "";
+    let value = defaults[key];
+    if (value === undefined) value = defaults[index];
+    if (value === undefined) value = defaults[String(index)];
+    return value === undefined || value === null || String(value) === "" ? "" : String(value);
+  }
+
+  /** 给手动输入字段预填默认值（如回收/赠予的数量） */
+  function applySheetDefault(ctx, data) {
+    const value = sheetDefaultValue(ctx, data);
+    if (value) $("sheetInput").value = value;
+  }
+
   function renderSheetField(ctx, data) {
     renderChosen(ctx);
     const field = data.field || {};
     const options = data.options || [];
-    const label = field.label || data.hint || ctx.hint || "参数";
+    // 自定义候选项（如装备替换）不提供手动输入，选择即执行
+    if (ctx.onPick) {
+      renderCustomChoices(ctx, data);
+      return;
+    }
+    const defaultText = sheetDefaultValue(ctx, data);
+    let label = field.label || data.hint || ctx.hint || "参数";
+    if (defaultText && field.key === "count") label = `数量（默认 ${defaultText}，可修改）`;
     $("sheetHint").textContent = `第 ${data.index + 1} 步：${label}` + (data.message ? ` · ${data.message}` : "");
     $("sheetInput").placeholder = options.length ? `也可手动输入${label}` : label;
     $("sheetInput").style.display = "";
+    applySheetDefault(ctx, data);
     $("sheetSkip").hidden = !field.optional;
     // 全局示例只在第一段/纯手动指令出现，避免把「炼气丹 5」塞进数量字段
     const showExample = !options.length && !!ctx.example && Number(data.index || 0) === 0;
@@ -1803,6 +2042,19 @@
     picks.hidden = false;
     $("sheetPickLabel").textContent = label;
     drawSheetOptions(ctx);
+  }
+
+  function renderCustomChoices(ctx, data) {
+    const options = data.options || [];
+    $("sheetHint").textContent = data.message || ctx.hint || "请选择";
+    $("sheetPickLabel").textContent = (data.field && data.field.label) || "选择";
+    $("sheetInput").style.display = "none";
+    $("sheetSkip").hidden = true;
+    $("sheetExample").hidden = true;
+    $("sheetPicks").hidden = !options.length;
+    $("sheetMore").hidden = true;
+    $("sheetOk").textContent = "取 消";
+    if (options.length) drawSheetOptions(ctx);
   }
 
   function drawSheetOptions(ctx) {
@@ -1853,6 +2105,7 @@
     $("sheetHint").textContent = data.message ? `${label} · ${data.message}` : (ctx.hint ? `填写：${ctx.hint}` : label);
     $("sheetInput").style.display = "";
     $("sheetInput").placeholder = label;
+    applySheetDefault(ctx, data || {});
     $("sheetPicks").hidden = true;
     $("sheetMore").hidden = true;
     $("sheetSkip").hidden = true;
@@ -1875,6 +2128,13 @@
   function pickSheetOption(opt) {
     const ctx = sheetCtx;
     if (!ctx) return;
+    if (ctx.onPick) {
+      const onPick = ctx.onPick;
+      const value = String(opt.value ?? "");
+      closeSheet();
+      onPick(value, opt);
+      return;
+    }
     ctx.values.push(String(opt.value));
     ctx.chosen.push({ value: String(opt.value), label: opt.label || opt.value });
     ctx.expanded = false;
@@ -1888,6 +2148,10 @@
   function submitSheet(opts = {}) {
     const ctx = sheetCtx;
     if (!ctx) return;
+    if (ctx.onPick) {
+      closeSheet();
+      return;
+    }
     const data = ctx.data || {};
     const field = data.field || null;
 
@@ -2064,6 +2328,19 @@
     }
   }
 
+  /** 撤回后同步清掉本地缓存，刷新页面不再“复活” */
+  function cacheDropMsg(id) {
+    if (!id) return;
+    try {
+      const key = cacheKey();
+      const arr = JSON.parse(localStorage.getItem(key) || "[]");
+      const next = arr.filter((e) => !(e && e.t === "chat" && e.id === id));
+      if (next.length !== arr.length) localStorage.setItem(key, JSON.stringify(next));
+    } catch {
+      /* 忽略 */
+    }
+  }
+
   function replayCache() {
     if (!S.username) return;
     try {
@@ -2072,8 +2349,13 @@
       if (!recent.length) return;
       addSys("—— 以下是最近的记录 ——");
       recent.forEach((e) => {
-        if (e.t === "chat") addChat(e.from, e.text, Math.floor(e.at / 1000), e.me, e.avatar || "");
-        else if (e.t === "bot") addBotText(e.text, Math.floor(e.at / 1000));
+        if (e.t === "chat") {
+          addChat(e.from, e.text, Math.floor(e.at / 1000), e.me, e.avatar || "", {
+            id: e.id || "",
+            local: e.local !== undefined ? !!e.local : !e.id,
+            persist: false,
+          });
+        } else if (e.t === "bot") addBotText(e.text, Math.floor(e.at / 1000));
       });
       addSys("—— 记录结束 ——");
     } catch {

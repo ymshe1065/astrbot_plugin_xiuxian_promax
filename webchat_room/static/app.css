@@ -585,6 +585,24 @@ input:focus, textarea:focus { outline: none; }
   border: 1px solid var(--line-soft);
 }
 .bubble b { color: var(--accent); }
+
+/* 自己消息的「⋯」操作入口：桌面悬停显示，触屏常驻淡显 */
+.msg-more {
+  margin-top: 4px;
+  width: 22px; height: 22px; border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--dim);
+  font-size: 14px; line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity .15s ease;
+}
+.msg-row.right:hover .msg-more,
+.msg-row.right:focus-within .msg-more { opacity: 1; }
+@media (hover: none) {
+  .msg-row.right .msg-more { opacity: .55; }
+}
 .md-code {
   background: var(--code-bg); border-radius: 4px; padding: 1px 5px;
   font-family: ui-monospace, Consolas, monospace; font-size: 13px;

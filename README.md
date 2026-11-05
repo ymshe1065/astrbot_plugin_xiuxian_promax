@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v7.0.5 (旧版Boss清理)
+# AstrBot 插件：模拟修仙 v7.0.6 (聊天室撤回、物品快捷菜单与装备替换)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v7.0.5-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v7.0.6-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.35.5 · **游戏版本:** v7.0.5 · **数据库:** v60
+> **插件版本:** v3.35.6 · **游戏版本:** v7.0.6 · **数据库:** v60
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，256 条注册指令（网页指令目录 245 个功能按钮 + 11 个别名）、17 个大系统、111 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,28 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · v7.0.5（旧版Boss清理）</b></summary>
+<summary><b>本次更新 · v7.0.6（聊天室撤回、物品快捷菜单与装备替换）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 物品详情修复 | 储物戒物品芯片点「详情」时不再把展示后缀（如「材料·妖兽 \| 玄品」）带进 `/物品信息` 参数；后端同步兜底剥离展示后缀，旧页面或手动粘贴完整标签也能正常查询。 |
+| 快捷菜单净化 | 物品小菜单的「装备 / 详情 / 回收 / 赠予」统一使用纯物品名，不再把「（装备·甲胄 \| 圣品）·极品」等展示后缀带进指令参数。 |
+| 数量弹窗 | 「回收」「赠予」新增数量选择弹窗：回收默认当前全部数量，赠予普通物品默认全部、装备实例默认 1 件，可在弹窗中修改后再发送。 |
+| 装备按钮 | 小菜单仅在物品属于装备/功法时显示「装备」；材料、丹药、符箓等不可装备物品不再出现该入口。 |
+| 替换选择 | 点击「装备」先查询槽位占用：对应部位已有装备时自动弹出替换列表。戒指支持「戒指1/戒指2」双槽，功法栏满 3 个时可选 1~3 号栏位替换；主修心法已有装备时也先弹出确认项，确认后替换并提示旧心法。 |
+| 已装备提示 | 同名装备/功法已穿戴时直接提示所在槽位或栏位，不重复发送装备指令。 |
+| 消息撤回 | 网页聊天室自己发出的公屏消息新增「⋯ → 撤回」，服务端按消息 id 校验发送者后广播给所有在线端；指令回显仅本端可见，直接本地撤回。 |
+| 重新编辑 | 「⋯ → 重新编辑」会在撤回后把原文放回输入框并聚焦，改完即可再次发送。 |
+| 缓存同步 | 撤回后同步清理本机最近消息缓存，刷新页面不会复活已撤回的消息。 |
+| 安全限制 | 只能撤回自己的消息；最近消息仅保存在内存（上限 800 条），服务重启后旧消息不可撤回，聊天记录仍不落库。 |
+| 回归测试 | 新增 `tests/test_webroom_recall.py` 与 `tests/test_webroom_equip_context.py`，覆盖撤回鉴权、纯物品名还原、单槽/双戒指/三功法替换与不可装备判定；`tests/test_item_display.py` 增加展示名还原用例。 |
+| 数据库 | 无结构变更，仍为 **v60**，旧存档无需迁移。 |
+| 版本同步 | 插件版本 v3.35.6，游戏版本 v7.0.6，数据库 v60；`/修仙帮助` 版本号同步。 |
+
+</details>
+
+<details>
+<summary><b>v7.0.5（旧版Boss清理）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |
