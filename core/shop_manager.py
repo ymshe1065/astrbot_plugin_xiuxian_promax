@@ -1428,28 +1428,31 @@ class ShopManager:
         labels = {"physical_damage": "物伤", "magic_damage": "法伤", "physical_defense": "物防",
                   "magic_defense": "法防", "mental_power": "精神力", "luck": "气运", "crit_rate": "暴击率", "crit_damage": "暴击伤害", "lifesteal": "吸血", "counter_damage": "反伤",
                   "combo_rate": "连击率", "defense_bonus": "额外防御", "physical_damage_multiplier": "物伤倍率", "magic_damage_multiplier": "法伤倍率"}
-        # 装备特效已由 get_item_details 按品质缩放展示，避免重复且显示未缩放的原始键名
-        if not is_gear:
+        # 装备特效已由 get_item_details 按品质缩放展示，功法/心法的 effects、
+        # 修炼效率与生活效果也在那里按类型翻译过；这里再补一遍只会整段重复，
+        # 并且露出未缩放的原始键名（burn_chance +17 这种）。
+        details_consumed = is_gear or detail_type in ("main_technique", "technique")
+        if not details_consumed:
             for key, value in data.get("effects", {}).items():
                 value_text = (f"{value:+g}%" if key in ("crit_rate", "lifesteal", "counter_damage", "combo_rate", "dodge", "status_resist")
                               else f"{value:+.1%}" if ItemRules.is_rate_key(key) else f"{value:+g}")
                 lines.append(f"特效: {labels.get(key, key)} {value_text}")
-        try:
-            exp_mult = float(data.get("exp_multiplier", 0) or 0)
-        except (TypeError, ValueError):
-            exp_mult = 0.0
-        if exp_mult > 0:
-            lines.append(f"生活: 修炼效率 {exp_mult:+.1%}")
-        from .technique_bonus import LIFE_EFFECT_LABELS
-        for key, value in (data.get("life_effects") or {}).items():
             try:
-                number = float(value)
+                exp_mult = float(data.get("exp_multiplier", 0) or 0)
             except (TypeError, ValueError):
-                continue
-            if number <= 0:
-                continue
-            value_text = f"{number:+.0f}" if key == "luck_bonus" else f"{number:+.1%}"
-            lines.append(f"生活: {LIFE_EFFECT_LABELS.get(key, key)} {value_text}")
+                exp_mult = 0.0
+            if exp_mult > 0:
+                lines.append(f"生活: 修炼效率 {exp_mult:+.1%}")
+            from .technique_bonus import LIFE_EFFECT_LABELS
+            for key, value in (data.get("life_effects") or {}).items():
+                try:
+                    number = float(value)
+                except (TypeError, ValueError):
+                    continue
+                if number <= 0:
+                    continue
+                value_text = f"{number:+.0f}" if key == "luck_bonus" else f"{number:+.1%}"
+                lines.append(f"生活: {LIFE_EFFECT_LABELS.get(key, key)} {value_text}")
         for affix in (instance or {}).get("affixes", []) or []:
             key, value = affix.get("key", ""), affix.get("value", 0)
             value_text = (f"{value:+g}%" if key in ("crit_rate", "lifesteal", "counter_damage", "combo_rate", "dodge", "status_resist")
@@ -1569,20 +1572,12 @@ class ShopManager:
             if data.get('mental_power', 0) > 0:
                 attrs.append(f"精神力+{data['mental_power']}")
             from .technique_bonus import LIFE_EFFECT_LABELS
-            effect_labels = {
-                "crit_rate": "暴击率", "crit_damage": "暴击伤害", "lifesteal": "吸血",
-                "counter_damage": "反伤", "combo_rate": "连击率", "dodge": "闪避",
-                "defense_bonus": "额外防御", "physical_damage_multiplier": "物伤倍率",
-                "magic_damage_multiplier": "法伤倍率",
-            }
+            from .equipment_manager import EquipmentManager
+            # 标签与数值口径统一复用装备那一套：元素类效果（灼烧/冻结/破防…）
+            # 必须翻译成中文并按百分比显示，否则会露出 burn_chance+17 这种原始键名。
             for key, value in (data.get("effects") or {}).items():
-                label = effect_labels.get(key, key)
-                if key in ("crit_rate", "lifesteal", "counter_damage", "combo_rate", "dodge"):
-                    attrs.append(f"{label}+{value:g}%")
-                elif key.endswith("_multiplier"):
-                    attrs.append(f"{label}+{float(value):.1%}")
-                else:
-                    attrs.append(f"{label}+{value:g}")
+                label = EquipmentManager.EFFECT_LABELS.get(key, key)
+                attrs.append(f"{label}{EquipmentManager.format_bonus_value(key, value)}")
             for key, value in (data.get("life_effects") or {}).items():
                 try:
                     number = float(value)
@@ -1596,9 +1591,12 @@ class ShopManager:
                     else f"{LIFE_EFFECT_LABELS.get(key, key)}+{number:.1%}"
                 )
             if attrs:
-                details.append(f"效果: {', '.join(attrs)}")
+                # 用「加成」而不是「效果」，避免和绝技块里的「效果：」同名混淆
+                details.append(f"加成: {', '.join(attrs)}")
             from .technique_skill import skill_summary_lines
-            details.extend(skill_summary_lines(data.get("active_skill") or {}))
+            details.extend(skill_summary_lines(
+                data.get("active_skill") or {}, parent_description=description or ""
+            ))
             details.append(f"适用境界: {self._format_applicable_realm(data)}")
 
         elif item_type == 'storage_ring':

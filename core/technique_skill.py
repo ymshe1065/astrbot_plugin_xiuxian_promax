@@ -60,8 +60,12 @@ def skill_effect_text(skill: Dict) -> str:
     return str(skill.get("description") or "")
 
 
-def skill_summary_lines(skill: Dict) -> List[str]:
-    """绝技详情行：名称、类型、触发、消耗、效果与配置说明。"""
+def skill_summary_lines(skill: Dict, parent_description: str = "") -> List[str]:
+    """绝技详情行：名称、类型、触发、消耗、效果与配置说明。
+
+    ``parent_description`` 传入物品自身的描述文本；若该描述里已经写过同一句
+    绝技说明，就不再单列「说明:」，避免货架上一段话出现两次。
+    """
     if not skill:
         return []
     kind = str(skill.get("type") or "")
@@ -82,7 +86,9 @@ def skill_summary_lines(skill: Dict) -> List[str]:
     ]
     description = str(skill.get("description") or "").strip()
     if description and description not in skill_effect_text(skill):
-        lines.append(f"说明：{description}")
+        parent = str(parent_description or "").strip()
+        if not (parent and (description in parent or parent in description)):
+            lines.append(f"说明：{description}")
     return lines
 
 
