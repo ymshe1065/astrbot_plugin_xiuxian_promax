@@ -27,9 +27,9 @@
    │  WebSocket :6198/ws/{room_id}
    ▼
 ┌─────────────────────────────────────────────────┐
-│ 房间服务 room_server（插件内置，FastAPI+WS）      │
-│  · 玩家账号/房间/在线连接管理                     │
-│  · 消息持久化（room_messages 表）                 │
+│ 房间服务 room_server（插件内置，aiohttp+WS）      │
+│  · 玩家账号/在线连接管理（单房间 room_main）      │
+│  · 消息在线广播（不落库，离线不补发）             │
 │  · 收到玩家消息 → 交给适配器 commit_event          │
 └──────────────┬──────────────────────────────────┘
                │ 构造 AstrBotMessage（群消息）
@@ -50,7 +50,7 @@
 
 **一条消息的完整旅程（玩家发 `/签到`）：**
 1. 玩家 A 在网页发 `/签到` → WS 到 room_server；
-2. room_server 落库（聊天记录）、构造 `AstrBotMessage` 交给适配器 `commit_event`；
+2. room_server 广播给房间在线玩家，并构造 `AstrBotMessage` 交给适配器 `commit_event`；
 3. AstrBot 流水线解析指令 → 调修仙插件 handler；
 4. handler 里 `event.get_sender_id()` = `玩家A的网页用户名`，存档/查库一切如常；
 5. handler `yield` 的消息 → `WebroomEvent.send()` → 适配器查找房间在线连接 → **WS 广播给房间所有人**（不是只回 A）；
@@ -88,11 +88,11 @@
 # astrbot_plugin_xiuxian_promax/webchat_room/webroom_adapter.py
 @register_platform_adapter(
     "webroom", "修仙网页聊天室",
-    default_config_tmpl={"host": "127.0.0.1", "port": 6198, "rooms": ["room_main"]},
+    default_config_tmpl={"host": "127.0.0.1", "port": 6198},
 )
 class WebroomAdapter(Platform):
     # 构造签名与内置适配器一致: (platform_config, platform_settings, event_queue)
-    # run(): 启动房间服务(FastAPI+WS, 独立端口 6198)
+    # run(): 启动房间服务(aiohttp+WS, 独立端口 6198)
     # convert_message(): 构造 AstrBotMessage
     #   abm.type = MessageType.GROUP_MESSAGE
     #   abm.session_id = room_id          # UMO 第三段
@@ -109,18 +109,23 @@ class WebroomAdapter(Platform):
 
 ### 4.2 房间服务 `room_server.py` + 前端 `static/index.html`
 
-- **协议**（WS JSON）：
-  - 上行：`{"action":"msg","text":"..."} / {"action":"join","room":"..."} / {"action":"history","before":ts}`
-  - 下行：`{"type":"chat","from":"玩家A","text":"..."} / {"type":"bot","text":"..."} / {"type":"sys","text":"..."} / {"type":"online",[...]}`
-- **账号**：第一版 = 用户名 + 密码（PBKDF2），存 `webroom_users` 表；注册即建修仙存档（玩家首次发指令时插件自动建档，无需迁移）。
-- **在线管理**：`room_id → {ws: player_name}` 字典；断线踢出；重复登录顶号。
-- **前端**：单页 HTML + 原生 JS（无构建链），房间侧栏 + 消息流 + 输入框；bot 消息与玩家消息样式区分；历史分页拉取。
+- **协议**（WS JSON，账号制改造后）：
+  - 连接：`/ws?token=<登录 token>`（旧 `/ws/{room_id}` 仍可用，房间号被忽略）
+  - 上行：`{"action":"msg","text":"..."}`（公屏）/ `{"action":"cmd","text":"..."}`（私密查询）/ `{"action":"online"}`（拉在线名单）/ `{"action":"ping"}`
+  - 下行：`{"type":"chat","from":"玩家A","text":"..."} / {"type":"bot","text":"..."} / {"type":"broadcast","text":"..."} / {"type":"sys","text":"..."} / {"type":"presence","players":[...]}`
+- **账号**：用户名 + 密码（PBKDF2-SHA256），token 为 HMAC 自签，存 `data/webroom/accounts.db`；注册即建修仙存档（玩家首次发指令时插件自动建档，无需迁移）。
+- **在线管理**：`room_id → {ws: 玩家信息}` 字典；断线踢出；重复登录顶号；单房间固定 `room_main`。
+- **前端**：单页 HTML + 原生 JS（无构建链），消息流 + 输入框 + 在线列表 + 指令面板；bot 消息与玩家消息样式区分；消息只在线广播，不做历史分页。
 
 ### 4.3 数据表（聊天室自有，与插件存档库分离）
 
-- `webroom_users(username, pwd_hash, created_at)`
-- `webroom_rooms(room_id, name, whitelist)` —— whitelist 对接插件 `_check_access` 的群白名单
-- `webroom_messages(id, room_id, sender, kind(player/bot/sys), text, ts)`
+当前实现（账号制）：
+
+- `users(username, nick, pwd, created, last_login, avatar, qq, player_key)`，位于 `data/webroom/accounts.db`
+- token 签名密钥：`data/webroom/secret.key`
+- 聊天消息只在线广播，不落库
+
+早期设计中的 `webroom_rooms` / `webroom_messages` 未采用。
 
 ### 4.4 插件侧改动清单（最小化）
 
@@ -133,7 +138,7 @@ class WebroomAdapter(Platform):
 
 ### 4.5 启用方式
 
-后台「平台适配器」新增 `webroom` 类型实例（WebUI 会因 `config_metadata` 渲染表单：host/port/rooms），启用即生效；QQ/OneBot 照常并行运行。
+后台「平台适配器」新增 `webroom` 类型实例（WebUI 会渲染 host/port 表单），启用即生效；QQ/OneBot 照常并行运行。房间固定为 `room_main`，不再配置房间列表。
 
 ### 4.6 本地预览（无需 AstrBot）
 
@@ -150,6 +155,8 @@ python3 -m venv .venv
 
 `--demo` 启动时会自动创建（已存在则跳过）演示账号 **`demo / demo123456`**（昵称「演示道友」），
 在登录页直接用即可；不加 `--demo` 则在页面自行注册。
+
+> 完整的依赖安装与部署步骤（含从零搭运行时、Docker、反向代理、备份排障）见 [网页聊天室部署指南](网页聊天室部署指南.md)。
 
 `scripts/dev_webroom.py` 用轻量桩替掉 `astrbot.api.logger` 与 `get_astrbot_data_path`，
 因此**不加载修仙插件、也不产生真实机器人回复**；真实链路仍需在 AstrBot 后台启用 `webroom` 平台实例。
@@ -208,7 +215,7 @@ scripts/astrbot_local.sh stop
 
 浏览器打开 <http://127.0.0.1:6198/>，先在**登录页注册账号**（或登录已有账号）即可进入主聊天室；
 前端不再填房间号，服务端固定使用 `room_main`。
-面板端口以 `ASTRBOT_DASHBOARD_PORT` 为准（脚本默认 6199，本机实测环境为 6185）；
+面板端口以 `ASTRBOT_DASHBOARD_PORT` 为准（脚本默认 6199）；配置文件里的 `dashboard.port` 默认 6185，会被 `astrbot run -p 6199` 覆盖；
 初始账号 `astrbot`，初始密码见首次启动日志，可用 `astrbot password` 重置。
 
 **已实测通过的链路**：`/修仙帮助`（返回帮助图，落盘 `data/webroom/imgs` 后经 `/media/<file>` 访问）→ `/我要修仙 灵修` → `/选择灵根 1` → `/签到` → `/我的信息`，均为真实的插件逻辑与存档写库。
