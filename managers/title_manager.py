@@ -289,7 +289,7 @@ class TitleManager:
             "spar_count": f"切磋{cond}次",
             "checkin_count": f"累计签到{cond}天",
             "boss_damage": f"讨伐世界Boss {cond}次",
-            "boss_kill_old": f"击杀旧Boss {cond}次",
+            "boss_kill_old": f"击杀江湖事件目标 {cond}次",
             "escort_count": f"完成押镖{cond}次",
             "karma": f"功德达到{cond}",
             "karma_neg": f"业力达到{cond}",

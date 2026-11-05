@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v7.0.4 (自动代理面板)
+# AstrBot 插件：模拟修仙 v7.0.5 (旧版Boss清理)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v7.0.4-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v7.0.5-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,10 +31,10 @@
 
 ---
 
-> **插件版本:** v3.35.4 · **游戏版本:** v7.0.4 · **数据库:** v60
+> **插件版本:** v3.35.5 · **游戏版本:** v7.0.5 · **数据库:** v60
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
-一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，258 条注册指令（网页指令目录 246 个功能按钮 + 12 个别名）、17 个大系统、111 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
+一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，256 条注册指令（网页指令目录 245 个功能按钮 + 11 个别名）、17 个大系统、111 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
 
 ---
 
@@ -43,7 +43,22 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · v7.0.4（自动代理面板）</b></summary>
+<summary><b>本次更新 · v7.0.5（旧版Boss清理）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 旧版 Boss 清理 | 移除 `/生成Boss`、`/挑战Boss` 与旧版 Boss 子系统（独立 `boss` 表读写、旧版掉落/奖励、旧版击杀播报）；动态世界 Boss 不受影响。 |
+| 兼容入口 | `/世界Boss`、`/世界boss` 继续转发到 `/世界Boss状态`；`/挑战世界Boss` 为唯一 Boss 讨伐入口。 |
+| 后台清理 | 删除 `BossManager`、`BossHandlers`、`Boss` 模型与旧版 boss CRUD；`boss_config.json` 移除 `levels`/`archetypes`，保留 `spawn_interval` 与世界 Boss/团本/周本配置。 |
+| 称号兼容 | `boss_kill_old` 称号仍由江湖事件击杀推进，不影响「Boss猎手」「屠龙英雄」获取。 |
+| 数据兼容 | 不改数据库结构，仍为 **v60**；旧 `boss` 表保留但不再读写，旧存档无需迁移。 |
+| 文档同步 | `/修仙帮助`、网页管理面板、README、知识库与玩家指南同步移除旧版入口。 |
+| 版本同步 | 插件版本 v3.35.5，游戏版本 v7.0.5，数据库 v60；`/修仙帮助` 版本号同步。 |
+
+</details>
+
+<details>
+<summary><b>v7.0.4（自动代理面板）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |
@@ -1532,26 +1547,36 @@
 ## 📦 安装
 
 ### 1. 环境要求
-- AstrBot（建议 v4.x+）
-- Python 3.10+
+- AstrBot **4.29.x**（网页聊天室适配器按 4.29.x 实测；更高版本需自行验证平台注册接口）
+- Python 3.10+（插件）；AstrBot 4.29.x 本身要求 Python 3.12
 
 ### 2. 安装依赖
 ```
 aiosqlite>=0.19.0
+aiohttp>=3.9
 Pillow>=9.0.0
 tzdata>=2024.1
 ```
 
+装到 **AstrBot 所在的 Python 环境**，不要装到系统 Python：
+
+```bash
+/path/to/AstrBot/venv/bin/pip install -r \
+  /path/to/astrbot_plugin_xiuxian_promax/requirements.txt
+```
+
+> `aiohttp` 用于网页聊天室的 HTTP + WebSocket 服务；不启用聊天室时它仍被 AstrBot 依赖。
+
 ### 3. 部署插件
 ```
 将本仓库放入 AstrBot 的 data/plugins/astrbot_plugin_xiuxian_promax
-重启 AstrBot 即自动完成初始化与数据库建表（v42）
+重启 AstrBot 即自动完成初始化与数据库建表（v60）
 ```
 
 ### 4. 配置（WebUI 可视化配置）
 - `WHITELIST_GROUPS`：启用插件的群号（留空表示所有群聊都可用）
 - `BROADCAST_GROUPS`：全服事件播报群号；留空时沿用 `WHITELIST_GROUPS`。若两者都为空，事件仍会生成，但群内收不到播报
-- `BOSS_ADMINS`：管理员 QQ（生成Boss/开启团本/结束团本/开启魔潮/开启与结束天魔入侵/生成江湖事件/仙界管理）
+- `BOSS_ADMINS`：管理员 QQ（生成世界Boss/开启团本/结束团本/开启魔潮/开启与结束天魔入侵/生成江湖事件/仙界管理）
 - `IMAGE_CARDS`：图片卡片独立开关（含 `CARD_HELP` 帮助页、`STATIC_AUTO_REGEN` 内容变化自动重绘）
 - `MARKET_NPC`：坊市NPC问价开关、随机间隔（默认约1小时）、问价上下限比例（默认 80%~120%）
 - 其余数值项均有默认值
@@ -1575,6 +1600,76 @@ python -m unittest tests.test_static_images -v
 
 ---
 
+## 🌐 网页聊天室（webroom）
+
+插件内置网页聊天室：浏览器里多人实时群聊，使用**与 QQ 端相同的玩家存档和指令**。
+页面与 WebSocket 由插件内的 `aiohttp` 服务直接提供，**无需 Node.js / npm，也无需单独启动前端进程**。
+
+### 选择启动方式
+
+| 场景 | 启动方式 | 机器人真实回复 | 适合 |
+|---|---|:---:|---|
+| 已有 AstrBot，正式使用 | WebUI「平台适配」新增 `webroom` | ✅ | 生产 |
+| 本机没有 AstrBot，要完整链路 | `scripts/astrbot_local.sh start` | ✅ | 本地联调 |
+| 只调页面/气泡/看板 | `scripts/dev_webroom.py --demo` | ❌（演示桩） | 前端开发 |
+
+### 方式一：已有 AstrBot（推荐）
+
+1. 按上面步骤安装插件和依赖，重启 AstrBot；
+2. 打开 WebUI →「平台适配」→「新增」，类型选择 **`webroom`**；
+3. 填写 `host=127.0.0.1`、`port=6198`，保存并启用；
+4. 在插件配置中设置：
+
+   ```json
+   "ACCESS_CONTROL": {
+     "WHITELIST_GROUPS": ["room_main"],
+     "BROADCAST_GROUPS": ["room_main"]
+   }
+   ```
+
+5. 浏览器打开 <http://127.0.0.1:6198/>，注册账号后进入主聊天室。
+
+> 房间固定为 `room_main`，无需填房间号；不配白名单会导致网页指令被拒，不配播报群会收不到 Boss/拍卖/江湖事件广播。
+
+### 方式二：本地完整运行时（脚本启动）
+
+```bash
+scripts/astrbot_local.sh start      # 启动 AstrBot + 聊天室
+scripts/astrbot_local.sh status     # 6199 面板 / 6198 聊天室
+scripts/astrbot_local.sh logs 80    # 查看日志
+scripts/astrbot_local.sh restart    # 改代码/配置后重启
+scripts/astrbot_local.sh stop       # 停止
+```
+
+运行时固定为 `~/.astrbot-runtime`（可用 `ASTRBOT_RUNTIME` 覆盖），插件以软链方式指向本仓库，修改代码后重启即可生效。首次从零搭建见[部署指南](docs/网页聊天室部署指南.md)。
+
+### 方式三：只预览前端（不加载插件）
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install "aiohttp>=3.9"
+.venv/bin/python scripts/dev_webroom.py --demo
+```
+
+演示账号 `demo / demo123456`。该方式用桩替代 AstrBot 与插件，**不会执行修仙指令、不读写真实存档**，仅用于调 UI；默认也占用 6198，使用前先停掉正式服务或加 `--port 6200`。
+
+### 端口与验证
+
+| 服务 | 默认端口 | 说明 |
+|---|---|---|
+| 网页聊天室 | `6198` | 页面 + WebSocket + `/media` 图片 |
+| AstrBot 面板 | `6199`（脚本） | 配置文件里的 6185 会被 `astrbot run -p 6199` 覆盖 |
+
+```bash
+curl -s http://127.0.0.1:6198/api/health
+# {"ok": true, "adapter": true, "accounts": 1, "rooms": {}}
+```
+
+完整依赖清单、从零部署、Docker/反向代理、数据备份与故障排查：
+**[网页聊天室部署指南](docs/网页聊天室部署指南.md)**
+
+---
+
 ## 🚀 快速上手（玩家视角）
 
 ```
@@ -1589,9 +1684,9 @@ python -m unittest tests.test_static_images -v
 储物戒 → 装备 青铜剑  ← 装备先进储物戒，再用 /装备 穿戴
 坊市上架 → 我的坊市  ← NPC约1小时随机问价，选择卖出或继续等待
 仙灵结缘 青璃         ← 找位 NPC 道侣陪伴修行
-称号图鉴             ← 查看 110 个称号收集进度
+称号图鉴             ← 查看 111 个称号收集进度
 修仙诊断             ← 指令无响应时先排查运行状态
-修仙帮助             ← 全部 250 条帮助指令
+修仙帮助             ← 全部 256 条帮助指令
 ```
 
 > 💡 所有指令以 `/` 或 `` 开头才会响应。
@@ -1602,6 +1697,8 @@ python -m unittest tests.test_static_images -v
 
 | 文档 | 用途 |
 |------|------|
+| [网页聊天室部署指南](docs/网页聊天室部署指南.md) | 依赖安装、三种部署方式、平台配置、端口/数据/备份与排障 |
+| [网页聊天室路线 B 方案](docs/路线B实现方案_自建聊天室+自定义适配器.md) | webroom 适配器与房间服务的设计、协议和实现细节 |
 | [玩家游戏指南](docs/xiuxian_player_guide.md) | 面向玩家的玩法流程、系统说明、FAQ 与指令速查 |
 | [AI 知识库](docs/xiuxian_knowledge_base.md) | 给 AI 问答/群聊机器人使用，覆盖规则、数值、指令全集与常见问题 |
 | [物品指南](docs/xiuxian_item_guide.md) | 物品、丹药、装备、材料等详细数据 |
@@ -1622,13 +1719,13 @@ python3 -m unittest discover -s tests -q         # 现有单测
 
 | 指标 | 数量 |
 |------|------|
-| Python 模块 | 118 文件 |
-| 注册指令 | 212 |
+| Python 模块 | 252 文件 |
+| 注册指令 | 256 |
 | 奇遇事件 | 113 |
-| 称号 | 110（六品阶） |
+| 称号 | 111（六品阶） |
 | 历练路线 | 60（境界 0-31 全覆盖） |
-| 数据库版本 | v48（全程无缝自动迁移） |
-| 离线测试 | 208 项单测 |
+| 数据库版本 | v60（全程无缝自动迁移） |
+| 离线测试 | 405 项单测 |
 
 ---
 

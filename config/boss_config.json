@@ -1,109 +1,5 @@
 {
   "spawn_interval": 3600,
-  "levels": [
-    {
-      "name": "练气",
-      "level_index": 0,
-      "hp_mult": 1.0,
-      "atk_mult": 1.0,
-      "reward_mult": 1.0
-    },
-    {
-      "name": "筑基",
-      "level_index": 10,
-      "hp_mult": 1.5,
-      "atk_mult": 1.2,
-      "reward_mult": 1.5
-    },
-    {
-      "name": "金丹",
-      "level_index": 13,
-      "hp_mult": 2.0,
-      "atk_mult": 1.5,
-      "reward_mult": 2.0
-    },
-    {
-      "name": "元婴",
-      "level_index": 16,
-      "hp_mult": 2.5,
-      "atk_mult": 1.8,
-      "reward_mult": 2.5
-    },
-    {
-      "name": "化神",
-      "level_index": 19,
-      "hp_mult": 3.0,
-      "atk_mult": 2.0,
-      "reward_mult": 3.0
-    },
-    {
-      "name": "炼虚",
-      "level_index": 22,
-      "hp_mult": 4.0,
-      "atk_mult": 2.5,
-      "reward_mult": 4.0
-    },
-    {
-      "name": "合体",
-      "level_index": 25,
-      "hp_mult": 5.0,
-      "atk_mult": 3.0,
-      "reward_mult": 5.0
-    },
-    {
-      "name": "大乘",
-      "level_index": 28,
-      "hp_mult": 6.0,
-      "atk_mult": 3.5,
-      "reward_mult": 6.0
-    }
-  ],
-  "archetypes": {
-    "warrior": {
-      "name": "狂战型",
-      "weight": 30,
-      "atk_mult": 1.1,
-      "defense_mult": 0.9,
-      "physical_atk_share": 0.8,
-      "magic_atk_share": 0.2,
-      "physical_defense_share": 0.7,
-      "magic_defense_share": 0.3,
-      "defense_flat": 30
-    },
-    "mage": {
-      "name": "法尊型",
-      "weight": 30,
-      "atk_mult": 1.1,
-      "defense_mult": 0.8,
-      "physical_atk_share": 0.2,
-      "magic_atk_share": 0.8,
-      "physical_defense_share": 0.3,
-      "magic_defense_share": 0.7,
-      "defense_flat": 20
-    },
-    "tank": {
-      "name": "铁壁型",
-      "weight": 20,
-      "atk_mult": 0.8,
-      "defense_mult": 1.4,
-      "physical_atk_share": 0.4,
-      "magic_atk_share": 0.6,
-      "physical_defense_share": 0.8,
-      "magic_defense_share": 0.2,
-      "defense_flat": 80
-    },
-    "balanced": {
-      "name": "均衡型",
-      "weight": 20,
-      "atk_mult": 1.0,
-      "defense_mult": 1.0,
-      "physical_atk_share": 0.5,
-      "magic_atk_share": 0.5,
-      "physical_defense_share": 0.5,
-      "magic_defense_share": 0.5,
-      "defense_flat": 40
-    }
-  },
   "world_boss": {
     "min_level": 3,
     "cooldown": 300,
@@ -146,7 +42,7 @@
     "baseline_mode": "server_p75",
     "baseline_level": 22,
     "baseline_atk_scale": 1.39,
-    "baseline_def_scale": 1.30,
+    "baseline_def_scale": 1.3,
     "hp_unit": 40.0,
     "hp_exponent": 0.65,
     "solo_hp_mult": 1.3,

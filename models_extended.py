@@ -97,21 +97,6 @@ class BuffInfo:
     sub_buff: int = 0
 
 @dataclass
-class Boss:
-    """Boss数据模型"""
-    boss_id: int
-    boss_name: str
-    boss_level: str
-    hp: int
-    max_hp: int
-    atk: int
-    defense: int = 0
-    stone_reward: int = 0
-    create_time: int = 0
-    status: int = 1
-    archetype: str = "balanced"
-
-@dataclass
 class Rift:
     """秘境数据模型"""
     rift_id: int

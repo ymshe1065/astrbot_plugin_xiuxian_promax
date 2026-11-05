@@ -13,7 +13,6 @@ from .warehouse_handler import WarehouseHandler
 
 # 宗门与战斗
 from .sect_handlers import SectHandlers
-from .boss_handlers import BossHandlers
 from .combat_handlers import CombatHandlers
 from .ranking_handlers import RankingHandlers
 
@@ -67,7 +66,7 @@ from .weekly_boss_handlers import WeeklyBossHandlers
 __all__ = [
     "PlayerHandler", "RecoveryHandler", "MiscHandler", "EquipmentHandler", "BreakthroughHandler",
     "PillHandler", "ShopHandler", "StorageRingHandler", "WarehouseHandler", "SectHandlers", 
-    "BossHandlers", "CombatHandlers", "RankingHandlers", "RiftHandlers", 
+    "CombatHandlers", "RankingHandlers", "RiftHandlers", 
     "AdventureHandlers", "AlchemyHandlers", "ImpartHandlers", "NicknameHandler", 
     "BankHandlers", "BountyHandlers", "ImpartPkHandlers", "BlessedLandHandlers", 
     "SpiritFarmHandlers", "DualCultivationHandlers", "SpiritEyeHandlers", 

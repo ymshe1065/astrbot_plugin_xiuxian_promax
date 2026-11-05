@@ -18,7 +18,7 @@ from .handlers.utils import (
 from .handlers import (
     MiscHandler, PlayerHandler, RecoveryHandler, EquipmentHandler, BreakthroughHandler,
     PillHandler, ShopHandler, StorageRingHandler, WarehouseHandler,
-    SectHandlers, BossHandlers, CombatHandlers, RankingHandlers,
+    SectHandlers, CombatHandlers, RankingHandlers,
     RiftHandlers, AdventureHandlers, AlchemyHandlers, ImpartHandlers,
     NicknameHandler, BankHandlers, BountyHandlers, ImpartPkHandlers,
     BlessedLandHandlers, SpiritFarmHandlers, DualCultivationHandlers, SpiritEyeHandlers,
@@ -28,7 +28,7 @@ from .handlers import (
     InvestHandlers, WeeklyBossHandlers
 )
 from .managers import (
-    CombatManager, SectManager, BossManager, RiftManager,
+    CombatManager, SectManager, RiftManager,
     RankingManager, AdventureManager, AlchemyManager, ImpartManager,
     BankManager, BountyManager, ImpartPkManager,
     BlessedLandManager, SpiritFarmManager, DualCultivationManager, SpiritEyeManager,
@@ -98,8 +98,6 @@ CMD_SECT_TASK = "宗门任务"
 CMD_FINISH_SECT_TASK = "完成宗门任务"
 CMD_SECT_POSITION = "职位变更"
 CMD_BOSS_INFO = "世界Boss"
-CMD_BOSS_FIGHT = "挑战Boss"
-CMD_SPAWN_BOSS = "生成Boss"
 CMD_RANK_LEVEL = "境界排行"
 CMD_RANK_POWER = "战力排行"
 CMD_RANK_WEALTH = "灵石排行"
@@ -228,7 +226,6 @@ class XiuXianPlugin(Star):
         
         self.combat_mgr = CombatManager()
         self.sect_mgr = SectManager(self.db, self.config_manager)
-        self.boss_mgr = BossManager(self.db, self.combat_mgr, self.config_manager, self.storage_ring_mgr)
         self.rift_mgr = RiftManager(self.db, self.config_manager, self.storage_ring_mgr)
         self.rank_mgr = RankingManager(self.db, self.combat_mgr, self.config_manager)
         self.adventure_mgr = AdventureManager(self.db, self.storage_ring_mgr, self.config_manager)
@@ -241,7 +238,6 @@ class XiuXianPlugin(Star):
             self.db, self.shop_handler.shop_manager, self.storage_ring_mgr,
             self.config, self.sect_mgr,
         )
-        self.boss_handlers = BossHandlers(self.db, self.boss_mgr)
         self.combat_handlers = CombatHandlers(self.db, self.combat_mgr, self.config_manager)
         self.ranking_handlers = RankingHandlers(self.db, self.rank_mgr)
         self.rift_handlers = RiftHandlers(self.db, self.rift_mgr)
@@ -1105,46 +1101,6 @@ class XiuXianPlugin(Star):
         except Exception as e:
             logger.error(f"【修仙插件】广播异常: {e}")
 
-    async def _broadcast_boss_spawn(self, boss):
-        """广播旧版Boss降临（/生成Boss 管理员指令收尾）"""
-        msg = (
-            f"⚔️ 强敌降临！Boss【{boss.boss_name}】（{boss.boss_level}）已现身！\n"
-            f"❤️ 气血：{boss.max_hp:,}\n"
-            "💡 发送 /挑战Boss 参与讨伐！"
-        )
-        await self._broadcast_world_boss_spawn(msg)
-
-    async def _broadcast_boss_defeat(self, player_name: str, battle_result: dict):
-        """兼容旧版 Boss 击杀广播"""
-        from astrbot.api.event import MessageChain
-        if not self.broadcast_groups:
-            self._warn_no_whitelist("Boss击杀")
-            return
-        reward = battle_result.get("reward", 0)
-        rounds = battle_result.get("rounds", 0)
-        broadcast_msg = (
-            f"🎉 世界Boss已被击杀！\n"
-            f"━━━━━━━━━━━━━━━\n"
-            f"击杀者：{player_name}\n"
-            f"战斗回合：{rounds}\n"
-            f"获得奖励：{reward} 灵石\n"
-            f"━━━━━━━━━━━━━━━\n"
-            f"恭喜大侠！下一只Boss即将刷新..."
-        )
-        message_chain = MessageChain().message(broadcast_msg)
-        try:
-            platforms = self.context.platform_manager.get_insts()
-            for platform in platforms:
-                platform_name = platform.meta().name if hasattr(platform, 'meta') and callable(platform.meta) else "unknown"
-                for group_id in self.broadcast_groups:
-                    umo = f"{platform_name}:GroupMessage:{group_id}"
-                    try:
-                        await self.context.send_message(umo, message_chain)
-                    except Exception as e:
-                        logger.warning(f"【修仙插件】Boss击杀广播发送失败 (群{group_id}): {e}")
-        except Exception as e:
-            logger.error(f"【修仙插件】Boss击杀广播异常: {e}")
-
     async def _schedule_loan_check(self):
         retry_count = 0
         max_retry_delay = 3600
@@ -1743,7 +1699,7 @@ class XiuXianPlugin(Star):
             return
         async for r in self.sect_handlers.handle_position_change(event, target, pos_int): yield r
 
-    # ===== 旧版Boss =====
+    # ===== 世界Boss查询兼容入口 =====
     @filter.command(CMD_BOSS_INFO, "查看世界Boss状态")
     @require_whitelist
     async def handle_boss_info(self, event: AstrMessageEvent):
@@ -1754,65 +1710,6 @@ class XiuXianPlugin(Star):
     @require_whitelist
     async def handle_boss_info_lower(self, event: AstrMessageEvent):
         async for r in self.world_boss_handlers.handle_query(event): yield r
-
-    @filter.command(CMD_BOSS_FIGHT, "挑战世界Boss(旧)")
-    @require_whitelist
-    @with_player_lock
-    async def handle_boss_fight(self, event: AstrMessageEvent):
-        user_id = event.get_sender_id()
-        success, msg, battle_result = await self.boss_handlers.handle_boss_fight(user_id)
-        # 击杀时尝试生成结算海报：成功只发图，失败/关闭降级为战报文本
-        poster = None
-        if success and battle_result and battle_result.get("winner") == user_id:
-            try:
-                from .utils.image_generator import render_card_async, card_enabled
-                if card_enabled("CARD_COMBAT"):
-                    player = await self.db.get_player_by_id(user_id)
-                    player_name = player.user_name if player and player.user_name else f"道友{str(user_id)[:6]}"
-                    poster = await render_card_async(
-                        "combat",
-                        "⚔️ Boss讨伐胜利",
-                        f"击杀者：{player_name}",
-                        sections=[
-                            {"name": "战报", "rows": [
-                                ("战斗回合", f"{battle_result.get('rounds', 0)}"),
-                                ("获得奖励", f"{battle_result.get('reward', 0):,} 灵石"),
-                                ("剩余气血", f"{battle_result.get('player_final_hp', 0):,}"),
-                            ]},
-                            {"name": "天道贺词", "lines": [
-                                "魔首伏诛，四方宾服。",
-                                "此战之功，录入仙史！",
-                            ]},
-                        ],
-                        footer="模拟修仙 · 战斗结算",
-                    )
-                    if poster:
-                        await self.db.ext.add_task_progress(user_id, "boss_damage", 1)
-                        await self._title_bump(user_id, "boss_kill_old")
-                        await self._broadcast_boss_defeat(player_name, battle_result)
-                        yield event.image_result(poster)
-                        return
-            except Exception:
-                poster = None
-
-        yield event.plain_result(msg)
-        if success and battle_result and battle_result.get("winner") == user_id:
-            await self.db.ext.add_task_progress(user_id, "boss_damage", 1)
-            await self._title_bump(user_id, "boss_kill_old")
-            player = await self.db.get_player_by_id(user_id)
-            player_name = player.user_name if player and player.user_name else f"道友{str(user_id)[:6]}"
-            await self._broadcast_boss_defeat(player_name, battle_result)
-
-    @filter.command(CMD_SPAWN_BOSS, "生成旧版Boss（建议用 /生成世界Boss）")
-    @require_whitelist
-    async def handle_spawn_boss(self, event: AstrMessageEvent):
-        if not self._check_boss_admin(event):
-            yield event.plain_result("❌ 你没有权限生成Boss！")
-            return
-        success, msg, boss = await self.boss_handlers.handle_spawn_boss()
-        yield event.plain_result(msg)
-        if success and boss:
-            await self._broadcast_boss_spawn(boss)
 
     # ===== 排行榜 =====
     @filter.command(CMD_RANK_LEVEL, "境界排行")

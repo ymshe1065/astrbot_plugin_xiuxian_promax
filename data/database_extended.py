@@ -1,6 +1,6 @@
 # data/database_extended.py
 """
-扩展数据库操作类，包含宗门、Boss、秘境等新系统的CRUD方法
+扩展数据库操作类，包含宗门、秘境等新系统的CRUD方法
 """
 
 import aiosqlite
@@ -9,7 +9,7 @@ import time
 from contextlib import asynccontextmanager
 from typing import List, Optional
 from ..models_extended import (
-    Sect, BuffInfo, Boss, Rift, ImpartInfo, UserCd, UserStatus
+    Sect, BuffInfo, Rift, ImpartInfo, UserCd, UserStatus
 )
 
 # players.state 的展示文案：闭关沿用既有的“修炼中”，其余用 UserStatus 名称
@@ -291,75 +291,6 @@ class DatabaseExtended:
         await self.conn.execute(
             "UPDATE buff_info SET sec_buff = ? WHERE user_id = ?",
             (buff_id, user_id)
-        )
-        await self.conn.commit()
-    
-    # ===== Boss 系统 CRUD =====
-    
-    async def create_boss(self, boss: Boss) -> int:
-        """创建Boss"""
-        await self.conn.execute(
-            """
-            INSERT INTO boss (
-                boss_name, boss_level, hp, max_hp, atk, defense,
-                stone_reward, create_time, status, archetype
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                boss.boss_name, boss.boss_level, boss.hp, boss.max_hp,
-                boss.atk, boss.defense, boss.stone_reward,
-                boss.create_time, boss.status, getattr(boss, "archetype", "balanced")
-            )
-        )
-        await self.conn.commit()
-        
-        async with self.conn.execute("SELECT last_insert_rowid()") as cursor:
-            row = await cursor.fetchone()
-            return row[0] if row else None
-    
-    async def get_active_boss(self) -> Optional[Boss]:
-        """获取当前存活的Boss"""
-        async with self.conn.execute(
-            "SELECT * FROM boss WHERE status = 1 ORDER BY create_time DESC LIMIT 1"
-        ) as cursor:
-            row = await cursor.fetchone()
-            if row:
-                return Boss(**dict(row))
-            return None
-    
-    async def get_boss_by_id(self, boss_id: int) -> Optional[Boss]:
-        """根据ID获取Boss信息"""
-        async with self.conn.execute(
-            "SELECT * FROM boss WHERE boss_id = ?",
-            (boss_id,)
-        ) as cursor:
-            row = await cursor.fetchone()
-            if row:
-                return Boss(**dict(row))
-            return None
-    
-    async def update_boss(self, boss: Boss):
-        """更新Boss信息"""
-        await self.conn.execute(
-            """
-            UPDATE boss SET
-                boss_name = ?, boss_level = ?, hp = ?, max_hp = ?, atk = ?,
-                defense = ?, stone_reward = ?, status = ?, archetype = ?
-            WHERE boss_id = ?
-            """,
-            (
-                boss.boss_name, boss.boss_level, boss.hp, boss.max_hp,
-                boss.atk, boss.defense, boss.stone_reward, boss.status,
-                getattr(boss, "archetype", "balanced"), boss.boss_id
-            )
-        )
-        await self.conn.commit()
-    
-    async def defeat_boss(self, boss_id: int):
-        """标记Boss为已击败"""
-        await self.conn.execute(
-            "UPDATE boss SET status = 0 WHERE boss_id = ?",
-            (boss_id,)
         )
         await self.conn.commit()
     
