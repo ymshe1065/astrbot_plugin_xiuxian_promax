@@ -260,6 +260,7 @@ async def start(host: str, port: int) -> None:
     app.router.add_get("/api/arg_options", _api_arg_options)
     app.router.add_get("/api/equip_context", _api_equip_context)
     app.router.add_get("/api/proxy", _api_proxy)
+    app.router.add_get("/api/market/candles", _api_market_candles)
     app.router.add_post("/api/proxy/toggle", _api_proxy_toggle)
     app.router.add_get("/api/settings", _api_settings)
     app.router.add_post("/api/settings", _api_settings)
@@ -1188,6 +1189,36 @@ async def _api_channels_update(request: web.Request) -> web.Response:
     if not ok:
         return web.json_response({"ok": False, "error": msg}, status=400)
     return web.json_response({"ok": True, "message": msg, "channel": channel})
+
+
+async def _api_market_candles(request: web.Request) -> web.Response:
+    """仙市标的 K 线：GET /api/market/candles?code=S01&period=day&limit=60
+
+    日线由逐盘收盘价合成（开=上一日收盘、高/低=盘内极值、收=末盘），
+    周/月再聚合。前端拿不到数据时退回卡片里的「近 8 盘」文本明细。
+    """
+    user = _token_user(request)
+    if user is None:
+        return web.json_response({"ok": False, "error": "登录已过期"}, status=401)
+    if _plugin is None:
+        return web.json_response({"ok": False, "error": "插件尚未就绪"}, status=503)
+
+    code = str(request.query.get("code", "") or "").strip().upper()
+    if not code:
+        return web.json_response({"ok": False, "error": "缺少标的代码"}, status=400)
+    period = str(request.query.get("period", "day") or "day").strip().lower()
+    limit = str(request.query.get("limit", "60") or "60")
+    manager = getattr(_plugin, "invest_mgr", None)
+    if manager is None:
+        return web.json_response({"ok": False, "error": "仙市尚未就绪"}, status=503)
+    try:
+        data = await manager.get_candles(code, period, limit)
+    except Exception as exc:
+        logger.exception("[webroom] 读取 K 线失败")
+        return web.json_response({"ok": False, "error": f"读取失败：{exc}"}, status=500)
+    if not data:
+        return web.json_response({"ok": False, "error": f"仙市中不存在代码「{code}」"}, status=404)
+    return web.json_response({"ok": True, **data})
 
 
 async def _api_health(_request: web.Request) -> web.Response:

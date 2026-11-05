@@ -1130,6 +1130,125 @@ class InvestManager:
             "history": rows,
         }
 
+    @staticmethod
+    def _merge_bars(bars: List[dict], period: str) -> List[dict]:
+        """把日线再聚合成周线 / 月线：开=首日开、高=区间最高、低=区间最低、收=末日收。"""
+        merged: List[dict] = []
+        cur: Optional[dict] = None
+        key = None
+        for bar in bars:
+            day = date.fromisoformat(bar["date"])
+            slot_key = day.isocalendar()[:2] if period == "week" else (day.year, day.month)
+            if slot_key != key:
+                if cur is not None:
+                    merged.append(cur)
+                cur = {
+                    "d": bar["d"],
+                    "date": bar["date"],
+                    "o": bar["o"],
+                    "h": bar["h"],
+                    "l": bar["l"],
+                    "c": bar["c"],
+                    "chg": 0.0,
+                    "n": bar["n"],
+                    "tags": list(bar["tags"]),
+                }
+                key = slot_key
+                continue
+            cur["h"] = max(cur["h"], bar["h"])
+            cur["l"] = min(cur["l"], bar["l"])
+            cur["c"] = bar["c"]
+            cur["n"] += bar["n"]
+            cur["date"] = bar["date"]
+            for tag in bar["tags"]:
+                if tag not in cur["tags"] and len(cur["tags"]) < 3:
+                    cur["tags"].append(tag)
+        if cur is not None:
+            merged.append(cur)
+        for bar in merged:
+            bar["chg"] = (bar["c"] / bar["o"] - 1) if bar["o"] else 0.0
+        return merged
+
+    async def get_candles(self, code: str, period: str = "day", limit: int = 60,
+                          moment: Optional[datetime] = None) -> Optional[dict]:
+        """合成 K 线（日 / 周 / 月）。
+
+        ``invest_prices`` 每盘只存收盘价，没有开高低，所以：
+
+        * 日线「开」= 前一日收盘（首日取当日首盘收盘），价格连续、没有隔夜跳空；
+        * 「高/低」= 当日盘内极值（含开盘位），影线反映的是盘内波动范围；
+        * ``n`` = 这根用了几个盘次，当根还没走满 16 盘时前端画成「进行中」。
+
+        只读：settle_to 之后再查，不额外推进行情。
+        """
+        await self.settle_to(moment)
+        product = await self._load_product((code or "").strip().upper())
+        if not product:
+            return None
+        period = str(period or "day").strip().lower()
+        if period not in ("day", "week", "month"):
+            period = "day"
+        try:
+            limit = max(8, min(int(limit or 60), 240))
+        except (TypeError, ValueError):
+            limit = 60
+
+        rows = await self._rows(
+            "SELECT tick, close, msg_tag FROM invest_prices WHERE code = ? ORDER BY tick",
+            (product["code"],),
+        )
+        buckets: Dict[int, dict] = {}
+        for row in rows:
+            day = int(row["tick"]) // TICKS_PER_DAY
+            bucket = buckets.setdefault(day, {"closes": [], "tags": []})
+            bucket["closes"].append(float(row["close"]))
+            tag = str(row["msg_tag"] or "").strip()
+            if tag and tag not in bucket["tags"]:
+                bucket["tags"].append(tag)
+
+        bars: List[dict] = []
+        prev_close: Optional[float] = None
+        for day in sorted(buckets):
+            closes = buckets[day]["closes"]
+            open_ = prev_close if prev_close is not None else closes[0]
+            close = closes[-1]
+            bars.append(
+                {
+                    "d": day,
+                    "date": (EPOCH_DATE + timedelta(days=day)).isoformat(),
+                    "o": round(open_, 6),
+                    "h": round(max([open_] + closes), 6),
+                    "l": round(min([open_] + closes), 6),
+                    "c": round(close, 6),
+                    "chg": round((close / open_ - 1) if open_ else 0.0, 6),
+                    "n": len(closes),
+                    "tags": buckets[day]["tags"][:2],
+                }
+            )
+            prev_close = close
+
+        if period != "day":
+            bars = self._merge_bars(bars, period)
+        bars = bars[-limit:]
+
+        tick = self.tick_of(moment)
+        day_open = float(product["day_open"]) or float(product["price"])
+        prev = bars[-2]["c"] if len(bars) >= 2 else (bars[-1]["o"] if bars else 0.0)
+        return {
+            "code": product["code"],
+            "name": product["name"],
+            "kind": str(product["kind"] or "stock"),
+            "period": period,
+            "tick": tick,
+            "label": self.slot_label(tick),
+            "price": float(product["price"]),
+            "prev_close": round(prev, 6),
+            "today": round((float(product["price"]) / day_open - 1) if day_open else 0.0, 6),
+            "candles": bars,
+            # 少于 8 根时前端降级成折线，免得蜡炷画成一根根竖线
+            "enough": len(bars) >= 8,
+        }
+
     async def get_holdings(self, user_id: str) -> List[dict]:
         await self.settle_to()
         rows = await self._holdings_rows(user_id)

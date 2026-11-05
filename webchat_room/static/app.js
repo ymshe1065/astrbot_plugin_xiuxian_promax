@@ -1789,7 +1789,12 @@
     const body = document.createElement("div");
     body.className = "card-body";
 
-    // 0) 战报 / 长详情：默认折叠，展开后看逐回合全文
+    // 0) /行情 单标的：顶部挂 K 线，下面的「近 8 盘」文本明细照旧
+    if (card.quote && card.quote.code) {
+      body.appendChild(renderQuoteChart(card.quote));
+    }
+
+    // 0.5) 战报 / 长详情：默认折叠，展开后看逐回合全文
     if (card.detail !== undefined && card.detail !== null) {
       if (card.detail_hidden) {
         const hint = document.createElement("div");
@@ -2050,6 +2055,240 @@
       const rows = (m.rows || []).filter((r) => r.kind === g.key);
       if (rows.length) box.appendChild(renderMarketTable(g, rows));
     });
+    return box;
+  }
+
+  // ---- 单标的 K 线：日/周/月都由逐盘收盘价合成，基金画净值折线 ----
+  const KL_PERIODS = [["day", "日K"], ["week", "周K"], ["month", "月K"]];
+  const KL_NS = "http://www.w3.org/2000/svg";
+  const KL_H = 168;
+  // 同一标的的 K 线在 60 秒内复用：聊天记录回放时会反复渲染同一张卡片
+  const KL_CACHE = new Map();
+  const KL_TTL = 60 * 1000;
+
+  function klSvg(data, width, onHover) {
+    const bars = data.candles || [];
+    const isFund = data.kind === "fund";
+    const line = isFund || bars.length < 8;
+    const fx = isFund ? 4 : 2;
+    const PL = 6, PR = 44, PT = 10, PB = 16;
+    const iw = Math.max(60, width - PL - PR);
+    const ih = KL_H - PT - PB;
+    const hi = Math.max(...bars.map((b) => b.h));
+    const lo = Math.min(...bars.map((b) => b.l));
+    const span = hi - lo || Math.max(Math.abs(hi) * 0.02, 0.0001);
+    const Y = (v) => PT + ((hi - v) / span) * ih;
+    const step = iw / Math.max(1, bars.length);
+    const bw = Math.max(1.2, Math.min(8, step * 0.62));
+    const ns = (tag, attrs) => {
+      const el = document.createElementNS(KL_NS, tag);
+      Object.entries(attrs).forEach(([k, v]) => el.setAttribute(k, v));
+      return el;
+    };
+    const svg = ns("svg", {
+      viewBox: `0 0 ${width} ${KL_H}`,
+      width: width,
+      height: KL_H,
+      class: "kl-svg",
+    });
+
+    // 网格与右侧价格轴（三档：高 / 中 / 低）
+    [hi, (hi + lo) / 2, lo].forEach((v) => {
+      const y = Y(v);
+      svg.appendChild(ns("line", { x1: PL, y1: y, x2: PL + iw, y2: y, class: "kl-grid" }));
+      const t = ns("text", { x: PL + iw + 5, y: y + 3.5, class: "kl-axis" });
+      t.textContent = v.toFixed(fx);
+      svg.appendChild(t);
+    });
+
+    // 底部时间轴：只标首尾两根，窄栏也不会挤成一团
+    const firstBar = bars[0], lastBar = bars[bars.length - 1];
+    if (firstBar && lastBar) {
+      const t1 = ns("text", { x: PL, y: KL_H - 4, class: "kl-axis" });
+      t1.textContent = firstBar.date;
+      const t2 = ns("text", { x: PL + iw, y: KL_H - 4, class: "kl-axis end" });
+      t2.textContent = lastBar.date;
+      svg.append(t1, t2);
+    }
+
+    if (line) {
+      // 基金净值 / 历史不足 8 根：折线，避免画成一片十字星
+      const pts = bars.map((b, i) => [PL + step * i + step / 2, Y(b.c)]);
+      svg.appendChild(
+        ns("polyline", {
+          points: pts.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" "),
+          class: "kl-line",
+        })
+      );
+      pts.forEach(([x, y], i) => {
+        if (pts.length > 40 && i % 2) return;
+        svg.appendChild(ns("circle", { cx: x, cy: y, r: 1.8, class: "kl-dot" }));
+      });
+    } else {
+      bars.forEach((b, i) => {
+        const x = PL + step * i + step / 2;
+        const up = b.c >= b.o;
+        const cls = up ? "kl-up" : "kl-down";
+        const yO = Y(b.o), yC = Y(b.c);
+        svg.appendChild(ns("line", { x1: x, y1: Y(b.h), x2: x, y2: Y(b.l), class: cls }));
+        svg.appendChild(
+          ns("rect", {
+            x: (x - bw / 2).toFixed(2),
+            y: Math.min(yO, yC).toFixed(2),
+            width: bw.toFixed(2),
+            height: Math.max(1, Math.abs(yC - yO)).toFixed(2),
+            // 上涨空心、下跌实心：颜色之外再多一重编码，色弱也读得出
+            class: up ? `${cls} hollow` : cls,
+          })
+        );
+      });
+    }
+
+    // 悬停：十字线 + 顶部读数（不跟随鼠标，窄栏也不会被裁掉）
+    const cross = ns("line", { x1: 0, y1: PT, x2: 0, y2: PT + ih, class: "kl-cross" });
+    cross.style.opacity = 0;
+    svg.appendChild(cross);
+    const hit = ns("rect", { x: PL, y: PT, width: iw, height: ih, fill: "transparent" });
+    svg.appendChild(hit);
+
+    const fmt = (v) => Number(v).toFixed(fx);
+    const move = (ev) => {
+      const rect = svg.getBoundingClientRect();
+      if (!rect.width) return;
+      const x = ((ev.clientX - rect.left) / rect.width) * width;
+      const idx = Math.max(0, Math.min(bars.length - 1, Math.floor((x - PL) / step)));
+      const b = bars[idx];
+      const cx = PL + step * idx + step / 2;
+      cross.setAttribute("x1", cx);
+      cross.setAttribute("x2", cx);
+      cross.style.opacity = 0.9;
+      const chg = `${b.chg >= 0 ? "+" : ""}${(b.chg * 100).toFixed(2)}%`;
+      const tags = (b.tags || []).join(" · ");
+      onHover(
+        `${b.date}　开 ${fmt(b.o)}　高 ${fmt(b.h)}　低 ${fmt(b.l)}　收 ${fmt(b.c)}　${chg}` +
+          (b.n < 16 && data.period === "day" ? "　（当盘未收）" : "") +
+          (tags ? `　${tags}` : "")
+      );
+    };
+    svg.addEventListener("pointermove", move);
+    svg.addEventListener("pointerdown", move);
+    svg.addEventListener("pointerleave", () => {
+      cross.style.opacity = 0;
+      onHover("");
+    });
+    return svg;
+  }
+
+  /** /行情 卡片顶部挂 K 线：先给骨架，数据异步补；接口不可用时静默留白，不影响下方文本明细。 */
+  function renderQuoteChart(quote) {
+    const box = document.createElement("div");
+    box.className = "kl";
+
+    const bar = document.createElement("div");
+    bar.className = "kl-bar";
+    const chips = document.createElement("div");
+    chips.className = "kl-chips";
+    const legend = document.createElement("div");
+    legend.className = "kl-legend";
+    bar.append(chips, legend);
+
+    const area = document.createElement("div");
+    area.className = "kl-area";
+    const tip = document.createElement("div");
+    tip.className = "kl-tip";
+    box.append(bar, area, tip);
+
+    let period = "day";
+    let data = null;
+    let drawnW = 0;
+    const cache = new Map();
+
+    const paintChips = () =>
+      [...chips.children].forEach((c) => c.classList.toggle("on", c.dataset.p === period));
+
+    KL_PERIODS.forEach(([p, label]) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "kl-chip";
+      b.dataset.p = p;
+      b.textContent = label;
+      b.addEventListener("click", () => {
+        if (period === p) return;
+        period = p;
+        paintChips();
+        load();
+      });
+      chips.appendChild(b);
+    });
+    paintChips();
+
+    const showTip = (text) => {
+      tip.textContent = text || "";
+    };
+
+    function paint() {
+      if (!data) return;
+      const w = Math.floor(area.clientWidth || 0);
+      if (w < 160) return;
+      drawnW = w;
+      area.replaceChildren(klSvg(data, w, showTip));
+    }
+
+    function render(payload) {
+      data = payload;
+      const bars = payload.candles || [];
+      const isFund = payload.kind === "fund";
+      legend.textContent = `近 ${bars.length} 根${isFund ? "净值" : ""}${
+        payload.enough ? "" : "（历史太短，折线显示）"
+      }`;
+      if (!bars.length) {
+        area.innerHTML = `<div class="kl-empty">还没有历史行情，攒几盘再看</div>`;
+        return;
+      }
+      drawnW = 0;
+      paint();
+    }
+
+    async function load() {
+      const p = period;
+      if (cache.has(p)) {
+        render(cache.get(p));
+        return;
+      }
+      const ck = `${quote.code}|${p}`;
+      const hit = KL_CACHE.get(ck);
+      if (hit && Date.now() - hit.ts < KL_TTL) {
+        cache.set(p, hit.data);
+        render(hit.data);
+        return;
+      }
+      area.innerHTML = `<div class="kl-empty">K 线加载中…</div>`;
+      try {
+        const r = await fetch(
+          `/api/market/candles?code=${encodeURIComponent(quote.code)}&period=${p}&limit=60`,
+          { headers: { Authorization: "Bearer " + S.token } }
+        );
+        const payload = await r.json();
+        if (!payload || !payload.ok) throw new Error((payload && payload.error) || "读取失败");
+        KL_CACHE.set(ck, { ts: Date.now(), data: payload });
+        cache.set(p, payload);
+        if (p === period) render(payload);
+      } catch (e) {
+        area.innerHTML = `<div class="kl-empty">K 线暂不可用：${esc(
+          (e && e.message) || "读取失败"
+        )}</div>`;
+      }
+    }
+
+    // 卡片刚插入时宽度还是 0，用 ResizeObserver 等布局稳定后再画（也管住窗口缩放）
+    if (typeof ResizeObserver === "function") {
+      const ro = new ResizeObserver(() => {
+        const w = Math.floor(area.clientWidth || 0);
+        if (w >= 160 && Math.abs(w - drawnW) > 8) paint();
+      });
+      ro.observe(area);
+    }
+    load();
     return box;
   }
 

@@ -117,5 +117,73 @@ class TestMarketCard(unittest.TestCase):
         self.assertNotEqual((ts.parse_text("📊 境界排行榜\n━━━\n1. 青云\n2. 白衣") or {}).get("kind"), "market")
 
 
+QUOTE_TEXT = "\n".join([
+    "「 丹阁股 · S01 」",
+    LINE,
+    "现价 42.18　本盘 ▲1.20%　今日 ▲3.40%",
+    "基准 42.00　偏离 ▲0.43%",
+    "日熔断 ±10%　·　1 手 = 100 股",
+    LINE,
+    "近 8 盘",
+    "07:00      41.20  ▲0.50%",
+    "08:00      42.18  ▲1.20%　单边上涨",
+    LINE,
+    "指令：/买入股 S01 <手数>　/卖出股 S01 <手数>　/仙市",
+])
+
+FUND_QUOTE_TEXT = "\n".join([
+    "「 灵脉·稳 · F01 」",
+    LINE,
+    "净值 1.0234　本盘 ▲0.10%　今日 ▲0.30%",
+    "基准 1.0000　偏离 ▲2.34%",
+    "风险 ★　·　赎回费按持有盘数递减",
+    LINE,
+    "近 8 盘",
+    "07:00     1.0200  ▲0.10%",
+    "08:00     1.0234  ▲0.10%",
+    LINE,
+    "指令：/申购 F01 <金额>　/赎回 F01 <份额|全部>　/仙市",
+])
+
+
+class TestQuoteAnchor(unittest.TestCase):
+    """`/行情` 卡片给出标的锚点，前端据此在顶部拉 K 线。"""
+
+    def test_stock_quote_anchor(self):
+        card = ts.parse_text(QUOTE_TEXT)
+        self.assertIsNotNone(card)
+        self.assertEqual(card["quote"]["code"], "S01")
+        self.assertEqual(card["quote"]["name"], "丹阁股")
+        self.assertEqual(card["quote"]["market"], "stock")
+
+    def test_fund_quote_anchor(self):
+        card = ts.parse_text(FUND_QUOTE_TEXT)
+        self.assertEqual(card["quote"]["code"], "F01")
+        self.assertEqual(card["quote"]["market"], "fund")
+
+    def test_quote_fields_do_not_change_kind(self):
+        """带锚点也不能改 kind：正文仍按通用分区渲染，免得正文丢块。"""
+        card = ts.parse_text(QUOTE_TEXT)
+        self.assertNotIn(card["kind"], ("quote", "market"))
+        self.assertTrue(card["sections"] or card["items"])
+
+    def test_market_panel_has_no_quote_anchor(self):
+        card = ts.parse_market(MARKET_TEXT)
+        self.assertNotIn("quote", card)
+
+    def test_clock_rows_not_split_into_kv(self):
+        """15:00  41.20  ▲0.50% 里的冒号属于时间，不能拆成 key=15 的两栏。"""
+        card = ts.parse_text(QUOTE_TEXT)
+        rows = [r for s in card["sections"] for r in (s["rows"] or [])]
+        self.assertFalse([r for r in rows if str(r[0]).strip().isdigit()])
+        lines = [ln for s in card["sections"] for ln in (s["lines"] or [])]
+        self.assertTrue(any("07:00" in ln and "41.20" in ln for ln in lines))
+
+    def test_plain_panel_without_code(self):
+        card = ts.parse_text(f"「 储物戒 」\n{LINE}\n容量 12/40\n灵石 8,000")
+        self.assertIsNotNone(card)
+        self.assertNotIn("quote", card)
+
+
 if __name__ == "__main__":
     unittest.main()

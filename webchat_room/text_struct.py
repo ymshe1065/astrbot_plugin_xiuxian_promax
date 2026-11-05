@@ -30,6 +30,8 @@ _KV = re.compile(r"^([^\s：:，,。、（）()\[\]【】]{1,18})\s*[：:]\s*(.+
 _KV_SPLIT = re.compile(r"\s*[|｜]\s*")
 # 提示行：💡 📌 ✨
 _TIP = re.compile(r"^([💡📌✨⭐🔔📢])\ufe0f?\s*(.+)$")
+# 时间开头的明细行：15:00   41.20  ▲0.50%（冒号属于时间，不是键值分隔）
+_CLOCK_LINE = re.compile(r"^\d{1,2}\s*:\s*\d{2}\s+\S")
 # 文本内出现的指令
 _CMD = re.compile(r"(/[^\s，。、；：）)】\]|]+)")
 # 序号列表项：1. 剑修 / 1、剑修 / ①剑修
@@ -111,6 +113,32 @@ def _extract_actions(text: str) -> list[dict[str, str]]:
 def _action_label(cmd: str) -> str:
     body = cmd.lstrip("/")
     return body or cmd
+
+
+# ---------- /行情 单标的 ----------
+# 「 丹阁股 · S01 」 / 「 灵脉·稳 · F01 」（名称本身就可能带·，所以名字用非贪婪）
+_QUOTE_HEAD = re.compile(r"^「\s*(?P<name>.+?)\s*[·・]\s*(?P<code>[SF]\d{2,3})\s*」$")
+
+
+def _parse_quote(lines: list[str]) -> dict[str, Any] | None:
+    """识别 /行情 的单标的详情卡，给出前端挂 K 线所需的锚点。
+
+    这里只取代码与名称，不重排正文：「现价/基准/近 8 盘」仍按通用分区渲染，
+    免得把一份已经排好版的文本再结构化成第二套数据（两处格式容易漂）。
+    """
+    for ln in lines[:4]:
+        s = ln.strip()
+        if not s:
+            continue
+        m = _QUOTE_HEAD.match(s)
+        if m:
+            code = m.group("code").upper()
+            return {
+                "code": code,
+                "name": m.group("name").strip(),
+                "market": "fund" if code.startswith("F") else "stock",
+            }
+    return None
 
 
 # ---------- 仙市行情 ----------
@@ -333,14 +361,17 @@ def parse_text(raw: str) -> dict[str, Any] | None:
             records.append(cur_rec)
             continue
 
-        pairs = _parse_kv_pairs(s)
-        if pairs:
-            if cur_rec is not None:
-                cur_rec["rows"].extend(pairs)
-            else:
-                ensure_section()["rows"].extend(pairs)
-            kv_count += len(pairs)
-            continue
+        # 行情明细行（15:00   41.20  ▲0.50%）里的冒号是时间，不是键值分隔，
+        # 拆成「15 / 00 41.20」两栏会把整段时间序列读成一张错位的表
+        if not _CLOCK_LINE.match(s):
+            pairs = _parse_kv_pairs(s)
+            if pairs:
+                if cur_rec is not None:
+                    cur_rec["rows"].extend(pairs)
+                else:
+                    ensure_section()["rows"].extend(pairs)
+                kv_count += len(pairs)
+                continue
 
         # 保留行首缩进（「　正文」是上一行的补充说明，缩进本身有语义）
         body = line.rstrip()
@@ -367,7 +398,7 @@ def parse_text(raw: str) -> dict[str, Any] | None:
         kind = "mixed"
 
     digest = hashlib.md5(text.encode("utf-8", "ignore")).hexdigest()[:12]
-    return {
+    card = {
         "id": f"txt_{digest}",
         "kind": kind,
         "title": title,
@@ -377,6 +408,11 @@ def parse_text(raw: str) -> dict[str, Any] | None:
         "items": records,
         "actions": actions,
     }
+    # /行情 单标的：附加代码锚点，前端据此在卡片顶部拉 K 线
+    quote = _parse_quote(lines)
+    if quote:
+        card["quote"] = quote
+    return card
 
 
 # ---------- 战斗战报 ----------

@@ -902,6 +902,60 @@ html[data-theme="fish"] .msg-row {
   .mk-table th:nth-last-child(2), .mk-table td:nth-last-child(2) { display: none; }
 }
 
+/* ---- 单标的 K 线（/行情 卡片顶部） ---- */
+.kl { margin: 0 0 10px; container-type: inline-size; }
+.kl-bar {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 4px; flex-wrap: wrap;
+}
+.kl-chips { display: flex; gap: 4px; flex: 0 0 auto; }
+.kl-chip {
+  font-size: 11px; line-height: 1; padding: 4px 9px; border-radius: 999px;
+  color: var(--card-dim); background: transparent;
+  border: 1px solid rgba(var(--edge-rgb), .22);
+  cursor: pointer; transition: all .12s;
+}
+.kl-chip:hover { color: var(--card-ink); border-color: rgba(var(--accent-rgb), .34); }
+.kl-chip.on {
+  color: var(--accent); border-color: rgba(var(--accent-rgb), .5);
+  background: rgba(var(--accent-rgb), .1);
+}
+.kl-legend {
+  margin-left: auto; flex: 0 1 auto; min-width: 0;
+  font-size: 10.5px; color: var(--card-dim); letter-spacing: .3px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.kl-area { position: relative; min-height: 40px; }
+.kl-svg { display: block; width: 100%; height: auto; overflow: visible; }
+.kl-grid { stroke: rgba(var(--edge-rgb), .16); stroke-width: 1; }
+.kl-axis { fill: var(--card-dim); font-size: 10px; text-anchor: start; font-variant-numeric: tabular-nums; }
+.kl-axis.end { text-anchor: end; }
+/* 涨空心红、跌实心绿：形状本身也是编码，色弱照样分得清 */
+.kl-up { stroke: var(--mk-up); stroke-width: 1.1; fill: none; }
+.kl-down { stroke: var(--mk-down); stroke-width: 1.1; fill: var(--mk-down); }
+.kl-line { fill: none; stroke: var(--mk-up); stroke-width: 1.4; }
+.kl-dot { fill: var(--mk-up); opacity: .8; }
+.kl-cross { stroke: var(--card-dim); stroke-width: 1; stroke-dasharray: 3 3; pointer-events: none; }
+
+.kl-tip {
+  font-size: 11.5px; color: var(--card-ink); line-height: 1.5;
+  padding: 4px 8px; margin-top: 4px; border-radius: 6px;
+  background: rgba(var(--edge-rgb), .07);
+  font-variant-numeric: tabular-nums;
+  word-break: break-all;
+  /* 固定高度：悬停读数出现/消失时不把下方内容顶来顶去 */
+  min-height: 25px;
+}
+.kl-empty {
+  font-size: 11.5px; color: var(--card-dim);
+  padding: 16px 0; text-align: center;
+}
+/* 右栏这类窄栏：图例让位给切换按钮，日期轴也只留首尾 */
+@container (max-width: 330px) {
+  .kl-legend { display: none; }
+}
+
 /* 导航型条目 */
 .bullet-list { display: flex; flex-direction: column; gap: 4px; }
 .bullet-item {
