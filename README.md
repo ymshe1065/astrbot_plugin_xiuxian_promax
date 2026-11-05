@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v7.0.3 (自动代理独立分组)
+# AstrBot 插件：模拟修仙 v7.0.4 (自动代理面板)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v7.0.3-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v7.0.4-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.35.3 · **游戏版本:** v7.0.3 · **数据库:** v60
+> **插件版本:** v3.35.4 · **游戏版本:** v7.0.4 · **数据库:** v60
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，258 条注册指令（网页指令目录 246 个功能按钮 + 12 个别名）、17 个大系统、111 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,25 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · v7.0.3（自动代理独立分组）</b></summary>
+<summary><b>本次更新 · v7.0.4（自动代理面板）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 顶级面板 | 网页聊天室在「状态 / 储物戒 / 指令」同级新增 **🤖 自动代理** 标签页，移动端底部导航同步增加「代理」入口；不再需要先翻指令再记参数。 |
+| 滑动开关 | 押镖、宗门任务、灵田、秘境、施肥各一个 bool 滑动开关，点击即开/关；开关状态与 `/代理状态`、后台续接逻辑完全同源。 |
+| 总开关 | 顶部「自动代理总开关」一键操作：关闭时调用 `disable()` 停掉全部；开启时自动打开灵田、施肥，并在有可用秘境时开启秘境，无可用秘境时回退到上次目标或押镖。 |
+| 秘境选择 | 面板内置秘境下拉框，只列出当前境界可进入的本；开关或总开关按选中的 ID 开启，旧存档里已不满足境界的 ID 会自动回退。 |
+| 互斥与禁用 | 押镖 / 宗门任务互斥，开启一个会关闭另一个；未开垦灵田时灵田、施肥开关置灰；没有可进入秘境时秘境开关置灰并给出原因。 |
+| 复用校验 | 后端新增 `GET /api/proxy`、`POST /api/proxy/toggle`，实际开关仍调用 `AutoProxyManager`，与聊天指令共用同一套校验，不维护第二套规则。 |
+| 存档对齐 | 自动代理面板与参数候选接口统一按绑定后的存档 key 读取（未绑定为 `web_<账号>`，绑定后为 QQ 号），避免绑号玩家看到另一份存档的状态。 |
+| 回归测试 | 新增 `tests/test_proxy_panel.py`：覆盖五项状态、秘境境界过滤、单项开关、总开关开启/关闭与回退逻辑（6 项）。 |
+| 数据库 | 无结构变更，仍为 **v60**，旧存档无需迁移。 |
+| 版本同步 | 插件版本 v3.35.4，游戏版本 v7.0.4，数据库 v60；`/修仙帮助` 版本号同步。 |
+
+</details>
+
+<details>
+<summary><b>v7.0.3（自动代理独立分组）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |

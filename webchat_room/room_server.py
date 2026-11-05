@@ -28,6 +28,7 @@ from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 from . import accounts as accounts_store
 from . import commands as commands_catalog
 from .arg_options import build_arg_options
+from .proxy_panel import proxy_snapshot, toggle_proxy
 
 if TYPE_CHECKING:
     from .webroom_adapter import WebroomAdapter
@@ -151,6 +152,8 @@ async def start(host: str, port: int) -> None:
     app.router.add_get("/", _index)
     app.router.add_get("/api/commands", _api_commands)
     app.router.add_get("/api/arg_options", _api_arg_options)
+    app.router.add_get("/api/proxy", _api_proxy)
+    app.router.add_post("/api/proxy/toggle", _api_proxy_toggle)
     app.router.add_get("/api/health", _api_health)
     app.router.add_post("/api/register", _api_register)
     app.router.add_post("/api/login", _api_login)
@@ -344,12 +347,69 @@ async def _api_arg_options(request: web.Request) -> web.Response:
         if isinstance(parsed, list):
             values = [str(v) for v in parsed if str(v).strip()]
 
-    user_id = f"web_{user['username']}"
+    # 绑定了 QQ 的账号实际使用 QQ 号存档，候选必须从同一份存档读取
+    user_id = accounts_store.player_key_of(user)
     try:
         data = await build_arg_options(_plugin, user_id, cmd, values)
     except Exception as exc:
         logger.exception("[webroom] 读取参数候选失败")
         return web.json_response({"ok": False, "error": f"候选读取失败：{exc}"}, status=500)
+    return web.json_response(data)
+
+
+async def _api_proxy(request: web.Request) -> web.Response:
+    """自动代理面板：读取五项代理的布尔状态与详情。"""
+    user = _token_user(request)
+    if user is None:
+        return web.json_response({"ok": False, "error": "登录已过期"}, status=401)
+    if _plugin is None:
+        return web.json_response({"ok": False, "error": "插件尚未就绪"}, status=503)
+
+    user_id = accounts_store.player_key_of(user)
+    try:
+        data = await proxy_snapshot(_plugin, user_id)
+    except Exception as exc:
+        logger.exception("[webroom] 读取自动代理状态失败")
+        return web.json_response({"ok": False, "error": f"读取失败：{exc}"}, status=500)
+    return web.json_response(data)
+
+
+async def _api_proxy_toggle(request: web.Request) -> web.Response:
+    """切换单项代理；task=all 时一键开启/关闭全部。"""
+    user = _token_user(request)
+    if user is None:
+        return web.json_response({"ok": False, "error": "登录已过期"}, status=401)
+    if _plugin is None:
+        return web.json_response({"ok": False, "error": "插件尚未就绪"}, status=503)
+
+    body = await _read_json(request)
+    if not body:
+        return web.json_response({"ok": False, "error": "请求格式不对"}, status=400)
+
+    task = str(body.get("task") or "").strip()
+    enabled = bool(body.get("enabled"))
+    try:
+        rift_id = int(body.get("rift_id") or 0)
+    except (TypeError, ValueError):
+        rift_id = 0
+
+    user_id = accounts_store.player_key_of(user)
+    origin = f"webroom:GroupMessage:{ROOM_ID}"
+    try:
+        data = await toggle_proxy(
+            _plugin,
+            user_id,
+            task,
+            enabled,
+            rift_id=rift_id,
+            origin=origin,
+        )
+    except Exception as exc:
+        logger.exception("[webroom] 切换自动代理失败")
+        return web.json_response({"ok": False, "error": f"操作失败：{exc}"}, status=500)
+
+    if data.get("ok") is False:
+        return web.json_response(data, status=400)
     return web.json_response(data)
 
 

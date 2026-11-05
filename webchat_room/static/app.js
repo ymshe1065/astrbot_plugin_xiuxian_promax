@@ -1358,6 +1358,7 @@
       v.classList.toggle("active", v.dataset.view === tab);
     });
     if (tab === "cmds") renderCommandGrid();
+    if (tab === "proxy") loadProxyPanel();
     // 面板还没数据时按需拉取（开面板才查，避免无谓的卡片渲染）
     if ((tab === "status" || tab === "bag") && !S.panelCard[tab] && S.connected) {
       loadPanel(tab);
@@ -1432,6 +1433,184 @@
     };
     search.addEventListener("input", () => draw(search.value));
     draw();
+  }
+
+  /* ================= 自动代理面板 =================
+   * 顶部总开关一键开启/关闭全部；每项一个滑动开关，状态与 /代理状态 同源。
+   * 开启仍走 AutoProxyManager 原有校验，不另写一套规则。
+   */
+  let proxyBusy = false;
+
+  async function loadProxyPanel() {
+    const view = $("viewProxy");
+    if (!view) return;
+    view.innerHTML = '<div class="panel-empty">自动代理加载中…</div>';
+    try {
+      const r = await fetch("/api/proxy", {
+        headers: { Authorization: "Bearer " + S.token },
+      });
+      const data = await r.json().catch(() => null);
+      if (!data) throw new Error("bad response");
+      if (data.ok === false) {
+        view.innerHTML = `<div class="panel-empty">${esc(data.error || "自动代理加载失败")}<br><button>重试</button></div>`;
+        view.querySelector("button").addEventListener("click", loadProxyPanel);
+        return;
+      }
+      renderProxyPanel(data);
+    } catch {
+      view.innerHTML = '<div class="panel-empty">网络异常，自动代理加载失败<br><button>重试</button></div>';
+      view.querySelector("button").addEventListener("click", loadProxyPanel);
+    }
+  }
+
+  function proxySwitch(on, task) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "switch" + (on ? " on" : "");
+    b.setAttribute("role", "switch");
+    b.setAttribute("aria-checked", on ? "true" : "false");
+    b.title = on ? "点击关闭" : "点击开启";
+    b.dataset.task = task;
+    b.dataset.on = on ? "1" : "0";
+    b.innerHTML = "<span></span>";
+    b.addEventListener("click", () => {
+      if (proxyBusy) return;
+      toggleProxy(task, b.dataset.on !== "1");
+    });
+    return b;
+  }
+
+  function renderProxyPanel(data) {
+    const view = $("viewProxy");
+    view.innerHTML = "";
+
+    const head = document.createElement("div");
+    head.className = "panel-head";
+    head.innerHTML = '<span class="ph-title">自动代理</span>';
+    const refresh = document.createElement("button");
+    refresh.className = "ph-refresh";
+    refresh.textContent = "刷新";
+    refresh.addEventListener("click", loadProxyPanel);
+    head.appendChild(refresh);
+    view.appendChild(head);
+
+    if (!data.has_player) {
+      const empty = document.createElement("div");
+      empty.className = "panel-empty";
+      empty.innerHTML = `<span class="big">🤖</span>${esc(data.message || "尚未创建角色")}<br><button>去创建角色</button>`;
+      empty.querySelector("button").addEventListener("click", () => {
+        closeDrawer();
+        dispatchCommand("/我要修仙");
+      });
+      view.appendChild(empty);
+      return;
+    }
+
+    const master = document.createElement("div");
+    master.className = "proxy-master" + (data.enabled ? " on" : "");
+    master.innerHTML =
+      '<span class="proxy-master-icon">🤖</span>' +
+      '<div class="proxy-master-text"><b>自动代理总开关</b><small>' +
+      (data.enabled
+        ? "代理运行中 · 一键关闭全部"
+        : "一键开启灵田 / 施肥 / 秘境（无可用秘境时开启押镖）") +
+      "</small></div>";
+    master.appendChild(proxySwitch(data.enabled, "all"));
+    view.appendChild(master);
+
+    if (data.rifts && data.rifts.length) {
+      const sub = document.createElement("div");
+      sub.className = "proxy-sub";
+      const label = document.createElement("label");
+      label.textContent = "秘境目标";
+      label.setAttribute("for", "proxyRiftSelect");
+      const sel = document.createElement("select");
+      sel.id = "proxyRiftSelect";
+      sel.className = "proxy-select";
+      data.rifts.forEach((rift) => {
+        const opt = document.createElement("option");
+        opt.value = rift.id;
+        opt.textContent = `${rift.name}（ID:${rift.id}）`;
+        if (Number(rift.id) === Number(data.rift_id)) opt.selected = true;
+        sel.appendChild(opt);
+      });
+      const riftTask = (data.tasks || []).find((task) => task.key === "rift");
+      if (riftTask && riftTask.enabled) {
+        sel.disabled = true;
+        sel.title = "秘境代理运行中，如需换本请先关闭再开启";
+      }
+      sub.appendChild(label);
+      sub.appendChild(sel);
+      view.appendChild(sub);
+    }
+
+    const list = document.createElement("div");
+    list.className = "proxy-list";
+    (data.tasks || []).forEach((task) => {
+      const row = document.createElement("div");
+      row.className = "proxy-row" + (task.enabled ? " on" : "");
+      const main = document.createElement("div");
+      main.className = "proxy-row-main";
+      main.innerHTML =
+        '<div class="proxy-row-title"><span class="proxy-row-name">' +
+        esc(task.name) +
+        "</span>" +
+        (task.enabled ? '<span class="proxy-badge">运行中</span>' : "") +
+        "</div>" +
+        `<div class="proxy-row-desc">${esc(task.detail || task.desc || "")}</div>`;
+      row.appendChild(main);
+      const sw = proxySwitch(task.enabled, task.key);
+      if (task.available === false) sw.disabled = true;
+      row.appendChild(sw);
+      list.appendChild(row);
+    });
+    view.appendChild(list);
+
+    const tip = document.createElement("div");
+    tip.className = "proxy-tip";
+    tip.textContent =
+      "灵田 / 施肥需要先开垦灵田；秘境只列出当前境界可进入的本；押镖与宗门任务互斥，开启其中一个会关闭另一个。";
+    view.appendChild(tip);
+  }
+
+  async function toggleProxy(task, enabled) {
+    if (proxyBusy) return;
+    const view = $("viewProxy");
+    proxyBusy = true;
+    if (view) {
+      view.classList.add("busy");
+      view.querySelectorAll(".switch").forEach((s) => (s.disabled = true));
+    }
+    try {
+      const body = { task, enabled };
+      if (task === "all" || task === "rift") {
+        const sel = $("proxyRiftSelect");
+        if (sel) body.rift_id = Number(sel.value) || 0;
+      }
+      const r = await fetch("/api/proxy/toggle", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + S.token,
+        },
+        body: JSON.stringify(body),
+      });
+      const data = await r.json().catch(() => null);
+      if (!data) throw new Error("bad response");
+      if (data.ok === false) {
+        toast(data.error || "操作失败");
+        await loadProxyPanel();
+        return;
+      }
+      renderProxyPanel(data);
+      if (data.message) toast(data.message);
+    } catch {
+      toast("网络异常，操作失败");
+      await loadProxyPanel();
+    } finally {
+      proxyBusy = false;
+      if (view) view.classList.remove("busy");
+    }
   }
 
   /* ================= 参数弹层 =================
