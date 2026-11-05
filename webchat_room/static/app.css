@@ -608,6 +608,76 @@ input:focus, textarea:focus { outline: none; }
   font-family: ui-monospace, Consolas, monospace; font-size: 13px;
 }
 
+/* ===== 消息折叠：长文本默认折起来，顶栏可一键全折 / 全展开 ===== */
+/* 遮罩色与气泡底色对齐（fish 自己的气泡是渐变，取渐变底部那一档） */
+.msg-row {
+  --fold-veil: var(--panel);
+  --fold-veil-self: #e8f0e2;
+  --fold-pill: rgba(255, 253, 248, .92);
+}
+html[data-theme="fish"] .msg-row {
+  --fold-veil-self: #3e5ffe;
+  --fold-pill: rgba(255, 255, 255, .9);
+}
+
+.bubble.foldable { position: relative; }
+.b-body { position: relative; }
+.bubble.folded .b-body {
+  max-height: var(--fold-h, 118px);
+  overflow: hidden;
+}
+.bubble.folded .b-body::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 20px;
+  background: linear-gradient(to bottom, transparent 10%, var(--fold-veil) 96%);
+  pointer-events: none;
+}
+.msg-row.right .bubble.folded .b-body::after {
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0) 10%, var(--fold-veil-self) 96%);
+}
+
+.fold-btn {
+  display: flex; align-items: center; gap: 4px;
+  width: fit-content; margin: 6px auto 0;
+  padding: 2px 11px; border-radius: 999px;
+  font-size: 12px; font-weight: 600; line-height: 1.6;
+  color: var(--accent);
+  background: var(--fold-pill);
+  border: 1px solid rgba(var(--accent-rgb), .24);
+  white-space: nowrap;
+  transition: border-color .15s, background .15s;
+}
+.fold-btn:hover { border-color: rgba(var(--accent-rgb), .5); background: var(--panel); }
+.fold-btn .n { font-weight: 400; opacity: .72; }
+
+/* 顶栏一键按钮：常态描边药丸，进入「全部折叠」后变实心 */
+.fold-all-btn {
+  display: inline-flex; align-items: center;
+  height: 28px; padding: 0 10px; border-radius: 8px;
+  font-size: 12px; letter-spacing: .5px;
+  color: var(--accent);
+  background: rgba(var(--accent-rgb), .06);
+  border: 1px solid rgba(var(--accent-rgb), .18);
+  transition: color .15s, background .15s, border-color .15s;
+}
+.fold-all-btn:hover { background: rgba(var(--accent-rgb), .12); }
+.fold-all-btn.on {
+  color: #fff;
+  background: var(--btn-grad);
+  border-color: transparent;
+  box-shadow: 0 2px 8px rgba(var(--accent-rgb), .3);
+}
+
+/* 全部折叠时只留三行（70px ≈ 14.5px 字号 × 1.62 行高的整数倍，避免切在半行） */
+#msgs.fold-all .bubble.folded { --fold-h: 70px; }
+#msgs.fold-all .bubble.folded .b-body::after { height: 22px; }
+#msgs.fold-all .fold-btn { padding: 1px 9px; font-size: 11.5px; }
+#msgs.fold-all .fold-btn .n { display: none; }
+
+@media (max-width: 900px) {
+  .fold-all-btn { padding: 0 8px; height: 26px; }
+  #msgs.fold-all .bubble.folded .b-body::after { height: 28px; }
+}
+
 /* 系统 / 错误提示（居中，无头像） */
 .msg {
   max-width: min(90%, 640px);

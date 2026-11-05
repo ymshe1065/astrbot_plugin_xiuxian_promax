@@ -10,6 +10,10 @@
   const isMobile = () => window.matchMedia("(max-width: 900px)").matches;
   const CACHE_KEY = "xiuxian_room_cache_v1";
   const CACHE_MAX = 80;
+  // 长消息折叠：字数或行数任一超标就折起来
+  const FOLD_KEY = "xiuxian_fold_all_v1"; // 顶栏「全部折叠」的开关状态
+  const FOLD_CHARS = 120;
+  const FOLD_LINES = 7;
   const AUTH_KEY = "xiuxian_auth_v1";
   const ROOM = "room_main"; // 全服唯一聊天室
   const BOT_NAME = "大肥鱼"; // 机器人显示名（聊天气泡里的落款）
@@ -737,6 +741,7 @@
   function appendNode(el, opts = {}) {
     const box = $("msgs");
     box.appendChild(el);
+    el.querySelectorAll(".bubble.foldable").forEach(setFoldLabel); // 全折状态下新消息也显示「展开」
     while (box.children.length > 240) box.firstChild.remove();
     scrollBottom(opts.force);
   }
@@ -784,7 +789,7 @@
       avatarHtml(from, avatar || (isMe ? S.avatar : "")) +
       `<div class="msg-col">` +
       `<div class="who">${esc(from)}<span class="time">${fmtTime(ts)}</span></div>` +
-      `<div class="bubble">${escapeWithMarks(text)}</div>` +
+      bubbleHtml(text) +
       `</div>`;
 
     if (isMe) {
@@ -835,12 +840,7 @@
     const col = document.createElement("div");
     col.className = "msg-col";
     let html = `<div class="who bot-who">${BOT_NAME}<span class="time">${fmtTime(ts)}</span></div>`;
-    html += `<div class="bubble">`;
-    if (text) html += escapeWithMarks(text);
-    (images || []).forEach((u) => {
-      html += `<img src="${esc(u)}" data-full="${esc(u)}" alt="">`;
-    });
-    html += `</div>`;
+    html += bubbleHtml(text, images);
     col.innerHTML = html;
 
     row.innerHTML = `<div class="avatar bot-avatar"></div>`;
@@ -883,6 +883,72 @@
     return esc(text)
       .replace(/\*\*([^*\n]{1,40})\*\*/g, "<b>$1</b>")
       .replace(/`([^`\n]{1,60})`/g, '<span class="md-code">$1</span>');
+  }
+
+  /* ================= 消息折叠 ================= */
+  /** 长文本才值得折：字数或行数任一超标 */
+  function isFoldable(text) {
+    return !!text && (text.length >= FOLD_CHARS || text.split("\n").length >= FOLD_LINES);
+  }
+
+  /** 统一构造气泡：长文本自动带 .b-body 与展开按钮 */
+  function bubbleHtml(text, images, extraCls = "") {
+    const body =
+      (text ? escapeWithMarks(text) : "") +
+      (images || []).map((u) => `<img src="${esc(u)}" data-full="${esc(u)}" alt="">`).join("");
+    if (!isFoldable(text)) return `<div class="bubble${extraCls}">${body}</div>`;
+    return (
+      `<div class="bubble foldable folded${extraCls}">` +
+      `<div class="b-body">${body}</div>` +
+      `<button class="fold-btn" type="button">展开全文` +
+      `<span class="n"> · ${text.length} 字</span></button>` +
+      `</div>`
+    );
+  }
+
+  /** 按钮文案随「单条是否展开」和「全局是否全折」变化 */
+  function setFoldLabel(bubble) {
+    const btn = bubble.querySelector(".fold-btn");
+    if (!btn || !btn.firstChild) return;
+    const open = !bubble.classList.contains("folded");
+    const all = $("msgs").classList.contains("fold-all");
+    btn.firstChild.textContent = open ? "收起" : all ? "展开" : "展开全文";
+    const n = btn.querySelector(".n");
+    if (n) n.style.display = open ? "none" : ""; // 展开后不必再报字数
+    btn.title = open ? "收起这条" : "展开这条";
+  }
+
+  function toggleFold(bubble, open) {
+    const box = $("msgs");
+    const wasBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+    bubble.classList.toggle("folded", !open);
+    bubble.classList.toggle("open", open);
+    setFoldLabel(bubble);
+    if (wasBottom) box.scrollTop = box.scrollHeight; // 原本贴底就继续贴底
+  }
+
+  /** 全局折叠 / 展开；remember=false 用于启动时回放上次状态 */
+  function applyFoldAll(on, remember = true) {
+    const box = $("msgs");
+    const wasBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+    box.classList.toggle("fold-all", on);
+    box.querySelectorAll(".bubble.foldable").forEach((b) => {
+      b.classList.toggle("folded", on);
+      b.classList.toggle("open", !on);
+      setFoldLabel(b);
+    });
+    const btn = $("btnFold");
+    btn.classList.toggle("on", on);
+    btn.querySelector(".ft").textContent = on ? "展开" : "折叠";
+    btn.title = on ? "展开全部消息" : "折叠全部消息";
+    if (wasBottom) box.scrollTop = box.scrollHeight;
+    if (remember) {
+      try {
+        localStorage.setItem(FOLD_KEY, on ? "1" : "0");
+      } catch {
+        /* 隐私模式忽略 */
+      }
+    }
   }
 
   function bindImages(root) {
@@ -2553,6 +2619,24 @@
     $("btnTogglePanel").addEventListener("click", () => {
       document.querySelector(".main").classList.toggle("panel-hidden");
     });
+
+    // 消息折叠：单条展开 / 收起（事件委托，新消息不必重复绑定）
+    $("msgs").addEventListener("click", (e) => {
+      const btn = e.target.closest && e.target.closest(".fold-btn");
+      if (!btn) return;
+      const bubble = btn.closest(".bubble");
+      if (bubble) toggleFold(bubble, bubble.classList.contains("folded"));
+    });
+
+    // 顶栏一键折叠 / 展开，状态记在本地
+    $("btnFold").addEventListener("click", () => {
+      applyFoldAll(!$("msgs").classList.contains("fold-all"));
+    });
+    try {
+      applyFoldAll(localStorage.getItem(FOLD_KEY) === "1", false);
+    } catch {
+      applyFoldAll(false, false);
+    }
 
     // 面板 Tab
     document.querySelectorAll(".panel-tab").forEach((tab) => {
