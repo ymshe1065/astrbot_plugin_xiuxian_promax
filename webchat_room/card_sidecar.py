@@ -102,6 +102,13 @@ def load_card_for_image(path: str | None) -> dict[str, Any] | None:
             continue
         section = {"name": name, "rows": rows, "lines": lines}
         _promote_lines_to_items(section)
+        # 调用方预先拆好的结构化条目（储物戒），原样透传给网页
+        entries = [
+            it for it in (sec.get("entries") or [])
+            if isinstance(it, dict) and it.get("name")
+        ]
+        if entries:
+            section["entries"] = entries
         normalized["sections"].append(section)
     if not normalized["sections"]:
         return None

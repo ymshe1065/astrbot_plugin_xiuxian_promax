@@ -7,7 +7,7 @@ from astrbot.api import logger
 from astrbot.api.all import At, Plain
 from ..data import DataBase
 from ..core import StorageRingManager, ItemRules, PillManager
-from ..core.item_display import item_label, item_tag
+from ..core.item_display import item_label, item_meta, item_tag
 from ..core.realm_rules import format_applicable_realm
 from ..core.item_instance_manager import ItemInstanceManager
 from ..config_manager import ConfigManager
@@ -65,6 +65,78 @@ class StorageRingHandler:
             return f"{name}{tag[:-1]}·{element[1:-1]}）"
         return f"{name}{tag}{element}"
 
+    def _entry(self, name: str, count: int, quality: str = "",
+               instance_ids=None, equip_index: int = 0,
+               affix_count: int = 0) -> dict:
+        """单条结构化物品：种类/品阶/品质/五行全部拆成字段，网页端不再解析文本。"""
+        meta = item_meta(name, self.config_manager)
+        try:
+            element = self.config_manager.get_item_element(name) or ""
+        except Exception:
+            element = ""
+        return {
+            "name": str(name),
+            "kind": meta["kind"],
+            "sub": meta["sub"],
+            "rank": meta["rank"],
+            "quality": str(quality or ""),
+            "element": element,
+            "count": int(count or 0),
+            "instance_ids": list(instance_ids or []),
+            "equip_index": int(equip_index or 0),
+            "affix_count": int(affix_count or 0),
+        }
+
+    def _entry_label(self, entry: dict) -> str:
+        """结构化条目回写成图片/文本用的展示名，装备补上品质。"""
+        base = self._item_label(entry["name"])
+        return f"{base}·{entry['quality']}" if entry["quality"] else base
+
+    def _item_entries(self, player: Player) -> list:
+        """储物戒物品的结构化清单，装备按 (名称, 品质) 分组。
+
+        装备实例本来就一件一条、各自带品质（逐件占格），但
+        `get_storage_ring_info()` 会把同名实例并成 `名称→数量`，品质随之丢失。
+        这里保留拆分后的结果给展示与筛选用，不改动 `items` 这份堆叠账本。
+        """
+        instance_manager = self.storage_ring_manager.instance_manager
+        counts = dict(player.get_storage_ring_items() or {})
+
+        entries = []
+        # 计数类物品维持原有插入顺序
+        for name, count in counts.items():
+            try:
+                amount = int(count or 0)
+            except (TypeError, ValueError):
+                amount = 0
+            if amount > 0:
+                entries.append(self._entry(name, amount))
+
+        by_name = {}
+        for inst in instance_manager.list_instances(player, "storage"):
+            name = str(inst.get("name") or "")
+            if name:
+                by_name.setdefault(name, []).append(inst)
+
+        for name, insts in by_name.items():
+            insts.sort(key=lambda x: int(x.get("id", 0) or 0))
+            # /装备 取的是同名候选里的第 N 件，序号按 id 升序算
+            order = {int(i.get("id", 0) or 0): pos + 1 for pos, i in enumerate(insts)}
+            grouped = {}
+            for inst in insts:
+                quality = str(inst.get("quality") or "一般")
+                grouped.setdefault(quality, []).append(inst)
+            for quality, members in grouped.items():
+                entries.append(self._entry(
+                    name,
+                    len(members),
+                    quality=quality,
+                    instance_ids=[int(m.get("id", 0) or 0) for m in members],
+                    equip_index=order.get(int(members[0].get("id", 0) or 0), 0),
+                    affix_count=sum(1 for m in members if m.get("affixes")),
+                ))
+        return entries
+
     @player_required
     async def handle_storage_ring(self, player: Player, event: AstrMessageEvent):
         """显示储物戒信息"""
@@ -81,19 +153,29 @@ class StorageRingHandler:
             f"━━━━━━━━━━━━━━━\n",
         ]
 
-        # 按分类显示存储的物品
+        # 按分类显示存储的物品；装备按品质拆成多条，与卡片口径一致
         items = ring_info['items']
+        entries = []
         if items:
-            categorized = self._categorize_items(items)
-            for category, cat_items in categorized.items():
-                if cat_items:
-                    lines.append(f"【{category}】\n")
-                    for item_name, count in cat_items:
-                        label = self._item_label(item_name)
-                        if count > 1:
-                            lines.append(f"  · {label}×{count}\n")
-                        else:
-                            lines.append(f"  · {label}\n")
+            try:
+                entries = self._item_entries(player)
+            except Exception:
+                entries = []  # 实例表异常时退回「名称→数量」口径
+            if not entries:
+                entries = [
+                    {"name": name, "count": count, "quality": ""}
+                    for name, count in items.items()
+                ]
+        if entries:
+            for category, cat_entries in self._categorize_entries(entries).items():
+                lines.append(f"【{category}】\n")
+                for entry in cat_entries:
+                    label = self._entry_label(entry)
+                    count = int(entry.get("count") or 0)
+                    if count > 1:
+                        lines.append(f"  · {label}×{count}\n")
+                    else:
+                        lines.append(f"  · {label}\n")
         else:
             lines.append("【存储物品】空\n")
 
@@ -126,10 +208,9 @@ class StorageRingHandler:
             card_path = None
             if card_enabled("CARD_BAG"):
                 enchant = ring_info.get("enchant", 0)
-                rows = []
+                entries = self._item_entries(player)
                 # 名称完整显示，不做省略；物品较多时由渲染器自动加长图片
-                for item_name, count in items.items():
-                    rows.append((self._item_label(item_name), f"x{count}"))
+                rows = [(self._entry_label(e), f"x{e['count']}") for e in entries]
                 if not rows:
                     rows.append(("空空如也", "—"))
                 card_path = await render_card_async(
@@ -143,9 +224,9 @@ class StorageRingHandler:
                             ("剩余空间", f"{ring_info['available']}"),
                             ("堆叠规则", f"每格 {StorageRingManager.STACK_LIMIT} 个"),
                         ]},
-                        {"name": "物品清单", "rows": rows},
+                        {"name": "物品清单", "rows": rows, "entries": entries},
                     ],
-                    footer=f"共 {len(items)} 种物品 · /装备 物品名 · /回收 物品名 [数量]",                )
+                    footer=f"共 {len(entries)} 项 · /装备 物品名 · /回收 物品名 [数量]",                )
             if card_path:
                 yield event.image_result(card_path)
             else:
@@ -776,48 +857,52 @@ class StorageRingHandler:
         else:
             yield event.plain_result(f"❌ {message}")
 
-    def _categorize_items(self, items: dict) -> dict:
-        """将物品按分类整理。已知物品优先按配置类型分类。"""
-        result = {cat: [] for cat in ITEM_CATEGORIES.keys()}
-
+    def _category_of(self, item_name: str) -> str:
+        """单个物品归入哪一类。已知物品优先按配置类型，未知的按关键字兜底。"""
         gear_types = {"weapon", "armor", "head", "body", "boots", "gloves", "ring", "amulet", "accessory"}
         technique_types = {"technique", "main_technique"}
         material_types = {"material", "符箓", "talisman", "杂物", "丹方", "材料包"}
 
-        for item_name, count in items.items():
-            item_config = self.config_manager.items_data.get(item_name)
-            if not item_config:
-                item_config = self.config_manager.weapons_data.get(item_name)
-            if not item_config and hasattr(self.config_manager, "techniques_data"):
-                item_config = self.config_manager.techniques_data.get(item_name)
+        item_config = self.config_manager.items_data.get(item_name)
+        if not item_config:
+            item_config = self.config_manager.weapons_data.get(item_name)
+        if not item_config and hasattr(self.config_manager, "techniques_data"):
+            item_config = self.config_manager.techniques_data.get(item_name)
 
-            if item_config:
-                item_type = ItemRules.normalize_equipment_type(item_config)
-                raw_type = str(item_config.get("type", "") or "")
-                if item_type in gear_types:
-                    result["装备"].append((item_name, count))
-                elif item_type in technique_types:
-                    result["功法"].append((item_name, count))
-                elif item_type in material_types or raw_type in ("材料", "符箓", "杂物", "丹方", "材料包"):
-                    result["材料"].append((item_name, count))
-                else:
-                    result["其他"].append((item_name, count))
+        if item_config:
+            item_type = ItemRules.normalize_equipment_type(item_config)
+            raw_type = str(item_config.get("type", "") or "")
+            if item_type in gear_types:
+                return "装备"
+            if item_type in technique_types:
+                return "功法"
+            if item_type in material_types or raw_type in ("材料", "符箓", "杂物", "丹方", "材料包"):
+                return "材料"
+            return "其他"
+
+        for category, keywords in ITEM_CATEGORIES.items():
+            if category == "其他":
                 continue
+            for keyword in keywords:
+                if keyword in item_name or item_name in keyword:
+                    return category
+        return "其他"
 
-            categorized = False
-            for category, keywords in ITEM_CATEGORIES.items():
-                if category == "其他":
-                    continue
-                for keyword in keywords:
-                    if keyword in item_name or item_name in keyword:
-                        result[category].append((item_name, count))
-                        categorized = True
-                        break
-                if categorized:
-                    break
-            if not categorized:
-                result["其他"].append((item_name, count))
+    def _categorize_items(self, items: dict) -> dict:
+        """将「名称→数量」按分类整理，返回 {分类: [(名称, 数量)]}。"""
+        result = {cat: [] for cat in ITEM_CATEGORIES.keys()}
+        for item_name, count in items.items():
+            result[self._category_of(item_name)].append((item_name, count))
+        return {k: v for k, v in result.items() if v}
 
+    def _categorize_entries(self, entries: list) -> dict:
+        """把结构化条目按分类整理，返回 {分类: [条目]}；同名不同品质各自成条。"""
+        result = {cat: [] for cat in ITEM_CATEGORIES.keys()}
+        for entry in entries:
+            name = str(entry.get("name") or "")
+            if not name:
+                continue
+            result[self._category_of(name)].append(entry)
         return {k: v for k, v in result.items() if v}
 
     @player_required
