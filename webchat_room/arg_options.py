@@ -109,7 +109,6 @@ FIELD_PLANS: Dict[str, List[dict[str, Any]]] = {
     ],
     # ---- 钱庄 / 洞天 / 灵田 ----
     "购买洞天": [_f("type", "选择洞天类型", "land_types")],
-    "升级洞天": [_f("mode", "选择升级方式", "upgrade_modes")],
     "进阶洞天": [_f("type", "选择进阶目标", "land_advance_types")],
     "种植": [_f("herb", "选择灵草", "farm_herbs"), _f("count", "数量 / 1-20 / all（可选）", "", optional=True)],
     "铲除": [_f("slot", "选择要铲除的田块", "farm_slots")],
@@ -126,6 +125,62 @@ FIELD_PLANS: Dict[str, List[dict[str, Any]]] = {
     "我要修仙": [_f("type", "选择修炼职业", "cultivation_types")],
     "自动代理": [_f("task", "选择代理活动", "proxy_tasks")],
     "关闭代理": [_f("task", "选择要关闭的代理", "proxy_off_tasks")],
+    # ---- 生活职业 / 符箓 / 炼器 ----
+    "火候": [_f("choice", "选择火候", "fire_choices")],
+    "选择生活职业": [_f("skill", "选择生活职业", "life_skills")],
+    "使用符箓": [
+        _f("talisman", "选择要使用的符箓", "talisman_inventory"),
+        _f("count", "数量（默认 1）", "", optional=True),
+    ],
+    "炼器": [
+        _f("action", "选择炼器方式", "forge_actions"),
+        _f("slot", "选择已装备的部位", "wash_slots"),
+        _f("affix", "选择目标词条", "forge_affixes"),
+        _f("material", "选择妖兽材料", "monster_materials"),
+        _f("count", "材料数量 1-5（默认 1）", "", optional=True),
+    ],
+    # ---- 宗门扩展 ----
+    "宗门兑换": [_f("id", "选择宗门商品", "sect_shop_items")],
+    "升级建筑": [_f("name", "选择宗门建筑", "sect_buildings")],
+    "宗门命令": [
+        _f("target", "选择命令对象", "sect_members"),
+        _f("type", "选择命令类型", "sect_order_types"),
+        _f("value", "目标数量", ""),
+        _f("hours", "时限小时（1-72）", ""),
+    ],
+    "宗门命令撤销": [_f("id", "选择要撤销的命令", "sect_orders")],
+    "宗门宣战": [_f("name", "选择宣战宗门", "sect_names")],
+    # ---- 日常任务 / 周本 ----
+    "接取任务": [_f("level", "选择任务品阶", "task_levels")],
+    "放弃任务": [_f("id", "选择要放弃的任务", "active_tasks")],
+    "周本加入": [_f("id", "选择周本队伍", "weekly_runs")],
+    "重置周本CD": [_f("target", "选择玩家", "players")],
+    # ---- 洞天 / 灵田 / 灵兽 ----
+    "洞天装修": [_f("name", "选择家具", "furniture_names")],
+    "杂交": [
+        _f("a", "选择第一种灵草", "farm_herbs"),
+        _f("b", "选择第二种灵草", "farm_herbs"),
+    ],
+    "潜入洞府": [_f("target", "选择目标道友", "players")],
+    "劫镖": [_f("target", "选择目标道友", "players")],
+    "查验天魔": [_f("target", "选择查验对象", "players")],
+    "孵化灵兽": [_f("pet", "选择灵兽种类", "pet_types")],
+    "喂养灵兽": [_f("pet", "选择灵兽", "my_pets")],
+    "灵兽出战": [_f("pet", "选择出战灵兽", "my_pets")],
+    "灵兽改名": [_f("pet", "选择灵兽", "my_pets"), _f("name", "输入新名字", "")],
+    "放生灵兽": [_f("pet", "选择要放生的灵兽", "my_pets")],
+    "吞噬灵兽": [_f("pet", "选择要吞噬的灵兽", "my_pets")],
+    "灵兽吞噬": [
+        _f("pet", "选择灵兽", "my_pets"),
+        _f("item", "灵兽内丹（可留空）", "", optional=True),
+        _f("count", "数量（默认 1 / all）", "", optional=True),
+    ],
+    # ---- 社交 / 称号 / 仙灵 ----
+    "拜师": [_f("target", "选择师父", "players")],
+    "出师": [_f("target", "选择要出师的弟子", "disciples")],
+    "逐出师门": [_f("target", "选择要逐出的弟子", "disciples")],
+    "佩戴称号": [_f("title", "选择称号", "owned_titles")],
+    "仙灵结缘": [_f("name", "选择仙灵", "spirit_companions")],
 }
 
 
@@ -1135,6 +1190,397 @@ async def _src_proxy_off_tasks(plugin: "XiuXianPlugin", player: Any, field: dict
     return options, ""
 
 
+# ---------------------------------------------------------------------------
+# v7.0.2 新增：生活职业 / 符箓 / 炼器 / 宗门扩展 / 任务 / 灵兽 / 社交
+# ---------------------------------------------------------------------------
+
+
+async def _src_life_skills(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    from ..managers.life_skill_manager import LIFE_SKILLS
+
+    current = str(getattr(player, "life_skill", "") or "") if player else ""
+    options = []
+    for name, cfg in LIFE_SKILLS.items():
+        desc = str(cfg.get("desc", ""))
+        if name == current:
+            desc = "当前职业 · " + desc
+        options.append(_opt(name, name, desc, "生活职业"))
+    return options, ""
+
+
+async def _src_talisman_inventory(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    if not player:
+        return [], "尚未创建角色"
+    options: List[dict[str, str]] = []
+    try:
+        recipes = getattr(plugin.config_manager, "talisman_recipes_data", {}) or {}
+        for name, count in (player.get_storage_ring_items() or {}).items():
+            if _int(count) <= 0 or name not in recipes:
+                continue
+            recipe = recipes.get(name) or {}
+            desc = " · ".join(
+                str(x) for x in (recipe.get("rank"), recipe.get("category")) if x
+            )
+            options.append(_opt(name, name, f"x{_int(count)}" + (f" · {desc}" if desc else ""), "符箓"))
+    except Exception:
+        pass
+    if not options:
+        return [], "储物戒里没有可用符箓"
+    options.sort(key=_sort_key)
+    return options, ""
+
+
+async def _src_forge_actions(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    # 炼器入口目前只开放「妖兽材料定向洗练」，`洗练` 与 `定向洗练` 两个词都合法
+    return [
+        _opt("定向洗练（指定词条）", "洗练", "消耗洗练石 + 妖兽材料，指定部位与词条", "炼器方式"),
+    ], ""
+
+
+async def _src_wash_slots(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    if not player:
+        return [], "尚未创建角色"
+    options: List[dict[str, str]] = []
+    try:
+        from ..core.item_rules import ItemRules
+
+        slots = plugin.equipment_handler.equipment_manager.get_gear_slots(player)
+        for slot, (name, _inst) in slots.items():
+            if not name:
+                continue
+            label = ItemRules.SLOT_LABELS.get(slot, slot)
+            options.append(_opt(f"{label}：{name}", label, "已装备可洗练", "装备部位"))
+    except Exception:
+        pass
+    if not options:
+        return [], "当前没有已装备的装备，请先 /装备"
+    return options, ""
+
+
+async def _src_forge_affixes(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    options: List[dict[str, str]] = []
+    try:
+        for affix in plugin.forge_mgr.AFFIX_POOL:
+            options.append(
+                _opt(affix.get("name", ""), affix.get("name", ""), affix.get("desc", ""), "可指定词条")
+            )
+    except Exception:
+        pass
+    if not options:
+        return [], "词条池暂时不可用"
+    return options, ""
+
+
+async def _src_monster_materials(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    if not player:
+        return [], "尚未创建角色"
+    options: List[dict[str, str]] = []
+    try:
+        catalog = getattr(plugin.config_manager, "material_catalog", {}) or {}
+        ring = player.get_storage_ring_items() or {}
+        for name, count in ring.items():
+            if _int(count) <= 0:
+                continue
+            info = catalog.get(name) or {}
+            if info.get("category") != "妖兽":
+                continue
+            options.append(
+                _opt(name, name, f"x{_int(count)} · {info.get('tier', '')}", "储物戒·妖兽材料")
+            )
+    except Exception:
+        pass
+    if not options:
+        return [], "储物戒里没有妖兽材料，可先在 /坊市 或 /百宝阁 获取"
+    options.sort(key=_sort_key)
+    return options, ""
+
+
+async def _src_sect_shop_items(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    if not player:
+        return [], "尚未创建角色"
+    if not _int(getattr(player, "sect_id", 0)):
+        return [], "你还未加入宗门"
+    options: List[dict[str, str]] = []
+    try:
+        _shop_id, _ts, items = await plugin.sect_shop_handler._get_shop(player.sect_id, player)
+        for idx, item in enumerate(items or [], 1):
+            stock = _int(item.get("stock", 0))
+            if stock <= 0:
+                continue
+            options.append(
+                _opt(
+                    f"[{idx}] {item.get('name', '')}",
+                    idx,
+                    f"{_nm(item.get('price', 0))} 贡献 · {item.get('rank', '')} · 库存 {stock}",
+                    "宗门商店",
+                )
+            )
+    except Exception:
+        pass
+    if not options:
+        return [], "宗门商店当前没有可兑换商品"
+    return options, ""
+
+
+async def _src_sect_buildings(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    options: List[dict[str, str]] = []
+    try:
+        from ..managers.sect_manager import SECT_BUILDINGS
+
+        for name, cfg in SECT_BUILDINGS.items():
+            options.append(
+                _opt(
+                    name,
+                    name,
+                    f"{cfg.get('desc', '')} · 满级 Lv.{cfg.get('max_level', 0)}",
+                    "宗门建筑",
+                )
+            )
+    except Exception:
+        pass
+    if not options:
+        return [], "宗门建筑配置暂时不可用"
+    return options, ""
+
+
+async def _src_sect_order_types(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    return [
+        _opt("捐献灵石", "捐献", "要求成员向宗门捐献指定灵石", "命令类型"),
+        _opt("完成宗门任务", "宗门任务", "要求成员完成指定数量的宗门任务", "命令类型"),
+    ], ""
+
+
+async def _src_sect_orders(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    if not player:
+        return [], "尚未创建角色"
+    options: List[dict[str, str]] = []
+    try:
+        async with plugin.db.conn.execute(
+            "SELECT id, order_type, target_value, deadline FROM sect_orders "
+            "WHERE issuer_id = ? AND status = 'active' ORDER BY id DESC",
+            (player.user_id,),
+        ) as cursor:
+            rows = [dict(r) for r in await cursor.fetchall()]
+        import time as _time
+
+        now = int(_time.time())
+        type_names = {"donate": "捐献", "task": "宗门任务"}
+        for row in rows:
+            remain = max(0, _int(row.get("deadline")) - now)
+            options.append(
+                _opt(
+                    f"[#{row['id']}] {type_names.get(row.get('order_type'), row.get('order_type'))}"
+                    f" {_nm(row.get('target_value', 0))}",
+                    row["id"],
+                    f"剩 {remain // 3600} 小时",
+                    "进行中命令",
+                )
+            )
+    except Exception:
+        pass
+    if not options:
+        return [], "你当前没有进行中的宗门命令"
+    return options, ""
+
+
+async def _src_task_levels(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    return [
+        _opt("黄阶", "黄", "最低品阶", "任务品阶"),
+        _opt("玄阶", "玄", "中低品阶", "任务品阶"),
+        _opt("地阶", "地", "中高品阶", "任务品阶"),
+        _opt("天阶", "天", "最高品阶", "任务品阶"),
+        _opt("一键接取全部（all）", "all", "今日所有可接任务", "快捷"),
+    ], ""
+
+
+async def _src_active_tasks(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    if not player:
+        return [], "尚未创建角色"
+    options: List[dict[str, str]] = []
+    try:
+        rows = await plugin.db.ext.get_user_active_tasks(player.user_id)
+        for row in rows:
+            options.append(
+                _opt(
+                    f"[#{row.get('id')}] [{row.get('task_level')}阶] {row.get('title', '')}",
+                    row.get("id"),
+                    f"进度 {row.get('current_progress', 0)}/{row.get('target_count', 0)}",
+                    "进行中任务",
+                )
+            )
+    except Exception:
+        pass
+    if not options:
+        return [], "你当前没有进行中的日常任务"
+    return options, ""
+
+
+async def _src_weekly_runs(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    if not player:
+        return [], "尚未创建角色"
+    options: List[dict[str, str]] = []
+    try:
+        mgr = plugin.weekly_boss_mgr
+        cycle = await mgr.ensure_current_cycle()
+        rows = await mgr._fetchall(
+            "SELECT * FROM weekly_boss_runs WHERE cycle_id = ? AND status = 0 ORDER BY run_id DESC",
+            (cycle.get("cycle_id"),),
+        )
+        for row in rows:
+            options.append(
+                _opt(
+                    f"#{row.get('run_id')} {row.get('team_name', '')}",
+                    row.get("run_id"),
+                    f"{row.get('member_count', 0)}/{mgr.max_players} 人 · 等待加入",
+                    "周本队伍",
+                )
+            )
+    except Exception:
+        pass
+    if not options:
+        return [], "当前没有可加入的周本队伍，可先 /周本创建"
+    return options, ""
+
+
+async def _src_spirit_companions(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    try:
+        from ..managers.social_manager import SPIRIT_COMPANIONS
+    except Exception:
+        return [], "仙灵名录暂时不可用"
+    options = []
+    for name, cfg in SPIRIT_COMPANIONS.items():
+        options.append(
+            _opt(
+                f"{name}（{cfg.get('title', '')}）",
+                name,
+                f"{cfg.get('perk', '')} · {cfg.get('desc', '')}",
+                "仙灵",
+            )
+        )
+    return options, ""
+
+
+async def _src_owned_titles(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    if not player:
+        return [], "尚未创建角色"
+    options: List[dict[str, str]] = []
+    try:
+        from ..managers.title_data import TIERS
+
+        owned = plugin.title_mgr._load_owned(player)
+        worn = str(getattr(player, "title", "") or "")
+        stat_names = {
+            "atk": "物伤", "def": "物攻", "magic": "法伤",
+            "phys_def": "物防", "magic_def": "法防", "crit": "会心",
+            "lifesteal": "吸血", "exp": "修为", "luck": "气运",
+        }
+        for name in owned:
+            data = (plugin.title_mgr.titles or {}).get(name) or {}
+            tier_name = (TIERS.get(data.get("tier"), ("",)) or [""])[0]
+            stats = data.get("stats") or {}
+            detail = " · ".join(
+                f"{stat_names.get(key, key)}+{value}" for key, value in stats.items()
+            )
+            desc = " · ".join(x for x in (tier_name, detail) if x)
+            if name == worn:
+                desc = ("当前佩戴 · " + desc) if desc else "当前佩戴"
+            options.append(_opt(name, name, desc, "已拥有称号"))
+    except Exception:
+        pass
+    if not options:
+        return [], "你还没有任何称号"
+    options.sort(key=_sort_key)
+    if len(options) > MAX_OPTIONS:
+        options = options[:MAX_OPTIONS]
+    return options, ""
+
+
+async def _src_disciples(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    if not player:
+        return [], "尚未创建角色"
+    options: List[dict[str, str]] = []
+    try:
+        rows = await plugin.social_mgr.get_disciples(player.user_id)
+        for row in rows:
+            uid = str(row.get("disciple_id") or "")
+            if not uid:
+                continue
+            d = await _player(plugin, uid)
+            name = (getattr(d, "user_name", "") if d else "") or uid
+            realm = _realm(d, plugin) if d else "未知境界"
+            options.append(_opt(name, uid, f"{realm} · 在学弟子", "弟子"))
+    except Exception:
+        pass
+    if not options:
+        return [], "你当前没有在学弟子"
+    return options, ""
+
+
+async def _src_pet_types(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    options: List[dict[str, str]] = []
+    try:
+        base_types = getattr(plugin.pet_mgr, "BASE_PET_TYPES", {}) or {}
+        for name, cfg in base_types.items():
+            options.append(
+                _opt(
+                    f"{name}（{cfg.get('element', '')}）" if cfg.get("element") else name,
+                    name,
+                    str(cfg.get("desc", "")),
+                    "灵兽种类",
+                )
+            )
+    except Exception:
+        pass
+    if not options:
+        return [], "灵兽名录暂时不可用"
+    return options, ""
+
+
+async def _src_my_pets(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    if not player:
+        return [], "尚未创建角色"
+    options: List[dict[str, str]] = []
+    try:
+        pets = await plugin.pet_mgr.get_pets(player.user_id, apply_regen=False)
+        for idx, pet in enumerate(pets, 1):
+            name = str(pet.get("pet_name") or pet.get("pet_type") or f"灵兽{idx}")
+            main = "出战" if _int(pet.get("is_main")) == 1 else "待命"
+            options.append(
+                _opt(
+                    f"{idx}. {name}",
+                    idx,
+                    f"Lv.{pet.get('level', 1)} · {main}",
+                    "我的灵兽",
+                )
+            )
+    except Exception:
+        pass
+    if not options:
+        return [], "你还没有灵兽，请先 /孵化灵兽"
+    return options, ""
+
+
+async def _src_furniture_names(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    options: List[dict[str, str]] = []
+    try:
+        from ..managers.blessed_land_manager import FURNITURES
+
+        owned: List[str] = []
+        if player:
+            land = await plugin.blessed_land_mgr.get_user_blessed_land(player.user_id)
+            owned = list((land or {}).get("furniture_list") or [])
+        for name, cfg in FURNITURES.items():
+            desc = f"{_nm(cfg.get('price', 0))} 灵石 · {cfg.get('desc', '')}"
+            if name in owned:
+                desc = "已拥有 · " + desc
+            options.append(_opt(name, name, desc, "洞天家具"))
+    except Exception:
+        pass
+    if not options:
+        return [], "家具清单暂时不可用"
+    return options, ""
+
+
 SOURCES: Dict[str, Callable[..., Any]] = {
     "equip_items": _src_equip_items,
     "equipped_slots": _src_equipped_slots,
@@ -1178,6 +1624,26 @@ SOURCES: Dict[str, Callable[..., Any]] = {
     "spirit_roots": _src_spirit_roots,
     "proxy_tasks": _src_proxy_tasks,
     "proxy_off_tasks": _src_proxy_off_tasks,
+    # v7.0.2 扩展候选源
+    "life_skills": _src_life_skills,
+    "talisman_inventory": _src_talisman_inventory,
+    "forge_actions": _src_forge_actions,
+    "wash_slots": _src_wash_slots,
+    "forge_affixes": _src_forge_affixes,
+    "monster_materials": _src_monster_materials,
+    "sect_shop_items": _src_sect_shop_items,
+    "sect_buildings": _src_sect_buildings,
+    "sect_order_types": _src_sect_order_types,
+    "sect_orders": _src_sect_orders,
+    "task_levels": _src_task_levels,
+    "active_tasks": _src_active_tasks,
+    "weekly_runs": _src_weekly_runs,
+    "spirit_companions": _src_spirit_companions,
+    "owned_titles": _src_owned_titles,
+    "disciples": _src_disciples,
+    "pet_types": _src_pet_types,
+    "my_pets": _src_my_pets,
+    "furniture_names": _src_furniture_names,
 }
 
 

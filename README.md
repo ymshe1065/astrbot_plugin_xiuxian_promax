@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v7.0.1 (网页聊天室参数候选)
+# AstrBot 插件：模拟修仙 v7.0.2 (网页指令目录全覆盖)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v7.0.1-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v7.0.2-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,10 +31,10 @@
 
 ---
 
-> **插件版本:** v3.35.1 · **游戏版本:** v7.0.1 · **数据库:** v60
+> **插件版本:** v3.35.2 · **游戏版本:** v7.0.2 · **数据库:** v60
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
-一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，258 条帮助指令 / 258 条注册指令、17 个大系统、111 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
+一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，258 条注册指令（网页指令目录 246 个功能按钮 + 12 个别名）、17 个大系统、111 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
 
 ---
 
@@ -43,7 +43,22 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · v7.0.1（网页聊天室参数候选）</b></summary>
+<summary><b>本次更新 · v7.0.2（网页指令目录全覆盖）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 按钮目录补齐 | 网页聊天室指令目录由 9 组 70 个按钮扩展为 **15 组 246 个功能按钮**，与 `/修仙帮助` 的章节和 258 条注册指令对齐；其余 12 条为别名/旧名（如 `/世界boss`、`/追捕`、`/一键取回`），仍可直接在聊天框发送，不重复占按钮。 |
+| 新增分组 | 「丹道符箓」「灵兽」「社交与师徒」「飞升与活动」「管理工具」独立成组；宗门、洞天灵田、战斗竞技、秘境历练等分组内补齐全部子功能（宗门大比/战争/命令、押镖劫镖、周本全流程、灵眼、灵田施肥杂交、仙灵与师徒、魔潮天魔等）。 |
+| 参数候选扩展 | 新增 19 个真实候选源：生活职业、符箓背包、炼器方式/部位/词条/妖兽材料、宗门商店商品、宗门建筑、宗门命令与撤销、任务品阶与进行中任务、周本队伍、仙灵名录、已拥有称号、在学弟子、灵兽种类与我的灵兽、洞天家具。 |
+| 参数提示补齐 | 为所有必填参数按钮补齐 `ARG_SPEC` 提示与可照抄示例；可选参数（如 `/洗练`、`/制符`、`/升级洞天`、`/飞升`）保持一键直发，不再强制弹输入框。 |
+| 回归测试 | 新增 `tests/test_webchat_command_coverage.py`：校验注册指令全覆盖、按钮不重复、别名不占位、带参按钮必有参数规格、分组结构完整。 |
+| 数据库 | 无结构变更，仍为 **v60**，旧存档无需迁移。 |
+| 版本同步 | 插件版本 v3.35.2，游戏版本 v7.0.2，数据库 v60；`/修仙帮助` 版本号同步。 |
+
+</details>
+
+<details>
+<summary><b>v7.0.1（网页聊天室参数候选）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |

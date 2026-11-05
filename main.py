@@ -3236,8 +3236,11 @@ class XiuXianPlugin(Star):
                 if isinstance(comp, At):
                     target_id = str(comp.qq)
                     break
-        if not target_id and target.strip().lstrip("@").isdigit():
-            target_id = target.strip().lstrip("@")
+        raw_target = target.strip().lstrip("@")
+        # 网页聊天室等场景拿不到 At 组件：先按道号解析，解析不到再当作玩家 ID
+        if not target_id and raw_target:
+            found = await self.db.get_player_by_name(raw_target)
+            target_id = found.user_id if found else raw_target
         if not target_id:
             yield event.plain_result("❌ 请使用 @某人 指定你要劫镖的目标。")
             return
@@ -3725,8 +3728,11 @@ class XiuXianPlugin(Star):
                 if isinstance(comp, At):
                     master_id = str(comp.qq)
                     break
-        if not master_id and target.strip().lstrip("@").isdigit():
-            master_id = target.strip().lstrip("@")
+        raw_target = target.strip().lstrip("@")
+        # 网页聊天室等场景拿不到 At 组件：先按道号解析，解析不到再当作玩家 ID
+        if not master_id and raw_target:
+            found = await self.db.get_player_by_name(raw_target)
+            master_id = found.user_id if found else raw_target
         if not master_id:
             yield event.plain_result(
                 "🎓 拜师\n━━━━━━━━━━━━━━━\n"
@@ -3753,8 +3759,11 @@ class XiuXianPlugin(Star):
                 if isinstance(comp, At):
                     disciple_id = str(comp.qq)
                     break
-        if not disciple_id and target.strip().lstrip("@").isdigit():
-            disciple_id = target.strip().lstrip("@")
+        raw_target = target.strip().lstrip("@")
+        # 网页聊天室等场景拿不到 At 组件：先按道号解析，解析不到再当作玩家 ID
+        if not disciple_id and raw_target:
+            found = await self.db.get_player_by_name(raw_target)
+            disciple_id = found.user_id if found else raw_target
         if not disciple_id:
             yield event.plain_result("用法：/出师 @你的弟子（弟子需达筑基期）")
             return
@@ -3776,8 +3785,11 @@ class XiuXianPlugin(Star):
                 if isinstance(comp, At):
                     disciple_id = str(comp.qq)
                     break
-        if not disciple_id and target.strip().lstrip("@").isdigit():
-            disciple_id = target.strip().lstrip("@")
+        raw_target = target.strip().lstrip("@")
+        # 网页聊天室等场景拿不到 At 组件：先按道号解析，解析不到再当作玩家 ID
+        if not disciple_id and raw_target:
+            found = await self.db.get_player_by_name(raw_target)
+            disciple_id = found.user_id if found else raw_target
         if not disciple_id:
             yield event.plain_result("用法：/逐出师门 @你的弟子")
             return
