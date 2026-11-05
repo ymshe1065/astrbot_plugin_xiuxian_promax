@@ -113,6 +113,151 @@ def _action_label(cmd: str) -> str:
     return body or cmd
 
 
+# ---------- 仙市行情 ----------
+# 「 仙市 · 第 3 盘 · 午市 」 / 「 仙市 · 已收市 」
+_MARKET_HEAD = re.compile(r"仙市\s*[·・]\s*(?:第\s*(\d+)\s*盘|已收市)")
+# S01 丹阁        12.34   ▲1.20%   ▲3.40%   ▲0.80%
+_MARKET_ROW = re.compile(r"^([SF])(\d{2,3})\s+(.+)$")
+_MARKET_PCT = re.compile(r"^(?:[▲▼]\s*\d+(?:\.\d+)?%|—+)$")
+_MARKET_PRICE = re.compile(r"\d[\d,]*\.\d+")
+_MARKET_COLS = re.compile(r"[（(]\s*([^（）()]*?/[^（）()]*?)\s*[）)]")
+_MARKET_HINT = re.compile(r"^(当盘风声|下盘风声)(?:\s*[·・]\s*(\d{1,2}:\d{2}))?$")
+# 一天 16 盘（07:00–22:00），用来画盘中进度
+_MARKET_TICKS = 16
+
+
+def _market_row(line: str, group: str) -> dict[str, Any] | None:
+    """解析一行行情：代码 / 名称 / 价格 / 一排涨跌幅 / 风险星。"""
+    m = _MARKET_ROW.match(line)
+    if not m:
+        return None
+    rest = m.group(3)
+    stars = rest.count("★")
+    parts = rest.replace("★", " ").split()
+    pcts: list[str] = []
+    while parts and _MARKET_PCT.match(parts[-1]):
+        pcts.insert(0, parts.pop())
+    if not parts:
+        return None
+    price = ""
+    if _MARKET_PRICE.fullmatch(parts[-1]):
+        price = parts.pop()
+    name = " ".join(parts).strip()
+    if not price:
+        # 名称顶满列宽时 `_pad` 不再补空格，价格会粘在名字后面
+        mm = re.match(r"^(.*?)(\d[\d,]*\.\d+)$", name)
+        if mm:
+            name, price = mm.group(1).strip(), mm.group(2)
+    if not name or not price:
+        return None
+    return {
+        "code": f"{m.group(1)}{m.group(2)}",
+        "name": name,
+        "kind": "fund" if m.group(1) == "F" else "stock",
+        "group": group,
+        "price": price,
+        "pcts": pcts,
+        "risk": stars,
+    }
+
+
+def _parse_market_lines(lines: list[str], text: str) -> dict[str, Any] | None:
+    """把 `/仙市` 面板还原成「风声 + 行情表」。
+
+    文本是给 QQ 用空格拼出来的伪表格，换行即错位，网页端不必照抄：
+    拆成行数据后由前端按真表格排版，顺便带上分组与列名。
+    """
+    head: re.Match[str] | None = None
+    head_idx = 0
+    for i, ln in enumerate(lines[:4]):
+        found = _MARKET_HEAD.search(ln)
+        if found:
+            head, head_idx = found, i
+            break
+    if head is None:
+        return None
+
+    tick = int(head.group(1)) if head.group(1) else 0
+    closed = head.group(1) is None
+    title = lines[head_idx].strip().strip("「」【】 ").strip() or "仙市"
+    head_line = lines[head_idx].strip()
+
+    hints: list[dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
+    stock_cols: list[str] = []
+    status = ""
+    group = ""
+    cur_hint: dict[str, Any] | None = None
+
+    for ln in lines:
+        s = ln.strip()
+        if not s or _is_divider(s) or s == head_line:
+            continue
+        if s in ("股票", "基金"):
+            group = "stock" if s == "股票" else "fund"
+            cur_hint = None
+            continue
+        hm = _MARKET_HINT.match(s)
+        if hm:
+            cur_hint = {"label": hm.group(1), "hour": hm.group(2) or "", "title": "", "detail": ""}
+            hints.append(cur_hint)
+            continue
+        row = _market_row(s, group)
+        if row is not None:
+            rows.append(row)
+            cur_hint = None
+            continue
+        cm = _MARKET_COLS.search(s)
+        if cm and not stock_cols:
+            stock_cols = [c.strip() for c in re.split(r"[/／]", cm.group(1)) if c.strip()]
+            continue
+        if any(k in s for k in ("距收市", "距开盘", "闭市中")):
+            status = re.sub(r"\s+", " ", s.replace("\u3000", " "))
+            continue
+        if s.startswith("指令"):
+            continue
+        if cur_hint is not None:
+            if not cur_hint["title"]:
+                cur_hint["title"] = s.lstrip("·• ").strip()
+            elif not cur_hint["detail"]:
+                cur_hint["detail"] = s.strip()
+            continue
+
+    if not rows:
+        return None
+
+    digest = hashlib.md5(text.encode("utf-8", "ignore")).hexdigest()[:12]
+    return {
+        "id": f"mkt_{digest}",
+        "kind": "market",
+        "title": title,
+        "subtitle": status,
+        "footer": "",
+        "sections": [],
+        "items": [],
+        "actions": _extract_actions(text),
+        "market": {
+            "tick": tick,
+            "closed": closed,
+            "progress": 0.0 if closed else min(1.0, tick / _MARKET_TICKS),
+            "hints": hints,
+            "rows": rows,
+            "stock_cols": stock_cols or ["本盘", "今日", "近5盘"],
+            "fund_cols": ["本盘", "今日"],
+        },
+    }
+
+
+def parse_market(raw: str) -> dict[str, Any] | None:
+    """单独入口（测试与外部调用）；不是仙市面板时返回 None。"""
+    if not raw or not isinstance(raw, str) or "仙市" not in raw:
+        return None
+    text = raw.replace("\r\n", "\n").replace("\r", "\n")
+    if len(text) > _MAX_TEXT:
+        return None
+    return _parse_market_lines([ln.rstrip() for ln in text.split("\n")], text)
+
+
 def parse_text(raw: str) -> dict[str, Any] | None:
     """解析长文本回复；不值得结构化时返回 None。"""
     if not raw or not isinstance(raw, str):
@@ -127,6 +272,10 @@ def parse_text(raw: str) -> dict[str, Any] | None:
     lines = [ln.rstrip() for ln in text.split("\n")]
     while lines and not lines[-1].strip():
         lines.pop()
+    # 仙市面板优先：空格拼出来的伪表格交给前端按真表格排版
+    market = _parse_market_lines(lines, text)
+    if market is not None:
+        return market
     # 短消息（寒暄/动作反馈）不结构化，仍按气泡显示
     if len(lines) < 3:
         return None

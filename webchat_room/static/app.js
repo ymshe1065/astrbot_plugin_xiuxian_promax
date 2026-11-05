@@ -1266,6 +1266,11 @@
       body.appendChild(renderItems(card.items, card));
     }
 
+    // 1.5) 仙市行情：风声 + 行情表（不走通用分区渲染）
+    if (card.kind === "market" && card.market) {
+      body.appendChild(renderMarket(card.market));
+    }
+
     // 2) 分区型（带条目提升的分区单独走列表渲染）
     const sections = (card.sections || []).filter(
       (s) => (s.rows || []).length || (s.lines || []).length || (s.items || []).length
@@ -1372,6 +1377,128 @@
       wrap.appendChild(bar);
     }
     return wrap;
+  }
+
+  /* ---- 仙市行情：风声 + 真表格 ----
+   * 插件用空格拼出的伪表格一换行就错位，这里按行数据重新排版。 */
+  function marketPctClass(txt) {
+    if (/^▲/.test(txt)) return "up";
+    if (/^▼/.test(txt)) return "down";
+    return "flat";
+  }
+
+  function renderMarketTable(g, rows) {
+    const box = document.createElement("div");
+    box.className = "mk-block";
+    const name = document.createElement("div");
+    name.className = "mk-block-name";
+    name.textContent = g.name;
+    box.appendChild(name);
+
+    const table = document.createElement("table");
+    table.className = "mk-table";
+    // 固定列宽：名称列吃剩余空间，其余按内容给固定宽度才不会挤成均分
+    const widths = [44, 0, 64, ...g.cols.map(() => 58), ...(g.key === "fund" ? [36] : [])];
+    const colgroup = document.createElement("colgroup");
+    widths.forEach((w) => {
+      const col = document.createElement("col");
+      if (w) col.style.width = w + "px";
+      colgroup.appendChild(col);
+    });
+    table.appendChild(colgroup);
+
+    const thead = document.createElement("thead");
+    const htr = document.createElement("tr");
+    ["代码", "名称", g.price, ...g.cols, ...(g.key === "fund" ? ["风险"] : [])].forEach((t) => {
+      const th = document.createElement("th");
+      th.textContent = t;
+      htr.appendChild(th);
+    });
+    thead.appendChild(htr);
+    table.appendChild(thead);
+
+    const tbody = document.createElement("tbody");
+    rows.forEach((r) => {
+      const tr = document.createElement("tr");
+      tr.title = `${r.code} ${r.name} · 点击看行情`;
+      const code = document.createElement("td");
+      code.className = "mk-code";
+      code.textContent = r.code;
+      tr.appendChild(code);
+      const nm = document.createElement("td");
+      nm.className = "mk-name";
+      nm.textContent = r.name;
+      tr.appendChild(nm);
+      const price = document.createElement("td");
+      price.className = "mk-num";
+      price.textContent = r.price;
+      tr.appendChild(price);
+      g.cols.forEach((_, i) => {
+        const raw = (r.pcts || [])[i] || "—";
+        const td = document.createElement("td");
+        td.className = `mk-pct ${marketPctClass(raw)}`;
+        td.textContent = raw;
+        tr.appendChild(td);
+      });
+      if (g.key === "fund") {
+        const risk = document.createElement("td");
+        risk.className = "mk-risk";
+        risk.textContent = "★".repeat(r.risk || 0) || "—";
+        tr.appendChild(risk);
+      }
+      tr.addEventListener("click", () => openEntitySheet(r.code));
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    box.appendChild(table);
+    return box;
+  }
+
+  function renderMarket(m) {
+    const box = document.createElement("div");
+    box.className = "mk";
+
+    if (!m.closed && typeof m.progress === "number") {
+      const bar = document.createElement("div");
+      bar.className = "mk-progress";
+      const fill = document.createElement("i");
+      const pct = Math.round(Math.min(1, Math.max(0, m.progress)) * 100);
+      fill.style.width = `${pct}%`;
+      bar.appendChild(fill);
+      box.appendChild(bar);
+    }
+
+    (m.hints || []).forEach((h) => {
+      const row = document.createElement("div");
+      row.className = "mk-hint";
+      const label = document.createElement("div");
+      label.className = "mk-hint-label";
+      label.textContent = h.hour ? `${h.label} · ${h.hour}` : h.label;
+      row.appendChild(label);
+      if (h.title) {
+        const t = document.createElement("div");
+        t.className = "mk-hint-title";
+        t.innerHTML = valueHtml(h.title);
+        row.appendChild(t);
+      }
+      if (h.detail) {
+        const d = document.createElement("div");
+        d.className = "mk-hint-detail";
+        d.textContent = h.detail;
+        row.appendChild(d);
+      }
+      box.appendChild(row);
+    });
+
+    const groups = [
+      { key: "stock", name: "股票", price: "现价", cols: m.stock_cols || ["本盘", "今日", "近5盘"] },
+      { key: "fund", name: "基金", price: "净值", cols: m.fund_cols || ["本盘", "今日"] },
+    ];
+    groups.forEach((g) => {
+      const rows = (m.rows || []).filter((r) => r.kind === g.key);
+      if (rows.length) box.appendChild(renderMarketTable(g, rows));
+    });
+    return box;
   }
 
   function renderSection(sec, card) {

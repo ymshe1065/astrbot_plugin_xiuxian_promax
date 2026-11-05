@@ -30,6 +30,9 @@
   --bad: #a8412f;
   --bad-bg: #fbe9e5;
   --sys: #a1958a;
+  /* —— 行情涨跌（国内习惯：涨红跌绿） —— */
+  --mk-up: #b03a2b;
+  --mk-down: #23775a;
 
   /* —— RGB 三元组（供 rgba 叠加） —— */
   --edge-rgb: 138, 108, 66;
@@ -157,6 +160,8 @@ html[data-theme="fish"] {
   --card-title: #16233b;
   --card-text: #2c3c58;
   --card-mute: #64769a;
+  --mk-up: #c0392b;
+  --mk-down: #14795f;
   --link-ink: #2a49cf;
   --chip-ink: #29477d;
   --bot-ink: #14707d;
@@ -789,6 +794,66 @@ html[data-theme="fish"] .msg-row {
 .card-line.bullet { color: var(--card-ink); }
 /* 行首全角缩进的补充说明：小一号、弱一档，仍保留缩进 */
 .card-line.detail { font-size: 12.5px; color: var(--card-mute); }
+
+/* ---- 仙市行情：风声块 + 行情表 ---- */
+/* 容器宽度决定丢哪一列：右侧面板这类窄栏先舍「近5盘/风险」，再舍「今日」 */
+.mk { padding: 2px 0 4px; container-type: inline-size; }
+.mk-progress {
+  height: 3px; border-radius: 2px; margin: 1px 0 10px;
+  background: rgba(var(--edge-rgb), .16); overflow: hidden;
+}
+.mk-progress i {
+  display: block; height: 100%; border-radius: 2px;
+  background: linear-gradient(90deg, rgba(var(--accent-rgb), .5), var(--accent));
+}
+
+.mk-hint {
+  padding: 7px 10px 8px; margin-bottom: 7px; border-radius: 8px;
+  background: rgba(var(--edge-rgb), .055);
+  border-left: 2px solid rgba(var(--accent-rgb), .45);
+}
+.mk-hint-label { font-size: 11px; letter-spacing: .5px; color: var(--card-dim); margin-bottom: 3px; }
+.mk-hint-title { font-size: 13px; color: var(--card-ink); line-height: 1.55; }
+.mk-hint-detail { font-size: 12.5px; color: var(--card-mute); line-height: 1.55; margin-top: 2px; }
+
+.mk-block + .mk-block { margin-top: 10px; }
+.mk-block-name {
+  font-size: 11.5px; font-weight: 600; letter-spacing: 1px;
+  color: var(--card-dim); margin: 2px 0 3px;
+}
+.mk-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.mk-table th {
+  font-size: 10.5px; font-weight: 500; color: var(--card-dim);
+  text-align: right; padding: 2px 4px 4px; white-space: nowrap;
+  border-bottom: 1px solid rgba(var(--edge-rgb), .22);
+}
+.mk-table td {
+  font-size: 12.5px; color: var(--card-text);
+  padding: 6px 4px; text-align: right;
+  font-variant-numeric: tabular-nums;
+  border-bottom: 1px solid rgba(var(--edge-rgb), .13);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mk-table tbody tr { cursor: pointer; }
+.mk-table tbody tr:hover td { background: rgba(var(--edge-rgb), .07); }
+.mk-table tr:last-child td { border-bottom: none; }
+/* 代码/名称左对齐；名称自动吃剩余宽度 */
+.mk-table th:first-child, .mk-table td:first-child { text-align: left; }
+.mk-table th:nth-child(2), .mk-table td:nth-child(2) { text-align: left; }
+.mk-table td.mk-code { color: var(--card-dim); font-size: 11.5px; letter-spacing: .3px; }
+.mk-table td.mk-name { color: var(--card-ink); font-weight: 500; }
+.mk-table td.mk-num { color: var(--card-ink); font-weight: 600; }
+.mk-table td.up { color: var(--mk-up); }
+.mk-table td.down { color: var(--mk-down); }
+.mk-table td.flat { color: var(--card-dim); }
+.mk-table td.mk-risk { color: var(--gold); font-size: 10px; letter-spacing: -.5px; }
+
+@container (max-width: 290px) {
+  .mk-table th:last-child, .mk-table td:last-child { display: none; }
+}
+@container (max-width: 240px) {
+  .mk-table th:nth-last-child(2), .mk-table td:nth-last-child(2) { display: none; }
+}
 
 /* 导航型条目 */
 .bullet-list { display: flex; flex-direction: column; gap: 4px; }
