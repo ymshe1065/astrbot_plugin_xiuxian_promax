@@ -1172,6 +1172,33 @@ async def _src_spirit_roots(plugin: "XiuXianPlugin", player: Any, field: dict, v
     return [], "当前没有待选择的灵根，请先发送 /我要修仙 职业"
 
 
+async def _src_proxy_rifts(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    """自动代理秘境只能选当前境界可进入的本，避免选了也开不了。"""
+    if not player:
+        return [], "尚未创建角色"
+    options: List[dict[str, str]] = []
+    try:
+        level = _int(getattr(player, "level_index", 0))
+        for rift in await plugin.db.ext.get_all_rifts():
+            need = _int(getattr(rift, "required_level", 0))
+            if level < need:
+                continue
+            options.append(
+                _opt(
+                    f"{getattr(rift, 'rift_name', '秘境')}（ID:{getattr(rift, 'rift_id', '')}）",
+                    getattr(rift, "rift_id", ""),
+                    f"需境界 {need or '无限制'} · 到期自动结算并重新进入",
+                    "可代理秘境",
+                )
+            )
+    except Exception:
+        pass
+    if not options:
+        return [], "当前境界没有可代理的秘境"
+    options.sort(key=lambda x: _int(x["value"]))
+    return options, ""
+
+
 async def _src_proxy_tasks(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
     try:
         from ..managers.auto_proxy_manager import TASK_NAMES
@@ -1624,6 +1651,7 @@ SOURCES: Dict[str, Callable[..., Any]] = {
     "spirit_roots": _src_spirit_roots,
     "proxy_tasks": _src_proxy_tasks,
     "proxy_off_tasks": _src_proxy_off_tasks,
+    "proxy_rifts": _src_proxy_rifts,
     # v7.0.2 扩展候选源
     "life_skills": _src_life_skills,
     "talisman_inventory": _src_talisman_inventory,
@@ -1652,10 +1680,28 @@ SOURCES: Dict[str, Callable[..., Any]] = {
 # ---------------------------------------------------------------------------
 
 
-def plan_for(cmd: str) -> List[dict[str, Any]]:
+def plan_for(cmd: str, values: Optional[List[str]] = None) -> List[dict[str, Any]]:
     name = str(cmd or "").strip().lstrip("/").split()[0:1]
     key = name[0] if name else ""
-    return FIELD_PLANS.get(key, [])
+    plan = FIELD_PLANS.get(key, [])
+    first = str(values[0]).strip() if values else ""
+    # /自动代理、/关闭代理 的第二段取决于所选活动：
+    # 秘境必须补 ID，灵田/施肥可补格号或阈值，押镖/宗门任务无需补参。
+    if key == "自动代理" and first == "秘境":
+        plan = plan + [_f("rift", "选择要代理的秘境", "proxy_rifts")]
+    elif key == "自动代理" and first == "灵田":
+        plan = plan + [
+            _f("plots", "代理格号（留空 = 全部，如 1-3）", "", optional=True)
+        ]
+    elif key == "自动代理" and first == "施肥":
+        plan = plan + [
+            _f("threshold", "施肥阈值 10-100（留空 = 默认）", "", optional=True)
+        ]
+    elif key == "关闭代理" and first == "灵田":
+        plan = plan + [
+            _f("plots", "要停止的格号（留空 = 全部，如 1-3）", "", optional=True)
+        ]
+    return plan
 
 
 async def build_arg_options(
@@ -1668,8 +1714,8 @@ async def build_arg_options(
     cmd_name = str(cmd or "").strip().lstrip("/").split()[0:1]
     name = cmd_name[0] if cmd_name else ""
     spec = ARG_SPEC.get(name) or {}
-    plan = plan_for(name)
     values = [str(v) for v in (values or []) if str(v).strip()]
+    plan = plan_for(name, values)
 
     if not plan:
         return {

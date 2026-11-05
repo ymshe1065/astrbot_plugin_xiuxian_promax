@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v7.0.2 (网页指令目录全覆盖)
+# AstrBot 插件：模拟修仙 v7.0.3 (自动代理独立分组)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v7.0.2-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v7.0.3-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.35.2 · **游戏版本:** v7.0.2 · **数据库:** v60
+> **插件版本:** v3.35.3 · **游戏版本:** v7.0.3 · **数据库:** v60
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，258 条注册指令（网页指令目录 246 个功能按钮 + 12 个别名）、17 个大系统、111 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,23 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · v7.0.2（网页指令目录全覆盖）</b></summary>
+<summary><b>本次更新 · v7.0.3（自动代理独立分组）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 独立分组 | 网页指令目录新增「🤖 自动代理」分组（共 16 组 246 个按钮），把 `/自动代理`、`/关闭代理`、`/代理状态` 从「秘境历练」末尾移到独立分类，避免长列表里翻不到；三项指令位置调整，功能按钮总数不变。 |
+| 动态子参数 | `/自动代理` 选「秘境」后自动追加**秘境 ID**候选（仅列当前境界可进入的本）；选「灵田」可补代理格号（如 `1-3`），选「施肥」可补阈值（10-100），均为可选，留空即用默认值。 |
+| 关闭代理 | `/关闭代理` 选「灵田」后可补要停止的格号，留空表示全部；其余活动仍为一步关闭。 |
+| 参数提示 | `ARG_SPEC` 中 `/自动代理`、`/关闭代理` 的提示与示例同步更新（如 `秘境 1`、`灵田 1-3`），弹层步骤数随所选活动实时变化。 |
+| 帮助同步 | `/修仙帮助` 版本号更新至 v7.0.3，历练与任务一节补齐自动代理的动态参数说明。 |
+| 回归测试 | `tests/test_arg_options.py` 新增动态字段计划与弹层步骤断言（共 7 项）。 |
+| 数据库 | 无结构变更，仍为 **v60**，旧存档无需迁移。 |
+| 版本同步 | 插件版本 v3.35.3，游戏版本 v7.0.3，数据库 v60；`/修仙帮助` 版本号同步。 |
+
+</details>
+
+<details>
+<summary><b>v7.0.2（网页指令目录全覆盖）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |

@@ -78,6 +78,34 @@ class TestArgOptions(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(done["done"])
         self.assertIsNone(done["field"])
 
+    def test_proxy_plan_extends_by_activity(self):
+        self.assertEqual(len(arg_options.plan_for("/自动代理", [])), 1)
+        rift = arg_options.plan_for("/自动代理", ["秘境"])
+        self.assertEqual(rift[-1]["source"], "proxy_rifts")
+        self.assertFalse(rift[-1].get("optional"))
+        for activity in ("灵田", "施肥"):
+            plan = arg_options.plan_for("/自动代理", [activity])
+            self.assertEqual(len(plan), 2, activity)
+            self.assertTrue(plan[-1].get("optional"), activity)
+        self.assertEqual(len(arg_options.plan_for("/自动代理", ["押镖"])), 1)
+        off_farm = arg_options.plan_for("/关闭代理", ["灵田"])
+        self.assertEqual(len(off_farm), 2)
+        self.assertTrue(off_farm[-1].get("optional"))
+
+    async def test_proxy_dynamic_fields(self):
+        data = await arg_options.build_arg_options(
+            _FakePlugin(), "web_test", "/自动代理", ["秘境"]
+        )
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["index"], 1)
+        self.assertEqual(data["total"], 2)
+        self.assertEqual(data["field"]["key"], "rift")
+        farm = await arg_options.build_arg_options(
+            _FakePlugin(), "web_test", "/自动代理", ["灵田"]
+        )
+        self.assertEqual(farm["field"]["key"], "plots")
+        self.assertTrue(farm["field"]["optional"])
+
     async def test_unknown_command_falls_back_to_manual(self):
         data = await arg_options.build_arg_options(_FakePlugin(), "web_test", "/签到", [])
         self.assertFalse(data["ok"])

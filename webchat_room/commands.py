@@ -40,6 +40,16 @@ CATEGORIES: list[dict[str, Any]] = [
         ],
     },
     {
+        "id": "proxy",
+        "name": "自动代理",
+        "icon": "🤖",
+        "items": [
+            {"cmd": "/自动代理", "label": "开启自动代理", "arg": "代理活动", "tone": "gold"},
+            {"cmd": "/关闭代理", "label": "关闭自动代理", "arg": "任务类型"},
+            {"cmd": "/代理状态", "label": "代理状态", "panel": True},
+        ],
+    },
+    {
         "id": "gear",
         "name": "装备心法",
         "icon": "⚔",
@@ -190,9 +200,6 @@ CATEGORIES: list[dict[str, Any]] = [
             {"cmd": "/完成悬赏", "label": "完成悬赏"},
             {"cmd": "/放弃悬赏", "label": "放弃悬赏"},
             {"cmd": "/奇遇选择", "label": "奇遇选择", "arg": "选项编号"},
-            {"cmd": "/自动代理", "label": "开启自动代理", "arg": "押镖/宗门任务/灵田/秘境/施肥"},
-            {"cmd": "/关闭代理", "label": "关闭自动代理", "arg": "任务类型"},
-            {"cmd": "/代理状态", "label": "代理状态", "panel": True},
         ],
     },
     {
@@ -436,8 +443,8 @@ ARG_SPEC: dict[str, dict[str, Any]] = {
     "放弃任务": {"hint": "任务编号", "example": "1", "min": 1},
     "接取悬赏": {"hint": "悬赏编号", "example": "1", "min": 1},
     "奇遇选择": {"hint": "选项编号", "example": "1", "min": 1},
-    "自动代理": {"hint": "任务类型", "example": "押镖", "min": 1},
-    "关闭代理": {"hint": "任务类型", "example": "押镖", "min": 1},
+    "自动代理": {"hint": "活动（秘境需再选 ID，灵田/施肥可补格号或阈值）", "example": "秘境 1", "min": 1},
+    "关闭代理": {"hint": "任务类型（灵田可补格号）", "example": "灵田 1-3", "min": 1},
     "抢占灵眼": {"hint": "灵眼编号", "example": "1", "min": 1},
     # 宗门
     "加入宗门": {"hint": "宗门名", "example": "青云宗", "min": 1},
