@@ -152,5 +152,46 @@ class TestPavilionItemPromotion(unittest.TestCase):
 
 
 
+class TestSharedNote(unittest.TestCase):
+    """货架上每件都重复的结算说明，提到分区尾部只写一次。"""
+
+    def setUp(self):
+        self.mod = _load("card_sidecar_note", "webchat_room/card_sidecar.py")
+
+    RULE = "同属性加法叠加；每落后3级效率×80%，最低20%"
+
+    def _section(self, items_block):
+        lines = []
+        for block in items_block:
+            lines.extend(block)
+        section = {"name": "地品区", "rows": [], "lines": lines}
+        self.mod._promote_lines_to_items(section)
+        return section
+
+    def test_shared_line_moves_to_section_note(self):
+        section = self._section([
+            ["快击手套[金] - 1,000灵石 · 库存1", "描述: 出手极快。", self.RULE],
+            ["破甲手套[金] - 1,200灵石 · 库存1", "描述: 专破护甲。", self.RULE],
+        ])
+        self.assertEqual(section["note"], [self.RULE])
+        for it in section["items"]:
+            self.assertEqual(it["lines"], [])
+
+    def test_unique_line_stays_inline(self):
+        section = self._section([
+            ["快击手套[金] - 1,000灵石 · 库存1", "描述: 出手极快。", self.RULE],
+            ["破甲手套[金] - 1,200灵石 · 库存1", "描述: 专破护甲。", "仅此一件的说明", self.RULE],
+        ])
+        self.assertEqual(section["note"], [self.RULE])
+        self.assertEqual(section["items"][1]["lines"], ["仅此一件的说明"])
+
+    def test_single_item_keeps_its_lines(self):
+        section = self._section([
+            ["快击手套[金] - 1,000灵石 · 库存1", "描述: 出手极快。", self.RULE],
+        ])
+        self.assertNotIn("note", section)
+        self.assertEqual(section["items"][0]["lines"], [self.RULE])
+
+
 if __name__ == "__main__":
     unittest.main()

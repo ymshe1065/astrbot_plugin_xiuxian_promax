@@ -907,6 +907,12 @@ html[data-theme="fish"] .msg-row {
 .card-item-kv > div { display: flex; gap: 8px; font-size: 12.5px; line-height: 1.55; }
 .card-item-kv span { color: var(--card-dim); flex: 0 0 auto; min-width: 46px; }
 .card-item-kv b { color: var(--card-title); font-weight: 400; flex: 1; word-break: break-word; }
+/* 分区尾部共用说明（每件都重复的结算规则，只写一次） */
+.card-note {
+  padding: 7px 19px 3px; font-size: 11.5px; line-height: 1.6;
+  color: var(--card-mute); border-top: 1px dashed rgba(var(--edge-rgb), .18);
+}
+.card-note + .card-note { padding-top: 0; border-top: none; }
 .card-item.buyable { cursor: pointer; }
 .card-item.buyable:hover { background: rgba(var(--accent-rgb), .045); }
 .card-item.buyable .card-item-title { color: var(--link-ink); }

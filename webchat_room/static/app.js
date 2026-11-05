@@ -1273,7 +1273,9 @@
 
     // 2) 分区型（带条目提升的分区单独走列表渲染）
     const sections = (card.sections || []).filter(
-      (s) => (s.rows || []).length || (s.lines || []).length || (s.items || []).length
+      (s) =>
+        (s.rows || []).length || (s.lines || []).length ||
+        (s.items || []).length || (s.note || []).length
     );
     sections.forEach((sec) => {
       if (Array.isArray(sec.items) && sec.items.length) {
@@ -1286,6 +1288,13 @@
           box.appendChild(n);
         }
         box.appendChild(renderItems(sec.items));
+        // 每件都重复的说明已提到分区尾部，只写一次
+        (sec.note || []).forEach((ln) => {
+          const d = document.createElement("div");
+          d.className = "card-note";
+          d.textContent = ln;
+          box.appendChild(d);
+        });
         body.appendChild(box);
       } else {
         body.appendChild(renderSection(sec, card));

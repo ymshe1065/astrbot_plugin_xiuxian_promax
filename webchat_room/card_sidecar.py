@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from pathlib import Path
 from typing import Any
@@ -79,8 +80,38 @@ def _promote_lines_to_items(section: dict[str, Any]) -> None:
     if covered < max(3, len(lines) * 0.6):
         return
     _dedupe_rank(section, items)
+    _hoist_shared_lines(section, items)
     section["items"] = items
     section["lines"] = loose
+
+
+def _hoist_shared_lines(section: dict[str, Any], items: list[dict[str, Any]]) -> None:
+    """每件商品都写一遍的说明（如「同属性加法叠加…」）提到区块尾部，只留一份。
+
+    货架上的装备共用同一套结算规则，逐件重复既占高度又淹没差异；
+    只搬运在多数条目里字面完全相同的行，单件独有的说明仍留在条目内。
+    """
+    if len(items) < 2:
+        return
+    counts: dict[str, int] = {}
+    order: list[str] = []
+    for it in items:
+        for ln in it.get("lines") or []:
+            key = str(ln).strip()
+            if not key:
+                continue
+            if key not in counts:
+                counts[key] = 0
+                order.append(key)
+            counts[key] += 1
+    need = max(2, math.ceil(len(items) * 0.6))
+    shared = [k for k in order if counts[k] >= need]
+    if not shared:
+        return
+    drop = set(shared)
+    for it in items:
+        it["lines"] = [ln for ln in (it.get("lines") or []) if str(ln).strip() not in drop]
+    section["note"] = shared
 
 
 def _dedupe_rank(section: dict[str, Any], items: list[dict[str, Any]]) -> None:
