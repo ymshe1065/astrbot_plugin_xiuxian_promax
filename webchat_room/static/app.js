@@ -6,6 +6,15 @@
 (() => {
   "use strict";
 
+  // 启动时打印自身版本（= index.html 里的 ?v=mtime），便于判断「改了却没生效」
+  try {
+    const src = document.currentScript && document.currentScript.src;
+    const ver = src ? new URL(src).searchParams.get("v") : "";
+    console.info(`[webroom] app.js v=${ver || "?"} loaded`);
+  } catch (_) {
+    /* 老浏览器忽略 */
+  }
+
   const $ = (id) => document.getElementById(id);
   const isMobile = () => window.matchMedia("(max-width: 900px)").matches;
   const CACHE_KEY = "xiuxian_room_cache_v1";

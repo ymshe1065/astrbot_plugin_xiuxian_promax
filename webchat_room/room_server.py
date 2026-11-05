@@ -873,6 +873,8 @@ async def _api_health(_request: web.Request) -> web.Response:
             "ok": True,
             "adapter": _adapter is not None,
             "accounts": accounts_store.count(),
+            # 静态资源版本：排查「改完页面没变化」时，和浏览器里 app.js?v= 对一下即可
+            "asset": _asset_ver(),
             "rooms": {rid: online_players(rid) for rid in _rooms},
         }
     )
