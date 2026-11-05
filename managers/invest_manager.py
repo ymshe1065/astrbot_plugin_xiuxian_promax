@@ -163,7 +163,9 @@ MARKET_NEWS = (
 MARKET_NEWS_CHANCE = 0.10
 
 # 每盘真消息概率（其余为「盘面平静」氛围文案，不产生 bias）
-NEWS_CHANCE = 0.50
+# 注意：这是「掷骰概率」，实际真消息率还受下面的保底抬高
+# （保底 2 盘时约 47%，保底 3 盘时约 41%）
+NEWS_CHANCE = 0.33
 
 # 风声保底：连续这么多个「盘面平静」之后，下一盘必定是真消息
 CALM_STREAK_FORCE = 2
@@ -562,7 +564,7 @@ class InvestManager:
         return streak
 
     async def _ensure_news(self, day: int, slot: int):
-        """为 (day, slot) 生成风声。每盘 50% 概率是真消息（利好利空 1:1），
+        """为 (day, slot) 生成风声。每盘 33% 概率是真消息（利好利空 1:1），
         其余为「盘面平静」氛围文案（pattern='calm'，不产生 bias）。
         连续两盘平静后，这一盘必定出真消息（保底），避免长草期。
 

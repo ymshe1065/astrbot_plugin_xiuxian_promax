@@ -1,5 +1,5 @@
 # tests/test_invest_hint.py
-# 仙市风声：50% 概率、连续两盘平静后保底、/仙市 面板直接可见下盘风声
+# 仙市风声：33% 概率、连续两盘平静后保底、/仙市 面板直接可见下盘风声
 import os
 import sys
 import tempfile
@@ -44,9 +44,10 @@ FIXED_SECRET = "unit-test-secret-hint"
 
 
 class TestInvestHintConfig(unittest.TestCase):
-    def test_news_chance_is_half(self):
+    def test_news_chance_is_stable(self):
+        """风声掷骰概率与保底盘数：调低到 33% 后不再每盘都出真消息。"""
         mod = _imp("managers.invest_manager")
-        self.assertEqual(mod.NEWS_CHANCE, 0.5)
+        self.assertEqual(mod.NEWS_CHANCE, 0.33)
         self.assertEqual(mod.CALM_STREAK_FORCE, 2)
 
     def test_hint_lines_show_calm(self):
