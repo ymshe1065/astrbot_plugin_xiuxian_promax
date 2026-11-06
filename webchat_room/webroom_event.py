@@ -68,9 +68,11 @@ class WebroomMessageEvent(AstrMessageEvent):
     audience: str = "public"
     panel: bool = False
     username: str = ""
+    reply_channel: str = ""
 
     def _room_id(self) -> str:
-        return self.session.session_id
+        # 游戏会话固定主频道，实际播报落在玩家发消息时所在的仙界频道
+        return self.reply_channel or self.session.session_id
 
     def _player_id(self) -> str:
         try:

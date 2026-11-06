@@ -91,6 +91,7 @@ class WebroomAdapter(Platform):
         audience: str = "public",
         panel: bool = False,
         username: str = "",
+        channel_id: str = "",
     ) -> AstrBotMessage:
         abm = AstrBotMessage()
         abm.self_id = ADAPTER_NAME
@@ -112,6 +113,7 @@ class WebroomAdapter(Platform):
             "audience": audience,
             "panel": panel,
             "username": username,
+            "channel_id": channel_id or room_id,
         }
         abm.timestamp = int(time.time())
         return abm
@@ -130,6 +132,7 @@ class WebroomAdapter(Platform):
         event.audience = str(raw.get("audience") or ("self" if event.private else "public"))
         event.panel = bool(raw.get("panel"))
         event.username = str(raw.get("username") or "")
+        event.reply_channel = str(raw.get("channel_id") or message.session_id)
         return event
 
     async def on_player_message(
@@ -144,6 +147,7 @@ class WebroomAdapter(Platform):
         audience: str = "public",
         panel: bool = False,
         username: str = "",
+        channel_id: str = "",
     ) -> None:
         abm = await self.convert_message(
             room_id,
@@ -156,6 +160,7 @@ class WebroomAdapter(Platform):
             audience=audience,
             panel=panel,
             username=username,
+            channel_id=channel_id,
         )
         self.commit_event(self.create_event(abm))
 

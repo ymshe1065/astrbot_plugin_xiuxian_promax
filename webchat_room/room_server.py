@@ -17,7 +17,7 @@ import re
 import sqlite3
 import time
 import uuid
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -27,6 +27,7 @@ from astrbot.api import logger
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 
 from . import accounts as accounts_store
+from . import channels as channels_store
 from . import commands as commands_catalog
 from .arg_options import build_arg_options
 from .proxy_panel import proxy_snapshot, toggle_proxy
@@ -40,8 +41,8 @@ MEDIA_DIR = Path(get_astrbot_data_path()) / "webroom" / "imgs"
 AVATAR_DIR = Path(get_astrbot_data_path()) / "webroom" / "avatars"
 STATIC_DIR = Path(__file__).parent / "static"
 
-# 全服唯一聊天室：不做房间区分，所有账号都进这里
-ROOM_ID = "room_main"
+# 主频道「原始仙界」：注册/登录后的默认落点，也是旧版单房间的兼容 id
+ROOM_ID = channels_store.MAIN_CHANNEL_ID
 
 # 内置头像（static/img/avatars/<name>.svg），前端展示同一套
 PRESET_AVATARS = (
@@ -73,6 +74,11 @@ _site: web.TCPSite | None = None
 _RECENT_MSG_LIMIT = 800
 _recent_msgs: "OrderedDict[str, dict[str, Any]]" = OrderedDict()
 
+# 频道最近消息：切换频道时回放，避免切过去只有空白。
+# 同样只在内存里，不落库；私聊/看板回复不进入历史。
+_CHANNEL_HISTORY_LIMIT = 60
+_channel_history: dict[str, deque[dict[str, Any]]] = {}
+
 
 # ---------- 图片落盘 ----------
 
@@ -98,7 +104,33 @@ def set_plugin(plugin: "XiuXianPlugin") -> None:
 
 
 def room_name(room_id: str) -> str:
+    info = channels_store.get(room_id) if room_id else None
+    if info and info.get("name"):
+        return str(info["name"])
     return "修仙聊天室"
+
+
+def _remember_history(room_id: str, payload: dict[str, Any]) -> None:
+    """记录频道最近消息，供切换/重连时回放。"""
+    if not room_id or not payload:
+        return
+    box = _channel_history.setdefault(
+        room_id, deque(maxlen=_CHANNEL_HISTORY_LIMIT)
+    )
+    box.append(payload)
+
+
+def _history_for(room_id: str) -> list[dict[str, Any]]:
+    return list(_channel_history.get(room_id) or ())
+
+
+def _history_drop(room_id: str, msg_id: str) -> None:
+    box = _channel_history.get(room_id)
+    if not box or not msg_id:
+        return
+    kept = [item for item in box if item.get("msg_id") != msg_id]
+    box.clear()
+    box.extend(kept)
 
 
 def online_players(room_id: str) -> list[str]:
@@ -122,10 +154,10 @@ def online_detail(room_id: str) -> list[dict[str, Any]]:
 
 
 def room_members(room_id: str) -> list[dict[str, Any]]:
-    """房间成员名单：所有进过房间的账号，带在线/离线标记。
+    """房间成员名单：进过这个房间的账号，带在线/离线标记。
 
-    在线的人排前面，同段内按最近进过房间的时间倒序。断线不删人，
-    只是标记为离线——这样列表就是「进过房间的人」而不是「此刻在线的人」。
+    主频道显示所有进过聊天室的账号；私人仙界只显示已加入该仙界的成员，
+    避免把其他仙界的人列进来。在线的人排前面，同段内按最近进过房间的时间倒序。
     """
     conns = _rooms.get(room_id) or {}
     live: dict[str, dict[str, Any]] = {}
@@ -134,9 +166,15 @@ def room_members(room_id: str) -> list[dict[str, Any]]:
         if username and username not in live:
             live[username] = info
 
+    # 私人仙界按成员表过滤；主频道保持「所有来过的人」
+    if room_id == ROOM_ID:
+        base = accounts_store.list_room_members()
+    else:
+        base = channels_store.member_profiles(room_id)
+
     members: list[dict[str, Any]] = []
     listed: set[str] = set()
-    for m in accounts_store.list_room_members():
+    for m in base:
         username = m["username"]
         listed.add(username)
         info = live.get(username) or {}
@@ -153,6 +191,7 @@ def room_members(room_id: str) -> list[dict[str, Any]]:
     for username, info in live.items():
         if username in listed:
             continue
+        listed.add(username)
         members.append(
             {
                 "username": username,
@@ -201,6 +240,7 @@ async def start(host: str, port: int) -> None:
     # client_max_size 放宽到 4MB：头像以 base64 上传，默认 1MB 不够
     app = web.Application(middlewares=[_cache_control], client_max_size=4 * 1024 * 1024)
     accounts_store.init()
+    channels_store.init()
     app.router.add_get("/", _index)
     app.router.add_get("/api/commands", _api_commands)
     app.router.add_get("/api/arg_options", _api_arg_options)
@@ -222,6 +262,10 @@ async def start(host: str, port: int) -> None:
     app.router.add_get("/api/bind/status", _api_bind_status)
     app.router.add_post("/api/bind", _api_bind)
     app.router.add_post("/api/bind/unbind", _api_bind_unbind)
+    app.router.add_get("/api/channels", _api_channels)
+    app.router.add_post("/api/channels/create", _api_channels_create)
+    app.router.add_post("/api/channels/join", _api_channels_join)
+    app.router.add_post("/api/channels/update", _api_channels_update)
     app.router.add_get("/ws", _ws_handler)
     # 旧链接 /ws/{room} 仍然可用，房间号已忽略
     app.router.add_get("/ws/{room_id}", _ws_handler)
@@ -245,6 +289,7 @@ async def stop() -> None:
             await ws.close(code=1001, message=b"server shutdown")
     _rooms.clear()
     _recent_msgs.clear()
+    _channel_history.clear()
     if _runner is not None:
         await _runner.cleanup()
     _runner = None
@@ -280,16 +325,32 @@ def _find_ws(room_id: str, player_id: str) -> web.WebSocketResponse | None:
     return None
 
 
+def _find_ws_anywhere(room_id: str, player_id: str) -> tuple[str, web.WebSocketResponse] | None:
+    """优先在当前频道找，找不到再跨频道找。
+
+    玩家在等待看板回复时可能已经切到别的仙界，私密回复不应因此丢失。
+    """
+    ws = _find_ws(room_id, player_id)
+    if ws is not None:
+        return room_id, ws
+    for rid, conns in _rooms.items():
+        for other_ws, info in conns.items():
+            if info.get("player_id") == player_id:
+                return rid, other_ws
+    return None
+
+
 async def send_to_player(room_id: str, player_id: str, payload: dict[str, Any]) -> bool:
     """定向发送给某个玩家（看板/私聊回复）。玩家已离线则返回 False。"""
-    ws = _find_ws(room_id, player_id)
-    if ws is None:
+    found = _find_ws_anywhere(room_id, player_id)
+    if found is None:
         return False
+    rid, ws = found
     try:
         await ws.send_json(payload)
         return True
     except Exception:
-        _drop(room_id, ws)
+        _drop(rid, ws)
         return False
 
 
@@ -338,6 +399,7 @@ async def broadcast_bot_payload(room_id: str, payload: dict) -> None:
     ):
         if key in payload:
             out[key] = payload[key]
+    _remember_history(room_id, out)
     await broadcast(room_id, out)
 
 
@@ -368,22 +430,31 @@ def _summary_of(text: str, limit: int = 120) -> str:
     return str(text or "")[:limit]
 
 
-def _find_user_ws(room_id: str, username: str) -> list[web.WebSocketResponse]:
-    return [
-        ws
-        for ws, info in (_rooms.get(room_id) or {}).items()
-        if info.get("username") == username
-    ]
+def _find_user_ws(room_id: str, username: str) -> list[tuple[str, web.WebSocketResponse]]:
+    """返回 (频道, 连接) 列表；room_id 为空时搜索全部频道。"""
+    rooms = _rooms if not room_id else {room_id: _rooms.get(room_id) or {}}
+    found: list[tuple[str, web.WebSocketResponse]] = []
+    for rid, conns in rooms.items():
+        for ws, info in conns.items():
+            if info.get("username") == username:
+                found.append((rid, ws))
+    return found
 
 
 async def push_to_username(room_id: str, username: str, payload: dict[str, Any]) -> int:
-    """推送给某个网页账号的全部在线连接，返回成功数。"""
+    """推送给某个网页账号的全部在线连接，返回成功数。
+
+    优先在指定频道推送；找不到时跨频道兜底，保证切换仙界后个人消息不丢。
+    """
+    targets = _find_user_ws(room_id, username)
+    if not targets:
+        targets = _find_user_ws("", username)
     sent = 0
-    for ws in _find_user_ws(room_id, username):
+    for rid, ws in targets:
         if await send_to_ws(ws, payload):
             sent += 1
         else:
-            _drop(room_id, ws)
+            _drop(rid, ws)
     return sent
 
 
@@ -466,15 +537,14 @@ async def broadcast_broadcast(room_id: str, payload: dict) -> int:
     text = str(payload.get("text", "") or "")
     if not text:
         return 0
-    return await broadcast(
-        room_id,
-        {
-            "type": "broadcast",
-            "room": room_id,
-            "text": text,
-            "ts": int(time.time()),
-        },
-    )
+    out = {
+        "type": "broadcast",
+        "room": room_id,
+        "text": text,
+        "ts": int(time.time()),
+    }
+    _remember_history(room_id, out)
+    return await broadcast(room_id, out)
 
 
 def _drop(room_id: str, ws: web.WebSocketResponse) -> None:
@@ -483,6 +553,24 @@ def _drop(room_id: str, ws: web.WebSocketResponse) -> None:
         conns.pop(ws, None)
         if not conns:
             _rooms.pop(room_id, None)
+
+
+def _each_conn_of(username: str) -> list[tuple[str, web.WebSocketResponse, dict[str, Any]]]:
+    """返回某账号当前所有连接（正常只有一条，但保留多开兼容）。"""
+    out: list[tuple[str, web.WebSocketResponse, dict[str, Any]]] = []
+    for rid, conns in _rooms.items():
+        for ws, info in conns.items():
+            if info.get("username") == username:
+                out.append((rid, ws, info))
+    return out
+
+
+async def _broadcast_user_rooms(username: str, payload: dict[str, Any]) -> None:
+    """把系统提示/在线名单刷新到该账号所在的频道。"""
+    rooms = {rid for rid, _ws, _info in _each_conn_of(username)}
+    for rid in rooms:
+        await broadcast(rid, payload)
+        await broadcast_presence(rid)
 
 
 # ---------- 撤回 ----------
@@ -525,6 +613,7 @@ async def _handle_recall(
         return
 
     _recent_msgs.pop(msg_id, None)
+    _history_drop(room_id, msg_id)
     await broadcast(
         room_id,
         {
@@ -867,6 +956,87 @@ async def _api_notices_clear(request: web.Request) -> web.Response:
     )
 
 
+# ---------- 仙界（频道）API ----------
+
+
+async def _api_channels(request: web.Request) -> web.Response:
+    """我的仙界 + 仙界大厅（仅公开频道）。"""
+    user = _token_user(request)
+    if user is None:
+        return web.json_response({"ok": False, "error": "登录已过期"}, status=401)
+    username = user["username"]
+    query = str(request.query.get("q", "") or "")
+    try:
+        joined = channels_store.joined_channels(username)
+        hall = channels_store.public_channels(username, query=query)
+    except Exception as exc:
+        logger.exception("[webroom] 读取仙界列表失败")
+        return web.json_response({"ok": False, "error": f"读取失败：{exc}"}, status=500)
+    return web.json_response({"ok": True, "joined": joined, "public": hall})
+
+
+async def _api_channels_create(request: web.Request) -> web.Response:
+    user = _token_user(request)
+    if user is None:
+        return web.json_response({"ok": False, "error": "登录已过期"}, status=401)
+    body = await _read_json(request)
+    ok, msg, channel = channels_store.create(
+        user["username"],
+        name=str(body.get("name", "") or ""),
+        password=str(body.get("password", "") or ""),
+        is_public=bool(body.get("public", True)),
+    )
+    if not ok:
+        return web.json_response({"ok": False, "error": msg}, status=400)
+    return web.json_response({"ok": True, "message": msg, "channel": channel})
+
+
+async def _api_channels_join(request: web.Request) -> web.Response:
+    user = _token_user(request)
+    if user is None:
+        return web.json_response({"ok": False, "error": "登录已过期"}, status=401)
+    body = await _read_json(request)
+    identifier = str(
+        body.get("channel_id")
+        or body.get("uuid")
+        or body.get("name")
+        or ""
+    )
+    ok, msg, channel = channels_store.join(
+        user["username"],
+        identifier=identifier,
+        password=str(body.get("password", "") or ""),
+    )
+    if not ok:
+        return web.json_response({"ok": False, "error": msg}, status=400)
+    # 新成员计入频道名单（离线），让已在频道里的道友立刻看到
+    if channel:
+        await broadcast_presence(str(channel["id"]))
+    return web.json_response({"ok": True, "message": msg, "channel": channel})
+
+
+async def _api_channels_update(request: web.Request) -> web.Response:
+    user = _token_user(request)
+    if user is None:
+        return web.json_response({"ok": False, "error": "登录已过期"}, status=401)
+    body = await _read_json(request)
+    channel_id = str(body.get("channel_id", "") or "")
+    name = body.get("name") if "name" in body else None
+    is_public = bool(body.get("public")) if "public" in body else None
+    password = body.get("password") if "password" in body else None
+    ok, msg, channel = channels_store.update(
+        user["username"],
+        channel_id,
+        name=str(name) if name is not None else None,
+        is_public=is_public,
+        password=str(password) if password is not None else None,
+        clear_password=bool(body.get("clear_password")),
+    )
+    if not ok:
+        return web.json_response({"ok": False, "error": msg}, status=400)
+    return web.json_response({"ok": True, "message": msg, "channel": channel})
+
+
 async def _api_health(_request: web.Request) -> web.Response:
     return web.json_response(
         {
@@ -951,9 +1121,8 @@ def _player_save_of(key: str) -> dict | None:
 
 def _sync_player_key(username: str, key: str) -> None:
     """绑定/解绑后，已在线的连接立即换存档 key，不必刷新页面。"""
-    for info in (_rooms.get(ROOM_ID) or {}).values():
-        if info.get("username") == username:
-            info["player_id"] = key
+    for _rid, _ws, info in _each_conn_of(username):
+        info["player_id"] = key
 
 
 async def _api_register(request: web.Request) -> web.Response:
@@ -1013,18 +1182,16 @@ async def _api_nick(request: web.Request) -> web.Response:
         return web.json_response({"ok": False, "error": msg}, status=400)
     fresh = accounts_store.get(user["username"]) or user
     # 在线连接同步新昵称，之后发消息立即用新名字
-    for info in (_rooms.get(ROOM_ID) or {}).values():
-        if info.get("username") == user["username"]:
-            info["player_name"] = fresh["nick"]
-    await broadcast(
-        ROOM_ID,
+    for _rid, _ws, info in _each_conn_of(user["username"]):
+        info["player_name"] = fresh["nick"]
+    await _broadcast_user_rooms(
+        user["username"],
         {
             "type": "sys",
             "text": f"{user['nick']} 改名为 {fresh['nick']}",
             "ts": int(time.time()),
         },
     )
-    await broadcast_presence(ROOM_ID)
     return web.json_response(
         {
             "ok": True,
@@ -1196,10 +1363,12 @@ async def _api_avatar(request: web.Request) -> web.Response:
     if not ok:
         return web.json_response({"ok": False, "error": msg}, status=400)
 
-    for info in (_rooms.get(ROOM_ID) or {}).values():
-        if info.get("username") == user["username"]:
-            info["avatar"] = value
-    await broadcast_presence(ROOM_ID)
+    rooms: set[str] = set()
+    for rid, _ws, info in _each_conn_of(user["username"]):
+        info["avatar"] = value
+        rooms.add(rid)
+    for rid in rooms:
+        await broadcast_presence(rid)
     return web.json_response({"ok": True, "avatar": value})
 
 
@@ -1257,28 +1426,32 @@ async def _card_image(request: web.Request) -> web.Response:
 
 
 async def _ws_handler(request: web.Request) -> web.WebSocketResponse:
-    # 房间固定，登录态靠 token 判定
+    # 登录态靠 token 判定；channel 仅作重连恢复，服务端会再校验成员身份
     token = request.query.get("token", "").strip()
     username = accounts_store.parse_token(token)
     user = accounts_store.get(username) if username else None
     if user is None:
         return web.json_response({"error": "未登录或登录已过期"}, status=401)
 
+    requested = request.query.get("channel", "").strip()
     room_id = ROOM_ID
+    if requested and channels_store.can_access(requested, user["username"]):
+        room_id = requested
     player_name = user["nick"]
 
     ws = web.WebSocketResponse(heartbeat=30, max_msg_size=4 * 1024 * 1024)
     await ws.prepare(request)
 
     # 顶号：同一账号的旧连接踢下线（换设备/重开页面）
-    conns = _rooms.setdefault(room_id, {})
-    for old_ws, info in list(conns.items()):
-        if info.get("username") == user["username"]:
-            try:
-                await old_ws.close(code=4001, message=b"replaced by new login")
-            except Exception:
-                pass
-            _drop(room_id, old_ws)
+    old_rooms: set[str] = set()
+    for old_room, old_ws, _info in _each_conn_of(user["username"]):
+        try:
+            await old_ws.close(code=4001, message=b"replaced by new login")
+        except Exception:
+            pass
+        _drop(old_room, old_ws)
+        old_rooms.add(old_room)
+
     conns = _rooms.setdefault(room_id, {})
     # 绑定了 QQ 就用 QQ 号当存档 key（与旧机器人的 players.user_id 对齐）
     player_id = accounts_store.player_key_of(user)
@@ -1287,20 +1460,26 @@ async def _ws_handler(request: web.Request) -> web.WebSocketResponse:
         "player_name": player_name,
         "username": user["username"],
         "avatar": user.get("avatar", "") or "",
+        "room": room_id,
     }
     # 记一笔「来过房间」，离线后仍留在成员名单里
     accounts_store.touch_room(user["username"])
 
     await broadcast_presence(room_id)
+    for rid in old_rooms - {room_id}:
+        # 旧频道里这个人已经下线，名单需要刷新
+        await broadcast_presence(rid)
     await ws.send_json(
         {
             "type": "hello",
             "room": room_id,
+            "channel": channels_store.describe(room_id, user["username"]),
             "player": player_name,
             "nick": player_name,
             "username": user["username"],
             "avatar": user.get("avatar", "") or "",
             "online": room_members(room_id),
+            "history": _history_for(room_id),
             "prefetch": commands_catalog.PANEL_PREFETCH,
             "settings": accounts_store.get_settings(user["username"]),
             "unread": accounts_store.count_unread(user["username"]),
@@ -1315,13 +1494,66 @@ async def _ws_handler(request: web.Request) -> web.WebSocketResponse:
             elif msg.type == WSMsgType.ERROR:
                 break
     finally:
-        info = conns.get(ws)
-        _drop(room_id, ws)
-        if info:
-            # 离开不发系统提示，只刷新成员名单（人变成离线）
-            await broadcast_presence(room_id)
-            logger.info(f"[webroom] {info['player_name']} 离开 {room_id}")
+        info = None
+        # 连接可能已经切换过频道，按 info 记录的实际频道清理
+        for rid, conns_now in list(_rooms.items()):
+            if ws in conns_now:
+                info = conns_now.get(ws)
+                _drop(rid, ws)
+                if info:
+                    # 离开不发系统提示，只刷新成员名单（人变成离线）
+                    await broadcast_presence(rid)
+                    logger.info(f"[webroom] {info['player_name']} 离开 {rid}")
+                break
     return ws
+
+
+async def _handle_channel_switch(
+    room_id: str, ws: web.WebSocketResponse, data: dict[str, Any]
+) -> None:
+    """切换当前频道：只移动这条连接，并把目标频道最近消息回放给本人。"""
+    info = _rooms.get(room_id, {}).get(ws)
+    if info is None:
+        await send_to_ws(ws, {"type": "channel_error", "text": "尚未完成连接握手"})
+        return
+    target = str(
+        data.get("channel_id") or data.get("channel") or data.get("uuid") or ""
+    ).strip()
+    if not target:
+        await send_to_ws(ws, {"type": "channel_error", "text": "缺少频道 ID"})
+        return
+    username = str(info.get("username") or "")
+    if not channels_store.is_member(target, username):
+        await send_to_ws(
+            ws, {"type": "channel_error", "text": "尚未加入该仙界，请先在大厅或 UUID 入口加入"}
+        )
+        return
+    desc = channels_store.describe(target, username)
+    if desc is None:
+        await send_to_ws(ws, {"type": "channel_error", "text": "仙界不存在"})
+        return
+
+    if target != room_id:
+        # 先离开旧频道，再进入新频道；该连接在内存表里挪位置
+        _drop(room_id, ws)
+        _rooms.setdefault(target, {})[ws] = info
+        info["room"] = target
+        # 进出只刷新成员名单，不发「进入/离开房间」群提示
+        accounts_store.touch_room(username)
+        await broadcast_presence(room_id)
+
+    # 先给切换者回执+历史，再刷新新频道成员名单
+    await send_to_ws(
+        ws,
+        {
+            "type": "channel_switched",
+            "room": target,
+            "channel": desc,
+            "history": _history_for(target),
+        },
+    )
+    if target != room_id:
+        await broadcast_presence(target)
 
 
 async def _handle_client_message(room_id: str, ws: web.WebSocketResponse, raw: str) -> None:
@@ -1334,6 +1566,12 @@ async def _handle_client_message(room_id: str, ws: web.WebSocketResponse, raw: s
         await send_to_ws(ws, {"type": "error", "text": "消息格式错误"})
         return
 
+    # 连接可能切换过频道：以内存表中的实际频道为准，避免继续用旧 room_id
+    for rid, conns in _rooms.items():
+        if ws in conns:
+            room_id = str(conns[ws].get("room") or rid)
+            break
+
     action = data.get("action")
     if action == "ping":
         await send_to_ws(ws, {"type": "pong"})
@@ -1342,6 +1580,9 @@ async def _handle_client_message(room_id: str, ws: web.WebSocketResponse, raw: s
         await send_to_ws(
             ws, {"type": "presence", "players": room_members(room_id)}
         )
+        return
+    if action in ("switch", "switch_channel"):
+        await _handle_channel_switch(room_id, ws, data)
         return
     if action == "recall":
         await _handle_recall(room_id, ws, data)
@@ -1459,6 +1700,7 @@ async def _handle_client_message(room_id: str, ws: web.WebSocketResponse, raw: s
             "audience": audience,
             "ts": ts,
         }
+        _remember_history(room_id, payload)
         conns = _rooms.get(room_id, {})
         dead = []
         for client_ws in list(conns):
@@ -1481,7 +1723,9 @@ async def _handle_client_message(room_id: str, ws: web.WebSocketResponse, raw: s
 
     try:
         await _adapter.on_player_message(
-            room_id,
+            # AstrBot 会话仍固定主频道：白名单、自动代理与宗门事件等逻辑不变；
+            # 实际回复频道由 channel_id 单独传递，由事件层按频道广播。
+            ROOM_ID,
             info["player_id"],
             info["player_name"],
             text,
@@ -1491,6 +1735,7 @@ async def _handle_client_message(room_id: str, ws: web.WebSocketResponse, raw: s
             audience=audience,
             panel=panel,
             username=str(info.get("username") or ""),
+            channel_id=room_id,
         )
     except Exception:
         logger.exception("[webroom] 提交玩家消息到流水线失败")

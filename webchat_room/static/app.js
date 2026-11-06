@@ -25,7 +25,7 @@
   const FOLD_CHARS = 120;
   const FOLD_LINES = 7;
   const AUTH_KEY = "xiuxian_auth_v1";
-  const ROOM = "room_main"; // 全服唯一聊天室
+  const ROOM = "room_main"; // 主频道「原始仙界」
   const BOT_NAME = "大肥鱼"; // 机器人显示名（聊天气泡里的落款）
   // 内置头像，与后端 PRESET_AVATARS 保持一致
   const PRESETS = ["taiji", "sword", "cloud", "moon", "lotus", "bamboo", "cauldron", "fish", "star"];
@@ -39,6 +39,11 @@
     online: [],              // 在线名单 [{username, nick, avatar}]
     token: "",
     room: ROOM,
+    channel: null,           // 当前仙界 { id, name, public, owner, is_mine, uuid... }
+    channels: { joined: [], public: [] },
+    channelSearch: "",
+    channelManageId: "",     // 正在展开管理的仙界 id
+    switchPending: "",
     authMode: "login",
     seq: 0,
     pending: new Map(),      // req_id -> { cmd, panel }
@@ -180,16 +185,22 @@
     S.username = auth.username;
     S.me = auth.nick || auth.username;
     S.avatar = auth.avatar || "";
+    // 注册/登录后默认进入原始仙界，不继承上次页面留在的私人频道
     S.room = ROOM;
+    S.channel = null;
+    S.channels = { joined: [], public: [] };
+    S.channelManageId = "";
+    S.switchPending = "";
     $("loginErr").textContent = "";
     $("login").hidden = true;
     $("login").style.display = "none";
     $("app").hidden = false;
     updateMeUI();
+    updateChannelUI();
     connect();
     loadCatalog();
     setupViewport();
-    replayCache();
+    refreshChannelData();
   }
 
   function logout(msg = "") {
@@ -207,9 +218,14 @@
     S.online = [];
     S.token = "";
     S.connected = false;
+    S.channel = null;
+    S.channels = { joined: [], public: [] };
+    S.channelManageId = "";
+    S.switchPending = "";
     $("accMask").hidden = true;
     $("inboxMask").hidden = true;
     $("privacyMask").hidden = true;
+    $("channelMask").hidden = true;
     S.noticesOpen = false;
     S.notices = [];
     S.unreadNotices = 0;
@@ -570,7 +586,11 @@
     S.manualClose = false;
     setConn("连接中…", false);
     const proto = location.protocol === "https:" ? "wss" : "ws";
-    const url = `${proto}://${location.host}/ws?token=${encodeURIComponent(S.token)}`;
+    let url = `${proto}://${location.host}/ws?token=${encodeURIComponent(S.token)}`;
+    // 断线重连时尽量回到原频道；服务端会再次校验成员身份，不合法则落回原始仙界
+    if (S.channel && S.channel.id) {
+      url += `&channel=${encodeURIComponent(S.channel.id)}`;
+    }
     let ws;
     try {
       ws = new WebSocket(url);
@@ -721,6 +741,371 @@
     refreshOnline();
   }
 
+  /* ================= 仙界频道 ================= */
+  let channelPwdCtx = null;
+
+  function currentChannel() {
+    return S.channel || {
+      id: ROOM,
+      name: "原始仙界",
+      public: true,
+      owner: "",
+      is_main: true,
+      is_mine: false,
+      joined: true,
+      has_password: false,
+      member_count: 0,
+    };
+  }
+
+  function channelMeta(ch) {
+    if (!ch) return "";
+    if (ch.is_main) return "所有道友的公共仙界 · 世界播报落点";
+    const parts = [];
+    parts.push(ch.is_mine ? "我创建的" : (ch.owner ? `创建者 @${ch.owner}` : "私人仙界"));
+    parts.push(`${Number(ch.member_count || 0)} 人`);
+    parts.push(ch.public ? "大厅公开" : "私密 UUID");
+    parts.push(ch.has_password ? "有密码" : "无密码");
+    return parts.join(" · ");
+  }
+
+  function updateChannelUI() {
+    const ch = currentChannel();
+    const name = ch.name || "原始仙界";
+    if ($("channelBtnName")) $("channelBtnName").textContent = name;
+    if ($("channelCurrentName")) $("channelCurrentName").textContent = name;
+    if ($("channelCurrentBadge")) {
+      $("channelCurrentBadge").textContent = ch.is_main
+        ? "主频道"
+        : (ch.is_mine ? "我创建的" : "私人仙界");
+    }
+    if ($("channelCurrentMeta")) $("channelCurrentMeta").textContent = channelMeta(ch);
+
+    const uuidBox = $("channelCurrentUuid");
+    if (!uuidBox) return;
+    if (ch.is_mine && !ch.is_main && (ch.uuid || ch.id)) {
+      const uuid = ch.uuid || ch.id;
+      uuidBox.hidden = false;
+      uuidBox.innerHTML =
+        `<span>UUID</span><code title="${esc(uuid)}">${esc(uuid)}</code>` +
+        `<button class="channel-uuid-copy" type="button" data-copy="${esc(uuid)}">复制</button>`;
+    } else {
+      uuidBox.hidden = true;
+      uuidBox.innerHTML = "";
+    }
+  }
+
+  function resetChatView() {
+    const box = $("msgs");
+    if (!box) return;
+    if (contentRO) {
+      Array.from(box.children).forEach((el) => contentRO.unobserve(el));
+    }
+    box.innerHTML = "";
+    S.pending.clear();
+    const quick = $("quickOptions");
+    if (quick) quick.hidden = true;
+    pinnedBottom = true;
+    refreshScrollBottomBtn();
+  }
+
+  function applyChannelHistory(items) {
+    if (!Array.isArray(items) || !items.length) return;
+    items.forEach((m) => {
+      if (!m || !m.type) return;
+      if (m.type === "chat" && m.text) {
+        addChat(
+          m.from || "",
+          m.text,
+          m.ts,
+          m.username ? m.username === S.username : m.from === S.me,
+          m.avatar || "",
+          {
+            id: m.msg_id || "",
+            owner: m.username || "",
+            cmd: !!m.is_cmd,
+            audience: m.audience || "public",
+            persist: false,
+          }
+        );
+      } else if (m.type === "bot") {
+        addBotMessage(m, { persist: false });
+      } else if (m.type === "broadcast" && m.text) {
+        addSys("📢 " + String(m.text).replace(/\n/g, " "));
+      }
+    });
+    scrollBottom();
+  }
+
+  function applyChannelState(ch) {
+    if (!ch || !ch.id) return;
+    S.channel = ch;
+    S.room = ch.id;
+    updateChannelUI();
+  }
+
+  function channelById(id) {
+    return (S.channels.joined || []).find((c) => c && c.id === id) || null;
+  }
+
+  async function refreshChannelData() {
+    if (!S.token) return;
+    try {
+      const r = await fetch("/api/channels", {
+        headers: { Authorization: "Bearer " + S.token },
+      });
+      const d = await r.json().catch(() => null);
+      if (!d || !d.ok) return;
+      S.channels = {
+        joined: Array.isArray(d.joined) ? d.joined : [],
+        public: Array.isArray(d.public) ? d.public : [],
+      };
+      const cur = S.channels.joined.find((c) => c && c.id === S.room);
+      if (cur) applyChannelState(cur);
+      else updateChannelUI();
+      if (!$("channelMask").hidden) renderChannelMenu();
+    } catch {
+      /* 列表拉取失败不影响聊天 */
+    }
+  }
+
+  function openChannelMenu() {
+    S.channelManageId = "";
+    channelPwdCtx = null;
+    $("channelPwdForm").hidden = true;
+    $("channelCreateForm").hidden = true;
+    $("channelUuidForm").hidden = true;
+    $("channelCreateErr").textContent = "";
+    $("channelUuidErr").textContent = "";
+    $("channelMask").hidden = false;
+    renderChannelMenu();
+    refreshChannelData();
+  }
+
+  function closeChannelMenu() {
+    $("channelMask").hidden = true;
+    channelPwdCtx = null;
+    $("channelPwdForm").hidden = true;
+  }
+
+  function renderChannelMenu() {
+    const ch = currentChannel();
+    updateChannelUI();
+
+    const joined = S.channels.joined.length ? S.channels.joined : [ch];
+    $("channelJoinedList").innerHTML = joined.map((item) => {
+      const cur = item.id === S.room;
+      const manageOpen = !!item.is_mine && S.channelManageId === item.id;
+      return (
+        `<div class="chan-item${cur ? " on" : ""}">` +
+        `<button class="chan-main" type="button" data-chan-switch="${esc(item.id)}">` +
+        `<span class="chan-name">${esc(item.name || "未命名仙界")}</span>` +
+        `<span class="chan-meta">${esc(channelMeta(item))}</span>` +
+        `</button>` +
+        `<div class="chan-btns">` +
+        (cur
+          ? `<span class="chan-cur">当前</span>`
+          : `<button class="chan-btn" type="button" data-chan-switch="${esc(item.id)}">进入</button>`) +
+        (item.is_mine
+          ? `<button class="chan-btn" type="button" data-chan-manage="${esc(item.id)}">${manageOpen ? "收起" : "管理"}</button>`
+          : "") +
+        `</div></div>` +
+        (manageOpen ? channelManageHtml(item) : "")
+      );
+    }).join("") || `<div class="channel-empty">还没有加入任何仙界</div>`;
+
+    const query = S.channelSearch.trim().toLowerCase();
+    const hall = S.channels.public.filter(
+      (item) => !query || String(item.name || "").toLowerCase().includes(query)
+    );
+    $("channelHallList").innerHTML = hall.length
+      ? hall.map((item) => {
+          const joinedHere = (S.channels.joined || []).some((c) => c && c.id === item.id);
+          const cur = item.id === S.room;
+          return (
+            `<div class="chan-item${cur ? " on" : ""}">` +
+            `<div class="chan-main">` +
+            `<span class="chan-name">${esc(item.name || "未命名仙界")}</span>` +
+            `<span class="chan-meta">${esc(channelMeta(item))}</span>` +
+            `</div>` +
+            `<div class="chan-btns">` +
+            (cur
+              ? `<span class="chan-cur">当前</span>`
+              : joinedHere
+                ? `<button class="chan-btn" type="button" data-chan-switch="${esc(item.id)}">进入</button>`
+                : `<button class="chan-btn" type="button" data-chan-join="${esc(item.id)}" data-need-pwd="${item.has_password ? "1" : ""}">加入</button>`) +
+            `</div></div>`
+          );
+        }).join("")
+      : `<div class="channel-empty">${query ? "没有找到匹配的公开仙界" : "大厅里还没有公开仙界，去创建一个吧"}</div>`;
+
+    $("channelTip").textContent =
+      "公开仙界会出现在大厅，所有人可搜索加入；关闭公开后不再显示，需要把 UUID 和密码发给朋友才能进入。已加入的仙界不受影响，可随时切换。";
+  }
+
+  function channelManageHtml(ch) {
+    const uuid = ch.uuid || ch.id;
+    return (
+      `<div class="chan-manage" data-manage-box="${esc(ch.id)}">` +
+      `<label>仙界名称</label>` +
+      `<input type="text" data-mg-name maxlength="20" value="${esc(ch.name || "")}">` +
+      `<label>进入密码（留空表示不修改）</label>` +
+      `<input type="password" data-mg-pwd maxlength="64" autocomplete="new-password" placeholder="${ch.has_password ? "已有密码，填新密码可替换" : "当前未设密码"}">` +
+      `<label class="channel-check"><input type="checkbox" data-mg-public ${ch.public ? "checked" : ""}> 在大厅公开可见可搜索</label>` +
+      `<div class="channel-current-uuid"><span>UUID</span><code title="${esc(uuid)}">${esc(uuid)}</code>` +
+      `<button class="channel-uuid-copy" type="button" data-copy="${esc(uuid)}">复制</button></div>` +
+      `<div class="chan-manage-acts">` +
+      `<button class="chan-btn" type="button" data-mg-save="${esc(ch.id)}">保存设置</button>` +
+      `<button class="chan-btn danger" type="button" data-mg-clear="${esc(ch.id)}"${ch.has_password ? "" : " disabled"}>清除密码</button>` +
+      `</div></div>`
+    );
+  }
+
+  function requestSwitchChannel(id) {
+    if (!id || id === S.room) {
+      closeChannelMenu();
+      return;
+    }
+    if (!S.ws || S.ws.readyState !== 1) {
+      const ch = channelById(id);
+      if (ch) applyChannelState(ch);
+      closeChannelMenu();
+      toast("已切换，重连后进入该仙界");
+      return;
+    }
+    S.switchPending = id;
+    S.ws.send(JSON.stringify({ action: "switch", channel_id: id }));
+    toast("正在切换仙界…", 1200);
+  }
+
+  async function createChannel() {
+    const name = $("channelName").value.trim();
+    const password = $("channelPwd").value.trim();
+    const isPublic = $("channelPublic").checked;
+    const err = (msg) => ($("channelCreateErr").textContent = msg);
+    err("");
+    if (password && password.length < 4) return err("进入密码至少 4 位，或留空不设密码");
+
+    const btn = $("channelCreateOk");
+    btn.disabled = true;
+    try {
+      const r = await fetch("/api/channels/create", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + S.token,
+        },
+        body: JSON.stringify({ name, password, public: isPublic }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!d.ok) return err(d.error || "创建失败，稍后再试");
+      $("channelName").value = "";
+      $("channelPwd").value = "";
+      $("channelCreateForm").hidden = true;
+      toast(d.message || "仙界创建成功");
+      await refreshChannelData();
+      requestSwitchChannel(d.channel.id);
+    } catch {
+      err("网络异常，稍后再试");
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function joinChannel(identifier, password = "") {
+    const err = (msg) => {
+      $("channelUuidErr").textContent = msg;
+      $("channelPwdErr").textContent = msg;
+    };
+    err("");
+    try {
+      const r = await fetch("/api/channels/join", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + S.token,
+        },
+        body: JSON.stringify({ channel_id: identifier, password }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!d.ok) return err(d.error || "加入失败");
+      $("channelUuid").value = "";
+      $("channelUuidPwd").value = "";
+      $("channelUuidForm").hidden = true;
+      $("channelPwdForm").hidden = true;
+      channelPwdCtx = null;
+      toast(d.message || "已加入仙界");
+      await refreshChannelData();
+      requestSwitchChannel(d.channel.id);
+    } catch {
+      err("网络异常，稍后再试");
+    }
+  }
+
+  async function saveChannelManage(channelId, { clearPassword = false } = {}) {
+    const box = document.querySelector(`.chan-manage[data-manage-box="${channelId}"]`);
+    if (!box) return;
+    const name = box.querySelector("[data-mg-name]")?.value.trim() || "";
+    const pwdEl = box.querySelector("[data-mg-pwd]");
+    const pwd = pwdEl ? pwdEl.value.trim() : "";
+    const isPublic = !!box.querySelector("[data-mg-public]")?.checked;
+    const body = { channel_id: channelId, name, public: isPublic };
+    if (pwd) body.password = pwd;
+    if (clearPassword) body.clear_password = true;
+
+    try {
+      const r = await fetch("/api/channels/update", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + S.token,
+        },
+        body: JSON.stringify(body),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!d.ok) {
+        toast(d.error || "保存失败");
+        return;
+      }
+      toast(d.message || "仙界设置已更新");
+      if (d.channel && d.channel.id === S.room) applyChannelState(d.channel);
+      await refreshChannelData();
+    } catch {
+      toast("网络异常，保存失败");
+    }
+  }
+
+  function askJoinPassword(identifier) {
+    channelPwdCtx = { identifier };
+    $("channelPwdTitle").textContent = "该仙界需要密码";
+    $("channelPwdInput").value = "";
+    $("channelPwdErr").textContent = "";
+    $("channelPwdForm").hidden = false;
+    $("channelPwdInput").focus();
+  }
+
+  async function copyText(text) {
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      toast("UUID 已复制");
+    } catch {
+      const el = document.createElement("textarea");
+      el.value = text;
+      el.style.position = "fixed";
+      el.style.opacity = "0";
+      document.body.appendChild(el);
+      el.select();
+      try {
+        document.execCommand("copy");
+        toast("UUID 已复制");
+      } catch {
+        toast("复制失败，请手动选择 UUID");
+      }
+      el.remove();
+    }
+  }
+
   /* ================= 发送 ================= */
   function sendChat(text) {
     if (!S.ws || S.ws.readyState !== 1) {
@@ -825,9 +1210,17 @@
         applySettings(m.settings);
         setUnreadBadge(m.unread || 0);
         updateMeUI();
+        applyChannelState(m.channel);
         setOnline(m.online);
-        addSys(`欢迎 ${S.me} 来到修仙聊天室`);
+        resetChatView();
+        if (Array.isArray(m.history) && m.history.length) {
+          applyChannelHistory(m.history);
+        } else {
+          replayCache();
+        }
+        addSys(`欢迎 ${S.me} 来到「${currentChannel().name}」`);
         refreshOnline();
+        refreshChannelData();
         break;
       case "chat":
         // 用账号判断是不是自己，昵称可以随时改
@@ -850,6 +1243,25 @@
         break;
       case "recall_fail":
         addError(m.text || "撤回失败");
+        break;
+      case "channel_switched":
+        S.switchPending = "";
+        applyChannelState(m.channel);
+        resetChatView();
+        if (Array.isArray(m.history) && m.history.length) {
+          applyChannelHistory(m.history);
+        } else {
+          replayCache();
+        }
+        refreshOnline();
+        refreshChannelData();
+        closeChannelMenu();
+        toast(`已进入「${currentChannel().name}」`);
+        break;
+      case "channel_error":
+        S.switchPending = "";
+        addError(m.text || "切换仙界失败");
+        toast(m.text || "切换仙界失败");
         break;
       case "bot":
         if (m.req_id && S.pending.has(m.req_id)) S.pending.delete(m.req_id);
@@ -946,18 +1358,77 @@
   }
 
   /* ================= 渲染：消息 ================= */
-  function scrollBottom(force = false) {
+  // 用户视角是否停留在最新消息处：只有贴底时才自动跟随新消息
+  const FOLLOW_SLACK = 80;
+  let pinnedBottom = true;
+  let smoothScrollUntil = 0;
+  let contentRO = null;
+
+  function distanceToBottom(box = $("msgs")) {
+    if (!box) return 0;
+    return Math.max(0, box.scrollHeight - box.scrollTop - box.clientHeight);
+  }
+
+  /** 不在底部时显示小箭头；已贴底则隐藏 */
+  function refreshScrollBottomBtn() {
+    const btn = $("btnScrollBottom");
+    if (!btn) return;
+    btn.hidden = distanceToBottom() <= FOLLOW_SLACK;
+  }
+
+  /**
+   * 滚动到最新消息
+   * @param {{smooth?: boolean}} opts smooth=true 供按钮点击使用，自动跟随时保持瞬时以免动画排队
+   */
+  function scrollBottom(opts = {}) {
     const box = $("msgs");
-    const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 140;
-    if (force || nearBottom) box.scrollTop = box.scrollHeight;
+    if (!box) return;
+    pinnedBottom = true;
+    if (opts.smooth) {
+      smoothScrollUntil = Date.now() + 600;
+      box.scrollTo({ top: box.scrollHeight, behavior: "smooth" });
+      refreshScrollBottomBtn();
+      setTimeout(() => {
+        smoothScrollUntil = 0;
+        pinnedBottom = distanceToBottom(box) <= FOLLOW_SLACK;
+        refreshScrollBottomBtn();
+      }, 620);
+      return;
+    }
+    // 自动跟随要即时生效：临时关掉 CSS 平滑滚动，避免连续消息排队动画
+    const prev = box.style.scrollBehavior;
+    box.style.scrollBehavior = "auto";
+    box.scrollTop = box.scrollHeight;
+    box.style.scrollBehavior = prev;
+    refreshScrollBottomBtn();
+  }
+
+  /** 监听单条消息的高度变化（图片加载、卡片展开等），贴底时继续跟随 */
+  function watchContentSize(el) {
+    if (!el || typeof ResizeObserver === "undefined") return;
+    if (!contentRO) {
+      contentRO = new ResizeObserver(() => {
+        if (pinnedBottom) scrollBottom();
+        else refreshScrollBottomBtn();
+      });
+    }
+    contentRO.observe(el);
   }
 
   function appendNode(el, opts = {}) {
     const box = $("msgs");
+    const follow = pinnedBottom || !!opts.force;
     box.appendChild(el);
+    watchContentSize(el);
     el.querySelectorAll(".bubble.foldable").forEach(setFoldLabel); // 全折状态下新消息也显示「展开」
-    while (box.children.length > 240) box.firstChild.remove();
-    scrollBottom(opts.force);
+    while (box.children.length > 240) {
+      const first = box.firstChild;
+      if (contentRO) contentRO.unobserve(first);
+      first.remove();
+    }
+    // 新内容追加前用户就在底部才跟随；否则保持阅读位置并露出回到底部的箭头
+    if (follow) scrollBottom();
+    else refreshScrollBottomBtn();
   }
 
   function nextLocalMsgId() {
@@ -983,7 +1454,10 @@
 
   function removeChatMessage(id) {
     const row = findMsgRow(id);
-    if (row) row.remove();
+    if (row) {
+      if (contentRO) contentRO.unobserve(row);
+      row.remove();
+    }
     cacheDropMsg(id);
   }
 
@@ -1018,7 +1492,7 @@
       more.textContent = "⋯";
       more.addEventListener("click", (e) => {
         e.stopPropagation();
-        openMsgMenu(more, { id, text, local: !!meta.local });
+        openMsgMenu(more, { id, text, local: !!meta.local }, e);
       });
       col.appendChild(more);
       row.addEventListener("contextmenu", (e) => {
@@ -1048,7 +1522,7 @@
     const div = document.createElement("div");
     div.className = "msg error";
     div.textContent = text;
-    appendNode(div, { force: true });
+    appendNode(div);
   }
 
   function addBotText(text, ts = null, options = null, images = null, opts = {}) {
@@ -1070,9 +1544,11 @@
     row.innerHTML = `<div class="avatar bot-avatar"></div>`;
     row.appendChild(col);
     bindImages(row);
-    appendNode(row, { force: true });
+    appendNode(row);
     applyViewFilter();
-    if (text) cachePush({ t: "bot", text, ts, owner: opts.owner || "" });
+    if (text && opts.persist !== false) {
+      cachePush({ t: "bot", text, ts, owner: opts.owner || "" });
+    }
     if (options?.length) showQuickOptions(options);
   }
 
@@ -1081,14 +1557,15 @@
     div.className = "msg card-msg";
     div.dataset.owner = card.owner || owner || "";
     div.appendChild(renderCard(card));
-    appendNode(div, { force: true });
+    appendNode(div);
     applyViewFilter();
   }
 
-  function addBotMessage(m) {
+  function addBotMessage(m, opts = {}) {
     const cards = m.cards || [];
     const owner = m.actor || "";
     const audience = m.audience || "public";
+    const persist = opts.persist !== false;
 
     // 自动代理的公开消息：摘要常驻，详情按配置折叠
     if (m.channel === "auto" && m.title) {
@@ -1107,8 +1584,8 @@
         );
         return;
       }
-      if (m.text) addBotText(m.text, m.ts, m.options, null, { owner, audience });
-      (m.images || []).forEach((u) => u && addBotText("", m.ts, null, [u], { owner, audience }));
+      if (m.text) addBotText(m.text, m.ts, m.options, null, { owner, audience, persist });
+      (m.images || []).forEach((u) => u && addBotText("", m.ts, null, [u], { owner, audience, persist }));
       return;
     }
 
@@ -1119,6 +1596,7 @@
           forceFold: !!m.personal,
           owner,
           audience,
+          persist,
         });
       }
     } else if (m.text) {
@@ -1126,9 +1604,10 @@
         forceFold: !!m.personal,
         owner,
         audience,
+        persist,
       });
     }
-    (m.images || []).forEach((u) => u && addBotText("", m.ts, null, [u], { owner, audience }));
+    (m.images || []).forEach((u) => u && addBotText("", m.ts, null, [u], { owner, audience, persist }));
     if (m.options?.length) showQuickOptions(m.options);
   }
 
@@ -1184,17 +1663,18 @@
 
   function toggleFold(bubble, open) {
     const box = $("msgs");
-    const wasBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+    const stick = pinnedBottom || distanceToBottom(box) <= FOLLOW_SLACK;
     bubble.classList.toggle("folded", !open);
     bubble.classList.toggle("open", open);
     setFoldLabel(bubble);
-    if (wasBottom) box.scrollTop = box.scrollHeight; // 原本贴底就继续贴底
+    if (stick) scrollBottom(); // 原本贴底就继续贴底
+    else refreshScrollBottomBtn();
   }
 
   /** 全局折叠 / 展开；remember=false 用于启动时回放上次状态 */
   function applyFoldAll(on, remember = true) {
     const box = $("msgs");
-    const wasBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+    const stick = pinnedBottom || distanceToBottom(box) <= FOLLOW_SLACK;
     box.classList.toggle("fold-all", on);
     box.querySelectorAll(".bubble.foldable").forEach((b) => {
       b.classList.toggle("folded", on);
@@ -1205,7 +1685,8 @@
     btn.classList.toggle("on", on);
     btn.querySelector(".ft").textContent = on ? "展开" : "折叠";
     btn.title = on ? "展开全部消息" : "折叠全部消息";
-    if (wasBottom) box.scrollTop = box.scrollHeight;
+    if (stick) scrollBottom();
+    else refreshScrollBottomBtn();
     if (remember) {
       try {
         localStorage.setItem(FOLD_KEY, on ? "1" : "0");
@@ -1218,6 +1699,10 @@
   function bindImages(root) {
     root.querySelectorAll("img[data-full]").forEach((img) => {
       img.addEventListener("click", () => openViewer(img.dataset.full));
+      // 图片撑开高度后，仍停在底部就继续跟随
+      img.addEventListener("load", () => {
+        if (pinnedBottom) scrollBottom();
+      });
     });
   }
 
@@ -1741,7 +2226,7 @@
       const m = String(cnt).match(/x?\s*(\d+)/i);
       const total = m ? Number(m[1]) : 1;
       chip.innerHTML = `<span>${esc(name)}</span>` + (m ? `<span class="cnt">×${m[1]}</span>` : "");
-      chip.addEventListener("click", (e) => openItemMenu(name, e.currentTarget, total));
+      chip.addEventListener("click", (e) => openItemMenu(name, e.currentTarget, total, null, e));
       box.appendChild(chip);
     });
     return box;
@@ -1898,7 +2383,7 @@
         `<span class="ic-meta">${esc(meta)}</span>` +
         `<span class="ic-cnt">×${it.count}</span>`;
       b.title = [it.name, it.rank, it.quality, it.element].filter(Boolean).join(" · ");
-      b.addEventListener("click", (e) => openItemMenu(it.name, e.currentTarget, it.count, it));
+      b.addEventListener("click", (e) => openItemMenu(it.name, e.currentTarget, it.count, it, e));
       bindItemTip(b, it);
       return b;
     };
@@ -2007,14 +2492,23 @@
 
   /* ---- 浮层操作菜单 ---- */
   let ctxMenu = null;
+  let ctxMenuDocHandler = null;
+
   function closeCtxMenu() {
+    if (ctxMenuDocHandler) {
+      document.removeEventListener("click", ctxMenuDocHandler);
+      ctxMenuDocHandler = null;
+    }
     if (ctxMenu) {
       ctxMenu.remove();
       ctxMenu = null;
     }
   }
 
-  function mountCtxMenu(menu, anchor) {
+  function mountCtxMenu(menu, anchor, sourceEvent = null) {
+    // 旧菜单的 document 监听必须先注销，否则本次点击冒泡到 document 时
+    // 会把刚打开的新菜单立刻关掉（表现为第二次点击同一物品没反应）
+    closeCtxMenu();
     document.body.appendChild(menu);
     const r = anchor.getBoundingClientRect();
     const top = Math.min(r.bottom + 6, window.innerHeight - menu.offsetHeight - 12);
@@ -2022,7 +2516,14 @@
     menu.style.top = `${Math.max(10, top)}px`;
     menu.style.left = `${Math.max(10, left)}px`;
     ctxMenu = menu;
-    setTimeout(() => document.addEventListener("click", closeCtxMenu, { once: true }), 0);
+    // 同步注册监听，但忽略触发打开菜单的那一次点击；换成 setTimeout 延后注册
+    // 在部分移动端浏览器上可能早于同一次触摸产生的 click，仍会“打开即关闭”
+    ctxMenuDocHandler = (e) => {
+      if (e === sourceEvent) return;
+      if (menu.contains(e.target)) return;
+      closeCtxMenu();
+    };
+    document.addEventListener("click", ctxMenuDocHandler);
   }
 
   function ctxMenuButton(label, onClick) {
@@ -2055,7 +2556,7 @@
     return { kind: m[1], sub: String(m[2] || "").trim() };
   }
 
-  function openItemMenu(name, anchor, total = 1, entry = null) {
+  function openItemMenu(name, anchor, total = 1, entry = null, sourceEvent = null) {
     const rawLabel = String(name || "").trim();
     name = bareItemName(rawLabel);
     // 结构化条目直接给种类；老路径从展示名括号里猜
@@ -2072,7 +2573,7 @@
     ops.push(["回收", () => recycleItem(key, count)]);
     ops.push(["赠予", () => giftItem(key, count, isGear)]);
     ops.forEach(([label, onClick]) => menu.appendChild(ctxMenuButton(label, onClick)));
-    mountCtxMenu(menu, anchor);
+    mountCtxMenu(menu, anchor, sourceEvent);
   }
 
   /** 回收：弹窗选择数量，默认当前全部数量 */
@@ -2134,11 +2635,11 @@
   }
 
   /** 自己消息的操作菜单：撤回 / 撤回后带回输入框重新编辑 */
-  function openMsgMenu(anchor, msg) {
+  function openMsgMenu(anchor, msg, sourceEvent = null) {
     const menu = newCtxMenu();
     menu.appendChild(ctxMenuButton("撤回", () => recallMessage(msg, false)));
     menu.appendChild(ctxMenuButton("重新编辑", () => recallMessage(msg, true)));
-    mountCtxMenu(menu, anchor);
+    mountCtxMenu(menu, anchor, sourceEvent);
   }
 
   /* ================= 指令分发 ================= */
@@ -3280,6 +3781,99 @@
       if (e.target === $("onlineMask")) $("onlineMask").hidden = true;
     });
 
+    // 仙界频道
+    $("btnChannel").addEventListener("click", openChannelMenu);
+    $("channelClose").addEventListener("click", closeChannelMenu);
+    $("channelMask").addEventListener("click", (e) => {
+      if (e.target === $("channelMask")) closeChannelMenu();
+    });
+    $("channelCreateToggle").addEventListener("click", () => {
+      const form = $("channelCreateForm");
+      form.hidden = !form.hidden;
+      $("channelUuidForm").hidden = true;
+      $("channelPwdForm").hidden = true;
+      $("channelCreateErr").textContent = "";
+      if (!form.hidden) $("channelName").focus();
+    });
+    $("channelUuidToggle").addEventListener("click", () => {
+      const form = $("channelUuidForm");
+      form.hidden = !form.hidden;
+      $("channelCreateForm").hidden = true;
+      $("channelPwdForm").hidden = true;
+      $("channelUuidErr").textContent = "";
+      if (!form.hidden) $("channelUuid").focus();
+    });
+    $("channelCreateOk").addEventListener("click", createChannel);
+    $("channelUuidOk").addEventListener("click", () => {
+      const uuid = $("channelUuid").value.trim();
+      if (!uuid) {
+        $("channelUuidErr").textContent = "请先填写频道 UUID";
+        return;
+      }
+      joinChannel(uuid, $("channelUuidPwd").value.trim());
+    });
+    $("channelPwdCancel").addEventListener("click", () => {
+      channelPwdCtx = null;
+      $("channelPwdForm").hidden = true;
+    });
+    $("channelPwdOk").addEventListener("click", () => {
+      if (!channelPwdCtx) return;
+      const pwd = $("channelPwdInput").value.trim();
+      if (!pwd) {
+        $("channelPwdErr").textContent = "请输入进入密码";
+        return;
+      }
+      joinChannel(channelPwdCtx.identifier, pwd);
+    });
+    ["channelName", "channelPwd", "channelUuidPwd", "channelPwdInput"].forEach((id) => {
+      $(id).addEventListener("keydown", (e) => {
+        if (e.key !== "Enter") return;
+        e.preventDefault();
+        if (id === "channelName" || id === "channelPwd") createChannel();
+        else if (id === "channelUuidPwd") $("channelUuidOk").click();
+        else $("channelPwdOk").click();
+      });
+    });
+    $("channelSearch").addEventListener("input", (e) => {
+      S.channelSearch = e.target.value || "";
+      renderChannelMenu();
+    });
+    $("channelDrawer").addEventListener("click", (e) => {
+      const copy = e.target.closest("[data-copy]");
+      if (copy) {
+        copyText(copy.dataset.copy || "");
+        return;
+      }
+      const sw = e.target.closest("[data-chan-switch]");
+      if (sw) {
+        requestSwitchChannel(sw.dataset.chanSwitch || "");
+        return;
+      }
+      const join = e.target.closest("[data-chan-join]");
+      if (join) {
+        const id = join.dataset.chanJoin || "";
+        if (join.dataset.needPwd === "1") askJoinPassword(id);
+        else joinChannel(id);
+        return;
+      }
+      const manage = e.target.closest("[data-chan-manage]");
+      if (manage) {
+        const id = manage.dataset.chanManage || "";
+        S.channelManageId = S.channelManageId === id ? "" : id;
+        renderChannelMenu();
+        return;
+      }
+      const save = e.target.closest("[data-mg-save]");
+      if (save) {
+        saveChannelManage(save.dataset.mgSave || "");
+        return;
+      }
+      const clear = e.target.closest("[data-mg-clear]");
+      if (clear) {
+        saveChannelManage(clear.dataset.mgClear || "", { clearPassword: true });
+      }
+    });
+
     // 主题切换：顶栏快捷按钮 / 登录页小字 / 账号设置里的色块
     $("btnTheme").addEventListener("click", toggleTheme);
     $("loginTheme").addEventListener("click", toggleTheme);
@@ -3337,6 +3931,20 @@
       const bubble = btn.closest(".bubble");
       if (bubble) toggleFold(bubble, bubble.classList.contains("folded"));
     });
+
+    // 聊天流滚动：贴底时后续新消息自动跟随；离开底部则显示「回到最新」箭头
+    const msgs = $("msgs");
+    msgs.addEventListener(
+      "scroll",
+      () => {
+        if (Date.now() < smoothScrollUntil) return;
+        pinnedBottom = distanceToBottom(msgs) <= FOLLOW_SLACK;
+        refreshScrollBottomBtn();
+      },
+      { passive: true }
+    );
+    $("btnScrollBottom").addEventListener("click", () => scrollBottom({ smooth: true }));
+    refreshScrollBottomBtn();
 
     // 顶栏一键折叠 / 展开，状态记在本地
     $("btnFold").addEventListener("click", () => {
@@ -3447,6 +4055,7 @@
       if (!$("sheetMask").hidden) return closeSheet();
       if (!$("inboxMask").hidden) return closeInbox();
       if (!$("privacyMask").hidden) return ($("privacyMask").hidden = true);
+      if (!$("channelMask").hidden) return closeChannelMenu();
       if (!$("accMask").hidden) return ($("accMask").hidden = true);
       closeDrawer();
     });
@@ -3501,6 +4110,9 @@
     openOnline,
     openInbox,
     openPrivacy,
+    openChannelMenu,
+    getChannel: () => currentChannel(),
+    getChannels: () => S.channels,
     getSettings: () => S.settings,
   };
 })();

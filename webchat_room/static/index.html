@@ -61,6 +61,11 @@
   </div>
 
   <header class="topbar">
+    <button class="channel-btn" id="btnChannel" type="button" title="仙界频道 · 创建 / 加入 / 切换">
+      <span class="channel-btn-ico" aria-hidden="true">☰</span>
+      <span class="channel-btn-name" id="channelBtnName">原始仙界</span>
+      <span class="channel-btn-caret" aria-hidden="true">▾</span>
+    </button>
     <div class="brand">
       <span class="brand-mark" id="brandMark">☯</span>
       <span class="brand-text">修仙聊天室</span>
@@ -87,7 +92,15 @@
   <main class="main">
     <!-- 聊天区 -->
     <section class="chat-pane" id="chatPane">
-      <div class="msgs" id="msgs"></div>
+      <div class="msgs-wrap">
+        <div class="msgs" id="msgs"></div>
+        <button class="scroll-bottom" id="btnScrollBottom" type="button"
+                title="回到最新消息" aria-label="回到最新消息" hidden>
+          <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+            <path d="M5 8l5 5 5-5"></path>
+          </svg>
+        </button>
+      </div>
 
       <div class="quick-options" id="quickOptions" hidden></div>
 
@@ -284,6 +297,71 @@
 
     <button class="btn-primary" id="privacySave" type="button">保存配置</button>
     <div class="err" id="privacyErr"></div>
+  </div>
+</div>
+
+<!-- ============ 仙界频道 ============ -->
+<div class="sheet-mask" id="channelMask" hidden>
+  <div class="channel-drawer" id="channelDrawer">
+    <div class="sheet-head">
+      <span>仙界频道</span>
+      <button class="sheet-close" id="channelClose">×</button>
+    </div>
+
+    <div class="channel-current">
+      <div class="channel-current-top">
+        <span class="channel-current-kicker">当前所在</span>
+        <span class="channel-current-badge" id="channelCurrentBadge">主频道</span>
+      </div>
+      <div class="channel-current-name" id="channelCurrentName">原始仙界</div>
+      <div class="channel-current-meta" id="channelCurrentMeta">所有道友的公共仙界</div>
+      <div class="channel-current-uuid" id="channelCurrentUuid" hidden></div>
+    </div>
+
+    <div class="channel-act-row">
+      <button class="channel-act" id="channelCreateToggle" type="button">＋ 创建仙界</button>
+      <button class="channel-act" id="channelUuidToggle" type="button">🔑 UUID 加入</button>
+    </div>
+
+    <div class="channel-form" id="channelCreateForm" hidden>
+      <input id="channelName" maxlength="20" autocomplete="off" placeholder="仙界名称（留空自动命名 仙界N）">
+      <input id="channelPwd" type="password" maxlength="64" autocomplete="new-password" placeholder="进入密码（可选，至少 4 位）">
+      <label class="channel-check"><input type="checkbox" id="channelPublic" checked> 在大厅公开可见可搜索</label>
+      <button class="btn-primary" id="channelCreateOk" type="button">创 建 并 进 入</button>
+      <div class="channel-err" id="channelCreateErr"></div>
+    </div>
+
+    <div class="channel-form" id="channelUuidForm" hidden>
+      <input id="channelUuid" maxlength="64" autocomplete="off" placeholder="输入频道 UUID">
+      <input id="channelUuidPwd" type="password" maxlength="64" autocomplete="current-password" placeholder="进入密码（无密码留空）">
+      <button class="btn-primary" id="channelUuidOk" type="button">加 入</button>
+      <div class="channel-err" id="channelUuidErr"></div>
+    </div>
+
+    <div class="channel-form" id="channelPwdForm" hidden>
+      <div class="channel-form-title" id="channelPwdTitle">输入进入密码</div>
+      <input id="channelPwdInput" type="password" maxlength="64" autocomplete="current-password" placeholder="进入密码">
+      <div class="chan-manage-acts">
+        <button class="chan-btn" id="channelPwdCancel" type="button">取消</button>
+        <button class="chan-btn" id="channelPwdOk" type="button">确 认 加 入</button>
+      </div>
+      <div class="channel-err" id="channelPwdErr"></div>
+    </div>
+
+    <div class="channel-section-title">我的仙界 <em>已加入的可自由切换</em></div>
+    <div class="channel-list" id="channelJoinedList"></div>
+
+    <div class="channel-section-title">仙界大厅 <em>公开仙界可搜索</em></div>
+    <div class="search-field channel-search">
+      <input id="channelSearch" autocomplete="off" placeholder="搜索公开仙界名称">
+      <button class="search-clear" type="button" title="清除" aria-label="清除搜索内容">
+        <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+          <path d="M4.2 4.2l7.6 7.6M11.8 4.2l-7.6 7.6"></path>
+        </svg>
+      </button>
+    </div>
+    <div class="channel-list" id="channelHallList"></div>
+    <div class="channel-tip" id="channelTip"></div>
   </div>
 </div>
 

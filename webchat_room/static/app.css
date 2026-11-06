@@ -464,6 +464,26 @@ input:focus, textarea:focus { outline: none; }
 .room-tag:hover { background: rgba(var(--jade-rgb), .16); border-color: rgba(var(--jade-rgb), .34); }
 .room-tag:active { transform: scale(.97); }
 .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+
+/* 顶栏左上角：当前仙界入口 */
+.channel-btn {
+  display: flex; align-items: center; gap: 6px;
+  max-width: 170px; padding: 5px 9px;
+  border: 1px solid rgba(var(--accent-rgb), .2);
+  border-radius: 9px;
+  background: rgba(var(--accent-rgb), .07);
+  color: var(--title-ink);
+  font-family: inherit; font-size: 12.5px;
+  transition: background .15s, border-color .15s;
+}
+.channel-btn:hover { background: rgba(var(--accent-rgb), .13); border-color: rgba(var(--accent-rgb), .34); }
+.channel-btn:active { transform: scale(.98); }
+.channel-btn-ico { flex: 0 0 auto; font-size: 13px; color: var(--accent); }
+.channel-btn-name {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-weight: 600; letter-spacing: .3px;
+}
+.channel-btn-caret { flex: 0 0 auto; font-size: 10px; color: var(--dim); }
 .conn { font-size: 11.5px; color: var(--dim); }
 .conn.on { color: var(--ok); }
 .icon-btn {
@@ -511,15 +531,42 @@ input:focus, textarea:focus { outline: none; }
   background: var(--bg);
   position: relative;
 }
+.msgs-wrap {
+  flex: 1; min-height: 0;
+  position: relative;
+  display: flex;
+}
+.msgs-wrap > .msgs { flex: 1; }
 .msgs {
   flex: 1; min-height: 0;
   overflow-y: auto; overflow-x: hidden;
   padding: 16px 18px 8px;
   display: flex; flex-direction: column; gap: 10px;
   scroll-behavior: smooth;
+  overscroll-behavior: contain;
 }
 .msgs::-webkit-scrollbar { width: 6px; }
 .msgs::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: 3px; }
+
+/* 不在最底部时出现的小箭头：一键回到最新消息 */
+.scroll-bottom {
+  position: absolute; right: 16px; bottom: 14px;
+  width: 34px; height: 34px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--dim); background: var(--panel);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  z-index: 6;
+  transition: color .15s, background .15s, transform .15s;
+}
+.scroll-bottom[hidden] { display: none; }
+.scroll-bottom:hover { color: var(--link-ink); background: var(--accent-soft); }
+.scroll-bottom:active { transform: scale(.92); }
+.scroll-bottom svg {
+  width: 19px; height: 19px;
+  fill: none; stroke: currentColor; stroke-width: 2;
+  stroke-linecap: round; stroke-linejoin: round;
+}
 
 /* 消息：头像 + 昵称 + 气泡 */
 .msg-row {
@@ -1338,6 +1385,145 @@ html[data-theme="fish"] .msg-row {
 }
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 
+/* ================= 仙界频道抽屉 ================= */
+#channelMask { align-items: stretch; justify-content: flex-start; }
+.channel-drawer {
+  width: min(400px, 94vw);
+  height: 100dvh;
+  display: flex; flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  padding: 16px 18px calc(20px + var(--safe-b));
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  border-radius: 0 16px 16px 0;
+  box-shadow: var(--shadow-lg);
+  animation: slideRight .2s ease-out;
+}
+@keyframes slideRight { from { transform: translateX(-100%); } to { transform: none; } }
+.channel-current {
+  padding: 12px 13px; border-radius: 12px;
+  background: rgba(var(--accent-rgb), .06);
+  border: 1px solid rgba(var(--accent-rgb), .16);
+}
+.channel-current-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.channel-current-kicker { font-size: 11.5px; color: var(--dim); letter-spacing: .5px; }
+.channel-current-badge {
+  font-size: 10.5px; padding: 1px 8px; border-radius: 20px;
+  color: var(--jade); background: rgba(var(--jade-rgb), .1);
+  border: 1px solid rgba(var(--jade-rgb), .2);
+}
+.channel-current-name {
+  margin: 5px 0 2px;
+  font-family: var(--kai); font-size: 19px; font-weight: 600;
+  color: var(--title-ink); letter-spacing: .5px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.channel-current-meta { font-size: 12px; color: var(--dim); line-height: 1.5; }
+.channel-current-uuid {
+  display: flex; align-items: center; gap: 6px;
+  margin-top: 7px; padding-top: 7px;
+  border-top: 1px dashed var(--line);
+  font-size: 11.5px; color: var(--dim);
+}
+.channel-current-uuid code {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  font-size: 11px; color: var(--ink-2);
+  background: var(--code-bg); padding: 4px 7px; border-radius: 6px;
+}
+.channel-uuid-copy {
+  flex: 0 0 auto; font-size: 11px; padding: 3px 9px; border-radius: 7px;
+  color: var(--link-ink); background: rgba(var(--accent-rgb), .08);
+  border: 1px solid rgba(var(--accent-rgb), .2);
+}
+.channel-uuid-copy:hover { background: rgba(var(--accent-rgb), .16); }
+
+.channel-act-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.channel-act {
+  padding: 9px 8px; border-radius: 9px;
+  font-size: 12.5px; color: var(--link-ink);
+  background: var(--btn-bg);
+  border: 1px solid var(--line);
+  transition: background .15s, border-color .15s;
+}
+.channel-act:hover { background: var(--ghost-hover); border-color: var(--btn-line-hover); }
+.channel-form {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 11px; border-radius: 11px;
+  background: rgba(var(--accent-rgb), .03);
+  border: 1px dashed rgba(var(--accent-rgb), .24);
+}
+.channel-form input {
+  width: 100%; padding: 10px 12px; font-size: 14px;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--field);
+}
+.channel-form input:focus { border-color: var(--accent-2); }
+.channel-form .btn-primary { margin-top: 0; padding: 10px; font-size: 13px; }
+.channel-check {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 12.5px; color: var(--ink-2); cursor: pointer;
+}
+.channel-check input { width: auto; accent-color: var(--accent); }
+.channel-err { font-size: 11.5px; color: var(--bad); min-height: 1em; }
+.channel-form-title { font-size: 12.5px; color: var(--ink-2); }
+.chan-btn:disabled { opacity: .45; cursor: not-allowed; }
+
+.channel-section-title {
+  display: flex; align-items: baseline; justify-content: space-between;
+  margin: 4px 0 2px;
+  font-size: 12.5px; font-weight: 600; color: var(--ink-2);
+  letter-spacing: .5px;
+}
+.channel-section-title em { font-style: normal; font-size: 11px; font-weight: 400; color: var(--dim); }
+.channel-search { margin: 2px 0; }
+.channel-search input { font-size: 13.5px; }
+.channel-list { display: flex; flex-direction: column; gap: 6px; }
+.channel-empty { padding: 10px 4px; font-size: 12px; color: var(--dim); text-align: center; }
+.chan-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; border-radius: 10px;
+  background: var(--field);
+  border: 1px solid var(--line);
+}
+.chan-item.on { border-color: rgba(var(--accent-rgb), .42); background: rgba(var(--accent-rgb), .07); }
+.chan-main {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px;
+  text-align: left; background: none; color: inherit; font-family: inherit;
+}
+button.chan-main { cursor: pointer; }
+.chan-name {
+  font-size: 13.5px; font-weight: 600; color: var(--ink);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.chan-meta {
+  font-size: 11px; color: var(--dim); line-height: 1.4;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.chan-btns { display: flex; align-items: center; gap: 5px; flex: 0 0 auto; }
+.chan-btn {
+  font-size: 11.5px; padding: 4px 9px; border-radius: 7px;
+  color: var(--link-ink); background: rgba(var(--accent-rgb), .07);
+  border: 1px solid rgba(var(--accent-rgb), .18);
+}
+.chan-btn:hover { background: rgba(var(--accent-rgb), .14); }
+.chan-cur { font-size: 11px; color: var(--jade); padding: 3px 7px; }
+.chan-manage {
+  display: flex; flex-direction: column; gap: 7px;
+  padding: 10px; margin-top: -2px;
+  border: 1px solid rgba(var(--accent-rgb), .24);
+  border-top: none; border-radius: 0 0 10px 10px;
+  background: rgba(var(--accent-rgb), .035);
+}
+.chan-manage label { font-size: 11.5px; color: var(--dim); }
+.chan-manage input[type="text"], .chan-manage input[type="password"] {
+  width: 100%; padding: 8px 10px; font-size: 13px;
+  border: 1px solid var(--line); border-radius: 7px; background: var(--field);
+}
+.chan-manage-acts { display: flex; gap: 6px; }
+.chan-manage-acts .chan-btn { flex: 1; text-align: center; }
+.chan-manage-acts .danger { color: var(--bad); border-color: rgba(168, 65, 47, .28); }
+.channel-tip { font-size: 11.5px; color: var(--dim); line-height: 1.55; padding: 2px 2px 6px; }
+
 /* ================= 弹层 ================= */
 .sheet-mask {
   position: fixed; inset: 0; background: rgba(var(--veil-rgb), .35);
@@ -1697,7 +1883,11 @@ html[data-theme="fish"] .msg-row {
   .topbar { padding: 9px 13px; gap: 7px; }
   /* 移动端顶栏寸土寸金：连接状态让位给主题/账号按钮 */
   .conn { display: none; }
-  .brand-text { font-size: 14.5px; letter-spacing: 1.5px; }
+  /* 顶栏左侧优先给仙界入口，品牌只留印记 */
+  .brand-text { display: none; }
+  .channel-btn { max-width: 122px; padding: 4px 7px; font-size: 12px; gap: 4px; }
+  .channel-btn-ico { display: none; }
+  .channel-drawer { width: 100vw; max-width: 100vw; border-radius: 0; }
   .only-desktop { display: none; }
   /* 移动端顶栏窄：账号只留头像圆，点开再改昵称 */
   .me-btn { padding: 2px; background: none; max-width: none; }
