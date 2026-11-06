@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v7.1.0 (网页仙界频道系统)
+# AstrBot 插件：模拟修仙 v7.1.1 (网页命令参数弹层补全)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v7.1.0-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v7.1.1-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.36.0 · **游戏版本:** v7.1.0 · **数据库:** v60
+> **插件版本:** v3.36.1 · **游戏版本:** v7.1.1 · **数据库:** v60
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，256 条注册指令（网页指令目录 245 个功能按钮 + 11 个别名）、17 个大系统、111 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,25 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · v7.1.0（网页仙界频道系统）</b></summary>
+<summary><b>本次更新 · v7.1.1（网页命令参数弹层补全）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 丹阁分区 | `/丹阁` 按钮不再直接发送裸命令，点击后弹出分区列表（丹药 / 丹方 / 突破丹方 / 材料），选中后自动补参并发送。 |
+| 符阁分区 | `/符阁` 同样改为弹层选择（符箓 / 符图），避免只看到分区说明而买不到东西。 |
+| 行情补参 | `/行情` 按钮补上股票与基金代码候选，点选后自动填入并查询，不再收到“请输入标的代码”。 |
+| 仓库批量 | `/升级仓库`、`/一键转移`、`/一键取出` 增加次数 / 分类弹层；留空仍按原来的默认行为执行。 |
+| 洞天与洗练 | `/升级洞天` 提供 1 级 / 连升 / 升到目标 / 满级选项；`/洗练` 提供已装备部位候选。 |
+| 前端兜底 | 指令网格现在同时检查按钮的 `arg` 与后端参数规格，只要登记过参数就会弹层，避免以后新增指令再漏掉按钮参数。 |
+| 可选参数 | 参数弹层支持 `min: 0`，可选字段不选直接点发送仍执行原默认行为。 |
+| 回归测试 | `tests/test_arg_options.py` 新增丹阁 / 符阁分区、行情代码及可选字段用例。 |
+| 数据库 | 游戏主库无结构变更，仍为 **v60**。 |
+| 版本同步 | 插件版本 v3.36.1，游戏版本 v7.1.1，数据库 v60；`/修仙帮助` 版本号同步。 |
+
+</details>
+
+<details>
+<summary><b>v7.1.0（网页仙界频道系统）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |

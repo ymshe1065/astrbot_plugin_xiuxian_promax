@@ -20,6 +20,14 @@ _ITEM_KV = re.compile(r"^([^\s：:]{1,14})\s*[：:]\s*(.+)$")
 # 商品首行必须带价格或库存数字：`聚灵散 - 246灵石(8.2折) · 库存3`
 # 只看「 - 」会把「等级 1 - 10」这类普通行误判成商品
 _ITEM_PRICE = re.compile(r"\d[\d,]*\s*灵石|库存\s*\d+")
+# 旧卡片把五行 / 常驻标签拼在物品名后面（`玄铁右戒[金]`），这些标签不属于名字，
+# 留着会让网页端复制出的 /购买 参数永远匹配不到货架条目。
+_DISPLAY_SUFFIX = re.compile(r"(?:\s*\[(?:金|木|水|火|土|常驻)\])+\s*$")
+
+
+def _strip_display_suffix(text: str) -> str:
+    """去掉物品名末尾的展示标签（五行 / 常驻），返回可购买的名称。"""
+    return _DISPLAY_SUFFIX.sub("", str(text or "").strip()).strip()
 
 
 def _looks_like_item_head(line: str) -> bool:
@@ -62,7 +70,8 @@ def _promote_lines_to_items(section: dict[str, Any]) -> None:
             title, meta = ln, ""
             if " - " in ln:
                 title, meta = ln.split(" - ", 1)
-            cur = {"title": title.strip(), "meta": meta.strip(), "rows": [], "lines": []}
+            title = _strip_display_suffix(title)
+            cur = {"name": title, "title": title, "meta": meta.strip(), "rows": [], "lines": []}
             items.append(cur)
             continue
         if cur is None:
@@ -115,20 +124,15 @@ def _hoist_shared_lines(section: dict[str, Any], items: list[dict[str, Any]]) ->
 
 
 def _dedupe_rank(section: dict[str, Any], items: list[dict[str, Any]]) -> None:
-    """分区名已经写了品阶，就不再让标题前缀与「品级」行重复一遍。
+    """分区名已写品阶，删掉重复的「品级」行，但标题保留完整物品名。
 
-    `皇品区` 下同时存在 `皇品·噬血手套`（配置带前缀）和 `龙虎丹`（不带），
-    统一去掉前缀让标题对齐；原名留在 name 里，指令仍按原名发送。
+    卡片标题就是 `/购买 <名称>` 的参数，品阶前缀是物品名的一部分
+    （`帝品·玄铁右戒`），去掉后玩家照抄会买不到，所以只精简属性行、不改名。
     """
     rank = _section_rank(section.get("name") or "")
     if not rank:
         return
-    prefix = f"{rank}·"
     for it in items:
-        title = it.get("title") or ""
-        if title.startswith(prefix):
-            it["name"] = title
-            it["title"] = title[len(prefix):].strip()
         it["rows"] = [
             row for row in it.get("rows") or []
             if not (str(row[0]).strip() == "品级" and str(row[1]).strip() == rank)

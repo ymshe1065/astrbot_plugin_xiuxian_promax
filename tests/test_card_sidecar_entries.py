@@ -99,7 +99,7 @@ class TestPavilionItemPromotion(unittest.TestCase):
         return section
 
     HUANG = [
-        "皇品·噬血手套[火] - 369,413灵石 · 库存1",
+        "皇品·噬血手套 - 369,413灵石 · 库存1",
         "品级: 皇品",
         "五行: 火",
         "描述: 攻击时吸取 8% 伤害转化为自身气血。",
@@ -121,22 +121,33 @@ class TestPavilionItemPromotion(unittest.TestCase):
     def test_single_item_is_promoted(self):
         section = self._promote("皇品区", self.HUANG[:7])
         self.assertEqual(len(section["items"]), 1)
-        self.assertEqual(section["items"][0]["title"], "噬血手套[火]")
+        self.assertEqual(section["items"][0]["title"], "皇品·噬血手套")
         self.assertIn(["五行", "火"], section["items"][0]["rows"])
 
-    def test_rank_prefix_and_rank_row_are_deduped(self):
-        """分区名已写品阶，标题前缀与「品级」行不再重复；原名留在 name 里。"""
+    def test_rank_section_keeps_full_buy_name(self):
+        """分区名已写品阶，只删重复的「品级」行；标题必须保留完整购买名。"""
         section = self._promote("皇品区", self.HUANG)
         first = section["items"][0]
-        self.assertEqual(first["title"], "噬血手套[火]")
-        self.assertEqual(first["name"], "皇品·噬血手套[火]")
+        self.assertEqual(first["title"], "皇品·噬血手套")
+        self.assertEqual(first["name"], "皇品·噬血手套")
         self.assertNotIn(["品级", "皇品"], first["rows"])
-        # 不带前缀的条目保持原名，不凭空造 name
-        self.assertNotIn("name", section["items"][1])
+        # 不带前缀的条目同样提供 name，网页端复制购买参数时不会落空
+        self.assertEqual(section["items"][1]["name"], "龙虎丹")
+
+    def test_legacy_element_suffix_is_stripped_from_name(self):
+        """旧卡片把五行拼在名字后面，解析时要还原成可购买的名称。"""
+        section = self._promote("皇品区", [
+            "皇品·噬血手套[火] - 369,413灵石 · 库存1",
+            "品级: 皇品",
+            "五行: 火",
+            "描述: 攻击时吸取 8% 伤害转化为自身气血。",
+        ])
+        self.assertEqual(section["items"][0]["title"], "皇品·噬血手套")
+        self.assertEqual(section["items"][0]["name"], "皇品·噬血手套")
 
     def test_section_without_rank_keeps_row(self):
         section = self._promote("在售清单", self.HUANG)
-        self.assertEqual(section["items"][0]["title"], "皇品·噬血手套[火]")
+        self.assertEqual(section["items"][0]["title"], "皇品·噬血手套")
         self.assertIn(["品级", "皇品"], section["items"][0]["rows"])
 
     def test_plain_section_is_not_promoted(self):

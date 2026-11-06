@@ -9,6 +9,7 @@
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT.parent))
@@ -110,6 +111,50 @@ class TestArgOptions(unittest.IsolatedAsyncioTestCase):
         data = await arg_options.build_arg_options(_FakePlugin(), "web_test", "/签到", [])
         self.assertFalse(data["ok"])
         self.assertEqual(data["reason"], "no_options")
+
+    async def test_pavilion_sections_are_selectable(self):
+        pill = await arg_options.build_arg_options(_FakePlugin(), "web_test", "/丹阁", [])
+        self.assertTrue(pill["ok"])
+        self.assertEqual(
+            [opt["value"] for opt in pill["options"]],
+            ["丹药", "丹方", "突破丹方", "材料"],
+        )
+        talisman = await arg_options.build_arg_options(_FakePlugin(), "web_test", "/符阁", [])
+        self.assertEqual(
+            [opt["value"] for opt in talisman["options"]],
+            ["符箓", "符图"],
+        )
+
+    async def test_market_quote_requires_code_with_options(self):
+        import types
+
+        fake_parent = types.ModuleType(f"{PKG}.managers")
+        fake_invest = types.ModuleType(f"{PKG}.managers.invest_manager")
+        fake_invest.STOCK_DEFS = [("S01", "丹阁股", "炼丹", 42.0)]
+        fake_invest.FUND_DEFS = [("F01", "灵脉·稳", 1, 1.0)]
+        with mock.patch.dict(
+            sys.modules,
+            {
+                f"{PKG}.managers": fake_parent,
+                f"{PKG}.managers.invest_manager": fake_invest,
+            },
+        ):
+            data = await arg_options.build_arg_options(_FakePlugin(), "web_test", "/行情", [])
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["field"]["key"], "code")
+        values = [opt["value"] for opt in data["options"]]
+        self.assertIn("S01", values)
+        self.assertIn("F01", values)
+
+    async def test_optional_field_plans_allow_empty(self):
+        for cmd in ("升级洞天", "升级仓库", "一键转移", "一键取出", "洗练"):
+            plan = arg_options.plan_for(cmd, [])
+            self.assertEqual(len(plan), 1, cmd)
+            self.assertTrue(plan[0].get("optional"), cmd)
+            data = await arg_options.build_arg_options(_FakePlugin(), "web_test", f"/{cmd}", [])
+            self.assertTrue(data["ok"], cmd)
+            if cmd != "洗练":  # 洗练候选依赖角色已装备的物品
+                self.assertGreater(len(data["options"]), 0, cmd)
 
 
 if __name__ == "__main__":

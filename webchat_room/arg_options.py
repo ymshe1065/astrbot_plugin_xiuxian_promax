@@ -55,6 +55,10 @@ FIELD_PLANS: Dict[str, List[dict[str, Any]]] = {
     "装备": [_f("item", "选择要装备的物品", "equip_items")],
     "卸下": [_f("slot", "选择要卸下的栏位", "equipped_slots")],
     "更换储物戒": [_f("ring", "选择要更换的储物戒", "storage_rings")],
+    "升级仓库": [_f("times", "选择扩建次数", "warehouse_upgrade_modes", optional=True)],
+    "一键转移": [_f("category", "选择要转入仓库的分类", "warehouse_categories", optional=True)],
+    "一键取出": [_f("category", "选择要取出到储物戒的分类", "warehouse_categories", optional=True)],
+    "洗练": [_f("slot", "选择要洗练的部位", "wash_slots", optional=True)],
     "取出": [
         _f("item", "选择要从藏宝阁取出的物品", "warehouse_items"),
         _f("count", "数量（留空 = 全部）", "", optional=True),
@@ -72,6 +76,8 @@ FIELD_PLANS: Dict[str, List[dict[str, Any]]] = {
         _f("count", "数量（默认 1）", "", optional=True),
     ],
     "购买": [_f("item", "选择要购买的货架物品", "shop_items"), _f("count", "数量（默认 1）", "", optional=True)],
+    "丹阁": [_f("section", "选择丹阁分区", "pill_pavilion_sections")],
+    "符阁": [_f("section", "选择符阁分区", "talisman_pavilion_sections")],
     # ---- 炼丹 ----
     "炼丹": [
         _f("recipe", "选择已学丹方", "learned_recipes"),
@@ -79,6 +85,7 @@ FIELD_PLANS: Dict[str, List[dict[str, Any]]] = {
     ],
     "学习丹方": [_f("recipe", "选择要学习的丹方", "all_recipes")],
     # ---- 仙市 ----
+    "行情": [_f("code", "选择股票或基金", "market_codes")],
     "买入股": [_f("code", "选择股票", "stock_codes"), _f("lots", "手数（1 手 = 100 股）", "")],
     "卖出股": [_f("code", "选择持仓股票", "stock_holdings"), _f("lots", "手数", "")],
     "申购": [_f("code", "选择基金", "fund_codes"), _f("amount", "申购金额", "")],
@@ -109,6 +116,7 @@ FIELD_PLANS: Dict[str, List[dict[str, Any]]] = {
     ],
     # ---- 钱庄 / 洞天 / 灵田 ----
     "购买洞天": [_f("type", "选择洞天类型", "land_types")],
+    "升级洞天": [_f("mode", "选择升级方式（留空 = 升 1 级）", "upgrade_modes", optional=True)],
     "进阶洞天": [_f("type", "选择进阶目标", "land_advance_types")],
     "种植": [_f("herb", "选择灵草", "farm_herbs"), _f("count", "数量 / 1-20 / all（可选）", "", optional=True)],
     "铲除": [_f("slot", "选择要铲除的田块", "farm_slots")],
@@ -401,6 +409,32 @@ async def _src_warehouse_items(plugin: "XiuXianPlugin", player: Any, field: dict
     return options, ""
 
 
+async def _src_warehouse_categories(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    """一键转移 / 一键取出支持粗分类与材料细分，留空 = 全部。"""
+    try:
+        from ..core.warehouse_manager import MATERIAL_CATEGORIES, TRANSFER_GROUPS
+    except Exception:
+        # 候选接口不应因重模块导入失败而整段消失，保留与仓库管理器一致的默认分类
+        TRANSFER_GROUPS = ("材料", "符箓", "丹方", "装备")
+        MATERIAL_CATEGORIES = ("灵植", "矿材", "妖兽", "灵液", "特殊")
+    options: List[dict[str, str]] = []
+    for name in TRANSFER_GROUPS:
+        options.append(_opt(name, name, "按大类整批搬运", "粗分类"))
+    for name in MATERIAL_CATEGORIES:
+        options.append(_opt(name, name, "只搬运该细分材料", "材料细分"))
+    return options, ""
+
+
+async def _src_warehouse_upgrade_modes(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    """仓库扩建支持次数与 all；留空等于扩 1 次。"""
+    return [
+        _opt("扩建 1 次", "1", "单次扩建（+50 格）", "扩建次数"),
+        _opt("连扩 3 次", "3", "灵石不足时停在可负担的次数", "扩建次数"),
+        _opt("连扩 5 次", "5", "灵石不足时停在可负担的次数", "扩建次数"),
+        _opt("扩到当前上限（all）", "all", "尽量扩到洞天品质允许的最高等级", "扩建次数"),
+    ], ""
+
+
 async def _src_pills_inventory(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
     if not player:
         return [], "尚未创建角色"
@@ -489,6 +523,24 @@ async def _src_item_names(plugin: "XiuXianPlugin", player: Any, field: dict, val
     if len(options) > MAX_OPTIONS:
         options = options[:MAX_OPTIONS]
     return options, ""
+
+
+async def _src_pill_pavilion_sections(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    """丹阁必须先选分区；直接 /丹阁 只会返回分区说明。"""
+    return [
+        _opt("丹药（成品丹）", "丹药", "丹阁默认分区，成品丹药按库存出售", "丹阁分区"),
+        _opt("丹方（随机卷轴）", "丹方", "每轮随机刷新 10 个已学未学丹方卷轴", "丹阁分区"),
+        _opt("突破丹方（常驻）", "突破丹方", "全部突破丹方，常驻不限量", "丹阁分区"),
+        _opt("材料（炼丹材料）", "材料", "灵植 / 矿材 / 妖兽 / 灵液等炼丹材料", "丹阁分区"),
+    ], ""
+
+
+async def _src_talisman_pavilion_sections(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    """符阁必须先选分区；直接 /符阁 只会返回分区说明。"""
+    return [
+        _opt("符箓（成品符）", "符箓", "凡品与黄品成品符，可直接使用", "符阁分区"),
+        _opt("符图（玄品以上图纸）", "符图", "玄品以上符箓的绘制图纸，护劫符图常驻", "符阁分区"),
+    ], ""
 
 
 async def _src_shop_items(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
@@ -617,6 +669,16 @@ async def _src_fund_codes(plugin: "XiuXianPlugin", player: Any, field: dict, val
         return options, ""
     except Exception:
         return [], "基金列表暂时不可用"
+
+
+async def _src_market_codes(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    """行情必须带标的代码；把股票和基金合并成一份可筛选列表。"""
+    stock_opts, stock_msg = await _src_stock_codes(plugin, player, field, values)
+    fund_opts, fund_msg = await _src_fund_codes(plugin, player, field, values)
+    options = _dedupe(stock_opts + fund_opts)
+    if not options:
+        return [], stock_msg or fund_msg or "仙市标的暂时不可用"
+    return options, ""
 
 
 async def _src_stock_holdings(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
@@ -1614,17 +1676,22 @@ SOURCES: Dict[str, Callable[..., Any]] = {
     "storage_rings": _src_storage_rings,
     "ring_items": _src_ring_items,
     "warehouse_items": _src_warehouse_items,
+    "warehouse_categories": _src_warehouse_categories,
+    "warehouse_upgrade_modes": _src_warehouse_upgrade_modes,
     "recycle_items": _src_recycle_items,
     "gift_items": _src_gift_items,
     "pills_inventory": _src_pills_inventory,
     "pill_names": _src_pill_names,
     "item_names": _src_item_names,
     "shop_items": _src_shop_items,
+    "pill_pavilion_sections": _src_pill_pavilion_sections,
+    "talisman_pavilion_sections": _src_talisman_pavilion_sections,
     "learned_recipes": _src_learned_recipes,
     "all_recipes": _src_all_recipes,
     "fire_choices": _src_fire_choices,
     "stock_codes": _src_stock_codes,
     "fund_codes": _src_fund_codes,
+    "market_codes": _src_market_codes,
     "stock_holdings": _src_stock_holdings,
     "fund_holdings": _src_fund_holdings,
     "my_listings": _src_my_listings,

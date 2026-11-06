@@ -405,11 +405,12 @@ class ShopHandler:
             price_tag = f"{item['price']:,}灵石"
             if discount < 1.0:
                 price_tag += f"({round(discount * 10, 1)}折)"
-            element = item.get('element') or (item.get('data') or {}).get('element', '')
-            elem_tag = f"[{element}]" if element else ""
-            permanent_tag = " [常驻]" if item.get('always_available') else ""
+            # 五行 / 常驻等展示标记放在价格段，不能拼进物品名：
+            # 卡片标题就是 /购买 要用的名字，一旦带上 [金]、[常驻] 就买不到。
+            if item.get('always_available'):
+                price_tag += " [常驻]"
             count += 1
-            lines.append(f"{item['name']}{elem_tag}{permanent_tag} - {price_tag} · 库存{stock}")
+            lines.append(f"{item['name']} - {price_tag} · 库存{stock}")
             lines.extend(self.shop_manager.get_trade_details(item))
             lines.append("")
         return count, lines

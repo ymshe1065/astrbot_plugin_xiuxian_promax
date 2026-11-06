@@ -2464,9 +2464,10 @@
           html += `<div class="card-line">${esc(l)}</div>`;
         });
         row.innerHTML = html;
-        if (buyable && it.title) {
+        const buyName = it.name || it.title;
+        if (buyable && buyName) {
           row.classList.add("buyable");
-          row.addEventListener("click", () => openSheet(`购买 ${it.title}`, "数量（默认 1）", "/购买", it.title));
+          row.addEventListener("click", () => openSheet(`购买 ${buyName}`, "数量（默认 1）", "/购买", buyName));
         }
         box.appendChild(row);
       });
@@ -2678,7 +2679,7 @@
     const rule = spec[name];
     if (!rule) return null;
     const have = parts.length - 1;
-    const need = rule.min || 1;
+    const need = rule.min ?? 1;
     if (have >= need) return null;
     return {
       name,
@@ -2853,12 +2854,18 @@
         grid.className = "cmd-grid";
         items.forEach((it) => {
           const b = document.createElement("button");
+          const rule = (S.argSpec || {})[it.cmd.replace(/^\//, "")];
+          // 按钮带 arg，或后端登记过参数规格，都应先开弹层：
+          // 这样丹阁/符阁这类「必须选分区」的指令不会再把半截命令直接发出去。
+          const needSheet = Boolean(it.arg || rule);
           b.className = "cmd-btn" + (it.tone === "gold" ? " gold" : "");
-          b.innerHTML = `<span>${esc(it.label)}</span>` + (it.arg ? `<span class="arg-hint">需填参</span>` : "");
+          b.innerHTML = `<span>${esc(it.label)}</span>` + (needSheet ? `<span class="arg-hint">需填参</span>` : "");
           b.addEventListener("click", () => {
-            if (it.arg) {
-              const rule = (S.argSpec || {})[it.cmd.replace(/^\//, "")];
-              openSheet(it.label, rule ? `${rule.hint}，例：${rule.example}` : it.arg, it.cmd);
+            if (needSheet) {
+              const hint = rule
+                ? `${rule.hint}${rule.example ? `，例：${rule.example}` : ""}`
+                : it.arg || "请选择参数";
+              openSheet(it.label, hint, it.cmd);
             } else {
               dispatchCommand(it.cmd);
               closeDrawer();
@@ -3424,7 +3431,8 @@
       }
     }
 
-    const need = Number(data.min || (sheetApi()[ctx.name] || {}).min || 1);
+    const fallbackMin = (sheetApi()[ctx.name] || {}).min;
+    const need = Number(data.min ?? fallbackMin ?? 1);
     if (ctx.values.length < need) {
       toast("参数还没填完");
       return;
