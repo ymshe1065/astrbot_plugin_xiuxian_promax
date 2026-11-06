@@ -2110,10 +2110,25 @@
     view.dataset.rendered = "1";
     view.innerHTML = "";
 
+    const searchWrap = document.createElement("div");
+    searchWrap.className = "search-field cmd-search-field";
+
     const search = document.createElement("input");
     search.className = "cmd-search";
     search.placeholder = "搜索指令…（如 秘境 / 突破）";
-    view.appendChild(search);
+
+    const searchClear = document.createElement("button");
+    searchClear.type = "button";
+    searchClear.className = "search-clear";
+    searchClear.title = "清除";
+    searchClear.setAttribute("aria-label", "清除搜索内容");
+    searchClear.innerHTML =
+      '<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">' +
+      '<path d="M4.2 4.2l7.6 7.6M11.8 4.2l-7.6 7.6"></path></svg>';
+
+    searchWrap.appendChild(search);
+    searchWrap.appendChild(searchClear);
+    view.appendChild(searchWrap);
 
     const list = document.createElement("div");
     view.appendChild(list);
@@ -3208,6 +3223,35 @@
       if (!sheetCtx) return;
       sheetCtx.filter = e.target.value;
       drawSheetOptions(sheetCtx);
+    });
+
+    // 搜索框一键清除：事件委托覆盖参数筛选与指令搜索（含动态生成的输入框）
+    const clearSearch = (btn) => {
+      const field = btn.closest(".search-field");
+      const input = field && field.querySelector("input");
+      if (!input) return;
+      if (input.value) {
+        input.value = "";
+        // 手动派发 input，让筛选/搜索逻辑与用户手动清空保持一致
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      try {
+        input.focus({ preventScroll: true });
+      } catch {
+        input.focus();
+      }
+    };
+    document.addEventListener("pointerdown", (e) => {
+      const btn = e.target.closest && e.target.closest(".search-clear");
+      if (!btn) return;
+      // 不抢输入框焦点，移动端点击清除时软键盘不会收起
+      e.preventDefault();
+      // 触屏在 pointerdown 阶段就清除，避免部分浏览器抑制后续 click
+      if (e.pointerType && e.pointerType !== "mouse") clearSearch(btn);
+    });
+    document.addEventListener("click", (e) => {
+      const btn = e.target.closest && e.target.closest(".search-clear");
+      if (btn) clearSearch(btn);
     });
     $("sheetInput").addEventListener("keydown", (e) => {
       if (e.key === "Enter") {

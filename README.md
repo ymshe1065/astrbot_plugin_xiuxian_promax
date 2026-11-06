@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v7.0.9 (看板指令私密与状态面板修复)
+# AstrBot 插件：模拟修仙 v7.0.10 (搜索框一键清除)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v7.0.9-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v7.0.10-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.35.9 · **游戏版本:** v7.0.9 · **数据库:** v60
+> **插件版本:** v3.35.10 · **游戏版本:** v7.0.10 · **数据库:** v60
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，256 条注册指令（网页指令目录 245 个功能按钮 + 11 个别名）、17 个大系统、111 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,21 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · v7.0.9（看板指令私密与状态面板修复）</b></summary>
+<summary><b>本次更新 · v7.0.10（搜索框一键清除）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 搜索框 | 网页聊天室的「指令搜索」与参数弹层「筛选」输入框右侧新增 ✕ 图标，输入内容后显示，点击一键清空。 |
+| 交互细节 | 清空后自动回焦输入框；清空动作复用原生 `input` 事件，指令分类的临时展开状态、参数候选过滤结果与手动逐字删除完全一致。 |
+| 桌面适配 | 鼠标悬停高亮；按钮绝对定位在输入框内，不挤压输入文字；键盘 Tab 可聚焦并用回车 / 空格触发。 |
+| 移动适配 | 清除按钮触控区域放大到 34px，点击时保持输入框焦点、软键盘不收起；搜索框字号提升至 16px，避免 iOS 聚焦自动缩放。 |
+| 数据库 | 无结构变更，仍为 **v60**。 |
+| 版本同步 | 插件版本 v3.35.10，游戏版本 v7.0.10，数据库 v60；`/修仙帮助` 版本号同步。 |
+
+</details>
+
+<details>
+<summary><b>v7.0.9（看板指令私密与状态面板修复）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |

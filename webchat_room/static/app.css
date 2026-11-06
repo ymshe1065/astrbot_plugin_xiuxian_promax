@@ -1163,11 +1163,38 @@ html[data-theme="fish"] .msg-row {
 .switch.on span { transform: translateX(20px); }
 .switch:disabled { opacity: .45; cursor: not-allowed; }
 
+/* 搜索框：右侧一键清除（桌面 / 移动端共用） */
+.search-field { position: relative; }
+.search-field > input { padding-right: 38px; }
+.search-clear {
+  position: absolute; top: 50%; right: 5px;
+  display: flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 50%;
+  color: var(--dim); background: transparent;
+  transform: translateY(-50%);
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transition: opacity .12s, background .12s, color .12s, transform .1s;
+  touch-action: manipulation;
+  z-index: 1;
+}
+.search-field input:not(:placeholder-shown) + .search-clear {
+  opacity: 1; visibility: visible; pointer-events: auto;
+}
+.search-clear:hover { background: rgba(var(--accent-rgb), .12); color: var(--ink-2); }
+.search-clear:active { transform: translateY(-50%) scale(.9); }
+.search-clear:focus-visible { outline: 2px solid var(--accent-2); outline-offset: -2px; }
+.search-clear svg {
+  width: 12px; height: 12px; fill: none;
+  stroke: currentColor; stroke-width: 1.6;
+  stroke-linecap: round; pointer-events: none;
+}
+
 /* 指令网格 */
+.cmd-search-field { margin-bottom: 12px; }
 .cmd-search {
   width: 100%; padding: 9px 12px; font-size: 14px;
   border: 1px solid var(--line); border-radius: 9px;
-  margin-bottom: 12px; background: var(--field);
+  margin-bottom: 0; background: var(--field);
 }
 .cmd-search:focus { border-color: var(--accent-2); }
 .cmd-group { margin-bottom: 16px; }
@@ -1319,10 +1346,12 @@ html[data-theme="fish"] .msg-row {
   font-size: 12.5px; color: var(--dim);
 }
 .picks-count { flex: 0 0 auto; color: var(--dim); font-size: 11.5px; }
+.sheet .picks-search { margin-bottom: 7px; }
 .sheet .picks-filter {
-  width: 100%; padding: 7px 10px; margin-bottom: 7px;
+  width: 100%; padding: 7px 10px; margin-bottom: 0;
   font-size: 13px; border-radius: 8px;
 }
+.sheet .search-field > .picks-filter { padding-right: 36px; }
 .picks-list {
   display: flex; flex-direction: column; gap: 4px;
   min-height: 0; max-height: 34vh; overflow-y: auto;
@@ -1640,6 +1669,13 @@ html[data-theme="fish"] .msg-row {
   .card-head { padding: 12px 13px 10px; }
   .card-foot { padding: 9px 13px 11px; }
   .cmd-grid { grid-template-columns: repeat(2, 1fr); }
+
+  /* 搜索框：移动端加大清除按钮的触控面积；16px 防 iOS 聚焦自动放大 */
+  .search-field > input { padding-right: 44px; }
+  .sheet .search-field > .picks-filter { padding-right: 44px; }
+  .search-clear { width: 34px; height: 34px; right: 4px; }
+  .search-clear svg { width: 13px; height: 13px; }
+  .cmd-search, .sheet .picks-filter { font-size: 16px; }
 
   /* 参数弹层：候选多时列表滚动，底部按钮始终可见 */
   #sheet { max-height: calc(100dvh - 20px - var(--safe-b)); }
