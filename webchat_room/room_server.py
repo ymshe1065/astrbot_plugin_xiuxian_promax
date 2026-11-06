@@ -161,6 +161,11 @@ async def start(host: str, port: int) -> None:
     app.router.add_get("/api/equip_context", _api_equip_context)
     app.router.add_get("/api/proxy", _api_proxy)
     app.router.add_post("/api/proxy/toggle", _api_proxy_toggle)
+    app.router.add_get("/api/settings", _api_settings)
+    app.router.add_post("/api/settings", _api_settings)
+    app.router.add_get("/api/notices", _api_notices)
+    app.router.add_post("/api/notices/read", _api_notices_read)
+    app.router.add_post("/api/notices/clear", _api_notices_clear)
     app.router.add_get("/api/health", _api_health)
     app.router.add_post("/api/register", _api_register)
     app.router.add_post("/api/login", _api_login)
@@ -264,17 +269,147 @@ async def broadcast_bot_payload(room_id: str, payload: dict) -> None:
     cards = payload.get("cards") or []
     if not text and not images and not cards:
         return
-    await broadcast(
+    out = {
+        "type": "bot",
+        "room": room_id,
+        "text": text,
+        "images": images,
+        "cards": cards,
+        "ts": int(time.time()),
+    }
+    # 透传可选呈现字段：消息分类、归属、可折叠详情等由事件层决定
+    for key in (
+        "options",
+        "personal",
+        "channel",
+        "audience",
+        "actor",
+        "req_id",
+        "title",
+        "summary",
+        "detail",
+        "detail_collapsed",
+    ):
+        if key in payload:
+            out[key] = payload[key]
+    await broadcast(room_id, out)
+
+
+def resolve_audience(
+    text: str, settings: dict[str, Any] | None = None, panel: bool = False
+) -> str:
+    """计算一条手动消息的受众。
+
+    只有看板请求（我的信息/储物戒）或用户主动设为「仅自己」时才私密；
+    其余手动指令默认公屏公开。
+    """
+    if panel:
+        return "self"
+    conf = settings or {}
+    if str(conf.get("manual_visibility", "public")) == "self":
+        return "self"
+    return "public"
+
+
+def _summary_of(text: str, limit: int = 120) -> str:
+    for line in str(text or "").splitlines():
+        line = line.strip()
+        if line:
+            return line[:limit]
+    return str(text or "")[:limit]
+
+
+def _find_user_ws(room_id: str, username: str) -> list[web.WebSocketResponse]:
+    return [
+        ws
+        for ws, info in (_rooms.get(room_id) or {}).items()
+        if info.get("username") == username
+    ]
+
+
+async def push_to_username(room_id: str, username: str, payload: dict[str, Any]) -> int:
+    """推送给某个网页账号的全部在线连接，返回成功数。"""
+    sent = 0
+    for ws in _find_user_ws(room_id, username):
+        if await send_to_ws(ws, payload):
+            sent += 1
+        else:
+            _drop(room_id, ws)
+    return sent
+
+
+async def notify_player(
+    room_id: str,
+    player_key: str,
+    text: str,
+    title: str = "",
+    category: str = "auto_proxy",
+    summary: str = "",
+    detail: str = "",
+    payload: dict[str, Any] | None = None,
+) -> bool:
+    """写入并推送一条个人消息。
+
+    - 默认只进个人消息历史，不广播；
+    - 用户把 auto_visibility 设为公开摘要/全文时，才额外广播；
+    - 找不到网页账号（例如纯 QQ 玩家）返回 False，由调用方回退到旧通道。
+    """
+    username = accounts_store.username_of_player_key(player_key)
+    clean = str(text or "").strip()
+    if not username or not clean:
+        return False
+
+    summary = str(summary or "").strip() or _summary_of(clean)
+    detail = str(detail or "").strip() or clean
+    notice_id = accounts_store.add_notice(
+        username,
+        player_key=player_key,
+        channel="auto",
+        category=category,
+        title=title or "自动代理",
+        summary=summary,
+        detail=detail,
+        payload=payload or {},
+    )
+    notice = {
+        "id": notice_id,
+        "channel": "auto",
+        "category": category,
+        "title": title or "自动代理",
+        "summary": summary,
+        "detail": detail,
+        "payload": payload or {},
+        "created": int(time.time()),
+        "is_read": False,
+    }
+    await push_to_username(
         room_id,
+        username,
         {
-            "type": "bot",
-            "room": room_id,
-            "text": text,
-            "images": images,
-            "cards": cards,
-            "ts": int(time.time()),
+            "type": "notice",
+            "notice": notice,
+            "unread": accounts_store.count_unread(username),
         },
     )
+
+    settings = accounts_store.get_settings(username)
+    visibility = str(settings.get("auto_visibility", "self"))
+    if visibility in ("public_summary", "public_full"):
+        public_detail = detail if visibility == "public_full" else ""
+        await broadcast_bot_payload(
+            room_id,
+            {
+                "text": summary if visibility == "public_summary" else clean,
+                "channel": "auto",
+                "audience": "public",
+                "actor": username,
+                "title": title or "自动代理",
+                "summary": summary,
+                "detail": public_detail,
+                "detail_collapsed": visibility != "public_full",
+            },
+        )
+    return True
 
 
 async def broadcast_broadcast(room_id: str, payload: dict) -> int:
@@ -618,6 +753,69 @@ async def _api_proxy_toggle(request: web.Request) -> web.Response:
     if data.get("ok") is False:
         return web.json_response(data, status=400)
     return web.json_response(data)
+
+
+async def _api_settings(request: web.Request) -> web.Response:
+    """读取/保存网页端消息可见性设置。"""
+    user = _token_user(request)
+    if user is None:
+        return web.json_response({"ok": False, "error": "登录已过期"}, status=401)
+    if request.method == "GET":
+        return web.json_response(
+            {"ok": True, "settings": accounts_store.get_settings(user["username"])}
+        )
+    body = await _read_json(request)
+    ok, msg, settings = accounts_store.set_settings(user["username"], body)
+    if not ok:
+        return web.json_response({"ok": False, "error": msg}, status=400)
+    return web.json_response({"ok": True, "message": msg, "settings": settings})
+
+
+async def _api_notices(request: web.Request) -> web.Response:
+    """分页拉取个人消息历史与未读数。"""
+    user = _token_user(request)
+    if user is None:
+        return web.json_response({"ok": False, "error": "登录已过期"}, status=401)
+    try:
+        before = int(request.query.get("before") or 0)
+        limit = int(request.query.get("limit") or 50)
+    except (TypeError, ValueError):
+        before, limit = 0, 50
+    items, unread = accounts_store.list_notices(
+        user["username"],
+        limit=limit,
+        before=before,
+        unread_only=request.query.get("unread_only") in ("1", "true", "yes"),
+    )
+    return web.json_response({"ok": True, "items": items, "unread": unread})
+
+
+async def _api_notices_read(request: web.Request) -> web.Response:
+    """标记个人消息已读；body 传 {all:true} 或 {ids:[...]}。"""
+    user = _token_user(request)
+    if user is None:
+        return web.json_response({"ok": False, "error": "登录已过期"}, status=401)
+    body = await _read_json(request)
+    ids = body.get("ids") if isinstance(body.get("ids"), list) else []
+    changed = accounts_store.mark_notices_read(
+        user["username"], ids=ids, all_read=bool(body.get("all"))
+    )
+    items, unread = accounts_store.list_notices(user["username"])
+    return web.json_response(
+        {"ok": True, "changed": changed, "items": items, "unread": unread}
+    )
+
+
+async def _api_notices_clear(request: web.Request) -> web.Response:
+    """清空已读的个人消息。"""
+    user = _token_user(request)
+    if user is None:
+        return web.json_response({"ok": False, "error": "登录已过期"}, status=401)
+    removed = accounts_store.clear_read_notices(user["username"])
+    items, unread = accounts_store.list_notices(user["username"])
+    return web.json_response(
+        {"ok": True, "removed": removed, "items": items, "unread": unread}
+    )
 
 
 async def _api_health(_request: web.Request) -> web.Response:
@@ -1055,6 +1253,8 @@ async def _ws_handler(request: web.Request) -> web.WebSocketResponse:
             "avatar": user.get("avatar", "") or "",
             "online": online_detail(room_id),
             "prefetch": commands_catalog.PANEL_PREFETCH,
+            "settings": accounts_store.get_settings(user["username"]),
+            "unread": accounts_store.count_unread(user["username"]),
         }
     )
     logger.info(f"[webroom] {player_name} 进入 {room_id}，在线 {len(conns)} 人")
@@ -1100,6 +1300,46 @@ async def _handle_client_message(room_id: str, ws: web.WebSocketResponse, raw: s
     if action == "recall":
         await _handle_recall(room_id, ws, data)
         return
+    if action in ("notices", "notices_read", "notices_clear"):
+        info = _rooms.get(room_id, {}).get(ws)
+        if info is None:
+            await send_to_ws(ws, {"type": "error", "text": "尚未完成连接握手"})
+            return
+        username = str(info.get("username") or "")
+        if action == "notices":
+            items, unread = accounts_store.list_notices(
+                username,
+                limit=int(data.get("limit") or 50),
+                before=int(data.get("before") or 0),
+                unread_only=bool(data.get("unread_only")),
+            )
+            await send_to_ws(
+                ws, {"type": "notices", "items": items, "unread": unread}
+            )
+        elif action == "notices_read":
+            ids = data.get("ids") if isinstance(data.get("ids"), list) else []
+            accounts_store.mark_notices_read(
+                username, ids=ids, all_read=bool(data.get("all"))
+            )
+            await send_to_ws(
+                ws,
+                {
+                    "type": "notices",
+                    "items": accounts_store.list_notices(username)[0],
+                    "unread": accounts_store.count_unread(username),
+                },
+            )
+        else:
+            accounts_store.clear_read_notices(username)
+            await send_to_ws(
+                ws,
+                {
+                    "type": "notices",
+                    "items": accounts_store.list_notices(username)[0],
+                    "unread": accounts_store.count_unread(username),
+                },
+            )
+        return
     if action not in ("msg", "cmd"):
         await send_to_ws(ws, {"type": "error", "text": f"未知 action: {action}"})
         return
@@ -1116,12 +1356,39 @@ async def _handle_client_message(room_id: str, ws: web.WebSocketResponse, raw: s
         await send_to_ws(ws, {"type": "error", "text": "尚未完成连接握手"})
         return
 
-    private = action == "cmd" or bool(data.get("private"))
     req_id = str(data.get("req_id") or "").strip()[:64]
     # 看板请求：前端要原生渲染，后端优先返回结构化卡片
     want_card = bool(data.get("card"))
+    panel = bool(data.get("panel"))
+    settings = accounts_store.get_settings(str(info.get("username") or ""))
 
-    if not private:
+    if action == "cmd":
+        audience = resolve_audience(text, settings, panel=panel)
+    else:
+        audience = "self" if bool(data.get("private")) else "public"
+    private = audience == "self"
+
+    if panel:
+        # 看板请求不生成聊天回显，结果只进看板
+        pass
+    elif private:
+        # 仅自己可见的指令：回显只发给发送者本人
+        await send_to_ws(
+            ws,
+            {
+                "type": "chat",
+                "room": room_id,
+                "msg_id": uuid.uuid4().hex[:16],
+                "from": info["player_name"],
+                "username": info.get("username", ""),
+                "avatar": info.get("avatar", ""),
+                "text": text,
+                "is_cmd": action == "cmd",
+                "audience": audience,
+                "ts": int(time.time()),
+            },
+        )
+    else:
         # 公屏消息：广播给房间（含发送者自己），附带消息 id 供撤回
         ts = int(time.time())
         msg_id = uuid.uuid4().hex[:16]
@@ -1134,6 +1401,8 @@ async def _handle_client_message(room_id: str, ws: web.WebSocketResponse, raw: s
             "username": info.get("username", ""),
             "avatar": info.get("avatar", ""),
             "text": text,
+            "is_cmd": action == "cmd",
+            "audience": audience,
             "ts": ts,
         }
         conns = _rooms.get(room_id, {})
@@ -1165,6 +1434,9 @@ async def _handle_client_message(room_id: str, ws: web.WebSocketResponse, raw: s
             req_id=req_id or None,
             private=private,
             want_card=want_card,
+            audience=audience,
+            panel=panel,
+            username=str(info.get("username") or ""),
         )
     except Exception:
         logger.exception("[webroom] 提交玩家消息到流水线失败")

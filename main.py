@@ -719,9 +719,21 @@ class XiuXianPlugin(Star):
             + (f"{keep_text}代理继续运行。" if keep_text else "自动代理已关闭。")
         )
 
-    async def _send_to_origin(self, origin: str, msg: str):
+    async def _send_to_origin(self, origin: str, msg: str, user_id: str = ""):
         if not origin:
             return
+        # 网页聊天室：自动代理消息默认只进个人消息历史，不刷公屏
+        if user_id and origin.startswith("webroom:"):
+            try:
+                from .webchat_room import room_server as _room_server
+
+                room_id = origin.rsplit(":", 1)[-1] or _room_server.ROOM_ID
+                if await _room_server.notify_player(
+                    room_id, str(user_id), msg, title="自动代理"
+                ):
+                    return
+            except Exception as e:
+                logger.warning(f"【修仙插件】网页个人消息推送失败，回退原通道: {e}")
         from astrbot.api.event import MessageChain
         try:
             await self.context.send_message(origin, MessageChain().message(msg))

@@ -17,9 +17,11 @@ from astrbot.api.event import AstrMessageEvent, MessageChain
 from astrbot.api.message_components import BaseMessageComponent, Image, Plain
 from astrbot.core.message.message_event_result import MessageChain as CoreMessageChain
 
+from . import accounts as accounts_store
 from . import room_server
 from .card_sidecar import load_card_for_image
-from .text_struct import extract_options, parse_text
+from .text_struct import extract_options, parse_battle, parse_text
+from .visibility import is_personal_command
 
 # 动作反馈（签到/购买/闭关…）以状态符号开头，保持气泡形态更自然
 _ACTION_HEAD = re.compile(r"^\s*[✅❌🎉⚠✨💥🔔🈵🈲]")
@@ -63,6 +65,9 @@ class WebroomMessageEvent(AstrMessageEvent):
     req_id: str | None = None
     private: bool = False
     want_card: bool = False
+    audience: str = "public"
+    panel: bool = False
+    username: str = ""
 
     def _room_id(self) -> str:
         return self.session.session_id
@@ -73,46 +78,89 @@ class WebroomMessageEvent(AstrMessageEvent):
         except Exception:
             return ""
 
+    def _message_text(self) -> str:
+        """取触发本次回复的原始消息，用于判断是否为个人信息查询。"""
+        try:
+            return self.get_message_str() or ""
+        except Exception:
+            return getattr(self, "message_str", "") or ""
+
     async def _deliver(self, payload: dict) -> None:
         raw_text = payload.get("text", "") or ""
         text = raw_text
         images = [u for u in payload.get("images", []) if u]
         cards = list(payload.get("cards", []))
+        personal = is_personal_command(self._message_text())
 
-        # 长文本尝试结构化；动作反馈与短消息保持原样
-        parsed = None
+        # 受众：看板强制私密；手动指令默认公开；用户设为仅自己时私密
+        audience = (
+            "self" if (self.private or self.panel or self.audience == "self") else "public"
+        )
+        settings: dict[str, str] = {}
+        if self.username:
+            try:
+                settings = accounts_store.get_settings(self.username)
+            except Exception:
+                settings = {}
+
+        # 战报优先：长文本逐回合日志默认折成「结果 + 展开战报」
         if text and not _is_action_feedback(text):
-            parsed = parse_text(text)
-        if parsed is not None:
-            parsed["raw"] = text
-            cards.append(parsed)
-            text = ""
+            battle = parse_battle(text)
+            if battle is not None:
+                battle["folded"] = (
+                    str(settings.get("battle_detail_default", "collapsed")) != "expanded"
+                )
+                # 战报详情默认所有人可展开；设为「仅自己」时，公屏只留结果
+                if (
+                    audience != "self"
+                    and str(settings.get("battle_detail_visibility", "public")) == "self"
+                ):
+                    battle["detail"] = ""
+                    battle["detail_hidden"] = True
+                battle["owner"] = self.username
+                cards.append(battle)
+                text = ""
+            else:
+                parsed = parse_text(text)
+                if parsed is not None:
+                    parsed["raw"] = text
+                    parsed["owner"] = self.username
+                    cards.append(parsed)
+                    text = ""
+
+        # 个人信息查询：结果卡片在聊天流里默认收起，点「展开详情」再看。
+        if personal:
+            for card in cards:
+                if isinstance(card, dict):
+                    card["folded"] = True
+                    card["owner"] = self.username
 
         if not text and not images and not cards:
             return
 
         room_id = self._room_id()
-        if self.req_id:
-            ok = await room_server.send_to_player(
-                room_id,
-                self._player_id(),
-                {
-                    "type": "reply",
-                    "req_id": self.req_id,
-                    "room": room_id,
-                    "text": text,
-                    "images": images,
-                    "cards": cards,
-                    "options": extract_options(raw_text),
-                    "ts": int(time.time()),
-                },
-            )
-            if ok:
-                return
-            # 玩家已离线：退化为广播，避免回复凭空消失
-        await room_server.broadcast_bot_payload(
-            room_id, {"text": text, "images": images, "cards": cards}
-        )
+        payload_out = {
+            "type": "reply" if audience == "self" else "bot",
+            "room": room_id,
+            "text": text,
+            "images": images,
+            "cards": cards,
+            "options": extract_options(raw_text),
+            "personal": personal,
+            "channel": "manual",
+            "audience": audience,
+            "actor": self.username,
+            "req_id": self.req_id or "",
+            "detail_collapsed": bool(personal),
+            "ts": int(time.time()),
+        }
+
+        if audience == "self":
+            # 私密/看板结果只回给本人；玩家已离线时宁可丢弃，也不回退到公屏
+            await room_server.send_to_player(room_id, self._player_id(), payload_out)
+            return
+
+        await room_server.broadcast_bot_payload(room_id, payload_out)
 
     async def send(self, message: MessageChain | None) -> None:
         if message is not None:

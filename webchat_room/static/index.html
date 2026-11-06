@@ -71,6 +71,10 @@
       <button class="fold-all-btn" id="btnFold" type="button" title="折叠全部消息">
         <span class="ft">折叠</span>
       </button>
+      <button class="icon-btn msg-btn" id="btnInbox" type="button" title="我的消息" aria-label="我的消息">
+        <span class="msg-ico">✉</span>
+        <span class="msg-badge" id="msgBadge" hidden>0</span>
+      </button>
       <button class="icon-btn" id="btnTheme" title="切换主题" aria-label="切换主题">🐋</button>
       <button class="me-btn" id="btnMe" title="账号设置">
         <span class="me-dot" id="meDot">我</span>
@@ -198,6 +202,11 @@
     </div>
 
     <div class="acc-divider"></div>
+    <label>消息隐私</label>
+    <button class="btn-ghost" id="openPrivacy" type="button">消息隐私配置</button>
+    <div class="acc-tip">调整手动指令、自动代理与战报在聊天室的公开范围。</div>
+
+    <div class="acc-divider"></div>
 
     <label for="accOld">原密码</label>
     <input id="accOld" type="password" maxlength="64" autocomplete="current-password">
@@ -206,6 +215,68 @@
     <button class="btn-ghost" id="accSavePwd">修改密码</button>
     <button class="btn-ghost danger" id="accLogout">退出登录</button>
     <div class="err" id="accErr"></div>
+  </div>
+</div>
+
+<!-- ============ 个人消息历史 ============ -->
+<div class="sheet-mask" id="inboxMask" hidden>
+  <div class="sheet inbox-sheet">
+    <div class="sheet-head">
+      <span>我的消息 <em class="inbox-unread" id="inboxUnread"></em></span>
+      <button class="sheet-close" id="inboxClose">×</button>
+    </div>
+    <div class="inbox-acts">
+      <button class="btn-ghost small" id="inboxRead" type="button">全部已读</button>
+      <button class="btn-ghost small" id="inboxClear" type="button">清空已读</button>
+    </div>
+    <div class="inbox-list" id="inboxList"></div>
+  </div>
+</div>
+
+<!-- ============ 消息隐私配置 ============ -->
+<div class="sheet-mask" id="privacyMask" hidden>
+  <div class="sheet privacy-sheet">
+    <div class="sheet-head">
+      <span>消息隐私配置</span>
+      <button class="sheet-close" id="privacyClose">×</button>
+    </div>
+    <div class="privacy-tip">
+      看板查询（我的信息 / 储物戒）始终仅自己可见；其余指令默认公屏公开。
+    </div>
+
+    <label>手动指令消息</label>
+    <div class="seg" data-key="manual_visibility">
+      <button type="button" data-val="public">公屏公开</button>
+      <button type="button" data-val="self">仅自己</button>
+    </div>
+
+    <label>自动代理消息</label>
+    <div class="seg" data-key="auto_visibility">
+      <button type="button" data-val="self">仅个人消息</button>
+      <button type="button" data-val="public_summary">公屏摘要</button>
+      <button type="button" data-val="public_full">公屏全文</button>
+    </div>
+
+    <label>战斗详情</label>
+    <div class="seg" data-key="battle_detail_visibility">
+      <button type="button" data-val="public">所有人可展开</button>
+      <button type="button" data-val="self">仅自己可展开</button>
+    </div>
+
+    <label>战报默认状态</label>
+    <div class="seg" data-key="battle_detail_default">
+      <button type="button" data-val="collapsed">折叠</button>
+      <button type="button" data-val="expanded">展开</button>
+    </div>
+
+    <label>聊天室消息范围</label>
+    <div class="seg" data-key="view_filter">
+      <button type="button" data-val="all">查看所有人</button>
+      <button type="button" data-val="self">只看自己的</button>
+    </div>
+
+    <button class="btn-primary" id="privacySave" type="button">保存配置</button>
+    <div class="err" id="privacyErr"></div>
   </div>
 </div>
 

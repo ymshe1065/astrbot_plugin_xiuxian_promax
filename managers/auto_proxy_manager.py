@@ -83,7 +83,7 @@ class AutoProxyManager:
         db: DataBase,
         escort_mgr: Any,
         sect_mgr: Any,
-        notifier: Optional[Callable[[str, str], Awaitable[None]]] = None,
+        notifier: Optional[Callable[..., Awaitable[None]]] = None,
         title_bump: Optional[Callable[[str, str, int], Awaitable[str]]] = None,
         bounty_mgr: Any = None,
         lock_getter: Optional[Callable[[str], asyncio.Lock]] = None,
@@ -1452,11 +1452,17 @@ class AutoProxyManager:
 
     # ===== 后台处理 =====
 
-    async def _notify(self, origin: str, msg: str):
+    async def _notify(self, origin: str, msg: str, user_id: str = ""):
         if not origin or not self.notifier:
             return
         try:
-            await self.notifier(origin, msg)
+            # 新回调带 user_id，老回调（测试/外部实现）仍按两参调用
+            await self.notifier(origin, msg, user_id)
+        except TypeError:
+            try:
+                await self.notifier(origin, msg)
+            except Exception as e:
+                logger.warning(f"【自动代理】消息发送失败: {e}")
         except Exception as e:
             logger.warning(f"【自动代理】消息发送失败: {e}")
 
@@ -1522,7 +1528,7 @@ class AutoProxyManager:
                     config,
                 )
             if changed:
-                await self._notify(origin, fert_msg)
+                await self._notify(origin, fert_msg, user_id)
                 handled = True
 
         # 灵田代理独立于忙碌状态运行
@@ -1544,7 +1550,7 @@ class AutoProxyManager:
                     config,
                 )
             if changed:
-                await self._notify(origin, farm_msg)
+                await self._notify(origin, farm_msg, user_id)
                 handled = True
 
         # 秘境代理：接管探索中的结算与空闲时的进入，不触发奇遇
@@ -1569,7 +1575,7 @@ class AutoProxyManager:
                 await self._record_rift_progress(user_id, player)
             if changed:
                 if rift_msg:
-                    await self._notify(origin, rift_msg)
+                    await self._notify(origin, rift_msg, user_id)
                 handled = True
 
         cd = await self.db.ext.get_user_cd(user_id)
@@ -1591,6 +1597,7 @@ class AutoProxyManager:
                     origin,
                     f"⚠️ 自动代理结算【{self.task_name(current)}】失败：\n{finish_msg}\n"
                     f"🛑 押镖/宗门任务代理已暂停，发送 /自动代理 押镖 或 /自动代理 宗门任务 可重试。",
+                    user_id,
                 )
                 await self._disable_primary(user_id, "finish_failed")
                 return True
@@ -1605,6 +1612,7 @@ class AutoProxyManager:
                     f"{finish_msg}\n\n"
                     f"⚠️ 自动代理无法开始下一轮【{self.task_name(next_task)}】：\n{start_msg}\n"
                     f"🛑 押镖/宗门任务代理已暂停，发送 /自动代理 押镖 或 /自动代理 宗门任务 可重新开启。",
+                    user_id,
                 )
                 await self._disable_primary(user_id, "start_failed")
                 return True
@@ -1614,6 +1622,7 @@ class AutoProxyManager:
                 f"{finish_msg}\n\n"
                 f"🤖 自动代理：已开始下一轮【{self.task_name(next_task)}】\n"
                 f"{start_msg}",
+                user_id,
             )
             return True
 
@@ -1638,6 +1647,7 @@ class AutoProxyManager:
                     if keep_text
                     else "自动代理已关闭。发送 /自动代理 押镖 或 /自动代理 宗门任务 可重新开启。"
                 ),
+                user_id,
             )
             await self._disable_primary(user_id, "other_busy")
             return True
@@ -1663,6 +1673,7 @@ class AutoProxyManager:
                     if keep_text
                     else "自动代理已关闭。发送 /自动代理 押镖 或 /自动代理 宗门任务 可重新开启。"
                 ),
+                user_id,
             )
             await self._disable_primary(user_id, "other_busy")
             return True
@@ -1677,6 +1688,7 @@ class AutoProxyManager:
                 origin,
                 f"⚠️ 自动代理无法开始【{self.task_name(task_type)}】：\n{start_msg}\n"
                 f"🛑 押镖/宗门任务代理已暂停，发送 /自动代理 押镖 或 /自动代理 宗门任务 可重新开启。",
+                user_id,
             )
             await self._disable_primary(user_id, "start_failed")
             return True
@@ -1684,5 +1696,6 @@ class AutoProxyManager:
         await self._notify(
             origin,
             f"🤖 自动代理：已开始新一轮【{self.task_name(task_type)}】\n{start_msg}",
+            user_id,
         )
         return True

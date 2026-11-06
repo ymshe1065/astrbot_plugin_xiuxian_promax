@@ -228,6 +228,121 @@ def parse_text(raw: str) -> dict[str, Any] | None:
     }
 
 
+# ---------- 战斗战报 ----------
+_BATTLE_START = re.compile(r"(?:☆[━─═\-]*\s*)?(?:Boss战|战斗|决斗|切磋)开始")
+_BATTLE_END = re.compile(r"(?:☆[━─═\-]*\s*)?(?:战斗|决斗|切磋)结束")
+_BATTLE_ROUND = re.compile(r"^\s*--\s*第\s*(\d+)\s*回合\s*--\s*$")
+_BATTLE_WINNER = re.compile(r"^\s*(?:胜者|获胜)[：:]\s*(.+?)\s*$")
+_BATTLE_TROPHY = re.compile(r"🏆\s*(?:决斗|切磋)?结束[，,]?\s*(.+?)\s*(?:获胜|胜出|赢)")
+_BATTLE_DRAW = re.compile(r"🏆\s*(?:决斗|切磋)?结束[，,]?\s*平局")
+_BATTLE_ROUNDS = re.compile(r"^\s*(?:战斗回合|回合数)[：:]\s*(\d+)\s*$")
+
+
+def parse_battle(raw: str) -> dict[str, Any] | None:
+    """把逐回合战报解析成「摘要 + 可展开全文」的卡片。
+
+    网页聊天室里战报通常很长，默认只露胜负与回合数，点开再看逐回合详情。
+    不是战报（没有开场标记或回合标记）时返回 None，交给普通文本解析。
+    """
+    if not raw or not isinstance(raw, str):
+        return None
+    text = raw.replace("\r\n", "\n").replace("\r", "\n")
+    if len(text) > _MAX_TEXT:
+        return None
+
+    lines = [ln.rstrip() for ln in text.split("\n")]
+    markers = [ln for ln in lines if _BATTLE_ROUND.match(ln)]
+    has_start = any(_BATTLE_START.search(ln) for ln in lines)
+    has_end = any(_BATTLE_END.search(ln) for ln in lines)
+    # 世界 Boss 的结果卡会先列摘要再附「📜 战斗详情」，没有标准开场行
+    has_result = any("战斗结果" in ln for ln in lines)
+    if not (markers and (has_start or has_end or has_result)):
+        return None
+
+    is_boss = any(k in text for k in ("Boss", "BOSS", "boss"))
+    title = "Boss 战报" if is_boss else "战斗战报"
+
+    subtitle = ""
+    for ln in lines:
+        s = ln.strip()
+        if s.startswith(("💡", "📜", "📌")):
+            continue
+        if " VS " in s or ("挑战" in s and "结果" not in s):
+            subtitle = s.strip("☆━─═- ")
+            break
+
+    winner = ""
+    draw = False
+    result = ""
+    damage = ""
+    boss_hp = ""
+    player_hp = ""
+    rounds = 0
+    remain = ""
+    for ln in lines:
+        s = ln.strip()
+        m = _BATTLE_WINNER.match(s)
+        if m and not winner:
+            winner = m.group(1).strip()
+        m = _BATTLE_TROPHY.search(s)
+        if m and not winner:
+            winner = m.group(1).strip()
+        if not draw and _BATTLE_DRAW.search(s):
+            draw = True
+        m = _BATTLE_ROUNDS.match(s)
+        if m:
+            rounds = int(m.group(1))
+        if s.startswith(("结果：", "结果:")):
+            result = s
+        elif s.startswith(("造成伤害：", "造成伤害:")):
+            damage = s
+        elif s.startswith(("Boss剩余：", "Boss剩余:")):
+            boss_hp = s
+        elif s.startswith(("你的剩余气血：", "你的剩余气血:")):
+            player_hp = s
+        elif "剩余 HP" in s or "剩余血量" in s:
+            # 取最后一条，通常是战斗结束时的血量
+            remain = s
+    if not rounds and markers:
+        try:
+            rounds = max(int(_BATTLE_ROUND.match(m).group(1)) for m in markers)
+        except ValueError:
+            rounds = len(markers)
+
+    bits: list[str] = []
+    if winner:
+        bits.append(f"胜者：{winner}")
+    elif draw:
+        bits.append("平局")
+    elif result:
+        bits.append(result)
+    if rounds:
+        bits.append(f"{rounds} 回合")
+    if damage:
+        bits.append(damage)
+    if boss_hp:
+        bits.append(boss_hp)
+    if player_hp:
+        bits.append(player_hp)
+    if remain and not (result or damage or boss_hp or player_hp):
+        bits.append(remain.replace("|", " · "))
+
+    digest = hashlib.md5(text.encode("utf-8", "ignore")).hexdigest()[:12]
+    return {
+        "id": f"battle_{digest}",
+        "kind": "battle",
+        "title": title,
+        "subtitle": subtitle,
+        "summary": " · ".join(bits) or "战斗已结束",
+        "detail": text,
+        "detail_hidden": False,
+        "folded": True,
+        "sections": [],
+        "items": [],
+        "actions": [],
+    }
+
+
 def _normalize_cmd(cmd: str) -> str:
     """选项最终都要当指令发出，补齐唤醒前缀。"""
     cmd = cmd.strip()

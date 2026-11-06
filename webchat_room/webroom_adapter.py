@@ -88,6 +88,9 @@ class WebroomAdapter(Platform):
         req_id: str | None = None,
         private: bool = False,
         want_card: bool = False,
+        audience: str = "public",
+        panel: bool = False,
+        username: str = "",
     ) -> AstrBotMessage:
         abm = AstrBotMessage()
         abm.self_id = ADAPTER_NAME
@@ -106,6 +109,9 @@ class WebroomAdapter(Platform):
             "req_id": req_id,
             "private": private,
             "want_card": want_card,
+            "audience": audience,
+            "panel": panel,
+            "username": username,
         }
         abm.timestamp = int(time.time())
         return abm
@@ -121,6 +127,9 @@ class WebroomAdapter(Platform):
         event.req_id = raw.get("req_id") or None
         event.private = bool(raw.get("private"))
         event.want_card = bool(raw.get("want_card"))
+        event.audience = str(raw.get("audience") or ("self" if event.private else "public"))
+        event.panel = bool(raw.get("panel"))
+        event.username = str(raw.get("username") or "")
         return event
 
     async def on_player_message(
@@ -132,9 +141,21 @@ class WebroomAdapter(Platform):
         req_id: str | None = None,
         private: bool = False,
         want_card: bool = False,
+        audience: str = "public",
+        panel: bool = False,
+        username: str = "",
     ) -> None:
         abm = await self.convert_message(
-            room_id, player_id, player_name, text, req_id, private, want_card
+            room_id,
+            player_id,
+            player_name,
+            text,
+            req_id,
+            private,
+            want_card,
+            audience=audience,
+            panel=panel,
+            username=username,
         )
         self.commit_event(self.create_event(abm))
 

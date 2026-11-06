@@ -12,6 +12,7 @@
   const CACHE_MAX = 80;
   // 长消息折叠：字数或行数任一超标就折起来
   const FOLD_KEY = "xiuxian_fold_all_v1"; // 顶栏「全部折叠」的开关状态
+  const CMD_FOLD_KEY = "xiuxian_cmd_fold_v1"; // 指令分类的折叠状态（会话级临时保存）
   const FOLD_CHARS = 120;
   const FOLD_LINES = 7;
   const AUTH_KEY = "xiuxian_auth_v1";
@@ -42,6 +43,17 @@
     argSpec: null,           // 带参指令规格，来自 /api/commands
     unread: { status: 0, bag: 0 },
     msgSeq: 0,               // 本地消息临时 id（指令回显等不上公屏的消息）
+    settings: {              // 服务端下发的消息可见性配置
+      manual_visibility: "public",
+      panel_visibility: "self",
+      auto_visibility: "self",
+      battle_detail_visibility: "public",
+      battle_detail_default: "collapsed",
+      view_filter: "all",
+    },
+    unreadNotices: 0,        // 个人消息未读数
+    notices: [],             // 个人消息历史
+    noticesOpen: false,
   };
 
   /* ================= 账号 ================= */
@@ -187,6 +199,12 @@
     S.token = "";
     S.connected = false;
     $("accMask").hidden = true;
+    $("inboxMask").hidden = true;
+    $("privacyMask").hidden = true;
+    S.noticesOpen = false;
+    S.notices = [];
+    S.unreadNotices = 0;
+    setUnreadBadge(0);
     $("app").hidden = true;
     $("login").hidden = false;
     $("login").style.display = "";
@@ -387,6 +405,142 @@
     }
     await loadBindStatus();
     toast(d.web_save ? "已切到 QQ 存档，网页原存档已保留" : "已绑定旧存档");
+  }
+
+  /* ================= 消息隐私与个人消息 ================= */
+  function applySettings(settings) {
+    if (!settings || typeof settings !== "object") return;
+    S.settings = { ...S.settings, ...settings };
+    applyViewFilter();
+    paintPrivacy();
+  }
+
+  /** 「只看自己」时隐藏其他人的聊天与回复；系统提示/世界播报始终可见 */
+  function applyViewFilter() {
+    const box = $("msgs");
+    if (!box) return;
+    const onlySelf = S.settings.view_filter === "self";
+    box.querySelectorAll(".msg-row[data-owner], .card-msg[data-owner]").forEach((el) => {
+      const owner = el.dataset.owner || "";
+      const hide = onlySelf && !!owner && owner !== S.username;
+      el.style.display = hide ? "none" : "";
+    });
+  }
+
+  function paintPrivacy() {
+    document.querySelectorAll("#privacyMask .seg").forEach((seg) => {
+      const key = seg.dataset.key;
+      seg.querySelectorAll("button").forEach((b) => {
+        b.classList.toggle("on", (S.settings[key] || "") === b.dataset.val);
+      });
+    });
+  }
+
+  function openPrivacy() {
+    $("accMask").hidden = true;
+    $("privacyMask").hidden = false;
+    paintPrivacy();
+  }
+
+  async function savePrivacy() {
+    const patch = {};
+    document.querySelectorAll("#privacyMask .seg").forEach((seg) => {
+      const on = seg.querySelector("button.on");
+      if (on) patch[seg.dataset.key] = on.dataset.val;
+    });
+    const err = $("privacyErr");
+    err.textContent = "";
+    try {
+      const r = await fetch("/api/settings", {
+        method: "POST",
+        headers: { Authorization: "Bearer " + S.token, "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!d.ok) return (err.textContent = d.error || "保存失败");
+      applySettings(d.settings || patch);
+      $("privacyMask").hidden = true;
+      toast("消息隐私配置已保存");
+    } catch {
+      err.textContent = "网络异常，稍后再试";
+    }
+  }
+
+  /* ---------- 顶栏个人消息 ---------- */
+  function setUnreadBadge(n) {
+    S.unreadNotices = Math.max(0, Number(n) || 0);
+    const b = $("msgBadge");
+    if (b) {
+      b.hidden = S.unreadNotices <= 0;
+      b.textContent = S.unreadNotices > 99 ? "99+" : String(S.unreadNotices);
+    }
+    const u = $("inboxUnread");
+    if (u) u.textContent = S.unreadNotices > 0 ? `${S.unreadNotices} 条未读` : "";
+  }
+
+  function sendNotices(action = "notices", extra = {}) {
+    if (!S.ws || S.ws.readyState !== 1) return;
+    S.ws.send(JSON.stringify({ action, ...extra }));
+  }
+
+  function openInbox() {
+    $("inboxMask").hidden = false;
+    S.noticesOpen = true;
+    renderNotices();
+    sendNotices("notices", { limit: 60 });
+  }
+
+  function closeInbox() {
+    $("inboxMask").hidden = true;
+    S.noticesOpen = false;
+  }
+
+  function applyNotices(items, unread) {
+    S.notices = Array.isArray(items) ? items : [];
+    setUnreadBadge(unread || 0);
+    renderNotices();
+    // 打开收件箱即视为已读；服务端返回更新后的列表
+    if (S.noticesOpen && S.unreadNotices > 0) sendNotices("notices_read", { all: true });
+  }
+
+  function renderNotices() {
+    const box = $("inboxList");
+    if (!box) return;
+    if (!S.notices.length) {
+      box.innerHTML =
+        '<div class="inbox-empty">还没有个人消息。<br>自动代理、战报结算等通知会收进这里。</div>';
+      return;
+    }
+    box.innerHTML = S.notices
+      .map((n) => {
+        const hasDetail = !!n.detail && n.detail !== n.summary;
+        return (
+          `<div class="inbox-item${n.is_read ? "" : " unread"}" data-id="${n.id}">` +
+          `<div class="inbox-top">` +
+          `<span class="inbox-title">${esc(n.title || "通知")}</span>` +
+          `<span class="inbox-time">${fmtTime(n.created)}</span>` +
+          `</div>` +
+          `<div class="inbox-summary">${esc(n.summary || "")}</div>` +
+          (hasDetail
+            ? '<button class="inbox-toggle" type="button">展开详情</button>' +
+              `<div class="inbox-detail">${esc(n.detail)}</div>`
+            : "") +
+          `</div>`
+        );
+      })
+      .join("");
+  }
+
+  function onNotice(m) {
+    const n = m.notice || {};
+    S.notices.unshift(n);
+    if (S.noticesOpen) {
+      renderNotices();
+      sendNotices("notices_read", { ids: [n.id] });
+    } else {
+      toast(`收到个人消息：${n.title || "通知"}`);
+    }
+    setUnreadBadge(m.unread ?? S.unreadNotices + 1);
   }
 
   async function unbindQq() {
@@ -611,12 +765,10 @@
         text,
         req_id: id,
         card: !!opts.card || !!opts.panel,
-        private: true,
+        panel: !!opts.panel,
       })
     );
-    if (!opts.silent && !opts.panel) {
-      addChat(S.me, text, null, true, S.avatar, { local: true });
-    }
+    // 公屏指令的聊天回显由服务端广播；私密/看板请求不产生聊天流回显
     // 兜底：20 秒未收到回复则丢弃等待态
     setTimeout(() => {
       if (S.pending.has(id)) {
@@ -639,6 +791,8 @@
         if (m.nick) { S.me = m.nick; }
         if (m.username) S.username = m.username;
         if (typeof m.avatar === "string") S.avatar = m.avatar;
+        applySettings(m.settings);
+        setUnreadBadge(m.unread || 0);
         updateMeUI();
         setOnline(m.online);
         addSys(`欢迎 ${S.me} 来到修仙聊天室`);
@@ -652,7 +806,12 @@
           m.ts,
           m.username ? m.username === S.username : m.from === S.me,
           m.avatar || "",
-          { id: m.msg_id || "" }
+          {
+            id: m.msg_id || "",
+            owner: m.username || "",
+            cmd: !!m.is_cmd,
+            audience: m.audience || "public",
+          }
         );
         break;
       case "recall":
@@ -662,10 +821,17 @@
         addError(m.text || "撤回失败");
         break;
       case "bot":
+        if (m.req_id && S.pending.has(m.req_id)) S.pending.delete(m.req_id);
         addBotMessage(m);
         break;
       case "reply":
         handleReply(m);
+        break;
+      case "notice":
+        onNotice(m);
+        break;
+      case "notices":
+        applyNotices(m.items, m.unread);
         break;
       case "broadcast":
         showBanner(m.text);
@@ -714,7 +880,10 @@
 
     // 收集卡片
     const cards = (m.cards || []).filter(Boolean);
-    cards.forEach((c) => S.cards.set(c.id, c));
+    cards.forEach((c) => {
+      if (!c.owner) c.owner = S.username;
+      S.cards.set(c.id, c);
+    });
 
     // 面板请求：结果归位到看板，不进聊天流
     if (ctx?.panel) {
@@ -724,10 +893,15 @@
       return;
     }
 
-    // 其他回复：进聊天流
-    if (m.text) addBotText(m.text, m.ts, m.options);
-    cards.forEach((c) => addCardMessage(c));
-    (m.images || []).forEach((u) => u && addBotText("", m.ts, null, [u]));
+    // 其他回复：进聊天流（仅自己可见）
+    if (m.text) {
+      addBotText(m.text, m.ts, m.options, null, {
+        forceFold: !!m.personal,
+        owner: S.username,
+      });
+    }
+    cards.forEach((c) => addCardMessage(c, S.username));
+    (m.images || []).forEach((u) => u && addBotText("", m.ts, null, [u], { owner: S.username }));
     if (m.options?.length) showQuickOptions(m.options);
   }
 
@@ -781,10 +955,12 @@
    */
   function addChat(from, text, ts, isMe, avatar = "", meta = {}) {
     const id = meta.id || nextLocalMsgId();
+    const owner = meta.owner !== undefined ? meta.owner : (isMe ? S.username : "");
     const row = document.createElement("div");
-    row.className = "msg-row" + (isMe ? " right" : "");
+    row.className = "msg-row" + (isMe ? " right" : "") + (meta.cmd ? " cmd-row" : "");
     row.dataset.msgId = id;
     row.dataset.msgLocal = meta.local ? "1" : "";
+    row.dataset.owner = owner || "";
     row.innerHTML =
       avatarHtml(from, avatar || (isMe ? S.avatar : "")) +
       `<div class="msg-col">` +
@@ -812,8 +988,12 @@
     }
 
     appendNode(row);
+    applyViewFilter();
     if (meta.persist !== false) {
-      cachePush({ t: "chat", id, from, text, ts, me: isMe, avatar, local: !!meta.local });
+      cachePush({
+        t: "chat", id, from, text, ts, me: isMe, avatar,
+        owner, cmd: !!meta.cmd, local: !!meta.local,
+      });
     }
   }
 
@@ -831,42 +1011,84 @@
     appendNode(div, { force: true });
   }
 
-  function addBotText(text, ts = null, options = null, images = null) {
+  function addBotText(text, ts = null, options = null, images = null, opts = {}) {
     const row = document.createElement("div");
     row.className = "msg-row bot-row";
+    row.dataset.owner = opts.owner || "";
+    row.dataset.audience = opts.audience || "";
     const tone = classifyTone(text);
     if (tone) row.classList.add(tone);
 
     const col = document.createElement("div");
     col.className = "msg-col";
     let html = `<div class="who bot-who">${BOT_NAME}<span class="time">${fmtTime(ts)}</span></div>`;
-    html += bubbleHtml(text, images);
+    // 动作反馈/报错保持原样；单行短提示也不必折，避免把「未学会」藏起来
+    const forceFold = Boolean(opts.forceFold) && !tone && (text.length >= 30 || text.includes("\n"));
+    html += bubbleHtml(text, images, "", forceFold);
     col.innerHTML = html;
 
     row.innerHTML = `<div class="avatar bot-avatar"></div>`;
     row.appendChild(col);
     bindImages(row);
     appendNode(row, { force: true });
-    if (text) cachePush({ t: "bot", text, ts });
+    applyViewFilter();
+    if (text) cachePush({ t: "bot", text, ts, owner: opts.owner || "" });
     if (options?.length) showQuickOptions(options);
   }
 
-  function addCardMessage(card) {
+  function addCardMessage(card, owner = "") {
     const div = document.createElement("div");
     div.className = "msg card-msg";
+    div.dataset.owner = card.owner || owner || "";
     div.appendChild(renderCard(card));
     appendNode(div, { force: true });
+    applyViewFilter();
   }
 
   function addBotMessage(m) {
     const cards = m.cards || [];
-    if (cards.length) {
-      cards.forEach((c) => addCardMessage(c));
-      if (m.text) addBotText(m.text, m.ts);
-    } else if (m.text) {
-      addBotText(m.text, m.ts, m.options);
+    const owner = m.actor || "";
+    const audience = m.audience || "public";
+
+    // 自动代理的公开消息：摘要常驻，详情按配置折叠
+    if (m.channel === "auto" && m.title) {
+      if (m.detail) {
+        addCardMessage(
+          {
+            id: `auto_${m.ts || Date.now()}`,
+            kind: "notice",
+            title: m.title,
+            summary: m.summary || m.text || "",
+            detail: m.detail,
+            folded: m.detail_collapsed !== false,
+            owner,
+          },
+          owner
+        );
+        return;
+      }
+      if (m.text) addBotText(m.text, m.ts, m.options, null, { owner, audience });
+      (m.images || []).forEach((u) => u && addBotText("", m.ts, null, [u], { owner, audience }));
+      return;
     }
-    (m.images || []).forEach((u) => u && addBotText("", m.ts, null, [u]));
+
+    if (cards.length) {
+      cards.forEach((c) => addCardMessage(c, owner));
+      if (m.text) {
+        addBotText(m.text, m.ts, null, null, {
+          forceFold: !!m.personal,
+          owner,
+          audience,
+        });
+      }
+    } else if (m.text) {
+      addBotText(m.text, m.ts, m.options, null, {
+        forceFold: !!m.personal,
+        owner,
+        audience,
+      });
+    }
+    (m.images || []).forEach((u) => u && addBotText("", m.ts, null, [u], { owner, audience }));
     if (m.options?.length) showQuickOptions(m.options);
   }
 
@@ -891,12 +1113,14 @@
     return !!text && (text.length >= FOLD_CHARS || text.split("\n").length >= FOLD_LINES);
   }
 
-  /** 统一构造气泡：长文本自动带 .b-body 与展开按钮 */
-  function bubbleHtml(text, images, extraCls = "") {
+  /** 统一构造气泡：长文本自动带 .b-body 与展开按钮；forceFold 用于个人信息消息 */
+  function bubbleHtml(text, images, extraCls = "", forceFold = false) {
     const body =
       (text ? escapeWithMarks(text) : "") +
       (images || []).map((u) => `<img src="${esc(u)}" data-full="${esc(u)}" alt="">`).join("");
-    if (!isFoldable(text)) return `<div class="bubble${extraCls}">${body}</div>`;
+    if (!isFoldable(text) && !(forceFold && text)) {
+      return `<div class="bubble${extraCls}">${body}</div>`;
+    }
     return (
       `<div class="bubble foldable folded${extraCls}">` +
       `<div class="b-body">${body}</div>` +
@@ -958,20 +1182,44 @@
   }
 
   /* ================= 卡片渲染 ================= */
-  function renderCard(card) {
+  function renderCard(card, opts = {}) {
     const wrap = document.createElement("div");
     wrap.className = "card";
     wrap.dataset.cardId = card.id;
+    // 个人信息卡片在聊天流默认折叠；看板渲染时传 expanded 保持展开
+    const foldedByDefault = Boolean(card.folded) && !opts.expanded;
 
     const head = document.createElement("div");
     head.className = "card-head";
     head.innerHTML =
       `<div class="card-title">${esc(card.title || "信息")}</div>` +
       (card.subtitle ? `<div class="card-sub">${esc(card.subtitle)}</div>` : "");
+    // 战报/自动代理摘要：折叠时也要能看到结果
+    if (card.summary) {
+      const sum = document.createElement("div");
+      sum.className = "card-summary";
+      sum.textContent = card.summary;
+      head.appendChild(sum);
+    }
     wrap.appendChild(head);
 
     const body = document.createElement("div");
     body.className = "card-body";
+
+    // 0) 战报 / 长详情：默认折叠，展开后看逐回合全文
+    if (card.detail !== undefined && card.detail !== null) {
+      if (card.detail_hidden) {
+        const hint = document.createElement("div");
+        hint.className = "detail-hidden";
+        hint.textContent = "战报详情仅本人可查看";
+        body.appendChild(hint);
+      } else if (card.detail) {
+        const pre = document.createElement("div");
+        pre.className = "detail-block";
+        pre.textContent = card.detail;
+        body.appendChild(pre);
+      }
+    }
 
     // 1) 列表型（秘境/排行/Boss）
     if (Array.isArray(card.items) && card.items.length) {
@@ -1059,6 +1307,29 @@
         foot.appendChild(b);
       }
       wrap.appendChild(foot);
+    }
+
+    // 折叠开关：默认只露标题，展开后显示正文、卡脚与操作
+    if (foldedByDefault && wrap.querySelector(".card-body, .card-foot")) {
+      const isBattle = card.kind === "battle";
+      const openText = isBattle ? "展开战报" : "展开详情";
+      const closeText = isBattle ? "收起战报" : "收起详情";
+      wrap.classList.add("card-foldable", "folded");
+      const bar = document.createElement("div");
+      bar.className = "card-fold-bar";
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "card-fold-btn";
+      btn.textContent = openText;
+      btn.setAttribute("aria-expanded", "false");
+      btn.addEventListener("click", () => {
+        const open = wrap.classList.contains("folded");
+        wrap.classList.toggle("folded", !open);
+        btn.textContent = open ? closeText : openText;
+        btn.setAttribute("aria-expanded", String(open));
+      });
+      bar.appendChild(btn);
+      wrap.appendChild(bar);
     }
     return wrap;
   }
@@ -1591,7 +1862,7 @@
     btn.addEventListener("click", () => loadPanel(which));
     head.appendChild(btn);
     view.appendChild(head);
-    view.appendChild(renderCard(card));
+    view.appendChild(renderCard(card, { expanded: true }));
   }
 
   function renderPanelText(which, text) {
@@ -1659,17 +1930,60 @@
     const list = document.createElement("div");
     view.appendChild(list);
 
+    const readFold = () => {
+      try {
+        const saved = JSON.parse(sessionStorage.getItem(CMD_FOLD_KEY) || "{}");
+        return saved && typeof saved === "object" ? saved : {};
+      } catch {
+        return {};
+      }
+    };
+    const saveFold = (state) => {
+      try {
+        sessionStorage.setItem(CMD_FOLD_KEY, JSON.stringify(state));
+      } catch {
+        /* 隐私模式 / 存储不可用时忽略 */
+      }
+    };
+
     const draw = (kw = "") => {
       list.innerHTML = "";
       const q = kw.trim().toLowerCase();
+      const folded = readFold();
+      // 搜索时临时展开全部结果，清空搜索后恢复用户的折叠状态
+      const searching = Boolean(q);
       S.cmdCatalog.categories.forEach((cat) => {
         const items = cat.items.filter(
           (it) => !q || it.label.toLowerCase().includes(q) || it.cmd.toLowerCase().includes(q)
         );
         if (!items.length) return;
+        const isFolded = !searching && Boolean(folded[cat.id]);
         const group = document.createElement("div");
-        group.className = "cmd-group";
-        group.innerHTML = `<div class="cmd-group-head"><span>${cat.icon || ""}</span>${esc(cat.name)}</div>`;
+        group.className = "cmd-group" + (isFolded ? " folded" : "");
+        group.dataset.cat = cat.id;
+
+        const head = document.createElement("button");
+        head.type = "button";
+        head.className = "cmd-group-head";
+        head.setAttribute("aria-expanded", String(!isFolded));
+        head.title = isFolded ? "展开该分类" : "折叠该分类";
+        head.innerHTML =
+          `<span class="cmd-group-icon">${cat.icon || ""}</span>` +
+          `<span class="cmd-group-name">${esc(cat.name)}</span>` +
+          `<span class="cmd-group-count">${items.length}</span>` +
+          `<span class="cmd-group-arrow" aria-hidden="true">▾</span>`;
+        head.addEventListener("click", () => {
+          const next = !group.classList.contains("folded");
+          group.classList.toggle("folded", next);
+          head.setAttribute("aria-expanded", String(!next));
+          head.title = next ? "展开该分类" : "折叠该分类";
+          const state = readFold();
+          if (next) state[cat.id] = true;
+          else delete state[cat.id];
+          saveFold(state);
+        });
+        group.appendChild(head);
+
         const grid = document.createElement("div");
         grid.className = "cmd-grid";
         items.forEach((it) => {
@@ -2418,10 +2732,12 @@
         if (e.t === "chat") {
           addChat(e.from, e.text, Math.floor(e.at / 1000), e.me, e.avatar || "", {
             id: e.id || "",
+            owner: e.owner,
+            cmd: !!e.cmd,
             local: e.local !== undefined ? !!e.local : !e.id,
             persist: false,
           });
-        } else if (e.t === "bot") addBotText(e.text, Math.floor(e.at / 1000));
+        } else if (e.t === "bot") addBotText(e.text, Math.floor(e.at / 1000), null, null, { owner: e.owner || "" });
       });
       addSys("—— 记录结束 ——");
     } catch {
@@ -2548,6 +2864,36 @@
       if (e.key === "Enter") bindQq();
     });
     $("accLogout").addEventListener("click", () => logout("已退出登录"));
+
+    // 消息隐私配置（账号设置内跳转）
+    $("openPrivacy").addEventListener("click", openPrivacy);
+    $("privacyClose").addEventListener("click", () => ($("privacyMask").hidden = true));
+    $("privacyMask").addEventListener("click", (e) => {
+      if (e.target === $("privacyMask")) $("privacyMask").hidden = true;
+    });
+    $("privacySave").addEventListener("click", savePrivacy);
+    $("privacyMask").addEventListener("click", (e) => {
+      const btn = e.target.closest && e.target.closest(".seg button");
+      if (!btn) return;
+      btn.parentElement.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b === btn));
+    });
+
+    // 顶栏个人消息
+    $("btnInbox").addEventListener("click", openInbox);
+    $("inboxClose").addEventListener("click", closeInbox);
+    $("inboxMask").addEventListener("click", (e) => {
+      if (e.target === $("inboxMask")) closeInbox();
+    });
+    $("inboxRead").addEventListener("click", () => sendNotices("notices_read", { all: true }));
+    $("inboxClear").addEventListener("click", () => sendNotices("notices_clear"));
+    $("inboxList").addEventListener("click", (e) => {
+      const btn = e.target.closest && e.target.closest(".inbox-toggle");
+      if (!btn) return;
+      const detail = btn.nextElementSibling;
+      if (!detail) return;
+      const open = detail.classList.toggle("open");
+      btn.textContent = open ? "收起详情" : "展开详情";
+    });
 
     // 头像：内置可点选，也可上传
     $("avatarPick").addEventListener("click", (e) => {
@@ -2706,6 +3052,8 @@
       if (e.key !== "Escape") return;
       if (!$("viewer").hidden) return closeViewer();
       if (!$("sheetMask").hidden) return closeSheet();
+      if (!$("inboxMask").hidden) return closeInbox();
+      if (!$("privacyMask").hidden) return ($("privacyMask").hidden = true);
       if (!$("accMask").hidden) return ($("accMask").hidden = true);
       closeDrawer();
     });
@@ -2758,5 +3106,8 @@
     setAvatar: saveAvatar,
     getOnline: () => S.online,
     openOnline,
+    openInbox,
+    openPrivacy,
+    getSettings: () => S.settings,
   };
 })();

@@ -12,6 +12,7 @@ import base64
 import binascii
 import hashlib
 import hmac
+import json
 import os
 import re
 import secrets
@@ -36,6 +37,28 @@ NICK_MAX = 16
 PWD_MIN = 6
 PWD_MAX = 64
 AVATAR_MAX = 200
+
+# 网页端消息可见性默认值。查询看板（我的信息/储物戒）固定私密，其余动作默认公开。
+DEFAULT_SETTINGS: dict[str, str] = {
+    "manual_visibility": "public",       # public / self
+    "panel_visibility": "self",          # self / public（保留，默认看板仅自己）
+    "auto_visibility": "self",           # self / public_summary / public_full
+    "battle_detail_visibility": "public",  # public / self
+    "battle_detail_default": "collapsed",  # collapsed / expanded
+    "view_filter": "all",                # all / self（只看自己的消息）
+}
+
+_SETTING_VALUES: dict[str, set[str]] = {
+    "manual_visibility": {"public", "self"},
+    "panel_visibility": {"self", "public"},
+    "auto_visibility": {"self", "public_summary", "public_full"},
+    "battle_detail_visibility": {"public", "self"},
+    "battle_detail_default": {"collapsed", "expanded"},
+    "view_filter": {"all", "self"},
+}
+
+NOTICE_KEEP = 200       # 每个账号最多保留的通知条数
+NOTICE_TTL = 30 * 24 * 3600  # 通知最长保留 30 天
 
 _lock = threading.Lock()
 _conn: sqlite3.Connection | None = None
@@ -72,7 +95,8 @@ def init() -> None:
                 last_login INTEGER NOT NULL DEFAULT 0,
                 avatar     TEXT NOT NULL DEFAULT '',
                 qq         TEXT NOT NULL DEFAULT '',
-                player_key TEXT NOT NULL DEFAULT ''
+                player_key TEXT NOT NULL DEFAULT '',
+                settings   TEXT NOT NULL DEFAULT '{}'
             )
             """
         )
@@ -84,10 +108,33 @@ def init() -> None:
             _conn.execute("ALTER TABLE users ADD COLUMN qq TEXT NOT NULL DEFAULT ''")
         if "player_key" not in cols:
             _conn.execute("ALTER TABLE users ADD COLUMN player_key TEXT NOT NULL DEFAULT ''")
+        if "settings" not in cols:
+            _conn.execute("ALTER TABLE users ADD COLUMN settings TEXT NOT NULL DEFAULT '{}'")
         # 一个 QQ 号只能被一个网页账号绑定（空串不参与唯一约束）
         _conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_qq "
             "ON users(qq) WHERE qq <> ''"
+        )
+        _conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS webroom_notices (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                username    TEXT NOT NULL,
+                player_key  TEXT NOT NULL DEFAULT '',
+                channel     TEXT NOT NULL DEFAULT 'auto',
+                category    TEXT NOT NULL DEFAULT 'auto_proxy',
+                title       TEXT NOT NULL DEFAULT '',
+                summary     TEXT NOT NULL DEFAULT '',
+                detail      TEXT NOT NULL DEFAULT '',
+                payload     TEXT NOT NULL DEFAULT '{}',
+                created     INTEGER NOT NULL,
+                is_read     INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
+        _conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_notices_user_time "
+            "ON webroom_notices(username, created DESC)"
         )
         _conn.commit()
 
@@ -321,3 +368,204 @@ def unbind_qq(username: str) -> tuple[bool, str]:
         if cur.rowcount == 0:
             return False, "账号不存在"
     return True, "已解除绑定"
+
+
+# ---------- 消息可见性设置 ----------
+
+
+def get_settings(username: str) -> dict[str, str]:
+    """读取消息设置，缺失字段用默认值补齐。"""
+    row = _db().execute(
+        "SELECT settings FROM users WHERE username = ?", (_norm(username),)
+    ).fetchone()
+    raw: dict[str, Any] = {}
+    if row and row["settings"]:
+        try:
+            parsed = json.loads(row["settings"])
+            if isinstance(parsed, dict):
+                raw = parsed
+        except (TypeError, ValueError):
+            raw = {}
+    out = dict(DEFAULT_SETTINGS)
+    for key, value in raw.items():
+        if key in _SETTING_VALUES and isinstance(value, str) and value in _SETTING_VALUES[key]:
+            out[key] = value
+    return out
+
+
+def set_settings(
+    username: str, patch: dict[str, Any]
+) -> tuple[bool, str, dict[str, str]]:
+    """只更新已知设置项，未知键忽略，非法值拒绝。"""
+    current = get_settings(username)
+    if not isinstance(patch, dict):
+        return False, "配置格式错误", current
+    for key, value in patch.items():
+        if key not in _SETTING_VALUES:
+            continue
+        if not isinstance(value, str) or value not in _SETTING_VALUES[key]:
+            return False, f"不支持的配置：{key}={value}", current
+        current[key] = value
+    with _lock:
+        db = _db()
+        cur = db.execute(
+            "UPDATE users SET settings = ? WHERE username = ?",
+            (json.dumps(current, ensure_ascii=False), _norm(username)),
+        )
+        db.commit()
+        if cur.rowcount == 0:
+            return False, "账号不存在", current
+    return True, "设置已保存", current
+
+
+def username_of_player_key(player_key: str) -> str:
+    """把插件侧 player_id（web_名字 / QQ号）解析成网页账号名。"""
+    key = str(player_key or "").strip()
+    if not key:
+        return ""
+    db = _db()
+    if key.startswith("web_"):
+        name = key[4:]
+        row = db.execute(
+            "SELECT username FROM users WHERE username = ?", (name,)
+        ).fetchone()
+        if row:
+            return str(row["username"])
+    row = db.execute(
+        "SELECT username FROM users WHERE player_key = ? LIMIT 1", (key,)
+    ).fetchone()
+    return str(row["username"]) if row else ""
+
+
+# ---------- 个人消息历史 ----------
+
+
+def _notice_row(row: sqlite3.Row) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    try:
+        parsed = json.loads(row["payload"] or "{}")
+        if isinstance(parsed, dict):
+            payload = parsed
+    except (TypeError, ValueError):
+        payload = {}
+    return {
+        "id": int(row["id"]),
+        "channel": row["channel"],
+        "category": row["category"],
+        "title": row["title"],
+        "summary": row["summary"],
+        "detail": row["detail"],
+        "payload": payload,
+        "created": int(row["created"]),
+        "is_read": bool(row["is_read"]),
+    }
+
+
+def add_notice(
+    username: str,
+    player_key: str = "",
+    channel: str = "auto",
+    category: str = "auto_proxy",
+    title: str = "",
+    summary: str = "",
+    detail: str = "",
+    payload: dict[str, Any] | None = None,
+) -> int:
+    """写入个人消息，并做条数/时间清理；返回新消息 id。"""
+    username = _norm(username)
+    now = int(time.time())
+    blob = json.dumps(payload or {}, ensure_ascii=False)
+    with _lock:
+        db = _db()
+        cur = db.execute(
+            "INSERT INTO webroom_notices "
+            "(username, player_key, channel, category, title, summary, detail, payload, created, is_read) "
+            "VALUES (?,?,?,?,?,?,?,?,?,0)",
+            (
+                username,
+                str(player_key or ""),
+                str(channel or "auto"),
+                str(category or "auto_proxy"),
+                str(title or ""),
+                str(summary or ""),
+                str(detail or ""),
+                blob,
+                now,
+            ),
+        )
+        notice_id = int(cur.lastrowid)
+        db.execute(
+            "DELETE FROM webroom_notices WHERE username = ? AND created < ?",
+            (username, now - NOTICE_TTL),
+        )
+        db.execute(
+            "DELETE FROM webroom_notices WHERE username = ? AND id NOT IN ("
+            "SELECT id FROM webroom_notices WHERE username = ? ORDER BY id DESC LIMIT ?)",
+            (username, username, NOTICE_KEEP),
+        )
+        db.commit()
+    return notice_id
+
+
+def count_unread(username: str) -> int:
+    row = _db().execute(
+        "SELECT COUNT(*) AS c FROM webroom_notices WHERE username = ? AND is_read = 0",
+        (_norm(username),),
+    ).fetchone()
+    return int(row["c"]) if row else 0
+
+
+def list_notices(
+    username: str, limit: int = 50, before: int = 0, unread_only: bool = False
+) -> tuple[list[dict[str, Any]], int]:
+    """按时间倒序返回通知，附带未读数。"""
+    username = _norm(username)
+    limit = max(1, min(int(limit or 50), 100))
+    sql = "SELECT * FROM webroom_notices WHERE username = ?"
+    args: list[Any] = [username]
+    if before:
+        sql += " AND id < ?"
+        args.append(int(before))
+    if unread_only:
+        sql += " AND is_read = 0"
+    sql += " ORDER BY id DESC LIMIT ?"
+    args.append(limit)
+    rows = _db().execute(sql, args).fetchall()
+    return [_notice_row(row) for row in rows], count_unread(username)
+
+
+def mark_notices_read(
+    username: str, ids: list[int] | None = None, all_read: bool = False
+) -> int:
+    username = _norm(username)
+    with _lock:
+        db = _db()
+        if all_read or not ids:
+            cur = db.execute(
+                "UPDATE webroom_notices SET is_read = 1 WHERE username = ? AND is_read = 0",
+                (username,),
+            )
+        else:
+            clean = [int(i) for i in ids if str(i).isdigit()]
+            if not clean:
+                return 0
+            marks = ",".join("?" for _ in clean)
+            cur = db.execute(
+                f"UPDATE webroom_notices SET is_read = 1 "
+                f"WHERE username = ? AND id IN ({marks})",
+                [username, *clean],
+            )
+        db.commit()
+        return int(cur.rowcount or 0)
+
+
+def clear_read_notices(username: str) -> int:
+    username = _norm(username)
+    with _lock:
+        db = _db()
+        cur = db.execute(
+            "DELETE FROM webroom_notices WHERE username = ? AND is_read = 1",
+            (username,),
+        )
+        db.commit()
+        return int(cur.rowcount or 0)
