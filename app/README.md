@@ -101,8 +101,20 @@ keyPassword=feiyuxiuxian2026
 - `debug` 与 `release` 共用同一份签名，本机测试包可以直接覆盖正式包。
 - 两个文件都随仓库提交，换机器 clone 下来就能打包；单独备份一份 keystore 更稳妥。
 
-> 历史包袱：v1.0 那个「状态栏修复」包是用 Android Debug 签名打的。从它升到 v1.1 必须**卸载一次**，
+> 历史包袱：最早的「状态栏修复」包（versionCode 1）是用 Android Debug 签名打的，从它升级必须**卸载一次**；
 > 之后所有的包都用 `feiyu` 签名，可以一直覆盖升级。
+
+---
+
+## 版本号规则
+
+| 字段 | 规则 |
+| --- | --- |
+| `versionName` | 测试期走 `0.x`，**从 `0.1` 起**，每发一个包 +0.1（0.1 → 0.2 → 0.3 …）；正式对外发布才转 `1.0.0` |
+| `versionCode` | **只增不减**，每次发版 +1。应用内更新靠它判断新旧，Android 也不允许覆盖安装更小的值 |
+
+所以会出现「versionName 看着小、versionCode 一直在涨」的情况，这是故意的：
+版本名面向用户表达阶段（0.x = 测试版），versionCode 服务安装与升级判断，二者解耦。
 
 ---
 
@@ -122,7 +134,7 @@ App 启动 → GET /api/app/version → 比对 versionCode
 
 **发版三步**
 
-1. 改 `app/android/app/build.gradle` 里的 `versionCode`（必须 +1）和 `versionName`
+1. 改 `app/android/app/build.gradle` 里的 `versionCode`（必须 +1）和 `versionName`（测试期 +0.1）
 2. `cd app/android && ./gradlew assembleRelease`
 3. 回到插件根目录执行：
 
@@ -137,9 +149,9 @@ python scripts/release_apk.py --note "本次更新了什么" --note "可以写�
 
 ```json
 {
-  "versionCode": 2,              // 与客户端比对，必须比旧包大
-  "versionName": "1.1",
-  "file": "feiyu-1.1.apk",
+  "versionCode": 3,              // 与客户端比对，必须比旧包大
+  "versionName": "0.1",
+  "file": "feiyu-0.1.apk",
   "size": 5351842,
   "sha256": "…",                 // 下载完校验，对不上就丢弃
   "changelog": ["修复状态栏遮挡"],
