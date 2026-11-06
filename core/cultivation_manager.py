@@ -7,6 +7,164 @@ from astrbot.api import AstrBotConfig, logger
 from ..config_manager import ConfigManager
 from ..models import Player
 
+def weighted_cultivation_multiplier(
+    effects, begin_ts: int, end_ts: int, cap: float = 3.0
+) -> dict:
+    """把「临时丹药 / 符箓的修炼加速」按实际覆盖的时段加权，算出等效倍率。
+
+    旧口径只看**出关那一瞬间**是否还有效，于是两种极端都不对：
+      - 闭关前吃一颗 60 分钟的加速丹、闭关 24 小时 → 全程都按加速算（白赚）；
+      - 闭关 10 小时、第 2 小时吃了丹，出关时早过期 → 一点加成都不算（白吃）。
+
+    改成按时间轴分段：每段的倍率 = 1 + 该段内所有加速效果之和，再按分钟数加权平均。
+    没有任何覆盖的时段按 1.0 计，所以「吃一颗 60 分钟的丹闭关 10 小时」只拿 10% 的权重。
+
+    参数里的 ``effects`` 要传**清理过期之前**的快照，否则闭关中途过期的那批
+    已经被 ``update_temporary_effects`` 删掉了，权重就丢了。
+    """
+    total_minutes = max(0, int((end_ts - begin_ts) // 60))
+    result = {
+        "multiplier": 1.0,
+        "total_minutes": total_minutes,
+        "covered_minutes": 0,
+        "segments": [],
+        "uncovered_minutes": total_minutes,
+        "cap_hit": False,
+    }
+    if total_minutes <= 0 or not effects:
+        return result
+
+    active = []
+    for effect in effects:
+        if not isinstance(effect, dict):
+            continue
+        try:
+            bonus = float(effect.get("cultivation_multiplier") or 0)
+        except (TypeError, ValueError):
+            continue
+        if bonus == 0:
+            continue
+
+        # expiry_time 为 0 / 缺失 = 不按时间失效（按次数结算的那类），视为全程有效
+        expiry = 0
+        try:
+            expiry = int(effect.get("expiry_time") or 0)
+        except (TypeError, ValueError):
+            expiry = 0
+        start = begin_ts
+        try:
+            start = max(begin_ts, int(effect.get("start_time") or begin_ts))
+        except (TypeError, ValueError):
+            start = begin_ts
+        stop = end_ts if expiry <= 0 else min(end_ts, expiry)
+        if stop <= start:
+            continue
+        active.append({
+            "name": str(effect.get("talisman_name") or effect.get("pill_name") or "临时效果"),
+            "quality": str(effect.get("quality") or ""),
+            "source": "talisman" if effect.get("source") == "talisman" else "pill",
+            "bonus": bonus,
+            "begin": start,
+            "end": stop,
+        })
+
+    if not active:
+        return result
+
+    # 事件点扫描：效果区间的端点切开时间轴，段内倍率恒定
+    points = sorted({begin_ts, end_ts} | {e["begin"] for e in active} | {e["end"] for e in active})
+    weighted = 0.0
+    covered = 0
+    segments = {}
+    cap_hit = False
+
+    for left, right in zip(points, points[1:]):
+        if right <= left:
+            continue
+        minute = (right - left) / 60.0
+        mid = (left + right) / 2
+        bonus = sum(e["bonus"] for e in active if e["begin"] <= mid < e["end"])
+        if bonus == 0:
+            weighted += minute
+            continue
+        seg_mult = 1.0 + bonus
+        if seg_mult > cap:
+            seg_mult = cap
+            cap_hit = True
+        elif seg_mult < 0:
+            seg_mult = 0.0
+        weighted += minute * seg_mult
+        covered += minute
+        for e in active:
+            if e["begin"] <= mid < e["end"]:
+                key = (e["name"], e["quality"], e["source"], e["bonus"])
+                segments[key] = segments.get(key, 0) + minute
+
+    result.update({
+        "multiplier": weighted / total_minutes,
+        "covered_minutes": covered,
+        "uncovered_minutes": total_minutes - covered,
+        "cap_hit": cap_hit,
+        "segments": [
+            {"name": k[0], "quality": k[1], "source": k[2], "bonus": k[3], "minutes": m}
+            for k, m in sorted(segments.items(), key=lambda kv: (-kv[1], kv[0][0]))
+        ],
+    })
+    return result
+
+
+def format_bonus_note(cult_bonus: dict, permanent_bonus: float = 0.0, effects=None) -> str:
+    """把丹符加成拼成结算里的一行说明。
+
+    数值已经算进「获得修为」里了，这里只负责让它看得见：
+    每一项加了多少、覆盖了多少分钟、加权后等效几倍。
+    """
+    segments = (cult_bonus or {}).get("segments") or []
+    try:
+        permanent = float(permanent_bonus or 0)
+    except (TypeError, ValueError):
+        permanent = 0.0
+
+    if segments:
+        parts = []
+        for seg in segments[:4]:
+            quality = f"·{seg['quality']}" if seg.get("quality") else ""
+            try:
+                percent = float(seg["bonus"]) * 100
+            except (TypeError, ValueError):
+                continue
+            parts.append(f"{seg['name']}{quality} +{percent:.0f}%（{int(seg['minutes'])}分）")
+        if len(segments) > 4:
+            parts.append(f"等 {len(segments)} 项")
+        covered = int(cult_bonus.get("covered_minutes") or 0)
+        total = int(cult_bonus.get("total_minutes") or 0)
+        try:
+            mult = float(cult_bonus.get("multiplier") or 1.0)
+        except (TypeError, ValueError):
+            mult = 1.0
+        note = (
+            f"\n🧪 丹符加成：{'、'.join(parts)}"
+            f"\n　 └ 等效 ×{mult:.2f}（覆盖 {covered}/{total} 分钟）"
+        )
+        if permanent > 0:
+            note += f"，永久 +{permanent * 100:.0f}%"
+        return note
+
+    if permanent > 0:
+        return f"\n🧪 丹符加成：永久 +{permanent * 100:.0f}%"
+
+    # 吃了/用了但一点也没覆盖到闭关时段：说清楚为什么没加，别让人以为忘了结算
+    for effect in effects or []:
+        if not isinstance(effect, dict):
+            continue
+        try:
+            if float(effect.get("cultivation_multiplier") or 0):
+                return "\n⏳ 修炼加速丹药/符箓未覆盖闭关时段，本次未计入"
+        except (TypeError, ValueError):
+            continue
+    return ""
+
+
 class CultivationManager:
     """修炼管理器，包含角色生成和闭关修炼功能"""
 

@@ -233,7 +233,8 @@ class PillHandler:
             except Exception:
                 cap = 3.0
             extras.append(
-                f"📈 修炼速度 ×{cultivation:.2f}（+{(cultivation - 1) * 100:.0f}%，上限 ×{cap:.1f}）"
+                f"📈 修炼速度 ×{cultivation:.2f}"
+                f"（+{(cultivation - 1) * 100:.0f}%，上限 ×{cap:.1f}；闭关按覆盖时长折算）"
             )
         for key, label in (
             ("physical_damage", "物伤"),

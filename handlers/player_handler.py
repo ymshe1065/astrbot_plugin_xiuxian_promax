@@ -698,8 +698,45 @@ class PlayerHandler:
         effective_minutes = min(duration_minutes, MAX_CULTIVATION_MINUTES)
         exceeded_time = duration_minutes > MAX_CULTIVATION_MINUTES
 
+        # 闭关期间可能已经过期的丹药/符箓，清理前先留快照：
+        # 结算要按「效果到底覆盖了闭关时段的多少分钟」加权，中途过期的也贡献过修为。
+        begin_ts = int(player.cultivation_start_time)
+        end_ts = begin_ts + effective_minutes * 60
+        effects_snapshot = [
+            dict(e) for e in player.get_active_pill_effects() if isinstance(e, dict)
+        ]
+
         await self.pill_manager.update_temporary_effects(player)
         pill_multipliers = self.pill_manager.calculate_pill_attribute_effects(player)
+
+        # 修炼加速改为按时段加权，不再看「出关那一瞬间还剩没剩」
+        try:
+            from ..core.cultivation_manager import weighted_cultivation_multiplier
+            cap = 3.0
+            try:
+                cap = float(
+                    self.config_manager.pill_quality_data.get("temporary_effect_cap", 3.0)
+                )
+            except Exception:
+                cap = 3.0
+            cult_bonus = weighted_cultivation_multiplier(effects_snapshot, begin_ts, end_ts, cap)
+        except Exception:
+            cult_bonus = {
+                "multiplier": 1.0, "segments": [], "covered_minutes": 0,
+                "total_minutes": effective_minutes, "uncovered_minutes": effective_minutes,
+            }
+
+        # 永久丹药加成压根不看时段，全额计入
+        permanent_cult = 0.0
+        try:
+            level_gains = player.get_permanent_pill_gains().get(f"level_{player.level_index}") or {}
+            if isinstance(level_gains, dict):
+                permanent_cult = float(level_gains.get("cultivation_multiplier") or 0)
+        except Exception:
+            permanent_cult = 0.0
+
+        pill_multipliers = dict(pill_multipliers)
+        pill_multipliers["cultivation_speed"] = cult_bonus["multiplier"] + permanent_cult
 
         technique_bonus = 0.0
         try:
@@ -722,6 +759,14 @@ class PlayerHandler:
         gained_exp = self.cultivation_manager.calculate_cultivation_exp(
             player, effective_minutes, technique_bonus, pill_multipliers
         )
+
+        # 丹符加成明细：既然算进数值了，就得让人在结算里看得见
+        pill_note = ""
+        try:
+            from ..core.cultivation_manager import format_bonus_note
+            pill_note = format_bonus_note(cult_bonus, permanent_cult, effects_snapshot)
+        except Exception:
+            pill_note = ""
 
         # 聚灵蒲团：洞天家具，闭关收益+5%
         furniture_note = ""
@@ -815,7 +860,7 @@ class PlayerHandler:
             "🌟 道友出关成功！\n"
             "━━━━━━━━━━━━━━━\n"
             f"⏱️ 闭关时长：{time_str}\n"
-            f"📈 获得修为：{gained_exp:,}{exceed_msg}{furniture_note}{tide_note}\n"
+            f"📈 获得修为：{gained_exp:,}{exceed_msg}{pill_note}{furniture_note}{tide_note}\n"
             f"💫 当前修为：{player.experience:,}\n"
         )
         reply_msg += tutorial_msg
