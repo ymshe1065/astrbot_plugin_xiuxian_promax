@@ -10,6 +10,7 @@ from ..models import Player
 from ..data import DataBase
 from ..config_manager import ConfigManager
 from .item_rules import ItemRules
+from .active_effects import format_duration
 
 
 def _safe_int(value, default: int = 0) -> int:
@@ -370,12 +371,22 @@ class PillManager:
             value = getattr(player, key, 0)
             attrs[key] = bool(value) if key == "has_resurrection_pill" else int(value or 0)
         effect_names = []
+        durations: Dict[str, int] = {}
+        now = int(time.time())
         for effect in player.get_active_pill_effects():
             if isinstance(effect, dict):
                 name = effect.get("pill_name") or effect.get("name")
                 if name and name not in effect_names:
                     effect_names.append(str(name))
-        return {"attrs": attrs, "effects": tuple(sorted(effect_names))}
+                if name:
+                    expiry = _safe_int(effect.get("expiry_time"), 0)
+                    left = max(0, int((expiry - now) // 60)) if expiry else 0
+                    durations[str(name)] = max(durations.get(str(name), 0), left)
+        return {
+            "attrs": attrs,
+            "effects": tuple(sorted(effect_names)),
+            "durations": durations,
+        }
 
     def _format_batch_effect(self, before: dict, after: dict, last_message: str) -> str:
         labels = (
@@ -400,6 +411,17 @@ class PillManager:
         new_effects = sorted(set(after["effects"]) - set(before["effects"]))
         if new_effects:
             lines.append("新增临时效果：" + "、".join(new_effects[:6]))
+        # 临时丹药的剩余时长：批量服用后玩家最关心的就是「一共攒了多久」
+        durations = after.get("durations") or {}
+        before_durations = before.get("durations") or {}
+        parts = []
+        for name, left in durations.items():
+            if left <= 0:
+                continue
+            if name in new_effects or left != before_durations.get(name):
+                parts.append(f"{name} 剩余 {format_duration(left)}")
+        if parts:
+            lines.append("持续时间：" + "、".join(parts[:4]))
         if after["attrs"].get("has_resurrection_pill") and not before["attrs"].get("has_resurrection_pill"):
             lines.append("获得回生效果")
         return "\n".join(lines) if lines else last_message
@@ -477,10 +499,48 @@ class PillManager:
             f"━━━━━━━━━━━━━━━"
         )
 
+    def _temporary_effect_text(self, effect: dict) -> str:
+        """临时丹药效果 → 「修炼速度+25%、物伤+10%」这样的一句话。"""
+        effect_desc: List[str] = []
+        if "cultivation_multiplier" in effect:
+            value = effect["cultivation_multiplier"]
+            effect_desc.append(f"修炼速度{ItemRules.format_bonus_rate(value, cap=None)}")
+        if "physical_damage_multiplier" in effect:
+            value = effect["physical_damage_multiplier"]
+            effect_desc.append(f"物伤{ItemRules.format_bonus_rate(value)}")
+        if "magic_damage_multiplier" in effect:
+            value = effect["magic_damage_multiplier"]
+            effect_desc.append(f"法伤{ItemRules.format_bonus_rate(value)}")
+        if "physical_defense_multiplier" in effect:
+            value = effect["physical_defense_multiplier"]
+            effect_desc.append(f"物防{ItemRules.format_bonus_rate(value)}")
+        if "magic_defense_multiplier" in effect:
+            value = effect["magic_defense_multiplier"]
+            effect_desc.append(f"法防{ItemRules.format_bonus_rate(value)}")
+        if effect.get("random_effect_key"):
+            effect_desc.append("随机一项属性大幅提升，其余属性大幅下降")
+        if "breakthrough_bonus" in effect:
+            value = effect["breakthrough_bonus"]
+            effect_desc.append(f"突破成功率{value:+.0%}")
+        if any(
+            key in effect
+            for key in (
+                "physical_damage_multiplier", "magic_damage_multiplier",
+                "physical_defense_multiplier", "magic_defense_multiplier",
+            )
+        ):
+            effect_desc.append("战斗属性加成按项封顶 +50%")
+        return "、".join(effect_desc) if effect_desc else "特殊效果"
+
     async def _use_temporary_pill(self, player: Player, pill_key: str, pill_data: dict, quality: str) -> Tuple[bool, str]:
-        """使用临时效果丹药"""
+        """使用临时效果丹药。
+
+        同名丹药重复服用是**叠加时长**而不是覆盖：批量服用 30 颗修炼加速丹，
+        应该攒出 30 小时的加速，而不是只剩最后一颗的 60 分钟。
+        效果数值取更强的一份，避免吃一颗低品质把高品质的效果顶掉。
+        """
         base_name, _ = self.split_pill_key(pill_key)
-        duration_minutes = pill_data.get("duration_minutes", 60)
+        duration_minutes = _safe_int(pill_data.get("duration_minutes", 60), 60)
         current_time = int(time.time())
         expiry_time = current_time + duration_minutes * 60
         mult = self.get_quality_multiplier(quality)
@@ -530,7 +590,64 @@ class PillManager:
                 effect[key] = 0.5 if key == chosen else -0.5
             effect["random_effect_key"] = chosen
 
-        # 同名丹药不叠加：刷新为新服用的品质与时间
+        is_random = bool(pill_data.get("is_random"))
+
+        # 同名丹药未过期 → 叠加时长；已过期 → 重建一层
+        active = list(player.get_active_pill_effects())
+        existing = next(
+            (
+                e for e in active
+                if isinstance(e, dict)
+                and e.get("pill_name") == base_name
+                and _safe_int(e.get("expiry_time"), 0) > current_time
+            ),
+            None,
+        )
+        if existing is not None:
+            # start_time / last_tick_time 保留，避免每分钟恢复类效果的结算被重置
+            existing["expiry_time"] = (
+                _safe_int(existing.get("expiry_time"), current_time) + duration_minutes * 60
+            )
+            existing["duration_minutes"] = (
+                _safe_int(existing.get("duration_minutes"), 0) + duration_minutes
+            )
+            if not is_random:  # 随机丹药每次重掷，续时不夺回原有的正负面
+                for key in effect_keys:
+                    if key not in effect:
+                        continue
+                    if key not in existing:
+                        existing[key] = effect[key]
+                        continue
+                    old_value = _safe_float(existing.get(key))
+                    new_value = _safe_float(effect.get(key))
+                    # 成本类与负面效果取更狠的一档，正面加成取更高的一档
+                    existing[key] = (
+                        min(old_value, new_value)
+                        if (key in cost_keys or is_debuff)
+                        else max(old_value, new_value)
+                    )
+            if not is_debuff:
+                try:
+                    old_mult = float(self.get_quality_multiplier(existing.get("quality") or quality))
+                except Exception:
+                    old_mult = 1.0
+                if mult >= old_mult:
+                    existing["quality"] = quality
+            player.set_active_pill_effects(active)
+            self._consume_inventory_key(player, pill_key)
+            await self.db.update_player(player)
+
+            total_minutes = max(
+                0, (_safe_int(existing.get("expiry_time"), current_time) - current_time) // 60
+            )
+            return True, (
+                f"✨ 服用【{base_name}·{quality}】成功，效果时间叠加！\n"
+                f"━━━━━━━━━━━━━━━\n"
+                f"⏱️ 本次 +{duration_minutes}分钟，累计剩余 {format_duration(total_minutes)}\n"
+                f"🎯 效果：{self._temporary_effect_text(existing)}\n"
+                f"━━━━━━━━━━━━━━━"
+            )
+
         effects = [
             e for e in player.get_active_pill_effects()
             if e.get("pill_name") != base_name
@@ -541,38 +658,7 @@ class PillManager:
         self._consume_inventory_key(player, pill_key)
         await self.db.update_player(player)
 
-        effect_desc = []
-        if "cultivation_multiplier" in effect:
-            value = effect["cultivation_multiplier"]
-            effect_desc.append(f"修炼速度{ItemRules.format_bonus_rate(value, cap=None)}")
-        if "physical_damage_multiplier" in effect:
-            value = effect["physical_damage_multiplier"]
-            effect_desc.append(f"物伤{ItemRules.format_bonus_rate(value)}")
-        if "magic_damage_multiplier" in effect:
-            value = effect["magic_damage_multiplier"]
-            effect_desc.append(f"法伤{ItemRules.format_bonus_rate(value)}")
-        if "physical_defense_multiplier" in effect:
-            value = effect["physical_defense_multiplier"]
-            effect_desc.append(f"物防{ItemRules.format_bonus_rate(value)}")
-        if "magic_defense_multiplier" in effect:
-            value = effect["magic_defense_multiplier"]
-            effect_desc.append(f"法防{ItemRules.format_bonus_rate(value)}")
-        if effect.get("random_effect_key"):
-            effect_desc.append("随机一项属性大幅提升，其余属性大幅下降")
-        if "breakthrough_bonus" in effect:
-            value = effect["breakthrough_bonus"]
-            effect_desc.append(f"突破成功率{value:+.0%}")
-
-        if any(
-            key in effect
-            for key in (
-                "physical_damage_multiplier", "magic_damage_multiplier",
-                "physical_defense_multiplier", "magic_defense_multiplier",
-            )
-        ):
-            effect_desc.append("战斗属性加成按项封顶 +50%")
-
-        effects_str = "、".join(effect_desc) if effect_desc else "特殊效果"
+        effects_str = self._temporary_effect_text(effect)
 
         return True, (
             f"✨ 服用【{base_name}·{quality}】成功！\n"
