@@ -513,7 +513,7 @@
     {
         "id": "util_041",
         "name": "平衡丹",
-        "description": "永久增加所有属性+50",
+        "description": "永久增加所有属性+50（精神力+100）",
         "rank": "地品",
         "subtype": "permanent_attribute",
         "required_level_index": 10,
@@ -529,7 +529,7 @@
     {
         "id": "util_042",
         "name": "完美丹",
-        "description": "永久增加所有属性+150",
+        "description": "永久增加所有属性+150（精神力+300）",
         "rank": "天品",
         "subtype": "permanent_attribute",
         "required_level_index": 13,
@@ -545,7 +545,7 @@
     {
         "id": "util_043",
         "name": "无缺丹",
-        "description": "永久增加所有属性+400",
+        "description": "永久增加所有属性+400（精神力+800）",
         "rank": "皇品",
         "subtype": "permanent_attribute",
         "required_level_index": 16,
@@ -970,7 +970,7 @@
     {
         "id": "util_074",
         "name": "天命丹",
-        "description": "永久增加所有属性+800",
+        "description": "永久增加所有属性+800（精神力+1600）",
         "rank": "帝品",
         "subtype": "permanent_attribute",
         "required_level_index": 22,
@@ -986,7 +986,7 @@
     {
         "id": "util_075",
         "name": "混沌丹",
-        "description": "永久增加所有属性+2000",
+        "description": "永久增加所有属性+2000（精神力+4000）",
         "rank": "道品",
         "subtype": "permanent_attribute",
         "required_level_index": 25,
@@ -1002,7 +1002,7 @@
     {
         "id": "util_076",
         "name": "神魔丹",
-        "description": "永久增加所有属性+5000",
+        "description": "永久增加所有属性+5000（精神力+10000）",
         "rank": "仙品",
         "subtype": "permanent_attribute",
         "required_level_index": 31,
@@ -1018,7 +1018,7 @@
     {
         "id": "util_077",
         "name": "劫运丹",
-        "description": "永久增加所有属性+300，但降低修炼速度30%",
+        "description": "永久增加所有属性+300（精神力+600），但降低修炼速度30%",
         "rank": "天品",
         "subtype": "permanent_attribute",
         "required_level_index": 13,
@@ -1394,7 +1394,7 @@
     {
         "id": "util_106",
         "name": "本源丹",
-        "description": "永久增加所有属性+1000、寿命+2000",
+        "description": "永久增加所有属性+1000（精神力+2000）、寿命+2000",
         "rank": "道品",
         "subtype": "permanent_attribute",
         "required_level_index": 25,
@@ -1411,7 +1411,7 @@
     {
         "id": "util_107",
         "name": "万灵丹",
-        "description": "永久增加所有属性+3000、寿命+5000、最大灵气+20000",
+        "description": "永久增加所有属性+3000（精神力+6000）、寿命+5000、最大灵气+20000",
         "rank": "仙品",
         "subtype": "permanent_attribute",
         "required_level_index": 31,
@@ -1429,7 +1429,7 @@
     {
         "id": "util_108",
         "name": "至尊丹",
-        "description": "永久增加所有属性+8000、寿命+10000、最大灵气+50000",
+        "description": "永久增加所有属性+8000（精神力+16000）、寿命+10000、最大灵气+50000",
         "rank": "混元先天",
         "subtype": "permanent_attribute",
         "required_level_index": 35,
@@ -1463,7 +1463,7 @@
     {
         "id": "util_110",
         "name": "献祭丹",
-        "description": "永久降低寿命-3000，但增加所有属性+1500",
+        "description": "永久降低寿命-3000，但增加所有属性+1500（精神力+3000）",
         "rank": "皇品",
         "subtype": "permanent_attribute",
         "required_level_index": 16,

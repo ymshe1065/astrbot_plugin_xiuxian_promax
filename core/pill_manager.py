@@ -522,6 +522,22 @@ class PillManager:
         if "breakthrough_bonus" in effect:
             value = effect["breakthrough_bonus"]
             effect_desc.append(f"突破成功率{value:+.0%}")
+        # 每分钟恢复/消耗类：以前一律显示「特殊效果」，玩家看不出回春丹到底在干什么
+        for key, label in (
+            ("lifespan_regen_per_minute", "每分钟寿命"),
+            ("lifespan_cost_per_minute", "每分钟寿命"),
+            ("spiritual_qi_regen_per_minute", "每分钟灵气"),
+            ("blood_qi_regen_per_minute", "每分钟气血"),
+            ("blood_qi_cost_per_minute", "每分钟气血"),
+        ):
+            if key not in effect:
+                continue
+            try:
+                amount = int(float(effect[key]))
+            except (TypeError, ValueError):
+                continue
+            sign = "-" if key.endswith("cost_per_minute") else "+"
+            effect_desc.append(f"{label}{sign}{abs(amount):,}")
         if any(
             key in effect
             for key in (
@@ -749,6 +765,28 @@ class PillManager:
             permanent_gains[level_key]["death_protection_multiplier"] *= death_mult
             gains_applied["突破境界跌落概率"] = f"降低{(1 - death_mult) * 100:.0f}%"
 
+        # 永久攻防倍率（伐体丹这类「永久降低所有属性 -30%」）：
+        # 之前这里只认 *_gain，四个倍率字段被静默丢掉，等于白嫖了正面效果。
+        # 记进 permanent_gains，由 calculate_pill_attribute_effects 统一应用。
+        for mult_key, label in (
+            ("physical_damage_multiplier", "物伤"),
+            ("magic_damage_multiplier", "法伤"),
+            ("physical_defense_multiplier", "物防"),
+            ("magic_defense_multiplier", "法防"),
+        ):
+            if mult_key not in pill_data:
+                continue
+            try:
+                delta = float(pill_data[mult_key]) * mult
+            except (TypeError, ValueError):
+                continue
+            if not delta:
+                continue
+            permanent_gains[level_key][mult_key] = (
+                _safe_float(permanent_gains[level_key].get(mult_key)) + delta
+            )
+            gains_applied[label] = f"{delta:+.0%}（永久）"
+
         if not gains_applied:
             return False, "该丹药的所有属性增益都已达到上限，无法使用！"
 
@@ -771,7 +809,10 @@ class PillManager:
                 msg_parts.append(f"  {attr_name} {reason}")
 
         msg_parts.append("━━━━━━━━━━━━━━━")
-        msg_parts.append("注：每个境界的永久属性丹药增益上限为基础属性的30%+已使用洗髓/易筋加成")
+        msg_parts.append(
+            "注：永久属性丹药有境界额度 —— 每个境界最多提升「该境界突破所得属性」的 30%，"
+            "洗髓/易筋可抬高额度；额度用满后再吃同类丹药不会生效。"
+        )
 
         return True, "\n".join(msg_parts)
 
@@ -1032,8 +1073,14 @@ class PillManager:
         level_key = f"level_{player.level_index}"
         if level_key in permanent_gains:
             level_gains = permanent_gains[level_key]
-            if isinstance(level_gains, dict) and "cultivation_multiplier" in level_gains:
-                multipliers["cultivation_speed"] += _safe_float(level_gains["cultivation_multiplier"])
+            if isinstance(level_gains, dict):
+                if "cultivation_multiplier" in level_gains:
+                    multipliers["cultivation_speed"] += _safe_float(level_gains["cultivation_multiplier"])
+                # 永久攻防倍率（伐体丹等）：按境界层累加，长期有效
+                for key in ("physical_damage", "magic_damage", "physical_defense", "magic_defense"):
+                    delta = _safe_float(level_gains.get(f"{key}_multiplier"))
+                    if delta:
+                        multipliers[key] += delta
 
         try:
             cultivation_cap = float(self.config_manager.pill_quality_data.get("temporary_effect_cap", 3.0))
