@@ -153,11 +153,12 @@ class TalismanManager:
         ]
 
     def get_recipe(self, name: str) -> Optional[Dict]:
-        if name in NON_TALISMAN_ITEMS:
-            return None
+        # 显式配方优先：化身傀儡这类「不能当符箓用」的功能道具也可以有绘制路径
         recipe = self._recipe_config(name)
         if recipe:
             return dict(recipe)
+        if name in NON_TALISMAN_ITEMS:
+            return None
         item = self._item_data(name)
         if not item or item.get("type") != "符箓":
             return None
@@ -363,10 +364,11 @@ class TalismanManager:
                 craftable += 1
                 total_possible += possible
 
-            held_note = f"｜持有{held.get(name, 0)}张" if held.get(name) else ""
+            unit = "个" if name in NON_TALISMAN_ITEMS else "张"
+            held_note = f"｜持有{held.get(name, 0)}{unit}" if held.get(name) else ""
             lines.append(
                 f"· {name}（{params['rank']}）{held_note}\n"
-                f"  成功率 {params['success_rate']:.0f}%｜工费 {params['gold_cost']:,}/张｜可堆叠"
+                f"  成功率 {params['success_rate']:.0f}%｜工费 {params['gold_cost']:,}/{unit}｜可堆叠"
             )
 
             mat_parts = []
@@ -395,8 +397,8 @@ class TalismanManager:
                 status = reason
             else:
                 caps = [f"材料限{mat_cap}", f"灵石限{gold_cap}", f"格位限{slot_cap}"]
-                lines.append(f"  ✅ 可画 {possible} 张（{' · '.join(caps)}）")
-                status = f"可画 {possible} 张"
+                lines.append(f"  ✅ 可画 {possible} {unit}（{' · '.join(caps)}）")
+                status = f"可画 {possible} {unit}"
 
             card_lines.append(
                 f"[{category}] {name}（{params['rank']} · 成功率{params['success_rate']:.0f}%"
@@ -407,7 +409,7 @@ class TalismanManager:
 
         lines.append("━━━━━━━━━━━━━━━")
         lines.append(
-            f"已掌握 {len(learned_entries)} 张｜当前可画 {craftable} 种、合计 {total_possible} 张"
+            f"已掌握 {len(learned_entries)} 种｜当前可画 {craftable} 种、合计 {total_possible} 份"
             f"｜熟练度 {prof['name']}（{prof['points']}/{prof['next_points']}）"
         )
         if self.storage_ring_manager:
@@ -443,10 +445,10 @@ class TalismanManager:
         return f"{self._recipe_rank(recipe)} Lv{level}｜{gold:,}灵石｜{materials}｜{rate:.0f}%"
 
     def iter_recipes(self) -> List[Tuple[str, Dict]]:
-        """枚举正式符表（config 配方，34 张），不含 legacy 拼凑符。"""
+        """枚举正式符表（config 配方，35 张），不含 legacy 拼凑符。"""
         entries: List[Tuple[str, Dict]] = []
         for name, recipe in (getattr(self.config_manager, "talisman_recipes_data", {}) or {}).items():
-            if name in NON_TALISMAN_ITEMS or recipe.get("legacy"):
+            if recipe.get("legacy"):
                 continue
             data = dict(recipe)
             data["category"] = data.get("category") or self._infer_category(name)
@@ -780,13 +782,18 @@ class TalismanManager:
         note = ""
         if attempted > made:
             note = f"\n（共尝试 {attempted} 次，成功 {made} 张，失败 {attempted - made} 次）"
+        usage_hint = (
+            "/激活化身 唤醒（30 天内闭关收益 +20%）"
+            if name in NON_TALISMAN_ITEMS
+            else f"/使用符箓 {name} [数量] 使用"
+        )
         return True, (
             f"🖌️ 绘制成功！\n━━━━━━━━━━━━━━━\n"
             f"获得【{name}】x{made}{note}\n"
             f"消耗：{cost_text}、灵石 -{gold_spent:,}\n"
             f"成功率：{success_rate:.0f}%{progress}\n"
             f"━━━━━━━━━━━━━━━\n"
-            f"💡 /使用符箓 {name} [数量] 使用"
+            f"💡 {usage_hint}"
         )
 
     # ===== 使用 =====

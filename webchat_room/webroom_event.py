@@ -160,9 +160,11 @@ class WebroomMessageEvent(AstrMessageEvent):
         if audience == "self":
             # 私密/看板结果只回给本人；玩家已离线时宁可丢弃，也不回退到公屏
             await room_server.send_to_player(room_id, self._player_id(), payload_out)
+            room_server.schedule_bag_check(room_id, self._player_id(), self.username)
             return
 
         await room_server.broadcast_bot_payload(room_id, payload_out)
+        room_server.schedule_bag_check(room_id, self._player_id(), self.username)
 
     async def send(self, message: MessageChain | None) -> None:
         if message is not None:

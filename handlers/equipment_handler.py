@@ -497,6 +497,54 @@ class EquipmentHandler:
         if not sent:
             yield event.plain_result(text_msg)
 
+    def _ring_item_count(self, player: Player, name: str) -> int:
+        """储物戒中该物品的堆叠数量（兼容异常存档）。"""
+        try:
+            return int((player.get_storage_ring_items() or {}).get(name, 0) or 0)
+        except Exception:
+            return 0
+
+    async def _already_equipped_message(self, player: Player, item_name: str,
+                                        item_type: str, trailing_index: int = 0) -> str:
+        """功法/心法重复装备时给出可执行提示；未装备返回空串。
+
+        功法的末尾数字表示「替换第几个栏位」，不是副本序号。
+        玩家看到储物戒里还有同名副本时，容易误以为还能再装备一次，
+        这里要同时说明已装备栏位、副本数量与数字含义。
+        """
+        if item_type == "technique":
+            techniques = player.get_techniques_list()
+            if item_name not in techniques:
+                return ""
+            slot_no = techniques.index(item_name) + 1
+            spare = self._ring_item_count(player, item_name)
+            lines = [f"❌ 功法【{item_name}】已装备（栏位 {slot_no}），同名功法无法重复装备。"]
+            if spare > 0:
+                lines.append(
+                    f"储物戒中的 {spare} 本同名功法是额外副本，不会自动消耗；"
+                    f"可保留，或发送 /回收 {item_name} 回收。"
+                )
+            if trailing_index and trailing_index != slot_no:
+                lines.append(
+                    f"提示：功法名后的数字是替换栏位（1~3），不是副本序号；"
+                    f"如需替换栏位，请发送 /装备 其他功法 {trailing_index}。"
+                )
+            return "\n".join(lines)
+
+        if item_type == "main_technique":
+            current = str(getattr(player, "main_technique", "") or "")
+            if not current or current != item_name:
+                return ""
+            spare = self._ring_item_count(player, item_name)
+            lines = [f"❌ 【{item_name}】已是当前主修心法，无法重复装备。"]
+            if spare > 0:
+                lines.append(
+                    f"储物戒中的 {spare} 本同名心法是额外副本，可保留或发送 /回收 {item_name} 回收。"
+                )
+            return "\n".join(lines)
+
+        return ""
+
     @player_required
     async def handle_equip_item(self, player: Player, event: AstrMessageEvent, item_name: str):
         """装备物品"""
@@ -546,6 +594,16 @@ class EquipmentHandler:
 
         if item_type not in equippable_types:
             yield event.plain_result(f"【{item_name}】不是可装备的物品类型")
+            return
+
+        # 功法/心法已装备时先拦下：储物戒里的同名物品只是额外副本，
+        # 不能重复装备。提前判断可避免「先取出再回存」的无谓写入，
+        # 也让提示能说清副本数量，不再只回一句「已装备」。
+        already_msg = await self._already_equipped_message(
+            player, item_name, item_type, trailing_index
+        )
+        if already_msg:
+            yield event.plain_result(already_msg)
             return
 
         # 优先使用装备实例，同名装备按序号选择

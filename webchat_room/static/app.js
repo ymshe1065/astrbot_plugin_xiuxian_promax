@@ -49,6 +49,7 @@
     pending: new Map(),      // req_id -> { cmd, panel }
     cards: new Map(),        // card id -> card
     panelCard: { status: null, bag: null },
+    bagDirty: true,          // 储物戒在别处发生变更，切回看板时需要重新拉取
     lastCmd: null,           // 用于刷新
     reconnectTimer: null,
     manualClose: false,
@@ -1203,10 +1204,20 @@
       return;
     }
     switch (m.type) {
-      case "hello":
+      case "hello": {
+        const switchedUser = !!S.username && !!m.username && S.username !== m.username;
         if (m.nick) { S.me = m.nick; }
         if (m.username) S.username = m.username;
         if (typeof m.avatar === "string") S.avatar = m.avatar;
+        // 重连/换号后看板必须重新取：防止展示上一个账号或过期的储物戒
+        S.bagDirty = true;
+        if (switchedUser) {
+          S.panelCard = { status: null, bag: null };
+          const statusView = $("viewStatus");
+          const bagView = $("viewBag");
+          if (statusView) statusView.innerHTML = "";
+          if (bagView) bagView.innerHTML = "";
+        }
         applySettings(m.settings);
         setUnreadBadge(m.unread || 0);
         updateMeUI();
@@ -1222,6 +1233,7 @@
         refreshOnline();
         refreshChannelData();
         break;
+      }
       case "chat":
         // 用账号判断是不是自己，昵称可以随时改
         addChat(
@@ -1265,10 +1277,16 @@
         break;
       case "bot":
         if (m.req_id && S.pending.has(m.req_id)) S.pending.delete(m.req_id);
+        if (m.actor && m.actor === S.username) markBagDirty();
         addBotMessage(m);
         break;
       case "reply":
         handleReply(m);
+        break;
+      case "bag_changed":
+        // 后端确认储物戒内容有变：界面正开着就立即刷新，否则等切回来再取
+        markBagDirty();
+        refreshBagSoon();
         break;
       case "notice":
         onNotice(m);
@@ -1339,11 +1357,24 @@
 
     // 面板请求：结果归位到看板，不进聊天流
     if (ctx?.panel) {
-      if (cards.length) setPanelCard(ctx.panel, cards[0]);
-      else if (m.text) renderPanelText(ctx.panel, m.text);
-      else renderPanelEmpty(ctx.panel, "没有数据");
+      if (cards.length) {
+        setPanelCard(ctx.panel, cards[0]);
+      } else if (m.text) {
+        renderPanelText(ctx.panel, m.text);
+        // 没有卡片、退化成文本时也算已同步，避免每次切页重复请求
+        if (ctx.panel === "bag") {
+          S.bagDirty = false;
+          bagLoadedAt = Date.now();
+        }
+      } else {
+        renderPanelEmpty(ctx.panel, "没有数据");
+      }
       return;
     }
+
+    // 自己的指令已经执行：储物戒可能被改动，先打标记；
+    // 后端若确认有变会随后推 bag_changed，界面开着时再精确刷新一次。
+    markBagDirty();
 
     // 其他回复：进聊天流（仅自己可见）
     if (m.text) {
@@ -2307,6 +2338,7 @@
       ["品质", entry.quality],
       ["五行", entry.element],
       ["数量", `×${entry.count}`],
+      ["状态", entry.equipped],
     ].filter(([, v]) => v);
     if (entry.affix_count) rows.push(["词条", `${entry.affix_count} 条`]);
     tip.innerHTML =
@@ -2401,7 +2433,7 @@
       b.type = "button";
       b.className = "icell";
       b.style.setProperty("--kd", KIND_COLORS[it.kind] || "transparent");
-      const meta = [it.rank, it.quality].filter(Boolean).join("·") || it.kind || "—";
+      const meta = [it.rank, it.quality, it.equipped].filter(Boolean).join("·") || it.kind || "—";
       b.innerHTML =
         `<span class="ic-name">${esc(it.name)}</span>` +
         (it.element
@@ -2409,7 +2441,8 @@
           : "") +
         `<span class="ic-meta">${esc(meta)}</span>` +
         `<span class="ic-cnt">×${it.count}</span>`;
-      b.title = [it.name, it.rank, it.quality, it.element].filter(Boolean).join(" · ");
+      b.classList.toggle("is-equipped", !!it.equipped);
+      b.title = [it.name, it.rank, it.quality, it.element, it.equipped].filter(Boolean).join(" · ");
       b.addEventListener("click", (e) => openItemMenu(it.name, e.currentTarget, it.count, it, e));
       bindItemTip(b, it);
       return b;
@@ -2627,6 +2660,8 @@
     try {
       const r = await fetch(`/api/equip_context?item=${encodeURIComponent(name)}`, {
         headers: { Authorization: "Bearer " + S.token },
+        // 槽位占用随穿戴变化，缓存住旧结果会让「替换弹窗」看起来失效
+        cache: "no-store",
       });
       data = await r.json().catch(() => null);
     } catch {
@@ -2645,15 +2680,15 @@
       return;
     }
     const choices = Array.isArray(data.choices) ? data.choices : [];
+    // 同名同品质可能有多件，替换时也要带上「第几件」，否则会装上另一件
+    const pick = entry && entry.equip_index > 1 ? ` ${entry.equip_index}` : "";
     if (data.needs_choice && choices.length) {
       openChoiceSheet("装备替换", data.hint || "请选择要替换的栏位", choices, (value) => {
-        dispatchCommand(`/装备 ${name} ${value}`.trim());
+        dispatchCommand(`/装备 ${name}${pick} ${value}`.trim());
       });
       return;
     }
     if (data.hint) toast(data.hint);
-    // 同名同品质可能有多件，装备要指明第几件，否则可能装上品质不同的那件
-    const pick = entry && entry.equip_index > 1 ? ` ${entry.equip_index}` : "";
     dispatchCommand(`/装备 ${name}${pick}`);
   }
 
@@ -2717,9 +2752,48 @@
   }
 
   /* ================= 面板 ================= */
+  /** 储物戒是否已过期：后台变更时只打标记，等玩家切回储物戒界面再刷新 */
+  let bagRefreshTimer = 0;
+  let bagLoadedAt = 0; // 最近一次成功渲染储物戒卡片的时间
+
+  function markBagDirty() {
+    S.bagDirty = true;
+  }
+
+  /** 当前看板是否停在储物戒页 */
+  function bagTabActive() {
+    const tab = document.querySelector(".panel-tab.active");
+    return !!tab && tab.dataset.tab === "bag";
+  }
+
+  /** 合并短时间内的多次刷新请求，避免连发指令时重复渲染卡片 */
+  function refreshBagSoon(delay = 220, retry = 0) {
+    if (!S.connected) return;
+    clearTimeout(bagRefreshTimer);
+    bagRefreshTimer = setTimeout(() => {
+      bagRefreshTimer = 0;
+      if (!bagTabActive()) return;
+      // 已有请求在路上：等它落地后再补一次，避免这张卡生成于变更之前
+      if (panelPending("bag") && retry < 5) {
+        refreshBagSoon(400, retry + 1);
+        return;
+      }
+      loadPanel("bag");
+    }, delay);
+  }
+
   function loadPanel(which) {
+    if (panelPending(which)) return;
     if (which === "status") sendCmd("/我的信息", { panel: "status", card: true, silent: true });
     if (which === "bag") sendCmd("/储物戒", { panel: "bag", card: true, silent: true });
+  }
+
+  /** 看板是否已有同类请求在路上，避免切页/推送触发重复渲染 */
+  function panelPending(which) {
+    for (const p of S.pending.values()) {
+      if (p && p.panel === which) return true;
+    }
+    return false;
   }
 
   function panelView(which) {
@@ -2729,6 +2803,10 @@
   function setPanelCard(which, card) {
     S.cards.set(card.id, card);
     S.panelCard[which] = card.id;
+    if (which === "bag") {
+      S.bagDirty = false;
+      bagLoadedAt = Date.now();
+    }
     const view = panelView(which);
     view.innerHTML = "";
     const head = document.createElement("div");
@@ -2771,9 +2849,17 @@
     });
     if (tab === "cmds") renderCommandGrid();
     if (tab === "proxy") loadProxyPanel();
-    // 面板还没数据时按需拉取（开面板才查，避免无谓的卡片渲染）
-    if ((tab === "status" || tab === "bag") && !S.panelCard[tab] && S.connected) {
-      loadPanel(tab);
+    // 面板还没数据、或期间储物戒发生过变更时重新拉取：
+    // 不在储物戒界面时不急着渲染卡片，回到这里再取最新状态。
+    if (tab === "status" && !S.panelCard.status && S.connected) {
+      loadPanel("status");
+    }
+    if (tab === "bag" && S.connected) {
+      // 切回储物戒页一律取最新：变更标记、卡片过期或距上次渲染超过 3 秒都重拉，
+      // 这样连 QQ 端改动的存档也会在切页时同步过来。
+      if (S.bagDirty || !S.panelCard.bag || Date.now() - bagLoadedAt > 3000) {
+        loadPanel("bag");
+      }
     }
     if (isMobile()) openDrawer();
   }

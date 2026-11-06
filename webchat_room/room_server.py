@@ -69,6 +69,12 @@ _plugin: "XiuXianPlugin | None" = None
 _runner: web.AppRunner | None = None
 _site: web.TCPSite | None = None
 
+# 储物戒指纹：player_key -> 最近一次已同步给前端的储物戒状态哈希。
+# 指令执行后比较一次，只有真的变了才推送 bag_changed，避免每条消息都重渲染卡片。
+_BAG_SIG_LIMIT = 2000
+_bag_sigs: "OrderedDict[str, str]" = OrderedDict()
+_bag_tasks: set[asyncio.Task] = set()
+
 # 最近发出的公屏消息：撤回时校验发送者，避免撤回别人的消息。
 # 只保存在内存里，重启后历史消息不能再撤回（与聊天记录不落库的策略一致）。
 _RECENT_MSG_LIMIT = 800
@@ -234,6 +240,10 @@ async def _cache_control(request: web.Request, handler):
             resp.headers["Cache-Control"] = "no-store, max-age=0"
         else:
             resp.headers["Cache-Control"] = "no-cache, must-revalidate"
+    elif request.path.startswith("/api/"):
+        # 接口结果跟当前存档强相关（如 /api/equip_context 的槽位占用），
+        # 被浏览器/WebView 缓存会让替换弹窗看起来「没生效」。
+        resp.headers["Cache-Control"] = "no-store, max-age=0"
     return resp
 
 
@@ -462,6 +472,115 @@ async def push_to_username(room_id: str, username: str, payload: dict[str, Any])
     return sent
 
 
+async def _bag_check(room_id: str, player_key: str, username: str) -> None:
+    """比对储物戒指纹，变化时通知该玩家的所有网页连接刷新看板。"""
+    plugin = _plugin
+    if plugin is None or not player_key or not username:
+        return
+    db = getattr(plugin, "db", None)
+    if db is None:
+        return
+    try:
+        player = await db.get_player_by_id(player_key)
+    except Exception:
+        return
+    if player is None:
+        return
+    sig = _storage_signature(player)
+    old = _bag_sigs.get(player_key)
+    _bag_sigs[player_key] = sig
+    _bag_sigs.move_to_end(player_key)
+    while len(_bag_sigs) > _BAG_SIG_LIMIT:
+        _bag_sigs.popitem(last=False)
+    if old is not None and old != sig:
+        await push_to_username(
+            room_id, username, {"type": "bag_changed", "ts": int(time.time())}
+        )
+
+
+def schedule_bag_check(
+    room_id: str, player_key: str, username: str, delay: float = 0.2
+) -> None:
+    """异步补一次储物戒检查。
+
+    指令回复往往在处理器写库前就已 yield，直接同步比对可能拿到中间态；
+    延迟一小会儿再查，既能拿到最终存档，也不会拖慢聊天回复。
+    """
+    if _plugin is None or not player_key or not username:
+        return
+
+    async def _run() -> None:
+        try:
+            if delay > 0:
+                await asyncio.sleep(delay)
+            await _bag_check(room_id, player_key, username)
+        except Exception:
+            logger.debug("[webroom] 储物戒变更检查失败", exc_info=True)
+
+    try:
+        task = asyncio.create_task(_run())
+    except RuntimeError:
+        return
+    _bag_tasks.add(task)
+    task.add_done_callback(_bag_tasks.discard)
+
+
+def _storage_signature(player: Any) -> str:
+    """储物戒展示状态的轻量指纹：物品、装备实例、容量与已装备标记。"""
+
+    def _counts(getter: Any) -> dict[str, int]:
+        try:
+            data = getter() or {}
+        except Exception:
+            return {}
+        out: dict[str, int] = {}
+        for name, value in data.items():
+            try:
+                amount = int(value or 0)
+            except (TypeError, ValueError):
+                amount = 0
+            if amount > 0:
+                out[str(name)] = amount
+        return out
+
+    instances: list[list[Any]] = []
+    try:
+        for inst in player.get_equipment_instances() or []:
+            if str(inst.get("location") or "") not in ("storage", "overflow"):
+                continue
+            instances.append(
+                [
+                    int(inst.get("id") or 0),
+                    str(inst.get("name") or ""),
+                    str(inst.get("quality") or ""),
+                    1 if inst.get("affixes") else 0,
+                    str(inst.get("location") or ""),
+                ]
+            )
+    except Exception:
+        instances = []
+    instances.sort()
+
+    enchant = 0
+    try:
+        bonus = json.loads(player.permanent_bonus) if player.permanent_bonus else {}
+        enchant = int(bonus.get("storage_enchant", 0) or 0)
+    except Exception:
+        enchant = 0
+
+    payload = {
+        "ring": str(getattr(player, "storage_ring", "") or ""),
+        "enchant": enchant,
+        "items": _counts(player.get_storage_ring_items),
+        "overflow": _counts(player.get_overflow_items),
+        "instances": instances,
+        "techniques": list(player.get_techniques_list() or []),
+        "main": str(getattr(player, "main_technique", "") or ""),
+    }
+    raw = json.dumps(payload, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()
+
+
 async def notify_player(
     room_id: str,
     player_key: str,
@@ -515,6 +634,8 @@ async def notify_player(
             "unread": accounts_store.count_unread(username),
         },
     )
+    # 自动代理等后台动作也可能往储物戒里塞东西：顺手比对一次，界面开着就自动刷新
+    schedule_bag_check(room_id, player_key, username, delay=0.4)
 
     settings = accounts_store.get_settings(username)
     visibility = str(settings.get("auto_visibility", "self"))
@@ -763,6 +884,19 @@ async def _api_equip_context(request: web.Request) -> web.Response:
         manager = _plugin.equipment_handler.equipment_manager
         slots = manager.get_gear_slots(player)
 
+        # 同名装备可能有多件（同品质重复掉落、或不同品质各一件）。
+        # 储物戒里还有未穿戴的副本时，点「装备」应当继续走替换流程，
+        # 不能因为同名装备已经穿在身上就直接回「已装备」——那正是玩家
+        # 想换上更好品质副本时「点了没反应」的原因。
+        spare_copy = False
+        if item_type in ItemRules.GEAR_TYPES:
+            instance_manager = getattr(manager, "instance_manager", None)
+            if instance_manager is not None:
+                try:
+                    spare_copy = bool(instance_manager.list_instances(player, "storage", item_name))
+                except Exception:
+                    spare_copy = False
+
         def _choice(value: str, label: str, desc: str = "") -> dict[str, str]:
             return {"value": value, "label": label, "desc": desc}
 
@@ -773,7 +907,7 @@ async def _api_equip_context(request: web.Request) -> web.Response:
                     ("戒指2", "ring2", slots.get("ring2", ("", None))[0]),
                 ]
                 same = [label for label, _key, name in ring_slots if name == item_name]
-                if same:
+                if same and not spare_copy:
                     result["already_equipped"] = True
                     result["hint"] = f"【{item_name}】已装备在{same[0]}"
                     return web.json_response(result)
@@ -793,7 +927,7 @@ async def _api_equip_context(request: web.Request) -> web.Response:
             slot = ItemRules.SLOT_BY_TYPE.get(item_type, "")
             slot = "armor" if slot == "body" else slot
             current_name = (slots.get(slot, ("", None))[0] if slot else "") or ""
-            if slot and current_name == item_name:
+            if slot and current_name == item_name and not spare_copy:
                 result["already_equipped"] = True
                 result["hint"] = f"【{item_name}】已装备在{ItemRules.SLOT_LABELS.get(slot, slot)}"
                 return web.json_response(result)
@@ -827,7 +961,17 @@ async def _api_equip_context(request: web.Request) -> web.Response:
             techniques = [str(name) for name in player.get_techniques_list() if str(name)]
             if item_name in techniques:
                 result["already_equipped"] = True
-                result["hint"] = f"【{item_name}】已装备（栏位 {techniques.index(item_name) + 1}）"
+                hint = (
+                    f"【{item_name}】已装备（栏位 {techniques.index(item_name) + 1}），"
+                    "同名功法无法重复装备"
+                )
+                try:
+                    spare = int((player.get_storage_ring_items() or {}).get(item_name, 0) or 0)
+                except Exception:
+                    spare = 0
+                if spare > 0:
+                    hint += f"；储物戒中的 {spare} 本为额外副本，可回收或赠予"
+                result["hint"] = hint
                 return web.json_response(result)
             if len(techniques) >= 3:
                 result["needs_choice"] = True

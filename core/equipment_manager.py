@@ -419,7 +419,18 @@ class EquipmentManager:
         techniques_list = player.get_techniques_list()
         if item.name in techniques_list:
             actual = techniques_list.index(item.name) + 1
-            return False, f"功法【{item.name}】已装备（栏位 {actual}）"
+            message = f"功法【{item.name}】已装备（栏位 {actual}），同名功法无法重复装备。"
+            spare = 0
+            try:
+                spare = int((player.get_storage_ring_items() or {}).get(item.name, 0) or 0)
+            except Exception:
+                spare = 0
+            if spare > 0:
+                message += (
+                    f"\n储物戒中的 {spare} 本同名功法是额外副本，不会自动消耗；"
+                    f"可保留，或发送 /回收 {item.name} 回收。"
+                )
+            return False, message
 
         if not technique_index:
             if len(techniques_list) >= 3:

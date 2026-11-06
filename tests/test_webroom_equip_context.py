@@ -56,9 +56,20 @@ class FakePlayer:
         return list(self._techniques)
 
 
+class FakeInstanceManager:
+    def __init__(self, storage=None):
+        self.storage = storage or {}
+
+    def list_instances(self, _player, location="", name=""):
+        if location != "storage":
+            return []
+        return list(self.storage.get(name, []))
+
+
 class FakeManager:
-    def __init__(self, slots=None):
+    def __init__(self, slots=None, storage=None):
         self.slots = slots or {}
+        self.instance_manager = FakeInstanceManager(storage)
 
     def get_gear_slots(self, _player):
         return self.slots
@@ -92,7 +103,8 @@ class EquipContextTest(unittest.IsolatedAsyncioTestCase):
         rs._token_user = self._orig_token_user
         rs.accounts_store.player_key_of = self._orig_player_key_of
 
-    def _install(self, player, *, items=None, weapons=None, techniques=None, slots=None):
+    def _install(self, player, *, items=None, weapons=None, techniques=None, slots=None,
+                 storage=None):
         class FakeDB:
             async def get_player_by_id(self, _user_id):
                 return player
@@ -104,7 +116,7 @@ class EquipContextTest(unittest.IsolatedAsyncioTestCase):
                 weapons_data=weapons or {},
                 techniques_data=techniques or {},
             ),
-            equipment_handler=SimpleNamespace(equipment_manager=FakeManager(slots)),
+            equipment_handler=SimpleNamespace(equipment_manager=FakeManager(slots, storage)),
         )
 
     async def _call(self, item):
@@ -149,6 +161,53 @@ class EquipContextTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(data["choices"]), 1)
         self.assertEqual(data["choices"][0]["value"], "武器")
         self.assertIn("旧剑", data["choices"][0]["label"])
+
+    async def test_same_name_already_equipped_without_spare(self):
+        self._install(
+            FakePlayer(),
+            items={"青锋剑": {"type": "武器"}},
+            slots=_slots(weapon="青锋剑"),
+        )
+        data = await self._call("青锋剑")
+        self.assertTrue(data["already_equipped"])
+        self.assertFalse(data["needs_choice"])
+
+    async def test_same_name_spare_copy_offers_replace(self):
+        """同名装备已穿戴但储物戒里还有副本（常见于不同品质），应允许换装。"""
+        self._install(
+            FakePlayer(),
+            items={"青锋剑": {"type": "武器"}},
+            slots=_slots(weapon="青锋剑"),
+            storage={"青锋剑": [{"id": 7, "name": "青锋剑", "quality": "极品"}]},
+        )
+        data = await self._call("青锋剑")
+        self.assertFalse(data["already_equipped"])
+        self.assertTrue(data["needs_choice"])
+        self.assertEqual(data["choices"][0]["value"], "武器")
+
+    async def test_same_name_spare_ring_fills_free_slot(self):
+        self._install(
+            FakePlayer(),
+            items={"幽影戒": {"type": "戒指"}},
+            slots=_slots(ring1="幽影戒"),
+            storage={"幽影戒": [{"id": 8, "name": "幽影戒", "quality": "极佳"}]},
+        )
+        data = await self._call("幽影戒")
+        self.assertFalse(data["already_equipped"])
+        self.assertFalse(data["needs_choice"])
+        self.assertIn("戒指2", data["hint"])
+
+    async def test_same_name_spare_ring_both_slots_offer_replace(self):
+        self._install(
+            FakePlayer(),
+            items={"幽影戒": {"type": "戒指"}},
+            slots=_slots(ring1="幽影戒", ring2="幽影戒"),
+            storage={"幽影戒": [{"id": 9, "name": "幽影戒", "quality": "极佳"}]},
+        )
+        data = await self._call("幽影戒")
+        self.assertFalse(data["already_equipped"])
+        self.assertTrue(data["needs_choice"])
+        self.assertEqual([c["value"] for c in data["choices"]], ["戒指1", "戒指2"])
 
     async def test_ring_with_one_free_slot_needs_no_choice(self):
         self._install(

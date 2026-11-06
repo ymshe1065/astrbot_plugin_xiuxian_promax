@@ -94,8 +94,8 @@ class TestTalismanConfig(unittest.TestCase):
         }
 
     def test_recipe_table_shape(self):
-        self.assertEqual(len(self.recipes), 34)
-        self.assertEqual(len({r["name"] for r in self.recipes}), 34)
+        self.assertEqual(len(self.recipes), 35)
+        self.assertEqual(len({r["name"] for r in self.recipes}), 35)
         self.assertEqual(sum(1 for r in self.recipes if r.get("basic")), 10)
         ranks = {r["rank"] for r in self.recipes}
         self.assertEqual(ranks, {"凡品", "黄品", "玄品", "圣品"})

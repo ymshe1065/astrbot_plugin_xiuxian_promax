@@ -351,6 +351,54 @@ class TestSlots(unittest.IsolatedAsyncioTestCase):
         self.assertIn("不是 2", "".join(results), results)
         self.assertEqual(p.get_techniques_list(), [names[0], names[2]])
 
+    async def test_technique_spare_copy_not_consumed_on_reequip(self):
+        """回归：功法已装备时，储物戒同名副本只是额外副本，重复装备不能消耗它。"""
+        p = await self._player()
+        p.level_index = 0
+        name = "测试可回收功法"
+        self.cm.techniques_data[name] = {
+            "name": name, "type": "technique", "rank": "凡品",
+            "life_effects": {"gold_bonus": 0.01},
+        }
+        handler = _imp("handlers.equipment_handler").EquipmentHandler(self.db, self.cm)
+        event = _FakeEvent(p.user_id, p.user_id)
+        ok, msg = await self.ring.store_item(p, name, 2)
+        self.assertTrue(ok, msg)
+
+        results = [r async for r in handler.handle_equip_item.__wrapped__(handler, p, event, name)]
+        self.assertIn("已装备功法", "".join(results), results)
+        p = await self.db.get_player_by_id(p.user_id)
+        self.assertEqual(p.get_techniques_list(), [name])
+        self.assertEqual((p.get_storage_ring_items() or {}).get(name), 1)
+
+        # 再次装备同名功法：提示额外副本与数字含义，且副本数量保持不变
+        results = [r async for r in handler.handle_equip_item.__wrapped__(handler, p, event, f"{name} 2")]
+        text = "".join(results)
+        self.assertIn("额外副本", text, results)
+        self.assertIn("替换栏位", text, results)
+        p = await self.db.get_player_by_id(p.user_id)
+        self.assertEqual((p.get_storage_ring_items() or {}).get(name), 1)
+        self.assertEqual(p.get_techniques_list(), [name])
+
+    async def test_storage_ring_marks_equipped_technique(self):
+        """已装备功法在储物戒清单里要有明确标记，避免玩家误判装备未生效。"""
+        p = await self._player()
+        name = "测试标记功法"
+        self.cm.techniques_data[name] = {
+            "name": name, "type": "technique", "rank": "凡品",
+            "life_effects": {"gold_bonus": 0.01},
+        }
+        p.set_techniques_list([name])
+        ok, msg = await self.ring.store_item(p, name, 1)
+        self.assertTrue(ok, msg)
+        p = await self.db.get_player_by_id(p.user_id)
+        p.set_techniques_list([name])
+        handler = _imp("handlers.storage_ring_handler").StorageRingHandler(self.db, self.cm)
+        entries = handler._item_entries(p)
+        target = next(e for e in entries if e["name"] == name)
+        self.assertEqual(target["equipped"], "副本·栏位1已装备")
+        self.assertIn("副本·栏位1已装备", handler._entry_label(target))
+
     async def test_unequip_ring_by_name_and_slot_index(self):
         """回归：/卸下 戒指名 2 卸下戒指2；/卸下 戒指 1 卸下戒指1。"""
         p = await self._player()

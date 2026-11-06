@@ -984,7 +984,7 @@ class ShopManager:
             if price <= 0:
                 continue
             shield = self.recipe_tribulation_shield(recipe)
-            permanent = rank == "黄品" or shield > 0
+            permanent = bool(recipe.get("always_available")) or rank == "黄品" or shield > 0
             recipe_name = self.talisman_recipe_entry_name(name)
             description = f"记载{name}绘制方法的符图，购买后即可 /制符 {name}。"
             if shield > 0:
@@ -1525,6 +1525,13 @@ class ShopManager:
             from .talisman_rules import NON_TALISMAN_ITEMS, build_profile
             if item_data['name'] in NON_TALISMAN_ITEMS:
                 details.append("用途：使用 /激活化身 可激活 30 天闭关收益加成")
+                if self.has_talisman_recipe(item_data['name']):
+                    recipe = (getattr(self.config_manager, "talisman_recipes_data", {}) or {}).get(item_data['name'], {})
+                    details.append(
+                        f"绘符：符箓师可 /制符 {item_data['name']}"
+                        f"（需境界等级 {int(recipe.get('level_required', 0) or 0)} 与已习得符图）"
+                    )
+                    details.append(f"符图：/符阁 符图 购买【{self.talisman_recipe_entry_name(item_data['name'])}】")
                 return "\n".join(details)
             recipe = (getattr(self.config_manager, "talisman_recipes_data", {}) or {}).get(item_data['name'], {})
             raw_effects = recipe.get("effects")

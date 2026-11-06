@@ -227,10 +227,10 @@ class TestTalismanSystem(unittest.IsolatedAsyncioTestCase):
 
     async def test_recipe_page_covers_all_craftable_talismans(self):
         entries = self.talisman.iter_recipes()
-        # v6.42 起符表收敛为 8 类 × 4 阶共 34 张；legacy 拼凑符不进配方总览
-        self.assertEqual(len(entries), 34)
+        # v7.2.0 起在 8 类 × 4 阶共 34 张之外新增「化身傀儡」合成符，合计 35 张
+        self.assertEqual(len(entries), 35)
         names = {name for name, _ in entries}
-        self.assertNotIn("化身傀儡", names)
+        self.assertIn("化身傀儡", names)
         self.assertIn("烈焰符", names)
         self.assertNotIn("太虚箓", names)
 
@@ -240,8 +240,44 @@ class TestTalismanSystem(unittest.IsolatedAsyncioTestCase):
         categories = [sec["name"] for sec in page["sections"][1:]]
         self.assertTrue(any("攻击符箓" in name for name in categories))
         lines = [line for sec in page["sections"] for line in sec.get("lines", []) if line.startswith("· ")]
-        self.assertEqual(len(lines), 34)
+        self.assertEqual(len(lines), 35)
         self.assertTrue(all("灵石" in line and "%" in line for line in lines))
+
+    async def test_avatar_recipe_is_craftable_and_still_not_usable_as_talisman(self):
+        from unittest.mock import patch
+
+        recipe = self.talisman.get_recipe("化身傀儡")
+        self.assertIsNotNone(recipe)
+        self.assertEqual(recipe["level_required"], 18)
+        self.assertEqual(int(recipe["price"]), 200000)
+        self.assertEqual(int(recipe["recipe_price"]), 60000)
+
+        shop = self.ShopManager({}, self.config_manager)
+        entries = {
+            entry["data"]["base_name"]: entry
+            for entry in shop.get_talisman_recipes_for_display(99)
+        }
+        self.assertIn("化身傀儡", entries)
+        self.assertEqual(entries["化身傀儡"]["name"], "化身傀儡·符图")
+        self.assertEqual(entries["化身傀儡"]["price"], 48000)
+
+        player = self._player(level_index=18)
+        player.storage_ring_items = json.dumps(
+            {"四象皮": 2, "混元铁": 2, "天材地宝": 1}, ensure_ascii=False
+        )
+        await self.db.create_player(player)
+        ok, msg = await self.talisman.learn_recipe(player, "化身傀儡")
+        self.assertTrue(ok, msg)
+
+        with patch("random.randint", return_value=1):
+            ok, msg = await self.talisman.craft_talisman(player, "化身傀儡", 1)
+        self.assertTrue(ok, msg)
+        self.assertIn("化身傀儡", player.get_storage_ring_items())
+        self.assertIn("/激活化身", msg)
+
+        ok, msg = await self.talisman.use_talisman(player, "化身傀儡")
+        self.assertFalse(ok)
+        self.assertIn("/激活化身", msg)
 
     async def test_recipe_text_fallback_contains_materials_and_command_hint(self):
         text = self.talisman.format_recipe_text()

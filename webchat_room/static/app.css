@@ -1024,6 +1024,8 @@ html[data-theme="fish"] .msg-row {
   background: var(--kd, transparent);
 }
 .icell:hover { background: var(--jade-soft); border-color: rgba(var(--jade-rgb), .52); }
+.icell.is-equipped { border-color: rgba(var(--jade-rgb), .62); background: var(--jade-soft); }
+.icell.is-equipped .ic-meta { color: var(--jade); font-weight: 600; }
 .ic-name {
   font-size: 11px; line-height: 15px; width: 100%;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;

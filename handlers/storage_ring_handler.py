@@ -67,7 +67,7 @@ class StorageRingHandler:
 
     def _entry(self, name: str, count: int, quality: str = "",
                instance_ids=None, equip_index: int = 0,
-               affix_count: int = 0) -> dict:
+               affix_count: int = 0, equipped: str = "") -> dict:
         """单条结构化物品：种类/品阶/品质/五行全部拆成字段，网页端不再解析文本。"""
         meta = item_meta(name, self.config_manager)
         try:
@@ -85,12 +85,39 @@ class StorageRingHandler:
             "instance_ids": list(instance_ids or []),
             "equip_index": int(equip_index or 0),
             "affix_count": int(affix_count or 0),
+            "equipped": str(equipped or ""),
         }
+
+    def _equipped_marks(self, player: Player) -> dict:
+        """已装备功法/心法的展示标记。
+
+        储物戒里的同名物品是额外副本；标出来才不会让玩家误以为
+        「装备没生效」或「同名物品还能再装备一次」。
+        """
+        marks = {}
+        try:
+            for index, name in enumerate(player.get_techniques_list(), 1):
+                key = str(name or "")
+                if key:
+                    marks[key] = f"副本·栏位{index}已装备"
+        except Exception:
+            pass
+        try:
+            main = str(getattr(player, "main_technique", "") or "")
+            if main:
+                marks.setdefault(main, "副本·主修心法已装备")
+        except Exception:
+            pass
+        return marks
 
     def _entry_label(self, entry: dict) -> str:
         """结构化条目回写成图片/文本用的展示名，装备补上品质。"""
         base = self._item_label(entry["name"])
-        return f"{base}·{entry['quality']}" if entry["quality"] else base
+        if entry["quality"]:
+            base = f"{base}·{entry['quality']}"
+        if entry.get("equipped"):
+            base = f"{base}（{entry['equipped']}）"
+        return base
 
     def _item_entries(self, player: Player) -> list:
         """储物戒物品的结构化清单，装备按 (名称, 品质) 分组。
@@ -101,6 +128,7 @@ class StorageRingHandler:
         """
         instance_manager = self.storage_ring_manager.instance_manager
         counts = dict(player.get_storage_ring_items() or {})
+        marks = self._equipped_marks(player)
 
         entries = []
         # 计数类物品维持原有插入顺序
@@ -110,7 +138,7 @@ class StorageRingHandler:
             except (TypeError, ValueError):
                 amount = 0
             if amount > 0:
-                entries.append(self._entry(name, amount))
+                entries.append(self._entry(name, amount, equipped=marks.get(name, "")))
 
         by_name = {}
         for inst in instance_manager.list_instances(player, "storage"):
@@ -196,6 +224,8 @@ class StorageRingHandler:
 
         lines.append(f"\n{'=' * 28}\n")
         lines.append(f"📦 材料/符箓/丹方每格堆叠 {StorageRingManager.STACK_LIMIT} 个，超出占新格\n")
+        if any(e.get("equipped") for e in entries):
+            lines.append("已装备的功法/心法仍会保留储物戒中的同名副本，副本可回收或赠予\n")
         lines.append(f"回收：{CMD_RECYCLE_ITEM} 物品名 [数量]\n")
         lines.append(f"搜索：{CMD_SEARCH_ITEM} 关键词\n")
         lines.append(f"升级：{CMD_UPGRADE_RING} 储物戒名")

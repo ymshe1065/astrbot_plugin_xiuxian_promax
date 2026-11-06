@@ -969,5 +969,42 @@
     "shop_weight": 15,
     "basic": false,
     "legacy": false
+  },
+  {
+    "id": 35,
+    "name": "化身傀儡",
+    "category": "增益",
+    "rank": "圣品",
+    "level_required": 18,
+    "success_rate": 60,
+    "gold_cost": 12000,
+    "materials": [
+      {
+        "category": "妖兽",
+        "tier": "圣品",
+        "count": 2
+      },
+      {
+        "category": "矿材",
+        "tier": "圣品",
+        "count": 2
+      },
+      {
+        "category": "灵植",
+        "tier": "圣品",
+        "count": 1
+      }
+    ],
+    "effects": {
+      "cultivation_multiplier": 0.2
+    },
+    "duration": 43200,
+    "desc": "以妖兽精血塑形、圣矿铸骨、圣植养魂炼成的化身傀儡。绘制成功后用 /激活化身 唤醒：30 天内闭关收益 +20%。",
+    "price": 200000,
+    "recipe_price": 60000,
+    "shop_weight": 15,
+    "always_available": true,
+    "basic": false,
+    "legacy": false
   }
 ]
