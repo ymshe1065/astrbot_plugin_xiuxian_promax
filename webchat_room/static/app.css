@@ -105,6 +105,7 @@
     var(--bg);
 
   --radius: 12px;
+  --safe-t: env(safe-area-inset-top, 0px);
   --safe-b: env(safe-area-inset-bottom, 0px);
   --shadow: 0 2px 10px rgba(var(--shade-rgb), .07);
   --shadow-lg: 0 8px 30px rgba(var(--shade-rgb), .16);
@@ -432,7 +433,10 @@ input:focus, textarea:focus { outline: none; }
 }
 .topbar {
   display: flex; align-items: center; gap: 10px;
-  padding: 10px 16px;
+  /* 顶部再叠一层安全区：全屏 / 无状态栏的手机（含 iOS WKWebView）上，
+     不加这一层的话电量、信号图标会直接压在「肥鱼修仙」几个字上。
+     Android App 里的这块由原生 padding 让位，WebView 收到的是 0，不会双倍。 */
+  padding: calc(10px + var(--safe-t)) 16px 10px;
   background: var(--bar-bg);
   backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--line);
