@@ -174,6 +174,9 @@ class AudienceTest(unittest.IsolatedAsyncioTestCase):
     def test_resolve_audience(self):
         self.assertEqual(rs.resolve_audience("/签到", {}), "public")
         self.assertEqual(rs.resolve_audience("/我的信息", {}, panel=True), "self")
+        # 旧版前端/手动输入不带 panel 标记时，仍按指令名强制私密
+        self.assertEqual(rs.resolve_audience("/我的信息", {}), "self")
+        self.assertEqual(rs.resolve_audience("/储物戒", {}), "self")
         self.assertEqual(
             rs.resolve_audience("/签到", {"manual_visibility": "self"}), "self"
         )
@@ -196,11 +199,31 @@ class AudienceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.adapter.messages[-1][4]["audience"], "self")
         self.assertTrue(self.adapter.messages[-1][4]["panel"])
 
+    async def test_panel_command_without_flag_stays_private(self):
+        # 兼容旧版前端：只带 req_id、不带 panel 的看板请求也不能上公屏
+        await self._send(
+            {"action": "cmd", "text": "/我的信息", "req_id": "r2b", "card": True}
+        )
+        self.assertIsNone(self._last(self.other, "chat"))
+        self.assertIsNone(self._last(self.sender, "chat"))
+        self.assertEqual(self.adapter.messages[-1][4]["audience"], "self")
+        self.assertTrue(self.adapter.messages[-1][4]["panel"])
+        self.assertTrue(self.adapter.messages[-1][4]["want_card"])
+
     async def test_self_visibility_only_echoes_to_sender(self):
         accounts.set_settings("alice", {"manual_visibility": "self"})
         await self._send({"action": "cmd", "text": "/签到", "req_id": "r3"})
         self.assertIsNotNone(self._last(self.sender, "chat"))
         self.assertIsNone(self._last(self.other, "chat"))
+        self.assertEqual(self.adapter.messages[-1][4]["audience"], "self")
+
+    async def test_legacy_private_flag_keeps_command_private(self):
+        # 旧版前端会对所有 cmd 发 private:true，升级期间不回退成公屏
+        await self._send(
+            {"action": "cmd", "text": "/签到", "req_id": "r4", "private": True}
+        )
+        self.assertIsNone(self._last(self.other, "chat"))
+        self.assertIsNotNone(self._last(self.sender, "chat"))
         self.assertEqual(self.adapter.messages[-1][4]["audience"], "self")
 
 

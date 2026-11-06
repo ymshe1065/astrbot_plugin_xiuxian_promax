@@ -30,6 +30,7 @@ from . import accounts as accounts_store
 from . import commands as commands_catalog
 from .arg_options import build_arg_options
 from .proxy_panel import proxy_snapshot, toggle_proxy
+from .visibility import is_panel_command
 
 if TYPE_CHECKING:
     from .webroom_adapter import WebroomAdapter
@@ -300,10 +301,13 @@ def resolve_audience(
 ) -> str:
     """计算一条手动消息的受众。
 
-    只有看板请求（我的信息/储物戒）或用户主动设为「仅自己」时才私密；
+    看板指令（我的信息/储物戒）固定私密：既看前端 panel 标记，也按指令名兜底，
+    以兼容旧版前端和玩家手动输入。用户主动设为「仅自己」时同样私密；
     其余手动指令默认公屏公开。
     """
     if panel:
+        return "self"
+    if is_panel_command(text):
         return "self"
     conf = settings or {}
     if str(conf.get("manual_visibility", "public")) == "self":
@@ -1359,11 +1363,19 @@ async def _handle_client_message(room_id: str, ws: web.WebSocketResponse, raw: s
     req_id = str(data.get("req_id") or "").strip()[:64]
     # 看板请求：前端要原生渲染，后端优先返回结构化卡片
     want_card = bool(data.get("card"))
-    panel = bool(data.get("panel"))
+    # panel 以指令名为准兜底：旧版前端只发 private、玩家手动输入也不带标记
+    panel = bool(data.get("panel")) or (
+        action == "cmd" and is_panel_command(text)
+    )
+    if panel:
+        want_card = True
     settings = accounts_store.get_settings(str(info.get("username") or ""))
 
     if action == "cmd":
         audience = resolve_audience(text, settings, panel=panel)
+        # 兼容升级前的旧版前端：当时所有 cmd 都固定带 private:true，保持其私密语义
+        if audience == "public" and bool(data.get("private")):
+            audience = "self"
     else:
         audience = "self" if bool(data.get("private")) else "public"
     private = audience == "self"

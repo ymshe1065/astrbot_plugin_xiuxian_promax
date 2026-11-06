@@ -45,6 +45,10 @@ PERSONAL_ALIASES = {
     "坊市我的": "我的坊市",
 }
 
+# 固定送入右侧看板的指令：无论前端是否带 panel 标记，都必须私密。
+# 兼容旧版前端（只发 private、不发 panel）以及玩家在输入框直接敲指令的情况。
+PANEL_COMMANDS = frozenset({"我的信息", "储物戒"})
+
 
 def command_name(text: str) -> str:
     """从消息原文里取出指令名。
@@ -69,3 +73,11 @@ def is_personal_command(text: str) -> bool:
         return False
     name = PERSONAL_ALIASES.get(name, name)
     return name.startswith("我的") or name in PERSONAL_COMMANDS
+
+
+def is_panel_command(text: str) -> bool:
+    """该消息是否需要归入看板（我的信息 / 储物戒）。"""
+    name = command_name(text)
+    if not name:
+        return False
+    return PERSONAL_ALIASES.get(name, name) in PANEL_COMMANDS

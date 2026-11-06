@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v7.0.8 (消息受众分类、个人消息历史与战报折叠)
+# AstrBot 插件：模拟修仙 v7.0.9 (看板指令私密与状态面板修复)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v7.0.8-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v7.0.9-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.35.8 · **游戏版本:** v7.0.8 · **数据库:** v60
+> **插件版本:** v3.35.9 · **游戏版本:** v7.0.9 · **数据库:** v60
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，256 条注册指令（网页指令目录 245 个功能按钮 + 11 个别名）、17 个大系统、111 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,22 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · v7.0.8（消息受众分类、个人消息历史与战报折叠）</b></summary>
+<summary><b>本次更新 · v7.0.9（看板指令私密与状态面板修复）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 看板指令 | `/我的信息`、`/储物戒` 现在无论点击「状态/储物戒」页签、点击指令按钮，还是在输入框直接发送，都会固定走看板请求，不再产生公屏回显。 |
+| 状态面板 | 修复「状态」页签一直显示「响应超时，请重试」的问题：服务端按指令名兜底识别看板请求，旧版前端只发 `private` 而不发 `panel` 时也能正确把结果送回面板。 |
+| 兼容处理 | 前端请求同时携带 `panel` 与 `private` 标记，服务端优先按指令名判定；升级期间新旧前端混用都不会把个人状态广播到公屏。 |
+| 迟到回复 | 本地等待态已超时后才到达的看板回复，会按卡片类型（状态/储物戒）自动归位到对应面板，不再落进聊天流。 |
+| 回归测试 | 补充无 `panel` 标记的看板请求用例，验证不广播、受众为本人且返回结构化卡片。 |
+| 数据库 | 无结构变更，仍为 **v60**。 |
+| 版本同步 | 插件版本 v3.35.9，游戏版本 v7.0.9，数据库 v60；`/修仙帮助` 版本号同步。 |
+
+</details>
+
+<details>
+<summary><b>v7.0.8（消息受众分类、个人消息历史与战报折叠）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |

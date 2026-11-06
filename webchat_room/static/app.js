@@ -747,6 +747,14 @@
     }
   }
 
+  /** 固定进看板的指令：/我的信息、/储物戒（与后端 visibility.PANEL_COMMANDS 对齐） */
+  const PANEL_CMDS = { "/我的信息": "status", "/储物戒": "bag" };
+
+  function panelOfCmd(text) {
+    const name = String(text || "").trim().split(/\s+/)[0];
+    return PANEL_CMDS[name] || "";
+  }
+
   /**
    * 发指令并等待定向回复
    * @param {string} text 指令原文
@@ -757,15 +765,19 @@
       toast("尚未连接，请稍候");
       return;
     }
+    // 看板指令无论从哪里触发都按 panel 请求处理，避免被当成公屏指令广播
+    const panel = opts.panel || panelOfCmd(text);
     const id = reqId();
-    S.pending.set(id, { cmd: text, panel: opts.panel || null, card: !!opts.card });
+    S.pending.set(id, { cmd: text, panel: panel || null, card: !!opts.card });
     S.ws.send(
       JSON.stringify({
         action: "cmd",
         text,
         req_id: id,
-        card: !!opts.card || !!opts.panel,
-        panel: !!opts.panel,
+        card: !!opts.card || !!panel,
+        panel: !!panel,
+        // 兼容未升级的服务端：看板请求仍按私密处理
+        private: !!panel,
       })
     );
     // 公屏指令的聊天回显由服务端广播；私密/看板请求不产生聊天流回显
@@ -773,7 +785,7 @@
     setTimeout(() => {
       if (S.pending.has(id)) {
         S.pending.delete(id);
-        if (opts.panel) renderPanelEmpty(opts.panel, "响应超时，请重试");
+        if (panel) renderPanelEmpty(panel, "响应超时，请重试");
       }
     }, 20000);
   }
@@ -884,6 +896,15 @@
       if (!c.owner) c.owner = S.username;
       S.cards.set(c.id, c);
     });
+
+    // 迟到的看板回复（本地等待态已超时/丢失）不要落进公屏，按卡片类型归位
+    if (!ctx && m.req_id && cards.length) {
+      const inferred = { info: "status", bag: "bag" }[cards[0].kind] || "";
+      if (inferred) {
+        setPanelCard(inferred, cards[0]);
+        return;
+      }
+    }
 
     // 面板请求：结果归位到看板，不进聊天流
     if (ctx?.panel) {
