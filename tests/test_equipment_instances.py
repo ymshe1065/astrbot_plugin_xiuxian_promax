@@ -290,6 +290,25 @@ class TestEquipmentInstances(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(entries[0]["quality"], "")
         self.assertEqual(entries[0]["instance_ids"], [])
 
+    async def test_storage_entries_sorted_by_rank_desc(self):
+        """储物戒清单按品阶从高到低排；认不出品阶的沉到最后。"""
+        module = _imp("handlers.storage_ring_handler")
+        handler = module.StorageRingHandler(self.db, self.cm)
+        p = await self._player()
+        p.storage_ring_items = json.dumps(
+            {"两仪皮": 1, "天外陨核": 2, "无极骨": 3, "四象皮": 4, "查无此物": 5},
+            ensure_ascii=False,
+        )
+        await self.db.update_player(p)
+        p = await self.db.get_player_by_id("u1")
+
+        entries = handler._item_entries(p)
+        self.assertEqual(
+            [e["name"] for e in entries],
+            ["天外陨核", "四象皮", "无极骨", "两仪皮", "查无此物"],
+        )
+        self.assertEqual([e["rank"] for e in entries][-2:], ["凡品", ""])
+
     async def test_storage_text_lists_gear_by_quality(self):
         """文本降级路径同样按品质分行，不能并成一条。"""
         module = _imp("handlers.storage_ring_handler")

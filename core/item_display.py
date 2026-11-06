@@ -9,7 +9,41 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, Optional
 
+from ..rank_rules import RANK_NAMES, normalize_rank
 from .item_rules import ItemRules
+
+# 词条品质阶梯（装备实例与丹药共用一套名字），排序时高品在前
+QUALITY_ORDER: tuple = ("一般", "良好", "极佳", "大师")
+
+_RANK_INDEX: Dict[str, int] = {name: index for index, name in enumerate(RANK_NAMES)}
+_QUALITY_INDEX: Dict[str, int] = {name: index for index, name in enumerate(QUALITY_ORDER)}
+
+
+def rank_index(rank: Any) -> int:
+    """品阶在统一阶梯里的位置；识别不出（含空值）返回 -1，排序时垫底。"""
+    return _RANK_INDEX.get(normalize_rank(str(rank or "")), -1)
+
+
+def quality_index(quality: Any) -> int:
+    """品质位置；材料/丹方这类没有品质的返回 -1。"""
+    return _QUALITY_INDEX.get(str(quality or ""), -1)
+
+
+def rank_sort_key(rank: Any, quality: Any = "") -> tuple:
+    """品阶高→低，同阶品质高→低；品阶/品质缺失的沉到最后。
+
+    不带名称参与比较，同一档内部保持调用方给的原始顺序（sorted 是稳定排序），
+    所以物品的堆叠顺序不会被无谓打乱。
+    """
+    return (
+        -rank_index(rank),
+        -quality_index(quality),
+    )
+
+
+def entry_sort_key(entry: Dict[str, Any]) -> tuple:
+    """结构化条目（含 rank/quality 字段）的排序键，见 :func:`rank_sort_key`。"""
+    return rank_sort_key(entry.get("rank"), entry.get("quality"))
 
 # 装备槽位 → 玩家看得懂的部位说法（内部值来自 ItemRules.normalize_equipment_type）
 SLOT_LABELS: Dict[str, str] = {
@@ -164,9 +198,14 @@ def equipment_label(instance: Dict[str, Any], config_manager: Any = None) -> str
 __all__ = [
     "SLOT_LABELS",
     "PILL_SUBTYPE_LABELS",
+    "QUALITY_ORDER",
     "item_meta",
     "item_tag",
     "item_label",
     "strip_item_tag",
     "equipment_label",
+    "rank_index",
+    "quality_index",
+    "rank_sort_key",
+    "entry_sort_key",
 ]

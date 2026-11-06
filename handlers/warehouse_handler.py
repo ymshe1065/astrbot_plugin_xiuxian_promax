@@ -15,7 +15,7 @@ from ..core.warehouse_manager import (
     TRANSFER_GROUPS,
     WarehouseManager,
 )
-from ..core.item_display import equipment_label, item_label
+from ..core.item_display import equipment_label, item_label, item_meta, rank_sort_key
 from ..data import DataBase
 from ..config_manager import ConfigManager
 from ..models import Player
@@ -158,6 +158,10 @@ class WarehouseHandler:
                 rows = by_cat.get(cat)
                 if not rows:
                     continue
+                # 品阶高→低排完再截断，免得高级材料被 12 条上限挤掉
+                rows.sort(key=lambda row: rank_sort_key(
+                    item_meta(row[0], self.config_manager)["rank"]
+                ))
                 lines.append(f"【{cat}】\n")
                 for name, count in rows[:12]:
                     lines.append(f"  · {item_label(name, self.config_manager)}×{count}\n")
@@ -167,6 +171,10 @@ class WarehouseHandler:
             lines.append("【存储物品】空\n")
 
         if equipment:
+            equipment = sorted(equipment, key=lambda inst: rank_sort_key(
+                item_meta(str(inst.get("name") or ""), self.config_manager)["rank"],
+                inst.get("quality"),
+            ))
             lines.append(f"\n【装备实例】{len(equipment)} 件\n")
             for inst in equipment[:8]:
                 lines.append(f"  · {equipment_label(inst, self.config_manager)}\n")

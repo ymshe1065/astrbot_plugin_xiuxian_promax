@@ -34,6 +34,17 @@ def _imp(p):
     return __import__(f"{PKG}.{p}", fromlist=["x"])
 
 
+class _FakeEvent:
+    """只收 plain_result 的事件桩，够 /仓库 文本输出用。"""
+
+    def __init__(self):
+        self.results = []
+
+    def plain_result(self, text):
+        self.results.append(text)
+        return text
+
+
 class _Base(unittest.IsolatedAsyncioTestCase):
     LAND_TYPE = 1
 
@@ -721,6 +732,67 @@ class TestTakeItem(_Base):
         ok, msg = await self.wh.transfer_out_item(p, "玄铁", 1)
         self.assertFalse(ok)
         self.assertIn("储物戒里", msg)
+
+
+class TestWarehouseDisplayOrder(_Base):
+    """藏宝阁清单与储物戒同一口径：品阶从高到低排。"""
+
+    async def asyncSetUp(self):
+        await super().asyncSetUp()
+        self.Handler = _imp("handlers.warehouse_handler").WarehouseHandler
+        self.handler = self.Handler(self.db, self.cm)
+        await self._open_warehouse(1)
+
+    async def _stock(self, items):
+        p = await self.db.get_player_by_id("u1")
+        p.warehouse_items = json.dumps(items, ensure_ascii=False)
+        await self.db.update_player(p)
+        return await self.db.get_player_by_id("u1")
+
+    async def _render(self, p):
+        event = _FakeEvent()
+        return "".join([r async for r in
+                        self.handler.handle_warehouse.__wrapped__(self.handler, p, event)])
+
+    async def test_items_sorted_by_rank_desc(self):
+        p = await self._stock(
+            {"两仪皮": 1, "天外陨核": 2, "无极骨": 3, "四象皮": 4}
+        )
+        text = await self._render(p)
+        order = ["天外陨核", "四象皮", "无极骨", "两仪皮"]
+        positions = [text.index(name) for name in order]
+        self.assertEqual(positions, sorted(positions), text)
+
+    async def test_sort_happens_before_twelve_item_cut(self):
+        """超过 12 种时先排再截断，高级材料不会被 `…共 N 种` 挤掉。"""
+        bulk = {f"凡品杂物{i}": 1 for i in range(13)}
+        bulk["天外陨核"] = 1
+        p = await self._stock(bulk)
+        text = await self._render(p)
+        if "…共" in text:  # 确有截断时才校验
+            self.assertIn("天外陨核", text)
+
+    async def test_equipment_instances_sorted_by_rank_desc(self):
+        """装备实例同样按品阶排：高品装备先列，低品在后。"""
+        display = _imp("core.item_display")
+        p = await self.db.get_player_by_id("u1")
+        names = [n for n in self.cm.items_data if self.ring.is_equipment_item(n)]
+        ranked = sorted(
+            names, key=lambda n: display.rank_index(display.item_meta(n, self.cm)["rank"])
+        )
+        low, high = ranked[0], ranked[-1]
+        self.assertNotEqual(display.item_meta(low, self.cm)["rank"],
+                            display.item_meta(high, self.cm)["rank"])
+
+        # 故意先塞低品，再看渲染顺序
+        self.im.create_instances(p, low, 1, location="warehouse")
+        self.im.create_instances(p, high, 1, location="warehouse")
+        await self.db.update_player(p)
+        p = await self.db.get_player_by_id("u1")
+
+        text = await self._render(p)
+        self.assertIn("装备实例", text)
+        self.assertLess(text.index(high), text.index(low), text)
 
 
 class TestTakeArgsParse(unittest.TestCase):

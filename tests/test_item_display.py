@@ -139,6 +139,48 @@ class TestItemDisplay(unittest.TestCase):
         self.assertIn("装备·甲胄", label)
         self.assertIn("圣品", label)
 
+    # ===== 品阶排序（储物戒清单） =====
+
+    def test_rank_index_follows_rank_ladder(self):
+        self.assertEqual(self.dis.rank_index("凡品"), 0)
+        self.assertEqual(self.dis.rank_index("混元先天"), 11)
+        self.assertLess(self.dis.rank_index("黄品"), self.dis.rank_index("地品"))
+        self.assertLess(self.dis.rank_index("地品"), self.dis.rank_index("仙品"))
+        # 历史名称走归一化，不因为写法不同掉到最后
+        self.assertEqual(self.dis.rank_index("天阶"), self.dis.rank_index("圣品"))
+
+    def test_rank_index_unknown_goes_last(self):
+        self.assertEqual(self.dis.rank_index(""), -1)
+        self.assertEqual(self.dis.rank_index(None), -1)
+        self.assertEqual(self.dis.rank_index("不存在的品阶"), -1)
+
+    def test_quality_index_order(self):
+        self.assertLess(self.dis.quality_index("一般"), self.dis.quality_index("大师"))
+        self.assertEqual(self.dis.quality_index(""), -1)
+
+    def test_entry_sort_key_ranks_desc_with_quality(self):
+        entries = [
+            {"name": "凡物", "rank": "凡品", "quality": ""},
+            {"name": "帝物", "rank": "帝品", "quality": ""},
+            {"name": "大师甲", "rank": "天品", "quality": "大师"},
+            {"name": "一般甲", "rank": "天品", "quality": "一般"},
+            {"name": "无名", "rank": "", "quality": ""},
+        ]
+        ordered = sorted(entries, key=self.dis.entry_sort_key)
+        self.assertEqual(
+            [e["name"] for e in ordered],
+            ["帝物", "大师甲", "一般甲", "凡物", "无名"],
+        )
+
+    def test_entry_sort_key_keeps_input_order_within_same_bucket(self):
+        entries = [
+            {"name": "甲", "rank": "天品", "quality": "一般"},
+            {"name": "乙", "rank": "天品", "quality": "一般"},
+            {"name": "丙", "rank": "天品", "quality": "一般"},
+        ]
+        ordered = sorted(entries, key=self.dis.entry_sort_key)
+        self.assertEqual([e["name"] for e in ordered], ["甲", "乙", "丙"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -7,7 +7,7 @@ from astrbot.api import logger
 from astrbot.api.all import At, Plain
 from ..data import DataBase
 from ..core import StorageRingManager, ItemRules, PillManager
-from ..core.item_display import item_label, item_meta, item_tag
+from ..core.item_display import entry_sort_key, item_label, item_meta, item_tag
 from ..core.realm_rules import format_applicable_realm
 from ..core.item_instance_manager import ItemInstanceManager
 from ..config_manager import ConfigManager
@@ -125,6 +125,9 @@ class StorageRingHandler:
         装备实例本来就一件一条、各自带品质（逐件占格），但
         `get_storage_ring_info()` 会把同名实例并成 `名称→数量`，品质随之丢失。
         这里保留拆分后的结果给展示与筛选用，不改动 `items` 这份堆叠账本。
+
+        输出按「品阶高→低、同阶品质高→低」排一遍，网页网格与图片卡片
+        共用一个顺序；品阶相同则维持原有堆叠顺序，不会来回跳。
         """
         instance_manager = self.storage_ring_manager.instance_manager
         counts = dict(player.get_storage_ring_items() or {})
@@ -163,6 +166,7 @@ class StorageRingHandler:
                     equip_index=order.get(int(members[0].get("id", 0) or 0), 0),
                     affix_count=sum(1 for m in members if m.get("affixes")),
                 ))
+        entries.sort(key=entry_sort_key)
         return entries
 
     @player_required
