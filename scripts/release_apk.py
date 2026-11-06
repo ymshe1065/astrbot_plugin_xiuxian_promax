@@ -122,7 +122,7 @@ def main() -> int:
     print(f"  清单  : {manifest}")
     print(f"  说明  : {len(notes)} 条" + ("" if notes else "（未填 --note，客户端只显示版本号）"))
     if version_code <= 1:
-        print("  ! versionCode 还是 1，客户端不会认为「有新版本」")
+        print("  ! versionCode=1：这是 0.x 系列的首个包，比它更老的客户端不会收到更新提示")
     return 0
 
 

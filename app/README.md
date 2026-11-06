@@ -101,8 +101,9 @@ keyPassword=feiyuxiuxian2026
 - `debug` 与 `release` 共用同一份签名，本机测试包可以直接覆盖正式包。
 - 两个文件都随仓库提交，换机器 clone 下来就能打包；单独备份一份 keystore 更稳妥。
 
-> 历史包袱：最早的「状态栏修复」包（versionCode 1）是用 Android Debug 签名打的，从它升级必须**卸载一次**；
-> 之后所有的包都用 `feiyu` 签名，可以一直覆盖升级。
+> 历史包袱：最早的「状态栏修复」包（debug 签名）与中间那个 1.1 包（versionCode 2），
+> 都跟现在的 `0.1`（versionCode 1）签名不同或版本号更高，**从它们升级必须先卸载**；
+> 卸干净之后装 `0.1`，往后都用 `feiyu` 签名 + 递增 versionCode，可以一直覆盖升级。
 
 ---
 
@@ -111,10 +112,12 @@ keyPassword=feiyuxiuxian2026
 | 字段 | 规则 |
 | --- | --- |
 | `versionName` | 测试期走 `0.x`，**从 `0.1` 起**，每发一个包 +0.1（0.1 → 0.2 → 0.3 …）；正式对外发布才转 `1.0.0` |
-| `versionCode` | **只增不减**，每次发版 +1。应用内更新靠它判断新旧，Android 也不允许覆盖安装更小的值 |
+| `versionCode` | **从 `1` 起**，每发一个包 +1，与 versionName 的 x 位对齐（0.1 → 1、0.2 → 2 …） |
 
-所以会出现「versionName 看着小、versionCode 一直在涨」的情况，这是故意的：
-版本名面向用户表达阶段（0.x = 测试版），versionCode 服务安装与升级判断，二者解耦。
+两个字段同步走同一套计数：`0.1` 配 `1`、`0.2` 配 `2`，一眼就能对上。
+
+⚠️ **versionCode 一旦发到用户手里，就只能往上加**：应用内更新靠它判断新旧，Android 也不允许
+覆盖安装更小的值。把 versionCode 调小（哪怕 versionName 也在降）等于强制老用户**卸载重装**。
 
 ---
 
@@ -149,7 +152,7 @@ python scripts/release_apk.py --note "本次更新了什么" --note "可以写�
 
 ```json
 {
-  "versionCode": 3,              // 与客户端比对，必须比旧包大
+  "versionCode": 1,              // 与客户端比对，必须比旧包大
   "versionName": "0.1",
   "file": "feiyu-0.1.apk",
   "size": 5351842,

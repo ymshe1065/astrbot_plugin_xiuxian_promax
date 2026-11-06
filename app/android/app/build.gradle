@@ -16,12 +16,12 @@ android {
         applicationId "com.feiyuxiuxian.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        // 版本规则（测试期）：
-        //   versionName 走 0.x，从 0.1 起，每发一个包 +0.1（0.1 → 0.2 → 0.3 …），
-        //   正式对外发布再转 1.0.0。
-        //   versionCode 只增不减：应用内更新靠它判断新旧，Android 也不允许覆盖安装更小的值，
-        //   所以即使 versionName 回到 0.x，versionCode 也必须继续往上加。
-        versionCode 3
+        // 版本规则（测试期，0.x 系列，两段都从 1 起）：
+        //   versionName 从 0.1 起，每发一个包 +0.1（0.1 → 0.2 → 0.3 …），正式对外发布才转 1.0.0；
+        //   versionCode  从 1 起，每发一个包 +1，与 versionName 的 x 位同步（0.1→1、0.2→2 …）。
+        // 注意：versionCode 一旦对外发过就只能往上加——应用内更新靠它判断新旧，
+        //       Android 也不允许覆盖安装更小的值，回退意味着老用户必须卸载重装。
+        versionCode 1
         versionName "0.1"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
