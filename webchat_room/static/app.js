@@ -1359,9 +1359,12 @@
 
   /* ================= 渲染：消息 ================= */
   // 用户视角是否停留在最新消息处：只有贴底时才自动跟随新消息
-  const FOLLOW_SLACK = 80;
+  // 容差取小值：离开底部一点点（8px）就视为正在翻阅历史，立即停止跟随并露出箭头
+  const FOLLOW_SLACK = 8;
   let pinnedBottom = true;
   let smoothScrollUntil = 0;
+  let lastScrollTop = 0;
+  let touchStartY = 0;
   let contentRO = null;
 
   function distanceToBottom(box = $("msgs")) {
@@ -1369,11 +1372,25 @@
     return Math.max(0, box.scrollHeight - box.scrollTop - box.clientHeight);
   }
 
+  /** 内容是否已经超出视口、具备滚动条件 */
+  function canScroll(box = $("msgs")) {
+    if (!box) return false;
+    return box.scrollHeight - box.clientHeight > FOLLOW_SLACK;
+  }
+
   /** 不在底部时显示小箭头；已贴底则隐藏 */
   function refreshScrollBottomBtn() {
     const btn = $("btnScrollBottom");
     if (!btn) return;
     btn.hidden = distanceToBottom() <= FOLLOW_SLACK;
+  }
+
+  /** 立即标记「用户已离开底部」，不等 scroll 事件（滚轮/触摸先到、消息后到也不抢视角） */
+  function markAwayFromBottom() {
+    const box = $("msgs");
+    if (!box || !canScroll(box)) return;
+    smoothScrollUntil = 0;
+    pinnedBottom = false;
   }
 
   /**
@@ -1385,14 +1402,23 @@
     if (!box) return;
     pinnedBottom = true;
     if (opts.smooth) {
-      smoothScrollUntil = Date.now() + 600;
+      // 平滑滚动的时长与距离有关，不能用固定延时判断结束：
+      // 逐帧检查是否真正到达底部；用户中途上滑时 markAwayFromBottom 会把标记清零并停止检查。
+      smoothScrollUntil = Date.now() + 5000; // 安全上限，避免异常情况下无限轮询
       box.scrollTo({ top: box.scrollHeight, behavior: "smooth" });
       refreshScrollBottomBtn();
-      setTimeout(() => {
-        smoothScrollUntil = 0;
-        pinnedBottom = distanceToBottom(box) <= FOLLOW_SLACK;
-        refreshScrollBottomBtn();
-      }, 620);
+      const settle = () => {
+        if (!smoothScrollUntil) return;
+        const arrived = distanceToBottom(box) <= FOLLOW_SLACK;
+        if (arrived || Date.now() > smoothScrollUntil) {
+          smoothScrollUntil = 0;
+          pinnedBottom = arrived;
+          refreshScrollBottomBtn();
+          return;
+        }
+        requestAnimationFrame(settle);
+      };
+      requestAnimationFrame(settle);
       return;
     }
     // 自动跟随要即时生效：临时关掉 CSS 平滑滚动，避免连续消息排队动画
@@ -1400,6 +1426,7 @@
     box.style.scrollBehavior = "auto";
     box.scrollTop = box.scrollHeight;
     box.style.scrollBehavior = prev;
+    lastScrollTop = box.scrollTop;
     refreshScrollBottomBtn();
   }
 
@@ -3945,12 +3972,48 @@
     msgs.addEventListener(
       "scroll",
       () => {
-        if (Date.now() < smoothScrollUntil) return;
+        const top = msgs.scrollTop;
+        const goingUp = top < lastScrollTop - 1;
+        lastScrollTop = top;
+        // 平滑回底途中用户又往上滑：立即交还控制权
+        if (goingUp) smoothScrollUntil = 0;
+        if (Date.now() < smoothScrollUntil && !goingUp) {
+          pinnedBottom = true; // 正在执行「回到最新」，期间视为贴底
+          return;
+        }
         pinnedBottom = distanceToBottom(msgs) <= FOLLOW_SLACK;
         refreshScrollBottomBtn();
       },
       { passive: true }
     );
+
+    // 滚轮/触摸一开始往上，就立即解除贴底，避免紧随其后的新消息把视角抢回底部
+    msgs.addEventListener(
+      "wheel",
+      (e) => {
+        if (e.deltaY < 0) markAwayFromBottom();
+      },
+      { passive: true }
+    );
+    msgs.addEventListener(
+      "touchstart",
+      (e) => {
+        const t = e.touches && e.touches[0];
+        touchStartY = t ? t.clientY : 0;
+        smoothScrollUntil = 0;
+      },
+      { passive: true }
+    );
+    msgs.addEventListener(
+      "touchmove",
+      (e) => {
+        const t = e.touches && e.touches[0];
+        // 手指向下拖 = 查看更早的记录
+        if (t && t.clientY > touchStartY + 4) markAwayFromBottom();
+      },
+      { passive: true }
+    );
+
     $("btnScrollBottom").addEventListener("click", () => scrollBottom({ smooth: true }));
     refreshScrollBottomBtn();
 

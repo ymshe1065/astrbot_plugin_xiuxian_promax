@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v7.1.1 (网页命令参数弹层补全)
+# AstrBot 插件：模拟修仙 v7.1.3 (聊天贴底跟随与回到底部修复)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v7.1.1-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v7.1.3-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.36.1 · **游戏版本:** v7.1.1 · **数据库:** v60
+> **插件版本:** v3.36.3 · **游戏版本:** v7.1.3 · **数据库:** v60
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，256 条注册指令（网页指令目录 245 个功能按钮 + 11 个别名）、17 个大系统、111 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,37 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · v7.1.1（网页命令参数弹层补全）</b></summary>
+<summary><b>本次更新 · v7.1.3（聊天贴底跟随与回到底部修复）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 箭头不显示 | 「回到最新」箭头的贴底容差从 80px 收紧到 8px。此前稍微上滑仍被判定为「在最底部」，因此既不显示箭头，也会继续跟随新消息；现在离开底部即显示。 |
+| 防抢视角 | 滚轮向上、触摸下拉时立即解除贴底锁定，不再等待 `scroll` 事件；新到达的机器人消息、卡片和错误提示不会再强制滚到底部。 |
+| 平滑滚动 | 点击箭头平滑回底期间保持贴底状态；若中途用户再次上滑，立即交还控制权并恢复箭头。 |
+| 自动跟随 | 真正贴底时仍实时跟随所有新消息，包括他人消息、机器人回复和自己指令触发的回显。 |
+| 缓存刷新 | 静态资源版本号改为文件内容摘要，页面/JS/CSS 使用 `no-store`，避免部署后浏览器仍跑旧脚本导致「新功能没生效」。 |
+| 数据库 | 游戏主库无结构变更，仍为 **v60**。 |
+| 版本同步 | 插件版本 v3.36.3，游戏版本 v7.1.3，数据库 v60；`/修仙帮助` 版本号同步。 |
+
+</details>
+
+<details>
+<summary><b>v7.1.2（商店物品名与购买名统一）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 名称统一 | 商店卡片标题只保留真实物品名，五行不再拼进名字（详情里已有「五行: 金」一行）；`[常驻]` 标记移到价格段，避免混入物品名。 |
+| 网页百宝阁 | 按品阶分区时不再删掉物品名的品阶前缀，`帝品·玄铁右戒` 原样显示；点击条目弹出的购买参数就是完整名称。 |
+| 点击购买 | 前端优先使用 sidecar 的 `name` 作为购买参数，老卡片没有 `name` 时回退 `title`；两者都不会再带展示标签。 |
+| 旧卡片兼容 | 解析历史卡片时自动去掉标题末尾的 `[金]`/`[木]`/`[水]`/`[火]`/`[土]`/`[常驻]`，旧缓存也不会把标签带进 `/购买`。 |
+| 回归测试 | `tests/test_card_sidecar_entries.py` 更新百宝阁条目断言，并新增「完整购买名」与「旧标签清理」用例。 |
+| 数据库 | 游戏主库无结构变更，仍为 **v60**。 |
+| 版本同步 | 插件版本 v3.36.2，游戏版本 v7.1.2，数据库 v60；`/修仙帮助` 版本号同步。 |
+
+</details>
+
+<details>
+<summary><b>v7.1.1（网页命令参数弹层补全）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |
