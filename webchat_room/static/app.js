@@ -202,6 +202,181 @@
     loadCatalog();
     setupViewport();
     refreshChannelData();
+    checkAppUpdate();
+  }
+
+  /* ================= App 内更新 =================
+   * 页面本身走远程 URL（capacitor.config.json 的 server.url），改本目录的
+   * static 即刻生效，不存在「推送页面」这回事。这里只处理另一种情况：
+   * 原生层（Java / 权限 / 清单）改了，必须装新 APK。
+   *
+   * 流程：查 /api/app/version → 站内下载 → 交系统安装器。
+   * 浏览器里不触发（没有安装包可装），旧 APK 没有 AppUpdater 插件也会静默跳过。
+   */
+  const UPD_SNOOZE_KEY = "xiuxian_app_update_snooze_v1";
+  const UPD_SNOOZE_MS = 12 * 3600 * 1000;   // 点「稍后」后 12 小时内不再打扰
+
+  let updRel = null;    // 服务端下发的版本信息
+  let updForce = false; // 强制更新：不给「稍后」
+  let updBusy = false;  // 下载/安装中，防重复点
+
+  function capPlugin(name) {
+    const C = window.Capacitor;
+    if (!C) return null;
+    try {
+      if (typeof C.registerPlugin === "function") return C.registerPlugin(name);
+    } catch (_) {
+      /* 老版本 Capacitor 走下面的兜底 */
+    }
+    return (C.Plugins && C.Plugins[name]) || null;
+  }
+
+  function isNativeApp() {
+    const C = window.Capacitor;
+    return !!(C && typeof C.isNativePlatform === "function" && C.isNativePlatform());
+  }
+
+  function fmtMB(n) {
+    const v = Number(n) || 0;
+    if (!v) return "";
+    return v >= 1048576 ? (v / 1048576).toFixed(1) + " MB" : Math.round(v / 1024) + " KB";
+  }
+
+  async function checkAppUpdate() {
+    if (!isNativeApp()) return;
+    const app = capPlugin("App");
+    const updater = capPlugin("AppUpdater");
+    if (!app || !updater) return; // 旧包没带这个插件，什么都不做
+
+    let info = null;
+    try {
+      info = await app.getInfo();
+    } catch (_) {
+      return;
+    }
+    const curCode = parseInt((info && info.build) || "", 10) || 0;
+    if (!curCode) return;
+
+    let rel = null;
+    try {
+      const r = await fetch("/api/app/version", { cache: "no-store" });
+      if (!r.ok) return; // 服务端没配清单 = 没发过版
+      rel = await r.json();
+    } catch (_) {
+      return;
+    }
+    if (!rel || !rel.ok || !rel.versionCode) return;
+    if (Number(rel.versionCode) <= curCode) return; // 已是最新
+
+    const force = Number(rel.minVersionCode || 0) > curCode;
+    if (!force) {
+      const snoozedAt = Number(localStorage.getItem(UPD_SNOOZE_KEY) || 0);
+      if (snoozedAt && Date.now() - snoozedAt < UPD_SNOOZE_MS) return;
+    }
+    showUpdateDialog(rel, curCode, force);
+  }
+
+  function showUpdateDialog(rel, curCode, force) {
+    updRel = rel;
+    updForce = force;
+    updBusy = false;
+
+    $("updTitle").textContent = force ? "需要更新后才能继续" : "发现新版本";
+    $("updBadge").textContent = force ? "必需" : "NEW";
+    $("updName").textContent = `肥鱼修仙 ${rel.versionName || ""}`.trim();
+
+    const size = fmtMB(rel.size);
+    $("updSub").textContent =
+      `当前 v${curCode} → 最新 v${rel.versionCode}` + (size ? ` · ${size}` : "");
+
+    const log = $("updLog");
+    log.innerHTML = "";
+    (rel.changelog || []).forEach((line) => {
+      const li = document.createElement("li");
+      li.textContent = String(line);
+      log.appendChild(li);
+    });
+
+    $("updProg").hidden = true;
+    $("updProgBar").style.width = "0%";
+    $("updProgTip").textContent = "准备下载…";
+    $("updLater").hidden = force;
+    $("updLater").textContent = "稍后";
+    $("updClose").hidden = force;
+    $("updNow").disabled = false;
+    $("updNow").textContent = "立即更新";
+    $("updMask").hidden = false;
+  }
+
+  function closeUpdateDialog() {
+    if (updBusy) return;
+    $("updMask").hidden = true;
+    if (!updForce) {
+      // 只对非强制更新记「稍后」，避免强制更新被无限推迟
+      try { localStorage.setItem(UPD_SNOOZE_KEY, String(Date.now())); } catch (_) { /* ignore */ }
+    }
+  }
+
+  async function startUpdate() {
+    if (updBusy || !updRel) return;
+    const updater = capPlugin("AppUpdater");
+    if (!updater) return;
+
+    updBusy = true;
+    const btn = $("updNow");
+    btn.disabled = true;
+    btn.textContent = "下载中…";
+    $("updLater").hidden = true;
+    $("updClose").hidden = true;
+    $("updProg").hidden = false;
+    $("updProgBar").style.width = "0%";
+    $("updProgTip").textContent = "正在下载安装包…";
+
+    let listener = null;
+    try {
+      listener = await updater.addListener("progress", (d) => {
+        const pct = Math.max(0, Math.min(100, Number(d && d.percent) || 0));
+        $("updProgBar").style.width = pct + "%";
+        $("updProgTip").textContent =
+          `已下载 ${pct}%` + (d && d.total ? `（${fmtMB(d.received)} / ${fmtMB(d.total)}）` : "");
+      });
+    } catch (_) {
+      /* 拿不到进度事件也不影响主流程 */
+    }
+
+    try {
+      const fileName = String(updRel.url || "").split("/").pop() || "update.apk";
+      const res = await updater.download({
+        url: location.origin + updRel.url,
+        fileName,
+        sha256: updRel.sha256 || "",
+      });
+      $("updProgBar").style.width = "100%";
+      $("updProgTip").textContent = "下载完成，正在调起安装…";
+      await updater.install({ path: res.path });
+
+      $("updProgTip").textContent = "已交给系统安装，按提示点「安装」即可";
+      btn.textContent = "安装";
+      btn.disabled = false;
+      $("updLater").hidden = false;
+      $("updLater").textContent = "关闭";
+      updBusy = false;
+    } catch (err) {
+      const code = (err && (err.code || err.message)) || "";
+      $("updProgTip").textContent =
+        code === "NEED_PERMISSION"
+          ? "请允许本应用「安装未知应用」，然后回来再点一次「立即更新」"
+          : "更新失败：" + (err && (err.message || err.code) || "未知错误");
+      btn.textContent = "重试";
+      btn.disabled = false;
+      $("updLater").hidden = false;
+      $("updLater").textContent = "关闭";
+      updBusy = false;
+    } finally {
+      if (listener && typeof listener.remove === "function") {
+        try { await listener.remove(); } catch (_) { /* ignore */ }
+      }
+    }
   }
 
   function logout(msg = "") {
@@ -4081,6 +4256,11 @@
     $("accMask").addEventListener("click", (e) => {
       if (e.target === $("accMask")) $("accMask").hidden = true;
     });
+
+    // App 更新
+    $("updNow").addEventListener("click", startUpdate);
+    $("updLater").addEventListener("click", closeUpdateDialog);
+    $("updClose").addEventListener("click", closeUpdateDialog);
     $("accSaveNick").addEventListener("click", saveNick);
     $("accSavePwd").addEventListener("click", savePwd);
     $("btnBind").addEventListener("click", bindQq);

@@ -1631,6 +1631,58 @@ button.chan-main { cursor: pointer; }
 .sheet-foot .btn-primary { width: auto; flex: 1; margin-top: 0; }
 .sheet-foot .btn-ghost { width: auto; flex: 0 0 auto; margin-top: 0; padding: 12px 14px; }
 
+/* ---------- App 更新弹窗 ----------
+ * 只在原生 App 里出现（浏览器没有安装包这回事），所以样式跟 sheet 走即可。
+ */
+.upd-mask { align-items: center; padding: 0 16px; }
+.upd-sheet {
+  border-radius: 16px;
+  padding: 18px;
+  max-width: 400px;
+  animation: updIn .2s ease-out;
+}
+@keyframes updIn {
+  from { transform: translateY(10px) scale(.98); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+.upd-hero { display: flex; align-items: center; gap: 12px; margin: 12px 0 12px; }
+.upd-badge {
+  flex: 0 0 auto; width: 46px; height: 46px; border-radius: 13px;
+  display: grid; place-items: center;
+  font-size: 12px; font-weight: 700; letter-spacing: .5px;
+  color: #fff; background: var(--btn-grad);
+  box-shadow: 0 3px 12px rgba(var(--accent-deep-rgb), .26);
+}
+.upd-hero-text { min-width: 0; }
+.upd-name { font-size: 15.5px; font-weight: 600; color: var(--ink); }
+.upd-sub { font-size: 12.5px; color: var(--dim); margin-top: 3px; }
+.upd-log {
+  list-style: none; margin: 0; padding: 10px 13px;
+  background: var(--field); border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 13px; line-height: 1.8; color: var(--ink-2);
+  max-height: 32vh; overflow-y: auto;
+}
+.upd-log:empty { display: none; }
+.upd-log li { position: relative; padding-left: 11px; }
+.upd-log li::before {
+  content: ""; position: absolute; left: 0; top: .78em;
+  width: 4px; height: 4px; border-radius: 50%;
+  background: var(--accent-2);
+}
+.upd-prog { margin-top: 12px; }
+.upd-prog-track {
+  height: 6px; border-radius: 4px; overflow: hidden;
+  background: rgba(var(--accent-rgb), .14);
+}
+.upd-prog-track i {
+  display: block; height: 100%; width: 0;
+  background: var(--btn-grad); border-radius: 4px;
+  transition: width .18s linear;
+}
+.upd-prog-tip { font-size: 12px; color: var(--dim); margin-top: 6px; }
+.upd-sheet .sheet-foot { margin-top: 16px; }
+
 /* 参数候选：已选项 / 可滚动候选列表 */
 #sheet {
   display: flex;

@@ -268,6 +268,8 @@ async def start(host: str, port: int) -> None:
     app.router.add_post("/api/notices/read", _api_notices_read)
     app.router.add_post("/api/notices/clear", _api_notices_clear)
     app.router.add_get("/api/health", _api_health)
+    app.router.add_get("/api/app/version", _api_app_version)
+    app.router.add_get("/download/{name}", _api_apk)
     app.router.add_post("/api/register", _api_register)
     app.router.add_post("/api/login", _api_login)
     app.router.add_get("/api/me", _api_me)
@@ -1231,6 +1233,96 @@ async def _api_health(_request: web.Request) -> web.Response:
             "asset": _asset_ver(),
             "rooms": {rid: online_players(rid) for rid in _rooms},
         }
+    )
+
+
+# ---------- App 版本与安装包 ----------
+#
+# 前端页面本身走远程 URL，改 webchat_room/static 即刻生效，不需要「推送」。
+# 只有原生层（Java / 权限 / 清单）变了才必须重装 APK，这条链路服务于那一种情况：
+#   /api/app/version 读清单 → App 内下载 /download/xxx.apk → 拉起系统安装器
+
+
+def _apk_dir() -> Path:
+    """APK 存放目录，与 imgs / avatars 同级放在 AstrBot 数据目录下。"""
+    return Path(get_astrbot_data_path()) / "webroom" / "apk"
+
+
+def _release_manifest_path() -> Path:
+    """版本清单：手工维护一个 JSON，比把版本号写进代码更好改。"""
+    return Path(get_astrbot_data_path()) / "webroom" / "app_release.json"
+
+
+async def _api_app_version(_request: web.Request) -> web.Response:
+    """返回最新 App 版本；没配清单就当「没发过版」，客户端静默跳过。"""
+    path = _release_manifest_path()
+    if not path.is_file():
+        return web.json_response({"ok": False, "error": "尚未发布版本"}, status=404)
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        logger.warning("[webroom] app_release.json 解析失败")
+        return web.json_response({"ok": False, "error": "版本清单损坏"}, status=500)
+    if not isinstance(raw, dict):
+        return web.json_response({"ok": False, "error": "版本清单格式错误"}, status=500)
+
+    try:
+        version_code = int(raw.get("versionCode") or 0)
+    except (TypeError, ValueError):
+        version_code = 0
+    file_name = str(raw.get("file") or "").strip()
+    if version_code <= 0 or not _safe_name(file_name):
+        return web.json_response({"ok": False, "error": "版本清单缺少 versionCode/file"}, status=500)
+
+    apk = _apk_dir() / file_name
+    if not apk.is_file():
+        # 清单写了但包没上传：回 404 让客户端别弹「更新」把用户引到死链
+        logger.warning(f"[webroom] 清单指向的安装包不存在: {apk}")
+        return web.json_response({"ok": False, "error": "安装包未上传"}, status=404)
+
+    changelog = raw.get("changelog")
+    if isinstance(changelog, str):
+        changelog = [changelog]
+    if not isinstance(changelog, list):
+        changelog = []
+    try:
+        min_version = int(raw.get("minVersionCode") or 0)
+    except (TypeError, ValueError):
+        min_version = 0
+    published = str(raw.get("publishedAt") or "")
+
+    return web.json_response(
+        {
+            "ok": True,
+            "versionCode": version_code,
+            "versionName": str(raw.get("versionName") or ""),
+            "size": apk.stat().st_size,
+            "url": f"/download/{file_name}",
+            "sha256": str(raw.get("sha256") or ""),
+            "changelog": [str(x) for x in changelog][:12],
+            # 低于这个版本必须更新才能继续用；0 表示只提示不强推
+            "minVersionCode": min_version,
+            "publishedAt": published,
+        }
+    )
+
+
+async def _api_apk(request: web.Request) -> web.Response:
+    """分发 APK。FileResponse 自带 Range 支持，断点续传与进度条都依赖它。"""
+    name = request.match_info["name"]
+    if not _safe_name(name) or not name.lower().endswith(".apk"):
+        return web.json_response({"error": "非法路径"}, status=400)
+    path = _apk_dir() / name
+    if not path.is_file():
+        return web.json_response({"error": "文件不存在"}, status=404)
+    return web.FileResponse(
+        path,
+        headers={
+            "Content-Type": "application/vnd.android.package-archive",
+            "Content-Disposition": f'attachment; filename="{name}"',
+            # 安装包按文件名带版本，内容不会原地变，允许长缓存省流量
+            "Cache-Control": "public, max-age=86400",
+        },
     )
 
 

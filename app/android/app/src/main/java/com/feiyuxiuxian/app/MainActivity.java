@@ -26,6 +26,8 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        // 自定义插件必须在 super.onCreate 之前注册，否则 Bridge 初始化后就挂不上了
+        registerPlugin(AppUpdaterPlugin.class);
         // targetSdk ≥ 35 起系统强制 edge-to-edge，这里显式声明一次，
         // 让 Android 15 与更低版本走同一套 insets 分发逻辑
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
