@@ -40,8 +40,9 @@ NON_TALISMAN_ITEMS = {"化身傀儡"}
 # 参考丹药的时长口径——修炼增益 60~720、战斗爆发 15~60、回复 60~180，
 # 而不是所有品类一律 15 分钟。品阶档位与丹药解锁等级一一对应：
 # 凡品(0)↔凡品丹、黄品(3)↔灵品丹、玄品(9)↔地品丹、圣品(18)↔天品/皇品丹。
-# 回复类（使用即刻回血）、炼丹类（护盾按层扣）、探索类（按次数）不吃时长，
-# 这里的数值只用于展示与旧字段兼容，不参与实际结算。
+# 回复类（使用即刻回血）、探索类（按次数）不吃时长，这里的数值只用于展示与旧字段兼容。
+# 炼丹类是例外：护劫符自「限时避劫状态」改造后，这张表的数值就是状态时长
+# （凡 60 / 黄 90 / 玄 120 / 圣 180 分钟），护盾值决定状态期内能挡下的最高劫数。
 DURATION_BY_CATEGORY: Dict[str, Dict[str, int]] = {
     "增益": {"凡品": 60, "黄品": 120, "玄品": 180, "圣品": 360},
     "炼丹": {"凡品": 60, "黄品": 90, "玄品": 120, "圣品": 180},
@@ -259,7 +260,9 @@ def _describe(category: str, effects: Dict[str, float]) -> str:
     if effects.get("alchemy_success_bonus"):
         parts.append(f"炼丹成功率+{int(effects['alchemy_success_bonus'])}%")
     if effects.get("tribulation_shield"):
-        parts.append(f"护劫（可保全劫数≤{int(effects['tribulation_shield'])}的丹药）")
+        parts.append(
+            f"避劫（状态期间可保全劫数≤{int(effects['tribulation_shield'])}的丹药，不逐颗扣符）"
+        )
     if effects.get("stun_chance"):
         parts.append(f"定身 {int(effects['stun_chance'])}%/{int(effects.get('stun_turns', 1))}回合")
     if effects.get("freeze_chance"):

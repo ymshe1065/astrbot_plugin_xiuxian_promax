@@ -1007,7 +1007,11 @@ class TalismanManager:
 
     @staticmethod
     def pick_shield_talisman(player: Player, demand: int, config_manager=None) -> Optional[Tuple[str, int]]:
-        """从储物戒挑一张「够用且护盾最小」的护劫符；一张符只挡一次丹劫。"""
+        """从储物戒挑一张「够用且护盾最小」的护劫符。
+
+        现在这张符不是一次性消耗：祭出后转成限时避劫状态（见
+        :meth:`grant_shield_state`），状态期内丹劫都不再扣符。
+        """
         if demand <= 0:
             return None
         manager = TalismanManager(None, config_manager, None)
@@ -1090,32 +1094,117 @@ class TalismanManager:
         player.set_storage_ring_items(items)
         return name
 
-    @staticmethod
-    def consume_active_shield(player: Player, demand: int) -> Optional[int]:
-        """消耗已激活符箓的护劫层：整张护盾一次用掉，不按层数复用。"""
-        if demand <= 0:
+    @classmethod
+    def grant_shield_state(cls, player: Player, name: str, config_manager=None,
+                           quality: Optional[Tuple[str, float, float, int]] = None
+                           ) -> Optional[Dict]:
+        """把一张护劫符转成限时「避劫状态」（只改内存，落库由调用方负责）。
+
+        与旧的一次性护盾不同：状态期内每次丹劫都自动避过，不再逐颗扣符。
+        同名符续时叠加，品质沿用 /使用 的口径（熟练度越高越可能加时）。
+        """
+        manager = cls(None, config_manager, None)
+        try:
+            profile = manager.get_talisman_profile(name)
+        except Exception:
             return None
+        try:
+            shield = int(profile.get("effects", {}).get("tribulation_shield", 0) or 0)
+        except (TypeError, ValueError):
+            return None
+        if shield <= 0:
+            return None
+        if quality is None:
+            quality = manager._roll_quality(
+                manager.get_proficiency(player).get("extra", 0)
+            )
+        quality_name, quality_mult, quality_ratio = quality[0], quality[1], quality[2]
+        # 品质与 /使用 同口径：效果值按倍率放大，护盾不会低于基础值
+        try:
+            shield = max(shield, int(round(shield * float(quality_mult or 1.0))))
+        except (TypeError, ValueError):
+            pass
+        base_minutes = max(1, int(profile.get("duration") or 0))
+        added_minutes = base_minutes + max(
+            QUALITY_MIN_BONUS_MINUTES, int(round(base_minutes * float(quality_ratio or 0)))
+        )
         now = int(time.time())
-        effects = player.get_active_pill_effects()
-        best_index = None
-        best_shield = None
-        for index, effect in enumerate(effects):
-            if effect.get("source") != "talisman":
-                continue
-            expiry = int(effect.get("expiry_time", 0) or 0)
-            if expiry and now >= expiry:
-                continue
+        effects = list(player.get_active_pill_effects())
+        existing = next(
+            (e for e in effects
+             if isinstance(e, dict)
+             and e.get("talisman_name") == name
+             and e.get("remaining_uses") is None),
+            None,
+        )
+        if existing is not None:
+            base_expiry = max(int(existing.get("expiry_time") or 0), now)
+            expiry = base_expiry + added_minutes * 60
+            existing["expiry_time"] = expiry
+            existing["duration_minutes"] = int((expiry - now) // 60)
+            existing["quality"] = quality_name
+            try:
+                old_shield = int(existing.get("tribulation_shield", 0) or 0)
+            except (TypeError, ValueError):
+                old_shield = 0
+            existing["tribulation_shield"] = max(old_shield, shield)
+        else:
+            effects = [e for e in effects if e.get("talisman_name") != name]
+            expiry = now + added_minutes * 60
+            effects.append({
+                "pill_name": name,
+                "talisman_name": name,
+                "source": "talisman",
+                "subtype": "talisman",
+                "category": profile["category"],
+                "quality": quality_name,
+                "start_time": now,
+                "expiry_time": expiry,
+                "duration_minutes": added_minutes,
+                "last_tick_time": now,
+                "tribulation_shield": shield,
+            })
+        player.set_active_pill_effects(effects)
+        return {
+            "name": name,
+            "shield": shield,
+            "minutes": int(max(0, expiry - now) // 60),
+            "expiry_time": expiry,
+            "quality": quality_name,
+        }
+
+    @staticmethod
+    def active_shield_state(player: Player, demand: int = 0) -> Optional[Dict]:
+        """当前生效中的避劫状态；``demand>0`` 时只认护盾够用的那一层。
+
+        只读不消耗——状态期内炼多少颗丹都不会把符吃掉。
+        返回 {"name", "shield", "expiry_time", "remaining_minutes"}。
+        """
+        now = int(time.time())
+        best: Optional[Dict] = None
+        for effect in TalismanManager.iter_active_effects(player):
             try:
                 shield = int(effect.get("tribulation_shield", 0) or 0)
             except (TypeError, ValueError):
                 continue
-            if shield >= demand and (best_shield is None or shield < best_shield):
-                best_index, best_shield = index, shield
-        if best_index is None:
-            return None
-        effects.pop(best_index)
-        player.set_active_pill_effects(effects)
-        return best_shield
+            if shield <= 0:
+                continue
+            if demand > 0 and shield < demand:
+                continue
+            if best is not None and shield >= int(best["shield"]):
+                # 够用就取最省的一层，和「消耗最省的符」口径保持一致
+                continue
+            try:
+                expiry = int(effect.get("expiry_time", 0) or 0)
+            except (TypeError, ValueError):
+                expiry = 0
+            best = {
+                "name": str(effect.get("talisman_name") or effect.get("pill_name") or "护劫符"),
+                "shield": shield,
+                "expiry_time": expiry,
+                "remaining_minutes": int(max(0, expiry - now) // 60) if expiry else 0,
+            }
+        return best
 
     # ===== 跨系统加成 =====
     @staticmethod

@@ -66,7 +66,8 @@ EFFECT_LABELS: Dict[str, Tuple[str, Any]] = {
     "breakthrough_bonus": ("突破成功率", _percent),
     "alchemy_success_bonus": ("炼丹成功率", _percent_point),
     "alchemy_quality_bonus": ("炼丹品质", _percent_point),
-    "tribulation_shield": ("丹劫护盾", lambda v: f"{v:.0f}层"),
+    # 避劫是限时状态而非层数：显示成「可挡劫数≤6」比「6层」准确
+    "tribulation_shield": ("避劫", lambda v: f"可挡劫数≤{v:.0f}"),
     "exploration_reward_multiplier": ("历练收益", _percent),
     "rift_reward_multiplier": ("秘境收益", _percent),
     "drop_chance_bonus": ("掉落", _percent_point),

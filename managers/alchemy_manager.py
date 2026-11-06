@@ -12,6 +12,7 @@ from ..models_extended import UserStatus
 from ..core.talisman_rules import (
     TRIBULATION_DEMAND, TRIBULATION_RATE, pill_rank_of, rank_from_level,
 )
+from ..core.active_effects import format_duration
 
 if TYPE_CHECKING:
     from ..config_manager import ConfigManager
@@ -458,7 +459,46 @@ class AlchemyManager:
             "   💡 护劫符图已常驻：/符阁 符图 → /购买 避劫符·符图（盾6）、混元符·符图（盾9）；"
             "成品符看 /符阁 符箓"
         )
+        lines.append(
+            "   💡 开炉前先 /使用 避劫符：状态期内同档丹劫全免，不必每颗丹现烧一张"
+        )
         return "\n".join(lines)
+
+    def _resolve_tribulation(self, player: Player, demand: int) -> Tuple[Optional[str], int, str]:
+        """丹劫落地时的护劫判定，返回 (符名, 护盾, 状态说明)。
+
+        1) 已有避劫状态且护盾够 → 直接免劫，不消耗任何符；
+        2) 没有状态但储物戒有够用的护劫符 → 祭出一张，并把整段避劫状态挂上，
+           所以后续同档丹劫都在状态里免掉，不再逐颗烧符；
+        3) 都不满足 → (None, 0, "")，由调用方判定毁丹。
+        """
+        if demand <= 0:
+            return None, 0, ""
+        try:
+            from .talisman_manager import TalismanManager
+            state = TalismanManager.active_shield_state(player, demand)
+            if state:
+                return (
+                    state["name"],
+                    int(state["shield"]),
+                    f"避劫状态尚余 {format_duration(state['remaining_minutes'])}",
+                )
+            pick = TalismanManager.pick_shield_talisman(player, demand, self.config_manager)
+            if not pick:
+                return None, 0, ""
+            name = TalismanManager.consume_shield_talisman(player, self.config_manager, demand)
+            granted = TalismanManager.grant_shield_state(
+                player, name, self.config_manager
+            ) if name else None
+            if not granted:
+                return None, 0, ""
+            return (
+                name,
+                int(granted["shield"]),
+                f"自此刻起 {format_duration(granted['minutes'])} 内丹劫皆可避",
+            )
+        except Exception:
+            return None, 0, ""
 
     # ===== 五行/职业炼丹加成 =====
     def _pill_rank_of(self, output_pill: str, recipe: Dict = None) -> str:
@@ -882,21 +922,11 @@ class AlchemyManager:
                 trigger = int(TRIBULATION_RATE.get(pill_rank, 0) or 0)
                 # 丹劫挂在丹药品阶上，与丹方等级解耦：一张黄品引雷符救不了圣品丹。
                 if demand > 0 and trigger > 0 and random.randint(1, 100) <= trigger:
-                    used, shield = None, 0
-                    try:
-                        from .talisman_manager import TalismanManager
-                        pick = TalismanManager.pick_shield_talisman(player, demand, self.config_manager)
-                        if pick:
-                            used = TalismanManager.consume_shield_talisman(player, self.config_manager, demand)
-                            shield = int(pick[1])
-                        elif TalismanManager.consume_active_shield(player, demand):
-                            used, shield = "已激活的护劫符", demand
-                    except Exception:
-                        used, shield = None, 0
+                    used, shield, state_note = self._resolve_tribulation(player, demand)
                     if used:
                         tribulation_msg = (
                             f"\n⚡ 天降丹劫！你祭出【{used}】（护盾 {shield}），"
-                            f"雷光淬丹，丹药品质得以保全！"
+                            f"{state_note}，雷光淬丹，丹药品质得以保全！"
                         )
                     else:
                         pill_ruined = True
@@ -942,6 +972,11 @@ class AlchemyManager:
                             )
                     else:
                         shield_hint += "；护劫符可在 /符阁 购买，或由符箓师绘制"
+                    if options:
+                        shield_hint += (
+                            f"\n💡 开炉前先 /使用 {options[0][0]} 挂上避劫状态："
+                            f"状态期内同档丹劫全免，不必每颗丹现烧一张符"
+                        )
                     msg = f"""
 💔 丹劫毁丹
 ━━━━━━━━━━━━━━━

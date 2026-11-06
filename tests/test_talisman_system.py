@@ -407,6 +407,123 @@ class TestTribulation(unittest.IsolatedAsyncioTestCase):
             rank = alchemy._pill_rank_of(name)
             self.assertEqual(rules.TRIBULATION_DEMAND.get(rank, 0), 0, f"{name} 不应渡劫")
 
+    # ---- 避劫状态：一次祭符，一段时间内免劫 ----
+
+    async def test_using_talisman_opens_state(self):
+        """玩家主动 /使用 避劫符 → 直接挂上避劫状态，而不是攒一层护盾。"""
+        mgr = self.Manager(_FakeDB(), self.cm, None)
+        player = self._player({"避劫符": 1})
+        ok, msg = await mgr.use_talisman(player, "避劫符", 1)
+        self.assertTrue(ok, msg)
+        self.assertIn("持续", msg)
+        self.assertNotIn("避劫符", player.get_storage_ring_items())
+        state = self.Manager.active_shield_state(player, 6)
+        # 品质会按倍率放大护盾，只保证不低于符面值 6
+        self.assertGreaterEqual(state["shield"], 6)
+        self.assertGreater(state["remaining_minutes"], 0)
+
+    def test_grant_shield_state_makes_duration_state(self):
+        player = self._player({})
+        granted = self.Manager.grant_shield_state(player, "避劫符", self.cm)
+        self.assertIsNotNone(granted)
+        self.assertGreaterEqual(granted["shield"], 6)
+        # 玄品炼丹符基础 120 分钟，品质只加时不会减
+        self.assertGreaterEqual(granted["minutes"], 120)
+
+        state = self.Manager.active_shield_state(player, 6)
+        self.assertIsNotNone(state)
+        self.assertGreaterEqual(state["shield"], 6)
+        self.assertEqual(state["name"], "避劫符")
+        self.assertGreater(state["remaining_minutes"], 0)
+
+    def test_active_state_survives_repeated_tribulations(self):
+        """状态不是一层护盾：连查多次仍在，不会被第一次丹劫吃掉。"""
+        player = self._player({})
+        self.Manager.grant_shield_state(player, "避劫符", self.cm)
+        for _ in range(5):
+            self.assertIsNotNone(self.Manager.active_shield_state(player, 6))
+        self.assertEqual(len(player.get_active_pill_effects()), 1)
+
+    def test_state_does_not_cover_stronger_pill(self):
+        """避劫符(护盾6)扛不住帝品劫数7，仍要混元符。"""
+        player = self._player({})
+        # 固定一般品质，避免极品把护盾顶到 7 以上让断言失真
+        self.Manager.grant_shield_state(
+            player, "避劫符", self.cm, quality=("一般", 1.0, 0.0, 0)
+        )
+        self.assertIsNone(self.Manager.active_shield_state(player, 7))
+        # 但能查到"手上最好的状态"用于文案
+        state = self.Manager.active_shield_state(player)
+        self.assertEqual(state["shield"], 6)
+
+    def test_reusing_same_talisman_extends_state(self):
+        player = self._player({})
+        first = self.Manager.grant_shield_state(player, "避劫符", self.cm)
+        second = self.Manager.grant_shield_state(player, "避劫符", self.cm)
+        self.assertGreater(second["expiry_time"], first["expiry_time"])
+        self.assertEqual(len(player.get_active_pill_effects()), 1)
+        self.assertGreaterEqual(second["minutes"], 2 * 120)
+
+    def test_expired_state_is_ignored(self):
+        player = self._player({})
+        self.Manager.grant_shield_state(player, "避劫符", self.cm)
+        effects = player.get_active_pill_effects()
+        effects[0]["expiry_time"] = 1
+        player.set_active_pill_effects(effects)
+        self.assertIsNone(self.Manager.active_shield_state(player, 6))
+
+    def test_tribulation_flow_burns_one_talisman_then_reuses_state(self):
+        """丹劫流程：第一次祭符开状态，之后同档丹劫只查状态、不再扣符。"""
+        player = self._player({"避劫符": 2})
+        self.assertIsNone(self.Manager.active_shield_state(player, 6))
+
+        name = self.Manager.consume_shield_talisman(player, self.cm, 6)
+        self.assertEqual(name, "避劫符")
+        self.Manager.grant_shield_state(player, name, self.cm)
+        self.assertEqual(player.get_storage_ring_items().get("避劫符"), 1)
+
+        for _ in range(3):  # 后续三颗丹都从状态里免劫
+            self.assertIsNotNone(self.Manager.active_shield_state(player, 6))
+        self.assertEqual(player.get_storage_ring_items().get("避劫符"), 1)
+
+    # ---- 炼丹侧接线：_resolve_tribulation ----
+
+    def test_alchemy_tribulation_opens_state_once(self):
+        alchemy = self.Alchemy(_FakeDB(), self.cm)
+        player = self._player({"避劫符": 2})
+
+        used, shield, note = alchemy._resolve_tribulation(player, 6)
+        self.assertEqual(used, "避劫符")
+        self.assertGreaterEqual(shield, 6)
+        self.assertIn("内丹劫皆可避", note)
+        self.assertEqual(player.get_storage_ring_items().get("避劫符"), 1)
+
+        for _ in range(3):  # 后续丹劫都吃状态，符不再减少
+            used, shield, note = alchemy._resolve_tribulation(player, 6)
+            self.assertEqual(used, "避劫符")
+            self.assertIn("尚余", note)
+        self.assertEqual(player.get_storage_ring_items().get("避劫符"), 1)
+
+    def test_alchemy_tribulation_fails_without_talisman(self):
+        alchemy = self.Alchemy(_FakeDB(), self.cm)
+        player = self._player({})
+        self.assertEqual(alchemy._resolve_tribulation(player, 6), (None, 0, ""))
+
+    def test_alchemy_survives_by_stronger_talisman_in_bag(self):
+        """避劫状态只到 6，帝品劫数 7 时仍会去包里翻混元符。"""
+        alchemy = self.Alchemy(_FakeDB(), self.cm)
+        player = self._player({"混元符": 1})
+        self.Manager.grant_shield_state(
+            player, "避劫符", self.cm, quality=("一般", 1.0, 0.0, 0)
+        )
+
+        used, shield, note = alchemy._resolve_tribulation(player, 7)
+        self.assertEqual(used, "混元符")
+        self.assertGreaterEqual(shield, 9)
+        self.assertIn("内丹劫皆可避", note)
+        self.assertNotIn("混元符", player.get_storage_ring_items())
+        self.assertGreaterEqual(self.Manager.active_shield_state(player, 7)["shield"], 9)
+
 
 class TestPavilion(unittest.IsolatedAsyncioTestCase):
     @classmethod
