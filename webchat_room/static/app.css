@@ -872,6 +872,70 @@ html[data-theme="fish"] .msg-row {
 .chip.empty { opacity: .55; cursor: default; }
 .chip.empty:hover { background: var(--glass-3); border-color: rgba(var(--jade-rgb), .26); }
 
+/* 物品网格：名称 / 品阶·品质 / 数量 三行小卡片 */
+.item-grid-wrap { display: flex; flex-direction: column; gap: 8px; }
+.item-filters { display: flex; flex-direction: column; gap: 5px; }
+.filter-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.filter-tag { font-size: 10.5px; color: var(--card-dim); margin-right: 1px; }
+.fchip {
+  font-size: 11px; line-height: 1; padding: 4px 8px; border-radius: 999px;
+  border: 1px solid rgba(var(--edge-rgb), .3); background: transparent;
+  color: var(--card-dim); cursor: pointer; transition: background .12s, color .12s;
+}
+.fchip:hover { border-color: rgba(var(--jade-rgb), .5); color: var(--chip-ink); }
+.fchip.on {
+  background: rgba(var(--jade-rgb), .88); border-color: transparent; color: #fff;
+}
+.chip-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(62px, 1fr)); gap: 7px;
+}
+.icell {
+  position: relative; height: 52px; overflow: hidden; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 0 3px 0 5px; text-align: center;
+  border-radius: 8px; border: 1px solid rgba(var(--jade-rgb), .24);
+  background: var(--glass-3); color: var(--chip-ink);
+  transition: background .12s, border-color .12s;
+}
+.icell::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
+  background: var(--kd, transparent);
+}
+.icell:hover { background: var(--jade-soft); border-color: rgba(var(--jade-rgb), .52); }
+.ic-name {
+  font-size: 11px; line-height: 15px; width: 100%;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ic-meta {
+  font-size: 9.5px; line-height: 12px; margin-top: 1px; width: 100%;
+  color: var(--card-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ic-cnt {
+  font-size: 10.5px; line-height: 13px; margin-top: 1px;
+  color: var(--jade); font-variant-numeric: tabular-nums;
+}
+.ic-el {
+  position: absolute; right: 3px; top: 3px; width: 6px; height: 6px; border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .6);
+}
+.item-empty { font-size: 12px; color: var(--card-dim); text-align: center; padding: 10px 0; }
+
+/* 物品悬停浮层 */
+.item-tip {
+  position: fixed; z-index: 80; min-width: 132px; padding: 8px 10px;
+  border-radius: 9px; font-size: 12px; line-height: 1.5;
+  background: var(--panel, #fff); border: 1px solid rgba(var(--edge-rgb), .38);
+  box-shadow: 0 10px 26px rgba(30, 24, 16, .18); color: var(--chip-ink);
+  pointer-events: none;
+}
+.item-tip .tip-name {
+  font-size: 12.5px; font-weight: 600; margin-bottom: 4px;
+  color: var(--accent); white-space: nowrap;
+}
+.item-tip .tip-row { display: flex; justify-content: space-between; gap: 14px; }
+.item-tip .tip-row span { color: var(--card-dim); }
+.item-tip .tip-row b { font-weight: 500; }
+
 /* 装备槽 */
 .slot-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; }
 .slot {

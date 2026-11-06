@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+  <meta name="theme-color" content="#eef4ff">
+  <title>肥鱼修仙</title>
+  <style>
+    /* 兜底：若线上地址暂时无法加载，显示一个友好的提示，而不是白屏 */
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: #eef4ff;
+      font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    .fallback {
+      display: none;
+      height: 100%;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #5b6b8c;
+      text-align: center;
+      padding: 24px;
+    }
+    .fallback .mark { font-size: 56px; margin-bottom: 16px; }
+    .fallback h1 { font-size: 20px; margin: 0 0 8px; color: #34415e; }
+    .fallback p { font-size: 14px; margin: 0; line-height: 1.6; }
+  </style>
+</head>
+<body>
+  <div class="fallback" id="fallback">
+    <div class="mark">☯</div>
+    <h1>肥鱼修仙</h1>
+    <p>正在连接修仙服务器…<br>如长时间无响应，请检查网络或稍后重试。</p>
+  </div>
+
+  <script>
+    // 这个壳默认直接由 Capacitor 的 server.url 重定向到线上地址，
+    // 本文件只在「未配置 server.url」或离线兜底时才会显示。
+    // 兜底页默认隐藏，只在加载失败时由原生层调用 window 显示。
+    window.__showFallback = function () {
+      var el = document.getElementById('fallback');
+      if (el) el.style.display = 'flex';
+    };
+  </script>
+</body>
+</html>

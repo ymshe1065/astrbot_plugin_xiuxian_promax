@@ -1371,7 +1371,9 @@
     const isSlots = /装备栏|装备槽/.test(name);
 
     if (isBag) {
-      box.appendChild(renderChips(rows));
+      // 结构化条目优先；老卡片没有 entries 时回退到从展示名解析
+      const entries = Array.isArray(sec.entries) ? sec.entries.filter((it) => it && it.name) : [];
+      box.appendChild(entries.length ? renderItemGrid(entries) : renderChips(rows));
     } else if (isSlots) {
       box.appendChild(renderSlots(rows));
     } else if (rows.length) {
@@ -1596,6 +1598,166 @@
     return stripped || raw;
   }
 
+  /* ---- 物品网格：名称 / 品阶·品质 / 数量 三行 ---- */
+  const KIND_COLORS = {
+    材料: "#c08334", 丹药: "#4f9d6b", 丹方: "#8a6fd0",
+    符箓: "#c9a227", 装备: "#3f7fc9", 功法: "#b5567a",
+  };
+  const KIND_ORDER = ["材料", "丹药", "丹方", "符箓", "装备", "功法"];
+  const QUALITY_ORDER = ["一般", "良好", "极佳", "大师"];
+  const ELEMENT_COLORS = {
+    金: "#c8a24a", 木: "#5fa564", 水: "#4a86c8", 火: "#cf5f45", 土: "#a8825a",
+  };
+
+  let itemTipEl = null;
+  let itemTipTimer = 0;
+
+  function hideItemTip() {
+    clearTimeout(itemTipTimer);
+    if (itemTipEl) {
+      itemTipEl.remove();
+      itemTipEl = null;
+    }
+  }
+
+  // 浮层用 fixed 定位，容器一滚就会脱位，捕获阶段收掉
+  window.addEventListener("scroll", hideItemTip, true);
+
+  /** 悬停浮层：只读结构化字段，不发请求 */
+  function showItemTip(entry, anchor) {
+    hideItemTip();
+    const tip = document.createElement("div");
+    tip.className = "item-tip";
+    const rows = [
+      ["种类", [entry.kind, entry.sub].filter(Boolean).join("·")],
+      ["品阶", entry.rank],
+      ["品质", entry.quality],
+      ["五行", entry.element],
+      ["数量", `×${entry.count}`],
+    ].filter(([, v]) => v);
+    if (entry.affix_count) rows.push(["词条", `${entry.affix_count} 条`]);
+    tip.innerHTML =
+      `<div class="tip-name">${esc(entry.name)}</div>` +
+      rows
+        .map(([k, v]) => `<div class="tip-row"><span>${k}</span><b>${esc(v)}</b></div>`)
+        .join("");
+    document.body.appendChild(tip);
+    const r = anchor.getBoundingClientRect();
+    const w = tip.offsetWidth;
+    const h = tip.offsetHeight;
+    const left = Math.max(8, Math.min(r.left + r.width / 2 - w / 2, window.innerWidth - w - 8));
+    let top = r.top - h - 8;
+    if (top < 8) top = r.bottom + 8;
+    tip.style.left = `${left}px`;
+    tip.style.top = `${top}px`;
+    itemTipEl = tip;
+  }
+
+  function bindItemTip(el, entry) {
+    el.addEventListener("mouseenter", () => {
+      clearTimeout(itemTipTimer);
+      itemTipTimer = setTimeout(() => showItemTip(entry, el), 140);
+    });
+    el.addEventListener("mouseleave", hideItemTip);
+    el.addEventListener("click", hideItemTip);
+  }
+
+  /** 储物戒网格：结构化条目 + 种类/品质筛选 */
+  function renderItemGrid(items) {
+    const wrap = document.createElement("div");
+    wrap.className = "item-grid-wrap";
+    const filters = document.createElement("div");
+    filters.className = "item-filters";
+    const grid = document.createElement("div");
+    grid.className = "chip-grid";
+    const empty = document.createElement("div");
+    empty.className = "item-empty";
+    empty.textContent = "没有符合筛选的物品";
+    empty.hidden = true;
+
+    const state = { kind: "", quality: "" };
+    const kinds = KIND_ORDER.filter((k) => items.some((it) => it.kind === k));
+    const qualitiesOf = (kind) =>
+      QUALITY_ORDER.filter((q) => items.some((it) => it.quality === q && (!kind || it.kind === kind)));
+
+    const chipRow = (label, options, key, onChange) => {
+      const row = document.createElement("div");
+      row.className = "filter-row";
+      const tag = document.createElement("span");
+      tag.className = "filter-tag";
+      tag.textContent = label;
+      row.appendChild(tag);
+      ["", ...options].forEach((opt) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "fchip" + (state[key] === opt ? " on" : "");
+        b.dataset.val = opt;
+        b.textContent = opt || "全部";
+        b.addEventListener("click", () => {
+          if (state[key] === opt) return;
+          state[key] = opt;
+          row.querySelectorAll(".fchip").forEach((x) => x.classList.toggle("on", x.dataset.val === opt));
+          onChange(opt);
+        });
+        row.appendChild(b);
+      });
+      return row;
+    };
+
+    /** 品质选项跟着种类走：材料/丹方没有品质，那一行就该消失 */
+    const buildFilters = () => {
+      filters.innerHTML = "";
+      if (kinds.length > 1) {
+        filters.appendChild(
+          chipRow("种类", kinds, "kind", () => {
+            if (state.quality && !qualitiesOf(state.kind).includes(state.quality)) state.quality = "";
+            buildFilters();
+            paint();
+          })
+        );
+      }
+      const qs = qualitiesOf(state.kind);
+      if (qs.length > 1) filters.appendChild(chipRow("品质", qs, "quality", paint));
+      filters.hidden = filters.childElementCount === 0;
+    };
+    buildFilters();
+    wrap.appendChild(filters);
+
+    const cell = (it) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "icell";
+      b.style.setProperty("--kd", KIND_COLORS[it.kind] || "transparent");
+      const meta = [it.rank, it.quality].filter(Boolean).join("·") || it.kind || "—";
+      b.innerHTML =
+        `<span class="ic-name">${esc(it.name)}</span>` +
+        (it.element
+          ? `<span class="ic-el" style="background:${ELEMENT_COLORS[it.element] || "#8f8f8f"}"></span>`
+          : "") +
+        `<span class="ic-meta">${esc(meta)}</span>` +
+        `<span class="ic-cnt">×${it.count}</span>`;
+      b.title = [it.name, it.rank, it.quality, it.element].filter(Boolean).join(" · ");
+      b.addEventListener("click", (e) => openItemMenu(it.name, e.currentTarget, it.count, it));
+      bindItemTip(b, it);
+      return b;
+    };
+
+    function paint() {
+      hideItemTip();
+      grid.innerHTML = "";
+      const list = items.filter(
+        (it) => (!state.kind || it.kind === state.kind) && (!state.quality || it.quality === state.quality)
+      );
+      list.forEach((it) => grid.appendChild(cell(it)));
+      empty.hidden = list.length > 0;
+    }
+
+    paint();
+    wrap.appendChild(grid);
+    wrap.appendChild(empty);
+    return wrap;
+  }
+
   /** 装备槽位 */
   function renderSlots(rows) {
     const grid = document.createElement("div");
@@ -1732,19 +1894,22 @@
     return { kind: m[1], sub: String(m[2] || "").trim() };
   }
 
-  function openItemMenu(name, anchor, total = 1) {
+  function openItemMenu(name, anchor, total = 1, entry = null) {
     const rawLabel = String(name || "").trim();
     name = bareItemName(rawLabel);
-    const tag = itemMenuTag(rawLabel);
+    // 结构化条目直接给种类；老路径从展示名括号里猜
+    const tag = entry && entry.kind ? { kind: entry.kind, sub: entry.sub || "" } : itemMenuTag(rawLabel);
     const equippable = tag.kind === "装备" || tag.kind === "功法";
     const isGear = tag.kind === "装备";
     const count = Math.max(1, Number(total) || 1);
+    // 同名物品可能有多个品质：回收/赠予要指名品质，装备要指名第几件
+    const key = entry && entry.quality ? `${name}|${entry.quality}` : name;
     const menu = newCtxMenu();
     const ops = [];
-    if (equippable) ops.push(["装备", () => quickEquip(name)]);
+    if (equippable) ops.push(["装备", () => quickEquip(name, entry)]);
     ops.push(["详情", () => dispatchCommand(`/物品信息 ${name}`)]);
-    ops.push(["回收", () => recycleItem(name, count)]);
-    ops.push(["赠予", () => giftItem(name, count, isGear)]);
+    ops.push(["回收", () => recycleItem(key, count)]);
+    ops.push(["赠予", () => giftItem(key, count, isGear)]);
     ops.forEach(([label, onClick]) => menu.appendChild(ctxMenuButton(label, onClick)));
     mountCtxMenu(menu, anchor);
   }
@@ -1767,7 +1932,7 @@
   }
 
   /** 装备：先查槽位占用，必要时弹层选择替换 */
-  async function quickEquip(name) {
+  async function quickEquip(name, entry = null) {
     let data = null;
     try {
       const r = await fetch(`/api/equip_context?item=${encodeURIComponent(name)}`, {
@@ -1797,7 +1962,9 @@
       return;
     }
     if (data.hint) toast(data.hint);
-    dispatchCommand(`/装备 ${name}`);
+    // 同名同品质可能有多件，装备要指明第几件，否则可能装上品质不同的那件
+    const pick = entry && entry.equip_index > 1 ? ` ${entry.equip_index}` : "";
+    dispatchCommand(`/装备 ${name}${pick}`);
   }
 
   /** 复用参数弹层展示自定义候选项 */

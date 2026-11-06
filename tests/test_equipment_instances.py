@@ -6,6 +6,7 @@ import tempfile
 import types
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT.parent))
@@ -137,13 +138,15 @@ class TestEquipmentInstances(unittest.IsolatedAsyncioTestCase):
         overflow_insts = self.im.list_instances(p, "overflow", self.weapon)
         self.assertEqual(len(overflow_insts), 1)
         self.assertEqual(len(self.im.list_instances(p, "storage", self.weapon)), 0)
-        # 修改品质，验证领取溢出后不会被重置为默认品质
+        # 改品质与词条，验证领取溢出后原样带回（实例搬位置，不重新生成）
         instances = self.im.load(p)
         for inst in instances:
             if inst.get("id") == overflow_insts[0].get("id"):
                 inst["quality"] = "大师"
+                inst["affixes"] = [{"name": "锋锐", "value": 12}]
         self.im.save(p, instances)
         await self.db.update_player(p)
+        overflow_id = int(overflow_insts[0].get("id"))
         p.storage_ring_items = json.dumps({}, ensure_ascii=False)
         await self.db.update_player(p)
         claimed, msg = await self.ring.claim_overflow(p)
@@ -152,6 +155,9 @@ class TestEquipmentInstances(unittest.IsolatedAsyncioTestCase):
         storage_insts = self.im.list_instances(p, "storage", self.weapon)
         self.assertEqual(len(storage_insts), 1)
         self.assertEqual(storage_insts[0].get("quality"), "大师")
+        self.assertEqual(storage_insts[0].get("affixes"), [{"name": "锋锐", "value": 12}])
+        self.assertEqual(int(storage_insts[0].get("id")), overflow_id)  # 同一个实例，不是新建
+        self.assertEqual(self.im.list_instances(p, "overflow", self.weapon), [])
 
     async def test_equipment_gift_send_and_accept(self):
         module = _imp("handlers.storage_ring_handler")
@@ -235,6 +241,82 @@ class TestEquipmentInstances(unittest.IsolatedAsyncioTestCase):
         equipped_id = p.get_equipped_instances().get("weapon")
         self.assertTrue(equipped_id)
         self.assertEqual(self.im.get_instance(p, equipped_id)["name"], self.weapon)
+
+    async def test_storage_entries_split_same_name_by_quality(self):
+        """同名不同品质的装备不能并成一条，序号要能指到具体那件。"""
+        module = _imp("handlers.storage_ring_handler")
+        handler = module.StorageRingHandler(self.db, self.cm)
+        p = await self._player()
+        ok, msg = await self.ring.store_item(p, self.weapon, 3)
+        self.assertTrue(ok, msg)
+
+        p = await self.db.get_player_by_id("u1")
+        instances = self.im.load(p)
+        for inst, quality in zip(instances, ["一般", "极佳", "极佳"]):
+            inst["quality"] = quality
+        self.im.save(p, instances)
+        await self.db.update_player(p)
+        p = await self.db.get_player_by_id("u1")
+
+        entries = handler._item_entries(p)
+        gear = [e for e in entries if e["name"] == self.weapon]
+        self.assertEqual(sorted(e["quality"] for e in gear), ["一般", "极佳"])
+
+        by_quality = {e["quality"]: e for e in gear}
+        self.assertEqual(by_quality["一般"]["count"], 1)
+        self.assertEqual(by_quality["极佳"]["count"], 2)
+        self.assertEqual(len(by_quality["极佳"]["instance_ids"]), 2)
+        # 序号按 id 升序：第 1 件是一般，极佳组从第 2 件开始
+        self.assertEqual(by_quality["一般"]["equip_index"], 1)
+        self.assertEqual(by_quality["极佳"]["equip_index"], 2)
+        # 种类/品阶全部来自结构化字段，不需要前端解析展示名
+        self.assertEqual(by_quality["极佳"]["kind"], "装备")
+        self.assertTrue(by_quality["极佳"]["rank"])
+        self.assertEqual(by_quality["一般"]["element"], self.cm.get_item_element(self.weapon))
+
+    async def test_storage_entries_keep_stackable_count(self):
+        """可堆叠物品仍是名称+数量一条，品质为空。"""
+        module = _imp("handlers.storage_ring_handler")
+        handler = module.StorageRingHandler(self.db, self.cm)
+        p = await self._player()
+        p.storage_ring_items = json.dumps({"精铁": 120}, ensure_ascii=False)
+        await self.db.update_player(p)
+        p = await self.db.get_player_by_id("u1")
+
+        entries = handler._item_entries(p)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["name"], "精铁")
+        self.assertEqual(entries[0]["count"], 120)
+        self.assertEqual(entries[0]["quality"], "")
+        self.assertEqual(entries[0]["instance_ids"], [])
+
+    async def test_storage_text_lists_gear_by_quality(self):
+        """文本降级路径同样按品质分行，不能并成一条。"""
+        module = _imp("handlers.storage_ring_handler")
+        handler = module.StorageRingHandler(self.db, self.cm)
+        p = await self._player()
+        ok, msg = await self.ring.store_item(p, self.weapon, 2)
+        self.assertTrue(ok, msg)
+
+        p = await self.db.get_player_by_id("u1")
+        instances = self.im.load(p)
+        for inst, quality in zip(instances, ["一般", "极佳"]):
+            inst["quality"] = quality
+        self.im.save(p, instances)
+        await self.db.update_player(p)
+        p = await self.db.get_player_by_id("u1")
+
+        event = _FakeEvent(p.user_id, "测试道友")
+        image_module = _imp("utils.image_generator")
+        with patch.object(image_module, "card_enabled", return_value=False):
+            results = [r async for r in handler.handle_storage_ring.__wrapped__(handler, p, event)]
+        text = "\n".join(results)
+        gear_lines = [ln for ln in text.splitlines() if self.weapon in ln]
+        self.assertEqual(len(gear_lines), 2, text)
+        self.assertTrue(any("·一般" in ln for ln in gear_lines), text)
+        self.assertTrue(any("·极佳" in ln for ln in gear_lines), text)
+        # 两行各一件，不能合并成 ×2
+        self.assertFalse(any("×2" in ln for ln in gear_lines), text)
 
 
 if __name__ == "__main__":

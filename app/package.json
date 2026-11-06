@@ -1,0 +1,23 @@
+{
+  "name": "feiyu-xiuxian",
+  "version": "1.0.0",
+  "description": "肥鱼修仙 - 手机端 App（WebView 壳）",
+  "private": true,
+  "scripts": {
+    "sync": "cap sync",
+    "android:sync": "cap sync android",
+    "ios:sync": "cap sync ios",
+    "open:android": "cap open android",
+    "open:ios": "cap open ios"
+  },
+  "author": "肥鱼修仙",
+  "license": "MIT",
+  "dependencies": {
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/cli": "^8.6.0",
+    "@capacitor/core": "^8.6.0",
+    "@capacitor/ios": "^8.6.0",
+    "@capacitor/splash-screen": "^8.0.2"
+  }
+}

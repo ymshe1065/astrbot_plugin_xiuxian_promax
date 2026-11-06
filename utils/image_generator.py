@@ -542,6 +542,16 @@ def render_card(
                         "name": sec.get("name", ""),
                         "rows": [[str(lbl), str(val)] for lbl, val in sec.get("rows", [])],
                         "lines": [str(x) for x in sec.get("lines", [])],
+                        # 结构化条目（储物戒等）：rows 仍供 Pillow 绘制，entries 供网页原生渲染
+                        # 注意不能叫 items——分区级 items 是「文本提升成条目」的另一套结构
+                        "entries": [
+                            {
+                                str(k): (v if isinstance(v, (str, int, float, bool, list)) else str(v))
+                                for k, v in it.items()
+                            }
+                            for it in (sec.get("entries") or [])
+                            if isinstance(it, dict)
+                        ],
                     }
                     for sec in sections
                 ],
