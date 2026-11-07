@@ -183,6 +183,7 @@ CATEGORIES: list[dict[str, Any]] = [
         "icon": "🗺",
         "items": [
             {"cmd": "/秘境列表", "label": "秘境列表", "panel": True},
+            {"cmd": "/秘境详情", "label": "秘境详情", "arg": "秘境ID"},
             {"cmd": "/探索秘境", "label": "探索秘境", "arg": "秘境ID", "tone": "gold"},
             {"cmd": "/完成探索", "label": "完成探索"},
             {"cmd": "/退出秘境", "label": "退出秘境"},
@@ -446,7 +447,8 @@ ARG_SPEC: dict[str, dict[str, Any]] = {
     "切原石": {"hint": "切割数量", "example": "1", "min": 1},
     "拍卖会出价": {"hint": "出价灵石数", "example": "10000", "min": 1},
     # 秘境与历练
-    "探索秘境": {"hint": "秘境ID（见秘境列表，1-5）", "example": "1", "min": 1},
+    "秘境详情": {"hint": "秘境ID（见秘境列表）", "example": "2", "min": 1},
+    "探索秘境": {"hint": "秘境ID 或 秘境名+难度（见秘境列表）", "example": "万妖洞 三重", "min": 1},
     "开始历练": {"hint": "历练路线", "example": "青云山", "min": 1},
     "接取任务": {"hint": "品阶 黄/玄/地/天 或 all", "example": "黄", "min": 1},
     "放弃任务": {"hint": "任务编号", "example": "1", "min": 1},

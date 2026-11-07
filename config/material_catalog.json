@@ -1224,6 +1224,111 @@
       "tier": "帝品",
       "price": 88000,
       "volume": 1
+    },
+    {
+      "name": "混沌青莲",
+      "category": "灵植",
+      "tier": "圣品",
+      "price": 14000,
+      "volume": 1
+    },
+    {
+      "name": "九霄玉兰",
+      "category": "灵植",
+      "tier": "圣品",
+      "price": 16000,
+      "volume": 1
+    },
+    {
+      "name": "仙墟圣莲",
+      "category": "灵植",
+      "tier": "圣品",
+      "price": 26000,
+      "volume": 1
+    },
+    {
+      "name": "玄天寒铁",
+      "category": "矿材",
+      "tier": "圣品",
+      "price": 14000,
+      "volume": 1
+    },
+    {
+      "name": "太初源石",
+      "category": "矿材",
+      "tier": "圣品",
+      "price": 16000,
+      "volume": 1
+    },
+    {
+      "name": "星陨精金",
+      "category": "矿材",
+      "tier": "圣品",
+      "price": 24000,
+      "volume": 1
+    },
+    {
+      "name": "星辰玄铁",
+      "category": "矿材",
+      "tier": "圣品",
+      "price": 26000,
+      "volume": 1
+    },
+    {
+      "name": "玄冰髓",
+      "category": "灵液",
+      "tier": "圣品",
+      "price": 15000,
+      "volume": 1
+    },
+    {
+      "name": "混沌灵乳",
+      "category": "灵液",
+      "tier": "圣品",
+      "price": 18000,
+      "volume": 1
+    },
+    {
+      "name": "太虚雷髓",
+      "category": "灵液",
+      "tier": "圣品",
+      "price": 26000,
+      "volume": 1
+    },
+    {
+      "name": "劫雷精粹",
+      "category": "灵液",
+      "tier": "圣品",
+      "price": 30000,
+      "volume": 1
+    },
+    {
+      "name": "吞天兽骨",
+      "category": "妖兽",
+      "tier": "圣品",
+      "price": 15000,
+      "volume": 1
+    },
+    {
+      "name": "万古妖丹",
+      "category": "妖兽",
+      "tier": "圣品",
+      "price": 28000,
+      "volume": 1
+    },
+    {
+      "name": "虚空妖核",
+      "category": "妖兽",
+      "tier": "圣品",
+      "price": 30000,
+      "volume": 1
+    },
+    {
+      "name": "混沌源晶",
+      "category": "天材",
+      "tier": "圣品",
+      "price": 50000,
+      "volume": 1
     }
   ]
 }

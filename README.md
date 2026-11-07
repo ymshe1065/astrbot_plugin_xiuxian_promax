@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v7.2.8 (符箓配方结构化 / 日常制符 / 双防修复)
+# AstrBot 插件：模拟修仙 v7.3.0 (秘境难度分级 / 45 档产出 / 圣品材料扩充)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v7.2.8-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v7.3.0-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.37.8 · **游戏版本:** v7.2.8 · **数据库:** v60
+> **插件版本:** v3.38.0 · **游戏版本:** v7.3.0 · **数据库:** v61
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，257 条注册指令（网页指令目录 245 个功能按钮 + 12 个别名）、17 个大系统、111 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,28 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · v7.2.8（符箓配方结构化 / 日常制符 / 双防修复）</b></summary>
+<summary><b>本次更新 · v7.3.0（秘境难度分级 / 45 档产出 / 圣品材料扩充）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 秘境规模 | 秘境从 5 个扩到 **15 个**，每个分「一重 / 二重 / 三重」三档，合计 45 个可进难度；全境界段都有新本可下（此前最高门槛只有 10 级，合体期之后无事可做）。 |
+| 难度分级 | 每档独立配置境界门槛、探索时长（20 / 30 / 45 分钟）、修为灵石、掉落表与掉率；`rifts` 表新增 `rift_key / product / difficulty / duration` 四列，`rift_id` 唯一对应一个难度。 |
+| 主产物 | 15 个秘境按灵植 / 矿材 / 灵液 / 妖兽 / 混合 / 全产物分工，同一境界段不会同时开放全部类别，想炼某类丹药就去对应秘境刷，不再只能盯百宝阁与丹阁。 |
+| 产出曲线 | 修为按「该境界突破所需 × 进度比例（0.30 递减到 0.05）× 档位系数」折算，修掉此前境界 9 的秘境收益反超境界 10 的倒挂；单位时间收益随门槛单调上升。 |
+| 高阶掉落 | 深档额外掉落概率 0% / 45% / 70%，装备 5% / 9% / 13%；新增 15 种圣品材料（混沌青莲、星陨精金、混沌源晶等），只在 `required_level ≥ 22` 的秘境深档产出，高阶秘境圣品权重占比 26%+。 |
+| 配置同步 | 新增 `RiftManager.sync_rifts()`，启动时把 `config/rift_config.json` 的 `rifts` 幂等写入数据库（缺失补、改动覆盖、配置里没有的旧行删除），改配置重启即生效。 |
+| 指令 | 新增 `/秘境详情 <ID>` 查看该档产出与掉落概率；`/秘境列表` 按秘境分组、标注 ✅/🔒 与每档 ID；`/探索秘境 <秘境名> <难度>` 支持按名字进入（如 `/秘境探索 万妖洞 三重` 的等价写法）。 |
+| 不限次数 | 秘境不设每日次数上限，只受忙碌状态约束。 |
+| 前端 | 自动代理面板与网页参数候选改用「秘境·难度」展示名；忙碌状态只读放行补上 `/秘境详情`。 |
+| 回归测试 | 新增 `tests/test_rift_difficulty.py`（26 项：配置合法性、产物稀疏性、掉落可解析、圣品占比、入库幂等、进入与结算链路）；改造 `test_rift_equipment_drop_nerf.py` 适配每档独立装备概率。全量 1113 项通过（1 项跳过）。 |
+| 数据库 | **v60 → v61**：`rifts` 表补 `rift_key / product / difficulty / duration`。 |
+| 版本同步 | 插件版本 v3.38.0，游戏版本 v7.3.0，数据库 v61；`/修仙帮助` 版本号同步。 |
+
+</details>
+
+
+<details>
+<summary><b>v7.2.8（符箓配方结构化 / 日常制符 / 双防修复）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |

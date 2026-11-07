@@ -112,9 +112,11 @@ class TestTalismanConfig(unittest.TestCase):
         import math
         catalog = json.loads((ROOT / "config" / "material_catalog.json").read_text(encoding="utf-8"))
         price_by_name = {m["name"]: int(m["price"]) for m in catalog["materials"]}
+        # 每个 (类别, 品阶) 的参考价固定取「目录里第一个出现的材料」：
+        # 新增材料一律追加在末尾，参考价才不会因为扩容而漂移（用 dict 覆盖写法会取到最后一个）。
         anchor = {}
         for material in catalog["materials"]:
-            anchor[(material["category"], material["tier"])] = int(material["price"])
+            anchor.setdefault((material["category"], material["tier"]), int(material["price"]))
 
         def ceil_to_nice(value):
             step = 10 if value < 1_000 else 100 if value < 10_000 else 1_000 if value < 1_000_000 else 10_000

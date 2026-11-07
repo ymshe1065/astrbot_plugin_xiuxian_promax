@@ -6,7 +6,7 @@ import hashlib
 import json
 from typing import Any, Dict, List
 
-HELP_VERSION = "v7.2.8"
+HELP_VERSION = "v7.3.0"
 HELP_HEADER = f"📖 修仙指令大全 {HELP_VERSION} (网页指令目录全覆盖)"
 HELP_HINT = "💡 提示：所有指令均可带 / 前缀使用"
 HELP_TITLE = "修仙指令大全"
@@ -57,7 +57,7 @@ HELP_SECTIONS: List[Dict[str, Any]] = [
         "icon": "🗺️",
         "lines": [
             "/历练信息 /开始历练 <路线> /历练状态 /完成历练 /放弃历练",
-            "/秘境列表 /探索秘境 <ID> /完成探索 /退出秘境",
+            "/秘境列表 /秘境详情 <ID> /探索秘境 <ID> /探索秘境 <名字> <难度> /完成探索 /退出秘境",
             "/任务榜 /接取任务 <品阶/all> /放弃任务 <编号> /领取任务奖励",
             "/自动代理 秘境 <ID>（仅列当前境界可进入的本，到期自动结算并重新进入）",
             "/自动代理 灵田 [格号...] /自动代理 施肥 [阈值%]（留空用默认，格号支持 1-3）",

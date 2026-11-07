@@ -892,10 +892,10 @@ async def _src_rift_ids(plugin: "XiuXianPlugin", player: Any, field: dict, value
             exp_range = rewards.get("exp", [0, 0])
             options.append(
                 _opt(
-                    f"{getattr(rift, 'rift_name', '秘境')}（ID:{getattr(rift, 'rift_id', '')}）",
+                    f"{getattr(rift, 'display_name', '') or getattr(rift, 'rift_name', '秘境')}（ID:{getattr(rift, 'rift_id', '')}）",
                     getattr(rift, "rift_id", ""),
                     f"需境界 {need or '无限制'} · 修为 {_nm(exp_range[0])}-{_nm(exp_range[1])}",
-                    "秘境",
+                    getattr(rift, "product", "") or "秘境",
                 )
             )
     except Exception:
@@ -1355,7 +1355,7 @@ async def _src_proxy_rifts(plugin: "XiuXianPlugin", player: Any, field: dict, va
                 continue
             options.append(
                 _opt(
-                    f"{getattr(rift, 'rift_name', '秘境')}（ID:{getattr(rift, 'rift_id', '')}）",
+                    f"{getattr(rift, 'display_name', '') or getattr(rift, 'rift_name', '秘境')}（ID:{getattr(rift, 'rift_id', '')}）",
                     getattr(rift, "rift_id", ""),
                     f"需境界 {need or '无限制'} · 到期自动结算并重新进入",
                     "可代理秘境",

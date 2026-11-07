@@ -894,7 +894,8 @@ class AutoProxyManager:
 
     @staticmethod
     def _rift_label(rift: Any) -> str:
-        return f"【{rift.rift_name}】ID:{rift.rift_id}（需境界 {rift.required_level}）"
+        name = getattr(rift, "display_name", "") or getattr(rift, "rift_name", "秘境")
+        return f"【{name}】ID:{rift.rift_id}（需境界 {rift.required_level}）"
 
     def _rift_choices_text(self, enterable: list) -> str:
         lines = [
@@ -920,7 +921,9 @@ class AutoProxyManager:
                     return rift
             return None
         for rift in enterable:
-            if text in str(getattr(rift, "rift_name", "")):
+            name = str(getattr(rift, "display_name", "") or getattr(rift, "rift_name", ""))
+            if text in name:
+                # 「混沌天渊」这类不带难度后缀的写法优先落到一重
                 return rift
         return None
 

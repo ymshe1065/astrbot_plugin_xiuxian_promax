@@ -109,6 +109,7 @@ CMD_SPAR = "切磋"
 CMD_SPAR_ACCEPT = "接受切磋"
 CMD_SPAR_REJECT = "拒绝切磋"
 CMD_RIFT_LIST = "秘境列表"
+CMD_RIFT_DETAIL = "秘境详情"
 CMD_RIFT_EXPLORE = "探索秘境"
 CMD_RIFT_COMPLETE = "完成探索"
 CMD_RIFT_EXIT = "退出秘境"
@@ -440,6 +441,14 @@ class XiuXianPlugin(Star):
         migration_manager = MigrationManager(self.db.conn, self.config_manager)
         await migration_manager.migrate()
         await self.db.ext.ensure_system_config_table()
+
+        # 秘境配置按「秘境 × 难度」下发到数据库（幂等），改配置重启即生效
+        try:
+            synced = await self.rift_mgr.sync_rifts()
+            if synced:
+                logger.info(f"【秘境】已同步 {synced} 个秘境难度档位")
+        except Exception as e:
+            logger.warning(f"【秘境】配置同步失败（沿用数据库现有数据）: {e}")
 
         try:
             event_state = await self.event_mgr.reconcile()
@@ -1809,13 +1818,29 @@ class XiuXianPlugin(Star):
     async def handle_rift_list(self, event: AstrMessageEvent):
         async for r in self.rift_handlers.handle_rift_list(event): yield r
 
+    @filter.command(CMD_RIFT_DETAIL, "秘境详情")
+    @require_whitelist
+    async def handle_rift_detail(self, event: AstrMessageEvent, rift_id: str = "0"):
+        try:
+            rift_id_int = int(rift_id)
+        except ValueError:
+            yield event.plain_result("请输入正确的秘境ID（如：/秘境详情 1）")
+            return
+        async for r in self.rift_handlers.handle_rift_detail(event, rift_id_int): yield r
+
     @filter.command(CMD_RIFT_EXPLORE, "探索秘境")
     @require_whitelist
     @with_player_lock
-    async def handle_rift_explore(self, event: AstrMessageEvent, rift_id: str = "0"):
-        try: rift_id_int = int(rift_id)
+    async def handle_rift_explore(self, event: AstrMessageEvent, rift_id: str = "0", difficulty: str = ""):
+        try:
+            rift_id_int = int(rift_id)
         except ValueError:
-            yield event.plain_result("请输入正确的秘境ID！")
+            # 非数字：按秘境名解析（/探索秘境 万妖洞 三重）
+            async for r in self.rift_handlers.handle_rift_explore_by_name(event, rift_id, difficulty):
+                yield r
+            return
+        if rift_id_int <= 0:
+            yield event.plain_result("请输入秘境ID，如：/探索秘境 1（用 /秘境列表 查看）")
             return
         async for r in self.rift_handlers.handle_rift_explore(event, rift_id_int): yield r
         note = await self._auto_proxy_external_activity(event)

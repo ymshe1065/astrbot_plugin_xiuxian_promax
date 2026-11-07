@@ -10,7 +10,7 @@ from astrbot.api import logger
 if TYPE_CHECKING:
     from ..config_manager import ConfigManager
 
-LATEST_DB_VERSION = 60  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求；v49: 统一物品品阶名称；v50: 仙市投资系统（基金/股票）；v51: 符箓熟练度与符图习得；v52: 仙市 v6（16 盘 + 赌场级波动 + 不对称日熔断）；v53: 拍卖会未开拍拍品按固定品阶曲线重建（并兼容分叉旧库补授符图）；v54: 灵田肥力上限按等级分级（旧值按百分比换算）；v55: 生活职业更换费用峰值与时间衰减；v56: 误存进储物戒/溢出仓库的丹药迁回丹药背包；v57: 旧50/50装备改名迁移到混合倾向新装备；v58: 周常 Boss（周本）周期/队伍/成员/领奖/周榜/次数表；v59: 仙市分红/风声唯一索引（结算幂等，先去重再建索引）；v60: 功德机制重做，清空全服既有功德（业力）
+LATEST_DB_VERSION = 61  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求；v49: 统一物品品阶名称；v50: 仙市投资系统（基金/股票）；v51: 符箓熟练度与符图习得；v52: 仙市 v6（16 盘 + 赌场级波动 + 不对称日熔断）；v53: 拍卖会未开拍拍品按固定品阶曲线重建（并兼容分叉旧库补授符图）；v54: 灵田肥力上限按等级分级（旧值按百分比换算）；v55: 生活职业更换费用峰值与时间衰减；v56: 误存进储物戒/溢出仓库的丹药迁回丹药背包；v57: 旧50/50装备改名迁移到混合倾向新装备；v58: 周常 Boss（周本）周期/队伍/成员/领奖/周榜/次数表；v59: 仙市分红/风声唯一索引（结算幂等，先去重再建索引）；v60: 功德机制重做，清空全服既有功德（业力）；v61: 秘境难度分级（rift_key/product/difficulty/duration）
 
 MIGRATION_TASKS: Dict[int, Callable[[aiosqlite.Connection, ConfigManager], Awaitable[None]]] = {}
 
@@ -20,6 +20,14 @@ def migration(version: int):
         MIGRATION_TASKS[version] = func
         return func
     return decorator
+
+async def _ensure_rift_difficulty_v61(conn: aiosqlite.Connection):
+    """秘境难度分级：同一秘境按难度拆成多行，用 rift_key 归组。"""
+    await _add_column_if_missing(conn, "rifts", "rift_key", "TEXT NOT NULL DEFAULT ''")
+    await _add_column_if_missing(conn, "rifts", "product", "TEXT NOT NULL DEFAULT ''")
+    await _add_column_if_missing(conn, "rifts", "difficulty", "INTEGER NOT NULL DEFAULT 1")
+    await _add_column_if_missing(conn, "rifts", "duration", "INTEGER NOT NULL DEFAULT 1800")
+
 
 async def _add_column_if_missing(conn: aiosqlite.Connection, table: str, column: str, ddl_type: str):
     """幂等加列：全新建表已包含最新列时，增量迁移的 ALTER 不能因重复列而失败"""
@@ -464,6 +472,7 @@ async def _ensure_latest_columns(conn: aiosqlite.Connection):
     await _add_column_if_missing(conn, "players", "warehouse_level", "INTEGER NOT NULL DEFAULT 0")
     await _add_column_if_missing(conn, "players", "warehouse_items", "TEXT NOT NULL DEFAULT '{}'")
     await _add_column_if_missing(conn, "boss", "archetype", "TEXT NOT NULL DEFAULT 'balanced'")
+    await _ensure_rift_difficulty_v61(conn)
     await _ensure_trade_v39(conn)
     await _ensure_npc_v29_tables(conn)
     await _add_column_if_missing(conn, "sects", "sect_level", "INTEGER NOT NULL DEFAULT 1")
@@ -2595,3 +2604,12 @@ async def _migrate_to_v60(conn: aiosqlite.Connection, config_manager: ConfigMana
     await conn.execute("UPDATE players SET karma = 0")
     await conn.commit()
     logger.info("v60迁移完成：全服玩家功德已清零")
+
+
+@migration(61)
+async def _migrate_to_v61(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """v61：秘境支持「秘境 × 难度」——补 rift_key/product/difficulty/duration 列。"""
+    logger.info("开始迁移到 v61：秘境难度分级字段")
+    await _ensure_rift_difficulty_v61(conn)
+    await conn.commit()
+    logger.info("v61迁移完成：rifts 表已支持难度分级")

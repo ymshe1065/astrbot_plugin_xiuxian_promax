@@ -1,7 +1,6 @@
 # tests/test_pill_economy.py
 # 丹药价格与炼制成本平衡回归测试
 import math
-import statistics
 import sys
 import types
 import unittest
@@ -72,12 +71,12 @@ class PillEconomyRules:
 
     def __init__(self, config_manager):
         self.cm = config_manager
+        # 每个 (类别, 品阶) 的参考价取「目录里第一个出现的材料」，与符箓口径一致：
+        # 新增材料一律追加在末尾，参考价不会因扩容而漂移。
         self.material_groups = {}
         for material in (self.cm.material_catalog or {}).values():
             key = (material.get("category"), material.get("tier"))
-            self.material_groups.setdefault(key, []).append(
-                int(material.get("price", 0) or 0)
-            )
+            self.material_groups.setdefault(key, int(material.get("price", 0) or 0))
 
     def pill(self, name: str):
         for data in (
@@ -111,10 +110,10 @@ class PillEconomyRules:
                 raise AssertionError(f"材料 {name} 缺少价格")
             return count * price
 
-        values = self.material_groups.get((category, tier), [])
-        if not values:
+        price = self.material_groups.get((category, tier), 0)
+        if not price:
             raise AssertionError(f"材料类别 {category}/{tier} 缺少参考价")
-        return count * int(statistics.median(values))
+        return count * int(price)
 
     def expected_cost(self, recipe: dict) -> float:
         materials = recipe.get("materials", {})

@@ -12261,5 +12261,155 @@
         "volume": 1,
         "description": "周常 Boss 击破后残留的界外核心，蕴含被天道压制的伟力，仅能在周本奖励中获得。",
         "legacy": false
+    },
+    "10042": {
+        "name": "混沌青莲",
+        "type": "材料",
+        "rank": "圣品",
+        "shop_weight": 0,
+        "price": 14000,
+        "volume": 1,
+        "description": "混沌气所化的青莲，花瓣间自成一片小天地。",
+        "legacy": false
+    },
+    "10043": {
+        "name": "九霄玉兰",
+        "type": "材料",
+        "rank": "圣品",
+        "shop_weight": 0,
+        "price": 16000,
+        "volume": 1,
+        "description": "生于九霄之上的玉兰，香气可凝神魂。",
+        "legacy": false
+    },
+    "10044": {
+        "name": "仙墟圣莲",
+        "type": "材料",
+        "rank": "圣品",
+        "shop_weight": 0,
+        "price": 26000,
+        "volume": 1,
+        "description": "仙墟药园独有的圣莲，千年只开一次花。",
+        "legacy": false
+    },
+    "10045": {
+        "name": "玄天寒铁",
+        "type": "材料",
+        "rank": "圣品",
+        "shop_weight": 0,
+        "price": 14000,
+        "volume": 1,
+        "description": "自玄天冰层下掘出的寒铁，触之伤神。",
+        "legacy": false
+    },
+    "10046": {
+        "name": "太初源石",
+        "type": "材料",
+        "rank": "圣品",
+        "shop_weight": 0,
+        "price": 16000,
+        "volume": 1,
+        "description": "太初开辟时残留的源石，重逾山岳。",
+        "legacy": false
+    },
+    "10047": {
+        "name": "星陨精金",
+        "type": "材料",
+        "rank": "圣品",
+        "shop_weight": 0,
+        "price": 24000,
+        "volume": 1,
+        "description": "星陨矿脉深处凝成的精金，可承天雷。",
+        "legacy": false
+    },
+    "10048": {
+        "name": "星辰玄铁",
+        "type": "材料",
+        "rank": "圣品",
+        "shop_weight": 0,
+        "price": 26000,
+        "volume": 1,
+        "description": "星辰铁狱最底层的玄铁，比重如星核。",
+        "legacy": false
+    },
+    "10049": {
+        "name": "玄冰髓",
+        "type": "材料",
+        "rank": "圣品",
+        "shop_weight": 0,
+        "price": 15000,
+        "volume": 1,
+        "description": "万年玄冰中心的一滴髓液，寒彻道基。",
+        "legacy": false
+    },
+    "10050": {
+        "name": "混沌灵乳",
+        "type": "材料",
+        "rank": "圣品",
+        "shop_weight": 0,
+        "price": 18000,
+        "volume": 1,
+        "description": "混沌石乳凝成的灵液，最宜温养元神。",
+        "legacy": false
+    },
+    "10051": {
+        "name": "太虚雷髓",
+        "type": "材料",
+        "rank": "圣品",
+        "shop_weight": 0,
+        "price": 26000,
+        "volume": 1,
+        "description": "太虚雷池积聚的雷髓，蕴含劫雷本源。",
+        "legacy": false
+    },
+    "10052": {
+        "name": "劫雷精粹",
+        "type": "材料",
+        "rank": "圣品",
+        "shop_weight": 0,
+        "price": 30000,
+        "volume": 1,
+        "description": "渡劫者引落的雷劫凝成的精粹。",
+        "legacy": false
+    },
+    "10053": {
+        "name": "吞天兽骨",
+        "type": "材料",
+        "rank": "圣品",
+        "shop_weight": 0,
+        "price": 15000,
+        "volume": 1,
+        "description": "上古吞天兽的残骨，骨质如星铁。",
+        "legacy": false
+    },
+    "10054": {
+        "name": "万古妖丹",
+        "type": "材料",
+        "rank": "圣品",
+        "shop_weight": 0,
+        "price": 28000,
+        "volume": 1,
+        "description": "万古妖冢中妖王的内丹，妖气凝而不散。",
+        "legacy": false
+    },
+    "10055": {
+        "name": "虚空妖核",
+        "type": "材料",
+        "rank": "圣品",
+        "shop_weight": 0,
+        "price": 30000,
+        "volume": 1,
+        "description": "虚空妖巢中的妖核，内含一缕虚空之力。",
+        "legacy": false
+    },
+    "10056": {
+        "name": "混沌源晶",
+        "type": "材料",
+        "rank": "圣品",
+        "shop_weight": 0,
+        "price": 50000,
+        "volume": 1,
+        "description": "混沌天渊深处的源晶，一晶可镇一界。",
+        "legacy": false
     }
 }

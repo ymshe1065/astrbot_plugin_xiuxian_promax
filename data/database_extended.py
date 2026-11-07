@@ -297,14 +297,21 @@ class DatabaseExtended:
     # ===== 秘境系统 CRUD =====
     
     async def create_rift(self, rift: Rift) -> int:
-        """创建秘境"""
+        """创建秘境（含难度分级字段）"""
         await self.conn.execute(
             """
             INSERT INTO rifts (
-                rift_name, rift_level, required_level, rewards
-            ) VALUES (?, ?, ?, ?)
+                rift_name, rift_level, required_level, rewards,
+                rift_key, product, difficulty, duration
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (rift.rift_name, rift.rift_level, rift.required_level, rift.rewards)
+            (
+                rift.rift_name, rift.rift_level, rift.required_level, rift.rewards,
+                getattr(rift, "rift_key", "") or "",
+                getattr(rift, "product", "") or "",
+                int(getattr(rift, "difficulty", 1) or 1),
+                int(getattr(rift, "duration", 1800) or 1800),
+            )
         )
         await self.conn.commit()
         
@@ -326,7 +333,7 @@ class DatabaseExtended:
     async def get_all_rifts(self) -> List[Rift]:
         """获取所有秘境"""
         async with self.conn.execute(
-            "SELECT * FROM rifts ORDER BY rift_level ASC"
+            "SELECT * FROM rifts ORDER BY rift_id ASC"
         ) as cursor:
             rows = await cursor.fetchall()
             return [Rift(**dict(row)) for row in rows]

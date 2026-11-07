@@ -90,12 +90,27 @@ RIFT_CONFIG = {
         "weapon": 16, "armor": 16, "head": 12, "boots": 12,
         "amulet": 12, "gloves": 16, "ring": 16,
     },
-    "rifts": [
-        {"id": 1, "name": "青云秘境", "level": 2, "exp_range": [100, 500], "gold_range": [50, 200]},
-        {"id": 2, "name": "幽冥鬼域", "level": 5, "exp_range": [500, 2000], "gold_range": [200, 800]},
-        {"id": 3, "name": "太古遗迹", "level": 10, "exp_range": [5000, 10000], "gold_range": [1000, 5000]},
-    ]
+    "rifts": [],
 }
+
+# 秘境清单（15 处 × 3 难度）体量大且需要与掉落表严格对应，直接以随包下发的
+# config/rift_config.json 为准，避免在这里维护一份会走样的副本。
+# 老存档的 rift_config.json 没有 rifts 键时，RiftManager 就靠这里补全。
+try:
+    import json as _json
+    import os as _os
+
+    _RIFT_FILE = _os.path.join(
+        _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))),
+        "config", "rift_config.json",
+    )
+    if _os.path.exists(_RIFT_FILE):
+        with open(_RIFT_FILE, "r", encoding="utf-8") as _f:
+            _bundled_rifts = _json.load(_f).get("rifts")
+        if _bundled_rifts:
+            RIFT_CONFIG["rifts"] = _bundled_rifts
+except Exception:
+    pass
 
 ALCHEMY_CONFIG = {
     "recipes": {

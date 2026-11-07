@@ -98,13 +98,39 @@ class BuffInfo:
 
 @dataclass
 class Rift:
-    """秘境数据模型"""
+    """秘境数据模型。
+
+    同一秘境的每个难度各占一行（rift_id 唯一），由 ``rift_key`` 归组；
+    ``rift_name`` 只存秘境本名，展示时用 ``display_name`` 自动补上难度后缀。
+    """
     rift_id: int
     rift_name: str
     rift_level: int
     required_level: int
     rewards: str = "{}"
-    
+    rift_key: str = ""
+    product: str = ""
+    difficulty: int = 1
+    duration: int = 1800
+
+    DIFFICULTY_LABELS = ("一重", "二重", "三重")
+
+    @property
+    def difficulty_label(self) -> str:
+        try:
+            idx = max(1, int(self.difficulty or 1)) - 1
+        except (TypeError, ValueError):
+            idx = 0
+        if 0 <= idx < len(self.DIFFICULTY_LABELS):
+            return self.DIFFICULTY_LABELS[idx]
+        return f"{idx + 1}重"
+
+    @property
+    def display_name(self) -> str:
+        name = self.rift_name or "秘境"
+        label = self.difficulty_label
+        return name if name.endswith(label) else f"{name}·{label}"
+
     def get_rewards(self) -> dict:
         try:
             return json.loads(self.rewards)

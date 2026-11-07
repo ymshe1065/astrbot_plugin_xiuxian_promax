@@ -128,40 +128,59 @@ class TestRiftWeightConfig(unittest.TestCase):
         self.assertEqual(mgr.explore_duration, 1800)
 
 
-class TestShippedConfig(unittest.TestCase):
-    """仓库里的配置与代码缺省值必须一致，避免两处漂移。"""
+class TestShippedRiftConfig(unittest.TestCase):
+    """仓库里的秘境配置结构自检：15 处 × 3 难度，装备掉率走每档独立配置。"""
 
     def setUp(self):
         self.path = PKG_ROOT / "config" / "rift_config.json"
         with open(self.path, encoding="utf-8") as f:
             self.data = json.load(f)
+        self.rows = [
+            (rift, diff)
+            for rift in self.data["rifts"]
+            for diff in rift["difficulties"]
+        ]
 
-    def test_chances_match_defaults(self):
-        self.assertEqual(
-            self.data["equipment_drop_chances"],
-            default_configs.RIFT_CONFIG["equipment_drop_chances"],
-        )
+    def test_group_and_tier_counts(self):
+        self.assertEqual(len(self.data["rifts"]), 15)
+        for rift in self.data["rifts"]:
+            self.assertEqual([d["tier"] for d in rift["difficulties"]], [1, 2, 3])
 
-    def test_up_rank_weight_matches_defaults(self):
-        self.assertEqual(
-            self.data["equipment_up_rank_weight"],
-            default_configs.RIFT_CONFIG["equipment_up_rank_weight"],
-        )
+    def test_global_equipment_keys_removed(self):
+        """每档自带装备概率，旧的全局映射不该再出现（避免两套口径打架）。"""
+        self.assertNotIn("equipment_drop_chances", self.data)
+        self.assertNotIn("equipment_up_rank_weight", self.data)
 
-    def test_high_rifts_are_nerfed(self):
-        """新版高阶秘境掉率必须低于旧版，防止被改回去。"""
-        old = {"1": 6, "2": 10, "3": 15, "4": 18, "5": 22}
-        for level, chance in self.data["equipment_drop_chances"].items():
-            if int(level) >= 3:
-                self.assertLessEqual(chance, old[level])
-        self.assertLess(self.data["equipment_drop_chances"]["5"], old["5"])
+    def test_each_tier_has_equipment_config(self):
+        for rift, diff in self.rows:
+            chance = diff["equipment_chance"]
+            self.assertIsInstance(chance, int)
+            self.assertGreaterEqual(chance, 0)
+            self.assertLessEqual(chance, 100)
+            weight = float(diff["up_rank_weight"])
+            self.assertGreater(weight, 0)
+            self.assertLessEqual(weight, 1.0)
+
+    def test_high_tiers_are_nerfed(self):
+        """高阶难度越阶装备概率不超过 13%，防止被改回去。"""
+        for rift, diff in self.rows:
+            self.assertLessEqual(diff["equipment_chance"], 13)
+
+    def test_requirement_increases_with_tier(self):
+        for rift in self.data["rifts"]:
+            levels = [d["required_level"] for d in rift["difficulties"]]
+            self.assertEqual(levels, sorted(levels), f"{rift['name']} 难度门槛未递增")
+
+    def test_duration_increases_with_tier(self):
+        for rift in self.data["rifts"]:
+            durations = [d["duration"] for d in rift["difficulties"]]
+            self.assertEqual(durations, sorted(durations), f"{rift['name']} 时长未递增")
 
 
-class TestRiftFiveIncome(unittest.TestCase):
-    """秘境5 装备回收收益上限：单趟不超过金币收益的 2 倍。"""
+class TestTopRiftIncome(unittest.TestCase):
+    """最高档秘境装备回收收益上限：单趟不超过金币收益的 2 倍。"""
 
-    GOLD_RANGE = (5000, 20000)  # 上古遗迹 gold_range
-    PLAYER_LEVEL = 15           # 进入门槛 required_level
+    PLAYER_LEVEL = 35  # 混沌天渊三重
 
     @classmethod
     def setUpClass(cls):
@@ -170,15 +189,17 @@ class TestRiftFiveIncome(unittest.TestCase):
         cls._orig_pool = equipment_drop.build_equipment_pool
         equipment_drop.build_equipment_pool = lambda *a, **k: cls._pool
         with open(PKG_ROOT / "config" / "rift_config.json", encoding="utf-8") as f:
-            cls.cfg = json.load(f)
+            cfg = json.load(f)
+        top = cfg["rifts"][-1]
+        cls.diff = top["difficulties"][-1]
 
     @classmethod
     def tearDownClass(cls):
         equipment_drop.build_equipment_pool = cls._orig_pool
 
     def test_hourly_recycle_within_budget(self):
-        chance = int(self.cfg["equipment_drop_chances"]["5"]) / 100
-        weight = float(self.cfg["equipment_up_rank_weight"]["5"])
+        chance = int(self.diff["equipment_chance"]) / 100
+        weight = float(self.diff["up_rank_weight"])
         rng = random.Random(4242)
         n = 6000
         total = 0
@@ -191,10 +212,10 @@ class TestRiftFiveIncome(unittest.TestCase):
                     self.cm, drop["name"], drop["quality"], None
                 )
         per_run = total / n * chance
-        gold_per_run = sum(self.GOLD_RANGE) / 2
+        gold_per_run = sum(self.diff["gold"]) / 2
         self.assertLessEqual(
             per_run, gold_per_run * 2,
-            f"秘境5 单趟装备回收期望 {per_run:,.0f} 超过金币 {gold_per_run:,.0f} 的 2 倍",
+            f"顶级秘境单趟装备回收期望 {per_run:,.0f} 超过金币 {gold_per_run:,.0f} 的 2 倍",
         )
 
 

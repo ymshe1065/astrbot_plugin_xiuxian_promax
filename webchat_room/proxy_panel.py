@@ -109,7 +109,10 @@ async def _all_rifts(plugin: "XiuXianPlugin", player: Any) -> list[dict[str, Any
         result.append(
             {
                 "id": int(getattr(rift, "rift_id", 0) or 0),
-                "name": str(getattr(rift, "rift_name", "") or "秘境"),
+                "name": str(getattr(rift, "display_name", "") or getattr(rift, "rift_name", "") or "秘境"),
+                "rift_key": str(getattr(rift, "rift_key", "") or ""),
+                "product": str(getattr(rift, "product", "") or ""),
+                "difficulty": int(getattr(rift, "difficulty", 1) or 1),
                 "required_level": need,
                 "enterable": level >= need,
             }

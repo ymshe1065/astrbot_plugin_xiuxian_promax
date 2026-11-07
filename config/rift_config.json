@@ -1,19 +1,5 @@
 {
   "default_duration": 1800,
-  "equipment_drop_chances": {
-    "1": 6,
-    "2": 9,
-    "3": 12,
-    "4": 12,
-    "5": 12
-  },
-  "equipment_up_rank_weight": {
-    "1": 1.0,
-    "2": 0.7,
-    "3": 0.5,
-    "4": 0.35,
-    "5": 0.25
-  },
   "equipment_slot_weights": {
     "weapon": 16,
     "armor": 16,
@@ -26,41 +12,2489 @@
   "rifts": [
     {
       "id": 1,
+      "key": "qingyun",
       "name": "青云秘境",
-      "level": 2,
-      "exp_range": [
-        100,
-        500
-      ],
-      "gold_range": [
-        50,
-        200
+      "product": "灵植",
+      "desc": "青云山腰的一处灵圃，灵草成片，是新晋修士的第一课。",
+      "difficulties": [
+        {
+          "tier": 1,
+          "label": "一重",
+          "required_level": 0,
+          "duration": 1200,
+          "exp": [
+            117,
+            183
+          ],
+          "gold": [
+            240,
+            560
+          ],
+          "item_chance": 70,
+          "extra_drop_chance": 0,
+          "equipment_chance": 5,
+          "up_rank_weight": 1.0,
+          "drops": [
+            {
+              "name": "灵草",
+              "weight": 35,
+              "min": 2,
+              "max": 5
+            },
+            {
+              "name": "血灵草",
+              "weight": 25,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "星辰草",
+              "weight": 20,
+              "min": 1,
+              "max": 3
+            },
+            {
+              "name": "日月草",
+              "weight": 12,
+              "min": 1,
+              "max": 2
+            },
+            {
+              "name": "三品凝神增益丹",
+              "weight": 3,
+              "min": 1,
+              "max": 1
+            }
+          ]
+        },
+        {
+          "tier": 2,
+          "label": "二重",
+          "required_level": 5,
+          "duration": 1800,
+          "exp": [
+            616,
+            963
+          ],
+          "gold": [
+            282,
+            659
+          ],
+          "item_chance": 82,
+          "extra_drop_chance": 45,
+          "equipment_chance": 9,
+          "up_rank_weight": 0.65,
+          "drops": [
+            {
+              "name": "灵草",
+              "weight": 25,
+              "min": 3,
+              "max": 6
+            },
+            {
+              "name": "血灵草",
+              "weight": 22,
+              "min": 2,
+              "max": 5
+            },
+            {
+              "name": "星辰草",
+              "weight": 18,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "太极草",
+              "weight": 15,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "山河草",
+              "weight": 12,
+              "min": 1,
+              "max": 3
+            },
+            {
+              "name": "三品凝神增益丹",
+              "weight": 4,
+              "min": 1,
+              "max": 1
+            }
+          ]
+        },
+        {
+          "tier": 3,
+          "label": "三重",
+          "required_level": 9,
+          "duration": 2700,
+          "exp": [
+            3693,
+            5777
+          ],
+          "gold": [
+            332,
+            774
+          ],
+          "item_chance": 92,
+          "extra_drop_chance": 70,
+          "equipment_chance": 13,
+          "up_rank_weight": 0.4,
+          "drops": [
+            {
+              "name": "血灵草",
+              "weight": 20,
+              "min": 3,
+              "max": 6
+            },
+            {
+              "name": "星辰草",
+              "weight": 20,
+              "min": 3,
+              "max": 5
+            },
+            {
+              "name": "太极草",
+              "weight": 18,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "山河草",
+              "weight": 15,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "长生草",
+              "weight": 12,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "三品凝神增益丹",
+              "weight": 6,
+              "min": 1,
+              "max": 2
+            }
+          ]
+        }
       ]
     },
     {
       "id": 2,
-      "name": "幽冥鬼域",
-      "level": 5,
-      "exp_range": [
-        500,
-        2000
-      ],
-      "gold_range": [
-        200,
-        800
+      "key": "luori",
+      "name": "落日峡谷",
+      "product": "妖兽",
+      "desc": "夕阳照着断崖，妖兽在谷底争夺水源，皮骨可换灵石。",
+      "difficulties": [
+        {
+          "tier": 1,
+          "label": "一重",
+          "required_level": 10,
+          "duration": 1200,
+          "exp": [
+            3533,
+            5526
+          ],
+          "gold": [
+            390,
+            911
+          ],
+          "item_chance": 70,
+          "extra_drop_chance": 0,
+          "equipment_chance": 5,
+          "up_rank_weight": 1.0,
+          "drops": [
+            {
+              "name": "寂灭皮",
+              "weight": 30,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "噬魂骨",
+              "weight": 25,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "破军皮",
+              "weight": 20,
+              "min": 1,
+              "max": 3
+            },
+            {
+              "name": "长生皮",
+              "weight": 15,
+              "min": 1,
+              "max": 3
+            },
+            {
+              "name": "妖兽精血",
+              "weight": 5,
+              "min": 1,
+              "max": 2
+            }
+          ]
+        },
+        {
+          "tier": 2,
+          "label": "二重",
+          "required_level": 11,
+          "duration": 1800,
+          "exp": [
+            7691,
+            12030
+          ],
+          "gold": [
+            459,
+            1071
+          ],
+          "item_chance": 82,
+          "extra_drop_chance": 45,
+          "equipment_chance": 9,
+          "up_rank_weight": 0.65,
+          "drops": [
+            {
+              "name": "噬魂骨",
+              "weight": 25,
+              "min": 2,
+              "max": 5
+            },
+            {
+              "name": "破军皮",
+              "weight": 22,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "长生皮",
+              "weight": 18,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "四象骨",
+              "weight": 15,
+              "min": 1,
+              "max": 3
+            },
+            {
+              "name": "妖兽精血",
+              "weight": 12,
+              "min": 1,
+              "max": 2
+            },
+            {
+              "name": "三品凝神增益丹",
+              "weight": 3,
+              "min": 1,
+              "max": 1
+            }
+          ]
+        },
+        {
+          "tier": 3,
+          "label": "三重",
+          "required_level": 12,
+          "duration": 2700,
+          "exp": [
+            27874,
+            43597
+          ],
+          "gold": [
+            540,
+            1259
+          ],
+          "item_chance": 92,
+          "extra_drop_chance": 70,
+          "equipment_chance": 13,
+          "up_rank_weight": 0.4,
+          "drops": [
+            {
+              "name": "破军皮",
+              "weight": 22,
+              "min": 3,
+              "max": 5
+            },
+            {
+              "name": "长生皮",
+              "weight": 20,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "四象骨",
+              "weight": 18,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "万古骨",
+              "weight": 15,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "妖兽精血",
+              "weight": 15,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "四品破境增益丹",
+              "weight": 4,
+              "min": 1,
+              "max": 1
+            }
+          ]
+        }
       ]
     },
     {
       "id": 3,
-      "name": "太古遗迹",
-      "level": 10,
-      "exp_range": [
-        5000,
-        10000
-      ],
-      "gold_range": [
-        1000,
-        5000
+      "key": "wanyao",
+      "name": "万妖洞",
+      "product": "妖兽",
+      "desc": "万妖盘踞的洞窟，越往深处妖气越重，妖丹与骨材堆积。",
+      "difficulties": [
+        {
+          "tier": 1,
+          "label": "一重",
+          "required_level": 13,
+          "duration": 1200,
+          "exp": [
+            31888,
+            49876
+          ],
+          "gold": [
+            635,
+            1481
+          ],
+          "item_chance": 70,
+          "extra_drop_chance": 0,
+          "equipment_chance": 5,
+          "up_rank_weight": 1.0,
+          "drops": [
+            {
+              "name": "万古骨",
+              "weight": 25,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "九幽骨",
+              "weight": 22,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "乾坤骨",
+              "weight": 18,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "妖兽精血",
+              "weight": 15,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "四象骨",
+              "weight": 12,
+              "min": 2,
+              "max": 3
+            }
+          ]
+        },
+        {
+          "tier": 2,
+          "label": "二重",
+          "required_level": 14,
+          "duration": 1800,
+          "exp": [
+            80696,
+            126216
+          ],
+          "gold": [
+            746,
+            1741
+          ],
+          "item_chance": 82,
+          "extra_drop_chance": 45,
+          "equipment_chance": 9,
+          "up_rank_weight": 0.65,
+          "drops": [
+            {
+              "name": "九幽骨",
+              "weight": 22,
+              "min": 2,
+              "max": 5
+            },
+            {
+              "name": "乾坤骨",
+              "weight": 20,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "妖兽精血",
+              "weight": 18,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "幽冥骨",
+              "weight": 15,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "九天骨",
+              "weight": 12,
+              "min": 1,
+              "max": 3
+            },
+            {
+              "name": "四品破境增益丹",
+              "weight": 4,
+              "min": 1,
+              "max": 1
+            }
+          ]
+        },
+        {
+          "tier": 3,
+          "label": "三重",
+          "required_level": 15,
+          "duration": 2700,
+          "exp": [
+            166467,
+            260371
+          ],
+          "gold": [
+            878,
+            2048
+          ],
+          "item_chance": 92,
+          "extra_drop_chance": 70,
+          "equipment_chance": 13,
+          "up_rank_weight": 0.4,
+          "drops": [
+            {
+              "name": "乾坤骨",
+              "weight": 20,
+              "min": 3,
+              "max": 5
+            },
+            {
+              "name": "幽冥骨",
+              "weight": 18,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "九天骨",
+              "weight": 16,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "灵兽内丹",
+              "weight": 14,
+              "min": 1,
+              "max": 3
+            },
+            {
+              "name": "轮回皮",
+              "weight": 12,
+              "min": 1,
+              "max": 3
+            },
+            {
+              "name": "四品破境增益丹",
+              "weight": 5,
+              "min": 1,
+              "max": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "key": "danxia",
+      "name": "丹霞谷",
+      "product": "灵植",
+      "desc": "云雾终年不散的丹霞谷，灵药在霞光里长得格外快。",
+      "difficulties": [
+        {
+          "tier": 1,
+          "label": "一重",
+          "required_level": 13,
+          "duration": 1200,
+          "exp": [
+            31888,
+            49876
+          ],
+          "gold": [
+            1032,
+            2408
+          ],
+          "item_chance": 70,
+          "extra_drop_chance": 0,
+          "equipment_chance": 5,
+          "up_rank_weight": 1.0,
+          "drops": [
+            {
+              "name": "冰心草",
+              "weight": 28,
+              "min": 2,
+              "max": 5
+            },
+            {
+              "name": "火焰花",
+              "weight": 25,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "四象草",
+              "weight": 20,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "寒霜草",
+              "weight": 15,
+              "min": 1,
+              "max": 3
+            },
+            {
+              "name": "三品凝神增益丹",
+              "weight": 4,
+              "min": 1,
+              "max": 1
+            }
+          ]
+        },
+        {
+          "tier": 2,
+          "label": "二重",
+          "required_level": 14,
+          "duration": 1800,
+          "exp": [
+            80696,
+            126216
+          ],
+          "gold": [
+            1214,
+            2832
+          ],
+          "item_chance": 82,
+          "extra_drop_chance": 45,
+          "equipment_chance": 9,
+          "up_rank_weight": 0.65,
+          "drops": [
+            {
+              "name": "火焰花",
+              "weight": 25,
+              "min": 2,
+              "max": 5
+            },
+            {
+              "name": "四象草",
+              "weight": 22,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "寒霜草",
+              "weight": 18,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "造化草",
+              "weight": 15,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "九叶灵芝",
+              "weight": 10,
+              "min": 1,
+              "max": 2
+            },
+            {
+              "name": "四品破境增益丹",
+              "weight": 4,
+              "min": 1,
+              "max": 1
+            }
+          ]
+        },
+        {
+          "tier": 3,
+          "label": "三重",
+          "required_level": 15,
+          "duration": 2700,
+          "exp": [
+            166467,
+            260371
+          ],
+          "gold": [
+            1427,
+            3330
+          ],
+          "item_chance": 92,
+          "extra_drop_chance": 70,
+          "equipment_chance": 13,
+          "up_rank_weight": 0.4,
+          "drops": [
+            {
+              "name": "四象草",
+              "weight": 22,
+              "min": 3,
+              "max": 5
+            },
+            {
+              "name": "造化草",
+              "weight": 20,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "九叶灵芝",
+              "weight": 18,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "灭世草",
+              "weight": 15,
+              "min": 1,
+              "max": 3
+            },
+            {
+              "name": "紫电草",
+              "weight": 13,
+              "min": 1,
+              "max": 3
+            },
+            {
+              "name": "四品破境增益丹",
+              "weight": 5,
+              "min": 1,
+              "max": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "key": "tieyu",
+      "name": "铁狱矿窟",
+      "product": "矿材",
+      "desc": "地底铁脉纵横的矿窟，矿壁上的星辰石在黑暗里发亮。",
+      "difficulties": [
+        {
+          "tier": 1,
+          "label": "一重",
+          "required_level": 16,
+          "duration": 1200,
+          "exp": [
+            113788,
+            177976
+          ],
+          "gold": [
+            1678,
+            3916
+          ],
+          "item_chance": 70,
+          "extra_drop_chance": 0,
+          "equipment_chance": 5,
+          "up_rank_weight": 1.0,
+          "drops": [
+            {
+              "name": "玄铁",
+              "weight": 26,
+              "min": 2,
+              "max": 5
+            },
+            {
+              "name": "星辰石",
+              "weight": 22,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "洗练石",
+              "weight": 20,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "寒霜铁",
+              "weight": 16,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "空间石",
+              "weight": 12,
+              "min": 1,
+              "max": 2
+            }
+          ]
+        },
+        {
+          "tier": 2,
+          "label": "二重",
+          "required_level": 17,
+          "duration": 1800,
+          "exp": [
+            307125,
+            480375
+          ],
+          "gold": [
+            1973,
+            4605
+          ],
+          "item_chance": 82,
+          "extra_drop_chance": 45,
+          "equipment_chance": 9,
+          "up_rank_weight": 0.65,
+          "drops": [
+            {
+              "name": "星辰石",
+              "weight": 24,
+              "min": 3,
+              "max": 6
+            },
+            {
+              "name": "星辰铁",
+              "weight": 22,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "洗练石",
+              "weight": 18,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "长生石",
+              "weight": 16,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "寂灭石",
+              "weight": 14,
+              "min": 1,
+              "max": 3
+            },
+            {
+              "name": "五品渡劫增益丹",
+              "weight": 3,
+              "min": 1,
+              "max": 1
+            }
+          ]
+        },
+        {
+          "tier": 3,
+          "label": "三重",
+          "required_level": 18,
+          "duration": 2700,
+          "exp": [
+            735551,
+            1150478
+          ],
+          "gold": [
+            2321,
+            5415
+          ],
+          "item_chance": 92,
+          "extra_drop_chance": 70,
+          "equipment_chance": 13,
+          "up_rank_weight": 0.4,
+          "drops": [
+            {
+              "name": "星辰铁",
+              "weight": 24,
+              "min": 3,
+              "max": 6
+            },
+            {
+              "name": "洗练石",
+              "weight": 20,
+              "min": 3,
+              "max": 5
+            },
+            {
+              "name": "长生石",
+              "weight": 18,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "寂灭石",
+              "weight": 16,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "噬魂铁",
+              "weight": 14,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "混元铁",
+              "weight": 3,
+              "min": 1,
+              "max": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "key": "xuanbing",
+      "name": "玄冰地宫",
+      "product": "灵液",
+      "desc": "万载玄冰封住的地宫，冰隙渗出的灵液要趁凝结前收取。",
+      "difficulties": [
+        {
+          "tier": 1,
+          "label": "一重",
+          "required_level": 16,
+          "duration": 1200,
+          "exp": [
+            113788,
+            177976
+          ],
+          "gold": [
+            2729,
+            6367
+          ],
+          "item_chance": 70,
+          "extra_drop_chance": 0,
+          "equipment_chance": 5,
+          "up_rank_weight": 1.0,
+          "drops": [
+            {
+              "name": "寂灭液",
+              "weight": 30,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "秘境精华",
+              "weight": 25,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "紫电龙骨液·1",
+              "weight": 22,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "无极液",
+              "weight": 15,
+              "min": 2,
+              "max": 3
+            }
+          ]
+        },
+        {
+          "tier": 2,
+          "label": "二重",
+          "required_level": 17,
+          "duration": 1800,
+          "exp": [
+            307125,
+            480375
+          ],
+          "gold": [
+            3209,
+            7488
+          ],
+          "item_chance": 82,
+          "extra_drop_chance": 45,
+          "equipment_chance": 9,
+          "up_rank_weight": 0.65,
+          "drops": [
+            {
+              "name": "寂灭液",
+              "weight": 28,
+              "min": 2,
+              "max": 5
+            },
+            {
+              "name": "秘境精华",
+              "weight": 24,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "紫电龙骨液·1",
+              "weight": 20,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "灭世仙露皮",
+              "weight": 16,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "五品渡劫增益丹",
+              "weight": 4,
+              "min": 1,
+              "max": 1
+            }
+          ]
+        },
+        {
+          "tier": 3,
+          "label": "三重",
+          "required_level": 18,
+          "duration": 2700,
+          "exp": [
+            735551,
+            1150478
+          ],
+          "gold": [
+            3774,
+            8805
+          ],
+          "item_chance": 92,
+          "extra_drop_chance": 70,
+          "equipment_chance": 13,
+          "up_rank_weight": 0.4,
+          "drops": [
+            {
+              "name": "秘境精华",
+              "weight": 26,
+              "min": 3,
+              "max": 5
+            },
+            {
+              "name": "灭世仙露皮",
+              "weight": 22,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "寂灭液",
+              "weight": 20,
+              "min": 3,
+              "max": 5
+            },
+            {
+              "name": "青锋陨铁液",
+              "weight": 4,
+              "min": 1,
+              "max": 1
+            },
+            {
+              "name": "五品渡劫增益丹",
+              "weight": 5,
+              "min": 1,
+              "max": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "key": "shanggu",
+      "name": "上古遗迹",
+      "product": "混合",
+      "desc": "上古宗门的残墟，什么都有一点，但什么都不多。",
+      "difficulties": [
+        {
+          "tier": 1,
+          "label": "一重",
+          "required_level": 19,
+          "duration": 1200,
+          "exp": [
+            500118,
+            782235
+          ],
+          "gold": [
+            4437,
+            10354
+          ],
+          "item_chance": 70,
+          "extra_drop_chance": 0,
+          "equipment_chance": 5,
+          "up_rank_weight": 1.0,
+          "drops": [
+            {
+              "name": "星辰石",
+              "weight": 18,
+              "min": 3,
+              "max": 6
+            },
+            {
+              "name": "九天骨",
+              "weight": 16,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "九叶灵芝",
+              "weight": 16,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "寂灭液",
+              "weight": 16,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "秘境精华",
+              "weight": 14,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "六品破境增益丹",
+              "weight": 4,
+              "min": 1,
+              "max": 1
+            }
+          ]
+        },
+        {
+          "tier": 2,
+          "label": "二重",
+          "required_level": 20,
+          "duration": 1800,
+          "exp": [
+            1431529,
+            2239059
+          ],
+          "gold": [
+            5218,
+            12176
+          ],
+          "item_chance": 82,
+          "extra_drop_chance": 45,
+          "equipment_chance": 9,
+          "up_rank_weight": 0.65,
+          "drops": [
+            {
+              "name": "灵兽内丹",
+              "weight": 18,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "灭世草",
+              "weight": 16,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "长生石",
+              "weight": 16,
+              "min": 3,
+              "max": 5
+            },
+            {
+              "name": "寂灭液",
+              "weight": 16,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "混元铁",
+              "weight": 2,
+              "min": 1,
+              "max": 1
+            },
+            {
+              "name": "六品破境增益丹",
+              "weight": 5,
+              "min": 1,
+              "max": 1
+            }
+          ]
+        },
+        {
+          "tier": 3,
+          "label": "三重",
+          "required_level": 21,
+          "duration": 2700,
+          "exp": [
+            3066088,
+            4795676
+          ],
+          "gold": [
+            6136,
+            14318
+          ],
+          "item_chance": 92,
+          "extra_drop_chance": 70,
+          "equipment_chance": 13,
+          "up_rank_weight": 0.4,
+          "drops": [
+            {
+              "name": "秘境精华",
+              "weight": 18,
+              "min": 3,
+              "max": 6
+            },
+            {
+              "name": "灵兽内丹",
+              "weight": 16,
+              "min": 3,
+              "max": 5
+            },
+            {
+              "name": "混沌皮",
+              "weight": 16,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "混元铁",
+              "weight": 4,
+              "min": 1,
+              "max": 2
+            },
+            {
+              "name": "四象皮",
+              "weight": 2,
+              "min": 1,
+              "max": 1
+            },
+            {
+              "name": "七品化神增益丹",
+              "weight": 5,
+              "min": 1,
+              "max": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "key": "xingyun",
+      "name": "星陨矿脉",
+      "product": "矿材",
+      "desc": "陨星砸出的裂谷，谷底埋着星陨精金，也埋着不少尸骨。",
+      "difficulties": [
+        {
+          "tier": 1,
+          "label": "一重",
+          "required_level": 22,
+          "duration": 1200,
+          "exp": [
+            2156471,
+            3372941
+          ],
+          "gold": [
+            7216,
+            16837
+          ],
+          "item_chance": 70,
+          "extra_drop_chance": 0,
+          "equipment_chance": 5,
+          "up_rank_weight": 1.0,
+          "drops": [
+            {
+              "name": "星辰铁",
+              "weight": 30,
+              "min": 3,
+              "max": 6
+            },
+            {
+              "name": "洗练石",
+              "weight": 22,
+              "min": 3,
+              "max": 6
+            },
+            {
+              "name": "长生石",
+              "weight": 18,
+              "min": 3,
+              "max": 5
+            },
+            {
+              "name": "混元铁",
+              "weight": 12,
+              "min": 1,
+              "max": 2
+            },
+            {
+              "name": "玄天寒铁",
+              "weight": 8,
+              "min": 1,
+              "max": 2
+            },
+            {
+              "name": "星陨精金",
+              "weight": 4,
+              "min": 1,
+              "max": 1
+            }
+          ]
+        },
+        {
+          "tier": 2,
+          "label": "二重",
+          "required_level": 23,
+          "duration": 1800,
+          "exp": [
+            4593971,
+            7185441
+          ],
+          "gold": [
+            8485,
+            19799
+          ],
+          "item_chance": 82,
+          "extra_drop_chance": 45,
+          "equipment_chance": 9,
+          "up_rank_weight": 0.65,
+          "drops": [
+            {
+              "name": "洗练石",
+              "weight": 20,
+              "min": 4,
+              "max": 7
+            },
+            {
+              "name": "混元铁",
+              "weight": 20,
+              "min": 1,
+              "max": 3
+            },
+            {
+              "name": "玄天寒铁",
+              "weight": 16,
+              "min": 1,
+              "max": 2
+            },
+            {
+              "name": "星陨精金",
+              "weight": 10,
+              "min": 1,
+              "max": 2
+            },
+            {
+              "name": "太初源石",
+              "weight": 8,
+              "min": 1,
+              "max": 2
+            },
+            {
+              "name": "星辰铁",
+              "weight": 16,
+              "min": 4,
+              "max": 6
+            }
+          ]
+        },
+        {
+          "tier": 3,
+          "label": "三重",
+          "required_level": 24,
+          "duration": 2700,
+          "exp": [
+            10839706,
+            16954412
+          ],
+          "gold": [
+            9978,
+            23282
+          ],
+          "item_chance": 92,
+          "extra_drop_chance": 70,
+          "equipment_chance": 13,
+          "up_rank_weight": 0.4,
+          "drops": [
+            {
+              "name": "星陨精金",
+              "weight": 20,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "玄天寒铁",
+              "weight": 18,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "太初源石",
+              "weight": 16,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "混元铁",
+              "weight": 18,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "洗练石",
+              "weight": 20,
+              "min": 5,
+              "max": 9
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "key": "taixu",
+      "name": "太虚雷池",
+      "product": "灵液",
+      "desc": "雷光在池面游走，雷髓沉在池底，收取时要抗住雷击。",
+      "difficulties": [
+        {
+          "tier": 1,
+          "label": "一重",
+          "required_level": 25,
+          "duration": 1200,
+          "exp": [
+            6343235,
+            9921471
+          ],
+          "gold": [
+            11734,
+            27379
+          ],
+          "item_chance": 70,
+          "extra_drop_chance": 0,
+          "equipment_chance": 5,
+          "up_rank_weight": 1.0,
+          "drops": [
+            {
+              "name": "玄冰髓",
+              "weight": 26,
+              "min": 1,
+              "max": 2
+            },
+            {
+              "name": "混沌灵乳",
+              "weight": 24,
+              "min": 1,
+              "max": 2
+            },
+            {
+              "name": "青锋陨铁液",
+              "weight": 14,
+              "min": 1,
+              "max": 2
+            },
+            {
+              "name": "太虚雷髓",
+              "weight": 10,
+              "min": 1,
+              "max": 1
+            },
+            {
+              "name": "秘境精华",
+              "weight": 16,
+              "min": 2,
+              "max": 4
+            }
+          ]
+        },
+        {
+          "tier": 2,
+          "label": "二重",
+          "required_level": 26,
+          "duration": 1800,
+          "exp": [
+            19098529,
+            29872059
+          ],
+          "gold": [
+            13798,
+            32196
+          ],
+          "item_chance": 82,
+          "extra_drop_chance": 45,
+          "equipment_chance": 9,
+          "up_rank_weight": 0.65,
+          "drops": [
+            {
+              "name": "玄冰髓",
+              "weight": 24,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "混沌灵乳",
+              "weight": 22,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "太虚雷髓",
+              "weight": 16,
+              "min": 1,
+              "max": 2
+            },
+            {
+              "name": "青锋陨铁液",
+              "weight": 14,
+              "min": 1,
+              "max": 2
+            },
+            {
+              "name": "秘境精华",
+              "weight": 14,
+              "min": 3,
+              "max": 5
+            }
+          ]
+        },
+        {
+          "tier": 3,
+          "label": "三重",
+          "required_level": 27,
+          "duration": 2700,
+          "exp": [
+            44520221,
+            69634191
+          ],
+          "gold": [
+            16226,
+            37860
+          ],
+          "item_chance": 92,
+          "extra_drop_chance": 70,
+          "equipment_chance": 13,
+          "up_rank_weight": 0.4,
+          "drops": [
+            {
+              "name": "太虚雷髓",
+              "weight": 24,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "混沌灵乳",
+              "weight": 20,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "玄冰髓",
+              "weight": 20,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "青锋陨铁液",
+              "weight": 16,
+              "min": 1,
+              "max": 2
+            },
+            {
+              "name": "劫雷精粹",
+              "weight": 6,
+              "min": 1,
+              "max": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "key": "wangu",
+      "name": "万古妖冢",
+      "product": "妖兽",
+      "desc": "上古妖王的葬骨地，妖丹千年不化，妖气结成了雾。",
+      "difficulties": [
+        {
+          "tier": 1,
+          "label": "一重",
+          "required_level": 28,
+          "duration": 1200,
+          "exp": [
+            44047059,
+            68894118
+          ],
+          "gold": [
+            19080,
+            44521
+          ],
+          "item_chance": 70,
+          "extra_drop_chance": 0,
+          "equipment_chance": 5,
+          "up_rank_weight": 1.0,
+          "drops": [
+            {
+              "name": "吞天兽骨",
+              "weight": 26,
+              "min": 1,
+              "max": 3
+            },
+            {
+              "name": "四象皮",
+              "weight": 16,
+              "min": 1,
+              "max": 2
+            },
+            {
+              "name": "万古妖丹",
+              "weight": 8,
+              "min": 1,
+              "max": 1
+            },
+            {
+              "name": "灵兽内丹",
+              "weight": 28,
+              "min": 3,
+              "max": 6
+            },
+            {
+              "name": "混沌皮",
+              "weight": 20,
+              "min": 2,
+              "max": 4
+            }
+          ]
+        },
+        {
+          "tier": 2,
+          "label": "二重",
+          "required_level": 29,
+          "duration": 1800,
+          "exp": [
+            182726471,
+            285802941
+          ],
+          "gold": [
+            22437,
+            52354
+          ],
+          "item_chance": 82,
+          "extra_drop_chance": 45,
+          "equipment_chance": 9,
+          "up_rank_weight": 0.65,
+          "drops": [
+            {
+              "name": "吞天兽骨",
+              "weight": 24,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "四象皮",
+              "weight": 20,
+              "min": 1,
+              "max": 3
+            },
+            {
+              "name": "万古妖丹",
+              "weight": 14,
+              "min": 1,
+              "max": 2
+            },
+            {
+              "name": "灵兽内丹",
+              "weight": 24,
+              "min": 4,
+              "max": 7
+            },
+            {
+              "name": "混沌皮",
+              "weight": 16,
+              "min": 3,
+              "max": 5
+            }
+          ]
+        },
+        {
+          "tier": 3,
+          "label": "三重",
+          "required_level": 30,
+          "duration": 2700,
+          "exp": [
+            418102941,
+            653955882
+          ],
+          "gold": [
+            26385,
+            61565
+          ],
+          "item_chance": 92,
+          "extra_drop_chance": 70,
+          "equipment_chance": 13,
+          "up_rank_weight": 0.4,
+          "drops": [
+            {
+              "name": "万古妖丹",
+              "weight": 22,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "吞天兽骨",
+              "weight": 22,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "四象皮",
+              "weight": 18,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "灵兽内丹",
+              "weight": 20,
+              "min": 4,
+              "max": 8
+            },
+            {
+              "name": "虚空妖核",
+              "weight": 4,
+              "min": 1,
+              "max": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "key": "tianlei",
+      "name": "天雷绝域",
+      "product": "灵液+矿材",
+      "desc": "终年雷暴不息的绝地，劫雷落地会凝成精粹，矿脉也被劈开。",
+      "difficulties": [
+        {
+          "tier": 1,
+          "label": "一重",
+          "required_level": 31,
+          "duration": 1200,
+          "exp": [
+            337235294,
+            527470588
+          ],
+          "gold": [
+            31027,
+            72397
+          ],
+          "item_chance": 70,
+          "extra_drop_chance": 0,
+          "equipment_chance": 5,
+          "up_rank_weight": 1.0,
+          "drops": [
+            {
+              "name": "太虚雷髓",
+              "weight": 20,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "混沌灵乳",
+              "weight": 18,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "混元铁",
+              "weight": 18,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "玄天寒铁",
+              "weight": 16,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "劫雷精粹",
+              "weight": 6,
+              "min": 1,
+              "max": 1
+            }
+          ]
+        },
+        {
+          "tier": 2,
+          "label": "二重",
+          "required_level": 31,
+          "duration": 1800,
+          "exp": [
+            505852941,
+            791205882
+          ],
+          "gold": [
+            36486,
+            85134
+          ],
+          "item_chance": 82,
+          "extra_drop_chance": 45,
+          "equipment_chance": 9,
+          "up_rank_weight": 0.65,
+          "drops": [
+            {
+              "name": "太虚雷髓",
+              "weight": 18,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "玄天寒铁",
+              "weight": 16,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "星陨精金",
+              "weight": 14,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "太初源石",
+              "weight": 14,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "劫雷精粹",
+              "weight": 12,
+              "min": 1,
+              "max": 2
+            }
+          ]
+        },
+        {
+          "tier": 3,
+          "label": "三重",
+          "required_level": 31,
+          "duration": 2700,
+          "exp": [
+            758779412,
+            1186808824
+          ],
+          "gold": [
+            42905,
+            100112
+          ],
+          "item_chance": 92,
+          "extra_drop_chance": 70,
+          "equipment_chance": 13,
+          "up_rank_weight": 0.4,
+          "drops": [
+            {
+              "name": "劫雷精粹",
+              "weight": 20,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "星陨精金",
+              "weight": 16,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "太初源石",
+              "weight": 16,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "太虚雷髓",
+              "weight": 16,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "星辰玄铁",
+              "weight": 6,
+              "min": 1,
+              "max": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "key": "xianxu",
+      "name": "仙墟药园",
+      "product": "灵植+妖兽",
+      "desc": "仙人留下的药园，圣莲仍在开花，守园的凶兽也还在。",
+      "difficulties": [
+        {
+          "tier": 1,
+          "label": "一重",
+          "required_level": 32,
+          "duration": 1200,
+          "exp": [
+            403764706,
+            631529412
+          ],
+          "gold": [
+            50454,
+            117725
+          ],
+          "item_chance": 70,
+          "extra_drop_chance": 0,
+          "equipment_chance": 5,
+          "up_rank_weight": 1.0,
+          "drops": [
+            {
+              "name": "九霄玉兰",
+              "weight": 24,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "混沌青莲",
+              "weight": 24,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "吞天兽骨",
+              "weight": 16,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "四象皮",
+              "weight": 12,
+              "min": 1,
+              "max": 2
+            },
+            {
+              "name": "仙墟圣莲",
+              "weight": 8,
+              "min": 1,
+              "max": 1
+            }
+          ]
+        },
+        {
+          "tier": 2,
+          "label": "二重",
+          "required_level": 32,
+          "duration": 1800,
+          "exp": [
+            605647059,
+            947294118
+          ],
+          "gold": [
+            59331,
+            138438
+          ],
+          "item_chance": 82,
+          "extra_drop_chance": 45,
+          "equipment_chance": 9,
+          "up_rank_weight": 0.65,
+          "drops": [
+            {
+              "name": "混沌青莲",
+              "weight": 22,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "九霄玉兰",
+              "weight": 22,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "吞天兽骨",
+              "weight": 16,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "万古妖丹",
+              "weight": 10,
+              "min": 1,
+              "max": 2
+            },
+            {
+              "name": "仙墟圣莲",
+              "weight": 12,
+              "min": 1,
+              "max": 2
+            }
+          ]
+        },
+        {
+          "tier": 3,
+          "label": "三重",
+          "required_level": 33,
+          "duration": 2700,
+          "exp": [
+            1509816176,
+            2361507353
+          ],
+          "gold": [
+            69769,
+            162794
+          ],
+          "item_chance": 92,
+          "extra_drop_chance": 70,
+          "equipment_chance": 13,
+          "up_rank_weight": 0.4,
+          "drops": [
+            {
+              "name": "仙墟圣莲",
+              "weight": 20,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "九霄玉兰",
+              "weight": 18,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "混沌青莲",
+              "weight": 18,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "万古妖丹",
+              "weight": 14,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "虚空妖核",
+              "weight": 5,
+              "min": 1,
+              "max": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "key": "xingchen",
+      "name": "星辰铁狱",
+      "product": "矿材",
+      "desc": "星辰坠落后被铁水封住的囚狱，越往下铁越重，禁制越强。",
+      "difficulties": [
+        {
+          "tier": 1,
+          "label": "一重",
+          "required_level": 33,
+          "duration": 1200,
+          "exp": [
+            671029412,
+            1049558824
+          ],
+          "gold": [
+            82044,
+            191436
+          ],
+          "item_chance": 70,
+          "extra_drop_chance": 0,
+          "equipment_chance": 5,
+          "up_rank_weight": 1.0,
+          "drops": [
+            {
+              "name": "星陨精金",
+              "weight": 22,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "太初源石",
+              "weight": 22,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "玄天寒铁",
+              "weight": 20,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "混元铁",
+              "weight": 16,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "星辰玄铁",
+              "weight": 8,
+              "min": 1,
+              "max": 1
+            }
+          ]
+        },
+        {
+          "tier": 2,
+          "label": "二重",
+          "required_level": 34,
+          "duration": 1800,
+          "exp": [
+            1462500000,
+            2287500000
+          ],
+          "gold": [
+            96479,
+            225117
+          ],
+          "item_chance": 82,
+          "extra_drop_chance": 45,
+          "equipment_chance": 9,
+          "up_rank_weight": 0.65,
+          "drops": [
+            {
+              "name": "星陨精金",
+              "weight": 20,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "太初源石",
+              "weight": 20,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "玄天寒铁",
+              "weight": 18,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "混元铁",
+              "weight": 16,
+              "min": 3,
+              "max": 5
+            },
+            {
+              "name": "星辰玄铁",
+              "weight": 12,
+              "min": 1,
+              "max": 2
+            }
+          ]
+        },
+        {
+          "tier": 3,
+          "label": "三重",
+          "required_level": 34,
+          "duration": 2700,
+          "exp": [
+            2193750000,
+            3431250000
+          ],
+          "gold": [
+            113453,
+            264723
+          ],
+          "item_chance": 92,
+          "extra_drop_chance": 70,
+          "equipment_chance": 13,
+          "up_rank_weight": 0.4,
+          "drops": [
+            {
+              "name": "星辰玄铁",
+              "weight": 22,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "星陨精金",
+              "weight": 18,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "太初源石",
+              "weight": 18,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "玄天寒铁",
+              "weight": 16,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "混元铁",
+              "weight": 14,
+              "min": 3,
+              "max": 6
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "key": "xukong",
+      "name": "虚空妖巢",
+      "product": "妖兽",
+      "desc": "巢穴悬在虚空裂隙里，妖核内藏一缕虚空之力。",
+      "difficulties": [
+        {
+          "tier": 1,
+          "label": "一重",
+          "required_level": 34,
+          "duration": 1200,
+          "exp": [
+            975000000,
+            1525000000
+          ],
+          "gold": [
+            133413,
+            311298
+          ],
+          "item_chance": 70,
+          "extra_drop_chance": 0,
+          "equipment_chance": 5,
+          "up_rank_weight": 1.0,
+          "drops": [
+            {
+              "name": "万古妖丹",
+              "weight": 22,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "吞天兽骨",
+              "weight": 22,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "四象皮",
+              "weight": 16,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "混沌皮",
+              "weight": 14,
+              "min": 3,
+              "max": 5
+            },
+            {
+              "name": "虚空妖核",
+              "weight": 8,
+              "min": 1,
+              "max": 1
+            }
+          ]
+        },
+        {
+          "tier": 2,
+          "label": "二重",
+          "required_level": 35,
+          "duration": 1800,
+          "exp": [
+            1462500000,
+            2287500000
+          ],
+          "gold": [
+            156886,
+            366067
+          ],
+          "item_chance": 82,
+          "extra_drop_chance": 45,
+          "equipment_chance": 9,
+          "up_rank_weight": 0.65,
+          "drops": [
+            {
+              "name": "万古妖丹",
+              "weight": 20,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "吞天兽骨",
+              "weight": 20,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "四象皮",
+              "weight": 16,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "混沌皮",
+              "weight": 14,
+              "min": 4,
+              "max": 6
+            },
+            {
+              "name": "虚空妖核",
+              "weight": 12,
+              "min": 1,
+              "max": 2
+            }
+          ]
+        },
+        {
+          "tier": 3,
+          "label": "三重",
+          "required_level": 35,
+          "duration": 2700,
+          "exp": [
+            2193750000,
+            3431250000
+          ],
+          "gold": [
+            184488,
+            430472
+          ],
+          "item_chance": 92,
+          "extra_drop_chance": 70,
+          "equipment_chance": 13,
+          "up_rank_weight": 0.4,
+          "drops": [
+            {
+              "name": "虚空妖核",
+              "weight": 20,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "万古妖丹",
+              "weight": 20,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "吞天兽骨",
+              "weight": 18,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "四象皮",
+              "weight": 16,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "灵兽内丹",
+              "weight": 14,
+              "min": 5,
+              "max": 8
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "key": "hundun",
+      "name": "混沌天渊",
+      "product": "全产物",
+      "desc": "天道之外的一道深渊，四类圣材都在这里，也都能要人命。",
+      "difficulties": [
+        {
+          "tier": 1,
+          "label": "一重",
+          "required_level": 35,
+          "duration": 1200,
+          "exp": [
+            975000000,
+            1525000000
+          ],
+          "gold": [
+            216946,
+            506208
+          ],
+          "item_chance": 70,
+          "extra_drop_chance": 0,
+          "equipment_chance": 5,
+          "up_rank_weight": 1.0,
+          "drops": [
+            {
+              "name": "混沌青莲",
+              "weight": 18,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "混沌灵乳",
+              "weight": 18,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "太初源石",
+              "weight": 18,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "万古妖丹",
+              "weight": 14,
+              "min": 1,
+              "max": 2
+            },
+            {
+              "name": "劫雷精粹",
+              "weight": 12,
+              "min": 1,
+              "max": 2
+            },
+            {
+              "name": "混沌源晶",
+              "weight": 8,
+              "min": 1,
+              "max": 1
+            }
+          ]
+        },
+        {
+          "tier": 2,
+          "label": "二重",
+          "required_level": 35,
+          "duration": 1800,
+          "exp": [
+            1462500000,
+            2287500000
+          ],
+          "gold": [
+            255116,
+            595270
+          ],
+          "item_chance": 82,
+          "extra_drop_chance": 45,
+          "equipment_chance": 9,
+          "up_rank_weight": 0.65,
+          "drops": [
+            {
+              "name": "混沌青莲",
+              "weight": 18,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "混沌灵乳",
+              "weight": 18,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "太初源石",
+              "weight": 18,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "虚空妖核",
+              "weight": 14,
+              "min": 1,
+              "max": 2
+            },
+            {
+              "name": "劫雷精粹",
+              "weight": 14,
+              "min": 1,
+              "max": 2
+            },
+            {
+              "name": "混沌源晶",
+              "weight": 12,
+              "min": 1,
+              "max": 1
+            }
+          ]
+        },
+        {
+          "tier": 3,
+          "label": "三重",
+          "required_level": 35,
+          "duration": 2700,
+          "exp": [
+            2193750000,
+            3431250000
+          ],
+          "gold": [
+            300000,
+            700000
+          ],
+          "item_chance": 92,
+          "extra_drop_chance": 70,
+          "equipment_chance": 13,
+          "up_rank_weight": 0.4,
+          "drops": [
+            {
+              "name": "混沌源晶",
+              "weight": 20,
+              "min": 1,
+              "max": 2
+            },
+            {
+              "name": "混沌青莲",
+              "weight": 17,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "混沌灵乳",
+              "weight": 17,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "太初源石",
+              "weight": 17,
+              "min": 2,
+              "max": 4
+            },
+            {
+              "name": "虚空妖核",
+              "weight": 15,
+              "min": 2,
+              "max": 3
+            },
+            {
+              "name": "劫雷精粹",
+              "weight": 14,
+              "min": 2,
+              "max": 3
+            }
+          ]
+        }
       ]
     }
   ]
