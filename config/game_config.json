@@ -15,7 +15,7 @@
     },
     "bank": {
         "daily_interest_rate": 0.001,
-        "max_deposit": 10000000,
+        "max_deposit": 100000000,
         "loan_interest_rate": 0.005,
         "loan_duration_days": 7,
         "max_loan_amount": 1000000,

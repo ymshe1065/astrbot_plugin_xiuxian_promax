@@ -12,7 +12,10 @@ __all__ = ["BankManager"]
 
 # 银行配置默认值
 DEFAULT_DAILY_INTEREST_RATE = 0.001  # 存款日利率 0.1%
-DEFAULT_MAX_DEPOSIT = 10000000  # 最大存款上限 1000万
+# 最大存款上限 1 亿。
+# 原来 1000 万：单件顶级材料（四象神木心液 258 万、噬魂仙露丸 150 万）买几件就顶满，
+# 高境界玩家持有灵石很快越过这个数，钱没处放。抬到 1 亿留出十倍空间。
+DEFAULT_MAX_DEPOSIT = 100_000_000
 DEFAULT_LOAN_INTEREST_RATE = 0.005  # 贷款日利率 0.5%
 DEFAULT_LOAN_DURATION_DAYS = 7  # 贷款期限 7天
 DEFAULT_MAX_LOAN_AMOUNT = 1000000  # 最大贷款额度 100万
@@ -144,13 +147,6 @@ class BankManager:
             
             bank_data = await self.db.ext.get_bank_account(player.user_id)
             current_balance = bank_data["balance"] if bank_data else 0
-            
-            if current_balance + amount > self.max_deposit:
-                await self.db.conn.rollback()
-                return False, f"存款上限为 {self.max_deposit:,} 灵石，当前余额 {current_balance:,}。"
-            
-            player.gold -= amount
-            await self.db.update_player(player, commit=False)
 
             now = int(time.time())
             # 先结算旧余额已产生的整天利息（防临领取前大额存入套取历史利息），
@@ -159,7 +155,22 @@ class BankManager:
             pending_interest, interest_time = self._settle_interest_time(
                 current_balance, last_interest_time, now
             )
-            new_balance = current_balance + pending_interest + amount
+            # 上限按「余额 + 待领利息」算，否则利息能把余额顶过上限，限额形同虚设
+            available = current_balance + pending_interest
+            room = max(0, self.max_deposit - available)
+            if amount > room:
+                await self.db.conn.rollback()
+                interest_note = f"（含待领利息 {pending_interest:,}）" if pending_interest else ""
+                return False, (
+                    f"存款上限为 {self.max_deposit:,} 灵石。\n"
+                    f"当前余额 {available:,}{interest_note}，"
+                    f"本次最多还能存 {room:,}。"
+                )
+
+            player.gold -= amount
+            await self.db.update_player(player, commit=False)
+
+            new_balance = available + amount
             
             # 直接底层 SQL 更新账户
             await self.db.conn.execute(
@@ -174,7 +185,12 @@ class BankManager:
             )
             
             await self.db.conn.commit()
-            return True, f"成功存入 {amount:,} 灵石！\n当前余额：{new_balance:,} 灵石"
+            used = new_balance / self.max_deposit if self.max_deposit else 0
+            return True, (
+                f"成功存入 {amount:,} 灵石！\n"
+                f"当前余额：{new_balance:,} 灵石\n"
+                f"存款上限：{self.max_deposit:,}（已用 {used:.1%}，还能存 {max(0, self.max_deposit - new_balance):,}）"
+            )
         except Exception as e:
             await self.db.conn.rollback()
             raise

@@ -408,8 +408,8 @@
       "MAX_DEPOSIT": {
         "description": "存款上限",
         "type": "int",
-        "default": 10000000,
-        "hint": "单个账户最大存款额。"
+        "default": 100000000,
+        "hint": "单个账户最大存款额，默认 1 亿（原 1000 万偏紧，高境界玩家很快顶满）。"
       },
       "LOAN_INTEREST_RATE": {
         "description": "普通贷款日利率",

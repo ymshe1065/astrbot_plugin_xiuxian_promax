@@ -21,13 +21,16 @@ class BankHandlers:
     async def handle_bank_info(self, player: Player, event: AstrMessageEvent):
         """查看银行信息"""
         info = await self.bank_mgr.get_bank_info(player)
-        
+        cap = self.bank_mgr.max_deposit
+        used_pct = (info["balance"] / cap * 100) if cap else 0
+
         msg_lines = [
             "🏦 灵石银行",
             "━━━━━━━━━━━━━━━",
             f"💰 存款余额：{info['balance']:,} 灵石",
             f"📈 待领利息：{info['pending_interest']:,} 灵石",
             f"📊 日利率：{self.bank_mgr.daily_interest_rate:.2%}（复利）",
+            f"💳 存款上限：{cap:,}（已用 {used_pct:.1f}%）",
             "━━━━━━━━━━━━━━━",
             f"💎 持有灵石：{player.gold:,}",
         ]
