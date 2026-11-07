@@ -16,6 +16,22 @@
     "bank": {
         "daily_interest_rate": 0.001,
         "max_deposit": 100000000,
+        "deposit_cap_scale": 1.0,
+        "deposit_caps": [
+            {"min_level": 0, "cap": 5000000, "realm": "炼气期"},
+            {"min_level": 10, "cap": 10000000, "realm": "筑基期"},
+            {"min_level": 13, "cap": 20000000, "realm": "金丹期"},
+            {"min_level": 16, "cap": 50000000, "realm": "元婴期"},
+            {"min_level": 19, "cap": 100000000, "realm": "化神期"},
+            {"min_level": 22, "cap": 200000000, "realm": "炼虚期"},
+            {"min_level": 25, "cap": 500000000, "realm": "合体期"},
+            {"min_level": 28, "cap": 1000000000, "realm": "大乘期"},
+            {"min_level": 31, "cap": 2000000000, "realm": "渡劫期"},
+            {"min_level": 32, "cap": 5000000000, "realm": "地仙"},
+            {"min_level": 33, "cap": 10000000000, "realm": "天仙"},
+            {"min_level": 34, "cap": 20000000000, "realm": "大罗金仙"},
+            {"min_level": 35, "cap": 50000000000, "realm": "混元大罗金仙"}
+        ],
         "loan_interest_rate": 0.005,
         "loan_duration_days": 7,
         "max_loan_amount": 1000000,

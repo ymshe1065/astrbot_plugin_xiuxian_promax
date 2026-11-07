@@ -406,10 +406,16 @@
         "hint": "存款复利日利率，0.001 表示 0.1%。"
       },
       "MAX_DEPOSIT": {
-        "description": "存款上限",
+        "description": "兜底存款上限",
         "type": "int",
         "default": 100000000,
-        "hint": "单个账户最大存款额，默认 1 亿（原 1000 万偏紧，高境界玩家很快顶满）。"
+        "hint": "仅在分档配置缺失/非法时使用。实际上限按大境界递增，见下方「存款上限倍率」与 config/game_config.json 的 bank.deposit_caps。"
+      },
+      "DEPOSIT_CAP_SCALE": {
+        "description": "存款上限倍率",
+        "type": "float",
+        "default": 1.0,
+        "hint": "按境界递增的存款上限整体缩放：1.0 = 默认档位（炼气 500 万 → 混元 500 亿），调 2.0 即全部翻倍。分档表在 config/game_config.json 的 bank.deposit_caps。"
       },
       "LOAN_INTEREST_RATE": {
         "description": "普通贷款日利率",

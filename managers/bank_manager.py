@@ -12,10 +12,28 @@ __all__ = ["BankManager"]
 
 # 银行配置默认值
 DEFAULT_DAILY_INTEREST_RATE = 0.001  # 存款日利率 0.1%
-# 最大存款上限 1 亿。
-# 原来 1000 万：单件顶级材料（四象神木心液 258 万、噬魂仙露丸 150 万）买几件就顶满，
-# 高境界玩家持有灵石很快越过这个数，钱没处放。抬到 1 亿留出十倍空间。
+# 未配置分档时的统一存款上限（兜底）。实际生效的是按大境界递增的 DEFAULT_DEPOSIT_CAPS。
 DEFAULT_MAX_DEPOSIT = 100_000_000
+# 存款上限按大境界递增：(该档起始 level_index, 上限)
+# level_index 与 level_config.json / body_level_config.json 对齐，两套修炼路线都是 36 级、分档边界一致，
+# 所以灵修和体修用同一张表；名字只写在文档里，代码只认 level_index，避免自定义境界名对不上。
+# 曲线约每档 ×2～2.5：炼气 500 万 → 炼虚 2 亿 → 混元 500 亿。
+DEFAULT_DEPOSIT_CAPS = (
+    (0, 5_000_000),             # 炼气期
+    (10, 10_000_000),           # 筑基期
+    (13, 20_000_000),           # 金丹期
+    (16, 50_000_000),           # 元婴期
+    (19, 100_000_000),          # 化神期
+    (22, 200_000_000),          # 炼虚期
+    (25, 500_000_000),          # 合体期
+    (28, 1_000_000_000),        # 大乘期
+    (31, 2_000_000_000),        # 渡劫期
+    (32, 5_000_000_000),        # 地仙
+    (33, 10_000_000_000),       # 天仙
+    (34, 20_000_000_000),       # 大罗金仙
+    (35, 50_000_000_000),       # 混元大罗金仙
+)
+DEFAULT_DEPOSIT_CAP_SCALE = 1.0  # 分档上限的整体倍率，面板上可直接调
 DEFAULT_LOAN_INTEREST_RATE = 0.005  # 贷款日利率 0.5%
 DEFAULT_LOAN_DURATION_DAYS = 7  # 贷款期限 7天
 DEFAULT_MAX_LOAN_AMOUNT = 1000000  # 最大贷款额度 100万
@@ -37,22 +55,30 @@ class BankManager:
         self.config = config or {}
         self.config_manager = config_manager
         
-        # 从配置读取，使用默认值作为后备（兼容根键、VALUES 层与 game_config）
-        bank_config = self.config.get("BANK") or (self.config.get("VALUES") or {}).get("BANK") or {}
-        if not bank_config and config_manager is not None:
+        # 配置分层：game_config.json 的 bank 段作底层默认，插件配置（BANK / VALUES.BANK）覆盖同名项。
+        # 关键点：分档表只写在 game_config 里，而插件配置通常由 schema 默认值填满 BANK 段，
+        # 若沿用「BANK 非空就整段替换」的老写法，分档表永远读不到。
+        game_bank = {}
+        if config_manager is not None:
             game_bank = (getattr(config_manager, "game_config", {}) or {}).get("bank", {}) or {}
-            bank_config = {
-                "DAILY_INTEREST_RATE": game_bank.get("daily_interest_rate", DEFAULT_DAILY_INTEREST_RATE),
-                "MAX_DEPOSIT": game_bank.get("max_deposit", DEFAULT_MAX_DEPOSIT),
-                "LOAN_INTEREST_RATE": game_bank.get("loan_interest_rate", DEFAULT_LOAN_INTEREST_RATE),
-                "LOAN_DURATION_DAYS": game_bank.get("loan_duration_days", DEFAULT_LOAN_DURATION_DAYS),
-                "MAX_LOAN_AMOUNT": game_bank.get("max_loan_amount", DEFAULT_MAX_LOAN_AMOUNT),
-                "MIN_LOAN_AMOUNT": game_bank.get("min_loan_amount", DEFAULT_MIN_LOAN_AMOUNT),
-                "BREAKTHROUGH_LOAN_RATE": game_bank.get("breakthrough_loan_rate", DEFAULT_BREAKTHROUGH_LOAN_RATE),
-                "BREAKTHROUGH_LOAN_DURATION": game_bank.get("breakthrough_loan_duration", DEFAULT_BREAKTHROUGH_LOAN_DURATION),
-            }
+        bank_config = {
+            "DAILY_INTEREST_RATE": game_bank.get("daily_interest_rate", DEFAULT_DAILY_INTEREST_RATE),
+            "MAX_DEPOSIT": game_bank.get("max_deposit", DEFAULT_MAX_DEPOSIT),
+            "DEPOSIT_CAPS": game_bank.get("deposit_caps"),
+            "DEPOSIT_CAP_SCALE": game_bank.get("deposit_cap_scale", DEFAULT_DEPOSIT_CAP_SCALE),
+            "LOAN_INTEREST_RATE": game_bank.get("loan_interest_rate", DEFAULT_LOAN_INTEREST_RATE),
+            "LOAN_DURATION_DAYS": game_bank.get("loan_duration_days", DEFAULT_LOAN_DURATION_DAYS),
+            "MAX_LOAN_AMOUNT": game_bank.get("max_loan_amount", DEFAULT_MAX_LOAN_AMOUNT),
+            "MIN_LOAN_AMOUNT": game_bank.get("min_loan_amount", DEFAULT_MIN_LOAN_AMOUNT),
+            "BREAKTHROUGH_LOAN_RATE": game_bank.get("breakthrough_loan_rate", DEFAULT_BREAKTHROUGH_LOAN_RATE),
+            "BREAKTHROUGH_LOAN_DURATION": game_bank.get("breakthrough_loan_duration", DEFAULT_BREAKTHROUGH_LOAN_DURATION),
+        }
+        user_bank = self.config.get("BANK") or (self.config.get("VALUES") or {}).get("BANK") or {}
+        bank_config.update({k: v for k, v in user_bank.items() if v is not None})
         self.daily_interest_rate = bank_config.get("DAILY_INTEREST_RATE", DEFAULT_DAILY_INTEREST_RATE)
         self.max_deposit = bank_config.get("MAX_DEPOSIT", DEFAULT_MAX_DEPOSIT)
+        self.deposit_caps = self._parse_deposit_caps(bank_config.get("DEPOSIT_CAPS"))
+        self.deposit_cap_scale = self._parse_scale(bank_config.get("DEPOSIT_CAP_SCALE"))
         self.loan_interest_rate = bank_config.get("LOAN_INTEREST_RATE", DEFAULT_LOAN_INTEREST_RATE)
         self.loan_duration_days = bank_config.get("LOAN_DURATION_DAYS", DEFAULT_LOAN_DURATION_DAYS)
         self.max_loan_amount = bank_config.get("MAX_LOAN_AMOUNT", DEFAULT_MAX_LOAN_AMOUNT)
@@ -63,6 +89,96 @@ class BankManager:
         self.loan_hold_min = bank_config.get("LOAN_HOLD_MIN", DEFAULT_LOAN_HOLD_MIN)
         self.loan_hold_free_limit = bank_config.get("LOAN_HOLD_FREE_LIMIT", DEFAULT_LOAN_HOLD_FREE_LIMIT)
     
+    # ===== 存款上限（按大境界分档） =====
+
+    @staticmethod
+    def _parse_deposit_caps(raw) -> Tuple[Tuple[int, int], ...]:
+        """把配置里的分档表规整成 ((min_level, cap), ...)；配置非法时退回默认表。"""
+        if not raw:
+            return DEFAULT_DEPOSIT_CAPS
+        entries = []
+        if isinstance(raw, dict):
+            raw_items = list(raw.items())
+            for min_level, cap in raw_items:
+                entries.append((min_level, cap))
+        elif isinstance(raw, (list, tuple)):
+            for item in raw:
+                if isinstance(item, dict):
+                    entries.append((item.get("min_level"), item.get("cap")))
+                elif isinstance(item, (list, tuple)) and len(item) >= 2:
+                    entries.append((item[0], item[1]))
+        parsed = {}
+        for min_level, cap in entries:
+            try:
+                level = int(min_level)
+                value = int(cap)
+            except (TypeError, ValueError):
+                continue
+            if level < 0 or value <= 0:
+                continue
+            parsed[level] = value
+        if not parsed:
+            return DEFAULT_DEPOSIT_CAPS
+        return tuple(sorted(parsed.items()))
+
+    @staticmethod
+    def _parse_scale(raw) -> float:
+        try:
+            scale = float(raw)
+        except (TypeError, ValueError):
+            return DEFAULT_DEPOSIT_CAP_SCALE
+        return scale if scale > 0 else DEFAULT_DEPOSIT_CAP_SCALE
+
+    @staticmethod
+    def _level_index(player: Player) -> int:
+        try:
+            return max(0, int(getattr(player, "level_index", 0) or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    def _level_name(self, player: Player, index: Optional[int]) -> Optional[str]:
+        """按 level_index 取境界名，用于面板展示；没有配置管理器时返回 None。"""
+        if self.config_manager is None or index is None:
+            return None
+        try:
+            data = self.config_manager.get_level_data(
+                getattr(player, "cultivation_type", "灵修") or "灵修"
+            )
+            if 0 <= index < len(data):
+                return data[index].get("level_name")
+        except Exception:
+            return None
+        return None
+
+    def deposit_cap_info(self, player: Player) -> dict:
+        """当前境界的存款上限，以及突破后能提升到多少。"""
+        level = self._level_index(player)
+        cap = self.max_deposit
+        cap_min_level = 0
+        next_min_level = None
+        next_cap = None
+        for min_level, value in self.deposit_caps:
+            if level >= min_level:
+                cap, cap_min_level = value, min_level
+            elif next_min_level is None:
+                next_min_level, next_cap = min_level, value
+
+        scaled_cap = int(cap * self.deposit_cap_scale)
+        scaled_next = int(next_cap * self.deposit_cap_scale) if next_cap else None
+        return {
+            "cap": scaled_cap,
+            "level_index": level,
+            "cap_min_level": cap_min_level,
+            "level_name": self._level_name(player, level),
+            "next_cap": scaled_next,
+            "next_level_index": next_min_level,
+            "next_level_name": self._level_name(player, next_min_level),
+        }
+
+    def deposit_cap(self, player: Player) -> int:
+        """当前境界可存款总额；未命中任何分档时退回统一上限。"""
+        return self.deposit_cap_info(player)["cap"]
+
     @staticmethod
     def effective_loan_limit(player: Player) -> int:
         """当前境界可贷额度（方案A：押镖日收入 × 0.5，保底 10 万、硬顶 1000 万）。"""
@@ -155,17 +271,24 @@ class BankManager:
             pending_interest, interest_time = self._settle_interest_time(
                 current_balance, last_interest_time, now
             )
-            # 上限按「余额 + 待领利息」算，否则利息能把余额顶过上限，限额形同虚设
+            # 上限按境界分档，且按「余额 + 待领利息」算——否则利息能把余额顶过上限，限额形同虚设
             available = current_balance + pending_interest
-            room = max(0, self.max_deposit - available)
+            cap_info = self.deposit_cap_info(player)
+            cap = cap_info["cap"]
+            room = max(0, cap - available)
             if amount > room:
                 await self.db.conn.rollback()
                 interest_note = f"（含待领利息 {pending_interest:,}）" if pending_interest else ""
-                return False, (
-                    f"存款上限为 {self.max_deposit:,} 灵石。\n"
+                realm_note = f"（{cap_info['level_name']}）" if cap_info.get("level_name") else ""
+                msg = (
+                    f"存款上限为 {cap:,} 灵石{realm_note}。\n"
                     f"当前余额 {available:,}{interest_note}，"
                     f"本次最多还能存 {room:,}。"
                 )
+                if cap_info.get("next_cap"):
+                    next_label = cap_info.get("next_level_name") or "下一境界"
+                    msg += f"\n突破到 {next_label} 后上限提升至 {cap_info['next_cap']:,}。"
+                return False, msg
 
             player.gold -= amount
             await self.db.update_player(player, commit=False)
@@ -185,11 +308,12 @@ class BankManager:
             )
             
             await self.db.conn.commit()
-            used = new_balance / self.max_deposit if self.max_deposit else 0
+            used = new_balance / cap if cap else 0
+            realm_note = f"（{cap_info['level_name']}）" if cap_info.get("level_name") else ""
             return True, (
                 f"成功存入 {amount:,} 灵石！\n"
                 f"当前余额：{new_balance:,} 灵石\n"
-                f"存款上限：{self.max_deposit:,}（已用 {used:.1%}，还能存 {max(0, self.max_deposit - new_balance):,}）"
+                f"存款上限：{cap:,}{realm_note}，已用 {used:.1%}，还能存 {max(0, cap - new_balance):,}"
             )
         except Exception as e:
             await self.db.conn.rollback()

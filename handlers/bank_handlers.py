@@ -21,8 +21,11 @@ class BankHandlers:
     async def handle_bank_info(self, player: Player, event: AstrMessageEvent):
         """查看银行信息"""
         info = await self.bank_mgr.get_bank_info(player)
-        cap = self.bank_mgr.max_deposit
-        used_pct = (info["balance"] / cap * 100) if cap else 0
+        cap_info = self.bank_mgr.deposit_cap_info(player)
+        cap = cap_info["cap"]
+        occupied = info["balance"] + info["pending_interest"]  # 利息也占额度
+        used_pct = (occupied / cap * 100) if cap else 0
+        realm_note = f"（{cap_info['level_name']}）" if cap_info.get("level_name") else ""
 
         msg_lines = [
             "🏦 灵石银行",
@@ -30,10 +33,16 @@ class BankHandlers:
             f"💰 存款余额：{info['balance']:,} 灵石",
             f"📈 待领利息：{info['pending_interest']:,} 灵石",
             f"📊 日利率：{self.bank_mgr.daily_interest_rate:.2%}（复利）",
-            f"💳 存款上限：{cap:,}（已用 {used_pct:.1f}%）",
+            f"💳 存款上限：{cap:,}{realm_note}",
+            f"　 已用 {used_pct:.1f}%，还能存 {max(0, cap - occupied):,}",
+        ]
+        if cap_info.get("next_cap"):
+            next_label = cap_info.get("next_level_name") or "下一境界"
+            msg_lines.append(f"　 ↳ 突破至 {next_label}：{cap_info['next_cap']:,}")
+        msg_lines.extend([
             "━━━━━━━━━━━━━━━",
             f"💎 持有灵石：{player.gold:,}",
-        ]
+        ])
         
         # 显示贷款信息
         if info.get("loan"):
