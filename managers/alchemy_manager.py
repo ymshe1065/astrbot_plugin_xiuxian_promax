@@ -4,6 +4,7 @@
 import json
 import random
 import time
+from collections import Counter
 from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 
 from ..data.data_manager import DataBase
@@ -23,6 +24,8 @@ class AlchemyManager:
     """炼丹系统管理器（防并发版）"""
 
     QUALITY_ORDER = ["一般", "良好", "极佳", "大师"]
+    # 批量炼丹单次指令上限：避免一次输入 all 时长时间占库与刷屏
+    MAX_BATCH_CRAFTS = 100
 
     def __init__(self, db: DataBase, config_manager: "ConfigManager" = None, storage_ring_manager: "StorageRingManager" = None):
         self.db = db
@@ -314,8 +317,7 @@ class AlchemyManager:
                 continue
             yield item_name, count
 
-    def _plan_materials(self, player: Player, recipe: Dict):
-        """模拟扣料：具名材料优先预留，避免被同类/同阶泛材料提前吃掉。"""
+    def _snapshot_available(self, player: Player) -> Dict[str, int]:
         available = {}
         for item_name, count in self._items_snapshot(player).items():
             try:
@@ -324,7 +326,10 @@ class AlchemyManager:
                 continue
             if count > 0:
                 available[item_name] = count
+        return available
 
+    def _plan_from_available(self, available: Dict[str, int], recipe: Dict):
+        """在给定库存上模拟扣料，会直接消耗传入的 available 快照。"""
         specs = list(self._iter_recipe_materials(recipe))
         ordered = sorted(specs, key=lambda item: 0 if item.get("name") else 1)
         plan = []
@@ -348,6 +353,28 @@ class AlchemyManager:
                 missing.append(f"{label}（缺{need}）")
             plan.append((spec, taken))
         return not missing, missing, plan
+
+    def _plan_materials(self, player: Player, recipe: Dict):
+        """模拟扣料：具名材料优先预留，避免被同类/同阶泛材料提前吃掉。"""
+        return self._plan_from_available(self._snapshot_available(player), recipe)
+
+    def max_craftable_count(self, player: Player, recipe: Dict, limit: Optional[int] = None) -> int:
+        """当前材料/灵石最多能连续炼几次（默认按单次指令上限封顶）。"""
+        cap = self.MAX_BATCH_CRAFTS if limit is None else max(0, int(limit))
+        gold_cost = int(recipe.get("gold_cost", 0) or 0)
+        if gold_cost > 0:
+            cap = min(cap, max(0, int(player.gold) // gold_cost))
+        if cap <= 0:
+            return 0
+
+        available = self._snapshot_available(player)
+        count = 0
+        while count < cap:
+            ok, _, _ = self._plan_from_available(available, recipe)
+            if not ok:
+                break
+            count += 1
+        return count
 
     def _warehouse_note(self, player: Player, recipe: Dict) -> str:
         """仓库里有对应材料时提示先取出：否则玩家只看到"材料不足"，找不到东西。"""
@@ -606,8 +633,16 @@ class AlchemyManager:
         output_pill: str = "",
         success_rate: float = 0,
         tribulation_hint: str = "",
+        batch_count=None,
+        projected: Optional[int] = None,
     ) -> Tuple[bool, str]:
-        state = {"pill_id": pill_id, "recipe": recipe_name, "expire": int(time.time()) + 180}
+        state = {
+            "pill_id": pill_id,
+            "recipe": recipe_name,
+            "expire": int(time.time()) + 180,
+        }
+        if batch_count not in (None, 1):
+            state["count"] = batch_count
         await self.db.ext.set_system_config(
             self.FIRE_STATE_PREFIX + user_id, json.dumps(state, ensure_ascii=False)
         )
@@ -619,6 +654,9 @@ class AlchemyManager:
         header.append(requirements or "  · 无")
         if success_rate:
             header.append(f"基础成功率：{success_rate:.0f}%")
+        batch_note = self._batch_start_note(batch_count, projected)
+        if batch_note:
+            header.append(batch_note)
         if tribulation_hint:
             header.append("━━━━━━━━━━━━━━━")
             header.extend(tribulation_hint.splitlines())
@@ -631,18 +669,31 @@ class AlchemyManager:
         ])
         return True, "\n".join(header)
 
-    async def pop_fire_state(self, user_id: str) -> Tuple[Optional[int], Optional[str]]:
+    @staticmethod
+    def _batch_start_note(batch_count, projected: Optional[int]) -> str:
+        if batch_count == "all":
+            if projected:
+                return f"🔥 批量炼制：开炉时消耗全部材料（当前最多可炼 {projected} 次）"
+            return "🔥 批量炼制：开炉时消耗全部可用材料"
+        if isinstance(batch_count, int) and batch_count > 1:
+            note = f"🔥 批量炼制：连续炼丹 {batch_count} 次"
+            if projected is not None and projected < batch_count:
+                note += f"（当前材料/灵石仅够 {projected} 次）"
+            return note
+        return ""
+
+    async def pop_fire_state(self, user_id: str) -> Tuple[Optional[int], Optional[str], Optional[object]]:
         raw = await self.db.ext.get_system_config(self.FIRE_STATE_PREFIX + user_id)
         if not raw:
-            return None, None
+            return None, None, None
         await self.db.ext.set_system_config(self.FIRE_STATE_PREFIX + user_id, "")
         try:
             state = json.loads(raw)
         except Exception:
-            return None, None
+            return None, None, None
         if int(time.time()) > int(state.get("expire", 0)):
-            return state.get("pill_id"), "3"
-        return state.get("pill_id"), state.get("choice", "3")
+            return state.get("pill_id"), "3", state.get("count")
+        return state.get("pill_id"), state.get("choice", "3"), state.get("count")
 
     async def set_fire_choice(self, user_id: str, choice: str) -> Tuple[bool, str]:
         raw = await self.db.ext.get_system_config(self.FIRE_STATE_PREFIX + user_id)
@@ -662,7 +713,10 @@ class AlchemyManager:
             self.FIRE_STATE_PREFIX + user_id, json.dumps(state, ensure_ascii=False)
         )
         opt = self.FIRE_OPTIONS[choice]
-        return True, f"🔥 你以「{opt['label']}」掌控丹炉！（{opt['desc']}）\n💡 现在发送 /炼丹 <同一ID> 开炉成丹！"
+        batch_note = self._batch_start_note(state.get("count"), None)
+        if batch_note:
+            batch_note = "\n" + batch_note
+        return True, f"🔥 你以「{opt['label']}」掌控丹炉！（{opt['desc']}）{batch_note}\n💡 现在发送 /炼丹 <同一ID> 开炉成丹！"
 
     # ===== 品质 =====
     def _quality_weights(self, player: Player, fire_choice: str, furnace_level: int, sect_level: int) -> Dict[str, float]:
@@ -769,24 +823,54 @@ class AlchemyManager:
                 "材料：" + "、".join(material_parts) if material_parts else "无材料消耗",
             ))
         lines.append("━━━━━━━━━━━━━━━")
-        lines.append("💡 /学习丹方 <ID或名称> 学习；/炼丹 <ID> 开始炼制")
+        lines.append("💡 /学习丹方 <ID或名称> 学习；/炼丹 <ID> [火候] [次数|all] 开始炼制")
         return True, "\n".join(lines), rows, card_lines
 
     # ===== 炼制 =====
-    async def craft_pill(self, user_id: str, pill_id: int, fire_choice: Optional[str] = None) -> Tuple[bool, str, Optional[Dict]]:
-        """炼制丹药：首次投料进入火候选择，选好后再次 /炼丹 开炉。"""
+    @staticmethod
+    def _normalize_batch_count(count) -> Optional[object]:
+        """批量次数：None / 正整数 / "all"。"""
+        if count is None:
+            return None
+        text = str(count).strip().lower()
+        if text in ("all", "全部", "所有"):
+            return "all"
+        if text.startswith("x") or text.startswith("×"):
+            text = text[1:]
+        if text.endswith("次") or text.endswith("颗"):
+            text = text[:-1]
+        try:
+            value = int(text)
+        except (TypeError, ValueError):
+            return None
+        return value if value > 0 else None
+
+    async def craft_pill(
+        self,
+        user_id: str,
+        pill_id: int,
+        fire_choice: Optional[str] = None,
+        count=None,
+    ) -> Tuple[bool, str, Optional[Dict]]:
+        """炼制丹药：首次投料进入火候选择，选好后再次 /炼丹 开炉。
+
+        count 可选：正整数表示连续炼制次数，"all" 表示消耗当前全部材料。
+        """
         explicit_fire = None
         if fire_choice is not None:
             mapping = {"猛火": "1", "猛火急攻": "1", "文火": "2", "文火慢煨": "2", "守中": "3", "控火守中": "3"}
             explicit_fire = mapping.get(str(fire_choice).strip(), str(fire_choice).strip())
 
-        fire_pill_id, state_fire = await self.pop_fire_state(user_id)
+        batch_count = self._normalize_batch_count(count)
+        fire_pill_id, state_fire, state_count = await self.pop_fire_state(user_id)
         if explicit_fire is not None:
             fire_choice = explicit_fire if explicit_fire in self.FIRE_OPTIONS else "3"
             fire_matched = True
         elif fire_pill_id is not None and int(fire_pill_id) == int(pill_id):
             fire_choice = state_fire if state_fire in self.FIRE_OPTIONS else "3"
             fire_matched = True
+            if batch_count is None:
+                batch_count = self._normalize_batch_count(state_count)
         else:
             fire_choice = "3"
             fire_matched = False
@@ -813,6 +897,9 @@ class AlchemyManager:
                     f"━━━━━━━━━━━━━━━\n"
                     f"💡 补齐材料后再发送 /炼丹 {pill_id}；可用 /丹药配方 查看已学丹方"
                 ), None
+            projected = None
+            if batch_count == "all" or (isinstance(batch_count, int) and batch_count > 1):
+                projected = self.max_craftable_count(player, recipe)
             return await self.start_fire_control(
                 user_id,
                 int(pill_id),
@@ -821,10 +908,34 @@ class AlchemyManager:
                 recipe.get("output_pill", ""),
                 recipe.get("success_rate", 0),
                 self.tribulation_hint(player, recipe.get("output_pill", ""), recipe),
+                batch_count=batch_count,
+                projected=projected,
             ) + (
-                {"success": False, "pending_fire": True},
+                {"success": False, "pending_fire": True, "batch_count": batch_count},
             )
 
+        if batch_count not in (None, 1):
+            return await self.craft_pill_batch(user_id, int(pill_id), fire_choice, batch_count)
+
+        ok, msg, result_data = await self._craft_once(user_id, int(pill_id), fire_choice)
+        if result_data is not None:
+            result_data = dict(result_data)
+            success_count = 1 if result_data.get("success") else 0
+            tribulation_count = 1 if result_data.get("tribulation") else 0
+            result_data.update({
+                "batch": False,
+                "crafted": 1,
+                "success_count": success_count,
+                "perfect_count": 1 if result_data.get("perfect") else 0,
+                "tribulation_count": tribulation_count,
+                "failure_count": max(0, 1 - success_count - tribulation_count),
+            })
+        return ok, msg, result_data
+
+    async def _craft_once(
+        self, user_id: str, pill_id: int, fire_choice: str
+    ) -> Tuple[bool, str, Optional[Dict]]:
+        """单次开炉：投料、判定成功率/品质/丹劫并写入丹药背包。"""
         fire_cfg = self.FIRE_OPTIONS.get(fire_choice or "3", self.FIRE_OPTIONS["3"])
 
         await self.db.conn.execute("BEGIN IMMEDIATE")
@@ -1052,3 +1163,143 @@ class AlchemyManager:
         except Exception:
             await self.db.conn.rollback()
             raise
+
+    async def craft_pill_batch(
+        self, user_id: str, pill_id: int, fire_choice: str, requested
+    ) -> Tuple[bool, str, Optional[Dict]]:
+        """连续炼丹：requested 为正整数或 "all"（消耗当前全部材料）。"""
+        player = await self.db.get_player_by_id(user_id)
+        if not player:
+            return False, "❌ 你还未踏入修仙之路！", None
+
+        recipe = self.recipes.get(int(pill_id))
+        if not recipe:
+            return False, "❌ 无效的丹药ID！", None
+        learned = await self.ensure_learned_recipes(player)
+        if int(pill_id) not in learned:
+            return False, f"❌ 你还没有学会【{recipe['name']}】，请先 /学习丹方 {pill_id}。", None
+        if player.level_index < recipe["level_required"]:
+            return False, f"❌ 炼制{recipe['name']}需要达到境界等级 {recipe['level_required']}！", None
+        if not self._get_pill_config_by_name(recipe["output_pill"]):
+            return False, f"❌ 丹方【{recipe['name']}】的目标丹药【{recipe['output_pill']}】配置缺失，请联系管理员。", None
+
+        projected = self.max_craftable_count(player, recipe)
+        if projected <= 0:
+            requirements, _ = self.format_recipe_requirements(player, recipe)
+            return False, (
+                f"❌ 材料或灵石不足，一次也炼不了【{recipe['name']}】\n"
+                f"━━━━━━━━━━━━━━━\n"
+                f"出炉：{recipe.get('output_pill', '')}\n"
+                f"所需材料：\n{requirements}\n"
+                f"━━━━━━━━━━━━━━━\n"
+                f"💡 补齐材料后再发送 /炼丹 {pill_id}"
+                f"{self._warehouse_note(player, recipe)}"
+            ), None
+
+        notes: List[str] = []
+        if requested == "all":
+            planned = projected
+            if projected >= self.MAX_BATCH_CRAFTS:
+                notes.append(
+                    f"💡 单次最多连炼 {self.MAX_BATCH_CRAFTS} 次，剩余材料可再发 /炼丹 {pill_id} all"
+                )
+        else:
+            wanted = int(requested)
+            planned = min(wanted, projected)
+            if planned < wanted:
+                if projected >= self.MAX_BATCH_CRAFTS:
+                    notes.append(
+                        f"💡 单次最多连炼 {self.MAX_BATCH_CRAFTS} 次，剩余材料可再发 /炼丹 {pill_id} all"
+                    )
+                else:
+                    notes.append(f"💡 当前材料/灵石只够 {projected} 次，已按 {planned} 次炼制")
+
+        results: List[Dict] = []
+        stop_msg = ""
+        for _ in range(planned):
+            ok, msg, data = await self._craft_once(user_id, int(pill_id), fire_choice)
+            if not ok:
+                stop_msg = msg
+                break
+            results.append(data or {})
+
+        if not results:
+            return False, stop_msg or "❌ 炼丹失败。", None
+
+        success_count = sum(1 for item in results if item.get("success"))
+        tribulation_count = sum(1 for item in results if item.get("tribulation"))
+        normal_fail = len(results) - success_count - tribulation_count
+        perfect_count = sum(1 for item in results if item.get("perfect"))
+
+        quality_counter = Counter(
+            item.get("quality") for item in results
+            if item.get("success") and item.get("quality")
+        )
+        gold_total = sum(int(item.get("cost", 0) or 0) for item in results)
+        material_totals: Dict[str, int] = {}
+        for item in results:
+            for entry in item.get("materials_consumed") or []:
+                name, sep, amount = str(entry).rpartition("×")
+                if not sep:
+                    continue
+                try:
+                    material_totals[name] = material_totals.get(name, 0) + int(amount)
+                except (TypeError, ValueError):
+                    continue
+
+        cost_parts: List[str] = []
+        if gold_total > 0:
+            cost_parts.append(f"灵石 -{gold_total:,}")
+        cost_parts.extend(f"{name}×{amount}" for name, amount in material_totals.items())
+        cost_str = "、".join(cost_parts) or "无"
+
+        fire_label = self.FIRE_OPTIONS.get(fire_choice or "3", self.FIRE_OPTIONS["3"])["label"]
+        title = "🔥 批量炼丹完成" if success_count else "💔 批量炼丹结束"
+        lines = [
+            title,
+            "━━━━━━━━━━━━━━━",
+            f"丹方：【{recipe['name']}】",
+            f"火候：{fire_label}",
+            f"投料：{len(results)} 次",
+        ]
+        outcome = []
+        if success_count:
+            outcome.append(f"成丹 {success_count} 颗")
+        if normal_fail:
+            outcome.append(f"炼废 {normal_fail} 炉")
+        if tribulation_count:
+            outcome.append(f"丹劫毁丹 {tribulation_count} 颗")
+        if outcome:
+            lines.append("结果：" + " ｜ ".join(outcome))
+        if quality_counter:
+            lines.append(
+                "品质：" + "、".join(
+                    f"{quality}×{quality_counter[quality]}"
+                    for quality in self.QUALITY_ORDER
+                    if quality_counter.get(quality)
+                )
+            )
+        lines.append("━━━━━━━━━━━━━━━")
+        lines.append(f"消耗：{cost_str}")
+        if notes:
+            lines.extend(notes)
+        if stop_msg:
+            lines.append(f"⚠️ {stop_msg.splitlines()[0]}")
+        lines.append("━━━━━━━━━━━━━━━")
+        lines.append(f"💡 /丹药背包 查看丹药；材料足够时可再发 /炼丹 {pill_id} all")
+
+        return True, "\n".join(lines), {
+            "success": success_count > 0,
+            "batch": True,
+            "pill_name": recipe["output_pill"],
+            "quality": None,
+            "perfect": perfect_count > 0,
+            "cost": gold_total,
+            "materials_consumed": [f"{name}×{amount}" for name, amount in material_totals.items()],
+            "requested": requested,
+            "crafted": len(results),
+            "success_count": success_count,
+            "perfect_count": perfect_count,
+            "tribulation_count": tribulation_count,
+            "failure_count": normal_fail,
+        }

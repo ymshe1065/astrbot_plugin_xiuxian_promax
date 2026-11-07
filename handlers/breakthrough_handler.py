@@ -87,7 +87,9 @@ class BreakthroughHandler:
                     "quality": display_quality,
                     "owned": bool(owned_qualities),
                     "final_rate": final_rate,
-                    "max_rate": float(pill_data.get("max_success_rate", 1.0))
+                    "max_rate": self.breakthrough_manager.get_effective_max_success_rate(
+                        pill_data.get("max_success_rate", 1.0), temp_bonus
+                    )
                 })
 
         # 构建信息显示
@@ -106,7 +108,7 @@ class BreakthroughHandler:
         ]
 
         if temp_bonus:
-            info_lines.append(f"临时丹药加成：{temp_bonus:+.1%}\n")
+            info_lines.append(f"临时丹药加成：{temp_bonus:+.1%}（可叠加在破境丹上限之上）\n")
         karma = getattr(player, "karma", 0) or 0
         if karma != 0:
             from ..karma_rules import karma_rate_bonus

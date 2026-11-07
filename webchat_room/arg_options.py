@@ -26,6 +26,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 from .commands import ARG_SPEC
@@ -34,6 +35,11 @@ if TYPE_CHECKING:  # pragma: no cover
     from ..main import XiuXianPlugin
 
 MAX_OPTIONS = 200
+
+# /周本备战 的快捷写法；命中后不必再逐枚挑丹药
+WEEKLY_LOADOUT_MODES = ("推荐", "自动", "auto", "清空", "重置", "clear")
+# 战前 6 枚 + 战中 6 枚，弹层最多允许选这么多枚后自动结束
+WEEKLY_LOADOUT_SEGMENTS = 12
 
 
 # ---------------------------------------------------------------------------
@@ -82,6 +88,7 @@ FIELD_PLANS: Dict[str, List[dict[str, Any]]] = {
     "炼丹": [
         _f("recipe", "选择已学丹方", "learned_recipes"),
         _f("fire", "火候（可选）", "fire_choices", optional=True),
+        _f("count", "数量（可选：次数 / all = 用完材料）", "craft_amounts", optional=True),
     ],
     "学习丹方": [_f("recipe", "选择要学习的丹方", "all_recipes")],
     # ---- 仙市 ----
@@ -131,6 +138,7 @@ FIELD_PLANS: Dict[str, List[dict[str, Any]]] = {
     "传承挑战": [_f("target", "选择挑战对象", "players")],
     "选择灵根": [_f("id", "选择灵根", "spirit_roots")],
     "我要修仙": [_f("type", "选择修炼职业", "cultivation_types")],
+    "弃道重修": [_f("mode", "选择重修方式 / 新职业 / 新生活职业", "rebirth_modes")],
     "自动代理": [_f("task", "选择代理活动", "proxy_tasks")],
     "关闭代理": [_f("task", "选择要关闭的代理", "proxy_off_tasks")],
     # ---- 生活职业 / 符箓 / 炼器 ----
@@ -162,7 +170,9 @@ FIELD_PLANS: Dict[str, List[dict[str, Any]]] = {
     "接取任务": [_f("level", "选择任务品阶", "task_levels")],
     "放弃任务": [_f("id", "选择要放弃的任务", "active_tasks")],
     "周本加入": [_f("id", "选择周本队伍", "weekly_runs")],
+    "周本备战": [_f("mode", "选择 推荐 / 清空，或从列表挑选要携带的丹药", "weekly_loadout")],
     "重置周本CD": [_f("target", "选择玩家", "players")],
+    "仙界管理": [_f("sub", "选择管理子命令", "admin_subcommands")],
     # ---- 洞天 / 灵田 / 灵兽 ----
     "洞天装修": [_f("name", "选择家具", "furniture_names")],
     "杂交": [
@@ -642,6 +652,42 @@ async def _src_fire_choices(plugin: "XiuXianPlugin", player: Any, field: dict, v
         _opt("文火（品质更稳）", "文火", "适合保品质", "火候"),
         _opt("守中（均衡）", "守中", "成功与品质折中", "火候"),
     ], ""
+
+
+async def _src_craft_amounts(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    """炼丹数量候选：按当前丹方与库存给出可见的连炼次数与 all。"""
+    if not player:
+        return [], "尚未创建角色"
+    recipe_id = _int(values[0]) if values else 0
+    try:
+        mgr = plugin.alchemy_mgr
+        recipe = mgr.recipes.get(recipe_id)
+        if not recipe and values:
+            recipe = mgr.get_recipe_by_identifier(values[0])
+        if not recipe:
+            return [], "请先选择丹方"
+        max_times = mgr.max_craftable_count(player, recipe)
+    except Exception:
+        return [], "材料或丹方读取失败，可直接手动输入"
+
+    if max_times <= 0:
+        return [], "当前材料/灵石不足，一次也炼不了"
+
+    options = []
+    for times in (1, 5, 10, 20, 50, 100):
+        if times <= max_times:
+            options.append(
+                _opt(f"炼 {times} 次", str(times), f"最多可连炼 {max_times} 次", "快捷数量")
+            )
+    if max_times > 1 and max_times not in (1, 5, 10, 20, 50, 100):
+        options.append(
+            _opt(f"炼 {max_times} 次", str(max_times), "用完当前可用材料/灵石", "快捷数量")
+        )
+    cap_note = "（单次上限 100）" if max_times >= mgr.MAX_BATCH_CRAFTS else ""
+    options.append(
+        _opt("全部（all）", "all", f"消耗当前全部可用材料，预计 {max_times} 次{cap_note}", "快捷数量")
+    )
+    return options, ""
 
 
 async def _src_stock_codes(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
@@ -1188,6 +1234,32 @@ async def _src_players(plugin: "XiuXianPlugin", player: Any, field: dict, values
     return options, ""
 
 
+async def _src_admin_subcommands(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    return [
+        _opt("查玩家", "查玩家", "查看玩家数据、状态与贷款", "管理子命令"),
+        _opt("发灵石", "发灵石", "给单个玩家或全体发放/扣除灵石", "管理子命令"),
+        _opt("重置状态", "重置状态", "清除玩家卡死状态并关闭自动代理", "管理子命令"),
+        _opt("公告", "公告", "向全服广播公告", "管理子命令"),
+    ], ""
+
+
+async def _src_admin_targets(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    """管理员操作对象：自己 / 全体（发灵石）/ 其他道友。"""
+    options: List[dict[str, str]] = []
+    if player is not None:
+        uid = str(getattr(player, "user_id", "") or "")
+        if uid:
+            name = getattr(player, "user_name", "") or uid
+            options.append(_opt(f"{name}（自己）", uid, "当前账号", "快捷"))
+    if field.get("allow_all"):
+        options.append(_opt("全体玩家（全体）", "全体", "向所有玩家发放灵石", "快捷"))
+    others, message = await _src_players(plugin, player, field, values)
+    options.extend(others)
+    if not options:
+        return [], message or "全服还没有其他道友"
+    return options[:MAX_OPTIONS], ""
+
+
 async def _src_cultivation_types(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
     # 常量直接内置一份，避免候选接口因较重模块导入失败而整段消失
     names = ["灵修", "体修", "魔修", "剑修", "鬼修", "佛修", "御兽"]
@@ -1204,6 +1276,42 @@ async def _src_cultivation_types(plugin: "XiuXianPlugin", player: Any, field: di
         role = roles.get(name, {})
         desc = " · ".join(str(x) for x in (role.get("name"), role.get("desc")) if x)
         options.append(_opt(name, name, desc or "七大职业", "七大职业"))
+    return options, ""
+
+
+async def _src_rebirth_modes(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    """弃道重修：确认 / 重随灵根 / 直接重选职业 / 直接重选生活职业。"""
+    current_type = str(getattr(player, "cultivation_type", "") or "") if player else ""
+    options = [
+        _opt("确认重修（按当前选择执行）", "确认", "重置境界/修为/灵石/装备等，保留仙缘/称号/灵根", "快捷"),
+        _opt("重随灵根（三选一）", "重随灵根", "消耗仙缘点，每轮有次数上限", "快捷"),
+    ]
+    names = ["灵修", "体修", "魔修", "剑修", "鬼修", "佛修", "御兽"]
+    roles: Dict[str, dict] = {}
+    try:
+        from ..handlers.player_handler import CLASS_ROLE_INFO, VALID_CULTIVATIONS
+
+        names = list(VALID_CULTIVATIONS) or names
+        roles = dict(CLASS_ROLE_INFO)
+    except Exception:
+        pass
+    for name in names:
+        role = roles.get(name, {})
+        desc = " · ".join(str(x) for x in (role.get("name"), role.get("desc")) if x) or "重选职业（免费）"
+        if name == current_type:
+            desc = "当前职业 · " + desc
+        options.append(_opt(f"职业：{name}", name, desc, "重选职业"))
+    try:
+        from ..managers.life_skill_manager import LIFE_SKILLS
+
+        current_life = str(getattr(player, "life_skill", "") or "") if player else ""
+        for name, cfg in LIFE_SKILLS.items():
+            desc = str(cfg.get("desc") or "重选生活职业（免费）")
+            if name == current_life:
+                desc = "当前生活职业 · " + desc
+            options.append(_opt(f"生活职业：{name}", name, desc, "重选生活职业"))
+    except Exception:
+        pass
     return options, ""
 
 
@@ -1302,14 +1410,25 @@ async def _src_talisman_inventory(plugin: "XiuXianPlugin", player: Any, field: d
         return [], "尚未创建角色"
     options: List[dict[str, str]] = []
     try:
+        from ..core.talisman_rules import NON_TALISMAN_ITEMS, infer_category
+
         recipes = getattr(plugin.config_manager, "talisman_recipes_data", {}) or {}
+        items_data = getattr(plugin.config_manager, "items_data", {}) or {}
         for name, count in (player.get_storage_ring_items() or {}).items():
-            if _int(count) <= 0 or name not in recipes:
+            if _int(count) <= 0:
                 continue
+            item = items_data.get(name) or {}
             recipe = recipes.get(name) or {}
-            desc = " · ".join(
-                str(x) for x in (recipe.get("rank"), recipe.get("category")) if x
-            )
+            # 旧版符箓可能没有配方（如八卦符），但仍可使用，不能只按配方过滤。
+            if not item and not recipe:
+                continue
+            if item.get("type") and item.get("type") != "符箓":
+                continue
+            if name in NON_TALISMAN_ITEMS:
+                continue
+            rank = item.get("rank") or recipe.get("rank")
+            category = infer_category(name, str(recipe.get("category") or ""))
+            desc = " · ".join(str(x) for x in (rank, category) if x)
             options.append(_opt(name, name, f"x{_int(count)}" + (f" · {desc}" if desc else ""), "符箓"))
     except Exception:
         pass
@@ -1531,6 +1650,138 @@ async def _src_weekly_runs(plugin: "XiuXianPlugin", player: Any, field: dict, va
     return options, ""
 
 
+def _weekly_loadout_token(token: str) -> tuple:
+    """把 ``回春散·天*3`` / ``回春散·天`` 解析成 (名称, 数量)。"""
+    text = str(token or "").strip()
+    match = re.match(r"^(.+?)[*x×](\d+)$", text)
+    if match:
+        return match.group(1).strip(), max(1, _int(match.group(2), 1))
+    return text, 1
+
+
+async def _src_weekly_loadout(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    """周本备战：推荐/清空快捷项 + 按丹药背包逐枚挑选（可带数量）。
+
+    战前丹药与战中丹药分别占用 6 枚上限；已选的丹药会从候选里扣除数量，
+    选满后不再给选项，前端直接提示「发送」即可。
+    """
+    if not player:
+        return [], "尚未创建角色，请先 /我要修仙"
+    mgr = getattr(plugin, "weekly_boss_mgr", None)
+    if mgr is None:
+        return [], "周本模块暂时不可用"
+    try:
+        pill_mgr = mgr._pill_manager()
+        inventory = player.get_pills_inventory() or {}
+    except Exception:
+        return [], "丹药配置暂时不可用"
+
+    used: Dict[tuple, int] = {}
+    used_slots = {"prepare": 0, "combat": 0}
+    # 与 WeeklyBossManager 的清单写法保持一致：支持空格/逗号分隔，以及「丹药名 3」这种数量写法
+    tokens: List[str] = []
+    for value in values:
+        tokens.extend(t for t in re.split(r"[\s,，、;；]+", str(value or "")) if t)
+    last_name = ""
+    for token in tokens:
+        if token.isdigit():
+            if not last_name:
+                continue
+            name, count = last_name, max(1, _int(token, 1))
+        else:
+            name, count = _weekly_loadout_token(token)
+            last_name = name
+        if not name or name in WEEKLY_LOADOUT_MODES:
+            continue
+        base, quality = pill_mgr.split_pill_key(name)
+        try:
+            kind, _data = mgr._classify_pill(base)
+        except Exception:
+            continue
+        if kind == "prepare":
+            used_slots["prepare"] += count
+        elif kind in ("recovery", "revive"):
+            used_slots["combat"] += count
+        else:
+            continue
+        # 与 WeeklyBossManager 一致：未指定品质时按背包里最高品质结算
+        try:
+            resolved = pill_mgr.select_pill_key(inventory, base, quality or None)
+        except Exception:
+            resolved = None
+        if resolved:
+            base, quality = pill_mgr.split_pill_key(resolved)
+        key = (base, quality)
+        used[key] = used.get(key, 0) + count
+
+    try:
+        prepare_left = max(0, int(mgr.pill_slots_prepare) - used_slots["prepare"])
+        combat_left = max(0, int(mgr.pill_slots_combat) - used_slots["combat"])
+    except Exception:
+        prepare_left = combat_left = 6
+
+    mode_options: List[dict[str, str]] = []
+    if field.get("key") == "mode":
+        mode_options = [
+            _opt("⭐ 推荐搭配", "推荐", "按丹药背包自动搭配战前增益与战中恢复", "快捷"),
+            _opt("🧹 清空清单", "清空", "清空本次携带的丹药，重新挑选", "快捷"),
+        ]
+
+    kind_meta = {
+        "prepare": ("战前", "增益", prepare_left),
+        "recovery": ("战中", "恢复", combat_left),
+        "revive": ("战中", "复活", combat_left),
+    }
+    # 同一种丹药存在多个品质时，命令里必须带 |品质，否则管理器会按最高品质结算
+    quality_map: Dict[str, set] = {}
+    for raw_key, raw_count in inventory.items():
+        if _int(raw_count) <= 0:
+            continue
+        base, quality = pill_mgr.split_pill_key(raw_key)
+        quality_map.setdefault(base, set()).add(quality)
+    singles: List[dict[str, str]] = []
+    extras: List[dict[str, str]] = []
+    for raw_key, raw_count in inventory.items():
+        have_total = _int(raw_count)
+        if have_total <= 0:
+            continue
+        base, quality = pill_mgr.split_pill_key(raw_key)
+        try:
+            kind, _data = mgr._classify_pill(base)
+        except Exception:
+            continue
+        if kind not in kind_meta:
+            continue
+        section, tag, left = kind_meta[kind]
+        if left <= 0:
+            continue
+        have = have_total - used.get((base, quality), 0)
+        if have <= 0:
+            continue
+        try:
+            display = str(pill_mgr.format_pill_display_name(base, quality) or base)
+        except Exception:
+            display = base
+        token = base if len(quality_map.get(base, ())) <= 1 else f"{base}|{quality}"
+        group = f"{section}丹药·{display}"
+        desc = f"{section}·{tag} · 本轮还可带 {left} 枚"
+        singles.append(_opt(display, token, desc, group))
+        for num in range(2, min(have, left, 6) + 1):
+            extras.append(_opt(f"{display} ×{num}", f"{token}*{num}", desc, group))
+
+    if not singles:
+        if mode_options:
+            return mode_options, "丹药背包里没有可用于周本的丹药（战前增益 / 战中恢复 / 复活）"
+        if prepare_left <= 0 and combat_left <= 0:
+            return [], "丹药栏已选满，可直接点「发送」"
+        return [], "没有可继续携带的丹药，可直接点「发送」"
+
+    options = mode_options + sorted(singles, key=_sort_key) + sorted(extras, key=_sort_key)
+    if len(options) > MAX_OPTIONS:
+        options = options[:MAX_OPTIONS]
+    return options, ""
+
+
 async def _src_spirit_companions(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
     try:
         from ..managers.social_manager import SPIRIT_COMPANIONS
@@ -1689,6 +1940,7 @@ SOURCES: Dict[str, Callable[..., Any]] = {
     "learned_recipes": _src_learned_recipes,
     "all_recipes": _src_all_recipes,
     "fire_choices": _src_fire_choices,
+    "craft_amounts": _src_craft_amounts,
     "stock_codes": _src_stock_codes,
     "fund_codes": _src_fund_codes,
     "market_codes": _src_market_codes,
@@ -1733,6 +1985,10 @@ SOURCES: Dict[str, Callable[..., Any]] = {
     "task_levels": _src_task_levels,
     "active_tasks": _src_active_tasks,
     "weekly_runs": _src_weekly_runs,
+    "weekly_loadout": _src_weekly_loadout,
+    "rebirth_modes": _src_rebirth_modes,
+    "admin_subcommands": _src_admin_subcommands,
+    "admin_targets": _src_admin_targets,
     "spirit_companions": _src_spirit_companions,
     "owned_titles": _src_owned_titles,
     "disciples": _src_disciples,
@@ -1751,6 +2007,7 @@ def plan_for(cmd: str, values: Optional[List[str]] = None) -> List[dict[str, Any
     name = str(cmd or "").strip().lstrip("/").split()[0:1]
     key = name[0] if name else ""
     plan = FIELD_PLANS.get(key, [])
+    values = list(values or [])
     first = str(values[0]).strip() if values else ""
     # /自动代理、/关闭代理 的第二段取决于所选活动：
     # 秘境必须补 ID，灵田/施肥可补格号或阈值，押镖/宗门任务无需补参。
@@ -1768,6 +2025,29 @@ def plan_for(cmd: str, values: Optional[List[str]] = None) -> List[dict[str, Any
         plan = plan + [
             _f("plots", "要停止的格号（留空 = 全部，如 1-3）", "", optional=True)
         ]
+    elif key == "周本备战":
+        # 选「推荐/清空」后无需再挑丹药；挑了丹药才展开后续 11 个可选槽位
+        plan = list(plan)
+        if first and first not in WEEKLY_LOADOUT_MODES:
+            plan += [
+                _f("pill", "继续挑选要携带的丹药（选完点「发送」）", "weekly_loadout", optional=True)
+                for _ in range(WEEKLY_LOADOUT_SEGMENTS - 1)
+            ]
+    elif key == "仙界管理":
+        base = list(plan)
+        if first == "查玩家":
+            plan = base + [_f("target", "选择要查询的玩家", "admin_targets")]
+        elif first == "发灵石":
+            plan = base + [
+                _f("target", "选择发放对象（含全体）", "admin_targets", allow_all=True),
+                _f("amount", "发放灵石数量（负数 = 扣除）", ""),
+            ]
+        elif first == "重置状态":
+            plan = base + [_f("target", "选择要重置状态的玩家", "admin_targets")]
+        elif first == "公告":
+            plan = base + [_f("text", "输入公告内容", "")]
+        else:
+            plan = base
     return plan
 
 

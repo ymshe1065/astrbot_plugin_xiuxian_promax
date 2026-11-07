@@ -69,6 +69,8 @@
     unreadNotices: 0,        // 个人消息未读数
     notices: [],             // 个人消息历史
     noticesOpen: false,
+    stickers: [],            // 内置表情包 [{id,label,url}]
+    stickerLoaded: false,    // 是否已拉取表情目录
   };
 
   /* ================= 账号 ================= */
@@ -989,10 +991,10 @@
     if (!Array.isArray(items) || !items.length) return;
     items.forEach((m) => {
       if (!m || !m.type) return;
-      if (m.type === "chat" && m.text) {
+      if (m.type === "chat" && (m.text || m.sticker)) {
         addChat(
           m.from || "",
-          m.text,
+          m.text || "",
           m.ts,
           m.username ? m.username === S.username : m.from === S.me,
           m.avatar || "",
@@ -1002,6 +1004,7 @@
             cmd: !!m.is_cmd,
             audience: m.audience || "public",
             persist: false,
+            sticker: m.sticker || null,
           }
         );
       } else if (m.type === "bot") {
@@ -1292,6 +1295,74 @@
     return true;
   }
 
+  /* ================= 内置表情包 ================= */
+  async function loadStickers() {
+    if (S.stickerLoaded) return;
+    S.stickerLoaded = true;
+    const grid = $("stickerGrid");
+    if (grid) grid.innerHTML = `<div class="sticker-empty">表情加载中…</div>`;
+    try {
+      const r = await fetch("/api/stickers");
+      const d = await r.json();
+      const groups = Array.isArray(d?.groups) ? d.groups : [];
+      S.stickers = groups.flatMap((g) =>
+        (Array.isArray(g?.stickers) ? g.stickers : []).filter((s) => s && s.id && s.url)
+      );
+      renderStickerGrid();
+    } catch {
+      S.stickerLoaded = false;
+      if (grid) grid.innerHTML = `<div class="sticker-empty">表情加载失败，点这里重试</div>`;
+    }
+  }
+
+  function renderStickerGrid() {
+    const grid = $("stickerGrid");
+    if (!grid) return;
+    if (!S.stickers.length) {
+      grid.innerHTML = `<div class="sticker-empty">暂无内置表情</div>`;
+      return;
+    }
+    grid.innerHTML = S.stickers
+      .map(
+        (s) =>
+          `<button type="button" class="sticker-item" data-sticker="${esc(s.id)}" ` +
+          `title="${esc(s.label || "")}" aria-label="${esc(s.label || "表情")}">` +
+          `<img src="${esc(s.url)}" alt="${esc(s.label || "")}" loading="lazy" draggable="false"></button>`
+      )
+      .join("");
+  }
+
+  function openStickerPanel(show) {
+    const panel = $("stickerPanel");
+    if (!panel) return;
+    const next = show === undefined ? panel.hidden : !!show;
+    panel.hidden = !next;
+    $("btnSticker").classList.toggle("on", next);
+    if (next) {
+      $("quickOptions").hidden = true;
+      loadStickers();
+      // 打开面板时让聊天区继续贴底，避免表情把消息顶出视野
+      scrollBottom();
+    }
+  }
+
+  function sendSticker(id) {
+    if (!id) return;
+    if (!S.ws || S.ws.readyState !== 1) {
+      toast("尚未连接");
+      return;
+    }
+    S.ws.send(JSON.stringify({ action: "msg", sticker: id }));
+    openStickerPanel(false);
+  }
+
+  /** 输入 #(滑稽) 这类贴吧快捷写法时，直接按表情发送 */
+  function stickerByShortcut(text) {
+    const m = /^#\((.{1,12})\)$/.exec(String(text || "").trim());
+    if (!m) return null;
+    return S.stickers.find((s) => s.label === m[1]) || null;
+  }
+
   /** 撤回消息：公屏消息交给服务端广播，本地指令回显直接移除 */
   function recallMessage(msg, edit) {
     if (!msg || !msg.id) return;
@@ -1422,6 +1493,7 @@
             owner: m.username || "",
             cmd: !!m.is_cmd,
             audience: m.audience || "public",
+            sticker: m.sticker || null,
           }
         );
         break;
@@ -1703,6 +1775,7 @@
   function addChat(from, text, ts, isMe, avatar = "", meta = {}) {
     const id = meta.id || nextLocalMsgId();
     const owner = meta.owner !== undefined ? meta.owner : (isMe ? S.username : "");
+    const sticker = meta.sticker || null;
     const row = document.createElement("div");
     row.className = "msg-row" + (isMe ? " right" : "") + (meta.cmd ? " cmd-row" : "");
     row.dataset.msgId = id;
@@ -1712,7 +1785,7 @@
       avatarHtml(from, avatar || (isMe ? S.avatar : "")) +
       `<div class="msg-col">` +
       `<div class="who">${esc(from)}<span class="time">${fmtTime(ts)}</span></div>` +
-      bubbleHtml(text) +
+      bubbleHtml(text, null, sticker ? " sticker-bubble" : "", false, sticker) +
       `</div>`;
 
     if (isMe) {
@@ -1725,21 +1798,22 @@
       more.textContent = "⋯";
       more.addEventListener("click", (e) => {
         e.stopPropagation();
-        openMsgMenu(more, { id, text, local: !!meta.local }, e);
+        openMsgMenu(more, { id, text, local: !!meta.local, sticker }, e);
       });
       col.appendChild(more);
       row.addEventListener("contextmenu", (e) => {
         e.preventDefault();
-        openMsgMenu(row, { id, text, local: !!meta.local });
+        openMsgMenu(row, { id, text, local: !!meta.local, sticker });
       });
     }
 
     appendNode(row);
+    bindImages(row);
     applyViewFilter();
     if (meta.persist !== false) {
       cachePush({
         t: "chat", id, from, text, ts, me: isMe, avatar,
-        owner, cmd: !!meta.cmd, local: !!meta.local,
+        owner, cmd: !!meta.cmd, local: !!meta.local, sticker,
       });
     }
   }
@@ -1866,10 +1940,20 @@
   }
 
   /** 统一构造气泡：长文本自动带 .b-body 与展开按钮；forceFold 用于个人信息消息 */
-  function bubbleHtml(text, images, extraCls = "", forceFold = false) {
+  function bubbleHtml(text, images, extraCls = "", forceFold = false, sticker = null) {
+    const stickerHtml =
+      sticker && sticker.url
+        ? `<img class="sticker-img" src="${esc(sticker.url)}" ` +
+          `data-full="${esc(sticker.url)}" alt="${esc(sticker.label || "表情")}" ` +
+          `title="${esc(sticker.label || "表情")}" draggable="false">`
+        : "";
     const body =
       (text ? escapeWithMarks(text) : "") +
+      stickerHtml +
       (images || []).map((u) => `<img src="${esc(u)}" data-full="${esc(u)}" alt="">`).join("");
+    if (!text && stickerHtml) {
+      return `<div class="bubble sticker-bubble${extraCls}">${body}</div>`;
+    }
     if (!isFoldable(text) && !(forceFold && text)) {
       return `<div class="bubble${extraCls}">${body}</div>`;
     }
@@ -3115,7 +3199,9 @@
   function openMsgMenu(anchor, msg, sourceEvent = null) {
     const menu = newCtxMenu();
     menu.appendChild(ctxMenuButton("撤回", () => recallMessage(msg, false)));
-    menu.appendChild(ctxMenuButton("重新编辑", () => recallMessage(msg, true)));
+    if (!msg.sticker) {
+      menu.appendChild(ctxMenuButton("重新编辑", () => recallMessage(msg, true)));
+    }
     mountCtxMenu(menu, anchor, sourceEvent);
   }
 
@@ -3799,7 +3885,11 @@
     const defaultText = sheetDefaultValue(ctx, data);
     let label = field.label || data.hint || ctx.hint || "参数";
     if (defaultText && field.key === "count") label = `数量（默认 ${defaultText}，可修改）`;
-    $("sheetHint").textContent = `第 ${data.index + 1} 步：${label}` + (data.message ? ` · ${data.message}` : "");
+    const stepText =
+      field.optional && Number(data.total || 1) > 1
+        ? `${label}（选完点「发送」）`
+        : `第 ${data.index + 1} 步：${label}`;
+    $("sheetHint").textContent = stepText + (data.message ? ` · ${data.message}` : "");
     $("sheetInput").placeholder = options.length ? `也可手动输入${label}` : label;
     $("sheetInput").style.display = "";
     applySheetDefault(ctx, data);
@@ -4136,6 +4226,7 @@
             cmd: !!e.cmd,
             local: e.local !== undefined ? !!e.local : !e.id,
             persist: false,
+            sticker: e.sticker || null,
           });
         } else if (e.t === "bot") addBotText(e.text, Math.floor(e.at / 1000), null, null, { owner: e.owner || "" });
       });
@@ -4433,7 +4524,11 @@
       if (!text) return;
       // 中文输入法组合中不发送
       if (input.dataset.composing === "1") return;
-      if (text.startsWith("/")) dispatchCommand(text);
+      // 贴吧快捷写法 #(滑稽)：直接按表情发送，不进入指令/机器人流程
+      const shortcut = stickerByShortcut(text);
+      if (shortcut) {
+        sendSticker(shortcut.id);
+      } else if (text.startsWith("/")) dispatchCommand(text);
       else if (sendChat(text)) {
         /* 公屏消息由服务端回显 */
       }
@@ -4458,6 +4553,22 @@
     $("btnQuick").addEventListener("click", () => {
       switchPanelTab("cmds");
       if (isMobile()) openDrawer();
+    });
+
+    // 内置表情包：点按钮展开面板，点表情直接发送
+    $("btnSticker").addEventListener("click", () => {
+      openStickerPanel($("stickerPanel").hidden);
+    });
+    $("stickerClose").addEventListener("click", () => openStickerPanel(false));
+    $("stickerGrid").addEventListener("click", (e) => {
+      const item = e.target.closest && e.target.closest("[data-sticker]");
+      if (item) {
+        sendSticker(item.dataset.sticker || "");
+        return;
+      }
+      if (e.target.closest && e.target.closest(".sticker-empty") && !S.stickerLoaded) {
+        loadStickers();
+      }
     });
 
     $("btnTogglePanel").addEventListener("click", () => {
@@ -4628,6 +4739,7 @@
     document.addEventListener("keydown", (e) => {
       if (e.key !== "Escape") return;
       if (!$("viewer").hidden) return closeViewer();
+      if (!$("stickerPanel").hidden) return openStickerPanel(false);
       if (!$("sheetMask").hidden) return closeSheet();
       if (!$("inboxMask").hidden) return closeInbox();
       if (!$("privacyMask").hidden) return ($("privacyMask").hidden = true);
@@ -4640,6 +4752,7 @@
   /* ================= 启动 ================= */
   bindEvents();
   initTheme();
+  loadStickers();
 
   // 有登录态就自动进入，否则停在登录页
   (async () => {

@@ -28,3 +28,19 @@
 
 把图片放进本目录，改 `app.css` 里 5 处 `url("/static/img/whale_logo.png")` 与 `app.js` 的 `FAVICON.fish` 即可。
 若原图非正方形，先按需要裁成正方形，否则圆形遮罩会切偏。
+
+---
+
+# 内置表情包来源
+
+`stickers/tieba/` 下的 60 张 PNG 为**百度贴吧经典表情**系列（滑稽、呵呵、汗、泪、怒等）。
+
+| 项 | 内容 |
+|---|---|
+| 来源仓库 | [kbdog/emojiCDN](https://github.com/kbdog/emojiCDN) 的 `tieba/` 目录 |
+| 原始出处 | 百度贴吧网页版 / App 内置表情 |
+| 使用范围 | 仅随插件用于聊天室**非商业**互动；版权归百度及相关原作者所有 |
+| 本地文件 | `tieba_01_haha.png` ~ `tieba_60_tu.png`，前端通过 `webchat_room/stickers.py` 白名单引用 |
+
+如需商用或对外分发，请自行确认并取得权利方授权。
+

@@ -104,8 +104,18 @@
 
       <div class="quick-options" id="quickOptions" hidden></div>
 
+      <div class="sticker-panel" id="stickerPanel" hidden>
+        <div class="sticker-head">
+          <span class="sticker-title">贴吧表情</span>
+          <span class="sticker-tip">点选即发 · 也可输入 #(滑稽)</span>
+          <button class="sticker-close" id="stickerClose" type="button" aria-label="关闭表情面板">×</button>
+        </div>
+        <div class="sticker-grid" id="stickerGrid"></div>
+      </div>
+
       <div class="composer">
         <button class="composer-btn" id="btnQuick" title="快捷指令">☰</button>
+        <button class="composer-btn" id="btnSticker" title="表情包" aria-label="表情包">🙂</button>
         <textarea id="inMsg" rows="1" maxlength="2000"
                   placeholder="发消息或 /指令…"></textarea>
         <button class="composer-btn send" id="btnSend" title="发送">➤</button>

@@ -29,6 +29,7 @@ from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 from . import accounts as accounts_store
 from . import channels as channels_store
 from . import commands as commands_catalog
+from . import stickers as stickers_catalog
 from .arg_options import build_arg_options
 from .proxy_panel import proxy_snapshot, toggle_proxy
 from .visibility import is_panel_command
@@ -257,6 +258,7 @@ async def start(host: str, port: int) -> None:
     channels_store.init()
     app.router.add_get("/", _index)
     app.router.add_get("/api/commands", _api_commands)
+    app.router.add_get("/api/stickers", _api_stickers)
     app.router.add_get("/api/arg_options", _api_arg_options)
     app.router.add_get("/api/equip_context", _api_equip_context)
     app.router.add_get("/api/proxy", _api_proxy)
@@ -793,6 +795,11 @@ async def _index(_request: web.Request) -> web.Response:
 
 async def _api_commands(_request: web.Request) -> web.Response:
     return web.json_response(commands_catalog.all_commands())
+
+
+async def _api_stickers(_request: web.Request) -> web.Response:
+    """内置表情包目录：图片随插件静态资源提供，无需登录即可取目录。"""
+    return web.json_response({"ok": True, "groups": stickers_catalog.groups()})
 
 
 async def _api_arg_options(request: web.Request) -> web.Response:
@@ -1832,6 +1839,43 @@ async def _handle_channel_switch(
         await broadcast_presence(target)
 
 
+async def _broadcast_sticker(
+    room_id: str, info: dict[str, str], sticker: dict[str, str]
+) -> None:
+    """广播一条纯表情消息（不走机器人流水线，避免表情触发指令解析）。"""
+    ts = int(time.time())
+    msg_id = uuid.uuid4().hex[:16]
+    text = f"[表情:{sticker.get('label', '')}]"
+    _remember_msg(room_id, msg_id, info, text, ts)
+    payload = {
+        "type": "chat",
+        "room": room_id,
+        "msg_id": msg_id,
+        "from": info["player_name"],
+        "username": info.get("username", ""),
+        "avatar": info.get("avatar", ""),
+        "text": "",
+        "sticker": {
+            "id": sticker.get("id", ""),
+            "label": sticker.get("label", ""),
+            "url": sticker.get("url", ""),
+        },
+        "is_cmd": False,
+        "audience": "public",
+        "ts": ts,
+    }
+    _remember_history(room_id, payload)
+    conns = _rooms.get(room_id, {})
+    dead: list[web.WebSocketResponse] = []
+    for client_ws in list(conns):
+        try:
+            await client_ws.send_json(payload)
+        except Exception:
+            dead.append(client_ws)
+    for killed in dead:
+        _drop(room_id, killed)
+
+
 async def _handle_client_message(room_id: str, ws: web.WebSocketResponse, raw: str) -> None:
     try:
         data = json.loads(raw)
@@ -1908,7 +1952,9 @@ async def _handle_client_message(room_id: str, ws: web.WebSocketResponse, raw: s
         return
 
     text = str(data.get("text", "")).strip()
-    if not text:
+    # 纯表情消息：客户端只提交 id，服务端按白名单解析图片，避免任意 URL 注入
+    sticker = stickers_catalog.get(str(data.get("sticker") or "")) if not text else None
+    if not text and sticker is None:
         return
     if len(text) > 2000:
         await send_to_ws(ws, {"type": "error", "text": "消息过长（>2000 字）"})
@@ -1917,6 +1963,20 @@ async def _handle_client_message(room_id: str, ws: web.WebSocketResponse, raw: s
     info = _rooms.get(room_id, {}).get(ws)
     if info is None:
         await send_to_ws(ws, {"type": "error", "text": "尚未完成连接握手"})
+        return
+
+    if sticker is not None and action == "msg":
+        await _broadcast_sticker(room_id, info, sticker)
+        return
+    if action == "msg" and text:
+        # 兼容贴吧快捷写法 #(滑稽)：前端未加载目录时也能按名称发送
+        shortcut = re.fullmatch(r"#\((.{1,12})\)", text)
+        if shortcut:
+            shortcut_sticker = stickers_catalog.find_by_label(shortcut.group(1))
+            if shortcut_sticker is not None:
+                await _broadcast_sticker(room_id, info, shortcut_sticker)
+                return
+    if not text:
         return
 
     req_id = str(data.get("req_id") or "").strip()[:64]

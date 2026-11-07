@@ -40,6 +40,24 @@ class BreakthroughManager:
 
         return True, ""
 
+    @staticmethod
+    def get_effective_max_success_rate(max_success_rate: float, temp_bonus: float = 0.0) -> float:
+        """破境丹上限 + 增益丹加成，最终不超过 100%。
+
+        增益丹（三品凝神/四品破境/五品渡劫/六品破境/七品化神）的加成
+        不再被破境丹上限吞掉，而是在其上限之外额外生效。
+        """
+        try:
+            base_max = float(max_success_rate)
+        except (TypeError, ValueError):
+            base_max = 1.0
+        base_max = max(0.0, min(1.0, base_max))
+        try:
+            bonus = max(0.0, float(temp_bonus or 0.0))
+        except (TypeError, ValueError):
+            bonus = 0.0
+        return min(1.0, base_max + bonus)
+
     def calculate_breakthrough_success_rate(
         self,
         player: Player,
@@ -90,14 +108,21 @@ class BreakthroughManager:
             pill_data = self.config_manager.pills_data.get(base_name)
             if pill_data and pill_data.get("subtype") == "breakthrough":
                 breakthrough_bonus = float(pill_data.get("breakthrough_bonus", 0)) * float(quality_multiplier or 1.0)
-                max_rate = pill_data.get("max_success_rate", 1.0)
+                pill_max_rate = float(pill_data.get("max_success_rate", 1.0))
+                # 增益丹加成在破境丹上限之外额外生效，避免破境丹已顶满时增益丹被完全浪费
+                max_rate = self.get_effective_max_success_rate(pill_max_rate, temp_bonus)
                 final_rate = min(
                     base_success_rate + temp_bonus + karma_bonus + luck_bonus + breakthrough_bonus,
                     max_rate,
                 )
                 quality_label = f"·{pill_quality}" if pill_quality else ""
                 info_lines.append(f"破境丹【{base_name}{quality_label}】加成：+{breakthrough_bonus:.1%}")
-                info_lines.append(f"最大成功率限制：{max_rate:.1%}")
+                if temp_bonus > 0:
+                    info_lines.append(
+                        f"增益丹额外提升上限：+{temp_bonus:.1%}（{pill_max_rate:.1%} → {max_rate:.1%}）"
+                    )
+                else:
+                    info_lines.append(f"最大成功率限制：{max_rate:.1%}")
             else:
                 logger.warning(f"无效的破境丹：{pill_name}")
 

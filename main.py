@@ -1963,17 +1963,19 @@ class XiuXianPlugin(Star):
     async def handle_alchemy_craft(self, event: AstrMessageEvent, args: GreedyStr):
         async for r in self.alchemy_handlers.handle_craft(event, args):
             yield r
-        # 任务要求"成功炼制"：失败/丹劫毁丹不计进度
+        # 任务要求"成功炼制"：失败/丹劫毁丹不计进度；批量炼丹按实际成丹数累计
         if get_event_flag(event, "craft_success", False):
             user_id = event.get_sender_id()
-            await self.db.ext.add_task_progress(user_id, "craft_pill", 1)
-            await self._title_bump(user_id, "craft_count")
-            if get_event_flag(event, "craft_perfect", False):
-                await self._title_bump(user_id, "craft_perfect")
+            success_count = int(get_event_flag(event, "craft_success_count", 1) or 1)
+            perfect_count = int(get_event_flag(event, "craft_perfect_count", 0) or 0)
+            await self.db.ext.add_task_progress(user_id, "craft_pill", success_count)
+            await self._title_bump(user_id, "craft_count", success_count)
+            if perfect_count:
+                await self._title_bump(user_id, "craft_perfect", perfect_count)
             # 悬赏联动（craft tag）
             player = await self.db.get_player_by_id(user_id)
             if player:
-                await self.bounty_mgr.add_bounty_progress(player, "craft", 1)
+                await self.bounty_mgr.add_bounty_progress(player, "craft", success_count)
 
     # ===== 传承 =====
     @filter.command(CMD_IMPART_INFO, "传承信息")
@@ -3303,25 +3305,29 @@ class XiuXianPlugin(Star):
             return
         yield event.plain_result(self.talisman_mgr.list_talismans(player))
 
-    @filter.command("符箓配方", "发送符箓配方长图（材料/灵石/成功率）")
+    @filter.command("符箓配方", "查看符箓配方总览（材料/灵石/成功率）")
     @require_whitelist
     async def handle_talisman_recipes(self, event: AstrMessageEvent):
+        # 与 /丹药配方、/符箓书 一致走结构化卡片：会写同名 .json sidecar，
+        # 网页端可原生渲染，不再退化成长图。
         spec = self.talisman_mgr.build_recipe_page()
         try:
-            from .utils.image_generator import card_enabled
-            from .utils.static_image_generator import (
-                auto_regenerate_enabled, ensure_page, image_path, register_page,
-            )
+            from .utils.image_generator import card_enabled, render_card_async
 
             if card_enabled("CARD_TALISMAN_RECIPE"):
-                register_page("talisman_recipes", spec)
-                allow_generate = auto_regenerate_enabled() or not image_path("talisman_recipes").exists()
-                image = await ensure_page("talisman_recipes", allow_generate=allow_generate)
-                if image:
-                    yield event.image_result(image)
+                card_path = await render_card_async(
+                    spec.get("background") or "craft",
+                    spec.get("title") or "符箓配方总览",
+                    spec.get("subtitle") or "",
+                    sections=spec.get("sections") or [],
+                    footer=spec.get("footer") or "",
+                    width=int(spec.get("width") or 1280),
+                )
+                if card_path:
+                    yield event.image_result(card_path)
                     return
         except Exception as e:
-            logger.warning(f"符箓配方长图生成失败，降级文本: {e}")
+            logger.warning(f"符箓配方卡片生成失败，降级文本: {e}")
         yield event.plain_result(self.talisman_mgr.format_recipe_text())
 
     @filter.command("符箓书", "查看已掌握符图、材料缺口与当前可画张数")
@@ -3354,7 +3360,7 @@ class XiuXianPlugin(Star):
                     f"{display_name} 的符箓书",
                     f"可画 {craftable} 种 · 熟练度 {self.talisman_mgr.get_proficiency(player)['name']}",
                     sections=[{"name": "已掌握符箓", "lines": card_lines}],
-                    footer="💡 /制符 <符名> [数量] 绘制 · /符箓 查看图鉴",
+                    footer="💡 /制符 <符名> [数量|all] 绘制 · /符箓 查看图鉴 · /日常制符 领护劫符",
                 )
                 if card_path:
                     yield event.image_result(card_path)
@@ -3363,7 +3369,18 @@ class XiuXianPlugin(Star):
             logger.warning(f"符箓书卡片生成失败，降级文本: {e}")
         yield event.plain_result(msg)
 
-    @filter.command("制符", "绘制符箓；不带参数领取符箓师每日护劫符")
+    @filter.command("日常制符", "符箓师每日免费领取护劫符")
+    @require_whitelist
+    @idle_player_lock
+    async def handle_daily_talisman(self, event: AstrMessageEvent):
+        player = await self.db.get_player_by_id(event.get_sender_id())
+        if not player:
+            yield event.plain_result("❌ 道友尚未踏入仙途。")
+            return
+        _success, msg = await self.life_skill_mgr.daily_talisman(player)
+        yield event.plain_result(msg)
+
+    @filter.command("制符", "绘制符箓（需指定符名，数量可填数字或 all）")
     @require_whitelist
     @idle_player_lock
     async def handle_draw_talisman(self, event: AstrMessageEvent, args: GreedyStr):
@@ -3373,17 +3390,17 @@ class XiuXianPlugin(Star):
             return
         tokens = (args or "").strip().split()
         if not tokens:
-            success, msg = await self.life_skill_mgr.daily_talisman(player)
-            yield event.plain_result(msg)
+            yield event.plain_result(
+                "❌ 请指定要绘制的符箓，例如：/制符 寻宝符 2 或 /制符 寻宝符 all\n"
+                "💡 /符箓书 查看已掌握符图与材料缺口；每日护劫符请发送 /日常制符。"
+            )
             return
         name = tokens[0]
-        count = 1
-        if len(tokens) > 1:
-            try:
-                count = int(tokens[1])
-            except ValueError:
-                yield event.plain_result("❌ 数量必须是数字，例如：/制符 寻宝符 2")
-                return
+        amount_token = tokens[1] if len(tokens) > 1 else "1"
+        count, error = self.talisman_mgr.parse_craft_count(amount_token)
+        if error:
+            yield event.plain_result(error)
+            return
         success, msg = await self.talisman_mgr.craft_talisman(player, name, count)
         yield event.plain_result(msg)
 
@@ -3561,7 +3578,7 @@ class XiuXianPlugin(Star):
                 "  [2] 文火慢煨 —— 成功率+6%，难出极品\n"
                 "  [3] 控火守中 —— 一切如常\n"
                 "━━━━━━━━━━━━━━━\n"
-                "💡 先 /炼丹 <ID> 投料，再 /火候 <编号>；开炉时再 /炼丹 <同一ID>"
+                "💡 先 /炼丹 <ID> 投料，再 /火候 <编号>；开炉时再 /炼丹 <同一ID>（可加次数或 all 批量）"
             )
             return
         success, msg = await self.alchemy_mgr.set_fire_choice(event.get_sender_id(), choice.strip())

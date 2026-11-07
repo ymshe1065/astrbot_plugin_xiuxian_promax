@@ -66,6 +66,14 @@ class TestWebCommandCoverage(unittest.TestCase):
         self.assertEqual(sorted(commands.ALIASES - registered), [], "别名列表包含未注册指令")
         self.assertEqual(sorted(commands.ALIASES & grid), [], "别名不应重复占用按钮")
 
+    def test_legacy_world_boss_button_removed_from_grid(self):
+        grid = set(grid_names())
+        self.assertNotIn("世界Boss", grid, "旧世界Boss入口不应再出现在前端按钮网格")
+        self.assertIn("世界Boss", commands.ALIASES, "旧名仍应可在聊天框直接发送")
+
+    def test_daily_talisman_button_present(self):
+        self.assertIn("日常制符", set(grid_names()))
+
     def test_arg_buttons_have_spec(self):
         missing = [
             item["cmd"].lstrip("/")

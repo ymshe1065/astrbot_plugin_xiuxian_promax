@@ -112,6 +112,30 @@ class TestTalismanSystem(unittest.IsolatedAsyncioTestCase):
         base = _imp("core.equipment_balance").realm_attributes(fresh, self.config_manager)
         self.assertGreater(stats.defense, base["physical_defense"] + base["magic_defense"])
 
+    async def test_defense_talisman_multiplier_is_not_double_counted(self):
+        """山河符 +33% 双防应按 1.33 生效，不能被当成增量再 +1 后钳到 +50%。"""
+        from unittest.mock import patch
+
+        player = self._player(experience=100000, physical_defense=100, magic_defense=100)
+        player.storage_ring_items = json.dumps({"山河符": 1}, ensure_ascii=False)
+        await self.db.create_player(player)
+        before = self.CombatManager.build_player_combat_stats(
+            player, self.config_manager, db=self.db
+        )
+        with patch.object(self.talisman, "_roll_quality", return_value=("一般", 1.0, 0.0, 0)):
+            ok, msg = await self.talisman.use_talisman(player, "山河符")
+        self.assertTrue(ok, msg)
+        fresh = await self.db.get_player_by_id("u1")
+        after = self.CombatManager.build_player_combat_stats(
+            fresh, self.config_manager, db=self.db
+        )
+        base = _imp("core.equipment_balance").realm_attributes(fresh, self.config_manager)
+        overflow = self.CombatManager.get_experience_overflow_bonus(fresh, self.config_manager)
+        base_def = (base["physical_defense"] + base["magic_defense"]) * (1 + overflow)
+        self.assertGreater(base_def, 0)
+        gained_ratio = (after.defense - before.defense) / base_def
+        self.assertAlmostEqual(gained_ratio, 0.33, delta=0.02)
+
     async def test_alchemy_and_exploration_bonus_keys(self):
         player = self._player()
         player.storage_ring_items = json.dumps({"稳魂符": 1, "寻宝符": 1}, ensure_ascii=False)
@@ -149,6 +173,16 @@ class TestTalismanSystem(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             self.TalismanManager.get_active_bonus(player, "exploration_reward_multiplier"), 0
         )
+
+    def test_parse_craft_count_supports_number_and_all(self):
+        parse = self.TalismanManager.parse_craft_count
+        self.assertEqual(parse("3"), (3, ""))
+        self.assertEqual(parse("1"), (1, ""))
+        self.assertEqual(parse("all"), (self.TalismanManager.CRAFT_COUNT_CAP, ""))
+        self.assertEqual(parse("全部"), (self.TalismanManager.CRAFT_COUNT_CAP, ""))
+        self.assertEqual(parse("999")[0], self.TalismanManager.CRAFT_COUNT_CAP)
+        self.assertIn("数字或 all", parse("abc")[1])
+        self.assertIn("大于 0", parse("0")[1])
 
     async def test_craft_consumes_materials_and_outputs_talisman(self):
         from unittest.mock import patch

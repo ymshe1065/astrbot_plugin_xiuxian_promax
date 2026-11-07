@@ -521,7 +521,8 @@ class PillManager:
             effect_desc.append("随机一项属性大幅提升，其余属性大幅下降")
         if "breakthrough_bonus" in effect:
             value = effect["breakthrough_bonus"]
-            effect_desc.append(f"突破成功率{value:+.0%}")
+            suffix = "（可超出破境丹上限）" if effect.get("subtype") == "breakthrough_boost" else ""
+            effect_desc.append(f"突破成功率{value:+.0%}{suffix}")
         # 每分钟恢复/消耗类：以前一律显示「特殊效果」，玩家看不出回春丹到底在干什么
         for key, label in (
             ("lifespan_regen_per_minute", "每分钟寿命"),

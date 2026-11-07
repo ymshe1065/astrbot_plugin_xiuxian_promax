@@ -288,9 +288,9 @@ class TalismanManager:
             f"\n🖌️ 熟练度：{prof['name']}（{prof['points']}/{prof['next_points']}）"
             f"｜成功率+{prof['success']:.1f}%｜额外产出+{prof['extra']:.0f}%"
         )
-        lines.append("\n💡 /制符 <符名> [数量] 绘制；/使用符箓 <符名> [数量] 使用")
+        lines.append("\n💡 /制符 <符名> [数量|all] 绘制；/使用符箓 <符名> [数量] 使用")
         lines.append("💡 /符阁 符箓 买成品符，/符阁 符图 买玄品以上符图")
-        lines.append("💡 /符箓配方 查看全部配方长图（材料、灵石、成功率）")
+        lines.append("💡 /符箓配方 查看全部配方（材料、灵石、成功率）")
         lines.append("💡 /符箓书 只看自己已掌握、当前真能画几张")
         return "\n".join(lines)
 
@@ -323,7 +323,7 @@ class TalismanManager:
 
         if not learned_entries:
             lines.append("你还没有掌握任何符箓的绘制方法。")
-            lines.append("💡 基础符人人在册；需要符图的到 /符阁 符图 购买，购买后即可 /制符。")
+            lines.append("💡 基础符人人在册；需要符图的到 /符阁 符图 购买，购买后即可 /制符 <符名> [数量|all]。")
             return "\n".join(lines), [], 0
 
         craftable = 0
@@ -418,7 +418,7 @@ class TalismanManager:
             preview = "、".join(locked_names[:6]) + ("…" if len(locked_names) > 6 else "")
             lines.append(f"🔒 符图未习得 {len(locked_names)} 张：{preview}")
             lines.append("💡 /符阁 符图 查看在售符图，/购买 <符名>·符图 习得")
-        lines.append("💡 /制符 <符名> [数量] 绘制；/符箓 查看全部符箓图鉴")
+        lines.append("💡 /制符 <符名> [数量|all] 绘制；/符箓 查看全部符箓图鉴；每日护劫符：/日常制符")
         return "\n".join(lines), card_lines, craftable
 
     # ===== 配方总览 =====
@@ -463,7 +463,7 @@ class TalismanManager:
         return entries
 
     def build_recipe_page(self, width: int = 1280) -> Dict:
-        """构建配方长图的图片页配置（供固定页生成器渲染与缓存）。"""
+        """构建配方总览卡片配置（供 /符箓配方 与文本降级共用）。"""
         entries = self.iter_recipes()
         grouped: Dict[str, List[Tuple[str, Dict]]] = {category: [] for category in self.RECIPE_CATEGORY_ORDER}
         for name, recipe in entries:
@@ -473,13 +473,14 @@ class TalismanManager:
             "name": "制符说明",
             "lines": [
                 "仅【符箓师】可绘制符箓；绘制消耗灵石与对应品阶材料。",
+                "符箓师每日可在 /日常制符 免费领取一张境界护劫符。",
                 "符箓师加成：成功率 +10%、灵石消耗 -20%、20% 概率额外产出 1 张。",
                 "表中成功率为基础值，实际再叠加符箓师加成与熟练度加成。",
                 "材料按「类别 + 品阶」匹配：灵植 / 矿材 / 妖兽 / 灵液，可从丹阁材料、灵田、历练与秘境获取。",
                 "基础符免符图；标注「需符图」的需在 /符阁 符图 习得后方可绘制。",
                 "探索类符箓按次数生效（如寻宝符 3 次历练/秘境），不受历练/秘境耗时影响。",
                 "格式：符名｜品阶 境界｜灵石｜材料｜成功率。",
-                "/制符 <符名> [数量] 绘制；/使用符箓 <符名> [数量] 使用；/符箓 查看分类与持有数量。",
+                "/制符 <符名> [数量|all] 绘制；/使用符箓 <符名> [数量] 使用；/符箓 查看分类与持有数量。",
             ],
         }]
         for category in self.RECIPE_CATEGORY_ORDER:
@@ -497,7 +498,7 @@ class TalismanManager:
         return {
             "title": "符箓配方总览",
             "subtitle": f"共 {len(entries)} 种可绘制符箓 · 材料按类别与品阶匹配",
-            "footer": "💡 /制符 <符名> [数量] 绘制 · /使用符箓 <符名> [数量] 使用",
+            "footer": "💡 /制符 <符名> [数量|all] 绘制 · /使用符箓 <符名> [数量] 使用",
             "background": "craft",
             "width": width,
             "sections": sections,
@@ -519,7 +520,7 @@ class TalismanManager:
                 current_category = category
                 lines.append(f"\n【{category}】")
             lines.append(f"  · {name}（{self._recipe_summary(recipe)}）")
-        lines.append("\n💡 /制符 <符名> [数量] 绘制；/使用符箓 <符名> [数量] 使用")
+        lines.append("\n💡 /制符 <符名> [数量|all] 绘制；/使用符箓 <符名> [数量] 使用")
         return "\n".join(lines)
 
     # ===== 材料 =====
@@ -685,8 +686,25 @@ class TalismanManager:
             "prof": prof,
         }
 
+    # 单次批量绘制上限，`all` 也落到这个上限，剩余材料可再次发送指令
+    CRAFT_COUNT_CAP = 100
+
+    @staticmethod
+    def parse_craft_count(raw: str = "1") -> Tuple[int, str]:
+        """解析 /制符 的数量参数：数字或 all/全部；返回 (数量, 错误文案)。"""
+        text = str(raw or "1").strip().lower()
+        if text in ("all", "全部"):
+            return TalismanManager.CRAFT_COUNT_CAP, ""
+        try:
+            count = int(text)
+        except (TypeError, ValueError):
+            return 0, "❌ 数量必须是数字或 all，例如：/制符 寻宝符 2、/制符 寻宝符 all"
+        if count <= 0:
+            return 0, "❌ 数量必须大于 0。"
+        return min(count, TalismanManager.CRAFT_COUNT_CAP), ""
+
     async def craft_talisman(self, player: Player, name: str, count: int = 1) -> Tuple[bool, str]:
-        count = max(1, min(100, int(count or 1)))
+        count = max(1, min(self.CRAFT_COUNT_CAP, int(count or 1)))
         recipe = self.get_recipe(name)
         if not recipe:
             return False, f"❌ 没有找到符箓【{name}】的绘制方法。发送 /符箓 查看可绘制符箓。"

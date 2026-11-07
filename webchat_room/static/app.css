@@ -1206,6 +1206,90 @@ html[data-theme="fish"] .msg-row {
 }
 .qopt:active { background: var(--accent-soft); }
 
+/* ================= 内置表情包 ================= */
+.sticker-panel {
+  flex: 0 0 auto;
+  display: flex; flex-direction: column;
+  max-height: min(40vh, 330px);
+  padding: 8px 12px 10px;
+  background: var(--bar-bg-2);
+  backdrop-filter: blur(8px);
+  border-top: 1px solid var(--line);
+  animation: stickerDrop .14s ease-out;
+}
+.sticker-panel[hidden] { display: none; }
+@keyframes stickerDrop {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+.sticker-head {
+  flex: 0 0 auto;
+  display: flex; align-items: center; gap: 8px;
+  padding: 1px 2px 8px;
+}
+.sticker-title { font-size: 13px; font-weight: 700; color: var(--accent); }
+.sticker-tip { font-size: 11.5px; color: var(--dim); }
+.sticker-close {
+  margin-left: auto;
+  width: 26px; height: 26px; border-radius: 8px;
+  color: var(--dim); font-size: 17px; line-height: 1;
+  border: 1px solid var(--line); background: var(--field-focus);
+}
+.sticker-close:active { background: var(--line-soft); }
+.sticker-grid {
+  flex: 1; min-height: 0;
+  overflow-y: auto; overscroll-behavior: contain;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(58px, 1fr));
+  gap: 5px;
+  padding: 1px 3px 2px 1px;
+}
+.sticker-grid::-webkit-scrollbar { width: 6px; }
+.sticker-grid::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: 3px; }
+.sticker-item {
+  padding: 3px; border-radius: 10px;
+  border: 1px solid transparent; background: transparent;
+  cursor: pointer;
+  transition: background .12s, border-color .12s, transform .12s;
+}
+.sticker-item:hover {
+  background: var(--accent-soft);
+  border-color: rgba(var(--accent-rgb), .24);
+}
+.sticker-item:active { transform: scale(.9); }
+.sticker-item img {
+  width: 100%; height: auto; aspect-ratio: 1 / 1;
+  object-fit: contain; display: block;
+  image-rendering: pixelated;
+}
+.sticker-empty {
+  grid-column: 1 / -1;
+  padding: 22px 0; text-align: center;
+  font-size: 12.5px; color: var(--dim);
+}
+
+/* 纯表情气泡：去掉文字气泡的底色和留白，让表情本身成为主角 */
+.bubble.sticker-bubble {
+  padding: 4px;
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  white-space: normal;
+}
+.msg-row.right .bubble.sticker-bubble {
+  background: transparent;
+  border-color: transparent;
+}
+.bubble.sticker-bubble .sticker-img {
+  width: 112px; height: 112px;
+  max-width: 38vw; max-height: 38vw;
+  margin: 0; border: none; box-shadow: none;
+  border-radius: 4px;
+  object-fit: contain;
+  image-rendering: pixelated;
+  cursor: zoom-in;
+}
+
 /* ================= 输入区 ================= */
 .composer {
   flex: 0 0 auto;
@@ -1230,6 +1314,11 @@ html[data-theme="fish"] .msg-row {
   border: 1px solid var(--line); background: var(--field-focus);
 }
 .composer-btn:active { background: var(--line-soft); }
+.composer-btn.on {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: rgba(var(--accent-rgb), .36);
+}
 .composer-btn.send {
   background: var(--btn-grad);
   color: #fff; border-color: transparent; font-size: 15px;
@@ -2050,6 +2139,12 @@ button.chan-main { cursor: pointer; }
   .composer { padding: 8px 11px calc(8px + var(--safe-b)); }
   .composer-btn { width: 38px; height: 38px; }
   .composer textarea { min-height: 38px; font-size: 16px; }  /* 16px 防 iOS 缩放 */
+
+  .sticker-panel { max-height: min(36vh, 300px); padding: 7px 9px 9px; }
+  .sticker-head { padding-bottom: 6px; }
+  .sticker-tip { display: none; }
+  .sticker-grid { grid-template-columns: repeat(auto-fill, minmax(50px, 1fr)); gap: 4px; }
+  .bubble.sticker-bubble .sticker-img { width: 96px; height: 96px; max-width: 34vw; max-height: 34vw; }
 
   .card-row .k { min-width: 58px; }
   .card-item { padding: 9px 13px; }

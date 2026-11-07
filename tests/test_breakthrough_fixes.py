@@ -78,6 +78,27 @@ class TestBreakthroughFixes(unittest.TestCase):
         )
         self.assertAlmostEqual(rate, 0.98, places=6)
 
+    def test_boost_pill_extends_breakthrough_pill_cap(self):
+        """增益丹加成应叠加在破境丹上限之外，而不是被上限吞掉。"""
+        player = self.Player(user_id="u1", level_index=23, cultivation_type="灵修")
+        # 破虚丹·后：基础 0.08 + 丹药 0.77 = 0.85（正好顶满丹药上限）
+        rate_without_boost, _ = self._manager().calculate_breakthrough_success_rate(
+            player, "破虚丹·后", 0.0, None, 1.0
+        )
+        self.assertAlmostEqual(rate_without_boost, 0.85, places=6)
+
+        # 七品化神增益丹 +20%：上限 0.85 -> 1.00，最终 1.00
+        rate_with_boost, info = self._manager().calculate_breakthrough_success_rate(
+            player, "破虚丹·后", 0.2, None, 1.0
+        )
+        self.assertAlmostEqual(rate_with_boost, 1.0, places=6)
+        self.assertIn("增益丹额外提升上限", info)
+
+    def test_effective_max_success_rate_is_clamped(self):
+        self.assertEqual(self._manager().get_effective_max_success_rate(0.85, 0.2), 1.0)
+        self.assertAlmostEqual(self._manager().get_effective_max_success_rate(0.7, 0.1), 0.8)
+        self.assertAlmostEqual(self._manager().get_effective_max_success_rate(0.9, -0.2), 0.9)
+
     def test_death_probability_range_is_validated(self):
         cases = [
             ({"VALUES": {"BREAKTHROUGH_DEATH_PROBABILITY": [0.2]}}, (0.01, 0.1)),

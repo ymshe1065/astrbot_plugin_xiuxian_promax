@@ -324,15 +324,15 @@ class CombatManager:
         practice_bonus = min(0.20, max(0, int(player.atkpractice or 0)) * 0.01)
         phys_attack_bonus = max(-.5, min(.5, physical_mult - 1 + atk_buff + practice_bonus + forge_bonus))
         magic_attack_bonus = max(-.5, min(.5, magic_mult - 1 + atk_buff + practice_bonus + forge_bonus))
-        # 符箓双防是倍率增量（0.33 = ×1.33），要单独并进防御面板，
-        # 否则 /使用符箓 只涨提示不涨面板。
+        # merge_into_combat_effects 已把符箓双防写成绝对倍率（0.33 增量 → 1.33），
+        # 这里直接取倍率，别再 +1，否则会被 defense_bonus 上限钳成 +50%。
         try:
             talisman_def = max(
-                float(effects.get("physical_defense_multiplier", 0) or 0),
-                float(effects.get("magic_defense_multiplier", 0) or 0),
+                float(effects.get("physical_defense_multiplier", 1.0) or 1.0),
+                float(effects.get("magic_defense_multiplier", 1.0) or 1.0),
             )
         except (TypeError, ValueError):
-            talisman_def = 0.0
+            talisman_def = 1.0
         defense_bonus = max(
             -.5,
             min(
@@ -340,7 +340,7 @@ class CombatManager:
                 max(
                     float(pill_multipliers.get("physical_defense", 1.0) or 1.0),
                     float(pill_multipliers.get("magic_defense", 1.0) or 1.0),
-                    1.0 + talisman_def,
+                    talisman_def,
                 ) - 1 + forge_bonus,
             ),
         )
@@ -683,14 +683,14 @@ class CombatManager:
         practice_bonus = min(0.20, max(0, int(player.atkpractice or 0)) * 0.01)
         phys_attack_bonus = max(-.5, min(.5, physical_mult - 1 + atk_buff + practice_bonus + forge_bonus))
         magic_attack_bonus = max(-.5, min(.5, magic_mult - 1 + atk_buff + practice_bonus + forge_bonus))
-        # 符箓双防倍率并入面板（与 build_combat_panel 同口径）
+        # 符箓双防已是绝对倍率（与 build_combat_panel 同口径），直接取用。
         try:
             talisman_def = max(
-                float(effects.get("physical_defense_multiplier", 0) or 0),
-                float(effects.get("magic_defense_multiplier", 0) or 0),
+                float(effects.get("physical_defense_multiplier", 1.0) or 1.0),
+                float(effects.get("magic_defense_multiplier", 1.0) or 1.0),
             )
         except (TypeError, ValueError):
-            talisman_def = 0.0
+            talisman_def = 1.0
         defense_bonus = max(
             -.5,
             min(
@@ -698,7 +698,7 @@ class CombatManager:
                 max(
                     float(pill_multipliers.get("physical_defense", 1.0) or 1.0),
                     float(pill_multipliers.get("magic_defense", 1.0) or 1.0),
-                    1.0 + talisman_def,
+                    talisman_def,
                 ) - 1 + forge_bonus,
             ),
         )

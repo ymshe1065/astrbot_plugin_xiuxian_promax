@@ -2,7 +2,7 @@
 """网页端指令目录：给前端渲染按钮网格用。
 
 分组对齐 ``/修仙帮助`` 的章节，覆盖插件注册的全部功能指令（别名不重复占位，
-见文件末尾 ``ALIASES``）。当前 15 个分组、245 个按钮 + 11 个别名。字段：
+见文件末尾 ``ALIASES``）。当前 15 个分组、245 个按钮 + 12 个别名。字段：
     cmd     实际发送的指令文本（不含唤醒前缀时后端补 /）
     label   按钮文字
     arg     带参指令的输入提示；为空表示可直接点发
@@ -133,13 +133,14 @@ CATEGORIES: list[dict[str, Any]] = [
             {"cmd": "/丹方", "label": "我的丹方", "panel": True},
             {"cmd": "/丹药配方", "label": "丹药配方", "panel": True},
             {"cmd": "/学习丹方", "label": "学习丹方", "arg": "丹方名或编号"},
-            {"cmd": "/炼丹", "label": "炼丹", "arg": "丹方编号 [火候]", "tone": "gold"},
+            {"cmd": "/炼丹", "label": "炼丹", "arg": "丹方编号 [火候] [次数/all]", "tone": "gold"},
             {"cmd": "/火候", "label": "火候", "arg": "猛火 / 文火 / 守中"},
             {"cmd": "/选择生活职业", "label": "选择生活职业", "arg": "炼器师/符箓师/阵法师/炼丹师"},
             {"cmd": "/符箓", "label": "符箓图鉴", "panel": True},
             {"cmd": "/符箓配方", "label": "符箓配方", "panel": True},
             {"cmd": "/符箓书", "label": "符箓书", "panel": True},
-            {"cmd": "/制符", "label": "制符"},
+            {"cmd": "/日常制符", "label": "日常制符"},
+            {"cmd": "/制符", "label": "制符", "arg": "符名 [数量/all]"},
             {"cmd": "/使用符箓", "label": "使用符箓", "arg": "符名 数量"},
         ],
     },
@@ -217,7 +218,6 @@ CATEGORIES: list[dict[str, Any]] = [
             {"cmd": "/讨伐", "label": "讨伐", "tone": "gold"},
             {"cmd": "/江湖事件", "label": "江湖事件", "panel": True},
             {"cmd": "/挑战世界Boss", "label": "挑战世界Boss", "tone": "gold"},
-            {"cmd": "/世界Boss", "label": "世界Boss(旧)", "panel": True},
             {"cmd": "/世界Boss状态", "label": "世界Boss状态", "panel": True},
             {"cmd": "/挑战团本", "label": "挑战团本"},
             {"cmd": "/团本状态", "label": "团本状态", "panel": True},
@@ -226,7 +226,7 @@ CATEGORIES: list[dict[str, Any]] = [
             {"cmd": "/周本创建", "label": "周本创建"},
             {"cmd": "/周本加入", "label": "周本加入", "arg": "队伍编号"},
             {"cmd": "/周本离开", "label": "周本离开"},
-            {"cmd": "/周本备战", "label": "周本备战"},
+            {"cmd": "/周本备战", "label": "周本备战", "arg": "推荐 / 清空 / 丹药清单"},
             {"cmd": "/周本开始", "label": "周本开始"},
             {"cmd": "/周本确认", "label": "周本确认"},
             {"cmd": "/周本取消", "label": "周本取消"},
@@ -380,6 +380,7 @@ PANEL_PREFETCH = ["/我的信息"]
 ALIASES: set[str] = {
     "重修",          # /弃道重修
     "世界boss",      # /世界Boss
+    "世界Boss",      # /世界Boss（旧名，前端不再展示按钮）
     "追捕",          # /讨伐
     "挑战通缉犯",    # /讨伐
     "通缉令",        # /江湖事件
@@ -423,9 +424,10 @@ ARG_SPEC: dict[str, dict[str, Any]] = {
     "服用丹药": {"hint": "丹药名 数量", "example": "炼气丹 1", "min": 1},
     "炼器": {"hint": "洗练 部位 词条 妖兽材料 [数量]", "example": "洗练 武器 暴击率 诛仙龙骨铁 2", "min": 4},
     # 丹道符箓
-    "炼丹": {"hint": "丹方编号（如 3）", "example": "3 猛火", "min": 1},
+    "炼丹": {"hint": "丹方编号 [火候] [次数/all]", "example": "3 猛火 10", "min": 1},
     "学习丹方": {"hint": "丹方名或编号", "example": "聚气丹", "min": 1},
     "火候": {"hint": "猛火 / 文火 / 守中", "example": "猛火", "min": 1},
+    "制符": {"hint": "符名 [数量/all]", "example": "寻宝符 2", "min": 1},
     "选择生活职业": {"hint": "炼器师/符箓师/阵法师/炼丹师", "example": "符箓师", "min": 1},
     "使用符箓": {"hint": "符名 数量", "example": "寻宝符 1", "min": 1},
     # 仙市
@@ -508,6 +510,7 @@ ARG_SPEC: dict[str, dict[str, Any]] = {
     "仙灵结缘": {"hint": "要结缘的仙灵（选中即结缘，可手动输入名字）", "example": "青璃", "min": 1},
     # 周本与团队
     "周本加入": {"hint": "队伍编号", "example": "12", "min": 1},
+    "周本备战": {"hint": "推荐 / 清空 / 丹药清单（如 回春散·天*3 狂暴丹*2）", "example": "推荐", "min": 1},
     "重置周本CD": {"hint": "玩家ID或道号", "example": "云无月", "min": 1},
     "仙界管理": {"hint": "子命令（查玩家/发灵石/重置/公告）", "example": "公告 仙界维护", "min": 1},
 }
