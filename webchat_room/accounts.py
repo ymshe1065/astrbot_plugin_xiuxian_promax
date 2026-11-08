@@ -186,7 +186,7 @@ def make_token(username: str) -> str:
 
 def parse_token(token: str) -> str | None:
     """校验 token，返回账号名；无效/过期返回 None。"""
-    if not token or "." not in token:
+    if not token or not token.isascii() or "." not in token:
         return None
     payload, sig = token.rsplit(".", 1)
     if not hmac.compare_digest(_sign(payload), sig):
@@ -555,9 +555,11 @@ def list_notices(
     """按时间倒序返回通知，附带未读数。"""
     username = _norm(username)
     limit = max(1, min(int(limit or 50), 100))
+    before = int(before or 0)
     sql = "SELECT * FROM webroom_notices WHERE username = ?"
     args: list[Any] = [username]
-    if before:
+    # SQLite INTEGER 只有 64 位；比最大 ID 更大的游标等价于第一页。
+    if 0 < before <= 2**63 - 1:
         sql += " AND id < ?"
         args.append(int(before))
     if unread_only:
@@ -574,19 +576,27 @@ def mark_notices_read(
     username = _norm(username)
     with _lock:
         db = _db()
-        if all_read or not ids:
+        if all_read:
             cur = db.execute(
                 "UPDATE webroom_notices SET is_read = 1 WHERE username = ? AND is_read = 0",
                 (username,),
             )
         else:
-            clean = [int(i) for i in ids if str(i).isdigit()]
+            clean = set()
+            for value in ids or []:
+                if isinstance(value, bool) or not isinstance(value, (int, str)):
+                    continue
+                raw = str(value)
+                if len(raw) <= 19 and raw.isascii() and raw.isdecimal():
+                    item_id = int(raw)
+                    if 0 < item_id <= 2**63 - 1:
+                        clean.add(item_id)
             if not clean:
                 return 0
             marks = ",".join("?" for _ in clean)
             cur = db.execute(
                 f"UPDATE webroom_notices SET is_read = 1 "
-                f"WHERE username = ? AND id IN ({marks})",
+                f"WHERE username = ? AND is_read = 0 AND id IN ({marks})",
                 [username, *clean],
             )
         db.commit()

@@ -407,6 +407,14 @@ class RaidManager:
         return True, "\n".join(msg)
 
     async def settle_raid(self, raid_id: int, killer_id: str = "") -> str:
+        """结算标记与所有玩家奖励原子提交，异常时保留待结算状态。"""
+        async with self.db.transaction():
+            msg = await self._settle_raid_rewards(raid_id, killer_id)
+        if msg:
+            self.last_settle_msg = msg
+        return msg
+
+    async def _settle_raid_rewards(self, raid_id: int, killer_id: str) -> str:
         async with self.db.conn.execute(
             "SELECT * FROM world_boss_raids WHERE raid_id = ?", (raid_id,)
         ) as cursor:
@@ -422,7 +430,6 @@ class RaidManager:
             (raid_id,),
         ) as cursor:
             claimed = cursor.rowcount
-        await self.db.conn.commit()
         if not claimed:
             return ""
 
@@ -504,7 +511,7 @@ class RaidManager:
             except Exception:
                 pass
 
-            await self.db.add_player_gold(target_player.user_id, gold)
+            await self.db.add_player_gold(target_player.user_id, gold, commit=False)
             target_player.gold += gold
 
             collected = {}
@@ -561,6 +568,8 @@ class RaidManager:
             item_lines = [f"{name}x{count}" for name, count in collected.items()]
             item_lines.extend(f"{name}x{count}（储物戒已满）" for name, count in lost.items())
 
+            await self.db.update_player(target_player, commit=False)
+
             tag = "👑 斩首" if is_killer else ("🥇" if rank == 1 else ("🥈" if rank <= 3 else "🥉"))
             line = f"{tag} {rank}. {display_name} - {gold:,}灵石"
             if item_lines:
@@ -569,8 +578,7 @@ class RaidManager:
 
         msg.append("━━━━━━━━━━━━━━━")
         msg.append("💡 团本奖励已发放至各位修士的储物戒/账户！")
-        self.last_settle_msg = "\n".join(msg)
-        return self.last_settle_msg
+        return "\n".join(msg)
 
     async def _store_item(
         self, player: Player, item_name: str, count: int, quality: str = ""
@@ -578,7 +586,7 @@ class RaidManager:
         if not self.storage_ring_mgr:
             return False
         try:
-            kwargs = {"silent": True}
+            kwargs = {"silent": True, "external_transaction": True}
             if quality:
                 kwargs["quality"] = quality
             success, _ = await self.storage_ring_mgr.grant_item(
@@ -587,7 +595,7 @@ class RaidManager:
             return bool(success)
         except Exception as e:
             logger.warning(f"团本掉落发放失败 {item_name}x{count}: {e}")
-            return False
+            raise
 
     async def settle_pending_raids(self) -> List[str]:
         async with self.db.conn.execute(

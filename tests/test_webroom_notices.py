@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
 """webroom 消息受众、隐私设置与个人消息历史回归测试。"""
+import asyncio
 import json
+import socket
 import sys
 import tempfile
 import types
 import unittest
+from unittest.mock import AsyncMock, Mock, patch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -90,6 +93,53 @@ def _fresh_db():
     accounts.init()
 
 
+class RoomShutdownTest(unittest.IsolatedAsyncioTestCase):
+    async def test_start_can_retry_after_port_binding_failure(self):
+        reserved = socket.socket()
+        reserved.bind(("127.0.0.1", 0))
+        reserved.listen()
+        port = reserved.getsockname()[1]
+        with patch.object(rs, "_runner", None), patch.object(rs, "_site", None), \
+                patch.object(rs.accounts_store, "init"), patch.object(rs.channels_store, "init"):
+            try:
+                with self.assertRaises(OSError):
+                    await rs.start("127.0.0.1", port)
+                self.assertIsNone(rs._runner)
+                self.assertIsNone(rs._site)
+                reserved.close()
+                await rs.start("127.0.0.1", port)
+                self.assertIsNotNone(rs._site)
+            finally:
+                reserved.close()
+                await rs.stop()
+
+    async def test_shutdown_handles_rooms_removed_by_disconnecting_clients(self):
+        first, second = Mock(), Mock()
+        first.close = AsyncMock(side_effect=lambda **_: rs._drop("first", first))
+        second.close = AsyncMock(side_effect=lambda **_: rs._drop("second", second))
+        with patch.dict(rs._rooms, {"first": {first: {}}, "second": {second: {}}}, clear=True), \
+                patch.object(rs, "_runner", None), patch.object(rs, "_site", None):
+            await rs.stop()
+            first.close.assert_awaited_once()
+            second.close.assert_awaited_once()
+            self.assertEqual(rs._rooms, {})
+
+    async def test_shutdown_cancels_delayed_bag_checks(self):
+        task = asyncio.create_task(asyncio.sleep(60))
+        try:
+            with patch.dict(rs._rooms, {}, clear=True), \
+                    patch.object(rs, "_bag_tasks", {task}), \
+                    patch.dict(rs._bag_sigs, {"old_player": "old_signature"}, clear=True), \
+                    patch.object(rs, "_runner", None), patch.object(rs, "_site", None):
+                await rs.stop()
+                self.assertTrue(task.cancelled())
+                self.assertFalse(rs._bag_tasks)
+                self.assertFalse(rs._bag_sigs)
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+
 class SettingsTest(unittest.TestCase):
     def setUp(self):
         _fresh_db()
@@ -116,6 +166,11 @@ class SettingsTest(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(accounts.username_of_player_key("1234567"), "alice")
 
+    def test_token_rejects_non_ascii_signature_without_raising(self):
+        token = accounts.make_token("alice")
+        self.assertEqual(accounts.parse_token(token), "alice")
+        self.assertIsNone(accounts.parse_token(token.split(".")[0] + ".签名"))
+
 
 class NoticeStoreTest(unittest.TestCase):
     def setUp(self):
@@ -141,6 +196,28 @@ class NoticeStoreTest(unittest.TestCase):
         removed = accounts.clear_read_notices("bob")
         self.assertEqual(removed, 2)
         self.assertEqual(accounts.list_notices("bob")[0], [])
+
+    def test_empty_ids_do_not_mark_every_notice_read(self):
+        accounts.add_notice("bob", title="尚未阅读")
+        self.assertEqual(accounts.mark_notices_read("bob", ids=[]), 0)
+        self.assertEqual(accounts.mark_notices_read("bob"), 0)
+        self.assertEqual(accounts.count_unread("bob"), 1)
+
+    def test_invalid_ids_are_ignored_and_updates_remain_user_scoped(self):
+        first = accounts.add_notice("bob", title="目标消息")
+        second = accounts.add_notice("alice", title="其他账号的消息")
+        changed = accounts.mark_notices_read(
+            "bob", ids=["²", 2**80, True, None, {}, str(first), first, second]
+        )
+        self.assertEqual(changed, 1)
+        self.assertEqual(accounts.count_unread("alice"), 1)
+        self.assertEqual(accounts.mark_notices_read("bob", ids=[first]), 0)
+
+    def test_large_pagination_cursor_does_not_overflow_sqlite(self):
+        first = accounts.add_notice("bob", title="消息")
+        rows, unread = accounts.list_notices("bob", before=2**80)
+        self.assertEqual([row["id"] for row in rows], [first])
+        self.assertEqual(unread, 1)
 
 
 class AudienceTest(unittest.IsolatedAsyncioTestCase):
@@ -176,6 +253,13 @@ class AudienceTest(unittest.IsolatedAsyncioTestCase):
             if item.get("type") == typ:
                 return item
         return None
+
+    async def test_invalid_notice_pagination_keeps_connection_usable(self):
+        for value in ("abc", [], {}, float("inf")):
+            await self._send({"action": "notices", "limit": value, "before": "bad"})
+            self.assertIsNotNone(self._last(self.sender, "error"))
+        await self._send({"action": "ping"})
+        self.assertEqual(self.sender.sent[-1]["type"], "pong")
 
     def test_resolve_audience(self):
         self.assertEqual(rs.resolve_audience("/签到", {}), "public")

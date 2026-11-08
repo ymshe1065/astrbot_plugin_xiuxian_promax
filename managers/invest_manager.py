@@ -397,10 +397,20 @@ class InvestManager:
 
         start = max(last + 1, target - MAX_BACKFILL_TICKS + 1)
         moved = 0
-        settled_upto = last  # 最后一次成功结算的盘次
         for tick in range(start, target + 1):
             try:
-                await self._settle_tick(tick)
+                async with self.db.transaction():
+                    # 多个管理器/后台任务可能同时补盘；数据库锁内复查已完成进度。
+                    latest = await self._get_last_tick()
+                    if latest is not None and latest >= tick:
+                        continue
+                    await self._settle_tick(tick)
+                    # 行情、分红与检查点共同提交，崩溃/失败后不会重放半盘行情。
+                    await self.db.conn.execute(
+                        "UPDATE system_config SET value = ?, updated_at = ? "
+                        "WHERE key = 'invest_last_tick'",
+                        (str(tick), int(time.time())),
+                    )
             except Exception as exc:  # 单盘失败不应拖垮整个循环
                 # 只记录失败并中断本轮：last_tick 不推进到失败盘，下轮重试。
                 # 绝不把未结算的盘标记为已完成（宁可反复重试并报错，也不跳盘吞行情）。
@@ -409,39 +419,35 @@ class InvestManager:
                 logger.error(f"【仙市】第 {tick} 盘结算失败（连续第 {fails} 次）: {exc}")
                 break
             self._tick_failures.pop(tick, None)
-            settled_upto = tick
             moved += 1
-        if settled_upto > last:
-            await self._set_last_tick(settled_upto)
-            await self.db.conn.commit()
         return moved
 
     async def _settle_tick(self, tick: int):
-        day, slot = divmod(tick, TICKS_PER_DAY)
-        products = await self._load_products()
+        async with self.db.transaction():
+            day, slot = divmod(tick, TICKS_PER_DAY)
+            products = await self._load_products()
 
-        # 开盘盘重置当日基准，供日线熔断使用
-        if slot == 0:
+            # 开盘盘重置当日基准，供日线熔断使用
+            if slot == 0:
+                for p in products:
+                    p["day_open"] = p["price"]
+
+            # 每盘都生成风声（30% 真消息，其余平静）。风声可能已由 peek_hint 提前落库，
+            # _ensure_news 发现已存在会跳过。结算用「当盘 + 前 3 盘」窗口叠加 bias。
+            await self._ensure_news(day, slot)
+            news = await self._load_news_window(day, slot)
+
             for p in products:
-                p["day_open"] = p["price"]
+                if p["kind"] == "fund":
+                    new_price, change = self._advance_fund(p, tick)
+                    tag = ""
+                else:
+                    bias = self._bias_for(p, day, slot, news)
+                    new_price, change = self._advance_stock(p, tick, slot, bias)
+                    tag = self._tag_for(p, news)
+                await self._write_price(p, tick, new_price, change, tag)
 
-        # 每盘都生成风声（30% 真消息，其余平静）。风声可能已由 peek_hint 提前落库，
-        # _ensure_news 发现已存在会跳过。结算用「当盘 + 前 3 盘」窗口叠加 bias。
-        await self._ensure_news(day, slot)
-        news = await self._load_news_window(day, slot)
-
-        for p in products:
-            if p["kind"] == "fund":
-                new_price, change = self._advance_fund(p, tick)
-                tag = ""
-            else:
-                bias = self._bias_for(p, day, slot, news)
-                new_price, change = self._advance_stock(p, tick, slot, bias)
-                tag = self._tag_for(p, news)
-            await self._write_price(p, tick, new_price, change, tag)
-
-        await self._pay_dividends(tick)
-        await self.db.conn.commit()
+            await self._pay_dividends(tick)
 
     def _advance_stock(self, product: dict, tick: int, slot: int, bias: float) -> Tuple[float, float]:
         rng = self._rng(tick, product["code"], "settle")
@@ -575,13 +581,11 @@ class InvestManager:
         （invest_events(trade_day, slot) 有唯一索引兜底），风声推送任务与结算任务
         同时生成同一盘也只会落一条。
         """
-        await self.db.conn.execute("BEGIN IMMEDIATE")
-        try:
+        async with self.db.transaction():
             exists = await self._scalar(
                 "SELECT COUNT(*) FROM invest_events WHERE trade_day = ? AND slot = ?", (day, slot)
             )
             if exists:
-                await self.db.conn.commit()
                 return
 
             # 保底：连续两盘都是「盘面平静」，这一盘强制给真消息。
@@ -614,10 +618,6 @@ class InvestManager:
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (day, slot, code, pattern, direction, 0.0, strength, title, detail),
             )
-            await self.db.conn.commit()
-        except Exception:
-            await self.db.conn.rollback()
-            raise
 
     async def _load_news_window(self, day: int, slot: int) -> List[dict]:
         """加载「当盘 + 前 3 盘」的消息，用于结算时叠加 bias（消息影响 4 盘）。"""
@@ -879,9 +879,10 @@ class InvestManager:
                     (player.user_id, code),
                 )
             else:
+                remaining_cost = round(int(held["cost"]) * remaining / held_shares)
                 await self.db.conn.execute(
-                    "UPDATE invest_holdings SET shares = ? WHERE user_id = ? AND code = ?",
-                    (remaining, player.user_id, code),
+                    "UPDATE invest_holdings SET shares = ?, cost = ? WHERE user_id = ? AND code = ?",
+                    (remaining, remaining_cost, player.user_id, code),
                 )
 
             await self.db.conn.execute(
@@ -973,7 +974,7 @@ class InvestManager:
     async def redeem_fund(self, player: Player, code: str, shares: float) -> Tuple[bool, str]:
         """shares == 0 表示全部赎回；负数直接拒绝（防止误落入全部赎回分支）。"""
         code = (code or "").strip().upper()
-        if shares < 0:
+        if not math.isfinite(shares) or shares < 0:
             return False, "份额必须为正数或「全部」。"
         opened, why = self._check_market()
         if not opened:
@@ -1017,9 +1018,10 @@ class InvestManager:
                     (player.user_id, code),
                 )
             else:
+                remaining_cost = round(int(held["cost"]) * remaining / held_shares)
                 await self.db.conn.execute(
-                    "UPDATE invest_holdings SET shares = ? WHERE user_id = ? AND code = ?",
-                    (remaining, player.user_id, code),
+                    "UPDATE invest_holdings SET shares = ?, cost = ? WHERE user_id = ? AND code = ?",
+                    (remaining, remaining_cost, player.user_id, code),
                 )
 
             await self.db.conn.execute(
@@ -1033,7 +1035,7 @@ class InvestManager:
             await self.db.conn.rollback()
             raise
 
-        tier_note = f"（持有 {held_ticks} 盘，赎回费 {fee_rate:.1%}）" if fee_rate else "（持有满 42 盘，免赎回费）"
+        tier_note = f"（持有 {held_ticks} 盘，赎回费 {fee_rate:.1%}）" if fee_rate else f"（持有 {held_ticks} 盘，免赎回费）"
         return True, (
             f"赎回 {product['name']} {sell_shares:.2f} 份\n"
             f"成交净值 {nav:.4f}，金额 {amount:,} {tier_note}\n"

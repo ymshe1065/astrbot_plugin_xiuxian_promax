@@ -59,13 +59,27 @@ SLOT_LABELS: Dict[str, str] = {
     "technique": "技能",
 }
 
-# 丹药配置里的 subtype → 中文（目前只有突破类）
+# 丹药配置里的 subtype → 中文（与 handlers/pill_handler.py 的展示口径保持一致）
 PILL_SUBTYPE_LABELS: Dict[str, str] = {
     "breakthrough": "突破",
     "exp": "修为",
     "cultivation": "修为",
     "combat": "战斗",
     "combat_boost": "战斗",
+    "resurrection": "回生",
+    "cultivation_boost": "修炼加速",
+    "permanent_attribute": "永久属性",
+    "defensive_boost": "防御增益",
+    "instant_restore": "瞬间恢复",
+    "regeneration": "持续恢复",
+    "debuff": "负面",
+    "breakthrough_boost": "突破辅助",
+    "breakthrough_debuff": "突破削弱",
+    "reset": "重置",
+    "protection": "护盾",
+    "recovery": "恢复",
+    "special": "特殊",
+    "chaos_boost": "混沌",
 }
 
 
@@ -119,6 +133,14 @@ def item_meta(item_name: str, config_manager: Any = None) -> Dict[str, str]:
     sub = ""
 
     raw_type = str(cfg.get("type") or "")
+
+    # exp_pills.json / utility_pills.json 的历史条目没有 type 字段；
+    # 不补齐会导致这两类丹药在储物戒/仓库清单里没有「（丹药·…）」后缀。
+    if not raw_type:
+        if "exp_gain" in cfg or str(cfg.get("subtype") or "") == "exp":
+            raw_type = "pill"
+        elif cfg.get("effect_type") or cfg.get("resurrects") or cfg.get("subtype"):
+            raw_type = "pill"
 
     # 非装备类别必须先判：功法在装备槽位表里也占一格（technique），
     # 若先走 is_equipment，心法会被误标成「装备·心法」。

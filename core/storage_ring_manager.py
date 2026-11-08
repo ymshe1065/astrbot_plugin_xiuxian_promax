@@ -256,6 +256,8 @@ class StorageRingManager:
         )
 
     async def store_item(self, player: Player, item_name: str, count: int = 1, silent: bool = False, external_transaction: bool = False, allow_overflow: bool = True, quality: str = "") -> Tuple[bool, str]:
+        if count <= 0:
+            return False, "数量必须大于0"
         can_store, reason = self.can_store_item(item_name)
         if not can_store:
             return False, reason
@@ -302,7 +304,7 @@ class StorageRingManager:
                         player.set_overflow_items(overflow)
                         orig_player.set_overflow_items(overflow)
                     if not external_transaction:
-                        await self.db.update_player(player)
+                        await self.db.update_player(player, commit=False)
                         await self.db.conn.commit()
                     return True, f"储物戒容量不足，【{item_name}】x{count} 已转入溢出仓库，请清理储物戒后 /领取溢出"
                 if not external_transaction:
@@ -320,7 +322,7 @@ class StorageRingManager:
                 )
                 orig_player.set_equipment_instances(player.get_equipment_instances())
                 if not external_transaction:
-                    await self.db.update_player(player)
+                    await self.db.update_player(player, commit=False)
                     await self.db.conn.commit()
                 capacity = self.get_total_capacity(player)
                 used = self.get_used_slots(player)
@@ -334,7 +336,7 @@ class StorageRingManager:
             orig_player.set_equipment_instances(player.get_equipment_instances())
 
             if not external_transaction:
-                await self.db.update_player(player)
+                await self.db.update_player(player, commit=False)
                 await self.db.conn.commit()
 
             capacity = self.get_total_capacity(player)
@@ -420,7 +422,7 @@ class StorageRingManager:
             player.set_overflow_items(remaining)
             player.set_pills_inventory(fresh.get_pills_inventory())
             player.set_equipment_instances(fresh.get_equipment_instances())
-            await self.db.update_player(fresh)
+            await self.db.update_player(fresh, commit=False)
             await self.db.conn.commit()
             if claimed:
                 return len(claimed), "已取回：" + "、".join(claimed)
@@ -430,6 +432,8 @@ class StorageRingManager:
             raise
 
     async def retrieve_item(self, player: Player, item_name: str, count: int = 1) -> Tuple[bool, str]:
+        if count <= 0:
+            return False, "数量必须大于0"
         orig_player = player  # 同步调用方对象，防止其后续 update_player 回滚本次取出
         await self.db.conn.execute("BEGIN IMMEDIATE")
         try:
@@ -445,7 +449,7 @@ class StorageRingManager:
                     for inst in sorted(insts, key=lambda x: int(x.get("id", 0) or 0))[:count]:
                         self.instance_manager.remove(player, int(inst.get("id", 0) or 0))
                     orig_player.set_equipment_instances(player.get_equipment_instances())
-                    await self.db.update_player(player)
+                    await self.db.update_player(player, commit=False)
                     await self.db.conn.commit()
                     capacity = self.get_total_capacity(player)
                     used = self.get_used_slots(player)
@@ -459,7 +463,7 @@ class StorageRingManager:
                         items[item_name] = legacy - count
                     player.set_storage_ring_items(items)
                     orig_player.set_storage_ring_items(items)
-                    await self.db.update_player(player)
+                    await self.db.update_player(player, commit=False)
                     await self.db.conn.commit()
                     return True, f"已取出【{item_name}】x{count}"
                 await self.db.conn.rollback()
@@ -480,7 +484,7 @@ class StorageRingManager:
 
             player.set_storage_ring_items(items)
             orig_player.set_storage_ring_items(items)  # 同步调用方对象
-            await self.db.update_player(player)
+            await self.db.update_player(player, commit=False)
             await self.db.conn.commit()
 
             capacity = self.get_total_capacity(player)
@@ -491,6 +495,8 @@ class StorageRingManager:
             raise
 
     async def discard_item(self, player: Player, item_name: str, count: int = 1) -> Tuple[bool, str]:
+        if count <= 0:
+            return False, "数量必须大于0"
         orig_player = player  # 同步调用方对象，防止其后续 update_player 回滚本次丢弃
         await self.db.conn.execute("BEGIN IMMEDIATE")
         try:
@@ -506,7 +512,7 @@ class StorageRingManager:
                     for inst in sorted(insts, key=lambda x: int(x.get("id", 0) or 0))[:count]:
                         self.instance_manager.remove(player, int(inst.get("id", 0) or 0))
                     orig_player.set_equipment_instances(player.get_equipment_instances())
-                    await self.db.update_player(player)
+                    await self.db.update_player(player, commit=False)
                     await self.db.conn.commit()
                     capacity = self.get_total_capacity(player)
                     used = self.get_used_slots(player)
@@ -519,7 +525,7 @@ class StorageRingManager:
                         items[item_name] = legacy - count
                     player.set_storage_ring_items(items)
                     orig_player.set_storage_ring_items(items)
-                    await self.db.update_player(player)
+                    await self.db.update_player(player, commit=False)
                     await self.db.conn.commit()
                     return True, f"已消耗【{item_name}】x{count}"
                 await self.db.conn.rollback()
@@ -541,7 +547,7 @@ class StorageRingManager:
 
             player.set_storage_ring_items(items)
             orig_player.set_storage_ring_items(items)  # 同步调用方对象
-            await self.db.update_player(player)
+            await self.db.update_player(player, commit=False)
             await self.db.conn.commit()
 
             capacity = self.get_total_capacity(player)
@@ -669,7 +675,7 @@ class StorageRingManager:
             orig_player.gold = player.gold
             orig_player.set_storage_ring_items(items)
             orig_player.set_pills_inventory(pills)
-            await self.db.update_player(player)
+            await self.db.update_player(player, commit=False)
             await self.db.conn.commit()
             name_text = "、".join(details[:5]) + ("…" if len(details) > 5 else "")
             return True, (
@@ -886,7 +892,7 @@ class StorageRingManager:
             orig_player.set_warehouse_items(warehouse_items)
             orig_player.set_pills_inventory(pills)
             orig_player.set_equipment_instances(player.get_equipment_instances())
-            await self.db.update_player(player)
+            await self.db.update_player(player, commit=False)
             await self.db.conn.commit()
         except Exception:
             await self.db.conn.rollback()

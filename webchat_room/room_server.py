@@ -294,18 +294,37 @@ async def start(host: str, port: int) -> None:
     if STATIC_DIR.is_dir():
         app.router.add_static("/static/", STATIC_DIR, name="static")
 
-    _runner = web.AppRunner(app, access_log=None)
-    await _runner.setup()
-    _site = web.TCPSite(_runner, host, port)
-    await _site.start()
+    runner = web.AppRunner(app, access_log=None)
+    try:
+        await runner.setup()
+        site = web.TCPSite(runner, host, port)
+        await site.start()
+    except BaseException:
+        # 端口冲突/启动取消时释放 runner，不留下阻止下次启动的伪运行状态。
+        await runner.cleanup()
+        raise
+    _runner, _site = runner, site
     logger.info(f"[webroom] 房间服务已启动: http://{host}:{port}/")
 
 
 async def stop() -> None:
     global _runner, _site
-    for conns in _rooms.values():
-        for ws in list(conns):
-            await ws.close(code=1001, message=b"server shutdown")
+    if _site is not None:
+        await _site.stop()
+    # close 会触发握手协程的 finally 并删除房间，必须先拍下所有连接。
+    sockets = [ws for conns in _rooms.values() for ws in conns]
+    if sockets:
+        await asyncio.gather(
+            *(ws.close(code=1001, message=b"server shutdown") for ws in sockets),
+            return_exceptions=True,
+        )
+    tasks = list(_bag_tasks)
+    for task in tasks:
+        task.cancel()
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+    _bag_tasks.clear()
+    _bag_sigs.clear()
     _rooms.clear()
     _recent_msgs.clear()
     _channel_history.clear()
@@ -1914,10 +1933,16 @@ async def _handle_client_message(room_id: str, ws: web.WebSocketResponse, raw: s
             return
         username = str(info.get("username") or "")
         if action == "notices":
+            try:
+                limit = int(data.get("limit") or 50)
+                before = int(data.get("before") or 0)
+            except (TypeError, ValueError, OverflowError):
+                await send_to_ws(ws, {"type": "error", "text": "消息分页参数必须为整数"})
+                return
             items, unread = accounts_store.list_notices(
                 username,
-                limit=int(data.get("limit") or 50),
-                before=int(data.get("before") or 0),
+                limit=limit,
+                before=before,
                 unread_only=bool(data.get("unread_only")),
             )
             await send_to_ws(

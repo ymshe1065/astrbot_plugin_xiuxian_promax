@@ -268,7 +268,8 @@ def get_equipment_profile(config) -> str:
 def equipment_rates(config):
     """新装备按 profile 分配；旧装备保留显式 50/50 配置。"""
     explicit = config.get("equipment_rates")
-    if isinstance(explicit, dict) and explicit:
+    # 显式空字典表示纯特效装备没有主属性，只有未配置时才使用部位预算。
+    if isinstance(explicit, dict):
         return {key: min(cap, max(0, float(explicit.get(key, 0))))
                 for key, cap in RATE_CAPS.items()}
     slot = ItemRules.get_equip_slot(config)

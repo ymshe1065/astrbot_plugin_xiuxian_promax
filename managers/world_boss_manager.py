@@ -694,18 +694,16 @@ class WorldBossManager:
     async def _grant_title_async(self, player: Player) -> str:
         if not self.title_mgr:
             return ""
-        try:
-            is_new, msg = self.title_mgr.grant(player, "灭世魔神")
-            if not is_new:
-                return ""
-            fields = {"permanent_bonus": player.permanent_bonus}
-            if not player.title:
-                fields["title"] = "灭世魔神"
-                player.title = "灭世魔神"
-            await self.db.update_player_fields(player.user_id, **fields)
-            return msg.replace("\n", "")
-        except Exception:
+        # 称号写库失败必须让外层奖励事务回滚。
+        is_new, msg = self.title_mgr.grant(player, "灭世魔神")
+        if not is_new:
             return ""
+        fields = {"permanent_bonus": player.permanent_bonus}
+        if not player.title:
+            fields["title"] = "灭世魔神"
+            player.title = "灭世魔神"
+        await self.db.update_player_fields(player.user_id, commit=False, **fields)
+        return msg.replace("\n", "")
 
     async def get_active_boss(self) -> Optional[dict]:
         async with self.db.conn.execute("SELECT * FROM world_boss WHERE status = 1 LIMIT 1") as cursor:
@@ -875,7 +873,14 @@ class WorldBossManager:
         return True, "\n".join(msg)
 
     async def settle_boss_kill(self, boss_id: int, killer_id: str) -> str:
-        """结算Boss击杀奖励（幂等，防重复发放）"""
+        """结算标记与所有玩家奖励一起提交，失败后可安全补结算。"""
+        async with self.db.transaction():
+            msg = await self._settle_boss_rewards(boss_id, killer_id)
+        if msg:
+            self.last_settle_msg = msg
+        return msg
+
+    async def _settle_boss_rewards(self, boss_id: int, killer_id: str) -> str:
         async with self.db.conn.execute(
             "SELECT * FROM world_boss WHERE boss_id = ?", (boss_id,)
         ) as cursor:
@@ -885,11 +890,10 @@ class WorldBossManager:
         boss = dict(boss_row)
         if not boss.get("settled"):
             async with self.db.conn.execute(
-                "UPDATE world_boss SET settled = 1 WHERE boss_id = ? AND settled = 0",
+                "UPDATE world_boss SET settled = 1 WHERE boss_id = ? AND settled = 0 AND status = 2",
                 (boss_id,),
             ) as cursor:
                 claimed = cursor.rowcount
-            await self.db.conn.commit()
             if not claimed:
                 return ""
         else:
@@ -947,7 +951,7 @@ class WorldBossManager:
             except Exception:
                 pass
 
-            await self.db.add_player_gold(target_player.user_id, gold)
+            await self.db.add_player_gold(target_player.user_id, gold, commit=False)
             target_player.gold += gold
 
             if is_killer:
@@ -1006,6 +1010,8 @@ class WorldBossManager:
                 title_msg = await self._grant_title_async(target_player)
                 display_name = f"【{target_player.title or '灭世魔神'}】{target_player.user_name or dmg['user_id']}"
 
+            await self.db.update_player(target_player, commit=False)
+
             tag = "👑 尾刀" if is_killer else ("🥇" if rank == 1 else ("🥈" if rank <= 3 else "🥉"))
             line = f"{tag} {rank}. {display_name} - {gold:,}灵石"
             if item_lines:
@@ -1016,8 +1022,7 @@ class WorldBossManager:
 
         msg.append("━━━━━━━━━━━━━━━")
         msg.append("💡 奖励已发放至各位修士的储物戒/账户！")
-        self.last_settle_msg = "\n".join(msg)
-        return self.last_settle_msg
+        return "\n".join(msg)
 
     async def _store_item(
         self, player: Player, item_name: str, count: int, quality: str = ""
@@ -1025,7 +1030,7 @@ class WorldBossManager:
         if not self.storage_ring_mgr:
             return False
         try:
-            kwargs = {"silent": True}
+            kwargs = {"silent": True, "external_transaction": True}
             if quality:
                 kwargs["quality"] = quality
             success, _ = await self.storage_ring_mgr.grant_item(
@@ -1034,7 +1039,7 @@ class WorldBossManager:
             return bool(success)
         except Exception as e:
             logger.warning(f"世界Boss掉落发放失败 {item_name}x{count}: {e}")
-            return False
+            raise
 
     async def settle_pending_bosses(self) -> List[str]:
         """补偿结算所有已击杀但未结算的Boss，返回结算文本列表。"""

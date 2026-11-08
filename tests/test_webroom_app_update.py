@@ -26,7 +26,8 @@ if str(ROOT) not in sys.path:
 def _ensure_astrbot():
     """没有装 AstrBot 时用开发脚本里的最小桩，让接口逻辑可以离线回归。"""
     try:
-        import astrbot  # noqa: F401
+        # 其它测试可能只注册了顶层 astrbot 桩，须确认本接口实际依赖的子模块。
+        from astrbot.core.utils.astrbot_path import get_astrbot_data_path  # noqa: F401
         return
     except Exception:
         pass
@@ -36,6 +37,9 @@ def _ensure_astrbot():
     import dev_webroom
 
     dev_webroom._install_astrbot_stubs()
+    # 测试桩会被本进程的其它用例复用，不能指向开发预览的持久化账号目录。
+    test_data_dir = tempfile.mkdtemp(prefix="xiuxian_appupd_boot_")
+    sys.modules["astrbot.core.utils.astrbot_path"].get_astrbot_data_path = lambda: test_data_dir
 
 
 _ensure_astrbot()

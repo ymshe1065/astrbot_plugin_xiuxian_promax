@@ -104,7 +104,7 @@ class RiftManager:
                 rewards = {
                     "exp": list(diff.get("exp") or [0, 0]),
                     "gold": list(diff.get("gold") or [0, 0]),
-                    "item_chance": int(diff.get("item_chance") or 70),
+                    "item_chance": int(diff["item_chance"] if diff.get("item_chance") is not None else 70),
                     "extra_drop_chance": int(diff.get("extra_drop_chance") or 0),
                     "equipment_chance": int(diff.get("equipment_chance") or 0),
                     "up_rank_weight": diff.get("up_rank_weight"),
@@ -342,6 +342,10 @@ class RiftManager:
         user_id: str,
         rift_id: int
     ) -> Tuple[bool, str]:
+        async with self.db.transaction():
+            return await self._enter_rift(user_id, rift_id)
+
+    async def _enter_rift(self, user_id: str, rift_id: int) -> Tuple[bool, str]:
         """
         进入秘境
         
@@ -359,11 +363,7 @@ class RiftManager:
         
         # 2. 检查用户状态
         user_cd = await self.db.ext.get_user_cd(user_id)
-        if not user_cd:
-            await self.db.ext.create_user_cd(user_id)
-            user_cd = await self.db.ext.get_user_cd(user_id)
-        
-        if user_cd.type != UserStatus.IDLE:
+        if user_cd and user_cd.type != UserStatus.IDLE:
             return False, f"❌ 你当前正{UserStatus.get_name(user_cd.type)}，无法探索秘境！"
         
         # 3. 检查秘境
@@ -405,7 +405,9 @@ class RiftManager:
             "rift_level": rift.rift_level,
             "difficulty": rift.difficulty or 1,
         }
-        await self.db.ext.set_user_busy(user_id, UserStatus.EXPLORING, scheduled_time, extra_data)
+        await self.db.ext.set_user_busy(
+            user_id, UserStatus.EXPLORING, scheduled_time, extra_data, commit=False
+        )
         
         return True, (
             f"✨ 你进入了『{rift.display_name}』！探索需要 {max(1, duration // 60)} 分钟。\n"
@@ -416,6 +418,11 @@ class RiftManager:
         self,
         user_id: str
     ) -> Tuple[bool, str, Optional[Dict]]:
+        # 先锁定写事务再读探索状态，避免两个结算同时读取到同一轮探索。
+        async with self.db.transaction():
+            return await self._finish_exploration(user_id)
+
+    async def _finish_exploration(self, user_id: str) -> Tuple[bool, str, Optional[Dict]]:
         """
         完成秘境探索
         
@@ -498,74 +505,68 @@ class RiftManager:
         pet_encounter = None
         pet_msg = ""
         consumed_talismans: List[Tuple[str, int]] = []
-        try:
-            await self.db.conn.execute("BEGIN IMMEDIATE")
-            if dropped_items:
-                item_lines = []
-                for entry in dropped_items:
-                    item_name, count, *rest = entry
-                    quality = rest[0] if rest else ""
-                    # 统一发放入口：丹药固定进入丹药背包，其余进入储物戒
-                    is_pill = self._is_pill_item(item_name)
-                    if self.storage_ring_manager:
-                        success, _ = await self.storage_ring_manager.grant_item(
-                            player, item_name, count, quality=quality,
-                            silent=True, external_transaction=True,
-                        )
-                        if success:
-                            if is_pill:
-                                suffix = "（丹药背包）"
-                            else:
-                                suffix = f"（{quality}）" if quality else ""
-                            item_lines.append(f"  · {item_name} x{count}{suffix}")
+        if dropped_items:
+            item_lines = []
+            for entry in dropped_items:
+                item_name, count, *rest = entry
+                quality = rest[0] if rest else ""
+                # 统一发放入口：丹药固定进入丹药背包，其余进入储物戒
+                is_pill = self._is_pill_item(item_name)
+                if self.storage_ring_manager:
+                    success, _ = await self.storage_ring_manager.grant_item(
+                        player, item_name, count, quality=quality,
+                        silent=True, external_transaction=True,
+                    )
+                    if success:
+                        if is_pill:
+                            suffix = "（丹药背包）"
                         else:
-                            item_lines.append(f"  · {item_name} x{count}（储物戒已满，丢失）")
+                            suffix = f"（{quality}）" if quality else ""
+                        item_lines.append(f"  · {item_name} x{count}{suffix}")
                     else:
-                        item_lines.append(f"  · {item_name} x{count}（无法存储）")
-                if item_lines:
-                    item_msg = "\n\n📦 获得物品：\n" + "\n".join(item_lines)
+                        item_lines.append(f"  · {item_name} x{count}（储物戒已满，丢失）")
+                else:
+                    item_lines.append(f"  · {item_name} x{count}（无法存储）")
+            if item_lines:
+                item_msg = "\n\n📦 获得物品：\n" + "\n".join(item_lines)
 
-            try:
-                from ..core.technique_bonus import TechniqueBonusManager
-                gold_reward = TechniqueBonusManager.apply_gold_bonus(
-                    player, gold_reward, self.config_manager
-                )
-            except Exception:
-                pass
-            try:
-                from .pet_manager import PetManager
-                gold_reward = await PetManager(self.db).apply_gold_bonus(player, gold_reward)
-            except Exception:
-                pass
-            player.experience += exp_reward
-            player.gold += gold_reward
-
-            # 探索符按次数生效：本次秘境结算后扣减一次，与耗时无关
-            try:
-                from .talisman_manager import TalismanManager
-                consumed_talismans = TalismanManager.consume_run_charges(player, "rift")
-            except Exception:
-                consumed_talismans = []
-            await self.db.update_player(player, commit=False)
-
-            # 灵兽奇遇：秘境归来的空槽判定
-            try:
-                from .pet_manager import PetManager
-                pet_encounter = await PetManager(self.db).try_exploration_encounter(
-                    player, "秘境探索中", commit=False
-                )
-            except Exception:
-                pet_encounter = None
-            if pet_encounter:
-                from .pet_manager import PetManager
-                pet_msg = PetManager.format_exploration_encounter(pet_encounter)
-
-            # 8. 清除CD
-            await self.db.ext.set_user_free(user_id, commit=False)
-            await self.db.conn.commit()
+        try:
+            from ..core.technique_bonus import TechniqueBonusManager
+            gold_reward = TechniqueBonusManager.apply_gold_bonus(
+                player, gold_reward, self.config_manager
+            )
         except Exception:
-            await self.db.conn.rollback()
-            raise
+            pass
+        try:
+            from .pet_manager import PetManager
+            gold_reward = await PetManager(self.db).apply_gold_bonus(player, gold_reward)
+        except Exception:
+            pass
+        player.experience += exp_reward
+        player.gold += gold_reward
+
+        # 探索符按次数生效：本次秘境结算后扣减一次，与耗时无关
+        try:
+            from .talisman_manager import TalismanManager
+            consumed_talismans = TalismanManager.consume_run_charges(player, "rift")
+        except Exception:
+            consumed_talismans = []
+        await self.db.update_player(player, commit=False)
+
+        # 灵兽奇遇：秘境归来的空槽判定
+        try:
+            from .pet_manager import PetManager
+            pet_encounter = await PetManager(self.db).try_exploration_encounter(
+                player, "秘境探索中", commit=False
+            )
+        except Exception:
+            pet_encounter = None
+        if pet_encounter:
+            from .pet_manager import PetManager
+            pet_msg = PetManager.format_exploration_encounter(pet_encounter)
+
+        # 8. 清除CD
+        await self.db.ext.set_user_free(user_id, commit=False)
 
         talisman_hint = ""
         if consumed_talismans:
@@ -597,6 +598,10 @@ class RiftManager:
         return True, msg, reward_data
     
     async def exit_rift(self, user_id: str) -> Tuple[bool, str]:
+        async with self.db.transaction():
+            return await self._exit_rift(user_id)
+
+    async def _exit_rift(self, user_id: str) -> Tuple[bool, str]:
         """
         退出秘境（放弃探索）
         
@@ -633,12 +638,12 @@ class RiftManager:
 
         cost, currency = calc_abandon_penalty(gold_reward)
         currency_label = "灵气" if currency == "qi" else "灵石"
-        ok, msg = await charge_abandon_penalty(player, self.db, cost, currency)
+        ok, msg = await charge_abandon_penalty(player, self.db, cost, currency, commit=False)
         if not ok:
             return False, msg
 
         # 4. 清除CD状态
-        await self.db.ext.set_user_free(user_id)
+        await self.db.ext.set_user_free(user_id, commit=False)
         
         return True, (
             "✅ 你已退出秘境，本次探索未获得任何奖励。\n"
@@ -663,7 +668,7 @@ class RiftManager:
                 required = int(rift.required_level or 0)
             except (TypeError, ValueError):
                 required = 0
-        if not required and player is not None:
+        if rift is None and player is not None:
             required = int(getattr(player, "level_index", 0) or 0)
         return max(1, min(10, 1 + required // 4))
     
@@ -689,7 +694,7 @@ class RiftManager:
         if not drop_table:
             drop_table = self.RIFT_DROP_TABLE.get(tier, self.RIFT_DROP_TABLE[1])
 
-        base_chance = int(cfg.get("item_chance") or 70)
+        base_chance = int(cfg["item_chance"] if cfg.get("item_chance") is not None else 70)
         extra_chance = int(cfg.get("extra_drop_chance") or 0)
         equipment_chance = cfg.get("equipment_chance")
 

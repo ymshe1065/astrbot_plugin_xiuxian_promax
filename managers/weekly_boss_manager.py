@@ -1613,6 +1613,16 @@ class WeeklyBossManager:
         key = self._pending_key(player.user_id)
         pending = self._pending.get(key)
         if not pending:
+            # 战斗已扣除次数/丹药但发奖失败时，从持久化战报补结算，不能重打。
+            run = await self._fetchone(
+                "SELECT * FROM weekly_boss_runs WHERE leader_id = ? AND status = 1 "
+                "ORDER BY run_id DESC LIMIT 1", (player.user_id,),
+            )
+            saved = self._safe_json(run.get("log_json"), {}) if run else {}
+            if isinstance(saved, dict) and saved.get("pending_settlement"):
+                return await self._complete_settlement(
+                    saved["cycle"], run, await self._run_members(int(run["run_id"])), saved["battle"]
+                )
             return False, "❌ 没有待确认的开战。请先发送 /周本开始 查看预览。"
         if int(pending.get("expire_at") or 0) < int(time.time()):
             self._pending.pop(key, None)
@@ -1682,16 +1692,28 @@ class WeeklyBossManager:
         # 锁定队伍并扣除每人 1 次挑战次数
         try:
             async with self.db.transaction() as conn:
-                await conn.execute(
+                fresh_members = await self._run_members(int(run["run_id"]))
+                if sorted(str(m["user_id"]) for m in fresh_members) != sorted(member_ids):
+                    return False, "❌ 队伍名单已变化，请重新发送 /周本开始。"
+                for member_id in member_ids:
+                    if await self._cycle_attempts_used(cycle["cycle_id"], member_id) >= self.attempts_per_week:
+                        return False, "❌ 队员本周次数已用尽，请重新查看 /周本状态。"
+                # 不在检查与消费预览之间 await，避免取消已成功却仍然开战。
+                if self._pending.get(key) is not pending:
+                    return False, "❌ 开战预览已取消或更新，请重新发送 /周本开始。"
+                self._pending.pop(key)
+                cursor = await conn.execute(
                     """
                     UPDATE weekly_boss_runs
                        SET status = 1, member_count = ?, max_hp = ?, current_hp = ?,
                            round = 0, total_damage = 0, log_json = '[]',
                            started_at = ?
-                     WHERE run_id = ?
+                     WHERE run_id = ? AND status = 0
                     """,
                     (len(members), boss_hp, boss_hp, now, int(run["run_id"])),
                 )
+                if cursor.rowcount == 0:
+                    return False, "❌ 队伍已开战或状态已变化，请查看 /周本状态。"
                 for member_id in member_ids:
                     await conn.execute(
                         """
@@ -1703,10 +1725,9 @@ class WeeklyBossManager:
                         (cycle["cycle_id"], member_id, now),
                     )
         except Exception as exc:
+            self._pending.setdefault(key, pending)
             logger.error(f"【周本】锁定队伍失败: {exc}")
             return False, "❌ 开战失败（队伍锁定异常），请稍后重试。"
-
-        self._pending.pop(key, None)
 
         # 扣除战前丹药（战中丹药在使用时扣除）
         inventories: Dict[str, dict] = {}
@@ -1765,11 +1786,33 @@ class WeeklyBossManager:
             except Exception as exc:
                 logger.warning(f"【周本】写回玩家 {user_id} 丹药背包失败: {exc}")
 
+        # 战斗运行时含 CombatStats 等对象，仅保存结算真正需要的字段。
+        saved_battle = {
+            field: battle.get(field)
+            for field in ("result", "wipe_reason", "rounds", "boss_hp", "boss_max_hp",
+                          "total_damage", "round_summaries", "hp_feedback")
+        }
+        saved_battle["members"] = [
+            {field: member.get(field) for field in
+             ("user_id", "name", "damage", "healing", "deaths", "normalized")}
+            for member in battle.get("members", [])
+        ]
+        await self.db.conn.execute(
+            "UPDATE weekly_boss_runs SET log_json = ? WHERE run_id = ? AND status = 1",
+            (json.dumps({"pending_settlement": True, "cycle": cycle, "battle": saved_battle},
+                        ensure_ascii=False), int(run["run_id"])),
+        )
+        await self.db.conn.commit()
+        return await self._complete_settlement(cycle, run, members, saved_battle)
+
+    async def _complete_settlement(self, cycle, run, members, battle) -> Tuple[bool, str]:
         try:
             report = await self._settle(cycle, run, members, battle)
         except Exception as exc:
             logger.error(f"【周本】结算异常: {exc}", exc_info=True)
-            return False, f"❌ 战斗已结束，但结算失败：{exc}\n请联系管理员处理。"
+            return False, "❌ 战斗已结束，奖励结算暂未完成。请再次 /周本确认 补结算，不会重复扣除丹药或挑战次数。"
+        if not report:
+            return False, "ℹ️ 本场周本已经结算，请查看 /周本状态。"
 
         if battle.get("result") == "clear":
             self.last_broadcast_msg = (
@@ -1837,6 +1880,10 @@ class WeeklyBossManager:
         member_rows: List[dict],
         battle: dict,
     ) -> str:
+        async with self.db.transaction():
+            return await self._settle_locked(cycle, run, member_rows, battle)
+
+    async def _settle_locked(self, cycle, run, member_rows, battle) -> str:
         run_id = int(run["run_id"])
         cycle_id = str(cycle["cycle_id"])
         now = int(time.time())
@@ -1845,12 +1892,12 @@ class WeeklyBossManager:
         boss_max_hp = max(1, int(battle.get("boss_max_hp") or 1))
         total_damage = max(1, sum(int(m.get("damage") or 0) for m in battle.get("members", [])))
 
-        await self.db.conn.execute(
+        cursor = await self.db.conn.execute(
             """
             UPDATE weekly_boss_runs
                SET status = ?, current_hp = ?, round = ?, total_damage = ?,
                    log_json = ?, ended_at = ?
-             WHERE run_id = ?
+             WHERE run_id = ? AND status = 1
             """,
             (
                 status, int(battle.get("boss_hp") or 0), int(battle.get("rounds") or 0),
@@ -1859,7 +1906,8 @@ class WeeklyBossManager:
                 now, run_id,
             ),
         )
-        await self.db.conn.commit()
+        if cursor.rowcount == 0:
+            return ""
 
         runtime_by_id = {str(m["user_id"]): m for m in battle.get("members", [])}
         for row in member_rows:
@@ -1881,7 +1929,6 @@ class WeeklyBossManager:
                     run_id, user_id,
                 ),
             )
-        await self.db.conn.commit()
 
         ranked = sorted(
             battle.get("members", []),
@@ -1912,7 +1959,6 @@ class WeeklyBossManager:
                     float(share), 1 if clear else 0, now,
                 ),
             )
-        await self.db.conn.commit()
 
         lines = [
             f"{'🎉 周本通关！' if clear else '💀 周本团灭'}",
@@ -2020,12 +2066,14 @@ class WeeklyBossManager:
                     continue
                 stone = int(pool * (member_count ** self.hp_exponent) * 0.10 * share)
                 stone = max(100, stone)
-                await self.db.add_player_gold(user_id, stone)
+                await self.db.add_player_gold(user_id, stone, commit=False)
+                player.gold += stone
                 drops = []
                 drop = self._roll_legend()
                 if drop:
                     drops.append((drop[0], drop[1], ""))
                 granted = await self._grant_drops(player, drops)
+                await self.db.update_player(player, commit=False)
                 detail = f"、{granted}" if granted else ""
                 lines.append(
                     f"· {name}：{self._fmt(stone)} 灵石{detail}（失败补偿）"
@@ -2091,7 +2139,8 @@ class WeeklyBossManager:
             if exclusive > 0:
                 drops.append((self.exclusive_material, exclusive, ""))
 
-            await self.db.add_player_gold(user_id, stone)
+            await self.db.add_player_gold(user_id, stone, commit=False)
+            player.gold += stone
             granted_text = await self._grant_drops(player, drops)
             await self.db.conn.execute(
                 """
@@ -2105,7 +2154,6 @@ class WeeklyBossManager:
                 "UPDATE weekly_boss_members SET reward_claimed = 1 WHERE run_id = ? AND user_id = ?",
                 (int(run["run_id"]), user_id),
             )
-            await self.db.conn.commit()
 
             title_text = ""
             if rank == 1 and self.title_mgr is not None:
@@ -2116,10 +2164,13 @@ class WeeklyBossManager:
                         if not player.title:
                             fields["title"] = "天外镇守者"
                             player.title = "天外镇守者"
-                        await self.db.update_player_fields(user_id, **fields)
+                        await self.db.update_player_fields(user_id, commit=False, **fields)
                         title_text = " · 🏅获得称号【天外镇守者】"
                 except Exception as exc:
                     logger.warning(f"【周本】称号发放失败: {exc}")
+                    raise
+
+            await self.db.update_player(player, commit=False)
 
             tail = f"、{granted_text}" if granted_text else ""
             lines.append(
@@ -2149,7 +2200,7 @@ class WeeklyBossManager:
             if count <= 0:
                 continue
             try:
-                kwargs = {"silent": True}
+                kwargs = {"silent": True, "external_transaction": True}
                 if quality:
                     kwargs["quality"] = quality
                 success, _ = await self.storage_ring_mgr.grant_item(
@@ -2157,7 +2208,7 @@ class WeeklyBossManager:
                 )
             except Exception as exc:
                 logger.warning(f"【周本】发放 {name}x{count} 失败: {exc}")
-                success = False
+                raise
             label = f"{name}（{quality}）" if quality else name
             bucket = collected if success else lost
             bucket[label] = bucket.get(label, 0) + count
@@ -2264,6 +2315,10 @@ class WeeklyBossManager:
                     f" · 阵亡 {int(row.get('deaths') or 0)}"
                 )
         logs = self._safe_json(run.get("log_json"), [])
+        saved = self._safe_json(run.get("log_json"), {})
+        if saved.get("pending_settlement"):
+            lines.append("🎁 奖励待结算：请由队长发送 /周本确认 继续，不消耗额外丹药或次数。")
+            logs = saved.get("battle", {}).get("round_summaries") or []
         if logs:
             lines.append("━━━━━━━━━━━━━━━")
             lines.append("最近战报：")

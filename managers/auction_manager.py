@@ -159,9 +159,19 @@ class AuctionManager:
         if price <= 0:
             return False, "❌ 单价必须大于 0。"
 
-        # 锁内重读最新角色，避免旧快照导致同一份物品被重复上架
-        player = await self.db.get_player_by_id(player.user_id) or player
+        # 写锁必须覆盖读档、扣库存和创建挂单；不同管理器实例也不能重复上架。
+        try:
+            async with self.db.transaction():
+                player = await self.db.get_player_by_id(player.user_id)
+                if not player:
+                    return False, "❌ 玩家数据不存在，无法上架。"
+                return await self._list_item_locked(player, item_name, count, price, quality)
+        except Exception as e:
+            logger.error(f"物品上架失败，事务已回滚: {e}")
+            return False, "❌ 上架失败，物品已保留在背包。"
 
+    async def _list_item_locked(self, player: Player, item_name: str, count: int, price: int, quality: str) -> Tuple[bool, str]:
+        """调用方持有数据库写事务，所有库存与挂单变更共同提交。"""
         pm = self._pill_manager()
         pill_key = None
         if pm:
@@ -187,22 +197,11 @@ class AuctionManager:
                     {"item_kind": "pill", "item_name": base_name,
                      "item_quality": quality, "price": price}, now
                 )
-                # 背包扣减与挂单写入合并为同一事务：任一失败整体回滚，
-                # 再回补内存背包，杜绝"丹药没了但没上架"的中间态
-                await self.db.conn.execute("BEGIN IMMEDIATE")
-                try:
-                    await self.db.update_player(player, commit=False)
-                    await self.db.conn.execute(
-                        "INSERT INTO auction_items (seller_id, item_name, count, price, create_time, next_offer_time, item_kind, item_quality) VALUES (?, ?, ?, ?, ?, ?, 'pill', ?)",
-                        (player.user_id, base_name, count, price, now, next_offer_time, quality)
-                    )
-                    await self.db.conn.commit()
-                except Exception as e:
-                    await self.db.conn.rollback()
-                    inventory[pill_key] = int(inventory.get(pill_key, 0)) + count
-                    player.set_pills_inventory(inventory)
-                    logger.error(f"丹药上架失败，事务已回滚: {e}")
-                    return False, "❌ 上架失败，丹药已退回背包。"
+                await self.db.update_player(player, commit=False)
+                await self.db.conn.execute(
+                    "INSERT INTO auction_items (seller_id, item_name, count, price, create_time, next_offer_time, item_kind, item_quality) VALUES (?, ?, ?, ?, ?, ?, 'pill', ?)",
+                    (player.user_id, base_name, count, price, now, next_offer_time, quality)
+                )
                 total = price * count
                 tip = self._listing_npc_tip(next_offer_time)
                 return True, f"✅ 上架成功！\n丹药：【{base_name}·{quality}】x{count}\n单价：{price:,} 灵石\n总价：{total:,} 灵石{tip}"
@@ -220,24 +219,17 @@ class AuctionManager:
             quality = inst.get("quality", "一般")
             if not im.move(player, int(inst["id"]), "auction"):
                 return False, "❌ 装备实例状态异常，上架失败。"
-            await self.db.update_player(player)
+            await self.db.update_player(player, commit=False)
 
             now = int(time.time())
             next_offer_time = self._next_offer_time_for_listing(
                 {"item_kind": "equipment", "item_name": item_name,
                  "item_quality": quality, "price": price}, now
             )
-            try:
-                await self.db.conn.execute(
-                    "INSERT INTO auction_items (seller_id, item_name, count, price, create_time, next_offer_time, item_kind, item_quality, instance_id) VALUES (?, ?, 1, ?, ?, ?, 'equipment', ?, ?)",
-                    (player.user_id, item_name, price, now, next_offer_time, quality, int(inst["id"]))
-                )
-                await self.db.conn.commit()
-            except Exception as e:
-                im.move(player, int(inst["id"]), "storage")
-                await self.db.update_player(player)
-                logger.error(f"装备上架失败，已恢复储物戒: {e}")
-                return False, "❌ 上架失败，装备已退回储物戒。"
+            await self.db.conn.execute(
+                "INSERT INTO auction_items (seller_id, item_name, count, price, create_time, next_offer_time, item_kind, item_quality, instance_id) VALUES (?, ?, 1, ?, ?, ?, 'equipment', ?, ?)",
+                (player.user_id, item_name, price, now, next_offer_time, quality, int(inst["id"]))
+            )
             tip = self._listing_npc_tip(next_offer_time)
             return True, f"✅ 上架成功！\n装备：【{item_name}·{quality}】\n单价：{price:,} 灵石{tip}"
 
@@ -251,28 +243,23 @@ class AuctionManager:
         if isinstance(item_info, dict) and item_info.get("bound"):
             return False, f"❌【{item_name}】是角色绑定物品，无法上架坊市交易！"
 
-        # 扣除物品与挂单写入合并为同一事务（retrieve_item 嵌套事务自动降级
-        # SAVEPOINT）：任一失败整体回滚，物品留在储物戒，无需手动补偿
+        # 角色已在写锁内重读；扣除堆叠库存与挂单写入共同提交。
         now = int(time.time())
         next_offer_time = self._next_offer_time_for_listing(
             {"item_kind": "item", "item_name": item_name,
              "item_quality": "", "price": price}, now
         )
-        await self.db.conn.execute("BEGIN IMMEDIATE")
-        try:
-            success, msg = await self.storage_ring_mgr.retrieve_item(player, item_name, count)
-            if not success:
-                await self.db.conn.rollback()
-                return False, f"❌ 扣除物品失败：{msg}"
-            await self.db.conn.execute(
-                "INSERT INTO auction_items (seller_id, item_name, count, price, create_time, next_offer_time, item_kind, item_quality, instance_id) VALUES (?, ?, ?, ?, ?, ?, 'item', '', 0)",
-                (player.user_id, item_name, count, price, now, next_offer_time)
-            )
-            await self.db.conn.commit()
-        except Exception as e:
-            await self.db.conn.rollback()
-            logger.error(f"物品上架失败，事务已回滚: {e}")
-            return False, "❌ 上架失败，物品已退回储物戒。"
+        remaining = int(items_data.get(item_name, 0) or 0) - count
+        if remaining > 0:
+            items_data[item_name] = remaining
+        else:
+            items_data.pop(item_name, None)
+        player.set_storage_ring_items(items_data)
+        await self.db.update_player(player, commit=False)
+        await self.db.conn.execute(
+            "INSERT INTO auction_items (seller_id, item_name, count, price, create_time, next_offer_time, item_kind, item_quality, instance_id) VALUES (?, ?, ?, ?, ?, ?, 'item', '', 0)",
+            (player.user_id, item_name, count, price, now, next_offer_time)
+        )
 
         total = price * count
         tip = self._listing_npc_tip(next_offer_time)

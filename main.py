@@ -494,6 +494,7 @@ class XiuXianPlugin(Star):
         logger.info("【修仙插件】已加载。")
 
     async def terminate(self):
+        tasks = []
         for task in (self.boss_task, self.raid_task, self.loan_check_task, self.spirit_eye_task,
                      self.bounty_check_task, self.demon_check_task,
                      getattr(self, "tide_check_task", None),
@@ -505,7 +506,12 @@ class XiuXianPlugin(Star):
                      getattr(self, "auction_house_task", None),
                      getattr(self, "invest_task", None),
                      getattr(self, "weekly_boss_task", None)):
-            if task: task.cancel()
+            if task:
+                task.cancel()
+                tasks.append(task)
+        # cancel() 只发出取消请求；先等待任务回滚/清理，才能关闭其数据库连接。
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
         await self.db.close()
         logger.info("【修仙插件】已卸载。")
 

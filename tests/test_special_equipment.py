@@ -35,6 +35,26 @@ class TestSpecialEquipment(unittest.TestCase):
             self.assertTrue(cfg.get("effects"), name)
             self.assertTrue(cfg.get("description"), name)
 
+    def test_explicit_empty_rates_stay_zero_at_all_qualities(self):
+        for name, cfg in self.special.items():
+            for quality in self.balance.QUALITY:
+                rates = self.balance.effective_rates(cfg, 35, quality)
+                self.assertFalse(any(rates.values()), (name, quality, rates))
+
+    def test_special_gloves_do_not_add_hidden_combat_attack(self):
+        player = self.Player(user_id="special", level_index=0)
+        bare = self._combat().build_player_combat_stats(player, self.cm)
+        im = _imp("core.item_instance_manager").ItemInstanceManager(None, self.cm)
+        instance = im.create_instances(
+            player, "凡品·快击手套", quality="大师", location="equipped", slot="gloves"
+        )[0]
+        player.set_equipped_instances({"gloves": instance["id"]})
+        equipped = self._combat().build_player_combat_stats(player, self.cm)
+        self.assertEqual((equipped.physical_atk, equipped.magic_atk),
+                         (bare.physical_atk, bare.magic_atk))
+        effects = self._combat().collect_combat_effects(player, self.cm)
+        self.assertGreater(effects["extra_attack_chance"], 0)
+
     def test_price_is_ninety_percent_of_reference(self):
         reference = {}
         for name, cfg in self.cm.items_data.items():

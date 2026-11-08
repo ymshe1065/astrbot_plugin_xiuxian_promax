@@ -344,6 +344,44 @@ class TestInvestMarket(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(int(fee), 20)
 
+    async def test_partial_stock_sale_reduces_remaining_cost(self):
+        player = await self._player()
+        with self._patch_tick(10):
+            ok, message = await self.manager.buy_stock(player, "S01", 2)
+            self.assertTrue(ok, message)
+            original = (await self.manager.get_holdings("u1"))[0]
+            ok, message = await self.manager.sell_stock(player, "S01", 1)
+            self.assertTrue(ok, message)
+            remaining = (await self.manager.get_holdings("u1"))[0]
+        self.assertEqual(remaining["shares"], 100)
+        self.assertEqual(remaining["cost"], round(original["cost"] / 2))
+        self.assertEqual(remaining["profit"], remaining["value"] - remaining["cost"])
+
+    async def test_partial_fund_redemption_reduces_remaining_cost(self):
+        player = await self._player()
+        with self._patch_tick(10):
+            ok, message = await self.manager.subscribe_fund(player, "F01", 10000)
+            self.assertTrue(ok, message)
+            original = (await self.manager.get_holdings("u1"))[0]
+            ok, message = await self.manager.redeem_fund(player, "F01", original["shares"] / 2)
+            self.assertTrue(ok, message)
+            remaining = (await self.manager.get_holdings("u1"))[0]
+        self.assertAlmostEqual(remaining["shares"], original["shares"] / 2)
+        self.assertEqual(remaining["cost"], 5000)
+
+    async def test_nonfinite_fund_redemption_is_rejected_without_selling(self):
+        player = await self._player()
+        with self._patch_tick(10):
+            await self.manager.subscribe_fund(player, "F01", 10000)
+            before = await self.manager._holdings_rows("u1")
+            gold = (await self.db.get_player_by_id("u1")).gold
+            for shares in (float("nan"), float("inf"), float("-inf")):
+                with self.subTest(shares=shares):
+                    ok, message = await self.manager.redeem_fund(player, "F01", shares)
+                    self.assertFalse(ok, message)
+                    self.assertEqual(await self.manager._holdings_rows("u1"), before)
+                    self.assertEqual((await self.db.get_player_by_id("u1")).gold, gold)
+
     async def test_single_tick_lot_cap_removed(self):
         """单盘单标的买入手数上限已放开：25 手可一次成交。"""
         await self.manager._settle_tick(10)

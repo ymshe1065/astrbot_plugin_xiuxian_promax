@@ -1324,18 +1324,30 @@ class ShopManager:
         item_type = item.get('type', '')
         effects = []
         
-        # 武器/装备属性
+        # 武器/装备属性：新版装备没有 flat physical_damage，主属性都在
+        # equipment_rates 里按百分比结算；继续读旧字段会得到空值或错误数值。
         if item_type in ItemRules.GEAR_TYPES:
-            if data.get('physical_damage', 0) > 0:
-                effects.append(f"物伤+{data['physical_damage']}")
-            if data.get('magic_damage', 0) > 0:
-                effects.append(f"法伤+{data['magic_damage']}")
-            if data.get('physical_defense', 0) > 0:
-                effects.append(f"物防+{data['physical_defense']}")
-            if data.get('magic_defense', 0) > 0:
-                effects.append(f"法防+{data['magic_defense']}")
-            if data.get('mental_power', 0) > 0:
-                effects.append(f"精神力+{data['mental_power']}")
+            from .equipment_balance import (
+                ATTRIBUTE_LABELS, GEAR_EFFECT_CAPS, QUALITY, equipment_rates, effective_effects,
+            )
+            from .equipment_manager import EquipmentManager
+            quality = str((item or {}).get("quality") or data.get("quality") or "一般")
+            quality_mult = QUALITY.get(quality, 1.0)
+            rates = equipment_rates(data)
+            for key, label in ATTRIBUTE_LABELS.items():
+                value = rates.get(key, 0) * quality_mult
+                if value:
+                    effects.append(f"{label}+{value:.1%}")
+            for key, value in effective_effects(data, quality).items():
+                cap = GEAR_EFFECT_CAPS.get(key)
+                if cap is not None:
+                    value = min(float(value), float(cap))
+                if not value:
+                    continue
+                effects.append(
+                    f"{EquipmentManager.EFFECT_LABELS.get(key, key)}"
+                    f"{EquipmentManager.format_bonus_value(key, value)}"
+                )
         
         # 功法属性
         elif item_type in ['main_technique', 'technique', '功法']:
@@ -1394,7 +1406,10 @@ class ShopManager:
             detail_type = "exp_pill" if "exp_gain" in data else "utility_pill" if "effect_type" in data else ""
         if detail_type not in ("pill", "exp_pill", "utility_pill"):
             detail_type = "符箓" if data.get("type") == "符箓" else ItemRules.normalize_shop_type(data)
-        normalized = {**item, "type": detail_type,
+        # 实例品质必须在第一次 get_item_details 前传进去：否则特殊效果会按
+        # 「一般」缩放，而下方主属性却按实例品质缩放，同一件装备出现两套口径。
+        quality = str((instance or {}).get("quality") or item.get("quality") or "")
+        normalized = {**item, "type": detail_type, "quality": quality,
                       "rank": item.get("rank", data.get("rank", "凡品")), "price": item.get("price", 0), "data": data}
         lines = [f"品级: {normalized['rank']}"] + self.get_item_details(normalized).splitlines()[3:]
         is_gear = ItemRules.normalize_equipment_type(data) in ItemRules.GEAR_TYPES
@@ -1402,7 +1417,6 @@ class ShopManager:
             from .equipment_manager import EquipmentManager
             from .equipment_balance import QUALITY
             manager = EquipmentManager(None, self.config_manager)
-            quality = str((instance or {}).get("quality") or item.get("quality") or "")
             display_instance = instance if instance else ({"quality": quality} if quality else None)
             parsed = manager.parse_item_from_name(item["name"], {item["name"]: data}, instance=display_instance)
             lines = [line for line in lines if not line.startswith(("属性:", "基础属性:", "品质:", "品质浮动:", "需求境界:", "适用境界:"))]
@@ -1492,7 +1506,9 @@ class ShopManager:
 
         # 武器/防具/饰品属性
         if item_type in ItemRules.GEAR_TYPES:
-            from .equipment_balance import equipment_rates, effective_effects, ATTRIBUTE_LABELS
+            from .equipment_balance import (
+                equipment_rates, effective_effects, ATTRIBUTE_LABELS, GEAR_EFFECT_CAPS,
+            )
             from .equipment_manager import EquipmentManager
             attrs = [f"境界基础{ATTRIBUTE_LABELS[k]}+{v:.1%}" for k, v in equipment_rates(data).items() if v]
 
@@ -1502,6 +1518,16 @@ class ShopManager:
             quality = item_data.get("quality") or "一般"
             effect_lines = []
             for key, value in effective_effects(data, quality).items():
+                # 与实战一致：单件装备特效先按 GEAR_EFFECT_CAPS 收敛再汇总，
+                # 否则 17% 破防减防会显示成 17%，实战只按 15% 结算。
+                cap = GEAR_EFFECT_CAPS.get(key)
+                if cap is not None:
+                    try:
+                        value = min(float(value), float(cap))
+                    except (TypeError, ValueError):
+                        continue
+                if not value:
+                    continue
                 label = EquipmentManager.EFFECT_LABELS.get(key, key)
                 effect_lines.append(f"{label} {EquipmentManager.format_bonus_value(key, value)}")
             if effect_lines:
@@ -1656,13 +1682,33 @@ class ShopManager:
                         effect_desc.append(f"物防{ItemRules.format_bonus_rate(data['physical_defense_multiplier'])}")
                     if data.get('magic_defense_multiplier'):
                         effect_desc.append(f"法防{ItemRules.format_bonus_rate(data['magic_defense_multiplier'])}")
-                    if data.get('duration_minutes') and not any(
-                        data.get(key) for key in (
-                            'cultivation_multiplier', 'physical_damage_multiplier',
-                            'magic_damage_multiplier', 'physical_defense_multiplier',
-                            'magic_defense_multiplier',
-                        )
+                    if data.get('breakthrough_bonus'):
+                        value = data['breakthrough_bonus']
+                        suffix = "（可超出破境丹上限）" if subtype == 'breakthrough_boost' else ""
+                        effect_desc.append(f"突破成功率{value:+.0%}{suffix}")
+                    if data.get('is_random'):
+                        effect_desc.append("随机一项战斗属性+50%，其余三项-50%")
+                    for key, label in (
+                        ("lifespan_regen_per_minute", "每分钟寿命"),
+                        ("lifespan_cost_per_minute", "每分钟寿命"),
+                        ("spiritual_qi_regen_per_minute", "每分钟灵气"),
+                        ("blood_qi_regen_per_minute", "每分钟气血"),
+                        ("blood_qi_cost_per_minute", "每分钟气血"),
                     ):
+                        if key not in data:
+                            continue
+                        try:
+                            amount = int(float(data[key]))
+                        except (TypeError, ValueError):
+                            continue
+                        sign = "-" if key.endswith("cost_per_minute") else "+"
+                        effect_desc.append(f"{label}{sign}{abs(amount):,}")
+                    # 未写修炼速度的临时丹药也要交代时长，不能只报数值不报时效。
+                    try:
+                        duration_mult = float(data.get('cultivation_multiplier') or 0)
+                    except (TypeError, ValueError):
+                        duration_mult = 0.0
+                    if data.get('duration_minutes') and duration_mult <= 0:
                         effect_desc.append(f"持续 {duration} 分钟")
                 elif effect_type == 'permanent':
                     gains = []
@@ -1671,14 +1717,60 @@ class ShopManager:
                         ('magic_damage_gain', '法伤'),
                         ('physical_defense_gain', '物防'),
                         ('magic_defense_gain', '法防'),
-                        ('mental_power_gain', '精神力')
+                        ('mental_power_gain', '精神力'),
+                        ('lifespan_gain', '寿命'),
+                        ('max_spiritual_qi_gain', '最大灵气'),
+                        ('max_blood_qi_gain', '最大气血'),
                     ]:
                         value = data.get(attr_key)
                         if value:
                             sign = "+" if value > 0 else ""
                             gains.append(f"{label}{sign}{value}")
+                    limit = data.get('base_attribute_limit_increase')
+                    if limit:
+                        gains.append(f"永久属性上限+{float(limit):.0%}")
+                    cult = data.get('cultivation_multiplier')
+                    if cult:
+                        gains.append(f"修炼速度{float(cult):+.0%}（永久）")
+                    death_protection = data.get('death_protection_multiplier')
+                    if death_protection is not None:
+                        reduction = 1 - float(death_protection)
+                        if reduction > 0:
+                            gains.append(f"突破境界跌落概率降低{reduction:.0%}")
+                    for mult_key, label in (
+                        ('physical_damage_multiplier', '物伤'),
+                        ('magic_damage_multiplier', '法伤'),
+                        ('physical_defense_multiplier', '物防'),
+                        ('magic_defense_multiplier', '法防'),
+                    ):
+                        value = data.get(mult_key)
+                        if value:
+                            gains.append(f"{label}{float(value):+.0%}（永久）")
                     if gains:
                         effect_desc.append("永久增益：" + "，".join(gains))
+                elif effect_type == 'instant':
+                    blood = data.get('blood_qi_restore')
+                    if blood is not None:
+                        effect_desc.append(
+                            "恢复全部气血" if float(blood) == -1
+                            else f"恢复气血：+{int(float(blood)):,}"
+                        )
+                    qi = data.get('spiritual_qi_restore')
+                    if qi is not None:
+                        effect_desc.append(
+                            "恢复全部灵气" if float(qi) == -1
+                            else f"恢复灵气：+{int(float(qi)):,}"
+                        )
+                    hp_percent = data.get('restore_hp_percent')
+                    if hp_percent:
+                        effect_desc.append(f"恢复气血：{float(hp_percent):.0%}（按战斗上限）")
+                    # 与 PillManager._use_instant_pill 一致：restore_qi_percent 优先，
+                    # restore_mp_percent 只作旧字段兜底，不能两个都显示。
+                    qi_percent = data.get('restore_qi_percent')
+                    if qi_percent is None:
+                        qi_percent = data.get('restore_mp_percent')
+                    if qi_percent:
+                        effect_desc.append(f"恢复灵气：{float(qi_percent):.0%}（按战斗上限）")
                 if data.get('resets_permanent_pills'):
                     refund_ratio = data.get('reset_refund_ratio', 0)
                     hint = "重置所有永久丹药增益"
