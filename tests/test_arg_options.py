@@ -366,11 +366,13 @@ class TestCraftArgOptions(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(values, ["1", "5", "10", "all"])
         self.assertIn("all", values)
 
-    async def test_craft_amount_completes_plan(self):
+    async def test_craft_amount_opens_optional_material_picker(self):
         data = await arg_options.build_arg_options(
             _CraftPlugin(), "web_craft", "/炼丹", ["1", "猛火", "all"]
         )
-        self.assertTrue(data["done"])
+        self.assertFalse(data["done"])
+        self.assertEqual(data["field"]["key"], "materials")
+        self.assertTrue(data["field"]["optional"])
 
     async def test_craft_count_falls_back_when_materials_missing(self):
         class _EmptyManager(_CraftManager):

@@ -90,6 +90,10 @@ FIELD_PLANS: Dict[str, List[dict[str, Any]]] = {
         _f("fire", "火候（可选）", "fire_choices", optional=True),
         _f("count", "数量（可选：次数 / all = 用完材料）", "craft_amounts", optional=True),
     ],
+    "制符": [
+        _f("recipe", "选择已学符图", "craft_talisman_recipes"),
+        _f("count", "数量（可选：数字 / all）", "", optional=True),
+    ],
     "学习丹方": [_f("recipe", "选择要学习的丹方", "all_recipes")],
     # ---- 仙市 ----
     "行情": [_f("code", "选择股票或基金", "market_codes")],
@@ -674,20 +678,60 @@ async def _src_craft_amounts(plugin: "XiuXianPlugin", player: Any, field: dict, 
         return [], "当前材料/灵石不足，一次也炼不了"
 
     options = []
+    count_prefix = "" if len(values) > 1 and values[1] != "-" else "x"
     for times in (1, 5, 10, 20, 50, 100):
         if times <= max_times:
             options.append(
-                _opt(f"炼 {times} 次", str(times), f"最多可连炼 {max_times} 次", "快捷数量")
+                _opt(f"炼 {times} 次", f"{count_prefix}{times}", f"最多可连炼 {max_times} 次", "快捷数量")
             )
     if max_times > 1 and max_times not in (1, 5, 10, 20, 50, 100):
         options.append(
-            _opt(f"炼 {max_times} 次", str(max_times), "用完当前可用材料/灵石", "快捷数量")
+            _opt(f"炼 {max_times} 次", f"{count_prefix}{max_times}", "用完当前可用材料/灵石", "快捷数量")
         )
     cap_note = "（单次上限 100）" if max_times >= mgr.MAX_BATCH_CRAFTS else ""
     options.append(
         _opt("全部（all）", "all", f"消耗当前全部可用材料，预计 {max_times} 次{cap_note}", "快捷数量")
     )
     return options, ""
+
+
+async def _src_craft_talisman_recipes(plugin, player, field, values):
+    if not player:
+        return [], "尚未创建角色"
+    mgr = plugin.talisman_mgr
+    return [_opt(name, name, "已掌握符图", "符图")
+            for name, recipe in mgr.iter_recipes()
+            if mgr.is_recipe_learned(player, name, recipe)], ""
+
+
+async def _src_craft_materials(plugin, player, field, values):
+    if not player or not values:
+        return [], "请先选择配方"
+    from ..core.material_selection import split_material_options
+    mgr = plugin.alchemy_mgr if field["craft"] == "炼丹" else plugin.talisman_mgr
+    recipe = mgr.recipes.get(_int(values[0])) if field["craft"] == "炼丹" else mgr.get_recipe(values[0])
+    if not recipe:
+        return [], "请先选择有效配方"
+    _, selected = split_material_options(values[1:])
+    specs = recipe.get("materials", [])
+    if isinstance(specs, dict):
+        return [], "此配方使用固定名称材料，无需指定"
+    options = []
+    for spec in specs:
+        if spec.get("name") or not spec.get("category"):
+            continue
+        key = f"{spec.get('tier', '')}{spec['category']}"
+        if key in selected:
+            continue
+        for name, count in player.get_storage_ring_items().items():
+            info = mgr._material_info(name) or {}
+            if int(count or 0) <= 0 or info.get("category") != spec["category"]:
+                continue
+            if spec.get("tier") and info.get("tier") != spec["tier"]:
+                continue
+            options.append(_opt(f"{key}：{name} ×{count}", f"{key}={name}",
+                                f"储物戒持有 {count}，每次需要 {spec.get('count', 0)}；仅使用此物品", key))
+    return options, "留空按类别自动选料；可逐类点选储物戒材料，选完点击发送"
 
 
 async def _src_stock_codes(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
@@ -1941,6 +1985,8 @@ SOURCES: Dict[str, Callable[..., Any]] = {
     "learned_recipes": _src_learned_recipes,
     "all_recipes": _src_all_recipes,
     "fire_choices": _src_fire_choices,
+    "craft_talisman_recipes": _src_craft_talisman_recipes,
+    "craft_materials": _src_craft_materials,
     "craft_amounts": _src_craft_amounts,
     "stock_codes": _src_stock_codes,
     "fund_codes": _src_fund_codes,
@@ -2010,6 +2056,13 @@ def plan_for(cmd: str, values: Optional[List[str]] = None) -> List[dict[str, Any
     plan = FIELD_PLANS.get(key, [])
     values = list(values or [])
     first = str(values[0]).strip() if values else ""
+    if key in ("炼丹", "制符"):
+        plan = [dict(field) for field in plan]
+        for field in plan[1:]:
+            field["skip_value"] = "-"
+        # 反复选择不同材料类别；用户可在任意一步留空发送。
+        plan += [dict(_f("materials", "指定材料（可选）", "craft_materials", optional=True), craft=key)
+                 for _ in range(max(1, len(values) - len(plan) + 1))]
     # /自动代理、/关闭代理 的第二段取决于所选活动：
     # 秘境必须补 ID，灵田/施肥可补格号或阈值，押镖/宗门任务无需补参。
     if key == "自动代理" and first == "秘境":
@@ -2123,6 +2176,7 @@ async def build_arg_options(
             "key": field.get("key", ""),
             "label": field.get("label", spec.get("hint", "")),
             "optional": bool(field.get("optional")),
+            "skip_value": field.get("skip_value"),
         },
         "options": options,
         "done": False,

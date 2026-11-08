@@ -1291,6 +1291,7 @@
       toast("尚未连接");
       return false;
     }
+    showQuickOptions([]);
     S.ws.send(JSON.stringify({ action: "msg", text }));
     return true;
   }
@@ -1418,6 +1419,7 @@
     }
     // 看板指令无论从哪里触发都按 panel 请求处理，避免被当成公屏指令广播
     const panel = opts.panel || panelOfCmd(text);
+    if (!panel) showQuickOptions([]);
     const id = reqId();
     S.pending.set(id, { cmd: text, panel: panel || null, card: !!opts.card });
     S.ws.send(
@@ -1581,6 +1583,7 @@
     S.pending.delete(m.req_id);
 
     if (m.error && !m.cards?.length) {
+      if (!ctx?.panel) showQuickOptions([]);
       if (ctx?.panel) renderPanelEmpty(ctx.panel, m.text || "请求失败");
       else addError(m.text || "请求失败");
       return;
@@ -1619,6 +1622,8 @@
       return;
     }
 
+    showQuickOptions(m.options || []);
+
     // 自己的指令已经执行：储物戒可能被改动，先打标记；
     // 后端若确认有变会随后推 bag_changed，界面开着时再精确刷新一次。
     markBagDirty();
@@ -1632,7 +1637,6 @@
     }
     cards.forEach((c) => addCardMessage(c, S.username));
     (m.images || []).forEach((u) => u && addBotText("", m.ts, null, [u], { owner: S.username }));
-    if (m.options?.length) showQuickOptions(m.options);
   }
 
   /* ================= 渲染：消息 ================= */
@@ -1856,7 +1860,6 @@
     if (text && opts.persist !== false) {
       cachePush({ t: "bot", text, ts, owner: opts.owner || "" });
     }
-    if (options?.length) showQuickOptions(options);
   }
 
   function addCardMessage(card, owner = "") {
@@ -1873,6 +1876,10 @@
     const owner = m.actor || "";
     const audience = m.audience || "public";
     const persist = opts.persist !== false;
+    // 历史回放、他人的指令和自动代理消息不能改变当前输入提示。
+    if (persist && owner === S.username && m.channel !== "auto") {
+      showQuickOptions(m.options || []);
+    }
 
     // 自动代理的公开消息：摘要常驻，详情按配置折叠
     if (m.channel === "auto" && m.title) {
@@ -1915,7 +1922,6 @@
       });
     }
     (m.images || []).forEach((u) => u && addBotText("", m.ts, null, [u], { owner, audience, persist }));
-    if (m.options?.length) showQuickOptions(m.options);
   }
 
   /** 动作反馈的语气判定 */
@@ -3894,6 +3900,7 @@
     $("sheetInput").style.display = "";
     applySheetDefault(ctx, data);
     $("sheetSkip").hidden = !field.optional;
+    $("sheetSkip").textContent = field.skip_value ? "留空，下一步" : "留空发送";
     // 全局示例只在第一段/纯手动指令出现，避免把「炼气丹 5」塞进数量字段
     const showExample = !options.length && !!ctx.example && Number(data.index || 0) === 0;
     $("sheetExample").hidden = !showExample;
@@ -4025,7 +4032,9 @@
     const field = data.field || null;
 
     if (!data.done) {
-      const val = $("sheetInput").value.trim();
+      let val = $("sheetInput").value.trim();
+      // 数量显式加 x，避免跳过火候后把 1/2/3 当成旧式火候编号。
+      if (ctx.name === "炼丹" && field?.key === "count" && /^\d+$/.test(val)) val = `x${val}`;
       if (val) {
         ctx.values.push(val);
         ctx.chosen.push({ value: val, label: val });
@@ -4077,6 +4086,7 @@
   function showQuickOptions(options) {
     const box = $("quickOptions");
     box.innerHTML = "";
+    box.hidden = !options.length;
     options.slice(0, 12).forEach((o) => {
       const b = document.createElement("button");
       b.className = "qopt";
@@ -4087,7 +4097,6 @@
       });
       box.appendChild(b);
     });
-    box.hidden = false;
   }
 
   /* ================= 移动端抽屉 ================= */
@@ -4674,7 +4683,15 @@
       if (e.target === $("sheetMask")) closeSheet();
     });
     $("sheetOk").addEventListener("click", () => submitSheet());
-    $("sheetSkip").addEventListener("click", () => submitSheet());
+    $("sheetSkip").addEventListener("click", () => {
+      const field = sheetCtx?.data?.field;
+      if (field?.skip_value) {
+        pickSheetOption({ value: field.skip_value, label: `${field.key === "fire" ? "火候" : "数量"}：默认` });
+      } else {
+        $("sheetInput").value = "";
+        submitSheet();
+      }
+    });
     $("sheetFilter").addEventListener("input", (e) => {
       if (!sheetCtx) return;
       sheetCtx.filter = e.target.value;

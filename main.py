@@ -3427,12 +3427,20 @@ class XiuXianPlugin(Star):
             )
             return
         name = tokens[0]
-        amount_token = tokens[1] if len(tokens) > 1 else "1"
+        from .core.material_selection import split_material_options
+        try:
+            options, materials = split_material_options(tokens[1:])
+            if len(options) > 1:
+                raise ValueError("用法：/制符 <符名> [数量|all] [品阶类别=材料名 ...]")
+        except ValueError as exc:
+            yield event.plain_result(f"❌ {exc}")
+            return
+        amount_token = options[0] if options else "1"
         count, error = self.talisman_mgr.parse_craft_count(amount_token)
         if error:
             yield event.plain_result(error)
             return
-        success, msg = await self.talisman_mgr.craft_talisman(player, name, count)
+        success, msg = await self.talisman_mgr.craft_talisman(player, name, count, materials=materials)
         yield event.plain_result(msg)
 
     @filter.command("使用符箓", "使用符箓获得战斗/炼丹/探索加成")

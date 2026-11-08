@@ -7,6 +7,7 @@ import time
 from collections import Counter
 from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 
+from ..core.material_selection import select_recipe_materials
 from ..data.data_manager import DataBase
 from ..models import Player
 from ..models_extended import UserStatus
@@ -635,12 +636,15 @@ class AlchemyManager:
         tribulation_hint: str = "",
         batch_count=None,
         projected: Optional[int] = None,
+        materials=None,
     ) -> Tuple[bool, str]:
         state = {
             "pill_id": pill_id,
             "recipe": recipe_name,
             "expire": int(time.time()) + 180,
         }
+        if materials:
+            state["materials"] = materials
         if batch_count not in (None, 1):
             state["count"] = batch_count
         await self.db.ext.set_system_config(
@@ -682,18 +686,19 @@ class AlchemyManager:
             return note
         return ""
 
-    async def pop_fire_state(self, user_id: str) -> Tuple[Optional[int], Optional[str], Optional[object]]:
+    async def pop_fire_state(self, user_id: str, include_materials=False) -> tuple:
+        empty = (None, None, None, None) if include_materials else (None, None, None)
         raw = await self.db.ext.get_system_config(self.FIRE_STATE_PREFIX + user_id)
         if not raw:
-            return None, None, None
+            return empty
         await self.db.ext.set_system_config(self.FIRE_STATE_PREFIX + user_id, "")
         try:
             state = json.loads(raw)
         except Exception:
-            return None, None, None
-        if int(time.time()) > int(state.get("expire", 0)):
-            return state.get("pill_id"), "3", state.get("count")
-        return state.get("pill_id"), state.get("choice", "3"), state.get("count")
+            return empty
+        choice = "3" if int(time.time()) > int(state.get("expire", 0)) else state.get("choice", "3")
+        result = (state.get("pill_id"), choice, state.get("count"))
+        return result + (state.get("materials"),) if include_materials else result
 
     async def set_fire_choice(self, user_id: str, choice: str) -> Tuple[bool, str]:
         raw = await self.db.ext.get_system_config(self.FIRE_STATE_PREFIX + user_id)
@@ -851,6 +856,7 @@ class AlchemyManager:
         pill_id: int,
         fire_choice: Optional[str] = None,
         count=None,
+        materials=None,
     ) -> Tuple[bool, str, Optional[Dict]]:
         """炼制丹药：首次投料进入火候选择，选好后再次 /炼丹 开炉。
 
@@ -862,7 +868,15 @@ class AlchemyManager:
             explicit_fire = mapping.get(str(fire_choice).strip(), str(fire_choice).strip())
 
         batch_count = self._normalize_batch_count(count)
-        fire_pill_id, state_fire, state_count = await self.pop_fire_state(user_id)
+        fire_pill_id, state_fire, state_count, state_materials = await self.pop_fire_state(user_id, include_materials=True)
+        if materials is None and fire_pill_id == int(pill_id):
+            materials = state_materials
+        recipe = self.recipes.get(int(pill_id))
+        if recipe:
+            try:
+                recipe = select_recipe_materials(recipe, materials, self._material_info)
+            except ValueError as exc:
+                return False, f"❌ {exc}", None
         if explicit_fire is not None:
             fire_choice = explicit_fire if explicit_fire in self.FIRE_OPTIONS else "3"
             fire_matched = True
@@ -879,7 +893,6 @@ class AlchemyManager:
             player = await self.db.get_player_by_id(user_id)
             if not player:
                 return False, "❌ 你还未踏入修仙之路！", None
-            recipe = self.recipes.get(int(pill_id))
             if not recipe:
                 return False, "❌ 无效的丹药ID！", None
             learned = await self.ensure_learned_recipes(player)
@@ -910,14 +923,15 @@ class AlchemyManager:
                 self.tribulation_hint(player, recipe.get("output_pill", ""), recipe),
                 batch_count=batch_count,
                 projected=projected,
+                materials=materials,
             ) + (
                 {"success": False, "pending_fire": True, "batch_count": batch_count},
             )
 
         if batch_count not in (None, 1):
-            return await self.craft_pill_batch(user_id, int(pill_id), fire_choice, batch_count)
+            return await self.craft_pill_batch(user_id, int(pill_id), fire_choice, batch_count, materials)
 
-        ok, msg, result_data = await self._craft_once(user_id, int(pill_id), fire_choice)
+        ok, msg, result_data = await self._craft_once(user_id, int(pill_id), fire_choice, materials)
         if result_data is not None:
             result_data = dict(result_data)
             success_count = 1 if result_data.get("success") else 0
@@ -933,7 +947,7 @@ class AlchemyManager:
         return ok, msg, result_data
 
     async def _craft_once(
-        self, user_id: str, pill_id: int, fire_choice: str
+        self, user_id: str, pill_id: int, fire_choice: str, materials=None
     ) -> Tuple[bool, str, Optional[Dict]]:
         """单次开炉：投料、判定成功率/品质/丹劫并写入丹药背包。"""
         fire_cfg = self.FIRE_OPTIONS.get(fire_choice or "3", self.FIRE_OPTIONS["3"])
@@ -949,7 +963,11 @@ class AlchemyManager:
                 await self.db.conn.rollback()
                 return False, "❌ 无效的丹药ID！", None
 
-            recipe = self.recipes[pill_id]
+            try:
+                recipe = select_recipe_materials(self.recipes[pill_id], materials, self._material_info)
+            except ValueError as exc:
+                await self.db.conn.rollback()
+                return False, f"❌ {exc}", None
             learned = await self.ensure_learned_recipes(player, commit=False)
             if int(pill_id) not in learned:
                 await self.db.conn.rollback()
@@ -1165,7 +1183,7 @@ class AlchemyManager:
             raise
 
     async def craft_pill_batch(
-        self, user_id: str, pill_id: int, fire_choice: str, requested
+        self, user_id: str, pill_id: int, fire_choice: str, requested, materials=None
     ) -> Tuple[bool, str, Optional[Dict]]:
         """连续炼丹：requested 为正整数或 "all"（消耗当前全部材料）。"""
         player = await self.db.get_player_by_id(user_id)
@@ -1183,6 +1201,10 @@ class AlchemyManager:
         if not self._get_pill_config_by_name(recipe["output_pill"]):
             return False, f"❌ 丹方【{recipe['name']}】的目标丹药【{recipe['output_pill']}】配置缺失，请联系管理员。", None
 
+        try:
+            recipe = select_recipe_materials(recipe, materials, self._material_info)
+        except ValueError as exc:
+            return False, f"❌ {exc}", None
         projected = self.max_craftable_count(player, recipe)
         if projected <= 0:
             requirements, _ = self.format_recipe_requirements(player, recipe)
@@ -1217,7 +1239,7 @@ class AlchemyManager:
         results: List[Dict] = []
         stop_msg = ""
         for _ in range(planned):
-            ok, msg, data = await self._craft_once(user_id, int(pill_id), fire_choice)
+            ok, msg, data = await self._craft_once(user_id, int(pill_id), fire_choice, materials)
             if not ok:
                 stop_msg = msg
                 break

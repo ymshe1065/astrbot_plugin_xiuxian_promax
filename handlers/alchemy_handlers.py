@@ -1,5 +1,6 @@
 # handlers/alchemy_handlers.py
 from astrbot.api.event import AstrMessageEvent
+from ..core.material_selection import split_material_options
 from ..managers.alchemy_manager import AlchemyManager
 from ..data.data_manager import DataBase
 from .utils import set_event_flag
@@ -43,7 +44,7 @@ class AlchemyHandlers:
             if normalized.isdigit():
                 value = int(normalized)
                 # 旧写法 /炼丹 3 1 中，第一位数字仍是火候
-                if fire is None and amount is None and index == 0 and value in (1, 2, 3):
+                if fire is None and amount is None and index == 0 and token.isdigit() and value in (1, 2, 3):
                     fire = str(value)
                 elif value > 0:
                     amount = value
@@ -113,7 +114,12 @@ class AlchemyHandlers:
             yield event.plain_result("❌ 请输入丹药配方ID，例如：/炼丹 3 猛火 10")
             return
         pill_id = tokens[0]
-        fire_choice, amount, error = self._parse_craft_options(tokens[1:])
+        try:
+            options, materials = split_material_options(tokens[1:])
+        except ValueError as exc:
+            yield event.plain_result(f"❌ {exc}")
+            return
+        fire_choice, amount, error = self._parse_craft_options(options)
         if error:
             yield event.plain_result(error)
             return
@@ -126,7 +132,7 @@ class AlchemyHandlers:
             return
 
         success, msg, result_data = await self.alchemy_mgr.craft_pill(
-            user_id, pill_id_int, fire_choice, amount
+            user_id, pill_id_int, fire_choice, amount, materials=materials or None
         )
         # 记录本次是否真正炼成（丹劫毁丹/失败不算），供任务进度判定
         success_count = 0

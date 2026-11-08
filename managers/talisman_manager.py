@@ -6,6 +6,7 @@ import random
 import time
 from typing import Dict, Iterator, List, Optional, Tuple, TYPE_CHECKING
 
+from ..core.material_selection import select_recipe_materials
 from ..models import Player
 from ..data.data_manager import DataBase
 from ..core.active_effects import format_duration
@@ -703,7 +704,7 @@ class TalismanManager:
             return 0, "❌ 数量必须大于 0。"
         return min(count, TalismanManager.CRAFT_COUNT_CAP), ""
 
-    async def craft_talisman(self, player: Player, name: str, count: int = 1) -> Tuple[bool, str]:
+    async def craft_talisman(self, player: Player, name: str, count: int = 1, materials=None) -> Tuple[bool, str]:
         count = max(1, min(self.CRAFT_COUNT_CAP, int(count or 1)))
         recipe = self.get_recipe(name)
         if not recipe:
@@ -715,6 +716,10 @@ class TalismanManager:
         if not self.is_recipe_learned(player, name, recipe):
             return False, f"❌ 尚未学会【{name}】的绘制方法，可到 /符阁 符图 购买符图。"
 
+        try:
+            recipe = select_recipe_materials(recipe, materials, self._material_info)
+        except ValueError as exc:
+            return False, f"❌ {exc}"
         params = self.resolve_craft_params(player, name, recipe)
         level_required = params["level_required"]
         if player.level_index < level_required:
@@ -815,7 +820,7 @@ class TalismanManager:
         )
 
     # ===== 使用 =====
-    async def use_talisman(self, player: Player, name: str, count: int = 1) -> Tuple[bool, str]:
+    async def use_talisman(self, player: Player, name: str, count: int = 1, materials=None) -> Tuple[bool, str]:
         count = max(1, min(20, int(count or 1)))
         items = player.get_storage_ring_items()
         have = int(items.get(name, 0) or 0)

@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v7.4.1 (事务一致性 / 结算与生命周期修复)
+# AstrBot 插件：模拟修仙 v7.5.0 (制作指定材料 / 网页快捷提示修复)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v7.4.1-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v7.5.0-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.39.1 · **游戏版本:** v7.4.1 · **数据库:** v61
+> **插件版本:** v3.40.0 · **游戏版本:** v7.5.0 · **数据库:** v61
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，257 条注册指令（网页指令目录 245 个功能按钮 + 12 个别名）、17 个大系统、111 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,21 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · v7.4.1（事务一致性 / 结算与生命周期修复）</b></summary>
+<summary><b>本次更新 · v7.5.0（制作指定材料 / 网页快捷提示修复）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 炼丹、制符 | 新增可选参数 `[品阶类别=材料名 ...]`，例如 `/炼丹 3 守中 all 圣品灵植=幽冥草`（丹方须需要圣品灵植）、`/制符 稳魂符 2 凡品灵植=灵草`（物品须符合配方要求）。多类材料可同时指定，未指定类别继续自动选料；指定物品不足时停止，不回退消耗其他同类物品。 |
+| 火候与批量 | 单次、批量、all 均遵守材料约束；分步炼丹会将选择保存在火候状态中，开炉无需重填。材料名称、类别、品阶及重复参数均校验。 |
+| 网页及移动端 | 炼丹、制符参数弹层新增储物戒材料候选，只展示符合当前配方需求的物品；可留空或逐类点选自动填参。火候、数量可跳过继续选择材料。 |
+| 快捷提示修复 | 宗门等候选不再从历史消息中恢复；发送新指令或收到无候选的新回复时清空旧列表，他人的回复和自动代理不再覆盖当前提示。 |
+| 回归验证 | Python 全量 **1211 项通过、125 个子测试通过**；前端 **7 项交互回归通过**，覆盖材料点选、留空、数量歧义及宗门快捷提示生命周期。 |
+| 版本与数据库 | 插件 **v3.40.0** / 游戏及帮助 **v7.5.0**；使用现有火候 JSON 状态，无表结构更新，数据库仍为 **v61**。 |
+
+</details>
+
+<details>
+<summary><b>v7.4.1（事务一致性 / 结算与生命周期修复）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |
