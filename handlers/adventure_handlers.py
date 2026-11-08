@@ -33,10 +33,11 @@ class AdventureHandlers:
         sections = []
         for route in routes:
             duration = route.get("duration", 0) // 60
+            product = route.get("product") or "全产物"
             sections.append({
                 "name": f"{route['name']} · {route.get('risk', '未知')}风险",
                 "lines": [
-                    f"时长：{duration} 分钟 | 推荐境界 ≥ {route.get('min_level', 0)}",
+                    f"时长：{duration} 分钟 | 推荐境界 ≥ {route.get('min_level', 0)} | 主产：{product}",
                     f"说明：{route.get('description', '')}",
                 ],
             })

@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v7.3.0 (秘境难度分级 / 45 档产出 / 圣品材料扩充)
+# AstrBot 插件：模拟修仙 v7.4.0 (历练境界分档 / 60 条路线专精 / 圣品补位)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v7.3.0-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v7.4.0-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.38.0 · **游戏版本:** v7.3.0 · **数据库:** v61
+> **插件版本:** v3.39.0 · **游戏版本:** v7.4.0 · **数据库:** v61
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，257 条注册指令（网页指令目录 245 个功能按钮 + 12 个别名）、17 个大系统、111 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,27 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · v7.3.0（秘境难度分级 / 45 档产出 / 圣品材料扩充）</b></summary>
+<summary><b>本次更新 · v7.4.0（历练按境界分档 / 60 条路线专精 / 圣品补位）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 掉落与境界脱钩 | 旧版 60 条路线只挂 3 张掉落表（low/mid/high），其中 **46 条共用同一张 high 表**，覆盖境界 10~31 整整 22 个等级 —— 合体期走「造化祭坛」和刚上 10 级的玩家掉的东西一模一样。现在按 `realm_bands` 分 5 段，境界决定品阶。 |
+| 路线专精 | 60 条路线各定 `product`（灵植 11 / 矿材 10 / 灵液 12 / 妖兽 9 / 全产物 18）。灵谷采药只出灵植、星核开采只出矿材、月湖夜猎只出妖兽，选路线就等于选材料来源。 |
+| 品阶梯度 | 0~12 凡品 → 13~18 黄 40/玄 50/圣 10 → 19~24 玄 55/圣 45 → 25~30 玄 25/圣 75 → 31+ 纯圣品。同一条「灵谷采药」，炼气期掉灵草，合体期掉圣品灵植。 |
+| 补上圣品真空 | 丹方从 lv12 起就要圣品，而秘境最早 lv18 才出圣品，中间 6 级无处可刷。现在 13 级起历练有小概率出圣品，接住这段缺口。 |
+| 品类补齐 | 旧 high 表里灵液 0 项、妖兽只有玄品 1 项，而圣品丹方需要灵植 136 次 / 矿材 98 次 / 灵液 14 次 / 妖兽 11 次 —— 历练对灵液和妖兽材料长期零供给。现在四类在每段境界都有对应材料池。 |
+| 风险换产出 | 旧版冒险事件的掉落率反而更低（15%~30%，低于稳妥事件的 45%~75%），高风险只有惩罚没有回报。现在冒险事件 46%~58% 且 `extra_rolls: 1`，每趟多判定一次；代价仍是修为灵石打折 + 受伤多休整。 |
+| 四类收益拉平 | 妖兽材料单价约为灵植的 2~3 倍，用 `category_quantity_scale`（灵植 1.0 / 矿材 0.8 / 灵液 0.5 / 妖兽 0.5）压数量，四条专精线的单趟期望产出差距 <10%，避免全服只刷最贵那条。 |
+| 空池回退 | 妖兽类没有凡品材料（丹方从不引用），`_resolve_pool` 沿品阶顺序向相邻档回退，保证任何境界段任何专精路线都能掉出东西。 |
+| 指令 | `/开始历练` 改为按主产物分组、每组只列门槛最高的 4 条（旧版 60 条铺满 180 行），并显示当前可得品阶；`/历练信息` 每条路线标注主产物；网页端路线候选同步。 |
+| 回归测试 | 新增 `tests/test_adventure_drops.py`（23 项：配置合法性、四类覆盖、品阶梯度、圣品解锁、材料价值随境界上升、旧配置兜底、数量区间）。 |
+| 版本同步 | 插件 v3.39.0 / 游戏 v7.4.0；数据库仍为 v61（无表结构变更）。 |
+
+</details>
+
+
+<details>
+<summary><b>v7.3.0（秘境难度分级 / 45 档产出 / 圣品材料扩充）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |

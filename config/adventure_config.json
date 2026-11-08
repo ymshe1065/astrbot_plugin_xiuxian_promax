@@ -44,7 +44,8 @@
       },
       "drop_tier": "low",
       "bounty_tag": "adventure_scout",
-      "bounty_progress": 1
+      "bounty_progress": 1,
+      "product": "全产物"
     },
     {
       "key": "herb_valley",
@@ -76,7 +77,8 @@
       },
       "drop_tier": "low",
       "bounty_tag": "adventure_scout",
-      "bounty_progress": 1
+      "bounty_progress": 1,
+      "product": "灵植"
     },
     {
       "key": "stream_walk",
@@ -108,7 +110,8 @@
       },
       "drop_tier": "low",
       "bounty_tag": "adventure_scout",
-      "bounty_progress": 1
+      "bounty_progress": 1,
+      "product": "灵液"
     },
     {
       "key": "village_patrol",
@@ -140,7 +143,8 @@
       },
       "drop_tier": "low",
       "bounty_tag": "adventure_scout",
-      "bounty_progress": 1
+      "bounty_progress": 1,
+      "product": "全产物"
     },
     {
       "key": "old_forest",
@@ -172,7 +176,8 @@
       },
       "drop_tier": "low",
       "bounty_tag": "adventure_scout",
-      "bounty_progress": 1
+      "bounty_progress": 1,
+      "product": "灵植"
     },
     {
       "key": "mist_hill",
@@ -203,7 +208,8 @@
       },
       "drop_tier": "low",
       "bounty_tag": "adventure_scout",
-      "bounty_progress": 1
+      "bounty_progress": 1,
+      "product": "灵植"
     },
     {
       "key": "journey",
@@ -236,7 +242,8 @@
       },
       "drop_tier": "mid",
       "bounty_tag": "adventure_roam",
-      "bounty_progress": 1
+      "bounty_progress": 1,
+      "product": "全产物"
     },
     {
       "key": "ruin_edge",
@@ -268,7 +275,8 @@
       },
       "drop_tier": "mid",
       "bounty_tag": "adventure_roam",
-      "bounty_progress": 1
+      "bounty_progress": 1,
+      "product": "矿材"
     },
     {
       "key": "market_road",
@@ -299,7 +307,8 @@
       },
       "drop_tier": "mid",
       "bounty_tag": "adventure_roam",
-      "bounty_progress": 1
+      "bounty_progress": 1,
+      "product": "全产物"
     },
     {
       "key": "spirit_marsh",
@@ -330,7 +339,8 @@
       },
       "drop_tier": "mid",
       "bounty_tag": "adventure_roam",
-      "bounty_progress": 1
+      "bounty_progress": 1,
+      "product": "灵液"
     },
     {
       "key": "iron_mine",
@@ -361,7 +371,8 @@
       },
       "drop_tier": "mid",
       "bounty_tag": "adventure_hunt",
-      "bounty_progress": 1
+      "bounty_progress": 1,
+      "product": "矿材"
     },
     {
       "key": "moon_lake",
@@ -393,7 +404,8 @@
       },
       "drop_tier": "mid",
       "bounty_tag": "adventure_hunt",
-      "bounty_progress": 1
+      "bounty_progress": 1,
+      "product": "妖兽"
     },
     {
       "key": "wind_canyon",
@@ -424,7 +436,8 @@
       },
       "drop_tier": "mid",
       "bounty_tag": "adventure_hunt",
-      "bounty_progress": 1
+      "bounty_progress": 1,
+      "product": "全产物"
     },
     {
       "key": "beast_ridge",
@@ -456,7 +469,8 @@
       },
       "drop_tier": "mid",
       "bounty_tag": "adventure_hunt",
-      "bounty_progress": 2
+      "bounty_progress": 2,
+      "product": "妖兽"
     },
     {
       "key": "peril",
@@ -488,7 +502,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_peril",
-      "bounty_progress": 2
+      "bounty_progress": 2,
+      "product": "全产物"
     },
     {
       "key": "ghost_city",
@@ -519,7 +534,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_peril",
-      "bounty_progress": 2
+      "bounty_progress": 2,
+      "product": "全产物"
     },
     {
       "key": "bone_forest",
@@ -551,7 +567,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_peril",
-      "bounty_progress": 2
+      "bounty_progress": 2,
+      "product": "妖兽"
     },
     {
       "key": "thunder_valley",
@@ -583,7 +600,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_peril",
-      "bounty_progress": 2
+      "bounty_progress": 2,
+      "product": "灵液"
     },
     {
       "key": "abyss_edge",
@@ -614,7 +632,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_peril",
-      "bounty_progress": 2
+      "bounty_progress": 2,
+      "product": "矿材"
     },
     {
       "key": "sky_bridge",
@@ -646,7 +665,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_peril",
-      "bounty_progress": 2
+      "bounty_progress": 2,
+      "product": "全产物"
     },
     {
       "key": "flame_pass",
@@ -677,7 +697,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_hunt",
-      "bounty_progress": 2
+      "bounty_progress": 2,
+      "product": "妖兽"
     },
     {
       "key": "frost_peak",
@@ -709,7 +730,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_roam",
-      "bounty_progress": 2
+      "bounty_progress": 2,
+      "product": "灵液"
     },
     {
       "key": "poison_mire",
@@ -741,7 +763,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_hunt",
-      "bounty_progress": 2
+      "bounty_progress": 2,
+      "product": "灵植"
     },
     {
       "key": "star_plateau",
@@ -773,7 +796,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_roam",
-      "bounty_progress": 2
+      "bounty_progress": 2,
+      "product": "矿材"
     },
     {
       "key": "dragon_tomb",
@@ -804,7 +828,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_peril",
-      "bounty_progress": 3
+      "bounty_progress": 3,
+      "product": "妖兽"
     },
     {
       "key": "sword_tomb",
@@ -836,7 +861,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_peril",
-      "bounty_progress": 3
+      "bounty_progress": 3,
+      "product": "矿材"
     },
     {
       "key": "sea_eye",
@@ -868,7 +894,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_hunt",
-      "bounty_progress": 3
+      "bounty_progress": 3,
+      "product": "灵液"
     },
     {
       "key": "buddhist_land",
@@ -900,7 +927,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_roam",
-      "bounty_progress": 2
+      "bounty_progress": 2,
+      "product": "灵植"
     },
     {
       "key": "demon_rift",
@@ -932,7 +960,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_hunt",
-      "bounty_progress": 3
+      "bounty_progress": 3,
+      "product": "全产物"
     },
     {
       "key": "immortal_vine",
@@ -963,7 +992,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_peril",
-      "bounty_progress": 3
+      "bounty_progress": 3,
+      "product": "灵植"
     },
     {
       "key": "void_mirror",
@@ -994,7 +1024,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_peril",
-      "bounty_progress": 3
+      "bounty_progress": 3,
+      "product": "灵液"
     },
     {
       "key": "war_relic",
@@ -1025,7 +1056,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_peril",
-      "bounty_progress": 3
+      "bounty_progress": 3,
+      "product": "全产物"
     },
     {
       "key": "spirit_vein",
@@ -1056,7 +1088,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_hunt",
-      "bounty_progress": 3
+      "bounty_progress": 3,
+      "product": "全产物"
     },
     {
       "key": "cloud_city",
@@ -1088,7 +1121,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_roam",
-      "bounty_progress": 2
+      "bounty_progress": 2,
+      "product": "全产物"
     },
     {
       "key": "pill_valley",
@@ -1118,7 +1152,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_hunt",
-      "bounty_progress": 3
+      "bounty_progress": 3,
+      "product": "灵植"
     },
     {
       "key": "meteor_field",
@@ -1150,7 +1185,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_peril",
-      "bounty_progress": 3
+      "bounty_progress": 3,
+      "product": "矿材"
     },
     {
       "key": "immortal_battle",
@@ -1180,7 +1216,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_peril",
-      "bounty_progress": 3
+      "bounty_progress": 3,
+      "product": "全产物"
     },
     {
       "key": "nether_pass",
@@ -1212,7 +1249,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_peril",
-      "bounty_progress": 3
+      "bounty_progress": 3,
+      "product": "妖兽"
     },
     {
       "key": "chaos_sea",
@@ -1243,7 +1281,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_peril",
-      "bounty_progress": 3
+      "bounty_progress": 3,
+      "product": "灵液"
     },
     {
       "key": "god_tree",
@@ -1274,7 +1313,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_hunt",
-      "bounty_progress": 3
+      "bounty_progress": 3,
+      "product": "灵植"
     },
     {
       "key": "ancient_mine",
@@ -1305,7 +1345,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_hunt",
-      "bounty_progress": 3
+      "bounty_progress": 3,
+      "product": "矿材"
     },
     {
       "key": "sky_tomb",
@@ -1336,7 +1377,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_peril",
-      "bounty_progress": 3
+      "bounty_progress": 3,
+      "product": "全产物"
     },
     {
       "key": "time_river",
@@ -1368,7 +1410,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_peril",
-      "bounty_progress": 3
+      "bounty_progress": 3,
+      "product": "灵液"
     },
     {
       "key": "star_core",
@@ -1399,7 +1442,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_hunt",
-      "bounty_progress": 3
+      "bounty_progress": 3,
+      "product": "矿材"
     },
     {
       "key": "soul_swamp",
@@ -1431,7 +1475,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_peril",
-      "bounty_progress": 3
+      "bounty_progress": 3,
+      "product": "灵植"
     },
     {
       "key": "dragon_market",
@@ -1463,7 +1508,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_roam",
-      "bounty_progress": 3
+      "bounty_progress": 3,
+      "product": "全产物"
     },
     {
       "key": "void_crack",
@@ -1493,7 +1539,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_peril",
-      "bounty_progress": 3
+      "bounty_progress": 3,
+      "product": "妖兽"
     },
     {
       "key": "origin_sea",
@@ -1524,7 +1571,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_peril",
-      "bounty_progress": 3
+      "bounty_progress": 3,
+      "product": "灵液"
     },
     {
       "key": "immortal_tomb",
@@ -1555,7 +1603,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_peril",
-      "bounty_progress": 3
+      "bounty_progress": 3,
+      "product": "全产物"
     },
     {
       "key": "dao_pool",
@@ -1586,7 +1635,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_roam",
-      "bounty_progress": 3
+      "bounty_progress": 3,
+      "product": "灵液"
     },
     {
       "key": "heaven_gate",
@@ -1617,7 +1667,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_peril",
-      "bounty_progress": 3
+      "bounty_progress": 3,
+      "product": "灵植"
     },
     {
       "key": "chaos_throne",
@@ -1647,7 +1698,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_peril",
-      "bounty_progress": 3
+      "bounty_progress": 3,
+      "product": "妖兽"
     },
     {
       "key": "fate_loom",
@@ -1677,7 +1729,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_peril",
-      "bounty_progress": 3
+      "bounty_progress": 3,
+      "product": "灵液"
     },
     {
       "key": "dao_end",
@@ -1707,7 +1760,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_peril",
-      "bounty_progress": 3
+      "bounty_progress": 3,
+      "product": "妖兽"
     },
     {
       "key": "pluto_trial",
@@ -1739,7 +1793,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_peril",
-      "bounty_progress": 3
+      "bounty_progress": 3,
+      "product": "灵液"
     },
     {
       "key": "soul_forge",
@@ -1771,7 +1826,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_peril",
-      "bounty_progress": 3
+      "bounty_progress": 3,
+      "product": "矿材"
     },
     {
       "key": "dao_arena",
@@ -1803,7 +1859,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_peril",
-      "bounty_progress": 3
+      "bounty_progress": 3,
+      "product": "全产物"
     },
     {
       "key": "primordial_peak",
@@ -1835,7 +1892,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_peril",
-      "bounty_progress": 3
+      "bounty_progress": 3,
+      "product": "全产物"
     },
     {
       "key": "cosmos_eye",
@@ -1865,7 +1923,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_peril",
-      "bounty_progress": 3
+      "bounty_progress": 3,
+      "product": "矿材"
     },
     {
       "key": "creation_altar",
@@ -1895,7 +1954,8 @@
       },
       "drop_tier": "high",
       "bounty_tag": "adventure_peril",
-      "bounty_progress": 3
+      "bounty_progress": 3,
+      "product": "灵植"
     }
   ],
   "event_groups": {
@@ -2036,9 +2096,10 @@
         "desc": "遭遇伏击，受了点伤但仍坚持完成任务。",
         "exp_mult": 0.7,
         "gold_mult": 0.7,
-        "item_chance": 15,
+        "item_chance": 46,
         "bonus_progress": 0,
-        "injury": true
+        "injury": true,
+        "extra_rolls": 1
       },
       {
         "key": "beast_tide",
@@ -2046,9 +2107,10 @@
         "desc": "卷入妖兽迁徙浪潮，九死一生杀出重围。",
         "exp_mult": 0.75,
         "gold_mult": 0.75,
-        "item_chance": 20,
+        "item_chance": 50,
         "bonus_progress": 1,
-        "injury": true
+        "injury": true,
+        "extra_rolls": 1
       },
       {
         "key": "rival_robber",
@@ -2056,9 +2118,10 @@
         "desc": "与其他修士争夺宝物，两败俱伤。",
         "exp_mult": 0.8,
         "gold_mult": 0.8,
-        "item_chance": 25,
+        "item_chance": 48,
         "bonus_progress": 0,
-        "injury": true
+        "injury": true,
+        "extra_rolls": 1
       },
       {
         "key": "thunderstorm",
@@ -2066,9 +2129,10 @@
         "desc": "荒郊骤起雷暴，你冒雨赶路，勉强完成了既定目标。",
         "exp_mult": 0.85,
         "gold_mult": 0.8,
-        "item_chance": 20,
+        "item_chance": 47,
         "bonus_progress": 1,
-        "injury": true
+        "injury": true,
+        "extra_rolls": 1
       },
       {
         "key": "evil_ambush",
@@ -2076,9 +2140,10 @@
         "desc": "邪修设伏偷袭，你带伤突围，却也摸清了对方巢穴。",
         "exp_mult": 0.75,
         "gold_mult": 1.1,
-        "item_chance": 30,
+        "item_chance": 52,
         "bonus_progress": 1,
-        "injury": true
+        "injury": true,
+        "extra_rolls": 1
       },
       {
         "key": "array_backlash",
@@ -2086,9 +2151,10 @@
         "desc": "误触残余古阵，遭阵法反噬，却也借此参透了几分阵理。",
         "exp_mult": 1.45,
         "gold_mult": 0.6,
-        "item_chance": 25,
+        "item_chance": 50,
         "bonus_progress": 2,
-        "injury": true
+        "injury": true,
+        "extra_rolls": 1
       },
       {
         "key": "rift_eddies",
@@ -2096,10 +2162,11 @@
         "desc": "空间裂隙泛起涟漪，你冒险深入，带回了几件裂隙遗物。",
         "exp_mult": 1.5,
         "gold_mult": 1.0,
-        "item_chance": 45,
+        "item_chance": 58,
         "bonus_progress": 2,
         "injury": true,
-        "drop_tier": "mid"
+        "drop_tier": "mid",
+        "extra_rolls": 1
       },
       {
         "key": "demon_corruption",
@@ -2107,90 +2174,212 @@
         "desc": "误入魔气淤积之地，强行运功驱散，元气大伤。",
         "exp_mult": 0.6,
         "gold_mult": 0.7,
-        "item_chance": 15,
+        "item_chance": 46,
         "bonus_progress": 0,
-        "injury": true
+        "injury": true,
+        "extra_rolls": 1
       }
     ]
   },
-  "drop_tables": {
-    "low": [
-      {
-        "name": "灵草",
-        "weight": 45,
-        "min": 1,
-        "max": 3
-      },
-      {
-        "name": "精铁",
-        "weight": 30,
-        "min": 1,
-        "max": 2
-      },
-      {
-        "name": "灵石碎片",
-        "weight": 25,
-        "min": 2,
-        "max": 5
+  "realm_bands": [
+    {
+      "key": "lianqi",
+      "label": "炼气",
+      "max_level": 12,
+      "tiers": {
+        "凡品": 100
       }
+    },
+    {
+      "key": "jindan",
+      "label": "金丹元婴",
+      "max_level": 18,
+      "tiers": {
+        "黄品": 40,
+        "玄品": 50,
+        "圣品": 10
+      }
+    },
+    {
+      "key": "huashen",
+      "label": "化神炼虚",
+      "max_level": 24,
+      "tiers": {
+        "玄品": 55,
+        "圣品": 45
+      }
+    },
+    {
+      "key": "heti",
+      "label": "合体大乘",
+      "max_level": 30,
+      "tiers": {
+        "玄品": 25,
+        "圣品": 75
+      }
+    },
+    {
+      "key": "dujie",
+      "label": "渡劫以上",
+      "max_level": 999,
+      "tiers": {
+        "圣品": 100
+      }
+    }
+  ],
+  "drop_pools": {
+    "灵植": {
+      "凡品": [
+        "灵草",
+        "九天草",
+        "太极草",
+        "太虚草",
+        "寂灭草",
+        "山河草",
+        "日月草",
+        "星辰草"
+      ],
+      "黄品": [
+        "九天菩提子草",
+        "四象草",
+        "太极龙骨草",
+        "寒霜草",
+        "冰心草",
+        "火焰花"
+      ],
+      "玄品": [
+        "九叶灵芝",
+        "紫电草",
+        "鸿蒙草",
+        "龙渊草",
+        "灭世草",
+        "噬魂幽冥草草"
+      ],
+      "圣品": [
+        "天材地宝",
+        "冰火双生花",
+        "血玉灵芝",
+        "九幽仙芝",
+        "幽冥草",
+        "混沌青莲",
+        "九霄玉兰",
+        "仙墟圣莲"
+      ]
+    },
+    "矿材": {
+      "凡品": [
+        "精铁",
+        "九幽铁",
+        "乾坤铁",
+        "四象铁",
+        "太虚铁",
+        "混元石"
+      ],
+      "黄品": [
+        "玄铁",
+        "万古铁",
+        "寒霜铁",
+        "诛仙铁",
+        "乾坤石",
+        "四象石"
+      ],
+      "玄品": [
+        "星辰石",
+        "洗练石",
+        "空间石",
+        "长生石",
+        "寂灭石",
+        "星辰铁"
+      ],
+      "圣品": [
+        "混元铁",
+        "玄天寒铁",
+        "太初源石",
+        "星陨精金",
+        "星辰玄铁"
+      ]
+    },
+    "灵液": {
+      "凡品": [
+        "灵石碎片",
+        "轮回液",
+        "造化液",
+        "龙渊液",
+        "星辰精铁液",
+        "寒霜仙露液"
+      ],
+      "黄品": [
+        "无极液",
+        "寒霜龙骨液",
+        "破军地火液",
+        "鸿蒙菩提子液",
+        "破军陨铁液"
+      ],
+      "玄品": [
+        "寂灭液",
+        "秘境精华",
+        "紫电龙骨液·1",
+        "灭世仙露皮"
+      ],
+      "圣品": [
+        "青锋陨铁液",
+        "玄冰髓",
+        "混沌灵乳",
+        "太虚雷髓",
+        "劫雷精粹"
+      ]
+    },
+    "妖兽": {
+      "黄品": [
+        "灵兽毛皮",
+        "妖兽精血",
+        "万古骨",
+        "九幽骨",
+        "四象骨"
+      ],
+      "玄品": [
+        "灵兽内丹",
+        "九天骨",
+        "无极骨",
+        "混沌皮",
+        "轮回皮"
+      ],
+      "圣品": [
+        "四象皮",
+        "吞天兽骨",
+        "万古妖丹",
+        "虚空妖核"
+      ]
+    }
+  },
+  "drop_quantity": {
+    "凡品": [
+      2,
+      5
     ],
-    "mid": [
-      {
-        "name": "灵草",
-        "weight": 30,
-        "min": 2,
-        "max": 5
-      },
-      {
-        "name": "玄铁",
-        "weight": 28,
-        "min": 1,
-        "max": 3
-      },
-      {
-        "name": "灵兽毛皮",
-        "weight": 22,
-        "min": 1,
-        "max": 2
-      },
-      {
-        "name": "妖兽精血",
-        "weight": 20,
-        "min": 1,
-        "max": 2
-      }
+    "黄品": [
+      1,
+      4
     ],
-    "high": [
-      {
-        "name": "玄铁",
-        "weight": 26,
-        "min": 2,
-        "max": 5
-      },
-      {
-        "name": "星辰石",
-        "weight": 24,
-        "min": 1,
-        "max": 3
-      },
-      {
-        "name": "灵兽内丹",
-        "weight": 22,
-        "min": 1,
-        "max": 2
-      },
-      {
-        "name": "天材地宝",
-        "weight": 18,
-        "min": 1,
-        "max": 1
-      },
-      {
-        "name": "引雷符",
-        "weight": 10,
-        "min": 1,
-        "max": 1
-      }
+    "玄品": [
+      1,
+      3
+    ],
+    "圣品": [
+      1,
+      2
     ]
+  },
+  "category_quantity_scale": {
+    "灵植": 1.0,
+    "矿材": 0.8,
+    "灵液": 0.5,
+    "妖兽": 0.5
+  },
+  "category_weights": {
+    "灵植": 30,
+    "矿材": 30,
+    "灵液": 20,
+    "妖兽": 20
   }
 }

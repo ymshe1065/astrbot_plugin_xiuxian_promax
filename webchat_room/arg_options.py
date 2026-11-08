@@ -916,7 +916,8 @@ async def _src_adventure_routes(plugin: "XiuXianPlugin", player: Any, field: dic
                 _opt(
                     route.get("name", ""),
                     route.get("name", ""),
-                    f"风险 {route.get('risk', '?')} · {_int(route.get('duration', 0)) // 60} 分钟 · {route.get('description', '')}",
+                    f"主产 {route.get('product') or '全产物'} · 风险 {route.get('risk', '?')}"
+                    f" · {_int(route.get('duration', 0)) // 60} 分钟 · {route.get('description', '')}",
                     "可用路线",
                 )
             )

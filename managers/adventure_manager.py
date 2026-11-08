@@ -24,6 +24,16 @@ class AdventureManager:
     """历练系统管理器"""
 
     CONFIG_FILE = Path(__file__).resolve().parents[1] / "config" / "adventure_config.json"
+
+    # 材料品阶从低到高。掉落池在某品阶为空时（例如妖兽类没有凡品材料），
+    # 沿这个顺序向相邻品阶回退，避免某个专精路线在某些境界段掉不出东西。
+    TIER_ORDER = ("凡品", "黄品", "玄品", "圣品")
+    PRODUCT_CATEGORIES = ("灵植", "矿材", "灵液", "妖兽")
+
+    # 品阶回退时的数量折扣：往上回退（拿到了更值钱的品阶）要少给一些，
+    # 否则「妖兽类没有凡品」会让炼气期的夜猎路线比采药路线肥 57%，新人全去刷妖兽。
+    FALLBACK_COUNT_SCALE = 0.6
+
     DEFAULT_CONFIG = {
         "routes": [
             {
@@ -142,6 +152,17 @@ class AdventureManager:
             "equipment_slot_weights", self.DEFAULT_CONFIG["equipment_slot_weights"]
         )
 
+        # 新掉落体系：境界段 → 品阶 → 材料池。老配置文件没有这几项时回退到 drop_tables。
+        self.realm_bands: List[dict] = config.get("realm_bands") or []
+        self.drop_pools: Dict[str, Dict[str, List[str]]] = config.get("drop_pools") or {}
+        self.drop_quantity: Dict[str, List[int]] = config.get("drop_quantity") or {
+            "凡品": [2, 5], "黄品": [1, 4], "玄品": [1, 3], "圣品": [1, 2],
+        }
+        self.category_quantity_scale: Dict[str, float] = config.get("category_quantity_scale") or {}
+        self.category_weights: Dict[str, int] = config.get("category_weights") or {
+            "灵植": 25, "矿材": 25, "灵液": 25, "妖兽": 25,
+        }
+
     def _load_config_file(self) -> dict:
         """加载配置文件并在失败时回退到默认配置"""
         if self.CONFIG_FILE.exists():
@@ -165,10 +186,18 @@ class AdventureManager:
                     "risk": route.get("risk", "未知"),
                     "duration": route.get("duration", 0),
                     "min_level": route.get("min_level", 0),
-                    "description": route.get("description", "")
+                    "description": route.get("description", ""),
+                    "product": route.get("product", ""),
                 }
             )
         return overview
+
+    def route_product_names(self) -> Dict[str, str]:
+        """路线主产物展示名，供列表与提示复用。"""
+        return {
+            route["key"]: str(route.get("product") or "全产物")
+            for route in self.routes.values()
+        }
 
     # -------- 核心流程 --------
 
@@ -187,40 +216,53 @@ class AdventureManager:
             return False, f"❌ 你当前正{UserStatus.get_name(user_cd.type)}，无法开始历练！"
 
         # ===== v6.18 空参必须明选路线（不再静默进默认路线）=====
-        # 60+ 路线按境界过滤：只显示当前可走的 + 最近的 2 个待解锁预告
+        # 路线按主产物分组，每组只列门槛最高的 4 条，避免 60 条铺满屏幕。
         if not route_token or not route_token.strip():
-            lines = [
-                "🗺️ 请选择历练路线",
-                "━━━━━━━━━━━━━━━",
+            available = [
+                r for r in self.routes.values() if player.level_index >= r.get("min_level", 0)
             ]
-            available = sorted(
-                [r for r in self.routes.values() if player.level_index >= r.get("min_level", 0)],
-                key=lambda r: r.get("min_level", 0)
-            )
             locked = sorted(
                 [r for r in self.routes.values() if player.level_index < r.get("min_level", 0)],
                 key=lambda r: r.get("min_level", 0)
             )
+            band = self.realm_band(player.level_index)
+            tier_text = " / ".join((band.get("tiers") or {}).keys()) if band else "凡品"
+
+            lines = [
+                "🗺️ 请选择历练路线",
+                "━━━━━━━━━━━━━━━",
+                f"你当前可得材料：{tier_text}（境界决定品阶，路线决定类别）",
+            ]
+            groups: Dict[str, List[dict]] = {}
             for route in available:
-                lines.append(
-                    f"  · {route['name']}\n"
-                    f"      {route.get('description', '')}\n"
-                    f"      风险：{route.get('risk', '?')} | 时长：{route.get('duration', 0) // 60} 分钟"
-                    + (f" | 需境界{route.get('min_level')}" if route.get('min_level') else " | 无境界要求")
-                )
+                groups.setdefault(route.get("product") or "全产物", []).append(route)
+            for product in ("灵植", "矿材", "灵液", "妖兽", "全产物"):
+                items = groups.get(product) or []
+                if not items:
+                    continue
+                items = sorted(items, key=lambda r: -r.get("min_level", 0))
+                lines.append(f"▸ {product} · 共 {len(items)} 条")
+                for route in items[:4]:
+                    lines.append(
+                        f"   {route['name']}  {route.get('duration', 0) // 60}分"
+                        f" · {route.get('risk', '?')}风险"
+                        + (f" · 需境界{route.get('min_level')}" if route.get('min_level') else "")
+                    )
+                if len(items) > 4:
+                    lines.append(f"   …另有 {len(items) - 4} 条，/历练信息 看全部")
             if not available:
                 lines.append("  （暂无可用路线，异常！）")
             if locked:
-                lines.append("━━━━━━━━━━━━━━━")
-                lines.append("【即将解锁】再升几级就能去：")
-                for route in locked[:3]:
+                lines.append("")
+                lines.append("【即将解锁】")
+                for route in locked[:2]:
                     lines.append(
-                        f"  🔒 {route['name']}（需境界{route.get('min_level')}，还差 {route.get('min_level', 0) - player.level_index} 级）"
-                        f" | 时长 {route.get('duration', 0) // 60} 分钟"
+                        f"  🔒 {route['name']}（需境界{route.get('min_level')}，"
+                        f"还差 {route.get('min_level', 0) - player.level_index} 级）"
                     )
             lines.append("━━━━━━━━━━━━━━━")
-            lines.append(f"💡 共 {len(available)} 条路线可用（全服共 {len(self.routes)} 条）")
-            lines.append("💡 使用 /开始历练 <路线名> 出发（如 /开始历练 云游四方）")
+            lines.append(f"💡 共 {len(available)} 条可走（全服共 {len(self.routes)} 条）")
+            lines.append("💡 /开始历练 <路线名> 出发（如 /开始历练 灵谷采药）")
             return False, "\n".join(lines)
 
         route_key = self._resolve_route(route_token)
@@ -259,9 +301,12 @@ class AdventureManager:
         await self.db.ext.set_user_busy(user_id, UserStatus.ADVENTURING, scheduled_time, extra_data=extra)
 
         fatigue = route.get("fatigue_cooldown", 0)
+        band = self.realm_band(player.level_index)
+        tier_text = " / ".join((band.get("tiers") or {}).keys()) if band else "凡品"
         hint = [
             f"✨ 你选择了「{route['name']}」——{route.get('description', '未知冒险')}",
-            f"路线风险：{route.get('risk', '未知')} | 历练时长：{duration // 60} 分钟"
+            f"路线风险：{route.get('risk', '未知')} | 历练时长：{duration // 60} 分钟",
+            f"主要产出：{route.get('product') or '全产物'}（本境界可得 {tier_text}）",
         ]
         if route.get("min_level", 0):
             hint.append(f"建议境界：{route['min_level']} 阶以上")
@@ -536,6 +581,123 @@ class AdventureManager:
         group = self.event_groups.get(group_key) or self.event_groups.get("standard") or self.DEFAULT_CONFIG["event_groups"]["standard"]
         return random.choice(group)
 
+    # -------- 掉落判定（境界段 × 路线主产物）--------
+
+    def realm_band(self, level_index: int) -> dict:
+        """按玩家境界取掉落段；超出配置范围时归入最后一段。"""
+        if not self.realm_bands:
+            return {}
+        for band in self.realm_bands:
+            try:
+                if int(level_index) <= int(band.get("max_level", 999)):
+                    return band
+            except (TypeError, ValueError):
+                continue
+        return self.realm_bands[-1]
+
+    def realm_band_label(self, level_index: int) -> str:
+        return str(self.realm_band(level_index).get("label", "") or "")
+
+    def _route_category(self, route: dict) -> str:
+        """路线主产物；「全产物」或未标注时按全局权重抽一类。"""
+        product = str(route.get("product") or "").strip()
+        if product in self.PRODUCT_CATEGORIES:
+            return product
+        weights = {
+            k: max(0, int(v))
+            for k, v in (self.category_weights or {}).items()
+            if k in self.PRODUCT_CATEGORIES
+        }
+        total = sum(weights.values())
+        if not total:
+            return "灵植"
+        roll = random.randint(1, total)
+        upto = 0
+        for key, weight in weights.items():
+            upto += weight
+            if roll <= upto:
+                return key
+        return "灵植"
+
+    def _roll_tier(self, band: dict) -> str:
+        """在境界段允许的品阶里按权重抽一个。"""
+        tiers = {
+            k: max(0, int(v))
+            for k, v in (band.get("tiers") or {}).items()
+            if k in self.TIER_ORDER
+        }
+        total = sum(tiers.values())
+        if not total:
+            return self.TIER_ORDER[0]
+        roll = random.randint(1, total)
+        upto = 0
+        for key, weight in tiers.items():
+            upto += weight
+            if roll <= upto:
+                return key
+        return list(tiers)[-1]
+
+    def _resolve_pool(self, category: str, tier: str) -> Tuple[List[str], str]:
+        """返回 (材料名列表, 实际使用品阶)。该类别缺少此品阶时向相邻品阶回退。"""
+        pool = self.drop_pools.get(category) or {}
+        names = pool.get(tier)
+        if names:
+            return names, tier
+        if tier not in self.TIER_ORDER:
+            return [], tier
+        idx = self.TIER_ORDER.index(tier)
+        for candidate in self.TIER_ORDER[idx + 1:]:
+            if pool.get(candidate):
+                return pool[candidate], candidate
+        for candidate in reversed(self.TIER_ORDER[:idx]):
+            if pool.get(candidate):
+                return pool[candidate], candidate
+        return [], tier
+
+    def _roll_material_drop(self, player: Player, route: dict, event: dict) -> Optional[Tuple[str, int]]:
+        """抽一件材料：境界段定品阶，路线主产物定类别。"""
+        if not self.drop_pools or not self.realm_bands:
+            # 老配置兜底：沿用 3 档固定掉落表
+            tier_key = event.get("drop_tier") or route.get("drop_tier") or "low"
+            drop_table = self.drop_tables.get(
+                tier_key, self.DEFAULT_CONFIG["drop_tables"]["low"]
+            )
+            if not drop_table:
+                return None
+            total_weight = sum(item["weight"] for item in drop_table)
+            roll = random.randint(1, max(1, total_weight))
+            upto = 0
+            chosen = drop_table[0]
+            for item in drop_table:
+                upto += item["weight"]
+                if roll <= upto:
+                    chosen = item
+                    break
+            return (chosen["name"], random.randint(chosen["min"], chosen["max"]))
+
+        band = self.realm_band(player.level_index)
+        category = self._route_category(route)
+        tier = self._roll_tier(band)
+        names, actual_tier = self._resolve_pool(category, tier)
+        if not names:
+            return None
+        name = random.choice(names)
+        bounds = self.drop_quantity.get(actual_tier) or [1, 2]
+        low, high = int(bounds[0]), int(bounds[1])
+        scale = float(self.category_quantity_scale.get(category, 1.0) or 1.0)
+        # 回退到更高品阶时按跳档数打折，抵消「捡到更贵材料」的额外收益
+        if actual_tier in self.TIER_ORDER and tier in self.TIER_ORDER:
+            steps = self.TIER_ORDER.index(actual_tier) - self.TIER_ORDER.index(tier)
+            if steps > 0:
+                scale *= self.FALLBACK_COUNT_SCALE ** steps
+        # 小数部分按概率进位：直接 round() 会让 0.8 系数给出 1.5 个（期望 1.2），
+        # 缩放等于没生效，四类专精的收益差距又回来了。
+        raw = random.randint(low, max(low, high)) * scale
+        count = int(raw)
+        if random.random() < raw - count:
+            count += 1
+        return (name, max(1, count))
+
     def _calculate_rewards(self, player: Player, route: dict, duration: int, event: dict) -> Dict[str, int]:
         # 路线时长缩短后，按配置的原始时长折算收益分钟数，保证单次收益不随等待时间缩水
         reward_duration = route.get("reward_duration")
@@ -591,20 +753,15 @@ class AdventureManager:
         except Exception:
             pass
         item_chance = min(100, max(0, item_chance))
-        if random.randint(1, 100) <= item_chance:
-            tier = event.get("drop_tier") or route.get("drop_tier") or "low"
-            drop_table = self.drop_tables.get(tier, self.DEFAULT_CONFIG["drop_tables"]["low"])
-            total_weight = sum(item["weight"] for item in drop_table)
-            roll = random.randint(1, total_weight)
-            upto = 0
-            chosen = drop_table[0]
-            for item in drop_table:
-                upto += item["weight"]
-                if roll <= upto:
-                    chosen = item
-                    break
-            count = random.randint(chosen["min"], chosen["max"])
-            dropped_items.append((chosen["name"], count))
+
+        # 高风险事件改为「多判定一次」而不是压低概率：风险换产出，惩罚体现在修为打折与受伤休整上
+        rolls = 1 + max(0, int(event.get("extra_rolls", 0) or 0))
+        for _ in range(rolls):
+            if random.randint(1, 100) > item_chance:
+                continue
+            drop = self._roll_material_drop(player, route, event)
+            if drop:
+                dropped_items.append(drop)
 
         # 历练额外机缘：低概率掉落功法，极小概率掉落随机五行心法
         try:
