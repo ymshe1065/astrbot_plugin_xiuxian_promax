@@ -2381,5 +2381,12 @@
     "矿材": 30,
     "灵液": 20,
     "妖兽": 20
+  },
+  "tick_settlement": {
+    "tick_seconds": 300,
+    "tick_share": 0.6,
+    "reward_multiplier": 2.0,
+    "tick_item_chance_mult": 1.2,
+    "final_item_chance_mult": 0.8
   }
 }

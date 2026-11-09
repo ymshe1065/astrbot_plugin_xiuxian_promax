@@ -326,30 +326,34 @@ class TestTierFallbackBalance(unittest.TestCase):
 
 
 class TestAbsoluteYield(unittest.TestCase):
-    """历练是「材料第二来源」，不能低于秘境的一半，也不能高过秘境。"""
+    """历练是「材料第二来源」。v7.6 起分段结算并把总产出翻倍，
+    历练材料价值已接近秘境（约 0.9~1.0 倍），这是需求方明确要求的结果。"""
 
     LEVEL = 26
     TOP_ROUTE = "混沌王座"
     RIFT_NAME = "太虚雷池"
     RIFT_LABEL = "二重"
 
-    def _run_stats(self, runs=6000):
+    def _run_stats(self, runs=4000):
         mgr = make_manager()
         route = next(r for r in CFG["routes"] if r["name"] == self.TOP_ROUTE)
         player = _Player(self.LEVEL)
+        small = max(1, mgr.tick_count(route["duration"]) - 1)
         value = 0
         empty = 0
         for _ in range(runs):
-            event = mgr._trigger_route_event(route)
-            rolls = 1 + max(0, int(event.get("extra_rolls", 0) or 0))
-            chance = min(100, max(0, int(event.get("item_chance", 40))))
             run_value = 0
-            for _ in range(rolls):
-                if random.randint(1, 100) > chance:
-                    continue
-                drop = mgr._roll_material_drop(player, route, event)
-                if drop:
-                    run_value += MATS[drop[0]]["price"] * drop[1]
+            for _ in range(small):
+                event = mgr._trigger_route_event(route)
+                for entry in mgr._roll_drops(
+                    player, route, event, chance_scale=mgr.tick_item_mult / small
+                ):
+                    run_value += MATS[entry[0]]["price"] * entry[1]
+            event = mgr._trigger_route_event(route)
+            for entry in mgr._roll_drops(
+                player, route, event, chance_scale=mgr.final_item_mult
+            ):
+                run_value += MATS[entry[0]]["price"] * entry[1]
             value += run_value
             if run_value == 0:
                 empty += 1
@@ -380,16 +384,16 @@ class TestAbsoluteYield(unittest.TestCase):
         raise AssertionError(f"找不到秘境 {self.RIFT_NAME}·{self.RIFT_LABEL}")
 
     def test_empty_run_rate_is_acceptable(self):
-        """一趟 56 分钟空手而归的比例要压到 25% 以内。"""
+        """全程空手的比例要压到 15% 以内：分段后每段都有机会。"""
         _, empty = self._run_stats()
-        self.assertLess(empty, 0.25, f"空手率 {empty:.0%} 太高")
+        self.assertLess(empty, 0.15, f"空手率 {empty:.0%} 太高")
 
-    def test_hourly_value_is_about_half_of_rift(self):
-        """历练每小时材料价值应为秘境的 30%~70%：低于此没人刷，高于此秘境没人去。"""
+    def test_hourly_value_is_on_par_with_rift(self):
+        """历练每小时材料价值约为秘境的 75%~125%（翻倍后与秘境基本持平）。"""
         adventure_hourly, _ = self._run_stats()
         ratio = adventure_hourly / self._rift_hourly()
-        self.assertGreater(ratio, 0.30, f"历练只有秘境的 {ratio:.0%}，材料来源形同虚设")
-        self.assertLess(ratio, 0.70, f"历练达到秘境的 {ratio:.0%}，秘境失去意义")
+        self.assertGreater(ratio, 0.75, f"历练只有秘境的 {ratio:.0%}，翻倍没落地")
+        self.assertLess(ratio, 1.25, f"历练达到秘境的 {ratio:.0%}，再高就没人去秘境了")
 
 
 if __name__ == "__main__":

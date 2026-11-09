@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v7.5.0 (制作指定材料 / 网页快捷提示修复)
+# AstrBot 插件：模拟修仙 v7.6.0 (历练分段结算 / 中途退出无惩罚)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v7.5.0-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v7.6.0-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.40.0 · **游戏版本:** v7.5.0 · **数据库:** v61
+> **插件版本:** v3.41.0 · **游戏版本:** v7.6.0 · **数据库:** v61
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，257 条注册指令（网页指令目录 245 个功能按钮 + 12 个别名）、17 个大系统、111 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,22 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · v7.5.0（制作指定材料 / 网页快捷提示修复）</b></summary>
+<summary><b>本次更新 · v7.6.0（历练分段结算 / 中途退出无惩罚）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 分段结算 | 历练不再等 30~60 分钟一次性结算：每 5 分钟自动发一个小结（小结合计约整趟 60%），走完全程再发一次大结算（剩余 40%，兼作完成奖励）。30 分钟路线 = 5 小结 + 1 大结算，60 分钟 = 11 小结 + 1 大结算。 |
+| 产出翻倍 | 整趟修为/灵石为改版前的 **2.00 倍**（期望值实测 2.00~2.02），材料期望 **1.9~2.1 倍**；合体期顶级路线约 7.7 万材料价值/小时，与同期秘境（8.1 万/小时）基本持平，空手率 17% → 8%。 |
+| 退出无惩罚 | 新增 `/退出历练`（旧 `/放弃历练` 保留）：随时可走，**已结算的小结奖励全部保留**，未走完的部分放弃，不扣灵石、不加冷却、不追加违约金。 |
+| 推送与补算 | 后台每 20 秒扫描历练中的玩家，按出发时记录的会话主动推送小结；掉线期间错过的段落合并为一条「补算 n 段」，不会重复发奖。 |
+| 结算内容 | 大结算统一处理宠物奇遇、探索符次数、路线休整冷却、悬赏进度、任务进度、称号计数与奇遇/善举；`/完成历练` 可随时补领。 |
+| 兼容 | 升级前开始的一次性历练按已过时间自动接管（补算已到期段落），无需手动处理。 |
+| 版本与数据库 | 插件 **v3.41.0** / 游戏及帮助 **v7.6.0**；`extra_data` 复用现有 JSON 字段，无表结构更新，数据库仍为 **v61**。 |
+
+</details>
+
+<details>
+<summary><b>v7.5.0（制作指定材料 / 网页快捷提示修复）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |
