@@ -87,6 +87,9 @@ def to_card_parts(
                         "facet": it.get("facet") or "",
                         "rank": it.get("rank") or 0,
                         "recommend": bool(it.get("recommend")),
+                        # 未解锁的两段要在网页端显示「需 XX」而不是可点按钮
+                        "locked": bool(it.get("locked")),
+                        "lock_text": it.get("lock_text") or "",
                         "rows": it.get("rows") or [],
                     }
                     for it in (g.get("items") or [])

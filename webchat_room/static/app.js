@@ -3004,9 +3004,14 @@
     const listBox = document.createElement("div");
     listBox.className = "discover-groups";
 
-    // facet=all 是「推荐」，只留后端标出的推荐位；「全部」才是整段
-    const pick = (items) => {
-      if (facet === "all") return items.filter((it) => it.recommend);
+    // facet=all 是「推荐」，只留后端标出的推荐位；「全部」才是整段。
+    // 但推荐位只从「可进/可走」段里挑，所以 soon/locked 段始终给全量：
+    // 它们默认折叠，只显示一行汇总，留着玩家才知道「还差多少能解锁」。
+    // 否则默认视角下这两段会整段消失，进度感就没了。
+    const pick = (items, group) => {
+      if (facet === "all") {
+        return group === "open" ? items.filter((it) => it.recommend) : items;
+      }
       if (facet === "全部") return items;
       return items.filter((it) => it.facet === facet);
     };
@@ -3029,7 +3034,7 @@
       listBox.innerHTML = "";
       let shown = 0;
       groups.forEach((g) => {
-        const items = pick(g.items || []);
+        const items = pick(g.items || [], g.key);
         if (!items.length) return;
         shown += items.length;
         const sec = document.createElement("div");
@@ -3073,7 +3078,8 @@
   /** 发现型列表的单个条目：点一下直接执行对应指令 */
   function discoverRow(it, goText) {
     const row = document.createElement("button");
-    row.className = "discover-item" + (it.badge ? " best" : "");
+    row.className =
+      "discover-item" + (it.badge ? " best" : "") + (it.locked ? " locked" : "");
     let html = '<div class="di-main"><div class="di-title">' + esc(it.title || "");
     if (it.badge) html += `<i class="di-badge">${esc(it.badge)}</i>`;
     html += "</div>";
@@ -3086,9 +3092,14 @@
       html += "</div>";
     }
     html += "</div>";
-    if (it.cmd) html += `<span class="di-go">${esc(goText)}</span>`;
+    if (it.locked) {
+      // 未解锁：不给按钮，换成还需要什么，点了也不会白跑一趟
+      html += `<span class="di-lock">${esc(it.lock_text || "未解锁")}</span>`;
+    } else if (it.cmd) {
+      html += `<span class="di-go">${esc(goText)}</span>`;
+    }
     row.innerHTML = html;
-    if (it.cmd) {
+    if (!it.locked && it.cmd) {
       row.addEventListener("click", () => dispatchCommand(it.cmd));
     } else {
       row.disabled = true;

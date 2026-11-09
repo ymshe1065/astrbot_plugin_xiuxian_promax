@@ -309,6 +309,12 @@ class AdventureManager:
             row["badge"] = ""
             row["rank"] = i + 1
 
+        # 未解锁的路线不给「出发」按钮：点了只会换一句「境界不足」，
+        # 换成「需境界 N」的提示更直接。
+        for row in locked_rows:
+            row["locked"] = True
+            row["lock_text"] = f"需境界 {row['level']}"
+
         # 推荐位按产物轮转：高境界路线常常清一色「极高风险 + 全产物」，
         # 直接取前 N 条等于没推荐，轮转后玩家一眼能选出想刷的材料。
         recommended: List[dict] = []

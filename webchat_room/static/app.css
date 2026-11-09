@@ -1049,6 +1049,14 @@ html[data-theme="fish"] .msg-row {
 .discover-item.best .di-go {
   background: var(--cinnabar); color: #fff; border-color: var(--cinnabar);
 }
+/* 未解锁行：整体压暗，右侧换成「需 X」提示，不给可点的按钮 */
+.discover-item.locked { opacity: .62; cursor: default; }
+.discover-item.locked .di-title { font-weight: 500; }
+.di-lock {
+  flex: 0 0 auto; font-size: 11px; padding: 4px 8px; border-radius: 7px;
+  background: rgba(var(--edge-rgb), .10); color: var(--card-mute);
+  border: 1px dashed rgba(var(--edge-rgb), .30);
+}
 .discover-empty {
   padding: 18px 19px; font-size: 12.5px; color: var(--card-mute);
   text-align: center;

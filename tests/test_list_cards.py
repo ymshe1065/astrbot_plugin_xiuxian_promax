@@ -117,6 +117,18 @@ class TestToCardParts(unittest.TestCase):
         self.assertEqual(sections[-1]["name"], "说明")
         self.assertEqual(sections[-1]["lines"], ["★ 为效率档"])
 
+    def test_locked_flag_survives_to_payload(self):
+        """未解锁行必须带 locked/lock_text，网页端据此把「进入」换成「需 X」。"""
+        data = self._data()
+        data["groups"][1]["items"][0] = _item("锁图", "妖兽", locked=True, lock_text="需合体期")
+        _, payload = self.mod.to_card_parts(data, "rift_list")
+        locked_item = payload["groups"][1]["items"][0]
+        self.assertTrue(locked_item["locked"])
+        self.assertEqual(locked_item["lock_text"], "需合体期")
+        # 可进入段不受影响，仍然是可点的
+        self.assertFalse(payload["groups"][0]["items"][0]["locked"])
+        self.assertEqual(payload["groups"][0]["items"][0]["lock_text"], "")
+
 
 class TestSidecarGroups(unittest.TestCase):
     """网页端要能读到 groups 卡（没有 sections 的老式结构）。"""
@@ -180,6 +192,20 @@ class TestSidecarGroups(unittest.TestCase):
         })
         card = self.mod.load_card_for_image(str(self.img))
         self.assertEqual([g["key"] for g in card["groups"]], ["locked"])
+
+    def test_locked_fields_are_kept(self):
+        """未解锁标记不能在读取时被丢掉，否则网页端又会给它一个「进入」按钮。"""
+        self._write({
+            "id": "r4", "kind": "rift_list", "title": "秘境",
+            "groups": [{
+                "key": "locked", "name": "尚未解锁", "collapsed": True,
+                "items": [{"title": "混沌天渊·三重", "locked": True, "lock_text": "需混元大罗金仙"}],
+            }],
+        })
+        card = self.mod.load_card_for_image(str(self.img))
+        item = card["groups"][0]["items"][0]
+        self.assertTrue(item["locked"])
+        self.assertEqual(item["lock_text"], "需混元大罗金仙")
 
     def test_card_with_neither_sections_nor_groups_is_ignored(self):
         self._write({"id": "r3", "kind": "rift_list", "title": "空卡"})

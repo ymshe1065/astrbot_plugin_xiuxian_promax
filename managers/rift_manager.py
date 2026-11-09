@@ -448,6 +448,13 @@ class RiftManager:
             row["badge"] = "最佳" if i == 0 and len(open_rows) > 1 else ""
             row["rank"] = i + 1
 
+        # 未解锁的两段打上 locked：网页端据此把行内按钮换成「需 XX」，
+        # 不能给一个点了只会弹「境界不足」的「进入」按钮。
+        for row in soon_rows + locked_rows:
+            row["locked"] = True
+            row["badge"] = ""
+            row["lock_text"] = f"需{row['level_name']}" if row.get("level_name") else f"需境界 {row['required_level']}"
+
         # 推荐位按产物轮转，保证前 N 条覆盖不同材料而不是同类堆叠
         recommended: List[dict] = []
         try:

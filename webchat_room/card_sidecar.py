@@ -170,6 +170,9 @@ def _normalize_groups(raw: Any) -> list[dict[str, Any]]:
                     "value": str(it.get("value") or ""),
                     "hint": str(it.get("hint") or ""),
                     "recommend": bool(it.get("recommend")),
+                    # 未解锁行：网页端据此显示「需 XX」，不给可点按钮
+                    "locked": bool(it.get("locked")),
+                    "lock_text": str(it.get("lock_text") or ""),
                     "rows": rows,
                 }
             )
