@@ -18,7 +18,7 @@ class AdventureHandlers:
             msg,
             background="adventure",
             subtitle=subtitle,
-            footer="/历练状态 查看进度 · /完成历练 领取奖励",
+            footer="/历练状态 查看进度 · /退出历练 提前离开",
             sections=sections,
             enabled_key="CARD_ADVENTURE",
         )
@@ -52,7 +52,8 @@ class AdventureHandlers:
     async def handle_start_adventure(self, event: AstrMessageEvent, route: str = ""):
         """开始历练"""
         user_id = event.get_sender_id()
-        success, msg = await self.adv_mgr.start_adventure(user_id, route)
+        umo = str(getattr(event, "unified_msg_origin", "") or "")
+        success, msg = await self.adv_mgr.start_adventure(user_id, route, umo=umo)
         # 成功提示和路线选择菜单较长；普通错误保持文本，避免为短提示额外绘图。
         if success or "请选择历练路线" in msg or len(msg) > 80:
             async for result in self._send_result(
@@ -63,12 +64,12 @@ class AdventureHandlers:
             yield event.plain_result(msg)
 
     async def handle_complete_adventure(self, event: AstrMessageEvent):
-        """完成历练"""
+        """完成历练（走完则发大结算，未走完返回进度）"""
         user_id = event.get_sender_id()
         success, msg, _ = await self.adv_mgr.finish_adventure(user_id)
         if success:
             async for result in self._send_result(
-                event, "🚶 历练归来", msg, subtitle="本次历练结算"
+                event, "🎉 历练完成", msg, subtitle="本趟历练大结算"
             ):
                 yield result
         else:
@@ -87,14 +88,14 @@ class AdventureHandlers:
             yield event.plain_result(msg)
 
     async def handle_abandon_adventure(self, event: AstrMessageEvent):
-        """放弃历练"""
+        """中途退出历练（已结算奖励保留）"""
         set_event_flag(event, "adventure_abandon_success", False)
         user_id = event.get_sender_id()
         success, msg = await self.adv_mgr.abandon_adventure(user_id)
         set_event_flag(event, "adventure_abandon_success", success)
         if success:
             async for result in self._send_result(
-                event, "🏳️ 放弃历练", msg, subtitle="历练已结束"
+                event, "🏳️ 历练结束", msg, subtitle="已结算奖励全部保留"
             ):
                 yield result
         else:

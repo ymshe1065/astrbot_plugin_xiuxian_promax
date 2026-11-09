@@ -160,6 +160,10 @@ class TaskConnectionRouter:
         self._conns: Dict[int, aiosqlite.Connection] = {}
         self._tasks: Dict[int, asyncio.Task] = {}
         self._states: Dict[int, _TxState] = {}
+        # 已从 _conns 摘除、等待后台关闭的连接。任务结束时靠 loop.create_task
+        # 关闭，但 loop 可能在那之前就停了（进程退出、测试用例结束），
+        # 连接会一直占着 db 文件 —— close() 时要在这里兜底关掉。
+        self._pending_closes: set = set()
         self._creating = asyncio.Lock()
         self._closed = False
         self._row_factory = aiosqlite.Row
@@ -254,6 +258,7 @@ class TaskConnectionRouter:
         self._states.pop(key, None)
         if conn is None:
             return
+        self._pending_closes.add(conn)
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
@@ -261,19 +266,18 @@ class TaskConnectionRouter:
         try:
             loop.create_task(self._close_quietly(conn))
         except RuntimeError:
-            # 事件循环正在关闭，连接交给进程退出回收
+            # 事件循环正在关闭，连接留给 close() 或进程退出兜底
             pass
 
-    @staticmethod
-    async def _close_quietly(conn: aiosqlite.Connection) -> None:
+    async def _close_quietly(self, conn: aiosqlite.Connection) -> None:
         try:
             await conn.rollback()
         except Exception:
             pass
         try:
             await conn.close()
-        except Exception:
-            pass
+        finally:
+            self._pending_closes.discard(conn)
 
     # ---------- 连接代理 ----------
     def execute(self, sql: str, parameters: Any = None):
@@ -346,8 +350,11 @@ class TaskConnectionRouter:
         self._states.clear()
         if self._default is not None:
             conns.append(self._default)
+        # 回收排队等待后台关闭的连接：loop 关闭前这些 close_task 可能没跑
+        conns.extend(self._pending_closes)
         for conn in conns:
             await self._close_quietly(conn)
+        self._pending_closes.clear()
 
     def __getattr__(self, name: str):
         # 未显式代理的属性（如 total_changes）回退到默认连接。

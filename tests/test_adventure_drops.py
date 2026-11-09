@@ -2,6 +2,7 @@
 # 历练掉落：路线专精、境界分档、圣品解锁、旧配置兜底
 import io
 import json
+import random
 import sys
 import types
 import unittest
@@ -45,6 +46,7 @@ from astrbot_plugin_xiuxian_promax.managers.adventure_manager import AdventureMa
 
 CFG_PATH = ROOT / "config" / "adventure_config.json"
 MAT_PATH = ROOT / "config" / "material_catalog.json"
+RIFT_PATH = ROOT / "config" / "rift_config.json"
 
 with open(CFG_PATH, encoding="utf-8") as _f:
     CFG = json.load(_f)
@@ -324,6 +326,77 @@ class TestTierFallbackBalance(unittest.TestCase):
         mid = sum(values) / len(values)
         spread = (max(values) - min(values)) / mid
         self.assertLess(spread, 0.25, f"四类产出失衡：{[round(v) for v in values]}")
+
+
+class TestAbsoluteYield(unittest.TestCase):
+    """历练是「材料第二来源」。v7.6 起分段结算并把总产出翻倍；
+    帝品材料重定价后秘境材料价值同步上升，历练约为秘境的 0.5~0.8 倍。"""
+
+    LEVEL = 26
+    TOP_ROUTE = "混沌王座"
+    RIFT_NAME = "太虚雷池"
+    RIFT_LABEL = "二重"
+
+    def _run_stats(self, runs=4000):
+        mgr = make_manager()
+        route = next(r for r in CFG["routes"] if r["name"] == self.TOP_ROUTE)
+        player = _Player(self.LEVEL)
+        small = max(1, mgr.tick_count(route["duration"]) - 1)
+        value = 0
+        empty = 0
+        for _ in range(runs):
+            run_value = 0
+            for _ in range(small):
+                event = mgr._trigger_route_event(route)
+                for entry in mgr._roll_drops(
+                    player, route, event, chance_scale=mgr.tick_item_mult / small
+                ):
+                    run_value += MATS[entry[0]]["price"] * entry[1]
+            event = mgr._trigger_route_event(route)
+            for entry in mgr._roll_drops(
+                player, route, event, chance_scale=mgr.final_item_mult
+            ):
+                run_value += MATS[entry[0]]["price"] * entry[1]
+            value += run_value
+            if run_value == 0:
+                empty += 1
+        minutes = route["duration"] / 60
+        return value / runs * (60 / minutes), empty / runs
+
+    def _rift_hourly(self):
+        with open(RIFT_PATH, encoding="utf-8") as f:
+            rifts = json.load(f)["rifts"]
+        for rift in rifts:
+            if rift["name"] != self.RIFT_NAME:
+                continue
+            for diff in rift["difficulties"]:
+                if diff["label"] != self.RIFT_LABEL:
+                    continue
+                total_weight = sum(d["weight"] for d in diff["drops"])
+                per_pick = sum(
+                    d["weight"] / total_weight
+                    * MATS.get(d["name"], {}).get("price", 0)
+                    * (d.get("min", 1) + d.get("max", 1)) / 2
+                    for d in diff["drops"]
+                )
+                picks = (
+                    diff["item_chance"]
+                    + diff["item_chance"] * diff["extra_drop_chance"] / 100
+                ) / 100
+                return per_pick * picks * (60 / (diff["duration"] / 60))
+        raise AssertionError(f"找不到秘境 {self.RIFT_NAME}·{self.RIFT_LABEL}")
+
+    def test_empty_run_rate_is_acceptable(self):
+        """全程空手的比例要压到 15% 以内：分段后每段都有机会。"""
+        _, empty = self._run_stats()
+        self.assertLess(empty, 0.15, f"空手率 {empty:.0%} 太高")
+
+    def test_hourly_value_is_on_par_with_rift(self):
+        """历练每小时材料价值约为秘境的 50%~80%，保持材料第二来源定位。"""
+        adventure_hourly, _ = self._run_stats()
+        ratio = adventure_hourly / self._rift_hourly()
+        self.assertGreater(ratio, 0.5, f"历练只有秘境的 {ratio:.0%}，低于第二来源下限")
+        self.assertLess(ratio, 0.8, f"历练达到秘境的 {ratio:.0%}，再高就没人去秘境了")
 
 
 if __name__ == "__main__":
