@@ -2001,8 +2001,8 @@ class XiuXianPlugin(Star):
     # ===== 秘境 =====
     @filter.command(CMD_RIFT_LIST, "秘境列表")
     @require_whitelist
-    async def handle_rift_list(self, event: AstrMessageEvent):
-        async for r in self.rift_handlers.handle_rift_list(event): yield r
+    async def handle_rift_list(self, event: AstrMessageEvent, product: str = ""):
+        async for r in self.rift_handlers.handle_rift_list(event, product): yield r
 
     @filter.command(CMD_RIFT_DETAIL, "秘境详情")
     @require_whitelist
@@ -2166,8 +2166,8 @@ class XiuXianPlugin(Star):
 
     @filter.command(CMD_ADVENTURE_INFO, "历练信息")
     @require_whitelist
-    async def handle_adventure_info(self, event: AstrMessageEvent):
-        async for r in self.adventure_handlers.handle_adventure_info(event): yield r
+    async def handle_adventure_info(self, event: AstrMessageEvent, product: str = ""):
+        async for r in self.adventure_handlers.handle_adventure_info(event, product): yield r
 
     # ===== 炼丹 =====
     @filter.command(CMD_ALCHEMY_RECIPES, "丹药配方")

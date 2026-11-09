@@ -927,21 +927,28 @@ async def _src_black_market(plugin: "XiuXianPlugin", player: Any, field: dict, v
 
 
 async def _src_rift_ids(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    """秘境参数候选：只列当前能进的，按材料效率排序，带 ★ 与耗时。
+
+    45 档里大半是锁着的，全部铺进选择器等于让玩家自己筛；这里直接用
+    列表接口算好的「可进入段」，与 /秘境列表 的推荐口径保持一致。
+    """
     options: List[dict[str, str]] = []
     try:
-        rifts = await plugin.db.ext.get_all_rifts()
-        for rift in rifts:
-            need = _int(getattr(rift, "required_level", 0))
-            rewards = rift.get_rewards() if hasattr(rift, "get_rewards") else {}
-            exp_range = rewards.get("exp", [0, 0])
-            options.append(
-                _opt(
-                    f"{getattr(rift, 'display_name', '') or getattr(rift, 'rift_name', '秘境')}（ID:{getattr(rift, 'rift_id', '')}）",
-                    getattr(rift, "rift_id", ""),
-                    f"需境界 {need or '无限制'} · 修为 {_nm(exp_range[0])}-{_nm(exp_range[1])}",
-                    getattr(rift, "product", "") or "秘境",
+        uid = str(getattr(player, "user_id", "") or "") if player else ""
+        data = await plugin.rift_mgr.build_rift_list(uid)
+        for group in data.get("groups") or []:
+            if group.get("key") != "open":
+                continue
+            for it in group.get("items") or []:
+                options.append(
+                    _opt(
+                        f"{it.get('title', '')}（ID:{it.get('id', '')}）",
+                        it.get("id", ""),
+                        f"{it.get('minutes', 0)} 分钟 · {it.get('facet', '')}{it.get('star_text', '')}"
+                        f" · 修为 {_nm(it.get('exp', 0))}",
+                        it.get("facet", "") or "秘境",
+                    )
                 )
-            )
     except Exception:
         pass
     if not options:
@@ -950,21 +957,24 @@ async def _src_rift_ids(plugin: "XiuXianPlugin", player: Any, field: dict, value
 
 
 async def _src_adventure_routes(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    """历练路线候选：按「最新解锁优先」排列，带当前加成下的实际修为。"""
     options: List[dict[str, str]] = []
     try:
-        level = _int(getattr(player, "level_index", 0)) if player else 0
-        for route in plugin.adventure_mgr.get_route_overview():
-            if level < _int(route.get("min_level", 0)):
+        uid = str(getattr(player, "user_id", "") or "") if player else ""
+        data = await plugin.adventure_mgr.build_route_list(uid)
+        for group in data.get("groups") or []:
+            if group.get("key") != "open":
                 continue
-            options.append(
-                _opt(
-                    route.get("name", ""),
-                    route.get("name", ""),
-                    f"主产 {route.get('product') or '全产物'} · 风险 {route.get('risk', '?')}"
-                    f" · {_int(route.get('duration', 0)) // 60} 分钟 · {route.get('description', '')}",
-                    "可用路线",
+            for it in group.get("items") or []:
+                options.append(
+                    _opt(
+                        it.get("title", ""),
+                        it.get("title", ""),
+                        f"{it.get('facet', '')} · {it.get('risk', '?')}风险"
+                        f" · {it.get('minutes', 0)} 分钟 · 修为 {_nm(it.get('exp', 0))}",
+                        "可用路线",
+                    )
                 )
-            )
     except Exception:
         pass
     if not options:

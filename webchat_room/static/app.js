@@ -2075,6 +2075,10 @@
     }
 
     // 1) 列表型（秘境/排行/Boss）
+    if (Array.isArray(card.groups) && card.groups.length) {
+      body.appendChild(renderDiscover(card));
+    }
+
     if (Array.isArray(card.items) && card.items.length) {
       body.appendChild(renderItems(card.items, card));
     }
@@ -2980,6 +2984,116 @@
       grid.appendChild(d);
     });
     return grid;
+  }
+
+  /** 发现型列表：秘境 / 历练 —— 筛选标签 + 分组折叠 + 每行直接进入 */
+  function renderDiscover(card) {
+    const box = document.createElement("div");
+    box.className = "discover";
+    const facets = (card.facets || []).filter((f) => f && f.key);
+    const groups = (card.groups || []).filter((g) => g && (g.items || []).length);
+    const goText = card.kind === "route_list" ? "出发" : "进入";
+    let facet = (facets[0] && facets[0].key) || "all";
+    const openState = {};
+    groups.forEach((g) => {
+      openState[g.key] = !g.collapsed;
+    });
+
+    const bar = document.createElement("div");
+    bar.className = "discover-facets";
+    const listBox = document.createElement("div");
+    listBox.className = "discover-groups";
+
+    // facet=all 是「推荐」，只留后端标出的推荐位；「全部」才是整段
+    const pick = (items) => {
+      if (facet === "all") return items.filter((it) => it.recommend);
+      if (facet === "全部") return items;
+      return items.filter((it) => it.facet === facet);
+    };
+
+    const paint = () => {
+      bar.innerHTML = "";
+      facets.forEach((f) => {
+        const b = document.createElement("button");
+        b.className = "discover-chip" + (f.key === facet ? " on" : "");
+        b.innerHTML = `${esc(f.label)}<span>${esc(String(f.count || 0))}</span>`;
+        b.addEventListener("click", () => {
+          if (facet === f.key) return;
+          facet = f.key;
+          // 切换筛选时把原本展开的分组保持展开，避免点完像没反应
+          paint();
+        });
+        bar.appendChild(b);
+      });
+
+      listBox.innerHTML = "";
+      let shown = 0;
+      groups.forEach((g) => {
+        const items = pick(g.items || []);
+        if (!items.length) return;
+        shown += items.length;
+        const sec = document.createElement("div");
+        sec.className = "discover-group" + (openState[g.key] ? " open" : "");
+
+        const head = document.createElement("button");
+        head.className = "discover-head";
+        head.innerHTML =
+          `<span>${esc(g.name || "")}</span>` +
+          `<i class="discover-count">${items.length}</i>` +
+          `<i class="discover-caret">›</i>`;
+        head.addEventListener("click", () => {
+          openState[g.key] = !openState[g.key];
+          paint();
+        });
+        sec.appendChild(head);
+
+        if (openState[g.key]) {
+          const list = document.createElement("div");
+          list.className = "discover-items";
+          items.forEach((it) => list.appendChild(discoverRow(it, goText)));
+          sec.appendChild(list);
+        }
+        listBox.appendChild(sec);
+      });
+
+      if (!shown) {
+        const empty = document.createElement("div");
+        empty.className = "discover-empty";
+        empty.textContent = "这一分类下暂时没有可去的目标";
+        listBox.appendChild(empty);
+      }
+    };
+
+    paint();
+    box.appendChild(bar);
+    box.appendChild(listBox);
+    return box;
+  }
+
+  /** 发现型列表的单个条目：点一下直接执行对应指令 */
+  function discoverRow(it, goText) {
+    const row = document.createElement("button");
+    row.className = "discover-item" + (it.badge ? " best" : "");
+    let html = '<div class="di-main"><div class="di-title">' + esc(it.title || "");
+    if (it.badge) html += `<i class="di-badge">${esc(it.badge)}</i>`;
+    html += "</div>";
+    const rows = (it.rows || []).filter((r) => r && r.length >= 2);
+    if (rows.length) {
+      html += '<div class="di-rows">';
+      rows.forEach(([k, v]) => {
+        html += `<span>${esc(k)}<b>${esc(v)}</b></span>`;
+      });
+      html += "</div>";
+    }
+    html += "</div>";
+    if (it.cmd) html += `<span class="di-go">${esc(goText)}</span>`;
+    row.innerHTML = html;
+    if (it.cmd) {
+      row.addEventListener("click", () => dispatchCommand(it.cmd));
+    } else {
+      row.disabled = true;
+    }
+    return row;
   }
 
   /** 列表型卡片（秘境/排行/商店货架） */

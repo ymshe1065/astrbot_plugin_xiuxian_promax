@@ -356,8 +356,13 @@ def render_card(
     sections: Optional[List[Dict]] = None,
     footer: str = "",
     width: int = 1000,
+    payload_extra: Optional[Dict] = None,
 ) -> Optional[str]:
-    """渲染国风绢帛·墨金·多字体层次信息卡片，返回图片路径（失败返回 None）"""
+    """渲染国风绢帛·墨金·多字体层次信息卡片，返回图片路径（失败返回 None）
+
+    payload_extra 会合并进 sidecar 顶层字段：网页端读结构化数据原生渲染，
+    位图只负责 QQ 端的展示，两边可以各自裁剪信息量。
+    """
     if not HAS_PIL:
         return None
 
@@ -557,6 +562,8 @@ def render_card(
                 ],
                 "footer": footer,
             }
+            if payload_extra:
+                payload.update(payload_extra)
             out_path.with_suffix(".json").write_text(
                 json.dumps(payload, ensure_ascii=False), encoding="utf-8"
             )
@@ -577,10 +584,13 @@ def render_card(
 
 async def render_card_async(bg_name: str, title: str, subtitle: str = "",
                             sections: Optional[List[Dict]] = None, footer: str = "",
-                            width: int = 1000) -> Optional[str]:
+                            width: int = 1000,
+                            payload_extra: Optional[Dict] = None) -> Optional[str]:
     """异步版本；失败/关闭返回 None"""
     import asyncio
-    return await asyncio.to_thread(render_card, bg_name, title, subtitle, sections, footer, width)
+    return await asyncio.to_thread(
+        render_card, bg_name, title, subtitle, sections, footer, width, payload_extra
+    )
 
 
 # ===== 兼容旧接口 =====

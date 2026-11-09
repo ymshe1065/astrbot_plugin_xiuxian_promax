@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v7.7.0 (修为公式重构 / 历练主产修为 / 秘境材料副本)
+# AstrBot 插件：模拟修仙 v7.8.0 (秘境与历练列表改版 / 筛选与折叠)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v7.7.0-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v7.8.0-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.42.0 · **游戏版本:** v7.7.0 · **数据库:** v61
+> **插件版本:** v3.43.0 · **游戏版本:** v7.8.0 · **数据库:** v61
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，257 条注册指令（网页指令目录 245 个功能按钮 + 12 个别名）、17 个大系统、111 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,23 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · v7.7.0（修为公式重构 / 历练主产修为 / 秘境材料副本）</b></summary>
+<summary><b>本次更新 · v7.8.0（秘境与历练列表改版 / 筛选与折叠）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 问题 | 秘境 45 档、历练 60 条平铺在一个滚动列表里：能进的埋在中间，想看某类材料只能一行行找，历练还完全不显示修为 —— 玩家无法判断「我该进哪个」。 |
+| 秘境列表 | 改成三段：**当前可进 / 即将解锁（差 1~3 级）/ 尚未解锁**。可进段按「每分钟期望材料价值」降序，第一条标「最佳」，每行带产物与效率档（`灵植★★★`）、耗时、修为、灵石，`/秘境列表 灵植` 可按产物筛。 |
+| 材料价值怎么算 | 用 `material_catalog` 目录价对掉落表求期望：Σ(权重 × 平均数量 × 单价) × 主掉落率 × (1 + 额外掉落率)。**只算材料**——掉落表里混的渡劫增益丹单件 30 万，算进去会把排序带偏。★ 以「当前可进入段最高效率」为 100%，所以列表第一条必是 ★★★。 |
+| 历练列表 | 60 条压成「可走 / 未解锁」两段，可走段按**最新解锁优先**排列；每行补上「这一趟按你当前丹药符箓加成能拿到的修为」—— 这是旧版最缺的决策依据。`/历练信息 灵植` 可按产物筛。 |
+| 推荐位 | 按产物轮转挑选，保证 6 条覆盖不同材料。高境界路线常常清一色「极高风险 + 全产物」，直接取收益前 6 等于没推荐。 |
+| 网页端 | 新增发现型列表渲染：顶部筛选标签（带各分类计数）、分组可折叠、每行右侧按钮点一下直接进入/出发。数据走卡片 sidecar 的 `facets` / `groups` 字段，与 QQ 端的图片共用同一份排序结果。 |
+| 参数候选 | `/探索秘境`、`/开始历练` 的候选列表同步只列当前可进入的，带材料档与修为，不再铺 45 条含锁定的选项。 |
+| 版本与数据库 | 插件 **v3.43.0** / 游戏及帮助 **v7.8.0**；无表结构更新，数据库仍为 **v61**。 |
+
+</details>
+
+<details>
+<summary><b>v7.7.0（修为公式重构 / 历练主产修为 / 秘境材料副本）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |

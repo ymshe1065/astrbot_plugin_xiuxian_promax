@@ -27,6 +27,7 @@ async def render_result_card(
     footer: str = "",
     sections: Optional[List[Dict]] = None,
     enabled_key: str = "CARD_ADVENTURE",
+    payload_extra: Optional[Dict] = None,
 ) -> Optional[str]:
     """渲染结果图；图片关闭或失败返回 None，由调用方回退文本。"""
     try:
@@ -38,7 +39,8 @@ async def render_result_card(
         if not card_sections:
             return None
         return await render_card_async(
-            background, title, subtitle, sections=card_sections, footer=footer
+            background, title, subtitle,
+            sections=card_sections, footer=footer, payload_extra=payload_extra,
         )
     except Exception:
         return None

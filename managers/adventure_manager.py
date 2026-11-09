@@ -46,6 +46,10 @@ class AdventureManager:
     ITEM_ROLLS = 1
     ITEM_CHANCE_SCALE = 1.2
 
+    # 列表展示用：产物分类顺序、推荐位展示条数
+    LIST_FACETS = ("灵植", "矿材", "灵液", "妖兽", "全产物")
+    LIST_TOP_N = 6
+
     DEFAULT_CONFIG = {
         "routes": [
             {
@@ -223,6 +227,162 @@ class AdventureManager:
             route["key"]: str(route.get("product") or "全产物")
             for route in self.routes.values()
         }
+
+    @staticmethod
+    def _route_facet(route: dict) -> str:
+        """路线产物归一成 5 个展示分类（配置里可能为空）。"""
+        text = str(route.get("product") or "").strip()
+        for facet in AdventureManager.LIST_FACETS:
+            if facet != "全产物" and facet in text:
+                return facet
+        return "全产物"
+
+    async def build_route_list(self, user_id: str = "", product: str = "") -> dict:
+        """结构化历练列表：最新解锁的排在前面，未解锁折叠成一段。
+
+        同一境界下所有路线的修为速度完全相同（只与时长成正比），路线之间真正的
+        差别是产物、灵石与风险，所以排序不按修为，而按「境界门槛降序」——
+        把玩家刚解锁、通常也最划算的路线放最上面，符合「快速定位到当前进度」
+        的浏览习惯；想专攻某类材料则用产物筛选。
+        """
+        player = None
+        if user_id:
+            try:
+                player = await self.db.get_player_by_id(str(user_id))
+            except Exception:
+                player = None
+        player_level = int(getattr(player, "level_index", 0) or 0) if player else 0
+
+        wanted = str(product or "").strip()
+        rows: List[dict] = []
+        for route in self.routes.values():
+            facet = self._route_facet(route)
+            if wanted and wanted not in ("全部", "推荐") and wanted != facet:
+                continue
+            duration = max(60, int(route.get("duration") or 1800))
+            minutes = max(1, duration // 60)
+            if player:
+                pool = self._full_reward_pool(player, route)
+                exp, gold = int(pool["exp"]), int(pool["gold"])
+            else:
+                exp, gold = 0, 0
+            rows.append(
+                {
+                    "key": str(route.get("key") or ""),
+                    "title": str(route.get("name") or ""),
+                    "facet": facet,
+                    "risk": str(route.get("risk") or "未知"),
+                    "minutes": minutes,
+                    "level": int(route.get("min_level") or 0),
+                    "exp": exp,
+                    "gold": gold,
+                    "exp_per_hour": int(exp * 3600 / duration),
+                    "gold_per_hour": int(gold * 3600 / duration),
+                    "desc": str(route.get("description") or ""),
+                    "cmd": f"/开始历练 {route.get('name') or ''}".strip(),
+                    "rows": [
+                        ["耗时", f"{minutes} 分钟"],
+                        ["主产", facet],
+                        ["风险", f"{route.get('risk') or '未知'}"],
+                        ["修为", self._fmt_amount(exp)],
+                        ["灵石", self._fmt_amount(gold)],
+                    ],
+                    "line": (
+                        f"{route.get('name')}  {minutes}分  {facet}·{route.get('risk') or '?'}风险"
+                        f"  修为{self._fmt_amount(exp)}"
+                    ),
+                }
+            )
+
+        # 门槛降序（新解锁优先），同门槛再按小时灵石兜底
+        rows.sort(key=lambda r: (-r["level"], -r["gold_per_hour"], r["title"]))
+        open_rows = [r for r in rows if r["level"] <= player_level]
+        # 未解锁段反过来：离得最近的排前面，方便看「下一站是哪条」
+        locked_rows = sorted(
+            (r for r in rows if r["level"] > player_level),
+            key=lambda r: (r["level"], -r["gold_per_hour"], r["title"]),
+        )
+
+        # 历练不标「最佳」：同一境界下修为同速，选哪条取决于想刷什么材料、
+        # 愿意担多大风险，没有客观最优解。只用排序把新解锁的放前面。
+        for i, row in enumerate(open_rows):
+            row["badge"] = ""
+            row["rank"] = i + 1
+
+        # 推荐位按产物轮转：高境界路线常常清一色「极高风险 + 全产物」，
+        # 直接取前 N 条等于没推荐，轮转后玩家一眼能选出想刷的材料。
+        recommended: List[dict] = []
+        try:
+            from ..utils.list_card import pick_recommend
+            recommended = pick_recommend(open_rows, self.LIST_FACETS, self.LIST_TOP_N)
+            for row in recommended:
+                row["recommend"] = True
+        except Exception:
+            recommended = open_rows[: self.LIST_TOP_N]
+
+        facets = [{"key": "all", "label": "推荐", "count": len(recommended)}]
+        facets.append({"key": "全部", "label": "全部", "count": len(open_rows)})
+        for facet in self.LIST_FACETS:
+            count = sum(1 for r in open_rows if r["facet"] == facet)
+            if count:
+                facets.append({"key": facet, "label": facet, "count": count})
+
+        groups: List[dict] = []
+        if open_rows:
+            groups.append(
+                {
+                    "key": "open",
+                    "name": "可出发 · 最新解锁优先",
+                    "collapsed": False,
+                    "items": open_rows,
+                }
+            )
+        if locked_rows:
+            groups.append(
+                {
+                    "key": "locked",
+                    "name": f"未解锁 · {len(locked_rows)} 条（境界提升后开放）",
+                    "collapsed": True,
+                    "items": locked_rows,
+                }
+            )
+
+        subtitle = f"可走 {len(open_rows)} 条 / 未解锁 {len(locked_rows)} 条"
+        if player:
+            subtitle = f"{self._level_name(player_level)} · {subtitle}"
+        if wanted:
+            subtitle = f"{wanted} · {subtitle}"
+
+        return {
+            "subtitle": subtitle,
+            "facets": facets,
+            "groups": groups,
+            "total": len(rows),
+            "open": len(open_rows),
+            "filter": wanted,
+        }
+
+    def _level_name(self, level_index: int) -> str:
+        """境界名（与秘境列表保持同一套称谓）。"""
+        try:
+            data = self.config_manager.get_level_data("灵修") if self.config_manager else []
+        except Exception:
+            data = []
+        if data and 0 <= level_index < len(data):
+            return str(data[level_index].get("level_name") or f"境界{level_index}")
+        return f"境界{level_index}"
+
+    @staticmethod
+    def _fmt_amount(value) -> str:
+        """修为/灵石量级：一万以下带千分位，以上折成「1.2 万」。"""
+        try:
+            v = int(round(float(value or 0)))
+        except (TypeError, ValueError):
+            return "0"
+        if v < 10000:
+            return f"{v:,}"
+        wan = v / 10000.0
+        return f"{wan:.0f} 万" if wan >= 10 else f"{wan:.1f} 万"
 
     # -------- 核心流程 --------
 

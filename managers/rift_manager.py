@@ -101,6 +101,9 @@ class RiftManager:
         except (TypeError, ValueError):
             self.final_item_mult = 0.8
 
+        # 单趟材料价值缓存（配置静态、掉落表静态，按 rift_id 缓存即可）
+        self._value_cache: Dict[int, float] = {}
+
     # ---------------------------------------------------------------
     # 秘境定义 → 数据库
     # ---------------------------------------------------------------
@@ -222,20 +225,148 @@ class RiftManager:
             return level_names[level_index]
         return f"境界{level_index}"
     
-    async def list_rifts(self, user_id: str = None) -> Tuple[bool, str]:
+    # -------- 列表数据（卡片 / 网页 / 兜底文本共用）--------
+
+    # 可进入段默认只推最划算的前若干档，其余靠筛选或「全部」展开
+    LIST_TOP_N = 8
+    # ★ 评级按境界段（每 10 级）内的相对价值分档：跨段比绝对数值没有意义
+    VALUE_BAND_SIZE = 10
+    # 展示用产物分类（配置里的 "灵液+矿材" 这类复合值按包含关系归入对应类）
+    PRODUCT_FACETS = ("灵植", "矿材", "灵液", "妖兽", "全产物")
+
+    def _material_value(self, rift: Optional[Rift]) -> float:
+        """单趟期望材料价值（按目录价折成灵石等值）。
+
+        期望 = Σ(权重占比 × 平均数量 × 单价) × 主掉落概率 × (1 + 额外掉落概率)
+        额外掉落是条件概率（不参与分段摊薄），所以整趟期望直接相加。
+        结果既是排序依据，也是 ★ 评级的输入。
         """
-        列出所有秘境（按秘境分组，每个秘境下展开难度）
+        if not rift or not self.config_manager:
+            return 0.0
+        try:
+            rid = int(rift.rift_id)
+        except (TypeError, ValueError):
+            rid = None
+        if rid is not None and rid in self._value_cache:
+            return self._value_cache[rid]
 
-        Args:
-            user_id: 传入时按玩家境界标注可进入状态
+        cfg = self._rift_cfg(rift)
+        drops = cfg.get("drops") or []
+        value = 0.0
+        total_w = 0.0
+        for d in drops:
+            try:
+                total_w += max(1.0, float(d.get("weight", 1) or 1))
+            except (TypeError, ValueError):
+                total_w += 1.0
+        if total_w > 0:
+            for d in drops:
+                try:
+                    w = max(1.0, float(d.get("weight", 1) or 1))
+                    lo = float(d.get("min", 1) or 1)
+                    hi = float(d.get("max", lo) or lo)
+                except (TypeError, ValueError):
+                    continue
+                try:
+                    name = str(d.get("name", ""))
+                    # 掉落表里混了丹药等非材料赠品（五品渡劫增益丹单件 30 万），
+                    # 计进「材料价值」会把排序彻底带偏，所以只认 material_catalog。
+                    if not self.config_manager.get_material_info(name):
+                        continue
+                    price = float(self.config_manager.get_item_price(name) or 0)
+                except Exception:
+                    continue
+                value += (w / total_w) * ((lo + hi) / 2.0) * price
+        try:
+            chance = float(cfg.get("item_chance", 0) or 0) / 100.0
+            extra = 1.0 + float(cfg.get("extra_drop_chance", 0) or 0) / 100.0
+        except (TypeError, ValueError):
+            chance, extra = 0.0, 1.0
+        value = value * max(0.0, chance) * max(1.0, extra)
 
-        Returns:
-            (成功标志, 消息)
+        if rid is not None:
+            self._value_cache[rid] = value
+        return value
+
+    def _value_peak_by_band(self, rifts: List[Rift]) -> Dict[int, float]:
+        """每个境界段内最高的单趟材料价值，作为该段 ★ 的 100% 基准。"""
+        peaks: Dict[int, float] = {}
+        for rift in rifts:
+            band = int(rift.required_level or 0) // self.VALUE_BAND_SIZE
+            peaks[band] = max(peaks.get(band, 0.0), self._material_value(rift))
+        return peaks
+
+    @staticmethod
+    def _stars(value: float, peak: float) -> int:
+        """★ 相对「当前可进入段最高单趟价值」评级。
+
+        基准必须跟着玩家境界走：如果按境界段各算各的基准，列表里会出现
+        「第一名 1 星、最后一名的老秘境 3 星」，反而误导。用可进入段的
+        最高值当 100%，列表第一条永远是 ★★★，往下依次递减。
+        """
+        if peak <= 0:
+            return 0
+        ratio = value / peak
+        if ratio >= 0.85:
+            return 3
+        if ratio >= 0.55:
+            return 2
+        if ratio >= 0.30:
+            return 1
+        return 0
+
+    @staticmethod
+    def _star_text(stars: int) -> str:
+        stars = max(0, min(3, int(stars or 0)))
+        return "★" * stars + "☆" * (3 - stars)
+
+    @staticmethod
+    def _fmt_amount(value) -> str:
+        """修为/灵石量级：一万以下带千分位，以上折成「1.2 万」。"""
+        try:
+            v = int(round(float(value or 0)))
+        except (TypeError, ValueError):
+            return "0"
+        if v < 10000:
+            return f"{v:,}"
+        wan = v / 10000.0
+        return f"{wan:.0f} 万" if wan >= 10 else f"{wan:.1f} 万"
+
+    @classmethod
+    def _facet_of(cls, product: str) -> str:
+        """把配置里的主产物值归到 5 个展示分类之一。"""
+        text = str(product or "").strip()
+        for facet in cls.PRODUCT_FACETS:
+            if facet != "全产物" and facet in text:
+                return facet
+        return "全产物"
+
+    def _decorate_rift_row(self, row: dict, stars: int) -> None:
+        """把 ★ 与展示文案补进条目（星级要等分组后才知道基准，故分两步）。"""
+        star_text = self._star_text(stars)
+        row["stars"] = stars
+        row["star_text"] = star_text
+        row["rows"] = [
+            ["耗时", f"{row['minutes']} 分钟"],
+            ["主产", f"{row['facet']} {star_text}"],
+            ["修为", self._fmt_amount(row["exp"])],
+            ["灵石", self._fmt_amount(row["gold"])],
+        ]
+        # 图片版一档一行：名字+档位 时长 产物★ 修为
+        row["line"] = (
+            f"{row['title']}  {row['minutes']}分  {row['facet']}{star_text}"
+            f"  修为{self._fmt_amount(row['exp'])}"
+        )
+
+    async def build_rift_list(self, user_id: str = None, product: str = "") -> dict:
+        """结构化秘境列表：分组 + 排序 + ★ 评级 + 每行可直接进入的指令。
+
+        排序依据是「单趟期望材料价值 ÷ 分钟」，即秘境作为材料副本的真实效率；
+        修为已经压到象征量，不再参与排序。
         """
         rifts = await self.db.ext.get_all_rifts()
-
         if not rifts:
-            return False, "❌ 当前没有开放的秘境！"
+            return {}
 
         player_level = None
         if user_id:
@@ -246,49 +377,181 @@ class RiftManager:
             except Exception:
                 player_level = None
 
-        groups: Dict[str, List[Rift]] = {}
+        wanted = str(product or "").strip()
+
+        rows: List[dict] = []
         for rift in rifts:
-            group_key = rift.rift_key or f"id{rift.rift_id}"
-            groups.setdefault(group_key, []).append(rift)
+            minutes = max(1, self._duration_of(rift) // 60)
+            value = self._material_value(rift)
+            cfg = self._rift_cfg(rift)
+            exp_range = cfg.get("exp") or [0, 0]
+            gold_range = cfg.get("gold") or [0, 0]
+            try:
+                exp_mid = (float(exp_range[0]) + float(exp_range[-1])) / 2.0
+            except (TypeError, ValueError, IndexError):
+                exp_mid = 0.0
+            try:
+                gold_mid = (float(gold_range[0]) + float(gold_range[-1])) / 2.0
+            except (TypeError, ValueError, IndexError):
+                gold_mid = 0.0
+            rows.append(
+                {
+                    "id": int(rift.rift_id),
+                    "name": str(rift.rift_name or ""),
+                    "tier": str(rift.difficulty_label or ""),
+                    "title": str(rift.display_name or f"{rift.rift_name} {rift.difficulty_label}"),
+                    "product": str(rift.product or ""),
+                    "facet": self._facet_of(rift.product),
+                    "required_level": int(rift.required_level or 0),
+                    "level_name": self._get_level_name(int(rift.required_level or 0)),
+                    "minutes": minutes,
+                    "value": round(value, 1),
+                    "value_per_min": round(value / minutes, 2),
+                    "exp": int(exp_mid),
+                    "gold": int(gold_mid),
+                    "cmd": f"/探索秘境 {int(rift.rift_id)}",
+                }
+            )
 
-        open_count = 0
-        locked_count = 0
-        msg = "🌀 秘境列表\n━━━━━━━━━━━━━━━\n"
-        for group_key, items in groups.items():
-            items.sort(key=lambda r: (r.difficulty or 1, r.rift_id))
-            head = items[0]
-            product = head.product or ""
-            title = f"【{head.rift_name}】" + (f" 主产：{product}" if product else "")
-            msg += title + "\n"
-            for rift in items:
-                exp_range = self._rift_cfg(rift).get("exp", [0, 0]) or [0, 0]
-                minutes = max(1, self._duration_of(rift) // 60)
-                if player_level is None:
-                    mark = "·"
-                    enterable = True
-                elif player_level >= rift.required_level:
-                    mark = "✅"
-                    enterable = True
-                    open_count += 1
+        # 筛选：复合主产物（如「灵液+矿材」）按包含关系归属，同时保留全产物类
+        if wanted and wanted != "全部":
+            target = self._facet_of(wanted) if wanted != "全产物" else "全产物"
+            rows = [r for r in rows if r["facet"] == target]
+
+        rows.sort(key=lambda r: (-r["value_per_min"], r["required_level"], r["id"]))
+
+        open_rows: List[dict] = []
+        soon_rows: List[dict] = []
+        locked_rows: List[dict] = []
+        if player_level is None:
+            open_rows = list(rows)
+        else:
+            for row in rows:
+                gap = row["required_level"] - player_level
+                if gap <= 0:
+                    open_rows.append(row)
+                elif gap <= 3:
+                    soon_rows.append(row)
                 else:
-                    mark = "🔒"
-                    enterable = False
-                    locked_count += 1
-                # 未解锁的档只报门槛与耗时，省版面
-                detail = (
-                    f"{minutes}分 · 修为{exp_range[0]:,}~{exp_range[1]:,}"
-                    if enterable else f"{minutes}分"
-                )
-                msg += (
-                    f"  {mark} {rift.difficulty_label} (ID:{rift.rift_id}) "
-                    f"需{self._get_level_name(rift.required_level)} · {detail}\n"
-                )
-            msg += "\n"
+                    locked_rows.append(row)
 
-        if player_level is not None:
-            msg += f"✅ 可进入 {open_count} 档 / 🔒 未解锁 {locked_count} 档\n"
-        msg += "💡 /探索秘境 <ID> 进入（如：/探索秘境 2）；/秘境详情 <ID> 查看掉落"
-        return True, msg
+        # ★ 以「当前可进入段的最高每分钟材料价值」为 100%：
+        # 与排序同口径，星级才能顺着列表单调递减，不会出现「第二名没星、第三名有星」
+        peak = max((r["value_per_min"] for r in open_rows), default=0.0)
+        if peak <= 0:
+            peak = max((r["value_per_min"] for r in rows), default=0.0)
+        for row in rows:
+            self._decorate_rift_row(row, self._stars(row["value_per_min"], peak))
+
+        # 同分并列时只给第一条「最佳」，避免整段都是奖牌
+        for i, row in enumerate(open_rows):
+            row["badge"] = "最佳" if i == 0 and len(open_rows) > 1 else ""
+            row["rank"] = i + 1
+
+        # 推荐位按产物轮转，保证前 N 条覆盖不同材料而不是同类堆叠
+        recommended: List[dict] = []
+        try:
+            from ..utils.list_card import pick_recommend
+            recommended = pick_recommend(open_rows, self.PRODUCT_FACETS, self.LIST_TOP_N)
+            for row in recommended:
+                row["recommend"] = True
+        except Exception:
+            recommended = open_rows[: self.LIST_TOP_N]
+
+        facets = [{"key": "all", "label": "推荐", "count": len(recommended)}]
+        facets.append({"key": "全部", "label": "全部", "count": len(open_rows)})
+        for facet in self.PRODUCT_FACETS:
+            count = sum(1 for r in open_rows if r["facet"] == facet)
+            if count:
+                facets.append({"key": facet, "label": facet, "count": count})
+
+        groups: List[dict] = []
+        if open_rows:
+            groups.append(
+                {
+                    "key": "open",
+                    "name": "当前可进 · 按材料价值排序",
+                    "collapsed": False,
+                    "items": open_rows,
+                }
+            )
+        if soon_rows:
+            groups.append(
+                {
+                    "key": "soon",
+                    "name": f"即将解锁 · 还差 1~3 级 · {len(soon_rows)} 档",
+                    "collapsed": True,
+                    "items": soon_rows,
+                }
+            )
+        if locked_rows:
+            groups.append(
+                {
+                    "key": "locked",
+                    "name": f"尚未解锁 · {len(locked_rows)} 档",
+                    "collapsed": True,
+                    "items": locked_rows,
+                }
+            )
+
+        if player_level is None:
+            subtitle = f"共 {len(rows)} 档"
+        else:
+            subtitle = f"{self._get_level_name(player_level)} · 可进入 {len(open_rows)} 档 / 未解锁 {len(rows) - len(open_rows)} 档"
+        if wanted:
+            subtitle = f"{wanted} · {subtitle}"
+
+        return {
+            "subtitle": subtitle,
+            "facets": facets,
+            "groups": groups,
+            "total": len(rows),
+            "open": len(open_rows),
+            "filter": wanted,
+        }
+
+    async def list_rifts(self, user_id: str = None, product: str = "", data: dict = None) -> Tuple[bool, str]:
+        """秘境列表（文本兜底版：图片与网页都不可用时使用）。
+
+        Args:
+            user_id: 传入时按玩家境界标注可进入状态
+            product: 主产物筛选（灵植/矿材/灵液/妖兽/全产物）
+            data: 已算好的 build_rift_list 结果，传入可省一次重复计算
+
+        Returns:
+            (成功标志, 消息)
+        """
+        data = data or await self.build_rift_list(user_id, product)
+        if not data:
+            return False, "❌ 当前没有开放的秘境！"
+
+        lines = ["🌀 秘境列表", data["subtitle"], "━━━━━━━━━━━━━━━"]
+        for group in data["groups"]:
+            items = group["items"]
+            if group["key"] == "open":
+                lines.append(f"▸ {group['name']}")
+                shown = items[: self.LIST_TOP_N]
+                for row in shown:
+                    lines.append(
+                        f"  {row['title']} (ID:{row['id']})  {row['minutes']}分 · "
+                        f"{row['facet']}{row['star_text']} · 修为{self._fmt_amount(row['exp'])}"
+                        f" · 灵石{self._fmt_amount(row['gold'])}"
+                    )
+                if len(items) > len(shown):
+                    lines.append(f"  …另有 {len(items) - len(shown)} 档，/秘境列表 全部 查看")
+            elif group["key"] == "soon":
+                lines.append(f"▸ {group['name']}")
+                for row in items[:4]:
+                    lines.append(
+                        f"  🔒 {row['title']} (ID:{row['id']}) 需{row['level_name']} · {row['minutes']}分"
+                    )
+            else:
+                lines.append(f"▸ {group['name']}（含更深处秘境，境界提升后开放）")
+
+        lines.append("━━━━━━━━━━━━━━━")
+        lines.append("💡 /秘境列表 灵植 / 矿材 / 灵液 / 妖兽 / 全产物 按产物筛选")
+        lines.append("💡 /探索秘境 <ID> 进入；/秘境详情 <ID> 查看掉落")
+        return True, "\n".join(lines)
 
     async def find_rift(self, keyword: str, difficulty: str = "") -> Tuple[Optional[Rift], List[Rift]]:
         """按秘境名（可带难度）解析出唯一秘境行。
