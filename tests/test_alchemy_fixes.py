@@ -110,5 +110,26 @@ class TestAlchemyFixes(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("未学习", text)
 
 
+    def test_fire_prompt_matches_actual_effect(self):
+        import json
+
+        AlchemyManager = _imp("managers.alchemy_manager").AlchemyManager
+        fire_mods = json.loads(
+            (ROOT / "config" / "pill_quality.json").read_text(encoding="utf-8")
+        )["fire_modifiers"]
+        for choice, success_up in (("1", False), ("2", True)):
+            opt = AlchemyManager.FIRE_OPTIONS[choice]
+            quality_up = float(fire_mods[choice]["极佳"]) > 0
+            # 成功率与品质必须反向：猛火降成功率冲品质，文火相反
+            self.assertEqual(opt["rate_bonus"] > 0, success_up)
+            self.assertNotEqual(quality_up, success_up)
+            if success_up:
+                self.assertIn("成功率+", opt["desc"])
+                self.assertIn("概率降低", opt["desc"])
+            else:
+                self.assertIn("成功率-", opt["desc"])
+                self.assertIn("概率提升", opt["desc"])
+
+
 if __name__ == "__main__":
     unittest.main()

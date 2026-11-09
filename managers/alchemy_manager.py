@@ -617,11 +617,13 @@ class AlchemyManager:
     # ===== 火候小游戏 =====
     FIRE_STATE_PREFIX = "firecontrol_"
     FIRE_OPTIONS = {
-        "1": {"label": "猛火急攻", "rate_bonus": -8, "perfect_bonus": 8,
-              "desc": "孤注一掷！成功率-8%，但极品概率大增"},
-        "2": {"label": "文火慢煨", "rate_bonus": 6, "perfect_bonus": -6,
-              "desc": "稳中求进！成功率+6%，难出极品"},
-        "3": {"label": "控火守中", "rate_bonus": 0, "perfect_bonus": 0,
+        # 品质方向由 config/pill_quality.json 的 fire_modifiers 决定，
+        # 这里只保留成功率加成与展示文案，避免出现两套互相矛盾的数值。
+        "1": {"label": "猛火急攻", "rate_bonus": -8,
+              "desc": "孤注一掷！成功率-8%，但极佳/大师概率提升"},
+        "2": {"label": "文火慢煨", "rate_bonus": 6,
+              "desc": "稳中求进！成功率+6%，但极佳/大师概率降低"},
+        "3": {"label": "控火守中", "rate_bonus": 0,
               "desc": "不偏不倚，一切如常"},
     }
 

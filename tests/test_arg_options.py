@@ -409,6 +409,18 @@ class _CraftPlugin:
 
 
 class TestCraftArgOptions(unittest.IsolatedAsyncioTestCase):
+    async def test_fire_choices_labels_match_actual_effect(self):
+        data = await arg_options.build_arg_options(
+            _CraftPlugin(), "web_craft", "/炼丹", ["1"]
+        )
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["field"]["key"], "fire")
+        labels = {opt["value"]: opt["label"] for opt in data["options"]}
+        self.assertIn("降成功率", labels["猛火"])
+        self.assertIn("冲高品质", labels["猛火"])
+        self.assertIn("提成功率", labels["文火"])
+        self.assertIn("稳保底", labels["文火"])
+
     async def test_craft_count_has_quick_options(self):
         data = await arg_options.build_arg_options(
             _CraftPlugin(), "web_craft", "/炼丹", ["1", "猛火"]

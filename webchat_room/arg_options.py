@@ -685,10 +685,12 @@ async def _src_all_recipes(plugin: "XiuXianPlugin", player: Any, field: dict, va
 
 
 async def _src_fire_choices(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    # 口径与 managers/alchemy_manager.py 的 FIRE_OPTIONS / config/pill_quality.json 保持一致：
+    # 猛火降成功率冲高品质，文火提成功率保底。
     return [
-        _opt("猛火（成功率高）", "猛火", "适合冲成功率", "火候"),
-        _opt("文火（品质更稳）", "文火", "适合保品质", "火候"),
-        _opt("守中（均衡）", "守中", "成功与品质折中", "火候"),
+        _opt("猛火（降成功率·冲高品质）", "猛火", "成功率 -8%，极佳/大师概率提升", "火候"),
+        _opt("文火（提成功率·稳保底）", "文火", "成功率 +6%，极佳/大师概率降低", "火候"),
+        _opt("守中（均衡）", "守中", "成功率与品质均不增不减", "火候"),
     ], ""
 
 

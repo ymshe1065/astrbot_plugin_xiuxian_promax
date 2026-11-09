@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v7.6.0 (帝品材料补齐 / 历练分段结算)
+# AstrBot 插件：模拟修仙 v7.6.1 (炼丹火候提示修正)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v7.6.0-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v7.6.1-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.41.0 · **游戏版本:** v7.6.0 · **数据库:** v61
+> **插件版本:** v3.41.1 · **游戏版本:** v7.6.1 · **数据库:** v61
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，257 条注册指令（网页指令目录 245 个功能按钮 + 12 个别名）、17 个大系统、111 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,20 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · v7.6.0（帝品材料补齐 / 历练分段结算）</b></summary>
+<summary><b>本次更新 · v7.6.1（炼丹火候提示修正）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 火候提示 | 网页 `/炼丹` 参数弹层原文案写反（猛火标“成功率高”、文火标“品质更稳”），现统一为真实效果：猛火「降成功率·冲高品质」、文火「提成功率·稳保底」、守中「均衡」。 |
+| 消息与帮助 | `/火候` 无参列表与投料提示同步为「猛火：成功率-8%，极佳/大师概率提升；文火：成功率+6%，极佳/大师概率降低」，不再使用容易误解的“极品概率大增 / 难出极品”。 |
+| 口径澄清 | 成功率取 `FIRE_OPTIONS.rate_bonus`（猛火 -8 / 文火 +6，火灵根≥50% 时猛火补 +4，最终限制 5%~95%）；品质取 `config/pill_quality.json` 的 `fire_modifiers`（猛火：一般 -8、极佳 +5、大师 +3；文火相反）。移除未参与结算的 `perfect_bonus` 死字段，避免两套数值冲突。 |
+| 回归验证 | 新增 `tests/test_alchemy_fixes.py` 火候提示与实际效果一致性测试、`tests/test_arg_options.py` 网页选项文案测试，锁定“猛火降成功率、文火提成功率”的方向。 |
+| 版本与数据库 | 插件 **v3.41.1** / 游戏及帮助 **v7.6.1**；仅文案与死字段清理，无表结构更新，数据库仍为 **v61**。 |
+
+</details>
+
+<details>
+<summary><b>v7.6.0（帝品材料补齐 / 历练分段结算）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |
