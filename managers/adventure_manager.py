@@ -26,7 +26,7 @@ class AdventureManager:
 
     # 材料品阶从低到高。掉落池在某品阶为空时（例如妖兽类没有凡品材料），
     # 沿这个顺序向相邻品阶回退，避免某个专精路线在某些境界段掉不出东西。
-    TIER_ORDER = ("凡品", "黄品", "玄品", "圣品")
+    TIER_ORDER = ("凡品", "黄品", "玄品", "圣品", "帝品")
     PRODUCT_CATEGORIES = ("灵植", "矿材", "灵液", "妖兽")
 
     # 品阶回退时的数量折扣：往上回退（拿到了更值钱的品阶）要少给一些，
@@ -172,7 +172,7 @@ class AdventureManager:
         self.realm_bands: List[dict] = config.get("realm_bands") or []
         self.drop_pools: Dict[str, Dict[str, List[str]]] = config.get("drop_pools") or {}
         self.drop_quantity: Dict[str, List[int]] = config.get("drop_quantity") or {
-            "凡品": [2, 5], "黄品": [1, 4], "玄品": [1, 3], "圣品": [1, 2],
+            "凡品": [2, 5], "黄品": [1, 4], "玄品": [1, 3], "圣品": [1, 2], "帝品": [1, 1],
         }
         self.category_quantity_scale: Dict[str, float] = config.get("category_quantity_scale") or {}
         self.category_weights: Dict[str, int] = config.get("category_weights") or {
@@ -985,7 +985,11 @@ class AdventureManager:
         count = int(raw)
         if random.random() < raw - count:
             count += 1
-        return (name, max(1, count))
+        # 数量系数 <1 的类别（灵液/妖兽）单价更高，必须允许本次掉 0 个，
+        # 否则 max(1, count) 会把 0.5 系数直接抬回 1，专精线凭空多赚一倍。
+        if count <= 0:
+            return None
+        return (name, count)
 
     def _roll_drops(
         self,

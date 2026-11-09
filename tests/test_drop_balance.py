@@ -95,7 +95,7 @@ class TestDropBalance(unittest.TestCase):
         self.assertAlmostEqual(ev["low"], 551, delta=5)
         self.assertAlmostEqual(ev["mid"], 1065, delta=5)
         self.assertAlmostEqual(ev["high"], 1701, delta=5)
-        self.assertAlmostEqual(ev["legend"], 2038, delta=5)
+        self.assertAlmostEqual(ev["legend"], 4544, delta=5)
 
     def test_drop_items_exist_and_high_tier_has_saint_material(self):
         saint = {
@@ -103,12 +103,19 @@ class TestDropBalance(unittest.TestCase):
             for item in self.cm.material_catalog.values()
             if isinstance(item, dict) and item.get("tier") == "圣品"
         }
+        emperor = {
+            item["name"]
+            for item in self.cm.material_catalog.values()
+            if isinstance(item, dict) and item.get("tier") == "帝品"
+        }
         for table in self.WorldBossManager.DROP_TABLES.values():
             for item in table:
                 self.assertIn(item["name"], self.names)
         for key in ("high", "legend"):
             names = {item["name"] for item in self.WorldBossManager.DROP_TABLES[key]}
             self.assertTrue(names & saint, f"{key} 缺少圣品掉落")
+        legend_names = {item["name"] for item in self.WorldBossManager.DROP_TABLES["legend"]}
+        self.assertTrue(legend_names & emperor, "legend 缺少帝品材料掉落")
 
     def test_top_content_uses_highest_table(self):
         boss_types = self.WorldBossManager.BOSS_TYPES

@@ -4800,7 +4800,11 @@
     $("sheetSkip").addEventListener("click", () => {
       const field = sheetCtx?.data?.field;
       if (field?.skip_value) {
-        pickSheetOption({ value: field.skip_value, label: `${field.key === "fire" ? "火候" : "数量"}：默认` });
+        const skipLabel =
+          field.key === "fire" ? "火候：默认"
+            : field.key === "pill" ? "进入战中"
+              : "数量：默认";
+        pickSheetOption({ value: field.skip_value, label: skipLabel });
       } else {
         $("sheetInput").value = "";
         submitSheet();

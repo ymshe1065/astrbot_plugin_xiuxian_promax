@@ -227,7 +227,7 @@
         "subtype": "exp",
         "required_level_index": 25,
         "exp_gain": 1300000,
-        "price": 562000,
+        "price": 839000,
         "shop_weight": 10
     },
     {
@@ -238,7 +238,7 @@
         "subtype": "exp",
         "required_level_index": 27,
         "exp_gain": 1800000,
-        "price": 562000,
+        "price": 839000,
         "shop_weight": 10
     },
     {
@@ -249,7 +249,7 @@
         "subtype": "exp",
         "required_level_index": 28,
         "exp_gain": 2500000,
-        "price": 562000,
+        "price": 839000,
         "shop_weight": 10
     },
     {
@@ -260,7 +260,7 @@
         "subtype": "exp",
         "required_level_index": 31,
         "exp_gain": 3500000,
-        "price": 832000,
+        "price": 1530000,
         "shop_weight": 5
     },
     {
@@ -271,7 +271,7 @@
         "subtype": "exp",
         "required_level_index": 32,
         "exp_gain": 5000000,
-        "price": 832000,
+        "price": 1530000,
         "shop_weight": 5
     },
     {
@@ -282,7 +282,7 @@
         "subtype": "exp",
         "required_level_index": 33,
         "exp_gain": 7000000,
-        "price": 832000,
+        "price": 1530000,
         "shop_weight": 5
     },
     {
@@ -293,7 +293,7 @@
         "subtype": "exp",
         "required_level_index": 34,
         "exp_gain": 10000000,
-        "price": 832000,
+        "price": 1530000,
         "shop_weight": 5
     },
     {
@@ -304,7 +304,7 @@
         "subtype": "exp",
         "required_level_index": 35,
         "exp_gain": 15000000,
-        "price": 1170000,
+        "price": 2390000,
         "shop_weight": 1
     },
     {
@@ -315,7 +315,7 @@
         "subtype": "exp",
         "required_level_index": 35,
         "exp_gain": 22000000,
-        "price": 1170000,
+        "price": 2390000,
         "shop_weight": 1
     },
     {
@@ -326,7 +326,40 @@
         "subtype": "exp",
         "required_level_index": 35,
         "exp_gain": 30000000,
-        "price": 1170000,
+        "price": 2390000,
         "shop_weight": 1
+    },
+    {
+        "id": "exp_pill_031",
+        "name": "圣元丹",
+        "description": "圣品修为丹药，圣元洗涤经脉，修为稳步攀升",
+        "rank": "圣品",
+        "subtype": "exp",
+        "required_level_index": 19,
+        "exp_gain": 350000,
+        "price": 267000,
+        "shop_weight": 30
+    },
+    {
+        "id": "exp_pill_032",
+        "name": "九霄圣丹",
+        "description": "圣品修为丹药，九霄圣气灌顶，道基愈发稳固",
+        "rank": "圣品",
+        "subtype": "exp",
+        "required_level_index": 20,
+        "exp_gain": 420000,
+        "price": 267000,
+        "shop_weight": 30
+    },
+    {
+        "id": "exp_pill_033",
+        "name": "太初灵丹",
+        "description": "圣品修为丹药，太初灵气入体，直指帝品门槛",
+        "rank": "圣品",
+        "subtype": "exp",
+        "required_level_index": 21,
+        "exp_gain": 500000,
+        "price": 267000,
+        "shop_weight": 30
     }
 ]

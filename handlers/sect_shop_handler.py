@@ -60,6 +60,25 @@ class SectShopHandler:
             hours = 1
         return max(1, hours)
 
+    @staticmethod
+    def _weighted_candidates(pool):
+        """宗门商店候选池：显式 shop_weight=0 的商品不上架。"""
+        weighted = []
+        for item in pool or []:
+            data = item.get("data") if isinstance(item.get("data"), dict) else {}
+            raw = data.get("shop_weight")
+            if raw is None:
+                weight = 100
+            else:
+                try:
+                    weight = int(raw)
+                except (TypeError, ValueError):
+                    weight = 100
+            if weight <= 0:
+                continue
+            weighted.append({**item, "weight": weight})
+        return weighted
+
     async def _get_shop(self, sect_id: int, player: Player = None):
         shop_id = f"sect_shop_{sect_id}"
         last_refresh, items = await self.db.get_shop_data(shop_id)
@@ -68,6 +87,10 @@ class SectShopHandler:
             changed = self.shop_manager.ensure_items_have_stock(items) or changed
             changed = self.shop_manager.ensure_equipment_quality(items) or changed
             changed = self.shop_manager.refresh_item_data(items) or changed
+            kept, filtered = self.shop_manager.filter_stale_shelf_items(items)
+            if filtered:
+                items = kept
+                changed = True
             if changed:
                 await self.db.update_shop_data(shop_id, last_refresh, items)
         hours = self._refresh_hours()
@@ -85,10 +108,7 @@ class SectShopHandler:
                         filtered.append(item)
                 pool = filtered
             if pool:
-                weighted = []
-                for item in pool:
-                    weight = int((item.get("data", {}) or {}).get("shop_weight", 100) or 100)
-                    weighted.append({**item, "weight": max(1, weight)})
+                weighted = self._weighted_candidates(pool)
                 selected = self.shop_manager._weighted_random_choice(weighted, min(5, len(weighted)))
                 items = []
                 for item in selected:

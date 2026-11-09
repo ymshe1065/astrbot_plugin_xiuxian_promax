@@ -311,7 +311,7 @@ class ConfigManager:
         """
         categories = ["灵植", "矿材", "妖兽", "灵液"]
         for category in categories:
-            for tier in ("凡品", "黄品", "玄品", "圣品"):
+            for tier in ("凡品", "黄品", "玄品", "圣品", "帝品"):
                 pool = []
                 weights = []
                 for material in self.material_catalog.values():

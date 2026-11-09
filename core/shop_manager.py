@@ -111,13 +111,18 @@ class ShopManager:
             if factor is None:
                 continue
             clone = dict(item)
+            raw_weight = (data or {}).get("shop_weight")
+            if raw_weight is None:
+                raw_weight = item.get("weight", 100)
             try:
-                base_weight = int(
-                    (data or {}).get("shop_weight") or item.get("weight") or 100
-                )
+                base_weight = int(raw_weight)
             except (TypeError, ValueError):
                 base_weight = 100
-            clone["weight"] = max(1, int(round(base_weight * factor)))
+            # 显式 0 表示不上架，不能因为“最少为 1”又被塞回货架。
+            if base_weight <= 0:
+                clone["weight"] = 0
+            else:
+                clone["weight"] = max(1, int(round(base_weight * factor)))
             result.append(clone)
         return result
 
@@ -165,11 +170,21 @@ class ShopManager:
         - 空值：沿用货架原有权重（含品阶区间修正）。
         """
         data = item.get("data") if isinstance(item.get("data"), dict) else {}
+        # 显式 shop_weight=0 表示“NPC 货架不上架”，只通过掉落/活动/黑市获取。
+        # 不能把 0 当作缺省值，否则百宝阁稀有池会把天外陨核、帝品材料重新刷出来。
+        raw_weight = item.get("pick_weight")
+        if raw_weight is None:
+            raw_weight = data.get("shop_weight")
+        if raw_weight is None:
+            raw_weight = item.get("weight")
+        if raw_weight is None:
+            raw_weight = 100
         try:
-            base_weight = int(item.get("pick_weight") or data.get("shop_weight") or item.get("weight") or 100)
+            base_weight = int(raw_weight)
         except (TypeError, ValueError):
             base_weight = 100
-        base_weight = max(1, base_weight)
+        if base_weight <= 0:
+            return 0
         try:
             store_weight = int(item.get("weight") or base_weight)
         except (TypeError, ValueError):
@@ -580,11 +595,15 @@ class ShopManager:
 
     def _weighted_random_choice(self, items: List[Dict], count: int) -> List[Dict]:
         """基于权重的随机选择（不重复）"""
-        if len(items) <= count:
-            return items.copy()
+        # 权重 <= 0 的条目（shop_weight=0）不应进入随机池。
+        # 全部为 0 时保留旧的随机兜底，避免整池配置缺失导致货架空掉。
+        available_items = [
+            item for item in items if float(item.get("weight", 0) or 0) > 0
+        ] or items.copy()
+        if len(available_items) <= count:
+            return available_items
 
         selected = []
-        available_items = items.copy()
 
         for _ in range(count):
             if not available_items:
@@ -921,6 +940,12 @@ class ShopManager:
                     continue
             name = item.get("name")
             if not name or self.find_item_by_name(name) is None:
+                changed = True
+                continue
+            # shop_weight=0 表示 NPC 货架不上架；旧货架（配置变更前刷出）在
+            # 下一次访问时直接剔除，避免刷新周期内仍能买到周本专属/帝品散装材料。
+            data = item.get("data") if isinstance(item.get("data"), dict) else {}
+            if data.get("shop_weight") == 0 and not item.get("always_available"):
                 changed = True
                 continue
             kept.append(item)

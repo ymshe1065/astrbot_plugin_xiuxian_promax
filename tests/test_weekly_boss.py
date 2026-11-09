@@ -1,4 +1,5 @@
 # tests/test_weekly_boss.py
+import json
 import os
 import sys
 import tempfile
@@ -190,6 +191,61 @@ class TestWeeklyBoss(unittest.IsolatedAsyncioTestCase):
         ok, msg = await self.manager.set_loadout(player, "回春散·天*5")
         self.assertFalse(ok)
         self.assertIn("库存不足", msg)
+
+    def test_classify_pill_supports_flat_heal_and_temp_buffs(self):
+        # 旧版 items.json 的 effect.add_hp（四象幽冥草散）按固定回血处理
+        kind, data = self.manager._classify_pill("四象幽冥草散")
+        self.assertEqual(kind, "recovery")
+        self.assertGreater(self.manager._pill_heal_pct(data, "一般", 447000), 0.9)
+        self.assertAlmostEqual(
+            self.manager._pill_heal_pct(data, "一般", 894000), 0.5, places=2
+        )
+        # 体修专用回血丹
+        kind, _ = self.manager._classify_pill("回血丹")
+        self.assertEqual(kind, "recovery")
+        # 任意临时增益丹都能进入战前候选；纯负面丹药仍排除
+        self.assertEqual(self.manager._classify_pill("小爆发丹")[0], "prepare")
+        self.assertEqual(self.manager._classify_pill("修炼加速丹")[0], "prepare")
+        self.assertEqual(self.manager._classify_pill("狂乱丹")[0], "prepare")
+        self.assertEqual(self.manager._classify_pill("虚弱丹")[0], "unsupported")
+
+    async def test_loadout_accepts_stage_markers(self):
+        player = await self._create_player(
+            "marker",
+            pills={"狂暴丹|一般": 2, "回春散·天|一般": 1},
+        )
+        ok, msg = await self.manager.create_team(player, "阶段队")
+        self.assertTrue(ok, msg)
+        ok, msg = await self.manager.set_loadout(
+            player, "战前 狂暴丹*2 战中 回春散·天*1"
+        )
+        self.assertTrue(ok, msg)
+        row = await self.manager._fetchone(
+            "SELECT pill_loadout FROM weekly_boss_members WHERE user_id = ?",
+            ("marker",),
+        )
+        loadout = json.loads(row["pill_loadout"])
+        self.assertEqual(
+            [(e["name"], e["count"]) for e in loadout["prepare"]], [("狂暴丹", 2)]
+        )
+        self.assertEqual(
+            [(e["name"], e["count"]) for e in loadout["combat"]], [("回春散·天", 1)]
+        )
+
+    async def test_flat_heal_pill_converted_for_battle(self):
+        player = await self._create_player(
+            "flat", pills={"四象幽冥草散|一般": 2}
+        )
+        loadout = {
+            "prepare": [],
+            "combat": [
+                {"name": "四象幽冥草散", "quality": "一般", "count": 2, "kind": "recovery"}
+            ],
+        }
+        panel = await self.manager._build_member_panel(player, 22, loadout)
+        runtime = self.manager._member_runtime(player, panel, loadout)
+        self.assertTrue(runtime["recovery"])
+        self.assertGreater(runtime["recovery"][0]["heal_pct"], 0)
 
     async def test_full_battle_settles_and_deducts_pills(self):
         player = await self._create_player(

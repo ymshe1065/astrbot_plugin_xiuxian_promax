@@ -86,7 +86,7 @@ class TestMaterialPackage(unittest.IsolatedAsyncioTestCase):
     def test_package_pool_only_valid_materials(self):
         shop = self.shop()
         for category in ("灵植", "矿材", "妖兽", "灵液"):
-            for tier in ("凡品", "黄品", "玄品", "圣品"):
+            for tier in ("凡品", "黄品", "玄品", "圣品", "帝品"):
                 pool = shop.get_package_material_pool(category, tier)
                 self.assertTrue(pool, f"{category}/{tier}")
                 for name, weight in pool:

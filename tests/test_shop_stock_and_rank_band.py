@@ -79,6 +79,62 @@ class TestShopStockAndRankBand(unittest.TestCase):
         self.assertGreater(self.shop._pick_weight(high, "rare"), self.shop._pick_weight(low, "rare"))
         self.assertGreater(self.shop._pick_weight(low, "common"), self.shop._pick_weight(high, "common"))
 
+    def test_zero_shop_weight_items_stay_out_of_treasure_pavilion(self):
+        """shop_weight=0 的天外陨核/帝品材料不应被百宝阁稀有池刷新出来。"""
+        self.shop.resolve_rank_band([_Player(22)], force=True)
+        excluded = {"天外陨核", "太初道莲", "太初道金", "太古真龙鳞", "太初源液"}
+        pool = self.shop.get_treasure_items_for_display(9999)
+        matched = [item for item in pool if item["name"] in excluded]
+        self.assertTrue(matched)
+        self.assertTrue(all(self.shop._pick_weight(item, "rare") == 0 for item in matched))
+        for _ in range(50):
+            shelf = self.shop.generate_pavilion_items(
+                self.shop.get_treasure_items_for_display, 12, pick_mode="rare"
+            )
+            self.assertFalse({item["name"] for item in shelf} & excluded)
+
+    def test_legacy_shelf_drops_zero_shop_weight_items(self):
+        """配置改为 shop_weight=0 后，旧货架条目在访问时应被清理。"""
+        shelf = [
+            {
+                "name": "天外陨核",
+                "type": "material",
+                "rank": "帝品",
+                "price": 30000,
+                "stock": 1,
+                "data": self.cm.items_data["天外陨核"],
+            },
+            {
+                "name": "灵草",
+                "type": "material",
+                "rank": "凡品",
+                "price": 10,
+                "stock": 1,
+                "data": {"type": "材料", "shop_weight": 100},
+            },
+        ]
+        kept, changed = self.shop.filter_stale_shelf_items(shelf)
+        self.assertTrue(changed)
+        self.assertEqual([item["name"] for item in kept], ["灵草"])
+
+    def test_rank_band_keeps_explicit_zero_weight(self):
+        """品阶区间加权不能把 shop_weight=0 重新抬成 1。"""
+        self.shop.resolve_rank_band([], force=True)
+        name, cfg = next(
+            (n, c) for n, c in self.cm.items_data.items()
+            if isinstance(c, dict) and c.get("type") == "weapon" and c.get("price", 0) > 0
+        )
+        entry = {
+            "name": name,
+            "type": "weapon",
+            "rank": cfg.get("rank", "凡品"),
+            "price": cfg.get("price", 1),
+            "data": {**cfg, "shop_weight": 0},
+        }
+        filtered = self.shop.filter_by_rank_band([entry])
+        self.assertEqual(len(filtered), 1)
+        self.assertEqual(filtered[0]["weight"], 0)
+
     def test_treasure_rare_pool_filters_all_types_by_band(self):
         self.shop.resolve_rank_band([_Player(0)], force=True)
         items = self.shop.get_treasure_items_for_display(9999)

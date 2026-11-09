@@ -97,8 +97,9 @@ class WorldBossManager:
         3: {"label": "神话级", "weight": 10},
     }
 
-    # 掉落表按档位严格递增：low 550 / mid 1065 / high 1701 / legend 2038（按材料售价折算单次期望）
-    # high 与 legend 加入圣品机缘，避免最高难度仍只掉玄品材料。
+    # 掉落表按档位严格递增：low 550 / mid 1065 / high 1701 / legend 4544（按材料售价折算单次期望）。
+    # high 与 legend 加入圣品机缘；legend 额外加入四类帝品材料，作为世界 Boss、团本、
+    # 江湖事件与周本等最高难内容的专属追求。
     DROP_TABLES: Dict[str, List[dict]] = {
         "low": [
             {"name": "洗练石", "weight": 32, "min": 1, "max": 2},
@@ -134,6 +135,10 @@ class WorldBossManager:
             {"name": "天材地宝", "weight": 2, "min": 1, "max": 1},
             {"name": "四象皮", "weight": 1, "min": 1, "max": 1},
             {"name": "混元铁", "weight": 1, "min": 1, "max": 1},
+            {"name": "太初道莲", "weight": 1, "min": 1, "max": 1},
+            {"name": "太初道金", "weight": 1, "min": 1, "max": 1},
+            {"name": "太古真龙鳞", "weight": 1, "min": 1, "max": 1},
+            {"name": "太初源液", "weight": 1, "min": 1, "max": 1},
         ],
     }
 

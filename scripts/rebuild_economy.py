@@ -27,7 +27,14 @@ RANK_LEVEL = {"凡品": 0, "黄品": 3, "玄品": 9, "灵品": 10, "地品": 12,
               "皇品": 16, "圣品": 18, "帝品": 22, "道品": 28, "仙品": 32, "混元先天": 35}
 RANK_MATERIAL_TIER = {"凡品": "凡品", "黄品": "黄品", "玄品": "玄品", "灵品": "玄品",
                       "地品": "玄品", "天品": "圣品", "皇品": "圣品", "圣品": "圣品",
-                      "帝品": "圣品", "道品": "圣品", "仙品": "圣品", "混元先天": "圣品"}
+                      "帝品": "圣品", "道品": "帝品", "仙品": "帝品", "混元先天": "帝品"}
+# 道品以上丹药使用帝品主材料；圣品材料作为辅料保留，混元先天额外消耗周本专属材料。
+HIGH_RANK_SCALE = {
+    "道品": {"primary": 2, "secondary": 1, "holy_primary": 4, "holy_secondary": 3},
+    "仙品": {"primary": 3, "secondary": 2, "holy_primary": 6, "holy_secondary": 4},
+    "混元先天": {"primary": 5, "secondary": 3, "holy_primary": 8, "holy_secondary": 6},
+}
+EXCLUSIVE_MATERIAL = "天外陨核"
 RANK_COUNT = {"凡品": 2, "黄品": 3, "玄品": 4, "灵品": 4, "地品": 5, "天品": 5,
               "皇品": 6, "圣品": 6, "帝品": 7, "道品": 8, "仙品": 9, "混元先天": 10}
 RANK_GOLD = {"凡品": 100, "黄品": 300, "玄品": 1000, "灵品": 1500, "地品": 2000, "天品": 3000,
@@ -96,6 +103,54 @@ def expected_cost(recipe: dict, medians: dict, by_name: dict) -> float:
     tribulation = 0.75 if int(recipe.get("level_required") or 0) >= 6 else 1.0
     return cost / (success * tribulation)
 
+
+def high_rank_materials(rank: str, subtype: str) -> list:
+    """道品以上统一改用帝品主材料，按丹药用途决定辅料结构。
+
+    帝品材料是当前材料链的顶端；道品/仙品/混元先天不再与帝品丹药共用
+    同一批圣品材料，避免高境界丹方「换个名字继续吃圣品」。
+    """
+    scale = HIGH_RANK_SCALE.get(rank)
+    if not scale:
+        return []
+    primary = scale["primary"]
+    secondary = scale["secondary"]
+    holy_primary = scale["holy_primary"]
+    holy_secondary = scale["holy_secondary"]
+
+    if subtype == "exp":
+        mats = [
+            {"category": "灵植", "tier": "帝品", "count": primary},
+            {"category": "灵液", "tier": "帝品", "count": secondary},
+            {"category": "灵植", "tier": "圣品", "count": holy_primary},
+        ]
+    elif subtype in ("recovery", "instant_restore", "regeneration", "resurrection"):
+        mats = [
+            {"category": "灵植", "tier": "帝品", "count": primary},
+            {"category": "灵液", "tier": "帝品", "count": secondary},
+            {"category": "灵植", "tier": "圣品", "count": holy_primary},
+            {"category": "灵液", "tier": "圣品", "count": holy_secondary},
+        ]
+    elif subtype in ("combat_boost", "defensive_boost", "permanent_attribute", "special", "reset"):
+        mats = [
+            {"category": "灵植", "tier": "帝品", "count": primary},
+            {"category": "矿材", "tier": "帝品", "count": secondary},
+            {"category": "妖兽", "tier": "帝品", "count": secondary},
+            {"category": "灵植", "tier": "圣品", "count": holy_primary},
+            {"category": "矿材", "tier": "圣品", "count": holy_secondary},
+        ]
+    else:
+        mats = [
+            {"category": "灵植", "tier": "帝品", "count": primary},
+            {"category": "矿材", "tier": "帝品", "count": secondary},
+            {"category": "妖兽", "tier": "帝品", "count": secondary},
+            {"category": "灵液", "tier": "帝品", "count": max(1, secondary)},
+            {"category": "灵植", "tier": "圣品", "count": holy_primary},
+            {"category": "矿材", "tier": "圣品", "count": holy_secondary},
+        ]
+    if rank == "混元先天":
+        mats.append({"name": EXCLUSIVE_MATERIAL, "count": 1})
+    return mats
 
 
 # ===== 旧式丹药效果定价锚点（方案A）=====
@@ -277,6 +332,28 @@ def rebuild_recipes_and_pills(catalog: dict) -> int:
     for _key, cfg in items.items():
         if isinstance(cfg, dict) and cfg.get("type") == "丹药" and cfg.get("name"):
             pill_cfgs.setdefault(cfg.get("name"), cfg)
+
+    # 道品以上：按用途改用帝品主材料，保留原配方里的具名辅料（周本专属除外）。
+    for recipe in recipes:
+        cfg = pill_cfgs.get(recipe.get("output_pill")) or {}
+        rank = rank_of(cfg)
+        mats = high_rank_materials(rank, str(cfg.get("subtype") or ""))
+        if not mats:
+            continue
+        named = [
+            dict(spec) for spec in (recipe.get("materials") or [])
+            if isinstance(spec, dict) and spec.get("name") and spec.get("name") != EXCLUSIVE_MATERIAL
+        ]
+        recipe["materials"] = mats + named
+        recipe["level_required"] = int(
+            cfg.get("required_level_index")
+            or RANK_LEVEL.get(rank)
+            or recipe.get("level_required")
+            or 0
+        )
+        recipe["gold_cost"] = RANK_GOLD.get(rank, recipe.get("gold_cost", 0))
+        recipe["success_rate"] = RANK_SUCCESS.get(rank, recipe.get("success_rate", 60))
+
     for recipe in recipes:
         cost_target = ceil_to_nice(expected_cost(recipe, medians, by_name) * 1.5)
         output = recipe["output_pill"]
@@ -350,7 +427,7 @@ def main() -> int:
     catalog = rebuild_materials()
     recipe_count = rebuild_recipes_and_pills(catalog)
     talisman_count = rebuild_talismans(catalog)
-    print(f"材料 174 条重定价；丹方 {recipe_count} 条；符箓 {talisman_count} 条；")
+    print(f"材料 {len(catalog['materials'])} 条重定价；丹方 {recipe_count} 条；符箓 {talisman_count} 条；")
     print("提示：修改材料锚点后重新运行本脚本即可幂等重算。")
     return 0
 

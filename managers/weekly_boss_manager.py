@@ -66,6 +66,22 @@ PREP_MULTIPLIER_KEYS = (
     "physical_damage_multiplier", "magic_damage_multiplier",
     "physical_defense_multiplier", "magic_defense_multiplier",
 )
+# 除四维倍率外，临时增益丹可能直接提供战斗特效（会心、吸血、闪避等）。
+# 这里统一识别，保证「任意临时增益类丹药」都能进入周本备战候选。
+PREP_ADDITIVE_KEYS = (
+    "crit_rate", "crit_damage", "lifesteal", "dodge",
+    "combo_rate", "counter_damage", "damage_reduction",
+)
+# 任意临时增益字段的通用后缀（修炼加速、回复、突破加成等）
+TEMP_BUFF_SUFFIXES = ("_multiplier", "_bonus", "_gain", "_rate", "_per_minute")
+# 回气血字段：百分比、固定值、旧版 items.json 的 effect.add_hp 都要兼容
+HEAL_PERCENT_KEYS = ("restore_hp_percent", "restore_hp_pct", "hp_restore_percent")
+HEAL_FLAT_KEYS = ("blood_qi_restore", "heal_hp", "hp_restore", "restore_hp")
+# 命令中的阶段标记（网页弹层会写入），解析清单时忽略
+LOADOUT_STAGE_TOKENS = {
+    "战前", "战中", "准备", "战斗",
+    "prepare", "pre", "combat", "fight",
+}
 
 
 class WeeklyBossManager:
@@ -591,7 +607,13 @@ class WeeklyBossManager:
     # ================= 丹药 =================
 
     def _classify_pill(self, base_name: str) -> Tuple[str, dict]:
-        """返回 (kind, pill_data)；kind 为 prepare / recovery / revive / unsupported。"""
+        """返回 (kind, pill_data)；kind 为 prepare / recovery / revive / unsupported。
+
+        兼容三类丹药：
+        * 复活丹（subtype=resurrection / resurrects）；
+        * 回气血丹（restore_hp_percent、blood_qi_restore、旧版 effect.add_hp 等）；
+        * 任意临时增益丹（四维倍率或会心/吸血/闪避等战斗特效）。
+        """
         pill_mgr = self._pill_manager()
         data = pill_mgr.get_pill_by_name(base_name)
         if not data:
@@ -599,29 +621,109 @@ class WeeklyBossManager:
         subtype = str(data.get("subtype") or "")
         if subtype == "resurrection" or data.get("resurrects"):
             return "revive", data
-        if data.get("effect_type") == "instant":
-            try:
-                heal = float(data.get("restore_hp_percent", 0) or 0)
-            except (TypeError, ValueError):
-                heal = 0.0
-            if heal > 0:
-                return "recovery", data
-        if any(key in data for key in PREP_MULTIPLIER_KEYS):
+        if self._pill_heal_spec(data) is not None:
+            return "recovery", data
+        if self._has_prep_buff(data):
             return "prepare", data
         return "unsupported", data
 
-    def _pill_heal_pct(self, data: dict, quality: str) -> float:
+    @staticmethod
+    def _pill_heal_spec(data: dict) -> Optional[Tuple[str, float]]:
+        """读取丹药的回气血配置，返回 (类型, 数值)。
+
+        类型为 ``percent``（直接按最大气血比例）或 ``flat``（固定气血值）。
+        支持百分比、体修专用回血、以及旧版 items.json 的 ``effect.add_hp``。
+        """
+        if not isinstance(data, dict):
+            return None
+        for key in HEAL_PERCENT_KEYS:
+            if key not in data:
+                continue
+            try:
+                value = float(data.get(key, 0) or 0)
+            except (TypeError, ValueError):
+                continue
+            if value == -1:
+                return "percent", 1.0
+            if value > 0:
+                return "percent", min(1.0, value)
+        for key in HEAL_FLAT_KEYS:
+            if key not in data:
+                continue
+            try:
+                value = float(data.get(key, 0) or 0)
+            except (TypeError, ValueError):
+                continue
+            if value == -1:
+                return "percent", 1.0
+            if value > 0:
+                return "flat", value
+        effects = data.get("effect")
+        if isinstance(effects, dict):
+            try:
+                add_hp = float(effects.get("add_hp", 0) or 0)
+            except (TypeError, ValueError):
+                add_hp = 0.0
+            if add_hp == -1:
+                return "percent", 1.0
+            if add_hp > 0:
+                return "flat", add_hp
+        return None
+
+    @staticmethod
+    def _has_prep_buff(data: dict) -> bool:
+        """是否存在至少一项正向增益（纯负面/纯消耗丹药不进入备战）。
+
+        临时增益类丹药不局限于四维倍率：修炼加速、回复、突破加成等只要带有
+        正向增益字段即可被选择，实际能在周本战斗中生效的字段由
+        ``_apply_prep_buffs`` 折算。
+        """
+        if not isinstance(data, dict):
+            return False
+        for key in PREP_MULTIPLIER_KEYS + PREP_ADDITIVE_KEYS:
+            if key not in data:
+                continue
+            try:
+                if float(data.get(key, 0) or 0) > 0:
+                    return True
+            except (TypeError, ValueError):
+                continue
+        if str(data.get("effect_type") or "") != "temporary":
+            return False
+        saw_debuff = False
+        for key, raw_value in data.items():
+            if key == "duration_minutes" or "cost" in key:
+                continue
+            if not (key in PREP_ADDITIVE_KEYS or key.endswith(TEMP_BUFF_SUFFIXES)):
+                continue
+            try:
+                value = float(raw_value or 0)
+            except (TypeError, ValueError):
+                continue
+            if value > 0:
+                return True
+            if value < 0:
+                saw_debuff = True
+        # 随机效果等没有显式数值的临时丹也允许选择；纯负面丹仍排除
+        return not saw_debuff
+
+    def _pill_heal_pct(self, data: dict, quality: str, max_hp: int = 0) -> float:
+        """把丹药恢复量换算成周本归一化面板的最大气血比例。"""
         pill_mgr = self._pill_manager()
-        try:
-            base = float(data.get("restore_hp_percent", 0) or 0)
-        except (TypeError, ValueError):
-            base = 0.0
-        if base <= 0:
-            base = RANK_HEAL.get(str(data.get("rank") or ""), 0.10)
         try:
             mult = pill_mgr.get_quality_multiplier(quality)
         except Exception:
             mult = 1.0
+        spec = self._pill_heal_spec(data)
+        if spec is not None:
+            kind, value = spec
+            if kind == "percent":
+                return max(0.01, min(1.0, value * mult))
+            if max_hp and max_hp > 0:
+                return max(0.01, min(1.0, value * mult / float(max_hp)))
+            return 0.0
+        # 兜底：仅按品阶估算（正常不会走到这里）
+        base = RANK_HEAL.get(str(data.get("rank") or ""), 0.10)
         return max(0.01, min(1.0, base * mult))
 
     def _resolve_entry(self, name: str, quality: str, count: int) -> Optional[dict]:
@@ -649,6 +751,7 @@ class WeeklyBossManager:
         """把战前丹药折算为周本内的固定 buff（不写入玩家真实状态）。"""
         pill_mgr = self._pill_manager()
         phys_atk = magic_atk = phys_def = magic_def = 0.0
+        additive: Dict[str, float] = {key: 0.0 for key in PREP_ADDITIVE_KEYS}
         for entry in loadout.get("prepare", []):
             data = pill_mgr.get_pill_by_name(entry.get("name", ""))
             if not data:
@@ -658,10 +761,20 @@ class WeeklyBossManager:
             except Exception:
                 qmult = 1.0
             count = max(1, int(entry.get("count") or 1))
-            phys_atk += float(data.get("physical_damage_multiplier", 0) or 0) * qmult * count
-            magic_atk += float(data.get("magic_damage_multiplier", 0) or 0) * qmult * count
-            phys_def += float(data.get("physical_defense_multiplier", 0) or 0) * qmult * count
-            magic_def += float(data.get("magic_defense_multiplier", 0) or 0) * qmult * count
+            factor = qmult * count
+
+            def _num(key: str) -> float:
+                try:
+                    return float(data.get(key, 0) or 0)
+                except (TypeError, ValueError):
+                    return 0.0
+
+            phys_atk += _num("physical_damage_multiplier") * factor
+            magic_atk += _num("magic_damage_multiplier") * factor
+            phys_def += _num("physical_defense_multiplier") * factor
+            magic_def += _num("magic_defense_multiplier") * factor
+            for key in PREP_ADDITIVE_KEYS:
+                additive[key] += _num(key) * factor
 
         caps = self._pill_caps
         atk_cap = float(caps.get("attack", 0.60) or 0.60)
@@ -674,13 +787,17 @@ class WeeklyBossManager:
         mdef_mult = max(0.40, min(1.0 + def_cap, 1.0 + magic_def))
         # 防御类丹药同时提供少量真实减伤，弥补真伤无法被防御减免的问题
         def_bonus = max(0.0, (pdef_mult - 1.0 + mdef_mult - 1.0) / 2.0)
-        damage_reduction = min(dr_cap, def_bonus * 0.6)
+        damage_reduction = min(
+            dr_cap,
+            def_bonus * 0.6 + max(0.0, additive.get("damage_reduction", 0.0)),
+        )
         return {
             "physical_damage_multiplier": phys_mult,
             "magic_damage_multiplier": magic_mult,
             "physical_defense_multiplier": pdef_mult,
             "magic_defense_multiplier": mdef_mult,
             "damage_reduction": damage_reduction,
+            **{key: additive[key] for key in PREP_ADDITIVE_KEYS if key != "damage_reduction"},
         }
 
     def _loadout_counts(self, loadout: dict) -> Dict[str, int]:
@@ -703,9 +820,14 @@ class WeeklyBossManager:
     def _parse_loadout_tokens(self, player: Player, args: str) -> Tuple[bool, str, dict]:
         pill_mgr = self._pill_manager()
         inventory = player.get_pills_inventory()
-        tokens = [t for t in re.split(r"[\s,，、;；]+", str(args or "").strip()) if t]
+        tokens = [
+            t for t in re.split(r"[\s,，、;；]+", str(args or "").strip())
+            if t and t not in LOADOUT_STAGE_TOKENS
+        ]
         if not tokens:
-            return False, "❌ 请填写丹药清单，例如：/周本备战 回春散·天*3 狂暴丹*2", {}
+            return False, (
+                "❌ 请填写丹药清单，例如：/周本备战 战前 狂暴丹*2 战中 回春散·天*3"
+            ), {}
 
         entries: Dict[str, dict] = {}
         last_name = ""
@@ -810,8 +932,17 @@ class WeeklyBossManager:
                 "count": 1, "kind": "revive",
             })
         recoveries = [c for c in candidates if c["kind"] == "recovery"]
+        # 固定回血丹需要按玩家真实最大气血折算成比例后再排序
+        try:
+            real = CombatManager.build_player_combat_stats(
+                player, self.config_manager, db=self.db, pill_multipliers={}
+            )
+            real_max_hp = max(1, int(getattr(real, "max_hp", 0) or 1))
+        except Exception:
+            real_max_hp = 0
         recoveries.sort(
-            key=lambda c: self._pill_heal_pct(c["data"], c["quality"]), reverse=True
+            key=lambda c: self._pill_heal_pct(c["data"], c["quality"], real_max_hp),
+            reverse=True,
         )
         remaining = self.pill_slots_combat - sum(e["count"] for e in combat)
         for _round in range(remaining):
@@ -848,6 +979,13 @@ class WeeklyBossManager:
                 value = 0.0
             # 攻击/防御都计入；负面效果按 40% 折算，避免推荐自残丹
             score += (value if value >= 0 else value * 0.4) * qmult
+        # 会心/吸血/闪避等直接加成按百分点折算，权重低于四维倍率
+        for key in PREP_ADDITIVE_KEYS:
+            try:
+                value = float(data.get(key, 0) or 0)
+            except (TypeError, ValueError):
+                value = 0.0
+            score += (value if value >= 0 else value * 0.4) * qmult * 0.01
         return score
 
     def _format_loadout(self, loadout: dict) -> str:
@@ -875,7 +1013,11 @@ class WeeklyBossManager:
             return False, "❌ 你当前不在准备中的周本队伍里，请先 /周本创建 或 /周本加入。"
 
         args = (args or "").strip()
-        if not args:
+        arg_tokens = [
+            t for t in re.split(r"[\s,，、;；]+", args) if t
+        ] if args else []
+        # 网页弹层分两阶段选择时，可能只带阶段标记发送；此时按“查看当前清单”处理
+        if not args or (arg_tokens and all(t in LOADOUT_STAGE_TOKENS for t in arg_tokens)):
             member = await self._fetchone(
                 "SELECT pill_loadout FROM weekly_boss_members WHERE run_id = ? AND user_id = ?",
                 (run["run_id"], player.user_id),
@@ -888,7 +1030,7 @@ class WeeklyBossManager:
                 f"{current}\n"
                 "━━━━━━━━━━━━━━━\n"
                 f"📌 战前上限 {self.pill_slots_prepare} 枚 + 战中上限 {self.pill_slots_combat} 枚\n"
-                "💡 设置：/周本备战 回春散·天*3 狂暴丹*2 回生丹*1\n"
+                "💡 设置：/周本备战 战前 狂暴丹*2 战中 回春散·天*3 回生丹*1\n"
                 "💡 自动：/周本备战 推荐　清空：/周本备战 清空\n"
                 "⚠️ 战前丹药在开战时扣除；战中丹药只在自动触发时扣除，未使用不消耗。"
             )
@@ -1003,6 +1145,12 @@ class WeeklyBossManager:
         magic_def = int(magic_def * buffs["magic_defense_multiplier"])
 
         effects = dict(getattr(real, "effects", None) or {})
+        # 战前临时增益：会心/吸血/闪避等直接叠加（数量与品质已折算）
+        for key in PREP_ADDITIVE_KEYS:
+            if key == "damage_reduction":
+                continue
+            if buffs.get(key):
+                effects[key] = float(effects.get(key, 0) or 0) + float(buffs[key])
         # 周本特效硬上限：基础赠送 +20% 暴击 / +50% 爆伤 / +8% 吸血
         crit_rate = min(
             self.CRIT_RATE_TOTAL_CAP, float(effects.get("crit_rate", 0) or 0) + 20.0
@@ -1151,7 +1299,9 @@ class WeeklyBossManager:
             if kind == "revive":
                 revive.append(item)
             else:
-                item["heal_pct"] = self._pill_heal_pct(data, item["quality"])
+                item["heal_pct"] = self._pill_heal_pct(
+                    data, item["quality"], panel.get("real_max_hp", 0)
+                )
                 recovery.append(item)
         recovery.sort(key=lambda x: x["heal_pct"], reverse=True)
         return {

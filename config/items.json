@@ -12257,7 +12257,7 @@
         "type": "材料",
         "rank": "帝品",
         "shop_weight": 0,
-        "price": 88000,
+        "price": 30000,
         "volume": 1,
         "description": "周常 Boss 击破后残留的界外核心，蕴含被天道压制的伟力，仅能在周本奖励中获得。",
         "legacy": false
@@ -12267,7 +12267,7 @@
         "type": "材料",
         "rank": "圣品",
         "shop_weight": 0,
-        "price": 14000,
+        "price": 12000,
         "volume": 1,
         "description": "混沌气所化的青莲，花瓣间自成一片小天地。",
         "legacy": false
@@ -12277,7 +12277,7 @@
         "type": "材料",
         "rank": "圣品",
         "shop_weight": 0,
-        "price": 16000,
+        "price": 12000,
         "volume": 1,
         "description": "生于九霄之上的玉兰，香气可凝神魂。",
         "legacy": false
@@ -12287,7 +12287,7 @@
         "type": "材料",
         "rank": "圣品",
         "shop_weight": 0,
-        "price": 26000,
+        "price": 12000,
         "volume": 1,
         "description": "仙墟药园独有的圣莲，千年只开一次花。",
         "legacy": false
@@ -12297,7 +12297,7 @@
         "type": "材料",
         "rank": "圣品",
         "shop_weight": 0,
-        "price": 14000,
+        "price": 14400,
         "volume": 1,
         "description": "自玄天冰层下掘出的寒铁，触之伤神。",
         "legacy": false
@@ -12307,7 +12307,7 @@
         "type": "材料",
         "rank": "圣品",
         "shop_weight": 0,
-        "price": 16000,
+        "price": 14400,
         "volume": 1,
         "description": "太初开辟时残留的源石，重逾山岳。",
         "legacy": false
@@ -12317,7 +12317,7 @@
         "type": "材料",
         "rank": "圣品",
         "shop_weight": 0,
-        "price": 24000,
+        "price": 14400,
         "volume": 1,
         "description": "星陨矿脉深处凝成的精金，可承天雷。",
         "legacy": false
@@ -12327,7 +12327,7 @@
         "type": "材料",
         "rank": "圣品",
         "shop_weight": 0,
-        "price": 26000,
+        "price": 14400,
         "volume": 1,
         "description": "星辰铁狱最底层的玄铁，比重如星核。",
         "legacy": false
@@ -12337,7 +12337,7 @@
         "type": "材料",
         "rank": "圣品",
         "shop_weight": 0,
-        "price": 15000,
+        "price": 24000,
         "volume": 1,
         "description": "万年玄冰中心的一滴髓液，寒彻道基。",
         "legacy": false
@@ -12347,7 +12347,7 @@
         "type": "材料",
         "rank": "圣品",
         "shop_weight": 0,
-        "price": 18000,
+        "price": 24000,
         "volume": 1,
         "description": "混沌石乳凝成的灵液，最宜温养元神。",
         "legacy": false
@@ -12357,7 +12357,7 @@
         "type": "材料",
         "rank": "圣品",
         "shop_weight": 0,
-        "price": 26000,
+        "price": 24000,
         "volume": 1,
         "description": "太虚雷池积聚的雷髓，蕴含劫雷本源。",
         "legacy": false
@@ -12367,7 +12367,7 @@
         "type": "材料",
         "rank": "圣品",
         "shop_weight": 0,
-        "price": 30000,
+        "price": 24000,
         "volume": 1,
         "description": "渡劫者引落的雷劫凝成的精粹。",
         "legacy": false
@@ -12377,7 +12377,7 @@
         "type": "材料",
         "rank": "圣品",
         "shop_weight": 0,
-        "price": 15000,
+        "price": 18000,
         "volume": 1,
         "description": "上古吞天兽的残骨，骨质如星铁。",
         "legacy": false
@@ -12387,7 +12387,7 @@
         "type": "材料",
         "rank": "圣品",
         "shop_weight": 0,
-        "price": 28000,
+        "price": 18000,
         "volume": 1,
         "description": "万古妖冢中妖王的内丹，妖气凝而不散。",
         "legacy": false
@@ -12397,7 +12397,7 @@
         "type": "材料",
         "rank": "圣品",
         "shop_weight": 0,
-        "price": 30000,
+        "price": 18000,
         "volume": 1,
         "description": "虚空妖巢中的妖核，内含一缕虚空之力。",
         "legacy": false
@@ -12407,9 +12407,169 @@
         "type": "材料",
         "rank": "圣品",
         "shop_weight": 0,
-        "price": 50000,
+        "price": 12000,
         "volume": 1,
         "description": "混沌天渊深处的源晶，一晶可镇一界。",
+        "legacy": false
+    },
+    "10057": {
+        "name": "太初道莲",
+        "type": "材料",
+        "rank": "帝品",
+        "shop_weight": 0,
+        "price": 30000,
+        "volume": 1,
+        "description": "一株只在天地初开时绽放的道莲，莲心自成小世界。",
+        "legacy": false
+    },
+    "10058": {
+        "name": "九劫长生草",
+        "type": "材料",
+        "rank": "帝品",
+        "shop_weight": 0,
+        "price": 30000,
+        "volume": 1,
+        "description": "历经九重天劫而不死的长生草，草叶上仍留着劫雷纹路。",
+        "legacy": false
+    },
+    "10059": {
+        "name": "鸿蒙紫芝",
+        "type": "材料",
+        "rank": "帝品",
+        "shop_weight": 0,
+        "price": 30000,
+        "volume": 1,
+        "description": "鸿蒙紫气凝成的灵芝，一芝可抵万年苦修。",
+        "legacy": false
+    },
+    "10060": {
+        "name": "万道归一花",
+        "type": "材料",
+        "rank": "帝品",
+        "shop_weight": 0,
+        "price": 30000,
+        "volume": 1,
+        "description": "万条大道交汇处生出的奇花，花瓣上流转着完整道韵。",
+        "legacy": false
+    },
+    "10061": {
+        "name": "太初道金",
+        "type": "材料",
+        "rank": "帝品",
+        "shop_weight": 0,
+        "price": 36000,
+        "volume": 1,
+        "description": "开天辟地时残留的道金，坚硬到能承载大道烙印。",
+        "legacy": false
+    },
+    "10062": {
+        "name": "混元母铁",
+        "type": "材料",
+        "rank": "帝品",
+        "shop_weight": 0,
+        "price": 36000,
+        "volume": 1,
+        "description": "混元之气的母矿，百炼之后可铸帝兵。",
+        "legacy": false
+    },
+    "10063": {
+        "name": "九霄神晶",
+        "type": "材料",
+        "rank": "帝品",
+        "shop_weight": 0,
+        "price": 36000,
+        "volume": 1,
+        "description": "九霄云顶凝结的神晶，内里封存着一缕天威。",
+        "legacy": false
+    },
+    "10064": {
+        "name": "劫灰玄铁",
+        "type": "材料",
+        "rank": "帝品",
+        "shop_weight": 0,
+        "price": 36000,
+        "volume": 1,
+        "description": "无量劫火焚尽万物后留下的玄铁，触之如握天劫。",
+        "legacy": false
+    },
+    "10065": {
+        "name": "太古真龙鳞",
+        "type": "材料",
+        "rank": "帝品",
+        "shop_weight": 0,
+        "price": 45000,
+        "volume": 1,
+        "description": "太古真龙蜕下的逆鳞，龙威历经万古不散。",
+        "legacy": false
+    },
+    "10066": {
+        "name": "混沌兽核",
+        "type": "材料",
+        "rank": "帝品",
+        "shop_weight": 0,
+        "price": 45000,
+        "volume": 1,
+        "description": "混沌巨兽的核心，跳动着最原始的毁灭与生机。",
+        "legacy": false
+    },
+    "10067": {
+        "name": "九幽冥凰羽",
+        "type": "材料",
+        "rank": "帝品",
+        "shop_weight": 0,
+        "price": 45000,
+        "volume": 1,
+        "description": "九幽冥凰的尾羽，幽火不灭，可焚神魂。",
+        "legacy": false
+    },
+    "10068": {
+        "name": "吞天神兽骨",
+        "type": "材料",
+        "rank": "帝品",
+        "shop_weight": 0,
+        "price": 45000,
+        "volume": 1,
+        "description": "吞天神兽的脊骨，骨腔中仍回响着吞噬天地的轰鸣。",
+        "legacy": false
+    },
+    "10069": {
+        "name": "太初源液",
+        "type": "材料",
+        "rank": "帝品",
+        "shop_weight": 0,
+        "price": 60000,
+        "volume": 1,
+        "description": "天地未分时的一滴源液，蕴含开天辟地的本源。",
+        "legacy": false
+    },
+    "10070": {
+        "name": "混元道髓",
+        "type": "材料",
+        "rank": "帝品",
+        "shop_weight": 0,
+        "price": 60000,
+        "volume": 1,
+        "description": "混元大道凝成的髓液，一滴可洗炼凡骨。",
+        "legacy": false
+    },
+    "10071": {
+        "name": "九转劫雷液",
+        "type": "材料",
+        "rank": "帝品",
+        "shop_weight": 0,
+        "price": 60000,
+        "volume": 1,
+        "description": "九转劫雷液化而成的雷液，入口即渡一场小天劫。",
+        "legacy": false
+    },
+    "10072": {
+        "name": "鸿蒙紫气露",
+        "type": "材料",
+        "rank": "帝品",
+        "shop_weight": 0,
+        "price": 60000,
+        "volume": 1,
+        "description": "鸿蒙紫气凝成的晨露，是帝品丹药最好的药引。",
         "legacy": false
     }
 }
