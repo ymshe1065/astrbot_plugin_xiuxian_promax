@@ -44,7 +44,7 @@ class AdventureHandlers:
         async for result in self._send_result(
             event, "📖 历练路线总览",
             f"共 {len(routes)} 条路线",
-            subtitle="选择路线后出发，历练完成可领取奖励",
+            subtitle="走完全程才结算，到点自动发放",
             sections=sections,
         ):
             yield result
@@ -64,12 +64,12 @@ class AdventureHandlers:
             yield event.plain_result(msg)
 
     async def handle_complete_adventure(self, event: AstrMessageEvent):
-        """完成历练（走完则发大结算，未走完返回进度）"""
+        """完成历练（走完才结算，未走完返回剩余时间）"""
         user_id = event.get_sender_id()
         success, msg, _ = await self.adv_mgr.finish_adventure(user_id)
         if success:
             async for result in self._send_result(
-                event, "🎉 历练完成", msg, subtitle="本趟历练大结算"
+                event, "🎉 历练完成", msg, subtitle="本次历练结算"
             ):
                 yield result
         else:
@@ -88,14 +88,14 @@ class AdventureHandlers:
             yield event.plain_result(msg)
 
     async def handle_abandon_adventure(self, event: AstrMessageEvent):
-        """中途退出历练（已结算奖励保留）"""
+        """中途退出历练（无奖励、无惩罚）"""
         set_event_flag(event, "adventure_abandon_success", False)
         user_id = event.get_sender_id()
         success, msg = await self.adv_mgr.abandon_adventure(user_id)
         set_event_flag(event, "adventure_abandon_success", success)
         if success:
             async for result in self._send_result(
-                event, "🏳️ 历练结束", msg, subtitle="已结算奖励全部保留"
+                event, "🏳️ 历练结束", msg, subtitle="未走完，本次无奖励"
             ):
                 yield result
         else:

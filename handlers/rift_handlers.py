@@ -26,7 +26,8 @@ class RiftHandlers:
         if not rift_id:
             yield event.plain_result("❌ 请输入秘境ID")
             return
-        success, msg = await self.rift_mgr.enter_rift(user_id, int(rift_id))
+        umo = str(getattr(event, "unified_msg_origin", "") or "")
+        success, msg = await self.rift_mgr.enter_rift(user_id, int(rift_id), umo=umo)
         yield event.plain_result(msg)
 
     async def handle_rift_explore_by_name(self, event: AstrMessageEvent, name: str, difficulty: str = ""):
@@ -34,7 +35,8 @@ class RiftHandlers:
         user_id = event.get_sender_id()
         rift, candidates = await self.rift_mgr.find_rift(name, difficulty)
         if rift:
-            success, msg = await self.rift_mgr.enter_rift(user_id, int(rift.rift_id))
+            umo = str(getattr(event, "unified_msg_origin", "") or "")
+            success, msg = await self.rift_mgr.enter_rift(user_id, int(rift.rift_id), umo=umo)
             yield event.plain_result(msg)
             return
         if not candidates:

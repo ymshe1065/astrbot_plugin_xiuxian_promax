@@ -1,8 +1,6 @@
 # tests/test_adventure_ticks.py
-# 历练分段结算：每 5 分钟一段、终段大结算、中途退出无惩罚、总量翻倍
-import asyncio
+# v7.7 历练：走完全程一次性结算、修为按突破需求折算、灵根/功法不参与
 import json
-import random
 import sys
 import time
 import types
@@ -53,11 +51,24 @@ CFG_PATH = ROOT / "config" / "adventure_config.json"
 with open(CFG_PATH, encoding="utf-8") as _f:
     CFG = json.load(_f)
 ROUTES = {r["key"]: r for r in CFG["routes"]}
-TICK = CFG["tick_settlement"]
+LV_PATH = ROOT / "config" / "level_config.json"
+with open(LV_PATH, encoding="utf-8") as _f:
+    LEVELS = json.load(_f)
+
+# 闭关满配：灵根 3.2（先天道体）× 功法 1.30 × 丹药符箓 3.0
+CLOSED_ROOT_MAX = 3.2
+CLOSED_TECHNIQUE_MAX = 1.30
+CLOSED_PILL_MAX = 3.0
+CLOSED_RATE_PER_HOUR = 0.0025
+
+
+class FakeCM:
+    def get_level_data(self, cultivation_type="灵修"):
+        return LEVELS
 
 
 def make_manager():
-    return AdventureManager(None)
+    return AdventureManager(None, config_manager=FakeCM())
 
 
 def flat_event(route, key="stub"):
@@ -72,23 +83,7 @@ def flat_event(route, key="stub"):
     }
 
 
-def old_full_rewards(route, level):
-    """改版前的整趟收益公式（用于核对翻倍）。"""
-    minutes = max(1, int(route.get("reward_duration") or route["duration"]) // 60)
-    exp = (
-        minutes * route["base_exp_per_min"]
-        + level * route["level_bonus_exp"]
-        + route["completion_bonus"]["exp"]
-    )
-    gold = (
-        minutes * route["base_gold_per_min"]
-        + level * route["level_bonus_gold"]
-        + route["completion_bonus"]["gold"]
-    )
-    return exp, gold
-
-
-# ---------- 极简假 DB：只实现分段结算用到的接口 ----------
+# ---------- 极简假 DB ----------
 
 class FakeCd:
     def __init__(self, now, duration, extra):
@@ -118,8 +113,6 @@ class FakeExt:
 
 
 class FakeCursor:
-    """同时支持 await conn.execute(...) 与 async with conn.execute(...)。"""
-
     def __init__(self, db, sql, params):
         self.db = db
         self.sql = sql
@@ -177,218 +170,169 @@ class FakeDb:
         self.player = player
 
 
-def make_run(route, level=5, now=None, extra=None):
+def make_run(route, level=5, now=None, elapsed=0):
     now = int(time.time()) if now is None else now
     mgr = make_manager()
     player = Player(user_id="u1", level_index=level, experience=0, gold=0)
-    segments = mgr.tick_count(route["duration"])
-    base_extra = {
-        "route_key": route["key"],
-        "umo": "umo://test",
-        "tick_seconds": mgr.tick_seconds,
-        "ticks_total": segments,
-        "ticks_done": 0,
-        "next_tick_at": now + mgr.tick_seconds,
-        "injuries": 0,
-        "earned_exp": 0,
-        "earned_gold": 0,
-    }
-    base_extra.update(extra or {})
-    cd = FakeCd(now, route["duration"], base_extra)
+    cd = FakeCd(now - elapsed, route["duration"], {"route_key": route["key"], "umo": "umo://test"})
     db = FakeDb(player, cd)
     mgr.db = db
-    # 事件倍率固定为 1，便于精确核对总量
     mgr._trigger_route_event = lambda r: flat_event(r)
     return mgr, player, cd, db
 
 
-class TestTickConfig(unittest.TestCase):
-    def test_tick_seconds_is_five_minutes(self):
-        self.assertEqual(TICK["tick_seconds"], 300)
+class TestConfig(unittest.TestCase):
+    def test_no_tick_settlement(self):
+        self.assertNotIn("tick_settlement", CFG, "历练不应再有分段结算配置")
 
-    def test_reward_multiplier_doubles(self):
-        self.assertEqual(TICK["reward_multiplier"], 2.0)
+    def test_exp_model_present(self):
+        model = CFG.get("exp_model") or {}
+        self.assertAlmostEqual(model.get("base_rate_per_hour"), 0.01656, places=5)
+        self.assertTrue(model.get("pill_talisman_only"))
 
-    def test_share_split(self):
-        self.assertGreater(TICK["tick_share"], 0)
-        self.assertLess(TICK["tick_share"], 1)
+    def test_every_route_within_half_an_hour(self):
+        for r in CFG["routes"]:
+            self.assertGreaterEqual(r["duration"], 900, f"{r['name']} 短于 15 分钟")
+            self.assertLessEqual(r["duration"], 1800, f"{r['name']} 超过 30 分钟")
 
-    def test_tick_count_matches_duration(self):
+    def test_no_route_keeps_old_hourly_duration(self):
+        self.assertLess(max(r["duration"] for r in CFG["routes"]), 3600)
+
+
+class TestExpModel(unittest.TestCase):
+    LEVEL = 26
+
+    def _route(self):
+        cands = [r for r in CFG["routes"] if r["min_level"] <= self.LEVEL]
+        return max(cands, key=lambda r: r["duration"])
+
+    def test_exp_scales_with_breakthrough_need(self):
         mgr = make_manager()
-        for route in CFG["routes"]:
-            expected = max(2, round(route["duration"] / TICK["tick_seconds"]))
-            self.assertEqual(
-                mgr.tick_count(route["duration"]), expected,
-                f"{route['name']} 段数不对",
-            )
+        route = self._route()
+        low = mgr._full_reward_pool(Player(user_id="a", level_index=18), route)["exp"]
+        high = mgr._full_reward_pool(Player(user_id="b", level_index=26), route)["exp"]
+        self.assertGreater(high, low * 5, "高境界历练修为没有跟着突破需求放大")
 
-    def test_every_route_has_at_least_one_tick(self):
+    def test_root_does_not_affect_adventure(self):
+        """灵根只在闭关上生效，历练拿了同样的默认倍率。"""
         mgr = make_manager()
-        for route in CFG["routes"]:
-            self.assertGreaterEqual(mgr.tick_count(route["duration"]), 2, route["name"])
-
-
-class TestRewardMath(unittest.TestCase):
-    def test_full_pool_is_double_old_formula(self):
-        mgr = make_manager()
-        player = Player(user_id="u", level_index=20)
-        for key in ("scout", "herb_valley", "chaos_throne"):
-            route = ROUTES[key]
-            pool = mgr._full_reward_pool(player, route)
-            old_exp, old_gold = old_full_rewards(route, 20)
-            self.assertAlmostEqual(pool["exp"] / old_exp, 2.0, places=2, msg=key)
-            self.assertAlmostEqual(pool["gold"] / old_gold, 2.0, places=2, msg=key)
-
-    def test_segments_sum_to_full_pool(self):
-        """n-1 个小结 + 大结算 = 整趟总量（事件倍率为 1 时）。"""
-        mgr = make_manager()
-        route = ROUTES["scout"]
-        player = Player(user_id="u", level_index=10)
-        pool = mgr._full_reward_pool(player, route)
-        segments = mgr.tick_count(route["duration"])
-        event = flat_event(route)
-        total = sum(
-            mgr.segment_rewards(player, route, event, share=mgr.tick_share, segments=segments - 1)["exp"]
-            for _ in range(segments - 1)
+        route = self._route()
+        a = Player(user_id="a", level_index=self.LEVEL, spiritual_root="伪灵根")
+        b = Player(user_id="b", level_index=self.LEVEL, spiritual_root="先天道体灵根")
+        self.assertEqual(
+            mgr._full_reward_pool(a, route)["exp"],
+            mgr._full_reward_pool(b, route)["exp"],
         )
-        total += mgr.segment_rewards(
-            player, route, event, share=1 - mgr.tick_share, segments=1
-        )["exp"]
-        self.assertAlmostEqual(total / pool["exp"], 1.0, delta=0.02)
 
-    def test_tick_share_is_smaller_than_final(self):
-        """小结算只是零花钱：单段收益必须明显小于终段。"""
+    def test_adventure_matches_closed_cultivation_full(self):
+        """历练（丹药符箓拉满）应约为闭关全满的 90%。"""
         mgr = make_manager()
-        route = ROUTES["chaos_throne"]
-        player = Player(user_id="u", level_index=26)
-        segments = mgr.tick_count(route["duration"])
-        event = flat_event(route)
-        tick = mgr.segment_rewards(player, route, event, share=mgr.tick_share, segments=segments - 1)
-        final = mgr.segment_rewards(player, route, event, share=1 - mgr.tick_share, segments=1)
-        self.assertLess(tick["exp"] * 2, final["exp"])
+        route = self._route()
+        player = Player(user_id="a", level_index=self.LEVEL)
+        need = int(LEVELS[self.LEVEL]["exp_needed"])
+        hours = route["duration"] / 3600.0
+
+        adventure_hourly = mgr._full_reward_pool(player, route)["exp"] / hours * CLOSED_PILL_MAX
+        closed_hourly = (
+            need
+            * CLOSED_RATE_PER_HOUR
+            * CLOSED_ROOT_MAX
+            * (1 + CLOSED_TECHNIQUE_MAX)
+            * CLOSED_PILL_MAX
+        )
+        ratio = adventure_hourly / closed_hourly
+        self.assertAlmostEqual(ratio, 0.9, delta=0.02, msg=f"历练/闭关全满 = {ratio:.2f}")
+
+    def test_pill_bonus_applies(self):
+        mgr = make_manager()
+        route = self._route()
+        player = Player(user_id="a", level_index=self.LEVEL)
+        base = mgr._full_reward_pool(player, route)["exp"]
+        mgr._cultivation_mult = lambda p: 3.0
+        boosted = mgr._full_reward_pool(player, route)["exp"]
+        self.assertAlmostEqual(boosted / base, 3.0, places=2)
 
 
-class TestTickFlow(unittest.TestCase):
-    def test_no_settlement_before_first_tick(self):
-        mgr, player, cd, _ = make_run(ROUTES["scout"])
-        result = asyncio.run(mgr.settle_due("u1", now=cd.create_time + 60))
-        self.assertEqual(result["ticks"], 0)
-        self.assertEqual(player.experience, 0)
-        self.assertEqual(cd.type, UserStatus.ADVENTURING)
+class TestSettlement(unittest.TestCase):
+    LEVEL = 20
 
-    def test_first_tick_credits_small_reward(self):
-        mgr, player, cd, _ = make_run(ROUTES["scout"])
-        result = asyncio.run(mgr.settle_due("u1", now=cd.create_time + 300))
-        self.assertEqual(result["ticks"], 1)
+    def _route(self):
+        cands = [r for r in CFG["routes"] if r["min_level"] <= self.LEVEL]
+        return max(cands, key=lambda r: r["duration"])
+
+    def test_cannot_settle_before_finish(self):
+        route = self._route()
+        mgr, _, _, _ = make_run(route, level=self.LEVEL, elapsed=60)
+        ok, msg, data = asyncio_run(mgr.finish_adventure("u1"))
+        self.assertFalse(ok)
+        self.assertIsNone(data)
+        self.assertIn("还未走完", msg)
+
+    def test_settle_after_finish_grants_once(self):
+        route = self._route()
+        mgr, player, _, _ = make_run(route, level=self.LEVEL, elapsed=route["duration"] + 5)
+        ok, msg, data = asyncio_run(mgr.finish_adventure("u1"))
+        self.assertTrue(ok, msg)
         self.assertGreater(player.experience, 0)
-        self.assertGreater(player.gold, 0)
-        self.assertIn("历练小结", result["messages"][0])
-        self.assertEqual(cd.type, UserStatus.ADVENTURING)
-        extra = cd.get_extra_data()
-        self.assertEqual(extra["ticks_done"], 1)
-        self.assertEqual(extra["earned_exp"], player.experience)
-
-    def test_offline_catchup_settles_all_due_ticks(self):
-        mgr, player, cd, _ = make_run(ROUTES["scout"])
-        result = asyncio.run(mgr.settle_due("u1", now=cd.create_time + 900))
-        self.assertEqual(result["ticks"], 3)
-        self.assertIn("补算 3 段", result["messages"][0])
-
-    def test_exit_keeps_settled_rewards_and_has_no_penalty(self):
-        mgr, player, cd, db = make_run(ROUTES["scout"])
-        asyncio.run(mgr.settle_due("u1", now=cd.create_time + 600))
-        exp_before, gold_before = player.experience, player.gold
-        self.assertGreater(exp_before, 0)
-
-        ok, msg = asyncio.run(mgr.abandon_adventure("u1"))
-        self.assertTrue(ok)
-        self.assertIn("无任何惩罚", msg)
-        self.assertEqual(player.experience, exp_before, "退出把已结算的修为扣掉了")
-        self.assertEqual(player.gold, gold_before)
-        self.assertEqual(cd.type, UserStatus.IDLE)
-        self.assertFalse(db.config, "退出不应产生任何违约金/冷却")
-
-    def test_exit_before_any_tick_keeps_nothing(self):
-        mgr, player, cd, _ = make_run(ROUTES["scout"])
-        ok, msg = asyncio.run(mgr.abandon_adventure("u1"))
-        # 假时钟里刚出发，不会误判为完成
-        self.assertTrue(ok)
-        self.assertIn("已走完 0/", msg)
-
-    def test_full_run_gives_big_final_and_frees_player(self):
-        mgr, player, cd, _ = make_run(ROUTES["scout"])
-        result = asyncio.run(mgr.settle_due("u1", now=cd.scheduled_time))
-        self.assertIsNotNone(result["final"])
-        self.assertEqual(cd.type, UserStatus.IDLE)
-        self.assertIn("大结算", result["messages"][-1])
-        self.assertGreater(result["final"]["exp_reward"], 0)
-        self.assertGreater(result["final"]["total_exp"], result["final"]["exp_reward"])
-
-    def test_full_run_total_is_double_old(self):
-        mgr, player, cd, _ = make_run(ROUTES["scout"], level=5)
-        result = asyncio.run(mgr.settle_due("u1", now=cd.scheduled_time))
-        old_exp, old_gold = old_full_rewards(ROUTES["scout"], 5)
-        self.assertAlmostEqual(result["final"]["total_exp"] / old_exp, 2.0, delta=0.05)
-        self.assertAlmostEqual(result["final"]["total_gold"] / old_gold, 2.0, delta=0.05)
-
-    def test_partial_run_beats_old_rate(self):
-        """中途退出不亏：按时间折算后，小结收益必须不低于旧系统同时间的结算量。"""
-        mgr, player, cd, _ = make_run(ROUTES["scout"], level=5)
-        duration = ROUTES["scout"]["duration"]
-        elapsed = 900
-        asyncio.run(mgr.settle_due("u1", now=cd.create_time + elapsed))
-        old_exp, _ = old_full_rewards(ROUTES["scout"], 5)
-        ratio = player.experience / (old_exp * elapsed / duration)
-        self.assertGreaterEqual(ratio, 1.0, f"提前退出只拿到旧系统的 {ratio:.0%}，等于变相惩罚")
+        self.assertEqual(data["total_exp"], player.experience)
 
     def test_settle_twice_does_not_double_pay(self):
-        mgr, player, cd, _ = make_run(ROUTES["scout"])
-        asyncio.run(mgr.settle_due("u1", now=cd.scheduled_time))
-        exp_after = player.experience
-        again = asyncio.run(mgr.settle_due("u1", now=cd.scheduled_time + 60))
-        self.assertFalse(again["ok"])
-        self.assertEqual(player.experience, exp_after)
+        route = self._route()
+        mgr, player, _, _ = make_run(route, level=self.LEVEL, elapsed=route["duration"] + 5)
+        asyncio_run(mgr.finish_adventure("u1"))
+        exp_after_first = player.experience
+        ok, _, _ = asyncio_run(mgr.finish_adventure("u1"))
+        self.assertFalse(ok, "已结算后不应再次发奖")
+        self.assertEqual(player.experience, exp_after_first)
 
-    def test_legacy_run_without_tick_state_is_adopted(self):
-        """升级前开始的一次性历练：存档里没有 ticks_total，也要能正常接管。"""
-        mgr, player, cd, _ = make_run(
-            ROUTES["scout"], extra={"ticks_total": 0, "ticks_done": 0}
-        )
-        result = asyncio.run(mgr.settle_due("u1", now=cd.create_time + 300))
-        self.assertEqual(result["ticks"], 1)
-        self.assertGreater(player.experience, 0)
+    def test_exit_before_finish_gets_nothing(self):
+        route = self._route()
+        mgr, player, cd, _ = make_run(route, level=self.LEVEL, elapsed=60)
+        ok, msg = asyncio_run(mgr.abandon_adventure("u1"))
+        self.assertTrue(ok)
+        self.assertEqual(player.experience, 0)
+        self.assertEqual(player.gold, 0)
+        self.assertEqual(cd.type, UserStatus.IDLE)
+        self.assertIn("没有获得任何奖励", msg)
+
+    def test_exit_after_finish_settles_instead(self):
+        route = self._route()
+        mgr, player, cd, _ = make_run(route, level=self.LEVEL, elapsed=route["duration"] + 5)
+        ok, msg = asyncio_run(mgr.abandon_adventure("u1"))
+        self.assertTrue(ok)
+        self.assertGreater(player.experience, 0, "到点后退出应按完成结算")
+        self.assertEqual(cd.type, UserStatus.IDLE)
+
+    def test_finish_frees_player(self):
+        route = self._route()
+        mgr, _, cd, _ = make_run(route, level=self.LEVEL, elapsed=route["duration"] + 5)
+        asyncio_run(mgr.finish_adventure("u1"))
+        self.assertEqual(cd.type, UserStatus.IDLE)
+
+    def test_gold_scales_with_reward_duration(self):
+        route = self._route()
+        mgr, player, _, _ = make_run(route, level=self.LEVEL, elapsed=route["duration"] + 5)
+        asyncio_run(mgr.finish_adventure("u1"))
+        minutes = max(1, route["reward_duration"] // 60)
+        expected = (
+            minutes * route["base_gold_per_min"]
+            + self.LEVEL * route["level_bonus_gold"]
+            + route["completion_bonus"]["gold"]
+        ) * mgr.gold_multiplier
+        self.assertEqual(player.gold, expected)
 
 
-class TestItemChanceNormalization(unittest.TestCase):
-    """分段不是把掉落翻十倍：整趟期望掉落数要维持在旧版的 2 倍左右。"""
-
-    def _run_drops(self, mgr, route, player, segments, trials=400):
-        event = dict(flat_event(route), item_chance=100)
-        total = 0
-        for _ in range(trials):
-            count = 0
-            for _ in range(segments - 1):
-                count += len(mgr._roll_drops(player, route, event, chance_scale=mgr.tick_item_mult / segments))
-            count += len(mgr._roll_drops(player, route, event, chance_scale=mgr.final_item_mult))
-            total += count
-        return total / trials
-
-    def test_drops_scale_with_run_not_with_segments(self):
+class TestItemRolls(unittest.TestCase):
+    def test_one_roll_per_run(self):
         mgr = make_manager()
-        route = ROUTES["scout"]
-        player = Player(user_id="u", level_index=5)
-        segments = mgr.tick_count(route["duration"])
-        per_run = self._run_drops(mgr, route, player, segments)
-        self.assertLess(per_run, 2.5, f"整趟掉了 {per_run:.1f} 件，分段把掉落放大了")
-        self.assertGreater(per_run, 1.4, f"整趟只掉 {per_run:.1f} 件，翻倍没落地")
+        self.assertEqual(mgr.ITEM_ROLLS, 1, "时长减半后每趟只该判定一次，否则材料翻倍")
+        self.assertGreater(mgr.ITEM_CHANCE_SCALE, 1.0)
 
-    def test_short_route_not_penalized(self):
-        """段数少的长短路线，整趟期望掉落要接近，不能按段数分配。"""
-        mgr = make_manager()
-        player = Player(user_id="u", level_index=5)
-        short = self._run_drops(mgr, ROUTES["scout"], player, mgr.tick_count(ROUTES["scout"]["duration"]))
-        long = self._run_drops(mgr, ROUTES["chaos_throne"], player, mgr.tick_count(ROUTES["chaos_throne"]["duration"]))
-        self.assertLess(abs(short - long), 0.35, f"短 {short:.2f} / 长 {long:.2f} 掉落差太多")
+
+def asyncio_run(coro):
+    import asyncio
+
+    return asyncio.run(coro)
 
 
 if __name__ == "__main__":

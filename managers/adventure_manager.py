@@ -33,13 +33,18 @@ class AdventureManager:
     # 否则「妖兽类没有凡品」会让炼气期的夜猎路线比采药路线肥 57%，新人全去刷妖兽。
     FALLBACK_COUNT_SCALE = 0.6
 
-    # 分段结算：长路线拆成每 5 分钟一段，段内即时给奖，终段一次性大结算。
-    # 总产出 = 旧版整趟 × reward_multiplier，不会因为拆段而缩水。
-    TICK_SECONDS = 300
-    TICK_SHARE = 0.6
-    REWARD_MULTIPLIER = 2.0
-    TICK_ITEM_MULT = 1.2
-    FINAL_ITEM_MULT = 0.8
+    # v7.7 起历练回到「走完全程一次性结算」，并成为修为主产地：
+    # 每小时修为 = 本境界突破需求 × BASE_RATE_PER_HOUR × (1 + 丹药 + 符箓修炼加成) × 仙缘，
+    # 灵根与功法不参与（它们只作用于闭关）。
+    # 1.656%/小时 = 0.25% × 灵根3.2 × 功法2.3 × 0.9 = 0.25% × 7.36 × 0.9。
+    # 丹药与符箓在运行时另行相乘（默认满配 3.0），所以带丹药时
+    # 1.656% × 3.0 = 4.97% ≈ 闭关满配 5.52% 的 90% —— 永远比闭关全满略低一点。
+    BASE_RATE_PER_HOUR = 0.01656
+    GOLD_MULTIPLIER = 2.0
+    # 一次性结算的材料判定次数。时长压到 15~30 分钟后，1 次判定就让单位时间产出
+    # 与 v7.6 的「56 分钟 2 次判定」持平，不会因为结算变快而让材料翻倍。
+    ITEM_ROLLS = 1
+    ITEM_CHANCE_SCALE = 1.2
 
     DEFAULT_CONFIG = {
         "routes": [
@@ -170,13 +175,18 @@ class AdventureManager:
             "灵植": 25, "矿材": 25, "灵液": 25, "妖兽": 25,
         }
 
-        # 分段结算参数
-        tick_cfg = config.get("tick_settlement") or {}
-        self.tick_seconds = max(60, int(tick_cfg.get("tick_seconds", self.TICK_SECONDS)))
-        self.tick_share = min(0.9, max(0.1, float(tick_cfg.get("tick_share", self.TICK_SHARE))))
-        self.reward_multiplier = max(1.0, float(tick_cfg.get("reward_multiplier", self.REWARD_MULTIPLIER)))
-        self.tick_item_mult = max(0.0, float(tick_cfg.get("tick_item_chance_mult", self.TICK_ITEM_MULT)))
-        self.final_item_mult = max(0.0, float(tick_cfg.get("final_item_chance_mult", self.FINAL_ITEM_MULT)))
+        # 修为模型：按突破需求折算，只吃丹药与符箓
+        exp_cfg = config.get("exp_model") or {}
+        try:
+            self.exp_rate_per_hour = float(
+                exp_cfg.get("base_rate_per_hour", self.BASE_RATE_PER_HOUR)
+            )
+        except (TypeError, ValueError):
+            self.exp_rate_per_hour = self.BASE_RATE_PER_HOUR
+        try:
+            self.gold_multiplier = max(1.0, float(exp_cfg.get("gold_multiplier", self.GOLD_MULTIPLIER)))
+        except (TypeError, ValueError):
+            self.gold_multiplier = self.GOLD_MULTIPLIER
 
     def _load_config_file(self) -> dict:
         """加载配置文件并在失败时回退到默认配置"""
@@ -310,32 +320,22 @@ class AdventureManager:
             minutes = remaining // 60 or 1
             return False, f"⚠️ 该路线尚在休整中，请 {minutes} 分钟后再试。"
 
-        duration = int(route.get("duration", 3600) or 3600)
+        duration = int(route.get("duration", 1800) or 1800)
         now = int(time.time())
         scheduled_time = now + duration
-        ticks_total = self.tick_count(duration)
-        extra = {
-            "route_key": route_key,
-            "umo": umo or "",
-            "tick_seconds": self.tick_seconds,
-            "ticks_total": ticks_total,
-            "ticks_done": 0,
-            "next_tick_at": now + self.tick_seconds,
-            "injuries": 0,
-            "earned_exp": 0,
-            "earned_gold": 0,
-        }
+        extra = {"route_key": route_key, "umo": umo or ""}
         await self.db.ext.set_user_busy(user_id, UserStatus.ADVENTURING, scheduled_time, extra_data=extra)
 
         band = self.realm_band(player.level_index)
         tier_text = " / ".join((band.get("tiers") or {}).keys()) if band else "凡品"
+        est = self._full_reward_pool(player, route)
         hint = [
             f"✨ 你选择了「{route['name']}」——{route.get('description', '未知冒险')}",
             f"路线风险：{route.get('risk', '未知')} | 历练时长：{duration // 60} 分钟",
             f"主要产出：{route.get('product') or '全产物'}（本境界可得 {tier_text}）",
-            f"⏱️ 每 {self.tick_seconds // 60} 分钟自动结算一次小结（共 {ticks_total - 1} 段），"
-            f"走完还有一次大结算",
-            "🏳️ 中途可随时 /退出历练：已结算的奖励全部保留，未走完的部分直接放弃，无任何惩罚",
+            f"🧘 预计修为：约 +{int(est['exp']):,}（丹药/符箓加成已计入）",
+            f"⏱️ 必须走完全程才能结算，到点自动发放；剩余 {duration // 60} 分钟",
+            "🏳️ 中途可 /退出历练：本次没有奖励，也不收违约金、不加冷却",
         ]
         if route.get("min_level", 0):
             hint.append(f"建议境界：{route['min_level']} 阶以上")
@@ -345,12 +345,7 @@ class AdventureManager:
 
         return True, "\n".join(hint)
 
-    # -------- 分段结算 --------
-
-    def tick_count(self, duration: int) -> int:
-        """整趟历练切成几段：前 n-1 段每 tick_seconds 结算，最后一段合并进大结算。"""
-        duration = max(60, int(duration or 0))
-        return max(2, int(round(duration / self.tick_seconds)))
+    # -------- 结算 --------
 
     def _read_extra(self, user_cd) -> dict:
         try:
@@ -360,38 +355,76 @@ class AdventureManager:
         except Exception:
             return {}
 
-    def _ensure_tick_state(self, extra: dict, route: dict, user_cd) -> dict:
-        """旧存档（升级前开始的一次性历练）按当前进度直接接管。"""
-        extra = dict(extra or {})
-        extra.setdefault("tick_seconds", self.tick_seconds)
-        extra.setdefault("ticks_done", 0)
-        extra.setdefault("injuries", 0)
-        extra.setdefault("earned_exp", 0)
-        extra.setdefault("earned_gold", 0)
-        if not extra.get("ticks_total"):
-            extra["ticks_total"] = self.tick_count(route.get("duration") or 3600)
-            extra["next_tick_at"] = int(user_cd.create_time or 0) + int(extra["tick_seconds"])
-        return extra
+    def breakthrough_need(self, player) -> int:
+        """当前境界突破所需修为；lv0 或数据缺失时回退到下一级。"""
+        try:
+            level_index = max(0, int(getattr(player, "level_index", 0) or 0))
+        except (TypeError, ValueError):
+            level_index = 0
+        level_data = []
+        try:
+            if self.config_manager:
+                level_data = self.config_manager.get_level_data(
+                    getattr(player, "cultivation_type", "灵修") or "灵修"
+                )
+        except Exception:
+            level_data = []
+        for idx in (level_index, level_index + 1):
+            if 0 <= idx < len(level_data):
+                try:
+                    need = int(level_data[idx].get("exp_needed") or 0)
+                except (TypeError, ValueError):
+                    need = 0
+                if need > 0:
+                    return need
+        return 1000
+
+    def _cultivation_mult(self, player) -> float:
+        """历练修为倍率：只吃丹药与符箓，灵根/功法不参与。
+
+        `calculate_pill_attribute_effects` 已经把丹药和符箓的 cultivation_multiplier
+        合并并做上限（默认 3.0），这里直接用它的结果，避免两边各算一次。
+        """
+        mult = 1.0
+        try:
+            from ..core.pill_manager import PillManager
+
+            if self.config_manager:
+                effects = PillManager(
+                    self.db, self.config_manager
+                ).calculate_pill_attribute_effects(player)
+                mult = float(effects.get("cultivation_speed", 1.0) or 1.0)
+        except Exception:
+            mult = 1.0
+        try:
+            bonus_data = json.loads(player.permanent_bonus) if player.permanent_bonus else {}
+            mult *= 1.0 + float(bonus_data.get("global_cultivation_multiplier", 0.0) or 0.0)
+        except Exception:
+            pass
+        return max(0.0, mult)
 
     def _full_reward_pool(self, player, route) -> Dict[str, float]:
-        """整趟历练的修为/灵石总量（不含事件倍率），已乘总产出倍率。"""
-        route_duration = max(60, int(route.get("duration") or 3600))
-        reward_duration = int(route.get("reward_duration") or route_duration)
+        """整趟历练的修为/灵石总量（不含事件倍率）。
+
+        修为按本境界突破需求折算，与闭关共用同一把尺子：
+            突破需求 × 1.656%/小时 × 时长(小时) × 丹药符箓倍率
+        """
+        duration = max(60, int(route.get("duration") or 1800))
+        need = self.breakthrough_need(player)
+        exp = need * self.exp_rate_per_hour * (duration / 3600.0) * self._cultivation_mult(player)
+
+        reward_duration = int(route.get("reward_duration") or duration)
         minutes = max(1, reward_duration // 60)
-        exp = (
-            minutes * route.get("base_exp_per_min", 40)
-            + player.level_index * route.get("level_bonus_exp", 10)
-        )
+        level_index = max(0, int(getattr(player, "level_index", 0) or 0))
         gold = (
             minutes * route.get("base_gold_per_min", 10)
-            + player.level_index * route.get("level_bonus_gold", 2)
+            + level_index * route.get("level_bonus_gold", 2)
         )
-        comp = route.get("completion_bonus") or {}
-        exp += comp.get("exp", 0)
-        gold += comp.get("gold", 0)
-        return {"exp": exp * self.reward_multiplier, "gold": gold * self.reward_multiplier}
+        gold += (route.get("completion_bonus") or {}).get("gold", 0)
+        return {"exp": exp, "gold": gold * self.gold_multiplier}
 
     def _personal_reward_mult(self, player) -> float:
+        """材料/灵石用的个人倍率（探索符 + 气运），不含丹药符箓的修炼加成。"""
         mult = 1.0
         try:
             from .talisman_manager import TalismanManager
@@ -405,23 +438,8 @@ class AdventureManager:
             pass
         return mult
 
-    def segment_rewards(
-        self, player, route, event: dict, share: float = None, segments: int = None
-    ) -> Dict[str, int]:
-        """一段历练的修为/灵石：整趟总量 × 该段占比 ÷ 小结段数。
-
-        注意 segments 指「小结段数」，不包含最后的大结算段；大结算用 share=1-tick_share、segments=1。
-        """
-        segments = max(1, int(segments or (self.tick_count(route.get("duration") or 3600) - 1)))
-        share = self.tick_share if share is None else float(share)
-        pool = self._full_reward_pool(player, route)
-        mult = self._personal_reward_mult(player)
-        exp = pool["exp"] * share / segments * float(event.get("exp_mult", 1.0) or 1.0) * mult
-        gold = pool["gold"] * share / segments * float(event.get("gold_mult", 1.0) or 1.0) * mult
-        return {"exp": max(0, int(exp)), "gold": max(0, int(gold))}
-
     async def _apply_social_bonuses(self, user_id: str, player, rewards: Dict[str, int]) -> None:
-        """道侣/称号/灵兽/功法加成：逐段生效，不集中在终段。"""
+        """道侣/称号/灵兽/功法生活加成。"""
         try:
             if self._social is None:
                 from .social_manager import SocialManager
@@ -457,134 +475,26 @@ class AdventureManager:
         except Exception:
             pass
 
-    # -------- 对外：分段结算入口 --------
-
-    async def settle_due(self, user_id: str, now: int = None) -> Dict:
-        """结算所有已到期的段落，走完则补一次大结算。
-
-        返回 {"ok", "reason", "messages": [...], "ticks": n, "final": {...}|None}。
-        调用方需自行持有该玩家的状态锁。
-        """
-        now = int(now if now is not None else time.time())
-        user_cd = await self.db.ext.get_user_cd(user_id)
-        if not user_cd or user_cd.type != UserStatus.ADVENTURING:
-            return {"ok": False, "reason": "idle", "messages": [], "ticks": 0, "final": None}
-
+    async def _settle_once(
+        self, user_id: str, player, user_cd
+    ) -> Tuple[bool, str, Optional[Dict]]:
+        """走完全程后的一次性结算：修为、灵石、材料、装备、宠物、符箓次数、休整冷却。"""
         extra = self._read_extra(user_cd)
         route = self.routes.get(extra.get("route_key") or self.default_route_key)
         if not route:
-            return {"ok": False, "reason": "no_route", "messages": [], "ticks": 0, "final": None}
+            return False, "❌ 未找到历练路线配置，请联系管理员。", None
 
-        extra = self._ensure_tick_state(extra, route, user_cd)
-        segments = max(2, int(extra["ticks_total"]))
-        tick_seconds = max(60, int(extra.get("tick_seconds") or self.tick_seconds))
-        settled = int(extra.get("ticks_done", 0) or 0)
-        due = min(segments - 1, max(0, (now - int(user_cd.create_time or now)) // tick_seconds))
-
-        result = {"ok": True, "reason": "", "messages": [], "ticks": 0, "final": None}
-        if due > settled:
-            msg = await self._settle_tick_batch(user_id, route, extra, due - settled, due)
-            result["ticks"] = due - settled
-            if msg:
-                result["messages"].append(msg)
-
-        if now >= int(user_cd.scheduled_time or 0):
-            final = await self._settle_final(user_id, route, extra, user_cd, now)
-            result["final"] = final
-            if final and final.get("message"):
-                result["messages"].append(final["message"])
-        return result
-
-    async def _settle_tick_batch(
-        self, user_id: str, route: dict, extra: dict, count: int, settled_after: int
-    ) -> str:
-        """把 count 个小结合并成一个事务结算，避免多段补算时反复开事务。"""
-        segments = max(2, int(extra.get("ticks_total") or 2))
-        small_segments = max(1, segments - 1)
-        total_exp = total_gold = 0
-        items: List[Tuple] = []
-        injuries = 0
-        event = None
-
-        await self.db.conn.execute("BEGIN IMMEDIATE")
-        try:
-            player = await self.db.get_player_by_id(user_id)
-            if not player:
-                await self.db.conn.rollback()
-                return ""
-            for _ in range(max(1, int(count))):
-                event = self._trigger_route_event(route)
-                rewards = self.segment_rewards(
-                    player, route, event, share=self.tick_share, segments=small_segments
-                )
-                total_exp += int(rewards["exp"])
-                total_gold += int(rewards["gold"])
-                items.extend(
-                    self._roll_drops(
-                        player,
-                        route,
-                        event,
-                        chance_scale=self.tick_item_mult / small_segments,
-                    )
-                )
-                if event.get("injury"):
-                    injuries += 1
-
-            # 道侣/称号/灵兽/功法加成按批结算一次，不逐段查库
-            bonus = {"exp": total_exp, "gold": total_gold}
-            await self._apply_social_bonuses(user_id, player, bonus)
-            total_exp, total_gold = int(bonus["exp"]), int(bonus["gold"])
-
-            player.experience += total_exp
-            player.gold += total_gold
-            extra["ticks_done"] = int(settled_after)
-            extra["next_tick_at"] = int(extra.get("next_tick_at") or 0) + int(extra["tick_seconds"]) * int(count)
-            extra["injuries"] = min(3, int(extra.get("injuries", 0) or 0) + injuries)
-            extra["earned_exp"] = int(extra.get("earned_exp", 0) or 0) + total_exp
-            extra["earned_gold"] = int(extra.get("earned_gold", 0) or 0) + total_gold
-            extra["last_event"] = event.get("name", "") if event else ""
-
-            await self.db.conn.execute(
-                "UPDATE user_cd SET extra_data = ? WHERE user_id = ?",
-                (json.dumps(extra, ensure_ascii=False), user_id),
-            )
-            await self.db.update_player(player, commit=False)
-            _, item_msg = await self._grant_drops(
-                player, items, external_transaction=True
-            )
-            await self.db.conn.commit()
-        except Exception:
-            await self.db.conn.rollback()
-            raise
-
-        if count > 1:
-            head = f"⏱️ 历练小结 · {route['name']}（补算 {count} 段 → {settled_after}/{segments - 1} 段）"
-        else:
-            head = f"⏱️ 历练小结 · {route['name']}（{settled_after}/{segments - 1} 段）"
-        lines = [
-            head,
-            "━━━━━━━━━━━━━━━",
-            f"{event['desc'] if event else '一路无话。'}",
-            f"本段：修为 +{total_exp:,} · 灵石 +{total_gold:,}{item_msg}",
-            f"已累计：修为 +{int(extra.get('earned_exp', 0)):,} · 灵石 +{int(extra.get('earned_gold', 0)):,}",
-        ]
-        return "\n".join(lines)
-
-    async def _settle_final(
-        self, user_id: str, route: dict, extra: dict, user_cd, now: int
-    ) -> Optional[Dict]:
-        """终段大结算：终段收益 + 事件奖励，并结束历练、写入休整冷却。"""
         event = self._trigger_route_event(route)
-        items: List[Tuple] = []
         pet_encounter = None
         consumed_talismans: List[Tuple[str, int]] = []
+        items: List[Tuple] = []
 
         await self.db.conn.execute("BEGIN IMMEDIATE")
         try:
             player = await self.db.get_player_by_id(user_id)
             if not player:
                 await self.db.conn.rollback()
-                return None
+                return False, "❌ 你还未踏入修仙之路！", None
 
             try:
                 from .pet_manager import PetManager
@@ -595,12 +505,19 @@ class AdventureManager:
             except Exception:
                 pet_encounter = None
 
-            rewards = self.segment_rewards(
-                player, route, event, share=1.0 - self.tick_share, segments=1
-            )
+            pool = self._full_reward_pool(player, route)
+            rewards = {
+                "exp": int(pool["exp"] * float(event.get("exp_mult", 1.0) or 1.0)),
+                "gold": int(pool["gold"] * float(event.get("gold_mult", 1.0) or 1.0)),
+            }
             await self._apply_social_bonuses(user_id, player, rewards)
+
             items = self._roll_drops(
-                player, route, event, chance_scale=self.final_item_mult
+                player,
+                route,
+                event,
+                chance_scale=self.ITEM_CHANCE_SCALE,
+                rolls_bonus=max(0, int(self.ITEM_ROLLS) - 1),
             )
 
             player.experience += int(rewards["exp"])
@@ -612,10 +529,6 @@ class AdventureManager:
             except Exception:
                 consumed_talismans = []
 
-            extra["ticks_done"] = int(extra.get("ticks_total", 2)) - 1
-            extra["earned_exp"] = int(extra.get("earned_exp", 0) or 0) + int(rewards["exp"])
-            extra["earned_gold"] = int(extra.get("earned_gold", 0) or 0) + int(rewards["gold"])
-
             await self.db.update_player(player, commit=False)
             await self.db.ext.set_user_free(user_id, commit=False)
             _, item_msg = await self._grant_drops(
@@ -626,9 +539,9 @@ class AdventureManager:
             await self.db.conn.rollback()
             raise
 
+        # 休整冷却只在走完时加；受伤整趟只追加一次 10 分钟
         fatigue = int(route.get("fatigue_cooldown", 0) or 0)
-        if int(extra.get("injuries", 0) or 0) > 0:
-            # 途中受过伤：整趟只加一次休整，不像逐段那样叠 10 倍
+        if event.get("injury"):
             fatigue += 600
         if fatigue:
             cooldown_until = int(time.time()) + fatigue
@@ -648,36 +561,31 @@ class AdventureManager:
                 f"🧿 {name}：剩余 {left} 次历练/秘境" if left > 0 else f"🧿 {name}：次数已用尽"
                 for name, left in consumed_talismans
             )
-
-        segments = max(2, int(extra.get("ticks_total") or 2))
-        total_exp = int(extra.get("earned_exp", 0) or 0)
-        total_gold = int(extra.get("earned_gold", 0) or 0)
-        duration_minutes = max(1, int(route.get("duration") or 0) // 60)
         fatigue_hint = f"\n⏳ 该路线休整：{fatigue // 60} 分钟" if fatigue else ""
+        duration_minutes = max(1, int(route.get("duration") or 0) // 60)
         msg = (
             f"🎉 历练完成 · {route['name']}\n"
             f"━━━━━━━━━━━━━━━\n"
             f"{event['desc']}\n\n"
-            f"全程 {duration_minutes} 分钟，共 {segments} 段（{segments - 1} 段小结 + 大结算）\n"
-            f"🏆 大结算：修为 +{int(rewards['exp']):,} · 灵石 +{int(rewards['gold']):,}"
+            f"全程 {duration_minutes} 分钟\n"
+            f"🧘 修为 +{int(rewards['exp']):,} · 💰 灵石 +{int(rewards['gold']):,}"
             f"{item_msg}"
             f"{pet_msg}"
             f"{talisman_hint}\n"
             f"━━━━━━━━━━━━━━━\n"
-            f"本趟合计：修为 +{total_exp:,} · 灵石 +{total_gold:,}\n"
             f"当前修为：{player.experience:,}\n"
             f"当前灵石：{player.gold:,}"
             f"{fatigue_hint}"
         )
-        return {
+        return True, msg, {
             "route_key": route["key"],
             "route_name": route["name"],
             "event_key": event.get("key"),
-            "event_desc": event["desc"],
+            "event_desc": event.get("desc", ""),
             "exp_reward": int(rewards["exp"]),
             "gold_reward": int(rewards["gold"]),
-            "total_exp": total_exp,
-            "total_gold": total_gold,
+            "total_exp": int(rewards["exp"]),
+            "total_gold": int(rewards["gold"]),
             "items": items,
             "pet": pet_encounter,
             "duration": int(route.get("duration") or 0),
@@ -689,33 +597,32 @@ class AdventureManager:
         }
 
     async def finish_adventure(self, user_id: str) -> Tuple[bool, str, Optional[Dict]]:
-        """手动结算：已到期的段落照常补算；走完则发大结算。"""
+        """结算：必须走完全程；未到点只返回剩余时间。"""
         player = await self.db.get_player_by_id(user_id)
         if not player:
             return False, "❌ 你还未踏入修仙之路！", None
 
-        result = await self.settle_due(user_id)
-        if result.get("final"):
-            messages = result.get("messages") or []
-            return True, "\n\n".join(messages) if messages else result["final"]["message"], result["final"]
-        if not result.get("ok"):
+        user_cd = await self.db.ext.get_user_cd(user_id)
+        if not user_cd or user_cd.type != UserStatus.ADVENTURING:
             return False, "❌ 你当前不在历练中！", None
 
-        user_cd = await self.db.ext.get_user_cd(user_id)
-        extra = self._read_extra(user_cd) if user_cd else {}
-        route = self.routes.get(extra.get("route_key") or self.default_route_key) or {}
-        segments = max(2, int(extra.get("ticks_total", 2) or 2))
-        done = int(extra.get("ticks_done", 0) or 0)
-        remain = max(0, int(user_cd.scheduled_time or 0) - int(time.time())) if user_cd else 0
-        return False, (
-            f"⏳ 「{route.get('name', '历练')}」仍在进行中（{done}/{segments - 1} 段已结算）\n"
-            f"剩余 {remain // 60} 分 {remain % 60} 秒\n"
-            "小结会自动送达；走完全程后自动发放大结算。\n"
-            "想提前离开可发送 /退出历练（已结算奖励保留）。"
-        ), None
+        now = int(time.time())
+        remain = int(user_cd.scheduled_time or 0) - now
+        if remain > 0:
+            extra = self._read_extra(user_cd)
+            route = self.routes.get(extra.get("route_key") or self.default_route_key) or {}
+            return False, (
+                f"⏳ 「{route.get('name', '历练')}」还未走完\n"
+                f"━━━━━━━━━━━━━━━\n"
+                f"剩余 {remain // 60} 分 {remain % 60} 秒\n"
+                "本次历练必须走完全程才能结算，到点会自动发放。\n"
+                "💡 想提前离开可发送 /退出历练（本次无奖励，也不扣钱）。"
+            ), None
+
+        return await self._settle_once(user_id, player, user_cd)
 
     async def abandon_adventure(self, user_id: str) -> Tuple[bool, str]:
-        """中途退出：先补算到期段落，已拿到的全部保留，未走完部分直接放弃。"""
+        """中途退出：走完全程按完成结算；否则放弃全部奖励，无违约金、不加冷却。"""
         player = await self.db.get_player_by_id(user_id)
         if not player:
             return False, "❌ 你还未踏入修仙之路！"
@@ -724,33 +631,26 @@ class AdventureManager:
         if not user_cd or user_cd.type != UserStatus.ADVENTURING:
             return False, "❌ 你当前不在历练中！"
 
-        result = await self.settle_due(user_id)
-        if result.get("final"):
-            # 刚好走到终点：按完成处理，不按退出
-            return True, result["final"]["message"]
+        now = int(time.time())
+        if now >= int(user_cd.scheduled_time or 0):
+            ok, msg, _ = await self._settle_once(user_id, player, user_cd)
+            return ok, msg
 
-        user_cd = await self.db.ext.get_user_cd(user_id)
-        extra = self._read_extra(user_cd) if user_cd else {}
+        extra = self._read_extra(user_cd)
         route = self.routes.get(extra.get("route_key") or self.default_route_key) or {}
-        segments = max(2, int(extra.get("ticks_total", 2) or 2))
-        done = int(extra.get("ticks_done", 0) or 0)
-        earned_exp = int(extra.get("earned_exp", 0) or 0)
-        earned_gold = int(extra.get("earned_gold", 0) or 0)
-
+        elapsed = max(0, now - int(user_cd.create_time or now))
+        remain = max(0, int(user_cd.scheduled_time or 0) - now)
         await self.db.ext.set_user_free(user_id)
-        head = "\n\n".join(result.get("messages") or [])
-        body = (
+        return True, (
             f"🏳️ 你结束了「{route.get('name', '历练')}」的历练\n"
             f"━━━━━━━━━━━━━━━\n"
-            f"已走完 {done}/{segments - 1} 段小结\n"
-            f"已到手：修为 +{earned_exp:,} · 灵石 +{earned_gold:,}\n"
-            f"剩余 {segments - 1 - done} 段与最终大结算已放弃。\n"
-            "✅ 中途退出无任何惩罚，已结算奖励全部保留。"
+            f"已走 {elapsed // 60} 分 {elapsed % 60} 秒，剩余 {remain // 60} 分 {remain % 60} 秒\n"
+            "本次未走完全程，没有获得任何奖励。\n"
+            "✅ 退出无违约金、不加休整冷却，可立即重新出发。"
         )
-        return True, (head + "\n\n" + body) if head else body
 
     async def check_adventure_status(self, user_id: str) -> Tuple[bool, str]:
-        """查看分段进度"""
+        """查看历练进度"""
         user_cd = await self.db.ext.get_user_cd(user_id)
         if not user_cd or user_cd.type != UserStatus.ADVENTURING:
             return False, "❌ 你当前不在历练中！"
@@ -758,35 +658,29 @@ class AdventureManager:
         now = int(time.time())
         extra = self._read_extra(user_cd)
         route = self.routes.get(extra.get("route_key") or self.default_route_key)
-        route_name = route["name"] if route else "未知路线"
         if not route:
             return False, "❌ 未找到历练路线配置，请联系管理员。"
 
-        extra = self._ensure_tick_state(extra, route, user_cd)
-        segments = max(2, int(extra["ticks_total"]))
-        tick_seconds = max(60, int(extra.get("tick_seconds") or self.tick_seconds))
-        done = int(extra.get("ticks_done", 0) or 0)
         elapsed = max(0, now - int(user_cd.create_time or now))
-
-        if now >= int(user_cd.scheduled_time or 0):
+        total = int(route.get("duration") or 0)
+        remain = max(0, int(user_cd.scheduled_time or 0) - now)
+        if remain <= 0:
             return True, (
-                f"✅ {route_name} 已走完全程\n"
-                f"━━━━━━━━━━━━━━━\n"
-                f"小结 {done}/{segments - 1} 段 · 已累计修为 +{int(extra.get('earned_exp', 0)):,} · "
-                f"灵石 +{int(extra.get('earned_gold', 0)):,}\n"
-                "🏆 大结算即将送达；若长时间未收到可发送 /完成历练 补领。"
+                f"✅ {route['name']} 已走完全程\n"
+                "━━━━━━━━━━━━━━━\n"
+                "结算即将发放；若长时间未收到可发送 /完成历练 补领。"
             )
 
-        next_in = max(0, tick_seconds - (elapsed % tick_seconds))
-        remaining = int(user_cd.scheduled_time or 0) - now
+        player = await self.db.get_player_by_id(user_id)
+        est = self._full_reward_pool(player, route) if player else {"exp": 0, "gold": 0}
         return True, (
-            f"📍 历练进度 · {route_name}\n"
-            f"━━━━━━━━━━━━━━━\n"
-            f"已历练：{elapsed // 60} 分钟（{done}/{segments - 1} 段已结算）\n"
-            f"下一次小结：{next_in // 60}分{next_in % 60}秒后\n"
-            f"全程剩余：{remaining // 60}分{remaining % 60}秒\n"
-            f"已到手：修为 +{int(extra.get('earned_exp', 0)):,} · 灵石 +{int(extra.get('earned_gold', 0)):,}\n"
-            "🏳️ 随时可 /退出历练，已结算奖励保留、无惩罚"
+            f"📍 历练进度 · {route['name']}\n"
+            "━━━━━━━━━━━━━━━\n"
+            f"已走：{elapsed // 60} 分 {elapsed % 60} 秒 / 全程 {total // 60} 分钟\n"
+            f"剩余：{remain // 60} 分 {remain % 60} 秒\n"
+            f"预计奖励：修为 +{int(est['exp']):,} · 灵石 +{int(est['gold']):,}\n"
+            "⏱️ 必须走完全程才能结算\n"
+            "🏳️ /退出历练 可提前离开（无奖励、无惩罚）"
         )
 
     # -------- 内部工具 --------
@@ -934,9 +828,18 @@ class AdventureManager:
         return (name, max(1, count))
 
     def _roll_drops(
-        self, player: Player, route: dict, event: dict, chance_scale: float = 1.0
+        self,
+        player: Player,
+        route: dict,
+        event: dict,
+        chance_scale: float = 1.0,
+        rolls_bonus: int = 0,
     ) -> List[Tuple]:
-        """抽本段掉落（不落库）。chance_scale 把整趟概率摊到各段，避免分段后掉落翻十倍。"""
+        """抽一趟掉落（不落库）。
+
+        chance_scale 用于整体缩放概率；rolls_bonus 追加额外判定次数
+        （v7.7 一次性结算靠它维持分段版的整趟期望）。
+        """
         dropped: List[Tuple] = []
         item_chance = float(event.get("item_chance", 40) or 0)
         try:
@@ -955,7 +858,7 @@ class AdventureManager:
 
         # 高风险事件靠「多判定一次」换回报，每次判定都按完整概率走；
         # 摊薄交给 chance_scale（按段折算），不要在这里再除一次 rolls。
-        rolls = 1 + max(0, int(event.get("extra_rolls", 0) or 0))
+        rolls = 1 + max(0, int(event.get("extra_rolls", 0) or 0)) + max(0, int(rolls_bonus or 0))
         for _ in range(rolls):
             if random.random() * 100.0 >= item_chance:
                 continue

@@ -141,19 +141,24 @@ class TestRiftStructure(unittest.TestCase):
                 self.assertLessEqual(diff["required_level"], 35)
 
     def test_minute_rate_grows_with_requirement(self):
-        """单位时间收益必须随境界门槛上升，否则高境界玩家没有理由换本。"""
-        by_level = {}
+        """单位时间收益必须随境界门槛抬升，否则高境界玩家没有理由换本。
+
+        v7.7 起秘境修为按「境界段 × 档位」配比，段内是平的（秘境定位为材料副本），
+        所以按「秘境整体」比较最深层收益，而不是逐境界比较。
+        """
+        entries = []
         for rift in self.rifts:
-            for diff in rift["difficulties"]:
-                minutes = max(1, diff["duration"] // 60)
-                by_level.setdefault(diff["required_level"], []).append(
-                    sum(diff["exp"]) / 2 / minutes
-                )
-        levels = sorted(by_level)
-        for prev, cur in zip(levels, levels[1:]):
+            min_level = min(d["required_level"] for d in rift["difficulties"])
+            best = max(
+                sum(d["exp"]) / 2 / max(1, d["duration"] // 60)
+                for d in rift["difficulties"]
+            )
+            entries.append((min_level, best, rift["name"]))
+        entries.sort()
+        for (l1, r1, n1), (l2, r2, n2) in zip(entries, entries[1:]):
             self.assertGreaterEqual(
-                max(by_level[cur]), max(by_level[prev]),
-                f"境界 {cur} 的秘境每分钟修为不如 {prev}",
+                r2, r1,
+                f"{n2}（门槛 {l2}）每分钟修为不如 {n1}（门槛 {l1}）",
             )
 
     def test_deeper_tier_is_not_slower_per_minute(self):

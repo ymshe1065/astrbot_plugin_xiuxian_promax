@@ -331,6 +331,28 @@ class CultivationManager:
         speeds_config = self.config.get("SPIRIT_ROOT_SPEEDS", {})
         return speeds_config.get(config_key, 1.0)
 
+    def breakthrough_need(self, player: Player) -> int:
+        """当前境界突破所需修为（lv0 或缺失时回退到下一级）。"""
+        try:
+            level_index = max(0, int(getattr(player, "level_index", 0) or 0))
+        except (TypeError, ValueError):
+            level_index = 0
+        try:
+            level_data = self.config_manager.get_level_data(
+                getattr(player, "cultivation_type", "灵修") or "灵修"
+            )
+        except Exception:
+            level_data = []
+        for idx in (level_index, level_index + 1):
+            if 0 <= idx < len(level_data):
+                try:
+                    need = int(level_data[idx].get("exp_needed") or 0)
+                except (TypeError, ValueError):
+                    need = 0
+                if need > 0:
+                    return need
+        return 1000
+
     def calculate_cultivation_exp(
         self,
         player: Player,
@@ -338,8 +360,20 @@ class CultivationManager:
         technique_bonus: float = 0.0,
         pill_multipliers: Optional[Dict[str, float]] = None
     ) -> int:
-        """计算闭关修炼获得的修为（包含仙缘永久加成）"""
-        base_exp = self.config.get("VALUES", {}).get("BASE_EXP_PER_MINUTE", 100)
+        """计算闭关修炼获得的修为。
+
+        v7.7 起改为「按本境界突破需求折算」，避免固定基数跟不上境界膨胀：
+            每小时修为 = 突破需求 × BREAKTHROUGH_RATE_PER_HOUR × 灵根 × (1+功法) × 丹药符箓 × 仙缘
+        0.25%/小时 意味着无加成闭关约 400 小时突破，满配约 20 小时。
+        """
+        try:
+            rate_per_hour = float(
+                self.config.get("VALUES", {}).get("BREAKTHROUGH_RATE_PER_HOUR", 0.0025)
+            )
+        except (TypeError, ValueError):
+            rate_per_hour = 0.0025
+        need = self.breakthrough_need(player)
+        base_exp = need * rate_per_hour / 60.0  # 每分钟基础修为
         root_speed = self.get_spiritual_root_speed(player)
 
         cultivation_pill_bonus = 1.0
@@ -355,29 +389,20 @@ class CultivationManager:
             pass
         # ======================================
 
-        # 境界越高，每分钟基础收益越高（默认每级 +10%）
-        try:
-            level_bonus_per_level = float(
-                self.config.get("VALUES", {}).get("LEVEL_EXP_BONUS_PER_LEVEL", 0.10)
-            )
-        except (TypeError, ValueError):
-            level_bonus_per_level = 0.10
-        level_mult = 1.0 + max(0, player.level_index) * level_bonus_per_level
-
-        # 计算总修为倍率：灵根倍率 * (1 + 功法倍率) * 丹药倍率 * 仙缘倍率 * 境界倍率
+        # 境界差异已由「突破需求」本身体现，不再额外乘等级倍率。
+        # 总倍率 = 灵根 × (1+功法) × 丹药符箓 × 仙缘
         total_multiplier = (
             root_speed
             * (1.0 + technique_bonus)
             * cultivation_pill_bonus
             * global_mult
-            * level_mult
         )
         total_exp = int(base_exp * minutes * total_multiplier)
 
         logger.info(
-            f"玩家 {player.user_id} 闭关 {minutes} 分钟，"
-            f"基础修为 {base_exp}，灵根倍率 {root_speed}，"
+            f"玩家 {player.user_id} 闭关 {minutes} 分钟，突破需求 {need}，"
+            f"基础 {base_exp:.1f}/分钟，灵根倍率 {root_speed:.2f}，"
             f"功法加成 {technique_bonus:.2%}，丹药倍率 {cultivation_pill_bonus:.2f}，"
-            f"仙缘倍率 {global_mult:.2f}，境界倍率 {level_mult:.2f}，获得修为 {total_exp}"
+            f"仙缘倍率 {global_mult:.2f}，获得修为 {total_exp}"
         )
         return total_exp

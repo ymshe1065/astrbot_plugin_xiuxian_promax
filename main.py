@@ -491,7 +491,9 @@ class XiuXianPlugin(Star):
         # v6.51 周常 Boss（周本）周期维护
         self.weekly_boss_task = asyncio.create_task(self._schedule_weekly_boss())
         # v7.6 历练分段结算（每 5 分钟一段，到期自动发奖）
-        self.adventure_tick_task = asyncio.create_task(self._schedule_adventure_ticks())
+        self.adventure_finish_task = asyncio.create_task(self._schedule_adventure_finish())
+        self.rift_tick_task = asyncio.create_task(self._schedule_rift_ticks())
+        self.encounter_expire_task = asyncio.create_task(self._schedule_encounter_expire())
         
         logger.info("【修仙插件】已加载。")
 
@@ -508,7 +510,9 @@ class XiuXianPlugin(Star):
                      getattr(self, "auction_house_task", None),
                      getattr(self, "invest_task", None),
                      getattr(self, "weekly_boss_task", None),
-                     getattr(self, "adventure_tick_task", None)):
+                     getattr(self, "adventure_finish_task", None),
+                     getattr(self, "rift_tick_task", None),
+                     getattr(self, "encounter_expire_task", None)):
             if task:
                 task.cancel()
                 tasks.append(task)
@@ -653,29 +657,30 @@ class XiuXianPlugin(Star):
                 logger.info(f"【修仙插件】周本任务将在 {delay} 秒后重试（第{retry_count}次）")
                 await asyncio.sleep(delay)
 
-    async def _schedule_adventure_ticks(self):
-        """历练分段结算：每 5 分钟一段，到期自动发小结算，走完发大结算。"""
+    async def _schedule_adventure_finish(self):
+        """历练收尾：走完全程才结算，到点自动发放（每 20 秒扫一次）。"""
         retry_count = 0
         max_retry_delay = 1800
         while True:
             try:
                 await self.db.ensure_connection()
-                await self._settle_due_adventures()
+                await self._settle_finished_adventures()
                 retry_count = 0
                 await asyncio.sleep(20)
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"历练分段结算任务异常: {e}")
+                logger.error(f"历练结算任务异常: {e}")
                 retry_count += 1
                 delay = min(30 * (2 ** retry_count), max_retry_delay)
                 await asyncio.sleep(delay)
 
-    async def _settle_due_adventures(self):
-        """扫描所有历练中的玩家，补算到期段落并推送。"""
+    async def _settle_finished_adventures(self):
+        """扫描已到点的历练，一次性结算并推送到出发时的会话。"""
+        now = int(time.time())
         async with self.db.conn.execute(
-            "SELECT user_id, extra_data FROM user_cd WHERE type = ?",
-            (int(UserStatus.ADVENTURING),),
+            "SELECT user_id, extra_data FROM user_cd WHERE type = ? AND scheduled_time <= ?",
+            (int(UserStatus.ADVENTURING), now),
         ) as cursor:
             rows = await cursor.fetchall()
         for row in rows:
@@ -687,26 +692,143 @@ class XiuXianPlugin(Star):
             umo = str(extra.get("umo") or "")
             try:
                 async with get_player_lock(user_id):
-                    result = await self.adventure_mgr.settle_due(user_id)
+                    success, msg, reward_data = await self.adventure_mgr.finish_adventure(user_id)
                     extras = []
-                    if result.get("final"):
+                    if success and reward_data:
                         suffix, extras = await self._apply_adventure_rewards_meta(
+                            user_id, reward_data, umo=umo
+                        )
+                        msg += suffix
+            except Exception as e:
+                logger.warning(f"【历练】{user_id} 结算失败: {e}")
+                continue
+
+            if not success:
+                continue
+            try:
+                if umo:
+                    await self._send_to_origin(umo, msg, user_id)
+                else:
+                    logger.info(f"【历练】{user_id} 未记录会话，结算已入账，可用 /历练状态 查看")
+                for extra_msg in extras:
+                    if umo:
+                        await self._send_to_origin(umo, extra_msg, user_id)
+            except Exception as e:
+                logger.warning(f"【历练】{user_id} 推送失败: {e}")
+
+
+    async def _schedule_encounter_expire(self):
+        """奇遇超时自动结算：每 60 秒扫一次，过期按选项 1 结算。"""
+        while True:
+            try:
+                await asyncio.sleep(60)
+                await self._settle_expired_encounters()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"奇遇超时扫描任务异常: {e}")
+                await asyncio.sleep(60)
+
+    async def _settle_expired_encounters(self):
+        try:
+            expired = await self.encounter_mgr.settle_expired()
+        except Exception as e:
+            logger.warning(f"奇遇超时扫描失败: {e}")
+            return
+        for user_id, umo in expired:
+            try:
+                async with get_player_lock(user_id):
+                    player = await self.db.get_player_by_id(user_id)
+                    if not player:
+                        await self.db.ext.set_system_config(f"encounter_{user_id}", "")
+                        continue
+                    ok, msg = await self.encounter_mgr.resolve_choice(player, 1, auto=True)
+            except Exception as e:
+                logger.warning(f"【奇遇】{user_id} 超时结算失败: {e}")
+                continue
+            if not ok or not umo:
+                continue
+            try:
+                await self._send_to_origin(
+                    umo, "⌛ 奇遇超时，已自动按选项 [1] 结算：\n" + msg, user_id
+                )
+            except Exception as e:
+                logger.warning(f"【奇遇】{user_id} 超时推送失败: {e}")
+
+    async def _schedule_rift_ticks(self):
+        """秘境分段结算：每 5 分钟一段，到期自动推送小结，走完发大结算。"""
+        retry_count = 0
+        max_retry_delay = 1800
+        while True:
+            try:
+                await self.db.ensure_connection()
+                await self._settle_due_rifts()
+                retry_count = 0
+                await asyncio.sleep(20)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"秘境分段结算任务异常: {e}")
+                retry_count += 1
+                delay = min(30 * (2 ** retry_count), max_retry_delay)
+                await asyncio.sleep(delay)
+
+    async def _settle_due_rifts(self):
+        """扫描所有秘境中的玩家，补算到期段落并推送。"""
+        async with self.db.conn.execute(
+            "SELECT user_id, extra_data FROM user_cd WHERE type = ?",
+            (int(UserStatus.EXPLORING),),
+        ) as cursor:
+            rows = await cursor.fetchall()
+        for row in rows:
+            user_id = str(row["user_id"])
+            try:
+                extra = json.loads(row["extra_data"] or "{}")
+            except Exception:
+                extra = {}
+            umo = str(extra.get("umo") or "")
+            try:
+                async with get_player_lock(user_id):
+                    result = await self.rift_mgr.settle_due(user_id)
+                    if result.get("final"):
+                        suffix = await self._apply_rift_rewards_meta(
                             user_id, result["final"]
                         )
                         if suffix and result["messages"]:
                             result["messages"][-1] += suffix
             except Exception as e:
-                logger.warning(f"【历练】{user_id} 分段结算失败: {e}")
+                logger.warning(f"【秘境】{user_id} 分段结算失败: {e}")
                 continue
 
             for msg in result.get("messages") or []:
-                if umo:
-                    await self._send_to_origin(umo, msg, user_id)
-                else:
-                    logger.info(f"【历练】{user_id} 未记录会话，结算已入账，可用 /历练状态 查看")
-            for msg in extras:
-                if umo:
-                    await self._send_to_origin(umo, msg, user_id)
+                try:
+                    if umo:
+                        await self._send_to_origin(umo, msg, user_id)
+                    else:
+                        logger.info(
+                            f"【秘境】{user_id} 未记录会话，结算已入账，可用 /完成探索 查看"
+                        )
+                except Exception as e:
+                    logger.warning(f"【秘境】{user_id} 推送失败: {e}")
+
+    async def _apply_rift_rewards_meta(self, user_id: str, reward_data: dict) -> str:
+        """秘境结算后的任务/称号/悬赏（定时与手动共用）。"""
+        suffix = ""
+        if not reward_data:
+            return suffix
+        try:
+            await self.db.ext.add_task_progress(user_id, "explore_rift", 1)
+            await self._title_bump(user_id, "rift_count")
+            player = await self.db.get_player_by_id(user_id)
+            if player:
+                has_progress, bounty_msg = await self.bounty_mgr.add_bounty_progress(
+                    player, "rift", 1
+                )
+                if has_progress:
+                    suffix += bounty_msg
+        except Exception as e:
+            logger.warning(f"秘境结算侧效应异常: {e}")
+        return suffix
 
     async def _schedule_demon_check(self):
         """定时检查天魔入侵是否超时并自动结算"""
@@ -1918,19 +2040,7 @@ class XiuXianPlugin(Star):
         user_id = event.get_sender_id()
         success, msg, reward_data = await self.rift_mgr.finish_exploration(user_id)
         if success and reward_data:
-            await self.db.ext.add_task_progress(user_id, "explore_rift", 1)
-            await self._title_bump(user_id, "rift_count")
-            player = await self.db.get_player_by_id(user_id)
-            if player:
-                has_progress, bounty_msg = await self.bounty_mgr.add_bounty_progress(player, "rift", 1)
-                if has_progress: msg += bounty_msg
-
-                # 奇遇系统：秘境归来概率触发三选一事件（25%）
-                try:
-                    encounter_msg = await self.encounter_mgr.maybe_trigger(player, base_chance=25)
-                    if encounter_msg: msg += encounter_msg
-                except Exception as e:
-                    logger.warning(f"秘境奇遇触发异常: {e}")
+            msg += await self._apply_rift_rewards_meta(user_id, reward_data)
         yield event.plain_result(msg)
 
     @filter.command(CMD_RIFT_EXIT, "退出秘境")
@@ -1960,12 +2070,14 @@ class XiuXianPlugin(Star):
         user_id = event.get_sender_id()
         success, msg, reward_data = await self.adventure_mgr.finish_adventure(user_id)
         if success and reward_data:
-            suffix, extras = await self._apply_adventure_rewards_meta(user_id, reward_data)
+            suffix, extras = await self._apply_adventure_rewards_meta(
+                user_id, reward_data, umo=str(getattr(event, "unified_msg_origin", "") or "")
+            )
             msg += suffix
             from .utils.result_card import render_result_card
             card = await render_result_card(
                 "🎉 历练完成", msg, background="adventure",
-                subtitle="本趟历练大结算",
+                subtitle="本次历练结算",
                 footer="/历练信息 查看路线 · /历练状态 查看进度",
                 enabled_key="CARD_ADVENTURE",
             )
@@ -1978,7 +2090,9 @@ class XiuXianPlugin(Star):
         else:
             yield event.plain_result(msg)
 
-    async def _apply_adventure_rewards_meta(self, user_id: str, reward_data: dict):
+    async def _apply_adventure_rewards_meta(
+        self, user_id: str, reward_data: dict, umo: str = ""
+    ):
         """历练走完后的任务/称号/悬赏/奇遇结算，定时结算与手动领取共用。"""
         suffix = ""
         extras = []
@@ -2000,7 +2114,9 @@ class XiuXianPlugin(Star):
         # 奇遇系统：历练归来概率触发三选一事件
         encounter_msg = ""
         try:
-            encounter_msg = await self.encounter_mgr.maybe_trigger(player)
+            encounter_msg = await self.encounter_mgr.maybe_trigger(
+                player, base_chance=35, umo=umo
+            )
             if encounter_msg:
                 await self._title_bump(user_id, "luck_event")
         except Exception as e:
@@ -2015,6 +2131,7 @@ class XiuXianPlugin(Star):
                     player,
                     reward_data.get("gold_reward", 0),
                     reward_data.get("exp_reward", 0),
+                    umo=umo,
                 )
                 if merit_msg:
                     extras.append(merit_msg)
@@ -2022,7 +2139,7 @@ class XiuXianPlugin(Star):
                 logger.warning(f"善举触发异常: {e}")
         return suffix, extras
 
-    @filter.command("放弃历练", "中途退出历练（已结算奖励保留，无惩罚）")
+    @filter.command("放弃历练", "中途退出历练（无奖励、不加冷却）")
     @require_whitelist
     @with_player_lock
     async def handle_adventure_abandon(self, event: AstrMessageEvent):
@@ -2032,7 +2149,7 @@ class XiuXianPlugin(Star):
             if note:
                 yield event.plain_result(note.strip())
 
-    @filter.command("退出历练", "中途退出历练（已结算奖励保留，无惩罚）")
+    @filter.command("退出历练", "中途退出历练（无奖励、不加冷却）")
     @require_whitelist
     @with_player_lock
     async def handle_adventure_quit(self, event: AstrMessageEvent):

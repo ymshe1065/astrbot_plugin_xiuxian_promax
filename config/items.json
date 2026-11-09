@@ -64,7 +64,7 @@
         "price": 45000,
         "volume": 1,
         "description": "黄品土系生活功法：气运+1；修炼效率+3.0%。",
-        "exp_multiplier": 0.03,
+        "exp_multiplier": 0.048,
         "element": "土",
         "life_effects": {
             "luck_bonus": 1
@@ -504,7 +504,7 @@
         "price": 45000,
         "volume": 1,
         "description": "黄品木系生活功法：掉落几率+4.0%；修炼效率+1.5%。",
-        "exp_multiplier": 0.015,
+        "exp_multiplier": 0.024,
         "element": "木",
         "life_effects": {
             "drop_bonus": 0.04
@@ -641,7 +641,7 @@
         "price": 8000,
         "volume": 1,
         "description": "凡品水系生活功法：修炼效率+1.0%；冷却缩减+0.5%。",
-        "exp_multiplier": 0.01,
+        "exp_multiplier": 0.016,
         "element": "水",
         "life_effects": {
             "cooldown_reduction": 0.005
@@ -705,7 +705,7 @@
         "price": 8000,
         "volume": 1,
         "description": "凡品土系生活功法：气运+1；修炼效率+1.0%。",
-        "exp_multiplier": 0.01,
+        "exp_multiplier": 0.016,
         "element": "土",
         "life_effects": {
             "luck_bonus": 1
@@ -943,7 +943,7 @@
         "price": 8000,
         "volume": 1,
         "description": "凡品水系生活功法：修炼效率+1.0%；冷却缩减+0.5%。",
-        "exp_multiplier": 0.01,
+        "exp_multiplier": 0.016,
         "element": "水",
         "life_effects": {
             "cooldown_reduction": 0.005
@@ -982,7 +982,7 @@
         "price": 8000,
         "volume": 1,
         "description": "凡品木系生活功法：掉落几率+2.0%；修炼效率+0.5%。",
-        "exp_multiplier": 0.005,
+        "exp_multiplier": 0.008,
         "element": "木",
         "life_effects": {
             "drop_bonus": 0.02
@@ -1048,7 +1048,7 @@
         "price": 8000,
         "volume": 1,
         "description": "凡品金系生活功法：修炼效率+1.0%；灵石收益+1.0%。",
-        "exp_multiplier": 0.01,
+        "exp_multiplier": 0.016,
         "element": "金",
         "life_effects": {
             "gold_bonus": 0.01
@@ -1210,7 +1210,7 @@
         "price": 45000,
         "volume": 1,
         "description": "黄品土系生活功法：气运+1；修炼效率+3.0%。",
-        "exp_multiplier": 0.03,
+        "exp_multiplier": 0.048,
         "element": "土",
         "life_effects": {
             "luck_bonus": 1
@@ -1273,7 +1273,7 @@
         "price": 8000,
         "volume": 1,
         "description": "凡品金系生活功法：修炼效率+1.0%；灵石收益+1.0%。",
-        "exp_multiplier": 0.01,
+        "exp_multiplier": 0.016,
         "element": "金",
         "life_effects": {
             "gold_bonus": 0.01
@@ -1409,7 +1409,7 @@
         "price": 45000,
         "volume": 1,
         "description": "黄品水系生活功法：修炼效率+3.0%；冷却缩减+1.0%。",
-        "exp_multiplier": 0.03,
+        "exp_multiplier": 0.048,
         "element": "水",
         "life_effects": {
             "cooldown_reduction": 0.01
@@ -1911,7 +1911,7 @@
         "price": 8000,
         "volume": 1,
         "description": "凡品水系生活功法：修炼效率+1.0%；冷却缩减+0.5%。",
-        "exp_multiplier": 0.01,
+        "exp_multiplier": 0.016,
         "element": "水",
         "life_effects": {
             "cooldown_reduction": 0.005
@@ -1927,7 +1927,7 @@
         "price": 8000,
         "volume": 1,
         "description": "凡品木系生活功法：掉落几率+2.0%；修炼效率+0.5%。",
-        "exp_multiplier": 0.005,
+        "exp_multiplier": 0.008,
         "element": "木",
         "life_effects": {
             "drop_bonus": 0.02
@@ -1996,7 +1996,7 @@
         "price": 220000,
         "volume": 1,
         "description": "玄品木系生活功法：掉落几率+7.0%；修炼效率+2.5%。",
-        "exp_multiplier": 0.025,
+        "exp_multiplier": 0.04,
         "element": "木",
         "life_effects": {
             "drop_bonus": 0.07
@@ -2012,7 +2012,7 @@
         "price": 8000,
         "volume": 1,
         "description": "凡品土系生活功法：气运+1；修炼效率+1.0%。",
-        "exp_multiplier": 0.01,
+        "exp_multiplier": 0.016,
         "element": "土",
         "life_effects": {
             "luck_bonus": 1
@@ -2222,7 +2222,7 @@
         "price": 45000,
         "volume": 1,
         "description": "黄品木系生活功法：灵石收益+4.0%；修炼效率+1.5%。",
-        "exp_multiplier": 0.015,
+        "exp_multiplier": 0.024,
         "element": "木",
         "life_effects": {
             "gold_bonus": 0.04
@@ -2379,7 +2379,7 @@
         "price": 45000,
         "volume": 1,
         "description": "黄品水系生活功法：修炼效率+3.0%；冷却缩减+1.0%。",
-        "exp_multiplier": 0.03,
+        "exp_multiplier": 0.048,
         "element": "水",
         "life_effects": {
             "cooldown_reduction": 0.01
@@ -2455,7 +2455,7 @@
         "price": 45000,
         "volume": 1,
         "description": "黄品木系生活功法：冷却缩减+2.0%；修炼效率+1.5%。",
-        "exp_multiplier": 0.015,
+        "exp_multiplier": 0.024,
         "element": "木",
         "life_effects": {
             "cooldown_reduction": 0.02
@@ -2519,7 +2519,7 @@
         "price": 45000,
         "volume": 1,
         "description": "黄品金系生活功法：修炼效率+3.0%；灵石收益+2.0%。",
-        "exp_multiplier": 0.03,
+        "exp_multiplier": 0.048,
         "element": "金",
         "life_effects": {
             "gold_bonus": 0.02
@@ -2671,7 +2671,7 @@
         "price": 8000,
         "volume": 1,
         "description": "凡品金系生活功法：修炼效率+1.0%；灵石收益+1.0%。",
-        "exp_multiplier": 0.01,
+        "exp_multiplier": 0.016,
         "element": "金",
         "life_effects": {
             "gold_bonus": 0.01
@@ -2687,7 +2687,7 @@
         "price": 8000,
         "volume": 1,
         "description": "凡品木系生活功法：修炼效率+1.0%；灵石收益+1.0%。",
-        "exp_multiplier": 0.01,
+        "exp_multiplier": 0.016,
         "element": "木",
         "life_effects": {
             "gold_bonus": 0.01
@@ -2739,7 +2739,7 @@
         "price": 8000,
         "volume": 1,
         "description": "凡品水系生活功法：修炼效率+1.0%；冷却缩减+0.5%。",
-        "exp_multiplier": 0.01,
+        "exp_multiplier": 0.016,
         "element": "水",
         "life_effects": {
             "cooldown_reduction": 0.005
@@ -2881,7 +2881,7 @@
         "price": 45000,
         "volume": 1,
         "description": "黄品水系生活功法：修炼效率+3.0%；冷却缩减+1.0%。",
-        "exp_multiplier": 0.03,
+        "exp_multiplier": 0.048,
         "element": "水",
         "life_effects": {
             "cooldown_reduction": 0.01
@@ -2897,7 +2897,7 @@
         "price": 8000,
         "volume": 1,
         "description": "凡品木系生活功法：修炼效率+1.0%；灵石收益+1.0%。",
-        "exp_multiplier": 0.01,
+        "exp_multiplier": 0.016,
         "element": "木",
         "life_effects": {
             "gold_bonus": 0.01
@@ -2925,7 +2925,7 @@
         "price": 8000,
         "volume": 1,
         "description": "凡品木系生活功法：掉落几率+2.0%；修炼效率+0.5%。",
-        "exp_multiplier": 0.005,
+        "exp_multiplier": 0.008,
         "element": "木",
         "life_effects": {
             "drop_bonus": 0.02
@@ -2966,7 +2966,7 @@
         "price": 220000,
         "volume": 1,
         "description": "玄品木系生活功法：掉落几率+7.0%；修炼效率+2.5%。",
-        "exp_multiplier": 0.025,
+        "exp_multiplier": 0.04,
         "element": "木",
         "life_effects": {
             "drop_bonus": 0.07
@@ -3020,7 +3020,7 @@
         "price": 45000,
         "volume": 1,
         "description": "黄品木系生活功法：掉落几率+4.0%；修炼效率+1.5%。",
-        "exp_multiplier": 0.015,
+        "exp_multiplier": 0.024,
         "element": "木",
         "life_effects": {
             "drop_bonus": 0.04
@@ -3036,7 +3036,7 @@
         "price": 8000,
         "volume": 1,
         "description": "凡品木系生活功法：冷却缩减+1.0%；修炼效率+0.5%。",
-        "exp_multiplier": 0.005,
+        "exp_multiplier": 0.008,
         "element": "木",
         "life_effects": {
             "cooldown_reduction": 0.01
@@ -3162,7 +3162,7 @@
         "price": 220000,
         "volume": 1,
         "description": "玄品水系生活功法：修炼效率+5.0%；冷却缩减+1.5%。",
-        "exp_multiplier": 0.05,
+        "exp_multiplier": 0.08,
         "element": "水",
         "life_effects": {
             "cooldown_reduction": 0.015
@@ -3408,7 +3408,7 @@
         "price": 8000,
         "volume": 1,
         "description": "凡品土系生活功法：气运+1；修炼效率+1.0%。",
-        "exp_multiplier": 0.01,
+        "exp_multiplier": 0.016,
         "element": "土",
         "life_effects": {
             "luck_bonus": 1
@@ -3487,7 +3487,7 @@
         "price": 45000,
         "volume": 1,
         "description": "黄品土系生活功法：气运+1；修炼效率+3.0%。",
-        "exp_multiplier": 0.03,
+        "exp_multiplier": 0.048,
         "element": "土",
         "life_effects": {
             "luck_bonus": 1
@@ -3536,7 +3536,7 @@
         "price": 45000,
         "volume": 1,
         "description": "黄品土系生活功法：气运+1；修炼效率+3.0%。",
-        "exp_multiplier": 0.03,
+        "exp_multiplier": 0.048,
         "element": "土",
         "life_effects": {
             "luck_bonus": 1
@@ -3814,7 +3814,7 @@
         "price": 45000,
         "volume": 1,
         "description": "黄品木系生活功法：修炼效率+3.0%；灵石收益+2.0%。",
-        "exp_multiplier": 0.03,
+        "exp_multiplier": 0.048,
         "element": "木",
         "life_effects": {
             "gold_bonus": 0.02
@@ -4133,7 +4133,7 @@
         "price": 45000,
         "volume": 1,
         "description": "黄品火系生活功法：修炼效率+3.0%；掉落几率+2.0%。",
-        "exp_multiplier": 0.03,
+        "exp_multiplier": 0.048,
         "element": "火",
         "life_effects": {
             "drop_bonus": 0.02
@@ -4252,7 +4252,7 @@
         "price": 8000,
         "volume": 1,
         "description": "凡品木系生活功法：修炼效率+1.0%；灵石收益+1.0%。",
-        "exp_multiplier": 0.01,
+        "exp_multiplier": 0.016,
         "element": "木",
         "life_effects": {
             "gold_bonus": 0.01
@@ -4923,7 +4923,7 @@
         "price": 220000,
         "volume": 1,
         "description": "玄品金系生活功法：修炼效率+5.0%；灵石收益+3.5%。",
-        "exp_multiplier": 0.05,
+        "exp_multiplier": 0.08,
         "element": "金",
         "life_effects": {
             "gold_bonus": 0.035
@@ -5002,7 +5002,7 @@
         "price": 45000,
         "volume": 1,
         "description": "黄品木系生活功法：修炼效率+3.0%；灵石收益+2.0%。",
-        "exp_multiplier": 0.03,
+        "exp_multiplier": 0.048,
         "element": "木",
         "life_effects": {
             "gold_bonus": 0.02
@@ -5289,7 +5289,7 @@
         "price": 45000,
         "volume": 1,
         "description": "黄品水系生活功法：修炼效率+3.0%；冷却缩减+1.0%。",
-        "exp_multiplier": 0.03,
+        "exp_multiplier": 0.048,
         "element": "水",
         "life_effects": {
             "cooldown_reduction": 0.01
@@ -5342,7 +5342,7 @@
         "price": 220000,
         "volume": 1,
         "description": "玄品木系生活功法：修炼效率+5.0%；灵石收益+3.5%。",
-        "exp_multiplier": 0.05,
+        "exp_multiplier": 0.08,
         "element": "木",
         "life_effects": {
             "gold_bonus": 0.035
@@ -5575,7 +5575,7 @@
         "price": 220000,
         "volume": 1,
         "description": "玄品木系生活功法：掉落几率+7.0%；修炼效率+2.5%。",
-        "exp_multiplier": 0.025,
+        "exp_multiplier": 0.04,
         "element": "木",
         "life_effects": {
             "drop_bonus": 0.07
@@ -5725,7 +5725,7 @@
         "price": 8000,
         "volume": 1,
         "description": "凡品火系生活功法：修炼效率+1.0%；掉落几率+1.0%。",
-        "exp_multiplier": 0.01,
+        "exp_multiplier": 0.016,
         "element": "火",
         "life_effects": {
             "drop_bonus": 0.01
@@ -5775,7 +5775,7 @@
         "price": 45000,
         "volume": 1,
         "description": "黄品火系生活功法：修炼效率+3.0%；掉落几率+2.0%。",
-        "exp_multiplier": 0.03,
+        "exp_multiplier": 0.048,
         "element": "火",
         "life_effects": {
             "drop_bonus": 0.02
@@ -5825,7 +5825,7 @@
         "price": 45000,
         "volume": 1,
         "description": "黄品火系生活功法：修炼效率+3.0%；掉落几率+2.0%。",
-        "exp_multiplier": 0.03,
+        "exp_multiplier": 0.048,
         "element": "火",
         "life_effects": {
             "drop_bonus": 0.02
@@ -6332,7 +6332,7 @@
         "price": 8000,
         "volume": 1,
         "description": "凡品金系生活功法：修炼效率+1.0%；灵石收益+1.0%。",
-        "exp_multiplier": 0.01,
+        "exp_multiplier": 0.016,
         "element": "金",
         "life_effects": {
             "gold_bonus": 0.01
@@ -6795,7 +6795,7 @@
         "price": 8000,
         "volume": 1,
         "description": "凡品木系生活功法：冷却缩减+1.0%；修炼效率+0.5%。",
-        "exp_multiplier": 0.005,
+        "exp_multiplier": 0.008,
         "element": "木",
         "life_effects": {
             "cooldown_reduction": 0.01
@@ -6873,7 +6873,7 @@
         "price": 8000,
         "volume": 1,
         "description": "凡品木系生活功法：修炼效率+1.0%；灵石收益+1.0%。",
-        "exp_multiplier": 0.01,
+        "exp_multiplier": 0.016,
         "element": "木",
         "life_effects": {
             "gold_bonus": 0.01
@@ -7103,7 +7103,7 @@
         "price": 8000,
         "volume": 1,
         "description": "凡品土系生活功法：气运+1；修炼效率+1.0%。",
-        "exp_multiplier": 0.01,
+        "exp_multiplier": 0.016,
         "element": "土",
         "life_effects": {
             "luck_bonus": 1
@@ -7143,7 +7143,7 @@
         "price": 45000,
         "volume": 1,
         "description": "黄品土系生活功法：气运+1；修炼效率+3.0%。",
-        "exp_multiplier": 0.03,
+        "exp_multiplier": 0.048,
         "element": "土",
         "life_effects": {
             "luck_bonus": 1
@@ -7266,7 +7266,7 @@
         "price": 8000,
         "volume": 1,
         "description": "凡品金系生活功法：修炼效率+1.0%；灵石收益+1.0%。",
-        "exp_multiplier": 0.01,
+        "exp_multiplier": 0.016,
         "element": "金",
         "life_effects": {
             "gold_bonus": 0.01
@@ -7332,7 +7332,7 @@
         "price": 8000,
         "volume": 1,
         "description": "凡品木系生活功法：灵石收益+2.0%；修炼效率+0.5%。",
-        "exp_multiplier": 0.005,
+        "exp_multiplier": 0.008,
         "element": "木",
         "life_effects": {
             "gold_bonus": 0.02
@@ -7578,7 +7578,7 @@
         "price": 45000,
         "volume": 1,
         "description": "黄品木系生活功法：修炼效率+3.0%；灵石收益+2.0%。",
-        "exp_multiplier": 0.03,
+        "exp_multiplier": 0.048,
         "element": "木",
         "life_effects": {
             "gold_bonus": 0.02
@@ -8025,7 +8025,7 @@
         "price": 8000,
         "volume": 1,
         "description": "凡品木系生活功法：灵石收益+2.0%；修炼效率+0.5%。",
-        "exp_multiplier": 0.005,
+        "exp_multiplier": 0.008,
         "element": "木",
         "life_effects": {
             "gold_bonus": 0.02
@@ -8107,7 +8107,7 @@
         "price": 8000,
         "volume": 1,
         "description": "凡品木系生活功法：修炼效率+1.0%；灵石收益+1.0%。",
-        "exp_multiplier": 0.01,
+        "exp_multiplier": 0.016,
         "element": "木",
         "life_effects": {
             "gold_bonus": 0.01
@@ -8135,7 +8135,7 @@
         "price": 8000,
         "volume": 1,
         "description": "凡品土系生活功法：气运+1；修炼效率+1.0%。",
-        "exp_multiplier": 0.01,
+        "exp_multiplier": 0.016,
         "element": "土",
         "life_effects": {
             "luck_bonus": 1
@@ -8217,7 +8217,7 @@
         "price": 8000,
         "volume": 1,
         "description": "凡品水系生活功法：修炼效率+1.0%；冷却缩减+0.5%。",
-        "exp_multiplier": 0.01,
+        "exp_multiplier": 0.016,
         "element": "水",
         "life_effects": {
             "cooldown_reduction": 0.005
@@ -8578,7 +8578,7 @@
         "price": 220000,
         "volume": 1,
         "description": "玄品木系生活功法：掉落几率+7.0%；修炼效率+2.5%。",
-        "exp_multiplier": 0.025,
+        "exp_multiplier": 0.04,
         "element": "木",
         "life_effects": {
             "drop_bonus": 0.07
@@ -8765,7 +8765,7 @@
         "price": 8000,
         "volume": 1,
         "description": "凡品水系生活功法：修炼效率+1.0%；冷却缩减+0.5%。",
-        "exp_multiplier": 0.01,
+        "exp_multiplier": 0.016,
         "element": "水",
         "life_effects": {
             "cooldown_reduction": 0.005
@@ -8781,7 +8781,7 @@
         "price": 8000,
         "volume": 1,
         "description": "凡品水系生活功法：修炼效率+1.0%；冷却缩减+0.5%。",
-        "exp_multiplier": 0.01,
+        "exp_multiplier": 0.016,
         "element": "水",
         "life_effects": {
             "cooldown_reduction": 0.005
@@ -8892,7 +8892,7 @@
         "price": 8000,
         "volume": 1,
         "description": "凡品火系生活功法：修炼效率+1.0%；掉落几率+1.0%。",
-        "exp_multiplier": 0.01,
+        "exp_multiplier": 0.016,
         "element": "火",
         "life_effects": {
             "drop_bonus": 0.01
@@ -9020,7 +9020,7 @@
         "price": 220000,
         "volume": 1,
         "description": "玄品木系生活功法：修炼效率+5.0%；灵石收益+3.5%。",
-        "exp_multiplier": 0.05,
+        "exp_multiplier": 0.08,
         "element": "木",
         "life_effects": {
             "gold_bonus": 0.035
@@ -9099,7 +9099,7 @@
         "price": 45000,
         "volume": 1,
         "description": "黄品水系生活功法：修炼效率+3.0%；冷却缩减+1.0%。",
-        "exp_multiplier": 0.03,
+        "exp_multiplier": 0.048,
         "element": "水",
         "life_effects": {
             "cooldown_reduction": 0.01
@@ -9305,7 +9305,7 @@
         "price": 8000,
         "volume": 1,
         "description": "凡品金系生活功法：修炼效率+1.0%；灵石收益+1.0%。",
-        "exp_multiplier": 0.01,
+        "exp_multiplier": 0.016,
         "element": "金",
         "life_effects": {
             "gold_bonus": 0.01
@@ -9414,7 +9414,7 @@
         "price": 8000,
         "volume": 1,
         "description": "凡品水系生活功法：修炼效率+1.0%；冷却缩减+0.5%。",
-        "exp_multiplier": 0.01,
+        "exp_multiplier": 0.016,
         "element": "水",
         "life_effects": {
             "cooldown_reduction": 0.005
@@ -9537,7 +9537,7 @@
         "price": 220000,
         "volume": 1,
         "description": "玄品金系生活功法：修炼效率+5.0%；灵石收益+3.5%。",
-        "exp_multiplier": 0.05,
+        "exp_multiplier": 0.08,
         "element": "金",
         "life_effects": {
             "gold_bonus": 0.035
@@ -9754,7 +9754,7 @@
         "price": 8000,
         "volume": 1,
         "description": "凡品土系生活功法：气运+1；修炼效率+1.0%。",
-        "exp_multiplier": 0.01,
+        "exp_multiplier": 0.016,
         "element": "土",
         "life_effects": {
             "luck_bonus": 1
@@ -9830,7 +9830,7 @@
         "price": 8000,
         "volume": 1,
         "description": "凡品水系生活功法：修炼效率+1.0%；冷却缩减+0.5%。",
-        "exp_multiplier": 0.01,
+        "exp_multiplier": 0.016,
         "element": "水",
         "life_effects": {
             "cooldown_reduction": 0.005
@@ -10135,7 +10135,7 @@
         "price": 8000,
         "volume": 1,
         "description": "凡品木系生活功法：灵石收益+2.0%；修炼效率+0.5%。",
-        "exp_multiplier": 0.005,
+        "exp_multiplier": 0.008,
         "element": "木",
         "life_effects": {
             "gold_bonus": 0.02
@@ -10163,7 +10163,7 @@
         "price": 220000,
         "volume": 1,
         "description": "玄品土系生活功法：气运+2；修炼效率+5.0%。",
-        "exp_multiplier": 0.05,
+        "exp_multiplier": 0.08,
         "element": "土",
         "life_effects": {
             "luck_bonus": 2
@@ -10229,7 +10229,7 @@
         "price": 8000,
         "volume": 1,
         "description": "凡品火系生活功法：修炼效率+1.0%；掉落几率+1.0%。",
-        "exp_multiplier": 0.01,
+        "exp_multiplier": 0.016,
         "element": "火",
         "life_effects": {
             "drop_bonus": 0.01
@@ -10356,7 +10356,7 @@
         "price": 45000,
         "volume": 1,
         "description": "黄品水系生活功法：修炼效率+3.0%；冷却缩减+1.0%。",
-        "exp_multiplier": 0.03,
+        "exp_multiplier": 0.048,
         "element": "水",
         "life_effects": {
             "cooldown_reduction": 0.01
@@ -10421,7 +10421,7 @@
         "price": 8000,
         "volume": 1,
         "description": "凡品土系生活功法：气运+1；修炼效率+1.0%。",
-        "exp_multiplier": 0.01,
+        "exp_multiplier": 0.016,
         "element": "土",
         "life_effects": {
             "luck_bonus": 1
@@ -10450,7 +10450,7 @@
         "price": 45000,
         "volume": 1,
         "description": "黄品火系生活功法：修炼效率+3.0%；掉落几率+2.0%。",
-        "exp_multiplier": 0.03,
+        "exp_multiplier": 0.048,
         "element": "火",
         "life_effects": {
             "drop_bonus": 0.02
@@ -10688,7 +10688,7 @@
         "price": 8000,
         "volume": 1,
         "description": "凡品水系生活功法：修炼效率+1.0%；冷却缩减+0.5%。",
-        "exp_multiplier": 0.01,
+        "exp_multiplier": 0.016,
         "element": "水",
         "life_effects": {
             "cooldown_reduction": 0.005
@@ -10763,7 +10763,7 @@
         "price": 45000,
         "volume": 1,
         "description": "黄品金系生活功法：修炼效率+3.0%；灵石收益+2.0%。",
-        "exp_multiplier": 0.03,
+        "exp_multiplier": 0.048,
         "element": "金",
         "life_effects": {
             "gold_bonus": 0.02
@@ -10871,7 +10871,7 @@
         "price": 220000,
         "volume": 1,
         "description": "玄品水系生活功法：修炼效率+5.0%；冷却缩减+1.5%。",
-        "exp_multiplier": 0.05,
+        "exp_multiplier": 0.08,
         "element": "水",
         "life_effects": {
             "cooldown_reduction": 0.015
@@ -10887,7 +10887,7 @@
         "price": 8000,
         "volume": 1,
         "description": "凡品木系生活功法：修炼效率+1.0%；灵石收益+1.0%。",
-        "exp_multiplier": 0.01,
+        "exp_multiplier": 0.016,
         "element": "木",
         "life_effects": {
             "gold_bonus": 0.01
@@ -10947,7 +10947,7 @@
         "price": 8000,
         "volume": 1,
         "description": "凡品火系生活功法：修炼效率+1.0%；掉落几率+1.0%。",
-        "exp_multiplier": 0.01,
+        "exp_multiplier": 0.016,
         "element": "火",
         "life_effects": {
             "drop_bonus": 0.01
@@ -11085,7 +11085,7 @@
         "price": 45000,
         "volume": 1,
         "description": "黄品金系生活功法：修炼效率+3.0%；灵石收益+2.0%。",
-        "exp_multiplier": 0.03,
+        "exp_multiplier": 0.048,
         "element": "金",
         "life_effects": {
             "gold_bonus": 0.02
@@ -11250,7 +11250,7 @@
         "price": 45000,
         "volume": 1,
         "description": "黄品金系生活功法：修炼效率+3.0%；灵石收益+2.0%。",
-        "exp_multiplier": 0.03,
+        "exp_multiplier": 0.048,
         "element": "金",
         "life_effects": {
             "gold_bonus": 0.02
@@ -11564,7 +11564,7 @@
         "price": 8000,
         "volume": 1,
         "description": "凡品木系生活功法：冷却缩减+1.0%；修炼效率+0.5%。",
-        "exp_multiplier": 0.005,
+        "exp_multiplier": 0.008,
         "element": "木",
         "life_effects": {
             "cooldown_reduction": 0.01
@@ -11955,7 +11955,7 @@
         "price": 25000,
         "volume": 1,
         "description": "专修回元之法，调息时气血与灵气恢复更快。",
-        "exp_multiplier": 0.07,
+        "exp_multiplier": 0.112,
         "effects": {
             "rest_hp_regen_bonus": 0.2,
             "rest_qi_regen_bonus": 0.2
