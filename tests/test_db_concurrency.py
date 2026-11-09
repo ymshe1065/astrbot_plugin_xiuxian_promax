@@ -94,6 +94,21 @@ class TestDbConcurrency(unittest.IsolatedAsyncioTestCase):
         self.assertIsNot(conn1, conn2)
         self.assertIsNot(conn1, self.db.conn.default_connection)
 
+    async def test_close_reclaims_connections_queued_for_cleanup(self):
+        """任务结束只把连接排进后台关闭队列；close() 必须把它一并回收。
+
+        否则 loop 提前停下（进程退出、测试用例结束）时这条连接会一直占着 db 文件，
+        Windows 上表现为删不掉 .db（WinError 32）。
+        """
+        router = self.db.conn
+        await asyncio.create_task(self.db.raw_connection())
+        # 让任务结束回调把连接从 _conns 挪进待关闭集合
+        await asyncio.sleep(0)
+        self.assertGreater(len(router._pending_closes), 0, "任务结束后应留下待关闭连接")
+
+        await router.close()
+        self.assertEqual(len(router._pending_closes), 0, "close() 没有回收待关闭连接")
+
     async def test_parallel_transactions_do_not_roll_back_each_other(self):
         async def writer(key: str, fail: bool):
             try:
