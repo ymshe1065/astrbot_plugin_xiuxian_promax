@@ -338,23 +338,17 @@ class TestAbsoluteYield(unittest.TestCase):
     RIFT_LABEL = "二重"
 
     def _run_stats(self, runs=4000):
+        """v7.7 回到一次性结算：时长减半后每趟 1 次判定，单位时间产出与 v7.6 持平。"""
         mgr = make_manager()
         route = next(r for r in CFG["routes"] if r["name"] == self.TOP_ROUTE)
         player = _Player(self.LEVEL)
-        small = max(1, mgr.tick_count(route["duration"]) - 1)
         value = 0
         empty = 0
         for _ in range(runs):
-            run_value = 0
-            for _ in range(small):
-                event = mgr._trigger_route_event(route)
-                for entry in mgr._roll_drops(
-                    player, route, event, chance_scale=mgr.tick_item_mult / small
-                ):
-                    run_value += MATS[entry[0]]["price"] * entry[1]
             event = mgr._trigger_route_event(route)
+            run_value = 0
             for entry in mgr._roll_drops(
-                player, route, event, chance_scale=mgr.final_item_mult
+                player, route, event, chance_scale=mgr.ITEM_CHANCE_SCALE
             ):
                 run_value += MATS[entry[0]]["price"] * entry[1]
             value += run_value

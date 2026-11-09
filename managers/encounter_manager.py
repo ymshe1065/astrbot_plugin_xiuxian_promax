@@ -34,8 +34,13 @@ class EncounterManager:
     def _reward_scale(self, player: Player) -> float:
         return min(self.REWARD_SCALE_MAX, 1.0 + (player.level_index or 0) * self.REWARD_SCALE_PER_LEVEL)
 
-    async def maybe_trigger(self, player: Player, base_chance: int = 20) -> Optional[str]:
-        """历练(20%)/秘境(25%)归来时调用，概率触发奇遇。返回提示文本（None 表示未触发）"""
+    async def maybe_trigger(
+        self, player: Player, base_chance: int = 20, umo: str = ""
+    ) -> Optional[str]:
+        """历练归来时调用，概率触发奇遇。返回提示文本（None 表示未触发）。
+
+        umo 用于超时自动结算后把结果推回原会话。
+        """
         if not player:
             return None
         # 功德越高奇遇越容易触发（每点+2%，上限+20%）；气运每点+0.5%，上限+20%
@@ -67,6 +72,7 @@ class EncounterManager:
         payload = {
             "key": event["key"],
             "expire": int(time.time()) + self.CHOICE_EXPIRE,
+            "umo": umo or "",
         }
         await self.db.ext.set_system_config(self._storage_key(player.user_id), json.dumps(payload, ensure_ascii=False))
 
@@ -79,10 +85,12 @@ class EncounterManager:
             f"{event['desc']}\n"
             f"{option_lines}\n"
             f"━━━━━━━━━━━━━━━\n"
-            f"💡 发送 /奇遇选择 <编号> 做出抉择（{self.CHOICE_EXPIRE // 60}分钟内有效，过期视作离开）"
+            f"💡 发送 /奇遇选择 <编号> 做出抉择（{self.CHOICE_EXPIRE // 60}分钟内有效，超时自动按 [1] 结算）"
         )
 
-    async def maybe_trigger_merit(self, player: Player, gold: int, exp: int, chance: int = None) -> Optional[str]:
+    async def maybe_trigger_merit(
+        self, player: Player, gold: int, exp: int, chance: int = None, umo: str = ""
+    ) -> Optional[str]:
         """历练归来概率触发「途中善举」：分出部分收获接济灾民（不直接写功德）。"""
         if not player or (int(gold or 0) <= 0 and int(exp or 0) <= 0):
             return None
@@ -101,6 +109,7 @@ class EncounterManager:
         payload = {
             "key": "__merit__",
             "expire": int(time.time()) + self.CHOICE_EXPIRE,
+            "umo": umo or "",
             "merit": {
                 "gold": int(gold or 0),
                 "exp": int(exp or 0),
@@ -119,11 +128,36 @@ class EncounterManager:
             "  [1] 分出四成收获接济他们\n"
             "  [2] 收下全部收获继续赶路\n"
             "━━━━━━━━━━━━━━━\n"
-            f"💡 发送 /奇遇选择 <编号>（{self.CHOICE_EXPIRE // 60}分钟内有效）"
+            f"💡 发送 /奇遇选择 <编号>（{self.CHOICE_EXPIRE // 60}分钟内有效，超时自动按 [1] 结算）"
         )
 
-    async def resolve_choice(self, player: Player, choice: int) -> Tuple[bool, str]:
-        """处理玩家的奇遇选择"""
+    async def settle_expired(self, now: int = None) -> List[Tuple[str, str]]:
+        """挑出已过期未选择的奇遇，返回 [(user_id, umo)]。
+
+        真正的结算由调用方在玩家锁内调用 resolve_choice(..., auto=True) 完成，
+        避免这里和命令处理并发写同一个玩家。
+        """
+        now = int(now if now is not None else time.time())
+        rows = await self.db.ext.list_system_configs(self.STORAGE_KEY_PREFIX)
+        expired: List[Tuple[str, str]] = []
+        for key, raw in rows:
+            if not raw:
+                continue
+            try:
+                payload = json.loads(raw)
+            except Exception:
+                await self.db.ext.set_system_config(key, "")
+                continue
+            if int(payload.get("expire", 0) or 0) > now:
+                continue
+            user_id = key[len(self.STORAGE_KEY_PREFIX):]
+            expired.append((user_id, str(payload.get("umo") or "")))
+        return expired
+
+    async def resolve_choice(
+        self, player: Player, choice: int, auto: bool = False
+    ) -> Tuple[bool, str]:
+        """处理玩家的奇遇选择。auto=True 表示超时自动结算，跳过过期检查。"""
         raw = await self.db.ext.get_system_config(self._storage_key(player.user_id))
         if not raw:
             return False, "❌ 你当前没有进行中的奇遇。"
@@ -134,7 +168,7 @@ class EncounterManager:
             await self.db.ext.set_system_config(self._storage_key(player.user_id), "")
             return False, "❌ 奇遇数据异常，已清除。"
 
-        if int(time.time()) > int(payload.get("expire", 0)):
+        if not auto and int(time.time()) > int(payload.get("expire", 0)):
             await self.db.ext.set_system_config(self._storage_key(player.user_id), "")
             return False, "⌛ 奇遇已消散于风中（超时未选择）。"
 

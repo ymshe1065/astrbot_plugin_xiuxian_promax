@@ -73,12 +73,12 @@ class TestShopConfigRefresh(unittest.TestCase):
         }
         changed = self.sm.refresh_item_data([item])
         self.assertTrue(changed)
-        self.assertEqual(item["data"]["exp_multiplier"], 0.05)
+        self.assertEqual(item["data"]["exp_multiplier"], 0.08)
         self.assertEqual(item["price"], item["data"]["price"])
         self.assertEqual(item["original_price"], item["data"]["price"])
         self.assertEqual(item["stock"], old_stock)
         text = self.sm._get_item_effect_short(item)
-        self.assertIn("修炼效率+5%", text)
+        self.assertIn("修炼效率+8%", text)
         self.assertNotIn("200%", text)
 
     def test_stale_recipe_price_is_updated(self):

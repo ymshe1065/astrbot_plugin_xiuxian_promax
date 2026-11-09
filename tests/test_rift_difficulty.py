@@ -141,19 +141,24 @@ class TestRiftStructure(unittest.TestCase):
                 self.assertLessEqual(diff["required_level"], 35)
 
     def test_minute_rate_grows_with_requirement(self):
-        """单位时间收益必须随境界门槛上升，否则高境界玩家没有理由换本。"""
-        by_level = {}
+        """单位时间收益必须随境界门槛抬升，否则高境界玩家没有理由换本。
+
+        v7.7 起秘境修为按「境界段 × 档位」配比，段内是平的（秘境定位为材料副本），
+        所以按「秘境整体」比较最深层收益，而不是逐境界比较。
+        """
+        entries = []
         for rift in self.rifts:
-            for diff in rift["difficulties"]:
-                minutes = max(1, diff["duration"] // 60)
-                by_level.setdefault(diff["required_level"], []).append(
-                    sum(diff["exp"]) / 2 / minutes
-                )
-        levels = sorted(by_level)
-        for prev, cur in zip(levels, levels[1:]):
+            min_level = min(d["required_level"] for d in rift["difficulties"])
+            best = max(
+                sum(d["exp"]) / 2 / max(1, d["duration"] // 60)
+                for d in rift["difficulties"]
+            )
+            entries.append((min_level, best, rift["name"]))
+        entries.sort()
+        for (l1, r1, n1), (l2, r2, n2) in zip(entries, entries[1:]):
             self.assertGreaterEqual(
-                max(by_level[cur]), max(by_level[prev]),
-                f"境界 {cur} 的秘境每分钟修为不如 {prev}",
+                r2, r1,
+                f"{n2}（门槛 {l2}）每分钟修为不如 {n1}（门槛 {l1}）",
             )
 
     def test_deeper_tier_is_not_slower_per_minute(self):
@@ -399,15 +404,27 @@ class TestRiftFlow(unittest.IsolatedAsyncioTestCase):
         ok, msg = await self.mgr.enter_rift("u1", 3)
         self.assertTrue(ok, msg)
         cd = await self._cd()
-        await self.db.ext.set_user_busy(
-            "u1", self.UserStatus.EXPLORING, int(time.time()) - 1, cd.get_extra_data()
+        extra = cd.get_extra_data()
+        # 整趟跑完：create_time 拨回出发时刻、scheduled_time 落到已过期，
+        # settle_due 才会补齐全部小结段 + 大结算。
+        # 只改 scheduled_time 的话 elapsed≈0，一段小结都不结算，
+        # 结算出来的只是大结算那 40%，断言整趟总额会随机假失败。
+        duration = int(extra.get("ticks_total", 2)) * int(extra.get("tick_seconds", 300))
+        now = int(time.time())
+        await self.db.conn.execute(
+            "UPDATE user_cd SET create_time = ?, scheduled_time = ? WHERE user_id = ?",
+            (now - duration, now - 1, "u1"),
         )
+        await self.db.conn.commit()
         ok, msg, data = await self.mgr.finish_exploration("u1")
         self.assertTrue(ok, msg)
         # 青云·三重 修为区间（无丹药/称号加成时落在区间内）
+        # v7.7 起整趟修为在进入时一次 roll 定再按段拆分，data["exp"] 只是
+        # 「大结算」那一段；整趟总额看 total_exp。分段 int 截断每段最多丢 1 点，
+        # 下界留 10 点余量。
         lo, hi = RIFT_CFG["rifts"][0]["difficulties"][2]["exp"]
-        self.assertGreaterEqual(data["exp"], lo)
-        self.assertLessEqual(data["exp"], hi)
+        self.assertGreaterEqual(data["total_exp"], lo - 10)
+        self.assertLessEqual(data["total_exp"], hi)
         self.assertIn("青云秘境·三重", data["rift_name"])
 
     async def test_drops_come_from_tier_table(self):
@@ -454,9 +471,36 @@ class TestRiftFlow(unittest.IsolatedAsyncioTestCase):
         self.assertIn("青云秘境", msg)
         self.assertIn("ID:1", msg)
         self.assertIn("可进入", msg)
-        # 15 个秘境标题各出现一次
-        for rift in RIFT_CFG["rifts"]:
-            self.assertEqual(msg.count(f"【{rift['name']}】"), 1)
+        # v7.8：列表改成「可进入 / 即将解锁 / 未解锁」三段，不再按秘境平铺
+        self.assertIn("当前可进", msg)
+        self.assertIn("即将解锁", msg)
+        self.assertIn("尚未解锁", msg)
+
+    async def test_list_filters_by_product(self):
+        """按主产物筛选后只剩该类别，且复合产物（灵液+矿材）能被两类同时命中。"""
+        ok, msg = await self.mgr.list_rifts("u1", "灵植")
+        self.assertTrue(ok, msg)
+        self.assertIn("灵植", msg)
+        self.assertNotIn("妖兽☆", msg)
+
+    async def test_list_sorts_by_material_value(self):
+        """可进入段必须按「材料价值/分钟」降序，第一条带「最佳」。"""
+        data = await self.mgr.build_rift_list("u1")
+        self.assertTrue(data)
+        open_group = next(g for g in data["groups"] if g["key"] == "open")
+        rates = [it["value_per_min"] for it in open_group["items"]]
+        self.assertEqual(rates, sorted(rates, reverse=True))
+        self.assertEqual(open_group["items"][0]["badge"], "最佳")
+
+    async def test_list_marks_upcoming_unlock(self):
+        """差 1~3 级的档要单独进「即将解锁」，不能混进可进入段。"""
+        data = await self.mgr.build_rift_list("u1")
+        level = 10
+        soon = next((g for g in data["groups"] if g["key"] == "soon"), None)
+        if soon:
+            for item in soon["items"]:
+                gap = item["required_level"] - level
+                self.assertTrue(1 <= gap <= 3, item)
 
 
 if __name__ == "__main__":

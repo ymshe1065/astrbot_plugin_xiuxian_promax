@@ -115,7 +115,7 @@ class TestItemDetailFixes(unittest.TestCase):
     def test_permanent_pill_shows_lifespan_and_multiplier(self):
         self.assertIn("寿命+300", self.shop.get_item_details(self.shop.find_item_by_name("延年丹")))
         text = self.shop.get_item_details(self.shop.find_item_by_name("伐体丹"))
-        self.assertIn("修炼速度+200%（永久）", text)
+        self.assertIn("修炼速度+240%（永久）", text)
         self.assertIn("物伤-30%（永久）", text)
 
     def test_every_utility_pill_has_effect_section(self):

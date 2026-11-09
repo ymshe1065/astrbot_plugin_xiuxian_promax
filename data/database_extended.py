@@ -755,6 +755,16 @@ class DatabaseExtended:
             row = await cursor.fetchone()
             return row[0] if row else None
     
+    async def list_system_configs(self, prefix: str = "") -> List[tuple]:
+        """按 key 前缀列出系统配置（扫描过期奇遇等场景用）。"""
+        await self.ensure_system_config_table()
+        async with self.conn.execute(
+            "SELECT key, value FROM system_config WHERE key LIKE ?",
+            (f"{prefix}%",),
+        ) as cursor:
+            rows = await cursor.fetchall()
+        return [(str(row[0]), str(row[1] or "")) for row in rows]
+
     async def set_system_config(self, key: str, value: str):
         """设置系统配置"""
         import time

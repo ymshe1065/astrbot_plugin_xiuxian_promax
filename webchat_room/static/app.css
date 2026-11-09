@@ -975,6 +975,99 @@ html[data-theme="fish"] .msg-row {
 .bullet-item.link:active { background: var(--accent-soft-2); }
 .bullet-go { margin-left: auto; color: var(--cinnabar); opacity: .75; font-size: 15px; }
 
+/* ===== 发现型列表（秘境 / 历练）：筛选 + 折叠 + 行内进入 ===== */
+.discover { padding: 6px 0 2px; }
+.discover-facets {
+  display: flex; flex-wrap: wrap; gap: 5px;
+  padding: 2px 19px 10px;
+}
+.discover-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 10px; border-radius: 7px; font-size: 12px;
+  border: 1px solid var(--card-line); color: var(--card-mute);
+  background: transparent; cursor: pointer;
+  transition: background .12s, border-color .12s, color .12s;
+}
+.discover-chip:hover { background: var(--jade-soft); border-color: rgba(var(--jade-rgb), .45); }
+.discover-chip.on {
+  background: var(--jade); border-color: var(--jade); color: #fff;
+}
+.discover-chip i {
+  font-style: normal; font-size: 10.5px; opacity: .72;
+  font-variant-numeric: tabular-nums;
+}
+.discover-group + .discover-group { border-top: 1px solid var(--card-line); }
+.discover-head {
+  display: flex; align-items: center; gap: 7px; width: 100%;
+  padding: 9px 19px; font-size: 11.5px; letter-spacing: .4px;
+  color: var(--card-mute); background: rgba(var(--edge-rgb), .05);
+  border: none; cursor: pointer; text-align: left;
+}
+.discover-head:hover { background: rgba(var(--edge-rgb), .09); }
+.discover-count {
+  font-style: normal; font-size: 10.5px; padding: 1px 6px; border-radius: 99px;
+  background: rgba(var(--edge-rgb), .14); font-variant-numeric: tabular-nums;
+}
+.discover-caret {
+  margin-left: auto; font-style: normal; font-size: 13px;
+  transition: transform .15s; display: inline-block;
+}
+.discover-group.open .discover-caret { transform: rotate(90deg); }
+.discover-items { display: flex; flex-direction: column; }
+.discover-item {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 10px 19px; border: none; border-top: 1px dashed var(--card-line);
+  background: transparent; cursor: pointer; text-align: left;
+  transition: background .12s;
+}
+.discover-item:hover { background: rgba(var(--accent-rgb), .05); }
+.discover-item.best { background: rgba(var(--edge-rgb), .09); }
+.discover-item.best:hover { background: rgba(var(--edge-rgb), .14); }
+.di-main { flex: 1; min-width: 0; }
+.di-title {
+  font-size: 14px; color: var(--card-ink); font-weight: 600;
+  font-family: var(--kai); letter-spacing: .4px;
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+}
+.di-badge {
+  font-style: normal; font-size: 10px; font-weight: 400;
+  color: var(--gold); background: var(--gold-soft);
+  border: 1px solid rgba(var(--edge-rgb), .3);
+  padding: 1px 5px; border-radius: 4px;
+}
+.di-rows { display: flex; flex-wrap: wrap; gap: 3px 12px; margin-top: 4px; }
+.di-rows span { font-size: 11.5px; color: var(--card-dim); }
+.di-rows b {
+  color: var(--card-title); font-weight: 500; margin-left: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.di-go {
+  flex: 0 0 auto; font-size: 11.5px; padding: 5px 12px; border-radius: 7px;
+  background: var(--accent-soft); color: var(--accent);
+  border: 1px solid rgba(var(--edge-rgb), .28);
+}
+.discover-item.best .di-go {
+  background: var(--cinnabar); color: #fff; border-color: var(--cinnabar);
+}
+/* 未解锁行：整体压暗，右侧换成「需 X」提示，不给可点的按钮 */
+.discover-item.locked { opacity: .62; cursor: default; }
+.discover-item.locked .di-title { font-weight: 500; }
+.di-lock {
+  flex: 0 0 auto; font-size: 11px; padding: 4px 8px; border-radius: 7px;
+  background: rgba(var(--edge-rgb), .10); color: var(--card-mute);
+  border: 1px dashed rgba(var(--edge-rgb), .30);
+}
+.discover-empty {
+  padding: 18px 19px; font-size: 12.5px; color: var(--card-mute);
+  text-align: center;
+}
+@media (max-width: 560px) {
+  .discover-facets { padding: 2px 13px 8px; }
+  .discover-head, .discover-item { padding-left: 13px; padding-right: 13px; }
+  .di-go { padding: 4px 9px; font-size: 11px; }
+  .di-title { font-size: 13.5px; }
+}
+
 /* 列表型（秘境 / 排行 / 货架） */
 .card-items { display: flex; flex-direction: column; }
 .card-item {

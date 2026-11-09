@@ -218,7 +218,10 @@ def _gold_gradient_text(canvas, xy, text, font) -> Tuple[int, int]:
 _EMOJI_RE = re.compile(
     '['
     '\U0001F300-\U0001FAFF'   # 主要 emoji 区块
-    '\U00002600-\U000027BF'   # 杂项符号（⚔✡☯等）
+    '\U00002600-\U00002604'   # 杂项符号（⚔✡☯等）
+    # ★ U+2605 / ☆ U+2606 故意排除：它们走 OpenMoji 时，空心星裁切后只剩
+    # 一条竖杠（列表里显示成「方块」）；交给中文字体画，实心空心才配套。
+    '\U00002607-\U000027BF'
     '\U0001F000-\U0001F02F'
     '\U00002190-\U000021FF'   # 箭头
     '\U00002B00-\U00002BFF'
@@ -356,8 +359,13 @@ def render_card(
     sections: Optional[List[Dict]] = None,
     footer: str = "",
     width: int = 1000,
+    payload_extra: Optional[Dict] = None,
 ) -> Optional[str]:
-    """渲染国风绢帛·墨金·多字体层次信息卡片，返回图片路径（失败返回 None）"""
+    """渲染国风绢帛·墨金·多字体层次信息卡片，返回图片路径（失败返回 None）
+
+    payload_extra 会合并进 sidecar 顶层字段：网页端读结构化数据原生渲染，
+    位图只负责 QQ 端的展示，两边可以各自裁剪信息量。
+    """
     if not HAS_PIL:
         return None
 
@@ -557,6 +565,8 @@ def render_card(
                 ],
                 "footer": footer,
             }
+            if payload_extra:
+                payload.update(payload_extra)
             out_path.with_suffix(".json").write_text(
                 json.dumps(payload, ensure_ascii=False), encoding="utf-8"
             )
@@ -577,10 +587,13 @@ def render_card(
 
 async def render_card_async(bg_name: str, title: str, subtitle: str = "",
                             sections: Optional[List[Dict]] = None, footer: str = "",
-                            width: int = 1000) -> Optional[str]:
+                            width: int = 1000,
+                            payload_extra: Optional[Dict] = None) -> Optional[str]:
     """异步版本；失败/关闭返回 None"""
     import asyncio
-    return await asyncio.to_thread(render_card, bg_name, title, subtitle, sections, footer, width)
+    return await asyncio.to_thread(
+        render_card, bg_name, title, subtitle, sections, footer, width, payload_extra
+    )
 
 
 # ===== 兼容旧接口 =====

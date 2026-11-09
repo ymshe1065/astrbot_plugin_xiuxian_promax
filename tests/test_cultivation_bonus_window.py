@@ -166,6 +166,8 @@ class TestCultivationBonusWindow(unittest.TestCase):
     # ---------- 数值落地 ----------
     def test_exp_reflects_weighted_multiplier(self):
         player = self._player()
+        # 放在中期境界上取整误差可忽略（练气期需求仅 500，取整会把 1.05 抬成 1.08）
+        player.level_index = 20
         base = self.mgr.calculate_cultivation_exp(player, 600, 0.0, {"cultivation_speed": 1.0})
 
         begin, _end = self._window([], 600)

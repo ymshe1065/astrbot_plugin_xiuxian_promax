@@ -178,6 +178,12 @@ class TestRiftSettlementAtomicity(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(fresh.get_storage_ring_items().get("灵草"), 1)
 
     async def test_exit_failure_does_not_charge_penalty(self):
+        # 已到点会按「完成」直接大结算，这里要测的是未走完的中途退出分支
+        cd = await self.db.ext.get_user_cd("first")
+        await self.db.ext.set_user_busy(
+            "first", cd.type, int(time.time()) + 3600, cd.get_extra_data()
+        )
+
         async def fail_free(*args, **kwargs):
             raise RuntimeError("模拟退出状态写入失败")
 

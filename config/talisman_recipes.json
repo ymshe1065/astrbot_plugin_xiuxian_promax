@@ -755,7 +755,7 @@
       }
     ],
     "effects": {
-      "cultivation_multiplier": 0.18,
+      "cultivation_multiplier": 0.28,
       "lifespan_regen_per_minute": 1,
       "luck_bonus": 2
     },
@@ -785,7 +785,7 @@
       }
     ],
     "effects": {
-      "cultivation_multiplier": 0.22,
+      "cultivation_multiplier": 0.35,
       "lifespan_regen_per_minute": 2,
       "luck_bonus": 3
     },
@@ -815,7 +815,7 @@
       }
     ],
     "effects": {
-      "cultivation_multiplier": 0.27,
+      "cultivation_multiplier": 0.42,
       "lifespan_regen_per_minute": 2,
       "luck_bonus": 4
     },
@@ -845,7 +845,7 @@
       }
     ],
     "effects": {
-      "cultivation_multiplier": 0.34,
+      "cultivation_multiplier": 0.55,
       "lifespan_regen_per_minute": 3,
       "luck_bonus": 5
     },
@@ -996,7 +996,7 @@
       }
     ],
     "effects": {
-      "cultivation_multiplier": 0.2
+      "cultivation_multiplier": 0.31
     },
     "duration": 43200,
     "desc": "以妖兽精血塑形、圣矿铸骨、圣植养魂炼成的化身傀儡。绘制成功后用 /激活化身 唤醒：30 天内闭关收益 +20%。",

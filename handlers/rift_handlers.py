@@ -2,6 +2,8 @@
 from astrbot.api.event import AstrMessageEvent
 from ..managers.rift_manager import RiftManager
 from ..data.data_manager import DataBase
+from ..utils.list_card import to_card_parts
+from ..utils.result_card import render_result_card
 from .utils import set_event_flag
 
 class RiftHandlers:
@@ -9,11 +11,27 @@ class RiftHandlers:
         self.db = db
         self.rift_mgr = rift_mgr
 
-    async def handle_rift_list(self, event: AstrMessageEvent):
-        """秘境列表（带玩家境界标注）"""
+    async def handle_rift_list(self, event: AstrMessageEvent, product: str = ""):
+        """秘境列表（按可进入状态分组 + 材料价值排序 + 产物筛选）"""
         user_id = event.get_sender_id()
-        success, msg = await self.rift_mgr.list_rifts(user_id)
-        yield event.plain_result(msg)
+        data = await self.rift_mgr.build_rift_list(user_id, product)
+        if not data:
+            yield event.plain_result("❌ 当前没有开放的秘境！")
+            return
+        ok, msg = await self.rift_mgr.list_rifts(user_id, product, data=data)
+        sections, payload = to_card_parts(
+            data, "rift_list", top_n=self.rift_mgr.LIST_TOP_N,
+            note="修为是象征量，材料才是秘境的主产出；★ 为同境界段内的材料价值档",
+        )
+        card = await render_result_card(
+            "秘境列表", msg, background="adventure", subtitle=data["subtitle"],
+            footer="/探索秘境 <ID> 进入 · /秘境详情 <ID> 看掉落",
+            sections=sections, enabled_key="CARD_RIFT", payload_extra=payload,
+        )
+        if card and hasattr(event, "image_result"):
+            yield event.image_result(card)
+        else:
+            yield event.plain_result(msg)
 
     async def handle_rift_detail(self, event: AstrMessageEvent, rift_id: int):
         """秘境详情（产出与掉落表）"""
@@ -26,7 +44,8 @@ class RiftHandlers:
         if not rift_id:
             yield event.plain_result("❌ 请输入秘境ID")
             return
-        success, msg = await self.rift_mgr.enter_rift(user_id, int(rift_id))
+        umo = str(getattr(event, "unified_msg_origin", "") or "")
+        success, msg = await self.rift_mgr.enter_rift(user_id, int(rift_id), umo=umo)
         yield event.plain_result(msg)
 
     async def handle_rift_explore_by_name(self, event: AstrMessageEvent, name: str, difficulty: str = ""):
@@ -34,7 +53,8 @@ class RiftHandlers:
         user_id = event.get_sender_id()
         rift, candidates = await self.rift_mgr.find_rift(name, difficulty)
         if rift:
-            success, msg = await self.rift_mgr.enter_rift(user_id, int(rift.rift_id))
+            umo = str(getattr(event, "unified_msg_origin", "") or "")
+            success, msg = await self.rift_mgr.enter_rift(user_id, int(rift.rift_id), umo=umo)
             yield event.plain_result(msg)
             return
         if not candidates:

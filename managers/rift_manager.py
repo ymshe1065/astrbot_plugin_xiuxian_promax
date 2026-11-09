@@ -82,6 +82,28 @@ class RiftManager:
         # 秘境总数量（按秘境计，不含难度）
         self.group_count = len(self.rifts)
 
+        # v7.7：秘境改成分段结算（每 5 分钟一段），修为/灵石打回旧版一半，主要做材料副本
+        tick_cfg = self.config.get("tick_settlement") or {}
+        try:
+            self.tick_seconds = max(60, int(tick_cfg.get("tick_seconds", 300)))
+        except (TypeError, ValueError):
+            self.tick_seconds = 300
+        try:
+            self.tick_share = min(0.9, max(0.1, float(tick_cfg.get("tick_share", 0.6))))
+        except (TypeError, ValueError):
+            self.tick_share = 0.6
+        try:
+            self.tick_item_mult = max(0.0, float(tick_cfg.get("tick_item_chance_mult", 1.2)))
+        except (TypeError, ValueError):
+            self.tick_item_mult = 1.2
+        try:
+            self.final_item_mult = max(0.0, float(tick_cfg.get("final_item_chance_mult", 0.8)))
+        except (TypeError, ValueError):
+            self.final_item_mult = 0.8
+
+        # 单趟材料价值缓存（配置静态、掉落表静态，按 rift_id 缓存即可）
+        self._value_cache: Dict[int, float] = {}
+
     # ---------------------------------------------------------------
     # 秘境定义 → 数据库
     # ---------------------------------------------------------------
@@ -203,20 +225,148 @@ class RiftManager:
             return level_names[level_index]
         return f"境界{level_index}"
     
-    async def list_rifts(self, user_id: str = None) -> Tuple[bool, str]:
+    # -------- 列表数据（卡片 / 网页 / 兜底文本共用）--------
+
+    # 可进入段默认只推最划算的前若干档，其余靠筛选或「全部」展开
+    LIST_TOP_N = 8
+    # ★ 评级按境界段（每 10 级）内的相对价值分档：跨段比绝对数值没有意义
+    VALUE_BAND_SIZE = 10
+    # 展示用产物分类（配置里的 "灵液+矿材" 这类复合值按包含关系归入对应类）
+    PRODUCT_FACETS = ("灵植", "矿材", "灵液", "妖兽", "全产物")
+
+    def _material_value(self, rift: Optional[Rift]) -> float:
+        """单趟期望材料价值（按目录价折成灵石等值）。
+
+        期望 = Σ(权重占比 × 平均数量 × 单价) × 主掉落概率 × (1 + 额外掉落概率)
+        额外掉落是条件概率（不参与分段摊薄），所以整趟期望直接相加。
+        结果既是排序依据，也是 ★ 评级的输入。
         """
-        列出所有秘境（按秘境分组，每个秘境下展开难度）
+        if not rift or not self.config_manager:
+            return 0.0
+        try:
+            rid = int(rift.rift_id)
+        except (TypeError, ValueError):
+            rid = None
+        if rid is not None and rid in self._value_cache:
+            return self._value_cache[rid]
 
-        Args:
-            user_id: 传入时按玩家境界标注可进入状态
+        cfg = self._rift_cfg(rift)
+        drops = cfg.get("drops") or []
+        value = 0.0
+        total_w = 0.0
+        for d in drops:
+            try:
+                total_w += max(1.0, float(d.get("weight", 1) or 1))
+            except (TypeError, ValueError):
+                total_w += 1.0
+        if total_w > 0:
+            for d in drops:
+                try:
+                    w = max(1.0, float(d.get("weight", 1) or 1))
+                    lo = float(d.get("min", 1) or 1)
+                    hi = float(d.get("max", lo) or lo)
+                except (TypeError, ValueError):
+                    continue
+                try:
+                    name = str(d.get("name", ""))
+                    # 掉落表里混了丹药等非材料赠品（五品渡劫增益丹单件 30 万），
+                    # 计进「材料价值」会把排序彻底带偏，所以只认 material_catalog。
+                    if not self.config_manager.get_material_info(name):
+                        continue
+                    price = float(self.config_manager.get_item_price(name) or 0)
+                except Exception:
+                    continue
+                value += (w / total_w) * ((lo + hi) / 2.0) * price
+        try:
+            chance = float(cfg.get("item_chance", 0) or 0) / 100.0
+            extra = 1.0 + float(cfg.get("extra_drop_chance", 0) or 0) / 100.0
+        except (TypeError, ValueError):
+            chance, extra = 0.0, 1.0
+        value = value * max(0.0, chance) * max(1.0, extra)
 
-        Returns:
-            (成功标志, 消息)
+        if rid is not None:
+            self._value_cache[rid] = value
+        return value
+
+    def _value_peak_by_band(self, rifts: List[Rift]) -> Dict[int, float]:
+        """每个境界段内最高的单趟材料价值，作为该段 ★ 的 100% 基准。"""
+        peaks: Dict[int, float] = {}
+        for rift in rifts:
+            band = int(rift.required_level or 0) // self.VALUE_BAND_SIZE
+            peaks[band] = max(peaks.get(band, 0.0), self._material_value(rift))
+        return peaks
+
+    @staticmethod
+    def _stars(value: float, peak: float) -> int:
+        """★ 相对「当前可进入段最高单趟价值」评级。
+
+        基准必须跟着玩家境界走：如果按境界段各算各的基准，列表里会出现
+        「第一名 1 星、最后一名的老秘境 3 星」，反而误导。用可进入段的
+        最高值当 100%，列表第一条永远是 ★★★，往下依次递减。
+        """
+        if peak <= 0:
+            return 0
+        ratio = value / peak
+        if ratio >= 0.85:
+            return 3
+        if ratio >= 0.55:
+            return 2
+        if ratio >= 0.30:
+            return 1
+        return 0
+
+    @staticmethod
+    def _star_text(stars: int) -> str:
+        stars = max(0, min(3, int(stars or 0)))
+        return "★" * stars + "☆" * (3 - stars)
+
+    @staticmethod
+    def _fmt_amount(value) -> str:
+        """修为/灵石量级：一万以下带千分位，以上折成「1.2 万」。"""
+        try:
+            v = int(round(float(value or 0)))
+        except (TypeError, ValueError):
+            return "0"
+        if v < 10000:
+            return f"{v:,}"
+        wan = v / 10000.0
+        return f"{wan:.0f} 万" if wan >= 10 else f"{wan:.1f} 万"
+
+    @classmethod
+    def _facet_of(cls, product: str) -> str:
+        """把配置里的主产物值归到 5 个展示分类之一。"""
+        text = str(product or "").strip()
+        for facet in cls.PRODUCT_FACETS:
+            if facet != "全产物" and facet in text:
+                return facet
+        return "全产物"
+
+    def _decorate_rift_row(self, row: dict, stars: int) -> None:
+        """把 ★ 与展示文案补进条目（星级要等分组后才知道基准，故分两步）。"""
+        star_text = self._star_text(stars)
+        row["stars"] = stars
+        row["star_text"] = star_text
+        row["rows"] = [
+            ["耗时", f"{row['minutes']} 分钟"],
+            ["主产", f"{row['facet']} {star_text}"],
+            ["修为", self._fmt_amount(row["exp"])],
+            ["灵石", self._fmt_amount(row["gold"])],
+        ]
+        # 图片版一档一行：名字+档位 时长 产物★ 修为
+        row["line"] = (
+            f"{row['title']}  {row['minutes']}分  {row['facet']}{star_text}"
+            f"  修为{self._fmt_amount(row['exp'])}"
+        )
+
+    async def build_rift_list(self, user_id: str = None, product: str = "") -> dict:
+        """结构化秘境列表：分组 + 排序 + ★ 评级 + 每行可直接进入的指令。
+
+        排序依据是「单趟期望材料价值 ÷ 分钟」，即秘境作为材料副本的真实效率；
+        修为已经压到象征量，不再参与排序。
         """
         rifts = await self.db.ext.get_all_rifts()
-
         if not rifts:
-            return False, "❌ 当前没有开放的秘境！"
+            return {}
 
         player_level = None
         if user_id:
@@ -227,49 +377,188 @@ class RiftManager:
             except Exception:
                 player_level = None
 
-        groups: Dict[str, List[Rift]] = {}
+        wanted = str(product or "").strip()
+
+        rows: List[dict] = []
         for rift in rifts:
-            group_key = rift.rift_key or f"id{rift.rift_id}"
-            groups.setdefault(group_key, []).append(rift)
+            minutes = max(1, self._duration_of(rift) // 60)
+            value = self._material_value(rift)
+            cfg = self._rift_cfg(rift)
+            exp_range = cfg.get("exp") or [0, 0]
+            gold_range = cfg.get("gold") or [0, 0]
+            try:
+                exp_mid = (float(exp_range[0]) + float(exp_range[-1])) / 2.0
+            except (TypeError, ValueError, IndexError):
+                exp_mid = 0.0
+            try:
+                gold_mid = (float(gold_range[0]) + float(gold_range[-1])) / 2.0
+            except (TypeError, ValueError, IndexError):
+                gold_mid = 0.0
+            rows.append(
+                {
+                    "id": int(rift.rift_id),
+                    "name": str(rift.rift_name or ""),
+                    "tier": str(rift.difficulty_label or ""),
+                    "title": str(rift.display_name or f"{rift.rift_name} {rift.difficulty_label}"),
+                    "product": str(rift.product or ""),
+                    "facet": self._facet_of(rift.product),
+                    "required_level": int(rift.required_level or 0),
+                    "level_name": self._get_level_name(int(rift.required_level or 0)),
+                    "minutes": minutes,
+                    "value": round(value, 1),
+                    "value_per_min": round(value / minutes, 2),
+                    "exp": int(exp_mid),
+                    "gold": int(gold_mid),
+                    "cmd": f"/探索秘境 {int(rift.rift_id)}",
+                }
+            )
 
-        open_count = 0
-        locked_count = 0
-        msg = "🌀 秘境列表\n━━━━━━━━━━━━━━━\n"
-        for group_key, items in groups.items():
-            items.sort(key=lambda r: (r.difficulty or 1, r.rift_id))
-            head = items[0]
-            product = head.product or ""
-            title = f"【{head.rift_name}】" + (f" 主产：{product}" if product else "")
-            msg += title + "\n"
-            for rift in items:
-                exp_range = self._rift_cfg(rift).get("exp", [0, 0]) or [0, 0]
-                minutes = max(1, self._duration_of(rift) // 60)
-                if player_level is None:
-                    mark = "·"
-                    enterable = True
-                elif player_level >= rift.required_level:
-                    mark = "✅"
-                    enterable = True
-                    open_count += 1
+        # 筛选：复合主产物（如「灵液+矿材」）按包含关系归属，同时保留全产物类
+        if wanted and wanted != "全部":
+            target = self._facet_of(wanted) if wanted != "全产物" else "全产物"
+            rows = [r for r in rows if r["facet"] == target]
+
+        rows.sort(key=lambda r: (-r["value_per_min"], r["required_level"], r["id"]))
+
+        open_rows: List[dict] = []
+        soon_rows: List[dict] = []
+        locked_rows: List[dict] = []
+        if player_level is None:
+            open_rows = list(rows)
+        else:
+            for row in rows:
+                gap = row["required_level"] - player_level
+                if gap <= 0:
+                    open_rows.append(row)
+                elif gap <= 3:
+                    soon_rows.append(row)
                 else:
-                    mark = "🔒"
-                    enterable = False
-                    locked_count += 1
-                # 未解锁的档只报门槛与耗时，省版面
-                detail = (
-                    f"{minutes}分 · 修为{exp_range[0]:,}~{exp_range[1]:,}"
-                    if enterable else f"{minutes}分"
-                )
-                msg += (
-                    f"  {mark} {rift.difficulty_label} (ID:{rift.rift_id}) "
-                    f"需{self._get_level_name(rift.required_level)} · {detail}\n"
-                )
-            msg += "\n"
+                    locked_rows.append(row)
 
-        if player_level is not None:
-            msg += f"✅ 可进入 {open_count} 档 / 🔒 未解锁 {locked_count} 档\n"
-        msg += "💡 /探索秘境 <ID> 进入（如：/探索秘境 2）；/秘境详情 <ID> 查看掉落"
-        return True, msg
+        # ★ 以「当前可进入段的最高每分钟材料价值」为 100%：
+        # 与排序同口径，星级才能顺着列表单调递减，不会出现「第二名没星、第三名有星」
+        peak = max((r["value_per_min"] for r in open_rows), default=0.0)
+        if peak <= 0:
+            peak = max((r["value_per_min"] for r in rows), default=0.0)
+        for row in rows:
+            self._decorate_rift_row(row, self._stars(row["value_per_min"], peak))
+
+        # 同分并列时只给第一条「最佳」，避免整段都是奖牌
+        for i, row in enumerate(open_rows):
+            row["badge"] = "最佳" if i == 0 and len(open_rows) > 1 else ""
+            row["rank"] = i + 1
+
+        # 未解锁的两段打上 locked：网页端据此把行内按钮换成「需 XX」，
+        # 不能给一个点了只会弹「境界不足」的「进入」按钮。
+        for row in soon_rows + locked_rows:
+            row["locked"] = True
+            row["badge"] = ""
+            row["lock_text"] = f"需{row['level_name']}" if row.get("level_name") else f"需境界 {row['required_level']}"
+
+        # 推荐位按产物轮转，保证前 N 条覆盖不同材料而不是同类堆叠
+        recommended: List[dict] = []
+        try:
+            from ..utils.list_card import pick_recommend
+            recommended = pick_recommend(open_rows, self.PRODUCT_FACETS, self.LIST_TOP_N)
+            for row in recommended:
+                row["recommend"] = True
+        except Exception:
+            recommended = open_rows[: self.LIST_TOP_N]
+
+        facets = [{"key": "all", "label": "推荐", "count": len(recommended)}]
+        facets.append({"key": "全部", "label": "全部", "count": len(open_rows)})
+        for facet in self.PRODUCT_FACETS:
+            count = sum(1 for r in open_rows if r["facet"] == facet)
+            if count:
+                facets.append({"key": facet, "label": facet, "count": count})
+
+        groups: List[dict] = []
+        if open_rows:
+            groups.append(
+                {
+                    "key": "open",
+                    "name": "当前可进 · 按材料价值排序",
+                    "collapsed": False,
+                    "items": open_rows,
+                }
+            )
+        if soon_rows:
+            groups.append(
+                {
+                    "key": "soon",
+                    "name": f"即将解锁 · 还差 1~3 级 · {len(soon_rows)} 档",
+                    "collapsed": True,
+                    "items": soon_rows,
+                }
+            )
+        if locked_rows:
+            groups.append(
+                {
+                    "key": "locked",
+                    "name": f"尚未解锁 · {len(locked_rows)} 档",
+                    "collapsed": True,
+                    "items": locked_rows,
+                }
+            )
+
+        if player_level is None:
+            subtitle = f"共 {len(rows)} 档"
+        else:
+            subtitle = f"{self._get_level_name(player_level)} · 可进入 {len(open_rows)} 档 / 未解锁 {len(rows) - len(open_rows)} 档"
+        if wanted:
+            subtitle = f"{wanted} · {subtitle}"
+
+        return {
+            "subtitle": subtitle,
+            "facets": facets,
+            "groups": groups,
+            "total": len(rows),
+            "open": len(open_rows),
+            "filter": wanted,
+        }
+
+    async def list_rifts(self, user_id: str = None, product: str = "", data: dict = None) -> Tuple[bool, str]:
+        """秘境列表（文本兜底版：图片与网页都不可用时使用）。
+
+        Args:
+            user_id: 传入时按玩家境界标注可进入状态
+            product: 主产物筛选（灵植/矿材/灵液/妖兽/全产物）
+            data: 已算好的 build_rift_list 结果，传入可省一次重复计算
+
+        Returns:
+            (成功标志, 消息)
+        """
+        data = data or await self.build_rift_list(user_id, product)
+        if not data:
+            return False, "❌ 当前没有开放的秘境！"
+
+        lines = ["🌀 秘境列表", data["subtitle"], "━━━━━━━━━━━━━━━"]
+        for group in data["groups"]:
+            items = group["items"]
+            if group["key"] == "open":
+                lines.append(f"▸ {group['name']}")
+                shown = items[: self.LIST_TOP_N]
+                for row in shown:
+                    lines.append(
+                        f"  {row['title']} (ID:{row['id']})  {row['minutes']}分 · "
+                        f"{row['facet']}{row['star_text']} · 修为{self._fmt_amount(row['exp'])}"
+                        f" · 灵石{self._fmt_amount(row['gold'])}"
+                    )
+                if len(items) > len(shown):
+                    lines.append(f"  …另有 {len(items) - len(shown)} 档，/秘境列表 全部 查看")
+            elif group["key"] == "soon":
+                lines.append(f"▸ {group['name']}")
+                for row in items[:4]:
+                    lines.append(
+                        f"  🔒 {row['title']} (ID:{row['id']}) 需{row['level_name']} · {row['minutes']}分"
+                    )
+            else:
+                lines.append(f"▸ {group['name']}（含更深处秘境，境界提升后开放）")
+
+        lines.append("━━━━━━━━━━━━━━━")
+        lines.append("💡 /秘境列表 灵植 / 矿材 / 灵液 / 妖兽 / 全产物 按产物筛选")
+        lines.append("💡 /探索秘境 <ID> 进入；/秘境详情 <ID> 查看掉落")
+        return True, "\n".join(lines)
 
     async def find_rift(self, keyword: str, difficulty: str = "") -> Tuple[Optional[Rift], List[Rift]]:
         """按秘境名（可带难度）解析出唯一秘境行。
@@ -340,12 +629,13 @@ class RiftManager:
     async def enter_rift(
         self,
         user_id: str,
-        rift_id: int
+        rift_id: int,
+        umo: str = "",
     ) -> Tuple[bool, str]:
         async with self.db.transaction():
-            return await self._enter_rift(user_id, rift_id)
+            return await self._enter_rift(user_id, rift_id, umo)
 
-    async def _enter_rift(self, user_id: str, rift_id: int) -> Tuple[bool, str]:
+    async def _enter_rift(self, user_id: str, rift_id: int, umo: str = "") -> Tuple[bool, str]:
         """
         进入秘境
         
@@ -400,10 +690,21 @@ class RiftManager:
         # 5. 设置探索状态，存储秘境ID（时长按难度取，同秘境不同深度耗时不同）
         duration = self._duration_of(rift)
         scheduled_time = int(time.time()) + duration
+        # 进入时把整趟修为/灵石 roll 定，分段只按比例拆；umo 用于主动推送小结
+        base_exp, base_gold = self._roll_base_rewards(rift)
         extra_data = {
             "rift_id": rift_id,
             "rift_level": rift.rift_level,
             "difficulty": rift.difficulty or 1,
+            "umo": umo or "",
+            "tick_seconds": self.tick_seconds,
+            "ticks_total": self.tick_count(duration),
+            "ticks_done": 0,
+            "next_tick_at": scheduled_time - duration + self.tick_seconds,
+            "base_exp": base_exp,
+            "base_gold": base_gold,
+            "earned_exp": 0,
+            "earned_gold": 0,
         }
         await self.db.ext.set_user_busy(
             user_id, UserStatus.EXPLORING, scheduled_time, extra_data, commit=False
@@ -411,245 +712,461 @@ class RiftManager:
         
         return True, (
             f"✨ 你进入了『{rift.display_name}』！探索需要 {max(1, duration // 60)} 分钟。\n"
-            f"使用 /完成探索 领取奖励"
+            f"⏱️ 每 {self.tick_seconds // 60} 分钟自动结算一段，走完再发大结算\n"
+            f"🏳️ 中途可 /退出秘境：已结算奖励保留，未走完部分放弃"
         )
     
-    async def finish_exploration(
-        self,
-        user_id: str
-    ) -> Tuple[bool, str, Optional[Dict]]:
-        # 先锁定写事务再读探索状态，避免两个结算同时读取到同一轮探索。
-        async with self.db.transaction():
-            return await self._finish_exploration(user_id)
+    # -------- 分段结算（v7.7） --------
 
-    async def _finish_exploration(self, user_id: str) -> Tuple[bool, str, Optional[Dict]]:
-        """
-        完成秘境探索
-        
-        Args:
-            user_id: 用户ID
-            
-        Returns:
-            (成功标志, 消息, 奖励数据)
-        """
-        # 1. 检查用户
-        player = await self.db.get_player_by_id(user_id)
-        if not player:
-            return False, "❌ 你还未踏入修仙之路！", None
-        
-        # 2. 检查CD状态
-        user_cd = await self.db.ext.get_user_cd(user_id)
-        if not user_cd or user_cd.type != UserStatus.EXPLORING:
-            return False, "❌ 你当前不在探索秘境！", None
-        
-        # 3. 检查时间
-        current_time = int(time.time())
-        if current_time < user_cd.scheduled_time:
-            remaining = user_cd.scheduled_time - current_time
-            minutes = remaining // 60
-            return False, f"❌ 探索尚未完成！还需要 {minutes} 分钟。", None
-        
-        # 4. 获取秘境信息（从extra_data中读取）
-        extra_data = user_cd.get_extra_data() if hasattr(user_cd, 'get_extra_data') else {}
-        rift_id = extra_data.get("rift_id", 0)
-        
-        # 获取秘境配置
-        rift = await self.db.ext.get_rift_by_id(rift_id) if rift_id else None
-        rift_name = rift.display_name if rift else "未知秘境"
-        
-        # 5. 根据秘境配置计算奖励
+    def tick_count(self, duration: int) -> int:
+        """整趟秘境切成几段：前 n-1 段每 tick_seconds 结算，最后一段合并进大结算。"""
+        duration = max(60, int(duration or 0))
+        return max(2, int(round(duration / self.tick_seconds)))
+
+    def _read_extra(self, user_cd) -> dict:
+        try:
+            if hasattr(user_cd, "get_extra_data"):
+                return user_cd.get_extra_data() or {}
+            return json.loads(getattr(user_cd, "extra_data", "{}") or "{}")
+        except Exception:
+            return {}
+
+    @staticmethod
+    def _roll_base_rewards(rift: Optional[Rift]) -> Tuple[int, int]:
+        """进入时把整趟修为/灵石 roll 定，分段只按比例拆，总和不因拆段而波动。"""
         if rift:
-            rewards_config = rift.get_rewards()
-            exp_range = rewards_config.get("exp", [1000, 5000])
-            gold_range = rewards_config.get("gold", [500, 2000])
-            exp_reward = random.randint(exp_range[0], exp_range[1])
-            gold_reward = random.randint(gold_range[0], gold_range[1])
+            cfg = rift.get_rewards()
+            exp_range = cfg.get("exp") or [1000, 5000]
+            gold_range = cfg.get("gold") or [500, 2000]
         else:
-            # 兼容旧数据，使用默认奖励
-            exp_reward = random.randint(1000, 5000)
-            gold_reward = random.randint(500, 2000)
-        
+            exp_range, gold_range = [1000, 5000], [500, 2000]
+        lo, hi = int(exp_range[0]), int(exp_range[1])
+        g_lo, g_hi = int(gold_range[0]), int(gold_range[1])
+        return (
+            random.randint(min(lo, hi), max(lo, hi)),
+            random.randint(min(g_lo, g_hi), max(g_lo, g_hi)),
+        )
+
+    def _ensure_tick_state(self, extra: dict, rift: Optional[Rift], user_cd) -> dict:
+        """旧存档（v7.6 及以前进入的秘境）按已过时间直接接管。"""
+        extra = dict(extra or {})
+        duration = self._duration_of(rift)
+        extra.setdefault("tick_seconds", self.tick_seconds)
+        extra.setdefault("ticks_done", 0)
+        extra.setdefault("earned_exp", 0)
+        extra.setdefault("earned_gold", 0)
+        if not extra.get("ticks_total"):
+            extra["ticks_total"] = self.tick_count(duration)
+            extra["next_tick_at"] = int(
+                getattr(user_cd, "create_time", 0) or 0
+            ) + int(self.tick_seconds)
+        if not extra.get("base_exp"):
+            exp, gold = self._roll_base_rewards(rift)
+            extra["base_exp"], extra["base_gold"] = exp, gold
+        return extra
+
+    def _reward_mult(self, player) -> float:
+        """修为/灵石的个人倍率（秘境探索符 + 气运），称号另算。"""
+        mult = 1.0
         try:
             from .talisman_manager import TalismanManager
             from .luck_manager import LuckManager
-            reward_mult = 1.0 + TalismanManager.get_active_bonus(player, "rift_reward_multiplier")
-            reward_mult *= 1.0 + LuckManager.percent_bonus(
+
+            mult = 1.0 + TalismanManager.get_active_bonus(player, "rift_reward_multiplier")
+            mult *= 1.0 + LuckManager.percent_bonus(
                 player, per_point=0.3, cap=30.0, config_manager=self.config_manager
             ) / 100.0
-            exp_reward = int(exp_reward * reward_mult)
-            gold_reward = int(gold_reward * reward_mult)
+        except Exception:
+            pass
+        return mult
+
+    def _tick_rewards(self, extra: dict, share: float, segments: int) -> Tuple[int, int]:
+        """一段秘境的修为/灵石：整趟基数 × 该段占比 ÷ 段数。"""
+        segments = max(1, int(segments))
+        exp = int(int(extra.get("base_exp") or 0) * float(share) / segments)
+        gold = int(int(extra.get("base_gold") or 0) * float(share) / segments)
+        return max(0, exp), max(0, gold)
+
+    async def settle_due(self, user_id: str, now: int = None) -> Dict:
+        """结算所有已到期的段落，走完则补一次大结算。
+
+        返回 {"ok", "reason", "messages": [...], "ticks": n, "final": {...}|None}
+        """
+        now = int(now if now is not None else time.time())
+        user_cd = await self.db.ext.get_user_cd(user_id)
+        if not user_cd or user_cd.type != UserStatus.EXPLORING:
+            return {"ok": False, "reason": "idle", "messages": [], "ticks": 0, "final": None}
+
+        extra = self._read_extra(user_cd)
+        rift_id = int(extra.get("rift_id", 0) or 0)
+        rift = await self.db.ext.get_rift_by_id(rift_id) if rift_id else None
+        extra = self._ensure_tick_state(extra, rift, user_cd)
+
+        segments = max(2, int(extra["ticks_total"]))
+        tick_seconds = max(60, int(extra.get("tick_seconds") or self.tick_seconds))
+        settled = int(extra.get("ticks_done", 0) or 0)
+        elapsed = max(0, now - int(getattr(user_cd, "create_time", now) or now))
+        due = min(segments - 1, elapsed // tick_seconds)
+
+        result = {"ok": True, "reason": "", "messages": [], "ticks": 0, "final": None}
+        if due > settled:
+            msg = await self._settle_tick_batch(
+                user_id, rift, extra, due - settled, due, segments
+            )
+            result["ticks"] = due - settled
+            if msg:
+                result["messages"].append(msg)
+
+        if now >= int(getattr(user_cd, "scheduled_time", 0) or 0):
+            final = await self._settle_final(user_id, rift, extra, segments)
+            result["final"] = final
+            if final and final.get("message"):
+                result["messages"].append(final["message"])
+        return result
+
+    async def _settle_tick_batch(
+        self,
+        user_id: str,
+        rift: Optional[Rift],
+        extra: dict,
+        count: int,
+        settled_after: int,
+        segments: int,
+    ) -> str:
+        """把 count 个段落合并成一个事务结算。"""
+        small_segments = max(1, segments - 1)
+        rift_name = rift.display_name if rift else "未知秘境"
+        total_exp = total_gold = 0
+        items: List[Tuple] = []
+        event = None
+
+        await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            player = await self.db.get_player_by_id(user_id)
+            if not player:
+                await self.db.conn.rollback()
+                return ""
+
+            mult = self._reward_mult(player)
+            for _ in range(max(1, int(count))):
+                event = self._pick_event()
+                exp, gold = self._tick_rewards(extra, self.tick_share, small_segments)
+                exp = int(exp * mult)
+                gold = int(gold * mult)
+                try:
+                    from .title_manager import TitleManager
+
+                    exp = int(exp * (1 + TitleManager.get_exp_bonus(player)))
+                except Exception:
+                    pass
+                total_exp += exp
+                total_gold += gold
+                items.extend(
+                    await self._roll_rift_drops(
+                        player,
+                        rift,
+                        event["drop_mod"],
+                        chance_scale=self.tick_item_mult / small_segments,
+                    )
+                )
+
+            gold_bonus = self._gold_bonus_mult(player)
+            total_gold = int(total_gold * gold_bonus)
+
+            player.experience += total_exp
+            player.gold += total_gold
+            extra["ticks_done"] = int(settled_after)
+            extra["next_tick_at"] = int(extra.get("next_tick_at") or 0) + int(
+                extra.get("tick_seconds") or self.tick_seconds
+            ) * int(count)
+            extra["earned_exp"] = int(extra.get("earned_exp", 0) or 0) + total_exp
+            extra["earned_gold"] = int(extra.get("earned_gold", 0) or 0) + total_gold
+
+            # CAS：只有「当前已经结算到 prev_done 段」的那次调用能写入，
+            # 避免后台分段任务与玩家手动结算并发时同一段被发两次。
+            prev_done = int(settled_after) - int(count)
+            cursor = await self.db.conn.execute(
+                "UPDATE user_cd SET extra_data = ? "
+                "WHERE user_id = ? AND type = ? "
+                "AND COALESCE(json_extract(extra_data, '$.ticks_done'), 0) = ?",
+                (
+                    json.dumps(extra, ensure_ascii=False),
+                    user_id,
+                    int(UserStatus.EXPLORING),
+                    prev_done,
+                ),
+            )
+            if (cursor.rowcount or 0) == 0:
+                await self.db.conn.rollback()
+                return ""
+
+            # 先发物品再落库：grant_item 走「外部事务」模式，
+            # 只改 player 对象，由这里的 update_player 统一持久化。
+            _, item_msg = await self._grant_rift_drops(player, items)
+            await self.db.update_player(player, commit=False)
+            await self.db.conn.commit()
+        except Exception:
+            await self.db.conn.rollback()
+            raise
+
+        if count > 1:
+            head = f"⏱️ 秘境小结 · {rift_name}（补算 {count} 段 → {settled_after}/{small_segments}）"
+        else:
+            head = f"⏱️ 秘境小结 · {rift_name}（{settled_after}/{small_segments} 段）"
+        return "\n".join(
+            [
+                head,
+                "━━━━━━━━━━━━━━━",
+                event["desc"] if event else "一路无话。",
+                f"本段：修为 +{total_exp:,} · 灵石 +{total_gold:,}{item_msg}",
+                f"已累计：修为 +{int(extra.get('earned_exp', 0)):,} · "
+                f"灵石 +{int(extra.get('earned_gold', 0)):,}",
+            ]
+        )
+
+    async def _settle_final(
+        self,
+        user_id: str,
+        rift: Optional[Rift],
+        extra: dict,
+        segments: int,
+    ) -> Optional[Dict]:
+        """终段大结算：剩余 40% 收益 + 材料 + 宠物奇遇 + 符箓次数。"""
+        rift_name = rift.display_name if rift else "未知秘境"
+        event = self._pick_event()
+        items: List[Tuple] = []
+        pet_encounter = None
+        consumed_talismans: List[Tuple[str, int]] = []
+
+        await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            player = await self.db.get_player_by_id(user_id)
+            if not player:
+                await self.db.conn.rollback()
+                return None
+
+            # CAS 认领：只有把状态从「秘境中」改成「空闲」的那一次调用才算完成，
+            # 并发（手动 /秘境结算 + 后台定时任务）时后来者直接放弃，不会双发奖励。
+            cursor = await self.db.conn.execute(
+                "UPDATE user_cd SET type = ?, create_time = ?, scheduled_time = 0, extra_data = '{}' "
+                "WHERE user_id = ? AND type = ?",
+                (0, int(time.time()), user_id, int(UserStatus.EXPLORING)),
+            )
+            if (cursor.rowcount or 0) == 0:
+                # 认领失败：本次没有写入任何东西，直接放手让认领成功的那次提交
+                return None
+            await self.db.conn.execute(
+                "UPDATE players SET state = ? WHERE user_id = ?", ("空闲", user_id)
+            )
+
+            mult = self._reward_mult(player)
+            exp, gold = self._tick_rewards(extra, 1.0 - self.tick_share, 1)
+            exp = int(exp * mult)
+            gold = int(gold * mult)
             try:
                 from .title_manager import TitleManager
-                exp_reward = int(exp_reward * (1 + TitleManager.get_exp_bonus(player)))
+
+                exp = int(exp * (1 + TitleManager.get_exp_bonus(player)))
             except Exception:
                 pass
+            gold = int(gold * self._gold_bonus_mult(player))
+
+            items = await self._roll_rift_drops(
+                player, rift, event["drop_mod"], chance_scale=self.final_item_mult
+            )
+
+            player.experience += exp
+            player.gold += gold
+            try:
+                from .talisman_manager import TalismanManager
+
+                consumed_talismans = TalismanManager.consume_run_charges(player, "rift")
+            except Exception:
+                consumed_talismans = []
+
+            try:
+                from .pet_manager import PetManager
+
+                pet_encounter = await PetManager(self.db).try_exploration_encounter(
+                    player, "秘境探索中", commit=False
+                )
+            except Exception:
+                pet_encounter = None
+
+            # 先发物品再落库：grant_item 走「外部事务」模式，
+            # 只改 player 对象，由这里的 update_player 统一持久化。
+            _, item_msg = await self._grant_rift_drops(player, items)
+            await self.db.update_player(player, commit=False)
+            await self.db.conn.commit()
         except Exception:
-            pass
+            await self.db.conn.rollback()
+            raise
 
-        # 随机事件：只做小幅运气浮动，掉落基准概率由秘境难度决定
-        events = [
-            {"desc": "你发现了一处灵泉，修为大增！", "drop_mod": 6},
-            {"desc": "你在秘境中击败了一只妖兽！", "drop_mod": 10},
-            {"desc": "你找到了一个隐藏的宝箱！", "drop_mod": 15},
-            {"desc": "你领悟了一些修炼心得。", "drop_mod": -8},
-            {"desc": "你在秘境中遇到了前辈留下的传承！", "drop_mod": 8},
-        ]
-        event = random.choice(events)
-        
-        # 6. 物品掉落（按秘境难度的掉落表）
-        dropped_items = []
-        item_msg = ""
-        dropped_items = await self._roll_rift_drops(player, rift, event["drop_mod"])
-
-        # 7. 奖励、掉落与清空 CD 必须原子提交，避免结算中断后重复领取
-        pet_encounter = None
         pet_msg = ""
-        consumed_talismans: List[Tuple[str, int]] = []
-        if dropped_items:
-            item_lines = []
-            for entry in dropped_items:
-                item_name, count, *rest = entry
-                quality = rest[0] if rest else ""
-                # 统一发放入口：丹药固定进入丹药背包，其余进入储物戒
-                is_pill = self._is_pill_item(item_name)
-                if self.storage_ring_manager:
-                    success, _ = await self.storage_ring_manager.grant_item(
-                        player, item_name, count, quality=quality,
-                        silent=True, external_transaction=True,
-                    )
-                    if success:
-                        if is_pill:
-                            suffix = "（丹药背包）"
-                        else:
-                            suffix = f"（{quality}）" if quality else ""
-                        item_lines.append(f"  · {item_name} x{count}{suffix}")
-                    else:
-                        item_lines.append(f"  · {item_name} x{count}（储物戒已满，丢失）")
-                else:
-                    item_lines.append(f"  · {item_name} x{count}（无法存储）")
-            if item_lines:
-                item_msg = "\n\n📦 获得物品：\n" + "\n".join(item_lines)
-
-        try:
-            from ..core.technique_bonus import TechniqueBonusManager
-            gold_reward = TechniqueBonusManager.apply_gold_bonus(
-                player, gold_reward, self.config_manager
-            )
-        except Exception:
-            pass
-        try:
-            from .pet_manager import PetManager
-            gold_reward = await PetManager(self.db).apply_gold_bonus(player, gold_reward)
-        except Exception:
-            pass
-        player.experience += exp_reward
-        player.gold += gold_reward
-
-        # 探索符按次数生效：本次秘境结算后扣减一次，与耗时无关
-        try:
-            from .talisman_manager import TalismanManager
-            consumed_talismans = TalismanManager.consume_run_charges(player, "rift")
-        except Exception:
-            consumed_talismans = []
-        await self.db.update_player(player, commit=False)
-
-        # 灵兽奇遇：秘境归来的空槽判定
-        try:
-            from .pet_manager import PetManager
-            pet_encounter = await PetManager(self.db).try_exploration_encounter(
-                player, "秘境探索中", commit=False
-            )
-        except Exception:
-            pet_encounter = None
         if pet_encounter:
             from .pet_manager import PetManager
+
             pet_msg = PetManager.format_exploration_encounter(pet_encounter)
-
-        # 8. 清除CD
-        await self.db.ext.set_user_free(user_id, commit=False)
-
         talisman_hint = ""
         if consumed_talismans:
-            lines = [
+            talisman_hint = "\n" + "\n".join(
                 f"🧿 {name}：剩余 {left} 次历练/秘境" if left > 0 else f"🧿 {name}：次数已用尽"
                 for name, left in consumed_talismans
-            ]
-            talisman_hint = "\n" + "\n".join(lines)
+            )
 
-        msg = f"""
-🌀 探索完成 - {rift_name}
-━━━━━━━━━━━━━━━
-
-{event["desc"]}
-
-获得修为：+{exp_reward:,}
-获得灵石：+{gold_reward:,}{item_msg}{pet_msg}{talisman_hint}
-        """.strip()
-        
-        reward_data = {
-            "exp": exp_reward,
-            "gold": gold_reward,
+        total_exp = int(extra.get("earned_exp", 0) or 0) + int(exp)
+        total_gold = int(extra.get("earned_gold", 0) or 0) + int(gold)
+        msg = (
+            f"🌀 秘境探索完成 · {rift_name}\n"
+            f"━━━━━━━━━━━━━━━\n"
+            f"{event['desc']}\n\n"
+            f"全程 {max(1, self._duration_of(rift) // 60)} 分钟（{segments - 1} 段小结 + 大结算）\n"
+            f"🏆 大结算：修为 +{int(exp):,} · 灵石 +{int(gold):,}"
+            f"{item_msg}{pet_msg}{talisman_hint}\n"
+            f"━━━━━━━━━━━━━━━\n"
+            f"本趟合计：修为 +{total_exp:,} · 灵石 +{total_gold:,}\n"
+            f"当前修为：{player.experience:,}\n"
+            f"当前灵石：{player.gold:,}"
+        )
+        return {
+            "rift_name": rift_name,
+            "exp": int(exp),
+            "gold": int(gold),
+            "total_exp": total_exp,
+            "total_gold": total_gold,
             "event": event["desc"],
-            "items": dropped_items,
+            "items": items,
             "pet": pet_encounter,
-            "rift_name": rift_name
+            "message": msg,
         }
-        
-        return True, msg, reward_data
-    
+
+    @staticmethod
+    def _pick_event() -> Dict:
+        """秘境小事件：只做小幅运气浮动，掉落基准概率由难度决定。"""
+        return random.choice(
+            [
+                {"desc": "你发现了一处灵泉，修为大增！", "drop_mod": 6},
+                {"desc": "你在秘境中击败了一只妖兽！", "drop_mod": 10},
+                {"desc": "你找到了一个隐藏的宝箱！", "drop_mod": 15},
+                {"desc": "你领悟了一些修炼心得。", "drop_mod": -8},
+                {"desc": "你在秘境中遇到了前辈留下的传承！", "drop_mod": 8},
+            ]
+        )
+
+    def _gold_bonus_mult(self, player) -> float:
+        """灵石加成：功法生活加成 + 灵兽。"""
+        mult = 1.0
+        try:
+            from ..core.technique_bonus import TechniqueBonusManager
+
+            mult *= TechniqueBonusManager.gold_multiplier(player, self.config_manager)
+        except Exception:
+            pass
+        return mult
+
+    async def _grant_rift_drops(self, player, items: List[Tuple]) -> Tuple[List[Tuple], str]:
+        """把掉落写进储物戒/丹药背包，并拼出展示文案（事务内调用）。"""
+        if not items:
+            return items, ""
+        lines = []
+        for entry in items:
+            item_name, count, *rest = entry
+            quality = rest[0] if rest else ""
+            is_pill = self._is_pill_item(item_name)
+            if not self.storage_ring_manager:
+                lines.append(f"  · {item_name} x{count}（无法存储）")
+                continue
+            success, _ = await self.storage_ring_manager.grant_item(
+                player,
+                item_name,
+                count,
+                quality=quality,
+                silent=True,
+                external_transaction=True,
+            )
+            if success:
+                suffix = "（丹药背包）" if is_pill else (f"（{quality}）" if quality else "")
+                lines.append(f"  · {item_name} x{count}{suffix}")
+            else:
+                lines.append(f"  · {item_name} x{count}（储物戒已满，丢失）")
+        if not lines:
+            return items, ""
+        return items, "\n\n📦 获得物品：\n" + "\n".join(lines)
+
+    async def finish_exploration(
+        self, user_id: str
+    ) -> Tuple[bool, str, Optional[Dict]]:
+        """手动结算：补齐到期段落；走完则发大结算，否则返回进度。"""
+        player = await self.db.get_player_by_id(user_id)
+        if not player:
+            return False, "❌ 你还未踏入修仙之路！", None
+
+        result = await self.settle_due(user_id)
+        if result.get("final"):
+            messages = result.get("messages") or []
+            return (
+                True,
+                "\n\n".join(messages) if messages else result["final"]["message"],
+                result["final"],
+            )
+        if not result.get("ok"):
+            return False, "❌ 你当前不在探索秘境！", None
+
+        user_cd = await self.db.ext.get_user_cd(user_id)
+        extra = self._read_extra(user_cd) if user_cd else {}
+        rift_id = int(extra.get("rift_id", 0) or 0)
+        rift = await self.db.ext.get_rift_by_id(rift_id) if rift_id else None
+        rift_name = rift.display_name if rift else "秘境"
+        segments = max(2, int(extra.get("ticks_total") or 2))
+        done = int(extra.get("ticks_done", 0) or 0)
+        remain = max(0, int(getattr(user_cd, "scheduled_time", 0) or 0) - int(time.time()))
+        return False, (
+            f"⏳ 「{rift_name}」仍在探索中（{done}/{segments - 1} 段已结算）\n"
+            f"剩余 {remain // 60} 分 {remain % 60} 秒\n"
+            "小结会自动送达；走完全程后自动发放大结算。\n"
+            "想提前离开可发送 /退出秘境（已结算奖励保留）。"
+        ), None
+
     async def exit_rift(self, user_id: str) -> Tuple[bool, str]:
-        async with self.db.transaction():
-            return await self._exit_rift(user_id)
+        """中途退出：先补齐已结算段落，未走完部分放弃，不再收违约金。"""
+        return await self._exit_rift(user_id)
 
     async def _exit_rift(self, user_id: str) -> Tuple[bool, str]:
-        """
-        退出秘境（放弃探索）
-        
-        Args:
-            user_id: 用户ID
-            
-        Returns:
-            (成功标志, 消息)
-        """
-        # 1. 检查用户
         player = await self.db.get_player_by_id(user_id)
         if not player:
             return False, "❌ 你还未踏入修仙之路！"
-        
-        # 2. 检查CD状态
+
         user_cd = await self.db.ext.get_user_cd(user_id)
         if not user_cd or user_cd.type != UserStatus.EXPLORING:
             return False, "❌ 你当前不在探索秘境！"
-        
-        # 3. 按秘境最低灵石奖励的 80% 收违约金
-        try:
-            extra = user_cd.get_extra_data() if hasattr(user_cd, "get_extra_data") else {}
-        except Exception:
-            extra = {}
-        rift_id = int((extra or {}).get("rift_id", 0) or 0)
+
+        result = await self.settle_due(user_id)
+        if result.get("final"):
+            # 刚好走到终点：按完成处理
+            return True, result["final"]["message"]
+
+        user_cd = await self.db.ext.get_user_cd(user_id)
+        extra = self._read_extra(user_cd) if user_cd else {}
+        rift_id = int(extra.get("rift_id", 0) or 0)
         rift = await self.db.ext.get_rift_by_id(rift_id) if rift_id else None
-        gold_reward = 0
-        if rift:
-            try:
-                gold_range = rift.get_rewards().get("gold", [0, 0])
-                gold_reward = int(min(gold_range[0], gold_range[1]))
-            except Exception:
-                gold_reward = 0
+        rift_name = rift.display_name if rift else "秘境"
+        segments = max(2, int(extra.get("ticks_total") or 2))
+        done = int(extra.get("ticks_done", 0) or 0)
+        earned_exp = int(extra.get("earned_exp", 0) or 0)
+        earned_gold = int(extra.get("earned_gold", 0) or 0)
 
-        cost, currency = calc_abandon_penalty(gold_reward)
-        currency_label = "灵气" if currency == "qi" else "灵石"
-        ok, msg = await charge_abandon_penalty(player, self.db, cost, currency, commit=False)
-        if not ok:
-            return False, msg
-
-        # 4. 清除CD状态
-        await self.db.ext.set_user_free(user_id, commit=False)
-        
-        return True, (
-            "✅ 你已退出秘境，本次探索未获得任何奖励。\n"
-            f"向秘境支付违约金：{cost:,} {currency_label}"
+        await self.db.ext.set_user_free(user_id)
+        head = "\n\n".join(result.get("messages") or [])
+        body = (
+            f"🏳️ 你退出了「{rift_name}」\n"
+            f"━━━━━━━━━━━━━━━\n"
+            f"已走完 {done}/{segments - 1} 段小结\n"
+            f"已到手：修为 +{earned_exp:,} · 灵石 +{earned_gold:,}\n"
+            f"剩余 {segments - 1 - done} 段与最终大结算已放弃。\n"
+            "✅ 退出无违约金、不额外扣费，已结算奖励全部保留。"
         )
-    
+        return True, (head + "\n\n" + body) if head else body
+
     def _is_pill_item(self, item_name: str) -> bool:
         """检查物品是否为丹药"""
         if self.config_manager and hasattr(self.config_manager, 'is_pill'):
@@ -672,7 +1189,13 @@ class RiftManager:
             required = int(getattr(player, "level_index", 0) or 0)
         return max(1, min(10, 1 + required // 4))
     
-    async def _roll_rift_drops(self, player: Player, rift: Optional[Rift], drop_mod: int = 0) -> List[Tuple]:
+    async def _roll_rift_drops(
+        self,
+        player: Player,
+        rift: Optional[Rift],
+        drop_mod: int = 0,
+        chance_scale: float = 1.0,
+    ) -> List[Tuple]:
         """
         按秘境难度结算掉落
 
@@ -708,7 +1231,10 @@ class RiftManager:
             ))
         except Exception:
             pass
-        item_chance = min(100, max(0, item_chance))
+        # 分段结算按 chance_scale 摊薄，整趟期望不变
+        # 额外掉落是「主掉落成功后的条件概率」，不跟着摊薄：
+        # 主掉落按 s 摊、extra 保持原值，整趟期望才等于 主×(1+extra)。
+        item_chance = min(100.0, max(0.0, item_chance * max(0.0, float(chance_scale))))
 
         def _pick() -> Optional[Tuple[str, int]]:
             total_weight = sum(max(0, int(i.get("weight") or 0)) for i in drop_table)
@@ -725,12 +1251,12 @@ class RiftManager:
             return None
 
         # 主掉落
-        if random.randint(1, 100) <= item_chance:
+        if random.random() * 100.0 <= item_chance:
             picked = _pick()
             if picked:
                 dropped_items.append(picked)
             # 额外掉一件：概率来自难度配置（一重为 0，二重 45%，三重 70%）
-            if extra_chance > 0 and random.randint(1, 100) <= extra_chance:
+            if extra_chance > 0 and random.random() * 100.0 <= extra_chance:
                 picked = _pick()
                 if picked:
                     dropped_items.append(picked)
@@ -741,7 +1267,7 @@ class RiftManager:
             tech_name = TechniqueBonusManager.roll_technique_drop(
                 player,
                 self.config_manager,
-                base_chance=4 + power * 2,
+                base_chance=(4 + power * 2) * max(0.0, float(chance_scale)),
                 allow_main=True,
                 main_ratio=0.10,
             )
@@ -758,8 +1284,8 @@ class RiftManager:
                 # 旧行没有 equipment_chance，回落到底层按档位配置
                 chances = self.config.get("equipment_drop_chances") or {}
                 chance = chances.get(str(tier), chances.get(tier, 0))
-            chance = int(chance or 0)
-            if chance > 0 and random.randint(1, 100) <= chance:
+            chance = float(chance or 0) * max(0.0, float(chance_scale))
+            if chance > 0 and random.random() * 100.0 <= chance:
                 drop = roll_equipment_drop(
                     self.config_manager,
                     player.level_index,

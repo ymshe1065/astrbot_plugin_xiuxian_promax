@@ -140,6 +140,55 @@ def _dedupe_rank(section: dict[str, Any], items: list[dict[str, Any]]) -> None:
 
 
 
+def _normalize_groups(raw: Any) -> list[dict[str, Any]]:
+    """读取「发现型列表」的分组数据（秘境/历练）。
+
+    这类卡片的正文是给 QQ 端看的精简图，网页端要的是可筛选、可折叠、
+    每行带指令的完整结构，所以单独走 groups 而不是 sections。
+    """
+    if not isinstance(raw, list):
+        return []
+    groups: list[dict[str, Any]] = []
+    for g in raw:
+        if not isinstance(g, dict):
+            continue
+        items: list[dict[str, Any]] = []
+        for it in g.get("items") or []:
+            if not isinstance(it, dict):
+                continue
+            rows = []
+            for row in it.get("rows") or []:
+                if isinstance(row, (list, tuple)) and len(row) >= 2:
+                    rows.append([str(row[0]), str(row[1])])
+            items.append(
+                {
+                    "title": str(it.get("title") or ""),
+                    "badge": str(it.get("badge") or ""),
+                    "meta": str(it.get("meta") or ""),
+                    "cmd": str(it.get("cmd") or ""),
+                    "facet": str(it.get("facet") or ""),
+                    "value": str(it.get("value") or ""),
+                    "hint": str(it.get("hint") or ""),
+                    "recommend": bool(it.get("recommend")),
+                    # 未解锁行：网页端据此显示「需 XX」，不给可点按钮
+                    "locked": bool(it.get("locked")),
+                    "lock_text": str(it.get("lock_text") or ""),
+                    "rows": rows,
+                }
+            )
+        if not items:
+            continue
+        groups.append(
+            {
+                "key": str(g.get("key") or ""),
+                "name": str(g.get("name") or ""),
+                "collapsed": bool(g.get("collapsed")),
+                "items": items,
+            }
+        )
+    return groups
+
+
 def load_card_for_image(path: str | None) -> dict[str, Any] | None:
     """按图片路径读同名 sidecar；不存在或损坏返回 None。"""
     if not path:
@@ -160,16 +209,29 @@ def load_card_for_image(path: str | None) -> dict[str, Any] | None:
     if not isinstance(data, dict):
         return None
     sections = data.get("sections")
-    if not isinstance(sections, list) or not sections:
+    if not isinstance(sections, list):
+        sections = []
+    groups = _normalize_groups(data.get("groups"))
+    if not sections and not groups:
         return None
     normalized = {
         "id": str(data.get("id") or p.stem),
-        "kind": str(data.get("bg") or "card"),
+        "kind": str(data.get("kind") or data.get("bg") or "card"),
         "title": str(data.get("title") or ""),
         "subtitle": str(data.get("subtitle") or ""),
         "footer": str(data.get("footer") or ""),
         "sections": [],
     }
+    if groups:
+        facets = [
+            {"key": str(f.get("key") or ""), "label": str(f.get("label") or ""), "count": f.get("count") or 0}
+            for f in (data.get("facets") or [])
+            if isinstance(f, dict) and f.get("key")
+        ]
+        normalized["groups"] = groups
+        normalized["facets"] = facets
+        normalized["sections"] = []
+        return normalized
     for sec in sections:
         if not isinstance(sec, dict):
             continue

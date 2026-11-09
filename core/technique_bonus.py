@@ -74,7 +74,7 @@ class TechniqueBonusManager:
 
         for key, cap in LIFE_EFFECT_CAPS.items():
             result[key] = max(0.0, min(cap, result[key]))
-        result["exp_multiplier"] = max(0.0, min(0.80, result.get("exp_multiplier", 0.0)))
+        result["exp_multiplier"] = max(0.0, min(1.30, result.get("exp_multiplier", 0.0)))
         return result
 
     @classmethod
