@@ -151,7 +151,7 @@ class TestPillQuality(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(recipe)
         self.assertEqual(recipe.get("output_pill"), "筑基丹")
         packages = [i for i in self.config_manager.items_data.values() if i.get("type") == "材料包"]
-        self.assertEqual(len(packages), 16)
+        self.assertEqual(len(packages), 20)
 
     def test_root_alchemy_bonus(self):
         alchemy = _imp("managers.alchemy_manager").AlchemyManager

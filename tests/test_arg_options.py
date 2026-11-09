@@ -251,7 +251,7 @@ class TestArgOptions(unittest.IsolatedAsyncioTestCase):
             if cmd != "洗练":  # 洗练候选依赖角色已装备的物品
                 self.assertGreater(len(data["options"]), 0, cmd)
 
-    # ---- 周本备战：从丹药列表选择，逐枚累加 ----
+    # ---- 周本备战：分两阶段从丹药列表选择，逐枚累加 ----
 
     def test_weekly_loadout_plan(self):
         base = arg_options.plan_for("/周本备战", [])
@@ -259,10 +259,18 @@ class TestArgOptions(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(base[0]["key"], "mode")
         for mode in ("推荐", "清空"):
             self.assertEqual(len(arg_options.plan_for("/周本备战", [mode])), 1, mode)
-        picked = arg_options.plan_for("/周本备战", ["狂暴丹"])
-        self.assertEqual(len(picked), arg_options.WEEKLY_LOADOUT_SEGMENTS)
-        self.assertEqual(picked[1]["key"], "pill")
-        self.assertTrue(picked[1]["optional"])
+
+        prepare = arg_options.plan_for("/周本备战", ["战前"])
+        self.assertGreater(len(prepare), 2)
+        self.assertEqual(prepare[1]["key"], "pill")
+        self.assertTrue(prepare[1]["optional"])
+        self.assertEqual(prepare[1]["skip_value"], "战中")
+        self.assertIn("战前", prepare[1]["label"])
+
+        combat = arg_options.plan_for("/周本备战", ["战前", "狂暴丹", "战中"])
+        self.assertEqual(combat[3]["key"], "pill")
+        self.assertTrue(combat[3]["optional"])
+        self.assertIn("战中", combat[3]["label"])
 
     async def test_weekly_loadout_mode_is_short_circuit(self):
         plugin = _WeeklyPlugin()
@@ -271,33 +279,67 @@ class TestArgOptions(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(done["field"])
         self.assertEqual(done["values"], ["推荐"])
 
-    async def test_weekly_loadout_options_from_inventory(self):
-        data = await arg_options.build_arg_options(_WeeklyPlugin(), "web_test", "/周本备战", [])
-        self.assertTrue(data["ok"])
-        values = [opt["value"] for opt in data["options"]]
+    async def test_weekly_loadout_stage_split(self):
+        plugin = _WeeklyPlugin()
+        first = await arg_options.build_arg_options(plugin, "web_test", "/周本备战", [])
+        self.assertTrue(first["ok"])
+        values = [opt["value"] for opt in first["options"]]
+        self.assertEqual(values[:2], ["战前", "战中"])
         self.assertIn("推荐", values)
         self.assertIn("清空", values)
+        self.assertNotIn("狂暴丹", values)
+        self.assertNotIn("回春散·天", values)
+
+        prepare = await arg_options.build_arg_options(
+            plugin, "web_test", "/周本备战", ["战前"]
+        )
+        values = [opt["value"] for opt in prepare["options"]]
         self.assertIn("狂暴丹", values)
+        self.assertNotIn("回春散·天", values)
+        self.assertIn("战中", values)  # 进入第二阶段的切换项
+
+        combat = await arg_options.build_arg_options(
+            plugin, "web_test", "/周本备战", ["战中"]
+        )
+        values = [opt["value"] for opt in combat["options"]]
         self.assertIn("回春散·天", values)
+        self.assertNotIn("狂暴丹", values)
+
+    async def test_weekly_loadout_options_from_inventory(self):
+        data = await arg_options.build_arg_options(
+            _WeeklyPlugin(), "web_test", "/周本备战", ["战前"]
+        )
+        self.assertTrue(data["ok"])
+        values = [opt["value"] for opt in data["options"]]
+        self.assertIn("狂暴丹", values)
         # 非周本丹药不出现；持有 4 枚会给出 ×2/×3/×4 的数量候选
         self.assertNotIn("经验丹", values)
+        self.assertIn("狂暴丹*2", values)
+        self.assertEqual(data["index"], 1)
+
+        combat = await arg_options.build_arg_options(
+            _WeeklyPlugin(), "web_test", "/周本备战", ["战中"]
+        )
+        values = [opt["value"] for opt in combat["options"]]
+        self.assertIn("回春散·天", values)
         self.assertIn("回春散·天*4", values)
-        self.assertEqual(data["index"], 0)
+        self.assertNotIn("狂暴丹", values)
 
     async def test_weekly_loadout_deducts_picked(self):
         data = await arg_options.build_arg_options(
-            _WeeklyPlugin(), "web_test", "/周本备战", ["狂暴丹*2"]
+            _WeeklyPlugin(), "web_test", "/周本备战", ["战前", "狂暴丹*2"]
         )
         self.assertFalse(data["done"])
-        self.assertEqual(data["index"], 1)
+        self.assertEqual(data["index"], 2)
         self.assertEqual(data["field"]["key"], "pill")
         values = [opt["value"] for opt in data["options"]]
         self.assertNotIn("狂暴丹", values)
         self.assertNotIn("推荐", values)
+        self.assertNotIn("回春散·天", values)
 
     async def test_weekly_loadout_marks_quality_when_ambiguous(self):
         data = await arg_options.build_arg_options(
-            _QualityPlugin(), "web_test", "/周本备战", []
+            _QualityPlugin(), "web_test", "/周本备战", ["战中"]
         )
         values = [opt["value"] for opt in data["options"]]
         # 同名丹药存在两种品质时必须带品质，避免管理器自动选最高品质
@@ -307,13 +349,25 @@ class TestArgOptions(unittest.IsolatedAsyncioTestCase):
 
     async def test_weekly_loadout_parses_pasted_list(self):
         data = await arg_options.build_arg_options(
-            _WeeklyPlugin(), "web_test", "/周本备战", ["狂暴丹*2 回春散·天*1"]
+            _WeeklyPlugin(), "web_test", "/周本备战",
+            ["战前", "狂暴丹*2", "战中", "回春散·天*1"],
         )
         self.assertFalse(data["done"])
+        self.assertEqual(data["index"], 4)
         values = [opt["value"] for opt in data["options"]]
         self.assertNotIn("狂暴丹", values)
         self.assertNotIn("回春散·天*4", values)
         self.assertIn("回春散·天*3", values)
+
+    async def test_weekly_loadout_auto_enters_combat_after_six_prepare(self):
+        values = ["战前"] + ["狂暴丹"] * arg_options.WEEKLY_PREPARE_SLOTS
+        data = await arg_options.build_arg_options(
+            _WeeklyPlugin(), "web_test", "/周本备战", values
+        )
+        self.assertEqual(data["field"]["label"][0], "②")
+        values = [opt["value"] for opt in data["options"]]
+        self.assertIn("回春散·天", values)
+        self.assertNotIn("狂暴丹", values)
 
 
 class _CraftPlayer:

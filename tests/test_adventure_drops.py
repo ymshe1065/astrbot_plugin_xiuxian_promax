@@ -87,7 +87,7 @@ class TestConfigShape(unittest.TestCase):
         self.assertEqual(bounds, sorted(bounds), "境界段上限必须递增")
 
     def test_band_tiers_are_known(self):
-        valid = {"凡品", "黄品", "玄品", "圣品"}
+        valid = {"凡品", "黄品", "玄品", "圣品", "帝品"}
         for band in CFG["realm_bands"]:
             for tier, weight in band["tiers"].items():
                 self.assertIn(tier, valid, f"{band['label']} 出现未知品阶 {tier}")
@@ -97,7 +97,7 @@ class TestConfigShape(unittest.TestCase):
         for category, tiers in CFG["drop_pools"].items():
             self.assertIn(category, CATEGORIES)
             for tier, names in tiers.items():
-                self.assertIn(tier, {"凡品", "黄品", "玄品", "圣品"})
+                self.assertIn(tier, {"凡品", "黄品", "玄品", "圣品", "帝品"})
                 self.assertTrue(names, f"{category}/{tier} 为空池")
                 for name in names:
                     self.assertIn(name, MATS, f"{name} 不在 material_catalog")
@@ -181,9 +181,10 @@ class TestRealmScaling(unittest.TestCase):
         band = self.mgr.realm_band(13)
         self.assertIn("圣品", band["tiers"], "lv13 起必须有圣品来源")
 
-    def test_top_band_is_pure_saint(self):
+    def test_top_band_unlocks_emperor_material(self):
         band = self.mgr.realm_band(35)
-        self.assertEqual(set(band["tiers"]), {"圣品"})
+        self.assertIn("圣品", band["tiers"])
+        self.assertIn("帝品", band["tiers"], "满级段必须接上帝品材料，供道品以上丹方使用")
 
     def test_saint_weight_grows_with_level(self):
         weights = []
@@ -202,7 +203,8 @@ class TestRealmScaling(unittest.TestCase):
             total = 0
             for _ in range(300):
                 drop = self.mgr._roll_material_drop(_Player(level), route, {})
-                total += MATS[drop[0]]["price"]
+                if drop:
+                    total += MATS[drop[0]]["price"]
             avg_price[level] = total / 300
         levels = sorted(avg_price)
         for prev, cur in zip(levels, levels[1:]):
@@ -259,6 +261,8 @@ class TestQuantityScale(unittest.TestCase):
         for level in (0, 15, 25, 33):
             for _ in range(200):
                 drop = mgr._roll_material_drop(_Player(level), ROUTES["herb_valley"], {})
+                if drop is None:
+                    continue
                 tier = MATS[drop[0]]["tier"]
                 low, high = CFG["drop_quantity"][tier]
                 scale = CFG["category_quantity_scale"]["灵植"]
@@ -282,12 +286,11 @@ class TestQuantityScale(unittest.TestCase):
         mgr.drop_quantity = {"凡品": [1, 2]}
         mgr.category_quantity_scale = {"灵植": 0.5}
         total = sum(
-            mgr._roll_material_drop(_Player(0), ROUTES["herb_valley"], {})[1]
+            (drop[1] if (drop := mgr._roll_material_drop(_Player(0), ROUTES["herb_valley"], {})) else 0)
             for _ in range(4000)
         )
-        # 期望 = 1.5 × 0.5 = 0.75，但至少给 1 个 → 落在 [1, 1.5] 之间
-        # 若用 round()，1×0.5→0/2×0.5→1，均值会被拉到 1.25 以上
-        self.assertLess(total / 4000, 1.35)
+        # 期望 = 1.5 × 0.5 = 0.75；允许掉 0 个后不能被 round() 抬到 1.25 以上
+        self.assertLess(total / 4000, 1.05)
 
 
 class TestTierFallbackBalance(unittest.TestCase):

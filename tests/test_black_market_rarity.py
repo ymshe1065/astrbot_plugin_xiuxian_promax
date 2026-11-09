@@ -51,6 +51,19 @@ class TestBlackMarketRarity(unittest.TestCase):
         finally:
             self.gm_module.time.time = original_time
 
+    def test_zero_shop_weight_items_never_listed(self):
+        """shop_weight=0 的周本专属材料与帝品材料不得进入黑市。"""
+        excluded = {"天外陨核", "太初道莲", "太初道金", "太古真龙鳞", "太初源液"}
+        original_time = self.gm_module.time.time
+        try:
+            for hour in range(200):
+                self.gm_module.time.time = lambda h=hour: h * 3600 + 10
+                items, _ = self.gm._get_black_market_items()
+                names = {item.get("name") for item in items}
+                self.assertFalse(names & excluded, f"黑市刷出了专属物品：{names & excluded}")
+        finally:
+            self.gm_module.time.time = original_time
+
 
 if __name__ == "__main__":
     unittest.main()

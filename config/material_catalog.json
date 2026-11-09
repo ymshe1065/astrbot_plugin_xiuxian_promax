@@ -1222,112 +1222,224 @@
       "name": "天外陨核",
       "category": "天材",
       "tier": "帝品",
-      "price": 88000,
+      "price": 30000,
       "volume": 1
     },
     {
       "name": "混沌青莲",
       "category": "灵植",
       "tier": "圣品",
-      "price": 14000,
+      "price": 12000,
       "volume": 1
     },
     {
       "name": "九霄玉兰",
       "category": "灵植",
       "tier": "圣品",
-      "price": 16000,
+      "price": 12000,
       "volume": 1
     },
     {
       "name": "仙墟圣莲",
       "category": "灵植",
       "tier": "圣品",
-      "price": 26000,
+      "price": 12000,
       "volume": 1
     },
     {
       "name": "玄天寒铁",
       "category": "矿材",
       "tier": "圣品",
-      "price": 14000,
+      "price": 14400,
       "volume": 1
     },
     {
       "name": "太初源石",
       "category": "矿材",
       "tier": "圣品",
-      "price": 16000,
+      "price": 14400,
       "volume": 1
     },
     {
       "name": "星陨精金",
       "category": "矿材",
       "tier": "圣品",
-      "price": 24000,
+      "price": 14400,
       "volume": 1
     },
     {
       "name": "星辰玄铁",
       "category": "矿材",
       "tier": "圣品",
-      "price": 26000,
+      "price": 14400,
       "volume": 1
     },
     {
       "name": "玄冰髓",
       "category": "灵液",
       "tier": "圣品",
-      "price": 15000,
+      "price": 24000,
       "volume": 1
     },
     {
       "name": "混沌灵乳",
       "category": "灵液",
       "tier": "圣品",
-      "price": 18000,
+      "price": 24000,
       "volume": 1
     },
     {
       "name": "太虚雷髓",
       "category": "灵液",
       "tier": "圣品",
-      "price": 26000,
+      "price": 24000,
       "volume": 1
     },
     {
       "name": "劫雷精粹",
       "category": "灵液",
       "tier": "圣品",
-      "price": 30000,
+      "price": 24000,
       "volume": 1
     },
     {
       "name": "吞天兽骨",
       "category": "妖兽",
       "tier": "圣品",
-      "price": 15000,
+      "price": 18000,
       "volume": 1
     },
     {
       "name": "万古妖丹",
       "category": "妖兽",
       "tier": "圣品",
-      "price": 28000,
+      "price": 18000,
       "volume": 1
     },
     {
       "name": "虚空妖核",
       "category": "妖兽",
       "tier": "圣品",
-      "price": 30000,
+      "price": 18000,
       "volume": 1
     },
     {
       "name": "混沌源晶",
       "category": "天材",
       "tier": "圣品",
-      "price": 50000,
+      "price": 12000,
+      "volume": 1
+    },
+    {
+      "name": "太初道莲",
+      "category": "灵植",
+      "tier": "帝品",
+      "price": 30000,
+      "volume": 1
+    },
+    {
+      "name": "九劫长生草",
+      "category": "灵植",
+      "tier": "帝品",
+      "price": 30000,
+      "volume": 1
+    },
+    {
+      "name": "鸿蒙紫芝",
+      "category": "灵植",
+      "tier": "帝品",
+      "price": 30000,
+      "volume": 1
+    },
+    {
+      "name": "万道归一花",
+      "category": "灵植",
+      "tier": "帝品",
+      "price": 30000,
+      "volume": 1
+    },
+    {
+      "name": "太初道金",
+      "category": "矿材",
+      "tier": "帝品",
+      "price": 36000,
+      "volume": 1
+    },
+    {
+      "name": "混元母铁",
+      "category": "矿材",
+      "tier": "帝品",
+      "price": 36000,
+      "volume": 1
+    },
+    {
+      "name": "九霄神晶",
+      "category": "矿材",
+      "tier": "帝品",
+      "price": 36000,
+      "volume": 1
+    },
+    {
+      "name": "劫灰玄铁",
+      "category": "矿材",
+      "tier": "帝品",
+      "price": 36000,
+      "volume": 1
+    },
+    {
+      "name": "太古真龙鳞",
+      "category": "妖兽",
+      "tier": "帝品",
+      "price": 45000,
+      "volume": 1
+    },
+    {
+      "name": "混沌兽核",
+      "category": "妖兽",
+      "tier": "帝品",
+      "price": 45000,
+      "volume": 1
+    },
+    {
+      "name": "九幽冥凰羽",
+      "category": "妖兽",
+      "tier": "帝品",
+      "price": 45000,
+      "volume": 1
+    },
+    {
+      "name": "吞天神兽骨",
+      "category": "妖兽",
+      "tier": "帝品",
+      "price": 45000,
+      "volume": 1
+    },
+    {
+      "name": "太初源液",
+      "category": "灵液",
+      "tier": "帝品",
+      "price": 60000,
+      "volume": 1
+    },
+    {
+      "name": "混元道髓",
+      "category": "灵液",
+      "tier": "帝品",
+      "price": 60000,
+      "volume": 1
+    },
+    {
+      "name": "九转劫雷液",
+      "category": "灵液",
+      "tier": "帝品",
+      "price": 60000,
+      "volume": 1
+    },
+    {
+      "name": "鸿蒙紫气露",
+      "category": "灵液",
+      "tier": "帝品",
+      "price": 60000,
       "volume": 1
     }
   ]

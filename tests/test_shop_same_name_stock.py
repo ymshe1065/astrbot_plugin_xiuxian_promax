@@ -72,6 +72,20 @@ class TestShopSameNameStock(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(int(shelf[0]["stock"]), 3)
         self.assertEqual(int(shelf[1]["stock"]), 1)
 
+    async def test_sect_shop_candidates_skip_zero_shop_weight(self):
+        """宗门商店候选池应排除 shop_weight=0 的周本专属/帝品散装材料。"""
+        handler = _imp("handlers.sect_shop_handler").SectShopHandler(
+            self.db, self.shop, self.ring, {}, None
+        )
+        pool = [
+            {"name": "天外陨核", "data": {"name": "天外陨核", "shop_weight": 0}},
+            {"name": "普通材料", "data": {"name": "普通材料", "shop_weight": 50}},
+            {"name": "缺省权重", "data": {"name": "缺省权重"}},
+        ]
+        weighted = handler._weighted_candidates(pool)
+        self.assertEqual([x["name"] for x in weighted], ["普通材料", "缺省权重"])
+        self.assertEqual([x["weight"] for x in weighted], [50, 100])
+
     async def test_purchase_merges_duplicate_shelf_rows(self):
         p = await self._player(gold=100000)
         base = next(v for v in self.cm.items_data.values() if v.get("type") == "材料")

@@ -169,6 +169,48 @@ class TestPillEffectFidelity(unittest.IsolatedAsyncioTestCase):
                     offenders.append(f"{name}.{key}")
         self.assertEqual(offenders, [], f"永久丹存在无人消费的字段：{offenders}")
 
+    def test_temporary_combat_pills_respect_settlement_cap(self):
+        """临时攻防丹的数值与描述都不能超过 +50% 结算上限。
+
+        实战在 ``CombatManager`` 与 ``PillManager`` 两处都把四维临时倍率
+        钳制在 +50%，这里从配置源头守住，避免出现「描述 +90%、实际 +50%」。
+        """
+        import re
+
+        item_rules = _imp("core.item_rules")
+        cap = item_rules.TEMPORARY_COMBAT_BONUS_CAP
+        keys = (
+            "physical_damage_multiplier", "magic_damage_multiplier",
+            "physical_defense_multiplier", "magic_defense_multiplier",
+        )
+        label_to_key = {"物伤": keys[0], "法伤": keys[1], "物防": keys[2], "法防": keys[3]}
+        sources = (
+            ("utility_pills", self.config_manager.utility_pills_data),
+            ("pills", self.config_manager.pills_data),
+            ("exp_pills", self.config_manager.exp_pills_data),
+        )
+        offenders = []
+        for source_name, pills in sources:
+            for name, data in (pills or {}).items():
+                if not isinstance(data, dict) or data.get("effect_type") == "permanent":
+                    continue
+                for key in keys:
+                    value = data.get(key)
+                    if value is None:
+                        continue
+                    if abs(float(value)) > cap + 1e-9:
+                        offenders.append(f"{source_name}.{name}.{key}={value}")
+                desc = str(data.get("description") or "")
+                for label, key in label_to_key.items():
+                    for sign, number in re.findall(
+                        rf"{label}\s*([+-])\s*(\d+(?:\.\d+)?)\s*%", desc
+                    ):
+                        if sign == "+" and float(number) / 100.0 > cap + 1e-9:
+                            offenders.append(
+                                f"{source_name}.{name} 描述{label}+{number}% > 上限{cap:.0%}"
+                            )
+        self.assertEqual(offenders, [], f"临时攻防丹超出结算上限：{offenders}")
+
 
 if __name__ == "__main__":
     unittest.main()

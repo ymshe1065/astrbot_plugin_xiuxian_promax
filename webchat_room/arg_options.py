@@ -38,8 +38,42 @@ MAX_OPTIONS = 200
 
 # /周本备战 的快捷写法；命中后不必再逐枚挑丹药
 WEEKLY_LOADOUT_MODES = ("推荐", "自动", "auto", "清空", "重置", "clear")
-# 战前 6 枚 + 战中 6 枚，弹层最多允许选这么多枚后自动结束
-WEEKLY_LOADOUT_SEGMENTS = 12
+# 网页弹层分两阶段：先选战前增益，再选战中回血/复活
+WEEKLY_STAGE_PREPARE = "战前"
+WEEKLY_STAGE_COMBAT = "战中"
+WEEKLY_LOADOUT_STAGES = {
+    "战前": "prepare", "准备": "prepare", "pre": "prepare", "prepare": "prepare",
+    "战中": "combat", "战斗": "combat", "combat": "combat", "fight": "combat",
+}
+WEEKLY_PREPARE_SLOTS = 6
+WEEKLY_COMBAT_SLOTS = 6
+# 弹层最多允许选择的段数（战前 6 + 战中 6）
+WEEKLY_LOADOUT_SEGMENTS = WEEKLY_PREPARE_SLOTS + WEEKLY_COMBAT_SLOTS
+
+
+def _weekly_stage_state(values: List[str]) -> tuple:
+    """从已填参数中解析当前阶段，返回 (prepare/combat/None, 当前阶段已选枚数)。"""
+    stage = None
+    used = 0
+    for value in values:
+        for token in re.split(r"[\s,，、;；]+", str(value or "")):
+            token = token.strip()
+            if not token:
+                continue
+            normalized = WEEKLY_LOADOUT_STAGES.get(token)
+            if normalized:
+                stage = normalized
+                used = 0
+            elif token in WEEKLY_LOADOUT_MODES:
+                continue
+            else:
+                if stage is None:
+                    stage = "prepare"
+                used += 1
+    if stage == "prepare" and used >= WEEKLY_PREPARE_SLOTS:
+        stage = "combat"
+        used = 0
+    return stage, used
 
 
 # ---------------------------------------------------------------------------
@@ -174,7 +208,7 @@ FIELD_PLANS: Dict[str, List[dict[str, Any]]] = {
     "接取任务": [_f("level", "选择任务品阶", "task_levels")],
     "放弃任务": [_f("id", "选择要放弃的任务", "active_tasks")],
     "周本加入": [_f("id", "选择周本队伍", "weekly_runs")],
-    "周本备战": [_f("mode", "选择 推荐 / 清空，或从列表挑选要携带的丹药", "weekly_loadout")],
+    "周本备战": [_f("mode", "选择推荐/清空，或先选择战前/战中阶段", "weekly_loadout")],
     "重置周本CD": [_f("target", "选择玩家", "players")],
     "仙界管理": [_f("sub", "选择管理子命令", "admin_subcommands")],
     # ---- 洞天 / 灵田 / 灵兽 ----
@@ -1705,10 +1739,10 @@ def _weekly_loadout_token(token: str) -> tuple:
 
 
 async def _src_weekly_loadout(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
-    """周本备战：推荐/清空快捷项 + 按丹药背包逐枚挑选（可带数量）。
+    """周本备战：分两阶段挑选战前增益丹与战中回血/复活丹。
 
-    战前丹药与战中丹药分别占用 6 枚上限；已选的丹药会从候选里扣除数量，
-    选满后不再给选项，前端直接提示「发送」即可。
+    第一阶段只列出背包里的临时增益类丹药，第二阶段只列出回气血/复活类丹药；
+    两个阶段分别占用 6 枚上限。已选丹药会从候选里扣除数量，选满后不再给选项。
     """
     if not player:
         return [], "尚未创建角色，请先 /我要修仙"
@@ -1729,6 +1763,9 @@ async def _src_weekly_loadout(plugin: "XiuXianPlugin", player: Any, field: dict,
         tokens.extend(t for t in re.split(r"[\s,，、;；]+", str(value or "")) if t)
     last_name = ""
     for token in tokens:
+        if token in WEEKLY_LOADOUT_STAGES:
+            last_name = ""
+            continue
         if token.isdigit():
             if not last_name:
                 continue
@@ -1760,23 +1797,61 @@ async def _src_weekly_loadout(plugin: "XiuXianPlugin", player: Any, field: dict,
         used[key] = used.get(key, 0) + count
 
     try:
-        prepare_left = max(0, int(mgr.pill_slots_prepare) - used_slots["prepare"])
-        combat_left = max(0, int(mgr.pill_slots_combat) - used_slots["combat"])
+        prepare_slots = max(0, int(mgr.pill_slots_prepare))
+        combat_slots = max(0, int(mgr.pill_slots_combat))
     except Exception:
-        prepare_left = combat_left = 6
+        prepare_slots = combat_slots = 6
+    prepare_left = max(0, prepare_slots - used_slots["prepare"])
+    combat_left = max(0, combat_slots - used_slots["combat"])
 
-    mode_options: List[dict[str, str]] = []
-    if field.get("key") == "mode":
-        mode_options = [
+    stage, _stage_used = _weekly_stage_state(values)
+
+    # 第一段：先让玩家选择这次要设置「战前」还是「战中」，或直接用推荐/清空
+    if stage is None:
+        options = [
+            _opt(
+                "🧪 第一阶段 · 战前丹药",
+                WEEKLY_STAGE_PREPARE,
+                f"临时增益类丹药，最多 {prepare_slots} 枚",
+                "选择阶段",
+            ),
+            _opt(
+                "💊 第二阶段 · 战中丹药",
+                WEEKLY_STAGE_COMBAT,
+                f"回气血/复活类丹药，最多 {combat_slots} 枚",
+                "选择阶段",
+            ),
             _opt("⭐ 推荐搭配", "推荐", "按丹药背包自动搭配战前增益与战中恢复", "快捷"),
             _opt("🧹 清空清单", "清空", "清空本次携带的丹药，重新挑选", "快捷"),
         ]
+        return options, "先选择要设置的丹药阶段，再逐枚点选"
 
     kind_meta = {
         "prepare": ("战前", "增益", prepare_left),
         "recovery": ("战中", "恢复", combat_left),
         "revive": ("战中", "复活", combat_left),
     }
+    allowed_kinds = {"prepare"} if stage == "prepare" else {"recovery", "revive"}
+    stage_options: List[dict[str, str]] = []
+    if stage == "prepare" and combat_left > 0:
+        stage_options.append(
+            _opt(
+                "➡️ 完成战前，进入战中",
+                WEEKLY_STAGE_COMBAT,
+                "第二阶段：选择回气血/复活类丹药",
+                "阶段切换",
+            )
+        )
+    elif stage == "combat" and prepare_left > 0:
+        stage_options.append(
+            _opt(
+                "⬅️ 返回战前丹药",
+                WEEKLY_STAGE_PREPARE,
+                "回到第一阶段继续选择临时增益丹",
+                "阶段切换",
+            )
+        )
+
     # 同一种丹药存在多个品质时，命令里必须带 |品质，否则管理器会按最高品质结算
     quality_map: Dict[str, set] = {}
     for raw_key, raw_count in inventory.items():
@@ -1795,7 +1870,7 @@ async def _src_weekly_loadout(plugin: "XiuXianPlugin", player: Any, field: dict,
             kind, _data = mgr._classify_pill(base)
         except Exception:
             continue
-        if kind not in kind_meta:
+        if kind not in allowed_kinds:
             continue
         section, tag, left = kind_meta[kind]
         if left <= 0:
@@ -1815,13 +1890,14 @@ async def _src_weekly_loadout(plugin: "XiuXianPlugin", player: Any, field: dict,
             extras.append(_opt(f"{display} ×{num}", f"{token}*{num}", desc, group))
 
     if not singles:
-        if mode_options:
-            return mode_options, "丹药背包里没有可用于周本的丹药（战前增益 / 战中恢复 / 复活）"
+        label = "战前临时增益丹" if stage == "prepare" else "战中回气血/复活丹"
+        if stage_options:
+            return stage_options, f"背包里没有可继续携带的{label}，可切换阶段或直接发送"
         if prepare_left <= 0 and combat_left <= 0:
             return [], "丹药栏已选满，可直接点「发送」"
-        return [], "没有可继续携带的丹药，可直接点「发送」"
+        return [], f"背包里没有可用的{label}，可直接点「发送」"
 
-    options = mode_options + sorted(singles, key=_sort_key) + sorted(extras, key=_sort_key)
+    options = stage_options + sorted(singles, key=_sort_key) + sorted(extras, key=_sort_key)
     if len(options) > MAX_OPTIONS:
         options = options[:MAX_OPTIONS]
     return options, ""
@@ -2080,13 +2156,33 @@ def plan_for(cmd: str, values: Optional[List[str]] = None) -> List[dict[str, Any
             _f("plots", "要停止的格号（留空 = 全部，如 1-3）", "", optional=True)
         ]
     elif key == "周本备战":
-        # 选「推荐/清空」后无需再挑丹药；挑了丹药才展开后续 11 个可选槽位
+        # 阶段 1：选择推荐/清空或战前/战中阶段；
+        # 阶段 2：按所选阶段逐枚挑选丹药（战前/战中各自最多 6 枚）。
         plan = list(plan)
-        if first and first not in WEEKLY_LOADOUT_MODES:
-            plan += [
-                _f("pill", "继续挑选要携带的丹药（选完点「发送」）", "weekly_loadout", optional=True)
-                for _ in range(WEEKLY_LOADOUT_SEGMENTS - 1)
-            ]
+        if first and first in WEEKLY_LOADOUT_MODES:
+            plan = [dict(plan[0])]
+        else:
+            stage, _used = _weekly_stage_state(values)
+            if stage is None:
+                plan = [dict(plan[0])]
+            else:
+                if stage == "prepare":
+                    field = _f(
+                        "pill",
+                        "① 选择战前丹药（临时增益，最多 6 枚）",
+                        "weekly_loadout",
+                        optional=True,
+                        skip_value=WEEKLY_STAGE_COMBAT,
+                    )
+                else:
+                    field = _f(
+                        "pill",
+                        "② 选择战中丹药（回气血/复活，最多 6 枚）",
+                        "weekly_loadout",
+                        optional=True,
+                    )
+                pad = max(len(values), 1) + WEEKLY_LOADOUT_SEGMENTS
+                plan = [dict(plan[0])] + [dict(field) for _ in range(pad)]
     elif key == "仙界管理":
         base = list(plan)
         if first == "查玩家":

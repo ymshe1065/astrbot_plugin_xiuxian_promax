@@ -166,6 +166,42 @@ class TestPillEconomy(unittest.TestCase):
             pill = self.rules.pill(recipe.get("output_pill", ""))
             self.assertIsNotNone(pill, f"缺少成品丹药: {recipe.get('output_pill')}")
 
+    def test_high_rank_recipes_use_emperor_materials(self):
+        """道品以上必须吃帝品主材料，混元先天额外吃周本专属材料。"""
+        checked = 0
+        for recipe in self.recipes:
+            pill = self.rules.pill(recipe.get("output_pill", ""))
+            if not pill or pill.get("rank") not in ("道品", "仙品", "混元先天"):
+                continue
+            specs = [s for s in (recipe.get("materials") or []) if isinstance(s, dict)]
+            self.assertTrue(
+                any(not s.get("name") and s.get("tier") == "帝品" for s in specs),
+                f"{recipe['name']} 没有帝品主材料：{specs}",
+            )
+            if pill.get("rank") == "混元先天":
+                self.assertTrue(
+                    any(s.get("name") == "天外陨核" for s in specs),
+                    f"{recipe['name']} 缺少天外陨核",
+                )
+            checked += 1
+        self.assertGreaterEqual(checked, 30)
+
+    def test_high_rank_pill_tiers_are_complete(self):
+        """圣品补上皇品与帝品之间的断档，道品以上至少覆盖五类常用效果。"""
+        exp_ranks = {p.get("rank") for p in self.cm.exp_pills_data.values()}
+        self.assertIn("圣品", exp_ranks)
+        expected = {
+            "cultivation_boost", "permanent_attribute", "combat_boost",
+            "defensive_boost", "recovery", "breakthrough_boost", "protection",
+        }
+        for rank in ("圣品", "道品", "仙品", "混元先天"):
+            subtypes = {
+                p.get("subtype") for p in self.cm.utility_pills_data.values()
+                if p.get("rank") == rank
+            }
+            missing = expected - subtypes
+            self.assertFalse(missing, f"{rank} 缺少效果类别：{sorted(missing)}")
+
     def test_shop_price_is_above_expected_craft_cost(self):
         checked = 0
         for recipe in self.recipes:

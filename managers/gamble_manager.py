@@ -283,6 +283,13 @@ class GambleManager:
                     continue
                 if data.get("type") == "储物戒":
                     continue
+                # 显式 shop_weight=0 的物品只通过掉落/活动获取（如周本专属天外陨核、
+                # 帝品材料、炼丹专属增益丹），不进入黑市；如需黑市专供请配置
+                # black_market_weight / drop_weight 覆盖。
+                if int(data.get("shop_weight", 1) or 0) == 0 and not (
+                    data.get("black_market_weight") or data.get("drop_weight")
+                ):
+                    continue
                 real_name = data.get("name") or name
                 real_pool[real_name] = data
 
