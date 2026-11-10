@@ -187,7 +187,11 @@ class TestConfig(unittest.TestCase):
 
     def test_exp_model_present(self):
         model = CFG.get("exp_model") or {}
-        self.assertAlmostEqual(model.get("base_rate_per_hour"), 0.01656, places=5)
+        rate = float(model.get("base_rate_per_hour"))
+        # v7.8.2：基准从「满配灵根×功法反推」改成「闭关零加成 0.25% × 3」，
+        # 差距不再随灵根漂移（旧值 0.01656 在零加成时是闭关的 6.6 倍）。
+        self.assertAlmostEqual(rate, 0.0075, places=5)
+        self.assertAlmostEqual(rate, 0.0025 * 3, places=6)
         self.assertTrue(model.get("pill_talisman_only"))
 
     def test_every_route_within_half_an_hour(self):
@@ -224,24 +228,24 @@ class TestExpModel(unittest.TestCase):
             mgr._full_reward_pool(b, route)["exp"],
         )
 
-    def test_adventure_matches_closed_cultivation_full(self):
-        """历练（丹药符箓拉满）应约为闭关全满的 90%。"""
+    def test_adventure_is_three_times_zero_bonus_closed(self):
+        """零加成下历练应约为闭关的 3 倍（v7.8.2 新基准）。
+
+        旧基准是「满配时历练 ≈ 闭关 90%」，但历练率是常数、闭关率随灵根/功法缩放，
+        结果零加成时历练反而是闭关的 6.6 倍 —— 灵根越差越被迫全走历练。
+        现在基准挪到零加成，差距恒定；满配时历练只有闭关的 41%，这是刻意接受的：
+        顶级灵根换纯闭关路线，普通灵根靠历练补。
+        """
         mgr = make_manager()
         route = self._route()
         player = Player(user_id="a", level_index=self.LEVEL)
         need = int(LEVELS[self.LEVEL]["exp_needed"])
         hours = route["duration"] / 3600.0
 
-        adventure_hourly = mgr._full_reward_pool(player, route)["exp"] / hours * CLOSED_PILL_MAX
-        closed_hourly = (
-            need
-            * CLOSED_RATE_PER_HOUR
-            * CLOSED_ROOT_MAX
-            * (1 + CLOSED_TECHNIQUE_MAX)
-            * CLOSED_PILL_MAX
-        )
-        ratio = adventure_hourly / closed_hourly
-        self.assertAlmostEqual(ratio, 0.9, delta=0.02, msg=f"历练/闭关全满 = {ratio:.2f}")
+        adventure_hourly = mgr._full_reward_pool(player, route)["exp"] / hours
+        closed_hourly_bare = need * CLOSED_RATE_PER_HOUR
+        ratio = adventure_hourly / closed_hourly_bare
+        self.assertAlmostEqual(ratio, 3.0, delta=0.05, msg=f"历练/零加成闭关 = {ratio:.2f}")
 
     def test_pill_bonus_applies(self):
         mgr = make_manager()
