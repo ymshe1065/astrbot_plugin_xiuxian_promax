@@ -69,6 +69,8 @@
     unreadNotices: 0,        // 个人消息未读数
     notices: [],             // 个人消息历史
     noticesOpen: false,
+    feedbackScope: "mine",   // 意见反馈：mine / all（管理员）
+    feedbackAdmin: false,    // 当前账号是否反馈管理员
     stickers: [],            // 内置表情包 [{id,label,url}]
     stickerLoaded: false,    // 是否已拉取表情目录
   };
@@ -404,6 +406,9 @@
     $("inboxMask").hidden = true;
     $("privacyMask").hidden = true;
     $("channelMask").hidden = true;
+    $("fbMask").hidden = true;
+    S.feedbackScope = "mine";
+    S.feedbackAdmin = false;
     S.noticesOpen = false;
     S.notices = [];
     S.unreadNotices = 0;
@@ -666,6 +671,162 @@
       toast("消息隐私配置已保存");
     } catch {
       err.textContent = "网络异常，稍后再试";
+    }
+  }
+
+  /* ================= 意见反馈 ================= */
+  const FB_KIND_LABEL = {
+    bug: "BUG 反馈",
+    suggestion: "玩法建议",
+    balance: "数值平衡",
+    other: "其他",
+  };
+  const FB_STATUS_LABEL = { 0: "待处理", 1: "已处理", 2: "已忽略" };
+
+  const fbDay = (ts) => {
+    const d = ts ? new Date(ts * 1000) : new Date();
+    return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(
+      d.getMinutes(),
+    ).padStart(2, "0")}`;
+  };
+
+  function fbKind() {
+    const on = document.querySelector("#fbKind button.on");
+    return on ? on.dataset.val : "bug";
+  }
+
+  function openFeedback() {
+    $("accMask").hidden = true;
+    $("fbMask").hidden = false;
+    $("fbErr").textContent = "";
+    $("fbCount").textContent = String($("fbContent").value.length);
+    loadFeedback();
+  }
+
+  function feedbackSnapshotLine(item) {
+    const s = item.snapshot || {};
+    const bits = [];
+    if (s.realm) bits.push(s.realm);
+    if (s.nick) bits.push(s.nick);
+    if (s.channel) bits.push(s.channel);
+    return bits.join(" · ");
+  }
+
+  function renderFeedback(items) {
+    const box = $("fbList");
+    if (!box) return;
+    if (!items.length) {
+      box.innerHTML = '<div class="fb-empty">还没有反馈记录。</div>';
+      return;
+    }
+    const admin = S.feedbackAdmin && S.feedbackScope === "all";
+    box.innerHTML = items
+      .map((it) => {
+        const st = Number(it.status) || 0;
+        const snap = feedbackSnapshotLine(it);
+        const acts = admin
+          ? '<div class="fb-acts">' +
+            (st === 0
+              ? `<button class="btn-ghost small" data-fb-done="${it.id}" type="button">标记已处理</button>` +
+                `<button class="btn-ghost small" data-fb-ignore="${it.id}" type="button">忽略</button>`
+              : "") +
+            "</div>"
+          : "";
+        return (
+          '<div class="fb-item">' +
+          '<div class="fb-top">' +
+          `<span class="fb-kind">${esc(it.kind_label || FB_KIND_LABEL[it.kind] || "其他")}</span>` +
+          `<span class="fb-status st-${st}">${esc(it.status_label || FB_STATUS_LABEL[st] || "待处理")}</span>` +
+          `<span class="fb-time">${esc(fbDay(it.created))}</span>` +
+          "</div>" +
+          `<div class="fb-text">${esc(it.content || "")}</div>` +
+          (snap ? `<div class="fb-snap">${esc(snap)}</div>` : "") +
+          (it.contact ? `<div class="fb-snap">联系方式：${esc(it.contact)}</div>` : "") +
+          (it.admin_note ? `<div class="fb-note">处理备注：${esc(it.admin_note)}</div>` : "") +
+          acts +
+          "</div>"
+        );
+      })
+      .join("");
+  }
+
+  async function loadFeedback() {
+    const box = $("fbList");
+    if (!box) return;
+    box.innerHTML = '<div class="fb-empty">加载中…</div>';
+    const scope = S.feedbackScope === "all" ? "all" : "mine";
+    try {
+      const r = await fetch(`/api/feedback?scope=${scope}&limit=30`, {
+        headers: { Authorization: "Bearer " + S.token },
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!d.ok) {
+        box.innerHTML = `<div class="fb-empty">${esc(d.error || "读取失败")}</div>`;
+        return;
+      }
+      S.feedbackAdmin = !!d.is_admin;
+      $("fbAdminToggle").hidden = !d.is_admin;
+      $("fbAdminToggle").textContent = scope === "all" ? "查看我的" : "查看全部";
+      $("fbListTitle").textContent =
+        scope === "all" ? `全部反馈${d.pending ? `（待处理 ${d.pending}）` : ""}` : "我的反馈";
+      renderFeedback(Array.isArray(d.items) ? d.items : []);
+    } catch {
+      box.innerHTML = '<div class="fb-empty">网络异常，稍后再试</div>';
+    }
+  }
+
+  async function submitFeedback() {
+    const err = $("fbErr");
+    err.textContent = "";
+    const content = $("fbContent").value.trim();
+    if (content.length < 5) {
+      err.textContent = "反馈内容至少写 5 个字";
+      return;
+    }
+    const btn = $("fbSubmit");
+    btn.disabled = true;
+    try {
+      const r = await fetch("/api/feedback", {
+        method: "POST",
+        headers: { Authorization: "Bearer " + S.token, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: fbKind(),
+          content,
+          contact: $("fbContact").value.trim(),
+          channel: S.channel && S.channel.name ? S.channel.name : "",
+          client_version: "web",
+          page: `${location.pathname}${location.hash || ""}`,
+          ua: navigator.userAgent || "",
+        }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!d.ok) return (err.textContent = d.error || "提交失败");
+      $("fbContent").value = "";
+      $("fbContact").value = "";
+      $("fbCount").textContent = "0";
+      S.feedbackScope = "mine";
+      toast(d.message || "反馈已提交，感谢你的建议");
+      loadFeedback();
+    } catch {
+      err.textContent = "网络异常，稍后再试";
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function setFeedbackStatus(id, status) {
+    try {
+      const r = await fetch("/api/feedback/status", {
+        method: "POST",
+        headers: { Authorization: "Bearer " + S.token, "Content-Type": "application/json" },
+        body: JSON.stringify({ id, status }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!d.ok) return toast(d.error || "操作失败");
+      toast(d.message || "已更新");
+      loadFeedback();
+    } catch {
+      toast("网络异常，稍后再试");
     }
   }
 
@@ -4506,6 +4667,32 @@
       const btn = e.target.closest && e.target.closest(".seg button");
       if (!btn) return;
       btn.parentElement.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b === btn));
+    });
+
+    // 意见反馈
+    $("openFeedback").addEventListener("click", openFeedback);
+    $("fbClose").addEventListener("click", () => ($("fbMask").hidden = true));
+    $("fbMask").addEventListener("click", (e) => {
+      if (e.target === $("fbMask")) $("fbMask").hidden = true;
+    });
+    $("fbKind").addEventListener("click", (e) => {
+      const btn = e.target.closest && e.target.closest("button");
+      if (!btn) return;
+      $("fbKind").querySelectorAll("button").forEach((b) => b.classList.toggle("on", b === btn));
+    });
+    $("fbContent").addEventListener("input", () => {
+      $("fbCount").textContent = String($("fbContent").value.length);
+    });
+    $("fbSubmit").addEventListener("click", submitFeedback);
+    $("fbAdminToggle").addEventListener("click", () => {
+      S.feedbackScope = S.feedbackScope === "all" ? "mine" : "all";
+      loadFeedback();
+    });
+    $("fbList").addEventListener("click", (e) => {
+      const done = e.target.closest && e.target.closest("[data-fb-done]");
+      if (done) return setFeedbackStatus(Number(done.dataset.fbDone), 1);
+      const ignore = e.target.closest && e.target.closest("[data-fb-ignore]");
+      if (ignore) return setFeedbackStatus(Number(ignore.dataset.fbIgnore), 2);
     });
 
     // 顶栏个人消息

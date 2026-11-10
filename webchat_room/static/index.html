@@ -263,6 +263,11 @@
     <div class="acc-tip">调整手动指令、自动代理与战报在聊天室的公开范围。</div>
 
     <div class="acc-divider"></div>
+    <label>意见反馈</label>
+    <button class="btn-ghost" id="openFeedback" type="button">提交意见反馈</button>
+    <div class="acc-tip">遇到 BUG、想提玩法建议或觉得数值不平衡，都可以写在这里。</div>
+
+    <div class="acc-divider"></div>
 
     <label for="accOld">原密码</label>
     <input id="accOld" type="password" maxlength="64" autocomplete="current-password">
@@ -333,6 +338,43 @@
 
     <button class="btn-primary" id="privacySave" type="button">保存配置</button>
     <div class="err" id="privacyErr"></div>
+  </div>
+</div>
+
+<!-- ============ 意见反馈 ============ -->
+<div class="sheet-mask" id="fbMask" hidden>
+  <div class="sheet fb-sheet">
+    <div class="sheet-head">
+      <span>意见反馈</span>
+      <button class="sheet-close" id="fbClose">×</button>
+    </div>
+    <div class="fb-tip">提交时会自动附带昵称、境界与当前频道，方便定位问题。</div>
+
+    <label>反馈类型</label>
+    <div class="seg" id="fbKind">
+      <button type="button" data-val="bug" class="on">BUG</button>
+      <button type="button" data-val="suggestion">建议</button>
+      <button type="button" data-val="balance">数值平衡</button>
+      <button type="button" data-val="other">其他</button>
+    </div>
+
+    <label for="fbContent">反馈内容</label>
+    <textarea id="fbContent" maxlength="1000" rows="5"
+      placeholder="请描述具体现象、复现步骤或你的建议（5-1000 字）"></textarea>
+    <div class="fb-count"><span id="fbCount">0</span>/1000</div>
+
+    <label for="fbContact">联系方式（选填）</label>
+    <input id="fbContact" maxlength="64" autocomplete="off" placeholder="QQ / 邮箱，方便进一步沟通">
+
+    <button class="btn-primary" id="fbSubmit" type="button">提交反馈</button>
+    <div class="err" id="fbErr"></div>
+
+    <div class="acc-divider"></div>
+    <div class="fb-list-head">
+      <span id="fbListTitle">我的反馈</span>
+      <button class="btn-ghost small" id="fbAdminToggle" type="button" hidden>查看全部</button>
+    </div>
+    <div class="fb-list" id="fbList"></div>
   </div>
 </div>
 

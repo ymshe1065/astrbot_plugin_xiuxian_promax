@@ -269,6 +269,9 @@ async def start(host: str, port: int) -> None:
     app.router.add_get("/api/notices", _api_notices)
     app.router.add_post("/api/notices/read", _api_notices_read)
     app.router.add_post("/api/notices/clear", _api_notices_clear)
+    app.router.add_get("/api/feedback", _api_feedback)
+    app.router.add_post("/api/feedback", _api_feedback)
+    app.router.add_post("/api/feedback/status", _api_feedback_status)
     app.router.add_get("/api/health", _api_health)
     app.router.add_get("/api/app/version", _api_app_version)
     app.router.add_get("/download/{name}", _api_apk)
@@ -1135,6 +1138,136 @@ async def _api_notices_clear(request: web.Request) -> web.Response:
     items, unread = accounts_store.list_notices(user["username"])
     return web.json_response(
         {"ok": True, "removed": removed, "items": items, "unread": unread}
+    )
+
+
+# ---------- 意见反馈 API ----------
+
+
+def _feedback_admin(user: dict | None) -> bool:
+    """网页账号是否为反馈管理员：绑定的 QQ 或账号名命中 BOSS_ADMINS。"""
+    if not user:
+        return False
+    admins = []
+    if _plugin is not None:
+        admins = [str(a) for a in (getattr(_plugin, "boss_admins", None) or [])]
+    if not admins:
+        return False
+    qq = str(user.get("qq") or "")
+    name = str(user.get("username") or "")
+    return bool(qq and qq in admins) or bool(name and name in admins)
+
+
+async def _feedback_snapshot(user: dict, body: dict) -> dict[str, Any]:
+    """提交时自动附带账号与角色快照，方便管理员定位问题。"""
+    player_key = accounts_store.player_key_of(user)
+    snapshot: dict[str, Any] = {
+        "nick": str(user.get("nick") or ""),
+        "username": str(user.get("username") or ""),
+        "player_key": player_key,
+        "client_version": str(body.get("client_version") or "")[:40],
+        "channel": str(body.get("channel") or "")[:64],
+        "page": str(body.get("page") or "")[:120],
+        "ua": str(body.get("ua") or "")[:200],
+        "time": int(time.time()),
+    }
+    if _plugin is not None:
+        try:
+            player = await _plugin.db.get_player_by_id(player_key)
+        except Exception:
+            player = None
+        if player is not None:
+            try:
+                snapshot["realm"] = player.get_level(_plugin.config_manager)
+            except Exception:
+                snapshot["realm"] = ""
+            snapshot["cultivation_type"] = str(
+                getattr(player, "cultivation_type", "") or ""
+            )
+            snapshot["level_index"] = int(getattr(player, "level_index", 0) or 0)
+            snapshot["experience"] = int(getattr(player, "experience", 0) or 0)
+    return snapshot
+
+
+def _feedback_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+async def _api_feedback(request: web.Request) -> web.Response:
+    """提交意见反馈；GET 拉取我的反馈（管理员可 scope=all 看全量）。"""
+    user = _token_user(request)
+    if user is None:
+        return web.json_response({"ok": False, "error": "登录已过期"}, status=401)
+    is_admin = _feedback_admin(user)
+
+    if request.method == "GET":
+        scope = str(request.query.get("scope") or "mine")
+        if scope == "all" and not is_admin:
+            return web.json_response(
+                {"ok": False, "error": "只有管理员可以查看全部反馈"}, status=403
+            )
+        limit = _feedback_int(request.query.get("limit"), 30)
+        before = _feedback_int(request.query.get("before"), 0)
+        status_raw = str(request.query.get("status") or "")
+        status = int(status_raw) if status_raw in ("0", "1", "2") else None
+        items = accounts_store.list_feedback(
+            None if scope == "all" else user["username"],
+            status=status,
+            limit=limit,
+            before=before,
+        )
+        return web.json_response(
+            {
+                "ok": True,
+                "items": items,
+                "is_admin": is_admin,
+                "pending": accounts_store.count_feedback(0) if is_admin else 0,
+                "kinds": accounts_store.FEEDBACK_KINDS,
+            }
+        )
+
+    body = await _read_json(request)
+    snapshot = await _feedback_snapshot(user, body)
+    ok, msg, item = accounts_store.add_feedback(
+        user["username"],
+        player_key=str(snapshot.get("player_key") or ""),
+        kind=str(body.get("kind") or ""),
+        content=str(body.get("content") or ""),
+        contact=str(body.get("contact") or ""),
+        snapshot=snapshot,
+    )
+    if not ok:
+        return web.json_response({"ok": False, "error": msg}, status=400)
+    return web.json_response({"ok": True, "message": msg, "item": item})
+
+
+async def _api_feedback_status(request: web.Request) -> web.Response:
+    """管理员标记反馈为已处理(1)或已忽略(2)。"""
+    user = _token_user(request)
+    if user is None:
+        return web.json_response({"ok": False, "error": "登录已过期"}, status=401)
+    if not _feedback_admin(user):
+        return web.json_response(
+            {"ok": False, "error": "只有管理员可以处理反馈"}, status=403
+        )
+    body = await _read_json(request)
+    ok, msg, item = accounts_store.update_feedback_status(
+        _feedback_int(body.get("id"), 0),
+        _feedback_int(body.get("status"), 0),
+        str(body.get("note") or ""),
+    )
+    if not ok:
+        return web.json_response({"ok": False, "error": msg}, status=400)
+    return web.json_response(
+        {
+            "ok": True,
+            "message": msg,
+            "item": item,
+            "pending": accounts_store.count_feedback(0),
+        }
     )
 
 

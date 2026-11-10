@@ -60,6 +60,21 @@ _SETTING_VALUES: dict[str, set[str]] = {
 NOTICE_KEEP = 200       # 每个账号最多保留的通知条数
 NOTICE_TTL = 30 * 24 * 3600  # 通知最长保留 30 天
 
+# 意见反馈：类型、内容长度、提交频率与保留量
+FEEDBACK_KINDS: dict[str, str] = {
+    "bug": "BUG 反馈",
+    "suggestion": "玩法建议",
+    "balance": "数值平衡",
+    "other": "其他",
+}
+FEEDBACK_STATUS: dict[int, str] = {0: "待处理", 1: "已处理", 2: "已忽略"}
+FEEDBACK_CONTENT_MIN = 5
+FEEDBACK_CONTENT_MAX = 1000
+FEEDBACK_CONTACT_MAX = 64
+FEEDBACK_COOLDOWN = 60        # 同一账号两次提交的最短间隔（秒）
+FEEDBACK_DAILY_LIMIT = 10     # 同一账号 24 小时内最多提交条数
+FEEDBACK_KEEP = 200           # 每个账号最多保留的反馈条数
+
 _lock = threading.Lock()
 _conn: sqlite3.Connection | None = None
 _secret: bytes = b""
@@ -139,6 +154,31 @@ def init() -> None:
         _conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_notices_user_time "
             "ON webroom_notices(username, created DESC)"
+        )
+        _conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS webroom_feedback (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                username    TEXT NOT NULL,
+                player_key  TEXT NOT NULL DEFAULT '',
+                kind        TEXT NOT NULL DEFAULT 'other',
+                content     TEXT NOT NULL,
+                contact     TEXT NOT NULL DEFAULT '',
+                snapshot    TEXT NOT NULL DEFAULT '{}',
+                status      INTEGER NOT NULL DEFAULT 0,
+                admin_note  TEXT NOT NULL DEFAULT '',
+                created     INTEGER NOT NULL,
+                updated     INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
+        _conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_feedback_user_time "
+            "ON webroom_feedback(username, id DESC)"
+        )
+        _conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_feedback_status_time "
+            "ON webroom_feedback(status, id DESC)"
         )
         _conn.commit()
 
@@ -613,3 +653,164 @@ def clear_read_notices(username: str) -> int:
         )
         db.commit()
         return int(cur.rowcount or 0)
+
+
+# ---------- 意见反馈 ----------
+
+
+def _feedback_row(row: sqlite3.Row) -> dict[str, Any]:
+    try:
+        snapshot = json.loads(row["snapshot"] or "{}")
+    except (TypeError, ValueError):
+        snapshot = {}
+    if not isinstance(snapshot, dict):
+        snapshot = {}
+    status = int(row["status"] or 0)
+    return {
+        "id": int(row["id"]),
+        "username": row["username"],
+        "player_key": row["player_key"],
+        "kind": row["kind"],
+        "kind_label": FEEDBACK_KINDS.get(row["kind"], FEEDBACK_KINDS["other"]),
+        "content": row["content"],
+        "contact": row["contact"],
+        "snapshot": snapshot,
+        "status": status,
+        "status_label": FEEDBACK_STATUS.get(status, FEEDBACK_STATUS[0]),
+        "admin_note": row["admin_note"],
+        "created": int(row["created"]),
+        "updated": int(row["updated"]),
+    }
+
+
+def add_feedback(
+    username: str,
+    player_key: str = "",
+    kind: str = "other",
+    content: str = "",
+    contact: str = "",
+    snapshot: dict[str, Any] | None = None,
+) -> tuple[bool, str, dict[str, Any] | None]:
+    """写入一条反馈；带 60 秒冷却与每日上限，超长内容按上限截断。"""
+    username = _norm(username)
+    if not username:
+        return False, "请先登录", None
+    kind = str(kind or "").strip()
+    if kind not in FEEDBACK_KINDS:
+        return False, "请选择反馈类型", None
+    content = str(content or "").strip()
+    if len(content) < FEEDBACK_CONTENT_MIN:
+        return False, f"反馈内容至少写 {FEEDBACK_CONTENT_MIN} 个字", None
+    content = content[:FEEDBACK_CONTENT_MAX]
+    contact = str(contact or "").strip()[:FEEDBACK_CONTACT_MAX]
+    snapshot = snapshot if isinstance(snapshot, dict) else {}
+    now = int(time.time())
+    blob = json.dumps(snapshot, ensure_ascii=False)
+
+    with _lock:
+        db = _db()
+        last = db.execute(
+            "SELECT created FROM webroom_feedback WHERE username = ? "
+            "ORDER BY id DESC LIMIT 1",
+            (username,),
+        ).fetchone()
+        if last is not None:
+            wait = FEEDBACK_COOLDOWN - (now - int(last["created"] or 0))
+            if wait > 0:
+                return False, f"提交太快了，请 {wait} 秒后再试", None
+        recent = db.execute(
+            "SELECT COUNT(*) AS c FROM webroom_feedback "
+            "WHERE username = ? AND created >= ?",
+            (username, now - 86400),
+        ).fetchone()
+        if recent is not None and int(recent["c"] or 0) >= FEEDBACK_DAILY_LIMIT:
+            return False, "今天的反馈数量已达上限，请明天再来", None
+        cur = db.execute(
+            "INSERT INTO webroom_feedback "
+            "(username, player_key, kind, content, contact, snapshot, status, admin_note, created, updated) "
+            "VALUES (?,?,?,?,?,?,0,'',?,0)",
+            (username, str(player_key or ""), kind, content, contact, blob, now),
+        )
+        feedback_id = int(cur.lastrowid)
+        db.execute(
+            "DELETE FROM webroom_feedback WHERE username = ? AND id NOT IN ("
+            "SELECT id FROM webroom_feedback WHERE username = ? ORDER BY id DESC LIMIT ?)",
+            (username, username, FEEDBACK_KEEP),
+        )
+        db.commit()
+        row = db.execute(
+            "SELECT * FROM webroom_feedback WHERE id = ?", (feedback_id,)
+        ).fetchone()
+
+    if row is None:
+        return False, "反馈保存失败，请稍后再试", None
+    return True, "反馈已提交，感谢你的建议", _feedback_row(row)
+
+
+def list_feedback(
+    username: str | None = None,
+    status: int | None = None,
+    limit: int = 50,
+    before: int = 0,
+) -> list[dict[str, Any]]:
+    """按时间倒序返回反馈；username 为空表示管理端全量查询。"""
+    limit = max(1, min(int(limit or 50), 100))
+    before = int(before or 0)
+    sql = "SELECT * FROM webroom_feedback WHERE 1=1"
+    args: list[Any] = []
+    if username:
+        sql += " AND username = ?"
+        args.append(_norm(username))
+    if status is not None:
+        sql += " AND status = ?"
+        args.append(int(status))
+    if 0 < before <= 2**63 - 1:
+        sql += " AND id < ?"
+        args.append(int(before))
+    sql += " ORDER BY id DESC LIMIT ?"
+    args.append(limit)
+    rows = _db().execute(sql, args).fetchall()
+    return [_feedback_row(row) for row in rows]
+
+
+def count_feedback(status: int | None = None) -> int:
+    sql = "SELECT COUNT(*) AS c FROM webroom_feedback"
+    args: list[Any] = []
+    if status is not None:
+        sql += " WHERE status = ?"
+        args.append(int(status))
+    row = _db().execute(sql, args).fetchone()
+    return int(row["c"] or 0) if row else 0
+
+
+def update_feedback_status(
+    feedback_id: int, status: int, admin_note: str = ""
+) -> tuple[bool, str, dict[str, Any] | None]:
+    """管理员把反馈标记为已处理(1)或已忽略(2)，可附一句备注。"""
+    try:
+        feedback_id = int(feedback_id)
+        status = int(status)
+    except (TypeError, ValueError):
+        return False, "反馈编号或状态不正确", None
+    if feedback_id <= 0:
+        return False, "反馈编号不正确", None
+    if status not in (1, 2):
+        return False, "只能标记为已处理或已忽略", None
+    note = str(admin_note or "").strip()[:200]
+    now = int(time.time())
+    with _lock:
+        db = _db()
+        cur = db.execute(
+            "UPDATE webroom_feedback SET status = ?, admin_note = ?, updated = ? "
+            "WHERE id = ?",
+            (status, note, now, feedback_id),
+        )
+        db.commit()
+        if int(cur.rowcount or 0) <= 0:
+            return False, "反馈不存在", None
+        row = db.execute(
+            "SELECT * FROM webroom_feedback WHERE id = ?", (feedback_id,)
+        ).fetchone()
+    if row is None:
+        return False, "反馈不存在", None
+    return True, "已更新处理状态", _feedback_row(row)
