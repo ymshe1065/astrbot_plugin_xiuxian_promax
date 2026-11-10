@@ -9,6 +9,12 @@ from zoneinfo import ZoneInfo
 
 from astrbot.api import logger
 
+from ..core.boss_scaling import (
+    load_server_level_profile,
+    realm_factor,
+    scale_weight,
+    scaled_damage_cap,
+)
 from ..data import DataBase
 from ..models import Player
 
@@ -85,12 +91,13 @@ class BattleEventManager:
         },
     }
 
+    # weight 为低境界服权重，high_weight 为境界系数拉满时的权重，中间线性插值。
     TIER_META: Dict[int, dict] = {
-        1: {"rank": "丁", "min_level": 0, "weight": 38, "hp_mult": 0.25, "cooldown": 180, "expire_hours": 2, "drop_table": "low"},
-        2: {"rank": "丙", "min_level": 0, "weight": 28, "hp_mult": 0.40, "cooldown": 180, "expire_hours": 2, "drop_table": "low"},
-        3: {"rank": "乙", "min_level": 3, "weight": 18, "hp_mult": 0.60, "cooldown": 240, "expire_hours": 2, "drop_table": "mid"},
-        4: {"rank": "甲", "min_level": 6, "weight": 11, "hp_mult": 0.85, "cooldown": 300, "expire_hours": 3, "drop_table": "mid"},
-        5: {"rank": "S", "min_level": 12, "weight": 5, "hp_mult": 1.20, "cooldown": 360, "expire_hours": 3, "drop_table": "legend"},
+        1: {"rank": "丁", "min_level": 0, "weight": 38, "high_weight": 10, "hp_mult": 0.25, "cooldown": 180, "expire_hours": 2, "drop_table": "low"},
+        2: {"rank": "丙", "min_level": 0, "weight": 28, "high_weight": 14, "hp_mult": 0.40, "cooldown": 180, "expire_hours": 2, "drop_table": "low"},
+        3: {"rank": "乙", "min_level": 3, "weight": 18, "high_weight": 17, "hp_mult": 0.60, "cooldown": 240, "expire_hours": 2, "drop_table": "mid"},
+        4: {"rank": "甲", "min_level": 6, "weight": 11, "high_weight": 24, "hp_mult": 0.85, "cooldown": 300, "expire_hours": 3, "drop_table": "mid"},
+        5: {"rank": "S", "min_level": 12, "weight": 5, "high_weight": 35, "hp_mult": 1.20, "cooldown": 360, "expire_hours": 3, "drop_table": "legend"},
     }
 
     TIER_REWARDS: Dict[int, dict] = {
@@ -111,6 +118,7 @@ class BattleEventManager:
         self.last_settle_msg: Optional[str] = None
 
         boss_config = (getattr(config_manager, "boss_config", {}) or {}) if config_manager else {}
+        self._scaling_cfg = boss_config.get("difficulty_scaling", {}) or {}
         self._cfg = boss_config.get("small_event", {}) or {}
         self.enabled = bool(self._cfg.get("enabled", True))
         self.interval_min_hours = max(1.0, float(self._cfg.get("interval_min_hours", 3) or 3))
@@ -122,6 +130,13 @@ class BattleEventManager:
         self.cooldown = int(self._cfg.get("cooldown", 180) or 180)
         self.damage_floor_pct = float(self._cfg.get("damage_floor_pct", 1.0) or 1.0)
         self.damage_cap_pct = float(self._cfg.get("damage_cap_pct", 12.0) or 12.0)
+        self.damage_cap_pct_per_level = max(
+            0.0, float(self._cfg.get("damage_cap_pct_per_level", 0.7) or 0.0)
+        )
+        self.damage_cap_pct_max = max(
+            self.damage_cap_pct,
+            float(self._cfg.get("damage_cap_pct_max", 35.0) or 35.0),
+        )
         self.expire_hours = float(self._cfg.get("expire_hours", 2) or 2)
         self.escape_reward_pct = float(self._cfg.get("escape_reward_pct", 0.5) or 0.5)
         self.timezone = str(self._cfg.get("timezone", "Asia/Shanghai") or "Asia/Shanghai").strip()
@@ -246,14 +261,15 @@ class BattleEventManager:
         return candidate
 
     async def _server_max_level(self) -> int:
-        try:
-            async with self.db.conn.execute("SELECT MAX(level_index) AS lv FROM players") as cursor:
-                row = await cursor.fetchone()
-            return int(row["lv"]) if row and row["lv"] is not None else 0
-        except Exception:
-            return 0
+        max_level, _ = await load_server_level_profile(self.db)
+        return max_level
 
-    def _choose_tier(self, max_level: int) -> int:
+    async def _server_realm_profile(self) -> Tuple[int, float]:
+        """返回 (全服最高境界, 境界系数)；系数越高，高难事件权重越大。"""
+        max_level, avg_level = await load_server_level_profile(self.db)
+        return max_level, realm_factor(max_level, avg_level, self._scaling_cfg)
+
+    def _choose_tier(self, max_level: int, realm: float = 0.0) -> int:
         eligible = {
             tier: cfg for tier, cfg in self._tier_meta.items()
             if int(cfg.get("min_level", 0) or 0) <= int(max_level)
@@ -265,8 +281,14 @@ class BattleEventManager:
                 if int(cfg.get("min_level", 0) or 0) == lowest
             }
         tiers = list(eligible.keys())
-        weights = [max(1, int(eligible[t].get("weight", 10) or 10)) for t in tiers]
+        weights = [max(1.0, self._tier_weight(t, realm)) for t in tiers]
         return random.choices(tiers, weights=weights, k=1)[0]
+
+    def _tier_weight(self, tier: int, realm: float = 0.0) -> float:
+        cfg = self._tier_meta.get(int(tier), {}) or {}
+        base = cfg.get("weight", 10)
+        high = cfg.get("high_weight", base)
+        return scale_weight(base, high, realm)
 
     def _choose_type(self) -> str:
         keys = list(self._types.keys())
@@ -331,9 +353,9 @@ class BattleEventManager:
         if await self.get_active_event():
             return False, "❌ 当前已有江湖事件正在进行，请先将其了结。", None
 
-        max_level = await self._server_max_level()
+        max_level, realm = await self._server_realm_profile()
         type_key = force_type if force_type in self._types else self._choose_type()
-        tier = int(force_tier) if force_tier in self._tier_meta else self._choose_tier(max_level)
+        tier = int(force_tier) if force_tier in self._tier_meta else self._choose_tier(max_level, realm)
         type_cfg = dict(self._types.get(type_key, {}))
         tier_cfg = dict(self._tier_meta.get(tier, {}))
 
@@ -407,6 +429,16 @@ class BattleEventManager:
         }
         return True, message, event
 
+    def effective_damage_cap_pct(self, player: Player) -> float:
+        """按玩家境界计算单次伤害上限：基础值 + 每级增量，受封顶值约束。"""
+        level_index = int(getattr(player, "level_index", 0) or 0)
+        return scaled_damage_cap(
+            self.damage_cap_pct,
+            level_index,
+            self.damage_cap_pct_per_level,
+            self.damage_cap_pct_max,
+        )
+
     async def challenge_event(self, player: Player) -> Tuple[bool, str]:
         self.last_challenge_ok = False
         self.last_kill = False
@@ -450,7 +482,7 @@ class BattleEventManager:
                 int(event["max_hp"]),
                 event.get("element", ""),
                 floor_pct=self.damage_floor_pct,
-                cap_pct=self.damage_cap_pct,
+                cap_pct=self.effective_damage_cap_pct(player),
             )
         else:
             final_damage = max(1, int(event["max_hp"] * 0.02))

@@ -7,12 +7,25 @@ SECT_CONFIG = {
 
 BOSS_CONFIG = {
     "spawn_interval": 3600,
+    "difficulty_scaling": {
+        "ref_level": 31,
+        "max_weight": 0.7,
+        "avg_weight": 0.3,
+        "curve_exponent": 1.4,
+    },
     "world_boss": {
         "min_level": 3,
         "cooldown": 300,
         "damage_floor_pct": 0.5,
         "damage_cap_pct": 20.0,
+        "damage_cap_pct_per_level": 0.8,
+        "damage_cap_pct_max": 45.0,
         "expire_hours": 24,
+        "tiers": {
+            "1": {"weight": 60, "high_weight": 30},
+            "2": {"weight": 30, "high_weight": 35},
+            "3": {"weight": 10, "high_weight": 40},
+        },
     },
     "raid": {
         "enabled": True,
@@ -21,7 +34,14 @@ BOSS_CONFIG = {
         "cooldown": 600,
         "damage_floor_pct": 0.3,
         "damage_cap_pct": 8.0,
+        "damage_cap_pct_per_level": 0.6,
+        "damage_cap_pct_max": 28.0,
         "min_players": 2,
+        "difficulty_weights": {
+            "1": {"weight": 45, "high_weight": 15},
+            "2": {"weight": 35, "high_weight": 30},
+            "3": {"weight": 20, "high_weight": 55},
+        },
     },
     "small_event": {
         "enabled": True,
@@ -33,8 +53,17 @@ BOSS_CONFIG = {
         "cooldown": 180,
         "damage_floor_pct": 1.0,
         "damage_cap_pct": 12.0,
+        "damage_cap_pct_per_level": 0.7,
+        "damage_cap_pct_max": 35.0,
         "expire_hours": 2,
         "escape_reward_pct": 0.5,
+        "tiers": {
+            "1": {"weight": 38, "high_weight": 10},
+            "2": {"weight": 28, "high_weight": 14},
+            "3": {"weight": 18, "high_weight": 17},
+            "4": {"weight": 11, "high_weight": 24},
+            "5": {"weight": 5, "high_weight": 35},
+        },
     },
     "weekly_boss": {
         "enabled": True,

@@ -3,6 +3,12 @@ import time
 import random
 from typing import Optional, Tuple, List, Dict
 from astrbot.api import logger
+from ..core.boss_scaling import (
+    load_server_level_profile,
+    realm_factor,
+    scale_weight,
+    scaled_damage_cap,
+)
 from ..data import DataBase
 from ..models import Player
 
@@ -91,10 +97,11 @@ class WorldBossManager:
         "thunder_qilin": (40, 40),    # 均衡
     }
 
+    # weight 为低境界服权重，high_weight 为境界系数拉满时的权重，中间线性插值。
     TIER_META: Dict[int, dict] = {
-        1: {"label": "灭世级", "weight": 60},
-        2: {"label": "灾厄级", "weight": 30},
-        3: {"label": "神话级", "weight": 10},
+        1: {"label": "灭世级", "weight": 60, "high_weight": 30},
+        2: {"label": "灾厄级", "weight": 30, "high_weight": 35},
+        3: {"label": "神话级", "weight": 10, "high_weight": 40},
     }
 
     # 掉落表按档位严格递增：low 550 / mid 1065 / high 1701 / legend 4544（按材料售价折算单次期望）。
@@ -164,6 +171,7 @@ class WorldBossManager:
         self.last_challenge_ok = False
         self.last_settle_msg: Optional[str] = None
         self._config = (getattr(config_manager, "boss_config", {}) or {}) if config_manager else {}
+        self._scaling_cfg = self._config.get("difficulty_scaling", {}) or {}
         self._world_cfg = self._config.get("world_boss", {}) or {}
         self._types = self._load_types()
         self._tier_meta = self._load_tier_meta()
@@ -173,6 +181,13 @@ class WorldBossManager:
         self.cooldown = int(self._world_cfg.get("cooldown", 300) or 300)
         self.damage_floor_pct = float(self._world_cfg.get("damage_floor_pct", 0.5) or 0.5)
         self.damage_cap_pct = float(self._world_cfg.get("damage_cap_pct", 20.0) or 20.0)
+        self.damage_cap_pct_per_level = max(
+            0.0, float(self._world_cfg.get("damage_cap_pct_per_level", 0.8) or 0.0)
+        )
+        self.damage_cap_pct_max = max(
+            self.damage_cap_pct,
+            float(self._world_cfg.get("damage_cap_pct_max", 45.0) or 45.0),
+        )
         self.expire_hours = int(self._world_cfg.get("expire_hours", 24) or 24)
 
     def _load_types(self) -> Dict[str, dict]:
@@ -321,7 +336,8 @@ class WorldBossManager:
         max_hp = max(1, int(boss.get("max_hp") or 1))
         damage_percent = (raw_damage / max_hp) * 100
         if raw_damage > 0:
-            damage_percent = max(self.damage_floor_pct, min(self.damage_cap_pct, damage_percent))
+            cap_pct = self.effective_damage_cap_pct(player)
+            damage_percent = max(self.damage_floor_pct, min(cap_pct, damage_percent))
         else:
             damage_percent = 0.0
         final_damage = int(max_hp * damage_percent / 100)
@@ -451,14 +467,15 @@ class WorldBossManager:
         return cfg
 
     async def _server_max_level(self) -> int:
-        try:
-            async with self.db.conn.execute("SELECT MAX(level_index) AS lv FROM players") as cursor:
-                row = await cursor.fetchone()
-            return int(row["lv"]) if row and row["lv"] is not None else 0
-        except Exception:
-            return 0
+        max_level, _ = await load_server_level_profile(self.db)
+        return max_level
 
-    def _choose_boss_key(self, max_level: Optional[int] = None) -> str:
+    async def _server_realm_profile(self) -> Tuple[int, float]:
+        """返回 (全服最高境界, 境界系数)；系数越高，高难内容权重越大。"""
+        max_level, avg_level = await load_server_level_profile(self.db)
+        return max_level, realm_factor(max_level, avg_level, self._scaling_cfg)
+
+    def _choose_boss_key(self, max_level: Optional[int] = None, realm: float = 0.0) -> str:
         eligible = self._types
         if max_level is not None:
             filtered = {
@@ -478,14 +495,34 @@ class WorldBossManager:
                 }
         keys = []
         weights = []
+        # TIER_META 的权重是「整个档位」的占比，同档多个 Boss 时平均分摊，
+        # 否则 5 个灭世级会靠数量压过只有 2 个的神话级。
+        tier_counts: Dict[int, int] = {}
+        for cfg in eligible.values():
+            tier = int(cfg.get("tier", 1) or 1)
+            tier_counts[tier] = tier_counts.get(tier, 0) + 1
         for key, cfg in eligible.items():
             tier = int(cfg.get("tier", 1) or 1)
-            weight = int(cfg.get("weight") or self._tier_meta.get(tier, {}).get("weight", 10))
+            weight = self._tier_weight(tier, realm) / max(1, tier_counts.get(tier, 1))
+            # 保留 types 中显式 weight 的相对差异，同时仍受境界系数放大。
+            custom = cfg.get("weight")
+            if custom is not None:
+                base_weight = self._tier_meta.get(tier, {}).get("weight", 10)
+                try:
+                    weight *= max(0.0, float(custom)) / max(1.0, float(base_weight))
+                except (TypeError, ValueError):
+                    pass
             keys.append(key)
-            weights.append(max(1, weight))
+            weights.append(max(1.0, weight))
         if not keys:
             return "abyss_dragon"
         return random.choices(keys, weights=weights, k=1)[0]
+
+    def _tier_weight(self, tier: int, realm: float = 0.0) -> float:
+        meta = self._tier_meta.get(int(tier), {}) or {}
+        base = meta.get("weight", 10)
+        high = meta.get("high_weight", base)
+        return scale_weight(base, high, realm)
 
     async def spawn_boss(self) -> Tuple[bool, str]:
         """生成世界Boss"""
@@ -493,8 +530,8 @@ class WorldBossManager:
         await self.expire_bosses(now)
 
         base_hp, p_count = await self.calculate_dynamic_hp()
-        max_level = await self._server_max_level()
-        boss_key = self._choose_boss_key(max_level)
+        max_level, realm = await self._server_realm_profile()
+        boss_key = self._choose_boss_key(max_level, realm)
         type_cfg = dict(self._types.get(boss_key, {}))
         boss_name = type_cfg.get("name") or boss_key
         element = type_cfg.get("element") or ""
@@ -610,6 +647,16 @@ class WorldBossManager:
         """兼容旧入口：返回物攻+法攻总值。"""
         return (await self.calculate_realtime_components(player))[2]
 
+    def effective_damage_cap_pct(self, player: Player) -> float:
+        """按玩家境界计算单次伤害上限：基础值 + 每级增量，受封顶值约束。"""
+        level_index = int(getattr(player, "level_index", 0) or 0)
+        return scaled_damage_cap(
+            self.damage_cap_pct,
+            level_index,
+            self.damage_cap_pct_per_level,
+            self.damage_cap_pct_max,
+        )
+
     async def calculate_damage(
         self,
         player: Player,
@@ -622,7 +669,7 @@ class WorldBossManager:
     ) -> Tuple[int, float, str]:
         """计算对Boss的单次伤害，物法分别应用抗性后合计。"""
         floor_pct = self.damage_floor_pct if floor_pct is None else float(floor_pct)
-        cap_pct = self.damage_cap_pct if cap_pct is None else float(cap_pct)
+        cap_pct = self.effective_damage_cap_pct(player) if cap_pct is None else float(cap_pct)
         player_element = self.player_element(player)
         physical_atk, magic_atk, total_atk = await self.calculate_realtime_components(player)
 

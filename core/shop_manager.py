@@ -748,6 +748,34 @@ class ShopManager:
     # 百宝阁限量：这些类型每次刷新库存上限（1-5 个）
     CONSUMABLE_SHELF_TYPES = ("pill", "exp_pill", "utility_pill", "inventory_pill", "material")
 
+    def _split_guaranteed_items(self, items: List[Dict]) -> Tuple[List[Dict], List[Dict]]:
+        """按 ``guarantee_group`` 预留保底商品，返回 (保底条目, 剩余可随机条目)。
+
+        同一分组可用 ``guarantee_count`` 指定至少入选数量。保底条目仍然参与组内
+        加权随机（不会每次固定同一件），但一定占用对应格子，避免高品阶商品
+        被大量低权重条目淹没。
+        """
+        groups: Dict[str, List[Dict]] = {}
+        for item in items or []:
+            group = str(item.get("guarantee_group") or "")
+            if group:
+                groups.setdefault(group, []).append(item)
+        picked: List[Dict] = []
+        picked_ids = set()
+        for group_items in groups.values():
+            try:
+                need = int(group_items[0].get("guarantee_count", 1) or 1)
+            except (TypeError, ValueError):
+                need = 1
+            need = max(0, min(need, len(group_items)))
+            if need <= 0:
+                continue
+            choices = self._weighted_random_choice(group_items, need)
+            picked.extend(choices)
+            picked_ids.update(id(choice) for choice in choices)
+        remaining = [item for item in (items or []) if id(item) not in picked_ids]
+        return picked, remaining
+
     def generate_pavilion_items(
         self, item_getter, count: int, pick_mode: str = "", stock_cap: int = 0
     ) -> List[Dict]:
@@ -755,6 +783,8 @@ class ShopManager:
 
         item_getter 返回的条目若带 always_available=True，则视为常驻商品：
         每次刷新都会全部上架，count 仅控制额外随机商品的数量。
+        条目若带 ``guarantee_group``，则同组至少上架 ``guarantee_count`` 件
+        （材料阁用来保证最高品阶材料包不会缺席）。
 
         ``pick_mode`` 控制随机权重：``common`` 偏常规低阶，``rare`` 偏稀有高阶。
         """
@@ -772,12 +802,21 @@ class ShopManager:
                 clone['weight'] = self._pick_weight(item, pick_mode)
                 weighted.append(clone)
             normalized = weighted
-            permanent = [i for i in normalized if i.get('always_available')]
-            rotatable = [i for i in normalized if not i.get('always_available')]
+        permanent = [i for i in normalized if i.get('always_available')]
+        rotatable = [i for i in normalized if not i.get('always_available')]
+        guaranteed, rotatable = self._split_guaranteed_items(rotatable)
         if permanent:
-            selected = list(permanent)
+            selected = list(permanent) + guaranteed
+            # 常驻商品不占用 count（历史语义：count 只控制额外随机商品）
             if rotatable and count > 0:
                 selected.extend(self._weighted_random_choice(rotatable, min(count, len(rotatable))))
+        elif guaranteed:
+            selected = list(guaranteed)
+            remaining = max(0, count - len(selected))
+            if rotatable and remaining > 0:
+                selected.extend(self._weighted_random_choice(
+                    rotatable, min(remaining, len(rotatable))
+                ))
         else:
             selected = self._weighted_random_choice(normalized, count)
         discount_min = self._cfg("SHOP_DISCOUNT_MIN", 0.8)
@@ -1041,6 +1080,13 @@ class ShopManager:
         "灵液": "灵液",
         "特殊": "特殊",
     }
+    # 材料阁货架权重上限：抹平凡/黄品材料 900+ 的原始权重差距，让品阶区间
+    # 而不是“条目数量 × 原始权重”决定刷新结果。
+    MATERIAL_SHELF_WEIGHT_CAP = 240
+    # 最高可达品阶至少占用的格子数（满货架 2 格，小货架 1 格）。
+    MATERIAL_SHELF_TOP_GUARANTEE = 2
+    MATERIAL_SHELF_TOP_MIN_COUNT = 10
+    MATERIAL_SHELF_MIN_FACTOR = 0.05
 
     def get_material_category(self, name: str, data: Dict = None) -> str:
         """返回材料类别；兼容 material_catalog 与物品自带类别。"""
@@ -1056,7 +1102,11 @@ class ShopManager:
         return self.MATERIAL_CATEGORY_LABELS.get(category, category)
 
     def get_materials_for_display(self, count: int) -> List[Dict]:
-        """获取材料用于材料阁展示；价格缺失时按品级补齐。"""
+        """获取材料用于材料阁展示；价格缺失时按品级补齐。
+
+        这里保持“全量目录”语义（大 count 时供测试/图鉴取全量），货架抽选请用
+        ``get_material_shelf_items``：后者会按全服品阶区间重新计算权重。
+        """
         tier_price = {'凡品': 10, '黄品': 30, '玄品': 120, '灵品': 200, '地品': 500, '天品': 900, '皇品': 1500, '圣品': 2000, '帝品': 3000, '道品': 4000, '仙品': 5000, '混元先天': 8000}
         materials = []
         for item in self.config_manager.items_data.values():
@@ -1078,6 +1128,88 @@ class ShopManager:
                 'rank': rank, 'category': category,
                 'data': {**item, 'price': price, 'category': category},
             })
+        return materials
+
+    @staticmethod
+    def _material_shop_weight(item: Dict) -> int:
+        """材料条目的基础商店权重；显式 0 表示不通过 NPC 货架出售。"""
+        data = item.get('data') if isinstance(item.get('data'), dict) else {}
+        raw = data.get('shop_weight')
+        if raw is None:
+            raw = item.get('weight', 100)
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return 100
+
+    def get_material_shelf_items(self, count: int) -> List[Dict]:
+        """材料阁货架候选：按全服境界区间给材料附加动态权重。
+
+        设计目标：
+        1. 低境界服务器以低阶材料为主，不会刷出一屏圣品/帝品；
+        2. 合体/大乘/渡劫服务器能稳定看到圣品、帝品材料包；
+        3. 严格遵守 ``shop_weight=0``：帝品散装材料、秘境专属材料仍不进入材料阁，
+           获取渠道仍以历练/秘境/高难掉落及帝品材料包为主。
+
+        权重 = min(原始 shop_weight, 权重上限) × 品阶亲和度；品阶亲和度以
+        区间中高段为中心向上下扩散。最高可达品阶的条目再打上 ``guarantee_group``，
+        由 ``generate_pavilion_items`` 保证至少上架 1-2 件。
+        """
+        materials = self.get_materials_for_display(count)
+        band = self._rank_band
+        if not band or not band.get("weights"):
+            band = {"min": 0, "max": 2, "center": 2.0, "weights": {0: 1, 1: 1, 2: 1}}
+
+        min_idx = int(band.get("min", 0) or 0)
+        max_idx = int(band.get("max", 2) or 0)
+        try:
+            center = float(band.get("center", max_idx))
+        except (TypeError, ValueError):
+            center = float(max_idx)
+
+        available_indices = []
+        for entry in materials:
+            if self._material_shop_weight(entry) <= 0:
+                continue
+            available_indices.append(self.rank_index(entry.get("rank") or "凡品"))
+        # 材料/材料包最高只到帝品；道品以上的服务器按“实际可售最高品阶”收敛。
+        effective_max = min(max_idx, max(available_indices)) if available_indices else max_idx
+        effective_min = min(min_idx, effective_max)
+        # 以区间中高段为中心：至少向最高品阶上浮半档，避免合体期仍被低阶淹没。
+        focus = min(
+            effective_max,
+            center + max(0.5, (effective_max - center) * 0.45),
+        )
+        sigma = max(1.0, (effective_max - effective_min) / 2.0 + 0.6)
+
+        for entry in materials:
+            base_weight = self._material_shop_weight(entry)
+            index = self.rank_index(entry.get("rank") or "凡品")
+            if base_weight <= 0:
+                # 显式 0：NPC 货架不卖散装帝品/秘境专属材料，保持原有设计。
+                entry["weight"] = 0
+                continue
+            factor = math.exp(-((index - focus) ** 2) / (2 * sigma ** 2))
+            factor = max(self.MATERIAL_SHELF_MIN_FACTOR, factor)
+            capped = min(base_weight, self.MATERIAL_SHELF_WEIGHT_CAP)
+            entry["weight"] = max(1, int(round(capped * factor)))
+
+        # 最高可达品阶保底：圣品及以上时，材料阁必须能看到对应品阶的材料/材料包。
+        if effective_max >= self.rank_index("圣品"):
+            top_entries = [
+                entry for entry in materials
+                if entry.get("weight", 0) > 0
+                and self.rank_index(entry.get("rank") or "凡品") == effective_max
+            ]
+            if top_entries and count >= 4:
+                guarantee = (
+                    self.MATERIAL_SHELF_TOP_GUARANTEE
+                    if count >= self.MATERIAL_SHELF_TOP_MIN_COUNT else 1
+                )
+                for entry in top_entries:
+                    entry["guarantee_group"] = "material_top_rank"
+                    entry["guarantee_count"] = guarantee
+
         return materials
 
     # ===== 材料包 =====

@@ -157,6 +157,17 @@ class ShopHandler:
                     await self.db.ext.set_system_config("shop_talisman_recipe_fingerprint", expected)
             except Exception:
                 pass
+        # 材料阁权重规则升级（按全服境界加权 + 最高品阶保底）：老货架不会自动换成
+        # 新候选池，用一次性指纹强制重建，避免更新后仍看到旧的低阶货架。
+        if pavilion_id == "material_pavilion":
+            try:
+                expected = "material-shelf-rank-v1"
+                stored = await self.db.ext.get_system_config("shop_material_shelf_fingerprint")
+                if stored != expected:
+                    last_refresh_time = 0
+                    await self.db.ext.set_system_config("shop_material_shelf_fingerprint", expected)
+            except Exception:
+                pass
         refresh_hours = self._cfg("PAVILION_REFRESH_HOURS", 1)
         if not current_items or self.shop_manager.should_refresh_shop(last_refresh_time, refresh_hours):
             if apply_rank_band:
@@ -186,7 +197,7 @@ class ShopHandler:
             ("pill_pavilion", "丹阁", self.shop_manager.get_pills_for_display, self._cfg("PAVILION_PILL_COUNT", 20), "", 0),
             ("recipe_pavilion", "丹方阁", self.shop_manager.get_recipes_for_display, self._rare_recipe_count(), "rare", 0),
             ("breakthrough_recipe_pavilion", "突破丹方", self.shop_manager.get_breakthrough_recipes_for_display, 0, "", 0),
-            ("material_pavilion", "材料阁", self.shop_manager.get_materials_for_display, self._cfg("PAVILION_MATERIAL_COUNT", 20), "", 0),
+            ("material_pavilion", "材料阁", self.shop_manager.get_material_shelf_items, self._cfg("PAVILION_MATERIAL_COUNT", 20), "", 0),
             ("weapon_pavilion", "器阁", self.shop_manager.get_weapons_for_display, self._cfg("PAVILION_WEAPON_COUNT", 40), "common", 0),
             ("treasure_pavilion", "百宝阁", self.shop_manager.get_treasure_items_for_display, self._cfg("PAVILION_TREASURE_COUNT", 12), "rare", 5),
             ("talisman_pavilion", "符阁", self.shop_manager.get_talismans_for_display, self._cfg("PAVILION_TALISMAN_COUNT", 12), "", 0),
@@ -254,7 +265,7 @@ class ShopHandler:
             "丹药": ("pill_pavilion", "丹阁", self.shop_manager.get_pills_for_display, self._cfg("PAVILION_PILL_COUNT", 20), ""),
             "丹方": ("recipe_pavilion", "丹方阁", self.shop_manager.get_recipes_for_display, self._rare_recipe_count(), "rare"),
             "突破丹方": ("breakthrough_recipe_pavilion", "突破丹方", self.shop_manager.get_breakthrough_recipes_for_display, 0, ""),
-            "材料": ("material_pavilion", "材料阁", self.shop_manager.get_materials_for_display, self._cfg("PAVILION_MATERIAL_COUNT", 20), ""),
+            "材料": ("material_pavilion", "材料阁", self.shop_manager.get_material_shelf_items, self._cfg("PAVILION_MATERIAL_COUNT", 20), ""),
         }
         if not section:
             yield event.plain_result(
@@ -272,7 +283,10 @@ class ShopHandler:
             yield event.plain_result("❌ 丹阁分区只有：丹药、丹方、突破丹方、材料。")
             return
         pavilion_id, name, getter, count, pick_mode = jobs[section]
-        await self._ensure_pavilion_refreshed(pavilion_id, getter, count, pick_mode=pick_mode)
+        await self._ensure_pavilion_refreshed(
+            pavilion_id, getter, count,
+            apply_rank_band=(section == "材料"), pick_mode=pick_mode,
+        )
         self._remember_viewed_pavilion(event, pavilion_id)
         last_refresh, items = await self.db.get_shop_data(pavilion_id)
         if not items:

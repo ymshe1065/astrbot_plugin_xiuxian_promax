@@ -425,5 +425,136 @@ class TestAbsoluteYield(unittest.TestCase):
         self.assertLess(ratio, 0.30, f"历练达到秘境的 {ratio:.0%}，又抢了秘境的材料定位")
 
 
+class TestLateHetiEmperorFarming(unittest.TestCase):
+    """合体后期（lv30）能靠历练专精路线自给大乘丹的五件帝品材料。
+
+    材料品阶自 v7.9.0 起同时受路线 ``min_level`` 封顶（``material_model.cap_by_route``），
+    所以只有 min_level 落在「合体大乘」段（25~30）的路线才可能出帝品：
+    混沌王座 25（妖兽）、命运织机 28（灵液）、宇宙之眼 29（矿材）、造化祭坛 30（灵植）。
+    低阶路线（如 22 的天门叩关）即使玩家已到合体期也只出圣品，避免短冷却白嫖。
+    这里按实际事件/判定次数模拟，而不是只看权重。
+    """
+
+    LEVEL = 30
+    RUNS = 3000
+    # 大乘丹：帝品灵植 ×2、矿材 ×1、妖兽 ×1、灵液 ×1
+    PLAN = (
+        ("灵植", 2, "creation_altar"),
+        ("矿材", 1, "cosmos_eye"),
+        ("妖兽", 1, "chaos_throne"),
+        ("灵液", 1, "fate_loom"),
+    )
+    # v7.9 起材料系数为 0.33，历练只作补充；五件帝品约需 80 趟（帝品主来源是 lv25+ 秘境）。
+    MAX_TRIPS = 100
+
+    def _emperor_per_trip(self, mgr, route):
+        player = _Player(self.LEVEL)
+        got = Counter()
+        for _ in range(self.RUNS):
+            event = mgr._trigger_route_event(route)
+            for entry in mgr._roll_drops(
+                player, route, event, chance_scale=mgr.ITEM_CHANCE_SCALE
+            ):
+                material = MATS.get(entry[0])
+                if material and material["tier"] == "帝品":
+                    got[material["category"]] += entry[1]
+        return {category: got[category] / self.RUNS for category in CATEGORIES}
+
+    def test_emperor_materials_farmable_by_switching_routes(self):
+        """按产物换专精路线，合理趟数内能凑齐一套大乘丹帝品材料。"""
+        random.seed(20261110)
+        mgr = make_manager()
+        total = 0.0
+        for category, need, key in self.PLAN:
+            rate = self._emperor_per_trip(mgr, ROUTES[key])[category]
+            self.assertGreater(
+                rate, 0,
+                f"lv{self.LEVEL} 的 {ROUTES[key]['name']} 掉不出帝品{category}",
+            )
+            total += need / rate
+        self.assertLessEqual(
+            total, self.MAX_TRIPS,
+            f"合体后期凑齐大乘丹帝品材料需要约 {total:.0f} 趟历练，超过 {self.MAX_TRIPS} 趟",
+        )
+
+    def test_specialty_routes_beat_full_product_route(self):
+        """一条「全产物」路线走到黑会慢很多；专精换线才是可行解。"""
+        random.seed(20261110)
+        mgr = make_manager()
+        full = self._emperor_per_trip(mgr, ROUTES["primordial_peak"])
+        for category, _need, key in self.PLAN:
+            specialized = self._emperor_per_trip(mgr, ROUTES[key])[category]
+            self.assertGreater(
+                specialized, full[category],
+                f"{ROUTES[key]['name']} 的帝品{category}产出没有高于太初之巅",
+            )
+        total = sum(need / self._emperor_per_trip(mgr, ROUTES[key])[category]
+                    for category, need, key in self.PLAN)
+        full_trips = sum(need / full[cat] for cat, need, _ in self.PLAN)
+        self.assertGreater(
+            full_trips, total * 2,
+            f"专精换线 {total:.0f} 趟、全产物 {full_trips:.0f} 趟，专精优势不明显",
+        )
+
+
+class TestNoEarlyEmperor(unittest.TestCase):
+    def test_no_emperor_material_before_heti(self):
+        """lv24 及以下不能提前掉帝品，否则会砸穿合体前的丹方经济。"""
+        mgr = make_manager()
+        for level in (0, 12, 18, 24):
+            self.assertNotIn("帝品", mgr.realm_band(level)["tiers"])
+            player = _Player(level)
+            for _ in range(400):
+                drop = mgr._roll_material_drop(player, ROUTES["scout"], {})
+                if drop:
+                    self.assertNotEqual(
+                        MATS[drop[0]]["tier"], "帝品",
+                        f"lv{level} 提前掉出了帝品材料 {drop[0]}",
+                    )
+
+    def test_realm_band_boundary_at_great_vehicle(self):
+        """大乘丹 lv27 必须落在合体大乘段，lv31 才切到渡劫段。"""
+        mgr = make_manager()
+        self.assertEqual(mgr.realm_band(27)["key"], "heti")
+        self.assertEqual(mgr.realm_band(30)["key"], "heti")
+        self.assertEqual(mgr.realm_band(31)["key"], "dujie")
+
+    def test_low_route_is_capped_for_high_level_player(self):
+        """路线封顶：lv30 刷 min_level=22 的天门叩关也掉不出帝品。"""
+        mgr = make_manager()
+        player = _Player(30)
+        self.assertEqual(mgr._material_band(player, ROUTES["heaven_gate"])["key"], "huashen")
+        for _ in range(400):
+            drop = mgr._roll_material_drop(player, ROUTES["heaven_gate"], {})
+            if drop:
+                self.assertNotEqual(
+                    MATS[drop[0]]["tier"], "帝品",
+                    f"低阶路线掉出了帝品材料 {drop[0]}",
+                )
+
+
+class TestEmperorDropRateConfig(unittest.TestCase):
+    def test_heti_emperor_share_is_enough_but_not_flooding(self):
+        """合体大乘段帝品占比要够刷大乘丹，又不能高到让帝品变白菜。"""
+        def share(band_key):
+            band = next(b for b in CFG["realm_bands"] if b["key"] == band_key)
+            total = sum(band["tiers"].values())
+            return band["tiers"]["帝品"] / total
+
+        heti = share("heti")
+        dujie = share("dujie")
+        self.assertGreaterEqual(heti, 0.20, f"合体段帝品占比只有 {heti:.0%}")
+        self.assertLessEqual(heti, 0.35, f"合体段帝品占比 {heti:.0%} 过高")
+        self.assertGreaterEqual(dujie, heti, "渡劫以上的帝品占比不能低于合体段")
+
+    def test_emperor_pool_never_falls_back(self):
+        """四类帝品池都必须真实存在，不能靠 TIER_ORDER 回退到别的品阶。"""
+        mgr = make_manager()
+        for category in CATEGORIES:
+            names, actual = mgr._resolve_pool(category, "帝品")
+            self.assertTrue(names, f"{category}/帝品 池为空")
+            self.assertEqual(actual, "帝品", f"{category}/帝品 回退到了 {actual}")
+
+
 if __name__ == "__main__":
     unittest.main()

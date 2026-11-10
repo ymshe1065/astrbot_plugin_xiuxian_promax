@@ -234,8 +234,19 @@ class GambleManager:
 
     def _black_market_type_label(self, data: dict) -> str:
         item_type = data.get("type", "")
+        subtype = str(data.get("subtype") or "")
         if item_type == "法器":
             return data.get("subtype") or "法器"
+        # 三类丹药共用同一套展示名：修为丹/功能丹靠独立配置的字段识别，
+        # 避免装备的 subtype（如“手套”“戒指”）被误判成功能丹。
+        if item_type == "exp_pill" or subtype == "exp" or "exp_gain" in data:
+            return "修为丹"
+        if item_type == "utility_pill" or (
+            not item_type and "effect_type" in data
+        ):
+            return "功能丹"
+        if item_type in ("pill", "丹药") or subtype == "breakthrough":
+            return "丹药"
         return {
             "丹药": "丹药",
             "功法": "功法",
@@ -273,6 +284,11 @@ class GambleManager:
             self.config_manager.items_data,
             self.config_manager.weapons_data,
             getattr(self.config_manager, "techniques_data", {}) or {},
+            # 突破丹/修为丹/功能丹独立配置，也必须进入黑市真实商品池，
+            # 否则新增丹药只有在丹阁/百宝阁才能买到。
+            getattr(self.config_manager, "pills_data", {}) or {},
+            getattr(self.config_manager, "exp_pills_data", {}) or {},
+            getattr(self.config_manager, "utility_pills_data", {}) or {},
         ):
             for name, data in source.items():
                 if not isinstance(data, dict):

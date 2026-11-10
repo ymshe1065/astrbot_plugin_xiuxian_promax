@@ -3,6 +3,12 @@ import time
 import random
 from typing import Optional, Tuple, List, Dict
 from astrbot.api import logger
+from ..core.boss_scaling import (
+    load_server_level_profile,
+    realm_factor,
+    scale_weight,
+    scaled_damage_cap,
+)
 from ..data import DataBase
 from ..models import Player
 
@@ -39,6 +45,13 @@ class RaidManager:
 
     DIFFICULTY_STARS = {1: "★☆☆", 2: "★★☆", 3: "★★★"}
 
+    # 低境界服 / 境界系数拉满时的难度权重，中间按境界系数线性插值。
+    DIFFICULTY_WEIGHTS: Dict[int, dict] = {
+        1: {"weight": 45, "high_weight": 15},
+        2: {"weight": 35, "high_weight": 30},
+        3: {"weight": 20, "high_weight": 55},
+    }
+
     def __init__(self, db: DataBase, config_manager, storage_ring_mgr, world_boss_mgr, title_mgr=None):
         self.db = db
         self.config_manager = config_manager
@@ -49,15 +62,24 @@ class RaidManager:
         self.last_settle_msg: Optional[str] = None
         self.last_broadcast_msg: Optional[str] = None
         self._config = (getattr(config_manager, "boss_config", {}) or {}) if config_manager else {}
+        self._scaling_cfg = self._config.get("difficulty_scaling", {}) or {}
         self._raid_cfg = self._config.get("raid", {}) or {}
         self._types = self._load_types()
         self._rewards = self._load_rewards()
+        self._difficulty_weights = self._load_difficulty_weights()
         self.enabled = bool(self._raid_cfg.get("enabled", True))
         self.auto_spawn_interval = int(self._raid_cfg.get("auto_spawn_interval", 21600) or 21600)
         self.expire_hours = int(self._raid_cfg.get("expire_hours", 48) or 48)
         self.cooldown = int(self._raid_cfg.get("cooldown", 600) or 600)
         self.damage_floor_pct = float(self._raid_cfg.get("damage_floor_pct", 0.3) or 0.3)
         self.damage_cap_pct = float(self._raid_cfg.get("damage_cap_pct", 8.0) or 8.0)
+        self.damage_cap_pct_per_level = max(
+            0.0, float(self._raid_cfg.get("damage_cap_pct_per_level", 0.6) or 0.0)
+        )
+        self.damage_cap_pct_max = max(
+            self.damage_cap_pct,
+            float(self._raid_cfg.get("damage_cap_pct_max", 28.0) or 28.0),
+        )
         self.min_players = int(self._raid_cfg.get("min_players", 2) or 2)
 
     def _load_types(self) -> Dict[str, dict]:
@@ -98,6 +120,21 @@ class RaidManager:
                     result.setdefault(diff, {}).update(cfg)
         return result
 
+    def _load_difficulty_weights(self) -> Dict[int, dict]:
+        result = {k: dict(v) for k, v in self.DIFFICULTY_WEIGHTS.items()}
+        raw = self._raid_cfg.get("difficulty_weights")
+        if isinstance(raw, dict):
+            for key, cfg in raw.items():
+                try:
+                    diff = int(key)
+                except (TypeError, ValueError):
+                    continue
+                if isinstance(cfg, dict):
+                    result.setdefault(diff, {}).update(cfg)
+                elif isinstance(cfg, (int, float)):
+                    result.setdefault(diff, {})["weight"] = cfg
+        return result
+
     def _type_cfg(self, raid: dict) -> dict:
         key = str(raid.get("boss_type") or "")
         cfg = self._types.get(key)
@@ -132,7 +169,12 @@ class RaidManager:
             max(1, min(3, int(difficulty or 1))), "legend"
         )
 
-    def _choose_raid_key(self, difficulty: Optional[int] = None, max_level: Optional[int] = None) -> str:
+    def _choose_raid_key(
+        self,
+        difficulty: Optional[int] = None,
+        max_level: Optional[int] = None,
+        realm: float = 0.0,
+    ) -> str:
         if difficulty:
             candidates = [k for k, v in self._types.items() if int(v.get("difficulty", 1)) == int(difficulty)]
             if candidates:
@@ -152,18 +194,37 @@ class RaidManager:
                     if int(v.get("min_level", 6) or 6) == lowest
                 }
         keys = list(candidates.keys())
-        weights = [max(1, 5 - int(candidates[k].get("difficulty", 1))) for k in keys]
+        # 权重按「难度」计算，同难度多个团本平均分摊，避免副本数量影响难度占比。
+        difficulty_counts: Dict[int, int] = {}
+        for cfg in candidates.values():
+            diff = int(cfg.get("difficulty", 1))
+            difficulty_counts[diff] = difficulty_counts.get(diff, 0) + 1
+        weights = [
+            max(
+                1.0,
+                self._difficulty_weight(int(candidates[k].get("difficulty", 1)), realm)
+                / max(1, difficulty_counts.get(int(candidates[k].get("difficulty", 1)), 1)),
+            )
+            for k in keys
+        ]
         if not keys:
             return "flame_abyss"
         return random.choices(keys, weights=weights, k=1)[0]
 
+    def _difficulty_weight(self, difficulty: int, realm: float = 0.0) -> float:
+        meta = self._difficulty_weights.get(int(difficulty), {}) or {}
+        base = meta.get("weight", 10)
+        high = meta.get("high_weight", base)
+        return scale_weight(base, high, realm)
+
     async def _server_max_level(self) -> int:
-        try:
-            async with self.db.conn.execute("SELECT MAX(level_index) AS lv FROM players") as cursor:
-                row = await cursor.fetchone()
-            return int(row["lv"]) if row and row["lv"] is not None else 0
-        except Exception:
-            return 0
+        max_level, _ = await load_server_level_profile(self.db)
+        return max_level
+
+    async def _server_realm_profile(self) -> Tuple[int, float]:
+        """返回 (全服最高境界, 境界系数)；系数越高，高难团本权重越大。"""
+        max_level, avg_level = await load_server_level_profile(self.db)
+        return max_level, realm_factor(max_level, avg_level, self._scaling_cfg)
 
     async def expire_raids(self, now: Optional[int] = None) -> int:
         if now is None:
@@ -187,8 +248,8 @@ class RaidManager:
         now = int(time.time())
         await self.expire_raids(now)
 
-        max_level = await self._server_max_level()
-        raid_key = self._choose_raid_key(difficulty, max_level)
+        max_level, realm = await self._server_realm_profile()
+        raid_key = self._choose_raid_key(difficulty, max_level, realm)
         type_cfg = dict(self._types.get(raid_key, {}))
         raid_name = type_cfg.get("name") or raid_key
         element = type_cfg.get("element") or ""
@@ -247,6 +308,16 @@ class RaidManager:
             f"💡 发送 /挑战团本 合力讨伐！"
         )
 
+    def effective_damage_cap_pct(self, player: Player) -> float:
+        """按玩家境界计算单次伤害上限：基础值 + 每级增量，受封顶值约束。"""
+        level_index = int(getattr(player, "level_index", 0) or 0)
+        return scaled_damage_cap(
+            self.damage_cap_pct,
+            level_index,
+            self.damage_cap_pct_per_level,
+            self.damage_cap_pct_max,
+        )
+
     async def challenge_raid(self, player: Player) -> Tuple[bool, str]:
         self.last_challenge_ok = False
         self.last_broadcast_msg = None
@@ -292,7 +363,8 @@ class RaidManager:
         if self.world_boss_mgr:
             final_damage, damage_percent, player_element = await self.world_boss_mgr.calculate_damage(
                 player, phase_max_hp, type_cfg.get("element", ""),
-                floor_pct=self.damage_floor_pct, cap_pct=self.damage_cap_pct,
+                floor_pct=self.damage_floor_pct,
+                cap_pct=self.effective_damage_cap_pct(player),
             )
         else:
             final_damage = max(1, int(phase_max_hp * 0.02))

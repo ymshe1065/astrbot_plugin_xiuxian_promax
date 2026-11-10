@@ -6,7 +6,7 @@ import hashlib
 import json
 from typing import Any, Dict, List
 
-HELP_VERSION = "v7.9.2"
+HELP_VERSION = "v7.9.3"
 HELP_HEADER = f"📖 修仙指令大全 {HELP_VERSION} (网页指令目录全覆盖)"
 HELP_HINT = "💡 提示：所有指令均可带 / 前缀使用"
 HELP_TITLE = "修仙指令大全"
