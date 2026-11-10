@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v7.9.3 (高难刷新与材料供给修正)
+# AstrBot 插件：模拟修仙 v7.9.4 (灼烧结算与心法被动修正)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v7.9.3-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v7.9.4-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.44.4 · **游戏版本:** v7.9.3 · **数据库:** v61
+> **插件版本:** v3.44.5 · **游戏版本:** v7.9.4 · **数据库:** v61
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，257 条注册指令（网页指令目录 245 个功能按钮 + 12 个别名）、17 个大系统、111 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,20 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · 插件 v3.44.4（高难刷新与材料供给修正）</b></summary>
+<summary><b>本次更新 · 插件 v3.44.5（灼烧结算与心法被动修正）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 灼烧覆盖 | 装备与心法同时挂灼烧时，原先后写入的会直接覆盖前一条，把 DOT 剩余回合压短。现改为**伤害取高、回合取高**合并，并在日志中打印合并后的实际回合与每回合百分比。 |
+| 降疗丢失 | 心法「离火燎原」段写 `statuses["burn"]` 时未继承 `heal_reduction`，导致装备的降疗词条被清空；现改为继承已有降疗，与装备段口径一致。 |
+| 心法被动 | 火系主修心法被动词条缺少 `burn_turns` 时，兜底值由 **1 回合** 修正为 **3 回合**，与技能段一致；同时为 `config/techniques.json` 中 8 个火系主修心法显式补上 `burn_turns: 3`，避免依赖兜底。 |
+| 文案 | 宠物「喷吐灵火」改为「追加 N 点灵火伤害」，明确它是**固定附加伤害**而非百分比灼烧 DOT，避免与灼烧状态混淆。 |
+| 版本与数据库 | 插件 **v3.44.5** / 游戏及帮助 **v7.9.4**；仅战斗结算与配置数值调整，无表结构更新，数据库仍为 **v61**。 |
+
+</details>
+
+<details>
+<summary><b>插件 v3.44.4（高难刷新与材料供给修正）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |
