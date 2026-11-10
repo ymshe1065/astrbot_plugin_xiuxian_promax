@@ -2421,5 +2421,10 @@
     "chance_scale": 0.33,
     "cap_by_route": true,
     "comment": "历练材料掉落的整体系数：item_chance × chance_scale（1.2 → 0.33）。v7.9 起历练定位为修为/灵石产地，材料交给秘境；0.33 约等于「价值口径为秘境最优档的 1/5」，代价是单趟空手率约 2/3（材料是纯副产物）。cap_by_route=true 表示材料品阶同时受路线 min_level 段封顶，避免高境界刷低阶路线用更短的冷却时间白嫖高阶材料。"
+  },
+  "equipment_model": {
+    "chance_scale": 1.0,
+    "level_cap_bonus": 2,
+    "comment": "装备掉落概率的独立系数（不与 material_model.chance_scale 联动）。v7.9.0 砍材料时曾把装备一起乘到 1/3，导致配置写 5/8/12 实际只有 1.65/2.64/3.96；拆开后 chance_scale=1.0 即恢复配置标称值。level_cap_bonus：装备品阶基准 = min(玩家等级, 路线 min_level + 余量)，防止 lv35 刷 lv0 路线掉混元先天；配 0 为严格按路线门槛。"
   }
 }

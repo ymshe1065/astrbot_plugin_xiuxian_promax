@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v7.9.1 (秘境装备品阶按门槛封顶)
+# AstrBot 插件：模拟修仙 v7.9.2 (历练装备品阶按路线封顶)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v7.9.1-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v7.9.2-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.44.1 · **游戏版本:** v7.9.1 · **数据库:** v61
+> **插件版本:** v3.44.2 · **游戏版本:** v7.9.2 · **数据库:** v61
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，257 条注册指令（网页指令目录 245 个功能按钮 + 12 个别名）、17 个大系统、111 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,21 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · v7.9.1（秘境装备品阶按门槛封顶）</b></summary>
+<summary><b>本次更新 · v7.9.2（历练装备品阶按路线封顶 + 掉率系数拆开）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 问题一 | 历练装备的品阶基准是 `max(玩家等级, 路线 min_level)` —— 只兜下限、没有上限。lv35 玩家刷 **lv0 灵谷采药** 照样掉混元先天，装备价值 **23.9 万灵石/时**，与刷 lv27 太初之巅（21.5 万）持平。秘境在 v7.9.1 修的是同一个洞，历练漏了。 |
+| 问题二 | v7.9.0 把材料系数 `material_model.chance_scale` 砍到 0.33 时，装备概率在同一行也被乘了一次：配置写 5%/8%/12%，实际只有 **1.65%/2.64%/3.96%**。 |
+| 改法 | 新增 `adventure_config.equipment_model{chance_scale, level_cap_bonus}`。品阶基准改为 `min(玩家等级, 路线 min_level + 余量)`（余量 **2**）；掉率改用独立系数（默认 **1.0** = 恢复配置标称值），不再跟随材料。 |
+| 实测（lv35 玩家，含休整冷却） | 灵谷采药（lv0）**23.9 万 → 0.34 万**灵石/时、只剩凡/黄品；魂沼渡魂（20）25.1 万 → 25.2 万、品阶降到帝/圣；太初之巅（27）21.5 万 → **41.4 万**、道/仙品。压级刷低阶路线不再划算，按路线推进的收益差被拉开。 |
+| 边界 | 余量 2 级保留「压门槛刷本」的小甜头，配 0 即严格按路线门槛；`min` 同时保证不会把低境界玩家反向拔高。材料系数仍是 0.33，不受影响。 |
+| 版本与数据库 | 插件 **v3.44.2** / 游戏及帮助 **v7.9.2**；无表结构变更，数据库仍为 **v61**。 |
+
+</details>
+
+<details>
+<summary><b>v7.9.1（秘境装备品阶按门槛封顶）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |

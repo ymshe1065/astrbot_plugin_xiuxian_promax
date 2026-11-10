@@ -202,6 +202,18 @@ class AdventureManager:
         else:
             self.material_cap_by_route = str(cap).strip().lower() in ("1", "true", "yes")
 
+        # 装备模型：与材料系数解耦（材料 0.33 不该把装备一起砍到 1/3），
+        # 品阶同样按路线门槛封顶，避免 lv35 刷 lv0 路线白嫖混元先天。
+        eq_cfg = config.get("equipment_model") or {}
+        try:
+            self.equipment_chance_scale = float(eq_cfg.get("chance_scale", 1.0))
+        except (TypeError, ValueError):
+            self.equipment_chance_scale = 1.0
+        try:
+            self.equipment_level_cap_bonus = int(eq_cfg.get("level_cap_bonus", 2))
+        except (TypeError, ValueError):
+            self.equipment_level_cap_bonus = 2
+
         # 修为模型：按突破需求折算，只吃丹药与符箓
         exp_cfg = config.get("exp_model") or {}
         try:
@@ -943,6 +955,24 @@ class AdventureManager:
             return player_band
         return self.realm_bands[min(pi, ri)]
 
+    def _equipment_base_level(self, player, route: dict) -> int:
+        """装备品阶基准：玩家等级与「路线 min_level + 余量」取低。
+
+        旧逻辑是 ``max(玩家, 路线)``，只兜下限、没有上限，于是 lv35 刷 lv0
+        的灵谷采药照样掉混元先天 —— 和秘境 v7.9.1 修掉的是同一个洞。
+        取 min 之后，低阶路线只出低阶装备；正常按门槛推进的玩家不受影响。
+        """
+        player_level = int(getattr(player, "level_index", 0) or 0)
+        try:
+            bonus = int(getattr(self, "equipment_level_cap_bonus", 2))
+        except (TypeError, ValueError):
+            bonus = 2
+        try:
+            required = int(route.get("min_level", 0) or 0)
+        except (TypeError, ValueError):
+            return player_level
+        return min(player_level, max(0, required + bonus))
+
     def _route_category(self, route: dict) -> str:
         """路线主产物；「全产物」或未标注时按全局权重抽一类。"""
         product = str(route.get("product") or "").strip()
@@ -1109,11 +1139,11 @@ class AdventureManager:
 
             tier = event.get("drop_tier") or route.get("drop_tier") or "low"
             chance = float(self.equipment_drop_chances.get(tier, 0) or 0)
-            chance *= max(0.0, chance_scale)
+            # 装备用独立系数：材料系数 0.33 只该砍材料，v7.9.0 曾把它一路乘到
+            # 装备上，导致配置写 5/8/12 实际只有 1.65/2.64/3.96。
+            chance *= max(0.0, float(self.equipment_chance_scale))
             if chance > 0 and random.random() * 100.0 < chance:
-                base_level = max(
-                    int(player.level_index or 0), int(route.get("min_level", 0) or 0)
-                )
+                base_level = self._equipment_base_level(player, route)
                 drop = roll_equipment_drop(
                     self.config_manager, base_level, self.equipment_slot_weights
                 )
