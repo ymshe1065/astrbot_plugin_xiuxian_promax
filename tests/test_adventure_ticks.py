@@ -11,41 +11,19 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT.parent))
 PKG = ROOT.name
 
-astrbot = types.ModuleType("astrbot")
-api_mod = types.ModuleType("astrbot.api")
-event_mod = types.ModuleType("astrbot.api.event")
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from tests._astrbot_stub import install as _install_astrbot_stub
+
+_install_astrbot_stub()
+
+def _imp(module_path: str):
+    return __import__(f"{PKG}.{module_path}", fromlist=["x"])
 
 
-class _StubLogger:
-    def info(self, *a, **k):
-        pass
-
-    def warning(self, *a, **k):
-        pass
-
-    def error(self, *a, **k):
-        pass
-
-    def exception(self, *a, **k):
-        pass
-
-
-api_mod.logger = _StubLogger()
-api_mod.AstrBotConfig = dict
-event_mod.AstrMessageEvent = object
-api_mod.event = event_mod
-all_mod = types.ModuleType("astrbot.api.all")
-all_mod.At = object
-all_mod.Plain = object
-api_mod.all = all_mod
-sys.modules.setdefault("astrbot", astrbot)
-sys.modules.setdefault("astrbot.api", api_mod)
-sys.modules.setdefault("astrbot.api.event", event_mod)
-sys.modules.setdefault("astrbot.api.all", all_mod)
-
-from astrbot_plugin_xiuxian_promax.managers.adventure_manager import AdventureManager  # noqa: E402
-from astrbot_plugin_xiuxian_promax.models import Player  # noqa: E402
-from astrbot_plugin_xiuxian_promax.models_extended import UserStatus  # noqa: E402
+AdventureManager = _imp("managers.adventure_manager").AdventureManager
+Player = _imp("models").Player
+UserStatus = _imp("models_extended").UserStatus
 
 CFG_PATH = ROOT / "config" / "adventure_config.json"
 with open(CFG_PATH, encoding="utf-8") as _f:

@@ -28,6 +28,7 @@ class _L:
 
 
 api_mod.logger = _L()
+api_mod.AstrBotConfig = dict
 path_mod.get_astrbot_data_path = lambda: _TMP
 utils_mod.astrbot_path = path_mod
 core_mod.utils = utils_mod

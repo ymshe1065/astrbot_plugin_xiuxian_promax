@@ -9,34 +9,21 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT.parent))
+PKG = ROOT.name
 
-astrbot = types.ModuleType("astrbot")
-api_mod = types.ModuleType("astrbot.api")
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from tests._astrbot_stub import install as _install_astrbot_stub
 
-
-class _StubLogger:
-    def info(self, *a, **k):
-        pass
-
-    def warning(self, *a, **k):
-        pass
-
-    def error(self, *a, **k):
-        pass
-
-    def exception(self, *a, **k):
-        pass
-
-
-api_mod.logger = _StubLogger()
-api_mod.AstrBotConfig = dict
-astrbot.api = api_mod
-sys.modules.setdefault("astrbot", astrbot)
-sys.modules.setdefault("astrbot.api", api_mod)
+_install_astrbot_stub()
 
 import aiosqlite  # noqa: E402
 
-from astrbot_plugin_xiuxian_promax.data import migration  # noqa: E402
+def _imp(module_path: str):
+    return __import__(f"{PKG}.{module_path}", fromlist=["x"])
+
+
+migration = _imp("data.migration")
 
 SCHEMA = """
 CREATE TABLE players (

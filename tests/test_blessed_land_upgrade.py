@@ -10,34 +10,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT.parent))
 PKG = ROOT.name
 
-astrbot = types.ModuleType("astrbot")
-api_mod = types.ModuleType("astrbot.api")
-event_mod = types.ModuleType("astrbot.api.event")
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from tests._astrbot_stub import install as _install_astrbot_stub
 
-
-class _StubLogger:
-    def info(self, *a, **k):
-        pass
-
-    def warning(self, *a, **k):
-        pass
-
-    def error(self, *a, **k):
-        pass
-
-
-api_mod.logger = _StubLogger()
-api_mod.AstrBotConfig = dict
-event_mod.AstrMessageEvent = object
-api_mod.event = event_mod
-all_mod = types.ModuleType("astrbot.api.all")
-all_mod.At = object
-all_mod.Plain = object
-api_mod.all = all_mod
-sys.modules.setdefault("astrbot", astrbot)
-sys.modules.setdefault("astrbot.api", api_mod)
-sys.modules.setdefault("astrbot.api.event", event_mod)
-sys.modules.setdefault("astrbot.api.all", all_mod)
+_install_astrbot_stub()
 
 
 def _imp(module_path: str):

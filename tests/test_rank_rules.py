@@ -9,56 +9,41 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT.parent))
 PKG = ROOT.name
 
-astrbot = types.ModuleType("astrbot")
-api_mod = types.ModuleType("astrbot.api")
-event_mod = types.ModuleType("astrbot.api.event")
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from tests._astrbot_stub import install as _install_astrbot_stub
+
+_install_astrbot_stub()
+
+def _imp(module_path: str):
+    return __import__(f"{PKG}.{module_path}", fromlist=["x"])
 
 
-class _StubLogger:
-    def info(self, *a, **k):
-        pass
+_rank_rules = _imp("rank_rules")
 
-    def warning(self, *a, **k):
-        pass
+RANK_ALIASES = _rank_rules.RANK_ALIASES
+RANK_GOLD = _rank_rules.RANK_GOLD
+RANK_LEVELS = _rank_rules.RANK_LEVELS
+RANK_NAMES = _rank_rules.RANK_NAMES
+RANK_POWER = _rank_rules.RANK_POWER
+RANK_PRICE = _rank_rules.RANK_PRICE
+RANK_TABLE = _rank_rules.RANK_TABLE
+RANK_TIERS = _rank_rules.RANK_TIERS
+format_rank = _rank_rules.format_rank
+is_known_rank = _rank_rules.is_known_rank
+level_to_rank = _rank_rules.level_to_rank
+normalize_rank = _rank_rules.normalize_rank
+rank_level = _rank_rules.rank_level
+rank_tier = _rank_rules.rank_tier
 
-    def error(self, *a, **k):
-        pass
+_item_rules = _imp("core.item_rules")
+get_required_level = _item_rules.get_required_level
 
-    def exception(self, *a, **k):
-        pass
-
-
-api_mod.logger = _StubLogger()
-api_mod.AstrBotConfig = dict
-event_mod.AstrMessageEvent = object
-api_mod.event = event_mod
-sys.modules.setdefault("astrbot", astrbot)
-sys.modules.setdefault("astrbot.api", api_mod)
-sys.modules.setdefault("astrbot.api.event", event_mod)
-
-from astrbot_plugin_xiuxian_promax.rank_rules import (  # noqa: E402
-    RANK_ALIASES,
-    RANK_GOLD,
-    RANK_LEVELS,
-    RANK_NAMES,
-    RANK_POWER,
-    RANK_PRICE,
-    RANK_TABLE,
-    RANK_TIERS,
-    format_rank,
-    is_known_rank,
-    level_to_rank,
-    normalize_rank,
-    rank_level,
-    rank_tier,
-)
-from astrbot_plugin_xiuxian_promax.core.item_rules import get_required_level  # noqa: E402
-from astrbot_plugin_xiuxian_promax.core.talisman_rules import (  # noqa: E402
-    TIER_GOLD,
-    TIER_LEVEL,
-    TIER_POWER,
-    TIER_PRICE,
-)
+_talisman_rules = _imp("core.talisman_rules")
+TIER_GOLD = _talisman_rules.TIER_GOLD
+TIER_LEVEL = _talisman_rules.TIER_LEVEL
+TIER_POWER = _talisman_rules.TIER_POWER
+TIER_PRICE = _talisman_rules.TIER_PRICE
 
 LEGACY_TOKENS = ("黄阶", "玄阶", "地阶", "天阶", "珍品", "神品")
 

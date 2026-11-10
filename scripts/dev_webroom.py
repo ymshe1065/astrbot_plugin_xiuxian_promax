@@ -56,6 +56,9 @@ def _install_astrbot_stubs() -> None:
     astrbot = types.ModuleType("astrbot")
     api = types.ModuleType("astrbot.api")
     api.logger = _Logger()
+    # 核心模块（core/__init__）会导入 AstrBotConfig，桩必须补齐，
+    # 否则本桩被其他测试先装入 sys.modules 时会导致后续导入失败。
+    api.AstrBotConfig = dict
     astrbot.api = api
 
     core = types.ModuleType("astrbot.core")

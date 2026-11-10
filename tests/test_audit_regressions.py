@@ -16,21 +16,11 @@ class _L:
     def exception(self, *a, **k): pass
 
 
-astrbot = types.ModuleType("astrbot")
-api_mod = types.ModuleType("astrbot.api")
-event_mod = types.ModuleType("astrbot.api.event")
-api_mod.logger = _L()
-api_mod.AstrBotConfig = dict
-event_mod.AstrMessageEvent = object
-api_mod.event = event_mod
-all_mod = types.ModuleType("astrbot.api.all")
-all_mod.At = object
-all_mod.Plain = object
-api_mod.all = all_mod
-sys.modules.setdefault("astrbot", astrbot)
-sys.modules.setdefault("astrbot.api", api_mod)
-sys.modules.setdefault("astrbot.api.event", event_mod)
-sys.modules.setdefault("astrbot.api.all", all_mod)
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from tests._astrbot_stub import install as _install_astrbot_stub
+
+_install_astrbot_stub()
 
 
 def _imp(path):
