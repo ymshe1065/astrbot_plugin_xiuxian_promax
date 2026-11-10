@@ -432,6 +432,70 @@ class TestAutoProxyAdventure(unittest.IsolatedAsyncioTestCase):
         _row, config = await self._config()
         self.assertFalse(config["adventure"]["enabled"])
 
+    async def test_web_panel_adventure_mode_and_routes(self):
+        proxy_panel = _imp("webchat_room.proxy_panel")
+
+        class FakePlugin:
+            db = self.db
+            auto_proxy_mgr = self.manager
+            adventure_mgr = self.adventure_mgr
+
+        plugin = FakePlugin()
+        data = await proxy_panel.toggle_proxy(
+            plugin,
+            "u1",
+            "adventure",
+            True,
+            origin="umo://group",
+            adv_mode="alternate",
+            adv_route="scout",
+            adv_route2="herb_valley",
+        )
+        self.assertTrue(data.get("ok"), data)
+        _row, config = await self._config()
+        self.assertTrue(config["adventure"]["enabled"])
+        self.assertEqual(config["adventure"]["mode"], "alternate")
+        self.assertEqual(config["adventure"]["route"], "scout")
+        self.assertEqual(config["adventure"]["route2"], "herb_valley")
+        self.assertEqual(data["adventure"]["route_name"], "巡山问道")
+        self.assertEqual(data["adventure"]["route2_name"], "灵谷采药")
+        self.assertTrue(
+            any(route["key"] == "herb_valley" for route in data["adv_routes"])
+        )
+
+        # 切回单线：备用路线应清空，避免旧配置残留
+        data = await proxy_panel.toggle_proxy(
+            plugin,
+            "u1",
+            "adventure",
+            True,
+            origin="umo://group",
+            adv_mode="continue",
+            adv_route="scout",
+            adv_route2="herb_valley",
+        )
+        self.assertTrue(data.get("ok"), data)
+        _row, config = await self._config()
+        self.assertEqual(config["adventure"]["mode"], "continue")
+        self.assertEqual(config["adventure"]["route"], "scout")
+        self.assertEqual(config["adventure"]["route2"], "")
+
+        # 双线但只传主路线：自动补一条不同的备用路线
+        data = await proxy_panel.toggle_proxy(
+            plugin,
+            "u1",
+            "adventure",
+            True,
+            origin="umo://group",
+            adv_mode="alternate",
+            adv_route="scout",
+        )
+        self.assertTrue(data.get("ok"), data)
+        _row, config = await self._config()
+        self.assertEqual(config["adventure"]["mode"], "alternate")
+        self.assertNotEqual(config["adventure"]["route2"], "scout")
+        self.assertTrue(config["adventure"]["route2"])
+
 
 if __name__ == "__main__":
     unittest.main()

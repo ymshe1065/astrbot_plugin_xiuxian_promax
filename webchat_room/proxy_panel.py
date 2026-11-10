@@ -168,6 +168,8 @@ async def proxy_snapshot(plugin: "XiuXianPlugin", user_id: str) -> dict[str, Any
             "rift_id": 0,
             "farm": {"has_farm": False, "max_slots": 0, "plots_text": "全部格"},
             "fertilize": {"threshold": int(DEFAULT_FERTILIZE_THRESHOLD * 100)},
+            "adventure": {},
+            "adv_routes": [],
             "message": "尚未创建角色，请先发送 /我要修仙",
         }
 
@@ -194,6 +196,19 @@ async def proxy_snapshot(plugin: "XiuXianPlugin", user_id: str) -> dict[str, Any
     if not rift_id and enterable:
         rift_id = int(enterable[0]["id"])
     rift_name = next((rift["name"] for rift in rifts if rift["id"] == rift_id), "")
+
+    adv_routes = [
+        {
+            "key": str(route.get("key") or ""),
+            "name": str(route.get("name") or route.get("key") or ""),
+            "min_level": int(route.get("min_level", 0) or 0),
+            "minutes": max(1, int(route.get("duration", 0) or 0) // 60),
+            "product": str(route.get("product") or "全产物"),
+            "risk": str(route.get("risk") or "未知"),
+        }
+        for route in _adv_route_rows(mgr, player)
+        if route.get("key")
+    ]
 
     threshold = float(fert_cfg.get("threshold") or DEFAULT_FERTILIZE_THRESHOLD)
     tasks: list[dict[str, Any]] = []
@@ -288,11 +303,14 @@ async def proxy_snapshot(plugin: "XiuXianPlugin", user_id: str) -> dict[str, Any
             "mode": str(adv_cfg.get("mode") or "continue"),
             "route": str(adv_cfg.get("route") or ""),
             "route2": str(adv_cfg.get("route2") or ""),
+            "route_name": _adv_label(mgr, adv_cfg.get("route")) if adv_cfg.get("route") else "",
+            "route2_name": _adv_label(mgr, adv_cfg.get("route2")) if adv_cfg.get("route2") else "",
             "retreat": bool(adv_cfg.get("retreat", True)),
             "auto_encounter": bool(adv_cfg.get("auto_encounter", True)),
             "encounter_choice": int(adv_cfg.get("encounter_choice") or 0),
             "close_until": int(adv_cfg.get("close_until") or 0),
         },
+        "adv_routes": adv_routes,
         "last_error": str(row.get("last_error") or ""),
         "message": "",
     }
@@ -380,6 +398,9 @@ async def toggle_proxy(
     enabled: bool,
     rift_id: int = 0,
     origin: str = "",
+    adv_mode: str = "",
+    adv_route: str = "",
+    adv_route2: str = "",
 ) -> dict[str, Any]:
     """切换单项或总开关，返回最新面板状态。"""
     mgr = getattr(plugin, "auto_proxy_mgr", None)
@@ -415,18 +436,52 @@ async def toggle_proxy(
             if not enabled:
                 ok, message = await mgr.disable_adventure(user_id)
             else:
+                rows = _adv_route_rows(mgr, player)
+                if not rows:
+                    return {
+                        "ok": False,
+                        "error": "当前境界没有可代理的历练路线",
+                    }
+                allowed = {str(route.get("key") or "") for route in rows}
                 row = await mgr.get(user_id) or {}
                 adv = mgr._load_config(row)["adventure"]
-                route_name = _adv_label(mgr, adv.get("route")) if adv.get("route") else ""
-                if not route_name:
-                    rows = _adv_route_rows(mgr, player)
-                    if not rows:
-                        return {
-                            "ok": False,
-                            "error": "当前境界没有可代理的历练路线",
-                        }
-                    route_name = str(rows[0].get("name") or "")
-                ok, message = await mgr.enable(user_id, origin, f"历练 {route_name}")
+
+                def _pick(value: Any, fallback: str = "") -> str:
+                    key = str(value or "").strip()
+                    if key and key not in allowed:
+                        # 兼容前端传路线名而不是路线 key
+                        for route in rows:
+                            if key == str(route.get("name") or ""):
+                                return str(route.get("key") or "")
+                        return ""
+                    return key or fallback
+
+                primary = _pick(adv_route) or _pick(adv.get("route")) or str(
+                    rows[0].get("key") or ""
+                )
+                secondary = _pick(adv_route2) or _pick(adv.get("route2"))
+                mode = str(adv_mode or adv.get("mode") or "continue").strip().lower()
+                if mode not in ("continue", "alternate"):
+                    mode = "alternate" if secondary else "continue"
+                if mode == "alternate" and not secondary:
+                    # 双线缺备用路线时自动补一条与主路线不同的
+                    secondary = next(
+                        (
+                            str(route.get("key") or "")
+                            for route in rows
+                            if str(route.get("key") or "") != primary
+                        ),
+                        "",
+                    )
+                if mode != "alternate" or secondary == primary:
+                    secondary = ""
+                    mode = "continue"
+
+                route_name = _adv_label(mgr, primary)
+                command = f"历练 {route_name}"
+                if secondary:
+                    command += f" {_adv_label(mgr, secondary)}"
+                ok, message = await mgr.enable(user_id, origin, command)
         else:
             ok, message = await _toggle_rift(
                 plugin, mgr, player, user_id, enabled, rift_id, origin

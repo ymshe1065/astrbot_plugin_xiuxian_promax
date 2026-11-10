@@ -1543,6 +1543,27 @@ html[data-theme="fish"] .msg-row {
   font-size: 12px; border: 1px solid var(--line); border-radius: 7px;
   background: var(--field); color: var(--ink-2);
 }
+.proxy-adv { flex-direction: column; align-items: stretch; gap: 8px; }
+.proxy-adv-row { display: flex; align-items: center; gap: 8px; }
+.proxy-adv-row label { flex: 0 0 56px; }
+.proxy-mode { display: flex; gap: 6px; flex: 1; min-width: 0; }
+.proxy-mode-btn {
+  flex: 1; padding: 6px 8px; font-size: 12px;
+  border: 1px solid var(--line); border-radius: 7px;
+  background: var(--field); color: var(--ink-2); cursor: pointer;
+}
+.proxy-mode-btn.on {
+  border-color: rgba(var(--jade-rgb), .5);
+  background: var(--jade-soft); color: var(--ok); font-weight: 600;
+}
+.proxy-adv-actions { justify-content: space-between; }
+.proxy-adv-hint { font-size: 11px; color: var(--dim); line-height: 1.4; }
+.proxy-adv-apply {
+  flex: 0 0 auto; padding: 6px 10px; font-size: 12px;
+  border: 1px solid rgba(var(--jade-rgb), .4); border-radius: 7px;
+  background: var(--jade-soft); color: var(--ok); cursor: pointer;
+}
+.proxy-adv-apply:disabled { opacity: .55; cursor: default; }
 .proxy-tip { margin-top: 12px; font-size: 11px; color: var(--dim); line-height: 1.6; }
 .switch {
   position: relative; flex: 0 0 auto;

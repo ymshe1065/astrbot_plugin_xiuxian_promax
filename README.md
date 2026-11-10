@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v7.9.5 (自动代理历练)
+# AstrBot 插件：模拟修仙 v7.9.6 (历练代理面板配置)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v7.9.5-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v7.9.6-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.44.7 · **游戏版本:** v7.9.5 · **数据库:** v61
+> **插件版本:** v3.44.8 · **游戏版本:** v7.9.6 · **数据库:** v61
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，257 条注册指令（网页指令目录 245 个功能按钮 + 12 个别名）、17 个大系统、111 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,22 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · 插件 v3.44.7（自动代理历练）</b></summary>
+<summary><b>本次更新 · 插件 v3.44.8（历练代理面板配置）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 模式切换 | 网页聊天室「自动代理」面板的历练配置区新增「单线续跑 / 双线交叉」切换；双线时才显示备用路线选择。 |
+| 路线列表 | 主路线与备用路线均从当前境界可走的路线列表中下拉选择，并展示境界门槛、时长、主产物与风险；默认选中存档中已配置的路线，没有时选当前最高阶路线。 |
+| 即时应用 | 点击「应用历练设置」立即写入代理配置；历练进行中修改也不会打断当前轮，新配置在下一轮或闭关结束后生效。 |
+| 防呆规则 | 双线但未选备用路线时自动补一条与主路线不同的路线；切回单线会清空备用路线；主备选到同一路线时自动换一条。 |
+| 接口 | `/api/proxy` 返回可代理路线列表与当前历练配置，`/api/proxy/toggle` 新增 `adv_mode / adv_route / adv_route2` 参数。 |
+| 回归验证 | `tests/test_auto_proxy_adventure.py` 增补面板模式/路线切换、单线清空备用路线、双线自动补线等用例。 |
+| 版本与数据库 | 插件 **v3.44.8** / 游戏及帮助 **v7.9.6**；仅网页面板与代理调用参数，无表结构更新，数据库仍为 **v61**。 |
+
+</details>
+
+<details>
+<summary><b>插件 v3.44.7（自动代理历练）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |
@@ -54,7 +69,8 @@
 | 闭关结算复用 | 从 `/出关` 抽出 `settle_cultivation()`，代理自动闭关与手动出关共用同一套结算，丹药加权、家具/宗门/魔潮加成口径一致。 |
 | 关闭与隔离 | `/关闭代理 历练` 只关闭历练代理；关闭时若正处于代理触发的闭关会自动结算。手动 `/退出历练`、`/放弃历练` 同步关闭历练代理，不影响灵田/秘境/施肥；历练代理与秘境/押镖/宗门任务代理互斥。 |
 | 状态与帮助 | `/代理状态` 展示历练模式、当前路线、CD 自动闭关剩余时间与奇遇策略；`/修仙帮助` 同步新增用法说明。 |
-| 回归验证 | 新增 `tests/test_auto_proxy_adventure.py`，覆盖单线启动、CD 闭关与恢复、双线切换、奇遇智能/固定选择、关闭与状态展示。 |
+| 网页面板 | 自动代理面板新增历练配置区：可在「单线续跑 / 双线交叉」之间切换，并从当前境界可走的路线列表中选择主路线与备用路线；点击「应用历练设置」立即生效，下一轮按新配置执行。 |
+| 回归验证 | 新增 `tests/test_auto_proxy_adventure.py`，覆盖单线启动、CD 闭关与恢复、双线切换、奇遇智能/固定选择、关闭与状态展示，以及网页面板的模式/路线切换。 |
 | 版本与数据库 | 插件 **v3.44.7** / 游戏及帮助 **v7.9.5**；仅代理逻辑与配置字段（`config_json.adventure`），无表结构更新，数据库仍为 **v61**。 |
 
 </details>

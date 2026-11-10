@@ -4051,6 +4051,109 @@
     return b;
   }
 
+  function buildAdventureConfig(data) {
+    const routes = Array.isArray(data.adv_routes) ? data.adv_routes : [];
+    if (!routes.length) return null;
+    const cfg = data.adventure || {};
+    const box = document.createElement("div");
+    box.className = "proxy-sub proxy-adv";
+
+    const modeRow = document.createElement("div");
+    modeRow.className = "proxy-adv-row";
+    const modeLabel = document.createElement("label");
+    modeLabel.textContent = "历练模式";
+    modeRow.appendChild(modeLabel);
+    const modeGroup = document.createElement("div");
+    modeGroup.className = "proxy-mode";
+    const mode = cfg.mode === "alternate" ? "alternate" : "continue";
+    box.dataset.mode = mode;
+    [
+      ["continue", "单线续跑"],
+      ["alternate", "双线交叉"]
+    ].forEach(([value, text]) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "proxy-mode-btn" + (mode === value ? " on" : "");
+      btn.dataset.mode = value;
+      btn.textContent = text;
+      btn.addEventListener("click", () => {
+        box.dataset.mode = value;
+        modeGroup.querySelectorAll(".proxy-mode-btn").forEach((b) => {
+          b.classList.toggle("on", b.dataset.mode === value);
+        });
+        route2Row.style.display = value === "alternate" ? "" : "none";
+      });
+      modeGroup.appendChild(btn);
+    });
+    modeRow.appendChild(modeGroup);
+    box.appendChild(modeRow);
+
+    const routeRow = document.createElement("div");
+    routeRow.className = "proxy-adv-row";
+    const routeLabel = document.createElement("label");
+    routeLabel.textContent = "主路线";
+    routeLabel.setAttribute("for", "proxyAdvRoute");
+    const routeSel = document.createElement("select");
+    routeSel.id = "proxyAdvRoute";
+    routeSel.className = "proxy-select";
+    routes.forEach((route) => {
+      const opt = document.createElement("option");
+      opt.value = route.key;
+      opt.textContent = `${route.name}（Lv${route.min_level} · ${route.minutes}分 · ${route.product} · ${route.risk}风险）`;
+      routeSel.appendChild(opt);
+    });
+    routeSel.value = cfg.route || routes[0].key;
+    routeRow.appendChild(routeLabel);
+    routeRow.appendChild(routeSel);
+    box.appendChild(routeRow);
+
+    const route2Row = document.createElement("div");
+    route2Row.className = "proxy-adv-row";
+    route2Row.style.display = mode === "alternate" ? "" : "none";
+    const route2Label = document.createElement("label");
+    route2Label.textContent = "备用路线";
+    route2Label.setAttribute("for", "proxyAdvRoute2");
+    const route2Sel = document.createElement("select");
+    route2Sel.id = "proxyAdvRoute2";
+    route2Sel.className = "proxy-select";
+    routes.forEach((route) => {
+      const opt = document.createElement("option");
+      opt.value = route.key;
+      opt.textContent = `${route.name}（Lv${route.min_level} · ${route.minutes}分 · ${route.product} · ${route.risk}风险）`;
+      route2Sel.appendChild(opt);
+    });
+    const firstOther = routes.find((route) => route.key !== routeSel.value) || routes[0];
+    route2Sel.value = cfg.route2 || firstOther.key;
+    routeSel.addEventListener("change", () => {
+      if (route2Sel.value === routeSel.value) {
+        const other = routes.find((route) => route.key !== routeSel.value);
+        if (other) route2Sel.value = other.key;
+      }
+    });
+    route2Row.appendChild(route2Label);
+    route2Row.appendChild(route2Sel);
+    box.appendChild(route2Row);
+
+    const actionRow = document.createElement("div");
+    actionRow.className = "proxy-adv-row proxy-adv-actions";
+    const hint = document.createElement("span");
+    hint.className = "proxy-adv-hint";
+    const retreating =
+      Number(cfg.close_until || 0) > Math.floor(Date.now() / 1000);
+    hint.textContent = retreating
+      ? "路线休整中：修改会在本轮闭关结束后生效"
+      : (cfg.route ? "修改后点击应用，下一轮生效" : "选择后点击应用");
+    const apply = document.createElement("button");
+    apply.type = "button";
+    apply.className = "proxy-adv-apply";
+    apply.textContent = "应用历练设置";
+    apply.addEventListener("click", () => toggleProxy("adventure", true));
+    actionRow.appendChild(hint);
+    actionRow.appendChild(apply);
+    box.appendChild(actionRow);
+    return box;
+  }
+
   function renderProxyPanel(data) {
     const view = $("viewProxy");
     view.innerHTML = "";
@@ -4115,6 +4218,9 @@
       view.appendChild(sub);
     }
 
+    const advBox = buildAdventureConfig(data);
+    if (advBox) view.appendChild(advBox);
+
     const list = document.createElement("div");
     list.className = "proxy-list";
     (data.tasks || []).forEach((task) => {
@@ -4150,13 +4256,27 @@
     proxyBusy = true;
     if (view) {
       view.classList.add("busy");
-      view.querySelectorAll(".switch").forEach((s) => (s.disabled = true));
+      view
+        .querySelectorAll(".switch, .proxy-adv-apply")
+        .forEach((s) => (s.disabled = true));
     }
     try {
       const body = { task, enabled };
       if (task === "all" || task === "rift") {
         const sel = $("proxyRiftSelect");
         if (sel) body.rift_id = Number(sel.value) || 0;
+      }
+      if (task === "adventure" && enabled && view) {
+        const box = view.querySelector(".proxy-adv");
+        if (box) {
+          body.adv_mode = box.dataset.mode || "continue";
+          const routeSel = $("proxyAdvRoute");
+          const route2Sel = $("proxyAdvRoute2");
+          if (routeSel) body.adv_route = routeSel.value;
+          if (route2Sel && body.adv_mode === "alternate") {
+            body.adv_route2 = route2Sel.value;
+          }
+        }
       }
       const r = await fetch("/api/proxy/toggle", {
         method: "POST",

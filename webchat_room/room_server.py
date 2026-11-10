@@ -1057,6 +1057,9 @@ async def _api_proxy_toggle(request: web.Request) -> web.Response:
         rift_id = int(body.get("rift_id") or 0)
     except (TypeError, ValueError):
         rift_id = 0
+    adv_mode = str(body.get("adv_mode") or "").strip()
+    adv_route = str(body.get("adv_route") or "").strip()
+    adv_route2 = str(body.get("adv_route2") or "").strip()
 
     user_id = accounts_store.player_key_of(user)
     origin = f"webroom:GroupMessage:{ROOM_ID}"
@@ -1068,6 +1071,9 @@ async def _api_proxy_toggle(request: web.Request) -> web.Response:
             enabled,
             rift_id=rift_id,
             origin=origin,
+            adv_mode=adv_mode,
+            adv_route=adv_route,
+            adv_route2=adv_route2,
         )
     except Exception as exc:
         logger.exception("[webroom] 切换自动代理失败")
