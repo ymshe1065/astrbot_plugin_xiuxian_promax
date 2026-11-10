@@ -48,7 +48,12 @@ class AdventureManager:
     # 一次性结算的材料判定次数。时长压到 15~30 分钟后，1 次判定就让单位时间产出
     # 与 v7.6 的「56 分钟 2 次判定」持平，不会因为结算变快而让材料翻倍。
     ITEM_ROLLS = 1
-    ITEM_CHANCE_SCALE = 1.2
+    # v7.9 定位调整：历练是修为/灵石产地，不是刷材料的地方，材料交给秘境。
+    # 1.2 → 0.33 是「价值口径约为秘境最优档的 1/5」（模拟：秘境 ≈110k 灵石/时，
+    # 历练砍后 ≈22k）。想再调直接改 config 的 material_model.chance_scale。
+    ITEM_CHANCE_SCALE = 0.33
+    # 材料品阶是否受「路线等级」封顶（见 _material_band）。
+    MATERIAL_CAP_BY_ROUTE = True
 
     # 列表展示用：产物分类顺序、推荐位展示条数
     LIST_FACETS = ("灵植", "矿材", "灵液", "妖兽", "全产物")
@@ -182,6 +187,20 @@ class AdventureManager:
         self.category_weights: Dict[str, int] = config.get("category_weights") or {
             "灵植": 25, "矿材": 25, "灵液": 25, "妖兽": 25,
         }
+
+        # 材料模型：整体系数 + 是否按路线等级封顶品阶
+        mat_cfg = config.get("material_model") or {}
+        try:
+            self.material_chance_scale = float(
+                mat_cfg.get("chance_scale", self.ITEM_CHANCE_SCALE)
+            )
+        except (TypeError, ValueError):
+            self.material_chance_scale = self.ITEM_CHANCE_SCALE
+        cap = mat_cfg.get("cap_by_route", self.MATERIAL_CAP_BY_ROUTE)
+        if isinstance(cap, bool):
+            self.material_cap_by_route = cap
+        else:
+            self.material_cap_by_route = str(cap).strip().lower() in ("1", "true", "yes")
 
         # 修为模型：按突破需求折算，只吃丹药与符箓
         exp_cfg = config.get("exp_model") or {}
@@ -426,7 +445,7 @@ class AdventureManager:
             lines = [
                 "🗺️ 请选择历练路线",
                 "━━━━━━━━━━━━━━━",
-                f"你当前可得材料：{tier_text}（境界决定品阶，路线决定类别）",
+                f"你当前可得材料：{tier_text}（境界与路线等级共同决定品阶，路线决定类别）",
             ]
             groups: Dict[str, List[dict]] = {}
             for route in available:
@@ -496,13 +515,13 @@ class AdventureManager:
         extra = {"route_key": route_key, "umo": umo or ""}
         await self.db.ext.set_user_busy(user_id, UserStatus.ADVENTURING, scheduled_time, extra_data=extra)
 
-        band = self.realm_band(player.level_index)
+        band = self._material_band(player, route)
         tier_text = " / ".join((band.get("tiers") or {}).keys()) if band else "凡品"
         est = self._full_reward_pool(player, route)
         hint = [
             f"✨ 你选择了「{route['name']}」——{route.get('description', '未知冒险')}",
             f"路线风险：{route.get('risk', '未知')} | 历练时长：{duration // 60} 分钟",
-            f"主要产出：{route.get('product') or '全产物'}（本境界可得 {tier_text}）",
+            f"主要产出：{route.get('product') or '全产物'}（本路线可得 {tier_text}）",
             f"🧘 预计修为：约 +{int(est['exp']):,}（丹药/符箓加成已计入）",
             f"⏱️ 必须走完全程才能结算，到点自动发放；剩余 {duration // 60} 分钟",
             "🏳️ 中途可 /退出历练：本次没有奖励，也不收违约金、不加冷却",
@@ -687,7 +706,7 @@ class AdventureManager:
                 player,
                 route,
                 event,
-                chance_scale=self.ITEM_CHANCE_SCALE,
+                chance_scale=self.material_chance_scale,
                 rolls_bonus=max(0, int(self.ITEM_ROLLS) - 1),
             )
 
@@ -898,6 +917,32 @@ class AdventureManager:
     def realm_band_label(self, level_index: int) -> str:
         return str(self.realm_band(level_index).get("label", "") or "")
 
+    def _material_band(self, player, route: dict) -> dict:
+        """材料判定用的境界段：玩家境界段与路线等级段取「低」的那一段。
+
+        旧逻辑只看玩家境界段，于是 lv27 去刷 lv0 的「灵谷采药」（15 分钟、
+        冷却 2 分钟）反而比刷 lv27「太初之巅」（28 分钟、冷却 18 分钟）材料
+        产出高一倍 —— 高境界白嫖低阶路线的结算频率。现在路线等级也参与封顶：
+        低阶路线无论玩家多高都只出低阶材料，高阶路线才配得上高阶池。
+        """
+        player_band = self.realm_band(getattr(player, "level_index", 0))
+        if not self.material_cap_by_route or not self.realm_bands:
+            return player_band
+        try:
+            route_level = int(route.get("min_level", 0) or 0)
+        except (TypeError, ValueError):
+            route_level = 0
+        route_band = self.realm_band(route_level)
+        if not route_band or route_band is player_band:
+            return player_band
+        order = [str(b.get("key") or "") for b in self.realm_bands]
+        try:
+            pi = order.index(str(player_band.get("key") or ""))
+            ri = order.index(str(route_band.get("key") or ""))
+        except ValueError:
+            return player_band
+        return self.realm_bands[min(pi, ri)]
+
     def _route_category(self, route: dict) -> str:
         """路线主产物；「全产物」或未标注时按全局权重抽一类。"""
         product = str(route.get("product") or "").strip()
@@ -975,7 +1020,7 @@ class AdventureManager:
                     break
             return (chosen["name"], random.randint(chosen["min"], chosen["max"]))
 
-        band = self.realm_band(player.level_index)
+        band = self._material_band(player, route)
         category = self._route_category(route)
         tier = self._roll_tier(band)
         names, actual_tier = self._resolve_pool(category, tier)

@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v7.8.2 (历练修为基准下调)
+# AstrBot 插件：模拟修仙 v7.9.0 (历练/秘境材料分工调整)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v7.8.2-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v7.9.0-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.43.2 · **游戏版本:** v7.8.2 · **数据库:** v61
+> **插件版本:** v3.44.0 · **游戏版本:** v7.9.0 · **数据库:** v61
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，257 条注册指令（网页指令目录 245 个功能按钮 + 12 个别名）、17 个大系统、111 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,22 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · v7.8.2（历练修为基准下调 / 与闭关拉齐口径）</b></summary>
+<summary><b>本次更新 · v7.9.0（历练/秘境材料分工 / 帝品副本下移至合体期）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 定位 | **历练只产修为与灵石，材料交还秘境。** 合体后期要炼「大乘丹」缺帝品材料，根因不是掉率低，而是能出帝品的最低秘境（天雷绝域）要渡劫期 lv31 才可进。 |
+| 历练材料 | 掉落系数 `1.2 → 0.33`（新增 `material_model.chance_scale` 配置），价值口径约为秘境最优档的 **1/5**；单趟空手率约 2/3，材料退化为纯副产物。修为与灵石**完全不变**。 |
+| 路线封顶 | 材料品阶改为 `min(玩家境界段, 路线 min_level 段)`。修掉一个失衡：旧逻辑只看玩家境界，于是 lv27 刷 lv0「灵谷采药」（15 分/冷却 2 分）材料产出，比刷 lv27「太初之巅」（28 分/冷却 18 分）**高一倍** —— 高境界靠短冷却白嫖高阶材料。现在低阶路线只出低阶材料。 |
+| 秘境解锁 | 5 个帝品秘境整体下移：天雷绝域 `31/31/31 → 25/26/27`、仙墟药园 `32/32/33 → 26/27/28`、星辰铁狱 `33/34/34 → 29/30/31`、虚空妖巢 `34/35/35 → 32/33/34`、混沌天渊保持 `35`。**lv25 起每一级都有新的帝品秘境**，不再断档。 |
+| 实测数值 | 合体后期凑齐「大乘丹」5 件帝品（灵植×2 矿材×1 妖兽×1 灵液×1）：全走历练 **33.2h** → 全走秘境 **34.7h**。总量基本持平、来源换成秘境；瓶颈是灵植要 2 件。想再快就调秘境 `drops` 里的帝品权重，一处配置即可。 |
+| 连带影响 | lv25 只能进天雷绝域（灵液+矿材），lv26 起仙墟药园开放后才凑得齐四类。低境界段（lv19-24）的历练材料也因路线封顶而下降到玄/圣品，符合「历练不产材料」的定位。 |
+| 版本与数据库 | 插件 **v3.44.0** / 游戏及帮助 **v7.9.0**；仅配置与掉落口径，无表结构更新，数据库仍为 **v61**。 |
+
+</details>
+
+<details>
+<summary><b>v7.8.2（历练修为基准下调 / 与闭关拉齐口径）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |

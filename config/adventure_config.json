@@ -2416,5 +2416,10 @@
     "base_rate_per_hour": 0.0075,
     "pill_talisman_only": true,
     "comment": "历练修为 = 本境界突破需求 × base_rate_per_hour × 时长(小时) × (1+丹药加成+符箓修炼加成)；灵根与功法不参与。0.0075 = 闭关零加成 0.25%/小时 × 3，v7.8.2 从「按满配灵根×功法反推的 0.01656」改过来，避免零加成时历练是闭关的 6.6 倍"
+  },
+  "material_model": {
+    "chance_scale": 0.33,
+    "cap_by_route": true,
+    "comment": "历练材料掉落的整体系数：item_chance × chance_scale（1.2 → 0.33）。v7.9 起历练定位为修为/灵石产地，材料交给秘境；0.33 约等于「价值口径为秘境最优档的 1/5」，代价是单趟空手率约 2/3（材料是纯副产物）。cap_by_route=true 表示材料品阶同时受路线 min_level 段封顶，避免高境界刷低阶路线用更短的冷却时间白嫖高阶材料。"
   }
 }

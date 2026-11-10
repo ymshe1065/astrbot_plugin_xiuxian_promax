@@ -55,6 +55,10 @@ LV_PATH = ROOT / "config" / "level_config.json"
 with open(LV_PATH, encoding="utf-8") as _f:
     LEVELS = json.load(_f)
 
+CAT_PATH = ROOT / "config" / "material_catalog.json"
+with open(CAT_PATH, encoding="utf-8") as _f:
+    MATERIALS = {m["name"]: m for m in json.load(_f)["materials"]}
+
 # 闭关满配：灵根 3.2（先天道体）× 功法 1.30 × 丹药符箓 3.0
 CLOSED_ROOT_MAX = 3.2
 CLOSED_TECHNIQUE_MAX = 1.30
@@ -330,7 +334,50 @@ class TestItemRolls(unittest.TestCase):
     def test_one_roll_per_run(self):
         mgr = make_manager()
         self.assertEqual(mgr.ITEM_ROLLS, 1, "时长减半后每趟只该判定一次，否则材料翻倍")
-        self.assertGreater(mgr.ITEM_CHANCE_SCALE, 1.0)
+
+    def test_material_scale_comes_from_config(self):
+        """v7.9：历练不再产材料，整体系数由 material_model.chance_scale 控制。"""
+        mgr = make_manager()
+        self.assertEqual(mgr.material_chance_scale, CFG["material_model"]["chance_scale"])
+        self.assertLess(mgr.material_chance_scale, 1.0, "系数必须 <1，否则历练又变成刷材料的主场")
+        self.assertTrue(mgr.material_cap_by_route, "默认必须按路线等级封顶品阶")
+
+
+class TestMaterialBandCap(unittest.TestCase):
+    """材料品阶 = min(玩家境界段, 路线等级段)。"""
+
+    def setUp(self):
+        self.mgr = make_manager()
+
+    class _P:
+        def __init__(self, level):
+            self.level_index = level
+
+    def _route(self, key):
+        return ROUTES[key]
+
+    def test_high_level_player_on_low_route_is_capped(self):
+        band = self.mgr._material_band(self._P(27), self._route("herb_valley"))
+        self.assertEqual(band["key"], "lianqi", "lv27 刷 lv0 路线只该出炼气段（凡品）")
+
+    def test_high_level_route_keeps_player_band(self):
+        band = self.mgr._material_band(self._P(27), self._route("primordial_peak"))
+        self.assertEqual(band["key"], "heti")
+
+    def test_low_level_player_cannot_exceed_own_band(self):
+        band = self.mgr._material_band(self._P(6), self._route("primordial_peak"))
+        self.assertEqual(band["key"], "lianqi", "低境界玩家不能靠高等级路线越级拿高品阶")
+
+    def test_low_route_never_drops_dipin(self):
+        mgr = self.mgr
+        player = self._P(27)
+        route = self._route("herb_valley")
+        for _ in range(4000):
+            drop = mgr._roll_material_drop(player, route, {})
+            if drop:
+                info = MATERIALS.get(drop[0])
+                if info:
+                    self.assertNotEqual(info["tier"], "帝品", "低阶路线不该出帝品")
 
 
 def asyncio_run(coro):

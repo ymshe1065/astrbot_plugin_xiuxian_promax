@@ -197,23 +197,42 @@ class TestRealmScaling(unittest.TestCase):
         for prev, cur in zip(weights, weights[1:]):
             self.assertLess(prev, cur, f"圣品占比没有随境界上升：{weights}")
 
-    def test_higher_level_gives_better_materials(self):
-        """同一路线、同一类别，境界越高拿到的材料越值钱。"""
-        route = ROUTES["herb_valley"]
+    def test_higher_route_gives_better_materials(self):
+        """v7.9：材料品阶由路线等级封顶，所以是「路线越难材料越好」，而不是刷低阶路线。
+
+        旧用例拿同一把 lv0 药圃对比 lv5→lv33，封顶后各境界都停在炼气段，
+        反而成了「升级没收益」——真正该涨的是路线等级。
+        """
         avg_price = {}
-        for level in (5, 15, 21, 27, 33):
+        order = ["herb_valley", "pill_valley", "soul_swamp", "creation_altar"]
+        for key in order:
+            route = ROUTES[key]
             total = 0
-            for _ in range(300):
-                drop = self.mgr._roll_material_drop(_Player(level), route, {})
+            for _ in range(400):
+                drop = self.mgr._roll_material_drop(_Player(35), route, {})
                 if drop:
                     total += MATS[drop[0]]["price"]
-            avg_price[level] = total / 300
-        levels = sorted(avg_price)
-        for prev, cur in zip(levels, levels[1:]):
+            avg_price[key] = total / 400
+        for prev, cur in zip(order, order[1:]):
             self.assertGreater(
                 avg_price[cur], avg_price[prev],
-                f"lv{cur} 的材料价值 {avg_price[cur]:,.0f} 不如 lv{prev} 的 {avg_price[prev]:,.0f}",
+                f"{ROUTES[cur]['name']} 的材料价值 {avg_price[cur]:,.0f} "
+                f"不如 {ROUTES[prev]['name']} 的 {avg_price[prev]:,.0f}",
             )
+
+    def test_same_band_route_level_does_not_matter(self):
+        """同一境界段内的路线（lv25/26/27）材料期望应接近，不该只挑最短的那条。"""
+        vals = {}
+        for key in ("chaos_throne", "dao_arena", "primordial_peak"):
+            route = ROUTES[key]
+            total = 0
+            for _ in range(1500):
+                drop = self.mgr._roll_material_drop(_Player(27), route, {})
+                if drop:
+                    total += MATS[drop[0]]["price"] * drop[1]
+            vals[key] = total / 1500
+        lo, hi = min(vals.values()), max(vals.values())
+        self.assertLess((hi - lo) / hi, 0.6, f"同段路线期望差得太多：{vals}")
 
 
 class TestRiskyEvents(unittest.TestCase):
@@ -380,17 +399,21 @@ class TestAbsoluteYield(unittest.TestCase):
                 return per_pick * picks * (60 / (diff["duration"] / 60))
         raise AssertionError(f"找不到秘境 {self.RIFT_NAME}·{self.RIFT_LABEL}")
 
-    def test_empty_run_rate_is_acceptable(self):
-        """全程空手的比例要压到 15% 以内：分段后每段都有机会。"""
-        _, empty = self._run_stats()
-        self.assertLess(empty, 0.15, f"空手率 {empty:.0%} 太高")
+    def test_empty_run_is_the_norm(self):
+        """v7.9：材料是历练的副产物，空手才是常态（修为/灵石才是主线）。
 
-    def test_hourly_value_is_on_par_with_rift(self):
-        """历练每小时材料价值约为秘境的 50%~80%，保持材料第二来源定位。"""
+        空手率过高说明系数砍过头了（材料彻底消失），过低说明又回到「刷材料」定位。
+        """
+        _, empty = self._run_stats()
+        self.assertGreater(empty, 0.3, f"空手率只有 {empty:.0%}，历练又变回材料产地了")
+        self.assertLess(empty, 0.85, f"空手率 {empty:.0%} 太高，材料几乎绝迹")
+
+    def test_hourly_value_is_one_fifth_of_rift(self):
+        """v7.9 新定位：历练材料价值约为秘境最优档的 1/5（材料主产地是秘境）。"""
         adventure_hourly, _ = self._run_stats()
         ratio = adventure_hourly / self._rift_hourly()
-        self.assertGreater(ratio, 0.5, f"历练只有秘境的 {ratio:.0%}，低于第二来源下限")
-        self.assertLess(ratio, 0.8, f"历练达到秘境的 {ratio:.0%}，再高就没人去秘境了")
+        self.assertGreater(ratio, 0.12, f"历练只有秘境的 {ratio:.0%}，材料等于不存在了")
+        self.assertLess(ratio, 0.30, f"历练达到秘境的 {ratio:.0%}，又抢了秘境的材料定位")
 
 
 if __name__ == "__main__":
