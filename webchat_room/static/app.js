@@ -1141,7 +1141,8 @@
       Array.from(box.children).forEach((el) => contentRO.unobserve(el));
     }
     box.innerHTML = "";
-    S.pending.clear();
+    // 切房间/重连会丢掉等待态；同时唤醒批量队列，避免空等超时
+    for (const id of Array.from(S.pending.keys())) settlePending(id, false);
     const quick = $("quickOptions");
     if (quick) quick.hidden = true;
     pinnedBottom = true;
@@ -1568,21 +1569,43 @@
     return PANEL_CMDS[name] || "";
   }
 
+  /** 结束一次请求等待：删除等待态并唤醒批量指令的串行队列 */
+  function settlePending(id, ok) {
+    const ctx = id ? S.pending.get(id) : null;
+    if (!ctx) return null;
+    S.pending.delete(id);
+    if (typeof ctx.waiter === "function") ctx.waiter(!!ok);
+    return ctx;
+  }
+
   /**
    * 发指令并等待定向回复
    * @param {string} text 指令原文
-   * @param {{panel?: 'status'|'bag', card?: boolean, silent?: boolean}} opts
+   * @param {{panel?: 'status'|'bag', card?: boolean, silent?: boolean, awaitReply?: boolean}} opts
+   *   awaitReply 为真时返回 Promise<boolean>，供批量指令逐条串行发送
    */
   function sendCmd(text, opts = {}) {
+    let settle = null;
+    const wait = opts.awaitReply
+      ? new Promise((resolve) => {
+          settle = resolve;
+        })
+      : null;
     if (!S.ws || S.ws.readyState !== 1) {
       toast("尚未连接，请稍候");
-      return;
+      if (settle) settle(false);
+      return wait;
     }
     // 看板指令无论从哪里触发都按 panel 请求处理，避免被当成公屏指令广播
     const panel = opts.panel || panelOfCmd(text);
     if (!panel) showQuickOptions([]);
     const id = reqId();
-    S.pending.set(id, { cmd: text, panel: panel || null, card: !!opts.card });
+    S.pending.set(id, {
+      cmd: text,
+      panel: panel || null,
+      card: !!opts.card,
+      waiter: settle,
+    });
     S.ws.send(
       JSON.stringify({
         action: "cmd",
@@ -1598,10 +1621,11 @@
     // 兜底：20 秒未收到回复则丢弃等待态
     setTimeout(() => {
       if (S.pending.has(id)) {
-        S.pending.delete(id);
+        settlePending(id, false);
         if (panel) renderPanelEmpty(panel, "响应超时，请重试");
       }
     }, 20000);
+    return wait;
   }
 
   /* ================= 消息处理 ================= */
@@ -1686,7 +1710,9 @@
         toast(m.text || "切换仙界失败");
         break;
       case "bot":
-        if (m.req_id && S.pending.has(m.req_id)) S.pending.delete(m.req_id);
+        if (m.req_id && S.pending.has(m.req_id)) {
+          settlePending(m.req_id, !/^\s*❌/.test(String(m.text || "")));
+        }
         if (m.actor && m.actor === S.username) markBagDirty();
         addBotMessage(m);
         break;
@@ -1740,8 +1766,9 @@
   }
 
   function handleReply(m) {
-    const ctx = S.pending.get(m.req_id);
-    S.pending.delete(m.req_id);
+    // 业务失败通常返回普通文本（「❌ …」），批量操作按文本判断成功与否
+    const ok = !m.error && !/^\s*❌/.test(String(m.text || ""));
+    const ctx = settlePending(m.req_id, ok);
 
     if (m.error && !m.cards?.length) {
       if (!ctx?.panel) showQuickOptions([]);
@@ -3036,10 +3063,72 @@
     el.addEventListener("click", hideItemTip);
   }
 
-  /** 储物戒网格：结构化条目 + 种类/品质筛选 */
+  /** 储物戒多选状态：跨卡片刷新保留，条目消失时自动剔除 */
+  const bagSelection = { on: false, keys: new Set(), busy: false };
+
+  /** 多选与指令共用的条目键：同名装备按品质区分 */
+  function bagEntryKey(it) {
+    if (!it) return "";
+    const name = String(it.name || "");
+    const quality = String(it.quality || "");
+    return quality ? `${name}|${quality}` : name;
+  }
+
+  function bagRecycleCommand(it) {
+    const count = Math.max(1, Number(it.count) || 1);
+    return `/回收 ${bagEntryKey(it)} ${count}`;
+  }
+
+  /** 批量赠予拆成单条指令；装备实例一次只能赠 1 件 */
+  function bagGiftCommands(it, target) {
+    const key = bagEntryKey(it);
+    const count = Math.max(1, Number(it.count) || 1);
+    if (it.kind === "装备") {
+      return Array.from({ length: count }, () => `/赠予 ${target} ${key} 1`);
+    }
+    return [`/赠予 ${target} ${key} ${count}`];
+  }
+
+  /** 储物戒网格：结构化条目 + 种类/品质筛选 + 多选批量回收/赠予 */
   function renderItemGrid(items) {
+    // 只保留当前仍存在的勾选，避免把刚回收完的物品继续算进批量操作
+    const validKeys = new Set(items.map(bagEntryKey));
+    for (const key of Array.from(bagSelection.keys)) {
+      if (!validKeys.has(key)) bagSelection.keys.delete(key);
+    }
+
     const wrap = document.createElement("div");
     wrap.className = "item-grid-wrap";
+
+    const bulk = document.createElement("div");
+    bulk.className = "bag-bulk";
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "bulk-toggle";
+    toggle.title = "开启后点击物品即可勾选，支持批量回收/赠予";
+    const tools = document.createElement("div");
+    tools.className = "bulk-tools";
+    const countEl = document.createElement("span");
+    countEl.className = "bulk-count";
+    const allBtn = document.createElement("button");
+    allBtn.type = "button";
+    allBtn.className = "bulk-btn";
+    const clearBtn = document.createElement("button");
+    clearBtn.type = "button";
+    clearBtn.className = "bulk-btn";
+    clearBtn.textContent = "清空";
+    const recycleBtn = document.createElement("button");
+    recycleBtn.type = "button";
+    recycleBtn.className = "bulk-btn primary";
+    recycleBtn.textContent = "批量回收";
+    const giftBtn = document.createElement("button");
+    giftBtn.type = "button";
+    giftBtn.className = "bulk-btn primary";
+    giftBtn.textContent = "批量赠予";
+    tools.append(countEl, allBtn, clearBtn, recycleBtn, giftBtn);
+    bulk.append(toggle, tools);
+    wrap.appendChild(bulk);
+
     const filters = document.createElement("div");
     filters.className = "item-filters";
     const grid = document.createElement("div");
@@ -3050,6 +3139,7 @@
     empty.hidden = true;
 
     const state = { kind: "", quality: "" };
+    let visible = items.slice();
     const kinds = KIND_ORDER.filter((k) => items.some((it) => it.kind === k));
     const qualitiesOf = (kind) =>
       QUALITY_ORDER.filter((q) => items.some((it) => it.quality === q && (!kind || it.kind === kind)));
@@ -3097,10 +3187,125 @@
     buildFilters();
     wrap.appendChild(filters);
 
+    const selectedItems = () => items.filter((it) => bagSelection.keys.has(bagEntryKey(it)));
+
+    function updateBulk() {
+      const picked = selectedItems();
+      const visibleKeys = visible.map(bagEntryKey);
+      const allOn = visibleKeys.length > 0 && visibleKeys.every((k) => bagSelection.keys.has(k));
+      toggle.classList.toggle("on", bagSelection.on);
+      toggle.textContent = bagSelection.on ? "✓ 多选" : "☑ 多选";
+      toggle.setAttribute("aria-pressed", String(bagSelection.on));
+      toggle.disabled = bagSelection.busy;
+      tools.hidden = !bagSelection.on;
+      countEl.textContent = `已选 ${picked.length}`;
+      allBtn.textContent = allOn ? "取消全选" : "全选";
+      allBtn.disabled = bagSelection.busy || !visibleKeys.length;
+      clearBtn.disabled = bagSelection.busy || !picked.length;
+      recycleBtn.disabled = bagSelection.busy || !picked.length;
+      giftBtn.disabled = bagSelection.busy || !picked.length;
+    }
+
+    toggle.addEventListener("click", () => {
+      if (bagSelection.busy) return;
+      hideItemTip();
+      bagSelection.on = !bagSelection.on;
+      bagSelection.keys.clear();
+      paint();
+    });
+    allBtn.addEventListener("click", () => {
+      if (bagSelection.busy) return;
+      const visibleKeys = visible.map(bagEntryKey);
+      const allOn = visibleKeys.length > 0 && visibleKeys.every((k) => bagSelection.keys.has(k));
+      visibleKeys.forEach((k) => (allOn ? bagSelection.keys.delete(k) : bagSelection.keys.add(k)));
+      paint();
+    });
+    clearBtn.addEventListener("click", () => {
+      if (bagSelection.busy) return;
+      bagSelection.keys.clear();
+      paint();
+    });
+
+    /** 批量指令逐条串行发送，避免并发写存档时互相覆盖数量/装备实例 */
+    async function runBatch(commands, label) {
+      if (bagSelection.busy || !commands.length) return;
+      bagSelection.busy = true;
+      updateBulk();
+      let ok = 0;
+      let fail = 0;
+      try {
+        for (const cmd of commands) {
+          const passed = await sendCmd(cmd, { card: true, awaitReply: true });
+          if (passed) ok += 1;
+          else fail += 1;
+          updateBulk();
+        }
+      } finally {
+        bagSelection.busy = false;
+        // 批量完成后退出勾选模式，避免下一次刷新残留已处理的选择
+        bagSelection.on = false;
+        bagSelection.keys.clear();
+        updateBulk();
+      }
+      toast(`${label}：成功 ${ok} 项${fail ? `，失败 ${fail} 项` : ""}`);
+      S.bagDirty = true;
+      refreshBagSoon(80);
+    }
+
+    recycleBtn.addEventListener("click", () => {
+      const picked = selectedItems();
+      if (!picked.length) {
+        toast("请先勾选要回收的物品");
+        return;
+      }
+      const commands = picked.map((it) => bagRecycleCommand(it));
+      void runBatch(commands, "批量回收");
+    });
+
+    giftBtn.addEventListener("click", async () => {
+      const picked = selectedItems();
+      if (!picked.length) {
+        toast("请先勾选要赠予的物品");
+        return;
+      }
+      if (bagSelection.busy) return;
+      let data = null;
+      try {
+        const qs = new URLSearchParams({ cmd: "/赠予", values: "[]" });
+        const r = await fetch(`/api/arg_options?${qs.toString()}`, {
+          headers: { Authorization: "Bearer " + S.token },
+        });
+        data = await r.json().catch(() => null);
+      } catch {
+        data = null;
+      }
+      if (!data || data.ok === false) {
+        toast((data && data.error) || "读取赠予对象失败");
+        return;
+      }
+      const options = Array.isArray(data.options) ? data.options : [];
+      if (!options.length) {
+        toast(data.message || "暂无可赠予的对象");
+        return;
+      }
+      openSheet("批量赠予", "选择赠予对象", "/赠予", "", {
+        choices: options,
+        onPick: (value) => {
+          const commands = picked.flatMap((it) => bagGiftCommands(it, value));
+          void runBatch(commands, "批量赠予");
+        },
+      });
+    });
+
     const cell = (it) => {
       const b = document.createElement("button");
       b.type = "button";
-      b.className = "icell";
+      const key = bagEntryKey(it);
+      const checked = bagSelection.keys.has(key);
+      b.className =
+        "icell" +
+        (bagSelection.on ? " is-select" : "") +
+        (bagSelection.on && checked ? " is-checked" : "");
       b.style.setProperty("--kd", KIND_COLORS[it.kind] || "transparent");
       const meta = [it.rank, it.quality, it.equipped].filter(Boolean).join("·") || it.kind || "—";
       b.innerHTML =
@@ -3109,10 +3314,21 @@
           ? `<span class="ic-el" style="background:${ELEMENT_COLORS[it.element] || "#8f8f8f"}"></span>`
           : "") +
         `<span class="ic-meta">${esc(meta)}</span>` +
-        `<span class="ic-cnt">×${it.count}</span>`;
+        `<span class="ic-cnt">×${it.count}</span>` +
+        (bagSelection.on ? `<span class="ic-check">${checked ? "✓" : ""}</span>` : "");
       b.classList.toggle("is-equipped", !!it.equipped);
-      b.title = [it.name, it.rank, it.quality, it.element, it.equipped].filter(Boolean).join(" · ");
-      b.addEventListener("click", (e) => openItemMenu(it.name, e.currentTarget, it.count, it, e));
+      b.title = bagSelection.on
+        ? `${checked ? "取消勾选" : "勾选"} ${it.name}`
+        : [it.name, it.rank, it.quality, it.element, it.equipped].filter(Boolean).join(" · ");
+      if (bagSelection.on) {
+        b.addEventListener("click", () => {
+          if (bagSelection.keys.has(key)) bagSelection.keys.delete(key);
+          else bagSelection.keys.add(key);
+          paint();
+        });
+      } else {
+        b.addEventListener("click", (e) => openItemMenu(it.name, e.currentTarget, it.count, it, e));
+      }
       bindItemTip(b, it);
       return b;
     };
@@ -3120,11 +3336,12 @@
     function paint() {
       hideItemTip();
       grid.innerHTML = "";
-      const list = items.filter(
+      visible = items.filter(
         (it) => (!state.kind || it.kind === state.kind) && (!state.quality || it.quality === state.quality)
       );
-      list.forEach((it) => grid.appendChild(cell(it)));
-      empty.hidden = list.length > 0;
+      visible.forEach((it) => grid.appendChild(cell(it)));
+      empty.hidden = visible.length > 0;
+      updateBulk();
     }
 
     paint();

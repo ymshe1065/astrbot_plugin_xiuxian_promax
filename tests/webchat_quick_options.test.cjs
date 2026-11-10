@@ -16,7 +16,7 @@ function setup() {
     addBotText() {}, addCardMessage() {}, addChat() {}, addSys() {}, scrollBottom() {},
     markBagDirty() {}, toast() {}, addError() {}, panelOfCmd: () => '', reqId: () => 'r1', setTimeout() {},
   });
-  for (const name of ['showQuickOptions', 'addBotMessage', 'applyChannelHistory', 'handleReply', 'sendChat', 'sendCmd', 'submitSheet', 'pickSheetOption']) {
+  for (const name of ['showQuickOptions', 'addBotMessage', 'applyChannelHistory', 'settlePending', 'handleReply', 'sendChat', 'sendCmd', 'submitSheet', 'pickSheetOption']) {
     const start = source.indexOf(`  function ${name}(`);
     assert.ok(start >= 0);
     const end = source.indexOf('\n  }', start) + 4;
@@ -68,6 +68,16 @@ test('定向无候选回复及错误回复清除旧提示', () => {
   assert.equal(box.hidden, false);
   ctx.handleReply({ req_id: 's', text: '失败', error: true });
   assert.equal(box.hidden, true);
+});
+
+test('批量指令等待回复：成功与失败都能结束串行队列', async () => {
+  const { ctx } = setup();
+  const good = ctx.sendCmd('/回收 精铁 1', { awaitReply: true });
+  ctx.handleReply({ req_id: 'r1', text: '♻️ 已回收 精铁' });
+  assert.equal(await good, true);
+  const bad = ctx.sendCmd('/回收 不存在 1', { awaitReply: true });
+  ctx.handleReply({ req_id: 'r1', text: '❌ 储物戒中没有可回收的物品' });
+  assert.equal(await bad, false);
 });
 
 test('跳过火候后手动输入 1 次会使用显式数量，不误选火候', async () => {
