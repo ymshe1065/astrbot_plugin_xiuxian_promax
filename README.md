@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v7.9.0 (历练/秘境材料分工调整)
+# AstrBot 插件：模拟修仙 v7.9.1 (秘境装备品阶按门槛封顶)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v7.9.0-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v7.9.1-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.44.0 · **游戏版本:** v7.9.0 · **数据库:** v61
+> **插件版本:** v3.44.1 · **游戏版本:** v7.9.1 · **数据库:** v61
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，257 条注册指令（网页指令目录 245 个功能按钮 + 12 个别名）、17 个大系统、111 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,20 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · v7.9.0（历练/秘境材料分工 / 帝品副本下移至合体期）</b></summary>
+<summary><b>本次更新 · v7.9.1（秘境装备品阶按门槛封顶）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 问题 | 秘境装备的品阶只取玩家等级（`level_to_rank(player.level_index)`），与秘境难度无关。实测 lv35 玩家刷 **lv0 青云秘境一重**，每小时 0.167 件、**全是混元先天/仙品**、折合 **75.5 万灵石/时** —— 与本境界最高秘境（混沌天渊三重 76.4 万/时）完全等价。低门槛本成了顶级装备农场，装备收益还占秘境总产出的 40%~85%。 |
+| 改法 | 新增 `rift_config.equipment_level_cap_bonus`（现 **2**）：装备品阶基准 = `min(玩家等级, 秘境门槛 + 余量)`。lv35 刷青云一重只出**凡/黄品**，想拿混元先天必须刷 lv33+ 的秘境。掉率**不动**（仍是 5%/9%/13% 每趟），只修品阶错位。 |
+| 实测数值 | lv35 刷各门槛秘境，装备价值/时：青云一重（门槛 0）**75.5 万 → 0.38 万**；落日峡谷三重（12）67.5 万 → 4.4 万；丹霞谷三重（15）79 万 → 5.9 万；太虚雷池三重（27）81 万 → 51.3 万；混沌天渊三重（35）**76.4 万 → 77.5 万（不变）**。正常按门槛推进的玩家**完全不受影响**。 |
+| 边界 | 余量 2 级保留「卡门槛刷本」的小甜头（lv35 进 lv33 本仍出混元先天）；配 0 即严格按门槛。`min` 同时保证低境界玩家不会被反向拔高。 |
+| 版本与数据库 | 插件 **v3.44.1** / 游戏及帮助 **v7.9.1**；仅掉落口径与配置，无表结构更新，数据库仍为 **v61**。 |
+
+</details>
+
+<details>
+<summary><b>v7.9.0（历练/秘境材料分工 / 帝品副本下移至合体期）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |

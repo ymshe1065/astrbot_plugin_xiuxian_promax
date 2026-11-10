@@ -19,7 +19,7 @@ __all__ = ["MiscHandler"]
 class MiscHandler:
     """杂项指令处理器 - 提供帮助信息、一键日常与强制解卡"""
 
-    VERSION = HELP_VERSION  # v7.9.0：历练交还材料定位、帝品秘境下移至合体期（数据库 v61）
+    VERSION = HELP_VERSION  # v7.9.1：秘境装备品阶按门槛封顶，低阶本不再掉顶级装备（数据库 v61）
 
     def __init__(self, db: DataBase, config: dict = None):
         self.db = db

@@ -1288,7 +1288,7 @@ class RiftManager:
             if chance > 0 and random.random() * 100.0 <= chance:
                 drop = roll_equipment_drop(
                     self.config_manager,
-                    player.level_index,
+                    self._equipment_base_level(rift, player),
                     self.config.get("equipment_slot_weights"),
                     up_rank_weight=self._equipment_up_rank_weight(rift, tier),
                 )
@@ -1299,6 +1299,27 @@ class RiftManager:
                 logger.warning(f"秘境装备掉落判定失败：{e}")
 
         return dropped_items
+
+    def _equipment_base_level(self, rift: Optional[Rift], player) -> int:
+        """装备品阶基准：玩家等级与「秘境门槛 + 越级余量」取低。
+
+        旧逻辑只用 ``player.level_index``，于是 lv35 刷 lv0 的青云秘境也掉
+        混元先天装备 —— 低门槛本成了顶级装备农场（实测进阶本每小时装备价值
+        75 万灵石，与本境界最高秘境持平）。现在按秘境门槛封顶：
+        lv35 刷青云一重只出凡/黄品，要拿当前阶必须刷对应门槛的本。
+        """
+        player_level = int(getattr(player, "level_index", 0) or 0)
+        if rift is None:
+            return player_level
+        try:
+            bonus = int(self.config.get("equipment_level_cap_bonus", 2))
+        except (TypeError, ValueError):
+            bonus = 2
+        try:
+            required = int(rift.required_level or 0)
+        except (TypeError, ValueError):
+            return player_level
+        return min(player_level, max(0, required + bonus))
 
     def _equipment_up_rank_weight(self, rift: Optional[Rift] = None, tier: int = None) -> float:
         """越阶（基准 +1）装备权重。

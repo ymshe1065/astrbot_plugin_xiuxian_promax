@@ -1,5 +1,6 @@
 {
   "default_duration": 1800,
+  "equipment_level_cap_bonus": 2,
   "equipment_slot_weights": {
     "weapon": 16,
     "armor": 16,

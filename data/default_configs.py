@@ -84,6 +84,8 @@ BOSS_CONFIG = {
 
 RIFT_CONFIG = {
     "default_duration": 1800, # 30分钟
+    # 装备品阶基准 = min(玩家等级, 秘境门槛 + 该余量)：低门槛本不掉当前阶装备
+    "equipment_level_cap_bonus": 2,
     "equipment_drop_chances": {"1": 6, "2": 9, "3": 12, "4": 12, "5": 12},
     "equipment_up_rank_weight": {"1": 1.0, "2": 0.7, "3": 0.5, "4": 0.35, "5": 0.25},
     "equipment_slot_weights": {
