@@ -1073,24 +1073,28 @@ class CombatManager:
         # 灼烧
         burn_chance = float(effects.get("burn_chance", 0) or 0)
         if roll(burn_chance):
+            # 心法被动词条未配置 burn_turns 时，默认给 3 回合，避免 fallback 成 1 回合
             damage_pct = max(0.1, float(effects.get("burn_damage_pct", 0) or 0) * dot_scale)
-            turns = max(1, int(effects.get("burn_turns", 1) or 1))
+            turns = max(1, int(effects.get("burn_turns", 0) or 0) or 3)
             old = statuses.get("burn")
             if old and int(effects.get("burn_detonate", 0) or 0):
                 remaining = max(1, int(old.get("turns", 1) or 1))
                 burst = max(1, int(defender.max_hp * float(old.get("damage_pct", 0) or 0) / 100.0 * remaining))
                 defender.hp = max(0, defender.hp - burst)
                 logs.append(f"🔥 灼烧爆燃，{defender.name} 立即损失 {burst} 点气血！")
+            # 与已有灼烧合并：伤害取高、回合取高，避免装备/心法互相覆盖把 DOT 回合数压短
+            merged_damage_pct = max(float((old or {}).get("damage_pct", 0) or 0), damage_pct)
+            merged_turns = max(turns, int((old or {}).get("turns", 0) or 0))
             statuses["burn"] = {
-                "turns": turns,
-                "damage_pct": max(float((old or {}).get("damage_pct", 0) or 0), damage_pct),
+                "turns": merged_turns,
+                "damage_pct": merged_damage_pct,
                 "heal_reduction": max(
                     float(effects.get("burn_heal_reduction", 0) or 0),
                     float((old or {}).get("heal_reduction", 0) or 0),
                 ),
                 "level": 2,
             }
-            logs.append(f"🔥 {attacker.name} 点燃了 {defender.name}（{turns} 回合，每回合 {damage_pct:.1f}% 最大生命）")
+            logs.append(f"🔥 {attacker.name} 点燃了 {defender.name}（{merged_turns} 回合，每回合 {merged_damage_pct:.1f}% 最大生命）")
 
         # 寒霜
         frost_chance = float(effects.get("frost_chance", 0) or 0)
@@ -1192,12 +1196,16 @@ class CombatManager:
                     burst = max(1, int(defender.max_hp * float(old.get("damage_pct", 0) or 0) / 100.0 * remaining))
                     defender.hp = max(0, int(defender.hp) - burst)
                     logs.append(f"🔥 灼烧爆燃，{defender.name} 立即损失 {burst} 点气血！")
+                # 与已有灼烧合并：伤害取高、回合取高，并继承旧的降疗，避免覆盖丢失
+                merged_damage_pct = max(damage_pct, float((old or {}).get("damage_pct", 0) or 0))
+                merged_turns = max(3, int((old or {}).get("turns", 0) or 0))
                 statuses["burn"] = {
-                    "turns": 3,
-                    "damage_pct": max(damage_pct, float((old or {}).get("damage_pct", 0) or 0)),
+                    "turns": merged_turns,
+                    "damage_pct": merged_damage_pct,
+                    "heal_reduction": float((old or {}).get("heal_reduction", 0) or 0),
                     "level": 2,
                 }
-                logs.append(f"🔥 离火燎原点燃 {defender.name}（3 回合，每回合 {damage_pct:.1f}% 最大生命）")
+                logs.append(f"🔥 离火燎原点燃 {defender.name}（{merged_turns} 回合，每回合 {merged_damage_pct:.1f}% 最大生命）")
             elif skill_type == "guard":
                 own_statuses["guard"] = {"turns": 2, "reduction": max(0.0, min(0.9, value))}
                 converted = int((attacker.defense or 0) * 0.10)
@@ -1466,7 +1474,7 @@ class CombatManager:
                 if pet.mechanic == "burn":
                     burn = max(1, int(pet.atk * ratio * 0.3))
                     pet_damage += burn
-                    logs.append(f"🔥 【{pet.name}】喷吐灵火，追加灼烧 {burn} 点伤害！")
+                    logs.append(f"🔥 【{pet.name}】喷吐灵火，追加 {burn} 点灵火伤害！")
                 room = max(0, pet_cap - pet_total)
                 if pet_damage > room:
                     pet_damage = room

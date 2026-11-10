@@ -1241,7 +1241,8 @@
     "effects": {
       "burn_chance": 8,
       "burn_damage_pct": 3,
-      "burn_heal_reduction": 8
+      "burn_heal_reduction": 8,
+      "burn_turns": 3
     },
     "exp_multiplier": 0.0,
     "shop_weight": 30,
@@ -1268,7 +1269,8 @@
     "effects": {
       "burn_chance": 10,
       "burn_damage_pct": 4,
-      "burn_heal_reduction": 10
+      "burn_heal_reduction": 10,
+      "burn_turns": 3
     },
     "exp_multiplier": 0.0,
     "shop_weight": 20,
@@ -1295,7 +1297,8 @@
     "effects": {
       "burn_chance": 12,
       "burn_damage_pct": 5,
-      "burn_heal_reduction": 12
+      "burn_heal_reduction": 12,
+      "burn_turns": 3
     },
     "exp_multiplier": 0.0,
     "shop_weight": 15,
@@ -1322,7 +1325,8 @@
     "effects": {
       "burn_chance": 14,
       "burn_damage_pct": 6,
-      "burn_heal_reduction": 15
+      "burn_heal_reduction": 15,
+      "burn_turns": 3
     },
     "exp_multiplier": 0.0,
     "shop_weight": 10,
@@ -1349,7 +1353,8 @@
     "effects": {
       "burn_chance": 17,
       "burn_damage_pct": 7,
-      "burn_heal_reduction": 18
+      "burn_heal_reduction": 18,
+      "burn_turns": 3
     },
     "exp_multiplier": 0.0,
     "shop_weight": 6,
@@ -1376,7 +1381,8 @@
     "effects": {
       "burn_chance": 20,
       "burn_damage_pct": 8,
-      "burn_heal_reduction": 22
+      "burn_heal_reduction": 22,
+      "burn_turns": 3
     },
     "exp_multiplier": 0.0,
     "shop_weight": 3,
@@ -1403,7 +1409,8 @@
     "effects": {
       "burn_chance": 24,
       "burn_damage_pct": 9,
-      "burn_heal_reduction": 28
+      "burn_heal_reduction": 28,
+      "burn_turns": 3
     },
     "exp_multiplier": 0.0,
     "shop_weight": 1,
@@ -1430,7 +1437,8 @@
     "effects": {
       "burn_chance": 28,
       "burn_damage_pct": 10,
-      "burn_heal_reduction": 35
+      "burn_heal_reduction": 35,
+      "burn_turns": 3
     },
     "exp_multiplier": 0.0,
     "shop_weight": 1,
