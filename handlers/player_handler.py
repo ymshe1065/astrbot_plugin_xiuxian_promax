@@ -654,21 +654,30 @@ class PlayerHandler:
         if not player:
             yield event.plain_result("道友尚未踏入仙途，请发送「我要修仙」开启你的旅程。")
             return
+        ok, reply_msg = await self.settle_cultivation(player)
+        if ok:
+            set_event_flag(event, "cultivation_success", True)
+        yield event.plain_result(reply_msg)
+
+    async def settle_cultivation(self, player: Player):
+        """结算一次闭关，返回 ``(是否成功结算, 提示文本)``。
+
+        手动 /出关 与历练代理的「CD 自动闭关」共用同一套结算，
+        避免自动代理另写一份导致丹药加权、家具/宗门/魔潮加成口径漂移。
+        """
         user_cd = await self.db.ext.get_user_cd(player.user_id)
         legacy_cultivating = (
             player.state == "修炼中"
             and (not user_cd or user_cd.type == UserStatus.IDLE)
         )
         if (not user_cd or user_cd.type != UserStatus.CULTIVATING) and not legacy_cultivating:
-            yield event.plain_result("道友当前并未闭关，无需出关。")
-            return
+            return False, "道友当前并未闭关，无需出关。"
         if player.cultivation_start_time == 0:
             player.state = "空闲"
             player.cultivation_start_time = 0
             await self.db.update_player(player)
             await self.db.ext.set_user_free(player.user_id)
-            yield event.plain_result("闭关记录异常，已为你恢复空闲状态，请重新闭关。")
-            return
+            return False, "闭关记录异常，已为你恢复空闲状态，请重新闭关。"
 
         end_time = int(time.time())
         duration_seconds = end_time - player.cultivation_start_time
@@ -679,8 +688,7 @@ class PlayerHandler:
             player.cultivation_start_time = 0
             await self.db.update_player(player)
             await self.db.ext.set_user_free(player.user_id)
-            yield event.plain_result("道友闭关时间不足1分钟，已出关，未获得修为。")
-            return
+            return False, "道友闭关时间不足1分钟，已出关，未获得修为。"
 
         try:
             cultivation_cfg = self.config_manager.game_config.get("cultivation", {})
@@ -847,7 +855,6 @@ class PlayerHandler:
         await self.db.ext.set_user_free(player.user_id)
 
         await self.db.ext.add_task_progress(player.user_id, "cultivate", 1)
-        set_event_flag(event, "cultivation_success", True)
         tutorial_msg = await self.tutorial_mgr.check_and_advance(player, "cultivate")
 
         hours = duration_minutes // 60
@@ -864,7 +871,7 @@ class PlayerHandler:
             f"💫 当前修为：{player.experience:,}\n"
         )
         reply_msg += tutorial_msg
-        yield event.plain_result(reply_msg)
+        return True, reply_msg
 
     @player_required
     async def handle_check_in(self, player: Player, event: AstrMessageEvent):

@@ -46,6 +46,7 @@ class AutoProxyHandlers:
             "💡 /关闭代理 灵田 [格号...]\n"
             "💡 /关闭代理 秘境\n"
             "💡 /关闭代理 施肥\n"
+            "💡 /关闭代理 历练\n"
             "💡 /关闭代理 全部"
         )
         if is_all_keyword(raw, ALL_KEYWORDS):
@@ -70,6 +71,10 @@ class AutoProxyHandlers:
             return
         if self.proxy_mgr._is_rift_request(raw):
             ok, msg = await self.proxy_mgr.disable_rift(user_id)
+            yield event.plain_result(msg)
+            return
+        if self.proxy_mgr._is_adventure_request(raw):
+            ok, msg = await self.proxy_mgr.disable_adventure(user_id)
             yield event.plain_result(msg)
             return
         if self.proxy_mgr.normalize_task(raw) in (TASK_ESCORT, TASK_SECT):

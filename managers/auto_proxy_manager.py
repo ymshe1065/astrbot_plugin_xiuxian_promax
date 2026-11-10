@@ -26,6 +26,7 @@ TASK_SECT = "sect_task"
 TASK_FARM = "farm"
 TASK_RIFT = "rift"
 TASK_FERTILIZE = "fertilize"
+TASK_ADVENTURE = "adventure"
 
 TASK_NAMES = {
     TASK_ESCORT: "押镖",
@@ -33,6 +34,7 @@ TASK_NAMES = {
     TASK_FARM: "灵田",
     TASK_RIFT: "秘境",
     TASK_FERTILIZE: "施肥",
+    TASK_ADVENTURE: "历练",
 }
 
 TASK_ALIASES = {
@@ -50,6 +52,9 @@ TASK_ALIASES = {
     "rift": TASK_RIFT,
     "施肥": TASK_FERTILIZE,
     "fertilize": TASK_FERTILIZE,
+    "历练": TASK_ADVENTURE,
+    "历炼": TASK_ADVENTURE,
+    "adventure": TASK_ADVENTURE,
 }
 
 # 施肥是“维护动作”而不是“活动”，不占用 UserStatus，故不进 TASK_STATUS
@@ -57,6 +62,11 @@ DEFAULT_FERTILIZE_THRESHOLD = 0.85
 DEFAULT_FERTILIZE_MIN_ROI = 1.0
 # 单轮最多补几次肥（每次 +30% 上限，4 次足以从地板补满）
 MAX_FERTILIZE_TIMES = 4
+
+# 历练 CD 短于这个秒数时不进闭关：刚进就要出关，白跑一趟还拿不到修为
+ADV_MIN_RETREAT_SECONDS = 90
+ADV_MODE_CONTINUE = "continue"
+ADV_MODE_ALTERNATE = "alternate"
 
 TASK_STATUS = {
     TASK_ESCORT: UserStatus.DELIVERING,
@@ -89,6 +99,9 @@ class AutoProxyManager:
         lock_getter: Optional[Callable[[str], asyncio.Lock]] = None,
         farm_mgr: Any = None,
         rift_mgr: Any = None,
+        adventure_mgr: Any = None,
+        encounter_mgr: Any = None,
+        cultivation_settler: Optional[Callable[[Any], Awaitable[Tuple[bool, str]]]] = None,
     ):
         self.db = db
         self.escort_mgr = escort_mgr
@@ -99,6 +112,9 @@ class AutoProxyManager:
         self._lock_getter = lock_getter
         self.farm_mgr = farm_mgr
         self.rift_mgr = rift_mgr
+        self.adventure_mgr = adventure_mgr
+        self.encounter_mgr = encounter_mgr
+        self._cultivation_settler = cultivation_settler
         self._fallback_locks: dict[str, asyncio.Lock] = {}
 
     def _get_lock(self, user_id: str) -> asyncio.Lock:
@@ -162,6 +178,22 @@ class AutoProxyManager:
         fert.setdefault("min_roi", DEFAULT_FERTILIZE_MIN_ROI)
         fert.setdefault("note", "")
         config["fertilize"] = fert
+
+        adv = config.get("adventure")
+        if not isinstance(adv, dict):
+            adv = {}
+        adv.setdefault("enabled", False)
+        adv.setdefault("mode", ADV_MODE_CONTINUE)
+        adv.setdefault("route", "")
+        adv.setdefault("route2", "")
+        adv.setdefault("retreat", True)
+        adv.setdefault("auto_encounter", True)
+        adv.setdefault("encounter_choice", 0)
+        adv.setdefault("last_route", "")
+        adv.setdefault("close_until", 0)
+        adv.setdefault("close_route", "")
+        adv.setdefault("note", "")
+        config["adventure"] = adv
         return config
 
     @staticmethod
@@ -175,6 +207,7 @@ class AutoProxyManager:
             or bool((config.get("farm") or {}).get("enabled"))
             or bool((config.get("fertilize") or {}).get("enabled"))
             or bool((config.get("rift") or {}).get("enabled"))
+            or bool((config.get("adventure") or {}).get("enabled"))
         )
 
     @classmethod
@@ -184,6 +217,10 @@ class AutoProxyManager:
     @classmethod
     def _rift_enabled(cls, row: Optional[dict]) -> bool:
         return bool(cls._load_config(row)["rift"].get("enabled"))
+
+    @classmethod
+    def _adv_enabled(cls, row: Optional[dict]) -> bool:
+        return bool(cls._load_config(row)["adventure"].get("enabled"))
 
     @classmethod
     def _fert_enabled(cls, row: Optional[dict]) -> bool:
@@ -218,6 +255,16 @@ class AutoProxyManager:
             return True
         # 兼容粘连写法：/自动代理 秘境1
         return key.startswith("秘境") or key.startswith("rift")
+
+    @staticmethod
+    def _is_adventure_request(raw: str) -> bool:
+        parts = (raw or "").strip().split()
+        if not parts:
+            return False
+        key = parts[0].lower()
+        if key in ("历练", "历炼", "adventure", "adv"):
+            return True
+        return key.startswith("历练") or key.startswith("adventure")
 
     @staticmethod
     def _parse_plot_selection(raw: str) -> Tuple[Optional[list[int]], list[str]]:
@@ -278,14 +325,41 @@ class AutoProxyManager:
             json.dumps(config, ensure_ascii=False),
         )
 
+    async def _settle_auto_seclusion_if_any(self, user_id: str, adv: dict) -> str:
+        """关闭历练代理前，若当前闭关是代理触发的就先结算，避免被动挂在闭关里。"""
+        if not int(adv.get("close_until") or 0):
+            return ""
+        try:
+            cd = await self.db.ext.get_user_cd(user_id)
+            if not cd or cd.type != UserStatus.CULTIVATING:
+                return ""
+            player = await self.db.get_player_by_id(user_id)
+            if not player or not self._cultivation_settler:
+                return ""
+            ok, msg = await self._cultivation_settler(player)
+            if ok and self.title_bump:
+                try:
+                    await self.title_bump(user_id, "cultivate_count", 1)
+                except Exception:
+                    pass
+            return f"\n🧘 已为你结算本次自动闭关：\n{msg}" if ok else ""
+        except Exception as e:
+            logger.warning(f"【自动代理】结算自动闭关失败: {e}")
+            return ""
+
     async def disable(self, user_id: str, reason: str = "") -> bool:
         """关闭全部代理；保留上次活动类型、灵田任务、秘境目标与施肥阈值，方便下次恢复。"""
         row = await self.get(user_id)
         was_enabled = bool(row and row.get("enabled"))
         config = self._load_config(row)
+        await self._settle_auto_seclusion_if_any(user_id, config["adventure"])
         config["farm"]["enabled"] = False
         config["rift"]["enabled"] = False
         config["fertilize"]["enabled"] = False
+        config["adventure"]["enabled"] = False
+        config["adventure"]["close_until"] = 0
+        config["adventure"]["close_route"] = ""
+        config["adventure"]["note"] = ""
         await self._write_state(
             user_id,
             False,
@@ -305,18 +379,24 @@ class AutoProxyManager:
         farm_on = bool(config["farm"].get("enabled"))
         rift_on = bool(config["rift"].get("enabled"))
         fert_on = bool(config["fertilize"].get("enabled"))
+        adv_on = bool(config["adventure"].get("enabled"))
         had_primary = bool(row.get("task_type"))
         await self._disable_primary(user_id, reason)
-        if farm_on or rift_on or fert_on:
+        if farm_on or rift_on or fert_on or adv_on:
             tip = "押镖/宗门任务代理已关闭" if had_primary else "押镖/宗门任务代理未开启"
             keep = "、".join(
                 name
-                for name, on in (("灵田", farm_on), ("秘境", rift_on), ("施肥", fert_on))
+                for name, on in (
+                    ("灵田", farm_on),
+                    ("秘境", rift_on),
+                    ("施肥", fert_on),
+                    ("历练", adv_on),
+                )
                 if on
             )
             return True, (
                 f"🛑 {tip}；{keep}自动代理继续运行。\n"
-                "💡 发送 /关闭代理 灵田 /关闭代理 秘境 /关闭代理 施肥 可单独停止；发送 /关闭代理 可全部停止。"
+                "💡 发送 /关闭代理 灵田 /关闭代理 秘境 /关闭代理 施肥 /关闭代理 历练 可单独停止；发送 /关闭代理 可全部停止。"
             )
         return True, (
             "🛑 自动代理已关闭。\n"
@@ -333,6 +413,7 @@ class AutoProxyManager:
             config["farm"].get("enabled")
             or config["rift"].get("enabled")
             or config["fertilize"].get("enabled")
+            or config["adventure"].get("enabled")
         ):
             await self._write_state(
                 user_id,
@@ -356,7 +437,9 @@ class AutoProxyManager:
             config["rift"]["enabled"] = False
             keep_enabled = bool(row.get("task_type")) or bool(
                 config["farm"].get("enabled")
-            ) or bool(config["fertilize"].get("enabled"))
+            ) or bool(config["fertilize"].get("enabled")) or bool(
+                config["adventure"].get("enabled")
+            )
             await self._write_state(
                 user_id,
                 keep_enabled,
@@ -376,13 +459,16 @@ class AutoProxyManager:
         farm_on = self._farm_enabled(row)
         rift_on = self._rift_enabled(row)
         fert_on = self._fert_enabled(row)
-        if not (row.get("task_type") or "") and (farm_on or rift_on or fert_on):
+        adv_on = self._adv_enabled(row)
+        if not (row.get("task_type") or "") and (farm_on or rift_on or fert_on or adv_on):
             return False
         cd = await self.db.ext.get_user_cd(user_id)
         if not cd or cd.type in (UserStatus.IDLE, UserStatus.DELIVERING, UserStatus.SECT_TASK):
             return False
-        # 玩家手动进入秘境：由秘境代理接管续接，不能当成“其他活动”关掉
+        # 玩家手动进入秘境/历练：由对应代理接管续接，不能当成“其他活动”关掉
         if cd.type == UserStatus.EXPLORING and rift_on:
+            return False
+        if cd.type == UserStatus.ADVENTURING and adv_on:
             return False
         return await self._disable_primary(user_id, "other_busy")
 
@@ -805,6 +891,7 @@ class AutoProxyManager:
             bool(row.get("task_type"))
             or bool(config["farm"].get("enabled"))
             or bool(config["rift"].get("enabled"))
+            or bool(config["adventure"].get("enabled"))
         )
         await self._write_state(
             user_id,
@@ -980,10 +1067,10 @@ class AutoProxyManager:
             )
 
         row = await self.get(user_id) or {}
-        if (row.get("task_type") or "").strip():
-            # 秘境与押镖/宗门任务互斥：不再静默取消进行中的任务代理
+        if (row.get("task_type") or "").strip() or self._adv_enabled(row):
+            # 秘境与押镖/宗门任务、历练代理互斥：不再静默取消进行中的任务代理
             return False, (
-                "❌ 当前有进行中的代理任务（押镖/宗门任务），"
+                "❌ 当前有进行中的代理任务（押镖/宗门任务/历练），"
                 "请先 /关闭代理 后再开启秘境代理。"
             )
         config = self._load_config(row)
@@ -1041,7 +1128,9 @@ class AutoProxyManager:
         rift_cfg["enabled"] = False
         keep_enabled = bool(row.get("task_type")) or bool(
             config["farm"].get("enabled")
-        ) or bool(config["fertilize"].get("enabled"))
+        ) or bool(config["fertilize"].get("enabled")) or bool(
+            config["adventure"].get("enabled")
+        )
         await self._write_state(
             user_id,
             keep_enabled,
@@ -1168,6 +1257,511 @@ class AutoProxyManager:
             )
         return True, f"🤖 秘境代理：已开始新一轮探索\n{start_msg}", False
 
+    # ===== 历练代理 =====
+
+    def _adv_route_label(self, route_key: str) -> str:
+        if self.adventure_mgr and route_key:
+            try:
+                return self.adventure_mgr.route_name(route_key)
+            except Exception:
+                pass
+        return route_key or "历练"
+
+    def _adv_available_routes(self, player: Any) -> list:
+        if not self.adventure_mgr:
+            return []
+        try:
+            routes = list((self.adventure_mgr.routes or {}).values())
+        except Exception:
+            return []
+        level = int(getattr(player, "level_index", 0) or 0)
+        rows = [r for r in routes if level >= int(r.get("min_level", 0) or 0)]
+        rows.sort(key=lambda r: (-int(r.get("min_level", 0) or 0), str(r.get("name", ""))))
+        return rows
+
+    def _adv_choices_text(self, player: Any) -> str:
+        routes = self._adv_available_routes(player)
+        lines = [
+            "🗺️ 请选择历练代理路线",
+            "━━━━━━━━━━━━━━━",
+        ]
+        for route in routes[:16]:
+            lines.append(
+                f"  · {route.get('name')}（{route.get('product') or '全产物'}"
+                f" · {int(route.get('duration', 0) or 0) // 60} 分钟"
+                f" · {route.get('risk', '?')}风险）"
+            )
+        if len(routes) > 16:
+            lines.append(f"  …另有 {len(routes) - 16} 条，/历练信息 查看全部")
+        if not routes:
+            lines.append("  （当前境界没有可走的路线）")
+        lines.extend(
+            [
+                "━━━━━━━━━━━━━━━",
+                "💡 单线：/自动代理 历练 <路线>",
+                "💡 双线交叉：/自动代理 历练 <路线A> / <路线B>",
+                "💡 奇遇固定选项：在末尾追加 奇遇N（奇遇0 = 智能选择）",
+                "♻️ 单线在路线休整时自动闭关，休整结束继续；双线在一条休整时自动换另一条。",
+            ]
+        )
+        return "\n".join(lines)
+
+    @staticmethod
+    def _split_adv_routes(rest: str) -> list[str]:
+        return [t for t in re.split(r"[\s/|、,，+]+", rest or "") if t]
+
+    async def _enable_adventure(
+        self, user_id: str, origin: str, raw_task: str
+    ) -> Tuple[bool, str]:
+        if not self.adventure_mgr:
+            return False, "❌ 历练系统未加载，暂时无法代理历练。"
+        player = await self.db.get_player_by_id(user_id)
+        if not player:
+            return False, "❌ 道友尚未踏入仙途，请先发送「我要修仙」。"
+
+        row = await self.get(user_id) or {}
+        config = self._load_config(row)
+        if (row.get("task_type") or "").strip():
+            return False, (
+                "❌ 当前有进行中的押镖/宗门任务代理，与历练代理互斥。\n"
+                "💡 请先 /关闭代理 押镖 或 /关闭代理 宗门任务。"
+            )
+
+        parts = raw_task.strip().split(maxsplit=1)
+        rest = parts[1].strip() if len(parts) > 1 else ""
+        # 兼容粘连写法：/自动代理 历练灵谷采药
+        if not rest:
+            m = re.match(r"^(?:历练|历炼|adventure|adv)\s*(.+)$", raw_task.strip(), re.IGNORECASE)
+            if m:
+                rest = m.group(1).strip()
+
+        encounter_choice: Optional[int] = None
+        m = re.search(r"奇遇\s*([0-9]+)", rest)
+        if m:
+            encounter_choice = int(m.group(1))
+            rest = (rest[: m.start()] + " " + rest[m.end():]).strip()
+
+        adv = config["adventure"]
+        tokens = self._split_adv_routes(rest)
+        route_keys: list[str] = []
+        invalid: list[str] = []
+        for token in tokens:
+            key = self.adventure_mgr.resolve_route(token)
+            if not key:
+                invalid.append(token)
+                continue
+            if key not in route_keys:
+                route_keys.append(key)
+
+        if invalid:
+            names = "、".join(r.get("name", "") for r in self._adv_available_routes(player)[:10])
+            return False, (
+                f"❌ 找不到可代理的历练路线：{'、'.join(invalid)}\n"
+                + (f"💡 可用路线示例：{names}\n" if names else "")
+                + "💡 /自动代理 历练 <路线> [备用路线]"
+            )
+        if len(route_keys) > 2:
+            return False, "❌ 历练代理最多设置两条路线（主路线 + 备用路线）。"
+
+        # 未指定路线时：已开启则只更新奇遇策略；否则给出路线选择
+        if not route_keys:
+            if not adv.get("enabled") or not adv.get("route"):
+                return False, self._adv_choices_text(player)
+            route_keys = [adv.get("route")]
+            if adv.get("mode") == ADV_MODE_ALTERNATE and adv.get("route2"):
+                route_keys.append(adv.get("route2"))
+
+        for key in route_keys:
+            route = (self.adventure_mgr.routes or {}).get(key) or {}
+            if player.level_index < int(route.get("min_level", 0) or 0):
+                return False, (
+                    f"❌ 境界不足，无法代理【{route.get('name', key)}】"
+                    f"（需境界 {route.get('min_level', 0)}，你当前 {player.level_index}）。"
+                )
+
+        # 历练与秘境/押镖同属占用状态的活动代理，开启时关闭秘境代理
+        rift_closed = bool(config["rift"].get("enabled"))
+        config["rift"]["enabled"] = False
+        rift_note = "\n（秘境代理已关闭）" if rift_closed else ""
+
+        adv["enabled"] = True
+        adv["route"] = route_keys[0]
+        adv["route2"] = route_keys[1] if len(route_keys) > 1 else ""
+        adv["mode"] = ADV_MODE_ALTERNATE if adv["route2"] else ADV_MODE_CONTINUE
+        adv["last_route"] = ""
+        # 保留 close_until / close_route：重复发送本命令可能发生在自动闭关途中，
+        # 清掉标记会让代理误以为是玩家自己的闭关而永远不出关。
+        adv["note"] = ""
+        if encounter_choice is not None:
+            if encounter_choice < 0:
+                return False, "❌ 奇遇固定选项编号不能为负数；奇遇0 表示智能选择。"
+            adv["encounter_choice"] = encounter_choice
+        origin = origin or row.get("origin", "")
+        await self._write_state(user_id, True, "", origin, "", config)
+
+        mode_text = (
+            f"双线交叉（{self._adv_route_label(adv['route'])} ⇄ {self._adv_route_label(adv['route2'])}）"
+            if adv["mode"] == ADV_MODE_ALTERNATE
+            else f"单线续跑（{self._adv_route_label(adv['route'])}）"
+        )
+        enc_text = (
+            f"奇遇固定选 [{adv.get('encounter_choice')}]"
+            if int(adv.get("encounter_choice") or 0) > 0
+            else ("奇遇自动选择" if adv.get("auto_encounter", True) else "奇遇不自动选择")
+        )
+        header = (
+            "🤖 历练代理已开启\n"
+            "━━━━━━━━━━━━━━━\n"
+            f"模式：{mode_text}\n"
+            f"休整策略：{'路线 CD 期间自动闭关' if adv.get('retreat', True) else '只等待，不闭关'}\n"
+            f"奇遇：{enc_text}{rift_note}"
+        )
+
+        try:
+            cd = await self.db.ext.get_user_cd(user_id)
+        except Exception:
+            cd = None
+        cd_type = cd.type if cd else UserStatus.IDLE
+
+        if cd_type == UserStatus.ADVENTURING:
+            return True, header + "\n\n♻️ 已接管当前历练，走完后自动结算并继续。\n💡 /关闭代理 历练 可停止。"
+        if cd_type == UserStatus.CULTIVATING and int(adv.get("close_until") or 0):
+            return True, header + "\n\n♻️ 已接管当前闭关，休整结束后继续历练。"
+        if cd_type != UserStatus.IDLE:
+            return True, (
+                header
+                + f"\n\n⏳ 你当前正{UserStatus.get_name(cd_type)}，结束后将自动开始历练。\n"
+                + "💡 /关闭代理 历练 可停止。"
+            )
+
+        changed, msg, _dirty = await self._run_adventure_cycle(user_id, player, config, origin)
+        if msg:
+            header += f"\n━━━━━━━━━━━━━━━\n{msg}"
+        else:
+            header += "\n\n⏳ 暂未开始历练，稍后会自动重试。"
+        header += "\n💡 /关闭代理 历练 可停止。"
+        return True, header
+
+    async def disable_adventure(self, user_id: str, reason: str = "manual_close") -> Tuple[bool, str]:
+        row = await self.get(user_id)
+        if not row:
+            return False, "❌ 道友尚未踏入仙途。"
+        config = self._load_config(row)
+        adv = config["adventure"]
+        if not adv.get("enabled"):
+            return False, "💡 历练代理当前未开启。"
+
+        # 代理触发的闭关：关闭代理时一并结算，避免玩家被动挂在闭关里
+        extra = await self._settle_auto_seclusion_if_any(user_id, adv)
+        adv["enabled"] = False
+        adv["close_until"] = 0
+        adv["close_route"] = ""
+        adv["note"] = ""
+        keep_enabled = self._any_proxy_active(row.get("task_type"), config)
+        await self._write_state(
+            user_id,
+            keep_enabled,
+            row.get("task_type", ""),
+            row.get("origin", ""),
+            reason,
+            config,
+        )
+        return True, "🛑 历练代理已关闭。\n当前这一轮历练不会中断。" + extra
+
+    async def _pick_adventure_route(
+        self, user_id: str, adv: dict, now: int
+    ) -> Tuple[str, int]:
+        """选出下一条可用路线；全部在 CD 时返回 ``("", 最早结束时间)``。"""
+        primary = str(adv.get("route") or "")
+        secondary = str(adv.get("route2") or "")
+        if adv.get("mode") != ADV_MODE_ALTERNATE:
+            secondary = ""
+        routes = [k for k in (primary, secondary) if k]
+        if not routes:
+            return "", 0
+        ends = {}
+        for key in routes:
+            try:
+                ends[key] = int(await self.adventure_mgr.get_route_cooldown(user_id, key))
+            except Exception:
+                ends[key] = 0
+        available = [k for k in routes if ends.get(k, 0) <= now]
+        if not available:
+            pending = [v for v in ends.values() if v > now]
+            return "", (min(pending) if pending else 0)
+        if len(routes) > 1:
+            last = str(adv.get("last_route") or "")
+            # 双线交叉：优先走刚结束那条以外的路线
+            for key in [k for k in routes if k != last] + [k for k in routes if k == last]:
+                if key in available:
+                    return key, 0
+        return available[0], 0
+
+    async def _start_adv_seclusion(
+        self, user_id: str, player: Any, until_ts: int, route_key: str
+    ) -> Tuple[bool, str]:
+        if not self._cultivation_settler:
+            return False, (
+                "⚠️ 自动闭关模块未就绪，历练代理将等待路线休整结束。\n"
+                "💡 可稍后重试或手动 /闭关。"
+            )
+        now = int(time.time())
+        fresh = await self.db.get_player_by_id(user_id) or player
+        fresh.state = "修炼中"
+        fresh.cultivation_start_time = now
+        await self.db.update_player(fresh)
+        await self.db.ext.set_user_busy(user_id, UserStatus.CULTIVATING, 0)
+        remain = max(0, until_ts - now)
+        minutes = max(1, (remain + 59) // 60)
+        return True, (
+            f"🧘 历练路线休整中，已自动闭关约 {minutes} 分钟；"
+            f"休整结束后继续【{self._adv_route_label(route_key)}】。"
+        )
+
+    async def _settle_adv_seclusion(self, user_id: str) -> Tuple[bool, str]:
+        if not self._cultivation_settler:
+            return False, ""
+        player = await self.db.get_player_by_id(user_id)
+        if not player:
+            return False, ""
+        ok, msg = await self._cultivation_settler(player)
+        if ok and self.title_bump:
+            try:
+                await self.title_bump(user_id, "cultivate_count", 1)
+            except Exception:
+                pass
+        return bool(ok), msg
+
+    @staticmethod
+    def _encounter_option_value(outcome: dict) -> float:
+        if not isinstance(outcome, dict):
+            return 0.0
+        gold = float(outcome.get("gold", 0) or 0)
+        exp = float(outcome.get("exp", 0) or 0)
+        karma = float(outcome.get("karma", 0) or 0)
+        luck = float(outcome.get("luck", 0) or 0)
+        item = outcome.get("item") or {}
+        item_bonus = 3000.0 if item else 0.0
+        hp = abs(float(outcome.get("hp_pct", 0) or 0))
+        # 修为与灵石大体按 1:1 折算；气血损失按比例重罚，避免自动代理把玩家送进重伤
+        return gold + exp + karma * 800 + luck * 500 + item_bonus - hp * 20000
+
+    def _choose_encounter_option(self, payload: dict, adv: dict) -> int:
+        """返回奇遇选项编号：固定选项优先，0 表示智能选择。"""
+        key = str(payload.get("key") or "")
+        fixed = int(adv.get("encounter_choice") or 0)
+        if key == "__merit__":
+            # 途中善举：默认收下全部收获（2），固定选 1 时改为接济灾民
+            if fixed in (1, 2):
+                return fixed
+            return 2
+        if not self.encounter_mgr:
+            return 0
+        event = (getattr(self.encounter_mgr, "events", {}) or {}).get(key)
+        options = (event or {}).get("options") or []
+        if not options:
+            return 0
+        if 1 <= fixed <= len(options):
+            return fixed
+        success_rate = {"risk": 0.55, "evil": 0.70, "safe": 0.85, "good": 1.0}
+        best_idx, best_score = 1, float("-inf")
+        for idx, opt in enumerate(options, 1):
+            weight = opt.get("weight")
+            if weight == "leave":
+                score = -1.0
+            else:
+                rate = success_rate.get(str(weight), 0.85)
+                score = rate * self._encounter_option_value(opt.get("win") or {}) + (
+                    1 - rate
+                ) * self._encounter_option_value(opt.get("lose") or {})
+            if score > best_score:
+                best_idx, best_score = idx, score
+        return best_idx
+
+    async def _auto_pick_encounter(
+        self, user_id: str, player: Any, adv: dict
+    ) -> Tuple[bool, str]:
+        if not self.encounter_mgr or not adv.get("auto_encounter", True):
+            return False, ""
+        try:
+            prefix = getattr(self.encounter_mgr, "STORAGE_KEY_PREFIX", "encounter_")
+            raw = await self.db.ext.get_system_config(f"{prefix}{user_id}")
+        except Exception:
+            return False, ""
+        if not raw:
+            return False, ""
+        try:
+            payload = json.loads(raw)
+        except Exception:
+            return False, ""
+        if int(payload.get("expire", 0) or 0) <= int(time.time()):
+            return False, ""
+        choice = self._choose_encounter_option(payload, adv)
+        if choice <= 0:
+            return False, ""
+        try:
+            # 结算扫描可能刚给玩家加过历练奖励，这里必须用最新档，
+            # 否则 resolve_choice 写回会覆盖掉刚入账的修为/灵石。
+            fresh = await self.db.get_player_by_id(user_id) or player
+            ok, msg = await self.encounter_mgr.resolve_choice(fresh, choice)
+        except Exception as e:
+            logger.warning(f"【自动代理】{user_id} 奇遇自动选择失败: {e}")
+            return False, ""
+        if not ok:
+            return False, ""
+        return True, f"✨ 自动奇遇：已按 [{choice}] 结算\n{msg}"
+
+    async def _run_adventure_cycle(
+        self, user_id: str, player: Any, config: dict, origin: str = ""
+    ) -> Tuple[bool, str, bool]:
+        """执行一次历练代理回合；返回 ``(是否有动作, 消息, 配置是否变化)``。"""
+        adv = config["adventure"]
+        if not adv.get("enabled") or not self.adventure_mgr:
+            return False, "", False
+
+        now = int(time.time())
+        dirty = False
+        messages: list[str] = []
+
+        enc_changed, enc_msg = await self._auto_pick_encounter(user_id, player, adv)
+        if enc_changed:
+            dirty = True
+            messages.append(enc_msg)
+
+        try:
+            cd = await self.db.ext.get_user_cd(user_id)
+        except Exception:
+            cd = None
+        cd_type = cd.type if cd else UserStatus.IDLE
+        prefix = ""
+
+        if cd_type == UserStatus.ADVENTURING:
+            return enc_changed, "\n".join(messages), dirty
+
+        if cd_type == UserStatus.CULTIVATING:
+            close_until = int(adv.get("close_until") or 0)
+            if not close_until:
+                # 玩家自己的闭关，不插手
+                return enc_changed, "\n".join(messages), dirty
+            if now < close_until:
+                return enc_changed, "\n".join(messages), dirty
+            ok, cult_msg = await self._settle_adv_seclusion(user_id)
+            adv["close_until"] = 0
+            adv["close_route"] = ""
+            dirty = True
+            prefix = cult_msg
+            cd_type = UserStatus.IDLE
+        elif cd_type != UserStatus.IDLE:
+            return enc_changed, "\n".join(messages), dirty
+        else:
+            # 残留的自动闭关标记（例如玩家手动出关后才轮询到）
+            if int(adv.get("close_until") or 0):
+                adv["close_until"] = 0
+                adv["close_route"] = ""
+                dirty = True
+
+        route_key, wait_until = await self._pick_adventure_route(user_id, adv, now)
+        if not route_key:
+            remain = max(0, wait_until - now)
+            if not wait_until:
+                adv["enabled"] = False
+                adv["note"] = "no_route"
+                message = "⚠️ 找不到可用的历练路线，历练代理已关闭。"
+                if prefix:
+                    message = f"{prefix}\n\n{message}"
+                if messages:
+                    message = "\n".join(messages) + "\n\n" + message
+                return True, message, True
+
+            if adv.get("retreat", True) and remain >= ADV_MIN_RETREAT_SECONDS:
+                started, seclusion_msg = await self._start_adv_seclusion(
+                    user_id, player, wait_until, adv.get("close_route") or adv.get("route")
+                )
+                if started:
+                    adv["close_until"] = wait_until
+                    adv["close_route"] = adv.get("route") or ""
+                    adv["note"] = ""
+                    message = seclusion_msg
+                    if prefix:
+                        message = f"{prefix}\n\n{message}"
+                    if messages:
+                        message = "\n".join(messages) + "\n\n" + message
+                    return True, message, True
+                if adv.get("note") != "cultivate_failed":
+                    adv["note"] = "cultivate_failed"
+                    message = seclusion_msg
+                    if prefix:
+                        message = f"{prefix}\n\n{message}"
+                    return True, message, True
+                return enc_changed, "\n".join(messages), dirty
+
+            # 不闭关：静默等待，只在首次进入等待时提示一次
+            if adv.get("note") != "wait_cd":
+                adv["note"] = "wait_cd"
+                minutes = max(1, (remain + 59) // 60)
+                message = f"⏳ 历练路线休整中，约 {minutes} 分钟后继续。"
+                if prefix:
+                    message = f"{prefix}\n\n{message}"
+                if messages:
+                    message = "\n".join(messages) + "\n\n" + message
+                return True, message, True
+            return enc_changed, "\n".join(messages), dirty
+
+        # 有可用路线：受伤时不硬闯，等恢复后自动继续
+        try:
+            config_manager = getattr(self.escort_mgr, "config_manager", None)
+            if config_manager is not None:
+                from .recovery_manager import RecoveryManager
+
+                fresh = await self.db.get_player_by_id(user_id) or player
+                if await RecoveryManager(self.db, config_manager).is_injured(fresh):
+                    if adv.get("note") != "injured":
+                        adv["note"] = "injured"
+                        message = (
+                            "⚠️ 当前身受重伤（气血不足 20%），历练代理暂停出发。\n"
+                            "💡 恢复后会自动继续。"
+                        )
+                        if prefix:
+                            message = f"{prefix}\n\n{message}"
+                        return True, message, True
+                    return enc_changed, "\n".join(messages), dirty
+        except Exception as e:
+            logger.warning(f"【自动代理】历练受伤检查失败: {e}")
+
+        fresh = await self.db.get_player_by_id(user_id) or player
+        ok, start_msg = await self.adventure_mgr.start_adventure(
+            user_id, route_key, umo=origin
+        )
+        if not ok:
+            # CD 竞态：不改配置，下轮重试
+            if "休整" in str(start_msg):
+                return enc_changed, "\n".join(messages), dirty
+            adv["enabled"] = False
+            adv["note"] = "start_failed"
+            message = (
+                f"⚠️ 自动开始历练【{self._adv_route_label(route_key)}】失败：\n{start_msg}\n"
+                "🛑 历练代理已暂停，发送 /自动代理 历练 <路线> 可重新开启。"
+            )
+            if prefix:
+                message = f"{prefix}\n\n{message}"
+            if messages:
+                message = "\n".join(messages) + "\n\n" + message
+            return True, message, True
+
+        adv["last_route"] = route_key
+        adv["close_until"] = 0
+        adv["close_route"] = ""
+        adv["note"] = ""
+        dirty = True
+        message = (
+            f"🤖 历练代理：已开始【{self._adv_route_label(route_key)}】\n{start_msg}"
+        )
+        if prefix:
+            message = f"{prefix}\n\n{message}"
+        if messages:
+            message = "\n".join(messages) + "\n\n" + message
+        return True, message, True
+
     # ===== 命令入口 =====
 
     async def enable(self, user_id: str, origin: str = "", task_type: str = "") -> Tuple[bool, str]:
@@ -1182,13 +1776,15 @@ class AutoProxyManager:
             return await self._enable_farm(user_id, origin, raw_task)
         if raw_task and self._is_rift_request(raw_task):
             return await self._enable_rift(user_id, origin, raw_task)
+        if raw_task and self._is_adventure_request(raw_task):
+            return await self._enable_adventure(user_id, origin, raw_task)
 
         requested = self.normalize_task(raw_task) if raw_task else None
         if raw_task and not requested:
             return False, (
                 "❌ 暂不支持该活动。\n"
                 "💡 目前自动代理支持：/自动代理 押镖、/自动代理 宗门任务、"
-                "/自动代理 灵田、/自动代理 秘境、/自动代理 施肥"
+                "/自动代理 灵田、/自动代理 秘境、/自动代理 施肥、/自动代理 历练"
             )
 
         row = await self.get(user_id) or {}
@@ -1196,7 +1792,22 @@ class AutoProxyManager:
         rift_closed = bool(config["rift"].get("enabled"))
         if rift_closed:
             config["rift"]["enabled"] = False
-        rift_note = "\n（秘境代理已关闭）" if rift_closed else ""
+        adv_closed = bool(config["adventure"].get("enabled"))
+        adv_settle_note = ""
+        if adv_closed:
+            adv_settle_note = await self._settle_auto_seclusion_if_any(
+                user_id, config["adventure"]
+            )
+            config["adventure"]["enabled"] = False
+            config["adventure"]["close_until"] = 0
+            config["adventure"]["close_route"] = ""
+        close_notes = []
+        if rift_closed:
+            close_notes.append("秘境代理已关闭")
+        if adv_closed:
+            close_notes.append("历练代理已关闭")
+        rift_note = f"\n（{'；'.join(close_notes)}）" if close_notes else ""
+        rift_note += adv_settle_note
         cd = await self.db.ext.get_user_cd(user_id)
         current = STATUS_TASK.get(cd.type) if cd else None
 
@@ -1209,6 +1820,7 @@ class AutoProxyManager:
                     "💡 /自动代理 灵田 [格号...]\n"
                     "💡 /自动代理 秘境 <ID>\n"
                     "💡 /自动代理 施肥 [阈值%]\n"
+                    "💡 /自动代理 历练 <路线> [备用路线] [奇遇N]\n"
                     "（仅当已处于押镖/宗门任务中时，可省略参数自动补全）"
                 )
             requested = current
@@ -1283,6 +1895,8 @@ class AutoProxyManager:
         rift_on = bool(rift_cfg.get("enabled"))
         fert_cfg = config["fertilize"]
         fert_on = bool(fert_cfg.get("enabled"))
+        adv_cfg = config["adventure"]
+        adv_on = bool(adv_cfg.get("enabled"))
 
         if not row.get("enabled"):
             last = row.get("task_type")
@@ -1291,7 +1905,7 @@ class AutoProxyManager:
                 "🤖 自动代理：未开启\n"
                 "━━━━━━━━━━━━━━━\n"
                 "发送 /自动代理 押镖、/自动代理 宗门任务、/自动代理 灵田、"
-                "/自动代理 秘境 或 /自动代理 施肥 开启。"
+                "/自动代理 秘境、/自动代理 施肥 或 /自动代理 历练 <路线> 开启。"
                 f"{suffix}"
             )
 
@@ -1337,9 +1951,21 @@ class AutoProxyManager:
                 lines.append(f"施肥代理：运行中（{detail}）")
             else:
                 lines.append("施肥代理：运行中（无灵田）")
+        if adv_on:
+            route_text = self._adv_route_label(adv_cfg.get("route"))
+            if adv_cfg.get("mode") == ADV_MODE_ALTERNATE and adv_cfg.get("route2"):
+                route_text += " ⇄ " + self._adv_route_label(adv_cfg.get("route2"))
+            detail = route_text
+            if adv_cfg.get("retreat", True):
+                detail += "，CD 自动闭关"
+            if int(adv_cfg.get("encounter_choice") or 0) > 0:
+                detail += f"，奇遇固定[{adv_cfg.get('encounter_choice')}]"
+            elif adv_cfg.get("auto_encounter", True):
+                detail += "，奇遇自动"
+            lines.append(f"历练代理：运行中（{detail}）")
         if row.get("task_type"):
             lines.append(f"目标活动：{self.task_name(row.get('task_type'))}")
-        elif not farm_on and not rift_on and not fert_on:
+        elif not farm_on and not rift_on and not fert_on and not adv_on:
             lines.append("目标活动：等待选择")
         if current:
             if cd and cd.scheduled_time:
@@ -1351,6 +1977,36 @@ class AutoProxyManager:
                 lines.append(f"当前进行：{self.task_name(current)}")
             if row.get("task_type") and row.get("task_type") != current:
                 lines.append(f"下一轮目标：{self.task_name(row.get('task_type'))}")
+        elif cd and cd.type == UserStatus.ADVENTURING:
+            route_key = ""
+            try:
+                if hasattr(cd, "get_extra_data"):
+                    extra = cd.get_extra_data() or {}
+                else:
+                    extra = json.loads(getattr(cd, "extra_data", "{}") or "{}")
+                route_key = str((extra or {}).get("route_key") or "")
+            except Exception:
+                route_key = ""
+            label = self._adv_route_label(route_key) if route_key else "历练"
+            remaining = max(0, int(getattr(cd, "scheduled_time", 0) or 0) - int(time.time()))
+            if adv_on:
+                if remaining > 0:
+                    lines.append(f"当前进行：历练「{label}」（剩余 {remaining // 60} 分 {remaining % 60} 秒）")
+                else:
+                    lines.append(f"当前进行：历练「{label}」（已走完，等待结算）")
+            else:
+                lines.append(f"当前状态：历练中「{label}」（历练代理未开启）")
+        elif cd and cd.type == UserStatus.CULTIVATING and adv_on:
+            close_until = int(adv_cfg.get("close_until") or 0)
+            if close_until:
+                remaining = max(0, close_until - int(time.time()))
+                route_label = self._adv_route_label(adv_cfg.get("route"))
+                lines.append(
+                    f"当前进行：历练 CD 自动闭关（剩余 {remaining // 60} 分 {remaining % 60} 秒，"
+                    f"之后继续「{route_label}」）"
+                )
+            else:
+                lines.append("当前状态：闭关中（历练代理等待出关）")
         elif cd and cd.type == UserStatus.EXPLORING:
             if rift_on:
                 remaining = max(0, int(getattr(cd, "scheduled_time", 0) or 0) - int(time.time()))
@@ -1364,14 +2020,16 @@ class AutoProxyManager:
             if row.get("task_type"):
                 lines.append(f"当前状态：{UserStatus.get_name(cd.type)}（押镖/宗门任务代理将暂停）")
             else:
-                lines.append(f"当前状态：{UserStatus.get_name(cd.type)}（灵田/秘境代理不受影响）")
+                lines.append(f"当前状态：{UserStatus.get_name(cd.type)}（灵田/秘境/历练代理不受影响）")
         elif not cd and self._legacy_busy(player):
             if row.get("task_type"):
                 lines.append(f"当前状态：{player.state}（押镖/宗门任务代理将暂停）")
             else:
-                lines.append(f"当前状态：{player.state}（灵田/秘境代理不受影响）")
+                lines.append(f"当前状态：{player.state}（灵田/秘境/历练代理不受影响）")
         elif rift_on:
             lines.append("当前状态：秘境代理运行中，等待空闲后进入秘境")
+        elif adv_on:
+            lines.append("当前状态：历练代理运行中，等待空闲后出发")
         elif farm_on:
             lines.append("当前状态：灵田代理运行中，等待成熟")
         elif fert_on:
@@ -1381,8 +2039,12 @@ class AutoProxyManager:
 
         if row.get("last_error") == "start_failed":
             lines.append("⚠️ 上次自动开始失败，已暂停")
+        if adv_on and adv_cfg.get("note") == "injured":
+            lines.append("⚠️ 身受重伤，历练代理等待恢复后继续")
+        elif adv_on and adv_cfg.get("note") == "wait_cd":
+            lines.append("⏳ 历练路线休整中，等待结束后继续")
         lines.append(
-            "💡 /关闭代理 押镖|宗门任务|灵田 [格号]|秘境|施肥|全部 停止对应代理"
+            "💡 /关闭代理 押镖|宗门任务|灵田 [格号]|秘境|施肥|历练|全部 停止对应代理"
         )
         return "\n".join(lines)
 
@@ -1508,6 +2170,7 @@ class AutoProxyManager:
         farm_cfg = config["farm"]
         rift_cfg = config["rift"]
         fert_cfg = config["fertilize"]
+        adv_cfg = config["adventure"]
         handled = False
 
         # 自动施肥必须排在灵田收获之前：收益按“收获那一刻”的肥力结算
@@ -1581,6 +2244,26 @@ class AutoProxyManager:
                     await self._notify(origin, rift_msg, user_id)
                 handled = True
 
+        # 历练代理：空闲时出发；路线 CD 时按配置闭关或换线，并自动处理奇遇
+        if adv_cfg.get("enabled") and self.adventure_mgr:
+            changed, adv_msg, adv_dirty = await self._run_adventure_cycle(
+                user_id, player, config, origin
+            )
+            if changed or adv_dirty:
+                keep_enabled = self._any_proxy_active(row.get("task_type"), config)
+                await self._write_state(
+                    user_id,
+                    keep_enabled,
+                    row.get("task_type", ""),
+                    origin,
+                    row.get("last_error", ""),
+                    config,
+                )
+            if changed:
+                if adv_msg:
+                    await self._notify(origin, adv_msg, user_id)
+                handled = True
+
         cd = await self.db.ext.get_user_cd(user_id)
         cd_type = cd.type if cd else UserStatus.IDLE
         current = STATUS_TASK.get(cd_type)
@@ -1639,6 +2322,7 @@ class AutoProxyManager:
                     ("灵田", farm_on),
                     ("秘境", bool(rift_cfg.get("enabled"))),
                     ("施肥", bool(fert_cfg.get("enabled"))),
+                    ("历练", bool(adv_cfg.get("enabled"))),
                 )
                 if on
             )
@@ -1665,6 +2349,7 @@ class AutoProxyManager:
                     ("灵田", farm_on),
                     ("秘境", bool(rift_cfg.get("enabled"))),
                     ("施肥", bool(fert_cfg.get("enabled"))),
+                    ("历练", bool(adv_cfg.get("enabled"))),
                 )
                 if on
             )

@@ -887,6 +887,26 @@ class AdventureManager:
 
     # -------- 内部工具 --------
 
+    def resolve_route(self, token: str) -> str:
+        """对外暴露的路线解析（空串表示未匹配，不静默回退默认路线）。"""
+        if not token or not str(token).strip():
+            return ""
+        return self._resolve_route(token)
+
+    def route_name(self, route_key: str) -> str:
+        route = self.routes.get(route_key or "")
+        return str(route.get("name") or route_key or "历练")
+
+    async def get_route_cooldown(self, user_id: str, route_key: str) -> int:
+        """读取某条历练路线的休整截止时间（0 表示无冷却）。"""
+        if not user_id or not route_key:
+            return 0
+        try:
+            raw = await self.db.ext.get_system_config(f"adv_cd_{user_id}_{route_key}")
+            return int(raw) if raw and str(raw).isdigit() else 0
+        except Exception:
+            return 0
+
     def _resolve_route(self, token: str) -> str:
         if not token:
             return self.default_route_key

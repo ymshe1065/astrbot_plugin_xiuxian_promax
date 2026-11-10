@@ -3,7 +3,7 @@
 
 网页端不再需要记住 ``/自动代理 押镖`` 之类的参数，而是：
 
-- ``GET  /api/proxy``：返回押镖、宗门任务、灵田、秘境、施肥的布尔状态与详情；
+- ``GET  /api/proxy``：返回押镖、宗门任务、灵田、秘境、施肥、历练的布尔状态与详情；
 - ``POST /api/proxy/toggle``：切换单项，或 ``task=all`` 一键开启 / 关闭全部。
 
 真正的开启/关闭仍走 :class:`AutoProxyManager`，与聊天指令共用同一套校验
@@ -11,6 +11,7 @@
 """
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING, Any, Optional
 
 try:  # 正式环境与管理器共用常量，避免两套名字漂移
@@ -21,6 +22,7 @@ try:  # 正式环境与管理器共用常量，避免两套名字漂移
         TASK_NAMES,
         TASK_RIFT,
         TASK_SECT,
+        TASK_ADVENTURE,
         DEFAULT_FERTILIZE_THRESHOLD,
         DEFAULT_FERTILIZE_MIN_ROI,
     )
@@ -30,12 +32,14 @@ except ImportError:  # pragma: no cover - 单元测试没有 AstrBot 时的回�
     TASK_FARM = "farm"
     TASK_RIFT = "rift"
     TASK_FERTILIZE = "fertilize"
+    TASK_ADVENTURE = "adventure"
     TASK_NAMES = {
         TASK_ESCORT: "押镖",
         TASK_SECT: "宗门任务",
         TASK_FARM: "灵田",
         TASK_RIFT: "秘境",
         TASK_FERTILIZE: "施肥",
+        TASK_ADVENTURE: "历练",
     }
     DEFAULT_FERTILIZE_THRESHOLD = 0.85
     DEFAULT_FERTILIZE_MIN_ROI = 1.0
@@ -49,6 +53,7 @@ TASK_ORDER = (
     (TASK_FARM, "灵田", "成熟后自动收获并补种"),
     (TASK_RIFT, "秘境", "到期自动结算并重新进入"),
     (TASK_FERTILIZE, "施肥", "肥力低于阈值时自动补肥"),
+    (TASK_ADVENTURE, "历练", "走完自动续接；路线 CD 期间自动闭关"),
 )
 PRIMARY_TASKS = (TASK_ESCORT, TASK_SECT)
 
@@ -73,6 +78,31 @@ def _summary(name: str, ok: bool, message: str) -> str:
         return f"{name}已开启"
     reason = _brief(message) or "开启失败"
     return f"{name}：{reason}"
+
+
+def _adv_route_rows(mgr: Any, player: Any) -> list[dict[str, Any]]:
+    """列出当前境界可走的历练路线（按门槛降序，方便默认选最高阶）。"""
+    adventure_mgr = getattr(mgr, "adventure_mgr", None)
+    if adventure_mgr is None:
+        return []
+    level = int(getattr(player, "level_index", 0) or 0)
+    try:
+        routes = list((adventure_mgr.routes or {}).values())
+    except Exception:
+        return []
+    rows = [r for r in routes if level >= int(r.get("min_level", 0) or 0)]
+    rows.sort(key=lambda r: (-int(r.get("min_level", 0) or 0), str(r.get("name", ""))))
+    return rows
+
+
+def _adv_label(mgr: Any, route_key: Any) -> str:
+    adventure_mgr = getattr(mgr, "adventure_mgr", None)
+    if adventure_mgr is not None and route_key:
+        try:
+            return adventure_mgr.route_name(str(route_key))
+        except Exception:
+            pass
+    return str(route_key or "历练")
 
 
 async def _get_farm(mgr: Any, user_id: str) -> Optional[dict]:
@@ -146,6 +176,7 @@ async def proxy_snapshot(plugin: "XiuXianPlugin", user_id: str) -> dict[str, Any
     farm_cfg = config.get("farm") or {}
     rift_cfg = config.get("rift") or {}
     fert_cfg = config.get("fertilize") or {}
+    adv_cfg = config.get("adventure") or {}
     enabled = bool(row.get("enabled"))
     primary = str(row.get("task_type") or "")
 
@@ -195,6 +226,21 @@ async def proxy_snapshot(plugin: "XiuXianPlugin", user_id: str) -> dict[str, Any
                 detail = f"目标：{rift_name or '秘境'}（ID:{rift_id}）"
             else:
                 detail = f"可选 {len(enterable)} 个秘境 · 点击开启"
+        elif key == TASK_ADVENTURE:
+            on = enabled and bool(adv_cfg.get("enabled"))
+            adv_routes = _adv_route_rows(mgr, player)
+            available = bool(adv_routes)
+            if not available:
+                detail = "当前境界暂无可走的历练路线"
+            elif on:
+                parts = [_adv_label(mgr, adv_cfg.get("route"))]
+                if adv_cfg.get("mode") == "alternate" and adv_cfg.get("route2"):
+                    parts.append(_adv_label(mgr, adv_cfg.get("route2")))
+                detail = " ⇄ ".join(parts)
+                if int(adv_cfg.get("close_until") or 0) > int(time.time()):
+                    detail += " · 休整中已自动闭关"
+            else:
+                detail = f"可选 {len(adv_routes)} 条路线 · 点击开启（默认最高阶路线）"
         else:  # TASK_FERTILIZE
             on = enabled and bool(fert_cfg.get("enabled"))
             available = bool(farm)
@@ -237,6 +283,15 @@ async def proxy_snapshot(plugin: "XiuXianPlugin", user_id: str) -> dict[str, Any
         "fertilize": {
             "threshold": int(round(threshold * 100)),
             "min_roi": float(fert_cfg.get("min_roi") or DEFAULT_FERTILIZE_MIN_ROI),
+        },
+        "adventure": {
+            "mode": str(adv_cfg.get("mode") or "continue"),
+            "route": str(adv_cfg.get("route") or ""),
+            "route2": str(adv_cfg.get("route2") or ""),
+            "retreat": bool(adv_cfg.get("retreat", True)),
+            "auto_encounter": bool(adv_cfg.get("auto_encounter", True)),
+            "encounter_choice": int(adv_cfg.get("encounter_choice") or 0),
+            "close_until": int(adv_cfg.get("close_until") or 0),
         },
         "last_error": str(row.get("last_error") or ""),
         "message": "",
@@ -356,6 +411,22 @@ async def toggle_proxy(
                 ok, message = await mgr.enable(user_id, origin, "施肥")
             else:
                 ok, message = await mgr.disable_fert(user_id)
+        elif task == TASK_ADVENTURE:
+            if not enabled:
+                ok, message = await mgr.disable_adventure(user_id)
+            else:
+                row = await mgr.get(user_id) or {}
+                adv = mgr._load_config(row)["adventure"]
+                route_name = _adv_label(mgr, adv.get("route")) if adv.get("route") else ""
+                if not route_name:
+                    rows = _adv_route_rows(mgr, player)
+                    if not rows:
+                        return {
+                            "ok": False,
+                            "error": "当前境界没有可代理的历练路线",
+                        }
+                    route_name = str(rows[0].get("name") or "")
+                ok, message = await mgr.enable(user_id, origin, f"历练 {route_name}")
         else:
             ok, message = await _toggle_rift(
                 plugin, mgr, player, user_id, enabled, rift_id, origin

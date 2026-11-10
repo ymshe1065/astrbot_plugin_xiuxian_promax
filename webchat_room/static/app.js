@@ -4140,7 +4140,7 @@
     const tip = document.createElement("div");
     tip.className = "proxy-tip";
     tip.textContent =
-      "灵田 / 施肥需要先开垦灵田；秘境只列出当前境界可进入的本；押镖与宗门任务互斥，开启其中一个会关闭另一个。";
+      "灵田 / 施肥需要先开垦灵田；秘境只列出当前境界可进入的本；押镖与宗门任务互斥，开启其中一个会关闭另一个；历练默认走当前境界最高阶路线，可用 /自动代理 历练 <路线> [备用路线] [奇遇N] 自定义单线/双线。";
     view.appendChild(tip);
   }
 

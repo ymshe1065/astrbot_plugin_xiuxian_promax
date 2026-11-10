@@ -375,6 +375,9 @@ class XiuXianPlugin(Star):
             lock_getter=get_player_lock,
             farm_mgr=self.spirit_farm_mgr,
             rift_mgr=self.rift_mgr,
+            adventure_mgr=self.adventure_mgr,
+            encounter_mgr=self.encounter_mgr,
+            cultivation_settler=self.player_handler.settle_cultivation,
         )
         self.auto_proxy_handlers = AutoProxyHandlers(self.db, self.auto_proxy_mgr)
 
@@ -881,7 +884,9 @@ class XiuXianPlugin(Star):
             name
             for name, on in (
                 ("灵田", bool(config["farm"].get("enabled"))),
+                ("施肥", bool(config["fertilize"].get("enabled"))),
                 ("秘境", bool(config["rift"].get("enabled"))),
+                ("历练", bool(config["adventure"].get("enabled"))),
             )
             if on
         )
@@ -905,13 +910,42 @@ class XiuXianPlugin(Star):
             name
             for name, on in (
                 ("灵田", bool(config["farm"].get("enabled"))),
+                ("施肥", bool(config["fertilize"].get("enabled"))),
                 ("秘境", bool(config["rift"].get("enabled"))),
+                ("历练", bool(config["adventure"].get("enabled"))),
             )
             if on
         )
         return (
             "\n\n🛑 检测到你开始了其他活动，押镖/宗门任务代理已同步暂停。"
             + (f"{keep_text}代理继续运行。" if keep_text else "自动代理已关闭。")
+        )
+
+    async def _auto_proxy_adventure_exit(self, event: AstrMessageEvent) -> str:
+        """手动退出/放弃历练时只关闭历练代理，不影响灵田/秘境/施肥。"""
+        try:
+            ok, _msg = await self.auto_proxy_mgr.disable_adventure(
+                event.get_sender_id(), "manual_exit"
+            )
+        except Exception as e:
+            logger.warning(f"【自动代理】手动退出历练关闭失败: {e}")
+            return ""
+        if not ok:
+            return ""
+        row = await self.auto_proxy_mgr.get(event.get_sender_id())
+        config = self.auto_proxy_mgr._load_config(row or {})
+        keep_text = "、".join(
+            name
+            for name, on in (
+                ("灵田", bool(config["farm"].get("enabled"))),
+                ("施肥", bool(config["fertilize"].get("enabled"))),
+                ("秘境", bool(config["rift"].get("enabled"))),
+            )
+            if on
+        )
+        return (
+            "\n\n🤖 检测到你手动退出历练，历练代理已同步关闭。"
+            + (f"{keep_text}代理继续运行。" if keep_text else "发送 /自动代理 历练 可重新开启。")
         )
 
     async def _send_to_origin(self, origin: str, msg: str, user_id: str = ""):
@@ -2145,7 +2179,7 @@ class XiuXianPlugin(Star):
     async def handle_adventure_abandon(self, event: AstrMessageEvent):
         async for r in self.adventure_handlers.handle_abandon_adventure(event): yield r
         if get_event_flag(event, "adventure_abandon_success", False):
-            note = await self._auto_proxy_manual_exit(event)
+            note = await self._auto_proxy_adventure_exit(event)
             if note:
                 yield event.plain_result(note.strip())
 
@@ -2155,7 +2189,7 @@ class XiuXianPlugin(Star):
     async def handle_adventure_quit(self, event: AstrMessageEvent):
         async for r in self.adventure_handlers.handle_abandon_adventure(event): yield r
         if get_event_flag(event, "adventure_abandon_success", False):
-            note = await self._auto_proxy_manual_exit(event)
+            note = await self._auto_proxy_adventure_exit(event)
             if note:
                 yield event.plain_result(note.strip())
 

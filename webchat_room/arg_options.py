@@ -2163,6 +2163,17 @@ def plan_for(cmd: str, values: Optional[List[str]] = None) -> List[dict[str, Any
         plan = plan + [
             _f("threshold", "施肥阈值 10-100（留空 = 默认）", "", optional=True)
         ]
+    elif key == "自动代理" and first == "历练":
+        plan = plan + [
+            _f("route", "主路线（必填，留空会列出可用路线）", "adventure_routes"),
+            _f("route2", "备用路线（可选，填了就是双线交叉）", "adventure_routes", optional=True),
+            _f(
+                "encounter",
+                "奇遇固定选项 N（留空 = 智能选择，0 = 恢复智能）",
+                "",
+                optional=True,
+            ),
+        ]
     elif key == "关闭代理" and first == "灵田":
         plan = plan + [
             _f("plots", "要停止的格号（留空 = 全部，如 1-3）", "", optional=True)
