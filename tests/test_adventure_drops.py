@@ -188,6 +188,34 @@ class TestRealmScaling(unittest.TestCase):
         self.assertIn("圣品", band["tiers"])
         self.assertIn("帝品", band["tiers"], "满级段必须接上帝品材料，供道品以上丹方使用")
 
+    def test_low_route_caps_material_band(self):
+        """v7.9：材料段取 min(玩家段, 路线段)，低阶路线不许蹭玩家的高阶池。"""
+        self.assertTrue(self.mgr.material_cap_by_route, "cap_by_route 必须开启，否则低阶路线又会白嫖")
+        upgraded = []
+        for route in ROUTES.values():
+            if int(route["min_level"]) > 24:
+                continue
+            band = self.mgr._material_band(_Player(35), route)
+            if "帝品" in band["tiers"]:
+                upgraded.append((route["name"], route["min_level"], sorted(band["tiers"])))
+        self.assertEqual(upgraded, [], f"这些低阶路线对满级玩家出了帝品池：{upgraded}")
+
+    def test_low_route_never_drops_emperor(self):
+        """实证侧：满级玩家刷低阶路线，采样里一件帝品都不该出现。"""
+        dipin = set()
+        for key in ("herb_valley", "soul_forge"):
+            route = ROUTES[key]
+            dropped = 0
+            for _ in range(1500):
+                drop = self.mgr._roll_material_drop(_Player(35), route, {})
+                if not drop:
+                    continue
+                dropped += 1
+                if MATS[drop[0]]["tier"] == "帝品":
+                    dipin.add((route["name"], drop[0]))
+            self.assertGreater(dropped, 0, f"{route['name']} 一个材料都没掉，采样无效")
+        self.assertEqual(dipin, set(), f"低阶路线掉了帝品：{sorted(dipin)}")
+
     def test_saint_weight_grows_with_level(self):
         weights = []
         for level in (13, 19, 25, 31):
