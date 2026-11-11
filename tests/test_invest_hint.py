@@ -1,5 +1,5 @@
 # tests/test_invest_hint.py
-# 仙市风声：33% 概率、连续两盘平静后保底、/仙市 面板直接可见下盘风声
+# 仙市风声：33% 纯掷骰（无连续平静保底）、/仙市 面板直接可见下盘风声
 import os
 import sys
 import tempfile
@@ -27,10 +27,10 @@ FIXED_SECRET = "unit-test-secret-hint"
 
 class TestInvestHintConfig(unittest.TestCase):
     def test_news_chance_is_stable(self):
-        """风声掷骰概率与保底盘数：调低到 33% 后不再每盘都出真消息。"""
+        """风声掷骰概率 33%；连续平静保底已移除，不再有强制真消息。"""
         mod = _imp("managers.invest_manager")
         self.assertEqual(mod.NEWS_CHANCE, 0.33)
-        self.assertEqual(mod.CALM_STREAK_FORCE, 2)
+        self.assertFalse(hasattr(mod, "CALM_STREAK_FORCE"), "连续平静保底应已删除")
 
     def test_hint_lines_show_calm(self):
         """盘面平静也要显示，否则玩家以为没风声。"""
@@ -48,7 +48,7 @@ class TestInvestHintConfig(unittest.TestCase):
         self.assertIn("各铺生意兴隆。", text)
 
 
-class TestInvestHintGuarantee(unittest.IsolatedAsyncioTestCase):
+class TestInvestHintRoll(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         import aiosqlite
 
@@ -97,39 +97,30 @@ class TestInvestHintGuarantee(unittest.IsolatedAsyncioTestCase):
             row = await cur.fetchone()
         return row["pattern"] if row else None
 
-    async def test_two_calm_force_news(self):
-        """连续两盘平静后，下一盘必定是真消息（不是 calm）。"""
-        await self._insert_event(self.day, self.slot - 2, "calm")
-        await self._insert_event(self.day, self.slot - 1, "calm")
+    async def test_calm_is_pure_roll(self):
+        """去掉保底后连出平静不会被强制打断：平静占比仍由 33% 掷骰决定。"""
+        calm, total, two_in_a_row = 0, 48, 0
+        prev_calm = False
+        for i in range(total):
+            tick = self.day * 16 + self.slot + i
+            day, s = divmod(tick, 16)
+            await self.manager._ensure_news(day, s)
+            is_calm = await self._pattern(day, s) == "calm"
+            calm += int(is_calm)
+            if is_calm and prev_calm:
+                two_in_a_row += 1
+            prev_calm = is_calm
+        ratio = calm / total
+        self.assertGreater(ratio, 0.5, f"平静占比过低 {ratio:.2f}，风声太密")
+        self.assertLess(ratio, 0.85, f"平静占比过高 {ratio:.2f}，风声太稀")
+        # 保底存在时绝不可能出现两连平静；这里至少要能看到
+        self.assertGreater(two_in_a_row, 0, "未出现连续两盘平静，疑似保底仍在生效")
+
+    async def test_existing_record_not_overwritten(self):
+        """盘中重复调用只保留第一条，不会因为重新掷骰改掉已推送的风声。"""
+        await self._insert_event(self.day, self.slot, "calm")
         await self.manager._ensure_news(self.day, self.slot)
-        self.assertNotEqual(await self._pattern(self.day, self.slot), "calm")
-
-    async def test_streak_resets_after_news(self):
-        """前一盘有真消息时，保底不触发（streak 从 0 起算）。"""
-        await self._insert_event(self.day, self.slot - 2, "calm")
-        await self._insert_event(self.day, self.slot - 1, "single")
-        streak = await self.manager._calm_streak_before(self.day, self.slot)
-        self.assertEqual(streak, 0)
-
-    async def test_one_calm_counts_once(self):
-        await self._insert_event(self.day, self.slot - 2, "single")
-        await self._insert_event(self.day, self.slot - 1, "calm")
-        streak = await self.manager._calm_streak_before(self.day, self.slot)
-        self.assertEqual(streak, 1)
-
-    async def test_missing_history_does_not_force(self):
-        """停机缺盘时数据库没记录，不把空缺当成平静。"""
-        await self._insert_event(self.day, self.slot - 1, "calm")
-        streak = await self.manager._calm_streak_before(self.day, self.slot)
-        self.assertEqual(streak, 1)
-
-    async def test_cross_day_boundary(self):
-        """当日首盘的保底要看前一天最后两盘。"""
-        day, slot = 101, 0
-        await self._insert_event(day - 1, 14, "calm")
-        await self._insert_event(day - 1, 15, "calm")
-        streak = await self.manager._calm_streak_before(day, slot)
-        self.assertEqual(streak, 2)
+        self.assertEqual(await self._pattern(self.day, self.slot), "calm")
 
     async def test_next_hint_prepares_next_tick(self):
         hint = await self.manager._next_hint(self.manager.tick_time(

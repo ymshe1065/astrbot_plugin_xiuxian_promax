@@ -163,12 +163,8 @@ MARKET_NEWS = (
 MARKET_NEWS_CHANCE = 0.10
 
 # 每盘真消息概率（其余为「盘面平静」氛围文案，不产生 bias）
-# 注意：这是「掷骰概率」，实际真消息率还受下面的保底抬高
-# （保底 2 盘时约 47%，保底 3 盘时约 41%）
+# 纯掷骰：不做连续平静保底，长草期与连出消息都可能出现，长度由随机决定
 NEWS_CHANCE = 0.33
-
-# 风声保底：连续这么多个「盘面平静」之后，下一盘必定是真消息
-CALM_STREAK_FORCE = 2
 
 # 盘面平静文案池（不影响行情，只让风声「每盘都有」）
 CALM_NEWS = (
@@ -546,33 +542,10 @@ class InvestManager:
 
     # ===== 消息 =====
 
-    async def _calm_streak_before(self, day: int, slot: int) -> int:
-        """往前数连续「盘面平静」的已生成盘数（最多 2 盘），用于风声保底。
-
-        只认数据库里真实存在的记录：停机缺盘时不参与计数，
-        否则保底会被一段空洞误触发。
-        """
-        streak = 0
-        d, s = day, slot
-        while streak < CALM_STREAK_FORCE:
-            if s == 0:
-                d, s = d - 1, TICKS_PER_DAY - 1
-            else:
-                s -= 1
-            rows = await self._rows(
-                "SELECT pattern FROM invest_events WHERE trade_day = ? AND slot = ?", (d, s)
-            )
-            if not rows:
-                break
-            if rows[0]["pattern"] != "calm":
-                break
-            streak += 1
-        return streak
-
     async def _ensure_news(self, day: int, slot: int):
         """为 (day, slot) 生成风声。每盘 33% 概率是真消息（利好利空 1:1），
         其余为「盘面平静」氛围文案（pattern='calm'，不产生 bias）。
-        连续两盘平静后，这一盘必定出真消息（保底），避免长草期。
+        纯掷骰，不做连续平静保底：连出平静或连出消息都由随机决定。
 
         用确定性种子生成；peek_hint 提前调用本函数时会把结果落库，
         settle 时再次调用发现已存在则跳过，保证风声与结算用同一条消息。
@@ -588,13 +561,8 @@ class InvestManager:
             if exists:
                 return
 
-            # 保底：连续两盘都是「盘面平静」，这一盘强制给真消息。
-            # 先查库里已生成的前两盘，算出的连续平静盘数不影响随机序列（roll 照常消耗）。
-            calm_streak = await self._calm_streak_before(day, slot)
-            forced = calm_streak >= CALM_STREAK_FORCE
-
             rng = self._rng(day, slot, "news")
-            if not forced and rng.random() >= NEWS_CHANCE:
+            if rng.random() >= NEWS_CHANCE:
                 # 盘面平静：无 bias
                 title = rng.choice(CALM_NEWS)
                 pattern, direction, code, detail = "calm", 0, "", ""

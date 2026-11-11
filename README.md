@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v7.9.8 (秘境三重收益与装备门槛)
+# AstrBot 插件：模拟修仙 v7.9.9 (仙市风声去掉保底)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v7.9.8-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v7.9.9-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.45.0 · **游戏版本:** v7.9.8 · **数据库:** v61
+> **插件版本:** v3.45.1 · **游戏版本:** v7.9.9 · **数据库:** v61
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，257 条注册指令（网页指令目录 245 个功能按钮 + 12 个别名）、17 个大系统、111 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,21 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · 插件 v3.45.0（秘境三重收益与装备门槛）</b></summary>
+<summary><b>本次更新 · 插件 v3.45.1（仙市风声去掉连续平静保底）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 问题 | 「连续两盘盘面平静，下一盘必定出真消息」这条保底让风声节奏可预判——第二盘一平静，等于提前知道第三盘有消息，等于白送一次抢跑；同时把实际真消息率从 33% 抬到约 47%，与 `NEWS_CHANCE` 的设定不符。 |
+| 改动 | 删除 `CALM_STREAK_FORCE` 与 `_calm_streak_before()`，`_ensure_news` 回到纯掷骰：每盘独立 33% 出真消息（利好利空 1:1，其中 10% 是全市场消息），其余 67% 写「盘面平静」。 |
+| 表现 | 平静连续长度按几何分布，平均 1.5 盘，16 盘一天里出现 4~5 连平静很正常；反过来连出 3~4 盘真消息也可能。已落库的风声不会被重掷——盘中重复调用仍只保留第一条。 |
+| 影响面 | 消息密度降约 14 个百分点。单盘 bias 期望本就中性（利好利空 1:1），所以长期价格中枢不变，变化的是消息驱动的波动变小、无消息的盘变多。 |
+| 回归验证 | `tests/test_invest_hint.py` 改写为 7 例：33% 常量、保底常量已移除、48 盘实跑统计（平静占比落在 50%~85%、且确实出现两连平静）、已落库记录不被覆盖、下盘幂等、overview 字段；全量 **1384 项通过**。 |
+| 版本与数据库 | 插件 **v3.45.1** / 游戏及帮助 **v7.9.9**；无表结构变更，数据库仍为 **v61**。 |
+
+</details>
+
+<details>
+<summary><b>插件 v3.45.0（秘境三重收益与装备门槛）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |
