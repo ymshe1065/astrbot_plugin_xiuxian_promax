@@ -3457,7 +3457,9 @@
   function discoverRow(it, goText) {
     const row = document.createElement("button");
     row.className =
-      "discover-item" + (it.badge ? " best" : "") + (it.locked ? " locked" : "");
+      "discover-item" +
+      (it.badge ? " best" : "") +
+      (it.locked || it.gate_ok === false ? " locked" : "");
     let html = '<div class="di-main"><div class="di-title">' + esc(it.title || "");
     if (it.badge) html += `<i class="di-badge">${esc(it.badge)}</i>`;
     html += "</div>";
@@ -3473,11 +3475,14 @@
     if (it.locked) {
       // 未解锁：不给按钮，换成还需要什么，点了也不会白跑一趟
       html += `<span class="di-lock">${esc(it.lock_text || "未解锁")}</span>`;
+    } else if (it.gate_ok === false) {
+      // 深档门槛（三重装备要求）：解锁了但准备不足，点了只会被拒，直接说明
+      html += `<span class="di-lock">${esc(it.gate_text || "准备不足")}</span>`;
     } else if (it.cmd) {
       html += `<span class="di-go">${esc(goText)}</span>`;
     }
     row.innerHTML = html;
-    if (!it.locked && it.cmd) {
+    if (!it.locked && it.gate_ok !== false && it.cmd) {
       row.addEventListener("click", () => dispatchCommand(it.cmd));
     } else {
       row.disabled = true;

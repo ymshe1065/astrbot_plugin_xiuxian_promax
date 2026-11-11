@@ -161,10 +161,23 @@ class TestShippedRiftConfig(unittest.TestCase):
             self.assertGreater(weight, 0)
             self.assertLessEqual(weight, 1.0)
 
-    def test_high_tiers_are_nerfed(self):
-        """高阶难度越阶装备概率不超过 13%，防止被改回去。"""
-        for rift, diff in self.rows:
-            self.assertLessEqual(diff["equipment_chance"], 13)
+    def test_equipment_chance_escalates_only_with_gear_lock(self):
+        """三重的装备掉率可以更肥，但必须带装备门槛，否则就是纯通胀。
+
+        v7.9.8 之前三重的每小时收益反而不如二重（掉落按趟判定、时长却是 1.5 倍），
+        提效只能落在件数上。代价是三重必须锁装备品阶：八格齐全且达到该秘境
+        门槛境界可装备的最高品阶，不能白送。
+        """
+        for rift in self.data["rifts"]:
+            for diff in rift["difficulties"]:
+                tier = int(diff["tier"])
+                if tier == 1:
+                    self.assertEqual(diff["equipment_chance"], 5, rift["name"])
+                elif tier == 2:
+                    self.assertEqual(diff["equipment_chance"], 9, rift["name"])
+                else:
+                    self.assertTrue(diff.get("gear_lock"), rift["name"])
+                    self.assertLessEqual(diff["equipment_chance"], 22, rift["name"])
 
     def test_requirement_increases_with_tier(self):
         for rift in self.data["rifts"]:

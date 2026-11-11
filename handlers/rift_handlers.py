@@ -21,7 +21,10 @@ class RiftHandlers:
         ok, msg = await self.rift_mgr.list_rifts(user_id, product, data=data)
         sections, payload = to_card_parts(
             data, "rift_list", top_n=self.rift_mgr.LIST_TOP_N,
-            note="修为是象征量，材料才是秘境的主产出；★ 为同境界段内的材料价值档",
+            note=(
+                "修为是象征量，材料才是秘境的主产出；★ 为同境界段内的材料价值档"
+                "；🔒 三重需该门槛境界可装备的最高品阶全套（八格齐全）"
+            ),
         )
         card = await render_result_card(
             "秘境列表", msg, background="adventure", subtitle=data["subtitle"],

@@ -350,6 +350,32 @@ class TestRiftFlow(unittest.IsolatedAsyncioTestCase):
         self.mgr = self.RiftManager(self.db, None, None)
         await self.mgr.sync_rifts()
         await self.db.create_player(self.Player(user_id="u1", level_index=10))
+        await self._equip_whole_set("玄品")
+
+    async def _equip_whole_set(self, rank: str):
+        """青云三重有装备门槛：测试玩家要穿满八格同品阶装备才进得去。
+
+        RiftManager 在这里没有 config_manager，所以实例自带 ``rank`` 字段，
+        门槛判定走「实例品阶」而不是「查配置」。真实环境两者等价。
+        """
+        player = await self.db.get_player_by_id("u1")
+        slots = ["weapon", "head", "armor", "gloves", "boots", "ring1", "ring2", "amulet"]
+        instances = [
+            {
+                "id": i + 1,
+                "name": f"测试{rank}{slot}",
+                "quality": "一般",
+                "location": "equipped",
+                "slot": slot,
+                "rank": rank,
+            }
+            for i, slot in enumerate(slots)
+        ]
+        player.equipment_instances = json.dumps(instances, ensure_ascii=False)
+        player.equipped_instances = json.dumps(
+            {slot: i + 1 for i, slot in enumerate(slots)}, ensure_ascii=False
+        )
+        await self.db.update_player(player)
 
     async def asyncTearDown(self):
         await self.conn.close()
@@ -400,8 +426,10 @@ class TestRiftFlow(unittest.IsolatedAsyncioTestCase):
         # 「大结算」那一段；整趟总额看 total_exp。分段 int 截断每段最多丢 1 点，
         # 下界留 10 点余量。
         lo, hi = RIFT_CFG["rifts"][0]["difficulties"][2]["exp"]
-        self.assertGreaterEqual(data["total_exp"], lo - 10)
-        self.assertLessEqual(data["total_exp"], hi)
+        # 三重单趟产出再乘 tier_yield（v7.9.8 深档强度），整趟总额落在放大后的区间内
+        tier_yield = float(RIFT_CFG["rifts"][0]["difficulties"][2].get("tier_yield") or 1.0)
+        self.assertGreaterEqual(data["total_exp"], int(lo * tier_yield) - 10)
+        self.assertLessEqual(data["total_exp"], int(hi * tier_yield))
         self.assertIn("青云秘境·三重", data["rift_name"])
 
     async def test_drops_come_from_tier_table(self):

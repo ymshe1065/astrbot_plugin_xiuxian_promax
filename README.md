@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v7.9.7 (秘境/历练列表标注解锁境界)
+# AstrBot 插件：模拟修仙 v7.9.8 (秘境三重收益与装备门槛)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v7.9.7-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v7.9.8-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.44.9 · **游戏版本:** v7.9.7 · **数据库:** v61
+> **插件版本:** v3.45.0 · **游戏版本:** v7.9.8 · **数据库:** v61
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，257 条注册指令（网页指令目录 245 个功能按钮 + 12 个别名）、17 个大系统、111 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,25 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · 插件 v3.44.9（秘境/历练列表标注解锁境界）</b></summary>
+<summary><b>本次更新 · 插件 v3.45.0（秘境三重收益与装备门槛）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 问题 | 三重单趟确实更肥（判定基数 92 vs 82、额外掉落 70% vs 45%），但时长是二重的 1.5 倍，而配置只涨 12% 的判定基数 —— **每小时反而倒挂**。实测 15 个秘境平均 三重 ÷ 二重 = **×0.98**，天雷三重 396k/时 还不如二重 444k/时。 |
+| 深档强度 | 每档新增 `tier_yield`（1.0 / 1.05 / **1.95**），乘在单趟的材料数量、灵石、修为上。每小时倍数 = `tier_yield ÷ 时长比`，所以 1.95 恰好让三重到二重的 **×1.30**，不用再动境界门槛。 |
+| 高阶材料 | 每档新增 `high_tier_weight_mult`（1.0 / 1.15 / **2.0**），只放大该档掉落表里**品阶最高**的那几件。天雷三重的帝品占比从 12.8% 提到 22.7%；低阶材料权重不变，占比自然被压下去。 |
+| 装备掉率 | 按秘境单独配：低阶本材料几乎不值钱（装备占 85~90%），只能靠件数（青云 13、落日/铁狱 18、万妖/丹霞/玄冰 17）；高阶本材料与灵石占一半以上，15~16 即可。`up_rank_weight` 从 0.4 提到 0.55 —— 这个值是「基准 +1 档」的权重，**越大越容易出高阶**。 |
+| 三重门槛 | 三重要求**八格装备齐全、且品阶 ≥ 该秘境门槛境界可装备的最高品阶**（新增 `core/rift_gate.py`）。判据跟秘境走不跟玩家走：lv35 回刷青云三重只需玄品全套，否则低阶本会变成永远进不去的死档。 |
+| 为什么不是战力锁 | 战力 93% 来自境界基础属性、整套装备只占 6%，按「全套战力」卡实际是在检查格子有没有穿满；称号 +10% 攻击、永久丹 +30% 攻击还能绕过。装备品阶是玩家能主动准备的，也不受这些系统干扰。 |
+| 列表提示 | 秘境列表每行多一条「门槛 需帝品全套」；未达标时图片行前加 🔒、网页端按钮置灰并从「进入」换成「需帝品全套」。`/秘境详情` 额外标出 `tier_yield`，`/探索秘境` 被拒时会列出缺哪几格、哪几格品阶不够。 |
+| 实测结果 | 改后三重 ÷ 二重 = **×1.24~1.50（平均 ×1.34）**；混沌天渊三重 1.75M → **2.36M/时**，天雷绝域三重 429k → **599k/时**。 |
+| 回归验证 | 新增 `tests/test_rift_gear_gate.py`（11 例）与 `tests/test_rift_tier_yield.py`（7 例）；全量 **1387 项通过**。 |
+| 版本与数据库 | 插件 **v3.45.0** / 游戏及帮助 **v7.9.8**；无表结构变更，数据库仍为 **v61**。 |
+
+</details>
+
+<details>
+<summary><b>插件 v3.44.9（秘境/历练列表标注解锁境界）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |

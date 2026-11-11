@@ -12,6 +12,7 @@ from ..data.data_manager import DataBase
 from ..data.default_configs import RIFT_CONFIG
 from ..models_extended import Rift, UserStatus
 from ..models import Player
+from ..rank_rules import RANK_LEVELS
 from .task_penalty import calc_abandon_penalty, charge_abandon_penalty
 
 if TYPE_CHECKING:
@@ -131,6 +132,10 @@ class RiftManager:
                     "equipment_chance": int(diff.get("equipment_chance") or 0),
                     "up_rank_weight": diff.get("up_rank_weight"),
                     "drops": list(diff.get("drops") or []),
+                    # 深档强度：缺省 1.0 / 1.0 / false，老存档读不到时按原行为跑
+                    "tier_yield": float(diff.get("tier_yield") or 1.0),
+                    "high_tier_weight_mult": float(diff.get("high_tier_weight_mult") or 1.0),
+                    "gear_lock": bool(diff.get("gear_lock")),
                 }
                 yield {
                     "rift_id": rift_id,
@@ -266,16 +271,22 @@ class RiftManager:
         cfg = self._rift_cfg(rift)
         drops = cfg.get("drops") or []
         value = 0.0
-        total_w = 0.0
-        for d in drops:
-            try:
-                total_w += max(1.0, float(d.get("weight", 1) or 1))
-            except (TypeError, ValueError):
-                total_w += 1.0
+        # 与真实掉落同口径：深档的数量乘 tier_yield、权重偏向最高品阶，
+        # 否则三重的单趟价值会被低估，排序和 ★ 反而把它排到二重后面。
+        try:
+            tier_yield = max(0.0, float(cfg.get("tier_yield") or 1.0))
+        except (TypeError, ValueError):
+            tier_yield = 1.0
+        try:
+            high_mult = max(0.0, float(cfg.get("high_tier_weight_mult") or 1.0))
+        except (TypeError, ValueError):
+            high_mult = 1.0
+        weights = self._rift_drop_weights(drops, high_mult)
+        total_w = sum(weights)
         if total_w > 0:
-            for d in drops:
+            for d, weight in zip(drops, weights):
                 try:
-                    w = max(1.0, float(d.get("weight", 1) or 1))
+                    w = float(weight)
                     lo = float(d.get("min", 1) or 1)
                     hi = float(d.get("max", lo) or lo)
                 except (TypeError, ValueError):
@@ -295,7 +306,7 @@ class RiftManager:
             extra = 1.0 + float(cfg.get("extra_drop_chance", 0) or 0) / 100.0
         except (TypeError, ValueError):
             chance, extra = 0.0, 1.0
-        value = value * max(0.0, chance) * max(1.0, extra)
+        value = value * max(0.0, chance) * max(1.0, extra) * max(0.0, tier_yield)
 
         if rid is not None:
             self._value_cache[rid] = value
@@ -368,12 +379,25 @@ class RiftManager:
             ["修为", self._fmt_amount(row["exp"])],
             ["灵石", self._fmt_amount(row["gold"])],
         ]
+        if row.get("gate_text"):
+            # 网页行里明确写出门槛：图片行只有一个 🔒，说不出要什么品阶
+            row["rows"].insert(1, ["门槛", row["gate_text"]])
         # 图片版一档一行：名字+档位 解锁境界 时长 产物★
         # 修为不进图片行：它是象征量（详情与网页 rows 里都有），塞进来会把行挤到
         # 换行，出现「修为5,625」被拆成「修为5,」「625」的难看断行。
-        row["line"] = (
-            f"{row['title']} {level_text}  {row['minutes']}分 {row['facet']}{star_text}"
-        )
+        gate_need = row.get("gate_need") or ""
+        if gate_need:
+            # 深档要报门槛：三重固定 45 分钟，把分钟让位给「需 X 套」，
+            # 否则一行塞不下会折行，8 行里折三行的卡片比不放更难看。
+            row["line"] = (
+                f"{row['title']} {level_text} {row['facet']}{star_text} 需{gate_need}套"
+            )
+        else:
+            row["line"] = (
+                f"{row['title']} {level_text}  {row['minutes']}分 {row['facet']}{star_text}"
+            )
+        if row.get("gate_ok") is False:
+            row["line"] = f"🔒{row['line']}"
 
     async def build_rift_list(self, user_id: str = None, product: str = "") -> dict:
         """结构化秘境列表：分组 + 排序 + ★ 评级 + 每行可直接进入的指令。
@@ -386,12 +410,14 @@ class RiftManager:
             return {}
 
         player_level = None
+        player = None
         if user_id:
             try:
                 player = await self.db.get_player_by_id(str(user_id))
                 if player:
                     player_level = int(player.level_index)
             except Exception:
+                player = None
                 player_level = None
 
         wanted = str(product or "").strip()
@@ -427,6 +453,13 @@ class RiftManager:
                     "value_per_min": round(value / minutes, 2),
                     "exp": int(exp_mid),
                     "gold": int(gold_mid),
+                    # 深档门槛：三重要求该门槛境界可装备的最高品阶全套
+                    "gear_lock": bool(cfg.get("gear_lock")),
+                    "gate_need": (
+                        self._gear_need_name(int(rift.required_level or 0))
+                        if cfg.get("gear_lock")
+                        else ""
+                    ),
                     "cmd": f"/探索秘境 {int(rift.rift_id)}",
                 }
             )
@@ -453,9 +486,21 @@ class RiftManager:
                 else:
                     locked_rows.append(row)
 
+        # 深档门槛先判定：分组、★ 基准、推荐位都要用到「这一档现在进不进得去」
+        for row in rows:
+            gate_need = row.get("gate_need") or ""
+            if not gate_need:
+                continue
+            row["gate_text"] = f"需{gate_need}全套"
+            if player is not None:
+                row["gate_ok"] = self._gear_gate_ok(player, row["required_level"])
+
         # ★ 以「当前可进入段的最高每分钟材料价值」为 100%：
-        # 与排序同口径，星级才能顺着列表单调递减，不会出现「第二名没星、第三名有星」
-        peak = max((r["value_per_min"] for r in open_rows), default=0.0)
+        # 与排序同口径，星级才能顺着列表单调递减，不会出现「第二名没星、第三名有星」。
+        # 装备没备齐的三重不参与基准：它价值最高但玩家进不去，拿它当 100% 会让
+        # 整页可去的档位全变成一星。
+        rated = [r for r in open_rows if r.get("gate_ok") is not False] or open_rows
+        peak = max((r["value_per_min"] for r in rated), default=0.0)
         if peak <= 0:
             peak = max((r["value_per_min"] for r in rows), default=0.0)
         for row in rows:
@@ -480,7 +525,12 @@ class RiftManager:
         recommended: List[dict] = []
         try:
             from ..utils.list_card import pick_recommend
-            recommended = pick_recommend(open_rows, self.PRODUCT_FACETS, self.LIST_TOP_N)
+
+            # 装备没备齐的三重不进推荐位：深档价值高，混进来会把「推荐」全占满，
+            # 玩家点一个撞一次「准备不足」。够数就只推能进的，不够再回退全量。
+            eligible = [r for r in open_rows if r.get("gate_ok") is not False]
+            pool = eligible if len(eligible) >= self.LIST_TOP_N else open_rows
+            recommended = pick_recommend(pool, self.PRODUCT_FACETS, self.LIST_TOP_N)
             for row in recommended:
                 row["recommend"] = True
         except Exception:
@@ -564,10 +614,12 @@ class RiftManager:
                 lines.append(f"▸ {group['name']}")
                 shown = items[: self.LIST_TOP_N]
                 for row in shown:
+                    gate = f" · {row['gate_text']}" if row.get("gate_text") else ""
+                    lock = "🔒" if row.get("gate_ok") is False else ""
                     lines.append(
-                        f"  {row['title']} (ID:{row['id']})  {row['level_text']} · {row['minutes']}分 · "
+                        f"  {lock}{row['title']} (ID:{row['id']})  {row['level_text']} · {row['minutes']}分 · "
                         f"{row['facet']}{row['star_text']} · 修为{self._fmt_amount(row['exp'])}"
-                        f" · 灵石{self._fmt_amount(row['gold'])}"
+                        f" · 灵石{self._fmt_amount(row['gold'])}{gate}"
                     )
                 if len(items) > len(shown):
                     lines.append(f"  …另有 {len(items) - len(shown)} 档，/秘境列表 全部 查看")
@@ -581,6 +633,7 @@ class RiftManager:
                 lines.append(f"▸ {group['name']}（含更深处秘境，境界提升后开放）")
 
         lines.append("━━━━━━━━━━━━━━━")
+        lines.append("🔒 三重需该门槛境界可装备的最高品阶全套（八格齐全）；深档产出更高")
         lines.append("💡 /秘境列表 灵植 / 矿材 / 灵液 / 妖兽 / 全产物 按产物筛选")
         lines.append("💡 /探索秘境 <ID> 进入；/秘境详情 <ID> 查看掉落")
         return True, "\n".join(lines)
@@ -635,11 +688,24 @@ class RiftManager:
             f"主产物：{rift.product or '混合'}",
             f"境界要求：{self._get_level_name(rift.required_level)}",
             f"探索时长：{minutes} 分钟",
+        ]
+        gate_need = self._gear_need_name(int(rift.required_level or 0))
+        if cfg.get("gear_lock") and gate_need:
+            lines.append(f"装备门槛：{gate_need}全套（八格齐全且品阶达标）")
+        try:
+            tier_yield = float(cfg.get("tier_yield") or 1.0)
+        except (TypeError, ValueError):
+            tier_yield = 1.0
+        if tier_yield != 1.0:
+            lines.append(f"深档加成：修为一律 ×{tier_yield:g}（深档掉落更偏高阶材料）")
+            exp_range = [int(float(exp_range[0]) * tier_yield), int(float(exp_range[-1]) * tier_yield)]
+            gold_range = [int(float(gold_range[0]) * tier_yield), int(float(gold_range[-1]) * tier_yield)]
+        lines.extend([
             f"修为：{exp_range[0]:,}~{exp_range[1]:,}　灵石：{gold_range[0]:,}~{gold_range[1]:,}",
             f"掉落概率：{cfg.get('item_chance', 70)}%"
             f"（额外掉落 {cfg.get('extra_drop_chance', 0)}%"
             f"／装备 {cfg.get('equipment_chance', 0)}%）",
-        ]
+        ])
         if drops:
             total = sum(max(0, int(d.get("weight") or 0)) for d in drops) or 1
             lines.append("━━━━━━━━━━━━━━━")
@@ -712,7 +778,25 @@ class RiftManager:
                 f"✅ 你当前可进入的秘境：\n{alt_text}"
             )
         
-        # 5. 设置探索状态，存储秘境ID（时长按难度取，同秘境不同深度耗时不同）
+        # 5. 深档装备门槛（三重）：八格全部达到该门槛境界可装备的最高品阶
+        gate_detail = self._gear_lock_detail(player, rift)
+        if gate_detail:
+            need = gate_detail.get("need") or ""
+            tips = []
+            if gate_detail.get("empty_text"):
+                tips.append(f"未装备：{gate_detail['empty_text']}")
+            if gate_detail.get("low_text"):
+                tips.append(f"品阶不足：{gate_detail['low_text']}")
+            return False, (
+                f"❌ 准备不足，无法深入！\n"
+                f"━━━━━━━━━━━━━━━\n"
+                f"【{rift.display_name}】要求【{need}】全套装备（八格齐全且品阶达标）\n"
+                + ("\n".join(f"  · {t}" for t in tips) if tips else "")
+                + f"\n💡 深档产出更高，但也更挑人"
+                f"\n   /装备 查看当前穿戴，/秘境列表 查看各档门槛"
+            )
+
+        # 6. 设置探索状态，存储秘境ID（时长按难度取，同秘境不同深度耗时不同）
         duration = self._duration_of(rift)
         scheduled_time = int(time.time()) + duration
         # 进入时把整趟修为/灵石 roll 定，分段只按比例拆；umo 用于主动推送小结
@@ -758,7 +842,13 @@ class RiftManager:
 
     @staticmethod
     def _roll_base_rewards(rift: Optional[Rift]) -> Tuple[int, int]:
-        """进入时把整趟修为/灵石 roll 定，分段只按比例拆，总和不因拆段而波动。"""
+        """进入时把整趟修为/灵石 roll 定，分段只按比例拆，总和不因拆段而波动。
+
+        ``tier_yield`` 是深档强度：三重时长是二重的 1.5 倍，若产出只按配置线性
+        涨，每小时反而低于二重。把它乘在单趟产出上，深档才有「同样的本，准备
+        更充分就能拿更多」的意义（每小时倍数 = tier_yield ÷ 时长比）。
+        """
+        cfg: Dict = {}
         if rift:
             cfg = rift.get_rewards()
             exp_range = cfg.get("exp") or [1000, 5000]
@@ -767,10 +857,16 @@ class RiftManager:
             exp_range, gold_range = [1000, 5000], [500, 2000]
         lo, hi = int(exp_range[0]), int(exp_range[1])
         g_lo, g_hi = int(gold_range[0]), int(gold_range[1])
-        return (
-            random.randint(min(lo, hi), max(lo, hi)),
-            random.randint(min(g_lo, g_hi), max(g_lo, g_hi)),
-        )
+        try:
+            mult = max(0.0, float(cfg.get("tier_yield") or 1.0)) if cfg else 1.0
+        except (TypeError, ValueError):
+            mult = 1.0
+        exp = random.randint(min(lo, hi), max(lo, hi))
+        gold = random.randint(min(g_lo, g_hi), max(g_lo, g_hi))
+        if mult != 1.0:
+            exp = int(exp * mult)
+            gold = int(gold * mult)
+        return exp, gold
 
     def _ensure_tick_state(self, extra: dict, rift: Optional[Rift], user_cd) -> dict:
         """旧存档（v7.6 及以前进入的秘境）按已过时间直接接管。"""
@@ -1246,6 +1342,17 @@ class RiftManager:
         extra_chance = int(cfg.get("extra_drop_chance") or 0)
         equipment_chance = cfg.get("equipment_chance")
 
+        # 深档强度：材料数量乘以 tier_yield，重量偏向该档掉落表里品阶最高的那几件
+        try:
+            tier_yield = max(0.0, float(cfg.get("tier_yield") or 1.0))
+        except (TypeError, ValueError):
+            tier_yield = 1.0
+        try:
+            high_mult = max(0.0, float(cfg.get("high_tier_weight_mult") or 1.0))
+        except (TypeError, ValueError):
+            high_mult = 1.0
+        weights = self._rift_drop_weights(drop_table, high_mult)
+
         item_chance = base_chance + int(drop_mod or 0)
         try:
             from .talisman_manager import TalismanManager
@@ -1262,17 +1369,21 @@ class RiftManager:
         item_chance = min(100.0, max(0.0, item_chance * max(0.0, float(chance_scale))))
 
         def _pick() -> Optional[Tuple[str, int]]:
-            total_weight = sum(max(0, int(i.get("weight") or 0)) for i in drop_table)
+            total_weight = sum(weights)
             if total_weight <= 0:
                 return None
-            roll = random.randint(1, total_weight)
-            cursor = 0
-            for item in drop_table:
-                cursor += max(0, int(item.get("weight") or 0))
+            roll = random.random() * total_weight
+            cursor = 0.0
+            for item, weight in zip(drop_table, weights):
+                cursor += weight
                 if roll <= cursor:
                     lo = int(item.get("min", 1) or 1)
                     hi = int(item.get("max", lo) or lo)
-                    return item["name"], random.randint(min(lo, hi), max(lo, hi))
+                    lo, hi = min(lo, hi), max(lo, hi)
+                    count = random.randint(lo, hi)
+                    if tier_yield != 1.0:
+                        count = max(1, int(round(count * tier_yield)))
+                    return item["name"], count
             return None
 
         # 主掉落
@@ -1324,6 +1435,71 @@ class RiftManager:
                 logger.warning(f"秘境装备掉落判定失败：{e}")
 
         return dropped_items
+
+    def _gear_need_name(self, required_level) -> str:
+        """该门槛境界可装备的最高品阶名（空串表示取不到）。"""
+        try:
+            from ..core.rift_gate import required_gear_rank
+
+            return required_gear_rank(required_level)
+        except Exception:
+            return ""
+
+    def _gear_lock_detail(self, player, rift) -> Optional[dict]:
+        """深档装备门槛：未配置锁、或玩家已达标时返回 None。"""
+        if player is None or rift is None:
+            return None
+        if not self._rift_cfg(rift).get("gear_lock"):
+            return None
+        try:
+            from ..core.rift_gate import check as _check
+
+            ok, detail = _check(
+                player, int(rift.required_level or 0), self.config_manager
+            )
+        except Exception:
+            return None
+        return None if ok else detail
+
+    def _gear_gate_ok(self, player, required_level) -> bool:
+        """列表用：玩家装备是否满足该档次的门槛（异常时按可达处理）。"""
+        if player is None:
+            return True
+        try:
+            from ..core.rift_gate import check as _check
+
+            ok, _ = _check(player, int(required_level or 0), self.config_manager)
+            return bool(ok)
+        except Exception:
+            return True
+
+    def _material_rank_score(self, name: str) -> int:
+        """材料品阶序号（用解锁等级当序，比 1~5 的稀有度档更细）。"""
+        if not name or not self.config_manager:
+            return -1
+        try:
+            info = self.config_manager.get_material_info(name)
+        except Exception:
+            return -1
+        if not isinstance(info, dict):
+            return -1
+        return int(RANK_LEVELS.get(str(info.get("tier") or ""), -1))
+
+    def _rift_drop_weights(self, drop_table: List[dict], mult: float) -> List[float]:
+        """计算实际抽取权重：深档把权重压向掉落表里品阶最高的那几件。
+
+        深档的意义是「更好的材料」，而不是把整张表按比例放大——后者只是把
+        总产出乘一个系数，稀释不了低阶材料。这里只放大最高品阶那一档，
+        低阶材料的权重重不变，占比自然下降。
+        """
+        weights = [float(max(0, int(d.get("weight") or 0))) for d in drop_table]
+        if mult == 1.0 or not drop_table:
+            return weights
+        scores = [self._material_rank_score(str(d.get("name") or "")) for d in drop_table]
+        best = max(scores) if scores else -1
+        if best <= 0:
+            return weights
+        return [w * mult if score == best else w for w, score in zip(weights, scores)]
 
     def _equipment_base_level(self, rift: Optional[Rift], player) -> int:
         """装备品阶基准：玩家等级与「秘境门槛 + 越级余量」取低。

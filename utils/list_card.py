@@ -92,6 +92,9 @@ def to_card_parts(
                         # 未解锁的两段要在网页端显示「需 XX」而不是可点按钮
                         "locked": bool(it.get("locked")),
                         "lock_text": it.get("lock_text") or "",
+                        # 深度门槛（三重装备要求）：已解锁但准备不足时给提示
+                        "gate_text": it.get("gate_text") or "",
+                        "gate_ok": bool(it.get("gate_ok", True)),
                         "rows": it.get("rows") or [],
                     }
                     for it in (g.get("items") or [])

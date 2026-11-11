@@ -66,7 +66,10 @@
               "min": 1,
               "max": 1
             }
-          ]
+          ],
+          "tier_yield": 1.0,
+          "high_tier_weight_mult": 1.0,
+          "gear_lock": false
         },
         {
           "tier": 2,
@@ -122,7 +125,10 @@
               "min": 1,
               "max": 1
             }
-          ]
+          ],
+          "tier_yield": 1.05,
+          "high_tier_weight_mult": 1.15,
+          "gear_lock": false
         },
         {
           "tier": 3,
@@ -140,7 +146,7 @@
           "item_chance": 92,
           "extra_drop_chance": 70,
           "equipment_chance": 13,
-          "up_rank_weight": 0.4,
+          "up_rank_weight": 0.55,
           "drops": [
             {
               "name": "血灵草",
@@ -178,7 +184,10 @@
               "min": 1,
               "max": 2
             }
-          ]
+          ],
+          "tier_yield": 1.95,
+          "high_tier_weight_mult": 2.0,
+          "gear_lock": true
         }
       ]
     },
@@ -237,7 +246,10 @@
               "min": 1,
               "max": 2
             }
-          ]
+          ],
+          "tier_yield": 1.0,
+          "high_tier_weight_mult": 1.0,
+          "gear_lock": false
         },
         {
           "tier": 2,
@@ -293,7 +305,10 @@
               "min": 1,
               "max": 1
             }
-          ]
+          ],
+          "tier_yield": 1.05,
+          "high_tier_weight_mult": 1.15,
+          "gear_lock": false
         },
         {
           "tier": 3,
@@ -310,8 +325,8 @@
           ],
           "item_chance": 92,
           "extra_drop_chance": 70,
-          "equipment_chance": 13,
-          "up_rank_weight": 0.4,
+          "equipment_chance": 18,
+          "up_rank_weight": 0.55,
           "drops": [
             {
               "name": "破军皮",
@@ -349,7 +364,10 @@
               "min": 1,
               "max": 1
             }
-          ]
+          ],
+          "tier_yield": 1.95,
+          "high_tier_weight_mult": 2.0,
+          "gear_lock": true
         }
       ]
     },
@@ -408,7 +426,10 @@
               "min": 2,
               "max": 3
             }
-          ]
+          ],
+          "tier_yield": 1.0,
+          "high_tier_weight_mult": 1.0,
+          "gear_lock": false
         },
         {
           "tier": 2,
@@ -464,7 +485,10 @@
               "min": 1,
               "max": 1
             }
-          ]
+          ],
+          "tier_yield": 1.05,
+          "high_tier_weight_mult": 1.15,
+          "gear_lock": false
         },
         {
           "tier": 3,
@@ -481,8 +505,8 @@
           ],
           "item_chance": 92,
           "extra_drop_chance": 70,
-          "equipment_chance": 13,
-          "up_rank_weight": 0.4,
+          "equipment_chance": 17,
+          "up_rank_weight": 0.55,
           "drops": [
             {
               "name": "乾坤骨",
@@ -520,7 +544,10 @@
               "min": 1,
               "max": 1
             }
-          ]
+          ],
+          "tier_yield": 1.95,
+          "high_tier_weight_mult": 2.0,
+          "gear_lock": true
         }
       ]
     },
@@ -579,7 +606,10 @@
               "min": 1,
               "max": 1
             }
-          ]
+          ],
+          "tier_yield": 1.0,
+          "high_tier_weight_mult": 1.0,
+          "gear_lock": false
         },
         {
           "tier": 2,
@@ -635,7 +665,10 @@
               "min": 1,
               "max": 1
             }
-          ]
+          ],
+          "tier_yield": 1.05,
+          "high_tier_weight_mult": 1.15,
+          "gear_lock": false
         },
         {
           "tier": 3,
@@ -652,8 +685,8 @@
           ],
           "item_chance": 92,
           "extra_drop_chance": 70,
-          "equipment_chance": 13,
-          "up_rank_weight": 0.4,
+          "equipment_chance": 17,
+          "up_rank_weight": 0.55,
           "drops": [
             {
               "name": "四象草",
@@ -691,7 +724,10 @@
               "min": 1,
               "max": 1
             }
-          ]
+          ],
+          "tier_yield": 1.95,
+          "high_tier_weight_mult": 2.0,
+          "gear_lock": true
         }
       ]
     },
@@ -750,7 +786,10 @@
               "min": 1,
               "max": 2
             }
-          ]
+          ],
+          "tier_yield": 1.0,
+          "high_tier_weight_mult": 1.0,
+          "gear_lock": false
         },
         {
           "tier": 2,
@@ -806,7 +845,10 @@
               "min": 1,
               "max": 1
             }
-          ]
+          ],
+          "tier_yield": 1.05,
+          "high_tier_weight_mult": 1.15,
+          "gear_lock": false
         },
         {
           "tier": 3,
@@ -823,8 +865,8 @@
           ],
           "item_chance": 92,
           "extra_drop_chance": 70,
-          "equipment_chance": 13,
-          "up_rank_weight": 0.4,
+          "equipment_chance": 18,
+          "up_rank_weight": 0.55,
           "drops": [
             {
               "name": "星辰铁",
@@ -862,7 +904,10 @@
               "min": 1,
               "max": 1
             }
-          ]
+          ],
+          "tier_yield": 1.95,
+          "high_tier_weight_mult": 2.0,
+          "gear_lock": true
         }
       ]
     },
@@ -915,7 +960,10 @@
               "min": 2,
               "max": 3
             }
-          ]
+          ],
+          "tier_yield": 1.0,
+          "high_tier_weight_mult": 1.0,
+          "gear_lock": false
         },
         {
           "tier": 2,
@@ -965,7 +1013,10 @@
               "min": 1,
               "max": 1
             }
-          ]
+          ],
+          "tier_yield": 1.05,
+          "high_tier_weight_mult": 1.15,
+          "gear_lock": false
         },
         {
           "tier": 3,
@@ -982,8 +1033,8 @@
           ],
           "item_chance": 92,
           "extra_drop_chance": 70,
-          "equipment_chance": 13,
-          "up_rank_weight": 0.4,
+          "equipment_chance": 17,
+          "up_rank_weight": 0.55,
           "drops": [
             {
               "name": "秘境精华",
@@ -1015,7 +1066,10 @@
               "min": 1,
               "max": 1
             }
-          ]
+          ],
+          "tier_yield": 1.95,
+          "high_tier_weight_mult": 2.0,
+          "gear_lock": true
         }
       ]
     },
@@ -1080,7 +1134,10 @@
               "min": 1,
               "max": 1
             }
-          ]
+          ],
+          "tier_yield": 1.0,
+          "high_tier_weight_mult": 1.0,
+          "gear_lock": false
         },
         {
           "tier": 2,
@@ -1136,7 +1193,10 @@
               "min": 1,
               "max": 1
             }
-          ]
+          ],
+          "tier_yield": 1.05,
+          "high_tier_weight_mult": 1.15,
+          "gear_lock": false
         },
         {
           "tier": 3,
@@ -1153,8 +1213,8 @@
           ],
           "item_chance": 92,
           "extra_drop_chance": 70,
-          "equipment_chance": 13,
-          "up_rank_weight": 0.4,
+          "equipment_chance": 16,
+          "up_rank_weight": 0.55,
           "drops": [
             {
               "name": "秘境精华",
@@ -1192,7 +1252,10 @@
               "min": 1,
               "max": 1
             }
-          ]
+          ],
+          "tier_yield": 1.95,
+          "high_tier_weight_mult": 2.0,
+          "gear_lock": true
         }
       ]
     },
@@ -1257,7 +1320,10 @@
               "min": 1,
               "max": 1
             }
-          ]
+          ],
+          "tier_yield": 1.0,
+          "high_tier_weight_mult": 1.0,
+          "gear_lock": false
         },
         {
           "tier": 2,
@@ -1313,7 +1379,10 @@
               "min": 4,
               "max": 6
             }
-          ]
+          ],
+          "tier_yield": 1.05,
+          "high_tier_weight_mult": 1.15,
+          "gear_lock": false
         },
         {
           "tier": 3,
@@ -1330,8 +1399,8 @@
           ],
           "item_chance": 92,
           "extra_drop_chance": 70,
-          "equipment_chance": 13,
-          "up_rank_weight": 0.4,
+          "equipment_chance": 15,
+          "up_rank_weight": 0.55,
           "drops": [
             {
               "name": "星陨精金",
@@ -1363,7 +1432,10 @@
               "min": 5,
               "max": 9
             }
-          ]
+          ],
+          "tier_yield": 1.95,
+          "high_tier_weight_mult": 2.0,
+          "gear_lock": true
         }
       ]
     },
@@ -1422,7 +1494,10 @@
               "min": 2,
               "max": 4
             }
-          ]
+          ],
+          "tier_yield": 1.0,
+          "high_tier_weight_mult": 1.0,
+          "gear_lock": false
         },
         {
           "tier": 2,
@@ -1472,7 +1547,10 @@
               "min": 3,
               "max": 5
             }
-          ]
+          ],
+          "tier_yield": 1.05,
+          "high_tier_weight_mult": 1.15,
+          "gear_lock": false
         },
         {
           "tier": 3,
@@ -1490,7 +1568,7 @@
           "item_chance": 92,
           "extra_drop_chance": 70,
           "equipment_chance": 13,
-          "up_rank_weight": 0.4,
+          "up_rank_weight": 0.55,
           "drops": [
             {
               "name": "太虚雷髓",
@@ -1522,7 +1600,10 @@
               "min": 1,
               "max": 1
             }
-          ]
+          ],
+          "tier_yield": 1.95,
+          "high_tier_weight_mult": 2.0,
+          "gear_lock": true
         }
       ]
     },
@@ -1581,7 +1662,10 @@
               "min": 2,
               "max": 4
             }
-          ]
+          ],
+          "tier_yield": 1.0,
+          "high_tier_weight_mult": 1.0,
+          "gear_lock": false
         },
         {
           "tier": 2,
@@ -1631,7 +1715,10 @@
               "min": 3,
               "max": 5
             }
-          ]
+          ],
+          "tier_yield": 1.05,
+          "high_tier_weight_mult": 1.15,
+          "gear_lock": false
         },
         {
           "tier": 3,
@@ -1648,8 +1735,8 @@
           ],
           "item_chance": 92,
           "extra_drop_chance": 70,
-          "equipment_chance": 13,
-          "up_rank_weight": 0.4,
+          "equipment_chance": 16,
+          "up_rank_weight": 0.55,
           "drops": [
             {
               "name": "万古妖丹",
@@ -1681,7 +1768,10 @@
               "min": 1,
               "max": 1
             }
-          ]
+          ],
+          "tier_yield": 1.95,
+          "high_tier_weight_mult": 2.0,
+          "gear_lock": true
         }
       ]
     },
@@ -1752,7 +1842,10 @@
               "min": 1,
               "max": 1
             }
-          ]
+          ],
+          "tier_yield": 1.0,
+          "high_tier_weight_mult": 1.0,
+          "gear_lock": false
         },
         {
           "tier": 2,
@@ -1814,7 +1907,10 @@
               "min": 1,
               "max": 1
             }
-          ]
+          ],
+          "tier_yield": 1.05,
+          "high_tier_weight_mult": 1.15,
+          "gear_lock": false
         },
         {
           "tier": 3,
@@ -1831,8 +1927,8 @@
           ],
           "item_chance": 92,
           "extra_drop_chance": 70,
-          "equipment_chance": 13,
-          "up_rank_weight": 0.4,
+          "equipment_chance": 15,
+          "up_rank_weight": 0.55,
           "drops": [
             {
               "name": "劫雷精粹",
@@ -1876,7 +1972,10 @@
               "min": 1,
               "max": 1
             }
-          ]
+          ],
+          "tier_yield": 1.95,
+          "high_tier_weight_mult": 2.0,
+          "gear_lock": true
         }
       ]
     },
@@ -1947,7 +2046,10 @@
               "min": 1,
               "max": 1
             }
-          ]
+          ],
+          "tier_yield": 1.0,
+          "high_tier_weight_mult": 1.0,
+          "gear_lock": false
         },
         {
           "tier": 2,
@@ -2009,7 +2111,10 @@
               "min": 1,
               "max": 1
             }
-          ]
+          ],
+          "tier_yield": 1.05,
+          "high_tier_weight_mult": 1.15,
+          "gear_lock": false
         },
         {
           "tier": 3,
@@ -2026,8 +2131,8 @@
           ],
           "item_chance": 92,
           "extra_drop_chance": 70,
-          "equipment_chance": 13,
-          "up_rank_weight": 0.4,
+          "equipment_chance": 15,
+          "up_rank_weight": 0.55,
           "drops": [
             {
               "name": "仙墟圣莲",
@@ -2071,7 +2176,10 @@
               "min": 1,
               "max": 1
             }
-          ]
+          ],
+          "tier_yield": 1.95,
+          "high_tier_weight_mult": 2.0,
+          "gear_lock": true
         }
       ]
     },
@@ -2142,7 +2250,10 @@
               "min": 1,
               "max": 1
             }
-          ]
+          ],
+          "tier_yield": 1.0,
+          "high_tier_weight_mult": 1.0,
+          "gear_lock": false
         },
         {
           "tier": 2,
@@ -2204,7 +2315,10 @@
               "min": 1,
               "max": 1
             }
-          ]
+          ],
+          "tier_yield": 1.05,
+          "high_tier_weight_mult": 1.15,
+          "gear_lock": false
         },
         {
           "tier": 3,
@@ -2221,8 +2335,8 @@
           ],
           "item_chance": 92,
           "extra_drop_chance": 70,
-          "equipment_chance": 13,
-          "up_rank_weight": 0.4,
+          "equipment_chance": 15,
+          "up_rank_weight": 0.55,
           "drops": [
             {
               "name": "星辰玄铁",
@@ -2266,7 +2380,10 @@
               "min": 1,
               "max": 1
             }
-          ]
+          ],
+          "tier_yield": 1.95,
+          "high_tier_weight_mult": 2.0,
+          "gear_lock": true
         }
       ]
     },
@@ -2337,7 +2454,10 @@
               "min": 1,
               "max": 1
             }
-          ]
+          ],
+          "tier_yield": 1.0,
+          "high_tier_weight_mult": 1.0,
+          "gear_lock": false
         },
         {
           "tier": 2,
@@ -2399,7 +2519,10 @@
               "min": 1,
               "max": 1
             }
-          ]
+          ],
+          "tier_yield": 1.05,
+          "high_tier_weight_mult": 1.15,
+          "gear_lock": false
         },
         {
           "tier": 3,
@@ -2416,8 +2539,8 @@
           ],
           "item_chance": 92,
           "extra_drop_chance": 70,
-          "equipment_chance": 13,
-          "up_rank_weight": 0.4,
+          "equipment_chance": 15,
+          "up_rank_weight": 0.55,
           "drops": [
             {
               "name": "虚空妖核",
@@ -2461,7 +2584,10 @@
               "min": 1,
               "max": 1
             }
-          ]
+          ],
+          "tier_yield": 1.95,
+          "high_tier_weight_mult": 2.0,
+          "gear_lock": true
         }
       ]
     },
@@ -2550,7 +2676,10 @@
               "min": 1,
               "max": 1
             }
-          ]
+          ],
+          "tier_yield": 1.0,
+          "high_tier_weight_mult": 1.0,
+          "gear_lock": false
         },
         {
           "tier": 2,
@@ -2630,7 +2759,10 @@
               "min": 1,
               "max": 1
             }
-          ]
+          ],
+          "tier_yield": 1.05,
+          "high_tier_weight_mult": 1.15,
+          "gear_lock": false
         },
         {
           "tier": 3,
@@ -2647,8 +2779,8 @@
           ],
           "item_chance": 92,
           "extra_drop_chance": 70,
-          "equipment_chance": 13,
-          "up_rank_weight": 0.4,
+          "equipment_chance": 15,
+          "up_rank_weight": 0.55,
           "drops": [
             {
               "name": "混沌源晶",
@@ -2710,7 +2842,10 @@
               "min": 1,
               "max": 1
             }
-          ]
+          ],
+          "tier_yield": 1.95,
+          "high_tier_weight_mult": 2.0,
+          "gear_lock": true
         }
       ]
     }
