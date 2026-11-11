@@ -87,6 +87,8 @@ def to_card_parts(
                         "facet": it.get("facet") or "",
                         "rank": it.get("rank") or 0,
                         "recommend": bool(it.get("recommend")),
+                        # 解锁境界（「合体期初期·25级」）：网页端行内直接展示
+                        "level_text": it.get("level_text") or "",
                         # 未解锁的两段要在网页端显示「需 XX」而不是可点按钮
                         "locked": bool(it.get("locked")),
                         "lock_text": it.get("lock_text") or "",

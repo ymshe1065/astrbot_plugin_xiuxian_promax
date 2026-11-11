@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v7.9.6 (历练代理面板配置)
+# AstrBot 插件：模拟修仙 v7.9.7 (秘境/历练列表标注解锁境界)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v7.9.6-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v7.9.7-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.44.8 · **游戏版本:** v7.9.6 · **数据库:** v61
+> **插件版本:** v3.44.9 · **游戏版本:** v7.9.7 · **数据库:** v61
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，257 条注册指令（网页指令目录 245 个功能按钮 + 12 个别名）、17 个大系统、111 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,22 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · 插件 v3.44.8（历练代理面板配置）</b></summary>
+<summary><b>本次更新 · 插件 v3.44.9（秘境/历练列表标注解锁境界）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 解锁境界 | 秘境与历练列表的每一行都标明解锁门槛，格式为**境界名 + 境界等级**（如 `合体期后期·27级`）。只写「合体期」分不出初/中/后期，只写「27」又不知道是哪个境界，两个都写才方便算「还差几级」。 |
+| 未解锁文案 | 秘境原本是「需合体期初期」、历练是「需境界 20」，现在统一为 `需合体期后期·27级`；`/秘境列表` 文本兜底与 `/探索秘境 <名字>` 候选列表同步。 |
+| 副标题 | 秘境、历练列表的副标题从「合体期中期 · 可进入 29 档」改为「合体期中期·26级 · 可进入 29 档 / 未解锁 16 档」，玩家等级与门槛用同一套写法，可直接对照。 |
+| 卡片排版 | 图片卡片保持**一档一行**：秘境行让位给境界字段、去掉「修为」（本就是象征量），历练行去掉「风险」（同档几乎清一色极高风险）。实测最长行宽 744 / 750 px，在 802 px 换行阈值内，不再出现「修为5,625」被拆成两行。修为、灵石、风险、耗时在网页行与详情里都保留。 |
+| 兜底 | 境界表未加载时不拼「境界25·25级」，只输出「25级」；调用方再退化为「境界25」，任何配置缺失都不会出现数字重复。 |
+| 回归验证 | 新增 `tests/test_list_unlock_label.py`（9 例，含配置缺失兜底、秘境/历练两侧 lock_text 与副标题）；`tests/test_list_cards.py` 补充 `level_text` 透传断言；全量 **1369 项通过**。 |
+| 版本与数据库 | 插件 **v3.44.9** / 游戏及帮助 **v7.9.7**；纯展示层改动，无表结构变更，数据库仍为 **v61**。 |
+
+</details>
+
+<details>
+<summary><b>插件 v3.44.8（历练代理面板配置）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |

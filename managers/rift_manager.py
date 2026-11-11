@@ -224,6 +224,19 @@ class RiftManager:
         if 0 <= level_index < len(level_names):
             return level_names[level_index]
         return f"境界{level_index}"
+
+    def _level_label(self, level_index: int) -> str:
+        """「合体期初期·25级」：解锁境界名 + 境界等级，列表里标明门槛用。
+
+        玩家看「需合体期初期」不知道自己还差几级，看「需 25 级」不知道是哪个
+        境界的中/后期，所以两者一起给。
+        """
+        from ..core.realm_rules import level_label
+
+        data = []
+        if self.config_manager and hasattr(self.config_manager, "level_data"):
+            data = self.config_manager.level_data or []
+        return level_label(data, level_index)
     
     # -------- 列表数据（卡片 / 网页 / 兜底文本共用）--------
 
@@ -346,16 +359,20 @@ class RiftManager:
         star_text = self._star_text(stars)
         row["stars"] = stars
         row["star_text"] = star_text
+        level_text = row.get("level_text") or self._level_label(row["required_level"])
+        row["level_text"] = level_text
         row["rows"] = [
+            ["解锁", level_text],
             ["耗时", f"{row['minutes']} 分钟"],
             ["主产", f"{row['facet']} {star_text}"],
             ["修为", self._fmt_amount(row["exp"])],
             ["灵石", self._fmt_amount(row["gold"])],
         ]
-        # 图片版一档一行：名字+档位 时长 产物★ 修为
+        # 图片版一档一行：名字+档位 解锁境界 时长 产物★
+        # 修为不进图片行：它是象征量（详情与网页 rows 里都有），塞进来会把行挤到
+        # 换行，出现「修为5,625」被拆成「修为5,」「625」的难看断行。
         row["line"] = (
-            f"{row['title']}  {row['minutes']}分  {row['facet']}{star_text}"
-            f"  修为{self._fmt_amount(row['exp'])}"
+            f"{row['title']} {level_text}  {row['minutes']}分 {row['facet']}{star_text}"
         )
 
     async def build_rift_list(self, user_id: str = None, product: str = "") -> dict:
@@ -404,6 +421,7 @@ class RiftManager:
                     "facet": self._facet_of(rift.product),
                     "required_level": int(rift.required_level or 0),
                     "level_name": self._get_level_name(int(rift.required_level or 0)),
+                    "level_text": self._level_label(int(rift.required_level or 0)),
                     "minutes": minutes,
                     "value": round(value, 1),
                     "value_per_min": round(value / minutes, 2),
@@ -453,7 +471,10 @@ class RiftManager:
         for row in soon_rows + locked_rows:
             row["locked"] = True
             row["badge"] = ""
-            row["lock_text"] = f"需{row['level_name']}" if row.get("level_name") else f"需境界 {row['required_level']}"
+            row["lock_text"] = (
+                f"需{row['level_text']}" if row.get("level_text")
+                else f"需境界 {row['required_level']}"
+            )
 
         # 推荐位按产物轮转，保证前 N 条覆盖不同材料而不是同类堆叠
         recommended: List[dict] = []
@@ -504,7 +525,11 @@ class RiftManager:
         if player_level is None:
             subtitle = f"共 {len(rows)} 档"
         else:
-            subtitle = f"{self._get_level_name(player_level)} · 可进入 {len(open_rows)} 档 / 未解锁 {len(rows) - len(open_rows)} 档"
+            # 副标题也带等级：玩家一眼能算出「还差几级」才够下一档
+            subtitle = (
+                f"{self._level_label(player_level)} · 可进入 {len(open_rows)} 档"
+                f" / 未解锁 {len(rows) - len(open_rows)} 档"
+            )
         if wanted:
             subtitle = f"{wanted} · {subtitle}"
 
@@ -540,7 +565,7 @@ class RiftManager:
                 shown = items[: self.LIST_TOP_N]
                 for row in shown:
                     lines.append(
-                        f"  {row['title']} (ID:{row['id']})  {row['minutes']}分 · "
+                        f"  {row['title']} (ID:{row['id']})  {row['level_text']} · {row['minutes']}分 · "
                         f"{row['facet']}{row['star_text']} · 修为{self._fmt_amount(row['exp'])}"
                         f" · 灵石{self._fmt_amount(row['gold'])}"
                     )
@@ -550,7 +575,7 @@ class RiftManager:
                 lines.append(f"▸ {group['name']}")
                 for row in items[:4]:
                     lines.append(
-                        f"  🔒 {row['title']} (ID:{row['id']}) 需{row['level_name']} · {row['minutes']}分"
+                        f"  🔒 {row['title']} (ID:{row['id']}) 需{row['level_text']} · {row['minutes']}分"
                     )
             else:
                 lines.append(f"▸ {group['name']}（含更深处秘境，境界提升后开放）")

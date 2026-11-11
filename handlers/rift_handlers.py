@@ -65,7 +65,7 @@ class RiftHandlers:
         lines = [f"🌀 「{name}」有多处难度，请指定（或在指令后加难度，如 /探索秘境 {name} 二重）："]
         for r in candidates[:9]:
             lines.append(
-                f"  · {r.display_name} (ID:{r.rift_id}) 需境界{r.required_level}"
+                f"  · {r.display_name} (ID:{r.rift_id}) 需{self.rift_mgr._level_label(int(r.required_level or 0))}"
             )
         yield event.plain_result("\n".join(lines))
         

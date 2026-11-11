@@ -129,6 +129,15 @@ class TestToCardParts(unittest.TestCase):
         self.assertFalse(payload["groups"][0]["items"][0]["locked"])
         self.assertEqual(payload["groups"][0]["items"][0]["lock_text"], "")
 
+    def test_level_text_survives_to_payload(self):
+        """解锁境界要一路带到网页端：只写「合体期」看不出初/中/后期，只写等级也不知道是哪个境界。"""
+        data = self._data()
+        data["groups"][0]["items"][0]["level_text"] = "合体期初期·25级"
+        _, payload = self.mod.to_card_parts(data, "rift_list")
+        self.assertEqual(payload["groups"][0]["items"][0]["level_text"], "合体期初期·25级")
+        # 没有该字段时不能抛 KeyError，老数据/老客户端都要能跑
+        self.assertEqual(payload["groups"][0]["items"][1]["level_text"], "")
+
 
 class TestSidecarGroups(unittest.TestCase):
     """网页端要能读到 groups 卡（没有 sections 的老式结构）。"""

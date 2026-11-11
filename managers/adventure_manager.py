@@ -309,6 +309,8 @@ class AdventureManager:
                     "risk": str(route.get("risk") or "未知"),
                     "minutes": minutes,
                     "level": int(route.get("min_level") or 0),
+                    "level_name": self._level_name(int(route.get("min_level") or 0)),
+                    "level_text": self._level_label(int(route.get("min_level") or 0)),
                     "exp": exp,
                     "gold": gold,
                     "exp_per_hour": int(exp * 3600 / duration),
@@ -316,6 +318,7 @@ class AdventureManager:
                     "desc": str(route.get("description") or ""),
                     "cmd": f"/开始历练 {route.get('name') or ''}".strip(),
                     "rows": [
+                        ["解锁", self._level_label(int(route.get("min_level") or 0))],
                         ["耗时", f"{minutes} 分钟"],
                         ["主产", facet],
                         ["风险", f"{route.get('risk') or '未知'}"],
@@ -323,7 +326,8 @@ class AdventureManager:
                         ["灵石", self._fmt_amount(gold)],
                     ],
                     "line": (
-                        f"{route.get('name')}  {minutes}分  {facet}·{route.get('risk') or '?'}风险"
+                        f"{route.get('name')} {self._level_label(int(route.get('min_level') or 0))}"
+                        f"  {minutes}分 {facet}"
                         f"  修为{self._fmt_amount(exp)}"
                     ),
                 }
@@ -348,7 +352,7 @@ class AdventureManager:
         # 换成「需境界 N」的提示更直接。
         for row in locked_rows:
             row["locked"] = True
-            row["lock_text"] = f"需境界 {row['level']}"
+            row["lock_text"] = f"需{row['level_text']}"
 
         # 推荐位按产物轮转：高境界路线常常清一色「极高风险 + 全产物」，
         # 直接取前 N 条等于没推荐，轮转后玩家一眼能选出想刷的材料。
@@ -390,7 +394,8 @@ class AdventureManager:
 
         subtitle = f"可走 {len(open_rows)} 条 / 未解锁 {len(locked_rows)} 条"
         if player:
-            subtitle = f"{self._level_name(player_level)} · {subtitle}"
+            # 与列表行同一口径：境界名 + 等级，方便对照「还差几级」解锁下一条
+            subtitle = f"{self._level_label(player_level)} · {subtitle}"
         if wanted:
             subtitle = f"{wanted} · {subtitle}"
 
@@ -412,6 +417,17 @@ class AdventureManager:
         if data and 0 <= level_index < len(data):
             return str(data[level_index].get("level_name") or f"境界{level_index}")
         return f"境界{level_index}"
+
+    def _level_label(self, level_index: int) -> str:
+        """「合体期前期·25级」：境界名 + 境界等级，列表标明解锁门槛用。"""
+        from ..core.realm_rules import level_label
+
+        try:
+            data = self.config_manager.get_level_data("灵修") if self.config_manager else []
+        except Exception:
+            data = []
+        text = level_label(data, level_index)
+        return text or f"境界{level_index}"
 
     @staticmethod
     def _fmt_amount(value) -> str:

@@ -17,6 +17,7 @@ from ..rank_rules import RANK_NAMES, normalize_rank, rank_level
 __all__ = [
     "applicable_level_range",
     "format_applicable_realm",
+    "level_label",
     "level_name_at",
 ]
 
@@ -37,6 +38,25 @@ def level_name_at(level_data: Optional[Sequence[dict]], index: int) -> str:
             if name:
                 return name
     return f"境界{index}"
+
+
+def level_label(
+    level_data: Optional[Sequence[dict]],
+    index: Any,
+    sep: str = "·",
+) -> str:
+    """「合体期初期·25级」：境界名 + 境界等级，列表标明解锁门槛用。
+
+    只看「合体期」不知道是初/中/后期，只看「25」又不知道是哪个境界，
+    两个都写才能让玩家一眼判断「还差几级」。
+    """
+    idx = _as_index(index)
+    if idx is None or idx < 0:
+        return ""
+    if not level_data:
+        # 没加载境界表时只给数字，避免「境界25·25级」这种把数字写两遍的兜底
+        return f"{idx}级"
+    return f"{level_name_at(level_data, idx)}{sep}{idx}级"
 
 
 def applicable_level_range(

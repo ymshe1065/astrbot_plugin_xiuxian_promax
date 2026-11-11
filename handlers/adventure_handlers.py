@@ -61,12 +61,12 @@ class AdventureHandlers:
             if group.get("collapsed"):
                 lines.append(f"▸ {group.get('name')}")
                 for it in items[:4]:
-                    lines.append(f"  🔒 {it['title']}（需境界{it['level']}）")
+                    lines.append(f"  🔒 {it['title']}（需{it.get('level_text') or it['level']}）")
                 continue
             lines.append(f"▸ {group.get('name')}")
             for it in items[: self.adv_mgr.LIST_TOP_N]:
                 lines.append(
-                    f"  {it['title']}  {it['minutes']}分 · {it['facet']} · "
+                    f"  {it['title']}  {it.get('level_text') or ''} · {it['minutes']}分 · {it['facet']} · "
                     f"{it['risk']}风险 · 修为{self.adv_mgr._fmt_amount(it['exp'])}"
                 )
             rest = len(items) - self.adv_mgr.LIST_TOP_N
