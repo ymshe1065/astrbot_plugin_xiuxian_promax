@@ -1006,7 +1006,8 @@ class ShopManager:
         return recipes
 
     # ===== 符阁 =====
-    # 只卖凡品与黄品成品符：玄品以上必须由符箓师绘制，否则制符无意义。
+    # 只卖凡品与黄品成品符：玄品以上只卖符图，成品由玩家自行 /制符（不限职业），
+    # 否则符图与成品抢生意，制符就没人做了。
     TALISMAN_SHELF_RANKS = ("凡品", "黄品")
 
     def get_talismans_for_display(self, count: int) -> List[Dict]:
@@ -1711,7 +1712,7 @@ class ShopManager:
                 if self.has_talisman_recipe(item_data['name']):
                     recipe = (getattr(self.config_manager, "talisman_recipes_data", {}) or {}).get(item_data['name'], {})
                     details.append(
-                        f"绘符：符箓师可 /制符 {item_data['name']}"
+                        f"绘符：可 /制符 {item_data['name']}"
                         f"（需境界等级 {int(recipe.get('level_required', 0) or 0)} 与已习得符图）"
                     )
                     details.append(f"符图：/符阁 符图 购买【{self.talisman_recipe_entry_name(item_data['name'])}】")

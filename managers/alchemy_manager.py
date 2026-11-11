@@ -1094,15 +1094,15 @@ class AlchemyManager:
                         if tal_rank in ("凡品", "黄品"):
                             shield_hint += (
                                 f"\n💡 可挡此劫的护劫符：【{tal_name}】(护盾 {tal_shield})，"
-                                f"成品可在 /符阁 符箓 购买，或由符箓师 /制符 {tal_name} 绘制"
+                                f"成品可在 /符阁 符箓 购买，或自行 /制符 {tal_name} 绘制"
                             )
                         else:
                             shield_hint += (
                                 f"\n💡 可挡此劫的护劫符：【{tal_name}】({tal_rank}·护盾 {tal_shield})，"
-                                f"符图常驻不限量：/购买 {tal_name}·符图，习得后由符箓师 /制符 {tal_name} 绘制"
+                                f"符图常驻不限量：/购买 {tal_name}·符图，习得后即可 /制符 {tal_name} 绘制"
                             )
                     else:
-                        shield_hint += "；护劫符可在 /符阁 购买，或由符箓师绘制"
+                        shield_hint += "；护劫符可在 /符阁 购买，或自行 /制符 绘制"
                     if options:
                         shield_hint += (
                             f"\n💡 开炉前先 /使用 {options[0][0]} 挂上避劫状态："

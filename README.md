@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v7.9.10 (储物戒无感刷新)
+# AstrBot 插件：模拟修仙 v7.9.11 (制符放开职业限制)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v7.9.10-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v7.9.11-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.45.2 · **游戏版本:** v7.9.10 · **数据库:** v61
+> **插件版本:** v3.45.3 · **游戏版本:** v7.9.11 · **数据库:** v61
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，257 条注册指令（网页指令目录 245 个功能按钮 + 12 个别名）、17 个大系统、111 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,22 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · 插件 v3.45.2（储物戒无感刷新）</b></summary>
+<summary><b>本次更新 · 插件 v3.45.3（制符放开职业限制）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 问题 | `/制符` 被 `player.life_skill != "符箓师"` 硬挡：炼器师/阵法师/炼丹师把符图买了、材料攒了、灵石也够，仍然画不出来。符箓师成了制符的必经职业，其他三个职业的符图投入全打了水漂。 |
+| 改动 | 删除 `craft_talisman` 的职业拦截；`build_craft_book` 的告警从「暂时无法绘制」改为「制符不受影响，只是没有职业加成」。绘制门槛仍是三项硬条件：已习得符图、材料齐备、境界等级达标。 |
+| 职业加成保留 | 【符箓师】的优势不变：同一张符工费 ×0.8、成功率 +10%、20% 概率额外产出 1 张，另有 `/日常制符` 每日免费护劫符。放开的是「能不能画」，不是「画得便不便宜」。 |
+| 日常福利边界 | `/日常制符` 仍只对符箓师开放（那是职业福利，不是制符权限）。非符箓师发送时不再说「其他职业无法绘制符箓」，改为说明「制符不限职业 + 转职可领免费符」。 |
+| 文案同步 | 符箓配方页（「任何生活职业都可绘制」）、`/符箓` 图鉴、`/制符说明`、符阁分区提示、炼丹丹劫预警里的护劫符提示（「或自行 /制符」）、化身傀儡获取说明、帮助页静态文案全部改口径。 |
+| 验证 | `tests/test_talisman_craft_book.py` 由 6 例扩到 8 例：炼丹师实跑 `/制符 烈焰符` 成功产出、非符箓师文案不再出现「暂时无法绘制」、符箓师工费仍比非符箓师低 20%。全量 **1386 项**通过。 |
+| 版本与数据库 | 插件 **v3.45.3** / 游戏及帮助 **v7.9.11**；无表结构变更，数据库仍为 **v61**。 |
+
+</details>
+
+<details>
+<summary><b>插件 v3.45.2（储物戒无感刷新）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |
