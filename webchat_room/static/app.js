@@ -3066,6 +3066,9 @@
   /** 储物戒多选状态：跨卡片刷新保留，条目消失时自动剔除 */
   const bagSelection = { on: false, keys: new Set(), busy: false };
 
+  /** 储物戒种类/品质筛选：跨刷新保留，否则点一次物品就退回「全部」 */
+  const bagFilter = { kind: "", quality: "" };
+
   /** 多选与指令共用的条目键：同名装备按品质区分 */
   function bagEntryKey(it) {
     if (!it) return "";
@@ -3089,16 +3092,21 @@
     return [`/赠予 ${target} ${key} ${count}`];
   }
 
-  /** 储物戒网格：结构化条目 + 种类/品质筛选 + 多选批量回收/赠予 */
-  function renderItemGrid(items) {
-    // 只保留当前仍存在的勾选，避免把刚回收完的物品继续算进批量操作
+  /** 勾选清理：已消失的物品不能继续算进批量回收/赠予 */
+  function pruneBagSelection(items) {
     const validKeys = new Set(items.map(bagEntryKey));
     for (const key of Array.from(bagSelection.keys)) {
       if (!validKeys.has(key)) bagSelection.keys.delete(key);
     }
+  }
 
+  /** 储物戒网格：结构化条目 + 种类/品质筛选 + 多选批量回收/赠予 */
+  function renderItemGrid(initialItems) {
     const wrap = document.createElement("div");
     wrap.className = "item-grid-wrap";
+    wrap.dataset.role = "bag-grid"; // 无感刷新时靠它找回旧网格
+    let items = initialItems.slice();
+    pruneBagSelection(items);
 
     const bulk = document.createElement("div");
     bulk.className = "bag-bulk";
@@ -3138,11 +3146,19 @@
     empty.textContent = "没有符合筛选的物品";
     empty.hidden = true;
 
-    const state = { kind: "", quality: "" };
+    const state = bagFilter; // 模块级对象：重绘后筛选条件不丢
     let visible = items.slice();
-    const kinds = KIND_ORDER.filter((k) => items.some((it) => it.kind === k));
+    let kinds = [];
     const qualitiesOf = (kind) =>
       QUALITY_ORDER.filter((q) => items.some((it) => it.quality === q && (!kind || it.kind === kind)));
+
+    /** 条目换了之后重算可选筛选项，已经选不到的筛选条件就地归零 */
+    const syncFacets = () => {
+      kinds = KIND_ORDER.filter((k) => items.some((it) => it.kind === k));
+      if (state.kind && !kinds.includes(state.kind)) state.kind = "";
+      if (state.quality && !qualitiesOf(state.kind).includes(state.quality)) state.quality = "";
+    };
+    syncFacets();
 
     const chipRow = (label, options, key, onChange) => {
       const row = document.createElement("div");
@@ -3347,6 +3363,16 @@
     paint();
     wrap.appendChild(grid);
     wrap.appendChild(empty);
+    wrap.__items = items;
+    /** 无感刷新入口：换数据只重画格子与筛选项，工具条/筛选按钮/滚动位置都不动 */
+    wrap.__repaint = (nextItems) => {
+      items = (nextItems || []).slice();
+      pruneBagSelection(items);
+      syncFacets();
+      buildFilters();
+      paint();
+      wrap.__items = items;
+    };
     return wrap;
   }
 
@@ -3822,6 +3848,24 @@
       bagLoadedAt = Date.now();
     }
     const view = panelView(which);
+    const fresh = renderCard(card, { expanded: true });
+
+    // 储物戒：旧卡片里已经有物品网格就复用它，只换数据。
+    // 以前这里是 view.innerHTML = "" 整体重建，筛选会被打回「全部」、勾选清空、
+    // 滚动位置归零 —— 点一次物品就体验一次「页面刷新」。现在只替换卡片外壳，
+    // 网格节点连同它的筛选条/多选工具条一起留着。
+    if (which === "bag") {
+      const oldCard = view.querySelector(".card");
+      const oldGrid = view.querySelector('[data-role="bag-grid"]');
+      const newGrid = fresh.querySelector('[data-role="bag-grid"]');
+      if (oldCard && oldGrid && typeof oldGrid.__repaint === "function" && newGrid) {
+        oldGrid.__repaint(newGrid.__items || []);
+        newGrid.replaceWith(oldGrid);
+        oldCard.replaceWith(fresh);
+        return;
+      }
+    }
+
     view.innerHTML = "";
     const head = document.createElement("div");
     head.className = "panel-head";
@@ -3832,7 +3876,7 @@
     btn.addEventListener("click", () => loadPanel(which));
     head.appendChild(btn);
     view.appendChild(head);
-    view.appendChild(renderCard(card, { expanded: true }));
+    view.appendChild(fresh);
   }
 
   function renderPanelText(which, text) {

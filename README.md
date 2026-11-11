@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v7.9.9 (仙市风声去掉保底)
+# AstrBot 插件：模拟修仙 v7.9.10 (储物戒无感刷新)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v7.9.9-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v7.9.10-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.45.1 · **游戏版本:** v7.9.9 · **数据库:** v61
+> **插件版本:** v3.45.2 · **游戏版本:** v7.9.10 · **数据库:** v61
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，257 条注册指令（网页指令目录 245 个功能按钮 + 12 个别名）、17 个大系统、111 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,22 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · 插件 v3.45.1（仙市风声去掉连续平静保底）</b></summary>
+<summary><b>本次更新 · 插件 v3.45.2（储物戒无感刷新）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 问题 | 点物品做完任何操作（回收/装备/赠予）后，储物戒面板走 `view.innerHTML = ""` 整体重建：种类筛选被打回「全部」、勾选清空、滚动条跳回顶部。筛过装备的玩家每操作一次就要重选一次。 |
+| 改动 | 物品网格加 `data-role="bag-grid"` 并挂 `__repaint(items)`：刷新时先从新卡片取出条目，再复用旧网格只重画格子与筛选项；卡片外壳（标题、容量、页脚）照常整体替换，数量该变的照样变。 |
+| 筛选保留 | `bagFilter`（种类/品质）从 `renderItemGrid` 的局部变量提升为模块级，重绘不再重置；某类物品被回收光后自动把失效筛选项归零，不会卡在空列表里出不来。 |
+| 滚动保留 | 滚动容器是 `.panel-body`，刷新只 replace 卡片节点、容器本身不动，位置原样保留。 |
+| 兜底 | 卡片结构变了（例如查询失败只剩一行文本）时退回原来的整体重建，不会留下半截网格。 |
+| 验证 | 新增 `tests/webchat_bag_inplace.test.cjs`（3 例契约：网格标记与 `__repaint`、筛选状态模块化、复用旧网格）；CDP 实机脚本桌面 1440×900 与手机 390×844 各跑一遍：筛「装备」得 9 件 → 刷新 → 仍是装备 + 9 件；`.panel-body` 滚到 300 → 刷新后仍是 300；网格 DOM 节点引用未变（确认是就地更新而非重画）。全量 **1384 项**通过。 |
+| 版本与数据库 | 插件 **v3.45.2** / 游戏及帮助 **v7.9.10**；纯前端改动，无表结构变更，数据库仍为 **v61**。 |
+
+</details>
+
+<details>
+<summary><b>插件 v3.45.1（仙市风声去掉连续平静保底）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |
