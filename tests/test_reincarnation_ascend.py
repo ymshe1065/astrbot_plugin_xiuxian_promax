@@ -88,38 +88,131 @@ class TestAscendArgs(unittest.TestCase):
 
 
 class TestDaoGiftLedger(unittest.TestCase):
+    """道基淬炼：从「扁平 +100」改成「按层数放大基础属性」。"""
+
     def _player(self):
-        return Player(user_id="u1")
+        player = Player(user_id="u1")
+        player.mental_power = 1000
+        player.magic_damage = 200
+        return player
 
     def test_grant_adds_stats_and_ledger(self):
         player = self._player()
-        player.mental_power = 500
         bonus = {}
         rules.grant_dao_gift(player, bonus)
-        self.assertEqual(player.mental_power, 600)
-        self.assertEqual(bonus["dao_gift"]["mental_power"], 100)
-        self.assertEqual(bonus["dao_gift"]["magic_damage"], 20)
+        # 500 -> 5% 放大
+        self.assertEqual(player.mental_power, 1050)
+        self.assertEqual(player.magic_damage, 210)
+        self.assertEqual(bonus["dao_gift_times"], 1)
+        self.assertNotIn("dao_gift", bonus)
         self.assertEqual(rules.dao_gift_times(bonus), 1)
+
+    def test_stacks_are_multiplicative_percent(self):
+        player = self._player()
+        bonus = {}
+        for _ in range(3):
+            rules.grant_dao_gift(player, bonus)
+        self.assertAlmostEqual(rules.dao_gift_pct(bonus), 0.15, places=6)
+        # 1000 -> 1050 -> 1102（.5 取偶）-> 1157
+        self.assertEqual(player.mental_power, 1157)
 
     def test_apply_replays_after_reset(self):
         player = self._player()
-        bonus = {"dao_gift": {"mental_power": 300, "magic_damage": 60}}
-        player.mental_power = 7  # 模拟被 generate_new_player_stats 覆盖
-        player.magic_damage = 5
+        player.mental_power = 1000  # 模拟 generate_new_player_stats 之后的裸值
+        player.magic_damage = 200
+        rules.apply_dao_gift(player, {"dao_gift_times": 2})
+        self.assertEqual(player.mental_power, 1100)
+        self.assertEqual(player.magic_damage, 220)
+
+    def test_legacy_flat_ledger_counts_once(self):
+        """旧存档的扁平账本不再按数值重放，但至少保留一层（5%），不会归零。"""
+        player = self._player()
+        bonus = {"dao_gift": {"mental_power": 100, "magic_damage": 20}}
+        self.assertEqual(rules.dao_gift_times(bonus), 1)
         rules.apply_dao_gift(player, bonus)
-        self.assertEqual(player.mental_power, 307)
-        self.assertEqual(player.magic_damage, 65)
+        self.assertEqual(player.mental_power, 1050)
+
+    def test_cap_is_eight_stacks(self):
+        bonus = {}
+        for _ in range(12):
+            rules.add_item(bonus, 3)
+        self.assertEqual(rules.dao_gift_times(bonus), 8)
+        self.assertAlmostEqual(rules.dao_gift_pct(bonus), 0.40, places=6)
 
     def test_bad_ledger_is_ignored(self):
         player = self._player()
-        player.mental_power = 100
         rules.apply_dao_gift(player, {"dao_gift": "not-a-dict"})
-        self.assertEqual(player.mental_power, 100)
+        self.assertEqual(player.mental_power, 1000)
 
     def test_parse_bonus_tolerates_broken_json(self):
         player = self._player()
         player.permanent_bonus = "{broken"
         self.assertEqual(rules.parse_bonus(player), {})
+
+
+class TestFateShopCatalog(unittest.TestCase):
+    def test_eight_items_with_expected_prices(self):
+        expected = {
+            1: ("修炼加速", 100, 0),
+            2: ("转世资粮", 50, 12),
+            3: ("道基淬炼", 200, 8),
+            4: ("灵根洗炼", 40, 20),
+            5: ("破境感悟", 120, 6),
+            6: ("历练心得", 150, 8),
+            7: ("采药心得", 100, 6),
+            8: ("寻宝直觉", 120, 6),
+        }
+        for item_id, (name, cost, cap) in expected.items():
+            item = rules.SHOP_ITEMS[item_id]
+            self.assertEqual(item["name"], name)
+            self.assertEqual(item["cost"], cost)
+            self.assertEqual(item["cap"], cap)
+
+    def test_caps_stop_purchases(self):
+        bonus = {}
+        for _ in range(10):
+            rules.add_item(bonus, 7)  # 采药心得 上限 6
+        self.assertEqual(rules.item_owned(bonus, 7), 6)
+        self.assertTrue(rules.item_at_cap(bonus, 7))
+        self.assertFalse(rules.item_at_cap(bonus, 1))  # 修炼加速不封顶
+
+    def test_effect_getters(self):
+        bonus = {
+            "global_cultivation_multiplier": 0.3,
+            "breakthrough_bonus": 0.02,
+            "adventure_bonus": 0.4,
+            "rift_item_bonus": 0.09,
+            "rift_equip_bonus": 0.3,
+            "root_reroll_stock": 4,
+            "newlife_trips": 6,
+        }
+        player = Player(user_id="u1")
+        player.permanent_bonus = json.dumps(bonus, ensure_ascii=False)
+        self.assertAlmostEqual(rules.permanent_cultivation_mult(player), 0.3)
+        self.assertAlmostEqual(rules.permanent_breakthrough_bonus(player), 0.02)
+        self.assertAlmostEqual(rules.permanent_adventure_bonus(player), 0.4)
+        self.assertAlmostEqual(rules.permanent_rift_item_bonus(player), 0.09)
+        self.assertAlmostEqual(rules.permanent_rift_equip_bonus(player), 0.3)
+        self.assertEqual(rules.root_reroll_stock(player), 4)
+        self.assertAlmostEqual(rules.newlife_trips(player), 6)
+
+    def test_consume_reroll_stock(self):
+        bonus = {"root_reroll_stock": 2}
+        self.assertEqual(rules.consume_root_reroll(bonus), 1)
+        self.assertEqual(rules.consume_root_reroll(bonus), 0)
+        self.assertEqual(rules.consume_root_reroll(bonus), 0)  # 不会变负
+
+    def test_reroll_budget_text(self):
+        text = rules.format_reroll_budget(3, 5)
+        self.assertIn("免费重抽剩余 3/5", text)
+        self.assertIn("洗炼额度 5 次", text)
+
+    def test_newlife_gold_scales_with_escort_trips(self):
+        EscortManager = _imp("managers.escort_manager").EscortManager
+        player = Player(user_id="u1")
+        player.permanent_bonus = json.dumps({"newlife_trips": 4}, ensure_ascii=False)
+        base = EscortManager.calculate_escort_gold_base(25)
+        self.assertEqual(rules.newlife_gold(player, 25), base * 4)
 
 
 class TestFateShop(unittest.IsolatedAsyncioTestCase):
@@ -135,12 +228,14 @@ class TestFateShop(unittest.IsolatedAsyncioTestCase):
         mgr, db = self._manager()
         player = Player(user_id="u1")
         player.fate_points = 600
+        player.mental_power = 1000
         ok, msg = await mgr.buy_fate_shop_item(player, 3)
         self.assertTrue(ok, msg)
-        self.assertEqual(player.fate_points, 100)
+        self.assertEqual(player.fate_points, 400)
         data = json.loads(player.permanent_bonus)
-        self.assertEqual(data["dao_gift"]["mental_power"], 100)
-        self.assertIn("飞升与弃道重修后都会重新加回", msg)
+        self.assertEqual(data["dao_gift_times"], 1)
+        self.assertEqual(player.mental_power, 1050)
+        self.assertIn("道基淬炼", msg)
 
     async def test_speed_purchase_stacks(self):
         mgr, db = self._manager()
@@ -150,6 +245,38 @@ class TestFateShop(unittest.IsolatedAsyncioTestCase):
         await mgr.buy_fate_shop_item(player, 1)
         data = json.loads(player.permanent_bonus)
         self.assertAlmostEqual(data["global_cultivation_multiplier"], 0.2)
+
+    async def test_reroll_stock_is_granted(self):
+        mgr, db = self._manager()
+        player = Player(user_id="u1")
+        player.fate_points = 100
+        ok, msg = await mgr.buy_fate_shop_item(player, 4)
+        self.assertTrue(ok, msg)
+        self.assertEqual(rules.root_reroll_stock(player), 1)
+        self.assertIn("灵根洗炼", msg)
+
+    async def test_purchase_rejected_at_cap(self):
+        mgr, db = self._manager()
+        player = Player(user_id="u1")
+        player.fate_points = 100000
+        player.permanent_bonus = json.dumps({"rift_equip_bonus": 0.6}, ensure_ascii=False)
+        ok, msg = await mgr.buy_fate_shop_item(player, 8)
+        self.assertFalse(ok)
+        self.assertIn("已满 6 层", msg)
+
+    async def test_purchase_rejected_without_points(self):
+        mgr, db = self._manager()
+        player = Player(user_id="u1")
+        player.fate_points = 10
+        ok, msg = await mgr.buy_fate_shop_item(player, 6)
+        self.assertFalse(ok)
+        self.assertIn("仙缘点不足", msg)
+
+    async def test_unknown_item(self):
+        mgr, db = self._manager()
+        ok, msg = await mgr.buy_fate_shop_item(Player(user_id="u1"), 99)
+        self.assertFalse(ok)
+        self.assertIn("1~8", msg)
 
 
 class TestAscendPreview(unittest.IsolatedAsyncioTestCase):
@@ -195,6 +322,8 @@ class TestAscendPreview(unittest.IsolatedAsyncioTestCase):
         # 点数 = 100 + int(log10(exp)*10) + 2*50
         self.assertIn("预计获得仙缘点 307", msg)
         self.assertIn("将保留", msg)
+        # 新规则：灵根/职业/生活职业不再保留，确认页必须写清
+        self.assertIn("将重塑：灵根 · 职业 · 生活职业", msg)
 
     async def test_preview_blocks_unknown_heirloom(self):
         mgr = self._manager()
@@ -203,17 +332,24 @@ class TestAscendPreview(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(ok)
         self.assertIn("都没有", msg)
 
-    async def test_try_reincarnate_replays_dao_gift(self):
+    async def test_try_reincarnate_enters_newlife(self):
         mgr = self._manager()
         player = self._maxed_player()
-        player.permanent_bonus = json.dumps({"dao_gift": {"mental_power": 1000}}, ensure_ascii=False)
+        player.permanent_bonus = json.dumps({"dao_gift_times": 8}, ensure_ascii=False)
+        player.life_skill = "炼丹师"
         ok, msg = await mgr.try_reincarnate(player)
         self.assertTrue(ok, msg)
         self.assertEqual(player.level_index, 0)
         self.assertEqual(player.reincarnation_count, 3)
-        # 重置后基础精神只有几百，账本 +1000 必须加上去
-        self.assertGreaterEqual(player.mental_power, 1000)
         self.assertIn("完美转生次数：3", msg)
+        # 飞升不再保留灵根/职业/生活职业，进入「待重塑」
+        self.assertEqual(player.cultivation_type, rules.NEWLIFE_MARKER)
+        self.assertEqual(player.spiritual_root, rules.NEWLIFE_ROOT_MARKER)
+        self.assertEqual(player.life_skill, "")
+        self.assertIn("我要修仙", msg)
+        self.assertIn("5 次免费重抽", msg)
+        # 道基淬炼 8 层 = +40%：基础精神必然高于 0
+        self.assertGreaterEqual(player.mental_power, 140)
 
 
 class TestAscendArgOptions(unittest.IsolatedAsyncioTestCase):

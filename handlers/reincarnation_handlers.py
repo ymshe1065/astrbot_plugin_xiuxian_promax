@@ -4,10 +4,11 @@ from ..data import DataBase
 from ..managers.reincarnation_manager import ReincarnationManager
 from ..models import Player
 from ..core.reincarnation_rules import (
-    DAO_GIFT_BONUS,
-    DAO_GIFT_COST,
-    DAO_GIFT_LABELS,
-    format_dao_gift,
+    FREE_ROOT_REROLLS,
+    NEWLIFE_ESCORT_TRIPS_PER_STACK,
+    SHOP_ITEMS,
+    format_permanent_summary,
+    item_owned,
     parse_bonus,
 )
 from .utils import player_required
@@ -64,33 +65,36 @@ class ReincarnationHandlers:
 
     @player_required
     async def handle_fate_shop(self, player: Player, event: AstrMessageEvent):
-        """查看仙缘商店"""
+        """查看仙缘商店（目录来自 SHOP_ITEMS，改价只改一处）"""
         bonus_data = parse_bonus(player)
         rebirth = await self._rebirth_times(player)
-        speed = 0.0
-        try:
-            speed = float(bonus_data.get("global_cultivation_multiplier", 0.0) or 0.0)
-        except (TypeError, ValueError):
-            speed = 0.0
-        gift_line = format_dao_gift(bonus_data)
-        gift_detail = " / ".join(
-            f"{DAO_GIFT_LABELS[key]}+{value:,}" for key, value in DAO_GIFT_BONUS.items()
-        )
-        msg = (
-            f"🌟 仙缘商店（当前仙缘点：{player.fate_points}）\n"
-            f"完美转生 {player.reincarnation_count} 次 · 弃道重修 {rebirth} 次\n"
-            f"已购：修炼加速 +{round(speed * 100)}%"
-            + (f" · {gift_line}" if gift_line else "")
-            + "\n"
-            f"━━━━━━━━━━━━━━━\n"
-            f"1. 兑换【修炼加速】：消耗 100 仙缘点，永久修炼速度 +10%（可无限叠加，跨世保留）\n"
-            f"2. 兑换【初始灵石】：消耗 50 仙缘点，获得 10,000 灵石（当世消费）\n"
-            f"3. 兑换【大道馈赠】：消耗 {DAO_GIFT_COST} 仙缘点，永久增加 "
-            f"{gift_detail}（跨世保留）\n"
-            f"━━━━━━━━━━━━━━━\n"
-            f"💡 使用 `/仙缘兑换 <编号>` 进行购买"
-        )
-        yield event.plain_result(msg)
+        owned_line = format_permanent_summary(bonus_data)
+
+        lines = [
+            f"🌟 仙缘商店（当前仙缘点：{player.fate_points}）",
+            f"完美转生 {player.reincarnation_count} 次 · 弃道重修 {rebirth} 次",
+        ]
+        if owned_line:
+            lines.append(f"已购：{owned_line}")
+        lines.append("━━━━━━━━━━━━━━━")
+
+        for item_id in sorted(SHOP_ITEMS):
+            item = SHOP_ITEMS[item_id]
+            owned = item_owned(bonus_data, item_id)
+            cap = int(item.get("cap") or 0)
+            progress = f"（已购 {owned}/{cap} 层）" if cap else (f"（已购 {owned} 层）" if owned else "")
+            lines.append(
+                f"{item_id}. {item['name']} · {item['cost']} 点 · {item['desc']}{progress}"
+            )
+
+        lines += [
+            "━━━━━━━━━━━━━━━",
+            f"🌀 每轮转生自带 {FREE_ROOT_REROLLS} 次免费灵根重抽，用完后消耗【灵根洗炼】额度",
+            "💰 【转世资粮】按「上一世巅峰境界」折算：层数 × "
+            f"{NEWLIFE_ESCORT_TRIPS_PER_STACK:g} 趟镖银，转生后直接到账",
+            "💡 使用 `/仙缘兑换 <编号>` 购买",
+        ]
+        yield event.plain_result("\n".join(lines))
 
     @player_required
     async def handle_fate_exchange(self, player: Player, event: AstrMessageEvent, item_id: str = "0"):

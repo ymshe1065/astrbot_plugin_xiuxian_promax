@@ -1257,12 +1257,24 @@ async def _src_farm_slots(plugin: "XiuXianPlugin", player: Any, field: dict, val
 
 
 async def _src_fate_shop(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    """仙缘商店目录：直接读 core.reincarnation_rules.SHOP_ITEMS，避免前端与后端两套价目。"""
+    from ..core.reincarnation_rules import SHOP_ITEMS, item_owned, parse_bonus
+
     points = _int(getattr(player, "fate_points", 0)) if player else 0
-    return [
-        _opt("修炼加速 +10%", 1, f"消耗 100 仙缘点 · 当前 {points}", "仙缘商店"),
-        _opt("初始灵石 10,000", 2, f"消耗 50 仙缘点 · 当前 {points}", "仙缘商店"),
-        _opt("大道馈赠（全属性）", 3, f"消耗 500 仙缘点 · 当前 {points}", "仙缘商店"),
-    ], ""
+    bonus = parse_bonus(player) if player else {}
+    options: List[dict[str, str]] = []
+    for item_id, item in sorted(SHOP_ITEMS.items()):
+        owned = item_owned(bonus, item_id)
+        cap = int(item.get("cap") or 0)
+        desc = f"{item['cost']} 点 · {item['unit']}"
+        if cap:
+            desc += f" · 已购 {owned}/{cap}"
+        elif owned:
+            desc += f" · 已购 {owned}"
+        if points < int(item["cost"]):
+            desc += " · 点数不足"
+        options.append(_opt(item["name"], item_id, desc, "仙缘商店"))
+    return options, f"当前仙缘点：{points}"
 
 
 async def _src_virtue_shop(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
@@ -1473,6 +1485,8 @@ async def _src_ascend_confirm(plugin: "XiuXianPlugin", player: Any, field: dict,
 
 
 async def _src_spirit_roots(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    from ..core.reincarnation_rules import FREE_ROOT_REROLLS
+
     if not player:
         return [], "尚未创建角色"
     for prefix, label in (("create_roots", "创号灵根"), ("rebirth_options", "重修灵根")):
@@ -1495,7 +1509,15 @@ async def _src_spirit_roots(plugin: "XiuXianPlugin", player: Any, field: dict, v
                 desc = ""
             options.append(_opt(f"{idx}. 【{name}灵根】", idx, desc, label))
         if options:
-            return options, ""
+            options.append(
+                _opt("重抽一批", "重抽", f"免费 {FREE_ROOT_REROLLS} 次/轮，用完消耗洗炼额度", "重抽")
+            )
+            budget = ""
+            try:
+                budget = await plugin.player_handler._reroll_budget_text(player)
+            except Exception:
+                budget = ""
+            return options, budget
     return [], "当前没有待选择的灵根，请先发送 /我要修仙 职业"
 
 

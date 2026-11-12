@@ -1363,6 +1363,13 @@ class RiftManager:
             ))
         except Exception:
             pass
+        # 仙缘商店【采药心得】：材料掉率加点（百分点），与符箓/气运同一口径
+        try:
+            from ..core.reincarnation_rules import permanent_rift_item_bonus
+
+            item_chance += int(round(permanent_rift_item_bonus(player) * 100))
+        except Exception:
+            pass
         # 分段结算按 chance_scale 摊薄，整趟期望不变
         # 额外掉落是「主掉落成功后的条件概率」，不跟着摊薄：
         # 主掉落按 s 摊、extra 保持原值，整趟期望才等于 主×(1+extra)。
@@ -1421,6 +1428,13 @@ class RiftManager:
                 chances = self.config.get("equipment_drop_chances") or {}
                 chance = chances.get(str(tier), chances.get(tier, 0))
             chance = float(chance or 0) * max(0.0, float(chance_scale))
+            # 仙缘商店【寻宝直觉】：装备掉率乘区（材料与装备分开计，互不稀释）
+            try:
+                from ..core.reincarnation_rules import permanent_rift_equip_bonus
+
+                chance *= 1.0 + max(0.0, float(permanent_rift_equip_bonus(player) or 0.0))
+            except Exception:
+                pass
             if chance > 0 and random.random() * 100.0 <= chance:
                 drop = roll_equipment_drop(
                     self.config_manager,

@@ -74,7 +74,21 @@ class BreakthroughManager:
         base_success_rate = next_level_data.get("success_rate", 0.5)
 
         info_lines = [f"基础成功率：{base_success_rate:.1%}"]
-        final_rate = base_success_rate + temp_bonus
+
+        # 仙缘商店【破境感悟】：突破基础成功率加点（跨世永久）。
+        # 加点同时抬高破境丹的上限，否则会被 max_success_rate 直接吃掉
+        # （混元丹 4.99% 加成 / 5% 上限时，任何加点都会被截断）。
+        perm_bonus = 0.0
+        try:
+            from .reincarnation_rules import permanent_breakthrough_bonus
+
+            perm_bonus = max(0.0, float(permanent_breakthrough_bonus(player) or 0.0))
+        except Exception:
+            perm_bonus = 0.0
+        if perm_bonus:
+            info_lines.append(f"仙缘·破境感悟：{perm_bonus:+.1%}")
+
+        final_rate = base_success_rate + temp_bonus + perm_bonus
         max_rate = 1.0
 
         if temp_bonus:
@@ -110,9 +124,16 @@ class BreakthroughManager:
                 breakthrough_bonus = float(pill_data.get("breakthrough_bonus", 0)) * float(quality_multiplier or 1.0)
                 pill_max_rate = float(pill_data.get("max_success_rate", 1.0))
                 # 增益丹加成在破境丹上限之外额外生效，避免破境丹已顶满时增益丹被完全浪费
-                max_rate = self.get_effective_max_success_rate(pill_max_rate, temp_bonus)
+                max_rate = self.get_effective_max_success_rate(
+                    pill_max_rate, temp_bonus + perm_bonus
+                )
                 final_rate = min(
-                    base_success_rate + temp_bonus + karma_bonus + luck_bonus + breakthrough_bonus,
+                    base_success_rate
+                    + temp_bonus
+                    + perm_bonus
+                    + karma_bonus
+                    + luck_bonus
+                    + breakthrough_bonus,
                     max_rate,
                 )
                 quality_label = f"·{pill_quality}" if pill_quality else ""
