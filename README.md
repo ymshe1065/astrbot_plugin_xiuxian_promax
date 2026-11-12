@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v7.9.11 (制符放开职业限制)
+# AstrBot 插件：模拟修仙 v7.9.12 (飞升二次确认与永久加成修复)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v7.9.11-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v7.9.12-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.45.3 · **游戏版本:** v7.9.11 · **数据库:** v61
+> **插件版本:** v3.45.4 · **游戏版本:** v7.9.12 · **数据库:** v61
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，257 条注册指令（网页指令目录 245 个功能按钮 + 12 个别名）、17 个大系统、111 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,23 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · 插件 v3.45.3（制符放开职业限制）</b></summary>
+<summary><b>本次更新 · 插件 v3.45.4（飞升二次确认与永久加成修复）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 问题 1 | 【大道馈赠】卖的是「永久属性」，实现却只改当世字段（`player.mental_power` 等）。飞升与弃道重修都会用 `generate_new_player_stats()` 覆盖整组属性，于是 500 仙缘点买的加成在下一次转生时静默清零。 |
+| 修复 1 | 新增 `core/reincarnation_rules.py`：兑换时把加成同时记进 `permanent_bonus["dao_gift"]`（按字段累加），转生重置后调用 `apply_dao_gift()` 按账本重放，飞升 N 次就重放 N 次，不会重复叠加。 |
+| 问题 3 | 弃道重修也执行 `reincarnation_count += 1`，导致「转生次数」把两种转生混在一起：飞升加成的「每次 +50」和【飞升者/轮回老祖/万世轮回】等称号会被重修刷出来，而称号 bump 只写在 `/飞升` 里，还会出现「次数到了但没称号」。 |
+| 区分 3 | `reincarnation_count` 收归「完美转生次数」，只有 `/飞升` 增加；弃道重修改用既有的 `rebirth_total_{uid}`（与【百变星君】同源）计「重修次数」。`/仙缘商店`、飞升与重修结算文案、`/飞升` 确认页都同时显示两个计数。 |
+| 问题 4 | `/飞升` 一发即重置、不可撤销，风险与要求二次确认的 `/弃道重修` 不对称。 |
+| 确认 4 | `/飞升` 改为两段式：裸发只出确认页（本次仙缘点、清空项、保留项、传家宝计划），带 `确认 / 确定 / 执行` 才执行。网页端在指令网格点「飞升」直接开参数弹层：先选传家宝（可留空），再点「确认飞升」。 |
+| 验证 | 新增 `tests/test_reincarnation_ascend.py`（18 例：确认词解析、账本重放、商店记账、确认页文案、弹层两个字段与候选源）；`test_rebirth_root_choice` 改为断言重修不再加完美转生次数、大道馈赠重修后仍在。 |
+| 版本与数据库 | 插件 **v3.45.4** / 游戏及帮助 **v7.9.12**；无表结构变更，数据库仍为 **v61**。 |
+
+</details>
+
+<details>
+<summary><b>插件 v3.45.3（制符放开职业限制）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |

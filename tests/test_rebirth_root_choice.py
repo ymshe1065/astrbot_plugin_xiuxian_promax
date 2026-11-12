@@ -244,7 +244,10 @@ class TestRootChoice(unittest.IsolatedAsyncioTestCase):
         player.gold = 88888
         player.fate_points = 100
         player.reincarnation_count = 1
-        player.permanent_bonus = json.dumps({"titles": {"测试称号": 1}}, ensure_ascii=False)
+        player.permanent_bonus = json.dumps(
+            {"titles": {"测试称号": 1}, "dao_gift": {"mental_power": 10000}},
+            ensure_ascii=False,
+        )
         player.set_storage_ring_items({"灵石袋": 1})
         db.players["u1"] = player
 
@@ -255,8 +258,12 @@ class TestRootChoice(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(player.experience, 0)
         self.assertEqual(player.gold, 1000)
         self.assertEqual(player.fate_points, 100 + 10 + 20 + 30)
-        self.assertEqual(player.reincarnation_count, 2)
+        # 弃道重修只算「重修次数」，不再计入完美转生次数（完美转生只认 /飞升）
+        self.assertEqual(player.reincarnation_count, 1)
+        self.assertIn("完美转生 1 次 · 重修 1 次", msg)
         self.assertIn("测试称号", player.permanent_bonus)
+        # 大道馈赠走永久账本：重修覆盖基础属性后必须重新加回（10000 远高于 0 级基础值）
+        self.assertGreaterEqual(player.mental_power, 10000)
         self.assertEqual(player.get_storage_ring_items(), {})
         # v6.57.0: 冷却/累计次数/灵根刷新计数改为随重修事务原生 SQL 写入 system_config
         cfg_writes = db.conn.system_config_writes()

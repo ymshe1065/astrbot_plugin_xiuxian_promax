@@ -2848,15 +2848,15 @@ class XiuXianPlugin(Star):
         async for r in self.robbery_handlers.handle_rob(event, target): yield r
 
     # ===== v6.1 飞升转生 =====
-    @filter.command("飞升", "达到最高境界后飞升转生（可附加装备名封印为传家宝）")
+    @filter.command("飞升", "达到最高境界后飞升（先出确认页，带「确认」才执行；可附加装备名封印为传家宝）")
     @require_whitelist
-    async def handle_reincarnate(self, event: AstrMessageEvent, heirloom_name: str = ""):
+    async def handle_reincarnate(self, event: AstrMessageEvent, args: str = ""):
         before = None
         p0 = await self.db.get_player_by_id(event.get_sender_id())
         if p0: before = p0.reincarnation_count
-        async for r in self.reinc_handlers.handle_reincarnate(event, heirloom_name):
+        async for r in self.reinc_handlers.handle_reincarnate(event, args):
             yield r
-        # 称号：转生次数（飞升后 count+1）
+        # 称号：完美转生次数（飞升后 count+1）
         try:
             p1 = await self.db.get_player_by_id(event.get_sender_id())
             if p1 and before is not None and p1.reincarnation_count > before:
@@ -4232,7 +4232,7 @@ class XiuXianPlugin(Star):
                 f"功德/业力：{getattr(target, 'karma', 0):+d}\n"
                 f"生活职业：{getattr(target, 'life_skill', '') or '无'}\n"
                 f"状态：{status} / {target.state}\n"
-                f"转生次数：{target.reincarnation_count}\n"
+                f"完美转生：{target.reincarnation_count} 次\n"
                 f"贷款：{('未还本金 ' + format(max(0, loan['principal'] - loan.get('paid_principal', 0)), ',') + ' 灵石') if loan else '无'}"
             )
             return

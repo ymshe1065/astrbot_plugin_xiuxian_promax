@@ -177,6 +177,10 @@ FIELD_PLANS: Dict[str, List[dict[str, Any]]] = {
     "选择灵根": [_f("id", "选择灵根", "spirit_roots")],
     "我要修仙": [_f("type", "选择修炼职业", "cultivation_types")],
     "弃道重修": [_f("mode", "选择重修方式 / 新职业 / 新生活职业", "rebirth_modes")],
+    "飞升": [
+        _f("heirloom", "选择要封印为传家宝的物品（可留空，直接下一步）", "heirloom_items", optional=True),
+        _f("confirm", "确认飞升", "ascend_confirm"),
+    ],
     "自动代理": [_f("task", "选择代理活动", "proxy_tasks")],
     "关闭代理": [_f("task", "选择要关闭的代理", "proxy_off_tasks")],
     # ---- 生活职业 / 符箓 / 炼器 ----
@@ -1406,6 +1410,68 @@ async def _src_rebirth_modes(plugin: "XiuXianPlugin", player: Any, field: dict, 
     return options, ""
 
 
+async def _src_heirloom_items(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    """飞升：可封印为传家宝的物品（已装备实例 + 储物戒实例 + 储物戒堆叠物品）。"""
+    if not player:
+        return [], "尚未创建角色，请先 /我要修仙"
+    try:
+        from ..core.reincarnation_rules import parse_bonus
+
+        sealed = (parse_bonus(player).get("heirloom") or {})
+    except Exception:
+        sealed = {}
+    msg = ""
+    if sealed.get("sealed"):
+        msg = f"⚠️ 已有未解封传家宝【{sealed.get('name') or '未知'}】，本次飞升不能再指定新的"
+
+    try:
+        levels = plugin.config_manager.get_level_data(player.cultivation_type)
+        if int(getattr(player, "level_index", 0) or 0) < len(levels) - 1:
+            msg = "当前境界未满，飞升会被拒绝（可先发送 /飞升 查看确认页）"
+    except Exception:
+        pass
+
+    options: List[dict[str, str]] = []
+    seen: set[str] = set()
+    try:
+        im = plugin.equipment_handler.equipment_manager.instance_manager
+        for location, group in (("equipped", "已装备"), ("storage", "储物戒·装备")):
+            for inst in im.list_instances(player, location):
+                name = str(inst.get("name") or "").strip()
+                if not name or name in seen:
+                    continue
+                seen.add(name)
+                quality = str(inst.get("quality") or "一般")
+                options.append(_opt(name, name, f"{quality} · {group}", group))
+    except Exception:
+        pass
+    try:
+        for name, count in (player.get_storage_ring_items() or {}).items():
+            if _int(count) <= 0 or name in seen:
+                continue
+            seen.add(name)
+            options.append(_opt(name, name, f"持有 x{_int(count)}", "储物戒·物品"))
+    except Exception:
+        pass
+
+    if not options:
+        return [], msg or "储物戒与已装备栏里都没有可封印的物品，可直接下一步"
+    options.sort(key=_sort_key)
+    return options[:MAX_OPTIONS], msg
+
+
+async def _src_ascend_confirm(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    """飞升确认：只有「确认」一个选项，避免误触即重置。"""
+    return [
+        _opt(
+            "确认飞升（不可撤销）",
+            "确认",
+            "清空境界/装备/家产，保留仙缘、传家宝与永久加成",
+            "确认",
+        )
+    ], ""
+
+
 async def _src_spirit_roots(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
     if not player:
         return [], "尚未创建角色"
@@ -2122,6 +2188,8 @@ SOURCES: Dict[str, Callable[..., Any]] = {
     "weekly_runs": _src_weekly_runs,
     "weekly_loadout": _src_weekly_loadout,
     "rebirth_modes": _src_rebirth_modes,
+    "heirloom_items": _src_heirloom_items,
+    "ascend_confirm": _src_ascend_confirm,
     "admin_subcommands": _src_admin_subcommands,
     "admin_targets": _src_admin_targets,
     "spirit_companions": _src_spirit_companions,

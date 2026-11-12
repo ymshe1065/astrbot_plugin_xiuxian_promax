@@ -4,6 +4,13 @@ import math
 from ..data import DataBase
 from ..models import Player
 from ..core.item_instance_manager import ItemInstanceManager
+from ..core.reincarnation_rules import (
+    DAO_GIFT_COST,
+    apply_dao_gift,
+    format_dao_gift,
+    grant_dao_gift,
+    parse_bonus,
+)
 
 class ReincarnationManager:
     """飞升转生管理器 - 支持传家宝封印与仙缘商店"""
@@ -12,6 +19,113 @@ class ReincarnationManager:
         self.db = db
         self.config_manager = config_manager
         self.storage_ring_mgr = storage_ring_mgr
+
+    # ---------- 共用小工具 ----------
+
+    def ascend_points(self, player: Player) -> int:
+        """本次飞升可得仙缘点：100 基础 + 修为档位（log10 经验×10）+ 完美转生次数×50。"""
+        base_points = 100 + int(math.log10(max(player.experience, 1)) * 10)
+        return base_points + player.reincarnation_count * 50
+
+    async def _find_heirloom(self, player: Player, heirloom_name: str) -> str:
+        """校验待封印的物品是否存在，返回 'equipment' / 'item' / ''（不存在）。"""
+        if not heirloom_name:
+            return ""
+        im = ItemInstanceManager(self.db, self.config_manager)
+        for location in ("storage", "equipped"):
+            try:
+                if im.list_instances(player, location, heirloom_name):
+                    return "equipment"
+            except Exception:
+                continue
+        try:
+            items = player.get_storage_ring_items()
+        except Exception:
+            items = {}
+        if items.get(heirloom_name, 0) > 0:
+            return "item"
+        return ""
+
+    def _bonus_preview_text(self, bonus_data: dict) -> str:
+        """永久加成摘要，用于飞升确认页。"""
+        parts = []
+        try:
+            speed = float(bonus_data.get("global_cultivation_multiplier", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            speed = 0.0
+        if speed > 0:
+            parts.append(f"修炼加速 +{round(speed * 100)}%")
+        gift = format_dao_gift(bonus_data)
+        if gift:
+            parts.append(gift)
+        return " · ".join(parts)
+
+    async def preview_reincarnate(self, player: Player, heirloom_name: str = "") -> tuple[bool, str]:
+        """飞升前置确认：只读校验 + 罗列得失，不改变任何状态。
+
+        返回 ``(可飞升, 文案)``；不可飞升时文案即拒绝原因。
+        """
+        level_data = self.config_manager.get_level_data(player.cultivation_type)
+        max_level = len(level_data) - 1
+        if player.level_index < max_level:
+            current = level_data[min(player.level_index, max_level)].get("level_name", "未知")
+            target = level_data[max_level].get("level_name", "最高境界")
+            return False, (
+                f"❌ 你的境界尚未达到巅峰（当前【{current}】，需【{target}】），无法飞升。"
+            )
+
+        try:
+            loan = await self.db.ext.get_active_loan(player.user_id)
+        except Exception as e:
+            return False, f"❌ 贷款状态查询失败，无法飞升，请稍后再试。（{e}）"
+        if loan:
+            return False, "❌ 你仍有未结清的灵石贷款，无法飞升。请先还清贷款。"
+
+        bonus_data = parse_bonus(player)
+        existing = bonus_data.get("heirloom") or {}
+        heirloom_name = (heirloom_name or "").strip()
+
+        if heirloom_name and existing.get("sealed"):
+            return False, (
+                f"❌ 你还有未解封的传家宝【{existing.get('name', '未知')}】。\n"
+                "请先达到筑基期使用 /解封传家宝，或本次飞升不再指定新传家宝。"
+            )
+        if heirloom_name and not await self._find_heirloom(player, heirloom_name):
+            return False, (
+                f"❌ 你的储物戒与已装备栏中都没有【{heirloom_name}】，无法将其封印为传家宝。"
+            )
+
+        points = self.ascend_points(player)
+        next_count = player.reincarnation_count + 1
+        level_name = level_data[player.level_index].get("level_name", "未知")
+        break_even = f"100 基础 + {points - 100 - player.reincarnation_count * 50} 修为 + " \
+                     f"{player.reincarnation_count * 50} 完美转生加成"
+
+        bonus_line = self._bonus_preview_text(bonus_data)
+        lines = [
+            "✨ 飞升确认 ✨",
+            "━━━━━━━━━━━━━━━",
+            f"当前境界：【{level_name}】· 修为 {int(player.experience):,}",
+            f"本次为第 {next_count} 次完美转生，预计获得仙缘点 {points}",
+            f"（{break_even}）",
+            "",
+            "将清空：境界 · 修为 · 灵石（重置为 1,000）· 装备 · 功法 · 储物戒",
+            "        丹药 · 仓库物品 · 洞天 · 灵田 · 灵眼 · 仙灵 · 宗门订单",
+            "        自动代理 · 坊市/拍卖/仙市资产 · 双修与师徒关系",
+            "将保留：灵根 · 职业 · 生活职业 · 称号 · 仙缘点 · 完美转生次数",
+            "        已买断的储物戒容量与仓库等级 · 仙缘商店永久加成",
+        ]
+        if bonus_line:
+            lines.append(f"        永久加成：{bonus_line}")
+        if heirloom_name:
+            lines.append(f"🔒 将封印传家宝：【{heirloom_name}】（筑基期后可 /解封传家宝 取回）")
+        lines += [
+            "━━━━━━━━━━━━━━━",
+            "⚠️ 飞升不可撤销，确认后立即重置全部修为与家产。",
+        ]
+        cmd = f"/飞升 {heirloom_name} 确认" if heirloom_name else "/飞升 确认"
+        lines.append(f"确认请发送：{cmd}")
+        return True, "\n".join(lines)
 
     async def try_reincarnate(self, player: Player, heirloom_name: str = "") -> tuple[bool, str]:
         """尝试飞升转生"""
@@ -61,16 +175,11 @@ class ReincarnationManager:
                 heirloom_data = {"name": heirloom_name, "sealed": True, "kind": "item"}
             
         # 计算仙缘点
-        base_points = 100 + int(math.log10(max(player.experience, 1)) * 10)
-        bonus_points = player.reincarnation_count * 50
-        earned_points = base_points + bonus_points
+        earned_points = self.ascend_points(player)
         old_level_name = level_data[player.level_index]["level_name"]
         
         # 读取旧有的永久加成（仙缘商店买的、传家宝等）
-        try:
-            bonus_data = json.loads(player.permanent_bonus) if player.permanent_bonus else {}
-        except Exception:
-            bonus_data = {}
+        bonus_data = parse_bonus(player)
         
         # 写入传家宝封印：已有未解封传家宝时不允许静默覆盖/丢弃
         existing_heirloom = bonus_data.get("heirloom")
@@ -111,6 +220,9 @@ class ReincarnationManager:
         player.magic_defense = base_player.magic_defense
         player.physical_defense = base_player.physical_defense
         player.mental_power = base_player.mental_power
+
+        # 仙缘商店的【大道馈赠】是跨世永久属性：基础属性已被覆盖，按账本重新加回
+        apply_dao_gift(player, bonus_data)
         
         player.weapon = ""
         player.armor = ""
@@ -216,6 +328,8 @@ class ReincarnationManager:
             return False, f"❌ 飞升结算失败，已回滚，请稍后再试。（{e}）"
         
         seal_msg = f"\n🔒 你的【{heirloom_name}】已被封印为传家宝，静待重见天日。" if heirloom_name else ""
+        bonus_line = self._bonus_preview_text(bonus_data)
+        keep_msg = f"\n永久加成保留：{bonus_line}" if bonus_line else ""
         
         return True, (
             f"✨ 飞升成功！✨\n"
@@ -224,7 +338,7 @@ class ReincarnationManager:
             f"境界与装备已全部化为虚无，洞天、灵田与仙灵也随风消散...\n"
             f"但你的修仙记忆化为了【仙缘】。{seal_msg}\n"
             f"获得仙缘点：{earned_points}\n"
-            f"转生次数：{player.reincarnation_count}\n"
+            f"完美转生次数：{player.reincarnation_count}{keep_msg}\n"
             f"当前仙缘点：{player.fate_points}\n"
             f"━━━━━━━━━━━━━━━\n"
             f"💡 使用 `/仙缘商店` 可兑换永久加成，重新踏上仙途吧！"
@@ -287,10 +401,7 @@ class ReincarnationManager:
 
     async def buy_fate_shop_item(self, player: Player, item_id: int) -> tuple[bool, str]:
         """仙缘商店兑换"""
-        try:
-            bonus_data = json.loads(player.permanent_bonus) if player.permanent_bonus else {}
-        except Exception:
-            bonus_data = {}
+        bonus_data = parse_bonus(player)
 
         if item_id == 1:
             # 1. 修炼加速
@@ -301,7 +412,10 @@ class ReincarnationManager:
             
             current_mult = bonus_data.get("global_cultivation_multiplier", 0.0)
             bonus_data["global_cultivation_multiplier"] = current_mult + 0.1
-            msg = "🌟 兑换成功！你的闭关修炼速度永久提升了 10%。"
+            msg = (
+                "🌟 兑换成功！你的闭关与历练速度永久提升 10%。"
+                f"\n当前累计：+{round((current_mult + 0.1) * 100)}%"
+            )
             
         elif item_id == 2:
             # 2. 初始灵石
@@ -314,19 +428,16 @@ class ReincarnationManager:
             
         elif item_id == 3:
             # 3. 大道馈赠（全属性）
-            cost = 500
+            cost = DAO_GIFT_COST
             if player.fate_points < cost:
                 return False, f"❌ 仙缘点不足，需要 {cost} 点。"
             player.fate_points -= cost
-            
-            player.mental_power += 100
-            player.max_spiritual_qi += 100
-            player.max_blood_qi += 100
-            player.magic_damage += 20
-            player.physical_damage += 20
-            player.magic_defense += 10
-            player.physical_defense += 10
-            msg = "✨ 兑换成功！大道之力加身，你的各项基础属性获得了永久提升！"
+            grant_dao_gift(player, bonus_data)
+            msg = (
+                "✨ 兑换成功！大道之力加身，各项基础属性永久提升。"
+                f"\n当前累计：{format_dao_gift(bonus_data)}"
+                "\n（已记入永久账本，飞升与弃道重修后都会重新加回）"
+            )
             
         else:
             return False, "❌ 无效的商品编号。"

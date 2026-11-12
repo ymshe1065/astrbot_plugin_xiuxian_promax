@@ -6,6 +6,7 @@ from astrbot.api.event import AstrMessageEvent
 from astrbot.api import AstrBotConfig
 from ..data import DataBase
 from ..core import CultivationManager, PillManager, StorageRingManager
+from ..core.reincarnation_rules import apply_dao_gift, parse_bonus
 from ..models import Player
 from ..models_extended import UserStatus
 from ..config_manager import ConfigManager
@@ -1098,7 +1099,8 @@ class PlayerHandler:
         if text == "__help__":
             yield event.plain_result(
                 "⚠️ 弃道重修将重置境界、修为、灵石、装备、宗门、洞府、灵田、灵兽等\n"
-                "保留：仙缘点、转生次数、称号、灵根\n"
+                "保留：仙缘点、完美转生次数、重修次数、称号、灵根、仙缘商店永久加成\n"
+                "注意：重修不计入完美转生次数（只有 /飞升 才算）\n"
                 f"当前：职业【{current_type}】· 生活职业【{current_life}】· 灵根【{player.spiritual_root}】\n"
                 "━━━━━━━━━━━━━━━\n"
                 "可选操作（也支持 /重修 简写）：\n"
@@ -1203,6 +1205,9 @@ class PlayerHandler:
         player.mental_power = base_player.mental_power
         player.spiritual_root = base_player.spiritual_root
 
+        # 仙缘商店的【大道馈赠】跨世保留：基础属性刚被覆盖，按永久账本重放
+        apply_dao_gift(player, parse_bonus(player))
+
         player.weapon = ""
         player.armor = ""
         player.main_technique = ""
@@ -1227,7 +1232,8 @@ class PlayerHandler:
         player.life_skill_last_change_at = 0
 
         player.tutorial_step = 4
-        player.reincarnation_count += 1
+        # 弃道重修不再计入「完美转生次数」：完美转生只认飞升（见 /飞升）。
+        # 重修次数单独落在 system_config 的 rebirth_total_{uid}，与称号【百变星君】同源。
         player.fate_points += points
         player.state = "空闲"
         player.cultivation_start_time = 0
@@ -1338,11 +1344,13 @@ class PlayerHandler:
         return True, (
             "💀 弃道重修完成！\n"
             "━━━━━━━━━━━━━━━\n"
-            f"保留：仙缘点 +{points}（当前 {player.fate_points}）、转生次数 {player.reincarnation_count}、称号、灵根【{player.spiritual_root}】\n"
+            f"保留：仙缘点 +{points}（当前 {player.fate_points}）、"
+            f"完美转生 {player.reincarnation_count} 次 · 重修 {total} 次、称号、灵根【{player.spiritual_root}】\n"
+            "保留：仙缘商店永久加成（修炼加速 / 大道馈赠）\n"
             f"新身份：职业【{player.cultivation_type}】{life_line}\n"
             "重置：境界、修为、灵石、装备、储物戒、丹药、功法\n"
             f"重置：宗门（{sect_note}）、洞府、灵田、灵兽、挂单、银行存款\n"
             "━━━━━━━━━━━━━━━\n"
-            "可立即开始新的修行（3 天内不可再次重修）。"
+            "重修不计入完美转生次数（只有飞升才算）· 3 天内不可再次重修。"
             + (f"\n{title_msg}" if title_msg else "")
         )
