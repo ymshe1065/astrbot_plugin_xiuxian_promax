@@ -28,6 +28,13 @@ from typing import Any, Dict, Optional
 # 每一轮转生（飞升 / 弃道重修）自带的免费重抽次数，用完后消耗洗炼额度
 FREE_ROOT_REROLLS = 5
 
+# 上一世飞升时的灵根：道体重塑「必出高一档灵根」的基准，按用户存 system_config。
+PREV_ROOT_KEY = "rebirth_prev_root_{uid}"
+
+
+def prev_root_key(user_id: str) -> str:
+    return PREV_ROOT_KEY.format(uid=user_id)
+
 # ---------- 道基淬炼（原「大道馈赠」） ----------
 
 # 每层把新号基础属性整体放大的比例；百分比会随境界一起成长，不会像固定 +100 那样被稀释
@@ -45,7 +52,9 @@ DAO_GIFT_LEGACY_KEYS = (
 )
 
 # 转世资粮：每层在转生后发放「上一世巅峰境界 N 趟镖银」
-NEWLIFE_ESCORT_TRIPS_PER_STACK = 2.0
+# 24 趟 ≈ 0.5 天镖银（lv35 一天约 48 趟），换算成「时间」与【修炼加速】同档，
+# 低境界同样约 0.6 天收入，因此不需要随境界调价。
+NEWLIFE_ESCORT_TRIPS_PER_STACK = 24.0
 
 # 飞升后的临时状态：道体未塑，等玩家重选职业 + 灵根。
 # 用玩家行上的 cultivation_type 作为标记，可以随飞升事务一起提交，中断不会留下半状态。
@@ -66,69 +75,77 @@ SHOP_ITEMS: Dict[int, Dict[str, Any]] = {
         "cap": 0,
         "unit": "10%",
         "desc": "闭关与历练修为 +10%（乘算，可无限叠加）",
+        "tier": "推进",
     },
     2: {
         "name": "转世资粮",
         "key": "newlife_trips",
-        "cost": 50,
+        "cost": 40,
         "step": NEWLIFE_ESCORT_TRIPS_PER_STACK,
-        "cap": 12,
-        "unit": "2 趟镖银",
-        "desc": "每次转生后到账「上一世巅峰境界 2 趟镖银」的启动灵石",
+        "cap": 8,
+        "unit": "24 趟镖银",
+        "desc": "每次转生到账「上一世巅峰境界 24 趟镖银」的启动灵石（约 0.5 天镖银）",
+        "tier": "资源",
     },
     3: {
         "name": "道基淬炼",
         "key": "dao_gift_times",
-        "cost": 200,
+        "cost": 100,
         "step": 1,
         "cap": 8,
         "unit": "5% 全属性",
         "desc": "新号基础属性 +5%（跨世重放，随境界一起放大）",
+        "tier": "战力",
     },
     4: {
         "name": "灵根洗炼",
         "key": "root_reroll_stock",
-        "cost": 40,
+        "cost": 25,
         "step": 1,
         "cap": 20,
         "unit": "1 次重抽",
         "desc": "额外灵根重抽额度（免费次数用完后消耗，跨世保留）",
+        "tier": "便利",
     },
     5: {
         "name": "破境感悟",
         "key": "breakthrough_bonus",
-        "cost": 120,
+        "cost": 80,
         "step": 0.005,
         "cap": 6,
         "unit": "0.5 点",
         "desc": "突破基础成功率 +0.5 个百分点（同时抬高破境丹上限）",
+        "tier": "概率",
     },
     6: {
         "name": "历练心得",
         "key": "adventure_bonus",
-        "cost": 150,
-        "step": 0.10,
+        "cost": 110,
+        "step": 0.12,
         "cap": 8,
-        "unit": "10%",
-        "desc": "历练修为与灵石收益 +10%（乘算）",
+        "unit": "12%",
+        "desc": "历练修为与灵石收益 +12%（乘算）",
+        "tier": "推进",
     },
     7: {
         "name": "采药心得",
         "key": "rift_item_bonus",
-        "cost": 100,
-        "step": 0.03,
+        "cost": 30,
+        "step": 0.04,
         "cap": 6,
-        "unit": "3 点",
-        "desc": "秘境材料掉率 +3 个百分点（105 上限按 100 封顶）",
+        "unit": "4 点",
+        "desc": "秘境材料掉率 +4 个百分点（总掉率按 100 封顶）",
+        "tier": "资源",
     },
     8: {
         "name": "寻宝直觉",
         "key": "rift_equip_bonus",
-        "cost": 120,
-        "step": 0.10,
+        "cost": 40,
+        "step": 0.12,
         "cap": 6,
-        "unit": "10%",
-        "desc": "秘境装备掉率 +10%（乘算）",
+        "unit": "12%",
+        "desc": "秘境装备掉率 +12%（乘算）",
+        "tier": "资源",
     },
 }
 
@@ -311,7 +328,7 @@ def escort_gold_base(level_index: int) -> int:
 
 
 def newlife_gold(player: Any, peak_level: Optional[int] = None) -> int:
-    """转生到账的启动灵石：账本层数 × 2 趟镖银（按上一世巅峰境界折算）。"""
+    """转生到账的启动灵石：账本层数 × 每层趟数（按上一世巅峰境界折算）。"""
     trips = newlife_trips(player)
     if trips <= 0:
         return 0

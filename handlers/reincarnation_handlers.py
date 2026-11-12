@@ -83,15 +83,17 @@ class ReincarnationHandlers:
             owned = item_owned(bonus_data, item_id)
             cap = int(item.get("cap") or 0)
             progress = f"（已购 {owned}/{cap} 层）" if cap else (f"（已购 {owned} 层）" if owned else "")
+            tier = f"[{item['tier']}]" if item.get("tier") else ""
             lines.append(
-                f"{item_id}. {item['name']} · {item['cost']} 点 · {item['desc']}{progress}"
+                f"{item_id}. {tier}{item['name']} · {item['cost']} 点 · {item['desc']}{progress}"
             )
 
         lines += [
             "━━━━━━━━━━━━━━━",
             f"🌀 每轮转生自带 {FREE_ROOT_REROLLS} 次免费灵根重抽，用完后消耗【灵根洗炼】额度",
             "💰 【转世资粮】按「上一世巅峰境界」折算：层数 × "
-            f"{NEWLIFE_ESCORT_TRIPS_PER_STACK:g} 趟镖银，转生后直接到账",
+            f"{NEWLIFE_ESCORT_TRIPS_PER_STACK:g} 趟镖银（约 0.5 天镖银），转生后直接到账",
+            "📊 标签：[推进] 买时间｜[概率] 买突破｜[战力]/[资源] 买终局｜[便利] 买顺手",
             "💡 使用 `/仙缘兑换 <编号>` 购买",
         ]
         yield event.plain_result("\n".join(lines))

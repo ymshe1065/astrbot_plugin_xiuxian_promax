@@ -299,10 +299,10 @@ class TestRerollAndNewlife(unittest.IsolatedAsyncioTestCase):
         db.players["u1"] = player
 
         for _ in range(self.rules.FREE_ROOT_REROLLS):
-            ok, note, roots = await handler._reroll_roots(player)
+            ok, note, roots, _ug = await handler._reroll_roots(player)
             self.assertTrue(ok, note)
             self.assertEqual(len(roots), 3)
-        ok, note, _roots = await handler._reroll_roots(player)
+        ok, note, _roots, _ug = await handler._reroll_roots(player)
         self.assertFalse(ok)
         self.assertIn("已用完", note)
 
@@ -311,7 +311,7 @@ class TestRerollAndNewlife(unittest.IsolatedAsyncioTestCase):
         mgr = _imp("managers.reincarnation_manager").ReincarnationManager(db, handler.config_manager, None)
         ok, msg = await mgr.buy_fate_shop_item(player, 4)
         self.assertTrue(ok, msg)
-        ok, note, _roots = await handler._reroll_roots(player)
+        ok, note, _roots, _ug = await handler._reroll_roots(player)
         self.assertTrue(ok, note)
         self.assertIn("洗炼额度", note)
         self.assertEqual(self.rules.root_reroll_stock(player), 0)

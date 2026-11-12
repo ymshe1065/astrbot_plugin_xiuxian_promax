@@ -175,6 +175,7 @@ FIELD_PLANS: Dict[str, List[dict[str, Any]]] = {
     "双修": [_f("target", "选择道侣", "players")],
     "传承挑战": [_f("target", "选择挑战对象", "players")],
     "选择灵根": [_f("id", "选择灵根", "spirit_roots")],
+    "灵根说明": [_f("name", "选择要查询的灵根", "root_names")],
     "我要修仙": [_f("type", "选择修炼职业", "cultivation_types")],
     "弃道重修": [_f("mode", "选择重修方式 / 新职业 / 新生活职业", "rebirth_modes")],
     "飞升": [
@@ -1266,7 +1267,7 @@ async def _src_fate_shop(plugin: "XiuXianPlugin", player: Any, field: dict, valu
     for item_id, item in sorted(SHOP_ITEMS.items()):
         owned = item_owned(bonus, item_id)
         cap = int(item.get("cap") or 0)
-        desc = f"{item['cost']} 点 · {item['unit']}"
+        desc = f"[{item.get('tier', '')}] {item['cost']} 点 · {item['unit']}"
         if cap:
             desc += f" · 已购 {owned}/{cap}"
         elif owned:
@@ -1275,6 +1276,21 @@ async def _src_fate_shop(plugin: "XiuXianPlugin", player: Any, field: dict, valu
             desc += " · 点数不足"
         options.append(_opt(item["name"], item_id, desc, "仙缘商店"))
     return options, f"当前仙缘点：{points}"
+
+
+async def _src_root_names(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    """灵根说明的候选：按阶位由高到低列出全部灵根。"""
+    from ..core.element_resonance import ElementResonance
+
+    cm = plugin.player_handler.cultivation_manager
+    options: List[dict[str, str]] = []
+    for idx in range(len(cm.root_tier_order) - 1, -1, -1):
+        label = cm.root_tier_order[idx][1]
+        for root in cm.root_tier_roots(idx):
+            elements = "".join(e for e in ("金", "木", "水", "火", "土") if e in ElementResonance.root_elements(root))
+            desc = f"{label} · ×{cm._get_root_speed(root):.2f} · 五行 {elements or '全'}"
+            options.append(_opt(root, root, desc, "灵根图鉴"))
+    return options, "选一条灵根查看倍率、五行与共鸣加成"
 
 
 async def _src_virtue_shop(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
@@ -2191,6 +2207,7 @@ SOURCES: Dict[str, Callable[..., Any]] = {
     "players": _src_players,
     "cultivation_types": _src_cultivation_types,
     "spirit_roots": _src_spirit_roots,
+    "root_names": _src_root_names,
     "proxy_tasks": _src_proxy_tasks,
     "proxy_off_tasks": _src_proxy_off_tasks,
     "proxy_rifts": _src_proxy_rifts,

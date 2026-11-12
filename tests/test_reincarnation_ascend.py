@@ -28,7 +28,19 @@ ConfigManager = _imp("config_manager").ConfigManager
 
 
 class _FakeConn:
-    async def execute(self, *a, **k):
+    def __init__(self):
+        # 记录事务内执行过的 SQL，供断言「上一世灵根随飞升事务写入 system_config」
+        self.executed = []
+
+    def system_config_writes(self):
+        out = {}
+        for sql, params in self.executed:
+            if "INSERT INTO system_config" in (sql or "") and params:
+                out[params[0]] = params[1]
+        return out
+
+    async def execute(self, sql=None, params=None, *a, **k):
+        self.executed.append((sql, params))
         return None
 
     async def commit(self):
@@ -154,13 +166,13 @@ class TestFateShopCatalog(unittest.TestCase):
     def test_eight_items_with_expected_prices(self):
         expected = {
             1: ("修炼加速", 100, 0),
-            2: ("转世资粮", 50, 12),
-            3: ("道基淬炼", 200, 8),
-            4: ("灵根洗炼", 40, 20),
-            5: ("破境感悟", 120, 6),
-            6: ("历练心得", 150, 8),
-            7: ("采药心得", 100, 6),
-            8: ("寻宝直觉", 120, 6),
+            2: ("转世资粮", 40, 8),
+            3: ("道基淬炼", 100, 8),
+            4: ("灵根洗炼", 25, 20),
+            5: ("破境感悟", 80, 6),
+            6: ("历练心得", 110, 8),
+            7: ("采药心得", 30, 6),
+            8: ("寻宝直觉", 40, 6),
         }
         for item_id, (name, cost, cap) in expected.items():
             item = rules.SHOP_ITEMS[item_id]
@@ -231,7 +243,7 @@ class TestFateShop(unittest.IsolatedAsyncioTestCase):
         player.mental_power = 1000
         ok, msg = await mgr.buy_fate_shop_item(player, 3)
         self.assertTrue(ok, msg)
-        self.assertEqual(player.fate_points, 400)
+        self.assertEqual(player.fate_points, 500)
         data = json.loads(player.permanent_bonus)
         self.assertEqual(data["dao_gift_times"], 1)
         self.assertEqual(player.mental_power, 1050)
@@ -259,7 +271,7 @@ class TestFateShop(unittest.IsolatedAsyncioTestCase):
         mgr, db = self._manager()
         player = Player(user_id="u1")
         player.fate_points = 100000
-        player.permanent_bonus = json.dumps({"rift_equip_bonus": 0.6}, ensure_ascii=False)
+        player.permanent_bonus = json.dumps({"rift_equip_bonus": 0.72}, ensure_ascii=False)
         ok, msg = await mgr.buy_fate_shop_item(player, 8)
         self.assertFalse(ok)
         self.assertIn("已满 6 层", msg)
@@ -333,8 +345,10 @@ class TestAscendPreview(unittest.IsolatedAsyncioTestCase):
         self.assertIn("都没有", msg)
 
     async def test_try_reincarnate_enters_newlife(self):
-        mgr = self._manager()
+        db = _FakeDB()
+        mgr = ReincarnationManager(db, self.cfg, None)
         player = self._maxed_player()
+        player.spiritual_root = "火灵根"
         player.permanent_bonus = json.dumps({"dao_gift_times": 8}, ensure_ascii=False)
         player.life_skill = "炼丹师"
         ok, msg = await mgr.try_reincarnate(player)
@@ -350,6 +364,9 @@ class TestAscendPreview(unittest.IsolatedAsyncioTestCase):
         self.assertIn("5 次免费重抽", msg)
         # 道基淬炼 8 层 = +40%：基础精神必然高于 0
         self.assertGreaterEqual(player.mental_power, 140)
+        # 上一世灵根随飞升事务落库：道体重塑按它保证「必出高一档灵根」
+        writes = db.conn.system_config_writes()
+        self.assertEqual(writes.get("rebirth_prev_root_u1"), "火灵根")
 
 
 class TestAscendArgOptions(unittest.IsolatedAsyncioTestCase):

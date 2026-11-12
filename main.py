@@ -1552,6 +1552,16 @@ class XiuXianPlugin(Star):
         async with get_player_lock(event.get_sender_id()):
             async for r in self.player_handler.handle_choose_root(event, choice): yield r
 
+    @filter.command("灵根图鉴", "灵根图鉴：10 档灵根的倍率、五行与抽取概率")
+    @require_whitelist
+    async def handle_root_atlas(self, event: AstrMessageEvent):
+        async for r in self.player_handler.handle_root_info(event, ""): yield r
+
+    @filter.command("灵根说明", "灵根说明 <灵根名>：倍率、五行归属与共鸣加成")
+    @require_whitelist
+    async def handle_root_info(self, event: AstrMessageEvent, name: GreedyStr):
+        async for r in self.player_handler.handle_root_info(event, name): yield r
+
     @filter.command(CMD_START_CULTIVATION, "开始闭关修炼")
     @require_whitelist
     async def handle_start_cultivation(self, event: AstrMessageEvent):

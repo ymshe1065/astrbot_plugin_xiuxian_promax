@@ -21,6 +21,7 @@ from ..core.reincarnation_rules import (
     ledger_value,
     newlife_gold,
     parse_bonus,
+    prev_root_key,
     root_reroll_stock,
 )
 
@@ -240,6 +241,7 @@ class ReincarnationManager:
         apply_dao_gift(player, bonus_data)
 
         # 灵根 / 职业 / 生活职业不保留：留一个「待重塑」标记，由 /我要修仙 重新选择
+        prev_root = str(player.spiritual_root or "").strip()
         player.spiritual_root = NEWLIFE_ROOT_MARKER
         player.cultivation_type = NEWLIFE_MARKER
         player.life_skill = ""
@@ -349,6 +351,13 @@ class ReincarnationManager:
                 "DELETE FROM system_config WHERE key = ?",
                 (f"rebirth_root_reroll_{player.user_id}",),
             )
+            # 记下上一世灵根：道体重塑时按它保证「必出一条高一档的灵根」
+            if prev_root:
+                await self.db.conn.execute(
+                    "INSERT INTO system_config (key, value) VALUES (?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    (prev_root_key(player.user_id), prev_root),
+                )
             await self.db.ext.set_user_free(player.user_id, commit=False)
             await self.db.conn.commit()
         except Exception as e:
@@ -479,7 +488,7 @@ class ReincarnationManager:
             per_life = int(escort_gold_base(player.level_index) * NEWLIFE_ESCORT_TRIPS_PER_STACK)
             return (
                 f"💰 【转世资粮】第 {owned} 层：每次转生后到账"
-                f" {per_life * 0:,} 灵石（按当前境界的 {owned * 2:g} 趟镖银折算；转生后境界越高越多）。"
+                f" {per_life * 0:,} 灵石（按当前境界的 {owned * NEWLIFE_ESCORT_TRIPS_PER_STACK:g} 趟镖银折算；转生后境界越高越多）。"
             )
         if item_id == 4:
             return (
