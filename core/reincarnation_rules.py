@@ -28,12 +28,23 @@ from typing import Any, Dict, Optional
 # 每一轮转生（飞升 / 弃道重修）自带的免费重抽次数，用完后消耗洗炼额度
 FREE_ROOT_REROLLS = 5
 
-# 上一世飞升时的灵根：道体重塑「必出高一档灵根」的基准，按用户存 system_config。
+# 上一世飞升时的灵根：道体重塑「保底灵根」的基准，按用户存 system_config。
 PREV_ROOT_KEY = "rebirth_prev_root_{uid}"
+
+# 本轮已经抽了几批灵根（首次抽取算第 1 批，每次重抽 +1），按用户存 system_config
+ROOT_ROLL_KEY = "rebirth_root_roll_{uid}"
+
+# 每隔多少批给一次「比上一世高一档」。其余批次只保「与上一世同档」。
+# 免费重抽正好 5 次，所以第 5 批（最后一次免费）一定是升档批。
+ROOT_TIER_GUARANTEE_EVERY = 5
 
 
 def prev_root_key(user_id: str) -> str:
     return PREV_ROOT_KEY.format(uid=user_id)
+
+
+def root_roll_key(user_id: str) -> str:
+    return ROOT_ROLL_KEY.format(uid=user_id)
 
 # ---------- 道基淬炼（原「大道馈赠」） ----------
 

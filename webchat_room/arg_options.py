@@ -1501,7 +1501,7 @@ async def _src_ascend_confirm(plugin: "XiuXianPlugin", player: Any, field: dict,
 
 
 async def _src_spirit_roots(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
-    from ..core.reincarnation_rules import FREE_ROOT_REROLLS
+    from ..core.reincarnation_rules import FREE_ROOT_REROLLS, ROOT_TIER_GUARANTEE_EVERY
 
     if not player:
         return [], "尚未创建角色"
@@ -1525,14 +1525,25 @@ async def _src_spirit_roots(plugin: "XiuXianPlugin", player: Any, field: dict, v
                 desc = ""
             options.append(_opt(f"{idx}. 【{name}灵根】", idx, desc, label))
         if options:
-            options.append(
-                _opt("重抽一批", "重抽", f"免费 {FREE_ROOT_REROLLS} 次/轮，用完消耗洗炼额度", "重抽")
-            )
+            is_newlife = data.get("newlife") == 1
+            next_no = int(data.get("roll_no") or 0) + 1
+            upgrade_next = is_newlife and next_no % ROOT_TIER_GUARANTEE_EVERY == 0
+            if is_newlife:
+                reroll_desc = f"第 {next_no} 批" + (
+                    " · 高上一世一档" if upgrade_next else " · 与上一世同档"
+                )
+            else:
+                reroll_desc = f"免费 {FREE_ROOT_REROLLS} 次/轮，用完消耗洗炼额度"
+            options.append(_opt("重抽一批", "重抽", reroll_desc, "重抽"))
             budget = ""
             try:
                 budget = await plugin.player_handler._reroll_budget_text(player)
             except Exception:
                 budget = ""
+            if is_newlife:
+                budget += f" · 下一批第 {next_no} 批" + (
+                    "（升档保底）" if upgrade_next else "（同档保底）"
+                )
             return options, budget
     return [], "当前没有待选择的灵根，请先发送 /我要修仙 职业"
 

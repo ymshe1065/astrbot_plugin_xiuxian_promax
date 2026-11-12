@@ -23,6 +23,7 @@ from ..core.reincarnation_rules import (
     parse_bonus,
     prev_root_key,
     root_reroll_stock,
+    root_roll_key,
 )
 
 class ReincarnationManager:
@@ -346,12 +347,16 @@ class ReincarnationManager:
                 "DELETE FROM system_config WHERE key IN (?, ?)",
                 (f"tide_contrib_{player.user_id}", f"tide_bless_{player.user_id}"),
             )
-            # 新一轮转生：灵根重抽预算回到「5 次免费」
-            await self.db.conn.execute(
-                "DELETE FROM system_config WHERE key = ?",
-                (f"rebirth_root_reroll_{player.user_id}",),
-            )
-            # 记下上一世灵根：道体重塑时按它保证「必出一条高一档的灵根」
+            # 新一轮转生：灵根重抽预算与批次计数都清零
+            for cfg_key in (
+                f"rebirth_root_reroll_{player.user_id}",
+                root_roll_key(player.user_id),
+            ):
+                await self.db.conn.execute(
+                    "DELETE FROM system_config WHERE key = ?",
+                    (cfg_key,),
+                )
+            # 记下上一世灵根：道体重塑时按它保底（平时同档，每 5 批升一档）
             if prev_root:
                 await self.db.conn.execute(
                     "INSERT INTO system_config (key, value) VALUES (?, ?) "

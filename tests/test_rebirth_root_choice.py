@@ -324,6 +324,86 @@ class TestRerollAndNewlife(unittest.IsolatedAsyncioTestCase):
         await handler._reroll_roots(player)
         self.assertEqual(player.fate_points, 20)
 
+    async def test_guarantee_same_tier_except_every_fifth(self):
+        """平时只保「与上一世同档」，第 5/10… 批才保「高一档」。"""
+        handler, db = self._handler()
+        player = handler.cultivation_manager.generate_new_player_stats("u1", "剑修", root="火")
+        db.players["u1"] = player
+        cm = handler.cultivation_manager
+        variant = cm.root_tier_index("雷")          # 上一世变异灵根（第 6 档）
+        self.assertGreaterEqual(variant, 0)
+
+        for batch in range(1, self.rules.ROOT_TIER_GUARANTEE_EVERY):
+            ok, note, roots, info = await handler._reroll_roots(player, "雷")
+            self.assertTrue(ok, note)
+            self.assertEqual(info["roll_no"], batch, note)
+            self.assertFalse(info["upgraded"], note)
+            self.assertTrue(
+                any(cm.root_tier_index(r) >= variant for r in roots), (note, roots)
+            )
+
+        # 第 5 批（最后一次免费）：升一档 → 必出天灵根及以上
+        ok, note, roots, info = await handler._reroll_roots(player, "雷")
+        self.assertTrue(ok, note)
+        self.assertEqual(info["roll_no"], 5)
+        self.assertTrue(info["upgraded"], note)
+        self.assertIn("升档保底", note)
+        self.assertTrue(
+            any(cm.root_tier_index(r) >= variant + 1 for r in roots), roots
+        )
+
+        # 第 6 批回到同档（此时免费已用完，走洗炼额度）
+        player.permanent_bonus = json.dumps({"root_reroll_stock": 3})
+        ok, note, roots, info = await handler._reroll_roots(player, "雷")
+        self.assertTrue(ok, note)
+        self.assertEqual(info["roll_no"], 6)
+        self.assertFalse(info["upgraded"], note)
+
+    async def test_restart_mid_round_costs_a_reroll(self):
+        """本轮已抽过一批：再发「我要修仙 职业」等同重抽，不能白推进批次去白嫖升档。"""
+        handler, db = self._handler()
+        player = handler.cultivation_manager.generate_new_player_stats("u1", "剑修", root="火")
+        player.cultivation_type = self.rules.NEWLIFE_MARKER
+        player.spiritual_root = self.rules.NEWLIFE_ROOT_MARKER
+        db.players["u1"] = player
+        db.ext.config_store["rebirth_prev_root_u1"] = "雷"
+
+        event = _FakeEvent()
+        async for _ in handler.handle_start_xiuxian(event, "体修"):
+            pass
+        self.assertEqual(await handler._root_roll_no("u1"), 1)
+        self.assertEqual(await handler._root_reroll_used("u1"), 0)   # 首批不扣
+
+        event2 = _FakeEvent()
+        async for _ in handler.handle_start_xiuxian(event2, "体修"):
+            pass
+        self.assertEqual(await handler._root_roll_no("u1"), 2)
+        self.assertEqual(await handler._root_reroll_used("u1"), 1)   # 重开算一次重抽
+
+    async def test_reset_clears_roll_counter(self):
+        handler, _db = self._handler()
+        self.assertEqual(await handler._root_roll_no("u1"), 0)
+        self.assertEqual(await handler._bump_root_roll_no("u1"), 1)
+        self.assertEqual(await handler._root_roll_no("u1"), 1)
+        await handler._reset_root_reroll_round("u1")
+        self.assertEqual(await handler._root_roll_no("u1"), 0)
+        self.assertEqual(await handler._root_reroll_used("u1"), 0)
+
+    async def test_top_tier_previous_life_gets_no_upgrade_batch(self):
+        """上一世已是最顶档：第 5 批无法再升，只保同档而不是报错。"""
+        handler, db = self._handler()
+        player = handler.cultivation_manager.generate_new_player_stats("u1", "剑修", root="火")
+        player.permanent_bonus = json.dumps({"root_reroll_stock": 20})
+        db.players["u1"] = player
+        cm = handler.cultivation_manager
+        top = len(cm.root_tier_order) - 1
+
+        for _ in range(self.rules.ROOT_TIER_GUARANTEE_EVERY):
+            ok, note, roots, info = await handler._reroll_roots(player, "先天道体")
+            self.assertTrue(ok, note)
+        self.assertFalse(info["upgraded"], note)
+        self.assertTrue(any(cm.root_tier_index(r) >= top for r in roots), roots)
+
     async def test_newlife_flow_rebuilds_body(self):
         handler, db = self._handler()
         player = handler.cultivation_manager.generate_new_player_stats("u1", "剑修", root="火")

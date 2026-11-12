@@ -200,7 +200,8 @@ class CultivationManager:
             "DIVINE_BODY": ["先天道体", "神圣体质"]
         }
 
-        # 灵根阶位（由低到高）：抽取池即阶位，飞升后的「必出升阶灵根」按这张表升一档。
+        # 灵根阶位（由低到高）：抽取池即阶位。飞升后的道体重塑按这张表给保底：
+        # 平时保「与上一世同档」，每 5 批保「高一档」。
         # 括号里是展示用的阶名，玩家在 /灵根说明 里看到的也是这套。
         self.root_tier_order = [
             ("PSEUDO", "废灵根"),
@@ -318,8 +319,9 @@ class CultivationManager:
     def upgrade_root_for(self, base_root: str) -> str:
         """比 base_root 高一档的灵根（随机一条）。
 
-        已是最高档（先天道体/神圣体质）或无法识别时返回空串，
-        调用方据此决定是否放弃「必出升阶」的保证。
+        仅作展示/工具用途（例如说明里「高一档」的示例）；真正的抽取保底走
+        `draw_spiritual_roots(min_tier=...)`，由调用方按批次决定同档还是升档。
+        已是最高档或无法识别时返回空串。
         """
         idx = self.root_tier_index(base_root)
         if idx < 0 or idx + 1 >= len(self.root_tier_order):
@@ -350,11 +352,17 @@ class CultivationManager:
             return 0.0
         return weight / total
 
-    def draw_spiritual_roots(self, count: int = 3, upgrade_from: str = "") -> list:
+    def root_tier_label_by_index(self, idx: int) -> str:
+        if 0 <= idx < len(self.root_tier_order):
+            return self.root_tier_order[idx][1]
+        return "未知阶位"
+
+    def draw_spiritual_roots(self, count: int = 3, min_tier: int = -1) -> list:
         """按现有权重抽多个不重复的灵根，供创号/重修三选一。
 
-        `upgrade_from` 非空时（飞升后的道体重塑），必出一条「比它高一档」的灵根：
-        用它替换本批里阶位最低的那条，玩家每次重抽都能看到一条升阶选项。
+        `min_tier` >= 0 时（飞升后的道体重塑），本批必有一条灵根的阶位不低于它：
+        自然抽到的最高阶位已达标就不干预，否则把阶位最低的那条换成该档位的随机灵根。
+        传 -1 表示纯随机（首次创号、弃道重修）。
         """
         results = []
         attempts = 0
@@ -366,14 +374,20 @@ class CultivationManager:
         if not results:
             results.append("金")
 
-        guaranteed = self.upgrade_root_for(upgrade_from)
-        if guaranteed and guaranteed not in results:
-            # 替换阶位最低的那条（同阶取先出现的），保证升阶灵根一定在选项里
-            lowest_idx = min(
-                range(len(results)),
-                key=lambda i: (self.root_tier_index(results[i]), i),
-            )
-            results[lowest_idx] = guaranteed
+        if not (0 <= min_tier < len(self.root_tier_order)):
+            return results
+        best = max((self.root_tier_index(r) for r in results), default=-1)
+        if best >= min_tier:
+            # 已经自然抽到达标灵根，再替换反而是降级
+            return results
+        pool = [r for r in self.root_tier_roots(min_tier) if r not in results]
+        if not pool:
+            return results
+        lowest_idx = min(
+            range(len(results)),
+            key=lambda i: (self.root_tier_index(results[i]), i),
+        )
+        results[lowest_idx] = random.choice(pool)
         return results
 
     def _get_root_description(self, root_name: str) -> str:

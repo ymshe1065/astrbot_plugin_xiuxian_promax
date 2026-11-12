@@ -1,5 +1,5 @@
 # tests/test_spirit_root_tiers.py
-# 灵根阶位阶梯、飞升重塑「必出高一档」保底、灵根图鉴/说明查询
+# 灵根阶位阶梯、飞升重塑「同档保底 / 每 5 批升一档」、灵根图鉴/说明查询
 import sys
 import unittest
 from pathlib import Path
@@ -84,36 +84,47 @@ class TestTierLadder(unittest.TestCase):
         self.assertLess(self.cm.root_draw_chance("雷"), self.cm.root_draw_chance("金"))
 
 
-class TestUpgradeGuarantee(unittest.TestCase):
+class TestTierGuarantee(unittest.TestCase):
+    """draw_spiritual_roots 的阶位下限：调用方传「同档」还是「高一段」由批次决定。"""
+
     @classmethod
     def setUpClass(cls):
         CultivationManager = _imp("core.cultivation_manager").CultivationManager
         cls.cm = CultivationManager(CONFIG, None)
 
-    def _next_tier(self, base):
-        return set(self.cm.root_tier_roots(self.cm.root_tier_index(base) + 1))
-
-    def test_guaranteed_root_always_present(self):
+    def test_same_tier_floor_always_present(self):
+        tier = self.cm.root_tier_index("金")
         for _ in range(50):
-            roots = self.cm.draw_spiritual_roots(3, upgrade_from="金木水火")
+            roots = self.cm.draw_spiritual_roots(3, min_tier=tier)
             self.assertEqual(len(roots), 3)
             self.assertEqual(len(set(roots)), 3, roots)
-            self.assertTrue(set(roots) & self._next_tier("金木水火"), roots)
+            self.assertTrue(
+                any(self.cm.root_tier_index(r) >= tier for r in roots), roots
+            )
 
-    def test_guarantee_follows_previous_life_root(self):
-        for _ in range(30):
-            roots = self.cm.draw_spiritual_roots(3, upgrade_from="雷")
-            self.assertTrue(set(roots) & self._next_tier("雷"), roots)
+    def test_one_tier_higher_floor(self):
+        base = self.cm.root_tier_index("雷")
+        for _ in range(50):
+            roots = self.cm.draw_spiritual_roots(3, min_tier=base + 1)
+            self.assertTrue(
+                any(self.cm.root_tier_index(r) >= base + 1 for r in roots), roots
+            )
 
-    def test_top_tier_has_no_guarantee_but_still_draws(self):
-        roots = self.cm.draw_spiritual_roots(3, upgrade_from="先天道体")
+    def test_top_tier_floor_still_draws(self):
+        top = len(self.cm.root_tier_order) - 1
+        roots = self.cm.draw_spiritual_roots(3, min_tier=top)
         self.assertEqual(len(roots), 3)
-        self.assertEqual(len(set(roots)), 3)
+        self.assertTrue(any(self.cm.root_tier_index(r) >= top for r in roots))
 
-    def test_no_base_means_plain_draw(self):
+    def test_no_floor_means_plain_draw(self):
         roots = self.cm.draw_spiritual_roots(3)
         self.assertEqual(len(roots), 3)
         self.assertEqual(len(set(roots)), 3)
+
+    def test_low_floor_does_not_break_distinctness(self):
+        roots = self.cm.draw_spiritual_roots(3, min_tier=0)
+        self.assertEqual(len(roots), 3)
+        self.assertEqual(len(set(roots)), 3, roots)
 
 
 class TestRootInfoCommand(unittest.TestCase):

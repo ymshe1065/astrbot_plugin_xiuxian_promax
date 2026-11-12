@@ -11,6 +11,7 @@ from ..core.reincarnation_rules import (
     NEWLIFE_ESCORT_TRIPS_PER_STACK,
     NEWLIFE_MARKER,
     NEWLIFE_ROOT_MARKER,
+    ROOT_TIER_GUARANTEE_EVERY,
     add_item,
     apply_dao_gift,
     consume_root_reroll,
@@ -21,6 +22,7 @@ from ..core.reincarnation_rules import (
     parse_bonus,
     prev_root_key,
     root_reroll_stock,
+    root_roll_key,
 )
 from ..models import Player
 from ..models_extended import UserStatus
@@ -180,22 +182,31 @@ class PlayerHandler:
         except Exception:
             pass
 
-    def _format_root_choices(self, roots, upgrade_root: str = "") -> str:
+    def _format_root_choices(
+        self, roots, guarantee: str = "", upgraded: bool = False, roll_no: int = 0
+    ) -> str:
         lines = ["🎲 你感应到 " + str(len(roots)) + " 条灵根之路：", "━━━━━━━━━━━━━━━"]
         for idx, root in enumerate(roots, start=1):
             name = root.replace("灵根", "")
             speed = self.cultivation_manager._get_root_speed(name)
             desc = self.cultivation_manager._get_root_description(name)
-            tag = " ✨升阶" if upgrade_root and name == upgrade_root else ""
+            tag = " ✨升阶" if upgraded and guarantee and name == guarantee else ""
             lines.append(f"{idx}. 【{name}灵根】{desc}（修炼 ×{speed:.2f}）{tag}")
-        if upgrade_root:
+        if guarantee or roll_no:
             lines.append("━━━━━━━━━━━━━━━")
-            lines.append("✨ 飞升重塑：本次必出一条高出上一世一档的灵根（已标注）")
+            batch = f"第 {roll_no} 批" if roll_no else "本批"
+            if upgraded:
+                lines.append(
+                    f"✨ 飞升重塑 · {batch}：必出一条比上一世高一档的灵根（已标注）"
+                )
+            else:
+                lines.append(f"🌱 飞升重塑 · {batch}：保底一条与上一世同档的灵根")
+            lines.append(f"每 {ROOT_TIER_GUARANTEE_EVERY} 批必升一档")
         lines.append("━━━━━━━━━━━━━━━")
         return "\n".join(lines)
 
     async def _prev_life_root(self, user_id: str) -> str:
-        """上一世飞升时的灵根（道体重塑的升阶基准）。"""
+        """上一世飞升时的灵根（道体重塑的保底基准）。"""
         try:
             return (await self.db.ext.get_system_config(prev_root_key(user_id)) or "").strip()
         except Exception:
@@ -382,31 +393,42 @@ class PlayerHandler:
             )
             return
 
-        upgrade_root = ""
-        if reshaping:
-            # 飞升后的道体重塑：上一世灵根作基准，本批必出一条高一档的
-            upgrade_root = self.cultivation_manager.upgrade_root_for(
-                await self._prev_life_root(user_id)
-            )
-        roots = self.cultivation_manager.draw_spiritual_roots(3)
-        if upgrade_root and upgrade_root not in roots:
-            lowest_idx = min(
-                range(len(roots)),
-                key=lambda i: (self.cultivation_manager.root_tier_index(roots[i]), i),
-            )
-            roots[lowest_idx] = upgrade_root
+        roots, guarantee, upgraded, roll_no = [], "", False, 0
         extra = {"cultivation_type": normalized}
+        note = ""
         if reshaping:
+            prev_root = await self._prev_life_root(user_id)
+            if await self._root_roll_no(user_id) == 0:
+                # 飞升事务已把批次与免费次数清零，重塑的第一批不额外扣次数
+                roots, guarantee, upgraded, roll_no = await self._draw_roots_with_guarantee(
+                    user_id, prev_root
+                )
+            else:
+                # 本轮已经抽过一批：再发「我要修仙」等同于重抽，要扣免费次数/洗炼额度，
+                # 否则可以反复重开把批次推到第 5 批白嫖升档
+                ok, note, roots, info = await self._reroll_roots(existing, prev_root)
+                if not ok:
+                    yield event.plain_result(
+                        note + f"\n💡 也可以直接发送 `{CMD_CHOOSE_ROOT} 1/2/3` 用上一批结果。"
+                    )
+                    return
+                guarantee = info.get("root", "")
+                upgraded = bool(info.get("upgraded"))
+                roll_no = int(info.get("roll_no") or 0)
             extra["newlife"] = 1
-            extra["upgrade_root"] = upgrade_root
-            # 飞升后的新一轮：重抽预算从 5 次免费开始
-            await self._reset_root_reroll_round(user_id)
+            extra["guaranteed_root"] = guarantee
+            extra["upgraded"] = 1 if upgraded else 0
+            extra["roll_no"] = roll_no
+        else:
+            roots = self.cultivation_manager.draw_spiritual_roots(3)
         await self._save_root_pending("create_roots", user_id, roots, extra)
         budget = ""
         if reshaping:
             budget = "\n" + await self._reroll_budget_text(existing) + " · 发送 `/选择灵根 重抽` 换一批"
+            if note:
+                budget += f"（{note}）"
         yield event.plain_result(
-            self._format_root_choices(roots, upgrade_root)
+            self._format_root_choices(roots, guarantee, upgraded, roll_no)
             + f"\n请发送：{CMD_CHOOSE_ROOT} 1/2/3 选择灵根（10 分钟内有效）"
             + budget
         )
@@ -424,7 +446,7 @@ class PlayerHandler:
                 if not player or pending_create.get("newlife") != 1:
                     yield event.plain_result("❌ 创号阶段不能重抽，请直接选择 1/2/3。")
                     return
-                ok, note, roots, upgrade_root = await self._reroll_roots(
+                ok, note, roots, info = await self._reroll_roots(
                     player, await self._prev_life_root(user_id)
                 )
                 if not ok:
@@ -435,10 +457,17 @@ class PlayerHandler:
                     for k, v in pending_create.items()
                     if k not in ("roots", "created_at")
                 }
-                extra["upgrade_root"] = upgrade_root
+                extra["guaranteed_root"] = info.get("root", "")
+                extra["upgraded"] = 1 if info.get("upgraded") else 0
+                extra["roll_no"] = info.get("roll_no", 0)
                 await self._save_root_pending("create_roots", user_id, roots, extra)
                 yield event.plain_result(
-                    self._format_root_choices(roots, upgrade_root)
+                    self._format_root_choices(
+                        roots,
+                        info.get("root", ""),
+                        bool(info.get("upgraded")),
+                        int(info.get("roll_no") or 0),
+                    )
                     + f"\n请发送：{CMD_CHOOSE_ROOT} 1/2/3 确定灵根"
                     + f"\n{await self._reroll_budget_text(player)}（{note}）"
                 )
@@ -1414,6 +1443,9 @@ class PlayerHandler:
     def _reroll_key(self, user_id: str) -> str:
         return ROOT_REROLL_KEY.format(uid=user_id)
 
+    def _roll_key(self, user_id: str) -> str:
+        return root_roll_key(user_id)
+
     async def _root_reroll_used(self, user_id: str) -> int:
         try:
             raw = await self.db.ext.get_system_config(self._reroll_key(user_id))
@@ -1422,22 +1454,69 @@ class PlayerHandler:
             return 0
 
     async def _reset_root_reroll_round(self, user_id: str) -> None:
-        """新一轮转生开始：免费次数清零重计。"""
+        """把免费次数与批次计数归零（飞升 / 重修事务内也会直接写 0）。"""
+        for key in (self._reroll_key(user_id), self._roll_key(user_id)):
+            try:
+                await self.db.ext.set_system_config(key, "0")
+            except Exception:
+                pass
+
+    async def _root_roll_no(self, user_id: str) -> int:
         try:
-            await self.db.ext.set_system_config(self._reroll_key(user_id), "0")
+            return max(0, int(await self.db.ext.get_system_config(self._roll_key(user_id)) or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    async def _bump_root_roll_no(self, user_id: str) -> int:
+        """本轮第几批灵根（首次抽取算第 1 批）。"""
+        no = await self._root_roll_no(user_id) + 1
+        try:
+            await self.db.ext.set_system_config(self._roll_key(user_id), str(no))
         except Exception:
             pass
+        return no
+
+    async def _draw_roots_with_guarantee(
+        self, user_id: str, prev_root: str = ""
+    ) -> tuple[list, str, bool, int]:
+        """抽一批 3 条灵根，按「本轮第几批」决定保底强度。
+
+        - 第 5/10/15… 批：保「比上一世高一档」
+        - 其余批次：保「与上一世同档」（至少一条灵根不低于上一世档位）
+        - 没有上一世记录（首世 / 弃道重修）：纯随机
+        返回 (roots, 保底灵根名, 是否升档批, 批次号)。
+        """
+        cm = self.cultivation_manager
+        roll_no = await self._bump_root_roll_no(user_id)
+        prev_idx = cm.root_tier_index(prev_root) if prev_root else -1
+        if prev_idx < 0:
+            return cm.draw_spiritual_roots(3), "", False, roll_no
+
+        upgraded = False
+        min_tier = prev_idx
+        if (
+            roll_no % ROOT_TIER_GUARANTEE_EVERY == 0
+            and prev_idx + 1 < len(cm.root_tier_order)
+        ):
+            min_tier = prev_idx + 1
+            upgraded = True
+
+        roots = cm.draw_spiritual_roots(3, min_tier)
+        guarantee = next(
+            (r for r in roots if cm.root_tier_index(r) >= min_tier), ""
+        )
+        return roots, guarantee, upgraded, roll_no
 
     async def _reroll_budget_text(self, player: Player) -> str:
         used = await self._root_reroll_used(player.user_id)
         free_left = max(0, FREE_ROOT_REROLLS - used)
         return format_reroll_budget(free_left, root_reroll_stock(player))
 
-    async def _reroll_roots(self, player: Player, upgrade_from: str = "") -> tuple[bool, str, list, str]:
+    async def _reroll_roots(self, player: Player, prev_root: str = "") -> tuple[bool, str, list, dict]:
         """扣一次重抽预算并抽 3 条新灵根。
 
         免费 5 次优先，用完后消耗商店【灵根洗炼】额度；两者都用完则拒绝。
-        `upgrade_from` 非空时（飞升重塑），本批必出一条高出上一世一档的灵根。
+        `prev_root` 非空时（飞升重塑），按批次给「同档 / 升档」保底。
         """
         import json as _json
 
@@ -1450,7 +1529,7 @@ class PlayerHandler:
             return False, (
                 "❌ 本轮灵根重抽次数已用完（免费 5 次 + 洗炼额度 0 次）。\n"
                 "💡 可在 `/仙缘商店` 购买【灵根洗炼】额度，或直接确定当前灵根。"
-            ), [], ""
+            ), [], {}
 
         if free_left > 0:
             used += 1
@@ -1465,31 +1544,36 @@ class PlayerHandler:
             await self.db.update_player(player)
             note = f"本次消耗 1 次洗炼额度，剩 {left} 次"
 
-        upgrade_root = self.cultivation_manager.upgrade_root_for(upgrade_from) if upgrade_from else ""
-        roots = self.cultivation_manager.draw_spiritual_roots(3)
-        if upgrade_root and upgrade_root not in roots:
-            lowest_idx = min(
-                range(len(roots)),
-                key=lambda i: (self.cultivation_manager.root_tier_index(roots[i]), i),
-            )
-            roots[lowest_idx] = upgrade_root
-        return True, note, roots, upgrade_root
+        roots, guarantee, upgraded, roll_no = await self._draw_roots_with_guarantee(
+            player.user_id, prev_root
+        )
+        if guarantee:
+            note += f" · 第 {roll_no} 批" + ("升档保底" if upgraded else "同档保底")
+        elif prev_root:
+            note += f" · 第 {roll_no} 批"
+        return True, note, roots, {
+            "root": guarantee,
+            "upgraded": upgraded,
+            "roll_no": roll_no,
+        }
 
     async def _reroll_rebirth_roots(self, player: Player, event: AstrMessageEvent, pending: dict = None):
         """重随灵根（弃道重修）：免费 5 次，用完消耗洗炼额度；保留已选职业/生活职业。"""
         pending = pending or {}
-        ok, note, roots, upgrade_root = await self._reroll_roots(player)
+        ok, note, roots, _info = await self._reroll_roots(player)
         if not ok:
             yield event.plain_result(note)
             return
-        # 重随灵根走正常抽取（升阶保证只属于飞升重塑），清掉可能残留的升阶标记
-        pending.pop("upgrade_root", None)
+        # 重随灵根走正常抽取（同档/升档保底只属于飞升重塑），清掉可能残留的标记
+        pending.pop("guaranteed_root", None)
+        pending.pop("upgraded", None)
+        pending.pop("roll_no", None)
         extra = {k: v for k, v in pending.items() if k not in ("roots", "created_at")}
         extra["cultivation_type"] = extra.get("cultivation_type") or player.cultivation_type
         extra["life_skill"] = str(extra.get("life_skill") or getattr(player, "life_skill", "") or "")
         await self._save_root_pending("rebirth_options", player.user_id, roots, extra)
         yield event.plain_result(
-            self._format_root_choices(roots, upgrade_root)
+            self._format_root_choices(roots)
             + f"\n请发送：{CMD_CHOOSE_ROOT} 1/2/3 选择灵根并执行重修"
             + f"\n当前已选：职业【{extra['cultivation_type']}】· 生活职业【{extra['life_skill'] or '未选择'}】"
             + "\n" + await self._reroll_budget_text(player) + f"（{note}）"
@@ -1634,11 +1718,12 @@ class PlayerHandler:
                 "UPDATE sect_orders SET status = 'cancelled' WHERE status = 'active' AND (issuer_id = ? OR target_id = ?)",
                 (player.user_id, player.user_id),
             )
-            # 冷却/累计次数/灵根刷新计数同事务落库：并发 /选择灵根 无法绕过冷却检查
+            # 冷却/累计次数/灵根刷新计数与批次同事务落库：并发 /选择灵根 无法绕过冷却检查
             for cfg_key, cfg_val in (
                 (f"rebirth_last_{player.user_id}", str(now)),
                 (f"rebirth_total_{player.user_id}", str(total)),
                 (f"rebirth_root_reroll_{player.user_id}", "0"),
+                (self._roll_key(player.user_id), "0"),
             ):
                 await self.db.conn.execute(
                     "INSERT INTO system_config (key, value, updated_at) VALUES (?, ?, ?) "
