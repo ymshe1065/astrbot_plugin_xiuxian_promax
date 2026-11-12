@@ -196,7 +196,7 @@ class TestFateShopCatalog(unittest.TestCase):
 
     def test_numeric_items_are_uncapped(self):
         """数值型商品一律 cap=0（无上限），只有结构性解锁才留硬顶。"""
-        structural = {26, 31, 32, 39, 43, 44, 46, 48, 49, 50, 51}
+        structural = {26, 31, 32, 39, 43, 44, 46, 48, 49, 50, 51, 52}
         for item_id, item in rules.SHOP_ITEMS.items():
             if item_id in structural:
                 self.assertGreater(item["cap"], 0, f"【{item['name']}】应保留硬顶")
@@ -316,7 +316,28 @@ class TestFateShop(unittest.IsolatedAsyncioTestCase):
         mgr, db = self._manager()
         ok, msg = await mgr.buy_fate_shop_item(Player(user_id="u1"), 99)
         self.assertFalse(ok)
-        self.assertIn("1~51", msg)
+        self.assertIn("1~52", msg)
+
+    async def test_parallel_unlock_has_three_tiers(self):
+        """【一心二用】买三次逐档提升，第四次被硬顶挡住。"""
+        mgr, db = self._manager()
+        player = Player(user_id="u1")
+        player.fate_points = 1000
+        hints = []
+        for expected in (1, 2, 3):
+            ok, msg = await mgr.buy_fate_shop_item(player, 52)
+            self.assertTrue(ok, msg)
+            self.assertEqual(rules.item_owned(json.loads(player.permanent_bonus), 52), expected)
+            hints.append(msg)
+        self.assertIn("第 1 档", hints[0])
+        self.assertIn("第 2 档", hints[1])
+        self.assertIn("全部指令放行", hints[2])
+
+        ok, msg = await mgr.buy_fate_shop_item(player, 52)
+        self.assertFalse(ok)
+        self.assertIn("已满 3 层", msg)
+        # 三档共花 240 点
+        self.assertEqual(player.fate_points, 1000 - 80 * 3)
 
 
 class TestAscendPreview(unittest.IsolatedAsyncioTestCase):

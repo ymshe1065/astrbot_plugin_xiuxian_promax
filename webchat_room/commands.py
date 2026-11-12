@@ -347,7 +347,7 @@ CATEGORIES: list[dict[str, Any]] = [
             {"cmd": "/飞升", "label": "飞升（需确认）", "arg": "传家宝（可留空）"},
             {"cmd": "/解封传家宝", "label": "解封传家宝"},
             {"cmd": "/仙缘商店", "label": "仙缘商店", "panel": True},
-            {"cmd": "/仙缘兑换", "label": "仙缘兑换", "arg": "兑换项编号（1-51）"},
+            {"cmd": "/仙缘兑换", "label": "仙缘兑换", "arg": "兑换项编号（1-52）"},
             {"cmd": "/仙界日历", "label": "仙界日历", "panel": True},
             {"cmd": "/魔潮状态", "label": "魔潮状态", "panel": True},
             {"cmd": "/抵御魔潮", "label": "抵御魔潮", "arg": "捐献灵石数"},
@@ -500,7 +500,7 @@ ARG_SPEC: dict[str, dict[str, Any]] = {
     "吞噬灵兽": {"hint": "灵兽序号或名字", "example": "1", "min": 1},
     "灵兽吞噬": {"hint": "灵兽序号 灵兽内丹 数量", "example": "1 灵兽内丹 5", "min": 1},
     # 兑换与事件
-    "仙缘兑换": {"hint": "兑换项编号（1-51）", "example": "1", "min": 1},
+    "仙缘兑换": {"hint": "兑换项编号（1-52）", "example": "1", "min": 1},
     "师德兑换": {"hint": "兑换项编号", "example": "1", "min": 1},
     "抵御魔潮": {"hint": "捐献灵石数", "example": "1000", "min": 1},
     "查验天魔": {"hint": "目标道号", "example": "云无月", "min": 1},

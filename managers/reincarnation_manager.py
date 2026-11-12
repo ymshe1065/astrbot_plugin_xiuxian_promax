@@ -538,6 +538,26 @@ class ReincarnationManager:
                 f"🌀 【灵根洗炼】额度 +1，当前库存 {root_reroll_stock(player)} 次。"
                 "每轮转生的免费重抽用完后自动消耗。"
             )
+        if item_id == 52:
+            from ..core.parallel_rules import TIER_NOTES, allowed_commands
+
+            level = item_owned(bonus_data, item_id)
+            if level >= 3:
+                scope = "除「开始另一项耗时活动 / 重开人生」外，全部指令放行"
+            else:
+                cmds = allowed_commands(level)
+                scope = (
+                    f"当前可并行：{TIER_NOTES.get(level, '')}类共 {len(cmds)} 条指令"
+                    f"（{TIER_NOTES.get(level + 1, '')}类要第 {level + 1} 档）"
+                )
+            return (
+                f"🔀 【一心二用】第 {level} 档生效！\n"
+                f"━━━━━━━━━━━━━━━\n"
+                f"{scope}\n"
+                "闭关 / 历练 / 秘境 / 押镖 / 宗门任务期间，这些指令不再被拦。\n"
+                "⛔ 「开始另一项耗时活动」与「飞升 / 弃道重修」始终不放行 —— "
+                "活动位只有一个，硬开会把当前进度弄丢。"
+            )
         total = owned * float(item["step"])
         unit = str(item.get("unit") or "")
         if unit.endswith("点"):
