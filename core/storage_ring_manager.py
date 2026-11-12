@@ -44,8 +44,19 @@ class StorageRingManager:
             return 0
 
     def get_total_capacity(self, player: Player) -> int:
-        """戒指基础容量 + 空间附魔"""
-        return self.get_ring_capacity(player.storage_ring) + self.get_enchant_bonus(player)
+        """戒指基础容量 + 空间附魔 + 仙缘【芥子纳须】/【纳物铭文】的永久格数。"""
+        try:
+            from .reincarnation_rules import permanent_effect
+
+            shop_slots = int(permanent_effect(player, "storage_slots_bonus"))
+            shop_slots += int(permanent_effect(player, "ring_slots_bonus"))
+        except Exception:
+            shop_slots = 0
+        return (
+            self.get_ring_capacity(player.storage_ring)
+            + self.get_enchant_bonus(player)
+            + shop_slots
+        )
 
     async def enchant_ring(self, player: Player, stone_count: int = 1) -> Tuple[bool, str]:
         """空间附魔：消耗空间石永久扩充储物戒容量（不设上限）"""

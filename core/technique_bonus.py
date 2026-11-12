@@ -79,7 +79,15 @@ class TechniqueBonusManager:
 
     @classmethod
     def gold_multiplier(cls, player, config_manager) -> float:
-        return 1.0 + cls.collect_life_effects(player, config_manager).get("gold_bonus", 0.0)
+        base = 1.0 + cls.collect_life_effects(player, config_manager).get("gold_bonus", 0.0)
+        # 仙缘【财源广进】：所有走统一钩子的灵石收益永久加成（无上限，乘算）
+        try:
+            from .reincarnation_rules import permanent_effect
+
+            base *= 1.0 + permanent_effect(player, "gold_bonus_permanent")
+        except Exception:
+            pass
+        return base
 
     @classmethod
     def apply_gold_bonus(cls, player, amount: int, config_manager) -> int:

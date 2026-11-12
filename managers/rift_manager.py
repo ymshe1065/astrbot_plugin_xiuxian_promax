@@ -1091,6 +1091,16 @@ class RiftManager:
             except Exception:
                 pass
             gold = int(gold * self._gold_bonus_mult(player))
+            # 仙缘【秘境老手】：通关结算的灵石与修为奖励永久加成
+            try:
+                from ..core.reincarnation_rules import permanent_effect
+
+                rift_bonus = permanent_effect(player, "rift_score_bonus")
+                if rift_bonus:
+                    exp = int(exp * (1.0 + rift_bonus))
+                    gold = int(gold * (1.0 + rift_bonus))
+            except Exception:
+                pass
 
             items = await self._roll_rift_drops(
                 player, rift, event["drop_mod"], chance_scale=self.final_item_mult
@@ -1351,6 +1361,21 @@ class RiftManager:
             high_mult = max(0.0, float(cfg.get("high_tier_weight_mult") or 1.0))
         except (TypeError, ValueError):
             high_mult = 1.0
+        # 仙缘【灵材辨识】：材料判定品阶整体上抬（把权重更多压向本表最高阶）
+        fate_rare = 0.0
+        fate_tech = 0.0
+        fate_equip_tier = 0
+        try:
+            from ..core.reincarnation_rules import permanent_effect
+
+            material_tier = int(permanent_effect(player, "material_quality_bonus"))
+            if material_tier:
+                high_mult *= 1.0 + 0.40 * material_tier
+            fate_rare = permanent_effect(player, "rare_drop_bonus")
+            fate_tech = permanent_effect(player, "technique_drop_bonus")
+            fate_equip_tier = int(permanent_effect(player, "equipment_tier_bonus"))
+        except Exception:
+            pass
         weights = self._rift_drop_weights(drop_table, high_mult)
 
         item_chance = base_chance + int(drop_mod or 0)
@@ -1410,7 +1435,9 @@ class RiftManager:
             tech_name = TechniqueBonusManager.roll_technique_drop(
                 player,
                 self.config_manager,
-                base_chance=(4 + power * 2) * max(0.0, float(chance_scale)),
+                base_chance=(4 + power * 2)
+                * max(0.0, float(chance_scale))
+                * (1.0 + fate_tech + fate_rare),
                 allow_main=True,
                 main_ratio=0.10,
             )
@@ -1435,12 +1462,15 @@ class RiftManager:
                 chance *= 1.0 + max(0.0, float(permanent_rift_equip_bonus(player) or 0.0))
             except Exception:
                 pass
+            # 仙缘【天机感应】：稀有物品（装备属稀有）掉率乘区
+            chance *= 1.0 + max(0.0, fate_rare)
             if chance > 0 and random.random() * 100.0 <= chance:
                 drop = roll_equipment_drop(
                     self.config_manager,
                     self._equipment_base_level(rift, player),
                     self.config.get("equipment_slot_weights"),
-                    up_rank_weight=self._equipment_up_rank_weight(rift, tier),
+                    up_rank_weight=self._equipment_up_rank_weight(rift, tier)
+                    * (1.0 + 0.5 * fate_equip_tier),
                 )
                 if drop:
                     dropped_items.append((drop["name"], 1, drop["quality"]))

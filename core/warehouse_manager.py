@@ -83,7 +83,14 @@ class WarehouseManager:
         return self.MAX_LEVEL_BY_LAND.get(land_type, 0)
 
     def get_capacity(self, player: Player) -> int:
-        return self.get_level(player) * self.SLOTS_PER_LEVEL
+        """仓库等级容量 + 仙缘商店【藏经阁】的永久格数。"""
+        try:
+            from .reincarnation_rules import permanent_effect
+
+            shop_slots = int(permanent_effect(player, "warehouse_slots_bonus"))
+        except Exception:
+            shop_slots = 0
+        return self.get_level(player) * self.SLOTS_PER_LEVEL + shop_slots
 
     def upgrade_cost(self, current_level: int) -> int:
         """升到下一级的费用（取整到千）。"""

@@ -113,8 +113,14 @@ class ForgeManager:
             player.gold += cost_sword
             return False, f"❌ 扣除强化石失败：{msg}\n灵石已退回：{cost_sword:,}"
 
-        # 判定成功率
+        # 判定成功率（仙缘【百炼成钢】永久加点，最高 95%）
         success_rate = max(0.2, 1.0 - current_level * 0.05)
+        try:
+            from ..core.reincarnation_rules import permanent_effect
+
+            success_rate = min(0.95, success_rate + permanent_effect(player, "forge_success_bonus"))
+        except Exception:
+            pass
 
         if random.random() < success_rate:
             data["forge_level"] = current_level + 1
@@ -166,6 +172,15 @@ class ForgeManager:
         new_affix = random.choice(self.AFFIX_POOL).copy()
         # 数值浮动 ±20%
         multiplier = random.uniform(0.8, 1.2)
+        # 仙缘【天工开物】：词条数值每档 +15%（无上限的档数由 3 档封顶）
+        try:
+            from ..core.reincarnation_rules import permanent_effect
+
+            affix_tier = int(permanent_effect(player, "forge_affix_bonus"))
+            if affix_tier:
+                multiplier *= 1.0 + 0.15 * affix_tier
+        except Exception:
+            pass
         if isinstance(new_affix["value"], float):
             new_affix["value"] = round(new_affix["value"] * multiplier, 3)
         else:

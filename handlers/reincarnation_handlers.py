@@ -4,11 +4,17 @@ from ..data import DataBase
 from ..managers.reincarnation_manager import ReincarnationManager
 from ..models import Player
 from ..core.reincarnation_rules import (
+    FATE_EXCHANGE_MAX,
     FREE_ROOT_REROLLS,
+    GOLD_PER_FATE_POINT,
     NEWLIFE_ESCORT_TRIPS_PER_STACK,
+    SHOP_GROUPS,
     SHOP_ITEMS,
+    fate_exchange_key,
+    fate_exchange_points,
     format_permanent_summary,
     item_owned,
+    items_in_group,
     parse_bonus,
 )
 from .utils import player_required
@@ -78,38 +84,122 @@ class ReincarnationHandlers:
             lines.append(f"已购：{owned_line}")
         lines.append("━━━━━━━━━━━━━━━")
 
-        for item_id in sorted(SHOP_ITEMS):
-            item = SHOP_ITEMS[item_id]
-            owned = item_owned(bonus_data, item_id)
-            cap = int(item.get("cap") or 0)
-            progress = f"（已购 {owned}/{cap} 层）" if cap else (f"（已购 {owned} 层）" if owned else "")
-            tier = f"[{item['tier']}]" if item.get("tier") else ""
-            lines.append(
-                f"{item_id}. {tier}{item['name']} · {item['cost']} 点 · {item['desc']}{progress}"
-            )
+        for group_name, note in SHOP_GROUPS:
+            ids = items_in_group(group_name)
+            if not ids:
+                continue
+            lines.append(f"【{group_name}】{note}")
+            for item_id in ids:
+                item = SHOP_ITEMS[item_id]
+                owned = item_owned(bonus_data, item_id)
+                cap = int(item.get("cap") or 0)
+                if cap:
+                    progress = f"（{owned}/{cap} 层 · 满级）" if owned >= cap else f"（{owned}/{cap} 层）"
+                else:
+                    progress = f"（已购 {owned} 层）" if owned else ""
+                lines.append(
+                    f"{item_id}. {item['name']} · {item['cost']} 点 · {item['desc']}{progress}"
+                )
 
+        left = await self._exchange_left(player)
         lines += [
             "━━━━━━━━━━━━━━━",
             f"🌀 每轮转生自带 {FREE_ROOT_REROLLS} 次免费灵根重抽，用完后消耗【灵根洗炼】额度",
             "💰 【转世资粮】按「上一世巅峰境界」折算：层数 × "
             f"{NEWLIFE_ESCORT_TRIPS_PER_STACK:g} 趟镖银（约 0.5 天镖银），转生后直接到账",
-            "📊 标签：[推进] 买时间｜[概率] 买突破｜[战力]/[资源] 买终局｜[便利] 买顺手",
-            "💡 使用 `/仙缘兑换 <编号>` 购买",
+            f"💱 灵石换点：{GOLD_PER_FATE_POINT // 10000} 万灵石 = 1 点，本轮还剩 {left} 点额度"
+            "（发 `/仙缘兑换 灵石 <点数>` 兑换）",
+            "💡 使用 `/仙缘兑换 <编号>` 购买；网页聊天室的「仙缘」标签页可点卡片直接买",
         ]
         yield event.plain_result("\n".join(lines))
 
-    @player_required
-    async def handle_fate_exchange(self, player: Player, event: AstrMessageEvent, item_id: str = "0"):
-        """处理仙缘商店购买指令"""
+    async def _exchange_left(self, player: Player) -> int:
+        """本轮（这一世）还剩多少灵石换点额度。"""
         try:
-            idx = int(item_id)
-        except ValueError:
-            yield event.plain_result("❌ 请输入正确的商品编号！例如：/仙缘兑换 1")
+            raw = await self.db.ext.get_system_config(fate_exchange_key(player.user_id))
+            used = max(0, int(raw or 0))
+        except (TypeError, ValueError):
+            used = 0
+        return max(0, FATE_EXCHANGE_MAX - used)
+
+    @player_required
+    async def handle_fate_exchange(
+        self, player: Player, event: AstrMessageEvent, item_id: str = "0", count: str = "0"
+    ):
+        """`/仙缘兑换 <编号>` 买商品；`/仙缘兑换 灵石 <点数>` 用灵石换仙缘点。"""
+        token = str(item_id or "").strip()
+        if token in ("灵石", "gold", "灵石头"):
+            async for r in self._exchange_gold_for_points(player, count):
+                yield r
             return
-            
+
+        try:
+            idx = int(token)
+        except ValueError:
+            yield event.plain_result(
+                "❌ 请输入正确的商品编号！例如：/仙缘兑换 1\n"
+                "💱 或用灵石换点：/仙缘兑换 灵石 10"
+            )
+            return
+
         if idx <= 0:
             yield event.plain_result("❌ 请输入正确的商品编号！例如：/仙缘兑换 1")
             return
-            
+
         success, msg = await self.reinc_mgr.buy_fate_shop_item(player, idx)
         yield event.plain_result(msg)
+
+    async def _exchange_gold_for_points(self, player: Player, count: str):
+        """灵石 → 仙缘点：1 点 = 1000 万灵石，每世最多 100 点。"""
+        left = await self._exchange_left(player)
+        if left <= 0:
+            yield event.plain_result(
+                f"❌ 本轮已换满 {FATE_EXCHANGE_MAX} 点额度，等下一世再来。"
+            )
+            return
+
+        raw = str(count or "").strip()
+        if raw in ("", "0"):
+            want = min(left, fate_exchange_points(int(player.gold or 0)))
+        else:
+            try:
+                want = int(raw)
+            except ValueError:
+                yield event.plain_result(f"❌ 请输入要兑换的点数，例如：/仙缘兑换 灵石 10")
+                return
+            want = max(0, min(want, left))
+
+        if want <= 0:
+            yield event.plain_result(
+                f"❌ 灵石不足：{GOLD_PER_FATE_POINT // 10000} 万灵石换 1 点，"
+                f"当前持有 {int(player.gold or 0):,} 灵石。"
+            )
+            return
+
+        cost = want * GOLD_PER_FATE_POINT
+        if int(player.gold or 0) < cost:
+            yield event.plain_result(
+                f"❌ 灵石不足：换 {want} 点需要 {cost:,}（{cost // 10000} 万），"
+                f"当前 {int(player.gold or 0):,}。"
+            )
+            return
+
+        player.gold -= cost
+        player.fate_points = int(player.fate_points or 0) + want
+        await self.db.update_player(player)
+        try:
+            used = FATE_EXCHANGE_MAX - left + want
+            await self.db.ext.set_system_config(fate_exchange_key(player.user_id), str(used))
+        except Exception:
+            pass
+
+        yield event.plain_result(
+            f"💱 灵石换仙缘点\n"
+            f"━━━━━━━━━━━━━━━\n"
+            f"消耗灵石：-{cost:,}（{cost // 10000} 万）\n"
+            f"获得仙缘点：+{want}\n"
+            f"当前仙缘点：{player.fate_points}\n"
+            f"本轮额度：剩余 {left - want}/{FATE_EXCHANGE_MAX} 点\n"
+            f"━━━━━━━━━━━━━━━\n"
+            f"💡 发 /仙缘商店 查看商品，或到网页聊天室的「仙缘」标签页点卡片购买"
+        )

@@ -6,17 +6,23 @@ from ..models import Player
 from ..core.item_instance_manager import ItemInstanceManager
 from ..core.reincarnation_rules import (
     DAO_GIFT_PCT_PER_STACK,
+    FATE_TITLE_PCT_PER_STACK,
     NEWLIFE_ESCORT_TRIPS_PER_STACK,
     NEWLIFE_MARKER,
     NEWLIFE_ROOT_MARKER,
     SHOP_ITEMS,
     add_item,
     apply_dao_gift,
+    apply_start_level,
+    keeps_life_skill,
+    keep_gold_ratio,
     dao_gift_pct,
     escort_gold_base,
+    fate_exchange_key,
     format_dao_gift,
     grant_dao_gift,
     item_at_cap,
+    heirloom_unseal_level,
     item_owned,
     ledger_value,
     newlife_gold,
@@ -24,6 +30,7 @@ from ..core.reincarnation_rules import (
     prev_root_key,
     root_reroll_stock,
     root_roll_key,
+    scale_base_stats,
 )
 
 class ReincarnationManager:
@@ -220,9 +227,16 @@ class ReincarnationManager:
             base_player = Player(user_id=player.user_id)
 
         # 执行飞升重置
+        # 【前世余荫】按比例保留上一世灵石（最高 90%），与转世资粮叠加
+        prev_gold = int(getattr(player, "gold", 0) or 0)
+        prev_life_skill = str(getattr(player, "life_skill", "") or "")
         player.level_index = 0
         player.experience = 0
-        player.gold = 1000 + int(escort_gold_base(peak_level) * ledger_value(bonus_data, "newlife_trips"))
+        player.gold = (
+            1000
+            + int(escort_gold_base(peak_level) * ledger_value(bonus_data, "newlife_trips"))
+            + int(prev_gold * keep_gold_ratio(bonus_data))
+        )
         player.lifespan = base_player.lifespan
         player.hp = base_player.hp
         player.mp = base_player.mp
@@ -240,12 +254,23 @@ class ReincarnationManager:
 
         # 仙缘商店的【道基淬炼】是跨世永久属性：基础属性已被覆盖，按账本重新放大
         apply_dao_gift(player, bonus_data)
+        # 【宿慧觉醒】开局直接顶境界（只给等级与成长，不送修为）
+        try:
+            apply_start_level(
+                player,
+                bonus_data,
+                peak_level,
+                self.config_manager.get_level_data(player.cultivation_type or "灵修"),
+            )
+        except Exception:
+            pass
 
         # 灵根 / 职业 / 生活职业不保留：留一个「待重塑」标记，由 /我要修仙 重新选择
         prev_root = str(player.spiritual_root or "").strip()
         player.spiritual_root = NEWLIFE_ROOT_MARKER
         player.cultivation_type = NEWLIFE_MARKER
-        player.life_skill = ""
+        # 【一脉相承】买过就跨世保留生活职业
+        player.life_skill = prev_life_skill if keeps_life_skill(bonus_data) else ""
         player.life_skill_changes = 0
         player.life_skill_cost_peak = 0
         player.life_skill_last_change_at = 0
@@ -347,10 +372,11 @@ class ReincarnationManager:
                 "DELETE FROM system_config WHERE key IN (?, ?)",
                 (f"tide_contrib_{player.user_id}", f"tide_bless_{player.user_id}"),
             )
-            # 新一轮转生：灵根重抽预算与批次计数都清零
+            # 新一轮转生：灵根重抽预算、批次计数、灵石换点额度都清零
             for cfg_key in (
                 f"rebirth_root_reroll_{player.user_id}",
                 root_roll_key(player.user_id),
+                fate_exchange_key(player.user_id),
             ):
                 await self.db.conn.execute(
                     "DELETE FROM system_config WHERE key = ?",
@@ -403,9 +429,11 @@ class ReincarnationManager:
         if not heirloom or not heirloom.get("sealed"):
             return False, "❌ 你没有处于封印状态的传家宝。"
 
-        # 限制解封境界（筑基期 level_index >= 10）
-        if player.level_index < 10:
-            return False, "❌ 解封传家宝需要至少达到【筑基期】！请继续努力修行。"
+        # 限制解封境界（筑基期 level_index >= 10）；【万世传承】每档降 3 级
+        need_level = heirloom_unseal_level(bonus_data)
+        if player.level_index < need_level:
+            realm_name = "筑基期" if need_level >= 10 else "更高境界"
+            return False, f"❌ 解封传家宝需要至少达到【{realm_name}】！请继续努力修行。"
             
         heirloom_name = heirloom.get("name")
         snapshot = heirloom.get("instance") if isinstance(heirloom.get("instance"), dict) else None
@@ -451,7 +479,7 @@ class ReincarnationManager:
         """仙缘商店兑换（目录见 core.reincarnation_rules.SHOP_ITEMS）。"""
         item = SHOP_ITEMS.get(int(item_id))
         if not item:
-            return False, "❌ 无效的商品编号（1~8），发送 /仙缘商店 查看。"
+            return False, f"❌ 无效的商品编号（1~{max(SHOP_ITEMS)}），发送 /仙缘商店 查看。"
 
         bonus_data = parse_bonus(player)
         name = item["name"]
@@ -473,6 +501,15 @@ class ReincarnationManager:
                 f"✨ 【道基淬炼】第 {owned} 层生效：全属性 +{round(dao_gift_pct(bonus_data) * 100)}%"
                 "（已记入永久账本，飞升与弃道重修后都会重新放大）"
             )
+        elif item_id == 51:
+            # 仙缘称号：每阶 +1% 全属性，买完当场生效，转生后随账本重放
+            add_item(bonus_data, item_id)
+            scale_base_stats(player, 1.0 + FATE_TITLE_PCT_PER_STACK)
+            owned = item_owned(bonus_data, item_id)
+            msg = (
+                f"🏅 【仙缘称号】升至第 {owned} 阶：全属性 +{owned}%"
+                f"（跨世永久，转生后重新放大）"
+            )
         else:
             add_item(bonus_data, item_id)
             msg = self._shop_effect_text(item_id, bonus_data, player)
@@ -482,33 +519,31 @@ class ReincarnationManager:
         return True, f"{msg}\n当前剩余仙缘点：{player.fate_points}"
 
     def _shop_effect_text(self, item_id: int, bonus_data: dict, player: Player) -> str:
-        """购买成功后的效果说明（按商品各自的计量单位）。"""
+        """购买成功后的效果说明（按商品各自的计量单位，数值一律从目录读，避免文案漂移）。"""
+        item = SHOP_ITEMS[item_id]
         owned = item_owned(bonus_data, item_id)
-        if item_id == 1:
+        if item_id == 3:
             return (
-                f"🌟 【修炼加速】第 {owned} 层：闭关与历练修为 +{owned * 10}%，"
-                "跨世保留。"
+                f"✨ 【道基淬炼】第 {owned} 层：全属性 +{round(dao_gift_pct(bonus_data) * 100)}%"
+                "（已记入永久账本，飞升与弃道重修后都会重新放大）"
             )
         if item_id == 2:
             per_life = int(escort_gold_base(player.level_index) * NEWLIFE_ESCORT_TRIPS_PER_STACK)
             return (
                 f"💰 【转世资粮】第 {owned} 层：每次转生后到账"
-                f" {per_life * 0:,} 灵石（按当前境界的 {owned * NEWLIFE_ESCORT_TRIPS_PER_STACK:g} 趟镖银折算；转生后境界越高越多）。"
+                f" {per_life * 0:,} 灵石（按当前境界的 {owned * NEWLIFE_ESCORT_TRIPS_PER_STACK:g} 趟镖银折算）"
             )
         if item_id == 4:
             return (
                 f"🌀 【灵根洗炼】额度 +1，当前库存 {root_reroll_stock(player)} 次。"
-                "每轮转生的 5 次免费重抽用完后自动消耗。"
+                "每轮转生的免费重抽用完后自动消耗。"
             )
-        if item_id == 5:
-            return (
-                f"🎯 【破境感悟】第 {owned} 层：突破基础成功率 +{owned * 0.5:g} 个百分点"
-                "（破境丹的上限一并抬高）。"
-            )
-        if item_id == 6:
-            return f"🗺️ 【历练心得】第 {owned} 层：历练修为与灵石收益 +{owned * 10}%。"
-        if item_id == 7:
-            return f"🌿 【采药心得】第 {owned} 层：秘境材料掉率 +{owned * 3:g} 个百分点。"
-        if item_id == 8:
-            return f"🧭 【寻宝直觉】第 {owned} 层：秘境装备掉率 +{owned * 10}%。"
-        return f"✅ 【{SHOP_ITEMS[item_id]['name']}】第 {owned} 层已生效。"
+        total = owned * float(item["step"])
+        unit = str(item.get("unit") or "")
+        if unit.endswith("点"):
+            detail = f"+{total * 100:g} 个百分点"
+        elif unit.endswith("%"):
+            detail = f"+{total * 100:g}%"
+        else:
+            detail = f"{total:g} {unit}"
+        return f"✅ 【{item['name']}】第 {owned} 层：{detail}（{item['desc']}）"

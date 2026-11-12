@@ -1267,7 +1267,7 @@ async def _src_fate_shop(plugin: "XiuXianPlugin", player: Any, field: dict, valu
     for item_id, item in sorted(SHOP_ITEMS.items()):
         owned = item_owned(bonus, item_id)
         cap = int(item.get("cap") or 0)
-        desc = f"[{item.get('tier', '')}] {item['cost']} 点 · {item['unit']}"
+        desc = f"[{item.get('group', '')}] {item['cost']} 点 · {item['unit']}"
         if cap:
             desc += f" · 已购 {owned}/{cap}"
         elif owned:

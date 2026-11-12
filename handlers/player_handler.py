@@ -9,11 +9,16 @@ from ..core import CultivationManager, PillManager, StorageRingManager
 from ..core.reincarnation_rules import (
     FREE_ROOT_REROLLS,
     NEWLIFE_ESCORT_TRIPS_PER_STACK,
+    free_root_rerolls,
+    permanent_effect,
     NEWLIFE_MARKER,
     NEWLIFE_ROOT_MARKER,
     ROOT_TIER_GUARANTEE_EVERY,
     add_item,
     apply_dao_gift,
+    apply_start_level,
+    keeps_life_skill,
+    keep_gold_ratio,
     consume_root_reroll,
     escort_gold_base,
     format_reroll_budget,
@@ -401,7 +406,7 @@ class PlayerHandler:
             if await self._root_roll_no(user_id) == 0:
                 # 飞升事务已把批次与免费次数清零，重塑的第一批不额外扣次数
                 roots, guarantee, upgraded, roll_no = await self._draw_roots_with_guarantee(
-                    user_id, prev_root
+                    existing, prev_root
                 )
             else:
                 # 本轮已经抽过一批：再发「我要修仙」等同于重抽，要扣免费次数/洗炼额度，
@@ -1477,7 +1482,7 @@ class PlayerHandler:
         return no
 
     async def _draw_roots_with_guarantee(
-        self, user_id: str, prev_root: str = ""
+        self, player: Player, prev_root: str = ""
     ) -> tuple[list, str, bool, int]:
         """抽一批 3 条灵根，按「本轮第几批」决定保底强度。
 
@@ -1487,18 +1492,18 @@ class PlayerHandler:
         返回 (roots, 保底灵根名, 是否升档批, 批次号)。
         """
         cm = self.cultivation_manager
-        roll_no = await self._bump_root_roll_no(user_id)
+        roll_no = await self._bump_root_roll_no(player.user_id)
         prev_idx = cm.root_tier_index(prev_root) if prev_root else -1
         if prev_idx < 0:
             return cm.draw_spiritual_roots(3), "", False, roll_no
 
+        # 【灵根天眷】永久抬高保底档位；顶档封顶，不会越界
+        top = len(cm.root_tier_order) - 1
+        base_tier = min(prev_idx + int(permanent_effect(player, "root_tier_bonus")), top)
         upgraded = False
-        min_tier = prev_idx
-        if (
-            roll_no % ROOT_TIER_GUARANTEE_EVERY == 0
-            and prev_idx + 1 < len(cm.root_tier_order)
-        ):
-            min_tier = prev_idx + 1
+        min_tier = base_tier
+        if roll_no % ROOT_TIER_GUARANTEE_EVERY == 0 and base_tier + 1 <= top:
+            min_tier = base_tier + 1
             upgraded = True
 
         roots = cm.draw_spiritual_roots(3, min_tier)
@@ -1509,8 +1514,9 @@ class PlayerHandler:
 
     async def _reroll_budget_text(self, player: Player) -> str:
         used = await self._root_reroll_used(player.user_id)
-        free_left = max(0, FREE_ROOT_REROLLS - used)
-        return format_reroll_budget(free_left, root_reroll_stock(player))
+        total = free_root_rerolls(player)
+        free_left = max(0, total - used)
+        return format_reroll_budget(free_left, root_reroll_stock(player), total)
 
     async def _reroll_roots(self, player: Player, prev_root: str = "") -> tuple[bool, str, list, dict]:
         """扣一次重抽预算并抽 3 条新灵根。
@@ -1521,7 +1527,8 @@ class PlayerHandler:
         import json as _json
 
         used = await self._root_reroll_used(player.user_id)
-        free_left = max(0, FREE_ROOT_REROLLS - used)
+        total_free = free_root_rerolls(player)
+        free_left = max(0, total_free - used)
         bonus = parse_bonus(player)
         stock = int(ledger_value(bonus, "root_reroll_stock"))
 
@@ -1537,7 +1544,7 @@ class PlayerHandler:
                 await self.db.ext.set_system_config(self._reroll_key(player.user_id), str(used))
             except Exception:
                 pass
-            note = f"本次用免费重抽，剩 {FREE_ROOT_REROLLS - used} 次"
+            note = f"本次用免费重抽，剩 {total_free - used} 次"
         else:
             left = consume_root_reroll(bonus)
             player.permanent_bonus = _json.dumps(bonus, ensure_ascii=False)
@@ -1545,7 +1552,7 @@ class PlayerHandler:
             note = f"本次消耗 1 次洗炼额度，剩 {left} 次"
 
         roots, guarantee, upgraded, roll_no = await self._draw_roots_with_guarantee(
-            player.user_id, prev_root
+            player, prev_root
         )
         if guarantee:
             note += f" · 第 {roll_no} 批" + ("升档保底" if upgraded else "同档保底")
@@ -1593,12 +1600,15 @@ class PlayerHandler:
         )
         base_player.spiritual_root = f"{root}灵根"
 
+        bonus_data = parse_bonus(player)
+        prev_gold = int(getattr(player, "gold", 0) or 0)
         player.cultivation_type = base_player.cultivation_type
         player.level_index = 0
         player.experience = 0
         # 转世资粮：按上一世巅峰境界的镖银趟数发放，层数由仙缘商店决定
-        startup = int(escort_gold_base(peak_level) * ledger_value(parse_bonus(player), "newlife_trips"))
-        player.gold = 1000 + startup
+        # 【前世余荫】再按比例保留上一世灵石（最高 90%）
+        startup = int(escort_gold_base(peak_level) * ledger_value(bonus_data, "newlife_trips"))
+        player.gold = 1000 + startup + int(prev_gold * keep_gold_ratio(bonus_data))
         player.lifespan = base_player.lifespan
         player.hp = base_player.hp
         player.mp = base_player.mp
@@ -1616,7 +1626,17 @@ class PlayerHandler:
         player.spiritual_root = base_player.spiritual_root
 
         # 仙缘商店的【道基淬炼】跨世保留：基础属性刚被覆盖，按永久账本重新放大
-        apply_dao_gift(player, parse_bonus(player))
+        apply_dao_gift(player, bonus_data)
+        # 【宿慧觉醒】开局直接顶境界（只给等级与成长，不送修为）
+        try:
+            apply_start_level(
+                player,
+                bonus_data,
+                peak_level,
+                self.config_manager.get_level_data(player.cultivation_type or "灵修"),
+            )
+        except Exception:
+            pass
 
         player.weapon = ""
         player.armor = ""
@@ -1636,6 +1656,9 @@ class PlayerHandler:
 
         if life_skill:
             player.life_skill = life_skill
+        elif keeps_life_skill(bonus_data) and not player.life_skill:
+            # 【一脉相承】没主动换生活职业时，保留上一世的那一份
+            player.life_skill = str(getattr(base_player, "life_skill", "") or "") or player.life_skill
         # 重修后生活职业计费清零（下次更换从基础费用开始）
         player.life_skill_changes = 0
         player.life_skill_cost_peak = 0

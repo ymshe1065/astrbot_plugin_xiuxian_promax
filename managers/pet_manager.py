@@ -187,8 +187,29 @@ class PetManager:
     def get_pet_slots(self, player: Player) -> int:
         # 非御兽职业固定 1 个灵兽槽；御兽随大境界提升（炼气2、筑基3、金丹4……）。
         if getattr(player, "cultivation_type", "") == "御兽":
-            return 2 + self.get_realm_tier(player.level_index)
-        return 1
+            base = 2 + self.get_realm_tier(player.level_index)
+        else:
+            base = 1
+        # 仙缘【御兽栏】：额外槽位（商品本身封顶 6 位）
+        try:
+            from ..core.reincarnation_rules import permanent_effect
+
+            return base + int(permanent_effect(player, "pet_slot_bonus"))
+        except Exception:
+            return base
+
+    def get_pet_level_cap(self, player: Optional[Player] = None) -> int:
+        """灵兽等级上限：基础 MAX_PET_LEVEL + 仙缘【灵兽潜能】。"""
+        cap = self.MAX_PET_LEVEL
+        if player is None:
+            return cap
+        try:
+            from ..core.reincarnation_rules import permanent_effect
+
+            cap += int(permanent_effect(player, "pet_level_cap_bonus"))
+        except Exception:
+            pass
+        return cap
 
     @staticmethod
     def stage_for_level(level: int) -> int:
@@ -475,7 +496,8 @@ class PetManager:
             await self.db.ext.set_system_config(key, str(experience))
             return False
 
-        eligible = [p for p in pets if int(p.get("level") or 1) < self.MAX_PET_LEVEL]
+        cap = self.get_pet_level_cap(player)
+        eligible = [p for p in pets if int(p.get("level") or 1) < cap]
         share = self.EXP_SHARE_YUSOU if cultivation_type == "御兽" else self.EXP_SHARE_OTHER
         gain = int(delta * share)
         if gain <= 0 or not eligible:
@@ -486,10 +508,10 @@ class PetManager:
         for pet in eligible:
             level = int(pet.get("level") or 1)
             exp = int(pet.get("exp") or 0) + gain
-            while level < self.MAX_PET_LEVEL and exp >= level * 500:
+            while level < cap and exp >= level * 500:
                 exp -= level * 500
                 level += 1
-            if level >= self.MAX_PET_LEVEL:
+            if level >= cap:
                 exp = 0
             await self.ensure_pet_evolution(pet, commit=False, level=level)
             await self.db.conn.execute(
@@ -779,7 +801,7 @@ class PetManager:
         if slot is None:
             return False, "❌ 灵兽槽位数据异常，请先整理灵兽栏后再试。", None
 
-        level = max(1, min(self.MAX_PET_LEVEL, int(level or 1)))
+        level = max(1, min(self.get_pet_level_cap(player), int(level or 1)))
         stage = self.stage_for_level(level)
         chain = self.PET_EVOLUTIONS.get(pet_name) or []
         stage_info = chain[min(stage, len(chain) - 1)] if chain else {"name": pet_name}
@@ -982,8 +1004,9 @@ class PetManager:
             remain = dead_until - now
             return False, f"❌ 【{pet['pet_name']}】正在复活中，还需 {remain // 60} 分 {remain % 60} 秒，暂时无法喂养。"
 
-        if pet["level"] >= self.MAX_PET_LEVEL:
-            return False, f"❌ 【{pet['pet_name']}】已经满级（Lv.{self.MAX_PET_LEVEL}）。"
+        pet_cap = self.get_pet_level_cap(player)
+        if pet["level"] >= pet_cap:
+            return False, f"❌ 【{pet['pet_name']}】已经满级（Lv.{pet_cap}）。"
 
         if getattr(player, "cultivation_type", "") == "御兽":
             cost_mult *= 0.8
@@ -997,10 +1020,10 @@ class PetManager:
 
         new_exp = pet["exp"] + 100
         new_level = pet["level"]
-        while new_level < self.MAX_PET_LEVEL and new_exp >= new_level * 500:
+        while new_level < pet_cap and new_exp >= new_level * 500:
             new_exp -= new_level * 500
             new_level += 1
-        if new_level >= self.MAX_PET_LEVEL:
+        if new_level >= pet_cap:
             new_exp = 0
 
         evolution = await self.ensure_pet_evolution(pet, commit=False, level=new_level)
@@ -1094,8 +1117,9 @@ class PetManager:
             )
 
         old_level = max(1, int(pet.get("level") or 1))
-        if old_level >= self.MAX_PET_LEVEL:
-            return False, f"❌ 【{pet['pet_name']}】已经满级（Lv.{self.MAX_PET_LEVEL}）。"
+        pet_cap = self.get_pet_level_cap(player)
+        if old_level >= pet_cap:
+            return False, f"❌ 【{pet['pet_name']}】已经满级（Lv.{pet_cap}）。"
 
         available = self._storage_item_count(player, item_name)
         if available <= 0:
@@ -1113,15 +1137,15 @@ class PetManager:
         new_exp = old_exp
         gain_exp = 0
         used = 0
-        while used < use_limit and new_level < self.MAX_PET_LEVEL:
+        while used < use_limit and new_level < pet_cap:
             gain = max(1, int(new_level * 500 * self.PET_CORE_EXP_RATIO))
             new_exp += gain
             gain_exp += gain
             used += 1
-            while new_level < self.MAX_PET_LEVEL and new_exp >= new_level * 500:
+            while new_level < pet_cap and new_exp >= new_level * 500:
                 new_exp -= new_level * 500
                 new_level += 1
-            if new_level >= self.MAX_PET_LEVEL:
+            if new_level >= pet_cap:
                 new_exp = 0
                 break
 
@@ -1153,7 +1177,7 @@ class PetManager:
         await self.db.conn.commit()
 
         remaining = self._storage_item_count(player, item_name)
-        if new_level >= self.MAX_PET_LEVEL:
+        if new_level >= pet_cap:
             progress_text = f"Lv.{new_level}（已满级）"
         else:
             progress_text = f"Lv.{new_level} {new_exp}/{new_level * 500}"
@@ -1170,7 +1194,7 @@ class PetManager:
             )
         if requested > available:
             lines.append(f"📦 背包仅剩 {available} 颗，已全部使用。")
-        elif new_level >= self.MAX_PET_LEVEL and remaining > 0:
+        elif new_level >= pet_cap and remaining > 0:
             lines.append(f"📦 已满级，剩余 {remaining} 颗未使用。")
         lines.append(f"📦 剩余【{item_name}】：{remaining} 颗")
         lines.append(
@@ -1379,6 +1403,15 @@ class PetManager:
                 pets = ordered[:slots]
 
         revive_mult = 0.7 if cultivation_type == "御兽" else 1.0
+        # 仙缘【御兽同心】：灵兽守护触发率永久加点（战斗侧仍有 PET_GUARD_CAP 硬顶）
+        guard_bonus = 0.0
+        try:
+            from ..core.reincarnation_rules import permanent_effect
+
+            if player:
+                guard_bonus = permanent_effect(player, "pet_guard_bonus")
+        except Exception:
+            guard_bonus = 0.0
         states = []
         for pet in pets:
             state = await self.build_pet_combat_state(
@@ -1386,6 +1419,8 @@ class PetManager:
                 commit=persist, revive_mult=revive_mult,
             )
             if state:
+                if guard_bonus:
+                    state.guard_rate = float(state.guard_rate) + guard_bonus
                 states.append((pet, state))
         if not states:
             return None, [], {}, owner_atk

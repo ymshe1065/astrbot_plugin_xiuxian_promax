@@ -808,8 +808,19 @@ class AuctionManager:
             buyer.gold -= total_price
             await self.db.update_player(buyer, commit=False)
 
-            # 4. 给卖家打款（扣除 5% 交易税）；原子增量，避免覆盖卖家并发修改
-            seller_income = int(total_price * (1 - self.TAX_RATE))
+            # 4. 给卖家打款（扣除交易税）；原子增量，避免覆盖卖家并发修改
+            # 仙缘【拍卖贵宾】：按卖家的账本折减交易税（最多全免）
+            tax_rate = self.TAX_RATE
+            try:
+                from ..core.reincarnation_rules import permanent_effect
+
+                seller = await self.db.get_player_by_id(item_data["seller_id"])
+                if seller:
+                    discount = min(1.0, permanent_effect(seller, "auction_fee_bonus"))
+                    tax_rate = max(0.0, tax_rate * (1.0 - discount))
+            except Exception:
+                tax_rate = self.TAX_RATE
+            seller_income = int(total_price * (1 - tax_rate))
             await self.db.add_player_gold(item_data["seller_id"], seller_income, commit=False)
 
             # 5. 从坊市和NPC问价中移除该记录

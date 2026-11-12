@@ -144,12 +144,13 @@ class TestDaoGiftLedger(unittest.TestCase):
         rules.apply_dao_gift(player, bonus)
         self.assertEqual(player.mental_power, 1050)
 
-    def test_cap_is_eight_stacks(self):
+    def test_dao_gift_is_uncapped(self):
+        """商品一律不设上限：12 层就是 12 层，不再在第 8 层被钳住。"""
         bonus = {}
         for _ in range(12):
             rules.add_item(bonus, 3)
-        self.assertEqual(rules.dao_gift_times(bonus), 8)
-        self.assertAlmostEqual(rules.dao_gift_pct(bonus), 0.40, places=6)
+        self.assertEqual(rules.dao_gift_times(bonus), 12)
+        self.assertAlmostEqual(rules.dao_gift_pct(bonus), 0.60, places=6)
 
     def test_bad_ledger_is_ignored(self):
         player = self._player()
@@ -163,30 +164,57 @@ class TestDaoGiftLedger(unittest.TestCase):
 
 
 class TestFateShopCatalog(unittest.TestCase):
-    def test_eight_items_with_expected_prices(self):
+    def test_legacy_items_keep_their_prices(self):
         expected = {
-            1: ("修炼加速", 100, 0),
-            2: ("转世资粮", 40, 8),
-            3: ("道基淬炼", 100, 8),
-            4: ("灵根洗炼", 25, 20),
-            5: ("破境感悟", 80, 6),
-            6: ("历练心得", 110, 8),
-            7: ("采药心得", 30, 6),
-            8: ("寻宝直觉", 40, 6),
+            1: ("修炼加速", 100),
+            2: ("转世资粮", 40),
+            3: ("道基淬炼", 100),
+            4: ("灵根洗炼", 25),
+            5: ("破境感悟", 80),
+            6: ("历练心得", 110),
+            7: ("采药心得", 30),
+            8: ("寻宝直觉", 40),
         }
-        for item_id, (name, cost, cap) in expected.items():
+        for item_id, (name, cost) in expected.items():
             item = rules.SHOP_ITEMS[item_id]
             self.assertEqual(item["name"], name)
             self.assertEqual(item["cost"], cost)
-            self.assertEqual(item["cap"], cap)
+
+    def test_catalog_is_expanded_and_grouped(self):
+        """商品目录扩到 50+ 项，且每一项都落在 8 个分组之一里。"""
+        self.assertGreaterEqual(len(rules.SHOP_ITEMS), 50)
+        group_names = [name for name, _ in rules.SHOP_GROUPS]
+        self.assertEqual(len(group_names), 8)
+        grouped_total = 0
+        for name in group_names:
+            ids = rules.items_in_group(name)
+            self.assertTrue(ids, f"分组【{name}】没有商品")
+            grouped_total += len(ids)
+            for item_id in ids:
+                self.assertEqual(rules.SHOP_ITEMS[item_id]["group"], name)
+        self.assertEqual(grouped_total, len(rules.SHOP_ITEMS))
+
+    def test_numeric_items_are_uncapped(self):
+        """数值型商品一律 cap=0（无上限），只有结构性解锁才留硬顶。"""
+        structural = {26, 31, 32, 39, 43, 44, 46, 48, 49, 50, 51}
+        for item_id, item in rules.SHOP_ITEMS.items():
+            if item_id in structural:
+                self.assertGreater(item["cap"], 0, f"【{item['name']}】应保留硬顶")
+            else:
+                self.assertEqual(item["cap"], 0, f"【{item['name']}】不该封顶")
 
     def test_caps_stop_purchases(self):
         bonus = {}
         for _ in range(10):
-            rules.add_item(bonus, 7)  # 采药心得 上限 6
-        self.assertEqual(rules.item_owned(bonus, 7), 6)
-        self.assertTrue(rules.item_at_cap(bonus, 7))
+            rules.add_item(bonus, 26)  # 天工开物 上限 3 档
+        self.assertEqual(rules.item_owned(bonus, 26), 3)
+        self.assertTrue(rules.item_at_cap(bonus, 26))
         self.assertFalse(rules.item_at_cap(bonus, 1))  # 修炼加速不封顶
+        # 无上限商品：买多少次就有多少层
+        for _ in range(10):
+            rules.add_item(bonus, 7)
+        self.assertEqual(rules.item_owned(bonus, 7), 10)
+        self.assertFalse(rules.item_at_cap(bonus, 7))
 
     def test_effect_getters(self):
         bonus = {
@@ -271,10 +299,10 @@ class TestFateShop(unittest.IsolatedAsyncioTestCase):
         mgr, db = self._manager()
         player = Player(user_id="u1")
         player.fate_points = 100000
-        player.permanent_bonus = json.dumps({"rift_equip_bonus": 0.72}, ensure_ascii=False)
-        ok, msg = await mgr.buy_fate_shop_item(player, 8)
+        player.permanent_bonus = json.dumps({"forge_affix_bonus": 3}, ensure_ascii=False)
+        ok, msg = await mgr.buy_fate_shop_item(player, 26)
         self.assertFalse(ok)
-        self.assertIn("已满 6 层", msg)
+        self.assertIn("已满 3 层", msg)
 
     async def test_purchase_rejected_without_points(self):
         mgr, db = self._manager()
@@ -288,7 +316,7 @@ class TestFateShop(unittest.IsolatedAsyncioTestCase):
         mgr, db = self._manager()
         ok, msg = await mgr.buy_fate_shop_item(Player(user_id="u1"), 99)
         self.assertFalse(ok)
-        self.assertIn("1~8", msg)
+        self.assertIn("1~51", msg)
 
 
 class TestAscendPreview(unittest.IsolatedAsyncioTestCase):

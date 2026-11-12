@@ -466,6 +466,15 @@ class PillManager:
         base_name, _ = self.split_pill_key(pill_key)
         mult = self.get_quality_multiplier(quality)
         exp_gain = int(float(pill_data.get("exp_gain", 0)) * mult)
+        # 仙缘【丹道精研】：修为丹提供的修为永久加成（无上限）
+        try:
+            from .reincarnation_rules import permanent_effect
+
+            pill_bonus = permanent_effect(player, "pill_exp_bonus")
+            if pill_bonus:
+                exp_gain = int(exp_gain * (1.0 + pill_bonus))
+        except Exception:
+            pass
         player.experience += exp_gain
 
         self._consume_inventory_key(player, pill_key)

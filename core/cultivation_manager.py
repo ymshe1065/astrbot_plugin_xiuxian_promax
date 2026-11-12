@@ -503,6 +503,8 @@ class CultivationManager:
         try:
             bonus_data = json.loads(player.permanent_bonus) if player.permanent_bonus else {}
             global_mult = 1.0 + bonus_data.get("global_cultivation_multiplier", 0.0)
+            # 【悟道蒲团】只作用于闭关打坐，与修炼加速相乘
+            global_mult *= 1.0 + max(0.0, float(bonus_data.get("seclusion_bonus", 0.0) or 0.0))
         except Exception:
             pass
         # ======================================
