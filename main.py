@@ -3334,20 +3334,20 @@ class XiuXianPlugin(Star):
         yield event.plain_result(msg)
 
     # ===== v6.8 储物戒空间附魔 =====
-    @filter.command("储物戒附魔", "消耗空间石永久扩充储物戒容量")
+    @filter.command("储物戒附魔", "消耗空间石扩充储物戒容量（次数越多，单次消耗越高）")
     @require_whitelist
     @idle_player_lock
-    async def handle_ring_enchant(self, event: AstrMessageEvent, stones: str = "1"):
+    async def handle_ring_enchant(self, event: AstrMessageEvent, times: str = "1"):
         player = await self.db.get_player_by_id(event.get_sender_id())
         if not player:
             yield event.plain_result("❌ 道友尚未踏入仙途，请先发送「我要修仙」。")
             return
         try:
-            stone_count = int(stones)
+            enchant_times = int(times)
         except ValueError:
-            yield event.plain_result("❌ 请输入有效的空间石数量，例如：/储物戒附魔 2")
+            yield event.plain_result("❌ 请输入有效的附魔次数，例如：/储物戒附魔 2")
             return
-        success, msg = await self.storage_ring_mgr.enchant_ring(player, stone_count)
+        success, msg = await self.storage_ring_mgr.enchant_ring(player, enchant_times)
         yield event.plain_result(msg)
 
     # ===== v6.8 押镖与劫道 =====

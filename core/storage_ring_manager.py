@@ -24,8 +24,10 @@ class StorageRingManager:
 
     STACK_LIMIT = 50                 # 单格堆叠上限（存量与仓库共用）
     ENCHANT_ITEM = "空间石"          # 附魔材料
-    ENCHANT_BONUS_PER_STONE = 5      # 每颗空间石 +5 容量
-    # 空间附魔不设上限：容量只受空间石持有量限制
+    ENCHANT_GAIN_PER_LEVEL = 5       # 每次附魔 +5 容量
+    ENCHANT_STEP = 5                 # 每 5 次附魔，单次消耗 +1 颗空间石
+    # 空间附魔不设上限：容量只受空间石持有量限制；
+    # 但「次数越多越贵」——第 1~5 次每次 1 颗，6~10 次每次 2 颗，以此类推
 
     def __init__(self, db: "DataBase", config_manager: "ConfigManager"):
         self.db = db
@@ -43,6 +45,36 @@ class StorageRingManager:
         except Exception:
             return 0
 
+    def get_enchant_level(self, player: Player) -> int:
+        """已附魔次数（每次 +ENCHANT_GAIN_PER_LEVEL 格）。"""
+        gain = max(1, self.ENCHANT_GAIN_PER_LEVEL)
+        return max(0, self.get_enchant_bonus(player) // gain)
+
+    def enchant_cost(self, level: int) -> int:
+        """第 level+1 次附魔要几颗空间石：每 ENCHANT_STEP 次涨 1 颗。
+
+        level=0~4 → 1 颗；5~9 → 2 颗；10~14 → 3 颗……
+        """
+        return 1 + max(0, int(level)) // max(1, self.ENCHANT_STEP)
+
+    def enchant_total_cost(self, level: int, times: int) -> int:
+        """从第 level+1 次起连做 times 次，总共要几颗空间石。"""
+        return sum(
+            self.enchant_cost(level + i) for i in range(max(0, int(times)))
+        )
+
+    def enchant_affordable(self, level: int, stones: int, limit: int) -> int:
+        """手头 stones 颗空间石，从第 level+1 次起最多能做几次（不超过 limit）。"""
+        left = max(0, int(stones))
+        times = 0
+        while times < max(0, int(limit)):
+            cost = self.enchant_cost(level + times)
+            if cost > left:
+                break
+            left -= cost
+            times += 1
+        return times
+
     def get_total_capacity(self, player: Player) -> int:
         """戒指基础容量 + 空间附魔 + 仙缘【芥子纳须】/【纳物铭文】的永久格数。"""
         try:
@@ -58,18 +90,34 @@ class StorageRingManager:
             + shop_slots
         )
 
-    async def enchant_ring(self, player: Player, stone_count: int = 1) -> Tuple[bool, str]:
-        """空间附魔：消耗空间石永久扩充储物戒容量（不设上限）"""
-        if stone_count <= 0:
-            return False, "❌ 请输入有效的空间石数量。"
+    async def enchant_ring(self, player: Player, times: int = 1) -> Tuple[bool, str]:
+        """空间附魔：消耗空间石永久扩充储物戒容量。
+
+        每次 +ENCHANT_GAIN_PER_LEVEL 格；单次消耗随附魔次数递增
+        （每 ENCHANT_STEP 次涨 1 颗），因此扩容越往后越贵。
+        """
+        try:
+            times = int(times)
+        except (TypeError, ValueError):
+            return False, "❌ 请输入有效的附魔次数。"
+        if times <= 0:
+            return False, "❌ 请输入有效的附魔次数。"
 
         current_enchant = self.get_enchant_bonus(player)
-        need = int(stone_count)
+        level = self.get_enchant_level(player)
+        gain = self.ENCHANT_GAIN_PER_LEVEL
+        need = self.enchant_total_cost(level, times)
+
         if not self.has_item(player, self.ENCHANT_ITEM, need):
             have = self.get_item_count(player, self.ENCHANT_ITEM)
+            can = self.enchant_affordable(level, have, times)
+            tip = f"按现有 {have} 颗最多可附魔 {can} 次。" if can else ""
             return False, (
-                f"❌ 空间石不足（拥有 {have}，需要 {need}）。\n"
-                f"每颗空间石可扩容 +{self.ENCHANT_BONUS_PER_STONE} 格。"
+                f"❌ 空间石不足：第 {level + 1}~{level + times} 次共需 {need} 颗，"
+                f"当前 {have} 颗。\n"
+                f"{tip}"
+                f"第 {level + 1} 次消耗 {self.enchant_cost(level)} 颗（+{gain} 格）；"
+                f"每 {self.ENCHANT_STEP} 次，单次消耗 +1 颗。"
             )
 
         success, msg = await self.retrieve_item(player, self.ENCHANT_ITEM, need)
@@ -80,16 +128,22 @@ class StorageRingManager:
             data = json.loads(player.permanent_bonus) if player.permanent_bonus else {}
         except Exception:
             data = {}
-        data["storage_enchant"] = current_enchant + need * self.ENCHANT_BONUS_PER_STONE
+        new_enchant = current_enchant + times * gain
+        data["storage_enchant"] = new_enchant
         player.permanent_bonus = json.dumps(data, ensure_ascii=False)
         await self.db.update_player(player)
 
+        new_level = self.get_enchant_level(player)
+        batch = f"（第 {level + 1}~{new_level} 次）" if times > 1 else ""
         return True, (
             f"✨ 空间附魔成功！\n"
             f"━━━━━━━━━━━━━━━\n"
+            f"附魔次数：{level} → {new_level} 次{batch}\n"
             f"消耗【{self.ENCHANT_ITEM}】x{need}\n"
-            f"附魔容量：+{current_enchant} → +{data['storage_enchant']}\n"
-            f"当前总容量：{self.get_total_capacity(player)} 格"
+            f"附魔容量：+{current_enchant} → +{new_enchant} 格\n"
+            f"当前总容量：{self.get_total_capacity(player)} 格\n"
+            f"━━━━━━━━━━━━━━━\n"
+            f"下次附魔：需 {self.enchant_cost(new_level)} 颗空间石（+{gain} 格）"
         )
 
     def get_ring_capacity(self, ring_name: str) -> int:
@@ -1001,7 +1055,10 @@ class StorageRingManager:
         for name, count in self.instance_manager.storage_counts(player).items():
             items[name] = int(items.get(name, 0) or 0) + count
         enchant = self.get_enchant_bonus(player)
-        capacity = self.get_ring_capacity(player.storage_ring) + enchant
+        enchant_level = self.get_enchant_level(player)
+        # 与 get_total_capacity 保持一致（含仙缘【芥子纳须】/【纳物铭文】的永久格数），
+        # 否则界面显示的容量会小于实际可用容量
+        capacity = self.get_total_capacity(player)
         used = self.get_used_slots(player)
         overflow = dict(player.get_overflow_items())
         for inst in self.instance_manager.list_instances(player, "overflow"):
@@ -1017,6 +1074,8 @@ class StorageRingManager:
             "used": used,
             "available": capacity - used,
             "enchant": enchant,
+            "enchant_level": enchant_level,
+            "enchant_next_cost": self.enchant_cost(enchant_level),
             "items": items,
             "overflow": overflow
         }

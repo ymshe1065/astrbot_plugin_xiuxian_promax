@@ -182,6 +182,8 @@ class StorageRingHandler:
             f"【{ring_info['name']}】（{ring_info['rank']}）\n",
             f"{ring_info['description']}\n",
             f"\n容量：{ring_info['used']}/{ring_info['capacity']}格\n",
+            f"空间附魔：{ring_info['enchant_level']} 次（+{ring_info['enchant']} 格）"
+            f" · 下次需 {ring_info['enchant_next_cost']} 颗空间石\n",
             f"━━━━━━━━━━━━━━━\n",
         ]
 
@@ -254,7 +256,8 @@ class StorageRingHandler:
                     sections=[
                         {"name": "容量", "rows": [
                             ("容量", f"{ring_info['used']}/{ring_info['capacity']}"),
-                            ("空间附魔", f"+{enchant}" if enchant else "无"),
+                            ("空间附魔", f"+{enchant} 格（{ring_info['enchant_level']} 次）" if enchant else "无"),
+                            ("下次附魔", f"需 {ring_info['enchant_next_cost']} 颗空间石"),
                             ("剩余空间", f"{ring_info['available']}"),
                             ("堆叠规则", f"每格 {StorageRingManager.STACK_LIMIT} 个"),
                         ]},

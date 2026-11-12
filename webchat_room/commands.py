@@ -73,7 +73,7 @@ CATEGORIES: list[dict[str, Any]] = [
         "items": [
             {"cmd": "/储物戒", "label": "储物戒", "panel": True},
             {"cmd": "/更换储物戒", "label": "更换储物戒", "arg": "储物戒名"},
-            {"cmd": "/储物戒附魔", "label": "储物戒附魔", "arg": "空间石数量"},
+            {"cmd": "/储物戒附魔", "label": "储物戒附魔", "arg": "附魔次数"},
             {"cmd": "/领取溢出", "label": "领取溢出"},
             {"cmd": "/仓库", "label": "洞天仓库", "panel": True},
             {"cmd": "/升级仓库", "label": "升级仓库", "arg": "次数 / all（留空 = 1 次）"},
@@ -424,7 +424,7 @@ ARG_SPEC: dict[str, dict[str, Any]] = {
     "装备": {"hint": "物品名", "example": "青锋剑", "min": 1},
     "卸下": {"hint": "戒指1/戒指2/功法/装备名", "example": "戒指1", "min": 1},
     "更换储物戒": {"hint": "储物戒名", "example": "纳物戒", "min": 1},
-    "储物戒附魔": {"hint": "消耗空间石数量", "example": "1", "min": 1},
+    "储物戒附魔": {"hint": "附魔次数（每 5 次单次消耗 +1 颗）", "example": "1", "min": 1},
     "物品信息": {"hint": "物品名", "example": "炼气丹", "min": 1},
     "丹药信息": {"hint": "丹药名", "example": "炼气丹", "min": 1},
     "搜索物品": {"hint": "关键词", "example": "丹", "min": 1},

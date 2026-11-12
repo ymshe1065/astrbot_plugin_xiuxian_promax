@@ -1,4 +1,4 @@
-# 储物戒堆叠计容 与 空间附魔无上限 回归测试
+# 储物戒堆叠计容 与 空间附魔定价（次数越多越贵）回归测试
 import json
 import os
 import sys
@@ -197,6 +197,35 @@ class TestStacking(_RingFixture):
         self.assertEqual(p.get_overflow_items().get("玄铁"), 4900)
 
 
+class TestEnchantCostCurve(unittest.IsolatedAsyncioTestCase):
+    """附魔定价：每 5 次一轮，单次消耗 +1 颗（1→2→3…）。"""
+
+    async def asyncSetUp(self):
+        self.ring = _imp("core").StorageRingManager(None, None)
+
+    async def test_single_cost_curve(self):
+        costs = [self.ring.enchant_cost(i) for i in range(16)]
+        self.assertEqual(
+            costs,
+            [1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 4],
+        )
+
+    async def test_total_cost_sums_the_ladder(self):
+        # 前 30 次 = 5×1 + 5×2 + 5×3 + 5×4 + 5×5 + 5×6 = 105 颗
+        self.assertEqual(self.ring.enchant_total_cost(0, 30), 105)
+        self.assertEqual(self.ring.enchant_total_cost(0, 1), 1)
+        # 从第 6 次开始接着算
+        self.assertEqual(self.ring.enchant_total_cost(5, 5), 10)
+        self.assertEqual(self.ring.enchant_total_cost(0, 0), 0)
+
+    async def test_affordable_stops_at_budget(self):
+        # 2 颗只够买 2 次（第 5 次之后才开始涨）
+        self.assertEqual(self.ring.enchant_affordable(0, 2, 10), 2)
+        # 9 颗 = 前 5 次共 5 颗 + 第 6、7 次各 2 颗 → 正好 7 次，第 8 次要 2 颗已不够
+        self.assertEqual(self.ring.enchant_affordable(0, 9, 10), 7)
+        self.assertEqual(self.ring.enchant_affordable(0, 0, 10), 0)
+
+
 class TestEnchantNoCap(_RingFixture):
     async def _stones(self, p, count):
         ok, msg = await self.ring.store_item(p, "空间石", count)
@@ -204,23 +233,41 @@ class TestEnchantNoCap(_RingFixture):
         return await self.db.get_player_by_id("u1")
 
     async def test_enchant_has_no_upper_limit(self):
+        # 30 次 = 105 颗空间石 = +150 格；次数本身不封顶
         p = await self._player(ring="玄铁储物戒", level_index=20, gold=0)
-        p = await self._stones(p, 120)
+        p = await self._stones(p, 105)
         base = self.ring.get_ring_capacity(p.storage_ring)
-        ok, msg = await self.ring.enchant_ring(p, 120)
+        ok, msg = await self.ring.enchant_ring(p, 30)
         self.assertTrue(ok, msg)
         p = await self.db.get_player_by_id("u1")
-        self.assertEqual(self.ring.get_enchant_bonus(p), 600)
-        self.assertEqual(self.ring.get_total_capacity(p), base + 600)
+        self.assertEqual(self.ring.get_enchant_level(p), 30)
+        self.assertEqual(self.ring.get_enchant_bonus(p), 150)
+        self.assertEqual(self.ring.get_total_capacity(p), base + 150)
 
     async def test_enchant_twice_accumulates(self):
         p = await self._player(ring="玄铁储物戒", level_index=20)
         p = await self._stones(p, 30)
-        await self.ring.enchant_ring(p, 10)
+        ok, msg = await self.ring.enchant_ring(p, 5)   # 5 颗
+        self.assertTrue(ok, msg)
         p = await self.db.get_player_by_id("u1")
-        await self.ring.enchant_ring(p, 20)
+        ok, msg = await self.ring.enchant_ring(p, 5)   # 第 6~10 次，每次 2 颗 = 10 颗
+        self.assertTrue(ok, msg)
         p = await self.db.get_player_by_id("u1")
-        self.assertEqual(self.ring.get_enchant_bonus(p), 150)
+        self.assertEqual(self.ring.get_enchant_level(p), 10)
+        self.assertEqual(self.ring.get_enchant_bonus(p), 50)
+        self.assertEqual(self.ring.get_item_count(p, "空间石"), 15)
+
+    async def test_second_round_is_more_expensive(self):
+        """同样 5 次，第 6~10 次要比第 1~5 次多花一倍空间石。"""
+        p = await self._player(ring="玄铁储物戒", level_index=20)
+        p = await self._stones(p, 15)
+        await self.ring.enchant_ring(p, 5)
+        p = await self.db.get_player_by_id("u1")
+        # 只剩 10 颗，正好够第 6~10 次
+        ok, msg = await self.ring.enchant_ring(p, 5)
+        self.assertTrue(ok, msg)
+        p = await self.db.get_player_by_id("u1")
+        self.assertEqual(self.ring.get_item_count(p, "空间石"), 0)
 
     async def test_enchant_rejects_when_not_enough_stones(self):
         p = await self._player(ring="玄铁储物戒", level_index=20)
@@ -228,26 +275,37 @@ class TestEnchantNoCap(_RingFixture):
         ok, msg = await self.ring.enchant_ring(p, 10)
         self.assertFalse(ok)
         self.assertIn("空间石不足", msg)
+        self.assertIn("最多可附魔 2 次", msg)
         p = await self.db.get_player_by_id("u1")
         self.assertEqual(self.ring.get_enchant_bonus(p), 0)
 
     async def test_enchant_survives_ring_upgrade(self):
         p = await self._player(ring="玄铁储物戒", level_index=20, gold=300000)
-        p = await self._stones(p, 10)
-        ok, msg = await self.ring.enchant_ring(p, 10)
+        p = await self._stones(p, 5)
+        ok, msg = await self.ring.enchant_ring(p, 5)
         self.assertTrue(ok, msg)
         p = await self.db.get_player_by_id("u1")
-        self.assertEqual(self.ring.get_enchant_bonus(p), 50)
+        self.assertEqual(self.ring.get_enchant_bonus(p), 25)
 
         ok, msg = await self.ring.upgrade_ring(p, "星辰储物戒")
         self.assertTrue(ok, msg)
         p = await self.db.get_player_by_id("u1")
         self.assertEqual(p.storage_ring, "星辰储物戒")
-        self.assertEqual(self.ring.get_enchant_bonus(p), 50)
+        self.assertEqual(self.ring.get_enchant_bonus(p), 25)
         self.assertEqual(
             self.ring.get_total_capacity(p),
-            self.ring.get_ring_capacity("星辰储物戒") + 50,
+            self.ring.get_ring_capacity("星辰储物戒") + 25,
         )
+
+    async def test_ring_info_reports_next_cost(self):
+        p = await self._player(ring="玄铁储物戒", level_index=20)
+        p = await self._stones(p, 5)
+        await self.ring.enchant_ring(p, 5)
+        p = await self.db.get_player_by_id("u1")
+        info = self.ring.get_storage_ring_info(p)
+        self.assertEqual(info["enchant_level"], 5)
+        self.assertEqual(info["enchant_next_cost"], 2)
+        self.assertEqual(info["capacity"], self.ring.get_total_capacity(p))
 
 
 if __name__ == "__main__":

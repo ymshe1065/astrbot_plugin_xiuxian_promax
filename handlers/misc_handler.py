@@ -19,7 +19,7 @@ __all__ = ["MiscHandler"]
 class MiscHandler:
     """杂项指令处理器 - 提供帮助信息、一键日常与强制解卡"""
 
-    VERSION = HELP_VERSION  # v7.9.16：仙缘商店 51 项 + 卡片面板 + 灵石换点（数据库 v61）
+    VERSION = HELP_VERSION  # v7.9.17：储物戒附魔改为次数递增定价（数据库 v61）
 
     def __init__(self, db: DataBase, config: dict = None):
         self.db = db
