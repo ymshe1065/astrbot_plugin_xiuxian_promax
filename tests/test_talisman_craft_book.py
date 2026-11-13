@@ -26,7 +26,7 @@ class TestTalismanCraftBook(unittest.IsolatedAsyncioTestCase):
         return picks[0], count
 
     async def test_book_lists_learned_recipes_with_numbers(self):
-        msg, card_lines, craftable = self.tm.build_craft_book(self.player)
+        msg, card_lines, craftable, _ = self.tm.build_craft_book(self.player)
         self.assertIn("符箓书", msg)
         self.assertIn("成功率", msg)
         self.assertIn("工费", msg)
@@ -38,7 +38,7 @@ class TestTalismanCraftBook(unittest.IsolatedAsyncioTestCase):
     async def test_non_talisman_master_sees_no_penalty_note(self):
         """非符箓师只是少一层职业加成，符箓书要明确说「制符不受影响」。"""
         self.player.life_skill = "炼丹师"
-        msg, _, _ = self.tm.build_craft_book(self.player)
+        msg, _, _, _ = self.tm.build_craft_book(self.player)
         self.assertIn("制符不受影响", msg)
         self.assertNotIn("暂时无法绘制", msg)
 
@@ -75,7 +75,7 @@ class TestTalismanCraftBook(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(ok, m)
         self.player = await self.db.get_player_by_id(self.player.user_id)
         self.player.life_skill = "符箓师"
-        msg, _, craftable = self.tm.build_craft_book(self.player)
+        msg, _, craftable, _ = self.tm.build_craft_book(self.player)
         self.assertGreaterEqual(craftable, 1, msg)
         self.assertIn("可画", msg)
 
@@ -97,13 +97,13 @@ class TestTalismanCraftBook(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(before - self.player.gold, params["gold_cost"], msg)
 
     async def test_locked_recipes_are_listed_separately(self):
-        msg, _, _ = self.tm.build_craft_book(self.player)
+        msg, _, _, _ = self.tm.build_craft_book(self.player)
         self.assertIn("符图未习得", msg)
 
     async def test_level_gate_marks_unavailable(self):
         """境界不足的符要标出需求等级，且不计入可画。"""
         self.player.level_index = 0
-        msg, _, craftable = self.tm.build_craft_book(self.player)
+        msg, _, craftable, _ = self.tm.build_craft_book(self.player)
         self.assertIn("需境界等级", msg)
         self.assertEqual(craftable, 0, msg)
 

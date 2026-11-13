@@ -55,17 +55,24 @@ class AlchemyHandlers:
     async def handle_recipes(self, event: AstrMessageEvent):
         """已学丹药配方（图片卡片展示，失败降级为文本）"""
         user_id = event.get_sender_id()
-        success, msg, rows, card_lines = await self.alchemy_mgr.get_available_recipes(user_id)
+        success, msg, rows, card_lines, entries = await self.alchemy_mgr.get_available_recipes(user_id)
         player = await self.db.get_player_by_id(user_id)
         display_name = (player.user_name if player else "") or user_id or "道友"
         try:
             from ..utils.image_generator import render_card_async, card_enabled
             if card_lines and card_enabled("CARD_ALCHEMY"):
+                craftable = sum(1 for it in entries if it.get("state") == "ok")
                 card_path = await render_card_async(
                     "craft",
                     f"{display_name} 的已学丹方",
-                    f"共 {len(rows)} 个配方",
-                    sections=[{"name": "已学丹方", "lines": card_lines}],
+                    f"共 {len(rows)} 个配方" + (f" · {craftable} 个可炼" if entries else ""),
+                    sections=[{
+                        "name": "已学丹方",
+                        "lines": card_lines,
+                        # 网页端走网格：品阶页签 + 点格子出详情，不再刷 /物品信息
+                        "view": "grid" if entries else "",
+                        "entries": entries,
+                    }],
                     footer="💡 /学习丹方 <ID或名称> · /炼丹 <ID> [火候] [次数|all]",
                 )
                 if card_path:
@@ -102,12 +109,8 @@ class AlchemyHandlers:
             yield event.plain_result("❌ 你还未踏入修仙之路！")
             return
         
-        # 检查玩家状态
-        user_cd = await self.db.ext.get_user_cd(user_id)
-        if user_cd and user_cd.type != UserStatus.IDLE:
-            current_status = UserStatus.get_name(user_cd.type)
-            yield event.plain_result(f"❌ 你当前正{current_status}，无法炼丹！")
-            return
+        # 炼丹属于杂务：不占活动槽位，只要还有空闲分身就能开炉
+        # （忙碌拦截统一由 @player_required 按分身槽位判定）
         
         tokens = (args or "").strip().split()
         if not tokens:

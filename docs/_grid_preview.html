@@ -1,0 +1,1296 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>物品类回复 · 网格化改版预览</title>
+<style>
+:root{
+  --bg:#f4eee1; --bg-2:#efe7d6; --paper:#fdfaf2; --paper-2:#f8f0dd; --panel:#fffdf8;
+  --ink:#2f2a24; --ink-2:#5b5147; --dim:#918678; --dim-2:#a89a8a;
+  --line:#e2d7c2; --line-soft:#efe7d8;
+  --accent:#8b5e34; --jade:#4a6b5a; --jade-soft:#e8efe8; --cinnabar:#a33b2a; --gold:#a07c34;
+  --edge:138,108,66; --jade-rgb:74,107,90;
+  --ok:#40703c; --warn:#a8763f; --bad:#a8412f;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  overflow-x:hidden;
+  background:var(--bg); color:var(--ink);
+  font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+  font-size:14px; line-height:1.5;
+  padding:26px 22px 90px;
+}
+.wrap{max-width:1220px;margin:0 auto}
+
+/* ---------- 头部 ---------- */
+header.top{display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap;margin-bottom:6px}
+h1{font-size:20px;margin:0;letter-spacing:.5px;color:#43341f;font-weight:650}
+.tag{
+  font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid rgba(var(--edge),.3);
+  color:var(--accent);background:rgba(255,255,255,.5);letter-spacing:.3px
+}
+.lede{margin:8px 0 18px;color:var(--ink-2);font-size:13px;line-height:1.7;max-width:900px;
+  overflow-wrap:break-word}
+.lede b{color:var(--cinnabar);font-weight:600}
+
+/* ---------- 场景切换 ---------- */
+.scenes{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:16px}
+.scene{
+  border:1px solid rgba(var(--edge),.26);background:rgba(255,255,255,.55);
+  color:var(--ink-2);font-size:12.5px;padding:7px 14px;border-radius:9px;cursor:pointer;
+  transition:.14s; font-family:inherit;
+}
+.scene:hover{border-color:rgba(var(--jade-rgb),.5);background:#fff}
+.scene.on{background:var(--jade);border-color:var(--jade);color:#fff;box-shadow:0 2px 8px rgba(74,107,90,.22)}
+.scene small{opacity:.62;margin-left:6px;font-size:10.5px}
+
+/* ---------- 两栏 ---------- */
+.split{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start}
+@media (max-width:980px){.split{grid-template-columns:minmax(0,1fr)}}
+
+.pane{min-width:0}
+.pane-head{
+  display:flex;align-items:center;gap:8px;margin-bottom:8px;padding-left:2px;
+}
+.pane-head .dot{width:7px;height:7px;border-radius:50%;background:var(--dim-2)}
+.pane-head.after .dot{background:var(--jade)}
+.pane-head .lb{font-size:12.5px;font-weight:600;color:var(--ink-2);letter-spacing:.4px}
+.pane-head .hint{font-size:11px;color:var(--dim);margin-left:auto}
+
+/* ---------- 消息卡（改前） ---------- */
+.bubble{
+  background:var(--paper);border:1px solid var(--line);border-radius:12px;
+  padding:14px 16px;box-shadow:0 1px 3px rgba(74,55,32,.06);
+}
+.bubble .b-title{font-size:13px;font-weight:650;color:#43341f;margin-bottom:2px}
+.bubble .b-sub{font-size:11px;color:var(--dim);margin-bottom:9px}
+.plain{
+  font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+  font-size:12.5px;line-height:1.78;color:#4a4133;white-space:pre-wrap;word-break:break-word;
+  max-height:392px;overflow:auto;
+}
+.plain::-webkit-scrollbar{width:5px}
+.plain::-webkit-scrollbar-thumb{background:#d9cfbe;border-radius:3px}
+.plain-wrap{position:relative}
+.plain-wrap::after{
+  content:"";position:absolute;left:0;right:6px;bottom:0;height:38px;pointer-events:none;
+  background:linear-gradient(rgba(253,250,242,0),#fdfaf2 76%);
+}
+.metric{
+  display:flex;gap:12px;margin-top:10px;padding-top:9px;border-top:1px dashed var(--line);
+  font-size:11px;color:var(--dim)
+}
+.metric b{color:var(--bad);font-weight:600}
+
+/* ---------- 网格（改后） ---------- */
+.sheet{
+  background:linear-gradient(168deg,#fdfaf1 0%,#f8f0dd 100%);
+  border:1px solid var(--line);border-radius:14px;overflow:hidden;
+  box-shadow:0 2px 10px rgba(74,55,32,.09),inset 0 1px 0 rgba(255,255,255,.8);
+}
+.sheet-head{
+  display:flex;align-items:baseline;gap:9px;padding:13px 15px 9px;border-bottom:1px solid var(--line-soft);
+}
+.sheet-title{font-size:14px;font-weight:650;color:#43341f;letter-spacing:.3px}
+.sheet-sub{font-size:11px;color:var(--dim)}
+.sheet-sub b{color:var(--jade);font-weight:600}
+
+.toolbar{display:flex;flex-wrap:wrap;gap:5px;padding:9px 15px 0;align-items:center}
+.tb-tag{font-size:10.5px;color:var(--dim);margin-right:1px}
+.fchip{
+  font-size:11px;line-height:1;padding:5px 9px;border-radius:999px;cursor:pointer;font-family:inherit;
+  border:1px solid rgba(var(--edge),.28);background:transparent;color:var(--ink-2);transition:.12s;
+}
+.fchip:hover{border-color:rgba(var(--jade-rgb),.5)}
+.fchip.on{background:rgba(var(--jade-rgb),.9);border-color:transparent;color:#fff}
+
+/* ---------- 品阶条 ---------- */
+.rankrow{display:flex;align-items:center;gap:5px;padding:9px 15px 0}
+.rankrow[hidden]{display:none}
+.rankrow .tb-tag{flex:0 0 auto;margin:0}
+.rankbar{
+  display:flex;gap:5px;align-items:center;overflow-x:auto;flex:1;min-width:0;
+  scrollbar-width:none;
+}
+.rankbar.overflow{
+  -webkit-mask-image:linear-gradient(90deg,#000 92%,transparent);
+  mask-image:linear-gradient(90deg,#000 92%,transparent);
+}
+.rankbar::-webkit-scrollbar{display:none}
+.rankbar[hidden]{display:none}
+.rchip{
+  flex:0 0 auto;display:flex;align-items:center;gap:4px;font-family:inherit;
+  padding:4px 7px 4px 5px;border-radius:7px;border:1px solid rgba(var(--edge),.24);
+  background:rgba(255,255,255,.55);color:var(--ink);font-size:11.5px;line-height:1;
+  cursor:pointer;transition:.12s;
+}
+.rchip i{width:3px;height:12px;border-radius:2px;display:block;flex:0 0 auto}
+.rchip small{font-size:9.5px;color:var(--dim);font-variant-numeric:tabular-nums;
+  padding-left:1px;border-left:1px solid rgba(var(--edge),.22);margin-left:1px;line-height:1.15}
+.rchip:hover{border-color:rgba(var(--jade-rgb),.5);background:#fff}
+.rchip.on{background:rgba(var(--jade-rgb),.92);border-color:transparent;color:#fff}
+.rchip.on small{color:rgba(255,255,255,.72)}
+.rchip.on i{background:#fff !important}
+.rchip.dim{opacity:.66}
+.rsum{font-size:10.5px;color:var(--dim);padding:0 0 4px 15px;letter-spacing:.2px}
+.rsum b{color:var(--jade);font-weight:600}
+/* 全部模式下的档位小标题 */
+.gsec{
+  grid-column:1/-1;display:flex;align-items:center;gap:6px;
+  font-size:10.5px;color:#7a6a4f;letter-spacing:.4px;margin:4px 0 -2px;
+}
+.gsec:first-child{margin-top:0}
+.gsec s{display:block;width:3px;height:11px;border-radius:2px;text-decoration:none}
+.gsec em{font-style:normal;color:var(--dim-2);font-variant-numeric:tabular-nums}
+.gsec u{flex:1;height:1px;background:rgba(var(--edge),.28);text-decoration:none}
+/* 「全部」模式里的折叠入口 */
+.gmore{
+  border:1px dashed rgba(var(--edge),.42);border-radius:9px;background:transparent;
+  color:var(--dim);font-family:inherit;font-size:13px;line-height:1.2;cursor:pointer;min-height:74px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  font-variant-numeric:tabular-nums;transition:.12s;
+}
+.gmore small{font-size:9.5px;color:var(--dim-2)}
+.gmore:hover{border-color:rgba(var(--jade-rgb),.6);color:var(--jade);background:rgba(var(--jade-rgb),.05)}
+
+.grid{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(86px,1fr));gap:8px;
+  padding:10px 15px 14px;
+}
+/* hidden 必须压过 .gcell{display:flex}，否则筛选只是加了个属性、视觉不变 */
+[hidden]{display:none !important}
+.gcell{
+  position:relative;border-radius:9px;border:1px solid rgba(var(--edge),.2);
+  background:rgba(255,255,255,.62);cursor:pointer;padding:7px 6px 6px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
+  min-height:74px;font-family:inherit;transition:.13s;overflow:hidden;
+}
+.gcell::before{
+  content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--qd,#c9bfa9);
+}
+.gcell:hover{
+  background:#fff;border-color:rgba(var(--jade-rgb),.55);
+  transform:translateY(-1px);box-shadow:0 4px 12px rgba(74,55,32,.13);
+}
+.gcell .gn{
+  font-size:11.5px;line-height:1.28;color:#3b3226;text-align:center;font-weight:550;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+  max-height:30px;
+}
+.gcell .gm{
+  font-size:9.5px;line-height:1.3;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;
+}
+.gcell .gc{
+  display:flex;align-items:baseline;gap:5px;justify-content:center;max-width:100%;
+  font-size:10px;color:var(--gold);font-variant-numeric:tabular-nums;margin-top:1px;
+}
+/* 状态点 */
+.st{position:absolute;right:5px;top:5px;width:6px;height:6px;border-radius:50%}
+.st.ok{background:var(--ok);box-shadow:0 0 0 2px rgba(64,112,60,.13)}
+.st.lack{background:transparent;border:1.5px solid var(--warn)}
+.st.lock{background:#c3b8a4}
+/* 折扣标：跟在价格后面，不做右上角标，否则会压住 5 字以上的名字 */
+.off{
+  font-style:normal;font-size:8.5px;line-height:1;padding:1px 3px;border-radius:3px;
+  color:#8e2f22;background:rgba(163,59,42,.12);font-variant-numeric:tabular-nums;letter-spacing:-.2px;
+}
+/* 数量角标 */
+.qty{  position:absolute;left:4px;top:4px;font-size:9px;line-height:1;
+  color:var(--jade);background:rgba(var(--jade-rgb),.1);border-radius:4px;padding:2px 3px;
+  font-variant-numeric:tabular-nums;
+}
+/* 三点 */
+.more{
+  position:absolute;right:2px;bottom:2px;width:16px;height:16px;line-height:14px;
+  border:0;background:transparent;color:var(--dim-2);font-size:13px;cursor:pointer;
+  border-radius:4px;opacity:0;transition:.12s;padding:0;
+}
+.gcell:hover .more{opacity:1}
+.more:hover{background:rgba(var(--jade-rgb),.14);color:var(--jade)}
+
+.sheet-foot{
+  padding:9px 15px 12px;border-top:1px solid var(--line-soft);
+  font-size:11px;color:var(--dim);display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+}
+.sheet-foot .mockbtn{
+  margin-left:auto;font-size:11px;padding:4px 10px;border-radius:999px;
+  border:1px solid rgba(var(--jade-rgb),.35);color:var(--jade);background:transparent;cursor:pointer;font-family:inherit
+}
+.sheet-foot .mockbtn:hover{background:var(--jade-soft)}
+
+/* ---------- 悬停浮层 ---------- */
+.tip{
+  position:fixed;z-index:90;min-width:186px;max-width:262px;padding:9px 11px;border-radius:10px;
+  background:var(--panel);border:1px solid rgba(var(--edge),.34);
+  box-shadow:0 12px 30px rgba(30,24,16,.2);pointer-events:none;opacity:0;transform:translateY(3px);
+  transition:opacity .11s,transform .11s;
+}
+.tip.show{opacity:1;transform:translateY(0)}
+.tip .t-name{font-size:12.5px;font-weight:650;color:var(--accent);margin-bottom:5px}
+.tip .t-row{display:flex;gap:10px;justify-content:space-between;font-size:11.5px;line-height:1.65}
+.tip .t-row span{color:var(--dim);flex:none}
+.tip .t-row b{font-weight:500;text-align:right;color:#3b3226}
+.tip .t-eff{
+  margin-top:6px;padding-top:6px;border-top:1px dashed var(--line);
+  font-size:11.5px;color:var(--jade);line-height:1.5;
+}
+.tip .t-miss{margin-top:4px;font-size:11px;color:var(--warn)}
+
+/* ---------- 详情抽屉 ---------- */
+.veil{
+  position:fixed;inset:0;background:rgba(30,22,12,.26);opacity:0;visibility:hidden;
+  transition:.16s;z-index:95;
+}
+.veil.on{opacity:1;visibility:visible}
+.drawer{
+  position:fixed;top:0;right:0;bottom:0;width:min(430px,92vw);z-index:96;
+  background:var(--panel);border-left:1px solid var(--line);
+  transform:translateX(102%);transition:transform .2s cubic-bezier(.22,.7,.3,1);
+  display:flex;flex-direction:column;box-shadow:-14px 0 40px rgba(30,22,12,.16);
+}
+.drawer.on{transform:none}
+.d-head{padding:16px 18px 12px;border-bottom:1px solid var(--line-soft);position:relative}
+.d-kicker{font-size:10.5px;color:var(--dim);letter-spacing:.8px;margin-bottom:3px}
+.d-title{font-size:16px;font-weight:650;color:#43341f;letter-spacing:.3px;padding-right:26px}
+.d-chips{display:flex;gap:5px;flex-wrap:wrap;margin-top:7px}
+.d-chip{font-size:10.5px;padding:2px 7px;border-radius:5px;border:1px solid rgba(var(--edge),.26);color:var(--ink-2)}
+.d-chip.q{border-color:rgba(var(--jade-rgb),.4);color:var(--jade);background:rgba(var(--jade-rgb),.07)}
+.d-close{
+  position:absolute;right:12px;top:13px;border:0;background:transparent;cursor:pointer;
+  color:var(--dim);font-size:19px;line-height:1;padding:2px 5px;border-radius:5px;font-family:inherit
+}
+.d-close:hover{background:var(--bg-2);color:var(--ink)}
+.d-body{flex:1;overflow:auto;padding:14px 18px 18px}
+.d-body::-webkit-scrollbar{width:6px}
+.d-body::-webkit-scrollbar-thumb{background:#d9cfbe;border-radius:3px}
+.d-sec{margin-bottom:15px}
+.d-sec h4{
+  font-size:10.5px;font-weight:600;color:var(--dim);letter-spacing:1px;margin:0 0 7px;
+  text-transform:uppercase;
+}
+.d-eff{
+  font-size:12.5px;line-height:1.65;color:var(--jade);background:rgba(var(--jade-rgb),.07);
+  border-left:2px solid rgba(var(--jade-rgb),.45);border-radius:0 6px 6px 0;padding:8px 11px;
+}
+.d-eff.missing{color:var(--warn);background:rgba(168,118,63,.08);border-left-color:rgba(168,118,63,.5)}
+.mat{display:flex;flex-direction:column;gap:4px}
+.mat-row{
+  display:flex;align-items:center;gap:8px;font-size:12px;padding:6px 9px;border-radius:6px;
+  background:var(--bg);border:1px solid var(--line-soft);
+}
+.mat-row .mn{flex:1;color:#3b3226}
+.mat-row .mv{font-variant-numeric:tabular-nums;color:var(--dim);font-size:11.5px}
+.mat-row .mk{font-size:10.5px;padding:1px 6px;border-radius:4px;flex:none}
+.mat-row .mk.ok{color:var(--ok);background:rgba(64,112,60,.1)}
+.mat-row .mk.no{color:var(--warn);background:rgba(168,118,63,.12)}
+.gate{display:flex;gap:6px;flex-wrap:wrap}
+.gate span{font-size:11.5px;padding:4px 9px;border-radius:6px;background:var(--bg);border:1px solid var(--line-soft);color:var(--ink-2)}
+.gate span.pass{color:var(--ok);border-color:rgba(64,112,60,.28);background:rgba(64,112,60,.06)}
+.gate span.block{color:var(--bad);border-color:rgba(168,65,47,.26);background:rgba(168,65,47,.06)}
+.fire{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.fire button{
+  font-family:inherit;font-size:11.5px;padding:8px 4px;border-radius:7px;cursor:pointer;
+  border:1px solid rgba(var(--edge),.24);background:var(--bg);color:var(--ink-2);line-height:1.4;
+}
+.fire button b{display:block;font-size:12px;color:#3b3226;margin-bottom:1px}
+.fire button.on{border-color:rgba(var(--cinnabar));background:#fbf0ec;color:var(--cinnabar)}
+.fire button.on b{color:var(--cinnabar)}
+.fire button:hover{border-color:rgba(var(--jade-rgb),.5)}
+.d-foot{padding:12px 18px 16px;border-top:1px solid var(--line-soft);display:flex;gap:8px}
+.d-foot button{
+  font-family:inherit;font-size:12.5px;padding:9px 14px;border-radius:8px;cursor:pointer;
+  border:1px solid rgba(var(--edge),.28);background:transparent;color:var(--ink-2);
+}
+.d-foot button:hover{background:var(--bg-2)}
+.d-foot .primary{
+  flex:1;background:linear-gradient(180deg,#b8482f,#8e2f22);border-color:#8e2f22;color:#fff;
+  font-weight:600;box-shadow:0 2px 8px rgba(142,47,34,.24);
+}
+.d-foot .primary:hover{filter:brightness(1.05)}
+.d-foot .primary:disabled{background:#cfc4b0;border-color:#cfc4b0;box-shadow:none;cursor:not-allowed;color:#fdfaf2}
+
+/* ---------- 三点菜单 ---------- */
+.menu{
+  position:fixed;z-index:97;min-width:132px;padding:5px;border-radius:9px;
+  background:var(--panel);border:1px solid rgba(var(--edge),.3);
+  box-shadow:0 10px 26px rgba(30,24,16,.18);display:none;
+}
+.menu.on{display:block}
+.menu button{
+  display:block;width:100%;text-align:left;font-family:inherit;font-size:12px;
+  padding:7px 10px;border:0;background:transparent;border-radius:6px;cursor:pointer;color:var(--ink-2);
+}
+.menu button:hover{background:var(--jade-soft);color:var(--jade)}
+.menu .sep{height:1px;background:var(--line-soft);margin:4px 6px}
+
+/* ---------- 底部说明 ---------- */
+.notes{margin-top:22px;display:grid;grid-template-columns:repeat(auto-fit,minmax(224px,1fr));gap:10px}
+.note{
+  overflow-wrap:break-word;
+  background:rgba(255,255,255,.5);border:1px solid var(--line);border-radius:10px;padding:11px 13px;
+  font-size:11.5px;line-height:1.65;color:var(--ink-2);
+}
+.note b{display:block;font-size:11.5px;color:var(--accent);margin-bottom:4px;letter-spacing:.4px}
+.note kbd{
+  font-family:ui-monospace,monospace;font-size:10.5px;background:var(--bg-2);
+  border:1px solid var(--line);border-radius:4px;padding:0 4px;color:var(--ink-2)
+}
+
+/* ============================================================
+   移动端（≤600px）
+   前提修正：真机上这块面板是 100vw 宽、76dvh 高的底部抽屉
+   （app.css:2253 的 .panel-pane），不是桌面那根 384px 窄栏。
+   所以列数不能沿用「384/86=4 列」的推算，要按 390px 满宽重算。
+   ============================================================ */
+.seg{display:none}
+.touch-only{display:none}
+@media (max-width:600px){.desk-only{display:none}.touch-only{display:inline}}
+
+@media (max-width:600px){
+  body{padding:14px 12px 40px}
+  .top{gap:8px;margin-bottom:4px;align-items:baseline}
+  h1{font-size:16px;letter-spacing:.2px}
+  .top .tag{display:none}
+  .lede{font-size:12px;line-height:1.62;margin:6px 0 12px}
+  .lede .desk-only{display:none}
+
+  /* 场景 tab 横滑，不折成两行吃掉首屏 */
+  .scenes{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin-bottom:12px;padding-bottom:2px}
+  .scenes::-webkit-scrollbar{display:none}
+  .scene{flex:0 0 auto;padding:6px 11px;font-size:12px}
+  .scene small{display:none}
+
+  /* 390px 放不下并排对比 → 分段切换，一次只看一个 */
+  .seg{
+    display:flex;margin-bottom:14px;border:1px solid rgba(var(--edge),.26);
+    border-radius:9px;overflow:hidden;background:rgba(255,255,255,.45);
+  }
+  .seg button{
+    flex:1;border:0;background:transparent;font-family:inherit;font-size:12.5px;
+    padding:9px 6px;color:var(--ink-2);cursor:pointer;
+  }
+  .seg button.on{background:var(--jade);color:#fff;font-weight:600}
+  body[data-view="before"] .pane.after{display:none}
+  body[data-view="after"] .pane.before{display:none}
+  .split{gap:0;grid-template-columns:minmax(0,1fr)}
+
+  /* 面板贴满宽：模拟真机上「看板抽屉」的观感 */
+  .sheet{border-radius:0;border-left:0;border-right:0}
+  .plain-wrap{max-height:330px}
+  .plain{max-height:330px;font-size:12px;line-height:1.62}
+
+  /* 品阶条：13 个 chip 横滑「滑不到头看不出还剩几个」，改折行，一屏看全 */
+  .rankrow{padding:8px 12px 0;align-items:flex-start}
+  .rankbar{flex-wrap:wrap;overflow:visible;row-gap:5px}
+  .rchip{padding:4px 6px;font-size:11px}
+  .rchip small{font-size:9px;padding-left:2px;margin-left:1px}
+
+  /* 网格 4 列等分：390-12*2 = 366 可用，减 3 个 6px 间距 → 每格 87px，5 字丹方名放得下 */
+  .grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;padding:10px 12px 12px}
+  .gcell{min-height:68px;padding:6px 3px 5px}
+  .gcell .gn{font-size:11px;line-height:1.25;max-height:28px}
+  .gcell .gm{font-size:9px}
+
+  /* 触屏没有 hover：浮层会永远粘在屏幕上，直接关掉并解除绑定；
+     ⋯ 常显会占掉右下 1/9 格子面积、跟「点开详情」争抢，手机上去掉 */
+  .tip{display:none !important}
+  .gcell .more{display:none}
+  .gcell:hover{transform:none;box-shadow:none}
+  .gcell:active{background:var(--jade-soft)}
+
+  /* 详情改底部上滑：390px 下从右侧滑出 = 整屏遮罩，看不到自己被点的是哪一格 */
+  .drawer{
+    top:auto;left:0;right:0;bottom:0;width:100%;
+    /* 不用 min(80dvh,…)：dvh 在 iframe/旧内核里会解析失败整条 height 失效。
+       给固定高 + 两条 max-height（vh 兜底、dvh 精确），小屏自动收，顶部留 64px 露出格子 */
+    height:620px;
+    max-height:calc(100vh - 64px);
+    max-height:calc(100dvh - 64px);
+    border-left:0;border-top:1px solid var(--line);
+    border-radius:16px 16px 0 0;
+    box-shadow:0 -10px 30px rgba(30,22,12,.2);
+    transform:translateY(103%);
+  }
+  .drawer.on{transform:none}
+  .drawer::before{
+    content:"";position:absolute;top:6px;left:50%;transform:translateX(-50%);
+    width:38px;height:4px;border-radius:2px;background:rgba(var(--edge),.3);
+  }
+  .d-head{padding:18px 15px 12px}
+  .d-body{padding-left:15px;padding-right:15px}
+  /* 底部按钮让开 home indicator */
+  .d-foot{padding:11px 15px calc(11px + env(safe-area-inset-bottom))}
+  .d-foot button{white-space:nowrap;font-size:12px;padding:10px 12px}
+  .sheet-foot{padding-bottom:calc(11px + env(safe-area-inset-bottom))}
+
+  .notes{grid-template-columns:minmax(0,1fr);gap:8px;margin-top:16px}
+  .note{font-size:11px;padding:10px 12px}
+}
+
+/* 触屏设备（含横屏平板）：不等同于「窄屏」，单独按「没有 hover」处理 */
+@media (hover:none){
+  .tip{display:none !important}
+  .gcell .more{opacity:.35}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <h1>物品类回复 · 网格化改版预览</h1>
+    <span class="tag">交互原型 · 可点可悬停</span>
+  </header>
+  <p class="lede">
+    <span class="desk-only">左边是命令现在的样子，右边是改成小格之后的样子。<b>格子只负责「认出它、看出状态」</b>，
+    明细交给悬停浮层和点击后的详情页 —— 一排 4～8 个，<b>先按品阶切档</b>，翻一屏抵原来滚三屏。
+    试试：把鼠标放到格子上（出快览）、点一下格子（出详情）、点格子右下角的 <b>⋯</b>（出菜单）。</span>
+    <span class="touch-only">手机上<b>点格子看详情</b>（从底部弹出），<b>先按品阶切档</b>，一屏看完原来要滚三屏的配方。
+    触屏没有悬停，所以快览浮层已关掉、<b>⋯ 也去掉了</b> —— 操作全在详情页里。</span>
+  </p>
+
+  <div class="scenes" id="scenes"></div>
+
+  <div class="seg" id="seg">
+    <button data-v="after" class="on">改后 · 小格</button>
+    <button data-v="before">改前 · 原来的长回复</button>
+  </div>
+
+  <div class="split">
+    <section class="pane before">
+      <div class="pane-head">
+        <span class="dot"></span><span class="lb">现在的回复</span>
+        <span class="hint" id="beforeHint"></span>
+      </div>
+      <div class="bubble">
+        <div class="b-title" id="bTitle"></div>
+        <div class="b-sub" id="bSub"></div>
+        <div class="plain-wrap"><div class="plain" id="bPlain"></div></div>
+        <div class="metric" id="bMetric"></div>
+      </div>
+    </section>
+
+    <section class="pane after">
+      <div class="pane-head after">
+        <span class="dot"></span><span class="lb">改成小格之后</span>
+        <span class="hint" id="afterHint"></span>
+      </div>
+      <div class="sheet">
+        <div class="sheet-head">
+          <div class="sheet-title" id="sTitle"></div>
+          <div class="sheet-sub" id="sSub"></div>
+        </div>
+        <div class="rankrow" id="sRankrow">
+          <span class="tb-tag">品阶</span>
+          <div class="rankbar" id="sRankbar"></div>
+        </div>
+        <div class="rsum" id="sRsum"></div>
+        <div class="toolbar" id="sToolbar"></div>
+        <div class="grid" id="sGrid"></div>
+        <div class="sheet-foot">
+          <span id="sFoot"></span>
+          <button class="mockbtn" id="sExpand">展开全部</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="notes" id="notes"></div>
+</div>
+
+<div class="tip" id="tip"></div>
+<div class="veil" id="veil"></div>
+<aside class="drawer" id="drawer">
+  <div class="d-head">
+    <div class="d-kicker" id="dKicker"></div>
+    <div class="d-title" id="dTitle"></div>
+    <div class="d-chips" id="dChips"></div>
+    <button class="d-close" id="dClose" aria-label="关闭">×</button>
+  </div>
+  <div class="d-body" id="dBody"></div>
+  <div class="d-foot" id="dFoot"></div>
+</aside>
+<div class="menu" id="menu"></div>
+
+<script>
+/* ============================================================
+   1. 数据：三条真实命令的条目（字段与后端能提供的对齐）
+   ============================================================ */
+/* 12 档统一阶序，与后端 rank_rules.RANK_NAMES 完全一致 —— 不允许前端自定义顺序 */
+const RANKS = ["凡品","黄品","玄品","灵品","地品","天品","皇品","圣品","帝品","道品","仙品","混元先天"];
+/* 配色按 rarity tier(1-5) 分族，同族内靠明度/彩度区分，避免 12 个互不相干的颜色 */
+const RCOL = {
+  "凡品":"#a8a093", "黄品":"#b08d4a",
+  "玄品":"#5f8a6a", "灵品":"#3f9188", "地品":"#7d7f45",
+  "天品":"#4a7ba8", "皇品":"#7a6ab0", "圣品":"#b8862b", "帝品":"#a33b2a",
+  "道品":"#8d939b", "仙品":"#c9a227", "混元先天":"#5c4a6e"
+};
+const RABBR = { "混元先天":"混" };
+const rname = (r) => RABBR[r] || String(r).replace("品","");
+const ridx  = (r) => RANKS.indexOf(r);
+const Q = RCOL;
+
+const DATA = [
+  {
+    key:"recipe", tab:"丹方", sub:"已学 · 18 条",
+    rankTotal:{ "凡品":265,"黄品":128,"玄品":59,"灵品":27,"地品":36,"天品":35,"皇品":20,"圣品":38,"帝品":24,"道品":22,"仙品":23,"混元先天":15 },
+    title:"云无月 的已学丹方", sheetSub:"共 <b>18</b> 个配方 · 8 可炼",
+    beforeHint:"99 行文本 · 一条 4 行",
+    afterHint:"品阶分档 · 悬停看缺口",
+    beforeTitle:"云无月 的已学丹方", beforeSub:"共 18 个配方",
+    before:`📜 已学丹方列表
+━━━━━━━━━
+[101] 回春散（可炼制，成功率 92%）
+   ✨ 恢复气血 300~500
+   材料：灵植x2(✓)、妖兽x1(缺1)
+[102] 凝气丹（可炼制，成功率 88%）
+   ✨ 修为 +800~1200
+   材料：灵植x3(✓)、灵液x1(✓)
+[103] 破境丹·初（需境界 3，成功率 75%）
+   ✨ 筑基突破成功率 +15%
+   材料：灵植x5(✓)、妖兽x2(缺1)
+[104] 养元丹（可炼制，成功率 90%）
+   ✨ 气血上限 +120（持续 30 分钟）
+   材料：灵植x2(✓)、灵石x200(✓)
+[105] 清心散（可炼制，成功率 85%）
+   ⚠️ 效果未录入
+   材料：灵植x1(✓)、灵液x1(缺1)
+[106] 洗髓丹（可炼制，成功率 62%）
+   ✨ 全属性 +5~9（永久）
+   材料：妖兽x3(缺2)、灵液x2(✓)、灵石x800(✓)
+[107] 聚灵丹（可炼制，成功率 70%）
+   ✨ 修为 +1500~2200
+   材料：灵植x4(缺1)、妖兽x1(✓)
+[108] 固元丹（可炼制，成功率 68%）
+   ✨ 受伤状态恢复 40%
+   材料：灵植x3(✓)、灵液x2(缺1)
+[109] 九转还魂丹（需境界 6，成功率 45%）
+   ✨ 死亡时立即复活并恢复 60% 气血
+   材料：妖兽x5(缺4)、灵液x3(缺2)、灵石x5000(✓)
+[110] 玄阳丹（可炼制，成功率 55%）
+   ✨ 火系伤害 +12%（10 分钟）
+   材料：灵植x6(缺3)、妖兽x2(✓)
+[111] 玉髓丹（可炼制，成功率 66%）
+   ✨ 灵气上限 +200
+   材料：灵植x4(✓)、灵液x2(✓)
+[112] 破厄丹（可炼制，成功率 60%）
+   ✨ 解除 1 个负面状态
+   材料：灵植x2(✓)、灵液x1(缺1)
+[113] 龙力丹（需境界 4，成功率 52%）
+   ✨ 攻击 +15%（5 分钟）
+   材料：妖兽x3(缺2)、灵石x1200(✓)
+[114] 宁神散（可炼制，成功率 87%）
+   ✨ 神识 +8
+   材料：灵植x2(✓)
+[115] 血竭丹（可炼制，成功率 72%）
+   ✨ 立即恢复 25% 气血
+   材料：妖兽x2(✓)、灵液x1(✓)
+[116] 天元丹（需境界 7，成功率 40%）
+   ✨ 全属性 +12（永久）
+   材料：妖兽x6(缺5)、灵液x4(缺3)、灵石x8000(✓)
+[117] 引雷丹（可炼制，成功率 58%）
+   ✨ 下回合雷系伤害 ×2
+   材料：灵植x5(缺2)、妖兽x2(✓)
+[118] 辟谷丹（可炼制，成功率 95%）
+   ✨ 饱食度 +60
+   材料：灵植x1(✓)
+━━━━━━━━━
+💡 /学习丹方 <ID或名称> 学习；/炼丹 <ID> [火候] [次数|all]`,
+    metric:["18 条配方","89 行正文","滚 4.1 屏"],
+    foot:"/炼丹 <ID> [火候] · /学习丹方 <ID或名称>",
+    groups:null,
+    items:[
+      {id:101,name:"回春散",rank:"凡品",rate:92,state:"ok",effect:"恢复气血 300~500",cost:0,held:3,
+       mats:[["灵植",2,12],["妖兽材料",1,0]]},
+      {id:102,name:"凝气丹",rank:"凡品",rate:88,state:"ok",effect:"修为 +800~1200",cost:0,held:2,
+       mats:[["灵植",3,12],["灵液",1,4]]},
+      {id:103,name:"破境丹·初",rank:"黄品",rate:75,state:"lock",effect:"筑基突破成功率 +15%",cost:0,held:0,
+       lvReq:3,lvNow:2,mats:[["灵植",5,12],["妖兽材料",2,1]]},
+      {id:104,name:"养元丹",rank:"凡品",rate:90,state:"ok",effect:"气血上限 +120（持续 30 分钟）",cost:200,held:5,
+       mats:[["灵植",2,12]]},
+      {id:105,name:"清心散",rank:"凡品",rate:85,state:"lack",effect:null,cost:0,held:0,
+       mats:[["灵植",1,12],["灵液",1,0]]},
+      {id:106,name:"洗髓丹",rank:"玄品",rate:62,state:"lack",effect:"全属性 +5~9（永久）",cost:800,held:1,
+       mats:[["妖兽材料",3,1],["灵液",2,4]]},
+      {id:107,name:"聚灵丹",rank:"黄品",rate:70,state:"lack",effect:"修为 +1500~2200",cost:0,held:0,
+       mats:[["灵植",4,3],["妖兽材料",1,2]]},
+      {id:108,name:"固元丹",rank:"黄品",rate:68,state:"ok",effect:"受伤状态恢复 40%",cost:0,held:2,
+       mats:[["灵植",3,12],["灵液",2,4]]},
+      {id:109,name:"九转还魂丹",rank:"圣品",rate:45,state:"lock",effect:"死亡时立即复活并恢复 60% 气血",cost:5000,held:0,
+       lvReq:6,lvNow:2,mats:[["妖兽材料",5,1],["灵液",3,1]]},
+      {id:110,name:"玄阳丹",rank:"玄品",rate:55,state:"lack",effect:"火系伤害 +12%（10 分钟）",cost:0,held:0,
+       mats:[["灵植",6,3],["妖兽材料",2,2]]},
+      {id:111,name:"玉髓丹",rank:"黄品",rate:66,state:"ok",effect:"灵气上限 +200",cost:0,held:4,
+       mats:[["灵植",4,12],["灵液",2,4]]},
+      {id:112,name:"破厄丹",rank:"黄品",rate:60,state:"lack",effect:"解除 1 个负面状态",cost:0,held:1,
+       mats:[["灵植",2,12],["灵液",1,0]]},
+      {id:113,name:"龙力丹",rank:"玄品",rate:52,state:"lock",effect:"攻击 +15%（5 分钟）",cost:1200,held:0,
+       lvReq:4,lvNow:2,mats:[["妖兽材料",3,1]]},
+      {id:114,name:"宁神散",rank:"凡品",rate:87,state:"ok",effect:"神识 +8",cost:0,held:7,
+       mats:[["灵植",2,12]]},
+      {id:115,name:"血竭丹",rank:"黄品",rate:72,state:"ok",effect:"立即恢复 25% 气血",cost:0,held:6,
+       mats:[["妖兽材料",2,2],["灵液",1,4]]},
+      {id:116,name:"天元丹",rank:"地品",rate:40,state:"lock",effect:"全属性 +12（永久）",cost:8000,held:0,
+       lvReq:7,lvNow:2,mats:[["妖兽材料",6,1],["灵液",4,1]]},
+      {id:117,name:"引雷丹",rank:"玄品",rate:58,state:"lack",effect:"下回合雷系伤害 ×2",cost:0,held:0,
+       mats:[["灵植",5,3],["妖兽材料",2,2]]},
+      {id:118,name:"辟谷丹",rank:"凡品",rate:95,state:"ok",effect:"饱食度 +60",cost:0,held:11,
+       mats:[["灵植",1,12]]}
+    ],
+    primary:{recipe:"炼制", other:["详情","加入收藏"]}
+  },
+
+  {
+    key:"talisman", tab:"符箓书", sub:"可制 · 16 条",
+    rankTotal:{ "凡品":8,"黄品":10,"玄品":8,"圣品":9 },
+    title:"云无月 的符箓书", sheetSub:"16 种 · 合计可画 <b>96</b> 张",
+    beforeHint:"78 行文本 · 逐条两行",
+    afterHint:"品阶 + 类别双层筛",
+    beforeTitle:"云无月 的符箓书", beforeSub:"可绘制 16 种 · 合计 96 张",
+    before:`🧿 可制符箓（16 种 / 共可画 96 张）
+━━━━━━━━━
+· 烈焰符（凡品 炼气期｜灵石 240｜妖兽x1｜90%）
+   ✨ 造成 180~260 点火系伤害｜持续1回合
+· 金刚符（凡品 炼气期｜灵石 180｜矿材x1｜85%）
+   ✨ 减伤 20%｜持续2回合
+· 疾风符（凡品 炼气期｜灵石 200｜灵植x1｜88%）
+   ✨ 闪避 +15%｜持续3回合
+· 回春符（凡品 炼气期｜灵石 260｜灵植x2｜80%）
+   ✨ 恢复气血 200~340｜即刻生效
+· 冰锥符（凡品 炼气期｜灵石 220｜灵液x1｜82%）
+   ✨ 造成 150~210 点水系伤害｜持续1回合
+· 定身符（黄品 筑基期｜灵石 420｜妖兽x2｜70%）
+   ✨ 定身 2 回合｜对首领减半
+· 寻宝符（黄品 筑基期｜灵石 380｜灵植x3｜65%）
+   ✨ 历练·秘境收益 +20%｜生效3次
+· 护劫符（玄品 金丹期｜灵石 900｜妖兽x3｜50%·需符图）
+   ✨ 雷劫伤害 -25%｜即刻生效
+· 土墙符（凡品 炼气期｜灵石 170｜矿材x1｜86%）
+   ✨ 减伤 15%｜持续2回合
+· 火鸦符（黄品 筑基期｜灵石 340｜妖兽x2｜74%）
+   ✨ 造成 320~410 点火系伤害｜即刻生效
+· 静心符（凡品 炼气期｜灵石 210｜灵植x1｜84%）
+   ✨ 神识 +10%｜持续3回合
+· 破障符（黄品 筑基期｜灵石 300｜矿材x2｜68%）
+   ✨ 秘境障碍直接通过｜生效1次
+· 回灵符（凡品 炼气期｜灵石 240｜灵液x1｜79%）
+   ✨ 每回合恢复 3% 气血｜持续3回合
+· 天雷符（玄品 金丹期｜灵石 780｜妖兽x2｜48%·需符图）
+   ✨ 造成 800~1100 点雷系伤害｜即刻生效
+· 九霄雷符（圣品 元婴期｜灵石 3600｜妖兽x5｜35%·需符图）
+   ✨ 造成 2600~3400 点雷系伤害｜即刻生效
+· 太清护身符（圣品 元婴期｜灵石 3200｜矿材x4｜40%·需符图）
+   ✨ 减免 45% 伤害｜持续3回合
+━━━━━━━━━
+💡 /制符 <符名> [数量|all] 绘制；/使用符箓 <符名> [数量]`,
+    metric:["16 种符箓","134 行正文","滚 3.9 屏"],
+    foot:"/制符 <符名> [数量|all] · /使用符箓 <符名> [数量]",
+    groups:["攻击","防护","增益","探索"],
+    items:[
+      {name:"烈焰符",rank:"凡品",rate:90,state:"ok",cat:"攻击",effect:"造成 180~260 点火系伤害｜持续 1 回合",cost:240,craft:12,mats:[["妖兽材料",1,6]]},
+      {name:"冰锥符",rank:"凡品",rate:82,state:"ok",cat:"攻击",effect:"造成 150~210 点水系伤害｜持续 1 回合",cost:220,craft:9,mats:[["灵液",1,4]]},
+      {name:"火鸦符",rank:"黄品",rate:74,state:"ok",cat:"攻击",effect:"造成 320~410 点火系伤害｜即刻生效",cost:340,craft:6,mats:[["妖兽材料",2,6]]},
+      {name:"天雷符",rank:"玄品",rate:48,state:"lock",cat:"攻击",effect:"造成 800~1100 点雷系伤害｜即刻生效",cost:780,craft:0,need:"需符图",mats:[["妖兽材料",2,1]]},
+      {name:"金刚符",rank:"凡品",rate:85,state:"ok",cat:"防护",effect:"减伤 20%｜持续 2 回合",cost:180,craft:14,mats:[["矿材",1,9]]},
+      {name:"回春符",rank:"凡品",rate:80,state:"lack",cat:"防护",effect:"恢复气血 200~340｜即刻生效",cost:260,craft:0,mats:[["灵植",2,1]]},
+      {name:"土墙符",rank:"凡品",rate:86,state:"ok",cat:"防护",effect:"减伤 15%｜持续 2 回合",cost:170,craft:17,mats:[["矿材",1,9]]},
+      {name:"回灵符",rank:"凡品",rate:79,state:"ok",cat:"防护",effect:"每回合恢复 3% 气血｜持续 3 回合",cost:240,craft:11,mats:[["灵液",1,4]]},
+      {name:"疾风符",rank:"凡品",rate:88,state:"ok",cat:"增益",effect:"闪避 +15%｜持续 3 回合",cost:200,craft:21,mats:[["灵植",1,12]]},
+      {name:"定身符",rank:"黄品",rate:70,state:"ok",cat:"增益",effect:"定身 2 回合｜对首领减半",cost:420,craft:8,mats:[["妖兽材料",2,6]]},
+      {name:"静心符",rank:"凡品",rate:84,state:"ok",cat:"增益",effect:"神识 +10%｜持续 3 回合",cost:210,craft:13,mats:[["灵植",1,12]]},
+      {name:"寻宝符",rank:"黄品",rate:65,state:"lack",cat:"探索",effect:"历练·秘境收益 +20%｜生效 3 次",cost:380,craft:0,scope:"run",uses:3,mats:[["灵植",3,1]]},
+      {name:"护劫符",rank:"玄品",rate:50,state:"lock",cat:"探索",effect:"雷劫伤害 -25%｜即刻生效",cost:900,craft:0,need:"需符图",mats:[["妖兽材料",3,1]]},
+      {name:"破障符",rank:"黄品",rate:68,state:"lack",cat:"探索",effect:"秘境障碍直接通过｜生效 1 次",cost:300,craft:0,scope:"run",uses:1,mats:[["矿材",2,1]]},
+      {name:"九霄雷符",rank:"圣品",rate:35,state:"lock",cat:"攻击",effect:"造成 2600~3400 点雷系伤害｜即刻生效",cost:3600,craft:0,need:"需符图",mats:[["妖兽材料",5,1],["灵液",3,1]]},
+      {name:"太清护身符",rank:"圣品",rate:40,state:"lock",cat:"防护",effect:"减免 45% 伤害｜持续 3 回合",cost:3200,craft:0,need:"需符图",mats:[["矿材",4,9],["灵液",2,4]]}
+    ],
+    primary:{recipe:"制符", other:["详情","加入快捷"]}
+  },
+
+  {
+    key:"shop", tab:"丹阁", sub:"商店 · 丹方区",
+    title:"丹阁 · 丹方区", sheetSub:"在售 <b>14</b> 件 · 下次刷新 4 时 12 分",
+    beforeHint:"452 行文本 · 每件 4 行",
+    afterHint:"价格上格子 · 品阶可切",
+    beforeTitle:"丹阁 · 丹方区", beforeSub:"在售 10 件 · 4 时后刷新",
+    before:`=== 丹阁 · 丹方区 ===
+━━━━━━━━━
+1. 回春散方（凡品） - 380灵石(9.5折) · 库存3
+   效果：恢复气血 300~500
+   类型：丹方 · 可学后无限炼制
+2. 凝气丹方（凡品） - 420灵石 · 库存2
+   效果：修为 +800~1200
+   类型：丹方 · 可学后无限炼制
+3. 破境丹方·初（黄品） - 1200灵石 · 库存1
+   效果：筑基突破成功率 +15%
+   类型：丹方 · 需境界 3
+4. 养元丹方（凡品） - 500灵石(9折) · 库存4
+   效果：气血上限 +120（30 分钟）
+   类型：丹方 · 可学后无限炼制
+5. 聚灵丹方（黄品） - 900灵石 · 库存2
+   效果：修为 +1500~2200
+   类型：丹方 · 可学后无限炼制
+6. 洗髓丹方（玄品） - 2400灵石 · 库存1
+   效果：全属性 +5~9（永久）
+   类型：丹方 · 需境界 4
+7. 固元丹方（黄品） - 760灵石 · 库存3
+   效果：受伤状态恢复 40%
+   类型：丹方 · 可学后无限炼制
+8. 玄阳丹方（玄品） - 1800灵石 · 库存2
+   效果：火系伤害 +12%（10 分钟）
+   类型：丹方 · 需境界 4
+9. 九转还魂丹方（圣品） - 8800灵石 · 库存1
+   效果：死亡时复活并恢复 60% 气血
+   类型：丹方 · 需境界 6
+10. 兽血包（黄品材料包） - 260灵石 · 库存9
+   效果：开出 妖兽材料×2~4
+   类型：材料包 · 妖兽类
+11. 玉髓丹方（黄品） - 700灵石 · 库存2
+   效果：灵气上限 +200
+   类型：丹方 · 可学后无限炼制
+12. 血竭丹方（黄品） - 640灵石(9.2折) · 库存3
+   效果：立即恢复 25% 气血
+   类型：丹方 · 可学后无限炼制
+13. 宁神散方（凡品） - 320灵石 · 库存5
+   效果：神识 +8
+   类型：丹方 · 可学后无限炼制
+14. 引雷丹方（玄品） - 1600灵石 · 库存1
+   效果：下回合雷系伤害 ×2
+   类型：丹方 · 需境界 4
+━━━━━━━━━
+💡 /购买 <名称> [数量] · /学习丹方 <名称>`,
+    metric:["14 件商品","58 行正文","滚 2.6 屏"],
+    foot:"/购买 <名称> [数量] · 点格子直接买",
+    groups:null,
+    items:[
+      {name:"回春散方",rank:"凡品",state:"ok",price:380,off:"9.5折",stock:3,effect:"恢复气血 300~500",kind:"丹方"},
+      {name:"凝气丹方",rank:"凡品",state:"ok",price:420,stock:2,effect:"修为 +800~1200",kind:"丹方"},
+      {name:"破境丹方·初",rank:"黄品",state:"ok",price:1200,stock:1,effect:"筑基突破成功率 +15%",kind:"丹方",lvReq:3},
+      {name:"养元丹方",rank:"凡品",state:"ok",price:500,off:"9折",stock:4,effect:"气血上限 +120（30 分钟）",kind:"丹方"},
+      {name:"聚灵丹方",rank:"黄品",state:"ok",price:900,stock:2,effect:"修为 +1500~2200",kind:"丹方"},
+      {name:"洗髓丹方",rank:"玄品",state:"ok",price:2400,stock:1,effect:"全属性 +5~9（永久）",kind:"丹方",lvReq:4},
+      {name:"固元丹方",rank:"黄品",state:"ok",price:760,stock:3,effect:"受伤状态恢复 40%",kind:"丹方"},
+      {name:"玄阳丹方",rank:"玄品",state:"ok",price:1800,stock:2,effect:"火系伤害 +12%（10 分钟）",kind:"丹方",lvReq:4},
+      {name:"九转还魂丹方",rank:"圣品",state:"ok",price:8800,stock:1,effect:"死亡时复活并恢复 60% 气血",kind:"丹方",lvReq:6},
+      {name:"兽血包",rank:"黄品",state:"ok",price:260,stock:9,effect:"开出 妖兽材料×2~4",kind:"材料包"},
+      {name:"玉髓丹方",rank:"黄品",state:"ok",price:700,stock:2,effect:"灵气上限 +200",kind:"丹方"},
+      {name:"血竭丹方",rank:"黄品",state:"ok",price:640,off:"9.2折",stock:3,effect:"立即恢复 25% 气血",kind:"丹方"},
+      {name:"宁神散方",rank:"凡品",state:"ok",price:320,stock:5,effect:"神识 +8",kind:"丹方"},
+      {name:"引雷丹方",rank:"玄品",state:"ok",price:1600,stock:1,effect:"下回合雷系伤害 ×2",kind:"丹方",lvReq:4}
+    ],
+    primary:{recipe:"购买", other:["详情","查看同类"]}
+  },
+
+  {
+    key:"treasure", tab:"百宝阁", sub:"品阶 · 3 档",
+    title:"百宝阁", sheetSub:"在售 <b>12</b> 件 · 分 3 档",
+    beforeHint:"431 行文本 · 分区平铺",
+    afterHint:"品阶即分区 · 色条对应",
+    beforeTitle:"百宝阁", beforeSub:"在售 9 件 · 3 区",
+    before:`=== 百宝阁 ===
+
+【皇品区】
+
+1. 玄天剑（皇品武器） - 48000灵石 · 库存1
+   攻击：2400~3100　五行：金
+   词条：破甲 3 条
+2. 太虚甲（皇品防具） - 42000灵石 · 库存1
+   防御：1800~2400　五行：土
+   词条：格挡 2 条
+
+【地品区】
+
+3. 玄铁重剑（地品武器） - 12800灵石 · 库存2
+   攻击：1100~1500　五行：金
+4. 玄龟甲（地品防具） - 9600灵石 · 库存2
+   防御：900~1200　五行：水
+5. 灵犀戒（地品饰品） - 7400灵石(8.8折) · 库存3
+   气血：+800　五行：木
+
+【玄品区】
+
+6. 精铁剑（玄品武器） - 3200灵石 · 库存5
+   攻击：420~560　五行：金
+7. 皮甲（玄品防具） - 2800灵石 · 库存4
+   防御：360~480　五行：土
+8. 铜护符（玄品饰品） - 1900灵石 · 库存6
+   减伤：+6%
+9. 灵目符（玄品符箓） - 600灵石 · 库存12
+   效果：识破隐匿 1 次
+10. 铁盾（玄品防具） - 2200灵石 · 库存5
+   防御：300~400　五行：金
+11. 白玉佩（玄品饰品） - 1500灵石(9.5折) · 库存4
+   气血：+260　五行：土
+12. 灵纹符（玄品符箓） - 480灵石 · 库存15
+   效果：绘制成功率 +8%（1 次）
+━━━━━━━━━
+💡 /购买 <名称> [数量]`,
+    metric:["12 件商品","45 行正文","滚 2.2 屏"],
+    foot:"/购买 <名称> [数量] · 品阶色条区分",
+    groups:null,
+    items:[
+      {name:"玄天剑",rank:"皇品",state:"ok",price:48000,stock:1,effect:"攻击 2400~3100｜五行 金｜破甲 3 条",sec:"皇品区",kind:"武器"},
+      {name:"太虚甲",rank:"皇品",state:"ok",price:42000,stock:1,effect:"防御 1800~2400｜五行 土｜格挡 2 条",sec:"皇品区",kind:"防具"},
+      {name:"玄铁重剑",rank:"地品",state:"ok",price:12800,stock:2,effect:"攻击 1100~1500｜五行 金",sec:"地品区",kind:"武器"},
+      {name:"玄龟甲",rank:"地品",state:"ok",price:9600,stock:2,effect:"防御 900~1200｜五行 水",sec:"地品区",kind:"防具"},
+      {name:"灵犀戒",rank:"地品",state:"ok",price:7400,off:"8.8折",stock:3,effect:"气血 +800｜五行 木",sec:"地品区",kind:"饰品"},
+      {name:"精铁剑",rank:"玄品",state:"ok",price:3200,stock:5,effect:"攻击 420~560｜五行 金",sec:"玄品区",kind:"武器"},
+      {name:"皮甲",rank:"玄品",state:"ok",price:2800,stock:4,effect:"防御 360~480｜五行 土",sec:"玄品区",kind:"防具"},
+      {name:"铜护符",rank:"玄品",state:"ok",price:1900,stock:6,effect:"减伤 +6%",sec:"玄品区",kind:"饰品"},
+      {name:"灵目符",rank:"玄品",state:"ok",price:600,stock:12,effect:"识破隐匿 1 次",sec:"玄品区",kind:"符箓"},
+      {name:"铁盾",rank:"玄品",state:"ok",price:2200,stock:5,effect:"防御 300~400｜五行 金",sec:"玄品区",kind:"防具"},
+      {name:"白玉佩",rank:"玄品",state:"ok",price:1500,off:"9.5折",stock:4,effect:"气血 +260｜五行 土",sec:"玄品区",kind:"饰品"},
+      {name:"灵纹符",rank:"玄品",state:"ok",price:480,stock:15,effect:"绘制成功率 +8%（1 次）",sec:"玄品区",kind:"符箓"}
+    ],
+    primary:{recipe:"购买", other:["详情","对比"]}
+  }
+];
+
+/* ============================================================
+   2. 渲染
+   ============================================================ */
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
+let cur = DATA[0];
+
+function renderScenes() {
+  const box = $("scenes");
+  box.innerHTML = "";
+  DATA.forEach((d) => {
+    const b = document.createElement("button");
+    b.className = "scene" + (d.key === cur.key ? " on" : "");
+    b.innerHTML = esc(d.tab) + `<small>${esc(d.sub)}</small>`;
+    b.addEventListener("click", () => { cur = d; curRank = null; renderAll(); });
+    box.appendChild(b);
+  });
+}
+
+function stateOf(it) {
+  if (it.state === "lock") return "lock";
+  if (it.state === "lack") return "lack";
+  return "ok";
+}
+
+function cellMeta(it) {
+  if (it.price) return it.stock ? `库存 ${it.stock}` : "";
+  if (it.rate) return it.cat ? `${it.cat} ${it.rate}%` : `${it.rate}%`;
+  return it.kind || "";
+}
+
+/* 「全部」模式里每档最多铺 8 格，其余折成 +N —— 全部品阶是总览，不是清单 */
+const PER_RANK_CAP = 8;
+const rankOf = (it) => (RANKS.includes(it.rank) ? it.rank : "凡品");
+
+function makeCell(it) {
+  const b = document.createElement("div");
+  b.className = "gcell";
+  b.setAttribute("role", "button");
+  b.tabIndex = 0;
+  b.dataset.rank = rankOf(it);
+  b.dataset.idx = cur.items.indexOf(it);
+  b.style.setProperty("--qd", RCOL[it.rank] || "#c9bfa9");
+  const st = stateOf(it);
+  b.innerHTML =
+    `<span class="gn">${esc(it.name)}</span>` +
+    `<span class="gm">${esc(cellMeta(it))}</span>` +
+    (it.price
+      ? `<span class="gc">${it.price >= 10000 ? (it.price / 10000).toFixed(1) + "万" : it.price}` +
+        (it.off ? `<i class="off">${esc(it.off)}</i>` : "") + `</span>`
+      : (it.held || it.craft
+          ? `<span class="gc">×${it.held || it.craft}</span>`
+          : `<span class="gc"></span>`)) +
+    (it.price ? "" : `<span class="st ${st}"></span>`) +
+    `<button class="more" aria-label="更多操作">⋯</button>`;
+  if (HAS_HOVER) {
+    b.addEventListener("mouseenter", () => showTip(it, b));
+    b.addEventListener("mouseleave", hideTip);
+  }
+  b.addEventListener("click", (e) => {
+    if (e.target.classList.contains("more")) return;
+    hideTip(); openDrawer(it);
+  });
+  b.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); hideTip(); openDrawer(it); }
+  });
+  b.querySelector(".more").addEventListener("click", (e) => {
+    e.stopPropagation(); hideTip(); openMenu(it, e.currentTarget);
+  });
+  return b;
+}
+
+function renderGrid() {
+  const grid = $("sGrid");
+  grid.innerHTML = "";
+  const bs = rankBuckets(cur.items);
+
+  if (curRank !== "*") {
+    cur.items.filter((it) => rankOf(it) === curRank).forEach((it) => grid.appendChild(makeCell(it)));
+    return;
+  }
+
+  bs.forEach((bucket) => {
+    const head = document.createElement("div");
+    head.className = "gsec";
+    head.dataset.rank = bucket.rank;
+    head.innerHTML =
+      `<s style="background:${RCOL[bucket.rank]}"></s>${esc(bucket.rank)}` +
+      `<em>${bucket.n} 条 · 可做 ${bucket.ok}</em><u></u>`;
+    grid.appendChild(head);
+
+    const list = cur.items.filter((it) => rankOf(it) === bucket.rank);
+    list.slice(0, PER_RANK_CAP).forEach((it) => grid.appendChild(makeCell(it)));
+    if (list.length > PER_RANK_CAP) {
+      const more = document.createElement("button");
+      more.className = "gmore";
+      more.innerHTML = `+${list.length - PER_RANK_CAP}<small>看 ${esc(rname(bucket.rank))}</small>`;
+      more.addEventListener("click", () => setRank(bucket.rank));
+      grid.appendChild(more);
+    }
+  });
+}
+
+function renderAll() {
+  hideTip(); closeMenu(); closeDrawer();
+  $("bTitle").textContent = cur.beforeTitle;
+  $("bSub").textContent = cur.beforeSub;
+  $("bPlain").textContent = cur.before;
+  $("bMetric").innerHTML = cur.metric.map((m, i) => (i === 0 ? `<b>${esc(m)}</b>` : `<span>${esc(m)}</span>`)).join("");
+  $("beforeHint").textContent = cur.beforeHint;
+
+  $("sTitle").textContent = cur.title;
+  $("sSub").innerHTML = " · " + cur.sheetSub;
+  $("sFoot").textContent = cur.foot;
+  $("afterHint").textContent = cur.afterHint;
+  $("sExpand").textContent = `展开全部 ${cur.items.length} 格`;
+
+  if (curRank !== "*" && !rankBuckets(cur.items).some((b) => b.rank === curRank)) curRank = defaultRank(cur.items);
+  curFacet = "全部";
+  renderRankbar();
+  renderFacets();
+  renderGrid();
+  renderScenes();
+}
+
+/* ---------- 品阶切分 ---------- */
+let curRank = null;
+let curFacet = "全部";
+
+function rankBuckets(items) {
+  const map = {};
+  items.forEach((it) => {
+    const r = RANKS.includes(it.rank) ? it.rank : "凡品";
+    (map[r] = map[r] || { rank: r, n: 0, ok: 0 }).n++;
+    if (it.state === "ok") map[r].ok++;
+  });
+  return RANKS.filter((r) => map[r]).map((r) => map[r]);
+}
+/* 默认落在「第一个有可做条目」的档：从眼下能干的开始，而不是从最低阶开始 */
+function defaultRank(items) {
+  const bs = rankBuckets(items);
+  const hit = bs.find((b) => b.ok > 0);
+  return (hit || bs[0] || { rank: "*" }).rank;
+}
+function setRank(r) {
+  curRank = r;
+  hideTip();
+  renderRankbar();
+  renderGrid();
+  filterGrid(curFacet);
+}
+function renderRankbar() {
+  const bar = $("sRankbar"), sum = $("sRsum");
+  bar.innerHTML = "";
+  const bs = rankBuckets(cur.items);
+  /* ≤2 档时不值得做页签：多一行导航，只换来一次点击 */
+  if (bs.length <= 2) {
+    bar.hidden = true;
+    $("sRankrow").hidden = true;
+    sum.innerHTML = `<b>${cur.items.length}</b> 条 · ${bs.length} 档 · 不做品阶切分（档位太少，平铺更快）`;
+    return;
+  }
+  bar.hidden = false;
+  $("sRankrow").hidden = false;
+
+  const all = document.createElement("button");
+  all.className = "rchip" + (curRank === "*" ? " on" : "");
+  all.innerHTML = `<span>全部</span><small>${cur.items.length}</small>`;
+  all.addEventListener("click", () => setRank("*"));
+  bar.appendChild(all);
+
+  bs.forEach((b) => {
+    const el = document.createElement("button");
+    el.className = "rchip" + (curRank === b.rank ? " on" : "") + (b.ok ? "" : " dim");
+    el.innerHTML =
+      `<i style="background:${RCOL[b.rank]}"></i><span>${esc(rname(b.rank))}</span>` +
+      `<small>${b.n}</small>`;
+    el.title = `${b.rank} · ${b.n} 条 · 可做 ${b.ok}`;
+    el.addEventListener("click", () => setRank(b.rank));
+    bar.appendChild(el);
+  });
+
+  const sel = bs.find((b) => b.rank === curRank);
+  const tot = sel ? (cur.rankTotal || {})[sel.rank] : 0;
+  sum.innerHTML = sel
+    ? `<b>${esc(sel.rank)}</b> · 在列 ${sel.n} 条 · 可做 ${sel.ok}` +
+      (tot && tot !== sel.n ? ` · <span title="该档全部条目数">全库 ${tot} 条</span>` : "")
+    : `共 <b>${cur.items.length}</b> 条 · ${bs.length} 档 · 可做 ${bs.reduce((a, b) => a + b.ok, 0)}` +
+      (cur.rankTotal
+        ? ` · 全库 ${Object.values(cur.rankTotal).reduce((a, b) => a + b, 0)} 条`
+        : "");
+  bar.classList.toggle("overflow", bar.scrollWidth > bar.clientWidth + 1);
+}
+
+function renderFacets() {
+  const tb = $("sToolbar");
+  tb.innerHTML = "";
+  const facets = cur.groups
+    ? ["全部", ...cur.groups]
+    : (cur.key === "recipe" ? ["全部", "可炼制", "缺材料", "未达境界"] : ["全部", "有货", "折扣"]);
+  const tag = document.createElement("span");
+  tag.className = "tb-tag";
+  tag.textContent = cur.groups ? (cur.key === "talisman" ? "类别" : "分组") : "状态";
+  tb.appendChild(tag);
+  facets.forEach((f, i) => {
+    const b = document.createElement("button");
+    b.className = "fchip" + (i === 0 ? " on" : "");
+    b.textContent = f;
+    b.addEventListener("click", () => {
+      tb.querySelectorAll(".fchip").forEach((x) => x.classList.remove("on"));
+      b.classList.add("on");
+      curFacet = f;
+      filterGrid(f);
+    });
+    tb.appendChild(b);
+  });
+}
+
+function filterGrid(f) {
+  const grid = $("sGrid");
+  grid.querySelectorAll(".gcell").forEach((c) => {
+    const it = cur.items[+c.dataset.idx];
+    let show = true;
+    if (f === "全部") show = true;
+    else if (f === "可炼制") show = it.state === "ok" && !!it.rate;
+    else if (f === "缺材料") show = it.state === "lack";
+    else if (f === "未达境界") show = it.state === "lock";
+    else if (f === "有货") show = (it.stock || 0) > 0;
+    else if (f === "折扣") show = !!it.off;
+    else show = it.sec === f || it.cat === f;
+    c.hidden = !show;
+  });
+  /* 某档被筛空时，标题和 +N 一起收起，不留空标题 */
+  grid.querySelectorAll(".gsec").forEach((h) => {
+    let n = h.nextElementSibling, any = false;
+    while (n && !n.classList.contains("gsec")) {
+      if (!n.hidden) { any = true; break; }
+      n = n.nextElementSibling;
+    }
+    h.hidden = !any;
+  });
+}
+
+/* ---------- 悬停浮层 ---------- */
+let tipTimer = 0;
+function hideTip() {
+  clearTimeout(tipTimer);
+  $("tip").classList.remove("show");
+}
+function showTip(it, anchor) {
+  clearTimeout(tipTimer);
+  tipTimer = setTimeout(() => {
+    const tip = $("tip");
+    let rows = `<div class="t-row"><span>品阶</span><b style="color:${RCOL[it.rank] || "#7a6a4f"}">${esc(it.rank || "凡品")}</b></div>`;
+    if (it.rate) {
+      rows += `<div class="t-row"><span>成功率</span><b>${it.rate}%</b></div>`;
+      if (it.cost) rows += `<div class="t-row"><span>工费</span><b>${it.cost} 灵石</b></div>`;
+    }
+    if (it.price) {
+      rows += `<div class="t-row"><span>价格</span><b>${it.price} 灵石${it.off ? "（" + it.off + "）" : ""}</b></div>`;
+      rows += `<div class="t-row"><span>库存</span><b>${it.stock} 件</b></div>`;
+    }
+    if (it.held) rows += `<div class="t-row"><span>已有</span><b>${it.held} 颗</b></div>`;
+    if (it.craft) rows += `<div class="t-row"><span>可画</span><b>${it.craft} 张</b></div>`;
+    if (it.kind) rows += `<div class="t-row"><span>类别</span><b>${it.kind}</b></div>`;
+    tip.innerHTML =
+      `<div class="t-name">${esc(it.name)}</div>` + rows +
+      (it.effect
+        ? `<div class="t-eff">✨ ${esc(it.effect)}</div>`
+        : `<div class="t-eff" style="color:var(--warn)">⚠️ 效果未录入</div>`) +
+      (it.mats ? missLine(it) : "");
+    tip.classList.add("show");
+    const r = anchor.getBoundingClientRect();
+    const w = tip.offsetWidth, h = tip.offsetHeight;
+    let left = Math.max(8, Math.min(r.left + r.width / 2 - w / 2, innerWidth - w - 8));
+    let top = r.top - h - 9;
+    if (top < 8) top = r.bottom + 9;
+    tip.style.left = left + "px";
+    tip.style.top = top + "px";
+  }, 150);
+}
+function missLine(it) {
+  const miss = it.mats.filter(([, need, have]) => have < need);
+  if (!miss.length) return `<div class="t-miss" style="color:var(--ok)">材料齐备</div>`;
+  return `<div class="t-miss">缺 ${miss.map(([n, need, have]) => `${n}×${need - have}`).join("、")}</div>`;
+}
+
+/* ---------- 三点菜单 ---------- */
+function closeMenu() { $("menu").classList.remove("on"); }
+function openMenu(it, anchor) {
+  const m = $("menu");
+  m.innerHTML = "";
+  const add = (label, fn) => {
+    const b = document.createElement("button");
+    b.textContent = label;
+    b.addEventListener("click", () => { closeMenu(); fn(); });
+    m.appendChild(b);
+  };
+  add("查看详情", () => openDrawer(it));
+  add(cur.primary.recipe + "（主操作）", () => toast(cur.primary.recipe + "：" + it.name));
+  const sep = document.createElement("div"); sep.className = "sep"; m.appendChild(sep);
+  cur.primary.other.forEach((o) => add(o, () => toast(o + "：" + it.name)));
+  m.classList.add("on");
+  const r = anchor.getBoundingClientRect();
+  m.style.left = Math.min(r.left, innerWidth - m.offsetWidth - 10) + "px";
+  m.style.top = (r.bottom + 6) + "px";
+}
+
+/* ---------- 详情抽屉 ---------- */
+function closeDrawer() {
+  $("drawer").classList.remove("on");
+  $("veil").classList.remove("on");
+}
+function openDrawer(it) {
+  closeMenu();
+  $("dKicker").textContent = cur.tab + (it.id ? " · ID " + it.id : it.sec ? " · " + it.sec : "");
+  $("dTitle").textContent = it.name;
+  const chips = [it.rank, it.kind].filter(Boolean);
+  if (it.rate) chips.push("成功率 " + it.rate + "%");
+  if (it.cost && !it.price) chips.push("工费 " + it.cost + " 灵石");
+  if (it.price) chips.push(it.price + " 灵石" + (it.off ? " · " + it.off : ""));
+  $("dChips").innerHTML = chips.map((c) => `<span class="d-chip q">${esc(c)}</span>`).join("");
+
+  let body = "";
+  body += `<div class="d-sec"><h4>产出效果</h4>` +
+    (it.effect
+      ? `<div class="d-eff">${esc(it.effect)}</div>`
+      : `<div class="d-eff missing">⚠️ 效果未录入：该配方在数据里没有效果定义，不是「没有用」。</div>`) + `</div>`;
+
+  if (it.mats) {
+    body += `<div class="d-sec"><h4>所需材料</h4><div class="mat">`;
+    it.mats.forEach(([n, need, have]) => {
+      const ok = have >= need;
+      body += `<div class="mat-row"><span class="mn">${esc(n)}</span>` +
+        `<span class="mv">${have} / ${need}</span>` +
+        `<span class="mk ${ok ? "ok" : "no"}">${ok ? "足够" : "缺 " + (need - have)}</span></div>`;
+    });
+    if (it.cost) {
+      const ok = 2400 >= it.cost;
+      body += `<div class="mat-row"><span class="mn">灵石</span><span class="mv">2400 / ${it.cost}</span>` +
+        `<span class="mk ${ok ? "ok" : "no"}">${ok ? "足够" : "缺 " + (it.cost - 2400)}</span></div>`;
+    }
+    body += `</div></div>`;
+  }
+
+  const gates = [];
+  if (it.lvReq) gates.push(`<span class="${(it.lvNow || 2) >= it.lvReq ? "pass" : "block"}">需境界 ${it.lvReq}</span>`);
+  if (it.need) gates.push(`<span class="block">${esc(it.need)}</span>`);
+  if (it.stock) gates.push(`<span class="pass">库存 ${it.stock}</span>`);
+  if (it.scope === "run") gates.push(`<span class="pass">按次数生效（${it.uses} 次历练·秘境）</span>`);
+  if (gates.length) body += `<div class="d-sec"><h4>门槛</h4><div class="gate">${gates.join("")}</div></div>`;
+
+  if (it.rate) {
+    body += `<div class="d-sec"><h4>火候（影响品质 → 影响效果倍率）</h4><div class="fire">` +
+      `<button class="on" data-f="1"><b>猛火</b>品质上限高</button>` +
+      `<button data-f="2"><b>文火</b>消耗低 · 稳</button>` +
+      `<button data-f="3"><b>守中</b>折中</button>` +
+      `</div></div>`;
+  }
+
+  $("dBody").innerHTML = body;
+  $("dBody").querySelectorAll(".fire button").forEach((b) => {
+    b.addEventListener("click", () => {
+      $("dBody").querySelectorAll(".fire button").forEach((x) => x.classList.remove("on"));
+      b.classList.add("on");
+    });
+  });
+
+  const locked = (it.state === "lock");
+  const others = cur.primary.other.filter((o) => o !== "详情").slice(0, 2);
+  $("dFoot").innerHTML =
+    `<button class="primary" ${locked ? "disabled" : ""}>${locked ? "条件不足" : cur.primary.recipe}</button>` +
+    others.map((o) => `<button>${esc(o)}</button>`).join("");
+  $("dFoot").querySelector(".primary").addEventListener("click", () => {
+    if (locked) return;
+    toast(cur.primary.recipe + "：" + it.name);
+    closeDrawer();
+  });
+
+  $("veil").classList.add("on");
+  $("drawer").classList.add("on");
+}
+
+/* ---------- 提示 ---------- */
+let toastTimer = 0;
+function toast(msg) {
+  let el = document.getElementById("toastBox");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "toastBox";
+    el.style.cssText =
+      "position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:120;" +
+      "background:rgba(47,42,36,.92);color:#fdfaf2;font-size:12.5px;padding:9px 16px;border-radius:8px;" +
+      "box-shadow:0 8px 24px rgba(0,0,0,.2);opacity:0;transition:.16s;pointer-events:none";
+    document.body.appendChild(el);
+  }
+  el.textContent = "→ " + msg;
+  el.style.opacity = "1";
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (el.style.opacity = "0"), 1600);
+}
+
+/* ---------- 说明卡 ---------- */
+function renderNotes() {
+  const items = [
+    ["格子规格", "桌面一排 4～8 个，右下角 <kbd>⋯</kbd> 出菜单。<b>手机 4 列、格高 68px。</b>触屏没有 hover，所以去掉 <kbd>⋯</kbd>，操作全收进详情页。"],
+    ["按品阶切分", "12 档统一阶序（凡→混元），前后端同一份 <kbd>RANK_NAMES</kbd>。≥3 档才出品阶条，一次只看一档；≤2 档直接平铺。「全部」里每档只铺 8 格，其余折 <kbd>+N</kbd>。丹方 692 条实测分布见方案文档 4.3。"],
+    ["三种详情分工", "桌面：悬停＝快览（数值 + 缺口，不发请求）；点击＝详情页；<kbd>⋯</kbd>＝动作菜单。"+"手机：<b>只有点击一条路径。</b>详情从底部上滑 620px，上方留出格子便于对照。"],
+    ["为什么不是纯图标", "配方没有美术资源，图标得现造。保留文字名 + 品质色条，零素材成本，还能直接搜、直接读。"],
+    ["不改的地方", "<kbd>/物品信息</kbd>、成功回执、战报仍是文本。格子只换「列表型查询」的皮，不动结算与存档。"]
+  ];
+  $("notes").innerHTML = items
+    .map(([t, d]) => `<div class="note"><b>${esc(t)}</b>${d}</div>`)
+    .join("");
+}
+
+/* ---------- 事件 ---------- */
+$("dClose").addEventListener("click", closeDrawer);
+$("veil").addEventListener("click", closeDrawer);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") { closeDrawer(); closeMenu(); hideTip(); }
+});
+document.addEventListener("click", (e) => {
+  if (!e.target.closest("#menu") && !e.target.closest(".more")) closeMenu();
+});
+$("sExpand").addEventListener("click", () => toast("加载下一批 24 格"));
+
+/* 触屏（平板横屏也算）没有 hover 语义：tap 会假触发 mouseenter，
+   而浮层 pointer-events:none 收不到 mouseleave，会一直粘着不消失 ——
+   所以按能力判断，不按屏宽判断。 */
+const HAS_HOVER = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+
+document.body.dataset.view = "after";
+$("seg").addEventListener("click", (e) => {
+  const btn = e.target.closest("button");
+  if (!btn) return;
+  $("seg").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === btn));
+  document.body.dataset.view = btn.dataset.v;
+  hideTip();
+});
+
+renderAll();
+renderNotes();
+</script>
+</body>
+</html>

@@ -148,8 +148,12 @@ class RecoveryManager:
         if self.config_manager is None:
             return player
         now = int(now or time.time())
+        # 0 号槽只做「全局恢复记账」（last_natural_regen 必须落在固定一行，
+        # 否则调息与常态切换时会来回跳槽，导致自然恢复被重复结算）。
         cd = await self._get_cd(player.user_id)
+        rest_cd = await self.db.ext.get_active_cd(player.user_id, UserStatus.RESTING)
         extra = self._extra(cd)
+        rest_extra = self._extra(rest_cd) if rest_cd else {}
 
         from .combat_manager import CombatManager
         stats = CombatManager.build_player_combat_stats(
@@ -174,28 +178,35 @@ class RecoveryManager:
         elif not extra.get("last_natural_regen"):
             extra["last_natural_regen"] = now
 
-        # 调息：只结算完整分钟
-        if int(cd.type) == int(UserStatus.RESTING):
-            last_rest = int(extra.get("rest_last_tick") or extra.get("resting_since") or now)
+        # 调息：只结算完整分钟（状态记在 RESTING 自己占的那个槽位上）
+        if rest_cd is not None:
+            last_rest = int(
+                rest_extra.get("rest_last_tick") or rest_extra.get("resting_since") or now
+            )
             minutes = max(0, (now - last_rest) // self.REST_INTERVAL)
             if minutes:
                 hp = min(max_hp, hp + int(max_hp * self.REST_RATE * minutes * (1 + bonuses["rest_hp_regen_bonus"])))
                 mp = min(max_mp, mp + int(max_mp * self.REST_RATE * minutes * (1 + bonuses["rest_qi_regen_bonus"])))
-                extra["rest_last_tick"] = last_rest + minutes * self.REST_INTERVAL
+                rest_extra["rest_last_tick"] = last_rest + minutes * self.REST_INTERVAL
+            if int(rest_cd.slot) == 0:
+                # 调息就挂在 0 号槽上：全局记账与调息记账在同一行，必须合并后再写
+                extra.update(rest_extra)
+            else:
+                await self.db.conn.execute(
+                    "UPDATE user_cd SET extra_data = ? WHERE user_id = ? AND slot = ?",
+                    (json.dumps(rest_extra, ensure_ascii=False), player.user_id, int(rest_cd.slot)),
+                )
             if hp >= max_hp and mp >= max_mp:
                 extra.pop("rest_last_tick", None)
                 extra.pop("resting_since", None)
-                await self.db.ext.set_user_busy(player.user_id, UserStatus.IDLE, 0, extra_data=extra)
-            else:
-                await self.db.conn.execute(
-                    "UPDATE user_cd SET extra_data = ? WHERE user_id = ?",
-                    (json.dumps(extra, ensure_ascii=False), player.user_id),
-                )
-        else:
-            await self.db.conn.execute(
-                "UPDATE user_cd SET extra_data = ? WHERE user_id = ?",
-                (json.dumps(extra, ensure_ascii=False), player.user_id),
-            )
+                rest_extra.pop("rest_last_tick", None)
+                rest_extra.pop("resting_since", None)
+                await self.db.ext.free_slot(player.user_id, int(rest_cd.slot))
+
+        await self.db.conn.execute(
+            "UPDATE user_cd SET extra_data = ? WHERE user_id = ? AND slot = 0",
+            (json.dumps(extra, ensure_ascii=False), player.user_id),
+        )
 
         player.hp = min(max_hp, max(1, hp))
         player.spiritual_qi = min(max_mp, max(0, mp))
@@ -209,7 +220,7 @@ class RecoveryManager:
             from .pet_manager import PetManager
 
             pet_mgr = PetManager(self.db, self.config_manager)
-            resting = int(cd.type) == int(UserStatus.RESTING)
+            resting = rest_cd is not None
             bonus_key = "rest_hp_regen_bonus" if resting else "natural_hp_regen_bonus"
             await pet_mgr.apply_regen(
                 player.user_id,

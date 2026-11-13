@@ -12,6 +12,7 @@ PKG = ROOT.name
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from tests._astrbot_stub import install as _install_astrbot_stub
+from tests._cd_stub import SlotCdStubMixin
 
 _install_astrbot_stub()
 
@@ -30,7 +31,7 @@ class _FakeCD:
         return copy.deepcopy(self._extra)
 
 
-class _FakeExt:
+class _FakeExt(SlotCdStubMixin):
     def __init__(self):
         self.cd = None
 
@@ -43,7 +44,7 @@ class _FakeExt:
     async def set_user_busy(self, user_id, status, when, extra_data=None):
         self.cd = _FakeCD(status, extra_data or {}, when)
 
-    async def set_user_free(self, user_id):
+    async def set_user_free(self, user_id, commit=True, cd_type=None):
         self.cd = None
 
 

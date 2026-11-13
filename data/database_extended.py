@@ -7,7 +7,7 @@ import aiosqlite
 import json
 import time
 from contextlib import asynccontextmanager
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from ..models_extended import (
     Sect, BuffInfo, Rift, ImpartInfo, UserCd, UserStatus
 )
@@ -402,72 +402,249 @@ class DatabaseExtended:
         )
         await self.conn.commit()
     
-    # ===== 用户CD系统 CRUD =====
-    
-    async def create_user_cd(self, user_id: str):
-        """初始化用户CD信息（防呆版）"""
+    # ===== 用户CD系统 CRUD（v62：按分身槽位多行）=====
+    #
+    # slot 0 = 本体，slot 1..N = 身外化身。每个槽位最多挂一项耗时活动，
+    # 因此「有没有空闲分身」= 空闲槽位数量 > 0。
+
+    MAX_SLOT_CAP = 8  # 防御性上限：本体 1 + 化身 4，留余量
+
+    async def create_user_cd(self, user_id: str, slot: int = 0):
+        """初始化某个槽位的活动记录（防呆版）"""
         await self.conn.execute(
             """
-            INSERT OR IGNORE INTO user_cd (user_id, type, create_time, scheduled_time, extra_data) 
-            VALUES (?, 0, 0, 0, '{}')
+            INSERT OR IGNORE INTO user_cd (user_id, slot, type, create_time, scheduled_time, extra_data)
+            VALUES (?, ?, 0, 0, 0, '{}')
             """,
-            (user_id,)
+            (user_id, int(slot))
         )
         await self.conn.commit()
-    
-    async def get_user_cd(self, user_id: str) -> Optional[UserCd]:
-        """获取用户CD信息"""
+
+    async def get_user_cd(self, user_id: str, slot: int = 0) -> Optional[UserCd]:
+        """获取指定槽位的活动记录（默认 0 号槽 = 本体）"""
         async with self.conn.execute(
-            "SELECT * FROM user_cd WHERE user_id = ?",
+            "SELECT * FROM user_cd WHERE user_id = ? AND slot = ?",
+            (user_id, int(slot))
+        ) as cursor:
+            row = await cursor.fetchone()
+            if row:
+                return UserCd(**dict(row))
+            return None
+
+    async def list_user_cds(self, user_id: str) -> List[UserCd]:
+        """取该玩家全部槽位记录，按槽位升序（含空闲槽）"""
+        async with self.conn.execute(
+            "SELECT * FROM user_cd WHERE user_id = ? ORDER BY slot",
+            (user_id,)
+        ) as cursor:
+            return [UserCd(**dict(row)) for row in await cursor.fetchall()]
+
+    async def get_active_cd(self, user_id: str, cd_type: int) -> Optional[UserCd]:
+        """按活动类型精确定位：这项活动当前占的是哪一个槽位。
+
+        多分身之后不能再按「取唯一那条记录」来判断状态，否则本体在历练、
+        分身在押镖时，押镖结算会读到历练那条记录并误判为「不在押镖」。
+        """
+        async with self.conn.execute(
+            "SELECT * FROM user_cd WHERE user_id = ? AND type = ? ORDER BY slot LIMIT 1",
+            (user_id, int(cd_type))
+        ) as cursor:
+            row = await cursor.fetchone()
+            if row:
+                return UserCd(**dict(row))
+            return None
+
+    async def first_busy_cd(self, user_id: str) -> Optional[UserCd]:
+        """任一进行中的活动（「是否忙碌」「当前在做什么」这类笼统判断用）"""
+        async with self.conn.execute(
+            "SELECT * FROM user_cd WHERE user_id = ? AND type != 0 ORDER BY slot LIMIT 1",
             (user_id,)
         ) as cursor:
             row = await cursor.fetchone()
             if row:
                 return UserCd(**dict(row))
             return None
-    
-    async def update_user_cd(self, user_cd: UserCd):
-        """更新用户CD信息"""
-        await self.conn.execute(
-            """
-            UPDATE user_cd SET
-                type = ?, create_time = ?, scheduled_time = ?, extra_data = ?
-            WHERE user_id = ?
-            """,
-            (user_cd.type, user_cd.create_time, user_cd.scheduled_time, user_cd.extra_data, user_cd.user_id)
-        )
-        await self.conn.commit()
-    
-    async def set_user_busy(self, user_id: str, busy_type: int, scheduled_time: int = 0, extra_data: dict = None, commit: bool = True):
-        """设置用户忙碌状态（防呆版）。commit=False 用于外层事务。"""
-        import time
-        import json
-        extra_json = json.dumps(extra_data or {}, ensure_ascii=False)
-        # 使用 UPSERT 语法，如果用户不存在则插入，存在则更新，绝对不会报 no such column
-        await self.conn.execute(
-            """
-            INSERT INTO user_cd (user_id, type, create_time, scheduled_time, extra_data) 
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(user_id) DO UPDATE SET 
-                type = excluded.type,
-                create_time = excluded.create_time,
-                scheduled_time = excluded.scheduled_time,
-                extra_data = excluded.extra_data
-            """,
-            (user_id, busy_type, int(time.time()), scheduled_time, extra_json)
-        )
-        # 同步 players.state，保证“我的信息”等界面显示真实状态
-        state_text = _STATE_TEXT.get(busy_type, "忙碌中")
+
+    async def busy_slot_count(self, user_id: str) -> int:
+        """已出动的分身数（正在进行中的活动条数）"""
+        async with self.conn.execute(
+            "SELECT COUNT(*) FROM user_cd WHERE user_id = ? AND type != 0",
+            (user_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            return int(row[0] or 0) if row else 0
+
+    async def busy_activity_names(self, user_id: str) -> List[str]:
+        """正在进行的活动名（按槽位顺序），用于「分身都出去了」这类提示"""
+        rows = await self.list_user_cds(user_id)
+        return [
+            UserStatus.get_name(int(r.type))
+            for r in rows
+            if int(r.type or 0) != 0
+        ]
+
+    async def find_free_slot(self, user_id: str, max_slots: int) -> Optional[int]:
+        """在 [0, max_slots) 里找一个没被活动占用的槽位，没有则返回 None"""
+        limit = max(1, min(int(max_slots or 1), self.MAX_SLOT_CAP))
+        rows = await self.list_user_cds(user_id)
+        used = {int(r.slot) for r in rows if int(r.type or 0) != 0}
+        for slot in range(limit):
+            if slot not in used:
+                return slot
+        return None
+
+    async def _sync_player_state(self, user_id: str, commit: bool = False):
+        """把 players.state 同步成「最显眼」的那个活动状态，全空闲则写「空闲」"""
+        busy = await self.first_busy_cd(user_id)
+        state_text = _STATE_TEXT.get(int(busy.type), "忙碌中") if busy else "空闲"
         await self.conn.execute(
             "UPDATE players SET state = ? WHERE user_id = ?",
             (state_text, user_id),
         )
         if commit:
             await self.conn.commit()
-    
-    async def set_user_free(self, user_id: str, commit: bool = True):
-        """设置用户为空闲状态"""
-        await self.set_user_busy(user_id, 0, 0, commit=commit)
+
+    async def start_activity(
+        self,
+        user_id: str,
+        cd_type: int,
+        scheduled_time: int = 0,
+        extra_data: dict = None,
+        max_slots: int = 1,
+        commit: bool = True,
+    ) -> Tuple[bool, int, str]:
+        """占一个空闲分身开始这项活动。
+
+        返回 ``(是否成功, 槽位号, 失败原因)``。同一类型活动只能占一个槽位
+        （不允许同时开两趟历练），槽位用完则失败。
+        """
+        extra_json = json.dumps(extra_data or {}, ensure_ascii=False)
+        cd_type = int(cd_type)
+        existing = await self.get_active_cd(user_id, cd_type)
+        if existing is not None:
+            return False, int(existing.slot), "already_running"
+        slot = await self.find_free_slot(user_id, max_slots)
+        if slot is None:
+            return False, -1, "no_free_slot"
+        # 使用 UPSERT 语法，如果该槽位不存在则插入，存在则更新
+        await self.conn.execute(
+            """
+            INSERT INTO user_cd (user_id, slot, type, create_time, scheduled_time, extra_data)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, slot) DO UPDATE SET
+                type = excluded.type,
+                create_time = excluded.create_time,
+                scheduled_time = excluded.scheduled_time,
+                extra_data = excluded.extra_data
+            """,
+            (user_id, slot, cd_type, int(time.time()), scheduled_time, extra_json)
+        )
+        await self._sync_player_state(user_id)
+        if commit:
+            await self.conn.commit()
+        return True, slot, ""
+
+    async def free_slot(self, user_id: str, slot: int, commit: bool = True):
+        """清空指定槽位（只释放这一个分身）"""
+        await self.conn.execute(
+            """
+            UPDATE user_cd
+            SET type = 0, create_time = 0, scheduled_time = 0, extra_data = '{}'
+            WHERE user_id = ? AND slot = ?
+            """,
+            (user_id, int(slot))
+        )
+        await self._sync_player_state(user_id)
+        if commit:
+            await self.conn.commit()
+
+    async def release_activity(self, user_id: str, cd_type: Optional[int] = None, commit: bool = True):
+        """结束某项活动占用的槽位；``cd_type=None`` 表示清空全部槽位。"""
+        if cd_type is None:
+            await self.conn.execute(
+                """
+                UPDATE user_cd
+                SET type = 0, create_time = 0, scheduled_time = 0, extra_data = '{}'
+                WHERE user_id = ?
+                """,
+                (user_id,)
+            )
+        else:
+            await self.conn.execute(
+                """
+                UPDATE user_cd
+                SET type = 0, create_time = 0, scheduled_time = 0, extra_data = '{}'
+                WHERE user_id = ? AND type = ?
+                """,
+                (user_id, int(cd_type))
+            )
+        await self._sync_player_state(user_id)
+        if commit:
+            await self.conn.commit()
+
+    async def update_user_cd(self, user_cd: UserCd):
+        """更新指定槽位记录（按 (user_id, slot) 定位，不再整表覆盖）"""
+        await self.conn.execute(
+            """
+            UPDATE user_cd SET
+                type = ?, create_time = ?, scheduled_time = ?, extra_data = ?
+            WHERE user_id = ? AND slot = ?
+            """,
+            (
+                user_cd.type, user_cd.create_time, user_cd.scheduled_time,
+                user_cd.extra_data, user_cd.user_id, int(getattr(user_cd, "slot", 0) or 0),
+            )
+        )
+        await self._sync_player_state(user_cd.user_id)
+        await self.conn.commit()
+
+    async def set_user_busy(
+        self, user_id: str, busy_type: int, scheduled_time: int = 0,
+        extra_data: dict = None, commit: bool = True, max_slots: int = 1,
+    ):
+        """兼容旧调用（v62 之前每人只有一行状态）。
+
+        - ``busy_type=IDLE`` → 清空全部槽位
+        - 该活动已在跑 → 覆盖它自己那个槽位的时间戳 / 附加数据
+        - 否则优先找空闲槽；一个都没有就落在 0 号槽（等价旧的「整行覆盖」）
+
+        新代码请用 :meth:`start_activity`（严格按分身槽位分配），这个只给
+        「把当前状态改成 X」这类旧语义和测试兜底用。
+        """
+        if int(busy_type) == UserStatus.IDLE:
+            await self.release_activity(user_id, None, commit=commit)
+            return
+
+        existing = await self.get_active_cd(user_id, busy_type)
+        if existing is not None:
+            slot = int(existing.slot)
+        else:
+            slot = await self.find_free_slot(user_id, max_slots)
+            if slot is None:
+                slot = 0
+        await self.conn.execute(
+            """
+            INSERT INTO user_cd (user_id, slot, type, create_time, scheduled_time, extra_data)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, slot) DO UPDATE SET
+                type = excluded.type,
+                create_time = excluded.create_time,
+                scheduled_time = excluded.scheduled_time,
+                extra_data = excluded.extra_data
+            """,
+            (
+                user_id, slot, int(busy_type), int(time.time()),
+                int(scheduled_time or 0),
+                json.dumps(extra_data or {}, ensure_ascii=False),
+            ),
+        )
+        await self._sync_player_state(user_id)
+        if commit:
+            await self.conn.commit()
+
+    async def set_user_free(self, user_id: str, commit: bool = True, cd_type: Optional[int] = None):
+        """释放槽位。``cd_type`` 给定则只释放该活动占的槽；不给则清空全部（重置语义）。"""
+        await self.release_activity(user_id, cd_type, commit=commit)
 
     # ===== v6.26 自动代理 =====
 

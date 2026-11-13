@@ -159,6 +159,7 @@ class UserCd:
     create_time: int = 0
     scheduled_time: int = 0
     extra_data: str = "{}"
+    slot: int = 0  # 活动槽位：0 = 本体，1..N = 身外化身
     
     def get_extra_data(self) -> dict:
         try:

@@ -13,6 +13,18 @@ from ..rank_rules import RANK_NAMES, level_to_rank, normalize_rank
 from .item_rules import ItemRules
 from .realm_rules import format_applicable_realm
 
+# 货架类型 → 展示种类。文本列表与网页网格共用一份，避免两处各写一套标签。
+PAVILION_TYPE_LABELS = {
+    'weapon': '武器', 'armor': '防具', 'head': '头饰', 'body': '甲胄',
+    'gloves': '手套', 'boots': '靴子', 'ring': '戒指', 'amulet': '护符',
+    'main_technique': '心法', 'technique': '功法',
+    'pill': '破境丹', 'exp_pill': '修为丹', 'utility_pill': '功能丹',
+    'inventory_pill': '丹药', 'legacy_pill': '丹药', 'recipe': '丹方',
+    'material': '材料', 'material_package': '材料包', 'accessory': '饰品', '符箓': '符箓',
+    'talisman_recipe': '符图',
+}
+
+
 class ShopManager:
     """商店管理器，负责商店物品生成、刷新和购买"""
 
@@ -154,6 +166,78 @@ class ShopManager:
             for rank in RANK_NAMES
             if groups.get(rank)
         ]
+
+    def build_pavilion_entries(self, items: List[Dict]) -> List[Dict]:
+        """货架条目（网页端网格用）。
+
+        与 ``format_pavilion_display`` 读同一份 dict，只是不再拼成字符串：
+        文本仍走原来的格式化函数，两边互不影响，QQ 端一个字都不变。
+        字段命名与丹方 / 符箓书保持一套，前端可以只写一个渲染函数。
+        """
+        entries: List[Dict] = []
+        for item in items or []:
+            try:
+                stock = int(item.get("stock", 0) or 0)
+            except (TypeError, ValueError):
+                stock = 0
+            if stock <= 0:
+                continue
+            data = item.get("data") if isinstance(item.get("data"), dict) else {}
+            item_type = str(item.get("type") or data.get("type") or "")
+            kind = PAVILION_TYPE_LABELS.get(item_type, "物品")
+            if item_type == "material":
+                category = self.get_material_category(item.get("name", ""), data)
+                if category:
+                    kind = f"材料·{category}"
+            elif item_type == "material_package":
+                package = str(data.get("package_category") or "")
+                label = self.MATERIAL_CATEGORY_LABELS.get(package, package)
+                if label:
+                    kind = f"材料包·{label}"
+            try:
+                details = [str(x).strip() for x in (self.get_trade_details(item) or []) if str(x).strip()]
+            except Exception:
+                # 单件数据坏了不能让整片货架退回纯文本
+                details = []
+            effect = ""
+            effect_line = ""
+            for line in details:
+                if line.startswith(("描述:", "效果:")):
+                    effect = line.split(":", 1)[1].strip()
+                    effect_line = line
+                    break
+            if not effect:
+                for line in details:
+                    if line.startswith("属性:"):
+                        effect = line.split(":", 1)[1].strip()
+                        effect_line = line
+                        break
+            # 已经当「产出效果」显示过的那一行不再塞进明细，否则详情页同一句话出现两次
+            notes = [line for line in details if line != effect_line] if effect_line else details
+            try:
+                discount = float(item.get("discount", 1.0) or 1.0)
+            except (TypeError, ValueError):
+                discount = 1.0
+            unlimited = bool(item.get("unlimited"))
+            entries.append({
+                "name": str(item.get("name") or ""),
+                "kind": kind,
+                "sub": item_type,
+                "rank": normalize_rank(item.get("rank"), "凡品"),
+                "price": int(item.get("price") or 0),
+                "stock": stock,
+                # 详情抽屉的数量步进器用：None 表示不限量（/购买 不设上限，交给后端校验）
+                "max": None if unlimited else stock,
+                "discount": round(discount, 3),
+                "unlimited": unlimited,
+                "always": bool(item.get("always_available")),
+                "effect": effect,
+                "notes": notes,
+                "source": "shop",
+                "action": "购买",
+                "unit": "件",
+            })
+        return entries
 
     def _cfg(self, key: str, default):
         """读取配置：优先新 schema 的 VALUES 层，兼容旧根键。"""
@@ -1417,15 +1501,7 @@ class ShopManager:
         if not items:
             return f"{pavilion_name}暂无物品出售"
 
-        type_label_map = {
-            'weapon': '武器', 'armor': '防具', 'head': '头饰', 'body': '甲胄',
-            'gloves': '手套', 'boots': '靴子', 'ring': '戒指', 'amulet': '护符',
-            'main_technique': '心法', 'technique': '功法',
-            'pill': '破境丹', 'exp_pill': '修为丹', 'utility_pill': '功能丹',
-            'inventory_pill': '丹药', 'legacy_pill': '丹药', 'recipe': '丹方',
-            'material': '材料', 'material_package': '材料包', 'accessory': '饰品', '符箓': '符箓',
-            'talisman_recipe': '符图',
-        }
+        type_label_map = PAVILION_TYPE_LABELS
 
         lines = [f"=== {pavilion_name} ===\n"]
         display_index = 0
@@ -1731,7 +1807,7 @@ class ShopManager:
             details.append(f"类别：{profile['category']}")
             details.append(f"效果：{profile['description']}")
             if profile.get("run_scoped"):
-                details.append(f"生效：{profile['uses']}次历练/秘境")
+                details.append(f"生效：{profile['uses']}次（历练·秘境）")
             else:
                 details.append(f"持续：{profile['duration']}分钟")
             required = recipe.get("level_required")

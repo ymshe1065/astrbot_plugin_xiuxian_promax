@@ -176,8 +176,8 @@ _SHOP_DEFS = (
      "储物戒容量 +6 格（与芥子纳须叠加）"),
     (42, "便利", "悟道蒲团", "seclusion_bonus", 70, 0.08, 0, "8%",
      "闭关打坐的修为收益 +8%（与修炼加速相乘）"),
-    (52, "便利", "一心二用", "parallel_action", 80, 1, 3, "1 档",
-     "忙碌时也能处理杂务、交易与社交（最多 3 档，档位见 /仙缘商店）"),
+    (52, "便利", "身外化身", "avatar_slots", 60, 1, 4, "1 尊",
+     "多一个活动分身，可同时再挂一项活动（阶梯价 60/120/240/480，最多 4 尊）"),
     # ---- 跨世 ----
     (43, "跨世", "灵根天眷", "root_tier_bonus", 300, 1, 3, "1 档",
      "每世首批灵根的保底档位 +1 档（最高档封顶）"),
@@ -237,6 +237,21 @@ def item_by_key(key: str) -> Optional[Dict[str, Any]]:
         if item["key"] == key:
             return item
     return None
+
+
+def shop_price(item_id: int, owned: int = 0) -> int:
+    """下一份的价钱。
+
+    绝大多数商品是固定价；【身外化身】走阶梯价（60/120/240/480），
+    所以价格一律从这里取，别直接读 ``item["cost"]``。
+    """
+    if int(item_id) == 52:
+        from .avatar_rules import avatar_price_at
+
+        # 买满 4 尊后返回 0（调用方按「已满」展示，购买前会先被 item_at_cap 拦住）
+        return int(avatar_price_at(int(owned or 0)) or 0)
+    item = SHOP_ITEMS.get(int(item_id))
+    return int(item["cost"]) if item else 0
 
 
 # ---------- 账本读写 ----------

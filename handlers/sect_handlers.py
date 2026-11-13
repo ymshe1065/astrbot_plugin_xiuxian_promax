@@ -20,33 +20,19 @@ class SectHandlers:
     async def handle_create_sect(self, event: AstrMessageEvent, name: str):
         """创建宗门"""
         user_id = event.get_sender_id()
-        user_cd = await self.db.ext.get_user_cd(user_id)
-        if user_cd and user_cd.type != UserStatus.IDLE:
-            current_status = UserStatus.get_name(user_cd.type)
-            yield event.plain_result(f"❌ 你当前正{current_status}，无法进行此操作！")
-            return
+        # 宗门事务属杂务，不占活动槽位（忙碌拦截由 @player_required 按分身槽位判定）
         success, msg = await self.sect_mgr.create_sect(user_id, name)
         yield event.plain_result(msg)
 
     async def handle_join_sect(self, event: AstrMessageEvent, name: str):
         """加入宗门"""
         user_id = event.get_sender_id()
-        user_cd = await self.db.ext.get_user_cd(user_id)
-        if user_cd and user_cd.type != UserStatus.IDLE:
-            current_status = UserStatus.get_name(user_cd.type)
-            yield event.plain_result(f"❌ 你当前正{current_status}，无法进行此操作！")
-            return
         success, msg = await self.sect_mgr.join_sect(user_id, name)
         yield event.plain_result(msg)
     
     async def handle_leave_sect(self, event: AstrMessageEvent):
         """退出宗门"""
         user_id = event.get_sender_id()
-        user_cd = await self.db.ext.get_user_cd(user_id)
-        if user_cd and user_cd.type != UserStatus.IDLE:
-            current_status = UserStatus.get_name(user_cd.type)
-            yield event.plain_result(f"❌ 你当前正{current_status}，无法进行此操作！")
-            return
         success, msg = await self.sect_mgr.leave_sect(user_id)
         yield event.plain_result(msg)
 
@@ -71,11 +57,6 @@ class SectHandlers:
     async def handle_donate(self, event: AstrMessageEvent, amount: int):
         """宗门捐献"""
         user_id = event.get_sender_id()
-        user_cd = await self.db.ext.get_user_cd(user_id)
-        if user_cd and user_cd.type != UserStatus.IDLE:
-            current_status = UserStatus.get_name(user_cd.type)
-            yield event.plain_result(f"❌ 你当前正{current_status}，无法进行此操作！")
-            return
         success, msg = await self.sect_mgr.donate_to_sect(user_id, amount)
         yield event.plain_result(msg)
         

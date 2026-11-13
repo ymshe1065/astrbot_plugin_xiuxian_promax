@@ -450,12 +450,22 @@ class ShopHandler:
                     sections.append({"name": "在售清单", "lines": lines})
             if not sections:
                 return None
+            # 网页端：整片一个网格，品阶交给页签切；位图仍按上面的分区排版
+            entries = self.shop_manager.build_pavilion_entries(
+                [item for _, group in groups for item in group] if groups else items
+            )
+            web_sections = (
+                [{"name": "在售清单", "view": "grid", "lines": [], "entries": entries}]
+                if entries
+                else None
+            )
             card_path = await render_card_async(
                 "shop",
                 title or f"{pavilion_name} · 今日货架",
                 f"共 {count} 种在售",
                 sections=sections,
                 footer=footer or "购买 <物品名> [数量] · 售罄商品不显示",
+                web_sections=web_sections,
             )
             if card_path:
                 return card_path

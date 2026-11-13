@@ -335,8 +335,8 @@ class PetManager:
         """灵兽精力恢复速率：主人调息时用调息速率，否则用自然恢复速率。"""
         resting = False
         try:
-            cd = await self.db.ext.get_user_cd(user_id)
-            resting = bool(cd and int(cd.type) == int(UserStatus.RESTING))
+            cd = await self.db.ext.get_active_cd(user_id, UserStatus.RESTING)
+            resting = cd is not None
         except Exception:
             pass
 

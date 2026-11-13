@@ -1,0 +1,6705 @@
+[
+ {
+  "cmd": "修仙帮助",
+  "aliases": [],
+  "func": "handle_help",
+  "line": 1493,
+  "outputs": [
+   "image",
+   "text"
+  ],
+  "delegates": [
+   "handle_help"
+  ],
+  "text": {
+   "lines": 8,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": false,
+   "records": 1,
+   "kv": 1,
+   "bullets": 0,
+   "cmds": 0,
+   "pseudo": false,
+   "max_len": 27
+  },
+  "group": "社交与师徒",
+  "channel": "image+text"
+ },
+ {
+  "cmd": "自动代理",
+  "aliases": [],
+  "func": "handle_auto_proxy_enable",
+  "line": 1500,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_enable"
+  ],
+  "text": {
+   "lines": 542,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 4,
+   "kv": 45,
+   "bullets": 1,
+   "cmds": 26,
+   "pseudo": false,
+   "max_len": 69
+  },
+  "group": "自动代理",
+  "channel": "text"
+ },
+ {
+  "cmd": "关闭代理",
+  "aliases": [],
+  "func": "handle_auto_proxy_disable",
+  "line": 1507,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_disable"
+  ],
+  "text": {
+   "lines": 244,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 3,
+   "kv": 3,
+   "bullets": 0,
+   "cmds": 14,
+   "pseudo": false,
+   "max_len": 62
+  },
+  "group": "自动代理",
+  "channel": "text"
+ },
+ {
+  "cmd": "代理状态",
+  "aliases": [],
+  "func": "handle_auto_proxy_status",
+  "line": 1514,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_status"
+  ],
+  "text": {
+   "lines": 340,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 2,
+   "kv": 32,
+   "bullets": 2,
+   "cmds": 7,
+   "pseudo": false,
+   "max_len": 110
+  },
+  "group": "自动代理",
+  "channel": "text"
+ },
+ {
+  "cmd": "我要修仙",
+  "aliases": [],
+  "func": "handle_start_xiuxian",
+  "line": 1519,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_start_xiuxian"
+  ],
+  "text": {
+   "lines": 220,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 49,
+   "kv": 8,
+   "bullets": 3,
+   "cmds": 3,
+   "pseudo": false,
+   "max_len": 59
+  },
+  "group": "修行",
+  "channel": "text"
+ },
+ {
+  "cmd": "我的信息",
+  "aliases": [],
+  "func": "handle_player_info",
+  "line": 1524,
+  "outputs": [
+   "image",
+   "text"
+  ],
+  "delegates": [
+   "handle_player_info"
+  ],
+  "text": {
+   "lines": 833,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 7,
+   "kv": 45,
+   "bullets": 4,
+   "cmds": 18,
+   "pseudo": false,
+   "max_len": 55
+  },
+  "group": "修行",
+  "channel": "panel"
+ },
+ {
+  "cmd": "调息",
+  "aliases": [],
+  "func": "handle_rest",
+  "line": 1529,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_rest"
+  ],
+  "text": {
+   "lines": 324,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 1,
+   "kv": 11,
+   "bullets": 0,
+   "cmds": 16,
+   "pseudo": false,
+   "max_len": 55
+  },
+  "group": "修行",
+  "channel": "text"
+ },
+ {
+  "cmd": "收功",
+  "aliases": [],
+  "func": "handle_stop_rest",
+  "line": 1534,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_stop_rest"
+  ],
+  "text": {
+   "lines": 5,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": false,
+   "records": 0,
+   "kv": 0,
+   "bullets": 0,
+   "cmds": 0,
+   "pseudo": false,
+   "max_len": 11
+  },
+  "group": "修行",
+  "channel": "text"
+ },
+ {
+  "cmd": "弃道重修",
+  "aliases": [],
+  "func": "handle_rebirth",
+  "line": 1539,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_rebirth"
+  ],
+  "text": {
+   "lines": 278,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 1,
+   "kv": 20,
+   "bullets": 2,
+   "cmds": 9,
+   "pseudo": false,
+   "max_len": 124
+  },
+  "group": "修行",
+  "channel": "text"
+ },
+ {
+  "cmd": "重修",
+  "aliases": [],
+  "func": "handle_rebirth_alias",
+  "line": 1544,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_rebirth"
+  ],
+  "text": {
+   "lines": 279,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 1,
+   "kv": 20,
+   "bullets": 2,
+   "cmds": 9,
+   "pseudo": false,
+   "max_len": 124
+  },
+  "group": "",
+  "channel": "text"
+ },
+ {
+  "cmd": "选择灵根",
+  "aliases": [],
+  "func": "handle_choose_root",
+  "line": 1549,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_choose_root"
+  ],
+  "text": {
+   "lines": 309,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 1,
+   "kv": 26,
+   "bullets": 4,
+   "cmds": 8,
+   "pseudo": false,
+   "max_len": 124
+  },
+  "group": "修行",
+  "channel": "text"
+ },
+ {
+  "cmd": "灵根图鉴",
+  "aliases": [],
+  "func": "handle_root_atlas",
+  "line": 1557,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_root_info"
+  ],
+  "text": {
+   "lines": 176,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 48,
+   "kv": 13,
+   "bullets": 3,
+   "cmds": 3,
+   "pseudo": false,
+   "max_len": 75
+  },
+  "group": "修行",
+  "channel": "text"
+ },
+ {
+  "cmd": "灵根说明",
+  "aliases": [],
+  "func": "handle_root_info",
+  "line": 1562,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_root_info"
+  ],
+  "text": {
+   "lines": 176,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 48,
+   "kv": 12,
+   "bullets": 3,
+   "cmds": 3,
+   "pseudo": false,
+   "max_len": 75
+  },
+  "group": "修行",
+  "channel": "text"
+ },
+ {
+  "cmd": "闭关",
+  "aliases": [],
+  "func": "handle_start_cultivation",
+  "line": 1567,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_auto_proxy_external_activity",
+   "handle_start_cultivation"
+  ],
+  "text": {
+   "lines": 110,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 2,
+   "kv": 6,
+   "bullets": 0,
+   "cmds": 9,
+   "pseudo": false,
+   "max_len": 48
+  },
+  "group": "修行",
+  "channel": "text"
+ },
+ {
+  "cmd": "出关",
+  "aliases": [],
+  "func": "handle_end_cultivation",
+  "line": 1575,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_title_bump",
+   "handle_end_cultivation"
+  ],
+  "text": {
+   "lines": 175,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 4,
+   "bullets": 0,
+   "cmds": 7,
+   "pseudo": false,
+   "max_len": 79
+  },
+  "group": "修行",
+  "channel": "text"
+ },
+ {
+  "cmd": "签到",
+  "aliases": [],
+  "func": "handle_check_in",
+  "line": 1585,
+  "outputs": [
+   "image",
+   "text"
+  ],
+  "delegates": [
+   "handle_check_in"
+  ],
+  "text": {
+   "lines": 112,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 1,
+   "kv": 4,
+   "bullets": 0,
+   "cmds": 2,
+   "pseudo": false,
+   "max_len": 46
+  },
+  "group": "修行",
+  "channel": "image+text"
+ },
+ {
+  "cmd": "我的装备",
+  "aliases": [],
+  "func": "handle_show_equipment",
+  "line": 1591,
+  "outputs": [
+   "image",
+   "text"
+  ],
+  "delegates": [
+   "handle_show_equipment"
+  ],
+  "text": {
+   "lines": 534,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 4,
+   "kv": 22,
+   "bullets": 16,
+   "cmds": 13,
+   "pseudo": false,
+   "max_len": 55
+  },
+  "group": "装备心法",
+  "channel": "image+text"
+ },
+ {
+  "cmd": "心法",
+  "aliases": [],
+  "func": "handle_technique_info",
+  "line": 1596,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_technique_info"
+  ],
+  "text": {
+   "lines": 115,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 2,
+   "kv": 5,
+   "bullets": 2,
+   "cmds": 3,
+   "pseudo": false,
+   "max_len": 41
+  },
+  "group": "装备心法",
+  "channel": "text"
+ },
+ {
+  "cmd": "技能",
+  "aliases": [],
+  "func": "handle_skill_info",
+  "line": 1601,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_technique_info"
+  ],
+  "text": {
+   "lines": 115,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 2,
+   "kv": 5,
+   "bullets": 2,
+   "cmds": 4,
+   "pseudo": false,
+   "max_len": 41
+  },
+  "group": "装备心法",
+  "channel": "text"
+ },
+ {
+  "cmd": "装备",
+  "aliases": [],
+  "func": "handle_equip_item",
+  "line": 1606,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_equip_item"
+  ],
+  "text": {
+   "lines": 440,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 2,
+   "kv": 12,
+   "bullets": 0,
+   "cmds": 6,
+   "pseudo": false,
+   "max_len": 48
+  },
+  "group": "装备心法",
+  "channel": "text"
+ },
+ {
+  "cmd": "卸下",
+  "aliases": [],
+  "func": "handle_unequip_item",
+  "line": 1611,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_unequip_item"
+  ],
+  "text": {
+   "lines": 148,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 4,
+   "kv": 6,
+   "bullets": 0,
+   "cmds": 7,
+   "pseudo": false,
+   "max_len": 35
+  },
+  "group": "装备心法",
+  "channel": "text"
+ },
+ {
+  "cmd": "突破信息",
+  "aliases": [],
+  "func": "handle_breakthrough_info",
+  "line": 1616,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_breakthrough_info"
+  ],
+  "text": {
+   "lines": 183,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 7,
+   "kv": 25,
+   "bullets": 10,
+   "cmds": 3,
+   "pseudo": false,
+   "max_len": 40
+  },
+  "group": "修行",
+  "channel": "text"
+ },
+ {
+  "cmd": "突破",
+  "aliases": [],
+  "func": "handle_breakthrough",
+  "line": 1621,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "bump_value",
+   "check_and_advance",
+   "get_player_by_id",
+   "handle_breakthrough"
+  ],
+  "text": {
+   "lines": 359,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 5,
+   "kv": 47,
+   "bullets": 3,
+   "cmds": 8,
+   "pseudo": false,
+   "max_len": 72
+  },
+  "group": "修行",
+  "channel": "text"
+ },
+ {
+  "cmd": "服用丹药",
+  "aliases": [],
+  "func": "handle_use_pill",
+  "line": 1645,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_use_pill"
+  ],
+  "text": {
+   "lines": 156,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 2,
+   "kv": 8,
+   "bullets": 2,
+   "cmds": 5,
+   "pseudo": false,
+   "max_len": 32
+  },
+  "group": "储物与仓库",
+  "channel": "text"
+ },
+ {
+  "cmd": "丹药背包",
+  "aliases": [],
+  "func": "handle_show_pills",
+  "line": 1650,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_show_pills"
+  ],
+  "text": {
+   "lines": 57,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 1,
+   "kv": 6,
+   "bullets": 0,
+   "cmds": 3,
+   "pseudo": false,
+   "max_len": 40
+  },
+  "group": "储物与仓库",
+  "channel": "text"
+ },
+ {
+  "cmd": "我的状态",
+  "aliases": [],
+  "func": "handle_my_status",
+  "line": 1655,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_my_status"
+  ],
+  "text": {
+   "lines": 121,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 4,
+   "bullets": 0,
+   "cmds": 3,
+   "pseudo": false,
+   "max_len": 34
+  },
+  "group": "修行",
+  "channel": "text"
+ },
+ {
+  "cmd": "丹药信息",
+  "aliases": [],
+  "func": "handle_pill_info",
+  "line": 1660,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_pill_info"
+  ],
+  "text": {
+   "lines": 161,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 3,
+   "kv": 26,
+   "bullets": 0,
+   "cmds": 1,
+   "pseudo": false,
+   "max_len": 27
+  },
+  "group": "储物与仓库",
+  "channel": "text"
+ },
+ {
+  "cmd": "丹阁",
+  "aliases": [],
+  "func": "handle_pill_pavilion",
+  "line": 1665,
+  "outputs": [
+   "image",
+   "text"
+  ],
+  "delegates": [
+   "handle_pill_pavilion"
+  ],
+  "text": {
+   "lines": 452,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 4,
+   "kv": 31,
+   "bullets": 6,
+   "cmds": 8,
+   "pseudo": false,
+   "max_len": 74
+  },
+  "group": "商店与仙市",
+  "channel": "image+text"
+ },
+ {
+  "cmd": "符阁",
+  "aliases": [],
+  "func": "handle_talisman_pavilion",
+  "line": 1670,
+  "outputs": [
+   "image",
+   "text"
+  ],
+  "delegates": [
+   "handle_talisman_pavilion"
+  ],
+  "text": {
+   "lines": 447,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 4,
+   "kv": 31,
+   "bullets": 4,
+   "cmds": 8,
+   "pseudo": false,
+   "max_len": 74
+  },
+  "group": "商店与仙市",
+  "channel": "image+text"
+ },
+ {
+  "cmd": "器阁",
+  "aliases": [],
+  "func": "handle_weapon_pavilion",
+  "line": 1675,
+  "outputs": [
+   "image",
+   "text"
+  ],
+  "delegates": [
+   "handle_weapon_pavilion"
+  ],
+  "text": {
+   "lines": 431,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 4,
+   "kv": 30,
+   "bullets": 2,
+   "cmds": 4,
+   "pseudo": false,
+   "max_len": 74
+  },
+  "group": "商店与仙市",
+  "channel": "image+text"
+ },
+ {
+  "cmd": "百宝阁",
+  "aliases": [],
+  "func": "handle_treasure_pavilion",
+  "line": 1680,
+  "outputs": [
+   "image",
+   "text"
+  ],
+  "delegates": [
+   "handle_treasure_pavilion"
+  ],
+  "text": {
+   "lines": 431,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 4,
+   "kv": 30,
+   "bullets": 2,
+   "cmds": 4,
+   "pseudo": false,
+   "max_len": 74
+  },
+  "group": "商店与仙市",
+  "channel": "image+text"
+ },
+ {
+  "cmd": "物品信息",
+  "aliases": [],
+  "func": "handle_item_info",
+  "line": 1685,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_item_info"
+  ],
+  "text": {
+   "lines": 566,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 51,
+   "bullets": 2,
+   "cmds": 15,
+   "pseudo": false,
+   "max_len": 59
+  },
+  "group": "储物与仓库",
+  "channel": "text"
+ },
+ {
+  "cmd": "购买",
+  "aliases": [],
+  "func": "handle_buy",
+  "line": 1690,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_title_bump",
+   "handle_buy"
+  ],
+  "text": {
+   "lines": 109,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 0,
+   "kv": 4,
+   "bullets": 1,
+   "cmds": 3,
+   "pseudo": false,
+   "max_len": 51
+  },
+  "group": "商店与仙市",
+  "channel": "text"
+ },
+ {
+  "cmd": "储物戒",
+  "aliases": [],
+  "func": "handle_storage_ring",
+  "line": 1699,
+  "outputs": [
+   "image",
+   "text"
+  ],
+  "delegates": [
+   "handle_storage_ring"
+  ],
+  "text": {
+   "lines": 217,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 5,
+   "kv": 7,
+   "bullets": 6,
+   "cmds": 10,
+   "pseudo": false,
+   "max_len": 58
+  },
+  "group": "储物与仓库",
+  "channel": "panel"
+ },
+ {
+  "cmd": "领取溢出",
+  "aliases": [],
+  "func": "handle_claim_overflow",
+  "line": 1704,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_claim_overflow"
+  ],
+  "text": {
+   "lines": 47,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 1,
+   "kv": 3,
+   "bullets": 0,
+   "cmds": 1,
+   "pseudo": false,
+   "max_len": 46
+  },
+  "group": "储物与仓库",
+  "channel": "text"
+ },
+ {
+  "cmd": "更换储物戒",
+  "aliases": [],
+  "func": "handle_upgrade_ring",
+  "line": 1709,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_upgrade_ring"
+  ],
+  "text": {
+   "lines": 96,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 8,
+   "kv": 9,
+   "bullets": 3,
+   "cmds": 1,
+   "pseudo": false,
+   "max_len": 20
+  },
+  "group": "储物与仓库",
+  "channel": "text"
+ },
+ {
+  "cmd": "回收",
+  "aliases": [],
+  "func": "handle_recycle_item",
+  "line": 1714,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_recycle_item"
+  ],
+  "text": {
+   "lines": 55,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 4,
+   "bullets": 2,
+   "cmds": 4,
+   "pseudo": false,
+   "max_len": 30
+  },
+  "group": "储物与仓库",
+  "channel": "text"
+ },
+ {
+  "cmd": "仓库",
+  "aliases": [],
+  "func": "handle_warehouse",
+  "line": 1720,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_warehouse"
+  ],
+  "text": {
+   "lines": 97,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 4,
+   "kv": 10,
+   "bullets": 4,
+   "cmds": 5,
+   "pseudo": false,
+   "max_len": 46
+  },
+  "group": "储物与仓库",
+  "channel": "text"
+ },
+ {
+  "cmd": "升级仓库",
+  "aliases": [],
+  "func": "handle_upgrade_warehouse",
+  "line": 1725,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_upgrade_warehouse"
+  ],
+  "text": {
+   "lines": 49,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 1,
+   "kv": 6,
+   "bullets": 0,
+   "cmds": 1,
+   "pseudo": false,
+   "max_len": 28
+  },
+  "group": "储物与仓库",
+  "channel": "text"
+ },
+ {
+  "cmd": "一键转移",
+  "aliases": [],
+  "func": "handle_transfer_in",
+  "line": 1730,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_transfer_in"
+  ],
+  "text": {
+   "lines": 46,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 5,
+   "bullets": 1,
+   "cmds": 1,
+   "pseudo": false,
+   "max_len": 28
+  },
+  "group": "储物与仓库",
+  "channel": "text"
+ },
+ {
+  "cmd": "一键取出",
+  "aliases": [],
+  "func": "handle_transfer_out",
+  "line": 1735,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_transfer_out"
+  ],
+  "text": {
+   "lines": 46,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 5,
+   "bullets": 1,
+   "cmds": 0,
+   "pseudo": false,
+   "max_len": 22
+  },
+  "group": "储物与仓库",
+  "channel": "text"
+ },
+ {
+  "cmd": "一键取回",
+  "aliases": [],
+  "func": "handle_transfer_out_legacy",
+  "line": 1740,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_transfer_out"
+  ],
+  "text": {
+   "lines": 46,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 5,
+   "bullets": 1,
+   "cmds": 1,
+   "pseudo": false,
+   "max_len": 22
+  },
+  "group": "",
+  "channel": "text"
+ },
+ {
+  "cmd": "取出",
+  "aliases": [],
+  "func": "handle_take_item",
+  "line": 1745,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_take_item"
+  ],
+  "text": {
+   "lines": 85,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 8,
+   "bullets": 1,
+   "cmds": 3,
+   "pseudo": false,
+   "max_len": 50
+  },
+  "group": "储物与仓库",
+  "channel": "text"
+ },
+ {
+  "cmd": "一键回收",
+  "aliases": [],
+  "func": "handle_bulk_recycle",
+  "line": 1750,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_bulk_recycle"
+  ],
+  "text": {
+   "lines": 209,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 12,
+   "bullets": 4,
+   "cmds": 3,
+   "pseudo": false,
+   "max_len": 57
+  },
+  "group": "储物与仓库",
+  "channel": "text"
+ },
+ {
+  "cmd": "赠予",
+  "aliases": [],
+  "func": "handle_gift_item",
+  "line": 1755,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_gift_item"
+  ],
+  "text": {
+   "lines": 310,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 7,
+   "kv": 19,
+   "bullets": 3,
+   "cmds": 5,
+   "pseudo": false,
+   "max_len": 66
+  },
+  "group": "储物与仓库",
+  "channel": "text"
+ },
+ {
+  "cmd": "接收",
+  "aliases": [],
+  "func": "handle_accept_gift",
+  "line": 1760,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_accept_gift"
+  ],
+  "text": {
+   "lines": 90,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 1,
+   "kv": 6,
+   "bullets": 2,
+   "cmds": 2,
+   "pseudo": false,
+   "max_len": 60
+  },
+  "group": "储物与仓库",
+  "channel": "text"
+ },
+ {
+  "cmd": "拒绝",
+  "aliases": [],
+  "func": "handle_reject_gift",
+  "line": 1765,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_reject_gift"
+  ],
+  "text": {
+   "lines": 108,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 5,
+   "kv": 3,
+   "bullets": 3,
+   "cmds": 1,
+   "pseudo": false,
+   "max_len": 104
+  },
+  "group": "储物与仓库",
+  "channel": "text"
+ },
+ {
+  "cmd": "搜索物品",
+  "aliases": [],
+  "func": "handle_search_item",
+  "line": 1770,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_search_item"
+  ],
+  "text": {
+   "lines": 59,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": false,
+   "records": 0,
+   "kv": 2,
+   "bullets": 2,
+   "cmds": 3,
+   "pseudo": false,
+   "max_len": 47
+  },
+  "group": "储物与仓库",
+  "channel": "text"
+ },
+ {
+  "cmd": "创建宗门",
+  "aliases": [],
+  "func": "handle_create_sect",
+  "line": 1777,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_create_sect"
+  ],
+  "text": {
+   "lines": 44,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 0,
+   "kv": 3,
+   "bullets": 0,
+   "cmds": 0,
+   "pseudo": false,
+   "max_len": 92
+  },
+  "group": "宗门",
+  "channel": "text"
+ },
+ {
+  "cmd": "加入宗门",
+  "aliases": [],
+  "func": "handle_join_sect",
+  "line": 1786,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_join_sect"
+  ],
+  "text": {
+   "lines": 21,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 0,
+   "kv": 3,
+   "bullets": 0,
+   "cmds": 0,
+   "pseudo": false,
+   "max_len": 44
+  },
+  "group": "宗门",
+  "channel": "text"
+ },
+ {
+  "cmd": "退出宗门",
+  "aliases": [],
+  "func": "handle_leave_sect",
+  "line": 1795,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_leave_sect"
+  ],
+  "text": {
+   "lines": 23,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": false,
+   "records": 0,
+   "kv": 1,
+   "bullets": 0,
+   "cmds": 0,
+   "pseudo": false,
+   "max_len": 166
+  },
+  "group": "宗门",
+  "channel": "text"
+ },
+ {
+  "cmd": "解散宗门",
+  "aliases": [],
+  "func": "handle_disband_sect",
+  "line": 1801,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_disband_sect"
+  ],
+  "text": {
+   "lines": 29,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 0,
+   "kv": 3,
+   "bullets": 0,
+   "cmds": 2,
+   "pseudo": false,
+   "max_len": 44
+  },
+  "group": "宗门",
+  "channel": "text"
+ },
+ {
+  "cmd": "我的宗门",
+  "aliases": [],
+  "func": "handle_my_sect",
+  "line": 1806,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_my_sect"
+  ],
+  "text": {
+   "lines": 36,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 11,
+   "bullets": 0,
+   "cmds": 0,
+   "pseudo": false,
+   "max_len": 19
+  },
+  "group": "宗门",
+  "channel": "text"
+ },
+ {
+  "cmd": "宗门任务",
+  "aliases": [],
+  "func": "handle_sect_task",
+  "line": 1812,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_sect_task",
+   "note_activity_started"
+  ],
+  "text": {
+   "lines": 64,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": false,
+   "records": 1,
+   "kv": 1,
+   "bullets": 0,
+   "cmds": 4,
+   "pseudo": false,
+   "max_len": 48
+  },
+  "group": "宗门",
+  "channel": "text"
+ },
+ {
+  "cmd": "完成宗门任务",
+  "aliases": [],
+  "func": "handle_finish_sect_task",
+  "line": 1822,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "add_bounty_progress",
+   "get_player_by_id",
+   "handle_finish_sect_task"
+  ],
+  "text": {
+   "lines": 64,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 0,
+   "kv": 5,
+   "bullets": 0,
+   "cmds": 1,
+   "pseudo": false,
+   "max_len": 102
+  },
+  "group": "宗门",
+  "channel": "text"
+ },
+ {
+  "cmd": "放弃宗门任务",
+  "aliases": [],
+  "func": "handle_abandon_sect_task",
+  "line": 1836,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_auto_proxy_manual_exit",
+   "handle_abandon_sect_task"
+  ],
+  "text": {
+   "lines": 85,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 1,
+   "kv": 3,
+   "bullets": 0,
+   "cmds": 3,
+   "pseudo": false,
+   "max_len": 38
+  },
+  "group": "宗门",
+  "channel": "text"
+ },
+ {
+  "cmd": "宗门商店",
+  "aliases": [],
+  "func": "handle_sect_shop",
+  "line": 1845,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_shop"
+  ],
+  "text": {
+   "lines": 772,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 1,
+   "kv": 68,
+   "bullets": 2,
+   "cmds": 12,
+   "pseudo": false,
+   "max_len": 53
+  },
+  "group": "宗门",
+  "channel": "text"
+ },
+ {
+  "cmd": "宗门兑换",
+  "aliases": [],
+  "func": "handle_sect_shop_buy",
+  "line": 1850,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_title_bump",
+   "handle_buy"
+  ],
+  "text": {
+   "lines": 110,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 0,
+   "kv": 4,
+   "bullets": 1,
+   "cmds": 3,
+   "pseudo": false,
+   "max_len": 51
+  },
+  "group": "宗门",
+  "channel": "text"
+ },
+ {
+  "cmd": "宗门命令",
+  "aliases": [],
+  "func": "handle_sect_order",
+  "line": 1860,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_create_order"
+  ],
+  "text": {
+   "lines": 45,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 0,
+   "kv": 6,
+   "bullets": 0,
+   "cmds": 1,
+   "pseudo": false,
+   "max_len": 192
+  },
+  "group": "宗门",
+  "channel": "text"
+ },
+ {
+  "cmd": "宗门命令列表",
+  "aliases": [],
+  "func": "handle_sect_order_list",
+  "line": 1865,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_list_orders"
+  ],
+  "text": {
+   "lines": 31,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": true,
+   "records": 0,
+   "kv": 2,
+   "bullets": 0,
+   "cmds": 1,
+   "pseudo": false,
+   "max_len": 82
+  },
+  "group": "宗门",
+  "channel": "text"
+ },
+ {
+  "cmd": "宗门命令撤销",
+  "aliases": [],
+  "func": "handle_sect_order_cancel",
+  "line": 1871,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_cancel_order"
+  ],
+  "text": {
+   "lines": 17,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": false,
+   "records": 0,
+   "kv": 0,
+   "bullets": 0,
+   "cmds": 1,
+   "pseudo": false,
+   "max_len": 56
+  },
+  "group": "宗门",
+  "channel": "text"
+ },
+ {
+  "cmd": "宗门大比开启",
+  "aliases": [],
+  "func": "handle_sect_tournament_start",
+  "line": 1877,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_start_tournament"
+  ],
+  "text": {
+   "lines": 18,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": false,
+   "records": 0,
+   "kv": 1,
+   "bullets": 0,
+   "cmds": 1,
+   "pseudo": false,
+   "max_len": 116
+  },
+  "group": "宗门",
+  "channel": "text"
+ },
+ {
+  "cmd": "宗门大比报名",
+  "aliases": [],
+  "func": "handle_sect_tournament_register",
+  "line": 1883,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_register_tournament"
+  ],
+  "text": {
+   "lines": 24,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": false,
+   "records": 0,
+   "kv": 1,
+   "bullets": 0,
+   "cmds": 0,
+   "pseudo": false,
+   "max_len": 100
+  },
+  "group": "宗门",
+  "channel": "text"
+ },
+ {
+  "cmd": "宗门大比状态",
+  "aliases": [],
+  "func": "handle_sect_tournament_status",
+  "line": 1888,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_tournament_status"
+  ],
+  "text": {
+   "lines": 36,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 4,
+   "bullets": 1,
+   "cmds": 0,
+   "pseudo": false,
+   "max_len": 73
+  },
+  "group": "宗门",
+  "channel": "text"
+ },
+ {
+  "cmd": "宗门宣战",
+  "aliases": [],
+  "func": "handle_sect_declare_war",
+  "line": 1894,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_declare_war"
+  ],
+  "text": {
+   "lines": 55,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 0,
+   "kv": 4,
+   "bullets": 0,
+   "cmds": 1,
+   "pseudo": false,
+   "max_len": 130
+  },
+  "group": "宗门",
+  "channel": "text"
+ },
+ {
+  "cmd": "宗门战争状态",
+  "aliases": [],
+  "func": "handle_sect_war_status",
+  "line": 1899,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_war_status"
+  ],
+  "text": {
+   "lines": 30,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 4,
+   "bullets": 0,
+   "cmds": 0,
+   "pseudo": false,
+   "max_len": 89
+  },
+  "group": "宗门",
+  "channel": "text"
+ },
+ {
+  "cmd": "宗门战报",
+  "aliases": [],
+  "func": "handle_sect_war_report",
+  "line": 1904,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_war_report"
+  ],
+  "text": {
+   "lines": 30,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 3,
+   "bullets": 0,
+   "cmds": 1,
+   "pseudo": false,
+   "max_len": 89
+  },
+  "group": "宗门",
+  "channel": "text"
+ },
+ {
+  "cmd": "宗门列表",
+  "aliases": [],
+  "func": "handle_sect_list",
+  "line": 1909,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_sect_list"
+  ],
+  "text": {
+   "lines": 16,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": true,
+   "records": 0,
+   "kv": 2,
+   "bullets": 0,
+   "cmds": 0,
+   "pseudo": false,
+   "max_len": 15
+  },
+  "group": "宗门",
+  "channel": "text"
+ },
+ {
+  "cmd": "宗门捐献",
+  "aliases": [],
+  "func": "handle_sect_donate",
+  "line": 1915,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_donate"
+  ],
+  "text": {
+   "lines": 47,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 0,
+   "kv": 4,
+   "bullets": 0,
+   "cmds": 0,
+   "pseudo": false,
+   "max_len": 109
+  },
+  "group": "宗门",
+  "channel": "text"
+ },
+ {
+  "cmd": "踢出成员",
+  "aliases": [],
+  "func": "handle_sect_kick",
+  "line": 1928,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_kick_member"
+  ],
+  "text": {
+   "lines": 26,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": false,
+   "records": 0,
+   "kv": 1,
+   "bullets": 0,
+   "cmds": 0,
+   "pseudo": false,
+   "max_len": 166
+  },
+  "group": "宗门",
+  "channel": "text"
+ },
+ {
+  "cmd": "宗主传位",
+  "aliases": [],
+  "func": "handle_sect_transfer",
+  "line": 1934,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_transfer"
+  ],
+  "text": {
+   "lines": 11,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": false,
+   "records": 0,
+   "kv": 0,
+   "bullets": 0,
+   "cmds": 0,
+   "pseudo": false,
+   "max_len": 20
+  },
+  "group": "宗门",
+  "channel": "text"
+ },
+ {
+  "cmd": "职位变更",
+  "aliases": [],
+  "func": "handle_sect_position",
+  "line": 1940,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_position_change"
+  ],
+  "text": {
+   "lines": 24,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 0,
+   "kv": 3,
+   "bullets": 0,
+   "cmds": 1,
+   "pseudo": false,
+   "max_len": 44
+  },
+  "group": "宗门",
+  "channel": "text"
+ },
+ {
+  "cmd": "世界Boss",
+  "aliases": [],
+  "func": "handle_boss_info",
+  "line": 1956,
+  "outputs": [
+   "image",
+   "text"
+  ],
+  "delegates": [
+   "handle_query"
+  ],
+  "text": {
+   "lines": 157,
+   "shape": "S4 要点列表（· / •）",
+   "divider": true,
+   "records": 0,
+   "kv": 1,
+   "bullets": 6,
+   "cmds": 4,
+   "pseudo": false,
+   "max_len": 70
+  },
+  "group": "",
+  "channel": "image+text"
+ },
+ {
+  "cmd": "世界boss",
+  "aliases": [],
+  "func": "handle_boss_info_lower",
+  "line": 1962,
+  "outputs": [
+   "image",
+   "text"
+  ],
+  "delegates": [
+   "handle_query"
+  ],
+  "text": {
+   "lines": 158,
+   "shape": "S4 要点列表（· / •）",
+   "divider": true,
+   "records": 0,
+   "kv": 1,
+   "bullets": 6,
+   "cmds": 4,
+   "pseudo": false,
+   "max_len": 70
+  },
+  "group": "",
+  "channel": "image+text"
+ },
+ {
+  "cmd": "境界排行",
+  "aliases": [],
+  "func": "handle_rank_level",
+  "line": 1968,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_rank_level"
+  ],
+  "text": {
+   "lines": 18,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 4,
+   "bullets": 0,
+   "cmds": 0,
+   "pseudo": false,
+   "max_len": 23
+  },
+  "group": "排行",
+  "channel": "text"
+ },
+ {
+  "cmd": "战力排行",
+  "aliases": [],
+  "func": "handle_rank_power",
+  "line": 1973,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_rank_power"
+  ],
+  "text": {
+   "lines": 201,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 8,
+   "bullets": 2,
+   "cmds": 3,
+   "pseudo": false,
+   "max_len": 74
+  },
+  "group": "排行",
+  "channel": "text"
+ },
+ {
+  "cmd": "灵石排行",
+  "aliases": [],
+  "func": "handle_rank_wealth",
+  "line": 1978,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_rank_wealth"
+  ],
+  "text": {
+   "lines": 14,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 4,
+   "bullets": 0,
+   "cmds": 0,
+   "pseudo": false,
+   "max_len": 23
+  },
+  "group": "排行",
+  "channel": "text"
+ },
+ {
+  "cmd": "宗门排行",
+  "aliases": [],
+  "func": "handle_rank_sect",
+  "line": 1983,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_rank_sect"
+  ],
+  "text": {
+   "lines": 21,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 5,
+   "bullets": 0,
+   "cmds": 0,
+   "pseudo": false,
+   "max_len": 23
+  },
+  "group": "排行",
+  "channel": "text"
+ },
+ {
+  "cmd": "存款排行",
+  "aliases": [],
+  "func": "handle_rank_deposit",
+  "line": 1988,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_rank_deposit"
+  ],
+  "text": {
+   "lines": 18,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 4,
+   "bullets": 0,
+   "cmds": 0,
+   "pseudo": false,
+   "max_len": 23
+  },
+  "group": "排行",
+  "channel": "text"
+ },
+ {
+  "cmd": "贡献排行",
+  "aliases": [],
+  "func": "handle_rank_contribution",
+  "line": 1993,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_rank_sect_contribution"
+  ],
+  "text": {
+   "lines": 24,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 5,
+   "bullets": 0,
+   "cmds": 0,
+   "pseudo": false,
+   "max_len": 27
+  },
+  "group": "排行",
+  "channel": "text"
+ },
+ {
+  "cmd": "决斗",
+  "aliases": [],
+  "func": "handle_duel",
+  "line": 1999,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_title_bump",
+   "handle_duel"
+  ],
+  "text": {
+   "lines": 376,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 1,
+   "kv": 18,
+   "bullets": 0,
+   "cmds": 4,
+   "pseudo": false,
+   "max_len": 141
+  },
+  "group": "战斗与竞技",
+  "channel": "text"
+ },
+ {
+  "cmd": "切磋",
+  "aliases": [],
+  "func": "handle_spar",
+  "line": 2013,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_spar"
+  ],
+  "text": {
+   "lines": 74,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 1,
+   "kv": 3,
+   "bullets": 0,
+   "cmds": 6,
+   "pseudo": false,
+   "max_len": 77
+  },
+  "group": "战斗与竞技",
+  "channel": "text"
+ },
+ {
+  "cmd": "接受切磋",
+  "aliases": [],
+  "func": "handle_spar_accept",
+  "line": 2019,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_title_bump",
+   "add_bounty_progress",
+   "get_player_by_id",
+   "handle_spar_accept"
+  ],
+  "text": {
+   "lines": 412,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 15,
+   "bullets": 0,
+   "cmds": 3,
+   "pseudo": false,
+   "max_len": 141
+  },
+  "group": "战斗与竞技",
+  "channel": "text"
+ },
+ {
+  "cmd": "拒绝切磋",
+  "aliases": [],
+  "func": "handle_spar_reject",
+  "line": 2041,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_spar_reject"
+  ],
+  "text": {
+   "lines": 20,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": false,
+   "records": 0,
+   "kv": 0,
+   "bullets": 0,
+   "cmds": 0,
+   "pseudo": false,
+   "max_len": 64
+  },
+  "group": "战斗与竞技",
+  "channel": "text"
+ },
+ {
+  "cmd": "秘境列表",
+  "aliases": [],
+  "func": "handle_rift_list",
+  "line": 2048,
+  "outputs": [
+   "image",
+   "payload",
+   "text"
+  ],
+  "delegates": [
+   "handle_rift_list"
+  ],
+  "text": {
+   "lines": 250,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 11,
+   "bullets": 7,
+   "cmds": 4,
+   "pseudo": false,
+   "max_len": 59
+  },
+  "group": "秘境历练",
+  "channel": "payload"
+ },
+ {
+  "cmd": "秘境详情",
+  "aliases": [],
+  "func": "handle_rift_detail",
+  "line": 2053,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_rift_detail"
+  ],
+  "text": {
+   "lines": 81,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 11,
+   "bullets": 1,
+   "cmds": 2,
+   "pseudo": false,
+   "max_len": 24
+  },
+  "group": "秘境历练",
+  "channel": "text"
+ },
+ {
+  "cmd": "探索秘境",
+  "aliases": [],
+  "func": "handle_rift_explore",
+  "line": 2064,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_auto_proxy_external_activity",
+   "handle_rift_explore",
+   "handle_rift_explore_by_name"
+  ],
+  "text": {
+   "lines": 91,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 1,
+   "kv": 8,
+   "bullets": 1,
+   "cmds": 6,
+   "pseudo": false,
+   "max_len": 50
+  },
+  "group": "秘境历练",
+  "channel": "text"
+ },
+ {
+  "cmd": "完成探索",
+  "aliases": [],
+  "func": "handle_rift_complete",
+  "line": 2083,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_apply_rift_rewards_meta",
+   "finish_exploration"
+  ],
+  "text": {
+   "lines": 177,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 11,
+   "bullets": 4,
+   "cmds": 4,
+   "pseudo": false,
+   "max_len": 126
+  },
+  "group": "秘境历练",
+  "channel": "text"
+ },
+ {
+  "cmd": "退出秘境",
+  "aliases": [],
+  "func": "handle_rift_exit",
+  "line": 2093,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_auto_proxy_manual_exit",
+   "handle_rift_exit"
+  ],
+  "text": {
+   "lines": 99,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 1,
+   "kv": 3,
+   "bullets": 1,
+   "cmds": 3,
+   "pseudo": false,
+   "max_len": 38
+  },
+  "group": "秘境历练",
+  "channel": "text"
+ },
+ {
+  "cmd": "开始历练",
+  "aliases": [],
+  "func": "handle_adventure_start",
+  "line": 2104,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_auto_proxy_external_activity",
+   "handle_start_adventure"
+  ],
+  "text": {
+   "lines": 219,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 3,
+   "kv": 9,
+   "bullets": 2,
+   "cmds": 14,
+   "pseudo": false,
+   "max_len": 65
+  },
+  "group": "秘境历练",
+  "channel": "text"
+ },
+ {
+  "cmd": "完成历练",
+  "aliases": [],
+  "func": "handle_adventure_complete",
+  "line": 2113,
+  "outputs": [
+   "image",
+   "text"
+  ],
+  "delegates": [
+   "_apply_adventure_rewards_meta",
+   "finish_adventure"
+  ],
+  "text": {
+   "lines": 285,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 4,
+   "kv": 13,
+   "bullets": 4,
+   "cmds": 16,
+   "pseudo": false,
+   "max_len": 102
+  },
+  "group": "秘境历练",
+  "channel": "image+text"
+ },
+ {
+  "cmd": "放弃历练",
+  "aliases": [],
+  "func": "handle_adventure_abandon",
+  "line": 2189,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_auto_proxy_adventure_exit",
+   "handle_abandon_adventure"
+  ],
+  "text": {
+   "lines": 186,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 2,
+   "kv": 9,
+   "bullets": 1,
+   "cmds": 7,
+   "pseudo": false,
+   "max_len": 42
+  },
+  "group": "",
+  "channel": "text"
+ },
+ {
+  "cmd": "退出历练",
+  "aliases": [],
+  "func": "handle_adventure_quit",
+  "line": 2199,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_auto_proxy_adventure_exit",
+   "handle_abandon_adventure"
+  ],
+  "text": {
+   "lines": 186,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 2,
+   "kv": 9,
+   "bullets": 1,
+   "cmds": 7,
+   "pseudo": false,
+   "max_len": 42
+  },
+  "group": "秘境历练",
+  "channel": "text"
+ },
+ {
+  "cmd": "历练状态",
+  "aliases": [],
+  "func": "handle_adventure_status",
+  "line": 2208,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_adventure_status"
+  ],
+  "text": {
+   "lines": 61,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 3,
+   "bullets": 1,
+   "cmds": 5,
+   "pseudo": false,
+   "max_len": 65
+  },
+  "group": "秘境历练",
+  "channel": "text"
+ },
+ {
+  "cmd": "历练信息",
+  "aliases": [],
+  "func": "handle_adventure_info",
+  "line": 2213,
+  "outputs": [
+   "image",
+   "payload",
+   "text"
+  ],
+  "delegates": [
+   "handle_adventure_info"
+  ],
+  "text": {
+   "lines": 195,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 6,
+   "bullets": 3,
+   "cmds": 7,
+   "pseudo": false,
+   "max_len": 65
+  },
+  "group": "秘境历练",
+  "channel": "payload"
+ },
+ {
+  "cmd": "丹药配方",
+  "aliases": [],
+  "func": "handle_alchemy_recipes",
+  "line": 2219,
+  "outputs": [
+   "image",
+   "text"
+  ],
+  "delegates": [
+   "handle_recipes"
+  ],
+  "text": {
+   "lines": 99,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 3,
+   "kv": 2,
+   "bullets": 6,
+   "cmds": 3,
+   "pseudo": false,
+   "max_len": 46
+  },
+  "group": "丹道符箓",
+  "channel": "image+text"
+ },
+ {
+  "cmd": "丹方",
+  "aliases": [],
+  "func": "handle_recipe_book",
+  "line": 2224,
+  "outputs": [
+   "image",
+   "text"
+  ],
+  "delegates": [
+   "handle_recipes"
+  ],
+  "text": {
+   "lines": 99,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 3,
+   "kv": 2,
+   "bullets": 6,
+   "cmds": 3,
+   "pseudo": false,
+   "max_len": 46
+  },
+  "group": "丹道符箓",
+  "channel": "image+text"
+ },
+ {
+  "cmd": "学习丹方",
+  "aliases": [],
+  "func": "handle_learn_recipe",
+  "line": 2230,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_learn_recipe"
+  ],
+  "text": {
+   "lines": 56,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": true,
+   "records": 0,
+   "kv": 2,
+   "bullets": 0,
+   "cmds": 5,
+   "pseudo": false,
+   "max_len": 35
+  },
+  "group": "丹道符箓",
+  "channel": "text"
+ },
+ {
+  "cmd": "炼丹",
+  "aliases": [],
+  "func": "handle_alchemy_craft",
+  "line": 2235,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_title_bump",
+   "add_bounty_progress",
+   "get_player_by_id",
+   "handle_craft"
+  ],
+  "text": {
+   "lines": 434,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 1,
+   "kv": 33,
+   "bullets": 7,
+   "cmds": 16,
+   "pseudo": false,
+   "max_len": 102
+  },
+  "group": "丹道符箓",
+  "channel": "text"
+ },
+ {
+  "cmd": "传承信息",
+  "aliases": [],
+  "func": "handle_impart_info",
+  "line": 2255,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_impart_info"
+  ],
+  "text": {
+   "lines": 23,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 6,
+   "bullets": 0,
+   "cmds": 0,
+   "pseudo": false,
+   "max_len": 18
+  },
+  "group": "战斗与竞技",
+  "channel": "text"
+ },
+ {
+  "cmd": "改道号",
+  "aliases": [],
+  "func": "handle_change_nickname",
+  "line": 2261,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_change_nickname"
+  ],
+  "text": {
+   "lines": 27,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 5,
+   "bullets": 0,
+   "cmds": 1,
+   "pseudo": false,
+   "max_len": 32
+  },
+  "group": "修行",
+  "channel": "text"
+ },
+ {
+  "cmd": "银行",
+  "aliases": [],
+  "func": "handle_bank_info",
+  "line": 2267,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_bank_info"
+  ],
+  "text": {
+   "lines": 123,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 4,
+   "bullets": 0,
+   "cmds": 6,
+   "pseudo": false,
+   "max_len": 42
+  },
+  "group": "钱庄",
+  "channel": "text"
+ },
+ {
+  "cmd": "存灵石",
+  "aliases": [],
+  "func": "handle_bank_deposit",
+  "line": 2272,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_deposit"
+  ],
+  "text": {
+   "lines": 72,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": false,
+   "records": 0,
+   "kv": 2,
+   "bullets": 0,
+   "cmds": 1,
+   "pseudo": false,
+   "max_len": 193
+  },
+  "group": "钱庄",
+  "channel": "text"
+ },
+ {
+  "cmd": "取灵石",
+  "aliases": [],
+  "func": "handle_bank_withdraw",
+  "line": 2281,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_withdraw"
+  ],
+  "text": {
+   "lines": 33,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 0,
+   "kv": 3,
+   "bullets": 0,
+   "cmds": 1,
+   "pseudo": false,
+   "max_len": 193
+  },
+  "group": "钱庄",
+  "channel": "text"
+ },
+ {
+  "cmd": "领取利息",
+  "aliases": [],
+  "func": "handle_bank_interest",
+  "line": 2290,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_claim_interest"
+  ],
+  "text": {
+   "lines": 27,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": false,
+   "records": 0,
+   "kv": 1,
+   "bullets": 0,
+   "cmds": 0,
+   "pseudo": false,
+   "max_len": 125
+  },
+  "group": "钱庄",
+  "channel": "text"
+ },
+ {
+  "cmd": "贷款",
+  "aliases": [],
+  "func": "handle_bank_loan",
+  "line": 2295,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_loan"
+  ],
+  "text": {
+   "lines": 84,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 17,
+   "bullets": 0,
+   "cmds": 1,
+   "pseudo": false,
+   "max_len": 125
+  },
+  "group": "钱庄",
+  "channel": "text"
+ },
+ {
+  "cmd": "还款",
+  "aliases": [],
+  "func": "handle_bank_repay",
+  "line": 2304,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_repay"
+  ],
+  "text": {
+   "lines": 113,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 17,
+   "bullets": 0,
+   "cmds": 1,
+   "pseudo": false,
+   "max_len": 125
+  },
+  "group": "钱庄",
+  "channel": "text"
+ },
+ {
+  "cmd": "银行流水",
+  "aliases": [],
+  "func": "handle_bank_transactions",
+  "line": 2309,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_transactions"
+  ],
+  "text": {
+   "lines": 33,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": true,
+   "records": 0,
+   "kv": 1,
+   "bullets": 0,
+   "cmds": 0,
+   "pseudo": false,
+   "max_len": 15
+  },
+  "group": "钱庄",
+  "channel": "text"
+ },
+ {
+  "cmd": "突破贷款",
+  "aliases": [],
+  "func": "handle_bank_breakthrough_loan",
+  "line": 2314,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_breakthrough_loan"
+  ],
+  "text": {
+   "lines": 86,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 16,
+   "bullets": 0,
+   "cmds": 1,
+   "pseudo": false,
+   "max_len": 125
+  },
+  "group": "钱庄",
+  "channel": "text"
+ },
+ {
+  "cmd": "仙市",
+  "aliases": [],
+  "func": "handle_invest_market",
+  "line": 2325,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_market"
+  ],
+  "text": {
+   "lines": 65,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 2,
+   "kv": 1,
+   "bullets": 0,
+   "cmds": 1,
+   "pseudo": false,
+   "max_len": 23
+  },
+  "group": "商店与仙市",
+  "channel": "text"
+ },
+ {
+  "cmd": "行情",
+  "aliases": [],
+  "func": "handle_invest_quote",
+  "line": 2330,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_quote"
+  ],
+  "text": {
+   "lines": 93,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 0,
+   "kv": 6,
+   "bullets": 3,
+   "cmds": 7,
+   "pseudo": false,
+   "max_len": 101
+  },
+  "group": "商店与仙市",
+  "channel": "text"
+ },
+ {
+  "cmd": "买入股",
+  "aliases": [],
+  "func": "handle_invest_buy",
+  "line": 2335,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_buy_stock"
+  ],
+  "text": {
+   "lines": 71,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 0,
+   "kv": 5,
+   "bullets": 0,
+   "cmds": 3,
+   "pseudo": false,
+   "max_len": 153
+  },
+  "group": "商店与仙市",
+  "channel": "text"
+ },
+ {
+  "cmd": "卖出股",
+  "aliases": [],
+  "func": "handle_invest_sell",
+  "line": 2340,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_sell_stock"
+  ],
+  "text": {
+   "lines": 49,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 0,
+   "kv": 3,
+   "bullets": 0,
+   "cmds": 2,
+   "pseudo": false,
+   "max_len": 153
+  },
+  "group": "商店与仙市",
+  "channel": "text"
+ },
+ {
+  "cmd": "申购",
+  "aliases": [],
+  "func": "handle_invest_subscribe",
+  "line": 2345,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_subscribe"
+  ],
+  "text": {
+   "lines": 52,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 0,
+   "kv": 5,
+   "bullets": 0,
+   "cmds": 3,
+   "pseudo": false,
+   "max_len": 153
+  },
+  "group": "商店与仙市",
+  "channel": "text"
+ },
+ {
+  "cmd": "赎回",
+  "aliases": [],
+  "func": "handle_invest_redeem",
+  "line": 2350,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_redeem"
+  ],
+  "text": {
+   "lines": 57,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 0,
+   "kv": 3,
+   "bullets": 0,
+   "cmds": 2,
+   "pseudo": false,
+   "max_len": 153
+  },
+  "group": "商店与仙市",
+  "channel": "text"
+ },
+ {
+  "cmd": "我的持仓",
+  "aliases": [],
+  "func": "handle_invest_holdings",
+  "line": 2355,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_holdings"
+  ],
+  "text": {
+   "lines": 81,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": false,
+   "records": 0,
+   "kv": 2,
+   "bullets": 0,
+   "cmds": 4,
+   "pseudo": false,
+   "max_len": 153
+  },
+  "group": "商店与仙市",
+  "channel": "text"
+ },
+ {
+  "cmd": "仙市流水",
+  "aliases": [],
+  "func": "handle_invest_orders",
+  "line": 2360,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_orders"
+  ],
+  "text": {
+   "lines": 31,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": false,
+   "records": 0,
+   "kv": 0,
+   "bullets": 0,
+   "cmds": 0,
+   "pseudo": false,
+   "max_len": 133
+  },
+  "group": "商店与仙市",
+  "channel": "text"
+ },
+ {
+  "cmd": "仙市订阅",
+  "aliases": [],
+  "func": "handle_invest_hint_subscribe",
+  "line": 2365,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_hint_subscribe"
+  ],
+  "text": {
+   "lines": 14,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": false,
+   "records": 0,
+   "kv": 1,
+   "bullets": 0,
+   "cmds": 1,
+   "pseudo": false,
+   "max_len": 42
+  },
+  "group": "商店与仙市",
+  "channel": "text"
+ },
+ {
+  "cmd": "悬赏令",
+  "aliases": [],
+  "func": "handle_bounty_list",
+  "line": 2371,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_bounty_list"
+  ],
+  "text": {
+   "lines": 65,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 1,
+   "kv": 0,
+   "bullets": 1,
+   "cmds": 1,
+   "pseudo": false,
+   "max_len": 32
+  },
+  "group": "秘境历练",
+  "channel": "text"
+ },
+ {
+  "cmd": "接取悬赏",
+  "aliases": [],
+  "func": "handle_bounty_accept",
+  "line": 2376,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_accept_bounty"
+  ],
+  "text": {
+   "lines": 76,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 0,
+   "kv": 5,
+   "bullets": 0,
+   "cmds": 2,
+   "pseudo": false,
+   "max_len": 65
+  },
+  "group": "秘境历练",
+  "channel": "text"
+ },
+ {
+  "cmd": "悬赏状态",
+  "aliases": [],
+  "func": "handle_bounty_status",
+  "line": 2385,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_bounty_status"
+  ],
+  "text": {
+   "lines": 32,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 5,
+   "bullets": 0,
+   "cmds": 2,
+   "pseudo": false,
+   "max_len": 18
+  },
+  "group": "秘境历练",
+  "channel": "text"
+ },
+ {
+  "cmd": "完成悬赏",
+  "aliases": [],
+  "func": "handle_bounty_complete",
+  "line": 2390,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_complete_bounty"
+  ],
+  "text": {
+   "lines": 66,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 1,
+   "kv": 6,
+   "bullets": 2,
+   "cmds": 1,
+   "pseudo": false,
+   "max_len": 67
+  },
+  "group": "秘境历练",
+  "channel": "text"
+ },
+ {
+  "cmd": "放弃悬赏",
+  "aliases": [],
+  "func": "handle_bounty_abandon",
+  "line": 2395,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_abandon_bounty"
+  ],
+  "text": {
+   "lines": 19,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": false,
+   "records": 0,
+   "kv": 2,
+   "bullets": 0,
+   "cmds": 0,
+   "pseudo": false,
+   "max_len": 18
+  },
+  "group": "秘境历练",
+  "channel": "text"
+ },
+ {
+  "cmd": "传承挑战",
+  "aliases": [],
+  "func": "handle_impart_challenge",
+  "line": 2401,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_impart_challenge"
+  ],
+  "text": {
+   "lines": 169,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 19,
+   "bullets": 0,
+   "cmds": 1,
+   "pseudo": false,
+   "max_len": 48
+  },
+  "group": "战斗与竞技",
+  "channel": "text"
+ },
+ {
+  "cmd": "传承排行",
+  "aliases": [],
+  "func": "handle_impart_ranking",
+  "line": 2406,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_impart_ranking"
+  ],
+  "text": {
+   "lines": 22,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": true,
+   "records": 0,
+   "kv": 0,
+   "bullets": 0,
+   "cmds": 0,
+   "pseudo": false,
+   "max_len": 74
+  },
+  "group": "战斗与竞技",
+  "channel": "text"
+ },
+ {
+  "cmd": "我的洞天",
+  "aliases": [],
+  "func": "handle_blessed_land_info",
+  "line": 2412,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_blessed_land_info"
+  ],
+  "text": {
+   "lines": 66,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 1,
+   "kv": 6,
+   "bullets": 0,
+   "cmds": 5,
+   "pseudo": false,
+   "max_len": 56
+  },
+  "group": "洞天灵田",
+  "channel": "text"
+ },
+ {
+  "cmd": "购买洞天",
+  "aliases": [],
+  "func": "handle_blessed_land_buy",
+  "line": 2417,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_purchase"
+  ],
+  "text": {
+   "lines": 47,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 1,
+   "kv": 2,
+   "bullets": 0,
+   "cmds": 3,
+   "pseudo": false,
+   "max_len": 88
+  },
+  "group": "洞天灵田",
+  "channel": "text"
+ },
+ {
+  "cmd": "升级洞天",
+  "aliases": [],
+  "func": "handle_blessed_land_upgrade",
+  "line": 2426,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "bump_value",
+   "get_player_by_id",
+   "handle_upgrade"
+  ],
+  "text": {
+   "lines": 85,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 1,
+   "kv": 6,
+   "bullets": 0,
+   "cmds": 5,
+   "pseudo": false,
+   "max_len": 80
+  },
+  "group": "洞天灵田",
+  "channel": "text"
+ },
+ {
+  "cmd": "洞天收取",
+  "aliases": [],
+  "func": "handle_blessed_land_collect",
+  "line": 2444,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_collect"
+  ],
+  "text": {
+   "lines": 71,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 2,
+   "kv": 6,
+   "bullets": 0,
+   "cmds": 0,
+   "pseudo": false,
+   "max_len": 114
+  },
+  "group": "洞天灵田",
+  "channel": "text"
+ },
+ {
+  "cmd": "进阶洞天",
+  "aliases": [],
+  "func": "handle_blessed_land_advance",
+  "line": 2449,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_advance"
+  ],
+  "text": {
+   "lines": 82,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 1,
+   "kv": 7,
+   "bullets": 0,
+   "cmds": 1,
+   "pseudo": false,
+   "max_len": 87
+  },
+  "group": "洞天灵田",
+  "channel": "text"
+ },
+ {
+  "cmd": "我的灵田",
+  "aliases": [],
+  "func": "handle_spirit_farm_info",
+  "line": 2459,
+  "outputs": [
+   "image",
+   "text"
+  ],
+  "delegates": [
+   "handle_farm_info"
+  ],
+  "text": {
+   "lines": 164,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 2,
+   "kv": 6,
+   "bullets": 1,
+   "cmds": 6,
+   "pseudo": false,
+   "max_len": 67
+  },
+  "group": "洞天灵田",
+  "channel": "image+text"
+ },
+ {
+  "cmd": "开垦灵田",
+  "aliases": [],
+  "func": "handle_spirit_farm_create",
+  "line": 2464,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_create_farm"
+  ],
+  "text": {
+   "lines": 29,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 1,
+   "kv": 3,
+   "bullets": 0,
+   "cmds": 0,
+   "pseudo": false,
+   "max_len": 71
+  },
+  "group": "洞天灵田",
+  "channel": "text"
+ },
+ {
+  "cmd": "种植",
+  "aliases": [],
+  "func": "handle_spirit_farm_plant",
+  "line": 2469,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_plant",
+   "note_farm_planted"
+  ],
+  "text": {
+   "lines": 201,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 4,
+   "kv": 9,
+   "bullets": 0,
+   "cmds": 6,
+   "pseudo": false,
+   "max_len": 51
+  },
+  "group": "洞天灵田",
+  "channel": "text"
+ },
+ {
+  "cmd": "收获",
+  "aliases": [],
+  "func": "handle_spirit_farm_harvest",
+  "line": 2480,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_title_bump",
+   "add_bounty_progress",
+   "get_player_by_id",
+   "handle_harvest"
+  ],
+  "text": {
+   "lines": 157,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 3,
+   "kv": 7,
+   "bullets": 0,
+   "cmds": 5,
+   "pseudo": false,
+   "max_len": 102
+  },
+  "group": "洞天灵田",
+  "channel": "text"
+ },
+ {
+  "cmd": "铲除",
+  "aliases": [],
+  "func": "handle_spirit_farm_remove",
+  "line": 2501,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "clear_farm_plot",
+   "handle_remove_crop"
+  ],
+  "text": {
+   "lines": 125,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 3,
+   "kv": 4,
+   "bullets": 0,
+   "cmds": 4,
+   "pseudo": false,
+   "max_len": 51
+  },
+  "group": "洞天灵田",
+  "channel": "text"
+ },
+ {
+  "cmd": "升级灵田",
+  "aliases": [],
+  "func": "handle_spirit_farm_upgrade",
+  "line": 2516,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_upgrade_farm"
+  ],
+  "text": {
+   "lines": 42,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": false,
+   "records": 1,
+   "kv": 1,
+   "bullets": 0,
+   "cmds": 0,
+   "pseudo": false,
+   "max_len": 66
+  },
+  "group": "洞天灵田",
+  "channel": "text"
+ },
+ {
+  "cmd": "双修",
+  "aliases": [],
+  "func": "handle_dual_cult_request",
+  "line": 2522,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_dual_request"
+  ],
+  "text": {
+   "lines": 41,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 3,
+   "bullets": 0,
+   "cmds": 4,
+   "pseudo": false,
+   "max_len": 105
+  },
+  "group": "战斗与竞技",
+  "channel": "text"
+ },
+ {
+  "cmd": "接受双修",
+  "aliases": [],
+  "func": "handle_dual_cult_accept",
+  "line": 2527,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_accept"
+  ],
+  "text": {
+   "lines": 62,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": true,
+   "records": 0,
+   "kv": 2,
+   "bullets": 0,
+   "cmds": 0,
+   "pseudo": false,
+   "max_len": 144
+  },
+  "group": "战斗与竞技",
+  "channel": "text"
+ },
+ {
+  "cmd": "拒绝双修",
+  "aliases": [],
+  "func": "handle_dual_cult_reject",
+  "line": 2532,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_reject"
+  ],
+  "text": {
+   "lines": 22,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": false,
+   "records": 0,
+   "kv": 0,
+   "bullets": 0,
+   "cmds": 0,
+   "pseudo": false,
+   "max_len": 76
+  },
+  "group": "战斗与竞技",
+  "channel": "text"
+ },
+ {
+  "cmd": "灵眼信息",
+  "aliases": [],
+  "func": "handle_spirit_eye_info",
+  "line": 2538,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_spirit_eye_info"
+  ],
+  "text": {
+   "lines": 35,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 3,
+   "kv": 2,
+   "bullets": 0,
+   "cmds": 1,
+   "pseudo": false,
+   "max_len": 65
+  },
+  "group": "洞天灵田",
+  "channel": "text"
+ },
+ {
+  "cmd": "抢占灵眼",
+  "aliases": [],
+  "func": "handle_spirit_eye_claim",
+  "line": 2543,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_claim"
+  ],
+  "text": {
+   "lines": 61,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": false,
+   "records": 4,
+   "kv": 2,
+   "bullets": 0,
+   "cmds": 4,
+   "pseudo": false,
+   "max_len": 111
+  },
+  "group": "洞天灵田",
+  "channel": "text"
+ },
+ {
+  "cmd": "灵眼收取",
+  "aliases": [],
+  "func": "handle_spirit_eye_collect",
+  "line": 2552,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_collect"
+  ],
+  "text": {
+   "lines": 71,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 2,
+   "kv": 6,
+   "bullets": 0,
+   "cmds": 0,
+   "pseudo": false,
+   "max_len": 114
+  },
+  "group": "洞天灵田",
+  "channel": "text"
+ },
+ {
+  "cmd": "释放灵眼",
+  "aliases": [],
+  "func": "handle_spirit_eye_release",
+  "line": 2557,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_release"
+  ],
+  "text": {
+   "lines": 32,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": false,
+   "records": 0,
+   "kv": 0,
+   "bullets": 0,
+   "cmds": 2,
+   "pseudo": false,
+   "max_len": 114
+  },
+  "group": "洞天灵田",
+  "channel": "text"
+ },
+ {
+  "cmd": "任务榜",
+  "aliases": [],
+  "func": "handle_task_board",
+  "line": 2563,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_task_board"
+  ],
+  "text": {
+   "lines": 39,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 6,
+   "kv": 1,
+   "bullets": 0,
+   "cmds": 3,
+   "pseudo": false,
+   "max_len": 31
+  },
+  "group": "秘境历练",
+  "channel": "text"
+ },
+ {
+  "cmd": "接取任务",
+  "aliases": [],
+  "func": "handle_accept_task",
+  "line": 2568,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_accept_task"
+  ],
+  "text": {
+   "lines": 52,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 3,
+   "kv": 3,
+   "bullets": 0,
+   "cmds": 6,
+   "pseudo": false,
+   "max_len": 43
+  },
+  "group": "秘境历练",
+  "channel": "text"
+ },
+ {
+  "cmd": "放弃任务",
+  "aliases": [],
+  "func": "handle_abandon_task",
+  "line": 2573,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_abandon_task"
+  ],
+  "text": {
+   "lines": 40,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 1,
+   "kv": 2,
+   "bullets": 0,
+   "cmds": 4,
+   "pseudo": false,
+   "max_len": 77
+  },
+  "group": "秘境历练",
+  "channel": "text"
+ },
+ {
+  "cmd": "领取任务奖励",
+  "aliases": [],
+  "func": "handle_claim_reward",
+  "line": 2578,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_claim_reward"
+  ],
+  "text": {
+   "lines": 70,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 1,
+   "kv": 4,
+   "bullets": 0,
+   "cmds": 2,
+   "pseudo": false,
+   "max_len": 82
+  },
+  "group": "秘境历练",
+  "channel": "text"
+ },
+ {
+  "cmd": "挑战世界Boss",
+  "aliases": [],
+  "func": "handle_challenge_world_boss",
+  "line": 2584,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_broadcast_world_boss_spawn",
+   "_title_bump",
+   "add_bounty_progress",
+   "get_player_by_id",
+   "handle_challenge"
+  ],
+  "text": {
+   "lines": 305,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 5,
+   "kv": 16,
+   "bullets": 0,
+   "cmds": 9,
+   "pseudo": false,
+   "max_len": 144
+  },
+  "group": "战斗与竞技",
+  "channel": "text"
+ },
+ {
+  "cmd": "世界Boss状态",
+  "aliases": [],
+  "func": "handle_query_world_boss",
+  "line": 2603,
+  "outputs": [
+   "image",
+   "text"
+  ],
+  "delegates": [
+   "handle_query"
+  ],
+  "text": {
+   "lines": 158,
+   "shape": "S4 要点列表（· / •）",
+   "divider": true,
+   "records": 0,
+   "kv": 1,
+   "bullets": 6,
+   "cmds": 4,
+   "pseudo": false,
+   "max_len": 70
+  },
+  "group": "战斗与竞技",
+  "channel": "image+text"
+ },
+ {
+  "cmd": "生成世界Boss",
+  "aliases": [],
+  "func": "handle_spawn_world_boss",
+  "line": 2608,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_broadcast_world_boss_spawn",
+   "_check_boss_admin",
+   "spawn_boss"
+  ],
+  "text": {
+   "lines": 110,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 4,
+   "kv": 6,
+   "bullets": 1,
+   "cmds": 3,
+   "pseudo": false,
+   "max_len": 101
+  },
+  "group": "管理工具",
+  "channel": "text"
+ },
+ {
+  "cmd": "讨伐",
+  "aliases": [],
+  "func": "handle_battle_event_attack",
+  "line": 2637,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_run_battle_event_attack"
+  ],
+  "text": {
+   "lines": 139,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 4,
+   "kv": 7,
+   "bullets": 2,
+   "cmds": 7,
+   "pseudo": false,
+   "max_len": 130
+  },
+  "group": "战斗与竞技",
+  "channel": "text"
+ },
+ {
+  "cmd": "追捕",
+  "aliases": [],
+  "func": "handle_battle_event_attack_alias",
+  "line": 2643,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_run_battle_event_attack"
+  ],
+  "text": {
+   "lines": 140,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 4,
+   "kv": 7,
+   "bullets": 2,
+   "cmds": 7,
+   "pseudo": false,
+   "max_len": 130
+  },
+  "group": "",
+  "channel": "text"
+ },
+ {
+  "cmd": "挑战通缉犯",
+  "aliases": [],
+  "func": "handle_battle_event_attack_alias2",
+  "line": 2649,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_run_battle_event_attack"
+  ],
+  "text": {
+   "lines": 140,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 4,
+   "kv": 7,
+   "bullets": 2,
+   "cmds": 7,
+   "pseudo": false,
+   "max_len": 130
+  },
+  "group": "",
+  "channel": "text"
+ },
+ {
+  "cmd": "江湖事件",
+  "aliases": [],
+  "func": "handle_battle_event_status",
+  "line": 2655,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_status"
+  ],
+  "text": {
+   "lines": 340,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 2,
+   "kv": 32,
+   "bullets": 2,
+   "cmds": 7,
+   "pseudo": false,
+   "max_len": 110
+  },
+  "group": "战斗与竞技",
+  "channel": "text"
+ },
+ {
+  "cmd": "通缉令",
+  "aliases": [],
+  "func": "handle_battle_event_status_alias",
+  "line": 2661,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_status"
+  ],
+  "text": {
+   "lines": 341,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 2,
+   "kv": 32,
+   "bullets": 2,
+   "cmds": 7,
+   "pseudo": false,
+   "max_len": 110
+  },
+  "group": "",
+  "channel": "text"
+ },
+ {
+  "cmd": "生成江湖事件",
+  "aliases": [],
+  "func": "handle_spawn_battle_event",
+  "line": 2667,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_broadcast_world_boss_spawn",
+   "_check_boss_admin",
+   "spawn_event"
+  ],
+  "text": {
+   "lines": 89,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 5,
+   "kv": 7,
+   "bullets": 0,
+   "cmds": 5,
+   "pseudo": false,
+   "max_len": 93
+  },
+  "group": "管理工具",
+  "channel": "text"
+ },
+ {
+  "cmd": "挑战团本",
+  "aliases": [],
+  "func": "handle_challenge_raid",
+  "line": 2694,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_broadcast_world_boss_spawn",
+   "_title_bump",
+   "add_bounty_progress",
+   "get_player_by_id",
+   "handle_challenge"
+  ],
+  "text": {
+   "lines": 305,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 5,
+   "kv": 16,
+   "bullets": 0,
+   "cmds": 9,
+   "pseudo": false,
+   "max_len": 144
+  },
+  "group": "战斗与竞技",
+  "channel": "text"
+ },
+ {
+  "cmd": "团本状态",
+  "aliases": [],
+  "func": "handle_raid_status",
+  "line": 2710,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_status"
+  ],
+  "text": {
+   "lines": 341,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 2,
+   "kv": 32,
+   "bullets": 2,
+   "cmds": 7,
+   "pseudo": false,
+   "max_len": 110
+  },
+  "group": "战斗与竞技",
+  "channel": "text"
+ },
+ {
+  "cmd": "世界团本",
+  "aliases": [],
+  "func": "handle_raid_status_alias",
+  "line": 2715,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_status"
+  ],
+  "text": {
+   "lines": 341,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 2,
+   "kv": 32,
+   "bullets": 2,
+   "cmds": 7,
+   "pseudo": false,
+   "max_len": 110
+  },
+  "group": "",
+  "channel": "text"
+ },
+ {
+  "cmd": "团本排行",
+  "aliases": [],
+  "func": "handle_raid_ranking",
+  "line": 2720,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_ranking"
+  ],
+  "text": {
+   "lines": 86,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 2,
+   "kv": 1,
+   "bullets": 3,
+   "cmds": 0,
+   "pseudo": false,
+   "max_len": 124
+  },
+  "group": "战斗与竞技",
+  "channel": "text"
+ },
+ {
+  "cmd": "开启团本",
+  "aliases": [],
+  "func": "handle_spawn_raid",
+  "line": 2725,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_broadcast_world_boss_spawn",
+   "_check_boss_admin",
+   "spawn_raid"
+  ],
+  "text": {
+   "lines": 71,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 4,
+   "kv": 6,
+   "bullets": 1,
+   "cmds": 4,
+   "pseudo": false,
+   "max_len": 93
+  },
+  "group": "管理工具",
+  "channel": "text"
+ },
+ {
+  "cmd": "结束团本",
+  "aliases": [],
+  "func": "handle_end_raid",
+  "line": 2743,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_check_boss_admin",
+   "force_end_raid"
+  ],
+  "text": {
+   "lines": 11,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": false,
+   "records": 0,
+   "kv": 0,
+   "bullets": 0,
+   "cmds": 0,
+   "pseudo": false,
+   "max_len": 84
+  },
+  "group": "管理工具",
+  "channel": "text"
+ },
+ {
+  "cmd": "周本",
+  "aliases": [],
+  "func": "handle_weekly_boss_info",
+  "line": 2753,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_info"
+  ],
+  "text": {
+   "lines": 125,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 2,
+   "kv": 1,
+   "bullets": 12,
+   "cmds": 7,
+   "pseudo": false,
+   "max_len": 73
+  },
+  "group": "战斗与竞技",
+  "channel": "text"
+ },
+ {
+  "cmd": "周本创建",
+  "aliases": [],
+  "func": "handle_weekly_boss_create",
+  "line": 2759,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_create"
+  ],
+  "text": {
+   "lines": 74,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": false,
+   "records": 3,
+   "kv": 2,
+   "bullets": 0,
+   "cmds": 4,
+   "pseudo": false,
+   "max_len": 90
+  },
+  "group": "战斗与竞技",
+  "channel": "text"
+ },
+ {
+  "cmd": "周本加入",
+  "aliases": [],
+  "func": "handle_weekly_boss_join",
+  "line": 2765,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_join"
+  ],
+  "text": {
+   "lines": 81,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": false,
+   "records": 3,
+   "kv": 2,
+   "bullets": 0,
+   "cmds": 4,
+   "pseudo": false,
+   "max_len": 93
+  },
+  "group": "战斗与竞技",
+  "channel": "text"
+ },
+ {
+  "cmd": "周本离开",
+  "aliases": [],
+  "func": "handle_weekly_boss_leave",
+  "line": 2771,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_leave"
+  ],
+  "text": {
+   "lines": 43,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": false,
+   "records": 1,
+   "kv": 1,
+   "bullets": 0,
+   "cmds": 0,
+   "pseudo": false,
+   "max_len": 84
+  },
+  "group": "战斗与竞技",
+  "channel": "text"
+ },
+ {
+  "cmd": "周本备战",
+  "aliases": [],
+  "func": "handle_weekly_boss_loadout",
+  "line": 2777,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_set_loadout"
+  ],
+  "text": {
+   "lines": 171,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 3,
+   "kv": 2,
+   "bullets": 0,
+   "cmds": 4,
+   "pseudo": false,
+   "max_len": 80
+  },
+  "group": "战斗与竞技",
+  "channel": "text"
+ },
+ {
+  "cmd": "周本开始",
+  "aliases": [],
+  "func": "handle_weekly_boss_start",
+  "line": 2783,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_start"
+  ],
+  "text": {
+   "lines": 252,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 6,
+   "kv": 7,
+   "bullets": 2,
+   "cmds": 5,
+   "pseudo": false,
+   "max_len": 73
+  },
+  "group": "战斗与竞技",
+  "channel": "text"
+ },
+ {
+  "cmd": "周本确认",
+  "aliases": [],
+  "func": "handle_weekly_boss_confirm",
+  "line": 2789,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_broadcast_world_boss_spawn",
+   "_title_bump",
+   "handle_confirm"
+  ],
+  "text": {
+   "lines": 419,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 11,
+   "kv": 21,
+   "bullets": 0,
+   "cmds": 7,
+   "pseudo": false,
+   "max_len": 94
+  },
+  "group": "战斗与竞技",
+  "channel": "text"
+ },
+ {
+  "cmd": "周本取消",
+  "aliases": [],
+  "func": "handle_weekly_boss_cancel",
+  "line": 2802,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_cancel"
+  ],
+  "text": {
+   "lines": 86,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": false,
+   "records": 1,
+   "kv": 1,
+   "bullets": 1,
+   "cmds": 3,
+   "pseudo": false,
+   "max_len": 51
+  },
+  "group": "战斗与竞技",
+  "channel": "text"
+ },
+ {
+  "cmd": "周本状态",
+  "aliases": [],
+  "func": "handle_weekly_boss_status",
+  "line": 2808,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_status"
+  ],
+  "text": {
+   "lines": 341,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 2,
+   "kv": 32,
+   "bullets": 2,
+   "cmds": 7,
+   "pseudo": false,
+   "max_len": 110
+  },
+  "group": "战斗与竞技",
+  "channel": "text"
+ },
+ {
+  "cmd": "周本排行",
+  "aliases": [],
+  "func": "handle_weekly_boss_ranking",
+  "line": 2814,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_ranking"
+  ],
+  "text": {
+   "lines": 86,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 2,
+   "kv": 1,
+   "bullets": 3,
+   "cmds": 0,
+   "pseudo": false,
+   "max_len": 124
+  },
+  "group": "战斗与竞技",
+  "channel": "text"
+ },
+ {
+  "cmd": "刷新周本",
+  "aliases": [],
+  "func": "handle_weekly_boss_refresh",
+  "line": 2820,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_check_boss_admin",
+   "handle_refresh"
+  ],
+  "text": {
+   "lines": 42,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": false,
+   "records": 0,
+   "kv": 0,
+   "bullets": 0,
+   "cmds": 1,
+   "pseudo": false,
+   "max_len": 85
+  },
+  "group": "管理工具",
+  "channel": "text"
+ },
+ {
+  "cmd": "结束周本",
+  "aliases": [],
+  "func": "handle_weekly_boss_end",
+  "line": 2829,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_check_boss_admin",
+   "handle_end"
+  ],
+  "text": {
+   "lines": 35,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": false,
+   "records": 1,
+   "kv": 1,
+   "bullets": 0,
+   "cmds": 0,
+   "pseudo": false,
+   "max_len": 78
+  },
+  "group": "管理工具",
+  "channel": "text"
+ },
+ {
+  "cmd": "重置周本CD",
+  "aliases": [],
+  "func": "handle_weekly_boss_reset_cd",
+  "line": 2838,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_check_boss_admin",
+   "handle_reset_cd"
+  ],
+  "text": {
+   "lines": 39,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": false,
+   "records": 1,
+   "kv": 1,
+   "bullets": 0,
+   "cmds": 0,
+   "pseudo": false,
+   "max_len": 73
+  },
+  "group": "管理工具",
+  "channel": "text"
+ },
+ {
+  "cmd": "开启护府",
+  "aliases": [],
+  "func": "handle_use_shield",
+  "line": 2848,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_title_bump",
+   "handle_use_shield"
+  ],
+  "text": {
+   "lines": 58,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 3,
+   "bullets": 0,
+   "cmds": 1,
+   "pseudo": false,
+   "max_len": 25
+  },
+  "group": "洞天灵田",
+  "channel": "text"
+ },
+ {
+  "cmd": "潜入洞府",
+  "aliases": [],
+  "func": "handle_rob",
+  "line": 2857,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_rob"
+  ],
+  "text": {
+   "lines": 58,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": true,
+   "records": 0,
+   "kv": 2,
+   "bullets": 0,
+   "cmds": 1,
+   "pseudo": false,
+   "max_len": 76
+  },
+  "group": "洞天灵田",
+  "channel": "text"
+ },
+ {
+  "cmd": "飞升",
+  "aliases": [],
+  "func": "handle_reincarnate",
+  "line": 2863,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "bump_value",
+   "get_player_by_id",
+   "handle_reincarnate"
+  ],
+  "text": {
+   "lines": 224,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 1,
+   "kv": 15,
+   "bullets": 1,
+   "cmds": 6,
+   "pseudo": false,
+   "max_len": 137
+  },
+  "group": "飞升与活动",
+  "channel": "text"
+ },
+ {
+  "cmd": "解封传家宝",
+  "aliases": [],
+  "func": "handle_unseal_heirloom",
+  "line": 2880,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_unseal"
+  ],
+  "text": {
+   "lines": 55,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": false,
+   "records": 3,
+   "kv": 1,
+   "bullets": 1,
+   "cmds": 1,
+   "pseudo": false,
+   "max_len": 46
+  },
+  "group": "飞升与活动",
+  "channel": "text"
+ },
+ {
+  "cmd": "仙缘商店",
+  "aliases": [],
+  "func": "handle_fate_shop",
+  "line": 2886,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_fate_shop"
+  ],
+  "text": {
+   "lines": 49,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 1,
+   "kv": 2,
+   "bullets": 1,
+   "cmds": 1,
+   "pseudo": false,
+   "max_len": 41
+  },
+  "group": "飞升与活动",
+  "channel": "text"
+ },
+ {
+  "cmd": "仙缘兑换",
+  "aliases": [],
+  "func": "handle_fate_exchange",
+  "line": 2893,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_fate_exchange"
+  ],
+  "text": {
+   "lines": 108,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 11,
+   "bullets": 0,
+   "cmds": 2,
+   "pseudo": false,
+   "max_len": 55
+  },
+  "group": "飞升与活动",
+  "channel": "text"
+ },
+ {
+  "cmd": "一键日常",
+  "aliases": [],
+  "func": "handle_daily_helper",
+  "line": 2901,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_get_today_festival",
+   "_title_bump",
+   "add_bounty_progress",
+   "claim_interest",
+   "collect_income",
+   "collect_spirit_eye",
+   "get",
+   "get_player_by_id",
+   "grant_item",
+   "harvest",
+   "update_player"
+  ],
+  "text": {
+   "lines": 353,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 8,
+   "kv": 19,
+   "bullets": 0,
+   "cmds": 7,
+   "pseudo": false,
+   "max_len": 125
+  },
+  "group": "修行",
+  "channel": "text"
+ },
+ {
+  "cmd": "解卡",
+  "aliases": [],
+  "func": "handle_force_unlock",
+  "line": 3031,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_auto_proxy_manual_exit",
+   "handle_force_unlock"
+  ],
+  "text": {
+   "lines": 84,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 1,
+   "kv": 2,
+   "bullets": 0,
+   "cmds": 3,
+   "pseudo": false,
+   "max_len": 38
+  },
+  "group": "修行",
+  "channel": "text"
+ },
+ {
+  "cmd": "修仙诊断",
+  "aliases": [],
+  "func": "handle_xiuxian_diag",
+  "line": 3040,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_check_boss_admin",
+   "get_player_by_id"
+  ],
+  "text": {
+   "lines": 22,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 0,
+   "kv": 10,
+   "bullets": 0,
+   "cmds": 0,
+   "pseudo": false,
+   "max_len": 40
+  },
+  "group": "管理工具",
+  "channel": "text"
+ },
+ {
+  "cmd": "切原石",
+  "aliases": [],
+  "func": "handle_cut_stone",
+  "line": 3072,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_title_bump",
+   "handle_cut_stone"
+  ],
+  "text": {
+   "lines": 61,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": true,
+   "records": 0,
+   "kv": 2,
+   "bullets": 0,
+   "cmds": 0,
+   "pseudo": false,
+   "max_len": 66
+  },
+  "group": "商店与仙市",
+  "channel": "text"
+ },
+ {
+  "cmd": "黑市",
+  "aliases": [],
+  "func": "handle_market",
+  "line": 3081,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_market"
+  ],
+  "text": {
+   "lines": 66,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 2,
+   "kv": 1,
+   "bullets": 0,
+   "cmds": 1,
+   "pseudo": false,
+   "max_len": 23
+  },
+  "group": "商店与仙市",
+  "channel": "text"
+ },
+ {
+  "cmd": "黑市购买",
+  "aliases": [],
+  "func": "handle_buy_market",
+  "line": 3086,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_title_bump",
+   "handle_buy_market"
+  ],
+  "text": {
+   "lines": 126,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 0,
+   "kv": 6,
+   "bullets": 0,
+   "cmds": 1,
+   "pseudo": false,
+   "max_len": 66
+  },
+  "group": "商店与仙市",
+  "channel": "text"
+ },
+ {
+  "cmd": "强化",
+  "aliases": [],
+  "func": "handle_enhance",
+  "line": 3096,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_title_bump",
+   "handle_enhance"
+  ],
+  "text": {
+   "lines": 81,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 0,
+   "kv": 5,
+   "bullets": 0,
+   "cmds": 2,
+   "pseudo": false,
+   "max_len": 66
+  },
+  "group": "装备心法",
+  "channel": "text"
+ },
+ {
+  "cmd": "洗练",
+  "aliases": [],
+  "func": "handle_wash",
+  "line": 3107,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_title_bump",
+   "handle_wash"
+  ],
+  "text": {
+   "lines": 92,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 1,
+   "kv": 3,
+   "bullets": 1,
+   "cmds": 3,
+   "pseudo": false,
+   "max_len": 33
+  },
+  "group": "装备心法",
+  "channel": "text"
+ },
+ {
+  "cmd": "炼器",
+  "aliases": [],
+  "func": "handle_forge",
+  "line": 3118,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_title_bump",
+   "handle_forge"
+  ],
+  "text": {
+   "lines": 175,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 1,
+   "kv": 12,
+   "bullets": 1,
+   "cmds": 4,
+   "pseudo": false,
+   "max_len": 66
+  },
+  "group": "装备心法",
+  "channel": "text"
+ },
+ {
+  "cmd": "开启天魔入侵",
+  "aliases": [],
+  "func": "handle_demon_start",
+  "line": 3128,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_broadcast_world_boss_spawn",
+   "_check_boss_admin",
+   "handle_start"
+  ],
+  "text": {
+   "lines": 268,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 9,
+   "kv": 11,
+   "bullets": 2,
+   "cmds": 7,
+   "pseudo": false,
+   "max_len": 93
+  },
+  "group": "管理工具",
+  "channel": "text"
+ },
+ {
+  "cmd": "结束天魔入侵",
+  "aliases": [],
+  "func": "handle_demon_end",
+  "line": 3138,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_broadcast_world_boss_spawn",
+   "_check_boss_admin",
+   "end_invasion",
+   "pop_last_scheduled_msg"
+  ],
+  "text": {
+   "lines": 40,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 5,
+   "kv": 4,
+   "bullets": 0,
+   "cmds": 3,
+   "pseudo": false,
+   "max_len": 93
+  },
+  "group": "管理工具",
+  "channel": "text"
+ },
+ {
+  "cmd": "查验天魔",
+  "aliases": [],
+  "func": "handle_demon_catch",
+  "line": 3150,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_broadcast_world_boss_spawn",
+   "_title_bump",
+   "handle_catch",
+   "pop_last_event_msg"
+  ],
+  "text": {
+   "lines": 106,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 6,
+   "kv": 7,
+   "bullets": 0,
+   "cmds": 3,
+   "pseudo": false,
+   "max_len": 93
+  },
+  "group": "飞升与活动",
+  "channel": "text"
+ },
+ {
+  "cmd": "天魔状态",
+  "aliases": [],
+  "func": "handle_demon_status",
+  "line": 3166,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_status"
+  ],
+  "text": {
+   "lines": 341,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 2,
+   "kv": 32,
+   "bullets": 2,
+   "cmds": 7,
+   "pseudo": false,
+   "max_len": 110
+  },
+  "group": "飞升与活动",
+  "channel": "text"
+ },
+ {
+  "cmd": "我的灵兽",
+  "aliases": [],
+  "func": "handle_my_pet",
+  "line": 3172,
+  "outputs": [
+   "image",
+   "text"
+  ],
+  "delegates": [
+   "handle_my_pet"
+  ],
+  "text": {
+   "lines": 300,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 1,
+   "kv": 3,
+   "bullets": 4,
+   "cmds": 6,
+   "pseudo": false,
+   "max_len": 69
+  },
+  "group": "灵兽",
+  "channel": "image+text"
+ },
+ {
+  "cmd": "孵化灵兽",
+  "aliases": [],
+  "func": "handle_adopt_pet",
+  "line": 3177,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_adopt"
+  ],
+  "text": {
+   "lines": 110,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 0,
+   "kv": 8,
+   "bullets": 3,
+   "cmds": 1,
+   "pseudo": false,
+   "max_len": 162
+  },
+  "group": "灵兽",
+  "channel": "text"
+ },
+ {
+  "cmd": "喂养灵兽",
+  "aliases": [],
+  "func": "handle_feed_pet",
+  "line": 3182,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "bump_value",
+   "get_max_pet_level",
+   "get_player_by_id",
+   "handle_feed"
+  ],
+  "text": {
+   "lines": 110,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 0,
+   "kv": 8,
+   "bullets": 2,
+   "cmds": 4,
+   "pseudo": false,
+   "max_len": 95
+  },
+  "group": "灵兽",
+  "channel": "text"
+ },
+ {
+  "cmd": "灵兽出战",
+  "aliases": [],
+  "func": "handle_set_main_pet",
+  "line": 3198,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_set_main"
+  ],
+  "text": {
+   "lines": 56,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": false,
+   "records": 1,
+   "kv": 2,
+   "bullets": 0,
+   "cmds": 2,
+   "pseudo": false,
+   "max_len": 69
+  },
+  "group": "灵兽",
+  "channel": "text"
+ },
+ {
+  "cmd": "灵兽改名",
+  "aliases": [],
+  "func": "handle_rename_pet",
+  "line": 3204,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_rename"
+  ],
+  "text": {
+   "lines": 62,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 0,
+   "kv": 3,
+   "bullets": 0,
+   "cmds": 3,
+   "pseudo": false,
+   "max_len": 69
+  },
+  "group": "灵兽",
+  "channel": "text"
+ },
+ {
+  "cmd": "放生灵兽",
+  "aliases": [],
+  "func": "handle_release_pet",
+  "line": 3211,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_release"
+  ],
+  "text": {
+   "lines": 34,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": false,
+   "records": 0,
+   "kv": 0,
+   "bullets": 0,
+   "cmds": 2,
+   "pseudo": false,
+   "max_len": 114
+  },
+  "group": "灵兽",
+  "channel": "text"
+ },
+ {
+  "cmd": "吞噬灵兽",
+  "aliases": [],
+  "func": "handle_devour_pet",
+  "line": 3217,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_devour"
+  ],
+  "text": {
+   "lines": 30,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": false,
+   "records": 0,
+   "kv": 1,
+   "bullets": 0,
+   "cmds": 2,
+   "pseudo": false,
+   "max_len": 47
+  },
+  "group": "灵兽",
+  "channel": "text"
+ },
+ {
+  "cmd": "灵兽吞噬",
+  "aliases": [],
+  "func": "handle_devour_pet_item",
+  "line": 3223,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "bump_value",
+   "get_max_pet_level",
+   "get_player_by_id",
+   "handle_devour_item"
+  ],
+  "text": {
+   "lines": 168,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 0,
+   "kv": 9,
+   "bullets": 2,
+   "cmds": 6,
+   "pseudo": false,
+   "max_len": 74
+  },
+  "group": "灵兽",
+  "channel": "text"
+ },
+ {
+  "cmd": "坊市",
+  "aliases": [],
+  "func": "handle_market_list",
+  "line": 3240,
+  "outputs": [
+   "image",
+   "text"
+  ],
+  "delegates": [
+   "handle_list"
+  ],
+  "text": {
+   "lines": 199,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 4,
+   "kv": 18,
+   "bullets": 3,
+   "cmds": 7,
+   "pseudo": false,
+   "max_len": 134
+  },
+  "group": "商店与仙市",
+  "channel": "image+text"
+ },
+ {
+  "cmd": "坊市上架",
+  "aliases": [],
+  "func": "handle_market_sell",
+  "line": 3245,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_title_bump",
+   "handle_list_item"
+  ],
+  "text": {
+   "lines": 121,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 17,
+   "bullets": 3,
+   "cmds": 3,
+   "pseudo": false,
+   "max_len": 175
+  },
+  "group": "商店与仙市",
+  "channel": "text"
+ },
+ {
+  "cmd": "坊市购买",
+  "aliases": [],
+  "func": "handle_market_buy",
+  "line": 3254,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_buy"
+  ],
+  "text": {
+   "lines": 109,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 0,
+   "kv": 4,
+   "bullets": 1,
+   "cmds": 3,
+   "pseudo": false,
+   "max_len": 51
+  },
+  "group": "商店与仙市",
+  "channel": "text"
+ },
+ {
+  "cmd": "坊市下架",
+  "aliases": [],
+  "func": "handle_market_cancel",
+  "line": 3259,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_cancel"
+  ],
+  "text": {
+   "lines": 87,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": false,
+   "records": 1,
+   "kv": 1,
+   "bullets": 1,
+   "cmds": 3,
+   "pseudo": false,
+   "max_len": 51
+  },
+  "group": "商店与仙市",
+  "channel": "text"
+ },
+ {
+  "cmd": "我的坊市",
+  "aliases": [],
+  "func": "handle_my_market",
+  "line": 3264,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_my_market"
+  ],
+  "text": {
+   "lines": 81,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 1,
+   "kv": 2,
+   "bullets": 1,
+   "cmds": 6,
+   "pseudo": false,
+   "max_len": 109
+  },
+  "group": "商店与仙市",
+  "channel": "text"
+ },
+ {
+  "cmd": "坊市我的",
+  "aliases": [],
+  "func": "handle_my_market_alias",
+  "line": 3269,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_my_market"
+  ],
+  "text": {
+   "lines": 81,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 1,
+   "kv": 2,
+   "bullets": 1,
+   "cmds": 6,
+   "pseudo": false,
+   "max_len": 109
+  },
+  "group": "",
+  "channel": "text"
+ },
+ {
+  "cmd": "坊市卖出",
+  "aliases": [],
+  "func": "handle_market_accept_offer",
+  "line": 3274,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_accept_offer"
+  ],
+  "text": {
+   "lines": 97,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 1,
+   "kv": 8,
+   "bullets": 2,
+   "cmds": 3,
+   "pseudo": false,
+   "max_len": 137
+  },
+  "group": "商店与仙市",
+  "channel": "text"
+ },
+ {
+  "cmd": "坊市等待",
+  "aliases": [],
+  "func": "handle_market_decline_offer",
+  "line": 3279,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_decline_offer"
+  ],
+  "text": {
+   "lines": 33,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": false,
+   "records": 0,
+   "kv": 1,
+   "bullets": 0,
+   "cmds": 2,
+   "pseudo": false,
+   "max_len": 95
+  },
+  "group": "商店与仙市",
+  "channel": "text"
+ },
+ {
+  "cmd": "拍卖会",
+  "aliases": [],
+  "func": "handle_auction_house_status",
+  "line": 3285,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_status"
+  ],
+  "text": {
+   "lines": 341,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 2,
+   "kv": 33,
+   "bullets": 2,
+   "cmds": 7,
+   "pseudo": false,
+   "max_len": 110
+  },
+  "group": "商店与仙市",
+  "channel": "text"
+ },
+ {
+  "cmd": "拍卖会信息",
+  "aliases": [],
+  "func": "handle_auction_house_status_alias",
+  "line": 3290,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_status"
+  ],
+  "text": {
+   "lines": 341,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 2,
+   "kv": 33,
+   "bullets": 2,
+   "cmds": 7,
+   "pseudo": false,
+   "max_len": 110
+  },
+  "group": "",
+  "channel": "text"
+ },
+ {
+  "cmd": "拍卖会报名",
+  "aliases": [],
+  "func": "handle_auction_house_register",
+  "line": 3295,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_register"
+  ],
+  "text": {
+   "lines": 50,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 1,
+   "kv": 3,
+   "bullets": 0,
+   "cmds": 2,
+   "pseudo": false,
+   "max_len": 110
+  },
+  "group": "商店与仙市",
+  "channel": "text"
+ },
+ {
+  "cmd": "拍卖会入场",
+  "aliases": [],
+  "func": "handle_auction_house_register_alias",
+  "line": 3300,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_register"
+  ],
+  "text": {
+   "lines": 50,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 1,
+   "kv": 3,
+   "bullets": 0,
+   "cmds": 2,
+   "pseudo": false,
+   "max_len": 110
+  },
+  "group": "",
+  "channel": "text"
+ },
+ {
+  "cmd": "拍卖会出价",
+  "aliases": [],
+  "func": "handle_auction_house_bid",
+  "line": 3305,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_bid"
+  ],
+  "text": {
+   "lines": 125,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 2,
+   "kv": 10,
+   "bullets": 0,
+   "cmds": 3,
+   "pseudo": false,
+   "max_len": 110
+  },
+  "group": "商店与仙市",
+  "channel": "text"
+ },
+ {
+  "cmd": "拍卖会领取",
+  "aliases": [],
+  "func": "handle_auction_house_claim",
+  "line": 3310,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "handle_claim"
+  ],
+  "text": {
+   "lines": 60,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": false,
+   "records": 4,
+   "kv": 2,
+   "bullets": 0,
+   "cmds": 4,
+   "pseudo": false,
+   "max_len": 111
+  },
+  "group": "商店与仙市",
+  "channel": "text"
+ },
+ {
+  "cmd": "施肥",
+  "aliases": [],
+  "func": "handle_fertilize",
+  "line": 3317,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "fertilize",
+   "get_player_by_id"
+  ],
+  "text": {
+   "lines": 46,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": false,
+   "records": 1,
+   "kv": 2,
+   "bullets": 0,
+   "cmds": 1,
+   "pseudo": false,
+   "max_len": 55
+  },
+  "group": "洞天灵田",
+  "channel": "text"
+ },
+ {
+  "cmd": "杂交",
+  "aliases": [],
+  "func": "handle_hybridize",
+  "line": 3328,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "get_player_by_id",
+   "hybridize"
+  ],
+  "text": {
+   "lines": 151,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 3,
+   "kv": 14,
+   "bullets": 0,
+   "cmds": 8,
+   "pseudo": false,
+   "max_len": 51
+  },
+  "group": "洞天灵田",
+  "channel": "text"
+ },
+ {
+  "cmd": "储物戒附魔",
+  "aliases": [],
+  "func": "handle_ring_enchant",
+  "line": 3340,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "enchant_ring",
+   "get_player_by_id"
+  ],
+  "text": {
+   "lines": 88,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 7,
+   "bullets": 0,
+   "cmds": 3,
+   "pseudo": false,
+   "max_len": 48
+  },
+  "group": "储物与仓库",
+  "channel": "text"
+ },
+ {
+  "cmd": "押镖",
+  "aliases": [],
+  "func": "handle_start_escort",
+  "line": 3357,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_broadcast_world_boss_spawn",
+   "get_player_by_id",
+   "note_activity_started",
+   "start_escort"
+  ],
+  "text": {
+   "lines": 123,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 4,
+   "kv": 12,
+   "bullets": 0,
+   "cmds": 11,
+   "pseudo": false,
+   "max_len": 93
+  },
+  "group": "战斗与竞技",
+  "channel": "text"
+ },
+ {
+  "cmd": "完成押镖",
+  "aliases": [],
+  "func": "handle_finish_escort",
+  "line": 3380,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_title_bump",
+   "add_bounty_progress",
+   "finish_escort",
+   "get_player_by_id"
+  ],
+  "text": {
+   "lines": 62,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 5,
+   "bullets": 0,
+   "cmds": 2,
+   "pseudo": false,
+   "max_len": 102
+  },
+  "group": "战斗与竞技",
+  "channel": "text"
+ },
+ {
+  "cmd": "放弃押镖",
+  "aliases": [],
+  "func": "handle_quit_escort",
+  "line": 3396,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_auto_proxy_manual_exit",
+   "get_player_by_id",
+   "quit_escort"
+  ],
+  "text": {
+   "lines": 91,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 1,
+   "kv": 3,
+   "bullets": 0,
+   "cmds": 5,
+   "pseudo": false,
+   "max_len": 38
+  },
+  "group": "战斗与竞技",
+  "channel": "text"
+ },
+ {
+  "cmd": "劫镖",
+  "aliases": [],
+  "func": "handle_rob_escort",
+  "line": 3409,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "bump_value",
+   "get_player_by_id",
+   "get_player_by_name",
+   "rob_escort"
+  ],
+  "text": {
+   "lines": 576,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 4,
+   "kv": 19,
+   "bullets": 0,
+   "cmds": 11,
+   "pseudo": false,
+   "max_len": 72
+  },
+  "group": "战斗与竞技",
+  "channel": "text"
+ },
+ {
+  "cmd": "奇遇选择",
+  "aliases": [],
+  "func": "handle_encounter_choice",
+  "line": 3444,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "get_player_by_id",
+   "resolve_choice"
+  ],
+  "text": {
+   "lines": 232,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 2,
+   "kv": 6,
+   "bullets": 0,
+   "cmds": 3,
+   "pseudo": false,
+   "max_len": 46
+  },
+  "group": "秘境历练",
+  "channel": "text"
+ },
+ {
+  "cmd": "行善",
+  "aliases": [],
+  "func": "handle_do_good",
+  "line": 3461,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "bump_value",
+   "get_player_by_id",
+   "update_player"
+  ],
+  "text": {
+   "lines": 37,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": true,
+   "records": 0,
+   "kv": 2,
+   "bullets": 0,
+   "cmds": 2,
+   "pseudo": false,
+   "max_len": 72
+  },
+  "group": "修行",
+  "channel": "text"
+ },
+ {
+  "cmd": "升级丹炉",
+  "aliases": [],
+  "func": "handle_upgrade_furnace",
+  "line": 3507,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "bump_value",
+   "get_furnace_level",
+   "get_player_by_id",
+   "upgrade_furnace"
+  ],
+  "text": {
+   "lines": 53,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 4,
+   "bullets": 0,
+   "cmds": 2,
+   "pseudo": false,
+   "max_len": 72
+  },
+  "group": "修行",
+  "channel": "text"
+ },
+ {
+  "cmd": "洞天装修",
+  "aliases": [],
+  "func": "handle_buy_furniture",
+  "line": 3526,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "buy_furniture",
+   "get_player_by_id"
+  ],
+  "text": {
+   "lines": 64,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 2,
+   "kv": 7,
+   "bullets": 1,
+   "cmds": 6,
+   "pseudo": false,
+   "max_len": 56
+  },
+  "group": "洞天灵田",
+  "channel": "text"
+ },
+ {
+  "cmd": "宗门建筑",
+  "aliases": [],
+  "func": "handle_sect_buildings",
+  "line": 3539,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "show_buildings"
+  ],
+  "text": {
+   "lines": 51,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 1,
+   "kv": 5,
+   "bullets": 0,
+   "cmds": 2,
+   "pseudo": false,
+   "max_len": 31
+  },
+  "group": "宗门",
+  "channel": "text"
+ },
+ {
+  "cmd": "升级建筑",
+  "aliases": [],
+  "func": "handle_upgrade_building",
+  "line": 3546,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "show_buildings",
+   "upgrade_building"
+  ],
+  "text": {
+   "lines": 106,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 2,
+   "kv": 10,
+   "bullets": 1,
+   "cmds": 5,
+   "pseudo": false,
+   "max_len": 44
+  },
+  "group": "宗门",
+  "channel": "text"
+ },
+ {
+  "cmd": "选择生活职业",
+  "aliases": [],
+  "func": "handle_choose_life_skill",
+  "line": 3562,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "choose_skill",
+   "get_player_by_id"
+  ],
+  "text": {
+   "lines": 76,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 9,
+   "bullets": 1,
+   "cmds": 3,
+   "pseudo": false,
+   "max_len": 29
+  },
+  "group": "丹道符箓",
+  "channel": "text"
+ },
+ {
+  "cmd": "符箓",
+  "aliases": [],
+  "func": "handle_talisman_list",
+  "line": 3572,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "get_player_by_id",
+   "list_talismans"
+  ],
+  "text": {
+   "lines": 81,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 1,
+   "kv": 1,
+   "bullets": 1,
+   "cmds": 7,
+   "pseudo": false,
+   "max_len": 41
+  },
+  "group": "丹道符箓",
+  "channel": "text"
+ },
+ {
+  "cmd": "符箓配方",
+  "aliases": [],
+  "func": "handle_talisman_recipes",
+  "line": 3581,
+  "outputs": [
+   "image",
+   "text"
+  ],
+  "delegates": [
+   "build_recipe_page",
+   "format_recipe_text"
+  ],
+  "text": {
+   "lines": 90,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 3,
+   "kv": 4,
+   "bullets": 2,
+   "cmds": 9,
+   "pseudo": false,
+   "max_len": 54
+  },
+  "group": "丹道符箓",
+  "channel": "image+text"
+ },
+ {
+  "cmd": "符箓书",
+  "aliases": [],
+  "func": "handle_talisman_craft_book",
+  "line": 3607,
+  "outputs": [
+   "image",
+   "text"
+  ],
+  "delegates": [
+   "_run_talisman_craft_book"
+  ],
+  "text": {
+   "lines": 179,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 2,
+   "kv": 7,
+   "bullets": 5,
+   "cmds": 8,
+   "pseudo": false,
+   "max_len": 54
+  },
+  "group": "丹道符箓",
+  "channel": "image+text"
+ },
+ {
+  "cmd": "可制符箓",
+  "aliases": [],
+  "func": "handle_talisman_craft_book_alias",
+  "line": 3614,
+  "outputs": [
+   "image",
+   "text"
+  ],
+  "delegates": [
+   "_run_talisman_craft_book"
+  ],
+  "text": {
+   "lines": 179,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 2,
+   "kv": 7,
+   "bullets": 5,
+   "cmds": 8,
+   "pseudo": false,
+   "max_len": 54
+  },
+  "group": "",
+  "channel": "image+text"
+ },
+ {
+  "cmd": "日常制符",
+  "aliases": [],
+  "func": "handle_daily_talisman",
+  "line": 3646,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "daily_talisman",
+   "get_player_by_id"
+  ],
+  "text": {
+   "lines": 96,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 2,
+   "kv": 5,
+   "bullets": 8,
+   "cmds": 7,
+   "pseudo": false,
+   "max_len": 47
+  },
+  "group": "丹道符箓",
+  "channel": "text"
+ },
+ {
+  "cmd": "制符",
+  "aliases": [],
+  "func": "handle_draw_talisman",
+  "line": 3657,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "craft_talisman",
+   "get_player_by_id",
+   "parse_craft_count"
+  ],
+  "text": {
+   "lines": 261,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 3,
+   "kv": 8,
+   "bullets": 2,
+   "cmds": 12,
+   "pseudo": false,
+   "max_len": 46
+  },
+  "group": "丹道符箓",
+  "channel": "text"
+ },
+ {
+  "cmd": "使用符箓",
+  "aliases": [],
+  "func": "handle_use_talisman",
+  "line": 3689,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "get_player_by_id",
+   "use_talisman"
+  ],
+  "text": {
+   "lines": 145,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 9,
+   "bullets": 0,
+   "cmds": 6,
+   "pseudo": false,
+   "max_len": 37
+  },
+  "group": "丹道符箓",
+  "channel": "text"
+ },
+ {
+  "cmd": "开启魔潮",
+  "aliases": [],
+  "func": "handle_start_tide",
+  "line": 3712,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_broadcast_world_boss_spawn",
+   "_check_boss_admin",
+   "start_tide"
+  ],
+  "text": {
+   "lines": 50,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 3,
+   "kv": 5,
+   "bullets": 0,
+   "cmds": 3,
+   "pseudo": false,
+   "max_len": 93
+  },
+  "group": "管理工具",
+  "channel": "text"
+ },
+ {
+  "cmd": "魔潮状态",
+  "aliases": [],
+  "func": "handle_tide_status",
+  "line": 3727,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "get_status"
+  ],
+  "text": {
+   "lines": 264,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 4,
+   "kv": 7,
+   "bullets": 4,
+   "cmds": 3,
+   "pseudo": false,
+   "max_len": 110
+  },
+  "group": "飞升与活动",
+  "channel": "text"
+ },
+ {
+  "cmd": "抵御魔潮",
+  "aliases": [],
+  "func": "handle_resist_tide",
+  "line": 3733,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_broadcast_world_boss_spawn",
+   "_title_bump",
+   "add_bounty_progress",
+   "get_player_by_id",
+   "resist"
+  ],
+  "text": {
+   "lines": 104,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 4,
+   "kv": 7,
+   "bullets": 0,
+   "cmds": 5,
+   "pseudo": false,
+   "max_len": 211
+  },
+  "group": "飞升与活动",
+  "channel": "text"
+ },
+ {
+  "cmd": "季节",
+  "aliases": [],
+  "func": "handle_season_info",
+  "line": 3767,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [],
+  "text": {
+   "lines": 33,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 3,
+   "bullets": 0,
+   "cmds": 2,
+   "pseudo": false,
+   "max_len": 35
+  },
+  "group": "洞天灵田",
+  "channel": "text"
+ },
+ {
+  "cmd": "激活化身",
+  "aliases": [],
+  "func": "handle_activate_avatar",
+  "line": 3796,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "get_player_by_id",
+   "has_item",
+   "retrieve_item",
+   "update_player"
+  ],
+  "text": {
+   "lines": 64,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 4,
+   "bullets": 0,
+   "cmds": 2,
+   "pseudo": false,
+   "max_len": 46
+  },
+  "group": "修行",
+  "channel": "text"
+ },
+ {
+  "cmd": "火候",
+  "aliases": [],
+  "func": "handle_fire_control",
+  "line": 3847,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "get_player_by_id",
+   "set_fire_choice"
+  ],
+  "text": {
+   "lines": 31,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 3,
+   "kv": 0,
+   "bullets": 0,
+   "cmds": 6,
+   "pseudo": false,
+   "max_len": 56
+  },
+  "group": "丹道符箓",
+  "channel": "text"
+ },
+ {
+  "cmd": "仙界日历",
+  "aliases": [],
+  "func": "handle_calendar",
+  "line": 3869,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "get_calendar"
+  ],
+  "text": {
+   "lines": 52,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 1,
+   "kv": 4,
+   "bullets": 5,
+   "cmds": 1,
+   "pseudo": false,
+   "max_len": 29
+  },
+  "group": "飞升与活动",
+  "channel": "text"
+ },
+ {
+  "cmd": "仙灵结缘",
+  "aliases": [],
+  "func": "handle_spirit_bond",
+  "line": 3876,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "bond_companion",
+   "get_player_by_id",
+   "list_companions"
+  ],
+  "text": {
+   "lines": 56,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 1,
+   "kv": 3,
+   "bullets": 0,
+   "cmds": 6,
+   "pseudo": false,
+   "max_len": 106
+  },
+  "group": "社交与师徒",
+  "channel": "text"
+ },
+ {
+  "cmd": "仙灵共修",
+  "aliases": [],
+  "func": "handle_spirit_commune",
+  "line": 3890,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "daily_commune",
+   "get_player_by_id"
+  ],
+  "text": {
+   "lines": 36,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": true,
+   "records": 0,
+   "kv": 2,
+   "bullets": 0,
+   "cmds": 2,
+   "pseudo": false,
+   "max_len": 66
+  },
+  "group": "社交与师徒",
+  "channel": "text"
+ },
+ {
+  "cmd": "仙灵解除",
+  "aliases": [],
+  "func": "handle_spirit_break",
+  "line": 3901,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "break_companion",
+   "get_player_by_id"
+  ],
+  "text": {
+   "lines": 11,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": false,
+   "records": 0,
+   "kv": 0,
+   "bullets": 0,
+   "cmds": 0,
+   "pseudo": false,
+   "max_len": 44
+  },
+  "group": "社交与师徒",
+  "channel": "text"
+ },
+ {
+  "cmd": "仙灵代收",
+  "aliases": [],
+  "func": "handle_spirit_collect",
+  "line": 3912,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "companion_collect_land",
+   "get_player_by_id"
+  ],
+  "text": {
+   "lines": 67,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 1,
+   "kv": 4,
+   "bullets": 0,
+   "cmds": 4,
+   "pseudo": false,
+   "max_len": 90
+  },
+  "group": "社交与师徒",
+  "channel": "text"
+ },
+ {
+  "cmd": "拜师",
+  "aliases": [],
+  "func": "handle_take_master",
+  "line": 3924,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "get_player_by_id",
+   "get_player_by_name",
+   "take_as_disciple"
+  ],
+  "text": {
+   "lines": 37,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 3,
+   "bullets": 0,
+   "cmds": 3,
+   "pseudo": false,
+   "max_len": 96
+  },
+  "group": "社交与师徒",
+  "channel": "text"
+ },
+ {
+  "cmd": "出师",
+  "aliases": [],
+  "func": "handle_graduate",
+  "line": 3955,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "get_player_by_id",
+   "get_player_by_name",
+   "graduate_disciple"
+  ],
+  "text": {
+   "lines": 30,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 3,
+   "bullets": 0,
+   "cmds": 1,
+   "pseudo": false,
+   "max_len": 112
+  },
+  "group": "社交与师徒",
+  "channel": "text"
+ },
+ {
+  "cmd": "逐出师门",
+  "aliases": [],
+  "func": "handle_dismiss",
+  "line": 3981,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "dismiss_disciple",
+   "get_player_by_id",
+   "get_player_by_name"
+  ],
+  "text": {
+   "lines": 14,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": false,
+   "records": 0,
+   "kv": 1,
+   "bullets": 0,
+   "cmds": 1,
+   "pseudo": false,
+   "max_len": 70
+  },
+  "group": "社交与师徒",
+  "channel": "text"
+ },
+ {
+  "cmd": "师徒",
+  "aliases": [],
+  "func": "handle_master_info",
+  "line": 4006,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "get_player_by_id",
+   "my_master_info"
+  ],
+  "text": {
+   "lines": 28,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 4,
+   "bullets": 1,
+   "cmds": 2,
+   "pseudo": false,
+   "max_len": 70
+  },
+  "group": "社交与师徒",
+  "channel": "text"
+ },
+ {
+  "cmd": "师德兑换",
+  "aliases": [],
+  "func": "handle_virtue_redeem",
+  "line": 4016,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "commit_virtue_payment",
+   "get_player_by_id",
+   "grant_item",
+   "is_pill",
+   "redeem_virtue"
+  ],
+  "text": {
+   "lines": 142,
+   "shape": "S3 键值面板",
+   "divider": false,
+   "records": 3,
+   "kv": 3,
+   "bullets": 0,
+   "cmds": 3,
+   "pseudo": false,
+   "max_len": 93
+  },
+  "group": "社交与师徒",
+  "channel": "text"
+ },
+ {
+  "cmd": "功德榜",
+  "aliases": [],
+  "func": "handle_karma_rank",
+  "line": 4046,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "get_karma_ranking"
+  ],
+  "text": {
+   "lines": 17,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 2,
+   "kv": 2,
+   "bullets": 0,
+   "cmds": 1,
+   "pseudo": false,
+   "max_len": 26
+  },
+  "group": "排行",
+  "channel": "text"
+ },
+ {
+  "cmd": "气运榜",
+  "aliases": [],
+  "func": "handle_luck_rank",
+  "line": 4052,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "get_luck_ranking"
+  ],
+  "text": {
+   "lines": 40,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": true,
+   "records": 0,
+   "kv": 2,
+   "bullets": 0,
+   "cmds": 3,
+   "pseudo": false,
+   "max_len": 43
+  },
+  "group": "排行",
+  "channel": "text"
+ },
+ {
+  "cmd": "气运",
+  "aliases": [],
+  "func": "handle_luck_info",
+  "line": 4058,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "get_player_by_id"
+  ],
+  "text": {
+   "lines": 76,
+   "shape": "S3 键值面板",
+   "divider": true,
+   "records": 0,
+   "kv": 12,
+   "bullets": 5,
+   "cmds": 7,
+   "pseudo": false,
+   "max_len": 43
+  },
+  "group": "排行",
+  "channel": "text"
+ },
+ {
+  "cmd": "师德榜",
+  "aliases": [],
+  "func": "handle_virtue_rank",
+  "line": 4098,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "get_virtue_ranking"
+  ],
+  "text": {
+   "lines": 15,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": true,
+   "records": 0,
+   "kv": 1,
+   "bullets": 0,
+   "cmds": 2,
+   "pseudo": false,
+   "max_len": 25
+  },
+  "group": "排行",
+  "channel": "text"
+ },
+ {
+  "cmd": "称号图鉴",
+  "aliases": [],
+  "func": "handle_title_collection",
+  "line": 4106,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "collection_view",
+   "get_player_by_id",
+   "sync_missing_titles"
+  ],
+  "text": {
+   "lines": 212,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 2,
+   "kv": 4,
+   "bullets": 0,
+   "cmds": 5,
+   "pseudo": false,
+   "max_len": 60
+  },
+  "group": "社交与师徒",
+  "channel": "text"
+ },
+ {
+  "cmd": "佩戴称号",
+  "aliases": [],
+  "func": "handle_title_equip",
+  "line": 4132,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "equip_display",
+   "get_player_by_id",
+   "update_player"
+  ],
+  "text": {
+   "lines": 27,
+   "shape": "S6 自由文本/嵌套条目",
+   "divider": false,
+   "records": 0,
+   "kv": 1,
+   "bullets": 0,
+   "cmds": 2,
+   "pseudo": false,
+   "max_len": 43
+  },
+  "group": "社交与师徒",
+  "channel": "text"
+ },
+ {
+  "cmd": "我的称号",
+  "aliases": [],
+  "func": "handle_my_title",
+  "line": 4147,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "get_player_by_id",
+   "my_titles_summary",
+   "sync_missing_titles"
+  ],
+  "text": {
+   "lines": 118,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 1,
+   "kv": 3,
+   "bullets": 1,
+   "cmds": 4,
+   "pseudo": false,
+   "max_len": 60
+  },
+  "group": "社交与师徒",
+  "channel": "text"
+ },
+ {
+  "cmd": "仙界管理",
+  "aliases": [],
+  "func": "handle_admin_tool",
+  "line": 4171,
+  "outputs": [
+   "text"
+  ],
+  "delegates": [
+   "_broadcast_world_boss_spawn",
+   "_check_boss_admin",
+   "add_player_gold",
+   "disable",
+   "get_player_by_id",
+   "get_player_by_name",
+   "update_player_fields"
+  ],
+  "text": {
+   "lines": 153,
+   "shape": "S2 记录列表（【】+分隔线）",
+   "divider": true,
+   "records": 5,
+   "kv": 19,
+   "bullets": 0,
+   "cmds": 8,
+   "pseudo": false,
+   "max_len": 93
+  },
+  "group": "管理工具",
+  "channel": "text"
+ }
+]

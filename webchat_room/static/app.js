@@ -2280,7 +2280,8 @@
     const sections = (card.sections || []).filter(
       (s) =>
         (s.rows || []).length || (s.lines || []).length ||
-        (s.items || []).length || (s.note || []).length
+        (s.items || []).length || (s.note || []).length ||
+        (s.entries || []).length
     );
     sections.forEach((sec) => {
       if (Array.isArray(sec.items) && sec.items.length) {
@@ -2764,6 +2765,12 @@
     const isBag = /物品清单|物品栏/.test(name) || (card.kind === "bag" && /物品/.test(name));
     const isSlots = /装备栏|装备槽/.test(name);
 
+    // 视图声明为 grid 的分区：格子替代长文本，lines 只留作无 entries 时的降级
+    if (sec.view === "grid" && Array.isArray(sec.entries) && sec.entries.length) {
+      box.appendChild(renderEntryGrid(sec, { scene: name || card.title || "" }));
+      return box;
+    }
+
     if (isBag) {
       // 结构化条目优先；老卡片没有 entries 时回退到从展示名解析
       const entries = Array.isArray(sec.entries) ? sec.entries.filter((it) => it && it.name) : [];
@@ -3011,6 +3018,10 @@
 
   let itemTipEl = null;
   let itemTipTimer = 0;
+  // 触屏没有 hover：按能力判断而不是按屏宽（手机横屏 / 触屏笔记本都会误判）。
+  // 不判就会「点一下粘一个浮层」——tap 会假触发 mouseenter，而 .item-tip 是
+  // pointer-events:none，永远收不到 mouseleave。
+  const HAS_HOVER = !!(window.matchMedia && window.matchMedia("(hover: hover) and (pointer: fine)").matches);
 
   function hideItemTip() {
     clearTimeout(itemTipTimer);
@@ -3055,6 +3066,8 @@
   }
 
   function bindItemTip(el, entry) {
+    // 触屏设备不绑 hover：绑了会粘屏（现存 bug），手机端靠点击进详情
+    if (!HAS_HOVER) return;
     el.addEventListener("mouseenter", () => {
       clearTimeout(itemTipTimer);
       itemTipTimer = setTimeout(() => showItemTip(entry, el), 140);
@@ -3373,6 +3386,633 @@
       paint();
       wrap.__items = items;
     };
+    return wrap;
+  }
+
+  /* ================= 通用物品网格（丹方 / 符箓书 / 商店货架） =================
+   * 与储物戒那套分开：储物戒要「多选批量回收/赠予」，这里要「品阶页签 + 详情抽屉」。
+   * 格子用 .gcell（86px 起），储物戒用 .icell（62px 起），互不影响。
+   */
+  // 12 档阶序是后端 rank_rules.RANK_NAMES 的镜像：顺序不许在前端自己排
+  const GRID_RANKS = ["凡品", "黄品", "玄品", "灵品", "地品", "天品",
+    "皇品", "圣品", "帝品", "道品", "仙品", "混元先天"];
+  // 12 个互不相干的色相在 3px 竖条上分辨不出来，按 rarity tier 分 5 组色族
+  const RANK_COLORS = {
+    凡品: "#a8a093", 黄品: "#b08d4a",
+    玄品: "#5f8a6a", 灵品: "#3f9188", 地品: "#7d7f45",
+    天品: "#4a7ba8", 皇品: "#7a6ab0", 圣品: "#b8862b", 帝品: "#a33b2a",
+    道品: "#8d939b", 仙品: "#c9a227", 混元先天: "#5c4a6e",
+  };
+  const RANK_ABBR = { 混元先天: "混" };
+  const GRID_PAGE = 24;      // 一屏 24 格：桌面 6 列 × 4 行
+  const RANK_ALL_CAP = 8;    // 「全部」是纵览不是清单，每档最多铺 8 格
+
+  const rankName = (r) => RANK_ABBR[r] || String(r || "").replace("品", "");
+  const gridRankOf = (it) => (it && GRID_RANKS.includes(it.rank) ? it.rank : GRID_RANKS[0]);
+  const entryKey = (it) => `${it.name}|${it.rank || ""}|${it.kind || ""}`;
+
+  function moneyText(value) {
+    const n = Number(value) || 0;
+    if (n >= 10000) return `${(n / 10000).toFixed(1)}万`;
+    return String(n);
+  }
+
+  /** 格子第二行：单独看这一格能回答「是什么/能不能用」 */
+  function entryMeta(it) {
+    if (it.source === "shop") {
+      if (it.unlimited) return "不限量";
+      return it.stock > 0 ? `库存 ${it.stock}` : "";
+    }
+    if (it.cat) return `${it.cat} ${it.rate || 0}%`;
+    if (it.rate) return `成功率 ${it.rate}%`;
+    return it.kind || "";
+  }
+
+  /** 格子第三行：价格 > 可做数量 > 持有数量 */
+  function entryValue(it) {
+    if (it.source === "shop") {
+      const off = it.discount && it.discount < 1 ? `${Math.round(it.discount * 100) / 10}折` : "";
+      return { text: moneyText(it.price), off };
+    }
+    if (Number(it.craft) > 0) return { text: `可画 ${it.craft}` };
+    if (Number(it.held) > 0) return { text: `×${it.held}` };
+    return { text: "" };
+  }
+
+  /** 悬停快览：只读条目字段，不发请求 */
+  function showEntryTip(entry, anchor) {
+    hideItemTip();
+    const tip = document.createElement("div");
+    tip.className = "item-tip";
+    const rows = [];
+    rows.push(["品阶", entry.rank || "凡品"]);
+    if (entry.kind) rows.push(["类别", [entry.kind, entry.cat].filter(Boolean).join("·")]);
+    if (entry.rate) rows.push(["成功率", `${entry.rate}%`]);
+    if (entry.source === "shop") {
+      rows.push(["价格", `${entry.price} 灵石${entry.discount < 1 ? `（${Math.round(entry.discount * 100) / 10}折）` : ""}`]);
+      rows.push(["库存", entry.unlimited ? "不限量" : `${entry.stock} 件`]);
+    } else {
+      if (entry.craft) rows.push(["可画", `${entry.craft} ${entry.unit || "份"}`]);
+      if (entry.held) rows.push(["持有", `${entry.held} ${entry.unit || "份"}`]);
+    }
+    if (entry.materials && entry.materials.length) {
+      const known = entry.materials.filter((m) => m.have !== null && m.have !== undefined && m.have !== "");
+      if (!known.length) {
+        rows.push(["材料", entry.materials.map((m) => `${m.label}×${m.need}`).join("、")]);
+      } else {
+        const miss = known.filter((m) => Number(m.have) < Number(m.need));
+        rows.push(["材料", miss.length ? `缺 ${miss.map((m) => `${m.label}×${m.need - m.have}`).join("、")}` : "齐备"]);
+      }
+    }
+    tip.innerHTML =
+      `<div class="tip-name">${esc(entry.name)}</div>` +
+      rows.map(([k, v]) => `<div class="tip-row"><span>${k}</span><b>${esc(v)}</b></div>`).join("") +
+      (entry.effect ? `<div class="tip-row"><span>效果</span><b>${esc(entry.effect)}</b></div>` : "");
+    document.body.appendChild(tip);
+    const r = anchor.getBoundingClientRect();
+    const w = tip.offsetWidth;
+    const h = tip.offsetHeight;
+    const left = Math.max(8, Math.min(r.left + r.width / 2 - w / 2, window.innerWidth - w - 8));
+    let top = r.top - h - 8;
+    if (top < 8) top = r.bottom + 8;
+    tip.style.left = `${left}px`;
+    tip.style.top = `${top}px`;
+    itemTipEl = tip;
+  }
+
+  /* ---------- 条目详情：桌面右侧抽屉，手机底部上滑 ---------- */
+  let entryDetailEl = null;
+
+  function closeEntryDetail() {
+    hideItemTip();
+    if (!entryDetailEl) return;
+    const veil = entryDetailEl.veil;
+    const drawer = entryDetailEl.drawer;
+    veil.classList.remove("on");
+    drawer.classList.remove("on");
+    document.removeEventListener("keydown", entryDetailEl.onKey);
+    const dead = entryDetailEl;
+    entryDetailEl = null;
+    setTimeout(() => {
+      veil.remove();
+      drawer.remove();
+    }, 220);
+    if (dead.dismiss) dead.dismiss();
+  }
+
+  /** 主操作指令：炼丹要带 ID（和火候），购买/制符用名字；qty>1 时补数量 */
+  const FIRE_LABELS = { 1: "猛火", 2: "文火", 3: "守中" };
+
+  function entryPrimaryCommand(entry, fire, qty) {
+    const n = Math.max(1, Number(qty) || 1);
+    const tail = n > 1 ? ` ${n}` : "";
+    if (entry.source === "recipe") {
+      const label = FIRE_LABELS[fire] || "";
+      return `/炼丹 ${entry.id}${label ? " " + label : ""}${tail}`;
+    }
+    if (entry.source === "shop") return `/购买 ${entry.name}${n > 1 ? ` ${n}` : ""}`;
+    return `/制符 ${entry.name}${tail}`;
+  }
+
+  /** 这个条目能不能一次做多份（对应的指令都支持数量参数） */
+  const QTY_SOURCES = { recipe: "次", talisman: "张", shop: "件" };
+
+  /** 数量上限：后端给了 max 就用，没给按材料/工费自己算；null = 算不出来（不限） */
+  function entryMaxQty(entry) {
+    if (entry.max !== null && entry.max !== undefined && entry.max !== "") {
+      return Math.max(0, Math.floor(Number(entry.max) || 0));
+    }
+    let cap = Infinity;
+    for (const m of entry.materials || []) {
+      const need = Number(m.need) || 0;
+      if (!need) continue;
+      const known = m.have !== null && m.have !== undefined && m.have !== "";
+      if (!known) return null; // 拿不到背包（如配方总览），别瞎猜上限
+      cap = Math.min(cap, Math.floor((Number(m.have) || 0) / need));
+    }
+    if (entry.cost) cap = Math.min(cap, Math.floor((Number(entry.gold) || 0) / Number(entry.cost)));
+    return cap === Infinity ? null : cap;
+  }
+
+  function openEntryDetail(entry, opts = {}) {
+    closeEntryDetail();
+    hideItemTip();
+    const veil = document.createElement("div");
+    veil.className = "ed-veil";
+    const drawer = document.createElement("div");
+    drawer.className = "ed-drawer";
+    drawer.setAttribute("role", "dialog");
+    drawer.setAttribute("aria-label", entry.name);
+
+    const kicker = [opts.scene, entry.id ? `ID ${entry.id}` : entry.cat || ""].filter(Boolean).join(" · ");
+    const chips = [entry.rank, entry.kind].filter(Boolean);
+    if (entry.rate) chips.push(`成功率 ${entry.rate}%`);
+    if (entry.source === "shop") {
+      chips.push(`${entry.price} 灵石${entry.discount < 1 ? ` · ${Math.round(entry.discount * 100) / 10}折` : ""}`);
+    } else if (entry.cost) {
+      chips.push(`工费 ${entry.cost} 灵石`);
+    }
+
+    const body = [];
+    // 货架上的丹方/符图本来就没有「效果」字段，效果在它炼出来的东西上，
+    // 这种情况下空着即可，别用「数据缺失」的红字误导
+    if (entry.effect) {
+      body.push(`<div class="ed-sec"><h4>产出效果</h4><div class="ed-eff">${esc(entry.effect)}</div></div>`);
+    } else if (entry.source !== "shop") {
+      body.push(
+        `<div class="ed-sec"><h4>产出效果</h4>` +
+          `<div class="ed-eff missing">⚠️ 效果未录入：数据里没有这一项的定义，不是「没有用」。</div></div>`
+      );
+    }
+    if (entry.materials && entry.materials.length) {
+      const rows = entry.materials.map((m) => {
+        const need = Number(m.need) || 0;
+        // 配方总览这种「拿不到背包」的条目 have 是 null：只能报需量，不能报缺多少
+        const known = m.have !== null && m.have !== undefined && m.have !== "";
+        const have = known ? Number(m.have) || 0 : 0;
+        const ok = have >= need;
+        return (
+          `<div class="ed-mat-row"><span class="mn">${esc(m.label)}</span>` +
+          `<span class="mv">${known ? `${have} / ${need}` : `需 ${need}`}</span>` +
+          (known
+            ? `<span class="ms ${ok ? "ok" : "no"}">${ok ? "足够" : `缺 ${need - have}`}</span>`
+            : "") +
+          `</div>`
+        );
+      });
+      if (entry.cost) {
+        const gold = Number(entry.gold) || 0;
+        const ok = !gold || gold >= entry.cost;
+        rows.push(
+          `<div class="ed-mat-row"><span class="mn">灵石</span>` +
+            `<span class="mv">${gold ? `${gold} / ` : ""}${entry.cost}</span>` +
+            `<span class="ms ${ok ? "ok" : "no"}">${ok ? "足够" : `缺 ${entry.cost - gold}`}</span></div>`
+        );
+      }
+      body.push(`<div class="ed-sec"><h4>所需材料</h4><div class="ed-mat">${rows.join("")}</div></div>`);
+    }
+    const gates = [];
+    const gateHead = entry.level || entry.need ? "门槛" : "货架";
+    if (entry.level) {
+      const now = Number(entry.level_now) || 0;
+      const pass = !entry.level_now || now >= entry.level;
+      gates.push(`<span class="${pass ? "pass" : "block"}">需境界 ${entry.level}</span>`);
+    }
+    if (entry.need) gates.push(`<span class="block">${esc(entry.need)}</span>`);
+    if (entry.source === "shop") {
+      gates.push(`<span class="pass">库存 ${entry.unlimited ? "不限量" : entry.stock}</span>`);
+      if (entry.always) gates.push(`<span class="pass">常驻</span>`);
+    }
+    if (gates.length) {
+      body.push(`<div class="ed-sec"><h4>${gateHead}</h4><div class="ed-gate">${gates.join("")}</div></div>`);
+    }
+    if (entry.notes && entry.notes.length) {
+      body.push(
+        `<div class="ed-sec"><h4>明细</h4><div class="ed-notes">` +
+          entry.notes.map((ln) => `<div>${esc(ln)}</div>`).join("") +
+          `</div></div>`
+      );
+    }
+
+    let fire = "1";
+    if (entry.source === "recipe") {
+      body.push(
+        `<div class="ed-sec"><h4>火候（影响品质 → 影响效果倍率）</h4><div class="ed-fire">` +
+          `<button type="button" class="on" data-f="1"><b>猛火</b>品质上限高</button>` +
+          `<button type="button" data-f="2"><b>文火</b>消耗低·稳</button>` +
+          `<button type="button" data-f="3"><b>守中</b>折中</button>` +
+          `</div><div class="ed-notes" style="margin-top:6px"><div>品质决定效果倍率：一般 1.0 / 良好 1.15 / 极佳 1.35 / 大师 1.6</div></div></div>`
+      );
+    }
+
+    // 数量：炼丹 / 制符 / 购买 的指令都吃数量参数，抽屉里就不必回到输入框敲。
+    // 条件不足（境界/符图没到）时不出这一步——反正也点不动
+    const locked = entry.state === "lock";
+    const unit = locked ? "" : QTY_SOURCES[entry.source] || "";
+    const unitWord = entry.unit || unit;
+    const cap = unit ? entryMaxQty(entry) : null;
+    let qty = 1;
+    const qtyHtml = unit
+      ? `<div class="ed-qty"><span class="qk">数量</span>` +
+        `<div class="qbox">` +
+        `<button type="button" class="qbtn qminus" aria-label="减少">−</button>` +
+        `<input class="qnum" type="text" inputmode="numeric" pattern="[0-9]*" value="1" aria-label="数量">` +
+        `<button type="button" class="qbtn qplus" aria-label="增加">＋</button>` +
+        `</div>` +
+        `<span class="qhint"></span>` +
+        (cap !== null && cap >= 2 ? `<button type="button" class="qall">全部 ${cap}</button>` : "") +
+        `</div>`
+      : "";
+
+    drawer.innerHTML =
+      `<div class="ed-head">` +
+      (kicker ? `<div class="ed-kicker">${esc(kicker)}</div>` : "") +
+      `<div class="ed-title">${esc(entry.name)}</div>` +
+      `<div class="ed-chips">${chips.map((c) => `<span class="ed-chip q">${esc(c)}</span>`).join("")}</div>` +
+      `<button type="button" class="ed-close" aria-label="关闭">×</button>` +
+      `</div>` +
+      `<div class="ed-body">${body.join("")}</div>` +
+      `<div class="ed-foot">` +
+      qtyHtml +
+      `<button type="button" class="primary"></button>` +
+      `<button type="button" class="ghost">关闭</button>` +
+      `</div>`;
+
+    const foot = drawer.querySelector(".ed-foot");
+    const primary = foot.querySelector(".primary");
+    const qnum = foot.querySelector(".qnum");
+    const qhint = foot.querySelector(".qhint");
+    const syncPrimary = () => {
+      primary.textContent = locked ? "条件不足" : (entry.action || "查看") + (qty > 1 ? ` ×${qty}` : "");
+      primary.disabled = locked;
+      if (qnum) qnum.value = String(qty);
+      const minus = foot.querySelector(".qminus");
+      const plus = foot.querySelector(".qplus");
+      if (minus) minus.disabled = qty <= 1;
+      if (plus) plus.disabled = cap !== null && qty >= Math.max(1, cap);
+      if (qhint) {
+        // cap=null 表示算不出上限（没有材料也没有工费），这时不画上限，交给后端判
+        qhint.textContent = cap === null ? "" : cap <= 0 ? "材料不足" : `最多 ${cap} ${unitWord}`;
+        qhint.classList.toggle("bad", cap !== null && cap <= 0);
+      }
+    };
+    const setQty = (value) => {
+      let n = Math.floor(Number(value) || 1);
+      if (!Number.isFinite(n) || n < 1) n = 1;
+      if (cap !== null && cap > 0) n = Math.min(n, cap);
+      qty = n;
+      syncPrimary();
+    };
+    if (qnum) {
+      qnum.addEventListener("input", () => {
+        const digits = qnum.value.replace(/[^0-9]/g, "").slice(0, 4);
+        if (digits !== qnum.value) qnum.value = digits;
+      });
+      qnum.addEventListener("change", () => setQty(qnum.value));
+      qnum.addEventListener("blur", () => setQty(qnum.value));
+      qnum.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          setQty(qnum.value);
+          qnum.blur();
+        }
+      });
+      foot.querySelector(".qminus").addEventListener("click", () => setQty(qty - 1));
+      foot.querySelector(".qplus").addEventListener("click", () => setQty(qty + 1));
+      const all = foot.querySelector(".qall");
+      if (all) all.addEventListener("click", () => setQty(cap));
+    }
+    syncPrimary();
+    primary.addEventListener("click", () => {
+      if (locked) return;
+      dispatchCommand(entryPrimaryCommand(entry, fire, qty));
+      closeEntryDetail();
+    });
+    drawer.querySelector(".ed-foot .ghost").addEventListener("click", closeEntryDetail);
+    drawer.querySelector(".ed-close").addEventListener("click", closeEntryDetail);
+    drawer.querySelectorAll(".ed-fire button").forEach((b) => {
+      b.addEventListener("click", () => {
+        fire = b.dataset.f;
+        drawer.querySelectorAll(".ed-fire button").forEach((x) => x.classList.toggle("on", x === b));
+      });
+    });
+
+    veil.addEventListener("click", closeEntryDetail);
+    const onKey = (e) => {
+      if (e.key === "Escape") closeEntryDetail();
+    };
+    document.addEventListener("keydown", onKey);
+
+    document.body.append(veil, drawer);
+    // 下一帧再加 on：否则首次插入就被 transform 终态吃掉动画
+    requestAnimationFrame(() => {
+      veil.classList.add("on");
+      drawer.classList.add("on");
+    });
+    entryDetailEl = { veil, drawer, onKey };
+  }
+
+  /** ⋯ 菜单：详情 + 主操作（触屏没有 hover，这个入口只在 PC 出现） */
+  function openEntryMenu(entry, anchor, ev) {
+    const menu = newCtxMenu();
+    menu.appendChild(ctxMenuButton("查看详情", () => openEntryDetail(entry, { scene: "" })));
+    menu.appendChild(
+      ctxMenuButton(`${entry.action || "查看"}（${entry.name}）`, () => dispatchCommand(entryPrimaryCommand(entry, "1")))
+    );
+    if (entry.source === "shop") {
+      menu.appendChild(ctxMenuButton("查看物品信息", () => dispatchCommand(`/物品信息 ${entry.name}`)));
+    }
+    mountCtxMenu(menu, anchor, ev);
+  }
+
+  /** 一格：品阶色条 + 名称 / 关键数字 / 数值 + 状态点 */
+  function entryCell(entry, scene) {
+    const cell = document.createElement("div");
+    cell.className = "gcell";
+    cell.setAttribute("role", "button");
+    cell.tabIndex = 0;
+    cell.dataset.key = entryKey(entry);
+    cell.style.setProperty("--qd", RANK_COLORS[gridRankOf(entry)] || "#c9bfa9");
+    const state = entry.state === "lock" ? "lock" : entry.state === "lack" ? "lack" : "ok";
+    const value = entryValue(entry);
+    cell.innerHTML =
+      `<span class="gn">${esc(entry.name)}</span>` +
+      `<span class="gm">${esc(entryMeta(entry))}</span>` +
+      `<span class="gc">${esc(value.text)}` +
+      (value.off ? `<i class="off">${esc(value.off)}</i>` : "") +
+      `</span>` +
+      (entry.source === "shop" ? "" : `<span class="st ${state}"></span>`) +
+      // 触屏没有 hover，⋯ 既不像「可悬停」暗示、又跟「点开详情」抢热区，干脆不生成
+      (HAS_HOVER ? `<button type="button" class="more" aria-label="更多操作">⋯</button>` : "");
+    cell.title = [entry.name, entry.rank, entry.kind, entry.effect].filter(Boolean).join(" · ");
+    const open = () => openEntryDetail(entry, { scene });
+    cell.addEventListener("click", (e) => {
+      if (e.target.closest(".more")) return;
+      open();
+    });
+    cell.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        open();
+      }
+    });
+    const moreBtn = cell.querySelector(".more");
+    if (moreBtn) {
+      moreBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        hideItemTip();
+        openEntryMenu(entry, e.currentTarget, e);
+      });
+    }
+    if (HAS_HOVER) {
+      cell.addEventListener("mouseenter", () => {
+        clearTimeout(itemTipTimer);
+        itemTipTimer = setTimeout(() => showEntryTip(entry, cell), 140);
+      });
+      cell.addEventListener("mouseleave", hideItemTip);
+    }
+    return cell;
+  }
+
+  /**
+   * 网格分区渲染。
+   * - 品阶 ≥3 档才出品阶条；≤2 档平铺（多一行导航只换来一次点击）
+   * - 品阶条是页签不是分割线：一次只看一档；「全部」每档最多 8 格
+   * - 默认落在第一个「有可做条目」的档，玩家打开配方书先想知道「现在能做什么」
+   */
+  function renderEntryGrid(sec, opts = {}) {
+    const scene = opts.scene || sec.name || "";
+    const entries = (sec.entries || []).filter((it) => it && it.name);
+    const wrap = document.createElement("div");
+    wrap.className = "eg-wrap";
+    wrap.dataset.role = "entry-grid";
+
+    const buckets = () => {
+      const map = new Map();
+      entries.forEach((it) => {
+        const rank = gridRankOf(it);
+        if (!map.has(rank)) map.set(rank, { rank, n: 0, ok: 0 });
+        const b = map.get(rank);
+        b.n += 1;
+        if (it.state === "ok") b.ok += 1;
+      });
+      return GRID_RANKS.filter((r) => map.has(r)).map((r) => map.get(r));
+    };
+    const allBuckets = buckets();
+    const withRankBar = allBuckets.length >= 3;
+    const fallbackRank = (allBuckets.find((b) => b.ok > 0) || allBuckets[0] || {}).rank || "*";
+
+    const rankRow = document.createElement("div");
+    rankRow.className = "eg-rankrow";
+    const rankTag = document.createElement("span");
+    rankTag.className = "eg-tag";
+    rankTag.textContent = "品阶";
+    const rankBar = document.createElement("div");
+    rankBar.className = "eg-rankbar";
+    rankRow.append(rankTag, rankBar);
+
+    const facetRow = document.createElement("div");
+    facetRow.className = "eg-facets";
+    const sum = document.createElement("div");
+    sum.className = "eg-sum";
+    const grid = document.createElement("div");
+    grid.className = "eg-grid";
+    const empty = document.createElement("div");
+    empty.className = "eg-empty";
+    empty.textContent = "这一档没有符合条件的条目";
+    empty.hidden = true;
+
+    const facetDefs = () => {
+      if (entries.some((it) => it.cat)) {
+        const cats = [];
+        entries.forEach((it) => {
+          if (it.cat && !cats.includes(it.cat)) cats.push(it.cat);
+        });
+        return { label: "类别", options: cats };
+      }
+      if (entries.some((it) => it.state)) {
+        // 同一套状态点，炼丹叫「可炼制」、制符叫「可制符」，别让符箓页写着「未达境界」
+        const isTalisman = entries.some((it) => it.source === "talisman" || it.source === "talisman_recipe");
+        return {
+          label: "状态",
+          options: isTalisman ? ["可制符", "缺材料", "未解锁"] : ["可炼制", "缺材料", "未达境界"],
+        };
+      }
+      if (entries.some((it) => it.source === "shop")) return { label: "状态", options: ["有货", "折扣"] };
+      return { label: "", options: [] };
+    };
+    const facetBox = facetDefs();
+
+    let curRank = withRankBar ? fallbackRank : "*";
+    let curFacet = "全部";
+    let limit = GRID_PAGE;
+
+    const facetMatch = (it) => {
+      if (curFacet === "全部") return true;
+      if (curFacet === "可炼制" || curFacet === "可制符") return it.state === "ok";
+      if (curFacet === "缺材料") return it.state === "lack";
+      if (curFacet === "未达境界" || curFacet === "未解锁") return it.state === "lock";
+      if (curFacet === "有货") return Number(it.stock) > 0;
+      if (curFacet === "折扣") return Number(it.discount) < 1;
+      return it.cat === curFacet;
+    };
+
+    function paintRankBar() {
+      rankBar.innerHTML = "";
+      if (!withRankBar) {
+        rankRow.hidden = true;
+        return;
+      }
+      rankRow.hidden = false;
+      const all = document.createElement("button");
+      all.type = "button";
+      all.className = "rchip" + (curRank === "*" ? " on" : "");
+      all.innerHTML = `<span>全部</span><small>${entries.length}</small>`;
+      all.addEventListener("click", () => switchRank("*"));
+      rankBar.appendChild(all);
+      allBuckets.forEach((b) => {
+        const b2 = document.createElement("button");
+        b2.type = "button";
+        b2.className = "rchip" + (curRank === b.rank ? " on" : "") + (b.ok ? "" : " dim");
+        b2.style.setProperty("--qd", RANK_COLORS[b.rank] || "#c9bfa9");
+        b2.innerHTML = `<i></i><span>${esc(rankName(b.rank))}</span><small>${b.n}</small>`;
+        b2.title = `${b.rank} · ${b.n} 条 · 可做 ${b.ok}`;
+        b2.addEventListener("click", () => switchRank(b.rank));
+        rankBar.appendChild(b2);
+      });
+      rankBar.classList.toggle("overflow", rankBar.scrollWidth > rankBar.clientWidth + 1);
+    }
+
+    function paintFacets() {
+      facetRow.innerHTML = "";
+      if (!facetBox.options.length) {
+        facetRow.hidden = true;
+        return;
+      }
+      facetRow.hidden = false;
+      const tag = document.createElement("span");
+      tag.className = "eg-tag";
+      tag.textContent = facetBox.label;
+      facetRow.appendChild(tag);
+      ["全部", ...facetBox.options].forEach((opt) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "fchip" + (curFacet === opt ? " on" : "");
+        b.textContent = opt;
+        b.addEventListener("click", () => {
+          if (curFacet === opt) return;
+          curFacet = opt;
+          limit = GRID_PAGE;
+          paintFacets();
+          paint();
+        });
+        facetRow.appendChild(b);
+      });
+    }
+
+    function paintSummary(pool) {
+      const okCount = pool.filter((it) => it.state === "ok").length;
+      if (curRank === "*") {
+        sum.innerHTML =
+          `共 <b>${pool.length}</b> 条` +
+          (withRankBar ? ` · ${allBuckets.length} 档` : "") +
+          (okCount ? ` · 可做 ${okCount}` : "");
+      } else {
+        // 当前档的条数必须按档筛一遍，不能拿整池的长度冒充
+        const mine = pool.filter((it) => gridRankOf(it) === curRank);
+        const ok = mine.filter((it) => it.state === "ok").length;
+        sum.innerHTML =
+          `<b>${esc(curRank)}</b> · ${mine.length} 条` + (ok ? ` · 可做 ${ok}` : "");
+      }
+      sum.hidden = !pool.length;
+    }
+
+    function paint() {
+      hideItemTip();
+      grid.innerHTML = "";
+      const pool = entries.filter(facetMatch);
+      paintSummary(pool);
+      empty.hidden = pool.length > 0;
+      if (!pool.length) return;
+
+      if (!withRankBar) {
+        pool.forEach((it) => grid.appendChild(entryCell(it, scene)));
+        return;
+      }
+      if (curRank !== "*") {
+        const list = pool.filter((it) => gridRankOf(it) === curRank);
+        list.slice(0, limit).forEach((it) => grid.appendChild(entryCell(it, scene)));
+        if (list.length > limit) {
+          const more = document.createElement("button");
+          more.type = "button";
+          more.className = "eg-more";
+          more.textContent = `加载更多（还有 ${list.length - limit} 条）`;
+          more.addEventListener("click", () => {
+            limit += GRID_PAGE;
+            paint();
+          });
+          grid.appendChild(more);
+        }
+        return;
+      }
+      // 「全部」：分档纵览，每档最多 8 格，其余折成 +N
+      allBuckets.forEach((b) => {
+        const list = pool.filter((it) => gridRankOf(it) === b.rank);
+        if (!list.length) return;
+        const head = document.createElement("div");
+        head.className = "eg-sec";
+        head.innerHTML =
+          `<s style="background:${RANK_COLORS[b.rank] || "#c9bfa9"}"></s>${esc(b.rank)}` +
+          `<em>${list.length} 条 · 可做 ${b.ok}</em><u></u>`;
+        grid.appendChild(head);
+        list.slice(0, RANK_ALL_CAP).forEach((it) => grid.appendChild(entryCell(it, scene)));
+        if (list.length > RANK_ALL_CAP) {
+          const more = document.createElement("button");
+          more.type = "button";
+          more.className = "gmore";
+          more.innerHTML = `+${list.length - RANK_ALL_CAP}<small>看 ${esc(rankName(b.rank))}</small>`;
+          more.addEventListener("click", () => switchRank(b.rank));
+          grid.appendChild(more);
+        }
+      });
+    }
+
+    function switchRank(rank) {
+      curRank = rank;
+      limit = GRID_PAGE;
+      hideItemTip();
+      paintRankBar();
+      paint();
+    }
+
+    if (withRankBar) wrap.appendChild(rankRow);
+    wrap.appendChild(facetRow);
+    wrap.appendChild(sum);
+    wrap.appendChild(grid);
+    wrap.appendChild(empty);
+    paintRankBar();
+    paintFacets();
+    paint();
     return wrap;
   }
 

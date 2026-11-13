@@ -10,7 +10,7 @@ from astrbot.api import logger
 if TYPE_CHECKING:
     from ..config_manager import ConfigManager
 
-LATEST_DB_VERSION = 61  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求；v49: 统一物品品阶名称；v50: 仙市投资系统（基金/股票）；v51: 符箓熟练度与符图习得；v52: 仙市 v6（16 盘 + 赌场级波动 + 不对称日熔断）；v53: 拍卖会未开拍拍品按固定品阶曲线重建（并兼容分叉旧库补授符图）；v54: 灵田肥力上限按等级分级（旧值按百分比换算）；v55: 生活职业更换费用峰值与时间衰减；v56: 误存进储物戒/溢出仓库的丹药迁回丹药背包；v57: 旧50/50装备改名迁移到混合倾向新装备；v58: 周常 Boss（周本）周期/队伍/成员/领奖/周榜/次数表；v59: 仙市分红/风声唯一索引（结算幂等，先去重再建索引）；v60: 功德机制重做，清空全服既有功德（业力）；v61: 秘境难度分级（rift_key/product/difficulty/duration）
+LATEST_DB_VERSION = 62  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求；v49: 统一物品品阶名称；v50: 仙市投资系统（基金/股票）；v51: 符箓熟练度与符图习得；v52: 仙市 v6（16 盘 + 赌场级波动 + 不对称日熔断）；v53: 拍卖会未开拍拍品按固定品阶曲线重建（并兼容分叉旧库补授符图）；v54: 灵田肥力上限按等级分级（旧值按百分比换算）；v55: 生活职业更换费用峰值与时间衰减；v56: 误存进储物戒/溢出仓库的丹药迁回丹药背包；v57: 旧50/50装备改名迁移到混合倾向新装备；v58: 周常 Boss（周本）周期/队伍/成员/领奖/周榜/次数表；v59: 仙市分红/风声唯一索引（结算幂等，先去重再建索引）；v60: 功德机制重做，清空全服既有功德（业力）；v61: 秘境难度分级（rift_key/product/difficulty/duration）；v62: 活动状态位按槽位多行（本体 + 身外化身）
 
 MIGRATION_TASKS: Dict[int, Callable[[aiosqlite.Connection, ConfigManager], Awaitable[None]]] = {}
 
@@ -500,6 +500,8 @@ async def _ensure_latest_columns(conn: aiosqlite.Connection):
     await _add_column_if_missing(conn, "player_pets", "slot", "INTEGER NOT NULL DEFAULT 1")
     await _add_column_if_missing(conn, "player_pets", "is_main", "INTEGER NOT NULL DEFAULT 1")
     await _ensure_weekly_boss_v58(conn)
+    # v62：活动状态位槽位化（老库改主键只能重建表，放这里兜底一次）
+    await _ensure_user_cd_slots_v62(conn)
     await conn.commit()
 
 class MigrationManager:
@@ -863,11 +865,13 @@ async def _create_all_tables_v2(conn: aiosqlite.Connection):
     await conn.execute("CREATE INDEX IF NOT EXISTS idx_impart_user ON impart_info(user_id)")
     await conn.execute("""
         CREATE TABLE IF NOT EXISTS user_cd (
-            user_id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            slot INTEGER NOT NULL DEFAULT 0,
             type INTEGER NOT NULL DEFAULT 0,
             create_time INTEGER NOT NULL DEFAULT 0,
             scheduled_time INTEGER NOT NULL DEFAULT 0,
-            extra_data TEXT NOT NULL DEFAULT '{}'
+            extra_data TEXT NOT NULL DEFAULT '{}',
+            PRIMARY KEY (user_id, slot)
         )
     """)
     await conn.execute("""
@@ -1149,8 +1153,13 @@ async def _migrate_to_v12(conn: aiosqlite.Connection, config_manager: ConfigMana
     
     await conn.execute("""
         CREATE TABLE IF NOT EXISTS user_cd (
-            user_id TEXT PRIMARY KEY, type INTEGER NOT NULL DEFAULT 0,
-            create_time INTEGER NOT NULL DEFAULT 0, scheduled_time INTEGER NOT NULL DEFAULT 0
+            user_id TEXT NOT NULL,
+            slot INTEGER NOT NULL DEFAULT 0,
+            type INTEGER NOT NULL DEFAULT 0,
+            create_time INTEGER NOT NULL DEFAULT 0,
+            scheduled_time INTEGER NOT NULL DEFAULT 0,
+            extra_data TEXT NOT NULL DEFAULT '{}',
+            PRIMARY KEY (user_id, slot)
         )
     """)
 
@@ -2613,3 +2622,56 @@ async def _migrate_to_v61(conn: aiosqlite.Connection, config_manager: ConfigMana
     await _ensure_rift_difficulty_v61(conn)
     await conn.commit()
     logger.info("v61迁移完成：rifts 表已支持难度分级")
+
+
+async def _ensure_user_cd_slots_v62(conn: aiosqlite.Connection):
+    """v62：活动状态位从「每人一行」改成「每人每分身一行」。
+
+    旧表 ``user_cd(user_id PRIMARY KEY)`` 只能存一项活动，逼得历练路线、秘境预 roll、
+    镖车、宗门任务全挤在同一格里，谁先开谁把别人覆盖掉。改成
+    ``user_cd(user_id, slot)`` 复合主键后，本体（slot 0）与身外化身（slot 1..4）
+    各占一行，才能真正同时跑多项活动。
+
+    SQLite 改主键只能重建表，所以走「建新表 → 搬数据到 slot 0 → 换名」。
+    幂等：已经带 slot 列的库直接跳过。
+    """
+    if await _column_exists(conn, "user_cd", "slot"):
+        return
+
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS user_cd_v62 (
+            user_id TEXT NOT NULL,
+            slot INTEGER NOT NULL DEFAULT 0,
+            type INTEGER NOT NULL DEFAULT 0,
+            create_time INTEGER NOT NULL DEFAULT 0,
+            scheduled_time INTEGER NOT NULL DEFAULT 0,
+            extra_data TEXT NOT NULL DEFAULT '{}',
+            PRIMARY KEY (user_id, slot)
+        )
+        """
+    )
+    has_extra = await _column_exists(conn, "user_cd", "extra_data")
+    extra_expr = "COALESCE(extra_data, '{}')" if has_extra else "'{}'"
+    await conn.execute(
+        f"""
+        INSERT OR IGNORE INTO user_cd_v62
+            (user_id, slot, type, create_time, scheduled_time, extra_data)
+        SELECT user_id, 0, type, create_time, scheduled_time, {extra_expr}
+        FROM user_cd
+        """
+    )
+    await conn.execute("DROP TABLE user_cd")
+    await conn.execute("ALTER TABLE user_cd_v62 RENAME TO user_cd")
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_user_cd_type ON user_cd(type, scheduled_time)"
+    )
+
+
+@migration(62)
+async def _migrate_to_v62(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """v62：活动状态位改按槽位多行（本体 + 身外化身）。"""
+    logger.info("开始迁移到 v62：活动状态位槽位化")
+    await _ensure_user_cd_slots_v62(conn)
+    await conn.commit()
+    logger.info("v62迁移完成：user_cd 已支持多槽位（本体 + 身外化身）")

@@ -123,7 +123,7 @@ class PetHandlers:
         if len(pets) > slots:
             lines.append(f"⚠️ 当前仅允许 {slots} 只灵兽出战，超出槽位的灵兽不会参战")
         elif len(pets) < slots:
-            lines.append(f"🐾 空槽 {slots - len(pets)} 个 · 历练/秘境结算可触发灵兽奇遇")
+            lines.append(f"🐾 空槽 {slots - len(pets)} 个 · 历练·秘境结算可触发灵兽奇遇")
         life_bonus = self.pet_mgr.get_life_bonus_from_pets(pets, "gold_bonus")
         if life_bonus > 0:
             lines.append(f"💰 生活加成叠加：灵石收益 +{life_bonus:.1%}（每只灵兽分别生效）")

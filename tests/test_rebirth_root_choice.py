@@ -12,6 +12,7 @@ PKG = ROOT.name
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from tests._astrbot_stub import install as _install_astrbot_stub
+from tests._cd_stub import SlotCdStubMixin
 
 _install_astrbot_stub()
 
@@ -44,7 +45,7 @@ class _FakeConn:
         return None
 
 
-class _FakeExt:
+class _FakeExt(SlotCdStubMixin):
     def __init__(self):
         self.config_store = {}
 

@@ -3046,7 +3046,7 @@ class XiuXianPlugin(Star):
 
         player = await self.db.get_player_by_id(event.get_sender_id())
         user_cd = (
-            await self.db.ext.get_user_cd(event.get_sender_id()) if player else None
+            await self.db.ext.first_busy_cd(event.get_sender_id()) if player else None
         )
         raw_text = event.get_message_str()
         normalized = xiuxian_utils._normalize_command_text(raw_text)
@@ -3359,10 +3359,8 @@ class XiuXianPlugin(Star):
         if not player:
             yield event.plain_result("❌ 道友尚未踏入仙途，请先发送「我要修仙」。")
             return
-        user_cd = await self.db.ext.get_user_cd(player.user_id)
-        if user_cd and user_cd.type != UserStatus.IDLE:
-            from .models_extended import UserStatus as _US
-            yield event.plain_result(f"❌ 你当前正{_US.get_name(user_cd.type)}，无法押镖！")
+        if await self.db.ext.get_active_cd(player.user_id, UserStatus.DELIVERING) is not None:
+            yield event.plain_result("❌ 你已经在押镖途中了，先走完这一趟。")
             return
         success, msg, _ = await self.escort_mgr.start_escort(player)
         if success:
@@ -3595,6 +3593,7 @@ class XiuXianPlugin(Star):
                     sections=spec.get("sections") or [],
                     footer=spec.get("footer") or "",
                     width=int(spec.get("width") or 1280),
+                    web_sections=spec.get("web_sections"),
                 )
                 if card_path:
                     yield event.image_result(card_path)
@@ -3623,7 +3622,7 @@ class XiuXianPlugin(Star):
         if not player:
             yield event.plain_result("❌ 道友尚未踏入仙途。")
             return
-        msg, card_lines, craftable = self.talisman_mgr.build_craft_book(player)
+        msg, card_lines, craftable, entries = self.talisman_mgr.build_craft_book(player)
         try:
             from .utils.image_generator import render_card_async, card_enabled
             if card_lines and card_enabled("CARD_TALISMAN_RECIPE"):
@@ -3632,7 +3631,12 @@ class XiuXianPlugin(Star):
                     "craft",
                     f"{display_name} 的符箓书",
                     f"可画 {craftable} 种 · 熟练度 {self.talisman_mgr.get_proficiency(player)['name']}",
-                    sections=[{"name": "已掌握符箓", "lines": card_lines}],
+                    sections=[{
+                        "name": "已掌握符箓",
+                        "lines": card_lines,
+                        "view": "grid" if entries else "",
+                        "entries": entries,
+                    }],
                     footer="💡 /制符 <符名> [数量|all] 绘制 · /符箓 查看图鉴 · /日常制符 领护劫符",
                 )
                 if card_path:
@@ -4229,7 +4233,7 @@ class XiuXianPlugin(Star):
                 yield event.plain_result(f"❌ 未找到该玩家。")
                 return
                 
-            user_cd = await self.db.ext.get_user_cd(target.user_id)
+            user_cd = await self.db.ext.first_busy_cd(target.user_id)
             loan = await self.db.ext.get_active_loan(target.user_id)
             status = UserStatus.get_name(user_cd.type) if user_cd else "空闲"
             yield event.plain_result(
