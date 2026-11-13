@@ -244,7 +244,10 @@ class TestRootChoice(unittest.IsolatedAsyncioTestCase):
         player.gold = 88888
         player.fate_points = 100
         player.reincarnation_count = 1
-        player.permanent_bonus = json.dumps({"titles": {"测试称号": 1}}, ensure_ascii=False)
+        player.permanent_bonus = json.dumps(
+            {"titles": {"测试称号": 1}, "dao_gift_times": 8},
+            ensure_ascii=False,
+        )
         player.set_storage_ring_items({"灵石袋": 1})
         db.players["u1"] = player
 
@@ -255,8 +258,12 @@ class TestRootChoice(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(player.experience, 0)
         self.assertEqual(player.gold, 1000)
         self.assertEqual(player.fate_points, 100 + 10 + 20 + 30)
-        self.assertEqual(player.reincarnation_count, 2)
+        # 弃道重修只算「重修次数」，不再计入完美转生次数（完美转生只认 /飞升）
+        self.assertEqual(player.reincarnation_count, 1)
+        self.assertIn("完美转生 1 次 · 重修 1 次", msg)
         self.assertIn("测试称号", player.permanent_bonus)
+        # 道基淬炼 8 层 = +40%：剑修 0 级精神 150 -> 210
+        self.assertEqual(player.mental_power, 210)
         self.assertEqual(player.get_storage_ring_items(), {})
         # v6.57.0: 冷却/累计次数/灵根刷新计数改为随重修事务原生 SQL 写入 system_config
         cfg_writes = db.conn.system_config_writes()
@@ -264,6 +271,175 @@ class TestRootChoice(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(cfg_writes.get("rebirth_total_u1"), "1")
         self.assertEqual(cfg_writes.get("rebirth_root_reroll_u1"), "0")
         self.assertIn("弃道重修完成", msg)
+
+
+class TestRerollAndNewlife(unittest.IsolatedAsyncioTestCase):
+    """灵根重抽预算（5 次免费 + 商店额度）与飞升后的道体重塑。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.PlayerHandler = _imp("handlers.player_handler").PlayerHandler
+        cls.rules = _imp("core.reincarnation_rules")
+
+    def _handler(self):
+        db = _FakeDB()
+        config = {"VALUES": {"INITIAL_GOLD": 1000, "LEVEL_EXP_BONUS_PER_LEVEL": 0.1},
+                  "SPIRIT_ROOT_WEIGHTS": {}, "SPIRIT_ROOT_SPEEDS": {}}
+        handler = self.PlayerHandler(db, config, None)
+
+        async def fake_tutorial(*a, **k):
+            return ""
+
+        handler.tutorial_mgr.check_and_advance = fake_tutorial
+        return handler, db
+
+    async def test_five_free_rerolls_then_stock(self):
+        handler, db = self._handler()
+        player = handler.cultivation_manager.generate_new_player_stats("u1", "剑修", root="火")
+        db.players["u1"] = player
+
+        for _ in range(self.rules.FREE_ROOT_REROLLS):
+            ok, note, roots, _ug = await handler._reroll_roots(player)
+            self.assertTrue(ok, note)
+            self.assertEqual(len(roots), 3)
+        ok, note, _roots, _ug = await handler._reroll_roots(player)
+        self.assertFalse(ok)
+        self.assertIn("已用完", note)
+
+        # 买 1 次洗炼额度后还能再抽一次
+        player.fate_points = 100
+        mgr = _imp("managers.reincarnation_manager").ReincarnationManager(db, handler.config_manager, None)
+        ok, msg = await mgr.buy_fate_shop_item(player, 4)
+        self.assertTrue(ok, msg)
+        ok, note, _roots, _ug = await handler._reroll_roots(player)
+        self.assertTrue(ok, note)
+        self.assertIn("洗炼额度", note)
+        self.assertEqual(self.rules.root_reroll_stock(player), 0)
+
+    async def test_reroll_does_not_cost_fate_points(self):
+        handler, db = self._handler()
+        player = handler.cultivation_manager.generate_new_player_stats("u1", "剑修", root="火")
+        player.fate_points = 20
+        db.players["u1"] = player
+        await handler._reroll_roots(player)
+        self.assertEqual(player.fate_points, 20)
+
+    async def test_guarantee_same_tier_except_every_fifth(self):
+        """平时只保「与上一世同档」，第 5/10… 批才保「高一档」。"""
+        handler, db = self._handler()
+        player = handler.cultivation_manager.generate_new_player_stats("u1", "剑修", root="火")
+        db.players["u1"] = player
+        cm = handler.cultivation_manager
+        variant = cm.root_tier_index("雷")          # 上一世变异灵根（第 6 档）
+        self.assertGreaterEqual(variant, 0)
+
+        for batch in range(1, self.rules.ROOT_TIER_GUARANTEE_EVERY):
+            ok, note, roots, info = await handler._reroll_roots(player, "雷")
+            self.assertTrue(ok, note)
+            self.assertEqual(info["roll_no"], batch, note)
+            self.assertFalse(info["upgraded"], note)
+            self.assertTrue(
+                any(cm.root_tier_index(r) >= variant for r in roots), (note, roots)
+            )
+
+        # 第 5 批（最后一次免费）：升一档 → 必出天灵根及以上
+        ok, note, roots, info = await handler._reroll_roots(player, "雷")
+        self.assertTrue(ok, note)
+        self.assertEqual(info["roll_no"], 5)
+        self.assertTrue(info["upgraded"], note)
+        self.assertIn("升档保底", note)
+        self.assertTrue(
+            any(cm.root_tier_index(r) >= variant + 1 for r in roots), roots
+        )
+
+        # 第 6 批回到同档（此时免费已用完，走洗炼额度）
+        player.permanent_bonus = json.dumps({"root_reroll_stock": 3})
+        ok, note, roots, info = await handler._reroll_roots(player, "雷")
+        self.assertTrue(ok, note)
+        self.assertEqual(info["roll_no"], 6)
+        self.assertFalse(info["upgraded"], note)
+
+    async def test_restart_mid_round_costs_a_reroll(self):
+        """本轮已抽过一批：再发「我要修仙 职业」等同重抽，不能白推进批次去白嫖升档。"""
+        handler, db = self._handler()
+        player = handler.cultivation_manager.generate_new_player_stats("u1", "剑修", root="火")
+        player.cultivation_type = self.rules.NEWLIFE_MARKER
+        player.spiritual_root = self.rules.NEWLIFE_ROOT_MARKER
+        db.players["u1"] = player
+        db.ext.config_store["rebirth_prev_root_u1"] = "雷"
+
+        event = _FakeEvent()
+        async for _ in handler.handle_start_xiuxian(event, "体修"):
+            pass
+        self.assertEqual(await handler._root_roll_no("u1"), 1)
+        self.assertEqual(await handler._root_reroll_used("u1"), 0)   # 首批不扣
+
+        event2 = _FakeEvent()
+        async for _ in handler.handle_start_xiuxian(event2, "体修"):
+            pass
+        self.assertEqual(await handler._root_roll_no("u1"), 2)
+        self.assertEqual(await handler._root_reroll_used("u1"), 1)   # 重开算一次重抽
+
+    async def test_reset_clears_roll_counter(self):
+        handler, _db = self._handler()
+        self.assertEqual(await handler._root_roll_no("u1"), 0)
+        self.assertEqual(await handler._bump_root_roll_no("u1"), 1)
+        self.assertEqual(await handler._root_roll_no("u1"), 1)
+        await handler._reset_root_reroll_round("u1")
+        self.assertEqual(await handler._root_roll_no("u1"), 0)
+        self.assertEqual(await handler._root_reroll_used("u1"), 0)
+
+    async def test_top_tier_previous_life_gets_no_upgrade_batch(self):
+        """上一世已是最顶档：第 5 批无法再升，只保同档而不是报错。"""
+        handler, db = self._handler()
+        player = handler.cultivation_manager.generate_new_player_stats("u1", "剑修", root="火")
+        player.permanent_bonus = json.dumps({"root_reroll_stock": 20})
+        db.players["u1"] = player
+        cm = handler.cultivation_manager
+        top = len(cm.root_tier_order) - 1
+
+        for _ in range(self.rules.ROOT_TIER_GUARANTEE_EVERY):
+            ok, note, roots, info = await handler._reroll_roots(player, "先天道体")
+            self.assertTrue(ok, note)
+        self.assertFalse(info["upgraded"], note)
+        self.assertTrue(any(cm.root_tier_index(r) >= top for r in roots), roots)
+
+    async def test_newlife_flow_rebuilds_body(self):
+        handler, db = self._handler()
+        player = handler.cultivation_manager.generate_new_player_stats("u1", "剑修", root="火")
+        player.cultivation_type = self.rules.NEWLIFE_MARKER
+        player.spiritual_root = self.rules.NEWLIFE_ROOT_MARKER
+        player.life_skill = ""
+        player.gold = 12345
+        db.players["u1"] = player
+        self.assertEqual(len(db.players), 1)
+
+        event = _FakeEvent()
+        async for _ in handler.handle_start_xiuxian(event, "体修"):
+            pass
+        pending = await handler._load_root_pending("create_roots", "u1")
+        self.assertIsNotNone(pending)
+        self.assertEqual(pending.get("newlife"), 1)
+        self.assertEqual(pending.get("cultivation_type"), "体修")
+        self.assertIn("免费重抽剩余 5/5", event.results[-1])
+
+        event2 = _FakeEvent()
+        async for _ in handler.handle_choose_root(event2, "1"):
+            pass
+        self.assertEqual(player.cultivation_type, "体修")
+        self.assertNotEqual(player.spiritual_root, self.rules.NEWLIFE_ROOT_MARKER)
+        # 转世资粮已由飞升发放，重塑不应重置钱包
+        self.assertEqual(player.gold, 12345)
+        self.assertIn("道体重塑完成", event2.results[-1])
+        self.assertEqual(len(db.players), 1)
+
+    async def test_newlife_blocks_rebirth(self):
+        handler, db = self._handler()
+        player = handler.cultivation_manager.generate_new_player_stats("u1", "剑修", root="火")
+        player.cultivation_type = self.rules.NEWLIFE_MARKER
+        reason = await handler._rebirth_block_reason(player)
+        self.assertIsNotNone(reason)
+        self.assertIn("道体重塑", reason)
 
 
 if __name__ == "__main__":

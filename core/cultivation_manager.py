@@ -200,6 +200,40 @@ class CultivationManager:
             "DIVINE_BODY": ["先天道体", "神圣体质"]
         }
 
+        # 灵根阶位（由低到高）：抽取池即阶位。飞升后的道体重塑按这张表给保底：
+        # 平时保「与上一世同档」，每 5 批保「高一档」。
+        # 括号里是展示用的阶名，玩家在 /灵根说明 里看到的也是这套。
+        self.root_tier_order = [
+            ("PSEUDO", "废灵根"),
+            ("QUAD", "四灵根·凡品"),
+            ("TRI", "三灵根·凡品"),
+            ("DUAL", "双灵根·良品"),
+            ("WUXING", "五行单灵根·上品"),
+            ("VARIANT", "变异灵根·稀有"),
+            ("HEAVENLY", "天灵根·极品"),
+            ("LEGENDARY", "传说灵根"),
+            ("MYTHIC", "神话灵根"),
+            ("DIVINE_BODY", "禁忌道体"),
+        ]
+        self.root_to_tier = {
+            root: idx
+            for idx, (pool_key, _) in enumerate(self.root_tier_order)
+            for root in self.root_pools[pool_key]
+        }
+        # 抽取权重：池权重 × 池内条数才是每条灵根的权重，用于 /灵根说明 显示单抽概率
+        self.tier_weight_keys = {
+            "PSEUDO": ("PSEUDO_ROOT_WEIGHT", 1),
+            "QUAD": ("QUAD_ROOT_WEIGHT", 10),
+            "TRI": ("TRI_ROOT_WEIGHT", 30),
+            "DUAL": ("DUAL_ROOT_WEIGHT", 100),
+            "WUXING": ("WUXING_ROOT_WEIGHT", 200),
+            "VARIANT": ("VARIANT_ROOT_WEIGHT", 20),
+            "HEAVENLY": ("HEAVENLY_ROOT_WEIGHT", 5),
+            "LEGENDARY": ("LEGENDARY_ROOT_WEIGHT", 2),
+            "MYTHIC": ("MYTHIC_ROOT_WEIGHT", 1),
+            "DIVINE_BODY": ("DIVINE_BODY_WEIGHT", 1),
+        }
+
     def _calculate_base_stats(self, level_index: int, cultivation_type: str = "灵修") -> Dict[str, int]:
         level_data = self.config_manager.get_level_data(cultivation_type)
         if 0 <= level_index < len(level_data):
@@ -259,8 +293,77 @@ class CultivationManager:
         except (TypeError, ValueError):
             return 1.0
 
-    def draw_spiritual_roots(self, count: int = 3) -> list:
-        """按现有权重抽多个不重复的灵根，供创号/重修三选一。"""
+    # ---------- 灵根阶位 / 图鉴 ----------
+
+    @staticmethod
+    def root_name(root: str) -> str:
+        """去掉「灵根」后缀，统一成灵根名（金木 / 天雷 / 先天道体）。"""
+        return str(root or "").replace("灵根", "").strip()
+
+    def root_tier_index(self, root_name: str) -> int:
+        """返回灵根所在阶位下标（0 最低），未知返回 -1。"""
+        return self.root_to_tier.get(self.root_name(root_name), -1)
+
+    def root_tier_label(self, root_name: str) -> str:
+        idx = self.root_tier_index(root_name)
+        if idx < 0:
+            return "未知阶位"
+        return self.root_tier_order[idx][1]
+
+    def root_tier_roots(self, idx: int) -> list:
+        """某一阶位的全部灵根。"""
+        if 0 <= idx < len(self.root_tier_order):
+            return list(self.root_pools[self.root_tier_order[idx][0]])
+        return []
+
+    def upgrade_root_for(self, base_root: str) -> str:
+        """比 base_root 高一档的灵根（随机一条）。
+
+        仅作展示/工具用途（例如说明里「高一档」的示例）；真正的抽取保底走
+        `draw_spiritual_roots(min_tier=...)`，由调用方按批次决定同档还是升档。
+        已是最高档或无法识别时返回空串。
+        """
+        idx = self.root_tier_index(base_root)
+        if idx < 0 or idx + 1 >= len(self.root_tier_order):
+            return ""
+        pool = self.root_tier_roots(idx + 1)
+        return random.choice(pool) if pool else ""
+
+    def root_draw_chance(self, root_name: str) -> float:
+        """单条灵根的单抽概率（0~1），按当前配置权重实时计算。"""
+        name = self.root_name(root_name)
+        idx = self.root_tier_index(name)
+        if idx < 0:
+            return 0.0
+        weights_cfg = self.config.get("SPIRIT_ROOT_WEIGHTS", {}) or {}
+        total = 0.0
+        weight = 0.0
+        for tier_idx, (pool_key, _) in enumerate(self.root_tier_order):
+            key, default = self.tier_weight_keys[pool_key]
+            try:
+                w = max(0.0, float(weights_cfg.get(key, default)))
+            except (TypeError, ValueError):
+                w = 0.0
+            size = len(self.root_pools[pool_key])
+            total += w * size
+            if tier_idx == idx:
+                weight = w
+        if total <= 0:
+            return 0.0
+        return weight / total
+
+    def root_tier_label_by_index(self, idx: int) -> str:
+        if 0 <= idx < len(self.root_tier_order):
+            return self.root_tier_order[idx][1]
+        return "未知阶位"
+
+    def draw_spiritual_roots(self, count: int = 3, min_tier: int = -1) -> list:
+        """按现有权重抽多个不重复的灵根，供创号/重修三选一。
+
+        `min_tier` >= 0 时（飞升后的道体重塑），本批必有一条灵根的阶位不低于它：
+        自然抽到的最高阶位已达标就不干预，否则把阶位最低的那条换成该档位的随机灵根。
+        传 -1 表示纯随机（首次创号、弃道重修）。
+        """
         results = []
         attempts = 0
         while len(results) < max(1, int(count)) and attempts < max(20, count * 20):
@@ -270,6 +373,21 @@ class CultivationManager:
                 results.append(root)
         if not results:
             results.append("金")
+
+        if not (0 <= min_tier < len(self.root_tier_order)):
+            return results
+        best = max((self.root_tier_index(r) for r in results), default=-1)
+        if best >= min_tier:
+            # 已经自然抽到达标灵根，再替换反而是降级
+            return results
+        pool = [r for r in self.root_tier_roots(min_tier) if r not in results]
+        if not pool:
+            return results
+        lowest_idx = min(
+            range(len(results)),
+            key=lambda i: (self.root_tier_index(results[i]), i),
+        )
+        results[lowest_idx] = random.choice(pool)
         return results
 
     def _get_root_description(self, root_name: str) -> str:
@@ -385,6 +503,8 @@ class CultivationManager:
         try:
             bonus_data = json.loads(player.permanent_bonus) if player.permanent_bonus else {}
             global_mult = 1.0 + bonus_data.get("global_cultivation_multiplier", 0.0)
+            # 【悟道蒲团】只作用于闭关打坐，与修炼加速相乘
+            global_mult *= 1.0 + max(0.0, float(bonus_data.get("seclusion_bonus", 0.0) or 0.0))
         except Exception:
             pass
         # ======================================

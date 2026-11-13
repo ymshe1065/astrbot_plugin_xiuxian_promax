@@ -989,6 +989,16 @@ class SpiritFarmManager:
                 total_gold = await PetManager(self.db).apply_gold_bonus(player, total_gold)
             except Exception:
                 pass
+            # 仙缘【灵田丰饶】：灵石与修为产出永久加成（无上限）
+            try:
+                from ..core.reincarnation_rules import permanent_effect
+
+                farm_bonus = permanent_effect(player, "spirit_farm_bonus")
+                if farm_bonus:
+                    total_exp = int(total_exp * (1.0 + farm_bonus))
+                    total_gold = int(total_gold * (1.0 + farm_bonus))
+            except Exception:
+                pass
 
         # 单一 BEGIN IMMEDIATE 事务：删除已收作物 + 收益增量落库并 commit，
         # 之后才存灵草；任何后续失败都不会导致重复结算（宁可丢奖励不可重复收获）

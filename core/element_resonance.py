@@ -233,6 +233,17 @@ class ElementResonance:
         for key in CAPS:
             totals[key] = min(float(totals.get(key, 0.0) or 0.0), float(CAPS[key]))
 
+        # 仙缘【五行亲和】：共鸣的所有加成按账本整体放大（加算系数，无上限）
+        try:
+            from .reincarnation_rules import permanent_effect
+
+            resonance_bonus = permanent_effect(player, "element_resonance_bonus")
+            if resonance_bonus:
+                for key in list(totals.keys()):
+                    totals[key] = float(totals[key]) * (1.0 + resonance_bonus)
+        except Exception:
+            pass
+
         result = {
             "main_element": main_element,
             "match_count": len(matched),

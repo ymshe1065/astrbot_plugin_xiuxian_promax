@@ -209,9 +209,20 @@ class DualCultivationManager:
             remaining = DUAL_CULT_COOLDOWN - (now - initiator_last_dual)
             return False, f"❌ 对方仍在双修冷却，还需 {remaining // 60} 分钟。"
 
-        # 计算双修收益
+        # 计算双修收益（仙缘【双修心得】按各自的账本永久加成）
         init_exp_gain = int(acceptor.experience * DUAL_CULT_EXP_BONUS)
         accept_exp_gain = int(initiator.experience * DUAL_CULT_EXP_BONUS)
+        try:
+            from ..core.reincarnation_rules import permanent_effect
+
+            init_bonus = permanent_effect(initiator, "dual_cultivation_bonus")
+            if init_bonus:
+                init_exp_gain = int(init_exp_gain * (1.0 + init_bonus))
+            accept_bonus = permanent_effect(acceptor, "dual_cultivation_bonus")
+            if accept_bonus:
+                accept_exp_gain = int(accept_exp_gain * (1.0 + accept_bonus))
+        except Exception:
+            pass
 
         # 事务内原子结算：条件删除请求 + 修为增量 + 冷却写入
         await self.db.conn.execute("BEGIN IMMEDIATE")

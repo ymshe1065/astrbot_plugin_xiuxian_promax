@@ -463,6 +463,17 @@ class BountyManager:
                 pass
 
 
+            # 仙缘【悬赏通缉】：悬赏奖励（灵石 + 修为）永久加成（无上限）
+            try:
+                from ..core.reincarnation_rules import permanent_effect
+
+                bounty_bonus = permanent_effect(player, "bounty_bonus")
+                if bounty_bonus:
+                    stone_reward = int(stone_reward * (1.0 + bounty_bonus))
+                    exp_reward = int(exp_reward * (1.0 + bounty_bonus))
+            except Exception:
+                pass
+
             await self.db.conn.execute(
                 "UPDATE bounty_tasks SET status = 2 WHERE user_id = ? AND status = 1",
                 (player.user_id,)

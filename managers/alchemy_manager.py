@@ -1029,11 +1029,22 @@ class AlchemyManager:
                 talisman_success = int(TalismanManager.get_active_bonus(player, "alchemy_success_bonus"))
             except Exception:
                 talisman_success = 0
+            # 仙缘【丹火纯青】：炼丹成功率永久加点（加算进最终成功率，仍受 95% 硬顶）
+            fate_success = 0
+            fate_double = 0.0
+            try:
+                from ..core.reincarnation_rules import permanent_effect
+
+                fate_success = permanent_effect(player, "alchemy_success_bonus") * 100
+                fate_double = permanent_effect(player, "alchemy_double_bonus")
+            except Exception:
+                fate_success = 0
+                fate_double = 0.0
             final_success_rate = min(
                 95,
                 max(5, recipe["success_rate"] + level_bonus + furnace_bonus + sect_bonus
                     + companion_bonus + root_bonus.get("success_rate", 0) + rate_bonus
-                    + talisman_success),
+                    + talisman_success + int(round(fate_success))),
             )
             is_success = random.randint(1, 100) <= final_success_rate
             quality = self._roll_quality(player, fire_choice, furnace_level, sect_level) if is_success else ""
@@ -1051,6 +1062,16 @@ class AlchemyManager:
                 pill_rank = self._pill_rank_of(output_pill, recipe)
                 demand = int(TRIBULATION_DEMAND.get(pill_rank, 0) or 0)
                 trigger = int(TRIBULATION_RATE.get(pill_rank, 0) or 0)
+                # 仙缘【雷劫不侵】：按抗性折减丹劫所需护盾（最低 1，最高减 80%）
+                if demand > 0:
+                    try:
+                        from ..core.reincarnation_rules import permanent_effect
+
+                        resist = min(0.8, permanent_effect(player, "tribulation_resist_bonus"))
+                        if resist > 0:
+                            demand = max(1, int(round(demand * (1.0 - resist))))
+                    except Exception:
+                        pass
                 # 丹劫挂在丹药品阶上，与丹方等级解耦：一张黄品引雷符救不了圣品丹。
                 if demand > 0 and trigger > 0 and random.randint(1, 100) <= trigger:
                     used, shield, state_note = self._resolve_tribulation(player, demand)
@@ -1072,10 +1093,16 @@ class AlchemyManager:
                             f"你最高只有 {best}，雷火焚炉，丹药在最后一刻化为灰烬..."
                         )
 
+                extra_pills = 1
+                double_hit = False
                 if not pill_ruined:
                     pill_key = f"{output_pill}|{quality}"
                     inventory = player.get_pills_inventory()
-                    inventory[pill_key] = inventory.get(pill_key, 0) + 1
+                    # 仙缘【一炉双丹】：按概率额外多出一颗
+                    if fate_double > 0 and random.random() < min(1.0, fate_double):
+                        extra_pills = 2
+                        double_hit = True
+                    inventory[pill_key] = inventory.get(pill_key, 0) + extra_pills
                     player.set_pills_inventory(inventory)
 
                 await self.db.update_player(player, commit=False)
@@ -1094,15 +1121,15 @@ class AlchemyManager:
                         if tal_rank in ("凡品", "黄品"):
                             shield_hint += (
                                 f"\n💡 可挡此劫的护劫符：【{tal_name}】(护盾 {tal_shield})，"
-                                f"成品可在 /符阁 符箓 购买，或由符箓师 /制符 {tal_name} 绘制"
+                                f"成品可在 /符阁 符箓 购买，或自行 /制符 {tal_name} 绘制"
                             )
                         else:
                             shield_hint += (
                                 f"\n💡 可挡此劫的护劫符：【{tal_name}】({tal_rank}·护盾 {tal_shield})，"
-                                f"符图常驻不限量：/购买 {tal_name}·符图，习得后由符箓师 /制符 {tal_name} 绘制"
+                                f"符图常驻不限量：/购买 {tal_name}·符图，习得后即可 /制符 {tal_name} 绘制"
                             )
                     else:
-                        shield_hint += "；护劫符可在 /符阁 购买，或由符箓师绘制"
+                        shield_hint += "；护劫符可在 /符阁 购买，或自行 /制符 绘制"
                     if options:
                         shield_hint += (
                             f"\n💡 开炉前先 /使用 {options[0][0]} 挂上避劫状态："
@@ -1132,12 +1159,13 @@ class AlchemyManager:
                     }
 
                 perfect_note = f"\n🌟 火候与灵根共鸣，此丹品质达到【{quality}】！" if perfect else ""
+                double_note = "\n✨ 【一炉双丹】丹成之时炉火分焰，多出一颗！" if double_hit else ""
                 msg = f"""
 🎉 炼丹成功！
 ━━━━━━━━━━━━━━━
 
-你成功炼制了【{output_pill}·{quality}】！{perfect_note}
-丹药已存入丹药背包
+你成功炼制了【{output_pill}·{quality}】！{perfect_note}{double_note}
+丹药已存入丹药背包（×{extra_pills}）
 
 消耗：{cost_str}
 成功率：{final_success_rate}%
@@ -1155,6 +1183,8 @@ class AlchemyManager:
                     "cost": gold_cost,
                     "materials_consumed": consumed_materials,
                     "perfect": perfect,
+                    "double": double_hit,
+                    "pill_count": extra_pills,
                 }
             else:
                 await self.db.update_player(player, commit=False)
@@ -1288,7 +1318,9 @@ class AlchemyManager:
         ]
         outcome = []
         if success_count:
-            outcome.append(f"成丹 {success_count} 颗")
+            total_pills = sum(int(item.get("pill_count", 1) or 1) for item in results if item.get("success"))
+            extra = total_pills - success_count
+            outcome.append(f"成丹 {total_pills} 颗" + (f"（一炉双丹 +{extra}）" if extra > 0 else ""))
         if normal_fail:
             outcome.append(f"炼废 {normal_fail} 炉")
         if tribulation_count:

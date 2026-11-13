@@ -3066,6 +3066,9 @@
   /** 储物戒多选状态：跨卡片刷新保留，条目消失时自动剔除 */
   const bagSelection = { on: false, keys: new Set(), busy: false };
 
+  /** 储物戒种类/品质筛选：跨刷新保留，否则点一次物品就退回「全部」 */
+  const bagFilter = { kind: "", quality: "" };
+
   /** 多选与指令共用的条目键：同名装备按品质区分 */
   function bagEntryKey(it) {
     if (!it) return "";
@@ -3089,16 +3092,21 @@
     return [`/赠予 ${target} ${key} ${count}`];
   }
 
-  /** 储物戒网格：结构化条目 + 种类/品质筛选 + 多选批量回收/赠予 */
-  function renderItemGrid(items) {
-    // 只保留当前仍存在的勾选，避免把刚回收完的物品继续算进批量操作
+  /** 勾选清理：已消失的物品不能继续算进批量回收/赠予 */
+  function pruneBagSelection(items) {
     const validKeys = new Set(items.map(bagEntryKey));
     for (const key of Array.from(bagSelection.keys)) {
       if (!validKeys.has(key)) bagSelection.keys.delete(key);
     }
+  }
 
+  /** 储物戒网格：结构化条目 + 种类/品质筛选 + 多选批量回收/赠予 */
+  function renderItemGrid(initialItems) {
     const wrap = document.createElement("div");
     wrap.className = "item-grid-wrap";
+    wrap.dataset.role = "bag-grid"; // 无感刷新时靠它找回旧网格
+    let items = initialItems.slice();
+    pruneBagSelection(items);
 
     const bulk = document.createElement("div");
     bulk.className = "bag-bulk";
@@ -3138,11 +3146,19 @@
     empty.textContent = "没有符合筛选的物品";
     empty.hidden = true;
 
-    const state = { kind: "", quality: "" };
+    const state = bagFilter; // 模块级对象：重绘后筛选条件不丢
     let visible = items.slice();
-    const kinds = KIND_ORDER.filter((k) => items.some((it) => it.kind === k));
+    let kinds = [];
     const qualitiesOf = (kind) =>
       QUALITY_ORDER.filter((q) => items.some((it) => it.quality === q && (!kind || it.kind === kind)));
+
+    /** 条目换了之后重算可选筛选项，已经选不到的筛选条件就地归零 */
+    const syncFacets = () => {
+      kinds = KIND_ORDER.filter((k) => items.some((it) => it.kind === k));
+      if (state.kind && !kinds.includes(state.kind)) state.kind = "";
+      if (state.quality && !qualitiesOf(state.kind).includes(state.quality)) state.quality = "";
+    };
+    syncFacets();
 
     const chipRow = (label, options, key, onChange) => {
       const row = document.createElement("div");
@@ -3347,6 +3363,16 @@
     paint();
     wrap.appendChild(grid);
     wrap.appendChild(empty);
+    wrap.__items = items;
+    /** 无感刷新入口：换数据只重画格子与筛选项，工具条/筛选按钮/滚动位置都不动 */
+    wrap.__repaint = (nextItems) => {
+      items = (nextItems || []).slice();
+      pruneBagSelection(items);
+      syncFacets();
+      buildFilters();
+      paint();
+      wrap.__items = items;
+    };
     return wrap;
   }
 
@@ -3822,6 +3848,24 @@
       bagLoadedAt = Date.now();
     }
     const view = panelView(which);
+    const fresh = renderCard(card, { expanded: true });
+
+    // 储物戒：旧卡片里已经有物品网格就复用它，只换数据。
+    // 以前这里是 view.innerHTML = "" 整体重建，筛选会被打回「全部」、勾选清空、
+    // 滚动位置归零 —— 点一次物品就体验一次「页面刷新」。现在只替换卡片外壳，
+    // 网格节点连同它的筛选条/多选工具条一起留着。
+    if (which === "bag") {
+      const oldCard = view.querySelector(".card");
+      const oldGrid = view.querySelector('[data-role="bag-grid"]');
+      const newGrid = fresh.querySelector('[data-role="bag-grid"]');
+      if (oldCard && oldGrid && typeof oldGrid.__repaint === "function" && newGrid) {
+        oldGrid.__repaint(newGrid.__items || []);
+        newGrid.replaceWith(oldGrid);
+        oldCard.replaceWith(fresh);
+        return;
+      }
+    }
+
     view.innerHTML = "";
     const head = document.createElement("div");
     head.className = "panel-head";
@@ -3832,7 +3876,7 @@
     btn.addEventListener("click", () => loadPanel(which));
     head.appendChild(btn);
     view.appendChild(head);
-    view.appendChild(renderCard(card, { expanded: true }));
+    view.appendChild(fresh);
   }
 
   function renderPanelText(which, text) {
@@ -3863,6 +3907,7 @@
     });
     if (tab === "cmds") renderCommandGrid();
     if (tab === "proxy") loadProxyPanel();
+    if (tab === "fate") loadFatePanel();
     // 面板还没数据、或期间储物戒发生过变更时重新拉取：
     // 不在储物戒界面时不急着渲染卡片，回到这里再取最新状态。
     if (tab === "status" && !S.panelCard.status && S.connected) {
@@ -4015,6 +4060,157 @@
    * 顶部总开关一键开启/关闭全部；每项一个滑动开关，状态与 /代理状态 同源。
    * 开启仍走 AutoProxyManager 原有校验，不另写一套规则。
    */
+  /* ================= 仙缘商店 ================= */
+
+  let fateBusy = false;
+
+  function fateWan(n) {
+    const v = Number(n) || 0;
+    return v >= 10000 ? Math.round(v / 10000) : v;
+  }
+
+  async function loadFatePanel() {
+    const view = $("viewFate");
+    if (!view) return;
+    view.innerHTML = '<div class="panel-empty">仙缘商店加载中…</div>';
+    try {
+      const r = await fetch("/api/fate_shop", {
+        headers: { Authorization: "Bearer " + S.token },
+      });
+      const data = await r.json().catch(() => null);
+      if (!data) throw new Error("bad response");
+      if (data.ok === false) {
+        view.innerHTML = `<div class="panel-empty">${esc(data.error || "仙缘商店加载失败")}<br><button>重试</button></div>`;
+        view.querySelector("button").addEventListener("click", loadFatePanel);
+        return;
+      }
+      renderFatePanel(data);
+    } catch {
+      view.innerHTML = '<div class="panel-empty">网络异常，仙缘商店加载失败<br><button>重试</button></div>';
+      view.querySelector("button").addEventListener("click", loadFatePanel);
+    }
+  }
+
+  function fateCard(item) {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className =
+      "fate-card" + (item.maxed ? " maxed" : item.affordable ? "" : " poor");
+    card.dataset.id = item.id;
+    card.innerHTML =
+      '<div class="fc-top"><span class="fc-name">' + esc(item.name) + "</span>" +
+      '<span class="fc-cost">' + (item.maxed ? "已满" : item.cost + " 点") + "</span></div>" +
+      '<div class="fc-desc">' + esc(item.desc) + "</div>" +
+      '<div class="fc-foot"><span class="fc-owned">' +
+      (item.owned ? "已买 " + item.owned + " 层" : "未购买") +
+      '</span><span class="fc-unit">' + esc(item.unit || "") + "</span></div>";
+    if (!item.maxed) {
+      card.addEventListener("click", () => buyFateItem(item.id, card));
+    } else {
+      card.disabled = true;
+    }
+    return card;
+  }
+
+  function renderFatePanel(data) {
+    const view = $("viewFate");
+    if (!view) return;
+    view.innerHTML = "";
+    if (!data.has_player) {
+      view.innerHTML = '<div class="panel-empty">尚未创建角色，请先发送 /我要修仙</div>';
+      return;
+    }
+
+    const head = document.createElement("div");
+    head.className = "fate-head";
+    const pts = document.createElement("div");
+    pts.className = "fate-points";
+    pts.innerHTML = "<b>" + (data.points || 0) + "</b><small>仙缘点</small>";
+    head.appendChild(pts);
+
+    const ex = data.exchange || {};
+    const exBox = document.createElement("div");
+    exBox.className = "fate-exchange";
+    exBox.innerHTML =
+      '<span>灵石兑换 ' + fateWan(ex.gold_per_point) + " 万 / 点 · 本轮剩 " +
+      (ex.left || 0) + "/" + (ex.max || 0) + " 点</span>";
+    const exBtn = document.createElement("button");
+    exBtn.type = "button";
+    exBtn.className = "btn-ghost small";
+    exBtn.textContent = "换 " + (ex.affordable || 0) + " 点";
+    exBtn.disabled = !ex.affordable;
+    exBtn.addEventListener("click", () => exchangeFatePoints(0));
+    exBox.appendChild(exBtn);
+    head.appendChild(exBox);
+    view.appendChild(head);
+
+    (data.groups || []).forEach((group) => {
+      const sec = document.createElement("div");
+      sec.className = "fate-group";
+      const gh = document.createElement("div");
+      gh.className = "fate-group-head";
+      gh.innerHTML = "<b>" + esc(group.name) + "</b><small>" + esc(group.note || "") + "</small>";
+      sec.appendChild(gh);
+      const grid = document.createElement("div");
+      grid.className = "fate-grid";
+      (group.items || []).forEach((item) => grid.appendChild(fateCard(item)));
+      sec.appendChild(grid);
+      view.appendChild(sec);
+    });
+  }
+
+  async function buyFateItem(itemId, card) {
+    if (fateBusy) return;
+    fateBusy = true;
+    card.classList.add("busy");
+    try {
+      const r = await fetch("/api/fate_shop/buy", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + S.token,
+        },
+        body: JSON.stringify({ item_id: itemId }),
+      });
+      const data = await r.json().catch(() => null);
+      if (!data) throw new Error("bad response");
+      if (data.message) toast(data.message);
+      if (data.ok === false) loadFatePanel();
+      else renderFatePanel(data);
+    } catch {
+      toast("网络异常，购买失败");
+      loadFatePanel();
+    } finally {
+      fateBusy = false;
+      card.classList.remove("busy");
+    }
+  }
+
+  async function exchangeFatePoints(points) {
+    if (fateBusy) return;
+    fateBusy = true;
+    try {
+      const r = await fetch("/api/fate_shop/exchange", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + S.token,
+        },
+        body: JSON.stringify({ points: points || 0 }),
+      });
+      const data = await r.json().catch(() => null);
+      if (!data) throw new Error("bad response");
+      if (data.message) toast(data.message);
+      if (data.ok === false) loadFatePanel();
+      else renderFatePanel(data);
+    } catch {
+      toast("网络异常，兑换失败");
+      loadFatePanel();
+    } finally {
+      fateBusy = false;
+    }
+  }
+
   let proxyBusy = false;
 
   async function loadProxyPanel() {

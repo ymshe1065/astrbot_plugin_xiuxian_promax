@@ -208,8 +208,14 @@ def idle_player_lock(func: Callable[..., Coroutine[any, any, AsyncGenerator[any,
             )
             if busy:
                 status_name = UserStatus.get_name(user_cd.type) if user_cd and user_cd.type != UserStatus.IDLE else player.state
-                yield event.plain_result(f"❌ 道友当前正「{status_name}」，无法进行此操作。")
-                return
+                ok, hint = _parallel_allowed(
+                    player, _normalize_command_text(event.get_message_str())
+                )
+                if not ok:
+                    yield event.plain_result(
+                        f"❌ 道友当前正「{status_name}」，{hint or '无法进行此操作。'}"
+                    )
+                    return
             async for result in func(self, event, *args, **kwargs):
                 yield result
 
@@ -286,14 +292,23 @@ def player_required(func: Callable[..., Coroutine[any, any, AsyncGenerator[any, 
                 return
 
             # ===== 核心状态拦截判定 =====
+            parallel_hint = ""
             user_cd = await self.db.ext.get_user_cd(player.user_id)
             if not bypass_busy and user_cd and user_cd.type != UserStatus.IDLE:
                 # 玩家处于忙碌状态（如闭关、历练、渡劫），检查命令是否在白名单中
                 is_allowed = _is_command_allowed(message_text, BUSY_STATE_ALLOWED_COMMANDS)
+                if not is_allowed:
+                    # 仙缘【一心二用】：买了之后可以在忙的时候处理别的杂务
+                    is_allowed, parallel_hint = _parallel_allowed(player, command_text)
 
                 if not is_allowed:
                     status_name = UserStatus.get_name(user_cd.type)
-                    yield event.plain_result(f"❌ 道友当前正在「{status_name}」，无法分心他顾。\n💡 可使用「我的信息」「突破信息」「签到」等查看类指令。")
+                    if parallel_hint:
+                        yield event.plain_result(
+                            f"❌ 道友当前正在「{status_name}」，{parallel_hint}"
+                        )
+                    else:
+                        yield event.plain_result(f"❌ 道友当前正在「{status_name}」，无法分心他顾。\n💡 可使用「我的信息」「突破信息」「签到」等查看类指令。")
                     return
 
             # 状态检查：user_cd 缺失或为空闲时，用 player.state 兜底（兼容异常中断的闭关记录）
@@ -306,7 +321,12 @@ def player_required(func: Callable[..., Coroutine[any, any, AsyncGenerator[any, 
                 if not command_text.startswith((CMD_START_CULTIVATION, CMD_END_CULTIVATION)):
                     is_allowed = _is_command_allowed(message_text, BUSY_STATE_ALLOWED_COMMANDS)
                     if not is_allowed:
-                        yield event.plain_result(f"❌ 道友当前正在「{player.state}」中，无法分心他顾。\n💡 可使用「出关」「我的信息」「突破信息」等查看类指令。")
+                        is_allowed, parallel_hint = _parallel_allowed(player, command_text)
+                    if not is_allowed:
+                        if parallel_hint:
+                            yield event.plain_result(f"❌ 道友当前正在「{player.state}」，{parallel_hint}")
+                        else:
+                            yield event.plain_result(f"❌ 道友当前正在「{player.state}」中，无法分心他顾。\n💡 可使用「出关」「我的信息」「突破信息」等查看类指令。")
                         return
 
             # 将 player 对象作为第一个参数传递给原始函数
@@ -382,6 +402,20 @@ def _is_command_allowed(message_text: str, allowed_commands: list) -> bool:
         if clean_text.startswith(cmd + " ") or clean_text.startswith(cmd + "\u3000"):
             return True
     return False
+
+
+def _parallel_allowed(player, command_text: str) -> tuple:
+    """仙缘【一心二用】：忙碌状态下额外放行的指令。
+
+    返回 (是否放行, 提示文案)。未购买时返回 (False, "")，沿用原始拦截文案；
+    买了但档位不够 / 属于「开新活动」时返回 (False, 具体原因)。
+    """
+    try:
+        from ..core.parallel_rules import can_act_while_busy
+
+        return can_act_while_busy(player, command_text)
+    except Exception:
+        return False, ""
 
 
 def get_command_args(event: AstrMessageEvent, *command_names: str) -> str:

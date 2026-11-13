@@ -35,10 +35,36 @@ class TestTalismanCraftBook(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(craftable, 0, msg)
         self.assertIn("材料不足", msg)
 
-    async def test_non_talisman_master_sees_warning(self):
+    async def test_non_talisman_master_sees_no_penalty_note(self):
+        """非符箓师只是少一层职业加成，符箓书要明确说「制符不受影响」。"""
         self.player.life_skill = "炼丹师"
         msg, _, _ = self.tm.build_craft_book(self.player)
-        self.assertIn("不是【符箓师】", msg)
+        self.assertIn("制符不受影响", msg)
+        self.assertNotIn("暂时无法绘制", msg)
+
+    async def test_non_master_can_craft(self):
+        """制符不设职业门槛：炼丹师也能画，只少了符箓师加成。"""
+        ore, _ = self._materials("矿材", "凡品", 1)
+        herb, _ = self._materials("灵植", "凡品", 1)
+        await self.ring.store_item(self.player, ore, 1)
+        await self.ring.store_item(self.player, herb, 1)
+        self.player = await self.db.get_player_by_id(self.player.user_id)
+        self.player.life_skill = "炼丹师"
+
+        with patch.object(self.tm_mod.random, "randint", return_value=1):
+            ok, msg = await self.tm.craft_talisman(self.player, "烈焰符", 1)
+        self.assertTrue(ok, msg)
+        self.assertIn("烈焰符", msg)
+        self.assertNotIn("只有【符箓师】", msg)
+
+    async def test_master_keeps_price_bonus(self):
+        """符箓师加成保留：同一张符的工费比非符箓师低 20%。"""
+        self.player.life_skill = "炼丹师"
+        normal = self.tm.resolve_craft_params(self.player, "烈焰符")["gold_cost"]
+        self.player.life_skill = "符箓师"
+        master = self.tm.resolve_craft_params(self.player, "烈焰符")["gold_cost"]
+        self.assertLess(master, normal)
+        self.assertEqual(normal - int(round(normal * 0.8)), normal - master)
 
     async def test_materials_unlock_craftable_count(self):
         ore, n1 = self._materials("矿材", "凡品", 3)

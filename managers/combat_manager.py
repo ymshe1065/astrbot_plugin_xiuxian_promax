@@ -392,6 +392,22 @@ class CombatManager:
             magic_def += flat_def_total - int(flat_def_total * pdef_share)
         effects["crit_rate"] = effects.get("crit_rate", 0) + int(title.get("crit", 0) or 0)
         effects["lifesteal"] = effects.get("lifesteal", 0) + int(title.get("lifesteal", 0) or 0)
+        # 仙缘商店永久战斗加成：面板必须与实战同口径，否则名片和实际伤害对不上
+        try:
+            from ..core.reincarnation_rules import permanent_effect
+
+            for _key, _raw in (
+                ("crit_rate", permanent_effect(player, "crit_rate_bonus") * 100),
+                ("crit_damage", permanent_effect(player, "crit_damage_bonus")),
+                ("combo_rate", permanent_effect(player, "combo_rate_bonus") * 100),
+                ("lifesteal", permanent_effect(player, "lifesteal_bonus") * 100),
+                ("counter_damage", permanent_effect(player, "counter_bonus") * 100),
+                ("dodge", permanent_effect(player, "dodge_bonus") * 100),
+            ):
+                if _raw:
+                    effects[_key] = effects.get(_key, 0) + _raw
+        except Exception:
+            pass
         # 传承的会心/爆伤同样属于战斗面板，名片与排行必须与实战口径一致。
         if impart_info:
             effects["crit_rate"] = effects.get("crit_rate", 0) + int(
@@ -654,6 +670,23 @@ class CombatManager:
                     effects[key] = effects.get(key, 0) + value
                 else:
                     effects[key] = value
+
+        # 仙缘商店的永久战斗加成（跨世账本读永久层数，不随转生清零）
+        try:
+            from ..core.reincarnation_rules import permanent_effect
+
+            for _key, _raw in (
+                ("crit_rate", permanent_effect(player, "crit_rate_bonus") * 100),
+                ("crit_damage", permanent_effect(player, "crit_damage_bonus")),
+                ("combo_rate", permanent_effect(player, "combo_rate_bonus") * 100),
+                ("lifesteal", permanent_effect(player, "lifesteal_bonus") * 100),
+                ("counter_damage", permanent_effect(player, "counter_bonus") * 100),
+                ("dodge", permanent_effect(player, "dodge_bonus") * 100),
+            ):
+                if _raw:
+                    effects[_key] = effects.get(_key, 0) + _raw
+        except Exception:
+            pass
 
         # 符箓效果：暴击/吸血/反击/闪避/攻防倍率等。
         # 注意：这段必须在 collect_combat_effects 之后（后者会把物法倍率重置为 1.0），

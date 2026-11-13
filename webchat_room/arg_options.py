@@ -175,8 +175,13 @@ FIELD_PLANS: Dict[str, List[dict[str, Any]]] = {
     "双修": [_f("target", "选择道侣", "players")],
     "传承挑战": [_f("target", "选择挑战对象", "players")],
     "选择灵根": [_f("id", "选择灵根", "spirit_roots")],
+    "灵根说明": [_f("name", "选择要查询的灵根", "root_names")],
     "我要修仙": [_f("type", "选择修炼职业", "cultivation_types")],
     "弃道重修": [_f("mode", "选择重修方式 / 新职业 / 新生活职业", "rebirth_modes")],
+    "飞升": [
+        _f("heirloom", "选择要封印为传家宝的物品（可留空，直接下一步）", "heirloom_items", optional=True),
+        _f("confirm", "确认飞升", "ascend_confirm"),
+    ],
     "自动代理": [_f("task", "选择代理活动", "proxy_tasks")],
     "关闭代理": [_f("task", "选择要关闭的代理", "proxy_off_tasks")],
     # ---- 生活职业 / 符箓 / 炼器 ----
@@ -1253,12 +1258,39 @@ async def _src_farm_slots(plugin: "XiuXianPlugin", player: Any, field: dict, val
 
 
 async def _src_fate_shop(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    """仙缘商店目录：直接读 core.reincarnation_rules.SHOP_ITEMS，避免前端与后端两套价目。"""
+    from ..core.reincarnation_rules import SHOP_ITEMS, item_owned, parse_bonus
+
     points = _int(getattr(player, "fate_points", 0)) if player else 0
-    return [
-        _opt("修炼加速 +10%", 1, f"消耗 100 仙缘点 · 当前 {points}", "仙缘商店"),
-        _opt("初始灵石 10,000", 2, f"消耗 50 仙缘点 · 当前 {points}", "仙缘商店"),
-        _opt("大道馈赠（全属性）", 3, f"消耗 500 仙缘点 · 当前 {points}", "仙缘商店"),
-    ], ""
+    bonus = parse_bonus(player) if player else {}
+    options: List[dict[str, str]] = []
+    for item_id, item in sorted(SHOP_ITEMS.items()):
+        owned = item_owned(bonus, item_id)
+        cap = int(item.get("cap") or 0)
+        desc = f"[{item.get('group', '')}] {item['cost']} 点 · {item['unit']}"
+        if cap:
+            desc += f" · 已购 {owned}/{cap}"
+        elif owned:
+            desc += f" · 已购 {owned}"
+        if points < int(item["cost"]):
+            desc += " · 点数不足"
+        options.append(_opt(item["name"], item_id, desc, "仙缘商店"))
+    return options, f"当前仙缘点：{points}"
+
+
+async def _src_root_names(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    """灵根说明的候选：按阶位由高到低列出全部灵根。"""
+    from ..core.element_resonance import ElementResonance
+
+    cm = plugin.player_handler.cultivation_manager
+    options: List[dict[str, str]] = []
+    for idx in range(len(cm.root_tier_order) - 1, -1, -1):
+        label = cm.root_tier_order[idx][1]
+        for root in cm.root_tier_roots(idx):
+            elements = "".join(e for e in ("金", "木", "水", "火", "土") if e in ElementResonance.root_elements(root))
+            desc = f"{label} · ×{cm._get_root_speed(root):.2f} · 五行 {elements or '全'}"
+            options.append(_opt(root, root, desc, "灵根图鉴"))
+    return options, "选一条灵根查看倍率、五行与共鸣加成"
 
 
 async def _src_virtue_shop(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
@@ -1406,7 +1438,71 @@ async def _src_rebirth_modes(plugin: "XiuXianPlugin", player: Any, field: dict, 
     return options, ""
 
 
+async def _src_heirloom_items(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    """飞升：可封印为传家宝的物品（已装备实例 + 储物戒实例 + 储物戒堆叠物品）。"""
+    if not player:
+        return [], "尚未创建角色，请先 /我要修仙"
+    try:
+        from ..core.reincarnation_rules import parse_bonus
+
+        sealed = (parse_bonus(player).get("heirloom") or {})
+    except Exception:
+        sealed = {}
+    msg = ""
+    if sealed.get("sealed"):
+        msg = f"⚠️ 已有未解封传家宝【{sealed.get('name') or '未知'}】，本次飞升不能再指定新的"
+
+    try:
+        levels = plugin.config_manager.get_level_data(player.cultivation_type)
+        if int(getattr(player, "level_index", 0) or 0) < len(levels) - 1:
+            msg = "当前境界未满，飞升会被拒绝（可先发送 /飞升 查看确认页）"
+    except Exception:
+        pass
+
+    options: List[dict[str, str]] = []
+    seen: set[str] = set()
+    try:
+        im = plugin.equipment_handler.equipment_manager.instance_manager
+        for location, group in (("equipped", "已装备"), ("storage", "储物戒·装备")):
+            for inst in im.list_instances(player, location):
+                name = str(inst.get("name") or "").strip()
+                if not name or name in seen:
+                    continue
+                seen.add(name)
+                quality = str(inst.get("quality") or "一般")
+                options.append(_opt(name, name, f"{quality} · {group}", group))
+    except Exception:
+        pass
+    try:
+        for name, count in (player.get_storage_ring_items() or {}).items():
+            if _int(count) <= 0 or name in seen:
+                continue
+            seen.add(name)
+            options.append(_opt(name, name, f"持有 x{_int(count)}", "储物戒·物品"))
+    except Exception:
+        pass
+
+    if not options:
+        return [], msg or "储物戒与已装备栏里都没有可封印的物品，可直接下一步"
+    options.sort(key=_sort_key)
+    return options[:MAX_OPTIONS], msg
+
+
+async def _src_ascend_confirm(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    """飞升确认：只有「确认」一个选项，避免误触即重置。"""
+    return [
+        _opt(
+            "确认飞升（不可撤销）",
+            "确认",
+            "清空境界/装备/家产，保留仙缘、传家宝与永久加成",
+            "确认",
+        )
+    ], ""
+
+
 async def _src_spirit_roots(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    from ..core.reincarnation_rules import FREE_ROOT_REROLLS, ROOT_TIER_GUARANTEE_EVERY
+
     if not player:
         return [], "尚未创建角色"
     for prefix, label in (("create_roots", "创号灵根"), ("rebirth_options", "重修灵根")):
@@ -1429,7 +1525,26 @@ async def _src_spirit_roots(plugin: "XiuXianPlugin", player: Any, field: dict, v
                 desc = ""
             options.append(_opt(f"{idx}. 【{name}灵根】", idx, desc, label))
         if options:
-            return options, ""
+            is_newlife = data.get("newlife") == 1
+            next_no = int(data.get("roll_no") or 0) + 1
+            upgrade_next = is_newlife and next_no % ROOT_TIER_GUARANTEE_EVERY == 0
+            if is_newlife:
+                reroll_desc = f"第 {next_no} 批" + (
+                    " · 高上一世一档" if upgrade_next else " · 与上一世同档"
+                )
+            else:
+                reroll_desc = f"免费 {FREE_ROOT_REROLLS} 次/轮，用完消耗洗炼额度"
+            options.append(_opt("重抽一批", "重抽", reroll_desc, "重抽"))
+            budget = ""
+            try:
+                budget = await plugin.player_handler._reroll_budget_text(player)
+            except Exception:
+                budget = ""
+            if is_newlife:
+                budget += f" · 下一批第 {next_no} 批" + (
+                    "（升档保底）" if upgrade_next else "（同档保底）"
+                )
+            return options, budget
     return [], "当前没有待选择的灵根，请先发送 /我要修仙 职业"
 
 
@@ -2103,6 +2218,7 @@ SOURCES: Dict[str, Callable[..., Any]] = {
     "players": _src_players,
     "cultivation_types": _src_cultivation_types,
     "spirit_roots": _src_spirit_roots,
+    "root_names": _src_root_names,
     "proxy_tasks": _src_proxy_tasks,
     "proxy_off_tasks": _src_proxy_off_tasks,
     "proxy_rifts": _src_proxy_rifts,
@@ -2122,6 +2238,8 @@ SOURCES: Dict[str, Callable[..., Any]] = {
     "weekly_runs": _src_weekly_runs,
     "weekly_loadout": _src_weekly_loadout,
     "rebirth_modes": _src_rebirth_modes,
+    "heirloom_items": _src_heirloom_items,
+    "ascend_confirm": _src_ascend_confirm,
     "admin_subcommands": _src_admin_subcommands,
     "admin_targets": _src_admin_targets,
     "spirit_companions": _src_spirit_companions,

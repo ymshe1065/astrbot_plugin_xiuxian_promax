@@ -6,6 +6,29 @@ from astrbot.api.event import AstrMessageEvent
 from astrbot.api import AstrBotConfig
 from ..data import DataBase
 from ..core import CultivationManager, PillManager, StorageRingManager
+from ..core.reincarnation_rules import (
+    FREE_ROOT_REROLLS,
+    NEWLIFE_ESCORT_TRIPS_PER_STACK,
+    free_root_rerolls,
+    permanent_effect,
+    NEWLIFE_MARKER,
+    NEWLIFE_ROOT_MARKER,
+    ROOT_TIER_GUARANTEE_EVERY,
+    add_item,
+    apply_dao_gift,
+    apply_start_level,
+    keeps_life_skill,
+    keep_gold_ratio,
+    consume_root_reroll,
+    escort_gold_base,
+    format_reroll_budget,
+    item_owned,
+    ledger_value,
+    parse_bonus,
+    prev_root_key,
+    root_reroll_stock,
+    root_roll_key,
+)
 from ..models import Player
 from ..models_extended import UserStatus
 from ..config_manager import ConfigManager
@@ -18,8 +41,8 @@ CMD_START_CULTIVATION = "闭关"
 CMD_END_CULTIVATION = "出关"
 CMD_CHECK_IN = "签到"
 REBIRTH_COOLDOWN = 3 * 24 * 3600  # 弃道重修冷却 3 天
-REBIRTH_ROOT_REROLL_LIMIT = 5   # 每轮重修灵根刷新次数上限
-REBIRTH_ROOT_REROLL_COST = 20   # 每次灵根刷新消耗的仙缘点
+# 灵根重抽：每轮 5 次免费（FREE_ROOT_REROLLS），用完后消耗商店的【灵根洗炼】额度
+ROOT_REROLL_KEY = "rebirth_root_reroll_{uid}"
 CMD_CHOOSE_ROOT = "选择灵根"
 PENDING_ROOT_TIMEOUT = 600  # 灵根待选超时 10 分钟
 
@@ -164,21 +187,169 @@ class PlayerHandler:
         except Exception:
             pass
 
-    def _format_root_choices(self, roots) -> str:
+    def _format_root_choices(
+        self, roots, guarantee: str = "", upgraded: bool = False, roll_no: int = 0
+    ) -> str:
         lines = ["🎲 你感应到 " + str(len(roots)) + " 条灵根之路：", "━━━━━━━━━━━━━━━"]
         for idx, root in enumerate(roots, start=1):
             name = root.replace("灵根", "")
             speed = self.cultivation_manager._get_root_speed(name)
             desc = self.cultivation_manager._get_root_description(name)
-            lines.append(f"{idx}. 【{name}灵根】{desc}（修炼 ×{speed:.2f}）")
+            tag = " ✨升阶" if upgraded and guarantee and name == guarantee else ""
+            lines.append(f"{idx}. 【{name}灵根】{desc}（修炼 ×{speed:.2f}）{tag}")
+        if guarantee or roll_no:
+            lines.append("━━━━━━━━━━━━━━━")
+            batch = f"第 {roll_no} 批" if roll_no else "本批"
+            if upgraded:
+                lines.append(
+                    f"✨ 飞升重塑 · {batch}：必出一条比上一世高一档的灵根（已标注）"
+                )
+            else:
+                lines.append(f"🌱 飞升重塑 · {batch}：保底一条与上一世同档的灵根")
+            lines.append(f"每 {ROOT_TIER_GUARANTEE_EVERY} 批必升一档")
         lines.append("━━━━━━━━━━━━━━━")
         return "\n".join(lines)
 
-    async def handle_start_xiuxian(self, event: AstrMessageEvent, cultivation_type: str = ""):
-        """处理创建角色：先选职业，再从 3 条灵根中选 1 条。"""
-        user_id = event.get_sender_id()
+    async def _prev_life_root(self, user_id: str) -> str:
+        """上一世飞升时的灵根（道体重塑的保底基准）。"""
+        try:
+            return (await self.db.ext.get_system_config(prev_root_key(user_id)) or "").strip()
+        except Exception:
+            return ""
 
-        if await self.db.get_player_by_id(user_id):
+    # ---------- 灵根图鉴 / 说明 ----------
+
+    ELEMENT_ORDER = ("金", "木", "水", "火", "土")
+    ELEMENT_ALIAS = {"雷": "木", "风": "木", "冰": "水", "暗": "水", "光": "火"}
+    ROOT_BONUS_LABELS = {
+        "physical_atk_pct": ("物攻", True),
+        "magic_atk_pct": ("法攻", True),
+        "hp_pct": ("气血", True),
+        "physical_def_pct": ("物防", True),
+        "magic_def_pct": ("法防", True),
+        "crit_damage": ("暴伤", True),
+        "crit_rate": ("暴击", False),
+        "lifesteal": ("吸血", False),
+        "counter_damage": ("反伤", False),
+    }
+
+    def _root_elements_set(self, name: str) -> set:
+        try:
+            from ..core.element_resonance import ElementResonance
+
+            return set(ElementResonance.root_elements(name))
+        except Exception:
+            return set()
+
+    def _root_element_text(self, name: str) -> str:
+        """灵根对应的基本五行（雷风归木、冰暗归水、光归火）。"""
+        elements = self._root_elements_set(name)
+        if not elements:
+            return "无"
+        text = "、".join(e for e in self.ELEMENT_ORDER if e in elements)
+        alias = [f"{a}→{m}" for a, m in self.ELEMENT_ALIAS.items() if a in name]
+        if alias:
+            text += f"（{'、'.join(alias)}）"
+        return text
+
+    def _root_element_bonus_text(self, element: str, share: float = 1.0) -> str:
+        try:
+            from ..core.element_resonance import ROOT_BONUS
+
+            data = ROOT_BONUS.get(element) or {}
+        except Exception:
+            data = {}
+        parts = []
+        for key, value in data.items():
+            label, is_pct = self.ROOT_BONUS_LABELS.get(key, (key, True))
+            try:
+                val = float(value) * share
+            except (TypeError, ValueError):
+                continue
+            parts.append(f"{label} +{val:.1%}" if is_pct else f"{label} +{val:g}")
+        return " · ".join(parts) if parts else "—"
+
+    def _format_root_atlas(self) -> str:
+        cm = self.cultivation_manager
+        lines = ["🌱 灵根图鉴（共 10 档 · 由低到高）", "━━━━━━━━━━━━━━━"]
+        for idx, (_, label) in enumerate(cm.root_tier_order):
+            roots = cm.root_tier_roots(idx)
+            speeds = [cm._get_root_speed(r) for r in roots]
+            low, high = min(speeds), max(speeds)
+            speed_text = f"×{low:.2f}" if high - low < 0.005 else f"×{low:.2f}~{high:.2f}"
+            chance = cm.root_draw_chance(roots[0])
+            lines.append(f"{idx + 1}. 【{label}】{speed_text} · 单条 {chance:.2%}")
+            lines.append(f"   {' / '.join(roots)}")
+        lines.append("━━━━━━━━━━━━━━━")
+        lines.append("五行归属：金木水火土按字面；雷/风→木 · 冰/暗→水 · 光→火；阴阳/融合/混沌包罗五行（加成按 1/5 分摊）")
+        lines.append("💡 发送「灵根说明 雷」查看单条灵根的倍率、五行与共鸣加成")
+        return "\n".join(lines)
+
+    def _format_root_detail(self, name: str) -> str:
+        cm = self.cultivation_manager
+        name = cm.root_name(name)
+        idx = cm.root_tier_index(name)
+        if idx < 0:
+            return (
+                f"❌ 没找到灵根【{name}】。\n"
+                "可查：伪 / 金木水火（四灵根）/ 金木（双灵根）/ 金（五行单灵根）/ 雷冰风暗光 / 天金~天雷 / 阴阳 融合 / 混沌 / 先天道体 神圣体质\n"
+                "💡 发送「灵根图鉴」看全部 10 档"
+            )
+        roots = cm.root_tier_roots(idx)
+        speed = cm._get_root_speed(name)
+        chance = cm.root_draw_chance(name)
+        elements = [e for e in self.ELEMENT_ORDER if e in self._root_elements_set(name)]
+        share = 1.0 / len(elements) if elements else 1.0
+
+        lines = [
+            f"🌱 灵根说明 · {name}",
+            "━━━━━━━━━━━━━━━",
+            f"品阶：{cm.root_tier_label(name)}（第 {idx + 1} 档 / 共 {len(cm.root_tier_order)} 档）",
+            f"修炼速度：×{speed:.2f}",
+            f"五行归属：{self._root_element_text(name)}",
+            f"单抽概率：{chance:.2%}",
+            f"说明：{cm._get_root_description(name)}",
+            "━━━━━━━━━━━━━━━",
+            f"同档灵根：{' / '.join(roots)}",
+        ]
+        if idx > 0:
+            lower = cm.root_tier_roots(idx - 1)
+            lower_speed = cm._get_root_speed(lower[0])
+            lines.append(f"低一档：{cm.root_tier_label(lower[0])} ×{lower_speed:.2f}（{' / '.join(lower[:6])}{'…' if len(lower) > 6 else ''}）")
+        if idx + 1 < len(cm.root_tier_order):
+            higher = cm.root_tier_roots(idx + 1)
+            higher_speed = cm._get_root_speed(higher[0])
+            lines.append(f"高一档：{cm.root_tier_label(higher[0])} ×{higher_speed:.2f}（{' / '.join(higher)}）")
+        else:
+            lines.append("高一档：已是最高档，无法再升")
+        lines.append("━━━━━━━━━━━━━━━")
+        if elements:
+            title = "五行共鸣（主修同属性时生效）" + ("·多灵根按 1/%d 分摊" % len(elements) if len(elements) > 1 else "")
+            lines.append(title)
+            for element in elements:
+                lines.append(f"  {element}：{self._root_element_bonus_text(element, share)}")
+        else:
+            lines.append("五行共鸣：无（该灵根未对应任何五行）")
+        return "\n".join(lines)
+
+    async def handle_root_info(self, event: AstrMessageEvent, name: str = ""):
+        """灵根图鉴 / 说明：查询阶位、修炼倍率、五行归属与共鸣加成。"""
+        key = self.cultivation_manager.root_name(name or "")
+        if not key:
+            yield event.plain_result(self._format_root_atlas())
+            return
+        yield event.plain_result(self._format_root_detail(key))
+
+    async def handle_start_xiuxian(self, event: AstrMessageEvent, cultivation_type: str = ""):
+        """处理创建角色：先选职业，再从 3 条灵根中选 1 条。
+
+        飞升后玩家处于「待重塑」状态（cultivation_type == NEWLIFE_MARKER），
+        同样走这条流程，但不新建角色，而是把新道体写回原行。
+        """
+        user_id = event.get_sender_id()
+        existing = await self.db.get_player_by_id(user_id)
+        reshaping = bool(existing and existing.cultivation_type == NEWLIFE_MARKER)
+        if existing and not reshaping:
             yield event.plain_result("道友，你已踏入仙途，无需重复此举。")
             return
 
@@ -198,11 +369,18 @@ class PlayerHandler:
                     f"  {CLASS_ROLE_INFO[name]['desc']}"
                     for name in VALID_CULTIVATIONS
                 )
-                yield event.plain_result(
-                    "🌟 欢迎踏入修仙之路！\n"
+                header = (
+                    "🌀 道体重塑\n"
+                    "━━━━━━━━━━━━━━━\n"
+                    "飞升已散尽旧道体，请重新选择修炼方式（发送：我要修仙 职业名）：\n\n"
+                    if reshaping
+                    else "🌟 欢迎踏入修仙之路！\n"
                     "━━━━━━━━━━━━━━━\n"
                     "请选择你的修炼方式（发送：我要修仙 职业名）：\n\n"
-                    f"{role_lines}\n"
+                )
+                yield event.plain_result(
+                    header
+                    + f"{role_lines}\n"
                     "━━━━━━━━━━━━━━━\n"
                     f"💡 使用方法：\n  {CMD_START_XIUXIAN} 剑修\n"
                     f"（也支持单字：{CMD_START_XIUXIAN} 剑）"
@@ -220,19 +398,95 @@ class PlayerHandler:
             )
             return
 
-        roots = self.cultivation_manager.draw_spiritual_roots(3)
-        await self._save_root_pending("create_roots", user_id, roots, {"cultivation_type": normalized})
+        roots, guarantee, upgraded, roll_no = [], "", False, 0
+        extra = {"cultivation_type": normalized}
+        note = ""
+        if reshaping:
+            prev_root = await self._prev_life_root(user_id)
+            if await self._root_roll_no(user_id) == 0:
+                # 飞升事务已把批次与免费次数清零，重塑的第一批不额外扣次数
+                roots, guarantee, upgraded, roll_no = await self._draw_roots_with_guarantee(
+                    existing, prev_root
+                )
+            else:
+                # 本轮已经抽过一批：再发「我要修仙」等同于重抽，要扣免费次数/洗炼额度，
+                # 否则可以反复重开把批次推到第 5 批白嫖升档
+                ok, note, roots, info = await self._reroll_roots(existing, prev_root)
+                if not ok:
+                    yield event.plain_result(
+                        note + f"\n💡 也可以直接发送 `{CMD_CHOOSE_ROOT} 1/2/3` 用上一批结果。"
+                    )
+                    return
+                guarantee = info.get("root", "")
+                upgraded = bool(info.get("upgraded"))
+                roll_no = int(info.get("roll_no") or 0)
+            extra["newlife"] = 1
+            extra["guaranteed_root"] = guarantee
+            extra["upgraded"] = 1 if upgraded else 0
+            extra["roll_no"] = roll_no
+        else:
+            roots = self.cultivation_manager.draw_spiritual_roots(3)
+        await self._save_root_pending("create_roots", user_id, roots, extra)
+        budget = ""
+        if reshaping:
+            budget = "\n" + await self._reroll_budget_text(existing) + " · 发送 `/选择灵根 重抽` 换一批"
+            if note:
+                budget += f"（{note}）"
         yield event.plain_result(
-            self._format_root_choices(roots)
+            self._format_root_choices(roots, guarantee, upgraded, roll_no)
             + f"\n请发送：{CMD_CHOOSE_ROOT} 1/2/3 选择灵根（10 分钟内有效）"
+            + budget
         )
 
     async def handle_choose_root(self, event: AstrMessageEvent, choice: str = ""):
-        """选择灵根：创号或重修重随。"""
+        """选择灵根：创号 / 道体重塑 / 重修重随；支持「重抽」再抽一批。"""
         user_id = event.get_sender_id()
         text = (choice or "").strip().translate(str.maketrans("１２３", "123"))
+
+        # 「重抽」：按当前处于哪条待选流程重抽，免费 5 次 / 商店额度
+        if text in ("重抽", "重随", "换一批", "重随灵根", "换灵根"):
+            pending_create = await self._load_root_pending("create_roots", user_id)
+            player = await self.db.get_player_by_id(user_id)
+            if pending_create:
+                if not player or pending_create.get("newlife") != 1:
+                    yield event.plain_result("❌ 创号阶段不能重抽，请直接选择 1/2/3。")
+                    return
+                ok, note, roots, info = await self._reroll_roots(
+                    player, await self._prev_life_root(user_id)
+                )
+                if not ok:
+                    yield event.plain_result(note)
+                    return
+                extra = {
+                    k: v
+                    for k, v in pending_create.items()
+                    if k not in ("roots", "created_at")
+                }
+                extra["guaranteed_root"] = info.get("root", "")
+                extra["upgraded"] = 1 if info.get("upgraded") else 0
+                extra["roll_no"] = info.get("roll_no", 0)
+                await self._save_root_pending("create_roots", user_id, roots, extra)
+                yield event.plain_result(
+                    self._format_root_choices(
+                        roots,
+                        info.get("root", ""),
+                        bool(info.get("upgraded")),
+                        int(info.get("roll_no") or 0),
+                    )
+                    + f"\n请发送：{CMD_CHOOSE_ROOT} 1/2/3 确定灵根"
+                    + f"\n{await self._reroll_budget_text(player)}（{note}）"
+                )
+                return
+            pending_rebirth = await self._load_root_pending("rebirth_options", user_id)
+            if pending_rebirth and player:
+                async for r in self._reroll_rebirth_roots(player, event, pending_rebirth):
+                    yield r
+                return
+            yield event.plain_result("❌ 当前没有待选择的灵根，请先发送「我要修仙 职业」或「弃道重修 重随灵根」。")
+            return
+
         if not text.isdigit():
-            yield event.plain_result(f"❌ 请发送：{CMD_CHOOSE_ROOT} 1/2/3")
+            yield event.plain_result(f"❌ 请发送：{CMD_CHOOSE_ROOT} 1/2/3（或「{CMD_CHOOSE_ROOT} 重抽」换一批）")
             return
         index = int(text) - 1
 
@@ -243,7 +497,13 @@ class PlayerHandler:
                 yield event.plain_result(f"❌ 请选择 1~{len(roots)} 之间的数字。")
                 return
             cultivation_type = pending_create.get("cultivation_type") or "灵修"
-            if await self.db.get_player_by_id(user_id):
+            player = await self.db.get_player_by_id(user_id)
+            if player and pending_create.get("newlife") == 1:
+                ok, reply = await self._finalize_newlife(player, cultivation_type, roots[index])
+                await self._clear_root_pending("create_roots", user_id)
+                yield event.plain_result(reply)
+                return
+            if player:
                 await self._clear_root_pending("create_roots", user_id)
                 yield event.plain_result("道友，你已踏入仙途，无需重复此举。")
                 return
@@ -277,6 +537,57 @@ class PlayerHandler:
             return
 
         yield event.plain_result("❌ 没有待选择的灵根，请先发送「我要修仙 职业」或「弃道重修 重随灵根」。")
+
+    async def _finalize_newlife(self, player: Player, cultivation_type: str, root: str) -> tuple[bool, str]:
+        """飞升后的道体重塑：按所选职业与灵根重建新号身体，其余跨世数据原样保留。"""
+        if cultivation_type not in VALID_CULTIVATIONS:
+            return False, "❌ 职业选择无效，请重新发送「我要修仙 职业名」。"
+        base_player = self.cultivation_manager.generate_new_player_stats(
+            player.user_id, cultivation_type, root=root
+        )
+        player.cultivation_type = base_player.cultivation_type
+        player.spiritual_root = base_player.spiritual_root
+        player.lifespan = base_player.lifespan
+        player.hp = base_player.hp
+        player.mp = base_player.mp
+        player.atk = base_player.atk
+        player.atkpractice = 0
+        player.spiritual_qi = base_player.spiritual_qi
+        player.max_spiritual_qi = base_player.max_spiritual_qi
+        player.blood_qi = base_player.blood_qi
+        player.max_blood_qi = base_player.max_blood_qi
+        player.magic_damage = base_player.magic_damage
+        player.physical_damage = base_player.physical_damage
+        player.magic_defense = base_player.magic_defense
+        player.physical_defense = base_player.physical_defense
+        player.mental_power = base_player.mental_power
+        player.level_index = 0
+        player.experience = 0
+        player.state = "空闲"
+        player.cultivation_start_time = 0
+        player.tutorial_step = 4
+        # 道基淬炼：新身体刚生成，按永久账本重新放大
+        apply_dao_gift(player, parse_bonus(player))
+        await self.db.update_player(player)
+
+        root_name = player.spiritual_root.replace("灵根", "")
+        try:
+            root_desc = self.cultivation_manager._get_root_description(root_name)
+            root_speed = self.cultivation_manager._get_root_speed(root_name)
+        except Exception:
+            root_desc, root_speed = "", 0.0
+        role_info = CLASS_ROLE_INFO.get(player.cultivation_type, {"name": "未定义", "desc": "无"})
+        return True, (
+            "🌀 道体重塑完成！\n"
+            "━━━━━━━━━━━━━━━\n"
+            f"新身份：职业【{player.cultivation_type}】· 灵根【{player.spiritual_root}】\n"
+            f"职业定位：{role_info['name']} · {role_info['desc']}\n"
+            f"灵根评价：{root_desc}（修炼 ×{float(root_speed):.2f}）\n"
+            f"启动灵石：{player.gold:,}\n"
+            "生活职业：未选择（发送 /选择生活职业 名字 可立即选择）\n"
+            "━━━━━━━━━━━━━━━\n"
+            f"💡 发送「{CMD_PLAYER_INFO}」查看状态，重新踏上仙途吧！"
+        )
 
     async def _finalize_create(self, event: AstrMessageEvent, cultivation_type: str, root: str) -> str:
         """按指定灵根创建角色并返回结果文本。"""
@@ -990,6 +1301,11 @@ class PlayerHandler:
         return 10 + max(0, int(level_index or 0)) + int(math.log10(max(int(experience or 0), 1)) * 5)
 
     async def _rebirth_block_reason(self, player: Player):
+        if player.cultivation_type == NEWLIFE_MARKER:
+            return (
+                "🌀 你正处于道体重塑中，请先发送「我要修仙 职业名」选定新职业与灵根，"
+                "再考虑重修。"
+            )
         user_cd = await self.db.ext.get_user_cd(player.user_id)
         if user_cd and user_cd.type != UserStatus.IDLE:
             return f"❌ 你当前正在「{UserStatus.get_name(user_cd.type)}」，无法弃道重修。"
@@ -1098,7 +1414,8 @@ class PlayerHandler:
         if text == "__help__":
             yield event.plain_result(
                 "⚠️ 弃道重修将重置境界、修为、灵石、装备、宗门、洞府、灵田、灵兽等\n"
-                "保留：仙缘点、转生次数、称号、灵根\n"
+                "保留：仙缘点、完美转生次数、重修次数、称号、灵根、仙缘商店永久加成\n"
+                "注意：重修不计入完美转生次数（只有 /飞升 才算）\n"
                 f"当前：职业【{current_type}】· 生活职业【{current_life}】· 灵根【{player.spiritual_root}】\n"
                 "━━━━━━━━━━━━━━━\n"
                 "可选操作（也支持 /重修 简写）：\n"
@@ -1106,7 +1423,7 @@ class PlayerHandler:
                 "  /弃道重修 炼丹师              （直接重选生活职业）\n"
                 "  /弃道重修 职业 体修            （指定职业）\n"
                 "  /弃道重修 生活职业 炼丹师      （指定生活职业）\n"
-                f"  /弃道重修 重随灵根            （三选一换灵根，每轮上限 {REBIRTH_ROOT_REROLL_LIMIT} 次，每次消耗 {REBIRTH_ROOT_REROLL_COST} 仙缘点）\n"
+                f"  /弃道重修 重随灵根            （三选一换灵根，本轮免费 {FREE_ROOT_REROLLS} 次，用完消耗商店洗炼额度）\n"
                 "  /弃道重修 确认                （按当前选择执行）\n"
                 "职业：灵修/体修/魔修/剑修/鬼修/佛修/御兽\n"
                 "生活职业：炼器师/符箓师/阵法师/炼丹师\n"
@@ -1126,39 +1443,138 @@ class PlayerHandler:
         await self._clear_root_pending("rebirth_options", player.user_id)
         yield event.plain_result(msg)
 
-    async def _reroll_rebirth_roots(self, player: Player, event: AstrMessageEvent, pending: dict = None):
-        """重随灵根：每轮重修最多刷新 REBIRTH_ROOT_REROLL_LIMIT 次，每次消耗仙缘点；保留已选职业/生活职业。"""
-        pending = pending or {}
-        key = f"rebirth_root_reroll_{player.user_id}"
+    # ===== 灵根重抽预算：每轮 5 次免费 + 商店额度 =====
+
+    def _reroll_key(self, user_id: str) -> str:
+        return ROOT_REROLL_KEY.format(uid=user_id)
+
+    def _roll_key(self, user_id: str) -> str:
+        return root_roll_key(user_id)
+
+    async def _root_reroll_used(self, user_id: str) -> int:
         try:
-            raw = await self.db.ext.get_system_config(key)
-            used = int(raw or 0)
+            raw = await self.db.ext.get_system_config(self._reroll_key(user_id))
+            return max(0, int(raw or 0))
         except (TypeError, ValueError):
-            used = 0
-        if used >= REBIRTH_ROOT_REROLL_LIMIT:
-            yield event.plain_result(
-                f"❌ 本轮重修的灵根刷新次数已用完（{used}/{REBIRTH_ROOT_REROLL_LIMIT}）。\n"
-                f"💡 可发送「弃道重修 确认」以当前灵根【{player.spiritual_root}】直接重修。"
-            )
-            return
-        if player.fate_points < REBIRTH_ROOT_REROLL_COST:
-            yield event.plain_result(
-                f"❌ 仙缘点不足：每次刷新灵根需 {REBIRTH_ROOT_REROLL_COST} 点，当前 {player.fate_points} 点。\n"
-                "💡 也可发送「弃道重修 确认」保留当前灵根直接重修。"
-            )
-            return
-        # 原子扣减，防并发多扣/少扣
-        cursor = await self.db.conn.execute(
-            "UPDATE players SET fate_points = fate_points - ? WHERE user_id = ? AND fate_points >= ?",
-            (REBIRTH_ROOT_REROLL_COST, player.user_id, REBIRTH_ROOT_REROLL_COST),
+            return 0
+
+    async def _reset_root_reroll_round(self, user_id: str) -> None:
+        """把免费次数与批次计数归零（飞升 / 重修事务内也会直接写 0）。"""
+        for key in (self._reroll_key(user_id), self._roll_key(user_id)):
+            try:
+                await self.db.ext.set_system_config(key, "0")
+            except Exception:
+                pass
+
+    async def _root_roll_no(self, user_id: str) -> int:
+        try:
+            return max(0, int(await self.db.ext.get_system_config(self._roll_key(user_id)) or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    async def _bump_root_roll_no(self, user_id: str) -> int:
+        """本轮第几批灵根（首次抽取算第 1 批）。"""
+        no = await self._root_roll_no(user_id) + 1
+        try:
+            await self.db.ext.set_system_config(self._roll_key(user_id), str(no))
+        except Exception:
+            pass
+        return no
+
+    async def _draw_roots_with_guarantee(
+        self, player: Player, prev_root: str = ""
+    ) -> tuple[list, str, bool, int]:
+        """抽一批 3 条灵根，按「本轮第几批」决定保底强度。
+
+        - 第 5/10/15… 批：保「比上一世高一档」
+        - 其余批次：保「与上一世同档」（至少一条灵根不低于上一世档位）
+        - 没有上一世记录（首世 / 弃道重修）：纯随机
+        返回 (roots, 保底灵根名, 是否升档批, 批次号)。
+        """
+        cm = self.cultivation_manager
+        roll_no = await self._bump_root_roll_no(player.user_id)
+        prev_idx = cm.root_tier_index(prev_root) if prev_root else -1
+        if prev_idx < 0:
+            return cm.draw_spiritual_roots(3), "", False, roll_no
+
+        # 【灵根天眷】永久抬高保底档位；顶档封顶，不会越界
+        top = len(cm.root_tier_order) - 1
+        base_tier = min(prev_idx + int(permanent_effect(player, "root_tier_bonus")), top)
+        upgraded = False
+        min_tier = base_tier
+        if roll_no % ROOT_TIER_GUARANTEE_EVERY == 0 and base_tier + 1 <= top:
+            min_tier = base_tier + 1
+            upgraded = True
+
+        roots = cm.draw_spiritual_roots(3, min_tier)
+        guarantee = next(
+            (r for r in roots if cm.root_tier_index(r) >= min_tier), ""
         )
-        if getattr(cursor, "rowcount", 0) == 0:
-            yield event.plain_result(f"❌ 仙缘点不足，刷新灵根需 {REBIRTH_ROOT_REROLL_COST} 点。")
+        return roots, guarantee, upgraded, roll_no
+
+    async def _reroll_budget_text(self, player: Player) -> str:
+        used = await self._root_reroll_used(player.user_id)
+        total = free_root_rerolls(player)
+        free_left = max(0, total - used)
+        return format_reroll_budget(free_left, root_reroll_stock(player), total)
+
+    async def _reroll_roots(self, player: Player, prev_root: str = "") -> tuple[bool, str, list, dict]:
+        """扣一次重抽预算并抽 3 条新灵根。
+
+        免费 5 次优先，用完后消耗商店【灵根洗炼】额度；两者都用完则拒绝。
+        `prev_root` 非空时（飞升重塑），按批次给「同档 / 升档」保底。
+        """
+        import json as _json
+
+        used = await self._root_reroll_used(player.user_id)
+        total_free = free_root_rerolls(player)
+        free_left = max(0, total_free - used)
+        bonus = parse_bonus(player)
+        stock = int(ledger_value(bonus, "root_reroll_stock"))
+
+        if free_left <= 0 and stock <= 0:
+            return False, (
+                "❌ 本轮灵根重抽次数已用完（免费 5 次 + 洗炼额度 0 次）。\n"
+                "💡 可在 `/仙缘商店` 购买【灵根洗炼】额度，或直接确定当前灵根。"
+            ), [], {}
+
+        if free_left > 0:
+            used += 1
+            try:
+                await self.db.ext.set_system_config(self._reroll_key(player.user_id), str(used))
+            except Exception:
+                pass
+            note = f"本次用免费重抽，剩 {total_free - used} 次"
+        else:
+            left = consume_root_reroll(bonus)
+            player.permanent_bonus = _json.dumps(bonus, ensure_ascii=False)
+            await self.db.update_player(player)
+            note = f"本次消耗 1 次洗炼额度，剩 {left} 次"
+
+        roots, guarantee, upgraded, roll_no = await self._draw_roots_with_guarantee(
+            player, prev_root
+        )
+        if guarantee:
+            note += f" · 第 {roll_no} 批" + ("升档保底" if upgraded else "同档保底")
+        elif prev_root:
+            note += f" · 第 {roll_no} 批"
+        return True, note, roots, {
+            "root": guarantee,
+            "upgraded": upgraded,
+            "roll_no": roll_no,
+        }
+
+    async def _reroll_rebirth_roots(self, player: Player, event: AstrMessageEvent, pending: dict = None):
+        """重随灵根（弃道重修）：免费 5 次，用完消耗洗炼额度；保留已选职业/生活职业。"""
+        pending = pending or {}
+        ok, note, roots, _info = await self._reroll_roots(player)
+        if not ok:
+            yield event.plain_result(note)
             return
-        player.fate_points = max(0, player.fate_points - REBIRTH_ROOT_REROLL_COST)
-        used += 1
-        await self.db.ext.set_system_config(key, str(used))
-        roots = self.cultivation_manager.draw_spiritual_roots(3)
+        # 重随灵根走正常抽取（同档/升档保底只属于飞升重塑），清掉可能残留的标记
+        pending.pop("guaranteed_root", None)
+        pending.pop("upgraded", None)
+        pending.pop("roll_no", None)
         extra = {k: v for k, v in pending.items() if k not in ("roots", "created_at")}
         extra["cultivation_type"] = extra.get("cultivation_type") or player.cultivation_type
         extra["life_skill"] = str(extra.get("life_skill") or getattr(player, "life_skill", "") or "")
@@ -1167,7 +1583,7 @@ class PlayerHandler:
             self._format_root_choices(roots)
             + f"\n请发送：{CMD_CHOOSE_ROOT} 1/2/3 选择灵根并执行重修"
             + f"\n当前已选：职业【{extra['cultivation_type']}】· 生活职业【{extra['life_skill'] or '未选择'}】"
-            + f"\n🌀 灵根刷新：{used}/{REBIRTH_ROOT_REROLL_LIMIT} 次 · 本次消耗 {REBIRTH_ROOT_REROLL_COST} 仙缘点（剩余 {player.fate_points}）"
+            + "\n" + await self._reroll_budget_text(player) + f"（{note}）"
         )
 
     async def _perform_rebirth(self, player: Player, root: str, cultivation_type: str = "", life_skill: str = ""):
@@ -1178,15 +1594,21 @@ class PlayerHandler:
 
         target_type = cultivation_type if cultivation_type in VALID_CULTIVATIONS else player.cultivation_type
         points = self._rebirth_points(player.level_index, player.experience)
+        peak_level = player.level_index
         base_player = self.cultivation_manager.generate_new_player_stats(
             player.user_id, target_type, root=root
         )
         base_player.spiritual_root = f"{root}灵根"
 
+        bonus_data = parse_bonus(player)
+        prev_gold = int(getattr(player, "gold", 0) or 0)
         player.cultivation_type = base_player.cultivation_type
         player.level_index = 0
         player.experience = 0
-        player.gold = 1000
+        # 转世资粮：按上一世巅峰境界的镖银趟数发放，层数由仙缘商店决定
+        # 【前世余荫】再按比例保留上一世灵石（最高 90%）
+        startup = int(escort_gold_base(peak_level) * ledger_value(bonus_data, "newlife_trips"))
+        player.gold = 1000 + startup + int(prev_gold * keep_gold_ratio(bonus_data))
         player.lifespan = base_player.lifespan
         player.hp = base_player.hp
         player.mp = base_player.mp
@@ -1202,6 +1624,19 @@ class PlayerHandler:
         player.physical_defense = base_player.physical_defense
         player.mental_power = base_player.mental_power
         player.spiritual_root = base_player.spiritual_root
+
+        # 仙缘商店的【道基淬炼】跨世保留：基础属性刚被覆盖，按永久账本重新放大
+        apply_dao_gift(player, bonus_data)
+        # 【宿慧觉醒】开局直接顶境界（只给等级与成长，不送修为）
+        try:
+            apply_start_level(
+                player,
+                bonus_data,
+                peak_level,
+                self.config_manager.get_level_data(player.cultivation_type or "灵修"),
+            )
+        except Exception:
+            pass
 
         player.weapon = ""
         player.armor = ""
@@ -1221,13 +1656,17 @@ class PlayerHandler:
 
         if life_skill:
             player.life_skill = life_skill
+        elif keeps_life_skill(bonus_data) and not player.life_skill:
+            # 【一脉相承】没主动换生活职业时，保留上一世的那一份
+            player.life_skill = str(getattr(base_player, "life_skill", "") or "") or player.life_skill
         # 重修后生活职业计费清零（下次更换从基础费用开始）
         player.life_skill_changes = 0
         player.life_skill_cost_peak = 0
         player.life_skill_last_change_at = 0
 
         player.tutorial_step = 4
-        player.reincarnation_count += 1
+        # 弃道重修不再计入「完美转生次数」：完美转生只认飞升（见 /飞升）。
+        # 重修次数单独落在 system_config 的 rebirth_total_{uid}，与称号【百变星君】同源。
         player.fate_points += points
         player.state = "空闲"
         player.cultivation_start_time = 0
@@ -1302,11 +1741,12 @@ class PlayerHandler:
                 "UPDATE sect_orders SET status = 'cancelled' WHERE status = 'active' AND (issuer_id = ? OR target_id = ?)",
                 (player.user_id, player.user_id),
             )
-            # 冷却/累计次数/灵根刷新计数同事务落库：并发 /选择灵根 无法绕过冷却检查
+            # 冷却/累计次数/灵根刷新计数与批次同事务落库：并发 /选择灵根 无法绕过冷却检查
             for cfg_key, cfg_val in (
                 (f"rebirth_last_{player.user_id}", str(now)),
                 (f"rebirth_total_{player.user_id}", str(total)),
                 (f"rebirth_root_reroll_{player.user_id}", "0"),
+                (self._roll_key(player.user_id), "0"),
             ):
                 await self.db.conn.execute(
                     "INSERT INTO system_config (key, value, updated_at) VALUES (?, ?, ?) "
@@ -1338,11 +1778,14 @@ class PlayerHandler:
         return True, (
             "💀 弃道重修完成！\n"
             "━━━━━━━━━━━━━━━\n"
-            f"保留：仙缘点 +{points}（当前 {player.fate_points}）、转生次数 {player.reincarnation_count}、称号、灵根【{player.spiritual_root}】\n"
+            f"保留：仙缘点 +{points}（当前 {player.fate_points}）、"
+            f"完美转生 {player.reincarnation_count} 次 · 重修 {total} 次、称号、灵根【{player.spiritual_root}】\n"
+            "保留：仙缘商店永久加成（修炼加速 / 道基淬炼 / 各项心得）\n"
             f"新身份：职业【{player.cultivation_type}】{life_line}\n"
-            "重置：境界、修为、灵石、装备、储物戒、丹药、功法\n"
+            + (f"启动灵石：{startup:,}（转世资粮）\n" if startup else "")
+            + "重置：境界、修为、灵石、装备、储物戒、丹药、功法\n"
             f"重置：宗门（{sect_note}）、洞府、灵田、灵兽、挂单、银行存款\n"
             "━━━━━━━━━━━━━━━\n"
-            "可立即开始新的修行（3 天内不可再次重修）。"
+            "重修不计入完美转生次数（只有飞升才算）· 3 天内不可再次重修。"
             + (f"\n{title_msg}" if title_msg else "")
         )

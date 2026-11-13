@@ -1552,6 +1552,16 @@ class XiuXianPlugin(Star):
         async with get_player_lock(event.get_sender_id()):
             async for r in self.player_handler.handle_choose_root(event, choice): yield r
 
+    @filter.command("灵根图鉴", "灵根图鉴：10 档灵根的倍率、五行与抽取概率")
+    @require_whitelist
+    async def handle_root_atlas(self, event: AstrMessageEvent):
+        async for r in self.player_handler.handle_root_info(event, ""): yield r
+
+    @filter.command("灵根说明", "灵根说明 <灵根名>：倍率、五行归属与共鸣加成")
+    @require_whitelist
+    async def handle_root_info(self, event: AstrMessageEvent, name: GreedyStr):
+        async for r in self.player_handler.handle_root_info(event, name): yield r
+
     @filter.command(CMD_START_CULTIVATION, "开始闭关修炼")
     @require_whitelist
     async def handle_start_cultivation(self, event: AstrMessageEvent):
@@ -2848,15 +2858,15 @@ class XiuXianPlugin(Star):
         async for r in self.robbery_handlers.handle_rob(event, target): yield r
 
     # ===== v6.1 飞升转生 =====
-    @filter.command("飞升", "达到最高境界后飞升转生（可附加装备名封印为传家宝）")
+    @filter.command("飞升", "达到最高境界后飞升（先出确认页，带「确认」才执行；可附加装备名封印为传家宝）")
     @require_whitelist
-    async def handle_reincarnate(self, event: AstrMessageEvent, heirloom_name: str = ""):
+    async def handle_reincarnate(self, event: AstrMessageEvent, args: str = ""):
         before = None
         p0 = await self.db.get_player_by_id(event.get_sender_id())
         if p0: before = p0.reincarnation_count
-        async for r in self.reinc_handlers.handle_reincarnate(event, heirloom_name):
+        async for r in self.reinc_handlers.handle_reincarnate(event, args):
             yield r
-        # 称号：转生次数（飞升后 count+1）
+        # 称号：完美转生次数（飞升后 count+1）
         try:
             p1 = await self.db.get_player_by_id(event.get_sender_id())
             if p1 and before is not None and p1.reincarnation_count > before:
@@ -2877,10 +2887,11 @@ class XiuXianPlugin(Star):
         async for r in self.reinc_handlers.handle_fate_shop(event): yield r
 
     # ===== 新增：仙缘兑换 =====
-    @filter.command("仙缘兑换", "购买仙缘商店的永久加成")
+    @filter.command("仙缘兑换", "购买仙缘商店的永久加成；灵石换点用 /仙缘兑换 灵石 <点数>")
     @require_whitelist
-    async def handle_fate_exchange(self, event: AstrMessageEvent, item_id: str = "0"):
-        async for r in self.reinc_handlers.handle_fate_exchange(event, item_id):
+    @with_player_lock
+    async def handle_fate_exchange(self, event: AstrMessageEvent, item_id: str = "0", count: str = "0"):
+        async for r in self.reinc_handlers.handle_fate_exchange(event, item_id, count):
             yield r
 
     # ===== v6.1 真·一键日常 =====
@@ -3323,20 +3334,20 @@ class XiuXianPlugin(Star):
         yield event.plain_result(msg)
 
     # ===== v6.8 储物戒空间附魔 =====
-    @filter.command("储物戒附魔", "消耗空间石永久扩充储物戒容量")
+    @filter.command("储物戒附魔", "消耗空间石扩充储物戒容量（次数越多，单次消耗越高）")
     @require_whitelist
     @idle_player_lock
-    async def handle_ring_enchant(self, event: AstrMessageEvent, stones: str = "1"):
+    async def handle_ring_enchant(self, event: AstrMessageEvent, times: str = "1"):
         player = await self.db.get_player_by_id(event.get_sender_id())
         if not player:
             yield event.plain_result("❌ 道友尚未踏入仙途，请先发送「我要修仙」。")
             return
         try:
-            stone_count = int(stones)
+            enchant_times = int(times)
         except ValueError:
-            yield event.plain_result("❌ 请输入有效的空间石数量，例如：/储物戒附魔 2")
+            yield event.plain_result("❌ 请输入有效的附魔次数，例如：/储物戒附魔 2")
             return
-        success, msg = await self.storage_ring_mgr.enchant_ring(player, stone_count)
+        success, msg = await self.storage_ring_mgr.enchant_ring(player, enchant_times)
         yield event.plain_result(msg)
 
     # ===== v6.8 押镖与劫道 =====
@@ -4232,7 +4243,7 @@ class XiuXianPlugin(Star):
                 f"功德/业力：{getattr(target, 'karma', 0):+d}\n"
                 f"生活职业：{getattr(target, 'life_skill', '') or '无'}\n"
                 f"状态：{status} / {target.state}\n"
-                f"转生次数：{target.reincarnation_count}\n"
+                f"完美转生：{target.reincarnation_count} 次\n"
                 f"贷款：{('未还本金 ' + format(max(0, loan['principal'] - loan.get('paid_principal', 0)), ',') + ' 灵石') if loan else '无'}"
             )
             return

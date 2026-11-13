@@ -32,6 +32,7 @@ from . import commands as commands_catalog
 from . import stickers as stickers_catalog
 from .arg_options import build_arg_options
 from .proxy_panel import proxy_snapshot, toggle_proxy
+from .fate_shop_panel import fate_shop_buy, fate_shop_exchange, fate_shop_snapshot
 from .visibility import is_panel_command
 
 if TYPE_CHECKING:
@@ -264,6 +265,9 @@ async def start(host: str, port: int) -> None:
     app.router.add_get("/api/proxy", _api_proxy)
     app.router.add_get("/api/market/candles", _api_market_candles)
     app.router.add_post("/api/proxy/toggle", _api_proxy_toggle)
+    app.router.add_get("/api/fate_shop", _api_fate_shop)
+    app.router.add_post("/api/fate_shop/buy", _api_fate_shop_buy)
+    app.router.add_post("/api/fate_shop/exchange", _api_fate_shop_exchange)
     app.router.add_get("/api/settings", _api_settings)
     app.router.add_post("/api/settings", _api_settings)
     app.router.add_get("/api/notices", _api_notices)
@@ -1020,6 +1024,73 @@ async def _api_equip_context(request: web.Request) -> web.Response:
         return web.json_response({"ok": False, "error": f"解析失败：{exc}"}, status=500)
 
     return web.json_response(result)
+
+
+async def _api_fate_shop(request: web.Request) -> web.Response:
+    """仙缘商店面板：八组商品 + 已购层数 + 灵石兑换额度。"""
+    user = _token_user(request)
+    if user is None:
+        return web.json_response({"ok": False, "error": "登录已过期"}, status=401)
+    if _plugin is None:
+        return web.json_response({"ok": False, "error": "插件尚未就绪"}, status=503)
+
+    user_id = accounts_store.player_key_of(user)
+    try:
+        data = await fate_shop_snapshot(_plugin, user_id)
+    except Exception as exc:
+        logger.exception("[webroom] 读取仙缘商店失败")
+        return web.json_response({"ok": False, "error": f"读取失败：{exc}"}, status=500)
+    return web.json_response(data)
+
+
+async def _api_fate_shop_buy(request: web.Request) -> web.Response:
+    """买一层：点卡片即升级。"""
+    user = _token_user(request)
+    if user is None:
+        return web.json_response({"ok": False, "error": "登录已过期"}, status=401)
+    if _plugin is None:
+        return web.json_response({"ok": False, "error": "插件尚未就绪"}, status=503)
+
+    body = await _read_json(request)
+    if not body:
+        return web.json_response({"ok": False, "error": "请求格式不对"}, status=400)
+    try:
+        item_id = int(body.get("item_id") or 0)
+    except (TypeError, ValueError):
+        item_id = 0
+    if item_id <= 0:
+        return web.json_response({"ok": False, "error": "缺少 item_id"}, status=400)
+
+    user_id = accounts_store.player_key_of(user)
+    try:
+        data = await fate_shop_buy(_plugin, user_id, item_id)
+    except Exception as exc:
+        logger.exception("[webroom] 仙缘商店购买失败")
+        return web.json_response({"ok": False, "error": f"购买失败：{exc}"}, status=500)
+    return web.json_response(data)
+
+
+async def _api_fate_shop_exchange(request: web.Request) -> web.Response:
+    """灵石换仙缘点（1000 万 / 点，每世 100 点）。"""
+    user = _token_user(request)
+    if user is None:
+        return web.json_response({"ok": False, "error": "登录已过期"}, status=401)
+    if _plugin is None:
+        return web.json_response({"ok": False, "error": "插件尚未就绪"}, status=503)
+
+    body = await _read_json(request) or {}
+    try:
+        points = int(body.get("points") or 0)
+    except (TypeError, ValueError):
+        points = 0
+
+    user_id = accounts_store.player_key_of(user)
+    try:
+        data = await fate_shop_exchange(_plugin, user_id, points)
+    except Exception as exc:
+        logger.exception("[webroom] 灵石兑换失败")
+        return web.json_response({"ok": False, "error": f"兑换失败：{exc}"}, status=500)
+    return web.json_response(data)
 
 
 async def _api_proxy(request: web.Request) -> web.Response:

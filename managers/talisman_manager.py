@@ -88,7 +88,11 @@ QUALITY_MIN_BONUS_MINUTES = 5
 
 
 class TalismanManager:
-    """符箓管理器（符箓师专属扩展）"""
+    """符箓管理器。
+
+    绘制不设职业门槛：任何生活职业都能 /制符，只需习得符图、材料与灵石齐备。
+    【符箓师】保留职业加成（成功率 +10%、灵石 -20%、20% 额外产出）与每日护劫符。
+    """
 
     TIER_POWER = TIER_POWER
     TIER_LEVEL = TIER_LEVEL
@@ -319,7 +323,7 @@ class TalismanManager:
         card_lines: List[str] = []
         notices: List[str] = []
         if not is_master:
-            notices.append("⚠️ 当前生活职业不是【符箓师】，暂时无法绘制（/选择生活职业 符箓师）")
+            notices.append("💡 当前不是【符箓师】：制符不受影响，只是没有职业加成（成功率 +10%、灵石 -20%、20% 额外产出）")
         lines.extend(notices)
 
         if not learned_entries:
@@ -473,10 +477,10 @@ class TalismanManager:
         sections: List[Dict] = [{
             "name": "制符说明",
             "lines": [
-                "仅【符箓师】可绘制符箓；绘制消耗灵石与对应品阶材料。",
-                "符箓师每日可在 /日常制符 免费领取一张境界护劫符。",
-                "符箓师加成：成功率 +10%、灵石消耗 -20%、20% 概率额外产出 1 张。",
-                "表中成功率为基础值，实际再叠加符箓师加成与熟练度加成。",
+                "任何生活职业都可绘制符箓；绘制消耗灵石与对应品阶材料。",
+                "【符箓师】每日可在 /日常制符 免费领取一张境界护劫符。",
+                "【符箓师】职业加成：成功率 +10%、灵石消耗 -20%、20% 概率额外产出 1 张。",
+                "表中成功率为基础值，实际再叠加熟练度加成（符箓师另有职业加成）。",
                 "材料按「类别 + 品阶」匹配：灵植 / 矿材 / 妖兽 / 灵液，可从丹阁材料、灵田、历练与秘境获取。",
                 "基础符免符图；标注「需符图」的需在 /符阁 符图 习得后方可绘制。",
                 "探索类符箓按次数生效（如寻宝符 3 次历练/秘境），不受历练/秘境耗时影响。",
@@ -511,7 +515,7 @@ class TalismanManager:
         lines = [
             f"🧿 符箓配方总览（共 {len(entries)} 种）",
             "━━━━━━━━━━━━━━━",
-            "仅【符箓师】可绘制；材料按「类别 + 品阶」匹配。",
+            "任何职业都可绘制；材料按「类别 + 品阶」匹配。",
             "格式：符名（品阶 境界｜灵石｜材料｜成功率）。",
         ]
         current_category = None
@@ -709,8 +713,6 @@ class TalismanManager:
         recipe = self.get_recipe(name)
         if not recipe:
             return False, f"❌ 没有找到符箓【{name}】的绘制方法。发送 /符箓 查看可绘制符箓。"
-        if player.life_skill != "符箓师":
-            return False, "❌ 只有【符箓师】才能绘制符箓。发送 /选择生活职业 符箓师 转职。"
         if not self.storage_ring_manager:
             return False, "❌ 系统异常：储物戒管理器未加载。"
         if not self.is_recipe_learned(player, name, recipe):

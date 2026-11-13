@@ -346,6 +346,18 @@ class BlessedLandManager:
             pass
 
 
+        # 仙缘【洞天造化】：洞天福地的修为与灵石产出永久加成（无上限）
+        try:
+            from ..core.reincarnation_rules import permanent_effect
+
+            land_bonus = permanent_effect(player, "blessed_land_bonus")
+            if land_bonus:
+                gold_income = int(gold_income * (1.0 + land_bonus))
+                exp_income = int(exp_income * (1.0 + land_bonus))
+        except Exception:
+            pass
+
+
         # 单一 BEGIN IMMEDIATE 事务：先推进结算时间戳（带旧值幂等条件）再发放收益，
         # 消除“已给钱未推进时间戳”导致的重复收取窗口（宁可丢奖励不可重复结算）
         await self.db.conn.execute("BEGIN IMMEDIATE")

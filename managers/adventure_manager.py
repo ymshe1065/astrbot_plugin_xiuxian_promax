@@ -630,6 +630,14 @@ class AdventureManager:
         duration = max(60, int(route.get("duration") or 1800))
         need = self.breakthrough_need(player)
         exp = need * self.exp_rate_per_hour * (duration / 3600.0) * self._cultivation_mult(player)
+        # 仙缘商店【历练心得】：只放大历练（修为 + 灵石），不影响闭关
+        try:
+            from ..core.reincarnation_rules import permanent_adventure_bonus
+
+            adventure_mult = 1.0 + max(0.0, float(permanent_adventure_bonus(player) or 0.0))
+        except Exception:
+            adventure_mult = 1.0
+        exp *= adventure_mult
 
         reward_duration = int(route.get("reward_duration") or duration)
         minutes = max(1, reward_duration // 60)
@@ -639,7 +647,7 @@ class AdventureManager:
             + level_index * route.get("level_bonus_gold", 2)
         )
         gold += (route.get("completion_bonus") or {}).get("gold", 0)
-        return {"exp": exp, "gold": gold * self.gold_multiplier}
+        return {"exp": exp, "gold": gold * self.gold_multiplier * adventure_mult}
 
     def _personal_reward_mult(self, player) -> float:
         """材料/灵石用的个人倍率（探索符 + 气运），不含丹药符箓的修炼加成。"""
