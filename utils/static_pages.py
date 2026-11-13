@@ -6,7 +6,7 @@ import hashlib
 import json
 from typing import Any, Dict, List
 
-HELP_VERSION = "v7.9.9"
+HELP_VERSION = "v7.9.19"
 HELP_HEADER = f"📖 修仙指令大全 {HELP_VERSION} (网页指令目录全覆盖)"
 HELP_HINT = "💡 提示：所有指令均可带 / 前缀使用"
 HELP_TITLE = "修仙指令大全"
@@ -128,7 +128,7 @@ HELP_SECTIONS: List[Dict[str, Any]] = [
         "lines": [
             "/我的洞天 /购买洞天 1 /升级洞天 [次数|1-5|all] /洞天收取",
             "/洞天装修 <家具|藏宝阁> /进阶洞天 <编号>",
-            "/我的灵田 /开垦灵田 /种植 <草> [数量|1-20|all] /收获",
+            "/我的灵田 /开垦灵田 /种植 <草> [数量|1-3|all] /收获",
             "/铲除 <格号...|1-3|all> /施肥 /杂交 <草A> <草B> /升级灵田 /季节",
             "/自动代理 灵田 [格号...] /自动代理 施肥 [阈值%]（肥力低于阈值自动补肥）",
             "/灵眼信息 /抢占灵眼 <ID> /灵眼收取 /释放灵眼",

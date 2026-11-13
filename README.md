@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v7.9.9 (仙市风声去掉保底)
+# AstrBot 插件：模拟修仙 v7.9.19 (灵田代理自动扩容)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v7.9.9-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v7.9.19-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.45.1 · **游戏版本:** v7.9.9 · **数据库:** v61
+> **插件版本:** v3.45.11 · **游戏版本:** v7.9.19 · **数据库:** v61
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，257 条注册指令（网页指令目录 245 个功能按钮 + 12 个别名）、17 个大系统、111 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,22 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · 插件 v3.45.1（仙市风声去掉连续平静保底）</b></summary>
+<summary><b>本次更新 · 插件 v3.45.11（灵田代理自动扩容）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 问题 | 灵田代理的“全部格”本应随灵田升级动态扩展，但历史配置如果把范围显式存成了 `1-20`（例如曾发送 `/自动代理 灵田 1-20`），Lv.5→Lv.6 后新解锁的格21-24 永远不会被收获或续种，看起来像“代理只认前20格”。 |
+| 范围归一 | 开启代理时，若所选格号恰好等于当前全部格位（如满级 40 格发送 `1-40`），统一按「全部格」保存，后续升级自动纳入新格位，不再固化上限。 |
+| 旧配置自愈 | 对缺少范围标记的旧配置：若格号是从格1开始的连续前缀，且格数正好等于某个历史灵田档位（3/5/8/12/20/24/28/32/36），首次运行自动改为「全部格」，并提示已从格1-N 扩展到当前全部格。 |
+| 尊重手动选择 | 玩家明确指定的代理范围会写入 `plots_mode=explicit`，不会被自愈逻辑改动；`/代理状态` 会提示“格N+1-当前格数未纳入代理，可发送 `/自动代理 灵田 全部格` 覆盖”。 |
+| 文案修正 | 灵田/季节帮助里的种植示例由 `1-20` 改为 `1-3`，避免玩家误以为满级仍是 20 格；格号区间写法本身不受影响。 |
+| 回归验证 | `tests/test_auto_proxy_farm.py` 新增 3 例：显式全范围归一为全部格、旧配置自愈并接管格21-24、explicit 范围不被误改；该文件 **24 项通过**。 |
+| 版本与数据库 | 插件 **v3.45.11** / 游戏及帮助 **v7.9.19**；无表结构变更，数据库仍为 **v61**。 |
+
+</details>
+
+<details>
+<summary><b>插件 v3.45.1（仙市风声去掉连续平静保底）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |

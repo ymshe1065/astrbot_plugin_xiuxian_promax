@@ -163,7 +163,7 @@ FIELD_PLANS: Dict[str, List[dict[str, Any]]] = {
     "购买洞天": [_f("type", "选择洞天类型", "land_types")],
     "升级洞天": [_f("mode", "选择升级方式（留空 = 升 1 级）", "upgrade_modes", optional=True)],
     "进阶洞天": [_f("type", "选择进阶目标", "land_advance_types")],
-    "种植": [_f("herb", "选择灵草", "farm_herbs"), _f("count", "数量 / 1-20 / all（可选）", "", optional=True)],
+    "种植": [_f("herb", "选择灵草", "farm_herbs"), _f("count", "数量 / 1-3 / all（可选）", "", optional=True)],
     "铲除": [_f("slot", "选择要铲除的田块", "farm_slots")],
     # ---- 兑换 / 奇遇 ----
     "仙缘兑换": [_f("id", "选择仙缘商品", "fate_shop")],

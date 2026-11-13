@@ -510,6 +510,60 @@ class AutoProxyManager:
             return "无"
         return "、".join(f"格{s}" for s in plots)
 
+    @classmethod
+    def _farm_scope_text(cls, plots: Optional[list[int]], max_slots: int) -> str:
+        if plots is None:
+            if max_slots:
+                return f"全部格（1-{max_slots}，升级后自动扩展）"
+            return "全部格"
+        return cls._farm_plots_text(plots)
+
+    @staticmethod
+    def _plot_prefix_length(plots: Any) -> int:
+        """返回从格1开始连续覆盖的格数；不是连续前缀时返回 0。"""
+        try:
+            values = sorted({int(v) for v in plots or []})
+        except (TypeError, ValueError):
+            return 0
+        if not values or values != list(range(1, len(values) + 1)):
+            return 0
+        return len(values)
+
+    def _normalize_farm_plots(
+        self, plots: Optional[list[int]], max_slots: int
+    ) -> Optional[list[int]]:
+        """恰好覆盖当前全部格位时折叠为 None，灵田升级后自动纳入新格位。"""
+        if plots and max_slots and self._plot_prefix_length(plots) == max_slots:
+            return None
+        return plots
+
+    def _heal_legacy_farm_plots(self, farm_cfg: dict, max_slots: int) -> str:
+        """修复旧版被固化成 1-N 的“全部格”，避免灵田扩级后新格位脱离代理。
+
+        仅在配置缺少 ``plots_mode`` 标记（旧版未写入）、格号恰好是从 1 开始的
+        连续前缀、且格数等于某个历史灵田档位时触发；玩家明确指定的代理范围
+        （由 ``plots_mode=explicit`` 标记）不会被改动。
+        """
+        if "plots_mode" in farm_cfg or not max_slots:
+            return ""
+        if farm_cfg.get("exclude"):
+            return ""
+        frozen = self._plot_prefix_length(farm_cfg.get("plots"))
+        if not frozen or frozen >= max_slots:
+            return ""
+        from .spirit_farm_manager import FARM_LEVELS
+
+        legacy_counts = {int(cfg.get("slots") or 0) for cfg in FARM_LEVELS.values()}
+        if frozen not in legacy_counts:
+            return ""
+        farm_cfg["plots"] = None
+        farm_cfg["exclude"] = []
+        farm_cfg["plots_mode"] = "all"
+        return (
+            f"🔧 检测到灵田代理范围被锁定在格1-{frozen}，"
+            f"已自动扩展为全部格（当前 {max_slots} 格）。"
+        )
+
     def _selected_slots(self, farm: dict, farm_cfg: dict) -> list[int]:
         max_slots = self.farm_mgr.get_max_slots(farm) if self.farm_mgr else 0
         raw_plots = farm_cfg.get("plots")
@@ -554,12 +608,15 @@ class AutoProxyManager:
             over = [s for s in plots if s > max_slots]
             if over:
                 return False, f"❌ 灵田当前只有 {max_slots} 格，无法代理格{over[0]}。"
+        # “1..当前全部格”等价于全部格，存 None 才能在升级后自动覆盖新格位
+        plots = self._normalize_farm_plots(plots, max_slots)
 
         row = await self.get(user_id) or {}
         config = self._load_config(row)
         farm_cfg = config["farm"]
         farm_cfg["enabled"] = True
         farm_cfg["plots"] = plots
+        farm_cfg["plots_mode"] = "all" if plots is None else "explicit"
         farm_cfg["exclude"] = []
         farm_cfg["tasks"] = farm_cfg.get("tasks") if isinstance(farm_cfg.get("tasks"), dict) else {}
         origin = origin or row.get("origin", "")
@@ -575,7 +632,7 @@ class AutoProxyManager:
         header = (
             "🤖 灵田代理已开启\n"
             "━━━━━━━━━━━━━━━\n"
-            f"代理范围：{self._farm_plots_text(plots)}\n"
+            f"代理范围：{self._farm_scope_text(plots, max_slots)}\n"
             "♻️ 成熟后自动收获，并按原格续种；杂交植株需有足够种苗才会续种。\n"
             "💡 肥力不足会打折，可另开 /自动代理 施肥 让代理按阈值补肥。"
         )
@@ -618,9 +675,11 @@ class AutoProxyManager:
                 excluded = set(farm_cfg.get("exclude") or [])
                 excluded.update(plots)
                 farm_cfg["exclude"] = sorted(int(s) for s in excluded)
+                farm_cfg["plots_mode"] = "all"
             else:
                 farm_cfg["plots"] = remain
                 farm_cfg["exclude"] = []
+                farm_cfg["plots_mode"] = "explicit"
             if not remain:
                 farm_cfg["enabled"] = False
             action = f"已取消 {self._farm_plots_text(removed)} 的灵田代理"
@@ -631,6 +690,7 @@ class AutoProxyManager:
         else:
             farm_cfg["enabled"] = False
             farm_cfg["plots"] = None
+            farm_cfg["plots_mode"] = "all"
             farm_cfg["exclude"] = []
             farm_cfg["tasks"] = {}
             action = "灵田代理已关闭。"
@@ -708,9 +768,11 @@ class AutoProxyManager:
             excluded = set(farm_cfg.get("exclude") or [])
             excluded.add(slot)
             farm_cfg["exclude"] = sorted(int(s) for s in excluded)
+            farm_cfg["plots_mode"] = "all"
         else:
             farm_cfg["plots"] = remain
             farm_cfg["exclude"] = []
+            farm_cfg["plots_mode"] = "explicit"
         if not remain:
             farm_cfg["enabled"] = False
         keep_enabled = self._any_proxy_active(row.get("task_type"), config)
@@ -736,6 +798,9 @@ class AutoProxyManager:
             farm_cfg["enabled"] = False
             return True, "⚠️ 灵田已不存在，灵田代理已关闭。", True
 
+        heal_msg = self._heal_legacy_farm_plots(
+            farm_cfg, self.farm_mgr.get_max_slots(farm)
+        )
         slots = self._selected_slots(farm, farm_cfg)
         if not slots:
             farm_cfg["enabled"] = False
@@ -746,7 +811,7 @@ class AutoProxyManager:
         farm_cfg["tasks"] = tasks
         now = int(time.time())
         harvest_slots = []
-        config_dirty = False
+        config_dirty = bool(heal_msg)
 
         from .spirit_farm_manager import HYBRID_MARKER
         for crop in farm["crops"]:
@@ -796,6 +861,8 @@ class AutoProxyManager:
 
         changed = bool(harvest_slots or planted_count)
         messages = []
+        if heal_msg:
+            messages.append(heal_msg)
         if harvest_msg:
             messages.append(harvest_msg)
         if plant_msg:
@@ -1922,6 +1989,17 @@ class AutoProxyManager:
             else:
                 plot_text = self._farm_plots_text(raw_plots or [])
             lines.append(f"灵田代理：运行中（{plot_text}）")
+            prefix_len = self._plot_prefix_length(raw_plots)
+            if (
+                raw_plots is not None
+                and max_slots
+                and prefix_len
+                and prefix_len < max_slots
+            ):
+                lines.append(
+                    f"💡 格{prefix_len + 1}-{max_slots} 未纳入代理，"
+                    "发送 /自动代理 灵田 全部格 可覆盖"
+                )
         if rift_on:
             rift_id = int(rift_cfg.get("rift_id") or 0)
             rift_name = ""

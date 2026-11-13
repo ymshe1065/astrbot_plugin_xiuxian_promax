@@ -112,6 +112,21 @@ class TestAutoProxyFarm(unittest.IsolatedAsyncioTestCase):
         )
         await self.conn.commit()
 
+    async def _set_farm_level(self, level):
+        await self.conn.execute(
+            "UPDATE spirit_farms SET level = ? WHERE user_id = ?", (level, "u1")
+        )
+        await self.conn.commit()
+
+    async def _set_proxy_config(self, farm_cfg):
+        import json
+        await self.conn.execute(
+            "INSERT INTO auto_proxy (user_id, enabled, task_type, origin, config_json) "
+            "VALUES (?, 1, '', 'umo://g', ?)",
+            ("u1", json.dumps({"farm": farm_cfg}, ensure_ascii=False)),
+        )
+        await self.conn.commit()
+
     async def _crops(self):
         farm = await self.farm_mgr.get_user_farm("u1")
         return {int(c["slot"]): c for c in farm["crops"]}
@@ -143,6 +158,68 @@ class TestAutoProxyFarm(unittest.IsolatedAsyncioTestCase):
         self.assertGreater(crops[2]["mature_time"], now)
         self.assertEqual(crops[3]["name"], "冰心草")
         self.assertEqual(crops[3]["mature_time"], mature3)
+
+    async def test_enable_full_range_keeps_auto_expand(self):
+        """显式传入 1..当前全部格 时应折叠为全部格，升级后自动覆盖新格位。"""
+        await self._set_farm_level(10)
+        ok, msg = await self.manager.enable("u1", "umo://g", "灵田 1-40")
+        self.assertTrue(ok, msg)
+        self.assertIn("全部格", msg)
+
+        row = await self.db.ext.get_auto_proxy("u1")
+        cfg = self.manager._load_config(row)["farm"]
+        self.assertIsNone(cfg["plots"])
+        self.assertEqual(cfg["plots_mode"], "all")
+
+    async def test_process_due_heals_frozen_legacy_scope(self):
+        """旧配置把全部格固化成 1-20 时，升级后应自愈并接管 21-24。"""
+        await self._set_farm_level(6)  # Lv.6 = 24 格
+        now = int(time.time())
+        await self._set_crops([
+            {"name": "灵草", "slot": slot, "plant_time": now - 7200,
+             "mature_time": now - 1}
+            for slot in range(21, 25)
+        ])
+        await self._set_proxy_config({
+            "enabled": True, "plots": list(range(1, 21)),
+            "exclude": [], "tasks": {},
+        })
+
+        processed = await self.manager.process_due(now=now)
+        self.assertEqual(processed, 1)
+
+        crops = await self._crops()
+        self.assertEqual({slot for slot in crops if slot >= 21}, {21, 22, 23, 24})
+        for slot in range(21, 25):
+            self.assertEqual(crops[slot]["name"], "灵草")
+            self.assertGreaterEqual(crops[slot]["mature_time"], now)
+
+        row = await self.db.ext.get_auto_proxy("u1")
+        cfg = self.manager._load_config(row)["farm"]
+        self.assertIsNone(cfg["plots"])
+        self.assertEqual(cfg["plots_mode"], "all")
+
+    async def test_explicit_scope_is_not_healed(self):
+        """玩家明确指定的 1-20 范围带 explicit 标记，不应被自动扩展。"""
+        await self._set_farm_level(10)  # 40 格
+        now = int(time.time())
+        await self._set_crops([
+            {"name": "灵草", "slot": 21, "plant_time": now - 7200,
+             "mature_time": now - 1},
+        ])
+        await self._set_proxy_config({
+            "enabled": True, "plots": list(range(1, 21)),
+            "plots_mode": "explicit", "exclude": [], "tasks": {},
+        })
+
+        processed = await self.manager.process_due(now=now)
+        self.assertEqual(processed, 0)
+        self.assertIn(21, await self._crops())
+
+        row = await self.db.ext.get_auto_proxy("u1")
+        cfg = self.manager._load_config(row)["farm"]
+        self.assertEqual(cfg["plots"], list(range(1, 21)))
+        self.assertEqual(cfg["plots_mode"], "explicit")
 
     async def test_process_due_replants_after_maturity(self):
         now = int(time.time())
