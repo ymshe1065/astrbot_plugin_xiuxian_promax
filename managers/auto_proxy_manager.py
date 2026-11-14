@@ -330,8 +330,9 @@ class AutoProxyManager:
         if not int(adv.get("close_until") or 0):
             return ""
         try:
-            cd = await self.db.ext.first_busy_cd(user_id)
-            if not cd or cd.type != UserStatus.CULTIVATING:
+            # 只认代理自己起的那次闭关；本体/别的分身可能正在做别的事
+            cd = await self.db.ext.get_active_cd(user_id, UserStatus.CULTIVATING)
+            if not cd:
                 return ""
             player = await self.db.get_player_by_id(user_id)
             if not player or not self._cultivation_settler:
@@ -1484,24 +1485,32 @@ class AutoProxyManager:
             f"奇遇：{enc_text}{rift_note}"
         )
 
+        # 精确定位自己那两项：本体在闭关 + 分身在历练时，
+        # first_busy_cd 只会返回 slot 最小的那条，容易误判
         try:
-            cd = await self.db.ext.first_busy_cd(user_id)
+            adv_cd = await self.db.ext.get_active_cd(user_id, UserStatus.ADVENTURING)
+            cult_cd = await self.db.ext.get_active_cd(user_id, UserStatus.CULTIVATING)
         except Exception:
-            cd = None
-        cd_type = cd.type if cd else UserStatus.IDLE
+            adv_cd = None
+            cult_cd = None
 
-        if cd_type == UserStatus.ADVENTURING:
+        if adv_cd is not None:
             return True, header + "\n\n♻️ 已接管当前历练，走完后自动结算并继续。\n💡 /关闭代理 历练 可停止。"
-        if cd_type == UserStatus.CULTIVATING and int(adv.get("close_until") or 0):
+        if cult_cd is not None and int(adv.get("close_until") or 0):
             return True, header + "\n\n♻️ 已接管当前闭关，休整结束后继续历练。"
-        if cd_type != UserStatus.IDLE:
-            return True, (
-                header
-                + f"\n\n⏳ 你当前正{UserStatus.get_name(cd_type)}，结束后将自动开始历练。\n"
-                + "💡 /关闭代理 历练 可停止。"
-            )
 
-        changed, msg, _dirty = await self._run_adventure_cycle(user_id, player, config, origin)
+        changed, msg, dirty = await self._run_adventure_cycle(user_id, player, config, origin)
+        if dirty:
+            # 立刻把状态写回：不然这次出发记下的 last_route、等槽位的 note
+            # 都只活在内存里，下一轮又从「空白配置」重新判断（双线会一直走主路线）
+            await self._write_state(
+                user_id,
+                self._any_proxy_active("", config),
+                "",
+                origin,
+                "",
+                config,
+            )
         if msg:
             header += f"\n━━━━━━━━━━━━━━━\n{msg}"
         else:
@@ -1576,12 +1585,19 @@ class AutoProxyManager:
         fresh = await self.db.get_player_by_id(user_id) or player
         from ..core.avatar_rules import total_slots
 
+        # 先抢槽位再改玩家状态：槽位满了还写「修炼中」会留下脏状态，
+        # 之后 /出关 之类的指令会以为人真的在闭关。
+        started, _slot, why = await self.db.ext.start_activity(
+            user_id, UserStatus.CULTIVATING, 0, max_slots=total_slots(fresh)
+        )
+        if not started:
+            return False, (
+                "⚠️ 没有空闲分身可以闭关，历练代理会等路线休整结束再出发。\n"
+                + ("💡 结束一项活动腾个槽位即可。\n" if why == "no_free_slot" else "")
+            )
         fresh.state = "修炼中"
         fresh.cultivation_start_time = now
         await self.db.update_player(fresh)
-        await self.db.ext.start_activity(
-            user_id, UserStatus.CULTIVATING, 0, max_slots=total_slots(fresh)
-        )
         remain = max(0, until_ts - now)
         minutes = max(1, (remain + 59) // 60)
         return True, (
@@ -1699,37 +1715,35 @@ class AutoProxyManager:
             dirty = True
             messages.append(enc_msg)
 
-        try:
-            cd = await self.db.ext.first_busy_cd(user_id)
-        except Exception:
-            cd = None
-        cd_type = cd.type if cd else UserStatus.IDLE
         prefix = ""
 
-        if cd_type == UserStatus.ADVENTURING:
+        # 身外化身之后，一个玩家身上可以同时挂好几项活动，不能再拿
+        # first_busy_cd（谁都行、取 slot 最小的那条）判断「这个号现在忙不忙」：
+        # 本体在闭关 + 分身在历练时，first_busy_cd 只会看到闭关，于是这趟
+        # 历练走完代理就静默停在原地，永远不开下一条。
+        # 这里改成只认「历练自己那条」。
+        try:
+            own_cd = await self.db.ext.get_active_cd(user_id, UserStatus.ADVENTURING)
+        except Exception:
+            own_cd = None
+        if own_cd is not None:
             return enc_changed, "\n".join(messages), dirty
 
-        if cd_type == UserStatus.CULTIVATING:
-            close_until = int(adv.get("close_until") or 0)
-            if not close_until:
-                # 玩家自己的闭关，不插手
+        close_until = int(adv.get("close_until") or 0)
+        if close_until:
+            try:
+                cult_cd = await self.db.ext.get_active_cd(user_id, UserStatus.CULTIVATING)
+            except Exception:
+                cult_cd = None
+            if cult_cd is not None and now < close_until:
                 return enc_changed, "\n".join(messages), dirty
-            if now < close_until:
-                return enc_changed, "\n".join(messages), dirty
-            ok, cult_msg = await self._settle_adv_seclusion(user_id)
+            if cult_cd is not None:
+                _ok, cult_msg = await self._settle_adv_seclusion(user_id)
+                prefix = cult_msg
+            # 闭关已被玩家手动结束、或当初就没闭上：清掉标记继续出发
             adv["close_until"] = 0
             adv["close_route"] = ""
             dirty = True
-            prefix = cult_msg
-            cd_type = UserStatus.IDLE
-        elif cd_type != UserStatus.IDLE:
-            return enc_changed, "\n".join(messages), dirty
-        else:
-            # 残留的自动闭关标记（例如玩家手动出关后才轮询到）
-            if int(adv.get("close_until") or 0):
-                adv["close_until"] = 0
-                adv["close_route"] = ""
-                dirty = True
 
         route_key, wait_until = await self._pick_adventure_route(user_id, adv, now)
         if not route_key:
@@ -1800,12 +1814,48 @@ class AutoProxyManager:
             logger.warning(f"【自动代理】历练受伤检查失败: {e}")
 
         fresh = await self.db.get_player_by_id(user_id) or player
+
+        # 出发前先看有没有空闲分身：本体可能正在闭关、其余分身都出去了。
+        # 这是「等一等」而不是「配置错了」，不能因此把代理关掉。
+        total = 1
+        try:
+            from ..core.avatar_rules import total_slots
+
+            total = total_slots(fresh)
+            free_slot = await self.db.ext.find_free_slot(user_id, total)
+        except Exception:
+            free_slot = 0
+        if free_slot is None:
+            if adv.get("note") != "wait_slot":
+                adv["note"] = "wait_slot"
+                try:
+                    busy_names = await self.db.ext.busy_activity_names(user_id)
+                except Exception:
+                    busy_names = []
+                if total <= 1 and busy_names:
+                    message = (
+                        f"⏳ 你当前正{busy_names[0]}，结束后会自动开始历练。"
+                    )
+                else:
+                    message = (
+                        f"⏳ 分身都出去了（{len(busy_names)}/{total} 在忙："
+                        f"{'、'.join(busy_names) or '未知'}），历练代理等一个空位再出发。\n"
+                        "💡 结束其它活动或出关后会自动继续。"
+                    )
+                if prefix:
+                    message = f"{prefix}\n\n{message}"
+                if messages:
+                    message = "\n".join(messages) + "\n\n" + message
+                return True, message, True
+            return enc_changed, "\n".join(messages), dirty
+
         ok, start_msg = await self.adventure_mgr.start_adventure(
             user_id, route_key, umo=origin
         )
         if not ok:
-            # CD 竞态：不改配置，下轮重试
-            if "休整" in str(start_msg):
+            # CD 竞态 / 分身刚被别人占掉：都不是配置问题，下轮重试即可
+            text = str(start_msg)
+            if "休整" in text or "分身" in text or "槽位" in text:
                 return enc_changed, "\n".join(messages), dirty
             adv["enabled"] = False
             adv["note"] = "start_failed"
