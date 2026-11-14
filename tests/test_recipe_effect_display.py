@@ -86,15 +86,27 @@ class TestPillRecipeEffectDisplay(unittest.IsolatedAsyncioTestCase):
         desc = self.am.recipes[130]["desc"]
         self.assertRegex(desc, r"\d+%~\d+%")
 
-    async def test_unknown_effect_is_explicit_not_blank(self):
-        """443 条丹药在 items.json 里只有「这是一件X品丹药」，必须明说未录入。"""
+    async def test_legacy_effect_data_is_read(self):
+        """443 条丹药在 items.json 里只有「这是一件X品丹药」，
+        但结构化字段（effect / effect_type）是齐的，效果必须读出来。"""
         self.player.learned_recipes = "[500]"
         await self.db.update_player(self.player)
         ok, msg, _, card_lines, _entries = await self.am.get_available_recipes(self.player.user_id)
         self.assertTrue(ok, msg)
+        self.assertNotIn("效果未录入", msg)
+        self.assertNotIn("这是一件", msg)
+        self.assertRegex(msg, r"\d+~\d+")
+        self.assertTrue(any("效果：" in line for line in card_lines))
+
+    async def test_missing_effect_is_explicit_not_blank(self):
+        """真缺数据（display 层拿到哨兵）时必须明说未录入，不许留白。"""
+        self.player.learned_recipes = "[500]"
+        await self.db.update_player(self.player)
+        self.am.recipes[500]["desc"] = self.am.DESC_MISSING
+        ok, msg, _, card_lines, _entries = await self.am.get_available_recipes(self.player.user_id)
+        self.assertTrue(ok, msg)
         self.assertIn("效果未录入", msg)
         self.assertIn("⚠️", msg)
-        self.assertNotIn("这是一件", msg)
         self.assertTrue(any("效果未录入" in line for line in card_lines))
 
     async def test_learned_recipe_with_effect_is_shown(self):

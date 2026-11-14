@@ -3,12 +3,14 @@
 
 import json
 import random
-import re
 import time
 from collections import Counter
 from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 
 from ..core.material_selection import select_recipe_materials
+from ..core.pill_effect_text import (
+    DESC_MISSING, PLACEHOLDER_DESC_RE, find_pill_config, pill_effect_text,
+)
 from ..data.data_manager import DataBase
 from ..models import Player
 from ..models_extended import UserStatus
@@ -28,17 +30,10 @@ class AlchemyManager:
     QUALITY_ORDER = ["一般", "良好", "极佳", "大师"]
     # 批量炼丹单次指令上限：避免一次输入 all 时长时间占库与刷屏
     MAX_BATCH_CRAFTS = 100
-    # config/pill_recipes.json 的 692 条 desc 全是占位文案，两种写法：
-    # 「记载XX炼制方法的丹方。」与「记载XX炼制方法的丹方，学习后可用 /炼丹 炼制。」
-    # 原逻辑只在 `not desc` 时才调 _generate_pill_desc，于是生成器成了死代码——
-    # 丹方列表因此永远不显示「这炉丹做出来干什么」（F9 效果缺位）。只用前缀判定，
-    # 因为后半句有没有「学习后可用 …」并不影响它是不是废话。
-    _PLACEHOLDER_DESC_RE = re.compile(r"^记载.+?炼制方法的丹方")
-    # items.json 里 443 条丹药的 description 全是这句，同样等于没写：
-    # 「这是一件凡品丹药，蕴含着天地之力。」—— 它只说品阶，不说作用。
-    _GENERIC_DESC_RE = re.compile(r"这是一件.+丹药|蕴含着天地之力")
-    # _generate_pill_desc 也拿不到配置时的兜底；展示层据此显式写「效果未录入」。
-    DESC_MISSING = "丹药效果"
+    # 效果文案与占位判定已抽到 core/pill_effect_text.py：
+    # /丹阁 丹方 货架也要显示同一颗丹的效果，逻辑留在 managers 里 core 就引不到。
+    # 这里保留同名类属性，外部（含测试）仍按 am.DESC_MISSING 取哨兵。
+    DESC_MISSING = DESC_MISSING
 
     def __init__(self, db: DataBase, config_manager: "ConfigManager" = None, storage_ring_manager: "StorageRingManager" = None):
         self.db = db
@@ -70,12 +65,12 @@ class AlchemyManager:
         output_pill = recipe.get("output_pill") or recipe.get("output") or name
 
         desc = str(recipe.get("desc") or "").strip()
-        if self._PLACEHOLDER_DESC_RE.match(desc):
+        if PLACEHOLDER_DESC_RE.match(desc):
             desc = ""
         if not desc and self.config_manager:
-            pill_config = self._get_pill_config_by_name(output_pill)
+            pill_config = find_pill_config(self.config_manager, output_pill)
             if pill_config:
-                desc = self._generate_pill_desc(pill_config)
+                desc = pill_effect_text(self.config_manager, pill_config)
         if not desc:
             desc = self.DESC_MISSING
 
@@ -97,67 +92,6 @@ class AlchemyManager:
             "shop_weight": int(recipe.get("shop_weight", 10) or 10),
             "desc": desc,
         }
-
-    def _quality_cap(self, key: str = "effect_multiplier") -> float:
-        """品质对效果的放大上界（一般 1.0 → 大师 1.6）。"""
-        data = getattr(self.config_manager, "pill_quality_data", None) or {}
-        qualities = data.get("qualities") if isinstance(data, dict) else None
-        caps: List[float] = []
-        for entry in (qualities or {}).values():
-            if not isinstance(entry, dict):
-                continue
-            try:
-                caps.append(float(entry.get(key, 1.0) or 1.0))
-            except (TypeError, ValueError):
-                continue
-        return max(caps) if caps else 1.0
-
-    def _generate_pill_desc(self, pill_config: Dict) -> str:
-        """产出丹药的效果一句话，数值给到品质提升后的上界。
-
-        品质倍率（一般 1.0 / 极佳 1.35 / 大师 1.6）只作用于数值型效果，
-        所以直接写成区间——玩家只有看见「一般 500、大师 800」，
-        「猛火博品质」这个选择才存在。区间上界取自 pill_quality.json，不硬编码。
-        """
-        rank = pill_config.get("rank", "")
-        gain_cap = self._quality_cap("effect_multiplier")
-        break_cap = self._quality_cap("breakthrough_multiplier")
-
-        def span(value: float, cap: float, percent: bool = False) -> str:
-            high = value * cap
-            if percent:
-                return f"{value:.0f}%~{high:.0f}%"
-            return f"{int(round(value))}~{int(round(high))}"
-
-        if pill_config.get("exp_gain"):
-            return f"增加 {span(float(pill_config['exp_gain']), gain_cap)} 修为（{rank}修为丹）"
-        if pill_config.get("breakthrough_bonus"):
-            bonus = float(pill_config["breakthrough_bonus"]) * 100
-            return f"提升 {span(bonus, break_cap, True)} 突破成功率（{rank}破境丹）"
-        if pill_config.get("restore_hp_percent"):
-            pct = float(pill_config["restore_hp_percent"]) * 100
-            return f"恢复 {span(pct, gain_cap, True)} 最大气血"
-        if pill_config.get("restore_qi_percent"):
-            pct = float(pill_config["restore_qi_percent"]) * 100
-            return f"恢复 {span(pct, gain_cap, True)} 最大灵气"
-        desc = str(pill_config.get("description") or "").strip()
-        if desc and not self._GENERIC_DESC_RE.search(desc):
-            return desc
-        # 走到这里说明数据层就没写效果（443 条丹药只有「这是一件X品丹药」）。
-        # 返回空串，由 _normalize_recipe 统一落成 DESC_MISSING，让界面显式说「未录入」。
-        return ""
-
-    def _get_pill_config_by_name(self, name: str) -> Optional[Dict]:
-        if not self.config_manager:
-            return None
-        for attr in ("exp_pills_data", "utility_pills_data", "pills_data"):
-            data = getattr(self.config_manager, attr, {}) or {}
-            if name in data:
-                return data[name]
-        item = (getattr(self.config_manager, "items_data", {}) or {}).get(name)
-        if isinstance(item, dict) and item.get("type") == "丹药":
-            return item
-        return None
 
     # ===== 丹方学习 =====
     # 创建角色即学会的基础丹方：回春散·凡方(130)、聚灵散·凡方(131)
@@ -1087,7 +1021,7 @@ class AlchemyManager:
                 return False, f"❌ 炼制{recipe['name']}需要达到境界等级 {recipe['level_required']}！", None
 
             output_pill = recipe["output_pill"]
-            if not self._get_pill_config_by_name(output_pill):
+            if not find_pill_config(self.config_manager, output_pill):
                 await self.db.conn.rollback()
                 return False, f"❌ 丹方【{recipe['name']}】的目标丹药【{output_pill}】配置缺失，请联系管理员。", None
 
@@ -1337,7 +1271,7 @@ class AlchemyManager:
             return False, f"❌ 你还没有学会【{recipe['name']}】，请先 /学习丹方 {pill_id}。", None
         if player.level_index < recipe["level_required"]:
             return False, f"❌ 炼制{recipe['name']}需要达到境界等级 {recipe['level_required']}！", None
-        if not self._get_pill_config_by_name(recipe["output_pill"]):
+        if not find_pill_config(self.config_manager, recipe["output_pill"]):
             return False, f"❌ 丹方【{recipe['name']}】的目标丹药【{recipe['output_pill']}】配置缺失，请联系管理员。", None
 
         try:

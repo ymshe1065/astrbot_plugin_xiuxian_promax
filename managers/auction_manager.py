@@ -404,7 +404,7 @@ class AuctionManager:
             for line in details:
                 if line.startswith("品级:"):
                     continue
-                if not effect and line.startswith(("描述:", "效果:", "属性:")):
+                if not effect and line.startswith(("描述:", "效果:", "属性:", "产出:")):
                     effect = line.split(":", 1)[1].strip()
                 else:
                     notes.append(line)

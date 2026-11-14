@@ -279,6 +279,15 @@ class TestMarketEntries(unittest.IsolatedAsyncioTestCase):
         }])
         self.assertTrue(any("卖家" in n for n in entries[0]["notes"]))
 
+    async def test_recipe_scroll_effect_is_output(self):
+        """坊市上架的丹方卷轴，格子第三行要写「炼出来干什么用」。"""
+        entries = await self._entries([{
+            "id": 11, "item_name": "《炼气丹方》", "base_item_name": "《炼气丹方》",
+            "count": 1, "price": 50, "item_kind": "item", "seller_id": "u9",
+        }])
+        self.assertIn("修为", entries[0]["effect"])
+        self.assertFalse(any(n.startswith("产出:") for n in entries[0]["notes"]))
+
     async def test_empty(self):
         self.assertEqual(await self._entries([]), [])
 

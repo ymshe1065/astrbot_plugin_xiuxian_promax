@@ -181,14 +181,16 @@ class TestPavilionEntries(unittest.TestCase):
         self.assertIsNone(by_name["无限量灵草"]["max"])
 
     def test_effect_line_not_repeated_in_notes(self):
-        """「描述:」那行升级成了产出效果，明细里不能再出现一遍。"""
+        """丹方格子的第三行是产出效果（v3.45.23 起），明细里不能再出现一遍。"""
         src = self.cm.items_data.get("《炼气丹方》")
         self.assertTrue(src, "配置里没有《炼气丹方》，换一条真实丹方")
         items = [{"name": src["name"], "type": "recipe", "rank": src.get("rank", "凡品"),
                   "price": 50, "stock": 3, "discount": 1.0, "data": dict(src)}]
         entry = self.mgr.build_pavilion_entries(items)[0]
         self.assertTrue(entry["effect"])
-        self.assertIn("丹方", entry["effect"])
+        # 产出效果（炼出来的丹药干什么用），不是「记载XX炼制方法的丹方」那句废话
+        self.assertIn("修为", entry["effect"])
+        self.assertNotIn("炼制方法的丹方", "；".join(entry["notes"]))
         for note in entry["notes"]:
             self.assertNotIn(entry["effect"], note)
 

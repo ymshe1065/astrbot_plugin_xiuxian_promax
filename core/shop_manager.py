@@ -11,6 +11,7 @@ from ..config_manager import ConfigManager
 from ..models import Item
 from ..rank_rules import RANK_NAMES, level_to_rank, normalize_rank
 from .item_rules import ItemRules
+from .pill_effect_text import PLACEHOLDER_DESC_RE, recipe_scroll_info
 from .realm_rules import format_applicable_realm
 
 # 货架类型 → 展示种类。文本列表与网页网格共用一份，避免两处各写一套标签。
@@ -202,7 +203,8 @@ class ShopManager:
             effect = ""
             effect_line = ""
             for line in details:
-                if line.startswith(("描述:", "效果:")):
+                # 「产出:」是丹方卷轴的产出效果：它讲的是炼出来的那颗丹干什么用
+                if line.startswith(("描述:", "效果:", "产出:")):
                     effect = line.split(":", 1)[1].strip()
                     effect_line = line
                     break
@@ -1735,7 +1737,12 @@ class ShopManager:
             details.append(f"五行: {data['element']}")
 
         description = data.get('description')
-        if description:
+        # 丹方卷轴的 description 是 692 条一模一样的占位文案
+        # （「记载XX炼制方法的丹方。」），留着只会把真正的产出一句话挤到末尾。
+        # 具体效果在下面的 recipe 分支按丹药配置现算。
+        if description and not (
+            item_type == 'recipe' and PLACEHOLDER_DESC_RE.match(str(description))
+        ):
             details.append(f"描述: {description}")
 
         # 武器/防具/饰品属性
@@ -1820,6 +1827,27 @@ class ShopManager:
             category = data.get('package_category', '材料')
             tier = data.get('package_tier', '')
             details.append(f"开启：随机获得 1-3 个{tier}{category}材料")
+
+        elif item_type == 'recipe':
+            # 丹方买的是「炼出来是什么」，不是「这是一张丹方」。
+            # 效果按产出丹药的配置现算，与 /丹方 已学列表同一份口径。
+            info = recipe_scroll_info(self.config_manager, data)
+            effect = str(info.get("effect") or "").strip()
+            details.append("产出: " + (effect or "⚠️ 效果未录入"))
+            usage = []
+            if info.get("pill"):
+                usage.append(f"习得后炼制【{info['pill']}】")
+            if info.get("level"):
+                usage.append(f"需境界 {int(info['level'])}")
+            if info.get("rate"):
+                usage.append(f"成功率 {float(info['rate']):.0f}%")
+            target = info.get("target_level")
+            if target is not None:
+                # 卡片窄，境界名里的「 / 」既占位又会被前端当命令斜杠，换顿号
+                target_names = self._format_required_level(int(target)).replace(" / ", "、")
+                usage.append(f"突破至 {target_names}")
+            if usage:
+                details.append("用途: " + " · ".join(usage))
 
         # 心法/功法
         elif item_type in ['main_technique', 'technique']:
