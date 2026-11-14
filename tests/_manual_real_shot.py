@@ -73,11 +73,20 @@ _api.star = _star
 sys.modules["astrbot.api.star"] = _star
 
 
+COMMAND_REGISTRY: list[tuple[tuple, callable]] = []
+"""main.py 里 @filter.command(...) 的 (参数, 方法)。
+
+真实 astrbot 靠这张表做命令路由；我们的桩原本把它丢了，导致「玩家输入命令」
+这条路没法验。这里记下来，_manual_real_input.py 就能复刻一次真实派发。
+"""
+
+
 class _Filter:
-    """@filter.command(...) 只做元数据绑定，运行时靠我们自己调方法，原样返回即可。"""
+    """@filter.command(...) 做元数据绑定（记进 COMMAND_REGISTRY），方法原样返回。"""
 
     def command(self, *a, **k):
         def deco(fn):
+            COMMAND_REGISTRY.append((a, fn))
             return fn
         return deco
 

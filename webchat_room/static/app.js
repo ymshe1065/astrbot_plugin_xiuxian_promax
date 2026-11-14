@@ -3901,7 +3901,10 @@
     };
     const facetBox = facetDefs();
 
-    let curRank = withRankBar ? fallbackRank : "*";
+    // 配方书/器阁这类「我要现在能做什么」的卡片，默认落在第一个有可做条目的档；
+    // 但后端显式声明了 sec.facet 的长清单（丹药背包/宗门/仙缘/称号/坊市/黑市）
+    // 是「我有什么」，默认必须给全量 —— 落到凡品会让宗门商店 5 件只显示 2 件。
+    let curRank = withRankBar && !sec.facet ? fallbackRank : "*";
     let curFacet = "全部";
     let limit = GRID_PAGE;
 
