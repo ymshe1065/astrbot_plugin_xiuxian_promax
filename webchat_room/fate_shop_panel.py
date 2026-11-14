@@ -27,6 +27,7 @@ from ..core.reincarnation_rules import (
     item_at_cap,
     item_owned,
     parse_bonus,
+    shop_price,
 )
 
 
@@ -68,17 +69,18 @@ async def fate_shop_snapshot(plugin: "XiuXianPlugin", user_id: str) -> dict[str,
                 continue
             owned = item_owned(bonus, item_id)
             cap = int(item.get("cap") or 0)
+            price = shop_price(item_id, owned)
             items.append(
                 {
                     "id": item_id,
                     "name": item["name"],
                     "desc": item["desc"],
-                    "cost": int(item["cost"]),
+                    "cost": int(price or 0),
                     "unit": item.get("unit", ""),
                     "owned": owned,
                     "cap": cap,
                     "maxed": bool(cap and owned >= cap),
-                    "affordable": points >= int(item["cost"]),
+                    "affordable": bool(price) and points >= int(price),
                 }
             )
         if items:

@@ -174,12 +174,13 @@ class EscortManager:
         if player.level_index < self.MIN_LEVEL:
             return False, f"❌ 押镖需要达到境界等级 {self.MIN_LEVEL}（练气后期）。", {}
 
-        user_cd = await self.db.ext.get_user_cd(user_id)
-        if not user_cd:
-            await self.db.ext.create_user_cd(user_id)
-            user_cd = await self.db.ext.get_user_cd(user_id)
-        if user_cd.type != UserStatus.IDLE:
-            return False, f"❌ 你当前正{UserStatus.get_name(user_cd.type)}，无法押镖！", {}
+        if await self.db.ext.get_active_cd(user_id, UserStatus.DELIVERING) is not None:
+            return False, "❌ 你已经在押镖途中了，先走完这一趟。", {}
+        from ..core.avatar_rules import ensure_free_slot
+
+        ok_slot, slot_hint = await ensure_free_slot(self.db, player, user_id)
+        if not ok_slot:
+            return False, slot_hint, {}
 
         # 镖银与修为按境界浮动（v6.36.22 定位分离：镖银为主收益，修为仅作附带）
         # 方案A：镖银按大境界台阶曲线；绯烟（押镖仙灵）只加镖银，不再连带放大修为
@@ -198,7 +199,18 @@ class EscortManager:
             "escort_exp": escort_exp,
             "bonus_applied": 1,
         }
-        await self.db.ext.set_user_busy(user_id, UserStatus.DELIVERING, now + self.ESCORT_DURATION, extra_data=extra)
+        from ..core.avatar_rules import total_slots
+
+        started, _slot, why = await self.db.ext.start_activity(
+            user_id, UserStatus.DELIVERING, now + self.ESCORT_DURATION,
+            extra_data=extra, max_slots=total_slots(player),
+        )
+        if not started:
+            return False, (
+                "❌ 你已经在押镖途中了，先走完这一趟。"
+                if why == "already_running"
+                else "❌ 分身都出去了，没人手再押一趟镖。"
+            ), {}
 
         msg = (
             f"🛡️ 你接下了一趟灵石镖！\n"
@@ -217,8 +229,8 @@ class EscortManager:
     async def finish_escort(self, player: Player) -> Tuple[bool, str]:
         """完成押镖：到达时长领全款"""
         user_id = player.user_id
-        user_cd = await self.db.ext.get_user_cd(user_id)
-        if not user_cd or user_cd.type != UserStatus.DELIVERING:
+        user_cd = await self.db.ext.get_active_cd(user_id, UserStatus.DELIVERING)
+        if not user_cd:
             return False, "❌ 你当前没有在押镖！"
 
         now = int(time.time())
@@ -243,7 +255,7 @@ class EscortManager:
             experience=player.experience,
             karma=player.karma,
         )
-        await self.db.ext.set_user_free(user_id)
+        await self.db.ext.set_user_free(user_id, cd_type=UserStatus.DELIVERING)
 
         return True, (
             f"🎉 押镖成功！\n"
@@ -256,8 +268,8 @@ class EscortManager:
 
     async def quit_escort(self, player: Player) -> Tuple[bool, str]:
         """放弃押镖：支付镖银 80% 作为违约金，本次无收益。"""
-        user_cd = await self.db.ext.get_user_cd(player.user_id)
-        if not user_cd or user_cd.type != UserStatus.DELIVERING:
+        user_cd = await self.db.ext.get_active_cd(player.user_id, UserStatus.DELIVERING)
+        if not user_cd:
             return False, "❌ 你当前没有在押镖！"
 
         try:
@@ -275,7 +287,7 @@ class EscortManager:
         if not ok:
             return False, msg
 
-        await self.db.ext.set_user_free(player.user_id)
+        await self.db.ext.set_user_free(player.user_id, cd_type=UserStatus.DELIVERING)
         return True, (
             "🏃 你扔下镖车跑路了...\n"
             f"向镖局支付违约金：{cost:,} {currency_label}\n"
@@ -294,8 +306,8 @@ class EscortManager:
         if not target:
             return False, "❌ 对方还未踏入修仙之路。"
 
-        target_cd = await self.db.ext.get_user_cd(target_id)
-        if not target_cd or target_cd.type != UserStatus.DELIVERING:
+        target_cd = await self.db.ext.get_active_cd(target_id, UserStatus.DELIVERING)
+        if not target_cd:
             return False, "❌ 对方当前没有在押镖！"
 
         # 每日一劫：同一镖主每天最多被劫成功一次
@@ -410,7 +422,8 @@ class EscortManager:
             await self.db.conn.execute("BEGIN IMMEDIATE")
             try:
                 async with self.db.conn.execute(
-                    "SELECT type, extra_data FROM user_cd WHERE user_id = ?", (target_id,)
+                    "SELECT type, extra_data FROM user_cd WHERE user_id = ? AND type = ?",
+                    (target_id, int(UserStatus.DELIVERING)),
                 ) as cursor:
                     row = await cursor.fetchone()
                 if not row or int(row["type"] or 0) != int(UserStatus.DELIVERING):

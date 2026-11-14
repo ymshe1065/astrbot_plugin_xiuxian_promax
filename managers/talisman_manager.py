@@ -135,6 +135,37 @@ class TalismanManager:
             uses=recipe.get("uses"),
         )
 
+    def effect_summary(self, name: str) -> str:
+        """产出符箓的效果一句话（含生效方式）；取不到有效果时返回空串。
+
+        `/符箓` 图鉴一直在调 ``get_talisman_profile``，但 `/符箓书` 与
+        `/符箓配方` 只取了成功率、工费、材料——「能不能做」写清楚了，
+        「做出来干什么用」整块缺席。这里把同一份 profile 翻译成一句话，
+        措辞与图鉴保持一致，避免同一张符出现两套说法。
+        """
+        try:
+            profile = self.get_talisman_profile(name)
+        except Exception:
+            return ""
+        desc = str(profile.get("description") or "").strip()
+        if not desc or desc == "特殊效果":
+            return ""
+        if profile.get("run_scoped"):
+            # 探索类按次数生效：写「持续 15 分钟」会骗人，30 分钟的秘境盖不住。
+            return f"{desc}｜生效{int(profile.get('uses') or 0)}次（历练·秘境）"
+        if "立即" in desc:
+            # 回春符这类是瞬间结算，挂一个「持续 15 分钟」只会让人误会。
+            return desc
+        minutes = int(profile.get("duration") or 0)
+        if minutes <= 0:
+            return desc
+        return f"{desc}｜持续{format_duration(minutes)}"
+
+    def _effect_text(self, name: str) -> str:
+        """带前置图标的展示文案：有作用给 ✨，缺数据给 ⚠️（不许留白）。"""
+        effect = self.effect_summary(name) or "效果未录入"
+        return effect if effect.startswith("⚠️") else f"✨ {effect}"
+
     # ===== 配方 =====
     # 材料目录只有四档，按境界把符箓品阶归入最近的材料档。
     MATERIAL_TIER_COUNTS = {"凡品": 2, "黄品": 2, "玄品": 3, "圣品": 4}
@@ -281,7 +312,8 @@ class TalismanManager:
                 can_craft = recipe.get("basic") or recipe.get("legacy") or name in learned
                 tag = "" if can_craft else "（符图未习得）"
                 if profile.get("run_scoped"):
-                    active_text = f"生效{profile['uses']}次历练/秘境"
+                    # 别写「历练/秘境」：斜杠会被前端当成指令抽出个假按钮。
+                    active_text = f"生效{profile['uses']}次（历练·秘境）"
                 else:
                     active_text = f"持续{format_duration(profile['duration'])}"
                 lines.append(
@@ -300,11 +332,11 @@ class TalismanManager:
         return "\n".join(lines)
 
     # ===== 符箓书：我能画哪些 =====
-    def build_craft_book(self, player: Player) -> Tuple[str, List[str], int]:
+    def build_craft_book(self, player: Player) -> Tuple[str, List[str], int, List[Dict]]:
         """列出「已能绘制」的符箓：实际成功率、单张工费、材料缺口、可画张数与卡点。
 
         与 /制符 共用 resolve_craft_params，保证界面数字与实际结算同源。
-        返回 (文本消息, 卡片行, 可画条目数)。
+        返回 (文本消息, 卡片行, 可画条目数, 网格条目)。
         """
         learned_entries: List[Tuple[str, Dict]] = []
         locked_names: List[str] = []
@@ -321,6 +353,7 @@ class TalismanManager:
 
         lines = ["🖌️ 符箓书 · 可绘制符箓", "━━━━━━━━━━━━━━━"]
         card_lines: List[str] = []
+        entries: List[Dict] = []
         notices: List[str] = []
         if not is_master:
             notices.append("💡 当前不是【符箓师】：制符不受影响，只是没有职业加成（成功率 +10%、灵石 -20%、20% 额外产出）")
@@ -329,7 +362,7 @@ class TalismanManager:
         if not learned_entries:
             lines.append("你还没有掌握任何符箓的绘制方法。")
             lines.append("💡 基础符人人在册；需要符图的到 /符阁 符图 购买，购买后即可 /制符 <符名> [数量|all]。")
-            return "\n".join(lines), [], 0
+            return "\n".join(lines), [], 0, []
 
         craftable = 0
         total_possible = 0
@@ -371,9 +404,11 @@ class TalismanManager:
 
             unit = "个" if name in NON_TALISMAN_ITEMS else "张"
             held_note = f"｜持有{held.get(name, 0)}{unit}" if held.get(name) else ""
+            effect = self.effect_summary(name) or "⚠️ 效果未录入"
             lines.append(
                 f"· {name}（{params['rank']}）{held_note}\n"
-                f"  成功率 {params['success_rate']:.0f}%｜工费 {params['gold_cost']:,}/{unit}｜可堆叠"
+                f"  成功率 {params['success_rate']:.0f}%｜工费 {params['gold_cost']:,}/{unit}｜可堆叠\n"
+                f"  {effect if effect.startswith('⚠️') else '✨ ' + effect}"
             )
 
             mat_parts = []
@@ -409,8 +444,40 @@ class TalismanManager:
                 f"[{category}] {name}（{params['rank']} · 成功率{params['success_rate']:.0f}%"
                 f" · {params['gold_cost']:,}灵石/张）"
             )
+            card_lines.append(f"   · 效果：{effect}")
             card_lines.append("   · 材料：" + ("、".join(card_mat_parts) if card_mat_parts else "无需材料"))
             card_lines.append(f"   · {status}")
+
+            if gate_blocked:
+                state = "lock"
+            elif possible <= 0:
+                state = "lack"
+            else:
+                state = "ok"
+            entries.append({
+                "name": name,
+                "kind": "符箓",
+                "cat": category,
+                "rank": params["rank"],
+                "rate": int(round(float(params["success_rate"] or 0))),
+                "state": state,
+                "effect": effect,
+                "materials": [
+                    {"label": str(m["label"]), "need": int(m["need"]), "have": int(m["have"])}
+                    for m in params["materials"]
+                ],
+                "cost": int(params["gold_cost"] or 0),
+                "gold": int(player.gold or 0),
+                "craft": int(possible),
+                # 详情抽屉数量步进器的上限：这一次最多能画几张
+                "max": int(possible),
+                "held": int(held_same),
+                "level": int(params["level_required"] or 0),
+                "level_now": int(player.level_index or 0),
+                "unit": unit,
+                "source": "talisman",
+                "action": "制符",
+            })
 
         lines.append("━━━━━━━━━━━━━━━")
         lines.append(
@@ -424,7 +491,7 @@ class TalismanManager:
             lines.append(f"🔒 符图未习得 {len(locked_names)} 张：{preview}")
             lines.append("💡 /符阁 符图 查看在售符图，/购买 <符名>·符图 习得")
         lines.append("💡 /制符 <符名> [数量|all] 绘制；/符箓 查看全部符箓图鉴；每日护劫符：/日常制符")
-        return "\n".join(lines), card_lines, craftable
+        return "\n".join(lines), card_lines, craftable, entries
 
     # ===== 配方总览 =====
     RECIPE_CATEGORY_ORDER = ["攻击", "防御", "控制", "回复", "炼丹", "探索", "增益", "遁术"]
@@ -488,17 +555,52 @@ class TalismanManager:
                 "/制符 <符名> [数量|all] 绘制；/使用符箓 <符名> [数量] 使用；/符箓 查看分类与持有数量。",
             ],
         }]
+        grid_entries: List[Dict] = []
         for category in self.RECIPE_CATEGORY_ORDER:
             items = grouped.get(category) or []
             if not items:
                 continue
-            sections.append({
-                "name": f"{category}符箓 · {len(items)}种",
-                "lines": [
+            lines: List[str] = []
+            for name, recipe in items:
+                lines.append(
                     f"· {name}｜{self._recipe_summary(recipe)}"
                     + ("" if recipe.get("basic") else "｜需符图")
-                    for name, recipe in items
-                ],
+                )
+                # 一行配方 + 一行效果：总览页的用途就是「挑哪张值得做」，
+                # 只有成功率没有产出效果，这张表等于答了一半。
+                lines.append(f"  {self._effect_text(name)}")
+
+                mats = []
+                for spec in (recipe.get("materials") or []):
+                    if not isinstance(spec, dict):
+                        continue
+                    label = spec.get("name") or f"{spec.get('tier', '')}{spec.get('category', '')}"
+                    # 总览页拿不到玩家背包，「有多少」是空的——不能填 0 冒充「一件没有」
+                    mats.append({
+                        "label": str(label),
+                        "need": int(spec.get("count", 0) or 0),
+                        "have": None,
+                    })
+                grid_entries.append({
+                    "name": name,
+                    "kind": "符箓",
+                    "cat": category,
+                    "rank": self._recipe_rank(recipe),
+                    "rate": int(round(float(recipe.get("success_rate", 75) or 75))),
+                    # 总览页不认识玩家，只能区分「基础符免符图」与「需符图」
+                    "state": "ok" if recipe.get("basic") else "lock",
+                    "effect": self._effect_text(name),
+                    "materials": mats,
+                    "cost": int(recipe.get("gold_cost", 0) or 0),
+                    "level": int(recipe.get("level_required", 0) or 0),
+                    "need": "" if recipe.get("basic") else "需符图",
+                    "unit": "张",
+                    "source": "talisman_recipe",
+                    "action": "制符",
+                })
+            sections.append({
+                "name": f"{category}符箓 · {len(items)}种",
+                "lines": lines,
             })
         return {
             "title": "符箓配方总览",
@@ -507,6 +609,16 @@ class TalismanManager:
             "background": "craft",
             "width": width,
             "sections": sections,
+            # 网页端：说明留在上面，35 张配方合成一片网格，类别改第二层筛选
+            "web_sections": [
+                sections[0],
+                {
+                    "name": f"符箓配方 · {len(grid_entries)} 种",
+                    "view": "grid",
+                    "lines": [],
+                    "entries": grid_entries,
+                },
+            ],
         }
 
     def format_recipe_text(self) -> str:
@@ -516,7 +628,7 @@ class TalismanManager:
             f"🧿 符箓配方总览（共 {len(entries)} 种）",
             "━━━━━━━━━━━━━━━",
             "任何职业都可绘制；材料按「类别 + 品阶」匹配。",
-            "格式：符名（品阶 境界｜灵石｜材料｜成功率）。",
+            "格式：符名（品阶 境界｜灵石｜材料｜成功率），下一行为产出效果。",
         ]
         current_category = None
         for name, recipe in entries:
@@ -525,6 +637,7 @@ class TalismanManager:
                 current_category = category
                 lines.append(f"\n【{category}】")
             lines.append(f"  · {name}（{self._recipe_summary(recipe)}）")
+            lines.append(f"    {self._effect_text(name)}")
         lines.append("\n💡 /制符 <符名> [数量|all] 绘制；/使用符箓 <符名> [数量] 使用")
         return "\n".join(lines)
 

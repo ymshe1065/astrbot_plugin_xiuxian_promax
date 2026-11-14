@@ -241,15 +241,20 @@ def load_card_for_image(path: str | None) -> dict[str, Any] | None:
                 rows.append([str(row[0]), str(row[1])])
         lines = [str(x) for x in (sec.get("lines") or []) if str(x).strip()]
         name = str(sec.get("name") or "")
-        if not rows and not lines and not name:
-            continue
-        section = {"name": name, "rows": rows, "lines": lines}
-        _promote_lines_to_items(section)
-        # 调用方预先拆好的结构化条目（储物戒），原样透传给网页
+        # 调用方预先拆好的结构化条目（储物戒 / 丹方 / 商铺货架），原样透传给网页
         entries = [
             it for it in (sec.get("entries") or [])
             if isinstance(it, dict) and it.get("name")
         ]
+        if not rows and not lines and not entries and not name:
+            continue
+        section = {"name": name, "rows": rows, "lines": lines}
+        view = str(sec.get("view") or "")
+        if view:
+            section["view"] = view
+        # 网格视图自己负责排版，不要再用「文本提升条目」那套覆盖它
+        if view != "grid":
+            _promote_lines_to_items(section)
         if entries:
             section["entries"] = entries
         normalized["sections"].append(section)

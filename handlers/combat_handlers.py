@@ -113,16 +113,20 @@ class CombatHandlers:
             raise
 
     async def _busy_status(self, user_id: str, player: Player = None) -> str:
-        """返回忙碌状态名称；空闲返回空串。"""
-        user_cd = await self.db.ext.get_user_cd(str(user_id))
-        if user_cd and user_cd.type != UserStatus.IDLE:
-            return UserStatus.get_name(user_cd.type)
-        if not user_cd or user_cd.type == UserStatus.IDLE:
-            if player is None:
-                player = await self.db.get_player_by_id(str(user_id))
+        """返回「没有空闲分身」时的状态名；还有分身可用则返回空串。"""
+        from ..core.avatar_rules import total_slots
+
+        if player is None:
+            player = await self.db.get_player_by_id(str(user_id))
+        busy = await self.db.ext.busy_slot_count(str(user_id))
+        if busy <= 0:
             if (getattr(player, "state", "") or "") == "修炼中":
                 return player.state
-        return ""
+            return ""
+        if player is not None and busy < total_slots(player):
+            return ""
+        first = await self.db.ext.first_busy_cd(str(user_id))
+        return UserStatus.get_name(first.type) if first else ""
 
     @staticmethod
     def _effective_cooldown(base: int, player: Player, config_manager) -> int:

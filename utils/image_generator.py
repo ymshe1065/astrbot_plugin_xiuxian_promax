@@ -360,11 +360,15 @@ def render_card(
     footer: str = "",
     width: int = 1000,
     payload_extra: Optional[Dict] = None,
+    web_sections: Optional[List[Dict]] = None,
 ) -> Optional[str]:
     """渲染国风绢帛·墨金·多字体层次信息卡片，返回图片路径（失败返回 None）
 
     payload_extra 会合并进 sidecar 顶层字段：网页端读结构化数据原生渲染，
     位图只负责 QQ 端的展示，两边可以各自裁剪信息量。
+
+    web_sections 用来替代「同两份数据」：位图仍按 sections 排版（如百宝阁按品阶
+    分区的长图），网页端拿 web_sections（整片网格）渲染。不传时两边共用 sections。
     """
     if not HAS_PIL:
         return None
@@ -548,6 +552,8 @@ def render_card(
                 "sections": [
                     {
                         "name": sec.get("name", ""),
+                        # 视图类型：空=默认（行/条目/文本），grid=网页端按格子铺开
+                        "view": str(sec.get("view") or ""),
                         "rows": [[str(lbl), str(val)] for lbl, val in sec.get("rows", [])],
                         "lines": [str(x) for x in sec.get("lines", [])],
                         # 结构化条目（储物戒等）：rows 仍供 Pillow 绘制，entries 供网页原生渲染
@@ -561,7 +567,7 @@ def render_card(
                             if isinstance(it, dict)
                         ],
                     }
-                    for sec in sections
+                    for sec in (sections if web_sections is None else web_sections)
                 ],
                 "footer": footer,
             }
@@ -588,11 +594,12 @@ def render_card(
 async def render_card_async(bg_name: str, title: str, subtitle: str = "",
                             sections: Optional[List[Dict]] = None, footer: str = "",
                             width: int = 1000,
-                            payload_extra: Optional[Dict] = None) -> Optional[str]:
+                            payload_extra: Optional[Dict] = None,
+                            web_sections: Optional[List[Dict]] = None) -> Optional[str]:
     """异步版本；失败/关闭返回 None"""
     import asyncio
     return await asyncio.to_thread(
-        render_card, bg_name, title, subtitle, sections, footer, width, payload_extra
+        render_card, bg_name, title, subtitle, sections, footer, width, payload_extra, web_sections
     )
 
 

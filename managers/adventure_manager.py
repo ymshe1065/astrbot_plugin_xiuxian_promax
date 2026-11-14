@@ -449,13 +449,15 @@ class AdventureManager:
         if not player:
             return False, "❌ 你还未踏入修仙之路！"
 
-        user_cd = await self.db.ext.get_user_cd(user_id)
-        if not user_cd:
-            await self.db.ext.create_user_cd(user_id)
-            user_cd = await self.db.ext.get_user_cd(user_id)
+        active = await self.db.ext.get_active_cd(user_id, UserStatus.ADVENTURING)
+        if active is not None:
+            return False, "❌ 你已经在历练途中了，先走完这一趟再出发。"
 
-        if user_cd.type != UserStatus.IDLE:
-            return False, f"❌ 你当前正{UserStatus.get_name(user_cd.type)}，无法开始历练！"
+        from ..core.avatar_rules import ensure_free_slot
+
+        ok_slot, slot_hint = await ensure_free_slot(self.db, player, user_id)
+        if not ok_slot:
+            return False, slot_hint
 
         # ===== v6.18 空参必须明选路线（不再静默进默认路线）=====
         # 路线按主产物分组，每组只列门槛最高的 4 条，避免 60 条铺满屏幕。
@@ -541,7 +543,17 @@ class AdventureManager:
         now = int(time.time())
         scheduled_time = now + duration
         extra = {"route_key": route_key, "umo": umo or ""}
-        await self.db.ext.set_user_busy(user_id, UserStatus.ADVENTURING, scheduled_time, extra_data=extra)
+        from ..core.avatar_rules import total_slots
+
+        started, slot, why = await self.db.ext.start_activity(
+            user_id, UserStatus.ADVENTURING, scheduled_time,
+            extra_data=extra, max_slots=total_slots(player),
+        )
+        if not started:
+            if why == "already_running":
+                return False, "❌ 你已经在历练途中了，先走完这一趟再出发。"
+            ok_slot, slot_hint = await ensure_free_slot(self.db, player, user_id)
+            return False, slot_hint or "❌ 分身都出去了，没人手再走一趟。"
 
         band = self._material_band(player, route)
         tier_text = " / ".join((band.get("tiers") or {}).keys()) if band else "凡品"
@@ -756,7 +768,9 @@ class AdventureManager:
                 consumed_talismans = []
 
             await self.db.update_player(player, commit=False)
-            await self.db.ext.set_user_free(user_id, commit=False)
+            await self.db.ext.set_user_free(
+                user_id, commit=False, cd_type=UserStatus.ADVENTURING
+            )
             _, item_msg = await self._grant_drops(
                 player, items, external_transaction=True
             )
@@ -828,8 +842,8 @@ class AdventureManager:
         if not player:
             return False, "❌ 你还未踏入修仙之路！", None
 
-        user_cd = await self.db.ext.get_user_cd(user_id)
-        if not user_cd or user_cd.type != UserStatus.ADVENTURING:
+        user_cd = await self.db.ext.get_active_cd(user_id, UserStatus.ADVENTURING)
+        if not user_cd:
             return False, "❌ 你当前不在历练中！", None
 
         now = int(time.time())
@@ -853,8 +867,8 @@ class AdventureManager:
         if not player:
             return False, "❌ 你还未踏入修仙之路！"
 
-        user_cd = await self.db.ext.get_user_cd(user_id)
-        if not user_cd or user_cd.type != UserStatus.ADVENTURING:
+        user_cd = await self.db.ext.get_active_cd(user_id, UserStatus.ADVENTURING)
+        if not user_cd:
             return False, "❌ 你当前不在历练中！"
 
         now = int(time.time())
@@ -866,7 +880,7 @@ class AdventureManager:
         route = self.routes.get(extra.get("route_key") or self.default_route_key) or {}
         elapsed = max(0, now - int(user_cd.create_time or now))
         remain = max(0, int(user_cd.scheduled_time or 0) - now)
-        await self.db.ext.set_user_free(user_id)
+        await self.db.ext.set_user_free(user_id, cd_type=UserStatus.ADVENTURING)
         return True, (
             f"🏳️ 你结束了「{route.get('name', '历练')}」的历练\n"
             f"━━━━━━━━━━━━━━━\n"
@@ -877,8 +891,8 @@ class AdventureManager:
 
     async def check_adventure_status(self, user_id: str) -> Tuple[bool, str]:
         """查看历练进度"""
-        user_cd = await self.db.ext.get_user_cd(user_id)
-        if not user_cd or user_cd.type != UserStatus.ADVENTURING:
+        user_cd = await self.db.ext.get_active_cd(user_id, UserStatus.ADVENTURING)
+        if not user_cd:
             return False, "❌ 你当前不在历练中！"
 
         now = int(time.time())

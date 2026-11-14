@@ -330,7 +330,7 @@ class AutoProxyManager:
         if not int(adv.get("close_until") or 0):
             return ""
         try:
-            cd = await self.db.ext.get_user_cd(user_id)
+            cd = await self.db.ext.first_busy_cd(user_id)
             if not cd or cd.type != UserStatus.CULTIVATING:
                 return ""
             player = await self.db.get_player_by_id(user_id)
@@ -462,7 +462,7 @@ class AutoProxyManager:
         adv_on = self._adv_enabled(row)
         if not (row.get("task_type") or "") and (farm_on or rift_on or fert_on or adv_on):
             return False
-        cd = await self.db.ext.get_user_cd(user_id)
+        cd = await self.db.ext.first_busy_cd(user_id)
         if not cd or cd.type in (UserStatus.IDLE, UserStatus.DELIVERING, UserStatus.SECT_TASK):
             return False
         # 玩家手动进入秘境/历练：由对应代理接管续接，不能当成“其他活动”关掉
@@ -485,7 +485,7 @@ class AutoProxyManager:
             or self._fert_enabled(row)
         ):
             return None
-        cd = await self.db.ext.get_user_cd(user_id)
+        cd = await self.db.ext.first_busy_cd(user_id)
         current = STATUS_TASK.get(cd.type) if cd else None
         if not current:
             return None
@@ -621,7 +621,7 @@ class AutoProxyManager:
         farm_cfg["tasks"] = farm_cfg.get("tasks") if isinstance(farm_cfg.get("tasks"), dict) else {}
         origin = origin or row.get("origin", "")
         # 只保留当前正在进行的押镖/宗门任务，避免旧的 task_type 在仅开启灵田代理时被自动续接
-        cd = await self.db.ext.get_user_cd(user_id)
+        cd = await self.db.ext.first_busy_cd(user_id)
         active_task = STATUS_TASK.get(cd.type) if cd else ""
         await self._write_state(user_id, True, active_task or "", origin, "", config)
 
@@ -911,7 +911,7 @@ class AutoProxyManager:
         )
         fert_cfg["note"] = ""
         origin = origin or row.get("origin", "")
-        cd = await self.db.ext.get_user_cd(user_id)
+        cd = await self.db.ext.first_busy_cd(user_id)
         active_task = STATUS_TASK.get(cd.type) if cd else ""
         await self._write_state(user_id, True, active_task or "", origin, "", config)
 
@@ -1156,7 +1156,7 @@ class AutoProxyManager:
         )
 
         try:
-            cd = await self.db.ext.get_user_cd(user_id)
+            cd = await self.db.ext.first_busy_cd(user_id)
         except Exception:
             cd = None
         cd_type = cd.type if cd else UserStatus.IDLE
@@ -1277,7 +1277,7 @@ class AutoProxyManager:
             return True, "⚠️ 未选择代理秘境，秘境代理已关闭。", False
 
         try:
-            cd = await self.db.ext.get_user_cd(user_id)
+            cd = await self.db.ext.first_busy_cd(user_id)
         except Exception:
             cd = None
         cd_type = cd.type if cd else UserStatus.IDLE
@@ -1485,7 +1485,7 @@ class AutoProxyManager:
         )
 
         try:
-            cd = await self.db.ext.get_user_cd(user_id)
+            cd = await self.db.ext.first_busy_cd(user_id)
         except Exception:
             cd = None
         cd_type = cd.type if cd else UserStatus.IDLE
@@ -1574,10 +1574,14 @@ class AutoProxyManager:
             )
         now = int(time.time())
         fresh = await self.db.get_player_by_id(user_id) or player
+        from ..core.avatar_rules import total_slots
+
         fresh.state = "修炼中"
         fresh.cultivation_start_time = now
         await self.db.update_player(fresh)
-        await self.db.ext.set_user_busy(user_id, UserStatus.CULTIVATING, 0)
+        await self.db.ext.start_activity(
+            user_id, UserStatus.CULTIVATING, 0, max_slots=total_slots(fresh)
+        )
         remain = max(0, until_ts - now)
         minutes = max(1, (remain + 59) // 60)
         return True, (
@@ -1696,7 +1700,7 @@ class AutoProxyManager:
             messages.append(enc_msg)
 
         try:
-            cd = await self.db.ext.get_user_cd(user_id)
+            cd = await self.db.ext.first_busy_cd(user_id)
         except Exception:
             cd = None
         cd_type = cd.type if cd else UserStatus.IDLE
@@ -1875,7 +1879,7 @@ class AutoProxyManager:
             close_notes.append("历练代理已关闭")
         rift_note = f"\n（{'；'.join(close_notes)}）" if close_notes else ""
         rift_note += adv_settle_note
-        cd = await self.db.ext.get_user_cd(user_id)
+        cd = await self.db.ext.first_busy_cd(user_id)
         current = STATUS_TASK.get(cd.type) if cd else None
 
         if not raw_task:
@@ -1953,7 +1957,7 @@ class AutoProxyManager:
             return "❌ 道友尚未踏入仙途，请先发送「我要修仙」。"
 
         row = await self.get(user_id) or {}
-        cd = await self.db.ext.get_user_cd(user_id)
+        cd = await self.db.ext.first_busy_cd(user_id)
         current = STATUS_TASK.get(cd.type) if cd else None
         config = self._load_config(row)
         farm_cfg = config["farm"]
@@ -2342,7 +2346,7 @@ class AutoProxyManager:
                     await self._notify(origin, adv_msg, user_id)
                 handled = True
 
-        cd = await self.db.ext.get_user_cd(user_id)
+        cd = await self.db.ext.first_busy_cd(user_id)
         cd_type = cd.type if cd else UserStatus.IDLE
         current = STATUS_TASK.get(cd_type)
         farm_on = bool(farm_cfg.get("enabled"))

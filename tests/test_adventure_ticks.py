@@ -14,6 +14,7 @@ PKG = ROOT.name
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from tests._astrbot_stub import install as _install_astrbot_stub
+from tests._cd_stub import SlotCdStubMixin
 
 _install_astrbot_stub()
 
@@ -78,17 +79,13 @@ class FakeCd:
         return json.loads(self.extra_data)
 
 
-class FakeExt:
+class FakeExt(SlotCdStubMixin):
     def __init__(self, db):
         self.db = db
         self.cd = None
 
     async def get_user_cd(self, uid):
         return self.cd
-
-    async def set_user_free(self, uid, commit=True):
-        if self.cd:
-            self.cd.type = UserStatus.IDLE
 
     async def set_system_config(self, key, value):
         self.db.config[key] = value

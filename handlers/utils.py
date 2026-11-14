@@ -201,21 +201,24 @@ def idle_player_lock(func: Callable[..., Coroutine[any, any, AsyncGenerator[any,
                         return
             except Exception:
                 pass
-            user_cd = await self.db.ext.get_user_cd(player.user_id)
-            busy = (user_cd and user_cd.type != UserStatus.IDLE) or (
-                (not user_cd or user_cd.type == UserStatus.IDLE)
-                and (getattr(player, "state", "") or "") == "修炼中"
-            )
-            if busy:
-                status_name = UserStatus.get_name(user_cd.type) if user_cd and user_cd.type != UserStatus.IDLE else player.state
-                ok, hint = _parallel_allowed(
-                    player, _normalize_command_text(event.get_message_str())
-                )
-                if not ok:
-                    yield event.plain_result(
-                        f"❌ 道友当前正「{status_name}」，{hint or '无法进行此操作。'}"
-                    )
-                    return
+            user_cd_list = await self.db.ext.list_user_cds(player.user_id)
+            busy_cds = [cd for cd in user_cd_list if int(cd.type or 0) != UserStatus.IDLE]
+            command_clean = _normalize_command_text(event.get_message_str())
+            if not busy_cds and (getattr(player, "state", "") or "") == "修炼中":
+                # user_cd 丢失但 players.state 还挂在「修炼中」：走自救白名单，避免卡死
+                if not command_clean.startswith((CMD_START_CULTIVATION, CMD_END_CULTIVATION)):
+                    if not _is_command_allowed(event.get_message_str(), BUSY_STATE_ALLOWED_COMMANDS):
+                        yield event.plain_result(
+                            f"❌ 道友当前正在「{player.state}」中，无法分心他顾。\n"
+                            "💡 可使用「出关」「我的信息」「突破信息」等查看类指令。"
+                        )
+                        return
+            elif busy_cds:
+                if not _is_command_allowed(event.get_message_str(), BUSY_STATE_ALLOWED_COMMANDS):
+                    hint = _busy_block_hint(player, command_clean, busy_cds)
+                    if hint:
+                        yield event.plain_result(hint)
+                        return
             async for result in func(self, event, *args, **kwargs):
                 yield result
 
@@ -291,42 +294,28 @@ def player_required(func: Callable[..., Coroutine[any, any, AsyncGenerator[any, 
                 )
                 return
 
-            # ===== 核心状态拦截判定 =====
-            parallel_hint = ""
-            user_cd = await self.db.ext.get_user_cd(player.user_id)
-            if not bypass_busy and user_cd and user_cd.type != UserStatus.IDLE:
-                # 玩家处于忙碌状态（如闭关、历练、渡劫），检查命令是否在白名单中
-                is_allowed = _is_command_allowed(message_text, BUSY_STATE_ALLOWED_COMMANDS)
-                if not is_allowed:
-                    # 仙缘【一心二用】：买了之后可以在忙的时候处理别的杂务
-                    is_allowed, parallel_hint = _parallel_allowed(player, command_text)
+            # ===== 核心状态拦截判定（v3.45.12：按分身槽位算）=====
+            user_cd_list = await self.db.ext.list_user_cds(player.user_id)
+            busy_cds = [cd for cd in user_cd_list if int(cd.type or 0) != UserStatus.IDLE]
+            if not bypass_busy and busy_cds:
+                # 玩家所有分身都出动了？只读/退出类指令在白名单里永久放行，
+                # 其余一律要求「还有空闲分身」。
+                if not _is_command_allowed(message_text, BUSY_STATE_ALLOWED_COMMANDS):
+                    hint = _busy_block_hint(player, command_text, busy_cds)
+                    if hint:
+                        yield event.plain_result(hint)
+                        return
 
-                if not is_allowed:
-                    status_name = UserStatus.get_name(user_cd.type)
-                    if parallel_hint:
-                        yield event.plain_result(
-                            f"❌ 道友当前正在「{status_name}」，{parallel_hint}"
-                        )
-                    else:
-                        yield event.plain_result(f"❌ 道友当前正在「{status_name}」，无法分心他顾。\n💡 可使用「我的信息」「突破信息」「签到」等查看类指令。")
-                    return
-
-            # 状态检查：user_cd 缺失或为空闲时，用 player.state 兜底（兼容异常中断的闭关记录）
+            # 状态检查：user_cd 全空时用 player.state 兜底（兼容异常中断的闭关记录）
             if (
                 not bypass_busy
-                and (not user_cd or user_cd.type == UserStatus.IDLE)
+                and not busy_cds
                 and player.state == "修炼中"
             ):
                 # 允许闭关/出关自救，避免 user_cd 丢失后既不能重新闭关也不能出关
                 if not command_text.startswith((CMD_START_CULTIVATION, CMD_END_CULTIVATION)):
-                    is_allowed = _is_command_allowed(message_text, BUSY_STATE_ALLOWED_COMMANDS)
-                    if not is_allowed:
-                        is_allowed, parallel_hint = _parallel_allowed(player, command_text)
-                    if not is_allowed:
-                        if parallel_hint:
-                            yield event.plain_result(f"❌ 道友当前正在「{player.state}」，{parallel_hint}")
-                        else:
-                            yield event.plain_result(f"❌ 道友当前正在「{player.state}」中，无法分心他顾。\n💡 可使用「出关」「我的信息」「突破信息」等查看类指令。")
+                    if not _is_command_allowed(message_text, BUSY_STATE_ALLOWED_COMMANDS):
+                        yield event.plain_result(f"❌ 道友当前正在「{player.state}」中，无法分心他顾。\n💡 可使用「出关」「我的信息」「突破信息」等查看类指令。")
                         return
 
             # 将 player 对象作为第一个参数传递给原始函数
@@ -404,18 +393,30 @@ def _is_command_allowed(message_text: str, allowed_commands: list) -> bool:
     return False
 
 
-def _parallel_allowed(player, command_text: str) -> tuple:
-    """仙缘【一心二用】：忙碌状态下额外放行的指令。
+def _busy_block_hint(player, command_text: str, busy_cds) -> str:
+    """忙碌状态下要不要拦、拦的话说什么。返回空串表示放行。
 
-    返回 (是否放行, 提示文案)。未购买时返回 (False, "")，沿用原始拦截文案；
-    买了但档位不够 / 属于「开新活动」时返回 (False, 具体原因)。
+    v3.45.12 起判定只看一件事：还有没有空闲分身（活动槽位）。
+    杂务本身不占槽位，但得有分身去做 —— 所有分身都出动了就没人手。
     """
     try:
-        from ..core.parallel_rules import can_act_while_busy
+        from ..core.avatar_rules import is_avatar_maxed, total_slots
+        from ..core.parallel_rules import can_act_while_busy, no_slot_hint
 
-        return can_act_while_busy(player, command_text)
+        cds = list(busy_cds or [])
+        total = total_slots(player)
+        busy = len(cds)
+        ok, hint = can_act_while_busy(player, command_text, total, busy)
+        if ok:
+            return ""
+        if hint:
+            return hint
+        if busy >= total:
+            names = [UserStatus.get_name(int(cd.type)) for cd in cds]
+            return no_slot_hint(total, busy, names, maxed=is_avatar_maxed(player))
+        return ""
     except Exception:
-        return False, ""
+        return ""
 
 
 def get_command_args(event: AstrMessageEvent, *command_names: str) -> str:

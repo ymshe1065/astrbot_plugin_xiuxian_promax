@@ -72,11 +72,23 @@ class SectManager:
         return self._sect_lock
 
     async def _idle_guard(self, user_id: str, action: str) -> str:
-        """宗门管理操作统一忙闲校验，返回空字符串表示可执行。"""
-        user_cd = await self.db.ext.get_user_cd(user_id)
-        if user_cd and user_cd.type != UserStatus.IDLE:
-            return f"❌ 你当前正{UserStatus.get_name(user_cd.type)}，无法{action}！"
-        return ""
+        """宗门事务属杂务：只要还有一个空闲分身就能做，返回空串表示可执行。
+
+        v3.45.12 起判定与指令拦截同口径 —— 看「还有没有空闲分身」，
+        而不是「有没有任一分身在忙」。本体在历练、化身闲着的时候，
+        依然可以建宗、捐献、升建筑、传位。
+        """
+        from ..core.avatar_rules import is_avatar_maxed, total_slots
+        from ..core.parallel_rules import no_slot_hint
+
+        busy = await self.db.ext.busy_slot_count(user_id)
+        player = await self.db.get_player_by_id(user_id)
+        total = total_slots(player) if player else 1
+        if busy < total:
+            return ""
+        names = await self.db.ext.busy_activity_names(user_id)
+        maxed = is_avatar_maxed(player) if player else False
+        return no_slot_hint(total, busy, names, maxed=maxed) + f"\n（这一步是「{action}」）"
     
     def _validate_sect_name(self, name: str) -> Tuple[bool, str]:
         """验证宗门名称"""
@@ -562,9 +574,9 @@ class SectManager:
             (target_id,),
         )
         await self.db.conn.commit()
-        target_cd = await self.db.ext.get_user_cd(target_id)
-        if target_cd and target_cd.type == UserStatus.SECT_TASK:
-            await self.db.ext.set_user_free(target_id)
+        target_cd = await self.db.ext.get_active_cd(target_id, UserStatus.SECT_TASK)
+        if target_cd:
+            await self.db.ext.set_user_free(target_id, cd_type=UserStatus.SECT_TASK)
         return True, (
             f"✨ 已将 {target.user_name or target_id} 踢出宗门！"
             "其进行中的宗门任务已取消。"
@@ -575,27 +587,29 @@ class SectManager:
         player = await self.db.get_player_by_id(user_id)
         if not player or player.sect_id == 0: return False, "❌ 你还未加入宗门！"
         
-        user_cd = await self.db.ext.get_user_cd(user_id)
-        if not user_cd:
-            await self.db.ext.create_user_cd(user_id)
-            user_cd = await self.db.ext.get_user_cd(user_id)
-
-        if user_cd.type != UserStatus.IDLE:
-            if user_cd.type == UserStatus.SECT_TASK:
-                current_time = int(time.time())
-                if user_cd.scheduled_time and current_time < user_cd.scheduled_time:
-                    return False, f"❌ 宗门任务进行中！还需 {(user_cd.scheduled_time - current_time)//60} 分钟。"
-                return False, (
-                    "❌ 你已完成当前宗门任务，请先使用 /完成宗门任务 领取贡献，"
-                    "或使用 /放弃宗门任务 结束本轮。"
-                )
+        user_cd = await self.db.ext.get_active_cd(user_id, UserStatus.SECT_TASK)
+        if user_cd is not None:
+            current_time = int(time.time())
+            if user_cd.scheduled_time and current_time < user_cd.scheduled_time:
+                return False, f"❌ 宗门任务进行中！还需 {(user_cd.scheduled_time - current_time)//60} 分钟。"
             return False, (
-                f"❌ 你当前正{UserStatus.get_name(user_cd.type)}，无法执行宗门任务！\n"
-                "💡 请先完成或放弃当前活动。"
+                "❌ 你已完成当前宗门任务，请先使用 /完成宗门任务 领取贡献，"
+                "或使用 /放弃宗门任务 结束本轮。"
             )
 
+        from ..core.avatar_rules import total_slots
+
         current_time = int(time.time())
-        await self.db.ext.set_user_busy(user_id, UserStatus.SECT_TASK, current_time + 3600)
+        started, _slot, why = await self.db.ext.start_activity(
+            user_id, UserStatus.SECT_TASK, current_time + 3600,
+            max_slots=total_slots(player),
+        )
+        if not started:
+            return False, (
+                "❌ 宗门任务进行中，先完成或放弃当前这一轮。"
+                if why == "already_running"
+                else "❌ 分身都出去了，没人手去做宗门任务。"
+            )
         return True, "✨ 你开始执行宗门任务！任务需要1小时完成，请在完成后使用 /完成宗门任务 领取奖励。"
 
     async def finish_sect_task(self, user_id: str) -> Tuple[bool, str]:
@@ -603,12 +617,12 @@ class SectManager:
         player = await self.db.get_player_by_id(user_id)
         if not player: return False, "❌ 你还未踏入修仙之路！"
 
-        user_cd = await self.db.ext.get_user_cd(user_id)
-        if not user_cd or user_cd.type != UserStatus.SECT_TASK:
+        user_cd = await self.db.ext.get_active_cd(user_id, UserStatus.SECT_TASK)
+        if not user_cd:
             return False, "❌ 你当前不在宗门任务中！"
 
         if player.sect_id == 0:
-            await self.db.ext.set_user_free(user_id)
+            await self.db.ext.set_user_free(user_id, cd_type=UserStatus.SECT_TASK)
             return False, "✅ 你已不在宗门中，本次宗门任务已取消。"
 
         now = int(time.time())
@@ -653,7 +667,7 @@ class SectManager:
                 level_msg = self.get_level_up_text(old_level, new_level)
 
         order_msg = await self.record_order_progress(user_id, "task", 1)
-        await self.db.ext.set_user_free(user_id)
+        await self.db.ext.set_user_free(user_id, cd_type=UserStatus.SECT_TASK)
         return True, (
             f"✨ 宗门任务完成！\n获得贡献：{contribution_gain}\n"
             f"累计完成任务：{player.sect_task} 次\n"
@@ -666,8 +680,8 @@ class SectManager:
         if not player:
             return False, "❌ 你还未踏入修仙之路！"
 
-        user_cd = await self.db.ext.get_user_cd(user_id)
-        if not user_cd or user_cd.type != UserStatus.SECT_TASK:
+        user_cd = await self.db.ext.get_active_cd(user_id, UserStatus.SECT_TASK)
+        if not user_cd:
             return False, "❌ 你当前不在宗门任务中！"
 
         cost, currency = calc_abandon_penalty(0, 0)
@@ -676,7 +690,7 @@ class SectManager:
         if not ok:
             return False, msg
 
-        await self.db.ext.set_user_free(user_id)
+        await self.db.ext.set_user_free(user_id, cd_type=UserStatus.SECT_TASK)
         return True, (
             "🏳️ 你放弃了宗门任务。\n"
             f"向宗门支付违约金：{cost:,} {currency_label}\n"

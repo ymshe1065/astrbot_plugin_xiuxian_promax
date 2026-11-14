@@ -318,26 +318,31 @@ class TestFateShop(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(ok)
         self.assertIn("1~52", msg)
 
-    async def test_parallel_unlock_has_three_tiers(self):
-        """【一心二用】买三次逐档提升，第四次被硬顶挡住。"""
+    async def test_avatar_slots_bought_four_times(self):
+        """【身外化身】60/120/240/480 阶梯价，买满 4 尊后不能再买。"""
         mgr, db = self._manager()
         player = Player(user_id="u1")
         player.fate_points = 1000
         hints = []
-        for expected in (1, 2, 3):
+        for expected in (1, 2, 3, 4):
             ok, msg = await mgr.buy_fate_shop_item(player, 52)
             self.assertTrue(ok, msg)
             self.assertEqual(rules.item_owned(json.loads(player.permanent_bonus), 52), expected)
             hints.append(msg)
-        self.assertIn("第 1 档", hints[0])
-        self.assertIn("第 2 档", hints[1])
-        self.assertIn("全部指令放行", hints[2])
+        # 第 N 次购买后文案里给的是「第 N 尊」与「共 1+N 个槽位」
+        self.assertIn("第 1 尊", hints[0])
+        self.assertIn("共 2 个", hints[0])
+        self.assertIn("第 4 尊", hints[3])
+        self.assertIn("共 5 个", hints[3])
+        # 阶梯价逐次上涨
+        self.assertIn("再添一尊需 120 仙缘点", hints[0])
+        self.assertIn("已满 4 尊", hints[3])
 
         ok, msg = await mgr.buy_fate_shop_item(player, 52)
         self.assertFalse(ok)
-        self.assertIn("已满 3 层", msg)
-        # 三档共花 240 点
-        self.assertEqual(player.fate_points, 1000 - 80 * 3)
+        self.assertIn("已满 4 层", msg)
+        # 四尊共花 900 点
+        self.assertEqual(player.fate_points, 1000 - 900)
 
 
 class TestAscendPreview(unittest.IsolatedAsyncioTestCase):

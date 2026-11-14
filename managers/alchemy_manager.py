@@ -3,6 +3,7 @@
 
 import json
 import random
+import re
 import time
 from collections import Counter
 from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
@@ -27,6 +28,17 @@ class AlchemyManager:
     QUALITY_ORDER = ["一般", "良好", "极佳", "大师"]
     # 批量炼丹单次指令上限：避免一次输入 all 时长时间占库与刷屏
     MAX_BATCH_CRAFTS = 100
+    # config/pill_recipes.json 的 692 条 desc 全是占位文案，两种写法：
+    # 「记载XX炼制方法的丹方。」与「记载XX炼制方法的丹方，学习后可用 /炼丹 炼制。」
+    # 原逻辑只在 `not desc` 时才调 _generate_pill_desc，于是生成器成了死代码——
+    # 丹方列表因此永远不显示「这炉丹做出来干什么」（F9 效果缺位）。只用前缀判定，
+    # 因为后半句有没有「学习后可用 …」并不影响它是不是废话。
+    _PLACEHOLDER_DESC_RE = re.compile(r"^记载.+?炼制方法的丹方")
+    # items.json 里 443 条丹药的 description 全是这句，同样等于没写：
+    # 「这是一件凡品丹药，蕴含着天地之力。」—— 它只说品阶，不说作用。
+    _GENERIC_DESC_RE = re.compile(r"这是一件.+丹药|蕴含着天地之力")
+    # _generate_pill_desc 也拿不到配置时的兜底；展示层据此显式写「效果未录入」。
+    DESC_MISSING = "丹药效果"
 
     def __init__(self, db: DataBase, config_manager: "ConfigManager" = None, storage_ring_manager: "StorageRingManager" = None):
         self.db = db
@@ -57,13 +69,15 @@ class AlchemyManager:
         name = recipe.get("name") or recipe.get("output_pill") or f"丹药{recipe_id}"
         output_pill = recipe.get("output_pill") or recipe.get("output") or name
 
-        desc = recipe.get("desc")
+        desc = str(recipe.get("desc") or "").strip()
+        if self._PLACEHOLDER_DESC_RE.match(desc):
+            desc = ""
         if not desc and self.config_manager:
             pill_config = self._get_pill_config_by_name(output_pill)
             if pill_config:
                 desc = self._generate_pill_desc(pill_config)
         if not desc:
-            desc = "丹药效果"
+            desc = self.DESC_MISSING
 
         materials = recipe.get("materials", recipe.get("cost", []))
         gold_cost = recipe.get("gold_cost", 0)
@@ -84,16 +98,54 @@ class AlchemyManager:
             "desc": desc,
         }
 
+    def _quality_cap(self, key: str = "effect_multiplier") -> float:
+        """品质对效果的放大上界（一般 1.0 → 大师 1.6）。"""
+        data = getattr(self.config_manager, "pill_quality_data", None) or {}
+        qualities = data.get("qualities") if isinstance(data, dict) else None
+        caps: List[float] = []
+        for entry in (qualities or {}).values():
+            if not isinstance(entry, dict):
+                continue
+            try:
+                caps.append(float(entry.get(key, 1.0) or 1.0))
+            except (TypeError, ValueError):
+                continue
+        return max(caps) if caps else 1.0
+
     def _generate_pill_desc(self, pill_config: Dict) -> str:
+        """产出丹药的效果一句话，数值给到品质提升后的上界。
+
+        品质倍率（一般 1.0 / 极佳 1.35 / 大师 1.6）只作用于数值型效果，
+        所以直接写成区间——玩家只有看见「一般 500、大师 800」，
+        「猛火博品质」这个选择才存在。区间上界取自 pill_quality.json，不硬编码。
+        """
         rank = pill_config.get("rank", "")
+        gain_cap = self._quality_cap("effect_multiplier")
+        break_cap = self._quality_cap("breakthrough_multiplier")
+
+        def span(value: float, cap: float, percent: bool = False) -> str:
+            high = value * cap
+            if percent:
+                return f"{value:.0f}%~{high:.0f}%"
+            return f"{int(round(value))}~{int(round(high))}"
+
         if pill_config.get("exp_gain"):
-            return f"增加{pill_config['exp_gain']}修为（{rank}修为丹）"
+            return f"增加 {span(float(pill_config['exp_gain']), gain_cap)} 修为（{rank}修为丹）"
         if pill_config.get("breakthrough_bonus"):
-            bonus = int(pill_config["breakthrough_bonus"] * 100)
-            return f"提升{bonus}%突破成功率（{rank}破境丹）"
-        if pill_config.get("description"):
-            return pill_config["description"]
-        return f"{rank}丹药"
+            bonus = float(pill_config["breakthrough_bonus"]) * 100
+            return f"提升 {span(bonus, break_cap, True)} 突破成功率（{rank}破境丹）"
+        if pill_config.get("restore_hp_percent"):
+            pct = float(pill_config["restore_hp_percent"]) * 100
+            return f"恢复 {span(pct, gain_cap, True)} 最大气血"
+        if pill_config.get("restore_qi_percent"):
+            pct = float(pill_config["restore_qi_percent"]) * 100
+            return f"恢复 {span(pct, gain_cap, True)} 最大灵气"
+        desc = str(pill_config.get("description") or "").strip()
+        if desc and not self._GENERIC_DESC_RE.search(desc):
+            return desc
+        # 走到这里说明数据层就没写效果（443 条丹药只有「这是一件X品丹药」）。
+        # 返回空串，由 _normalize_recipe 统一落成 DESC_MISSING，让界面显式说「未录入」。
+        return ""
 
     def _get_pill_config_by_name(self, name: str) -> Optional[Dict]:
         if not self.config_manager:
@@ -771,15 +823,16 @@ class AlchemyManager:
         return "一般"
 
     # ===== 丹方列表 =====
-    async def get_available_recipes(self, user_id: str) -> Tuple[bool, str, list, list]:
+    async def get_available_recipes(self, user_id: str) -> Tuple[bool, str, list, list, list]:
         player = await self.db.get_player_by_id(user_id) if self.db else None
         if not player:
-            return False, "❌ 你还未踏入修仙之路！", [], []
+            return False, "❌ 你还未踏入修仙之路！", [], [], []
 
         learned = await self.ensure_learned_recipes(player)
         lines = ["📜 已学丹方列表", "━━━━━━━━━━━━━━━"]
         rows = []
         card_lines = []
+        entries = []
         # 这里只列出已学习丹方；未学习丹方请到 /丹阁 丹方 购买卷轴后学习。
         learned_ids = []
         for value in learned:
@@ -793,8 +846,9 @@ class AlchemyManager:
         if not learned_ids:
             lines.append("你还没有学习任何丹方。")
             lines.append("💡 前往 /丹阁 丹方 购买丹方卷轴，再使用 /学习丹方。")
-            return True, "\n".join(lines), [], []
+            return True, "\n".join(lines), [], [], []
 
+        held_items = self._items_snapshot(player)
         for recipe_id in sorted(learned_ids):
             recipe = self.recipes[recipe_id]
             level_required = int(recipe.get("level_required", 0) or 0)
@@ -803,35 +857,88 @@ class AlchemyManager:
             else:
                 status = "可炼制"
             success_rate = recipe.get("success_rate", 0)
+            effect = str(recipe.get("desc") or "").strip()
+            if not effect or effect == self.DESC_MISSING:
+                # 443 条丹方的产出物在配置里压根没有效果定义。
+                # 留白会被读成「这炉丹没用」，必须明写是配置缺失。
+                effect = "⚠️ 效果未录入"
             card_lines.append(f"[{recipe_id}] {recipe['name']}（{status} · 成功率 {success_rate:.0f}%）")
+            card_lines.append(f"   · 效果：{effect}")
 
             material_parts = []
+            entry_materials = []
+            materials_ok = True
+            # 这一次开炉最多能连炼几次：材料与灵石的「够几次」取最小值
+            cap = None
             for spec in self._iter_recipe_materials(recipe):
                 have = self._material_count(player, spec)
                 label = spec.get("name") or f"{spec.get('tier', '')}{spec.get('category', '')}"
                 mark = "✓" if have >= spec["count"] else f"缺{spec['count'] - have}"
                 material_parts.append(f"{label}x{spec['count']}({mark})")
+                entry_materials.append({
+                    "label": str(label), "need": int(spec["count"]), "have": int(have),
+                })
+                if spec["count"]:
+                    rounds = int(have) // int(spec["count"])
+                    cap = rounds if cap is None else min(cap, rounds)
+                if have < spec["count"]:
+                    materials_ok = False
                 # 图片卡片逐行展示，标识改用文字，避免窄列挤压与 ✓ 字形缺失
                 card_mark = "足够" if have >= spec["count"] else f"缺{spec['count'] - have}"
                 card_lines.append(f"   · {label} ×{spec['count']}（拥有 {have}/{spec['count']} · {card_mark}）")
-            if recipe.get("gold_cost"):
-                gold_cost = int(recipe["gold_cost"])
+            gold_ok = True
+            gold_cost = int(recipe.get("gold_cost") or 0)
+            if gold_cost:
                 mark = "✓" if player.gold >= gold_cost else f"缺{gold_cost - player.gold}"
                 material_parts.append(f"灵石x{gold_cost}({mark})")
+                gold_ok = player.gold >= gold_cost
+                rounds = int(player.gold or 0) // gold_cost
+                cap = rounds if cap is None else min(cap, rounds)
                 card_mark = "足够" if player.gold >= gold_cost else f"缺{gold_cost - player.gold}"
                 card_lines.append(f"   · 灵石 ×{gold_cost}（持有 {player.gold}/{gold_cost} · {card_mark}）")
             card_lines.append("")
 
             lines.append(f"[{recipe_id}] {recipe['name']}（{status}，成功率 {success_rate:.0f}%）")
+            # 未录入时用 ⚠️ 起头，别再叠一个 ✨：那会读成「特效：效果未录入」。
+            lines.append(f"   {effect}" if effect.startswith("⚠️") else f"   ✨ {effect}")
             if material_parts:
                 lines.append("   材料：" + "、".join(material_parts))
             rows.append((
                 f"[{recipe_id}] {recipe['name']}（{status} · 成功率{success_rate:.0f}%）",
                 "材料：" + "、".join(material_parts) if material_parts else "无材料消耗",
             ))
+
+            if player.level_index < level_required:
+                state = "lock"
+            elif not materials_ok or not gold_ok:
+                state = "lack"
+            else:
+                state = "ok"
+            output_pill = str(recipe.get("output_pill") or "")
+            entries.append({
+                "id": recipe_id,
+                "name": str(recipe["name"]),
+                "kind": "丹方",
+                "rank": self._pill_rank_of(output_pill, recipe),
+                "rate": int(round(float(success_rate or 0))),
+                "state": state,
+                "effect": effect,
+                "materials": entry_materials,
+                "cost": gold_cost,
+                "gold": int(player.gold or 0),
+                # 详情抽屉数量步进器的上限；None=算不出来（没材料也没工费），交给后端兜底
+                "max": cap,
+                "level": level_required,
+                "level_now": int(player.level_index or 0),
+                "held": int(held_items.get(output_pill, 0) or 0) if output_pill else 0,
+                "output": output_pill,
+                "unit": "颗",
+                "source": "recipe",
+                "action": "炼制",
+            })
         lines.append("━━━━━━━━━━━━━━━")
         lines.append("💡 /学习丹方 <ID或名称> 学习；/炼丹 <ID> [火候] [次数|all] 开始炼制")
-        return True, "\n".join(lines), rows, card_lines
+        return True, "\n".join(lines), rows, card_lines, entries
 
     # ===== 炼制 =====
     @staticmethod

@@ -10,6 +10,7 @@ from ..core.reincarnation_rules import (
     NEWLIFE_ESCORT_TRIPS_PER_STACK,
     SHOP_GROUPS,
     SHOP_ITEMS,
+    shop_price,
     fate_exchange_key,
     fate_exchange_points,
     format_permanent_summary,
@@ -93,12 +94,20 @@ class ReincarnationHandlers:
                 item = SHOP_ITEMS[item_id]
                 owned = item_owned(bonus_data, item_id)
                 cap = int(item.get("cap") or 0)
-                if cap:
+                if item_id == 52:
+                    # 身外化身按「尊」计，说「层」容易误会成属性叠加
+                    progress = (
+                        f"（已请 {owned}/{cap} 尊 · 满）" if owned >= cap
+                        else f"（已请 {owned}/{cap} 尊）"
+                    )
+                elif cap:
                     progress = f"（{owned}/{cap} 层 · 满级）" if owned >= cap else f"（{owned}/{cap} 层）"
                 else:
                     progress = f"（已购 {owned} 层）" if owned else ""
+                price = shop_price(item_id, owned)
+                price_text = f"{price} 点" if price else "已满"
                 lines.append(
-                    f"{item_id}. {item['name']} · {item['cost']} 点 · {item['desc']}{progress}"
+                    f"{item_id}. {item['name']} · {price_text} · {item['desc']}{progress}"
                 )
 
         left = await self._exchange_left(player)

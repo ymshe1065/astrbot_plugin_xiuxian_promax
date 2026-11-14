@@ -747,9 +747,21 @@ class PlayerHandler:
 
         # 状态以 user_cd 为准（闭关/历练/押镖/秘境/宗门任务等都会写这里），
         # player.state 只在闭关时维护，不能作为唯一来源。
-        user_cd = await self.db.ext.get_user_cd(player.user_id)
+        from ..core.avatar_rules import avatar_count, total_slots
+
+        user_cd = await self.db.ext.first_busy_cd(player.user_id)
+        busy_count = await self.db.ext.busy_slot_count(player.user_id)
+        slot_total = total_slots(player)
+        slot_text = (
+            f"本体 + {avatar_count(player)} 尊化身（{busy_count}/{slot_total} 出动，"
+            f"空闲 {slot_total - busy_count}）"
+            if avatar_count(player)
+            else f"仅本体（{busy_count}/1 出动）"
+        )
         if user_cd:
             status_text = UserStatus.get_name(user_cd.type)
+            if slot_total > 1:
+                status_text += f" · 分身 {busy_count}/{slot_total} 出动"
         else:
             status_text = player.state or "空闲"
 
@@ -773,6 +785,7 @@ class PlayerHandler:
             f"【修炼属性】\n"
             f"  修炼方式：{player.cultivation_type}\n"
             f"  状态：{status_text}\n"
+            f"  分身：{slot_text}\n"
             f"  寿命：{player.lifespan}\n"
             f"  精神力：{total_attrs['mental_power']}\n"
             f"  基础物伤：{player.physical_damage} | 基础法伤：{player.magic_damage}\n"
@@ -874,6 +887,7 @@ class PlayerHandler:
                     ("基础物防/法防", f"{player.physical_defense}/{player.magic_defense}"),
                     ("精神力", f"{total_attrs['mental_power']}"),
                     ("状态", status_text),
+                    ("分身", slot_text),
                     ("寿命", f"{player.lifespan}"),
                 ])
 
@@ -929,31 +943,40 @@ class PlayerHandler:
     @player_required
     async def handle_start_cultivation(self, player: Player, event: AstrMessageEvent):
         """处理闭关指令"""
-        user_cd = await self.db.ext.get_user_cd(player.user_id)
-        if user_cd and user_cd.type == UserStatus.CULTIVATING:
+        from ..core.avatar_rules import total_slots
+
+        if await self.db.ext.get_active_cd(player.user_id, UserStatus.CULTIVATING) is not None:
             yield event.plain_result("道友已在闭关中，请勿重复进入。")
-            return
-        if user_cd and user_cd.type != UserStatus.IDLE:
-            yield event.plain_result(f"❌ 道友当前正{UserStatus.get_name(user_cd.type)}，无法闭关！")
             return
 
         # 兼容旧数据/异常中断：玩家状态仍为修炼中但 user_cd 丢失时，恢复闭关而不是覆盖开始时间
         if (
-            (not user_cd or user_cd.type == UserStatus.IDLE)
-            and player.state == "修炼中"
+            player.state == "修炼中"
             and player.cultivation_start_time > 0
         ):
-            await self.db.ext.set_user_busy(player.user_id, UserStatus.CULTIVATING, 0)
+            await self.db.ext.start_activity(
+                player.user_id, UserStatus.CULTIVATING, 0,
+                max_slots=total_slots(player),
+            )
             yield event.plain_result(
                 f"🧘 检测到未结算的闭关记录，已恢复闭关状态\n"
                 f"💡 发送「{CMD_END_CULTIVATION}」结束闭关"
             )
             return
 
+        started, _slot, why = await self.db.ext.start_activity(
+            player.user_id, UserStatus.CULTIVATING, 0, max_slots=total_slots(player)
+        )
+        if not started:
+            yield event.plain_result(
+                "道友已在闭关中，请勿重复进入。" if why == "already_running"
+                else "❌ 分身都出去了，没人手再开一炉闭关。"
+            )
+            return
+
         player.state = "修炼中"
         player.cultivation_start_time = int(time.time())
         await self.db.update_player(player)
-        await self.db.ext.set_user_busy(player.user_id, UserStatus.CULTIVATING, 0)
 
         yield event.plain_result(f"🧘 道友已进入闭关状态\n💡 发送「{CMD_END_CULTIVATION}」结束闭关")
 
@@ -976,18 +999,15 @@ class PlayerHandler:
         手动 /出关 与历练代理的「CD 自动闭关」共用同一套结算，
         避免自动代理另写一份导致丹药加权、家具/宗门/魔潮加成口径漂移。
         """
-        user_cd = await self.db.ext.get_user_cd(player.user_id)
-        legacy_cultivating = (
-            player.state == "修炼中"
-            and (not user_cd or user_cd.type == UserStatus.IDLE)
-        )
-        if (not user_cd or user_cd.type != UserStatus.CULTIVATING) and not legacy_cultivating:
+        user_cd = await self.db.ext.get_active_cd(player.user_id, UserStatus.CULTIVATING)
+        legacy_cultivating = player.state == "修炼中" and user_cd is None
+        if user_cd is None and not legacy_cultivating:
             return False, "道友当前并未闭关，无需出关。"
         if player.cultivation_start_time == 0:
             player.state = "空闲"
             player.cultivation_start_time = 0
             await self.db.update_player(player)
-            await self.db.ext.set_user_free(player.user_id)
+            await self.db.ext.set_user_free(player.user_id, cd_type=UserStatus.CULTIVATING)
             return False, "闭关记录异常，已为你恢复空闲状态，请重新闭关。"
 
         end_time = int(time.time())
@@ -998,7 +1018,7 @@ class PlayerHandler:
             player.state = "空闲"
             player.cultivation_start_time = 0
             await self.db.update_player(player)
-            await self.db.ext.set_user_free(player.user_id)
+            await self.db.ext.set_user_free(player.user_id, cd_type=UserStatus.CULTIVATING)
             return False, "道友闭关时间不足1分钟，已出关，未获得修为。"
 
         try:
@@ -1163,7 +1183,7 @@ class PlayerHandler:
         player.state = "空闲"
         player.cultivation_start_time = 0
         await self.db.update_player(player)
-        await self.db.ext.set_user_free(player.user_id)
+        await self.db.ext.set_user_free(player.user_id, cd_type=UserStatus.CULTIVATING)
 
         await self.db.ext.add_task_progress(player.user_id, "cultivate", 1)
         tutorial_msg = await self.tutorial_mgr.check_and_advance(player, "cultivate")
@@ -1306,8 +1326,8 @@ class PlayerHandler:
                 "🌀 你正处于道体重塑中，请先发送「我要修仙 职业名」选定新职业与灵根，"
                 "再考虑重修。"
             )
-        user_cd = await self.db.ext.get_user_cd(player.user_id)
-        if user_cd and user_cd.type != UserStatus.IDLE:
+        user_cd = await self.db.ext.first_busy_cd(player.user_id)
+        if user_cd:
             return f"❌ 你当前正在「{UserStatus.get_name(user_cd.type)}」，无法弃道重修。"
         loan = await self.db.ext.get_active_loan(player.user_id)
         if loan:

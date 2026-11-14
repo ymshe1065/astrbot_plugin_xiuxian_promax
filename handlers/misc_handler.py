@@ -19,7 +19,7 @@ __all__ = ["MiscHandler"]
 class MiscHandler:
     """杂项指令处理器 - 提供帮助信息、一键日常与强制解卡"""
 
-    VERSION = HELP_VERSION  # v7.9.20：修复 /仙缘兑换 玩家锁嵌套死锁（数据库 v61）
+    VERSION = HELP_VERSION  # v7.9.20：修复 /仙缘兑换 玩家锁嵌套死锁（数据库 v62）
 
     def __init__(self, db: DataBase, config: dict = None):
         self.db = db
@@ -74,9 +74,9 @@ class MiscHandler:
         if not player:
             yield event.plain_result("道友尚未踏入仙途，请发送「我要修仙」开启你的旅程。")
             return
-        user_cd = await self.db.ext.get_user_cd(player.user_id)
+        busy_slots = await self.db.ext.busy_slot_count(player.user_id)
         
-        if (not user_cd or user_cd.type == UserStatus.IDLE) and player.state == "空闲":
+        if busy_slots == 0 and player.state == "空闲":
             yield event.plain_result("✅ 你的状态非常健康，无需解卡。")
             return
             

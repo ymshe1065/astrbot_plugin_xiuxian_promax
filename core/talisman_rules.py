@@ -239,20 +239,24 @@ def _fmt_rate(value: float) -> str:
 
 
 def _describe(category: str, effects: Dict[str, float]) -> str:
-    """按已生效的键生成可读描述，避免配置与文案脱节。"""
+    """按已生效的键生成可读描述，避免配置与文案脱节。
+
+    文案里一律不用半角斜杠：前端会把「历练/秘境」里的 ``/秘境`` 抽成
+    一个点不动的假指令按钮（F8），改用品名号或「·」分隔。
+    """
     parts = []
     dmg = effects.get("physical_damage_multiplier") or effects.get("magic_damage_multiplier")
     if dmg:
-        parts.append(f"物伤/法伤+{_fmt_rate(float(dmg))}")
+        parts.append(f"物伤·法伤+{_fmt_rate(float(dmg))}")
     def_mult = effects.get("physical_defense_multiplier") or effects.get("magic_defense_multiplier")
     if def_mult:
         parts.append(f"双防+{_fmt_rate(float(def_mult))}")
     if effects.get("crit_rate_bonus"):
         parts.append(f"暴击+{int(effects['crit_rate_bonus'])}%")
     if effects.get("heal_percent"):
-        parts.append(f"立即恢复 {_fmt_rate(float(effects['heal_percent']))} 气血/灵气")
+        parts.append(f"立即恢复 {_fmt_rate(float(effects['heal_percent']))} 气血·灵气")
     if effects.get("exploration_reward_multiplier"):
-        parts.append(f"历练/秘境收益+{_fmt_rate(float(effects['exploration_reward_multiplier']))}")
+        parts.append(f"历练·秘境收益+{_fmt_rate(float(effects['exploration_reward_multiplier']))}")
     if effects.get("drop_chance_bonus"):
         parts.append(f"掉落概率+{int(effects['drop_chance_bonus'])}%")
     if effects.get("cultivation_multiplier"):
@@ -264,11 +268,11 @@ def _describe(category: str, effects: Dict[str, float]) -> str:
             f"避劫（状态期间可保全劫数≤{int(effects['tribulation_shield'])}的丹药，不逐颗扣符）"
         )
     if effects.get("stun_chance"):
-        parts.append(f"定身 {int(effects['stun_chance'])}%/{int(effects.get('stun_turns', 1))}回合")
+        parts.append(f"定身 {int(effects['stun_chance'])}%·{int(effects.get('stun_turns', 1))}回合")
     if effects.get("freeze_chance"):
         parts.append(f"冰封 {int(effects['freeze_chance'])}%")
     if effects.get("frost_chance"):
-        parts.append(f"霜冻 {int(effects['frost_chance'])}%/{int(effects.get('frost_turns', 1))}回合")
+        parts.append(f"霜冻 {int(effects['frost_chance'])}%·{int(effects.get('frost_turns', 1))}回合")
     if effects.get("curse_chance"):
         parts.append(f"诅咒 {int(effects['curse_chance'])}%")
     if effects.get("burn_heal_reduction"):
@@ -278,7 +282,7 @@ def _describe(category: str, effects: Dict[str, float]) -> str:
     if effects.get("luck_bonus"):
         parts.append(f"气运+{int(effects['luck_bonus'])}")
     if effects.get("lifespan_regen_per_minute"):
-        parts.append(f"寿命回复+{int(effects['lifespan_regen_per_minute'])}/分钟")
+        parts.append(f"寿命回复+{int(effects['lifespan_regen_per_minute'])}每分钟")
     return "；".join(parts)
 
 

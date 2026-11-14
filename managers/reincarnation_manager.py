@@ -31,6 +31,7 @@ from ..core.reincarnation_rules import (
     root_reroll_stock,
     root_roll_key,
     scale_base_stats,
+    shop_price,
 )
 
 class ReincarnationManager:
@@ -483,7 +484,8 @@ class ReincarnationManager:
 
         bonus_data = parse_bonus(player)
         name = item["name"]
-        cost = int(item["cost"])
+        owned = item_owned(bonus_data, item_id)
+        cost = shop_price(item_id, owned)
         cap = int(item.get("cap") or 0)
 
         if item_at_cap(bonus_data, item_id):
@@ -539,24 +541,25 @@ class ReincarnationManager:
                 "每轮转生的免费重抽用完后自动消耗。"
             )
         if item_id == 52:
-            from ..core.parallel_rules import TIER_NOTES, allowed_commands
+            from ..core.avatar_rules import MAX_AVATARS, avatar_price_at
 
-            level = item_owned(bonus_data, item_id)
-            if level >= 3:
-                scope = "除「开始另一项耗时活动 / 重开人生」外，全部指令放行"
-            else:
-                cmds = allowed_commands(level)
-                scope = (
-                    f"当前可并行：{TIER_NOTES.get(level, '')}类共 {len(cmds)} 条指令"
-                    f"（{TIER_NOTES.get(level + 1, '')}类要第 {level + 1} 档）"
-                )
+            owned = item_owned(bonus_data, item_id)
+            slots = 1 + owned
+            # 注意：这里 player.permanent_bonus 还没回写，必须用刚加过的 bonus_data 算价
+            nxt = avatar_price_at(owned)
+            tail = (
+                f"再添一尊需 {nxt} 仙缘点。"
+                if nxt is not None
+                else f"已满 {MAX_AVATARS} 尊化身，槽位到顶。"
+            )
             return (
-                f"🔀 【一心二用】第 {level} 档生效！\n"
+                f"🪞 【身外化身】第 {owned} 尊显化！\n"
                 f"━━━━━━━━━━━━━━━\n"
-                f"{scope}\n"
-                "闭关 / 历练 / 秘境 / 押镖 / 宗门任务期间，这些指令不再被拦。\n"
-                "⛔ 「开始另一项耗时活动」与「飞升 / 弃道重修」始终不放行 —— "
-                "活动位只有一个，硬开会把当前进度弄丢。"
+                f"活动槽位：本体 + {owned} 尊化身 = 共 {slots} 个，"
+                f"可同时进行 {slots} 项活动。\n"
+                "每一尊都能独立跑一项耗时活动（历练 / 秘境 / 押镖 / 宗门任务 / 闭关），"
+                "杂务只要还有空闲分身就能做。\n"
+                f"{tail}"
             )
         total = owned * float(item["step"])
         unit = str(item.get("unit") or "")

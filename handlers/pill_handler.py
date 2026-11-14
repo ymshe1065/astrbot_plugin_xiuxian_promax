@@ -126,7 +126,7 @@ class PillHandler:
                     except (TypeError, ValueError):
                         uses = 0
                     if uses > 0:
-                        effects_display.append(f"{icon} {pill_name} (剩余 {uses} 次历练/秘境)")
+                        effects_display.append(f"{icon} {pill_name} (剩余 {uses} 次，历练·秘境)")
                     continue
                 remaining_seconds = _safe_int(effect.get("expiry_time", 0)) - int(time.time())
                 if remaining_seconds > 0:
@@ -364,7 +364,7 @@ class PillHandler:
         legacy_effect = pill_data.get('effect')
         if isinstance(legacy_effect, dict) and legacy_effect:
             labels = {
-                'add_hp': '气血/灵气', 'add_experience': '修为', 'add_max_hp': '上限',
+                'add_hp': '气血·灵气', 'add_experience': '修为', 'add_max_hp': '上限',
                 'add_spiritual_power': '法伤', 'add_mental_power': '精神力',
                 'add_attack': '物伤', 'add_defense': '物防', 'add_gold': '灵石',
                 'add_breakthrough_bonus': '突破成功率',

@@ -742,10 +742,14 @@ class RiftManager:
         if not player:
             return False, "❌ 你还未踏入修仙之路！"
         
-        # 2. 检查用户状态
-        user_cd = await self.db.ext.get_user_cd(user_id)
-        if user_cd and user_cd.type != UserStatus.IDLE:
-            return False, f"❌ 你当前正{UserStatus.get_name(user_cd.type)}，无法探索秘境！"
+        # 2. 检查用户状态：同一时间只能探索一处秘境，且必须有空闲分身
+        if await self.db.ext.get_active_cd(user_id, UserStatus.EXPLORING) is not None:
+            return False, "❌ 你已经在探索秘境了，先出来再进下一处。"
+        from ..core.avatar_rules import ensure_free_slot
+
+        ok_slot, slot_hint = await ensure_free_slot(self.db, player, user_id)
+        if not ok_slot:
+            return False, slot_hint
         
         # 3. 检查秘境
         rift = await self.db.ext.get_rift_by_id(rift_id)
@@ -815,9 +819,18 @@ class RiftManager:
             "earned_exp": 0,
             "earned_gold": 0,
         }
-        await self.db.ext.set_user_busy(
-            user_id, UserStatus.EXPLORING, scheduled_time, extra_data, commit=False
+        from ..core.avatar_rules import total_slots
+
+        started, _slot, why = await self.db.ext.start_activity(
+            user_id, UserStatus.EXPLORING, scheduled_time,
+            extra_data=extra_data, max_slots=total_slots(player), commit=False,
         )
+        if not started:
+            return False, (
+                "❌ 你已经在探索秘境了，先出来再进下一处。"
+                if why == "already_running"
+                else "❌ 分身都出去了，没人手再探一处秘境。"
+            )
         
         return True, (
             f"✨ 你进入了『{rift.display_name}』！探索需要 {max(1, duration // 60)} 分钟。\n"
@@ -914,8 +927,8 @@ class RiftManager:
         返回 {"ok", "reason", "messages": [...], "ticks": n, "final": {...}|None}
         """
         now = int(now if now is not None else time.time())
-        user_cd = await self.db.ext.get_user_cd(user_id)
-        if not user_cd or user_cd.type != UserStatus.EXPLORING:
+        user_cd = await self.db.ext.get_active_cd(user_id, UserStatus.EXPLORING)
+        if not user_cd:
             return {"ok": False, "reason": "idle", "messages": [], "ticks": 0, "final": None}
 
         extra = self._read_extra(user_cd)
@@ -1243,7 +1256,7 @@ class RiftManager:
         if not result.get("ok"):
             return False, "❌ 你当前不在探索秘境！", None
 
-        user_cd = await self.db.ext.get_user_cd(user_id)
+        user_cd = await self.db.ext.get_active_cd(user_id, UserStatus.EXPLORING)
         extra = self._read_extra(user_cd) if user_cd else {}
         rift_id = int(extra.get("rift_id", 0) or 0)
         rift = await self.db.ext.get_rift_by_id(rift_id) if rift_id else None
@@ -1267,8 +1280,8 @@ class RiftManager:
         if not player:
             return False, "❌ 你还未踏入修仙之路！"
 
-        user_cd = await self.db.ext.get_user_cd(user_id)
-        if not user_cd or user_cd.type != UserStatus.EXPLORING:
+        user_cd = await self.db.ext.get_active_cd(user_id, UserStatus.EXPLORING)
+        if not user_cd:
             return False, "❌ 你当前不在探索秘境！"
 
         result = await self.settle_due(user_id)
@@ -1276,7 +1289,7 @@ class RiftManager:
             # 刚好走到终点：按完成处理
             return True, result["final"]["message"]
 
-        user_cd = await self.db.ext.get_user_cd(user_id)
+        user_cd = await self.db.ext.get_active_cd(user_id, UserStatus.EXPLORING)
         extra = self._read_extra(user_cd) if user_cd else {}
         rift_id = int(extra.get("rift_id", 0) or 0)
         rift = await self.db.ext.get_rift_by_id(rift_id) if rift_id else None
@@ -1286,7 +1299,7 @@ class RiftManager:
         earned_exp = int(extra.get("earned_exp", 0) or 0)
         earned_gold = int(extra.get("earned_gold", 0) or 0)
 
-        await self.db.ext.set_user_free(user_id)
+        await self.db.ext.set_user_free(user_id, cd_type=UserStatus.EXPLORING)
         head = "\n\n".join(result.get("messages") or [])
         body = (
             f"🏳️ 你退出了「{rift_name}」\n"

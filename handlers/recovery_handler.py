@@ -39,20 +39,14 @@ class RecoveryHandler:
 
     @player_required
     async def handle_rest(self, player: Player, event: AstrMessageEvent):
-        cd = await self.db.ext.get_user_cd(player.user_id)
-        if not cd:
-            await self.db.ext.create_user_cd(player.user_id)
-            cd = await self.db.ext.get_user_cd(player.user_id)
-        if int(cd.type) == int(UserStatus.RESTING):
+        rest_cd = await self.db.ext.get_active_cd(player.user_id, UserStatus.RESTING)
+        if rest_cd is not None:
             rate_text = await self._rest_rate_text(player)
             yield event.plain_result(
                 "🧘 你正在调息中。\n"
                 f"{rate_text}\n"
                 "💡 发送 /收功 可以结束调息；气血和灵气满时会自动结束。"
             )
-            return
-        if int(cd.type) != int(UserStatus.IDLE):
-            yield event.plain_result("❌ 你当前正忙，无法开始调息。")
             return
 
         from ..managers.combat_manager import CombatManager
@@ -63,13 +57,20 @@ class RecoveryHandler:
             yield event.plain_result("✅ 你的气血和灵气已满，无需调息。")
             return
 
+        from ..core.avatar_rules import total_slots
+
         now = int(time.time())
-        extra = self._extra(cd)
-        extra["resting_since"] = now
-        extra["rest_last_tick"] = now
-        await self.db.ext.set_user_busy(
-            player.user_id, UserStatus.RESTING, 0, extra_data=extra
+        started, _slot, why = await self.db.ext.start_activity(
+            player.user_id, UserStatus.RESTING, 0,
+            extra_data={"resting_since": now, "rest_last_tick": now},
+            max_slots=total_slots(player),
         )
+        if not started:
+            yield event.plain_result(
+                "❌ 你已经在调息了。" if why == "already_running"
+                else "❌ 分身都出去了，没人手替你调息。"
+            )
+            return
         player.state = "调息中"
         await self.db.update_player(player)
         rate_text = await self._rest_rate_text(player)
@@ -83,16 +84,11 @@ class RecoveryHandler:
 
     @player_required
     async def handle_stop_rest(self, player: Player, event: AstrMessageEvent):
-        cd = await self.db.ext.get_user_cd(player.user_id)
-        if not cd or int(cd.type) != int(UserStatus.RESTING):
+        cd = await self.db.ext.get_active_cd(player.user_id, UserStatus.RESTING)
+        if not cd:
             yield event.plain_result("❌ 你当前没有在调息。")
             return
-        extra = self._extra(cd)
-        extra.pop("resting_since", None)
-        extra.pop("rest_last_tick", None)
-        await self.db.ext.set_user_busy(
-            player.user_id, UserStatus.IDLE, 0, extra_data=extra
-        )
+        await self.db.ext.set_user_free(player.user_id, cd_type=UserStatus.RESTING)
         player.state = "空闲"
         await self.db.update_player(player)
         yield event.plain_result("✅ 调息结束。")

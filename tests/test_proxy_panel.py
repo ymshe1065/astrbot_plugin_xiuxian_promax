@@ -18,6 +18,8 @@ PKG = ROOT.name
 
 from importlib import import_module  # noqa: E402
 
+from tests._cd_stub import SlotCdStubMixin  # noqa: E402
+
 proxy_panel = import_module(f"{PKG}.webchat_room.proxy_panel")
 
 
@@ -101,7 +103,7 @@ class _FakeManager:
         return True, "🛑 秘境代理已关闭。"
 
 
-class _Ext:
+class _Ext(SlotCdStubMixin):
     def __init__(self, rifts):
         self.rifts = rifts
 

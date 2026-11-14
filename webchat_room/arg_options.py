@@ -1259,7 +1259,12 @@ async def _src_farm_slots(plugin: "XiuXianPlugin", player: Any, field: dict, val
 
 async def _src_fate_shop(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
     """仙缘商店目录：直接读 core.reincarnation_rules.SHOP_ITEMS，避免前端与后端两套价目。"""
-    from ..core.reincarnation_rules import SHOP_ITEMS, item_owned, parse_bonus
+    from ..core.reincarnation_rules import (
+        SHOP_ITEMS,
+        item_owned,
+        parse_bonus,
+        shop_price,
+    )
 
     points = _int(getattr(player, "fate_points", 0)) if player else 0
     bonus = parse_bonus(player) if player else {}
@@ -1267,12 +1272,13 @@ async def _src_fate_shop(plugin: "XiuXianPlugin", player: Any, field: dict, valu
     for item_id, item in sorted(SHOP_ITEMS.items()):
         owned = item_owned(bonus, item_id)
         cap = int(item.get("cap") or 0)
-        desc = f"[{item.get('group', '')}] {item['cost']} 点 · {item['unit']}"
+        price = shop_price(item_id, owned)
+        desc = f"[{item.get('group', '')}] {price or '已满'} 点 · {item['unit']}"
         if cap:
             desc += f" · 已购 {owned}/{cap}"
         elif owned:
             desc += f" · 已购 {owned}"
-        if points < int(item["cost"]):
+        if price and points < price:
             desc += " · 点数不足"
         options.append(_opt(item["name"], item_id, desc, "仙缘商店"))
     return options, f"当前仙缘点：{points}"

@@ -102,11 +102,12 @@ class DualCultivationManager:
         except Exception:
             pass
         
-        # 检查发起者状态（状态互斥）
-        user_cd = await self.db.ext.get_user_cd(initiator.user_id)
-        if user_cd and user_cd.type != UserStatus.IDLE:
-            current_status = UserStatus.get_name(user_cd.type)
-            return False, f"❌ 你当前正{current_status}，无法发起双修！"
+        # 检查发起者状态：双修不占活动槽位，但总得有个空闲分身
+        from ..core.avatar_rules import ensure_free_slot
+
+        ok_slot, slot_hint = await ensure_free_slot(self.db, initiator, initiator.user_id)
+        if not ok_slot:
+            return False, slot_hint
         
         # 检查目标是否存在
         target = await self.db.get_player_by_id(target_id)
@@ -119,9 +120,9 @@ class DualCultivationManager:
             return False, f"❌ 双方修为差距过大（最大{DUAL_CULT_MAX_EXP_RATIO}倍），无法双修。"
         
         # 检查目标状态
-        target_cd = await self.db.ext.get_user_cd(target_id)
-        if target_cd and target_cd.type != UserStatus.IDLE:
-            return False, "❌ 对方正忙，无法接受双修请求。"
+        ok_slot, _ = await ensure_free_slot(self.db, target, target_id)
+        if not ok_slot:
+            return False, "❌ 对方分身都出去了，无法接受双修请求。"
         
         # 检查发起者冷却
         last_dual = await self._get_last_dual_time(initiator.user_id)
@@ -182,11 +183,11 @@ class DualCultivationManager:
             return False, "❌ 双修请求已过期。"
 
         # 再次检查双方忙碌状态（请求期间可能已开始闭关/押镖/历练）
-        for uid, label in ((initiator.user_id, "对方"), (acceptor.user_id, "你")):
-            cd = await self.db.ext.get_user_cd(uid)
-            if cd and cd.type != UserStatus.IDLE:
+        for who, uid, label in ((initiator, initiator.user_id, "对方"), (acceptor, acceptor.user_id, "你")):
+            ok_slot, _ = await ensure_free_slot(self.db, who, uid)
+            if not ok_slot:
                 await self._delete_request(request["id"])
-                return False, f"❌ {label}当前正{UserStatus.get_name(cd.type)}，本次双修取消。"
+                return False, f"❌ {label}分身都出去了，本次双修取消。"
 
         # 再次检查修为差距
         exp_ratio = max(initiator.experience, acceptor.experience) / max(min(initiator.experience, acceptor.experience), 1)

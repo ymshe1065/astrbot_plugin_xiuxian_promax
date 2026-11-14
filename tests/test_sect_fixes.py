@@ -70,7 +70,7 @@ class TestSectFixes(unittest.IsolatedAsyncioTestCase):
         await self.db.ext.set_user_busy("u1", self.UserStatus.CULTIVATING, 0)
         ok, msg = await self.mgr.perform_sect_task("u1")
         self.assertFalse(ok)
-        self.assertIn("无法执行宗门任务", msg)
+        self.assertIn("分身都出去了", msg)
         cd = await self.db.ext.get_user_cd("u1")
         self.assertEqual(cd.type, self.UserStatus.CULTIVATING)
 
