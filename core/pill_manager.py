@@ -1326,6 +1326,10 @@ class PillManager:
                 "cmd": f"/服用丹药 {base_name} {quality}",
                 "source": "pill",
                 "action": "服用",
+                # 点格子即服用（前端据此把单击从「开详情」改成「直接吞一颗」）。
+                # 丹药是消耗品，玩家在背包里点它的意图九成是吃掉；
+                # 想看效果走 ⋯ 菜单 / 长按，不必每次都过一遍抽屉。
+                "quick": "服用",
                 "unit": "颗",
                 "max": count,
                 "quality": quality,

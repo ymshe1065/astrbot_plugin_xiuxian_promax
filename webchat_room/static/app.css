@@ -2714,6 +2714,18 @@ button.chan-main { cursor: pointer; }
 }
 .gcell:hover .more, .gcell:focus-within .more { opacity: 1; }
 .gcell .more:hover { background: rgba(var(--jade-rgb), .14); color: var(--jade); }
+/* 快捷格（丹药）：单击直接服用，左上角挂个「服」小标，别让玩家当普通格子点 */
+/* 快捷格（丹药）：单击直接服用。标在左下角——左上角会被两行的长名字（《固基丹·后》）压住 */
+.gcell.quick::after {
+  content: "服"; position: absolute; left: 4px; bottom: 3px;
+  width: 14px; height: 14px; line-height: 14px; text-align: center;
+  font-size: 10px; border-radius: 4px;
+  color: var(--jade); background: rgba(var(--jade-rgb), .16);
+  opacity: .95; pointer-events: none;
+}
+/* 吃完的格子留在原位但淡下去：玩家还要看得见「这个成色已经没了」 */
+.gcell.used { opacity: .5; }
+.gcell.used:hover { transform: none; box-shadow: none; }
 
 /* 「全部」模式的档位小标题 */
 .eg-sec {

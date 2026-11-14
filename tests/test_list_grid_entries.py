@@ -67,6 +67,15 @@ class TestPillBagEntries(unittest.TestCase):
         self.assertEqual(e["max"], 1)
         self.assertEqual(e["held"], 1)
 
+    def test_entries_are_quick_use(self):
+        """丹药格子必须声明 quick：前端据此把单击从「开详情」改成「直接吞一颗」。
+
+        少了这个字段，点格子弹的是详情抽屉，玩家要「点开 → 找服用 → 再点」三步，
+        卡片上「点格子直接服用」就成了空话。
+        """
+        entries, _ = self._entries({"筑基丹|一般": 3})
+        self.assertEqual(entries[0]["quick"], "服用")
+
     def test_rank_and_effect_from_config(self):
         entries, _ = self._entries({"筑基丹|一般": 1})
         e = entries[0]
@@ -93,6 +102,48 @@ class TestPillBagEntries(unittest.TestCase):
     def test_empty_inventory(self):
         entries, _ = self._entries({})
         self.assertEqual(entries, [])
+
+
+class TestPillBagQuickUse(unittest.TestCase):
+    """点格子就直接吞一颗：前端那条快捷分支的守卫。
+
+    真实页面上「点格子 → 弹详情 → 再点服用」是三步，玩家在背包里十次有九次
+    只是想吃掉，所以 pill 条目声明 quick，单击直接发 /服用丹药。
+    详情保留两条入口：⋯ 菜单（PC）/ 长按（触屏）。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.js = (ROOT / "webchat_room/static/app.js").read_text(encoding="utf-8")
+        cls.css = (ROOT / "webchat_room/static/app.css").read_text(encoding="utf-8")
+
+    def test_cell_has_quick_branch(self):
+        self.assertIn("entry.quick && entry.state !== \"lock\"", self.js)
+        self.assertIn("function quickRun(entry, cell)", self.js)
+        # 非快捷格必须还是开详情，别把商店/称号的单击也改成「执行」
+        self.assertIn("if (!quick) {\n        openDetail();", self.js)
+
+    def test_quick_use_sends_cmd_not_detail(self):
+        body = self.js[self.js.index("function quickRun"):]
+        body = body[: body.index("\n  }")]
+        self.assertIn("dispatchCommand(entry.cmd || entryPrimaryCommand(entry, \"1\"))", body)
+
+    def test_long_press_opens_detail(self):
+        """长按 550ms 开详情；长按之后那次 click 不能再吞一颗。"""
+        self.assertIn("setTimeout(() => {", self.js)
+        self.assertIn("}, 550);", self.js)
+        self.assertIn("if (longPressed) {", self.js)
+
+    def test_optimistic_decrement(self):
+        """背包卡片不会因为吃药自动重刷，本地至少要扣掉已吃掉的那颗。"""
+        body = self.js[self.js.index("function quickRun"):]
+        body = body[: body.index("\n  }")]
+        self.assertIn("entry.held = Math.max(0, held - 1)", body)
+        self.assertIn("已用完", body)
+
+    def test_styles_for_quick_and_used(self):
+        self.assertIn(".gcell.quick::after", self.css)
+        self.assertIn(".gcell.used", self.css)
 
 
 class TestSectShopEntries(unittest.TestCase):

@@ -3774,6 +3774,27 @@
     mountCtxMenu(menu, anchor, ev);
   }
 
+  /**
+   * 格子上的一步操作（目前只有丹药服用）：点一下就发指令，不再过详情抽屉。
+   * 本地先扣 1 颗——服务端下一次 /丹药背包 才是准数，但背包卡片不会因为吃药
+   * 自动重刷，不扣的话连点会一直对着空瓶点。
+   */
+  function quickRun(entry, cell) {
+    dispatchCommand(entry.cmd || entryPrimaryCommand(entry, "1"));
+    const held = Number(entry.held);
+    if (!Number.isFinite(held)) return;
+    entry.held = Math.max(0, held - 1);
+    if (entry.max !== null && entry.max !== undefined) entry.max = entry.held;
+    const gc = cell.querySelector(".gc");
+    if (gc) gc.textContent = entry.held > 0 ? `×${entry.held}` : "已用完";
+    if (!entry.held) {
+      entry.state = "lock";
+      cell.classList.add("used");
+      const dot = cell.querySelector(".st");
+      if (dot) dot.className = "st lock";
+    }
+  }
+
   /** 一格：品阶色条 + 名称 / 关键数字 / 数值 + 状态点 */
   function entryCell(entry, scene) {
     const cell = document.createElement("div");
@@ -3793,16 +3814,54 @@
       (entry.state ? `<span class="st ${state}"></span>` : "") +
       // 触屏没有 hover，⋯ 既不像「可悬停」暗示、又跟「点开详情」抢热区，干脆不生成
       (HAS_HOVER ? `<button type="button" class="more" aria-label="更多操作">⋯</button>` : "");
-    cell.title = [entry.name, entry.rank, entry.kind, entry.effect].filter(Boolean).join(" · ");
-    const open = () => openEntryDetail(entry, { scene });
+    // 快捷格：单击直接执行（丹药 => 吞一颗），详情改走 ⋯ 菜单 / 长按
+    const quick = !!(entry.quick && entry.state !== "lock");
+    if (quick) cell.classList.add("quick");
+    cell.title = [entry.name, entry.rank, entry.kind, entry.effect].filter(Boolean).join(" · ") +
+      (quick ? `（点击直接${entry.quick}，长按看详情）` : "");
+    const openDetail = () => openEntryDetail(entry, { scene });
+    let longPressed = false;
+    let pressTimer = 0;
+    if (quick) {
+      cell.addEventListener("pointerdown", () => {
+        longPressed = false;
+        pressTimer = setTimeout(() => {
+          pressTimer = 0;
+          longPressed = true;
+          hideItemTip();
+          openDetail();
+        }, 550);
+      });
+      ["pointerup", "pointerleave", "pointercancel"].forEach((ev) =>
+        cell.addEventListener(ev, () => {
+          clearTimeout(pressTimer);
+          pressTimer = 0;
+        })
+      );
+      // 长按已经开了详情，别让随后的 click 再吞一颗
+      cell.addEventListener("contextmenu", (e) => e.preventDefault());
+    }
+    const activate = () => {
+      if (!quick) {
+        openDetail();
+        return;
+      }
+      if (longPressed) {
+        longPressed = false;
+        return;
+      }
+      quickRun(entry, cell);
+    };
     cell.addEventListener("click", (e) => {
       if (e.target.closest(".more")) return;
-      open();
+      activate();
     });
     cell.addEventListener("keydown", (e) => {
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
-        open();
+        // 键盘党同样要能看详情：Shift+Enter 绕过快捷操作
+        if (quick && e.shiftKey) openDetail();
+        else activate();
       }
     });
     const moreBtn = cell.querySelector(".more");

@@ -99,6 +99,7 @@ async def run(section, no_browser):
     # H.wire 里的 ShopHandler 只是局部变量（六条命令都走别处），
     # /丹阁 需要它挂在插件上，否则 main.py 的 handle_pill_pavilion 找不到 self.shop_handler。
     plug.shop_handler = R._imp("handlers.shop_handler").ShopHandler(db, plug.config, R.CM)
+    plug.pill_handler = R._imp("handlers.pill_handler").PillHandler(db, R.CM)
     print(f"[{cmd}] 玩家 {H.PLAYER_ID} 已建；已注册命令 {len(H.ROUTES)} 条", flush=True)
 
     router = ArgRouter(plug)
@@ -149,6 +150,30 @@ async def run(section, no_browser):
             print("  详情抽屉:", detail, flush=True)
             await c.shot(str(R.OUT / f"recipe_{tag}_详情.png"))
 
+            # 点完这一格后页面里的「已发指令」与格子计数
+            print("  最后一条我的消息:", await c.js(
+                "(()=>{const rows=[...document.querySelectorAll('.msg-row.right')];"
+                "const last=rows[rows.length-1];return last?last.innerText.replace(/\\n+/g,' '):'-'})()"),
+                flush=True)
+            print("  第一格计数:", await c.js(
+                "(()=>{const e=[...document.querySelectorAll('.gcell')].find(x=>x.offsetParent!==null);"
+                "if(!e)return '-';const v=e.querySelector('.gc');"
+                "return (v?v.textContent:'-')+' / '+(e.classList.contains('used')?'已用完':'在')})()"),
+                flush=True)
+
+            # 长按 600ms 应该开详情（快捷格的第二条入口）
+            print("  长按派发:", await c.js(
+                "(()=>{const e=[...document.querySelectorAll('.gcell')].find(x=>x.offsetParent!==null);"
+                "if(!e)return 'no-cell';"
+                "e.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerType:'touch'}));"
+                "return 'pointerdown'})()"), flush=True)
+            await asyncio.sleep(0.9)
+            print("  长按后详情:", (await c.js(DETAIL_JS) or "-")[:90], flush=True)
+            print("  页面错误:", await c.js("JSON.stringify(window.__errs||[])"))
+            await c.js("(()=>{const e=[...document.querySelectorAll('.gcell')].find(x=>x.offsetParent!==null);"
+                       "if(e)e.dispatchEvent(new PointerEvent('pointerup',{bubbles:true}));"
+                       "const d=document.querySelector('.ed-drawer.on .ed-close');if(d)d.click()})()")
+
             # 详情里的下单按钮文案就是即将发出去的命令（entry.action + 数量）
             print("  下单按钮:", await c.js(
                 "(()=>{const b=document.querySelector('.ed-drawer.on .ed-foot .primary');"
@@ -157,6 +182,21 @@ async def run(section, no_browser):
                 "(()=>{const d=document.querySelector('.ed-drawer.on');"
                 "return d?JSON.stringify([...d.querySelectorAll('.ed-sec h4')].map(x=>x.textContent)):'-'})()"),
                 flush=True)
+
+            # 点主按钮：这一步会走 dispatchCommand → WS 发送 → 服务端真执行。
+            # 只要按钮文案是「查看」而不是「服用」，或者点完输入框里没出现指令，
+            # 就说明「格子里点不出服用」。
+            before = await c.js("document.querySelectorAll('.msg-row').length")
+            await c.js("(()=>{const b=document.querySelector('.ed-drawer.on .ed-foot .primary');"
+                       "if(b)b.click()})()")
+            await asyncio.sleep(1.6)
+            sent = await c.js(
+                "(()=>{const rows=[...document.querySelectorAll('.msg-row.right')];"
+                "const last=rows[rows.length-1];return last?last.innerText.trim():'-'})()")
+            print("  点按钮后发出:", sent, flush=True)
+            print("  消息数:", before, "->",
+                  await c.js("document.querySelectorAll('.msg-row').length"), flush=True)
+            await c.shot(str(R.OUT / f"recipe_{tag}_服用.png"))
     finally:
         proc.terminate()
         await room_server.stop()
