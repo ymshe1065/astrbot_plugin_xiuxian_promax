@@ -45,9 +45,17 @@ async def _chain_to_payload(message: MessageChain | CoreMessageChain | None) -> 
         elif isinstance(comp, Image):
             card = load_card_for_image(getattr(comp, "path", None))
             if card is not None:
-                # 卡片本质是数据：发结构化字段，附带原图地址供「查看原图」
+                # 卡片本质是数据：发结构化字段，附带原图地址供「查看原图」。
+                # 网页端不出位图（只写 sidecar），此时路径指向一个不存在的 jpg，
+                # 不能把地址给前端，否则「查看原图」是个 404 按钮。
                 name = Path(comp.path).name if comp.path else ""
-                card["image"] = f"/cards/{name}" if name else ""
+                has_image = False
+                if name:
+                    try:
+                        has_image = Path(comp.path).is_file()
+                    except OSError:
+                        has_image = False
+                card["image"] = f"/cards/{name}" if has_image else ""
                 result["cards"].append(card)
                 continue
             try:

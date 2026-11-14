@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import uuid
 import tempfile
+from contextvars import ContextVar
 from io import BytesIO
 from pathlib import Path
 from typing import Optional, Dict, List, Tuple
@@ -55,6 +55,120 @@ def _resolve_card_dir() -> Path:
 
 
 CARD_TEMP_DIR = _resolve_card_dir()
+
+# ===== 位图开关（按事件上下文）=====
+# 网页端只吃 sidecar：命中结构化卡片时位图会被直接丢弃（webroom_event 里 continue），
+# 但生成流程仍是「先画完 1~2 秒的位图，再写 JSON，才推送」。丹方 18 条实测：
+# 位图 1428 ms / sidecar 写入 2 ms —— 网页端一直在等一张自己不会显示的图。
+# 这里用 ContextVar 标记「本次事件来自网页」，render_card 只写 sidecar，不碰 Pillow。
+# 默认 True：定时播报、后台任务、QQ 端都照常出图。
+_RENDER_BITMAP: "ContextVar[bool]" = ContextVar("xiuxian_render_bitmap", default=True)
+
+
+def set_render_bitmap(enabled: bool):
+    """在事件处理前后成对调用：token = set_render_bitmap(False) ... reset_render_bitmap(token)。"""
+    return _RENDER_BITMAP.set(bool(enabled))
+
+
+def reset_render_bitmap(token) -> None:
+    try:
+        _RENDER_BITMAP.reset(token)
+    except (ValueError, LookupError):
+        # 跨 task/线程 reset 会报错，宁可不还原也不要让指令失败
+        pass
+
+
+def render_bitmap_enabled() -> bool:
+    return bool(_RENDER_BITMAP.get())
+
+
+def is_webroom_platform(event) -> bool:
+    """本次指令是否来自网页聊天室。
+
+    网页端拿到卡片时只看 sidecar（结构化 JSON），位图会被直接丢弃，
+    所以这里标记一下，让 render_card 别再画那张没人看的图。
+    """
+    try:
+        name = event.get_platform_name() or ""
+    except Exception:
+        name = ""
+    if name:
+        return str(name) == "webroom"
+    # 取不到平台名时（旧版核心 / 测试桩）按事件类型兜底
+    return event.__class__.__name__ == "WebroomMessageEvent"
+
+
+def _section_payload(sec: Dict) -> Dict:
+    """单个分区的 sidecar 结构。rows/lines 供 Pillow，entries 供网页原生渲染。"""
+    section = {
+        "name": sec.get("name", ""),
+        # 视图类型：空=默认（行/条目/文本），grid=网页端按格子铺开
+        "view": str(sec.get("view") or ""),
+        "rows": [[str(lbl), str(val)] for lbl, val in sec.get("rows", [])],
+        "lines": [str(x) for x in sec.get("lines", [])],
+        # 结构化条目（储物戒等）：rows 仍供 Pillow 绘制，entries 供网页原生渲染
+        # 注意不能叫 items——分区级 items 是「文本提升成条目」的另一套结构
+        "entries": [
+            {
+                str(k): (v if isinstance(v, (str, int, float, bool, list)) else str(v))
+                for k, v in it.items()
+            }
+            for it in (sec.get("entries") or [])
+            if isinstance(it, dict)
+        ],
+    }
+    # 筛选维度声明：grid 分区的筛选条由后端指定（类别/品质/分组/收集…），
+    # 前端不再按 source 猜。只在声明了才写，老卡片保持原样（少一个字段）。
+    facet = sec.get("facet")
+    if isinstance(facet, dict) and facet:
+        section["facet"] = {str(k): v for k, v in facet.items()}
+    return section
+
+
+def _build_card_payload(card_id: str, bg_name: str, title: str, subtitle: str,
+                        sections: List[Dict], footer: str,
+                        web_sections: Optional[List[Dict]] = None,
+                        payload_extra: Optional[Dict] = None) -> Dict:
+    """sidecar 内容。位图与网页共用同一份构造，避免两边字段漂移。"""
+    payload = {
+        "id": card_id,
+        "bg": bg_name,
+        "title": title,
+        "subtitle": subtitle,
+        "sections": [
+            _section_payload(sec)
+            for sec in (sections if web_sections is None else web_sections)
+        ],
+        "footer": footer,
+    }
+    if payload_extra:
+        payload.update(payload_extra)
+    return payload
+
+
+def _cleanup_cards(keep: int = 40) -> None:
+    """只留最近 keep 张卡（jpg 与孤立的 sidecar 一起清）。
+
+    网页端不再产图后，目录里会多出「有 json 没 jpg」的卡片，
+    只按 *.jpg 清理的话这些 json 永远留着。
+    """
+    try:
+        stems: Dict[str, float] = {}
+        for path in CARD_TEMP_DIR.glob("card_*"):
+            if path.suffix.lower() not in (".jpg", ".jpeg", ".png", ".json"):
+                continue
+            try:
+                mtime = path.stat().st_mtime
+            except OSError:
+                continue
+            stems[path.stem] = max(stems.get(path.stem, 0.0), mtime)
+        stale = sorted(stems.items(), key=lambda kv: kv[1])[:-keep]
+        for stem, _ in stale:
+            for suffix in (".jpg", ".jpeg", ".png", ".json"):
+                (CARD_TEMP_DIR / f"{stem}{suffix}").unlink(missing_ok=True)
+    except Exception:
+        pass
+
 
 # emoji 渲染：需要 109px 的 OpenMoji 无所谓，但 Noto 需要固定尺寸；OpenMoji 自由
 EMOJI_RENDER_SIZE = 96  # emoji 高清渲染基准，之后缩放
@@ -369,7 +483,28 @@ def render_card(
 
     web_sections 用来替代「同两份数据」：位图仍按 sections 排版（如百宝阁按品阶
     分区的长图），网页端拿 web_sections（整片网格）渲染。不传时两边共用 sections。
+
+    网页端（set_render_bitmap(False)）只写 sidecar：返回的路径后缀仍是 .jpg，
+    但文件不存在——它只是给前端拼接卡片 id 用的，网页端据此读同名 .json。
     """
+    sections = sections or []
+
+    if not render_bitmap_enabled():
+        # 只写结构化数据：不加载背景、不碰 Pillow，几十毫秒级
+        try:
+            CARD_TEMP_DIR.mkdir(parents=True, exist_ok=True)
+            out_path = CARD_TEMP_DIR / f"card_{uuid.uuid4().hex[:12]}.jpg"
+            payload = _build_card_payload(out_path.stem, bg_name, title, subtitle,
+                                          sections, footer, web_sections, payload_extra)
+            out_path.with_suffix(".json").write_text(
+                json.dumps(payload, ensure_ascii=False), encoding="utf-8"
+            )
+            _cleanup_cards()
+            return str(out_path)
+        except Exception as e:
+            logger.error(f"写入卡片 sidecar 失败: {e}")
+            return None
+
     if not HAS_PIL:
         return None
 
@@ -378,8 +513,6 @@ def render_card(
         bg_path = BG_DIR / "default.jpg"
     if not bg_path.exists():
         return None
-
-    sections = sections or []
 
     try:
         f_title = _load_font(56, "heavy")     # 大标题：最重
@@ -544,47 +677,14 @@ def render_card(
         canvas.convert("RGB").save(str(out_path), format="JPEG", quality=92)
         # 结构化 sidecar：网页端读同名字段直接原生渲染，不必再看位图
         try:
-            payload = {
-                "id": out_path.stem,
-                "bg": bg_name,
-                "title": title,
-                "subtitle": subtitle,
-                "sections": [
-                    {
-                        "name": sec.get("name", ""),
-                        # 视图类型：空=默认（行/条目/文本），grid=网页端按格子铺开
-                        "view": str(sec.get("view") or ""),
-                        "rows": [[str(lbl), str(val)] for lbl, val in sec.get("rows", [])],
-                        "lines": [str(x) for x in sec.get("lines", [])],
-                        # 结构化条目（储物戒等）：rows 仍供 Pillow 绘制，entries 供网页原生渲染
-                        # 注意不能叫 items——分区级 items 是「文本提升成条目」的另一套结构
-                        "entries": [
-                            {
-                                str(k): (v if isinstance(v, (str, int, float, bool, list)) else str(v))
-                                for k, v in it.items()
-                            }
-                            for it in (sec.get("entries") or [])
-                            if isinstance(it, dict)
-                        ],
-                    }
-                    for sec in (sections if web_sections is None else web_sections)
-                ],
-                "footer": footer,
-            }
-            if payload_extra:
-                payload.update(payload_extra)
+            payload = _build_card_payload(out_path.stem, bg_name, title, subtitle,
+                                          sections, footer, web_sections, payload_extra)
             out_path.with_suffix(".json").write_text(
                 json.dumps(payload, ensure_ascii=False), encoding="utf-8"
             )
         except Exception:
             pass
-        try:
-            cards = sorted(CARD_TEMP_DIR.glob("card_*.jpg"), key=os.path.getmtime)
-            for old in cards[:-40]:
-                old.unlink(missing_ok=True)
-                old.with_suffix(".json").unlink(missing_ok=True)
-        except Exception:
-            pass
+        _cleanup_cards()
         return str(out_path)
     except Exception as e:
         logger.error(f"渲染卡片失败: {e}")
@@ -600,6 +700,28 @@ async def render_card_async(bg_name: str, title: str, subtitle: str = "",
     import asyncio
     return await asyncio.to_thread(
         render_card, bg_name, title, subtitle, sections, footer, width, payload_extra, web_sections
+    )
+
+
+# ===== 只给网页端用的结构化卡片 =====
+# 丹药背包、宗门商店、仙缘商店这类原本直接 yield plain_result 的长清单，在 QQ 端
+# 保持原样（一个字都不动），只在网页端换成可点的网格。判据就是位图开关：它只在
+# webroom 事件期间为 False（见 main.require_whitelist），因此这里天然不串端。
+def render_web_card(bg_name: str, title: str, subtitle: str = "",
+                    sections: Optional[List[Dict]] = None, footer: str = "",
+                    payload_extra: Optional[Dict] = None) -> Optional[str]:
+    """只在网页端产出结构化卡片；其它平台返回 None，调用方照旧发纯文本。"""
+    if render_bitmap_enabled():
+        return None
+    return render_card(bg_name, title, subtitle, [], footer, 1000, payload_extra, sections or [])
+
+
+async def render_web_card_async(bg_name: str, title: str, subtitle: str = "",
+                                sections: Optional[List[Dict]] = None, footer: str = "",
+                                payload_extra: Optional[Dict] = None) -> Optional[str]:
+    import asyncio
+    return await asyncio.to_thread(
+        render_web_card, bg_name, title, subtitle, sections, footer, payload_extra
     )
 
 

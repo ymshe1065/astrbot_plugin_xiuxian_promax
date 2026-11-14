@@ -26,6 +26,28 @@ class GambleHandlers:
 
     async def handle_market(self, event: AstrMessageEvent):
         success, msg = self.gamble_mgr.get_black_market()
+        # 网页端：换成网格后「一件商品一格」，不必在十几行文本里找编号
+        try:
+            from ..utils.image_generator import render_web_card_async
+            entries = self.gamble_mgr.build_black_market_entries()
+            if entries:
+                card = await render_web_card_async(
+                    "shop",
+                    "🕶️ 黑市",
+                    f"{len(entries)} 件在售 · 每小时刷新",
+                    [{
+                        "name": "在售",
+                        "view": "grid",
+                        "entries": entries,
+                        "facet": {"label": "", "okLabel": "在售"},
+                    }],
+                    "点格子购买 · /黑市购买 <编号> · 真假自负",
+                )
+                if card:
+                    yield event.image_result(card)
+                    return
+        except Exception:
+            pass
         yield event.plain_result(msg)
 
     @player_required

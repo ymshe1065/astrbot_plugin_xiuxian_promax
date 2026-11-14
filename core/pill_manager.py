@@ -1209,6 +1209,132 @@ class PillManager:
         lines.append("-" * 20)
         return "\n".join(lines)
 
+    def _effect_brief(self, pill_data: dict) -> str:
+        """一句话讲清「这颗丹有什么用」，给背包格子与详情抽屉用。
+
+        与 ``handlers.pill_handler._get_effect_description`` 的口径一致，但压成
+        单行：格子里只有一行位置，多行会被截断成看不懂的半句。
+        """
+        if not isinstance(pill_data, dict) or not pill_data:
+            return ""
+        legacy = pill_data.get("effect")
+        if isinstance(legacy, dict) and legacy:
+            labels = {
+                "add_hp": "气血", "add_experience": "修为", "add_max_hp": "气血上限",
+                "add_spiritual_power": "法伤", "add_mental_power": "精神力",
+                "add_attack": "物伤", "add_defense": "物防", "add_gold": "灵石",
+            }
+            parts = []
+            for key, label in labels.items():
+                value = legacy.get(key)
+                if value:
+                    parts.append(f"{label}+{value}")
+            bonus = legacy.get("add_breakthrough_bonus")
+            if bonus:
+                parts.append(f"突破率+{float(bonus):.0%}")
+            if parts:
+                return "、".join(parts)
+            return str(pill_data.get("description") or "特殊效果")
+
+        subtype = str(pill_data.get("subtype") or "")
+        effect_type = str(pill_data.get("effect_type") or "")
+        if subtype == "exp" and pill_data.get("exp_gain"):
+            return f"修为+{int(pill_data['exp_gain']):,}"
+        if subtype == "resurrection":
+            return "抵消一次突破失败的境界跌落"
+        if subtype == "breakthrough" and pill_data.get("breakthrough_bonus"):
+            return f"突破成功率+{float(pill_data['breakthrough_bonus']):.0%}"
+        if effect_type == "temporary":
+            parts = []
+            duration = _safe_int(pill_data.get("duration_minutes", 0))
+            if duration:
+                parts.append(f"{duration}分钟")
+            mult = pill_data.get("cultivation_multiplier")
+            if mult:
+                parts.append(f"修炼速度×{float(mult):.2f}")
+            for key, label in (
+                ("physical_damage_multiplier", "物伤"),
+                ("magic_damage_multiplier", "法伤"),
+                ("physical_defense_multiplier", "物防"),
+                ("magic_defense_multiplier", "法防"),
+            ):
+                if pill_data.get(key):
+                    parts.append(f"{label}×{float(pill_data[key]):.2f}")
+            return "、".join(parts)
+        if effect_type == "permanent":
+            parts = []
+            for key, label in (
+                ("physical_damage_gain", "物伤"), ("magic_damage_gain", "法伤"),
+                ("physical_defense_gain", "物防"), ("magic_defense_gain", "法防"),
+                ("mental_power_gain", "精神力"), ("lifespan_gain", "寿命"),
+            ):
+                if pill_data.get(key):
+                    parts.append(f"{label}+{int(pill_data[key])}")
+            return "、".join(parts) or "永久属性"
+        if effect_type == "instant":
+            restore = pill_data.get("spiritual_qi_restore")
+            if restore == -1:
+                return "瞬间回满灵气"
+            if restore:
+                return f"灵气+{int(restore)}"
+        return str(pill_data.get("description") or "")
+
+    def build_pill_bag_entries(self, player: Player) -> List[Dict]:
+        """丹药背包的网格条目：一味丹 × 一个品质 = 一格。
+
+        按品质拆格是刻意的：品质决定效果倍率（1.0/1.15/1.35/1.6），
+        合并成一格既说不清「吃的这 3 颗是什么成色」，也没法直接点服用。
+        """
+        inventory = player.get_pills_inventory()
+        if not isinstance(inventory, dict):
+            return []
+        entries: List[Dict] = []
+        for pill_key, raw_count in inventory.items():
+            try:
+                count = int(raw_count)
+            except (TypeError, ValueError):
+                count = 0
+            if count <= 0:
+                continue
+            base_name, quality = self.split_pill_key(str(pill_key))
+            quality = quality or self.DEFAULT_QUALITY
+            pill_data = self.get_pill_by_name(base_name) or {}
+            effect = self._effect_brief(pill_data)
+            notes = []
+            multiplier = self.get_quality_multiplier(quality)
+            if multiplier and abs(multiplier - 1.0) > 1e-6:
+                notes.append(f"品质倍率 ×{multiplier:.2f}")
+            required = pill_data.get("required_level_index")
+            if required:
+                notes.append(f"适用境界 {int(required)} 重及以上")
+            description = str(pill_data.get("description") or "")
+            if description and description != effect:
+                notes.append(description)
+            entries.append({
+                "name": base_name,
+                "kind": quality,
+                # 品质既是格子的第二行，也是筛选维度：一味丹分四个成色，
+                # 不拆开就既说不清「吃的这 3 颗是什么成色」，也没法直接点服用
+                "facet": quality,
+                "rank": str(pill_data.get("rank") or "凡品"),
+                "held": count,
+                "state": "ok",
+                "effect": effect,
+                "effectLabel": "效果",
+                "notes": notes,
+                # 服用指令是「名字 + 品质 + 数量」，品质是独立参数，不能拼进名字
+                "cmd": f"/服用丹药 {base_name} {quality}",
+                "source": "pill",
+                "action": "服用",
+                "unit": "颗",
+                "max": count,
+                "quality": quality,
+            })
+        entries.sort(key=lambda it: (
+            -int(it.get("held") or 0), str(it.get("name") or "")
+        ))
+        return entries
+
     def _apply_periodic_effects(self, player: Player, effect: dict, current_time: int) -> bool:
         """根据时间自动结算持续恢复/扣减"""
         # 所有时间/数值字段先经 _safe_int 归一：脏存档里这些字段可能是字符串，

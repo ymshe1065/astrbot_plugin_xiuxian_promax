@@ -20,8 +20,12 @@ class AuctionHandlers:
         # ===== 坊市卡片：成功只发图，失败/关闭降级为文本 =====
         sent = False
         try:
-            from ..utils.image_generator import render_card_async, card_enabled
-            if card_enabled("CARD_MARKET"):
+            from ..utils.image_generator import (
+                render_card_async, render_web_card_async, card_enabled, render_bitmap_enabled,
+            )
+            want_card = card_enabled("CARD_MARKET")
+            # 网页端不出位图，结构化卡片本身就很便宜：即使 CARD_MARKET 关着也给
+            if want_card or not render_bitmap_enabled():
                 items = await self.auction_mgr.get_market_items(30)
                 if items:
                     lines = []
@@ -29,12 +33,27 @@ class AuctionHandlers:
                         lines.append(f"[{it['id']}] {it['item_name']} x{it['count']} · {it['price'] * it['count']:,}灵石")
                         lines.extend(await self.auction_mgr.get_trade_details(it))
                         lines.append("")
-                    card = await render_card_async(
-                        "shop", "🏪 玩家交易坊市",
-                        f"最近 {len(items)} 件 · 交易税 5%",
-                        sections=[{"name": "最新上架", "lines": lines}],
-                        footer="/坊市购买 <编号> · /我的坊市 查看NPC问价",
-                    )
+                    entries = await self.auction_mgr.build_market_entries(items)
+                    web_sections = [{
+                        "name": "最新上架",
+                        "view": "grid",
+                        "entries": entries,
+                        "facet": {"label": "", "okLabel": "可买"},
+                    }]
+                    title = "🏪 玩家交易坊市"
+                    subtitle = f"最近 {len(items)} 件 · 交易税 5%"
+                    footer = "/坊市购买 <编号> · /我的坊市 查看NPC问价"
+                    if want_card:
+                        card = await render_card_async(
+                            "shop", title, subtitle,
+                            sections=[{"name": "最新上架", "lines": lines}],
+                            footer=footer,
+                            web_sections=web_sections,
+                        )
+                    else:
+                        card = await render_web_card_async(
+                            "shop", title, subtitle, web_sections, footer
+                        )
                     if card:
                         yield event.image_result(card)
                         sent = True

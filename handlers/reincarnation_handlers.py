@@ -17,6 +17,7 @@ from ..core.reincarnation_rules import (
     item_owned,
     items_in_group,
     parse_bonus,
+    shop_entries,
 )
 from .utils import player_required
 
@@ -120,6 +121,30 @@ class ReincarnationHandlers:
             "（发 `/仙缘兑换 灵石 <点数>` 兑换）",
             "💡 使用 `/仙缘兑换 <编号>` 购买；网页聊天室的「仙缘」标签页可点卡片直接买",
         ]
+
+        # 网页端：49 件商品要 60+ 行文本，换成按分组筛选的网格
+        try:
+            from ..utils.image_generator import render_web_card_async
+            entries = shop_entries(bonus_data)
+            if entries:
+                card = await render_web_card_async(
+                    "info",
+                    "🌟 仙缘商店",
+                    f"当前仙缘点 {player.fate_points} · 完美转生 {player.reincarnation_count} 次 "
+                    f"· 弃道重修 {rebirth} 次",
+                    [{
+                        "name": "商品",
+                        "view": "grid",
+                        "entries": entries,
+                        "facet": {"label": "分组", "okLabel": "可兑"},
+                    }],
+                    "点格子兑换 · /仙缘兑换 <编号> · /仙缘兑换 灵石 <点数> 用灵石换仙缘点",
+                )
+                if card:
+                    yield event.image_result(card)
+                    return
+        except Exception:
+            pass
         yield event.plain_result("\n".join(lines))
 
     async def _exchange_left(self, player: Player) -> int:

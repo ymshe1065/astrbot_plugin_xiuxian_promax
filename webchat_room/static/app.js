@@ -3417,22 +3417,35 @@
     return String(n);
   }
 
-  /** 格子第二行：单独看这一格能回答「是什么/能不能用」 */
+  /** 条目计价单位：只有灵石以外的货币（贡献/仙缘点）才需要写出来 */
+  function currencyOf(it) {
+    return it.currency && it.currency !== "灵石" ? it.currency : "灵石";
+  }
+
+  /** 格子第二行：单独看这一格能回答「是什么/能不能用」
+   *  按字段判断而不是按 source：宗门商店、黑市、坊市都各自有 source，
+   *  但「有库存就写库存」这条对它们都成立。
+   */
   function entryMeta(it) {
-    if (it.source === "shop") {
-      if (it.unlimited) return "不限量";
-      return it.stock > 0 ? `库存 ${it.stock}` : "";
+    if (it.unlimited) return "不限量";
+    if (it.stock !== undefined && it.stock !== null && it.stock !== "") {
+      return Number(it.stock) > 0 ? `库存 ${it.stock}` : "售罄";
     }
     if (it.cat) return `${it.cat} ${it.rate || 0}%`;
     if (it.rate) return `成功率 ${it.rate}%`;
     return it.kind || "";
   }
 
-  /** 格子第三行：价格 > 可做数量 > 持有数量 */
+  /** 格子第三行：显式 value > 价格 > 可做数量 > 持有数量 */
   function entryValue(it) {
-    if (it.source === "shop") {
+    if (it.value !== undefined && it.value !== null && it.value !== "") {
+      return { text: String(it.value) };
+    }
+    if (it.price !== undefined && it.price !== null && it.price !== "") {
       const off = it.discount && it.discount < 1 ? `${Math.round(it.discount * 100) / 10}折` : "";
-      return { text: moneyText(it.price), off };
+      // 贡献 / 仙缘点 不是灵石，格子里必须带个单位，否则会被当成灵石价
+      const unit = it.priceUnit ? ` ${it.priceUnit}` : "";
+      return { text: moneyText(it.price) + unit, off };
     }
     if (Number(it.craft) > 0) return { text: `可画 ${it.craft}` };
     if (Number(it.held) > 0) return { text: `×${it.held}` };
@@ -3445,12 +3458,14 @@
     const tip = document.createElement("div");
     tip.className = "item-tip";
     const rows = [];
-    rows.push(["品阶", entry.rank || "凡品"]);
+    if (entry.rank) rows.push(["品阶", entry.rank]);
     if (entry.kind) rows.push(["类别", [entry.kind, entry.cat].filter(Boolean).join("·")]);
     if (entry.rate) rows.push(["成功率", `${entry.rate}%`]);
-    if (entry.source === "shop") {
-      rows.push(["价格", `${entry.price} 灵石${entry.discount < 1 ? `（${Math.round(entry.discount * 100) / 10}折）` : ""}`]);
-      rows.push(["库存", entry.unlimited ? "不限量" : `${entry.stock} 件`]);
+    if (entry.price !== undefined && entry.price !== null && entry.price !== "") {
+      rows.push(["价格", `${entry.price} ${currencyOf(entry)}${entry.discount < 1 ? `（${Math.round(entry.discount * 100) / 10}折）` : ""}`]);
+      if (entry.stock !== undefined && entry.stock !== null) {
+        rows.push(["库存", entry.unlimited ? "不限量" : `${entry.stock} 件`]);
+      }
     } else {
       if (entry.craft) rows.push(["可画", `${entry.craft} ${entry.unit || "份"}`]);
       if (entry.held) rows.push(["持有", `${entry.held} ${entry.unit || "份"}`]);
@@ -3500,12 +3515,16 @@
     if (dead.dismiss) dead.dismiss();
   }
 
-  /** 主操作指令：炼丹要带 ID（和火候），购买/制符用名字；qty>1 时补数量 */
+  /** 主操作指令：炼丹要带 ID（和火候），购买/制符用名字；qty>1 时补数量
+   *  entry.cmd 是后端给的「不含数量的完整指令」：宗门兑换、仙缘兑换、黑市购买
+   *  这类按编号下单的入口，指令形状各异，前端不该逐个 source 写死。
+   */
   const FIRE_LABELS = { 1: "猛火", 2: "文火", 3: "守中" };
 
   function entryPrimaryCommand(entry, fire, qty) {
     const n = Math.max(1, Number(qty) || 1);
     const tail = n > 1 ? ` ${n}` : "";
+    if (entry.cmd) return entry.cmd + tail;
     if (entry.source === "recipe") {
       const label = FIRE_LABELS[fire] || "";
       return `/炼丹 ${entry.id}${label ? " " + label : ""}${tail}`;
@@ -3515,7 +3534,7 @@
   }
 
   /** 这个条目能不能一次做多份（对应的指令都支持数量参数） */
-  const QTY_SOURCES = { recipe: "次", talisman: "张", shop: "件" };
+  const QTY_SOURCES = { recipe: "次", talisman: "张", shop: "件", pill: "颗" };
 
   /** 数量上限：后端给了 max 就用，没给按材料/工费自己算；null = 算不出来（不限） */
   function entryMaxQty(entry) {
@@ -3547,20 +3566,27 @@
     const kicker = [opts.scene, entry.id ? `ID ${entry.id}` : entry.cat || ""].filter(Boolean).join(" · ");
     const chips = [entry.rank, entry.kind].filter(Boolean);
     if (entry.rate) chips.push(`成功率 ${entry.rate}%`);
-    if (entry.source === "shop") {
-      chips.push(`${entry.price} 灵石${entry.discount < 1 ? ` · ${Math.round(entry.discount * 100) / 10}折` : ""}`);
+    if (entry.price !== undefined && entry.price !== null && entry.price !== "") {
+      chips.push(
+        `${entry.price} ${currencyOf(entry)}` +
+          (entry.discount < 1 ? ` · ${Math.round(entry.discount * 100) / 10}折` : "")
+      );
     } else if (entry.cost) {
       chips.push(`工费 ${entry.cost} 灵石`);
     }
 
     const body = [];
     // 货架上的丹方/符图本来就没有「效果」字段，效果在它炼出来的东西上，
-    // 这种情况下空着即可，别用「数据缺失」的红字误导
+    // 这种情况下空着即可，别用「数据缺失」的红字误导。
+    // 丹药背包、称号、坊市这类条目本来就没有「产出」概念，更不能挂红字。
+    const wantsEffect = ["recipe", "talisman", "talisman_recipe"].includes(entry.source);
+    // 丹药/称号/商店的这段不是「产出」，标题按条目自己的说法走
+    const effHead = entry.effectLabel || "产出效果";
     if (entry.effect) {
-      body.push(`<div class="ed-sec"><h4>产出效果</h4><div class="ed-eff">${esc(entry.effect)}</div></div>`);
-    } else if (entry.source !== "shop") {
+      body.push(`<div class="ed-sec"><h4>${esc(effHead)}</h4><div class="ed-eff">${esc(entry.effect)}</div></div>`);
+    } else if (wantsEffect) {
       body.push(
-        `<div class="ed-sec"><h4>产出效果</h4>` +
+        `<div class="ed-sec"><h4>${esc(effHead)}</h4>` +
           `<div class="ed-eff missing">⚠️ 效果未录入：数据里没有这一项的定义，不是「没有用」。</div></div>`
       );
     }
@@ -3599,7 +3625,7 @@
       gates.push(`<span class="${pass ? "pass" : "block"}">需境界 ${entry.level}</span>`);
     }
     if (entry.need) gates.push(`<span class="block">${esc(entry.need)}</span>`);
-    if (entry.source === "shop") {
+    if (entry.stock !== undefined && entry.stock !== null && entry.stock !== "") {
       gates.push(`<span class="pass">库存 ${entry.unlimited ? "不限量" : entry.stock}</span>`);
       if (entry.always) gates.push(`<span class="pass">常驻</span>`);
     }
@@ -3739,7 +3765,7 @@
     menu.appendChild(
       ctxMenuButton(`${entry.action || "查看"}（${entry.name}）`, () => dispatchCommand(entryPrimaryCommand(entry, "1")))
     );
-    if (entry.source === "shop") {
+    if (["shop", "market", "blackmarket"].includes(entry.source)) {
       menu.appendChild(ctxMenuButton("查看物品信息", () => dispatchCommand(`/物品信息 ${entry.name}`)));
     }
     mountCtxMenu(menu, anchor, ev);
@@ -3761,7 +3787,7 @@
       `<span class="gc">${esc(value.text)}` +
       (value.off ? `<i class="off">${esc(value.off)}</i>` : "") +
       `</span>` +
-      (entry.source === "shop" ? "" : `<span class="st ${state}"></span>`) +
+      (entry.state ? `<span class="st ${state}"></span>` : "") +
       // 触屏没有 hover，⋯ 既不像「可悬停」暗示、又跟「点开详情」抢热区，干脆不生成
       (HAS_HOVER ? `<button type="button" class="more" aria-label="更多操作">⋯</button>` : "");
     cell.title = [entry.name, entry.rank, entry.kind, entry.effect].filter(Boolean).join(" · ");
@@ -3843,6 +3869,18 @@
     empty.hidden = true;
 
     const facetDefs = () => {
+      // 后端显式声明筛选维度（宗门/仙缘/称号这类没有「类别」概念的清单）。
+      // 声明了就以它为准：label 为空 = 不出筛选条，只借 okLabel 改汇总措辞。
+      if (sec.facet) {
+        const label = sec.facet.label || "";
+        const opts = [];
+        if (label) {
+          entries.forEach((it) => {
+            if (it.facet && !opts.includes(it.facet)) opts.push(it.facet);
+          });
+        }
+        return { label, options: opts.length > 1 ? opts : [] };
+      }
       if (entries.some((it) => it.cat)) {
         const cats = [];
         entries.forEach((it) => {
@@ -3869,6 +3907,7 @@
 
     const facetMatch = (it) => {
       if (curFacet === "全部") return true;
+      if (it.facet !== undefined && it.facet !== null && it.facet !== "") return it.facet === curFacet;
       if (curFacet === "可炼制" || curFacet === "可制符") return it.state === "ok";
       if (curFacet === "缺材料") return it.state === "lack";
       if (curFacet === "未达境界" || curFacet === "未解锁") return it.state === "lock";
@@ -3932,17 +3971,19 @@
 
     function paintSummary(pool) {
       const okCount = pool.filter((it) => it.state === "ok").length;
+      // 「可做」是配方/制符的说法；称号叫「已收集」、货架叫「在售」，由后端给词
+      const okWord = (sec.facet && sec.facet.okLabel) || "可做";
       if (curRank === "*") {
         sum.innerHTML =
           `共 <b>${pool.length}</b> 条` +
           (withRankBar ? ` · ${allBuckets.length} 档` : "") +
-          (okCount ? ` · 可做 ${okCount}` : "");
+          (okCount ? ` · ${okWord} ${okCount}` : "");
       } else {
         // 当前档的条数必须按档筛一遍，不能拿整池的长度冒充
         const mine = pool.filter((it) => gridRankOf(it) === curRank);
         const ok = mine.filter((it) => it.state === "ok").length;
         sum.innerHTML =
-          `<b>${esc(curRank)}</b> · ${mine.length} 条` + (ok ? ` · 可做 ${ok}` : "");
+          `<b>${esc(curRank)}</b> · ${mine.length} 条` + (ok ? ` · ${okWord} ${ok}` : "");
       }
       sum.hidden = !pool.length;
     }
@@ -3983,7 +4024,7 @@
         head.className = "eg-sec";
         head.innerHTML =
           `<s style="background:${RANK_COLORS[b.rank] || "#c9bfa9"}"></s>${esc(b.rank)}` +
-          `<em>${list.length} 条 · 可做 ${b.ok}</em><u></u>`;
+          `<em>${list.length} 条${b.ok ? ` · ${(sec.facet && sec.facet.okLabel) || "可做"} ${b.ok}` : ""}</em><u></u>`;
         grid.appendChild(head);
         list.slice(0, RANK_ALL_CAP).forEach((it) => grid.appendChild(entryCell(it, scene)));
         if (list.length > RANK_ALL_CAP) {

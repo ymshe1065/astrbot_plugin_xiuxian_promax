@@ -95,7 +95,71 @@ class PillHandler:
                 "💡 可先发送 /服用丹药 或在 /储物戒 确认丹药状态，并把上面的日志发给服主。"
             )
             return
+        card = await self._bag_web_card(player)
+        if card:
+            yield event.image_result(card)
+            return
         yield event.plain_result(message)
+
+    async def _bag_web_card(self, player: Player):
+        """网页端：把 50+ 行键值清单换成网格。非网页端返回 None（QQ 端原文不变）。"""
+        try:
+            from ..utils.image_generator import render_web_card_async
+            entries = self.pill_manager.build_pill_bag_entries(player)
+            if not entries:
+                return None
+            sections = [{
+                "name": "丹药",
+                "view": "grid",
+                "entries": entries,
+                # 品阶只够分 1~2 档时前端不出品阶条，这里补一条品质筛选
+                "facet": {"label": "品质", "okLabel": "可用"},
+            }]
+            effects = self._effect_lines(player)
+            if effects:
+                sections.append({"name": "生效中的状态", "lines": effects})
+            return await render_web_card_async(
+                "bag",
+                f"丹药背包 · {len(entries)} 格",
+                f"共 {len(entries)} 种（按品质分开）· 点格子直接服用",
+                sections,
+                "/丹药背包 查看 · /服用丹药 <名> [品质] [数量] · /我的状态 看限时效果",
+            )
+        except Exception:
+            logger.exception("丹药背包网格生成失败 user=%s", getattr(player, "user_id", "?"))
+            return None
+
+    def _effect_lines(self, player: Player, with_resurrection: bool = True) -> list:
+        """生效中的临时效果（丹药/符箓），供文本与卡片共用。"""
+        active_effects = player.get_active_pill_effects()
+        if not isinstance(active_effects, list):
+            active_effects = []
+        effects_display = []
+        for effect in active_effects:
+            if not isinstance(effect, dict):
+                continue
+            pill_name = effect.get("pill_name", "未知丹药")
+            icon = "🧿" if effect.get("source") == "talisman" else "🌟"
+            remaining_uses = effect.get("remaining_uses")
+            if remaining_uses is not None:
+                try:
+                    uses = max(0, int(remaining_uses))
+                except (TypeError, ValueError):
+                    uses = 0
+                if uses > 0:
+                    effects_display.append(f"{icon} {pill_name} (剩余 {uses} 次，历练·秘境)")
+                continue
+            remaining_seconds = _safe_int(effect.get("expiry_time", 0)) - int(time.time())
+            if remaining_seconds > 0:
+                remaining_minutes = remaining_seconds // 60
+                hours = remaining_minutes // 60
+                minutes = remaining_minutes % 60
+                time_str = f"{hours}小时{minutes}分钟" if hours > 0 else f"{minutes}分钟"
+                effects_display.append(f"{icon} {pill_name} (剩余: {time_str})")
+        if with_resurrection and player.has_resurrection_pill:
+            res_quality = getattr(player, "resurrection_pill_quality", "一般") or "一般"
+            effects_display.append(f"🛡️ 回生丹（{res_quality}）：可抵消一次境界跌落")
+        return effects_display
 
     async def _render_pill_bag(self, player: Player) -> str:
         """拼装丹药背包文本；读取失败由调用方兜底提示。"""
@@ -105,54 +169,15 @@ class PillHandler:
         # 获取丹药背包显示
         inventory_display = self.pill_manager.get_pill_inventory_display(player)
 
-        # 获取当前生效的临时效果
-        active_effects = player.get_active_pill_effects()
-        if not isinstance(active_effects, list):
-            active_effects = []
-        effects_display = []
+        effects_display = self._effect_lines(player, with_resurrection=False)
 
-        if active_effects:
-            effects_display.append("\n--- 当前生效的临时效果 ---")
-            for effect in active_effects:
-                if not isinstance(effect, dict):
-                    continue
-                pill_name = effect.get("pill_name", "未知丹药")
-                import time
-                icon = "🧿" if effect.get("source") == "talisman" else "🌟"
-                remaining_uses = effect.get("remaining_uses")
-                if remaining_uses is not None:
-                    try:
-                        uses = max(0, int(remaining_uses))
-                    except (TypeError, ValueError):
-                        uses = 0
-                    if uses > 0:
-                        effects_display.append(f"{icon} {pill_name} (剩余 {uses} 次，历练·秘境)")
-                    continue
-                remaining_seconds = _safe_int(effect.get("expiry_time", 0)) - int(time.time())
-                if remaining_seconds > 0:
-                    remaining_minutes = remaining_seconds // 60
-                    hours = remaining_minutes // 60
-                    minutes = remaining_minutes % 60
-
-                    if hours > 0:
-                        time_str = f"{hours}小时{minutes}分钟"
-                    else:
-                        time_str = f"{minutes}分钟"
-
-                    effects_display.append(f"{icon} {pill_name} (剩余: {time_str})")
-
-        # 检查回生丹状态
-        resurrection_status = ""
-        if player.has_resurrection_pill:
-            res_quality = getattr(player, "resurrection_pill_quality", "一般") or "一般"
-            resurrection_status = f"\n🛡️ 当前拥有回生丹效果（{res_quality}，可抵消一次境界跌落）"
-
-        # 组合显示
+        # 组合显示（与改造前逐字一致：QQ 端文案不能动）
         full_message = inventory_display
         if effects_display:
-            full_message += "\n" + "\n".join(effects_display)
-        if resurrection_status:
-            full_message += resurrection_status
+            full_message += "\n\n--- 当前生效的临时效果 ---\n" + "\n".join(effects_display)
+        if player.has_resurrection_pill:
+            res_quality = getattr(player, "resurrection_pill_quality", "一般") or "一般"
+            full_message += f"\n🛡️ 当前拥有回生丹效果（{res_quality}，可抵消一次境界跌落）"
 
         return full_message
 

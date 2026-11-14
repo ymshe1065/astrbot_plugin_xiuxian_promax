@@ -396,6 +396,40 @@ class GambleManager:
         await self.db.conn.commit()
         return total_refund
 
+    def build_black_market_entries(self) -> list:
+        """黑市网格条目（网页端用）。与 ``get_black_market`` 读同一份数据。
+
+        假货不透露真假：格子只写「风险品」，跟文本列表一个口径。
+        """
+        items, _ = self._get_black_market_items()
+        entries = []
+        for index, item in enumerate(items, 1):
+            name = str(item.get("name") or "")
+            if not name:
+                continue
+            fake = bool(item.get("fake"))
+            desc = str(item.get("desc") or "")
+            # desc 形如「品级: 帝品；五行: 木；描述: …」——品阶在格子里已经用色条表达，
+            # 详情页再重复一遍只是噪音
+            if desc.startswith("品级:") and "；" in desc:
+                desc = desc.split("；", 1)[1]
+            entries.append({
+                "id": index,
+                "name": name,
+                "rank": str(item.get("rank") or "凡品"),
+                "kind": "风险品" if fake else str(item.get("type") or "物品"),
+                "price": int(item.get("price") or 0),
+                "currency": "灵石",
+                "effect": desc,
+                "effectLabel": "效果",
+                "state": "ok",
+                "cmd": f"/黑市购买 {index}",
+                "source": "blackmarket",
+                "action": "购买",
+                "notes": ["真假自负，每人每小时每件限购 1 次"],
+            })
+        return entries
+
     def get_black_market(self) -> Tuple[bool, str]:
         """获取当前小时的黑市商品。"""
         items, next_refresh = self._get_black_market_items()

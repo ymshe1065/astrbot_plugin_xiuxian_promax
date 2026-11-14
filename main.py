@@ -48,8 +48,17 @@ def require_whitelist(func):
         if not self._check_access(event):
             await self._send_access_denied_message(event)
             return
-        async for result in func(self, event, *args, **kwargs):
-            yield result
+        token = None
+        try:
+            from .utils.image_generator import is_webroom_platform, set_render_bitmap
+            if is_webroom_platform(event):
+                token = set_render_bitmap(False)
+            async for result in func(self, event, *args, **kwargs):
+                yield result
+        finally:
+            if token is not None:
+                from .utils.image_generator import reset_render_bitmap
+                reset_render_bitmap(token)
     return wrapper
 
 # 指令定义
@@ -868,6 +877,22 @@ class XiuXianPlugin(Star):
             return await self.title_hooks.bump(player, key, count)
         except Exception:
             return ""
+
+    async def _web_only_card(self, bg_name: str, title: str, subtitle: str,
+                             sections: list, footer: str = ""):
+        """只在网页端产出结构化卡片；其它平台返回 None（调用方继续发原文）。
+
+        长清单（称号图鉴、丹药背包…）在 QQ 端仍按文本发，网页端换成网格，
+        这样不会因为「网页想看格子」就改变群聊里的呈现。
+        """
+        try:
+            from .utils.image_generator import render_web_card_async
+            return await render_web_card_async(
+                bg_name, title, subtitle, sections, footer
+            )
+        except Exception:
+            logger.exception("网页端结构化卡片生成失败 title=%s", title)
+            return None
 
     async def _auto_proxy_manual_exit(self, event: AstrMessageEvent) -> str:
         """用户手动放弃/退出/解卡时同步关闭代理，返回提示文案。"""
@@ -4130,6 +4155,30 @@ class XiuXianPlugin(Star):
             text = "❌ 称号图鉴读取失败，请稍后再试。"
             
         # 修复了原代码这里重复调用 collection_view 导致兜底失效的 Bug
+
+        # 网页端：111 个称号是 120+ 行文本，换成按品阶分档的网格
+        try:
+            entries = self.title_mgr.build_collection_entries(player)
+            if entries:
+                collected = sum(1 for it in entries if it.get("state") == "ok")
+                card = await self._web_only_card(
+                    "info",
+                    "📜 称号图鉴",
+                    f"已收集 {collected}/{len(entries)} · 加成自动按最高品阶生效",
+                    [{
+                        "name": "称号",
+                        "view": "grid",
+                        "entries": entries,
+                        "facet": {"label": "收集", "okLabel": "已收集"},
+                    }],
+                    "点格子佩戴 · /佩戴称号 <名> · 同品阶优先当前佩戴",
+                )
+                if card:
+                    yield event.image_result(card)
+                    return
+        except Exception:
+            logger.exception(f"称号图鉴网格生成失败 uid={player.user_id}")
+
         yield event.plain_result(text)
 
     @filter.command("佩戴称号", "更换展示的称号（加成自动按最高品阶生效）")

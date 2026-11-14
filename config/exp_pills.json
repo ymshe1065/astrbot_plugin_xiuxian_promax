@@ -193,7 +193,7 @@
         "rank": "帝品",
         "subtype": "exp",
         "required_level_index": 22,
-        "exp_gain": 450000,
+        "exp_gain": 3300000,
         "price": 379000,
         "shop_weight": 20
     },
@@ -204,7 +204,7 @@
         "rank": "帝品",
         "subtype": "exp",
         "required_level_index": 22,
-        "exp_gain": 650000,
+        "exp_gain": 3800000,
         "price": 379000,
         "shop_weight": 20
     },
@@ -215,7 +215,7 @@
         "rank": "帝品",
         "subtype": "exp",
         "required_level_index": 24,
-        "exp_gain": 900000,
+        "exp_gain": 4500000,
         "price": 379000,
         "shop_weight": 20
     },
@@ -226,7 +226,7 @@
         "rank": "道品",
         "subtype": "exp",
         "required_level_index": 25,
-        "exp_gain": 1300000,
+        "exp_gain": 5500000,
         "price": 839000,
         "shop_weight": 10
     },
@@ -237,7 +237,7 @@
         "rank": "道品",
         "subtype": "exp",
         "required_level_index": 27,
-        "exp_gain": 1800000,
+        "exp_gain": 7500000,
         "price": 839000,
         "shop_weight": 10
     },
@@ -248,7 +248,7 @@
         "rank": "道品",
         "subtype": "exp",
         "required_level_index": 28,
-        "exp_gain": 2500000,
+        "exp_gain": 9000000,
         "price": 839000,
         "shop_weight": 10
     },
@@ -259,7 +259,7 @@
         "rank": "仙品",
         "subtype": "exp",
         "required_level_index": 31,
-        "exp_gain": 3500000,
+        "exp_gain": 14500000,
         "price": 1530000,
         "shop_weight": 5
     },
@@ -270,7 +270,7 @@
         "rank": "仙品",
         "subtype": "exp",
         "required_level_index": 32,
-        "exp_gain": 5000000,
+        "exp_gain": 17500000,
         "price": 1530000,
         "shop_weight": 5
     },
@@ -281,7 +281,7 @@
         "rank": "仙品",
         "subtype": "exp",
         "required_level_index": 33,
-        "exp_gain": 7000000,
+        "exp_gain": 20500000,
         "price": 1530000,
         "shop_weight": 5
     },
@@ -292,7 +292,7 @@
         "rank": "仙品",
         "subtype": "exp",
         "required_level_index": 34,
-        "exp_gain": 10000000,
+        "exp_gain": 24000000,
         "price": 1530000,
         "shop_weight": 5
     },
@@ -303,7 +303,7 @@
         "rank": "混元先天",
         "subtype": "exp",
         "required_level_index": 35,
-        "exp_gain": 15000000,
+        "exp_gain": 28500000,
         "price": 2390000,
         "shop_weight": 1
     },
@@ -314,7 +314,7 @@
         "rank": "混元先天",
         "subtype": "exp",
         "required_level_index": 35,
-        "exp_gain": 22000000,
+        "exp_gain": 31500000,
         "price": 2390000,
         "shop_weight": 1
     },
@@ -325,7 +325,7 @@
         "rank": "混元先天",
         "subtype": "exp",
         "required_level_index": 35,
-        "exp_gain": 30000000,
+        "exp_gain": 34500000,
         "price": 2390000,
         "shop_weight": 1
     },
@@ -336,7 +336,7 @@
         "rank": "圣品",
         "subtype": "exp",
         "required_level_index": 19,
-        "exp_gain": 350000,
+        "exp_gain": 2000000,
         "price": 267000,
         "shop_weight": 30
     },
@@ -347,7 +347,7 @@
         "rank": "圣品",
         "subtype": "exp",
         "required_level_index": 20,
-        "exp_gain": 420000,
+        "exp_gain": 2400000,
         "price": 267000,
         "shop_weight": 30
     },
@@ -358,7 +358,7 @@
         "rank": "圣品",
         "subtype": "exp",
         "required_level_index": 21,
-        "exp_gain": 500000,
+        "exp_gain": 2800000,
         "price": 267000,
         "shop_weight": 30
     }

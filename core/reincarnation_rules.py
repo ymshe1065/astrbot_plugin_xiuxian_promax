@@ -21,7 +21,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 # ---------- 灵根重抽 ----------
 
@@ -294,6 +294,53 @@ def item_at_cap(bonus: Dict[str, Any], item_id: int) -> bool:
     if not item or not item.get("cap"):
         return False
     return item_owned(bonus, item_id) >= int(item["cap"])
+
+
+def shop_entries(bonus: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """仙缘商店的网格条目：一格一件，按分组归 facet 而不是品阶。
+
+    仙缘商店卖的是「跨世永久加成」，没有品阶概念，所以条目不写 rank——
+    前端只在有 rank 时才画品阶色条与品阶页签。
+    """
+    entries: List[Dict[str, Any]] = []
+    group_order = [name for name, _ in SHOP_GROUPS]
+    for item_id in sorted(SHOP_ITEMS, key=lambda i: (
+        group_order.index(SHOP_ITEMS[i]["group"])
+        if SHOP_ITEMS[i]["group"] in group_order else 99,
+        i,
+    )):
+        item = SHOP_ITEMS[item_id]
+        owned = item_owned(bonus, item_id)
+        cap = int(item.get("cap") or 0)
+        at_cap = item_at_cap(bonus, item_id)
+        price = shop_price(item_id, owned)
+        notes = []
+        if cap:
+            notes.append(f"已购 {owned}/{cap} 层" + ("（已满）" if at_cap else ""))
+        elif owned:
+            notes.append(f"已购 {owned} 层（无上限，可继续叠加）")
+        notes.append(str(item.get("desc") or ""))
+        entry = {
+            "id": int(item_id),
+            "name": str(item["name"]),
+            "kind": "已满" if at_cap else f"每层 {item.get('unit') or ''}".strip(),
+            "effect": str(item.get("desc") or ""),
+            "effectLabel": "说明",
+            "notes": [n for n in notes if n],
+            "state": "lock" if at_cap else "ok",
+            "cmd": f"/仙缘兑换 {int(item_id)}",
+            "source": "fate",
+            "action": "兑换",
+            "facet": str(item.get("group") or ""),
+        }
+        if at_cap:
+            entry["value"] = "已满"
+        else:
+            entry["price"] = price
+            entry["currency"] = "仙缘点"
+            entry["priceUnit"] = "点"
+        entries.append(entry)
+    return entries
 
 
 def add_item(bonus: Dict[str, Any], item_id: int) -> int:

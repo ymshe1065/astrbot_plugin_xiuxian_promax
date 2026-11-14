@@ -124,6 +124,54 @@ class SectShopHandler:
             await self.db.update_shop_data(shop_id, last_refresh, items)
         return shop_id, last_refresh, items
 
+    def _build_entries(self, sect, items, player: Player):
+        """宗门商店的网格条目：一格一件，价格换成商堂折扣后的贡献。
+
+        与 ``handle_shop`` 里的文本行读同一份 items，文本仍原样输出
+        （QQ 端不受影响），条目只给网页端用。
+        """
+        entries = []
+        for idx, item in enumerate(items or [], 1):
+            name = str(item.get("name") or "")
+            if not name:
+                continue
+            stock = int(item.get("stock", 0) or 0)
+            base_price = int(item.get("price", 0) or 0)
+            price = self._discounted_price(sect, base_price)
+            rank = item.get("rank", "凡品")
+            type_label = _TYPE_LABELS.get(item.get("type", ""), "物品")
+            effect = "；".join(
+                line for line in self.shop_manager.get_trade_details(item)
+                # 「品级」在格子和 chip 里已经有了，详情页不必重复
+                if not str(line).strip().startswith("品级:")
+            )
+            notes = []
+            if price < base_price:
+                notes.append(f"商堂折扣：原价 {base_price:,} 贡献")
+            required = ItemRules.get_required_level(item.get("data", {}) or {})
+            if required:
+                notes.append(f"需境界等级 {required}")
+            entries.append({
+                "id": idx,
+                "name": name,
+                "kind": type_label,
+                "rank": rank,
+                "price": price,
+                "currency": "贡献",
+                "priceUnit": "贡献",
+                "stock": stock,
+                "effect": effect,
+                "effectLabel": "效果",
+                "notes": notes,
+                "state": "ok" if stock > 0 else "lock",
+                # 兑换按编号下单，不带数量参数
+                "cmd": f"/宗门兑换 {idx}",
+                "source": "sect_shop",
+                "action": "兑换",
+                "unit": "件",
+            })
+        return entries
+
     @player_required
     async def handle_shop(self, player: Player, event: AstrMessageEvent):
         if not player.sect_id:
@@ -167,7 +215,38 @@ class SectShopHandler:
                     lines.append(f"   效果：{effect}")
         lines.append("━━━━━━━━━━━━━━━")
         lines.append("💡 使用 /宗门兑换 <编号> 购买")
+
+        # 网页端：5 件商品也是 10+ 行文本，换成网格后能直接点开看效果再兑换
+        try:
+            from ..utils.image_generator import render_web_card_async
+            if items:
+                entries = self._build_entries(sect, items, player)
+                if entries:
+                    card = await render_web_card_async(
+                        "sect",
+                        f"🏪 {sect.sect_name} · 宗门商店",
+                        f"你的贡献 {player.sect_contribution:,} · {remaining // 60} 分钟后刷新 "
+                        f"· 商堂 {self._building_level(sect)} 级折扣",
+                        [{
+                            "name": "在售",
+                            "view": "grid",
+                            "entries": entries,
+                            "facet": {"label": "", "okLabel": "可兑"},
+                        }],
+                        "点格子兑换 · /宗门兑换 <编号> · 售罄商品等下次刷新",
+                    )
+                    if card:
+                        yield event.image_result(card)
+                        return
+        except Exception:
+            pass
         yield event.plain_result("\n".join(lines))
+
+    def _building_level(self, sect) -> int:
+        try:
+            return int(self.sect_mgr.get_building_level(sect, "商堂")) if self.sect_mgr else 0
+        except Exception:
+            return 0
 
     async def _refund_contribution(self, user_id: str, amount: int):
         await self.db.conn.execute(

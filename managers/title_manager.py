@@ -337,6 +337,50 @@ class TitleManager:
             else "无"
         )
 
+    def build_collection_entries(self, player: Player) -> list:
+        """称号图鉴的网格条目：111 个称号一格一个，按品阶分档。
+
+        已收集的可以点「佩戴」，未收集的灰着只给解锁条件——
+        与 ``collection_view`` 的 ✅/🔒 是同一套判断。
+        """
+        owned = self._load_owned(player)
+        active = self.get_active_title(player)
+        active_name = active["name"] if active else ""
+        entries = []
+        for t in TITLES:
+            name = str(t.get("name") or "")
+            if not name:
+                continue
+            tier = TIERS.get(t.get("tier"), ("凡品", 0))
+            collected = name in owned
+            notes = [f"解锁：{self._how_text(t)}"]
+            if name == active_name:
+                notes.insert(0, "⭐ 当前佩戴中")
+            if collected and owned.get(name):
+                try:
+                    notes.append(
+                        "获得于 " + time.strftime("%Y-%m-%d", time.localtime(float(owned[name])))
+                    )
+                except (TypeError, ValueError, OSError):
+                    pass
+            entry = {
+                "name": name,
+                "rank": str(tier[0]),
+                "effect": self._format_stats(t.get("stats") or {}),
+                "effectLabel": "加成",
+                # 格子第三行放加成：光看名字的格子等于没信息，玩家要的是「值不值得戴」
+                "value": self._format_stats(t.get("stats") or {}, sep="·"),
+                "notes": notes,
+                "state": "ok" if collected else "lock",
+                "source": "title",
+                "facet": "已收集" if collected else "未收集",
+            }
+            if collected:
+                entry["action"] = "佩戴"
+                entry["cmd"] = f"/佩戴称号 {name}"
+            entries.append(entry)
+        return entries
+
     @classmethod
     def _format_stats(cls, stats: dict, sep: str = " | ") -> str:
         """内部辅助：格式化属性字典为可读文本。

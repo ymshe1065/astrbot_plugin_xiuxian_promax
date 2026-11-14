@@ -365,6 +365,69 @@ class AuctionManager:
             row["item_name"] = self._display_name(row)
         return rows
 
+    async def build_market_entries(self, items: list, limit_sellers: int = 30) -> list:
+        """坊市网格条目（网页端用）。
+
+        价格口径照抄文本列表：``总价 = 单价 × 数量``。品阶表里没存的，
+        回查一份配置补上——坊市表只有 item_kind/item_quality，没有 item_rank。
+        """
+        from ..core.shop_manager import ShopManager
+        from ..rank_rules import normalize_rank
+
+        shop = ShopManager(self.config, self.storage_ring_mgr.config_manager)
+        rank_cache: dict = {}
+        seller_cache: dict = {}
+        entries = []
+        for item in items or []:
+            name = str(item.get("item_name") or "")
+            if not name:
+                continue
+            count = max(1, int(item.get("count") or 1))
+            total = int(item.get("price") or 0) * count
+            base = str(item.get("base_item_name") or name)
+            if base not in rank_cache:
+                found = shop.find_item_by_name(base)
+                rank_cache[base] = normalize_rank((found or {}).get("rank"), "凡品")
+            seller_id = str(item.get("seller_id") or "")
+            if seller_id not in seller_cache:
+                seller = await self.db.get_player_by_id(seller_id)
+                seller_name = (seller.user_name if seller and seller.user_name else seller_id[:6])
+                if seller and seller.title:
+                    seller_name = f"【{seller.title}】{seller_name}"
+                seller_cache[seller_id] = seller_name
+            try:
+                details = [str(x).strip() for x in (await self.get_trade_details(item) or []) if str(x).strip()]
+            except Exception:
+                details = []
+            effect = ""
+            notes = []
+            for line in details:
+                if line.startswith("品级:"):
+                    continue
+                if not effect and line.startswith(("描述:", "效果:", "属性:")):
+                    effect = line.split(":", 1)[1].strip()
+                else:
+                    notes.append(line)
+            notes.insert(0, f"卖家：{seller_cache[seller_id]}")
+            if count > 1:
+                notes.insert(1, f"单价 {int(item.get('price') or 0):,} 灵石")
+            quality = str(item.get("item_quality") or "")
+            entries.append({
+                "id": int(item.get("id") or 0),
+                "name": name,
+                "rank": rank_cache[base],
+                "kind": f"×{count}" if count > 1 else (quality or ""),
+                "price": total,
+                "currency": "灵石",
+                "effect": effect,
+                "effectLabel": "效果",
+                "notes": notes,
+                "cmd": f"/坊市购买 {int(item.get('id') or 0)}",
+                "source": "market",
+                "action": "购买",
+            })
+        return entries
+
     @_serialized
     async def process_npc_offers(self, now: int = None) -> Tuple[int, int]:
         """生成/过期NPC问价，返回（新生成数, 过期数）"""
