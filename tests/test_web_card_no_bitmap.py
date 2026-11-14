@@ -88,6 +88,46 @@ class TestWebCardNoBitmap(unittest.TestCase):
         self.assertEqual(section["entries"][0]["max"], 9)
         self.assertTrue(section["lines"])
 
+    def test_sidecar_keeps_section_facet(self):
+        """分区级 facet 必须在 sidecar 往返后还在。
+
+        丢了它，网页端拿不到「收集 / 分组 / 可兑」这些声明，只能按 entry.state 猜，
+        于是称号图鉴和仙缘商店的筛选栏会变成炼丹那套「可炼制 / 缺材料 / 未达境界」。
+        这是真实链路才暴露的问题：演示脚本直接广播 payload，绕过了 sidecar 反序列化。
+        """
+        sections = [{
+            "name": "称号",
+            "view": "grid",
+            "facet": {"label": "收集", "okLabel": "已收集"},
+            "entries": [{"name": "初入仙途", "rank": "凡品", "state": "ok"}],
+        }]
+        token = self.img.set_render_bitmap(False)
+        try:
+            path = self.img.render_card("info", "称号图鉴", "", sections, "", 1000)
+        finally:
+            self.img.reset_render_bitmap(token)
+
+        card = self.sidecar.load_card_for_image(path)
+        self.assertIsNotNone(card)
+        self.assertEqual(card["sections"][0]["facet"],
+                         {"label": "收集", "okLabel": "已收集"})
+
+    def test_sidecar_does_not_invent_facet(self):
+        """没声明 facet 的老卡片不能凭空多出一个字段，否则前端会以为它要筛选条。"""
+        sections = [{
+            "name": "材料",
+            "view": "grid",
+            "entries": [{"name": "凡品灵植", "rank": "凡品", "state": "ok"}],
+        }]
+        token = self.img.set_render_bitmap(False)
+        try:
+            path = self.img.render_card("bag", "储物戒", "", sections, "", 1000)
+        finally:
+            self.img.reset_render_bitmap(token)
+
+        card = self.sidecar.load_card_for_image(path)
+        self.assertNotIn("facet", card["sections"][0])
+
     def test_sidecar_and_bitmap_payload_identical(self):
         """两条路径写出的 JSON 必须一模一样，否则网页端会看到两种卡片。"""
         token = self.img.set_render_bitmap(False)

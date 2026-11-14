@@ -252,6 +252,12 @@ def load_card_for_image(path: str | None) -> dict[str, Any] | None:
         view = str(sec.get("view") or "")
         if view:
             section["view"] = view
+        # 分区级筛选声明必须原样透传。丢了它，网页端就只能按 entry.state 猜，
+        # 把称号图鉴/仙缘商店写成「可炼制 / 缺材料 / 未达境界」（炼丹那套措辞），
+        # 「收集 / 分组」这些筛选条也会整个消失。
+        facet = sec.get("facet")
+        if isinstance(facet, dict) and facet:
+            section["facet"] = facet
         # 网格视图自己负责排版，不要再用「文本提升条目」那套覆盖它
         if view != "grid":
             _promote_lines_to_items(section)
