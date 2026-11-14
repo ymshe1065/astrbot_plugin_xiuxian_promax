@@ -221,6 +221,47 @@ class TestFateGoldExchange(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(plugin.db.player.gold, unit * 6)
 
 
+class TestFateShopLocking(unittest.IsolatedAsyncioTestCase):
+    """网页面板也必须走玩家锁：与聊天端并发时不能各写一份旧快照。"""
+
+    async def test_concurrent_exchange_only_one_succeeds(self):
+        import asyncio
+
+        unit = rules.GOLD_PER_FATE_POINT
+        player = Player(user_id="u1")
+        player.gold = unit
+        plugin = _FakePlugin(player)
+
+        results = await asyncio.gather(
+            panel.fate_shop_exchange(plugin, "u1", 1),
+            panel.fate_shop_exchange(plugin, "u1", 1),
+        )
+        self.assertEqual(sum(1 for r in results if r["ok"]), 1)
+        self.assertEqual(plugin.db.player.gold, 0)
+        self.assertEqual(plugin.db.player.fate_points, 1)
+        # 额度只记一次，不会超发
+        self.assertEqual(
+            plugin.db.ext.config.get(rules.fate_exchange_key("u1")), "1"
+        )
+
+    async def test_concurrent_buy_does_not_double_spend(self):
+        import asyncio
+
+        player = Player(user_id="u1")
+        player.fate_points = rules.shop_price(52, 0)  # 刚好买一尊化身
+        plugin = _FakePlugin(player)
+
+        results = await asyncio.gather(
+            panel.fate_shop_buy(plugin, "u1", 52),
+            panel.fate_shop_buy(plugin, "u1", 52),
+        )
+        self.assertEqual(sum(1 for r in results if r["ok"]), 1)
+        self.assertEqual(plugin.db.player.fate_points, 0)
+        snap = await panel.fate_shop_snapshot(plugin, "u1")
+        flat = {item["id"]: item for g in snap["groups"] for item in g["items"]}
+        self.assertEqual(flat[52]["owned"], 1)
+
+
 class TestFateExchangeKey(unittest.TestCase):
     def test_key_and_points_helpers(self):
         self.assertEqual(rules.fate_exchange_key("u1"), "fate_gold_exchange_u1")

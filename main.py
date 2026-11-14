@@ -4234,9 +4234,19 @@ class XiuXianPlugin(Star):
                 yield event.plain_result(f"❌ 未找到该玩家。")
                 return
                 
-            user_cd = await self.db.ext.first_busy_cd(target.user_id)
+            try:
+                cds = [
+                    cd
+                    for cd in await self.db.ext.list_user_cds(target.user_id)
+                    if int(cd.type or 0) != UserStatus.IDLE
+                ]
+            except Exception:
+                cds = []
             loan = await self.db.ext.get_active_loan(target.user_id)
-            status = UserStatus.get_name(user_cd.type) if user_cd else "空闲"
+            # 多分身：把本体/化身正在进行的活动全列出来，别只显示第一条
+            status = "、".join(
+                UserStatus.get_name(int(cd.type)) for cd in cds
+            ) or "空闲"
             yield event.plain_result(
                 f"🔍 玩家数据\n"
                 f"━━━━━━━━━━━━━━━\n"

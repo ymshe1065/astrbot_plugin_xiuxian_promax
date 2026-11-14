@@ -258,13 +258,26 @@ def shop_price(item_id: int, owned: int = 0) -> int:
 
 
 def parse_bonus(player: Any) -> Dict[str, Any]:
-    """读取 permanent_bonus；脏数据一律当空账本，避免转生流程被一条坏 JSON 卡死。"""
+    """读取 permanent_bonus；脏数据一律当空账本，避免转生流程被一条坏 JSON 卡死。
+
+    同时做旧账本键迁移：v3.45.12 把【一心二用】改成了【身外化身】，
+    账本键也从 ``parallel_action`` 改成 ``avatar_slots``。旧档如果只改键名
+    不迁移，玩家已经买过的分身会凭空消失，所以读档时就地并入新键。
+    """
     raw = getattr(player, "permanent_bonus", "") or ""
     try:
         data = json.loads(raw) if isinstance(raw, str) else dict(raw or {})
     except Exception:
         return {}
-    return data if isinstance(data, dict) else {}
+    if not isinstance(data, dict):
+        return {}
+    if _migrate_legacy_ledger_keys(data):
+        # 读写入口都会重新解析，统一在内存里写回；下一次保存玩家时自然落库
+        try:
+            player.permanent_bonus = json.dumps(data, ensure_ascii=False)
+        except Exception:
+            pass
+    return data
 
 
 def _as_float(value: Any) -> float:
@@ -272,6 +285,26 @@ def _as_float(value: Any) -> float:
         return float(value or 0)
     except (TypeError, ValueError):
         return 0.0
+
+
+# 旧商品账本键 → 新商品账本键（数量直接并入，保留玩家已购层数）
+LEGACY_LEDGER_KEYS: Dict[str, str] = {
+    "parallel_action": "avatar_slots",
+}
+
+
+def _migrate_legacy_ledger_keys(bonus: Dict[str, Any]) -> bool:
+    """把旧版商品账本键并入新键，返回账本是否有改动（幂等）。"""
+    changed = False
+    for old_key, new_key in LEGACY_LEDGER_KEYS.items():
+        if old_key not in bonus:
+            continue
+        old_value = _as_float(bonus.get(old_key))
+        bonus.pop(old_key, None)
+        if old_value > 0:
+            bonus[new_key] = round(ledger_value(bonus, new_key) + old_value, 6)
+        changed = True
+    return changed
 
 
 def ledger_value(bonus: Dict[str, Any], key: str) -> float:

@@ -106,16 +106,21 @@ async def fate_shop_snapshot(plugin: "XiuXianPlugin", user_id: str) -> dict[str,
 
 async def fate_shop_buy(plugin: "XiuXianPlugin", user_id: str, item_id: int) -> dict[str, Any]:
     """买一层，返回 (ok, msg) + 最新快照。"""
-    player = await plugin.db.get_player_by_id(user_id)
-    if not player:
-        return {"ok": False, "error": "尚未创建角色，请先发送 /我要修仙"}
-
     mgr = getattr(plugin, "reincarnation_mgr", None)
     if mgr is None:
         return {"ok": False, "error": "仙缘商店模块未加载"}
 
-    ok, message = await mgr.buy_fate_shop_item(player, int(item_id))
-    snap = await fate_shop_snapshot(plugin, user_id)
+    # 与聊天端 /仙缘兑换 共用同一把玩家锁：否则网页买一层时，
+    # 另一端并发写永久账本会用旧快照整行覆盖，出现“扣了点却没记层数”。
+    from ..handlers.utils import get_player_lock
+
+    async with get_player_lock(user_id):
+        player = await plugin.db.get_player_by_id(user_id)
+        if not player:
+            return {"ok": False, "error": "尚未创建角色，请先发送 /我要修仙"}
+
+        ok, message = await mgr.buy_fate_shop_item(player, int(item_id))
+        snap = await fate_shop_snapshot(plugin, user_id)
     snap["ok"] = bool(ok)
     snap["message"] = _clean(message)
     return snap
@@ -125,52 +130,57 @@ async def fate_shop_exchange(
     plugin: "XiuXianPlugin", user_id: str, points: int = 0
 ) -> dict[str, Any]:
     """灵石换仙缘点：points<=0 时按余额与剩余额度换最大值。"""
-    player = await plugin.db.get_player_by_id(user_id)
-    if not player:
-        return {"ok": False, "error": "尚未创建角色，请先发送 /我要修仙"}
+    from ..handlers.utils import get_player_lock
 
-    used = await _exchange_used(plugin, user_id)
-    left = max(0, FATE_EXCHANGE_MAX - used)
-    if left <= 0:
+    async with get_player_lock(user_id):
+        # 锁内重新读档：额度（system_config）与灵石都必须是最新值，
+        # 否则网页与聊天端同时兑换会各自按旧额度发点，突破每世上限。
+        player = await plugin.db.get_player_by_id(user_id)
+        if not player:
+            return {"ok": False, "error": "尚未创建角色，请先发送 /我要修仙"}
+
+        used = await _exchange_used(plugin, user_id)
+        left = max(0, FATE_EXCHANGE_MAX - used)
+        if left <= 0:
+            snap = await fate_shop_snapshot(plugin, user_id)
+            snap.update({"ok": False, "message": f"本轮已换满 {FATE_EXCHANGE_MAX} 点，等下世再换"})
+            return snap
+
+        want = int(points or 0)
+        if want <= 0:
+            want = min(left, fate_exchange_points(int(getattr(player, "gold", 0) or 0)))
+        want = min(want, left)
+        if want <= 0:
+            snap = await fate_shop_snapshot(plugin, user_id)
+            snap.update(
+                {
+                    "ok": False,
+                    "message": f"灵石不足：{GOLD_PER_FATE_POINT // 10000}万灵石换 1 点",
+                }
+            )
+            return snap
+
+        cost = want * GOLD_PER_FATE_POINT
+        gold = int(getattr(player, "gold", 0) or 0)
+        if gold < cost:
+            snap = await fate_shop_snapshot(plugin, user_id)
+            snap.update(
+                {
+                    "ok": False,
+                    "message": f"灵石不足：换 {want} 点需要 {cost // 10000} 万，当前 {gold // 10000} 万",
+                }
+            )
+            return snap
+
+        player.gold = gold - cost
+        player.fate_points = int(getattr(player, "fate_points", 0) or 0) + want
+        await plugin.db.update_player(player)
+        try:
+            await plugin.db.ext.set_system_config(fate_exchange_key(user_id), str(used + want))
+        except Exception:
+            pass
+
         snap = await fate_shop_snapshot(plugin, user_id)
-        snap.update({"ok": False, "message": f"本轮已换满 {FATE_EXCHANGE_MAX} 点，等下世再换"})
-        return snap
-
-    want = int(points or 0)
-    if want <= 0:
-        want = min(left, fate_exchange_points(int(getattr(player, "gold", 0) or 0)))
-    want = min(want, left)
-    if want <= 0:
-        snap = await fate_shop_snapshot(plugin, user_id)
-        snap.update(
-            {
-                "ok": False,
-                "message": f"灵石不足：{GOLD_PER_FATE_POINT // 10000}万灵石换 1 点",
-            }
-        )
-        return snap
-
-    cost = want * GOLD_PER_FATE_POINT
-    gold = int(getattr(player, "gold", 0) or 0)
-    if gold < cost:
-        snap = await fate_shop_snapshot(plugin, user_id)
-        snap.update(
-            {
-                "ok": False,
-                "message": f"灵石不足：换 {want} 点需要 {cost // 10000} 万，当前 {gold // 10000} 万",
-            }
-        )
-        return snap
-
-    player.gold = gold - cost
-    player.fate_points = int(getattr(player, "fate_points", 0) or 0) + want
-    await plugin.db.update_player(player)
-    try:
-        await plugin.db.ext.set_system_config(fate_exchange_key(user_id), str(used + want))
-    except Exception:
-        pass
-
-    snap = await fate_shop_snapshot(plugin, user_id)
     snap.update(
         {
             "ok": True,

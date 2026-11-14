@@ -141,3 +141,19 @@ class SlotCdStubMixin:
 
     async def set_user_free(self, user_id, commit=True, cd_type=None):
         await self.release_activity(user_id, cd_type, commit=commit)
+
+    async def _sync_player_state(self, user_id, commit=False):
+        """把 players.state 同步成「最显眼」的活动状态（测试桩版）。"""
+        from astrbot_plugin_xiuxian_promax.models_extended import UserStatus
+
+        state_text_map = {UserStatus.CULTIVATING: "修炼中"}
+        cd = await self.first_busy_cd(user_id)
+        if cd is None:
+            state_text = "空闲"
+        else:
+            cd_type = int(cd.type)
+            state_text = state_text_map.get(cd_type) or UserStatus.get_name(cd_type)
+        db = getattr(self, "db", None)
+        player = getattr(db, "player", None) if db is not None else None
+        if player is not None:
+            player.state = state_text

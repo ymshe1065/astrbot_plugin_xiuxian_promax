@@ -145,6 +145,40 @@ class AutoProxyManager:
         state = (getattr(player, "state", "") or "").strip()
         return bool(state and state != "空闲")
 
+    async def _active_primary(self, user_id: str) -> list:
+        """押镖 / 宗门任务当前各占哪个槽位：``[(task_type, user_cd), ...]``。
+
+        v3.45.12 起一个玩家可能有多个活动槽位（本体 + 身外化身），押镖和宗门任务
+        可以同时各占一槽；不能再拿「唯一一条 user_cd」当当前活动，否则后开的那项
+        永远轮不到结算。
+        """
+        active = []
+        for task, status in TASK_STATUS.items():
+            cd = await self.db.ext.get_active_cd(user_id, status)
+            if cd is not None:
+                active.append((task, cd))
+        return active
+
+    async def _free_slots(self, user_id: str, player: Any) -> int:
+        """该玩家还剩几个空闲分身槽位（含本体）。"""
+        try:
+            from ..core.avatar_rules import total_slots
+
+            total = total_slots(player)
+            busy = await self.db.ext.busy_slot_count(user_id)
+            return max(0, int(total) - int(busy))
+        except Exception:
+            return 0
+
+    async def _newest_primary(self, user_id: str) -> Optional[str]:
+        """押镖/宗门任务里最近开始的那项（多槽位下用来绑定「当前活动」）。"""
+        current, newest = None, -1
+        for task, cd in await self._active_primary(user_id):
+            started = int(getattr(cd, "create_time", 0) or 0)
+            if started >= newest:
+                current, newest = task, started
+        return current
+
     @staticmethod
     def _load_config(row: Optional[dict]) -> dict:
         raw = (row or {}).get("config_json") or "{}"
@@ -330,8 +364,8 @@ class AutoProxyManager:
         if not int(adv.get("close_until") or 0):
             return ""
         try:
-            cd = await self.db.ext.first_busy_cd(user_id)
-            if not cd or cd.type != UserStatus.CULTIVATING:
+            cd = await self.db.ext.get_active_cd(user_id, UserStatus.CULTIVATING)
+            if cd is None:
                 return ""
             player = await self.db.get_player_by_id(user_id)
             if not player or not self._cultivation_settler:
@@ -452,7 +486,12 @@ class AutoProxyManager:
         return await self._disable_primary(user_id, "manual_exit")
 
     async def note_external_activity_started(self, user_id: str) -> bool:
-        """玩家开始代理不接管的活动时关闭押镖/宗门任务代理。"""
+        """玩家开始代理不接管的活动时关闭押镖/宗门任务代理。
+
+        v3.45.12 起有分身槽位：押镖/宗门任务在自己槽位里跑着时，玩家另开一项活动
+        不该再把代理关掉（他还有空位，代理之后也能续接）。只有槽位被别的活动占满、
+        且没有押镖/宗门任务在跑时，才沿用旧的「暂停」语义。
+        """
         row = await self.get(user_id)
         if not row or not row.get("enabled"):
             return False
@@ -462,13 +501,27 @@ class AutoProxyManager:
         adv_on = self._adv_enabled(row)
         if not (row.get("task_type") or "") and (farm_on or rift_on or fert_on or adv_on):
             return False
-        cd = await self.db.ext.first_busy_cd(user_id)
-        if not cd or cd.type in (UserStatus.IDLE, UserStatus.DELIVERING, UserStatus.SECT_TASK):
+        player = await self.db.get_player_by_id(user_id)
+        if not player:
             return False
-        # 玩家手动进入秘境/历练：由对应代理接管续接，不能当成“其他活动”关掉
-        if cd.type == UserStatus.EXPLORING and rift_on:
+        # 押镖/宗门任务还在跑：它们占的是自己的槽位，不构成「被其他活动挤掉」
+        if await self._active_primary(user_id):
             return False
-        if cd.type == UserStatus.ADVENTURING and adv_on:
+        busy = await self.db.ext.busy_slot_count(user_id)
+        if busy <= 0:
+            return False
+        # 手动进入秘境/历练：由对应代理接管续接，不能当成“其他活动”关掉
+        types = {
+            int(cd.type)
+            for cd in await self.db.ext.list_user_cds(user_id)
+            if int(cd.type or 0) != UserStatus.IDLE
+        }
+        if types == {int(UserStatus.EXPLORING)} and rift_on:
+            return False
+        if types == {int(UserStatus.ADVENTURING)} and adv_on:
+            return False
+        # 还有空闲分身：留着代理，等它自己续接
+        if await self._free_slots(user_id, player) > 0:
             return False
         return await self._disable_primary(user_id, "other_busy")
 
@@ -485,8 +538,8 @@ class AutoProxyManager:
             or self._fert_enabled(row)
         ):
             return None
-        cd = await self.db.ext.first_busy_cd(user_id)
-        current = STATUS_TASK.get(cd.type) if cd else None
+        # 多槽位下押镖与宗门任务可能同时进行：取最近开始的那项作为当前活动
+        current = await self._newest_primary(user_id)
         if not current:
             return None
         config = self._load_config(row)
@@ -621,8 +674,7 @@ class AutoProxyManager:
         farm_cfg["tasks"] = farm_cfg.get("tasks") if isinstance(farm_cfg.get("tasks"), dict) else {}
         origin = origin or row.get("origin", "")
         # 只保留当前正在进行的押镖/宗门任务，避免旧的 task_type 在仅开启灵田代理时被自动续接
-        cd = await self.db.ext.first_busy_cd(user_id)
-        active_task = STATUS_TASK.get(cd.type) if cd else ""
+        active_task = await self._newest_primary(user_id) or ""
         await self._write_state(user_id, True, active_task or "", origin, "", config)
 
         changed, cycle_msg, config_dirty = await self._run_farm_cycle(user_id, await self.db.get_player_by_id(user_id), config)
@@ -911,8 +963,7 @@ class AutoProxyManager:
         )
         fert_cfg["note"] = ""
         origin = origin or row.get("origin", "")
-        cd = await self.db.ext.first_busy_cd(user_id)
-        active_task = STATUS_TASK.get(cd.type) if cd else ""
+        active_task = await self._newest_primary(user_id) or ""
         await self._write_state(user_id, True, active_task or "", origin, "", config)
 
         player = await self.db.get_player_by_id(user_id)
@@ -1156,32 +1207,37 @@ class AutoProxyManager:
         )
 
         try:
-            cd = await self.db.ext.first_busy_cd(user_id)
+            rift_cd = await self.db.ext.get_active_cd(user_id, UserStatus.EXPLORING)
         except Exception:
-            cd = None
-        cd_type = cd.type if cd else UserStatus.IDLE
+            rift_cd = None
 
-        if cd_type == UserStatus.IDLE:
-            ok, start_msg = await self.rift_mgr.enter_rift(user_id, int(rift.rift_id))
-            if not ok:
-                rift_cfg["enabled"] = False
-                await self._write_state(user_id, False, "", origin, "start_failed", config)
-                return False, f"{header}\n\n⚠️ 无法开始探索：\n{start_msg}"
-            header += f"\n\n♻️ 已开始第一轮探索\n{start_msg}"
-            header += "\n💡 发送 /关闭代理 秘境 可停止。"
-            return True, header
-
-        if cd_type == UserStatus.EXPLORING:
+        if rift_cd is not None:
             header += (
                 "\n\n♻️ 已接管当前探索，完成后自动结算并重新进入。\n"
                 "💡 发送 /关闭代理 秘境 可停止。"
             )
             return True, header
 
-        header += (
-            f"\n\n⏳ 你当前正{UserStatus.get_name(cd_type)}，结束后将自动开始秘境探索。\n"
-            "💡 发送 /关闭代理 秘境 可停止。"
-        )
+        if await self._free_slots(user_id, player) <= 0:
+            header += (
+                "\n\n⏳ 分身都在忙，等一个槽位空出来后会自动开始秘境探索。\n"
+                "💡 发送 /关闭代理 秘境 可停止。"
+            )
+            return True, header
+
+        ok, start_msg = await self.rift_mgr.enter_rift(user_id, int(rift.rift_id))
+        if not ok:
+            if "分身都出去了" in (start_msg or ""):
+                header += (
+                    "\n\n⏳ 分身都在忙，等一个槽位空出来后会自动开始秘境探索。\n"
+                    "💡 发送 /关闭代理 秘境 可停止。"
+                )
+                return True, header
+            rift_cfg["enabled"] = False
+            await self._write_state(user_id, False, "", origin, "start_failed", config)
+            return False, f"{header}\n\n⚠️ 无法开始探索：\n{start_msg}"
+        header += f"\n\n♻️ 已开始第一轮探索\n{start_msg}"
+        header += "\n💡 发送 /关闭代理 秘境 可停止。"
         return True, header
 
     async def disable_rift(self, user_id: str) -> Tuple[bool, str]:
@@ -1276,15 +1332,16 @@ class AutoProxyManager:
             rift_cfg["enabled"] = False
             return True, "⚠️ 未选择代理秘境，秘境代理已关闭。", False
 
+        # 只看「秘境」占用的那个槽位：本体在历练 / 化身在押镖时，
+        # 不能因为 first_busy_cd 读到别的活动就漏结算或误判不在秘境。
         try:
-            cd = await self.db.ext.first_busy_cd(user_id)
+            rift_cd = await self.db.ext.get_active_cd(user_id, UserStatus.EXPLORING)
         except Exception:
-            cd = None
-        cd_type = cd.type if cd else UserStatus.IDLE
+            rift_cd = None
         now = int(time.time())
 
-        if cd_type == UserStatus.EXPLORING:
-            if cd and cd.scheduled_time and now < int(cd.scheduled_time):
+        if rift_cd is not None:
+            if rift_cd.scheduled_time and now < int(rift_cd.scheduled_time):
                 return False, "", False
             ok, msg, _reward = await self.rift_mgr.finish_exploration(user_id)
             if not ok:
@@ -1310,11 +1367,15 @@ class AutoProxyManager:
                 True,
             )
 
-        if cd_type != UserStatus.IDLE:
+        # 不在秘境：分身全出去了就等一个槽位空出来，别因此关掉代理
+        if await self._free_slots(user_id, player) <= 0:
             return False, "", False
 
         ok, start_msg = await self.rift_mgr.enter_rift(user_id, rift_id)
         if not ok:
+            # 没槽位属于「等一等」，不算配置错误，不关闭代理
+            if "分身" in (start_msg or "") and ("忙" in (start_msg or "") or "没有空闲" in (start_msg or "")):
+                return False, "", False
             rift_cfg["enabled"] = False
             return (
                 True,
@@ -1484,24 +1545,24 @@ class AutoProxyManager:
             f"奇遇：{enc_text}{rift_note}"
         )
 
+        # 只看历练/闭关对应的槽位：本体在押镖、分身在秘境时不该误判
         try:
-            cd = await self.db.ext.first_busy_cd(user_id)
+            adv_cd = await self.db.ext.get_active_cd(user_id, UserStatus.ADVENTURING)
+            cult_cd = await self.db.ext.get_active_cd(user_id, UserStatus.CULTIVATING)
         except Exception:
-            cd = None
-        cd_type = cd.type if cd else UserStatus.IDLE
+            adv_cd = None
+            cult_cd = None
 
-        if cd_type == UserStatus.ADVENTURING:
+        if adv_cd is not None:
             return True, header + "\n\n♻️ 已接管当前历练，走完后自动结算并继续。\n💡 /关闭代理 历练 可停止。"
-        if cd_type == UserStatus.CULTIVATING and int(adv.get("close_until") or 0):
+        if cult_cd is not None and int(adv.get("close_until") or 0):
             return True, header + "\n\n♻️ 已接管当前闭关，休整结束后继续历练。"
-        if cd_type != UserStatus.IDLE:
-            return True, (
-                header
-                + f"\n\n⏳ 你当前正{UserStatus.get_name(cd_type)}，结束后将自动开始历练。\n"
-                + "💡 /关闭代理 历练 可停止。"
-            )
 
-        changed, msg, _dirty = await self._run_adventure_cycle(user_id, player, config, origin)
+        changed, msg, dirty = await self._run_adventure_cycle(user_id, player, config, origin)
+        if changed or dirty:
+            # 把本轮产生的 note（wait_slot / injured / wait_cd …）一并落库，
+            # 否则后台每轮都会把同一句提示再推一遍。
+            await self._write_state(user_id, True, "", origin, "", config)
         if msg:
             header += f"\n━━━━━━━━━━━━━━━\n{msg}"
         else:
@@ -1574,14 +1635,21 @@ class AutoProxyManager:
             )
         now = int(time.time())
         fresh = await self.db.get_player_by_id(user_id) or player
-        from ..core.avatar_rules import total_slots
+        from ..core.avatar_rules import ensure_free_slot, total_slots
+
+        ok_slot, slot_hint = await ensure_free_slot(self.db, fresh, user_id)
+        if not ok_slot:
+            return False, slot_hint
+
+        started, slot, reason = await self.db.ext.start_activity(
+            user_id, UserStatus.CULTIVATING, 0, max_slots=total_slots(fresh)
+        )
+        if not started and reason != "already_running":
+            return False, f"⚠️ 自动闭关未能开始（{reason}）。"
 
         fresh.state = "修炼中"
         fresh.cultivation_start_time = now
         await self.db.update_player(fresh)
-        await self.db.ext.start_activity(
-            user_id, UserStatus.CULTIVATING, 0, max_slots=total_slots(fresh)
-        )
         remain = max(0, until_ts - now)
         minutes = max(1, (remain + 59) // 60)
         return True, (
@@ -1699,37 +1767,32 @@ class AutoProxyManager:
             dirty = True
             messages.append(enc_msg)
 
+        # 只看「历练」那一槽：本体在秘境 / 分身在押镖时，不能因为
+        # first_busy_cd 读到别的活动就误判成「已在历练」或「别的活动在跑」。
         try:
-            cd = await self.db.ext.first_busy_cd(user_id)
+            adv_cd = await self.db.ext.get_active_cd(user_id, UserStatus.ADVENTURING)
         except Exception:
-            cd = None
-        cd_type = cd.type if cd else UserStatus.IDLE
-        prefix = ""
-
-        if cd_type == UserStatus.ADVENTURING:
+            adv_cd = None
+        if adv_cd is not None:
             return enc_changed, "\n".join(messages), dirty
 
-        if cd_type == UserStatus.CULTIVATING:
-            close_until = int(adv.get("close_until") or 0)
-            if not close_until:
-                # 玩家自己的闭关，不插手
-                return enc_changed, "\n".join(messages), dirty
-            if now < close_until:
-                return enc_changed, "\n".join(messages), dirty
-            ok, cult_msg = await self._settle_adv_seclusion(user_id)
+        prefix = ""
+        close_until = int(adv.get("close_until") or 0)
+        if close_until:
+            try:
+                cult_cd = await self.db.ext.get_active_cd(user_id, UserStatus.CULTIVATING)
+            except Exception:
+                cult_cd = None
+            if cult_cd is not None:
+                if now < close_until:
+                    # 代理自己安排的闭关还没到点，静默等
+                    return enc_changed, "\n".join(messages), dirty
+                _ok, cult_msg = await self._settle_adv_seclusion(user_id)
+                prefix = cult_msg
+            # 到这里说明：闭关已结算，或玩家已手动出关（残留标记）
             adv["close_until"] = 0
             adv["close_route"] = ""
             dirty = True
-            prefix = cult_msg
-            cd_type = UserStatus.IDLE
-        elif cd_type != UserStatus.IDLE:
-            return enc_changed, "\n".join(messages), dirty
-        else:
-            # 残留的自动闭关标记（例如玩家手动出关后才轮询到）
-            if int(adv.get("close_until") or 0):
-                adv["close_until"] = 0
-                adv["close_route"] = ""
-                dirty = True
 
         route_key, wait_until = await self._pick_adventure_route(user_id, adv, now)
         if not route_key:
@@ -1800,6 +1863,22 @@ class AutoProxyManager:
             logger.warning(f"【自动代理】历练受伤检查失败: {e}")
 
         fresh = await self.db.get_player_by_id(user_id) or player
+        if await self._free_slots(user_id, fresh) <= 0:
+            # 分身都出去了：等一个槽位，别把「没空位」当成配置错误关代理
+            if adv.get("note") != "wait_slot":
+                adv["note"] = "wait_slot"
+                names = await self.db.ext.busy_activity_names(user_id)
+                message = (
+                    f"⏳ 分身都在忙（{'、'.join(names) or '其它活动'}），"
+                    "历练代理会等一个槽位空出来后继续。"
+                )
+                if prefix:
+                    message = f"{prefix}\n\n{message}"
+                if messages:
+                    message = "\n".join(messages) + "\n\n" + message
+                return True, message, True
+            return enc_changed, "\n".join(messages), dirty
+
         ok, start_msg = await self.adventure_mgr.start_adventure(
             user_id, route_key, umo=origin
         )
@@ -1879,8 +1958,14 @@ class AutoProxyManager:
             close_notes.append("历练代理已关闭")
         rift_note = f"\n（{'；'.join(close_notes)}）" if close_notes else ""
         rift_note += adv_settle_note
-        cd = await self.db.ext.first_busy_cd(user_id)
-        current = STATUS_TASK.get(cd.type) if cd else None
+        # 省略参数时按「正在进行的押镖/宗门任务」补全（多槽位取最近开始的那项）
+        current = None
+        current_cd = None
+        newest = -1
+        for task, active_cd in await self._active_primary(user_id):
+            started = int(getattr(active_cd, "create_time", 0) or 0)
+            if started >= newest:
+                current, current_cd, newest = task, active_cd, started
 
         if not raw_task:
             if not current:
@@ -1898,14 +1983,20 @@ class AutoProxyManager:
 
         was_enabled = bool(row.get("enabled"))
         origin = origin or row.get("origin", "")
-        legacy_busy = (not cd) and self._legacy_busy(player)
-        busy_other = bool((cd and cd.type != UserStatus.IDLE and not current) or legacy_busy)
-        busy_name = UserStatus.get_name(cd.type) if cd else (getattr(player, "state", "") or "忙碌")
-        if busy_other:
-            return False, (
-                f"❌ 你当前正在{busy_name}，自动代理只能接管押镖/宗门任务。\n"
-                f"💡 请空闲后再发送 /自动代理 押镖 或 /自动代理 宗门任务。"
-            )
+        if not current:
+            # 没有可接管的押镖/宗门任务：若分身全在忙别的，先说清楚是谁占着
+            busy_cd = await self.db.ext.first_busy_cd(user_id)
+            if await self._free_slots(user_id, player) <= 0:
+                names = await self.db.ext.busy_activity_names(user_id)
+                busy_name = "、".join(names) or (
+                    UserStatus.get_name(busy_cd.type)
+                    if busy_cd
+                    else (getattr(player, "state", "") or "忙碌")
+                )
+                return False, (
+                    f"❌ 你当前正在{busy_name}，分身都出去了，暂时接不了新任务。\n"
+                    f"💡 等一项活动结束，或先收掉一项后再发送 /自动代理 押镖 或 /自动代理 宗门任务。"
+                )
 
         preferred = requested or current or row.get("task_type", "")
         await self._write_state(user_id, True, preferred, origin, "", config)
@@ -1914,7 +2005,7 @@ class AutoProxyManager:
             if requested and requested != current:
                 return True, (
                     f"🤖 自动代理已开启\n"
-                    f"当前正在{UserStatus.get_name(cd.type)}，先完成本轮；"
+                    f"当前正在{UserStatus.get_name(current_cd.type)}，先完成本轮；"
                     f"之后将自动改跑【{self.task_name(requested)}】。\n"
                     f"💡 发送 /关闭代理 押镖 或 /关闭代理 宗门任务 可随时停止。"
                     f"{rift_note}"
@@ -1957,8 +2048,14 @@ class AutoProxyManager:
             return "❌ 道友尚未踏入仙途，请先发送「我要修仙」。"
 
         row = await self.get(user_id) or {}
-        cd = await self.db.ext.first_busy_cd(user_id)
-        current = STATUS_TASK.get(cd.type) if cd else None
+        try:
+            cds = [
+                cd
+                for cd in await self.db.ext.list_user_cds(user_id)
+                if int(cd.type or 0) != UserStatus.IDLE
+            ]
+        except Exception:
+            cds = []
         config = self._load_config(row)
         farm_cfg = config["farm"]
         farm_on = bool(farm_cfg.get("enabled"))
@@ -2049,82 +2146,87 @@ class AutoProxyManager:
             lines.append(f"目标活动：{self.task_name(row.get('task_type'))}")
         elif not farm_on and not rift_on and not fert_on and not adv_on:
             lines.append("目标活动：等待选择")
-        if current:
-            if cd and cd.scheduled_time:
-                remaining = max(0, cd.scheduled_time - int(time.time()))
-                lines.append(
-                    f"当前进行：{self.task_name(current)}（剩余 {remaining // 60} 分 {remaining % 60} 秒）"
-                )
-            else:
-                lines.append(f"当前进行：{self.task_name(current)}")
-            if row.get("task_type") and row.get("task_type") != current:
-                lines.append(f"下一轮目标：{self.task_name(row.get('task_type'))}")
-        elif cd and cd.type == UserStatus.ADVENTURING:
-            route_key = ""
-            try:
-                if hasattr(cd, "get_extra_data"):
-                    extra = cd.get_extra_data() or {}
+
+        # 多槽位：逐条列出本体/化身各在做什么，而不是只看「第一条」
+        from ..core.avatar_rules import slot_label
+
+        now_ts = int(time.time())
+        for active_cd in cds:
+            cd_type = int(active_cd.type or 0)
+            slot_text = slot_label(int(getattr(active_cd, "slot", 0) or 0))
+            remaining = max(0, int(getattr(active_cd, "scheduled_time", 0) or 0) - now_ts)
+            if STATUS_TASK.get(cd_type):
+                task = STATUS_TASK[cd_type]
+                if remaining > 0:
+                    text = f"当前进行：{self.task_name(task)}（剩余 {remaining // 60} 分 {remaining % 60} 秒）"
                 else:
-                    extra = json.loads(getattr(cd, "extra_data", "{}") or "{}")
-                route_key = str((extra or {}).get("route_key") or "")
-            except Exception:
+                    text = f"当前进行：{self.task_name(task)}（可结算，等待代理处理）"
+                if row.get("task_type") and row.get("task_type") != task:
+                    text += f"，下一轮改跑【{self.task_name(row.get('task_type'))}】"
+            elif cd_type == UserStatus.ADVENTURING:
                 route_key = ""
-            label = self._adv_route_label(route_key) if route_key else "历练"
-            remaining = max(0, int(getattr(cd, "scheduled_time", 0) or 0) - int(time.time()))
-            if adv_on:
-                if remaining > 0:
-                    lines.append(f"当前进行：历练「{label}」（剩余 {remaining // 60} 分 {remaining % 60} 秒）")
+                try:
+                    if hasattr(active_cd, "get_extra_data"):
+                        extra = active_cd.get_extra_data() or {}
+                    else:
+                        extra = json.loads(getattr(active_cd, "extra_data", "{}") or "{}")
+                    route_key = str((extra or {}).get("route_key") or "")
+                except Exception:
+                    route_key = ""
+                label = self._adv_route_label(route_key) if route_key else "历练"
+                if adv_on:
+                    if remaining > 0:
+                        text = f"当前进行：历练「{label}」（剩余 {remaining // 60} 分 {remaining % 60} 秒）"
+                    else:
+                        text = f"当前进行：历练「{label}」（已走完，等待结算）"
                 else:
-                    lines.append(f"当前进行：历练「{label}」（已走完，等待结算）")
-            else:
-                lines.append(f"当前状态：历练中「{label}」（历练代理未开启）")
-        elif cd and cd.type == UserStatus.CULTIVATING and adv_on:
-            close_until = int(adv_cfg.get("close_until") or 0)
-            if close_until:
-                remaining = max(0, close_until - int(time.time()))
-                route_label = self._adv_route_label(adv_cfg.get("route"))
-                lines.append(
-                    f"当前进行：历练 CD 自动闭关（剩余 {remaining // 60} 分 {remaining % 60} 秒，"
-                    f"之后继续「{route_label}」）"
-                )
-            else:
-                lines.append("当前状态：闭关中（历练代理等待出关）")
-        elif cd and cd.type == UserStatus.EXPLORING:
-            if rift_on:
-                remaining = max(0, int(getattr(cd, "scheduled_time", 0) or 0) - int(time.time()))
-                if remaining > 0:
-                    lines.append(f"当前进行：探索秘境（剩余 {remaining // 60} 分 {remaining % 60} 秒）")
+                    text = f"当前状态：历练中「{label}」（历练代理未开启）"
+            elif cd_type == UserStatus.CULTIVATING and adv_on:
+                close_until = int(adv_cfg.get("close_until") or 0)
+                if close_until:
+                    wait = max(0, close_until - now_ts)
+                    route_label = self._adv_route_label(adv_cfg.get("route"))
+                    text = (
+                        f"当前进行：历练 CD 自动闭关（剩余 {wait // 60} 分 {wait % 60} 秒，"
+                        f"之后继续「{route_label}」）"
+                    )
                 else:
-                    lines.append("当前进行：探索秘境（可结算，等待代理处理）")
+                    text = "当前状态：闭关中（历练代理等待出关）"
+            elif cd_type == UserStatus.EXPLORING:
+                if rift_on:
+                    if remaining > 0:
+                        text = f"当前进行：探索秘境（剩余 {remaining // 60} 分 {remaining % 60} 秒）"
+                    else:
+                        text = "当前进行：探索秘境（可结算，等待代理处理）"
+                else:
+                    text = "当前状态：探索秘境中（秘境代理未开启）"
             else:
-                lines.append("当前状态：探索秘境中（秘境代理未开启）")
-        elif cd and cd.type != UserStatus.IDLE:
-            if row.get("task_type"):
-                lines.append(f"当前状态：{UserStatus.get_name(cd.type)}（押镖/宗门任务代理将暂停）")
-            else:
-                lines.append(f"当前状态：{UserStatus.get_name(cd.type)}（灵田/秘境/历练代理不受影响）")
-        elif not cd and self._legacy_busy(player):
-            if row.get("task_type"):
-                lines.append(f"当前状态：{player.state}（押镖/宗门任务代理将暂停）")
-            else:
-                lines.append(f"当前状态：{player.state}（灵田/秘境/历练代理不受影响）")
-        elif rift_on:
+                text = f"当前状态：{UserStatus.get_name(cd_type)}"
+            lines.append(f"{text} · {slot_text}")
+
+        if not cds and self._legacy_busy(player):
+            lines.append(f"当前状态：{getattr(player, 'state', '') or '忙碌'}")
+        elif not cds and rift_on:
             lines.append("当前状态：秘境代理运行中，等待空闲后进入秘境")
-        elif adv_on:
+        elif not cds and adv_on:
             lines.append("当前状态：历练代理运行中，等待空闲后出发")
-        elif farm_on:
+        elif not cds and farm_on:
             lines.append("当前状态：灵田代理运行中，等待成熟")
-        elif fert_on:
+        elif not cds and fert_on:
             lines.append("当前状态：自动施肥运行中，肥力不足时补肥")
-        else:
+        elif not cds:
             lines.append("当前状态：空闲（等待下一轮）")
 
         if row.get("last_error") == "start_failed":
             lines.append("⚠️ 上次自动开始失败，已暂停")
+        elif row.get("last_error") == "wait_slot":
+            lines.append("⏳ 分身都在忙，押镖/宗门任务代理等待槽位空出")
         if adv_on and adv_cfg.get("note") == "injured":
             lines.append("⚠️ 身受重伤，历练代理等待恢复后继续")
         elif adv_on and adv_cfg.get("note") == "wait_cd":
             lines.append("⏳ 历练路线休整中，等待结束后继续")
+        elif adv_on and adv_cfg.get("note") == "wait_slot":
+            lines.append("⏳ 分身都在忙，历练代理等待槽位空出")
         lines.append(
             "💡 /关闭代理 押镖|宗门任务|灵田 [格号]|秘境|施肥|历练|全部 停止对应代理"
         )
@@ -2346,98 +2448,95 @@ class AutoProxyManager:
                     await self._notify(origin, adv_msg, user_id)
                 handled = True
 
-        cd = await self.db.ext.first_busy_cd(user_id)
-        cd_type = cd.type if cd else UserStatus.IDLE
-        current = STATUS_TASK.get(cd_type)
+        # 押镖/宗门任务可能各占一个槽位（本体 + 化身），逐个结算/续接
+        active = await self._active_primary(user_id)
         farm_on = bool(farm_cfg.get("enabled"))
+        keep_text = "、".join(
+            name
+            for name, on in (
+                ("灵田", farm_on),
+                ("秘境", bool(rift_cfg.get("enabled"))),
+                ("施肥", bool(fert_cfg.get("enabled"))),
+                ("历练", bool(adv_cfg.get("enabled"))),
+            )
+            if on
+        )
 
-        if current:
+        if active:
             # 只开启灵田代理时，不接管玩家手动开始/尚未结算的押镖、宗门任务；
             # 否则“关闭押镖代理”后，当前这轮结束又会被自动续接。
             if not row.get("task_type"):
                 return handled
-            if cd and cd.scheduled_time and now < cd.scheduled_time:
-                return handled
 
-            ok, finish_msg = await self.finish_activity(player, current)
-            if not ok:
-                await self._notify(
-                    origin,
-                    f"⚠️ 自动代理结算【{self.task_name(current)}】失败：\n{finish_msg}\n"
-                    f"🛑 押镖/宗门任务代理已暂停，发送 /自动代理 押镖 或 /自动代理 宗门任务 可重试。",
-                    user_id,
+            for current, cd in active:
+                if cd and cd.scheduled_time and now < int(cd.scheduled_time):
+                    continue
+
+                fresh_player = await self.db.get_player_by_id(user_id) or player
+                ok, finish_msg = await self.finish_activity(fresh_player, current)
+                if not ok:
+                    await self._notify(
+                        origin,
+                        f"⚠️ 自动代理结算【{self.task_name(current)}】失败：\n{finish_msg}\n"
+                        f"🛑 押镖/宗门任务代理已暂停，发送 /自动代理 押镖 或 /自动代理 宗门任务 可重试。",
+                        user_id,
+                    )
+                    await self._disable_primary(user_id, "finish_failed")
+                    return True
+
+                # task_type 是“下一轮目标”：玩家可能在本轮进行中主动改绑了活动
+                target = row.get("task_type") or current
+                target_status = TASK_STATUS.get(target)
+                if target_status and await self.db.ext.get_active_cd(user_id, target_status) is not None:
+                    # 目标活动已经在另一个分身的槽位里跑着（押镖 + 宗门任务并存），
+                    # 不能再开一轮，否则会被管理器判成“进行中”而误关代理
+                    await self._notify(origin, finish_msg, user_id)
+                    handled = True
+                    continue
+                fresh_player = await self.db.get_player_by_id(user_id) or player
+                ok, start_msg = await self.start_activity(fresh_player, target)
+                if not ok:
+                    if "分身都出去了" in (start_msg or ""):
+                        # 结算完这一轮后，槽位暂时被别的活动占满：保留代理等下一轮
+                        await self._notify(
+                            origin,
+                            f"{finish_msg}\n\n"
+                            f"⏳ 暂时没有空闲分身，【{self.task_name(target)}】下一轮稍后自动继续。",
+                            user_id,
+                        )
+                        handled = True
+                        continue
+                    await self._notify(
+                        origin,
+                        f"{finish_msg}\n\n"
+                        f"⚠️ 自动代理无法开始下一轮【{self.task_name(target)}】：\n{start_msg}\n"
+                        f"🛑 押镖/宗门任务代理已暂停，发送 /自动代理 押镖 或 /自动代理 宗门任务 可重新开启。",
+                        user_id,
+                    )
+                    await self._disable_primary(user_id, "start_failed")
+                    return True
+
+                await self._write_state(
+                    user_id, True, row.get("task_type", ""), origin, "", config
                 )
-                await self._disable_primary(user_id, "finish_failed")
-                return True
-
-            # task_type 是“下一轮目标”：玩家可能在本轮进行中主动改绑了活动
-            next_task = row.get("task_type") or current
-            fresh_player = await self.db.get_player_by_id(user_id) or player
-            ok, start_msg = await self.start_activity(fresh_player, next_task)
-            if not ok:
                 await self._notify(
                     origin,
                     f"{finish_msg}\n\n"
-                    f"⚠️ 自动代理无法开始下一轮【{self.task_name(next_task)}】：\n{start_msg}\n"
-                    f"🛑 押镖/宗门任务代理已暂停，发送 /自动代理 押镖 或 /自动代理 宗门任务 可重新开启。",
+                    f"🤖 自动代理：已开始下一轮【{self.task_name(target)}】\n"
+                    f"{start_msg}",
                     user_id,
                 )
-                await self._disable_primary(user_id, "start_failed")
-                return True
+                handled = True
+            return handled
 
-            await self._notify(
-                origin,
-                f"{finish_msg}\n\n"
-                f"🤖 自动代理：已开始下一轮【{self.task_name(next_task)}】\n"
-                f"{start_msg}",
-                user_id,
-            )
-            return True
-
-        if cd_type != UserStatus.IDLE:
-            if not row.get("task_type"):
-                return handled
-            # 玩家进入了闭关/历练等代理不接管的活动：暂停押镖/宗门任务代理
-            keep_text = "、".join(
-                name
-                for name, on in (
-                    ("灵田", farm_on),
-                    ("秘境", bool(rift_cfg.get("enabled"))),
-                    ("施肥", bool(fert_cfg.get("enabled"))),
-                    ("历练", bool(adv_cfg.get("enabled"))),
-                )
-                if on
-            )
-            await self._notify(
-                origin,
-                f"🛑 检测到你进入了{UserStatus.get_name(cd_type)}，"
-                + (
-                    f"押镖/宗门任务代理已暂停，{keep_text}代理继续运行。"
-                    if keep_text
-                    else "自动代理已关闭。发送 /自动代理 押镖 或 /自动代理 宗门任务 可重新开启。"
-                ),
-                user_id,
-            )
-            await self._disable_primary(user_id, "other_busy")
-            return True
-
-        if not cd and self._legacy_busy(player):
-            if not row.get("task_type"):
-                return handled
+        if self._legacy_busy(player) and await self.db.ext.busy_slot_count(user_id) <= 0:
             # 兼容旧数据：user_cd 未建立但 players.state 仍显示忙碌
-            keep_text = "、".join(
-                name
-                for name, on in (
-                    ("灵田", farm_on),
-                    ("秘境", bool(rift_cfg.get("enabled"))),
-                    ("施肥", bool(fert_cfg.get("enabled"))),
-                    ("历练", bool(adv_cfg.get("enabled"))),
-                )
-                if on
-            )
+            # （多槽位下 players.state 由槽位推算，必须确认账本里真的一条都没有）
+            if not row.get("task_type"):
+                return handled
             await self._notify(
                 origin,
-                f"🛑 检测到你进入了{player.state}，"
+                f"🛑 检测到你进入了{getattr(player, 'state', '') or '忙碌'}，"
                 + (
                     f"押镖/宗门任务代理已暂停，{keep_text}代理继续运行。"
                     if keep_text
@@ -2452,8 +2551,25 @@ class AutoProxyManager:
         if not task_type:
             return handled
 
+        # 分身都在别的活动里（闭关/历练/秘境…）：等一个槽位，别关代理
+        if await self._free_slots(user_id, player) <= 0:
+            if row.get("last_error") != "wait_slot":
+                await self._write_state(user_id, True, task_type, origin, "wait_slot", config)
+                names = await self.db.ext.busy_activity_names(user_id)
+                await self._notify(
+                    origin,
+                    f"⏳ 分身都在忙（{'、'.join(names) or '其它活动'}），"
+                    f"【{self.task_name(task_type)}】代理会等一个槽位空出来后继续。",
+                    user_id,
+                )
+                return True
+            return handled
+
         ok, start_msg = await self.start_activity(player, task_type)
         if not ok:
+            if "分身都出去了" in (start_msg or ""):
+                # 竞态：刚好被别人占了最后一个槽位，下一轮再试
+                return handled
             await self._notify(
                 origin,
                 f"⚠️ 自动代理无法开始【{self.task_name(task_type)}】：\n{start_msg}\n"
@@ -2463,6 +2579,7 @@ class AutoProxyManager:
             await self._disable_primary(user_id, "start_failed")
             return True
 
+        await self._write_state(user_id, True, task_type, origin, "", config)
         await self._notify(
             origin,
             f"🤖 自动代理：已开始新一轮【{self.task_name(task_type)}】\n{start_msg}",
