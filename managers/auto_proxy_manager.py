@@ -364,6 +364,7 @@ class AutoProxyManager:
         if not int(adv.get("close_until") or 0):
             return ""
         try:
+            # 只认代理自己起的那次闭关；本体/别的分身可能正在做别的事
             cd = await self.db.ext.get_active_cd(user_id, UserStatus.CULTIVATING)
             if cd is None:
                 return ""
@@ -1545,7 +1546,8 @@ class AutoProxyManager:
             f"奇遇：{enc_text}{rift_note}"
         )
 
-        # 只看历练/闭关对应的槽位：本体在押镖、分身在秘境时不该误判
+        # 精确定位历练/闭关对应的槽位：本体在闭关 + 分身在历练时，
+        # first_busy_cd 只会返回 slot 最小的那条，容易误判
         try:
             adv_cd = await self.db.ext.get_active_cd(user_id, UserStatus.ADVENTURING)
             cult_cd = await self.db.ext.get_active_cd(user_id, UserStatus.CULTIVATING)
@@ -1560,9 +1562,18 @@ class AutoProxyManager:
 
         changed, msg, dirty = await self._run_adventure_cycle(user_id, player, config, origin)
         if changed or dirty:
-            # 把本轮产生的 note（wait_slot / injured / wait_cd …）一并落库，
-            # 否则后台每轮都会把同一句提示再推一遍。
-            await self._write_state(user_id, True, "", origin, "", config)
+            # 把本轮产生的 note（wait_slot / injured / wait_cd …）与
+            # last_route 一并落库：否则后台每轮都会把同一句提示再推一遍，
+            # 双线也会因为内存里的 last_route 丢失而一直走主路线。
+            # enabled 按「是否还有其它代理在跑」计算，避免误关灵田/秘境代理。
+            await self._write_state(
+                user_id,
+                self._any_proxy_active("", config),
+                "",
+                origin,
+                "",
+                config,
+            )
         if msg:
             header += f"\n━━━━━━━━━━━━━━━\n{msg}"
         else:
@@ -1635,18 +1646,18 @@ class AutoProxyManager:
             )
         now = int(time.time())
         fresh = await self.db.get_player_by_id(user_id) or player
-        from ..core.avatar_rules import ensure_free_slot, total_slots
+        from ..core.avatar_rules import total_slots
 
-        ok_slot, slot_hint = await ensure_free_slot(self.db, fresh, user_id)
-        if not ok_slot:
-            return False, slot_hint
-
-        started, slot, reason = await self.db.ext.start_activity(
+        # 先抢槽位再改玩家状态：槽位满了还写「修炼中」会留下脏状态，
+        # 之后 /出关 之类的指令会以为人真的在闭关。
+        started, _slot, why = await self.db.ext.start_activity(
             user_id, UserStatus.CULTIVATING, 0, max_slots=total_slots(fresh)
         )
-        if not started and reason != "already_running":
-            return False, f"⚠️ 自动闭关未能开始（{reason}）。"
-
+        if not started and why != "already_running":
+            return False, (
+                "⚠️ 没有空闲分身可以闭关，历练代理会等路线休整结束再出发。\n"
+                + ("💡 结束一项活动腾个槽位即可。\n" if why == "no_free_slot" else "")
+            )
         fresh.state = "修炼中"
         fresh.cultivation_start_time = now
         await self.db.update_player(fresh)
@@ -1767,13 +1778,14 @@ class AutoProxyManager:
             dirty = True
             messages.append(enc_msg)
 
-        # 只看「历练」那一槽：本体在秘境 / 分身在押镖时，不能因为
-        # first_busy_cd 读到别的活动就误判成「已在历练」或「别的活动在跑」。
+        # 只看「历练」那一槽：本体在秘境 / 分身在押镖、闭关时，不能因为
+        # first_busy_cd（谁都行、取 slot 最小的那条）读到别的活动就误判成
+        # 「已在历练」或「这个号忙」。
         try:
-            adv_cd = await self.db.ext.get_active_cd(user_id, UserStatus.ADVENTURING)
+            own_cd = await self.db.ext.get_active_cd(user_id, UserStatus.ADVENTURING)
         except Exception:
-            adv_cd = None
-        if adv_cd is not None:
+            own_cd = None
+        if own_cd is not None:
             return enc_changed, "\n".join(messages), dirty
 
         prefix = ""
@@ -1783,13 +1795,12 @@ class AutoProxyManager:
                 cult_cd = await self.db.ext.get_active_cd(user_id, UserStatus.CULTIVATING)
             except Exception:
                 cult_cd = None
+            if cult_cd is not None and now < close_until:
+                return enc_changed, "\n".join(messages), dirty
             if cult_cd is not None:
-                if now < close_until:
-                    # 代理自己安排的闭关还没到点，静默等
-                    return enc_changed, "\n".join(messages), dirty
                 _ok, cult_msg = await self._settle_adv_seclusion(user_id)
                 prefix = cult_msg
-            # 到这里说明：闭关已结算，或玩家已手动出关（残留标记）
+            # 闭关已被玩家手动结束、或当初就没闭上：清掉标记继续出发
             adv["close_until"] = 0
             adv["close_route"] = ""
             dirty = True
@@ -1867,11 +1878,29 @@ class AutoProxyManager:
             # 分身都出去了：等一个槽位，别把「没空位」当成配置错误关代理
             if adv.get("note") != "wait_slot":
                 adv["note"] = "wait_slot"
-                names = await self.db.ext.busy_activity_names(user_id)
-                message = (
-                    f"⏳ 分身都在忙（{'、'.join(names) or '其它活动'}），"
-                    "历练代理会等一个槽位空出来后继续。"
-                )
+                try:
+                    names = await self.db.ext.busy_activity_names(user_id)
+                except Exception:
+                    names = []
+                total = 1
+                try:
+                    from ..core.avatar_rules import total_slots
+
+                    total = total_slots(fresh)
+                except Exception:
+                    pass
+                if total <= 1 and names:
+                    # 单槽玩家：多半是自己正在闭关，出关后自动接上
+                    message = (
+                        f"⏳ 分身都在忙（{len(names)}/{total} 在忙：{names[0]}），"
+                        f"你当前正{names[0]}，结束后会自动开始历练。"
+                    )
+                else:
+                    message = (
+                        f"⏳ 分身都出去了（{len(names)}/{total} 在忙："
+                        f"{'、'.join(names) or '其它活动'}），历练代理等一个空位再出发。\n"
+                        "💡 结束其它活动或出关后会自动继续。"
+                    )
                 if prefix:
                     message = f"{prefix}\n\n{message}"
                 if messages:
@@ -1883,8 +1912,9 @@ class AutoProxyManager:
             user_id, route_key, umo=origin
         )
         if not ok:
-            # CD 竞态：不改配置，下轮重试
-            if "休整" in str(start_msg):
+            # CD 竞态 / 分身刚被别人占掉：都不是配置问题，下轮重试即可
+            text = str(start_msg)
+            if "休整" in text or "分身" in text or "槽位" in text:
                 return enc_changed, "\n".join(messages), dirty
             adv["enabled"] = False
             adv["note"] = "start_failed"

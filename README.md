@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v7.9.20 (物品网格化 + 详情抽屉数量 + 修复仙缘兑换死锁)
+# AstrBot 插件：模拟修仙 v7.9.21 (历练代理按槽位续接 + 多分身连带漏洞全修)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v7.9.20-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v7.9.21-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.45.17 · **游戏版本:** v7.9.20 · **数据库:** v62
+> **插件版本:** v3.45.18 · **游戏版本:** v7.9.21 · **数据库:** v62
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，257 条注册指令（网页指令目录 245 个功能按钮 + 12 个别名）、17 个大系统、111 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,24 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · 插件 v3.45.17（身外化身上线后的连带漏洞：代理多槽位、旧账本、网页面板锁、状态单一写入方）</b></summary>
+<summary><b>本次更新 · 插件 v3.45.18（历练代理按槽位续接 + 多分身连带漏洞全修）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 问题 | `user_cd` 改成 `(user_id, slot)` 复合主键后，历练代理还在用 `first_busy_cd()` 判断「这个号现在忙不忙」。本体在闭关、分身在历练时，`first_busy_cd` 只返回 slot 最小那条（闭关），代理于是认定「玩家自己的闭关，不插手」直接返回——这趟历练走完就静默停在原地，双线的另一条再也不开。 |
+| 只认自己那条 | 改用 `get_active_cd(user_id, ADVENTURING)` 精确定位历练槽位；代理触发的自动闭关同样按 `CULTIVATING` 精确判断。别的分身（甚至本体）在做什么都不再影响历练续接。 |
+| 有空位就出发 | 出发前先检查空闲槽位：还有空闲分身就继续；一个都没有才提示「分身都出去了（N/M 在忙：…）」，等下一轮轮询——**不关代理**。单槽玩家在闭关时提示「结束后会自动开始历练」。 |
+| 开始失败不误伤 | CD 竞态、分身刚被占走 → 下轮重试；只有真正的配置错误（路线不存在等）才暂停代理。 |
+| 闭关先抢槽 | `_start_adv_seclusion` 先 `start_activity` 抢到槽位再写「修炼中」。原来槽位满时会先把玩家状态改成修炼中、闭关却没真正开始，`/出关` 会以为人在闭关。 |
+| 配置即时落库 | `_enable_adventure` 跑完一轮后原本没有落库，出发时记下的 `last_route`、等槽位的 `note` 只活在内存里，下一轮又从空白配置判断（双线每次都走主路线）。现在 `dirty` 就立刻写回。 |
+| 多分身连带修复 | 代理按活动类型 + 槽位判定；旧【一心二用】`parallel_action` 迁移进【身外化身】`avatar_slots`；网页仙缘面板与聊天端共用玩家锁；`players.state` 统一交给 `_sync_player_state()` 按槽位推算。 |
+| 验证 | 新增 `tests/test_auto_proxy_multi_slot.py`（4 例）与多分身/面板并发等回归测试：本体闭关 + 分身历练 A 走完自动开 B、单槽玩家出关后接上、分身占满只等不关、没空槽时闭关不写脏状态。全量测试通过。 |
+| 版本与数据库 | 插件 **v3.45.18** / 游戏及帮助 **v7.9.21**；无表结构变更，数据库仍为 **v62**。 |
+
+</details>
+
+<details>
+<summary><b>插件 v3.45.17（身外化身上线后的连带漏洞：代理多槽位、旧账本、网页面板锁、状态单一写入方）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |
@@ -58,7 +75,24 @@
 </details>
 
 <details>
-<summary><b>插件 v3.45.16（修复 /仙缘兑换 玩家锁死锁）</b></summary>
+<summary><b>插件 v3.45.16（历练代理：一条走完就停住，双线的另一条永远不开）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 问题 | `user_cd` 改成 `(user_id, slot)` 复合主键后，历练代理还在用 `first_busy_cd()` 判断「这个号现在忙不忙」。本体在闭关、分身在历练时，`first_busy_cd` 只返回 slot 最小那条（闭关），代理于是认定「玩家自己的闭关，不插手」直接返回——这趟历练走完就静默停在原地，双线的另一条再也不开。 |
+| 只认自己那条 | 改用 `get_active_cd(user_id, ADVENTURING)` 精确定位历练槽位；代理触发的自动闭关同样按 `CULTIVATING` 精确判断。别的分身（甚至本体）在做什么都不再影响历练续接。 |
+| 有空位就出发 | 出发前先 `find_free_slot(total_slots(player))`：还有空闲分身就继续；一个都没有才提示「分身都出去了（N/M 在忙：…）」，等下一轮轮询——**不关代理**。单槽玩家在闭关时提示「你当前正闭关，结束后会自动开始历练」。 |
+| 开始失败不误伤 | CD 竞态、分身刚被占走 → 下轮重试；只有真正的配置错误（路线不存在等）才暂停代理。 |
+| 闭关先抢槽 | `_start_adv_seclusion` 先 `start_activity` 抢到槽位再写「修炼中」。原来槽位满时会先把玩家状态改成修炼中、闭关却没真正开始，`/出关` 会以为人在闭关。 |
+| 顺手补的 | `_enable_adventure` 跑完一轮后没有落库，出发时记下的 `last_route`、等槽位的 `note` 只活在内存里，下一轮又从空白配置判断（双线每次都走主路线）。现在 `dirty` 就立刻写回。 |
+
+- **验证**：新增 `tests/test_auto_proxy_multi_slot.py`（4 例）——本体闭关 + 分身历练，A 走完自动开 B；单槽玩家闭关时保留代理、出关后接上；分身占满只等不关；没空槽时闭关不写脏状态。代理相关 75 项、全量 **1513 项通过（3 skipped）**。
+- **版本与数据库**：插件 **v3.45.16** / 游戏及帮助 **v7.9.20**；无表结构变更，数据库仍为 **v62**。
+
+</details>
+
+<details>
+<summary><b>插件 v3.45.12（修复 /仙缘兑换 玩家锁死锁）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |
@@ -67,7 +101,7 @@
 | 修复 | 去掉 `main.handle_fate_exchange` 上的 `@with_player_lock`，只保留内层 `@player_required`——锁仍只加一次，贷款/忙碌校验与原来一致。 |
 | 防回归 | 新增 `tests/test_player_lock_no_deadlock.py`：① 断言 `/仙缘兑换` 入口不得再叠加玩家锁；② 静态扫描 `main.py` 中所有 `@with_player_lock` 入口，禁止再调用带 `@player_required` 的 handler（重名方法跳过，避免误报）。 |
 | 受影响玩家 | 无需改库：死锁只占内存锁、不写数据，重启后锁随进程释放，玩家指令与看板立即恢复。 |
-| 版本与数据库 | 插件 **v3.45.16** / 游戏及帮助 **v7.9.20**；无表结构变更，数据库仍为 **v62**。 |
+| 版本与数据库 | 插件 **v3.45.12** / 游戏及帮助 **v7.9.20**；无表结构变更，数据库仍为 **v62**。 |
 
 </details>
 
