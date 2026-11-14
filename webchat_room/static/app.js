@@ -3538,8 +3538,11 @@
 
   /** 数量上限：后端给了 max 就用，没给按材料/工费自己算；null = 算不出来（不限） */
   function entryMaxQty(entry) {
+    // 后端给 max=null 表示不限量；老卡片/坏数据里可能出现 "" 或非数字字符串，
+    // 一律当成「没给上限」，不能让它变成 0——那会把常驻商品标成「材料不足」。
     if (entry.max !== null && entry.max !== undefined && entry.max !== "") {
-      return Math.max(0, Math.floor(Number(entry.max) || 0));
+      const n = Number(entry.max);
+      if (Number.isFinite(n)) return Math.max(0, Math.floor(n));
     }
     let cap = Infinity;
     for (const m of entry.materials || []) {
@@ -3901,10 +3904,13 @@
     };
     const facetBox = facetDefs();
 
-    // 配方书/器阁这类「我要现在能做什么」的卡片，默认落在第一个有可做条目的档；
-    // 但后端显式声明了 sec.facet 的长清单（丹药背包/宗门/仙缘/称号/坊市/黑市）
-    // 是「我有什么」，默认必须给全量 —— 落到凡品会让宗门商店 5 件只显示 2 件。
-    let curRank = withRankBar && !sec.facet ? fallbackRank : "*";
+    // 配方书/符箓书这类「我现在能做什么」的卡片，默认落在第一个有可做条目的档；
+    // 但货架和长清单是「这里有什么」，默认必须给全量——
+    // 落到单一档位时，丹阁 10 张丹方只画得出 1 张、宗门商店 5 件只显示 2 件。
+    // 判据不靠猜：后端对货架显式写 sec.defaultRank = "*"，
+    // 对长清单显式给 sec.facet（丹药背包/宗门/仙缘/称号/坊市/黑市）。
+    let curRank =
+      sec.defaultRank === "*" || sec.facet || !withRankBar ? "*" : fallbackRank;
     let curFacet = "全部";
     let limit = GRID_PAGE;
 

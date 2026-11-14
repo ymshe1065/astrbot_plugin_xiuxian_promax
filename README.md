@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.45.23 · **游戏版本:** v7.9.20 · **数据库:** v62
+> **插件版本:** v3.45.24 · **游戏版本:** v7.9.20 · **数据库:** v62
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，257 条注册指令（网页指令目录 245 个功能按钮 + 12 个别名）、17 个大系统、111 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,23 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · 插件 v3.45.23（丹阁丹方：买之前看不出这炉丹炼出来干什么）</b></summary>
+<summary><b>本次更新 · 插件 v3.45.24（服务真起、页面敲 /丹阁 丹方：10 张只画出 1 张）</b></summary>
+
+| 项 | 内容 |
+| --- | --- |
+| 怎么发现的 | v3.45.23 的验收打的是 `/丹阁`（丹药），不是 `/丹阁 丹方`。新写 `tests/_manual_real_pavilion.py`，把 `resolve()` 出来的分区参数一起传给 main.py 的真实方法，才真正打出带分区的命令。 |
+| 现象一 | 后端给了 10 张丹方，页面汇总「黄品 · 1 条」只画 1 格。品阶条第 `curRank = withRankBar && !sec.facet ? fallbackRank : "*"`——「默认落在第一个可做档」是配方书的语义，丹方货架没有 `facet`（品阶靠品阶条切），被当成配方书处理了。 |
+| 修复一 | 货架显式声明 `sec.defaultRank = "*"`，前端 `sec.defaultRank === "*" \|\| sec.facet \|\| !withRankBar ? "*" : fallbackRank`。声明要过三道关：`_pavilion_card` 构造 → `_section_payload` 序列化 → `card_sidecar` 反序列化，少一道就退回老行为（facet 当年就栽在后两道）。 |
+| 现象二 | `/丹阁 突破丹方` 26 张全不限量，详情抽屉的数量行标红「材料不足」。`max: None`（前端约定 null = 不算上限）被 `_section_payload` 的取值白名单落成字符串 `"None"`，前端 `Number("None")` = NaN、`\|\| 0` 一兜成 0。 |
+| 修复二 | `_section_payload` 保留 `None` 为 JSON `null`；`entryMaxQty` 只在 `Number.isFinite` 时认 `max`，非数字当「没给上限」（防守老 sidecar 里的 `"None"` 残留）。 |
+| 实测 | `/丹阁 丹方` 10/10、`/丹阁 突破丹方` 26/26、`/丹阁 丹药` 20/20、`/符阁 符图` 13/13、`/器阁` 40/40、`/百宝阁` 12/12，页面汇总与后端条目数逐条对齐，页面错误 0。 |
+
+- **验收**：`test_web_card_no_bitmap`（+3 例：defaultRank 往返、不凭空造字段、null 保持 null）、`test_pavilion_recipe_effect`（+3 例：三处透传的守卫）；真实链路脚本 `tests/_manual_real_pavilion.py`。
+- **版本**：插件 **v3.45.24** / 游戏 v7.9.20；无表结构变更，数据库仍为 **v62**。
+</details>
+
+<details>
+<summary><b>插件 v3.45.23（丹阁丹方：买之前看不出这炉丹炼出来干什么）</b></summary>
 
 | 项 | 内容 |
 | --- | --- |

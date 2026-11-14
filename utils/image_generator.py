@@ -110,7 +110,13 @@ def _section_payload(sec: Dict) -> Dict:
         # 注意不能叫 items——分区级 items 是「文本提升成条目」的另一套结构
         "entries": [
             {
-                str(k): (v if isinstance(v, (str, int, float, bool, list)) else str(v))
+                str(k): (
+                    # null 要原样保留：max=null 表示「不限量」，前端据此不出数量上限。
+                    # 以前 None 落到 str(None)="None"，前端 Number("None")=NaN→0，
+                    # 常驻丹方于是被标成「材料不足」。
+                    v if v is None or isinstance(v, (str, int, float, bool, list))
+                    else str(v)
+                )
                 for k, v in it.items()
             }
             for it in (sec.get("entries") or [])
@@ -122,6 +128,10 @@ def _section_payload(sec: Dict) -> Dict:
     facet = sec.get("facet")
     if isinstance(facet, dict) and facet:
         section["facet"] = {str(k): v for k, v in facet.items()}
+    # 默认视角：货架写 "*" 表示「先看全量」，不写给前端按第一条可做档位落。
+    # 这里和 card_sidecar 都要透传，任一处漏掉，丹阁 10 张丹方就只剩 1 张。
+    if sec.get("defaultRank") == "*":
+        section["defaultRank"] = "*"
     return section
 
 

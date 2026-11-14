@@ -455,7 +455,10 @@ class ShopHandler:
                 [item for _, group in groups for item in group] if groups else items
             )
             web_sections = (
-                [{"name": "在售清单", "view": "grid", "lines": [], "entries": entries}]
+                # defaultRank="*"：货架默认给全量。品阶条是筛选器，不是默认视角——
+                # 少了这一条，丹阁 10 张丹方会被默认落到黄品档，页面只画 1 张。
+                [{"name": "在售清单", "view": "grid", "lines": [],
+                  "entries": entries, "defaultRank": "*"}]
                 if entries
                 else None
             )

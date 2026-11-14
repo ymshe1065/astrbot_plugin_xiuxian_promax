@@ -134,5 +134,30 @@ class TestPavilionRecipeEffect(unittest.TestCase):
                     self.assertIsNone(cjk_slash.search(line), f"效果行含假指令：{line}")
 
 
+class TestShopShelfDefaultsToFullGrid(unittest.TestCase):
+    """货架默认必须给全量，不能落成品阶条的第一档。
+
+    品阶条那套「默认落在第一个可做档」是配方书的语义（我现在能做什么）；
+    货架是「这里有什么」，落到单一档位会让 10 张丹方只画得出 1 张。
+    这是真实页面（room_server + Chromium）跑出来的问题，单测此前没覆盖到。
+    """
+
+    def test_shop_web_section_declares_default_rank(self):
+        src = (ROOT / "handlers/shop_handler.py").read_text(encoding="utf-8")
+        idx = src.index("def _pavilion_card")
+        body = src[idx: idx + 3000]
+        self.assertIn('"defaultRank": "*"', body)
+
+    def test_frontend_honours_default_rank(self):
+        src = (ROOT / "webchat_room/static/app.js").read_text(encoding="utf-8")
+        self.assertIn('sec.defaultRank === "*"', src)
+        # 仍要保留配方书的默认落档，否则「现在能做什么」那层优化就没了
+        self.assertIn("fallbackRank", src)
+
+    def test_sidecar_passes_default_rank_through(self):
+        src = (ROOT / "webchat_room/card_sidecar.py").read_text(encoding="utf-8")
+        self.assertIn('sec.get("defaultRank") == "*"', src)
+
+
 if __name__ == "__main__":
     unittest.main()

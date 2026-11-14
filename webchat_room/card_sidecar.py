@@ -258,6 +258,10 @@ def load_card_for_image(path: str | None) -> dict[str, Any] | None:
         facet = sec.get("facet")
         if isinstance(facet, dict) and facet:
             section["facet"] = facet
+        # 默认视角也得原样透传：货架写了 "*"（默认给全量），
+        # 丢了它就退回「第一个有可做条目的档」，10 张丹方只剩 1 张。
+        if sec.get("defaultRank") == "*":
+            section["defaultRank"] = "*"
         # 网格视图自己负责排版，不要再用「文本提升条目」那套覆盖它
         if view != "grid":
             _promote_lines_to_items(section)

@@ -112,6 +112,66 @@ class TestWebCardNoBitmap(unittest.TestCase):
         self.assertEqual(card["sections"][0]["facet"],
                          {"label": "收集", "okLabel": "已收集"})
 
+    def test_sidecar_keeps_default_rank(self):
+        """货架的「默认看全量」声明必须过 sidecar。
+
+        丹方货架没有 facet（品阶靠品阶条切），如果不显式声明 defaultRank，
+        前端就按配方书那套「默认落在第一个可做档」处理，10 张丹方只剩 1 张。
+        """
+        sections = [{
+            "name": "在售清单",
+            "view": "grid",
+            "defaultRank": "*",
+            "entries": [{"name": "《筑基丹方》", "rank": "灵品", "state": ""}],
+        }]
+        token = self.img.set_render_bitmap(False)
+        try:
+            path = self.img.render_card("shop", "丹方阁 · 今日货架", "共 1 种在售",
+                                        sections, "", 1000)
+        finally:
+            self.img.reset_render_bitmap(token)
+
+        card = self.sidecar.load_card_for_image(path)
+        self.assertIsNotNone(card)
+        self.assertEqual(card["sections"][0]["defaultRank"], "*")
+
+    def test_sidecar_does_not_invent_default_rank(self):
+        """没写的分区不能凭空多一档默认视角。"""
+        sections = [{"name": "已学丹方", "view": "grid", "defaultRank": "凡品",
+                     "entries": [{"name": "回春散", "rank": "凡品"}]}]
+        token = self.img.set_render_bitmap(False)
+        try:
+            path = self.img.render_card("craft", "丹方", "", sections, "", 1000)
+        finally:
+            self.img.reset_render_bitmap(token)
+
+        card = self.sidecar.load_card_for_image(path)
+        self.assertNotIn("defaultRank", card["sections"][0])
+
+    def test_sidecar_keeps_none_as_null(self):
+        """max=None 表示「不限量」，不能被序列化成字符串 "None"。
+
+        前端拿 Number("None") 得 NaN、`|| 0` 一兜就成 0，
+        于是常驻丹方被标红「材料不足」，明明库存不限量。
+        """
+        sections = [{
+            "name": "在售清单",
+            "view": "grid",
+            "defaultRank": "*",
+            "entries": [{"name": "《筑基丹方》", "rank": "灵品", "unlimited": True,
+                         "max": None, "source": "shop"}],
+        }]
+        token = self.img.set_render_bitmap(False)
+        try:
+            path = self.img.render_card("shop", "突破丹方", "", sections, "", 1000)
+        finally:
+            self.img.reset_render_bitmap(token)
+
+        raw = json.loads(Path(path).with_suffix(".json").read_text(encoding="utf-8"))
+        self.assertIsNone(raw["sections"][0]["entries"][0]["max"])
+        card = self.sidecar.load_card_for_image(path)
+        self.assertIsNone(card["sections"][0]["entries"][0]["max"])
+
     def test_sidecar_does_not_invent_facet(self):
         """没声明 facet 的老卡片不能凭空多出一个字段，否则前端会以为它要筛选条。"""
         sections = [{
