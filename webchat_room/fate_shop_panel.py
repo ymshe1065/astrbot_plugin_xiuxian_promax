@@ -69,6 +69,7 @@ async def fate_shop_snapshot(plugin: "XiuXianPlugin", user_id: str) -> dict[str,
                 continue
             owned = item_owned(bonus, item_id)
             cap = int(item.get("cap") or 0)
+            maxed = bool(cap and owned >= cap)
             price = shop_price(item_id, owned)
             items.append(
                 {
@@ -79,8 +80,9 @@ async def fate_shop_snapshot(plugin: "XiuXianPlugin", user_id: str) -> dict[str,
                     "unit": item.get("unit", ""),
                     "owned": owned,
                     "cap": cap,
-                    "maxed": bool(cap and owned >= cap),
-                    "affordable": bool(price) and points >= int(price),
+                    "maxed": maxed,
+                    # 已满的项即使点数够也不能买，价格栏置灰靠 maxed，这里别把它标成「买得起」
+                    "affordable": (not maxed) and bool(price) and points >= int(price),
                 }
             )
         if items:

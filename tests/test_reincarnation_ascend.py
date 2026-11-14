@@ -168,10 +168,10 @@ class TestFateShopCatalog(unittest.TestCase):
         expected = {
             1: ("修炼加速", 100),
             2: ("转世资粮", 40),
-            3: ("道基淬炼", 100),
+            3: ("道基淬炼", 50),
             4: ("灵根洗炼", 25),
-            5: ("破境感悟", 80),
-            6: ("历练心得", 110),
+            5: ("破境感悟", 30),
+            6: ("历练心得", 60),
             7: ("采药心得", 30),
             8: ("寻宝直觉", 40),
         }
@@ -196,7 +196,7 @@ class TestFateShopCatalog(unittest.TestCase):
 
     def test_numeric_items_are_uncapped(self):
         """数值型商品一律 cap=0（无上限），只有结构性解锁才留硬顶。"""
-        structural = {26, 31, 32, 39, 43, 44, 46, 48, 49, 50, 51, 52}
+        structural = {11, 26, 31, 32, 39, 43, 44, 46, 48, 49, 50, 51, 52}
         for item_id, item in rules.SHOP_ITEMS.items():
             if item_id in structural:
                 self.assertGreater(item["cap"], 0, f"【{item['name']}】应保留硬顶")
@@ -271,7 +271,7 @@ class TestFateShop(unittest.IsolatedAsyncioTestCase):
         player.mental_power = 1000
         ok, msg = await mgr.buy_fate_shop_item(player, 3)
         self.assertTrue(ok, msg)
-        self.assertEqual(player.fate_points, 500)
+        self.assertEqual(player.fate_points, 550)  # 道基淬炼 50 点/层
         data = json.loads(player.permanent_bonus)
         self.assertEqual(data["dao_gift_times"], 1)
         self.assertEqual(player.mental_power, 1050)

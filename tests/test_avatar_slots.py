@@ -114,7 +114,7 @@ class TestAvatarCatalog(unittest.TestCase):
         self.assertEqual(self.rules.shop_price(52, 1), 120)
         self.assertEqual(self.rules.shop_price(52, 3), 480)
         self.assertEqual(self.rules.shop_price(52, 4), 0)  # 已满
-        self.assertEqual(self.rules.shop_price(35, 3), 40)  # 其它商品固定价
+        self.assertEqual(self.rules.shop_price(35, 3), 25)  # 其它商品固定价
 
     def test_item_52_in_shoppanel(self):
         item = self.rules.SHOP_ITEMS[52]
