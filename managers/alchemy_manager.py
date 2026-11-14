@@ -16,6 +16,7 @@ from ..core.talisman_rules import (
     TRIBULATION_DEMAND, TRIBULATION_RATE, pill_rank_of, rank_from_level,
 )
 from ..core.active_effects import format_duration
+from ..pill_effect_text import describe_pill_effect, quality_caps
 
 if TYPE_CHECKING:
     from ..config_manager import ConfigManager
@@ -115,37 +116,24 @@ class AlchemyManager:
     def _generate_pill_desc(self, pill_config: Dict) -> str:
         """产出丹药的效果一句话，数值给到品质提升后的上界。
 
+        文案统一交给 pill_effect_text.describe_pill_effect 生成，和 /丹药背包、
+        /丹药配方 用的是同一套说法，避免同一颗丹在不同界面三种写法。
         品质倍率（一般 1.0 / 极佳 1.35 / 大师 1.6）只作用于数值型效果，
-        所以直接写成区间——玩家只有看见「一般 500、大师 800」，
+        所以直接写成区间——玩家只有看见「一般 10%、大师 16%」，
         「猛火博品质」这个选择才存在。区间上界取自 pill_quality.json，不硬编码。
+        数据层确实没写效果时返回空串，由 _normalize_recipe 落成 DESC_MISSING，
+        让界面显式说「未录入」。
         """
-        rank = pill_config.get("rank", "")
-        gain_cap = self._quality_cap("effect_multiplier")
-        break_cap = self._quality_cap("breakthrough_multiplier")
-
-        def span(value: float, cap: float, percent: bool = False) -> str:
-            high = value * cap
-            if percent:
-                return f"{value:.0f}%~{high:.0f}%"
-            return f"{int(round(value))}~{int(round(high))}"
-
-        if pill_config.get("exp_gain"):
-            return f"增加 {span(float(pill_config['exp_gain']), gain_cap)} 修为（{rank}修为丹）"
-        if pill_config.get("breakthrough_bonus"):
-            bonus = float(pill_config["breakthrough_bonus"]) * 100
-            return f"提升 {span(bonus, break_cap, True)} 突破成功率（{rank}破境丹）"
-        if pill_config.get("restore_hp_percent"):
-            pct = float(pill_config["restore_hp_percent"]) * 100
-            return f"恢复 {span(pct, gain_cap, True)} 最大气血"
-        if pill_config.get("restore_qi_percent"):
-            pct = float(pill_config["restore_qi_percent"]) * 100
-            return f"恢复 {span(pct, gain_cap, True)} 最大灵气"
-        desc = str(pill_config.get("description") or "").strip()
-        if desc and not self._GENERIC_DESC_RE.search(desc):
-            return desc
-        # 走到这里说明数据层就没写效果（443 条丹药只有「这是一件X品丹药」）。
-        # 返回空串，由 _normalize_recipe 统一落成 DESC_MISSING，让界面显式说「未录入」。
-        return ""
+        if not isinstance(pill_config, dict):
+            return ""
+        effect_cap, breakthrough_cap = quality_caps(
+            getattr(self.config_manager, "pill_quality_data", None) or {}
+        )
+        return describe_pill_effect(
+            pill_config,
+            effect_cap=effect_cap,
+            breakthrough_cap=breakthrough_cap,
+        )
 
     def _get_pill_config_by_name(self, name: str) -> Optional[Dict]:
         if not self.config_manager:

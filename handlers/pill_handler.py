@@ -11,6 +11,8 @@ from ..core.active_effects import describe_effects, describe_remaining, status_t
 from ..core.realm_rules import format_applicable_realm
 from ..models import Player
 from ..config_manager import ConfigManager
+from ..pill_effect_text import describe_pill_effect, quality_caps
+from ..rank_rules import RANK_NAMES
 from .utils import player_required
 
 CMD_USE_PILL = "服用丹药"
@@ -95,7 +97,133 @@ class PillHandler:
                 "💡 可先发送 /服用丹药 或在 /储物戒 确认丹药状态，并把上面的日志发给服主。"
             )
             return
+        try:
+            entries = self._pill_entries(player)
+        except Exception:
+            # 结构化清单只用于网页格子/图片卡片；失败不能拖垮文本背包
+            logger.exception(
+                "丹药背包结构化清单生成失败 user=%s", getattr(player, "user_id", "?")
+            )
+            entries = []
+        # 网页看板要结构化卡片：物品清单 + 品质/效果字段，直接复用储物戒的格子渲染
+        card_path = await self._render_pill_bag_card(event, player, entries)
+        if card_path:
+            yield event.image_result(card_path)
+            return
         yield event.plain_result(message)
+
+    def _pill_entries(self, player: Player) -> list:
+        """丹药背包结构化清单：同名不同品质各自成条，带品阶与效果文案。"""
+        inventory = player.get_pills_inventory() or {}
+        grouped = {}
+        for key, count in inventory.items():
+            base_name, quality = self.pill_manager.split_pill_key(key)
+            try:
+                amount = int(count)
+            except (TypeError, ValueError):
+                continue
+            if amount <= 0:
+                continue
+            grouped[(base_name, quality)] = grouped.get((base_name, quality), 0) + amount
+
+        if not grouped:
+            return []
+
+        effect_cap, breakthrough_cap = quality_caps(
+            getattr(self.config_manager, "pill_quality_data", {})
+        )
+        quality_order = {
+            name: index for index, name in enumerate(self.pill_manager.QUALITY_ORDER)
+        }
+        rank_order = {name: index for index, name in enumerate(RANK_NAMES)}
+        effects = {}
+        entries = []
+        for (base_name, quality), amount in grouped.items():
+            config = self.pill_manager.get_pill_by_name(base_name) or {}
+            if base_name not in effects:
+                effects[base_name] = describe_pill_effect(
+                    config,
+                    effect_cap=effect_cap,
+                    breakthrough_cap=breakthrough_cap,
+                )
+            effect = effects[base_name] or "⚠️ 效果未录入"
+            rank = str(config.get("rank") or "未知")
+            entries.append({
+                "name": base_name,
+                "kind": "丹药",
+                "sub": self._get_subtype_display(str(config.get("subtype") or "")),
+                "rank": rank,
+                "quality": quality,
+                "count": amount,
+                "effect": effect,
+            })
+
+        entries.sort(
+            key=lambda it: (
+                rank_order.get(it["rank"], len(rank_order)),
+                str(it["name"]),
+                quality_order.get(it["quality"], len(quality_order)),
+            )
+        )
+        return entries
+
+    async def _render_pill_bag_card(self, event, player: Player, entries: list):
+        """生成丹药背包卡片（会写 sidecar）；不可用或失败时返回 None。"""
+        if not entries or not hasattr(event, "image_result"):
+            return None
+        try:
+            from ..utils.image_generator import render_card_async, card_enabled
+
+            if not card_enabled("CARD_BAG"):
+                return None
+            display_name = (
+                event.get_sender_name()
+                or getattr(player, "user_name", "")
+                or player.user_id
+                or "道友"
+            )
+            rows = [
+                (
+                    f"[{entry['rank']}] {entry['name']}（{entry['quality']}×{entry['count']}）",
+                    entry["effect"],
+                )
+                for entry in entries
+            ]
+            sections = [{"name": "物品清单", "rows": rows, "entries": entries}]
+            active = [
+                effect
+                for effect in (player.get_active_pill_effects() or [])
+                if isinstance(effect, dict)
+            ]
+            if active:
+                now = int(time.time())
+                sections.append({
+                    "name": "生效中",
+                    "lines": [
+                        f"{status_title(effect)}　{describe_remaining(effect, now)}　{describe_effects(effect)}"
+                        for effect in active
+                    ],
+                })
+            if getattr(player, "has_resurrection_pill", False):
+                res_quality = getattr(player, "resurrection_pill_quality", "一般") or "一般"
+                sections.append({
+                    "name": "回生丹",
+                    "lines": [f"🛡️ 已挂回生丹（{res_quality}），可抵消一次境界跌落"],
+                })
+            total = sum(int(entry["count"]) for entry in entries)
+            return await render_card_async(
+                "bag",
+                f"{display_name} 的丹药背包",
+                f"{len(entries)} 种 · 共 {total} 颗",
+                sections=sections,
+                footer="💡 点击丹药查看效果/服用 · /丹药配方 查看已学丹方",
+                payload_extra={"kind": "pillbag"},
+            )
+        except Exception:
+            logger.exception(
+                "丹药背包卡片生成失败 user=%s", getattr(player, "user_id", "?")
+            )
+            return None
 
     async def _render_pill_bag(self, player: Player) -> str:
         """拼装丹药背包文本；读取失败由调用方兜底提示。"""

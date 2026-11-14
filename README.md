@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v7.9.21 (历练代理按槽位续接 + 多分身连带漏洞全修)
+# AstrBot 插件：模拟修仙 v7.9.22 (网页丹药背包 + 一键挑战 + 快捷服用/使用符箓)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v7.9.21-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v7.9.22-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,10 +31,10 @@
 
 ---
 
-> **插件版本:** v3.45.18 · **游戏版本:** v7.9.21 · **数据库:** v62
+> **插件版本:** v3.45.19 · **游戏版本:** v7.9.22 · **数据库:** v62
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
-一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，257 条注册指令（网页指令目录 245 个功能按钮 + 12 个别名）、17 个大系统、111 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
+一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，258 条注册指令（网页指令目录 246 个功能按钮 + 12 个别名）、17 个大系统、111 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
 
 ---
 
@@ -43,7 +43,23 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · 插件 v3.45.18（历练代理按槽位续接 + 多分身连带漏洞全修）</b></summary>
+<summary><b>本次更新 · 插件 v3.45.19（网页丹药背包 + 一键挑战 + 快捷服用/使用符箓）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 一键挑战 | 新增 `/一键挑战`：按 `/讨伐` → `/挑战世界Boss` → `/挑战团本` 顺序串行执行，避免并发写存档互相覆盖。网页指令页有同名按钮并逐条等待回复、汇总成功/失败条数；聊天端也可直接发送该指令。 |
+| 丹方描述 | 丹方卷轴的物品描述在原有文案后追加成品丹药的效果说明（由 `pill_effect_text.py` 统一生成），玩家在储物戒/商店看丹方时就知道这一炉炼出来能做什么。 |
+| 符箓快捷使用 | 储物戒里的符箓点开菜单会多出「使用」项，自动带入符名并弹出数量确认，不必再手动输入 `/使用符箓`。 |
+| 丹药背包 | 右侧看板新增「丹药背包」页（手机底栏同步加入口），复用储物戒的格子 UI：按品阶排序、显示品阶/品质/持有数与丹药效果，点击可「服用」；顶部提供已学丹方、炼丹、丹阁、升级丹炉等快捷按钮。 |
+| 配方/符箓书网格 | `/丹药配方`、`/符箓书` 列表与百宝阁统一为品阶分页的格子视图，支持点击查看详情与直接操作，不再是长文本清单。 |
+| 效果文案单一来源 | 新增根目录 `pill_effect_text.py`，统一解析顶层数值、老版 `effect` 字典与临时/永久加成，丹方描述、丹药背包、丹药配方三处文案保持一致。 |
+| 验证 | 新增/更新 `tests/test_pill_bag_command.py`、`tests/test_grid_entries_payload.py`、`tests/test_recipe_effect_display.py` 等回归用例，覆盖结构化卡片、网格条目与丹方效果拼接。 |
+| 版本与数据库 | 插件 **v3.45.19** / 游戏及帮助 **v7.9.22**；无表结构变更，数据库仍为 **v62**。 |
+
+</details>
+
+<details>
+<summary><b>插件 v3.45.18（历练代理按槽位续接 + 多分身连带漏洞全修）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |

@@ -87,15 +87,23 @@ class TestPillRecipeEffectDisplay(unittest.IsolatedAsyncioTestCase):
         self.assertRegex(desc, r"\d+%~\d+%")
 
     async def test_unknown_effect_is_explicit_not_blank(self):
-        """443 条丹药在 items.json 里只有「这是一件X品丹药」，必须明说未录入。"""
+        """产出丹药确实没有任何效果数据时，界面必须明说未录入而不是留白。"""
+        # 现网 692 条配方的产出丹都至少带一种效果（老版 effect 字典也算），
+        # 这里用一只不存在的产出丹走 _normalize_recipe 的兜底分支。
+        recipe = self.am._normalize_recipe(9999, {
+            "name": "无效果测试方",
+            "output_pill": "不存在的测试丹",
+        })
+        self.assertEqual(recipe["desc"], self.am.DESC_MISSING)
+
+        # 真实配方走完整列表：占位描述必须被替换，不能把「这是一件」原样端上来。
         self.player.learned_recipes = "[500]"
         await self.db.update_player(self.player)
         ok, msg, _, card_lines, _entries = await self.am.get_available_recipes(self.player.user_id)
         self.assertTrue(ok, msg)
-        self.assertIn("效果未录入", msg)
-        self.assertIn("⚠️", msg)
         self.assertNotIn("这是一件", msg)
-        self.assertTrue(any("效果未录入" in line for line in card_lines))
+        self.assertNotIn(self.am.DESC_MISSING, msg)
+        self.assertTrue(any("气血" in line for line in card_lines))
 
     async def test_learned_recipe_with_effect_is_shown(self):
         self.player.learned_recipes = "[130]"

@@ -2579,9 +2579,7 @@ class XiuXianPlugin(Star):
         async for r in self.daily_task_handlers.handle_claim_reward(event): yield r
 
     # ===== v6.1 动态世界Boss =====
-    @filter.command("挑战世界Boss", "参与全服世界Boss讨伐")
-    @require_whitelist
-    async def handle_challenge_world_boss(self, event: AstrMessageEvent):
+    async def _run_world_boss_challenge(self, event: AstrMessageEvent):
         user_id = event.get_sender_id()
         async for r in self.world_boss_handlers.handle_challenge(event): yield r
         # 挑战成功（真正打出伤害）计入 boss_damage 任务进度
@@ -2597,6 +2595,11 @@ class XiuXianPlugin(Star):
         settle_msg = get_event_flag(event, "world_boss_settle_msg", None)
         if settle_msg:
             await self._broadcast_world_boss_spawn(settle_msg)
+
+    @filter.command("挑战世界Boss", "参与全服世界Boss讨伐")
+    @require_whitelist
+    async def handle_challenge_world_boss(self, event: AstrMessageEvent):
+        async for r in self._run_world_boss_challenge(event): yield r
 
     @filter.command("世界Boss状态", "查看动态世界Boss信息")
     @require_whitelist
@@ -2689,9 +2692,7 @@ class XiuXianPlugin(Star):
         yield event.plain_result(msg)
 
     # ===== v6.29 世界Boss团本 =====
-    @filter.command("挑战团本", "参与全服多阶段团本讨伐")
-    @require_whitelist
-    async def handle_challenge_raid(self, event: AstrMessageEvent):
+    async def _run_raid_challenge(self, event: AstrMessageEvent):
         user_id = event.get_sender_id()
         async for r in self.raid_handlers.handle_challenge(event): yield r
         if get_event_flag(event, "raid_challenge", False):
@@ -2704,6 +2705,34 @@ class XiuXianPlugin(Star):
         broadcast_msg = get_event_flag(event, "raid_broadcast_msg", None)
         if broadcast_msg:
             await self._broadcast_world_boss_spawn(broadcast_msg)
+
+    @filter.command("挑战团本", "参与全服多阶段团本讨伐")
+    @require_whitelist
+    async def handle_challenge_raid(self, event: AstrMessageEvent):
+        async for r in self._run_raid_challenge(event): yield r
+
+    @filter.command("一键挑战", "依次讨伐江湖事件、世界Boss、团本")
+    @require_whitelist
+    async def handle_one_key_challenge(self, event: AstrMessageEvent):
+        """按固定顺序连打三场：讨伐 → 世界Boss → 团本。
+
+        顺序不能并行：三场都会写玩家气血/奖励，并发执行会互相覆盖存档。
+        前一阶段异常只跳过该阶段，后面的仍继续，避免一个空事件拖垮整轮挑战。
+        """
+        stages = (
+            ("讨伐", self._run_battle_event_attack),
+            ("世界Boss", self._run_world_boss_challenge),
+            ("团本", self._run_raid_challenge),
+        )
+        for label, runner in stages:
+            try:
+                async for r in runner(event):
+                    yield r
+            except Exception:
+                logger.exception(
+                    "一键挑战阶段失败：%s user=%s", label, event.get_sender_id()
+                )
+                yield event.plain_result(f"⚠️ {label}阶段异常，已跳过，其余挑战继续。")
 
     @filter.command("团本状态", "查看当前团本阶段与进度")
     @require_whitelist
