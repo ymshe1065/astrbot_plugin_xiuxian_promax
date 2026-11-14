@@ -2886,10 +2886,11 @@ class XiuXianPlugin(Star):
     async def handle_fate_shop(self, event: AstrMessageEvent):
         async for r in self.reinc_handlers.handle_fate_shop(event): yield r
 
-    # ===== 新增：仙缘兑换 =====
+    # 注意：内层 ReincarnationHandlers.handle_fate_exchange 已带 @player_required
+    # （同一把玩家锁 + 贷款/忙碌校验），此处不可再叠 @with_player_lock，
+    # 否则同锁嵌套会永久死锁，把该玩家后续所有指令与网页看板一起卡死。
     @filter.command("仙缘兑换", "购买仙缘商店的永久加成；灵石换点用 /仙缘兑换 灵石 <点数>")
     @require_whitelist
-    @with_player_lock
     async def handle_fate_exchange(self, event: AstrMessageEvent, item_id: str = "0", count: str = "0"):
         async for r in self.reinc_handlers.handle_fate_exchange(event, item_id, count):
             yield r

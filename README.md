@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v7.9.19 (灵田代理自动扩容)
+# AstrBot 插件：模拟修仙 v7.9.20 (修复仙缘兑换死锁)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v7.9.19-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v7.9.20-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.45.11 · **游戏版本:** v7.9.19 · **数据库:** v61
+> **插件版本:** v3.45.12 · **游戏版本:** v7.9.20 · **数据库:** v61
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，257 条注册指令（网页指令目录 245 个功能按钮 + 12 个别名）、17 个大系统、111 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,21 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · 插件 v3.45.11（灵田代理自动扩容）</b></summary>
+<summary><b>本次更新 · 插件 v3.45.12（修复 /仙缘兑换 玩家锁死锁）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 症状 | 玩家发送 `/仙缘兑换 1` 后，该玩家**所有指令再无回复**，网页端「状态」「储物戒」看板一直空白；聊天消息仍可发送，其他玩家完全正常；日志里既没有 ERROR 也没有 Traceback。 |
+| 根因 | `main.py` 的 `/仙缘兑换` 入口同时带了 `@with_player_lock`，而它调用的 `ReincarnationHandlers.handle_fate_exchange` 又带 `@player_required`（内部同样加这把锁）。`get_player_lock()` 返回的是普通 `asyncio.Lock`，**不可重入**：同一任务第二次 `async with` 不会报错，而是永远等自己释放。任务卡死时锁一直被占，该玩家后续每条指令、每个看板请求都排在锁后，于是全部"没反应"。 |
+| 修复 | 去掉 `main.handle_fate_exchange` 上的 `@with_player_lock`，只保留内层 `@player_required`——锁仍只加一次，贷款/忙碌校验与原来一致。 |
+| 防回归 | 新增 `tests/test_player_lock_no_deadlock.py`：① 断言 `/仙缘兑换` 入口不得再叠加玩家锁；② 静态扫描 `main.py` 中所有 `@with_player_lock` 入口，禁止再调用带 `@player_required` 的 handler（重名方法跳过，避免误报）。 |
+| 受影响玩家 | 无需改库：死锁只占内存锁、不写数据，重启后锁随进程释放，玩家指令与看板立即恢复。 |
+| 版本与数据库 | 插件 **v3.45.12** / 游戏及帮助 **v7.9.20**；无表结构变更，数据库仍为 **v61**。 |
+
+</details>
+
+<details>
+<summary><b>插件 v3.45.11（灵田代理自动扩容）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |

@@ -19,7 +19,7 @@ __all__ = ["MiscHandler"]
 class MiscHandler:
     """杂项指令处理器 - 提供帮助信息、一键日常与强制解卡"""
 
-    VERSION = HELP_VERSION  # v7.9.19：仙缘【一心二用】+ 灵田代理自动扩容（数据库 v61）
+    VERSION = HELP_VERSION  # v7.9.20：修复 /仙缘兑换 玩家锁嵌套死锁（数据库 v61）
 
     def __init__(self, db: DataBase, config: dict = None):
         self.db = db
