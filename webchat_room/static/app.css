@@ -2723,6 +2723,36 @@ button.chan-main { cursor: pointer; }
   color: var(--jade); background: rgba(var(--jade-rgb), .16);
   opacity: .95; pointer-events: none;
 }
+/* 长按的回应：按住时盖一层「松手 · 选数量」，底部一条进度走满 550ms 才开详情。
+   光有长按没有反馈，手指压下去界面纹丝不动，玩家只会以为这格子卡了。 */
+.gcell .holdhint {
+  position: absolute; inset: 0; z-index: 2; display: none;
+  align-items: center; justify-content: center;
+  font-size: 10.5px; font-weight: 600; letter-spacing: .2px;
+  color: var(--jade); background: var(--glass-3);
+  pointer-events: none; opacity: 0;
+}
+.gcell.pressing .holdhint { display: flex; animation: hold-in .12s ease-out .09s both; }
+/* 底下那三行文字要退场：留着就透过覆盖层重影，糊成一片看不清提示 */
+.gcell.pressing > .gn,
+.gcell.pressing > .gm,
+.gcell.pressing > .gc,
+.gcell.pressing > .st,
+.gcell.pressing::after { opacity: 0; }
+.gcell .gn, .gcell .gm, .gcell .gc { transition: opacity .1s; }
+.gcell .holdhint::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
+  background: var(--jade); transform: scaleX(0); transform-origin: left center;
+}
+/* 90ms 延迟 + 460ms 走完 = 550ms，与 app.js 里 pressTimer 的时长对齐：
+   轻点（<90ms）什么都不会显示，按住满 550ms 正好走满并开详情 */
+.gcell.pressing .holdhint::after { animation: hold-grow .46s linear .09s forwards; }
+@keyframes hold-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes hold-grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@media (prefers-reduced-motion: reduce) {
+  .gcell.pressing .holdhint { animation: none; opacity: 1; }
+  .gcell.pressing .holdhint::after { animation: none; transform: scaleX(1); }
+}
 /* 吃完的格子留在原位但淡下去：玩家还要看得见「这个成色已经没了」 */
 .gcell.used { opacity: .5; }
 .gcell.used:hover { transform: none; box-shadow: none; }

@@ -145,6 +145,36 @@ class TestPillBagQuickUse(unittest.TestCase):
         self.assertIn(".gcell.quick::after", self.css)
         self.assertIn(".gcell.used", self.css)
 
+    def test_long_press_has_visible_feedback(self):
+        """长按必须看得见：只有 550ms 的沉默，玩家只会以为格子卡了。"""
+        self.assertIn('class="holdhint"', self.js)
+        self.assertIn("松手 · 选数量", self.js)
+        self.assertIn('cell.classList.add("pressing")', self.js)
+        self.assertIn(".gcell.pressing .holdhint", self.css)
+        # 90ms 延迟 + 460ms 走满 = 550ms，与 app.js 的 pressTimer 对齐
+        self.assertIn("hold-grow .46s linear .09s", self.css)
+        self.assertIn("}, 550);", self.js)
+
+    def test_press_hint_does_not_flash_on_tap(self):
+        """轻点（<90ms）不该闪出覆盖层，所以淡入是延迟起跑的。"""
+        self.assertIn("animation: hold-in .12s ease-out .09s both", self.css)
+        # 底层三行文字在按住时退场，否则会透过覆盖层重影
+        self.assertIn(".gcell.pressing > .gn", self.css)
+
+    def test_press_overlay_removed_before_detail(self):
+        """长按到点先摘掉 pressing 再开详情，遮罩不能压在抽屉底下。"""
+        body = self.js[self.js.index("cell.addEventListener(\"pointerdown\""):]
+        body = body[: body.index("}, 550);")]
+        self.assertIn('cell.classList.remove("pressing")', body)
+        self.assertLess(body.index('cell.classList.remove("pressing")'),
+                        body.index("openDetail()"))
+
+    def test_bag_card_text_mentions_long_press(self):
+        """卡片文案要自己说清「长按多吃」，不能指望玩家摸出来。"""
+        handler = (ROOT / "handlers/pill_handler.py").read_text(encoding="utf-8")
+        self.assertIn("长按多吃", handler)
+        self.assertIn("长按格子选数量", handler)
+
 
 class TestSectShopEntries(unittest.TestCase):
     """宗门商店：价格换成商堂折扣后的贡献，兑换按编号。"""

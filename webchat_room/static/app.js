@@ -3805,6 +3805,10 @@
     cell.style.setProperty("--qd", RANK_COLORS[gridRankOf(entry)] || "#c9bfa9");
     const state = entry.state === "lock" ? "lock" : entry.state === "lack" ? "lack" : "ok";
     const value = entryValue(entry);
+    // 快捷格：单击直接执行（丹药 => 吞一颗），详情改走 ⋯ 菜单 / 长按
+    const quick = !!(entry.quick && entry.state !== "lock");
+    // 长按的正文：服用类说「选数量」，别的快捷动作说不出来就退回「看详情」
+    const holdText = entry.quick === "服用" ? "松手 · 选数量" : "松手 · 看详情";
     cell.innerHTML =
       `<span class="gn">${esc(entry.name)}</span>` +
       `<span class="gm">${esc(entryMeta(entry))}</span>` +
@@ -3813,21 +3817,24 @@
       `</span>` +
       (entry.state ? `<span class="st ${state}"></span>` : "") +
       // 触屏没有 hover，⋯ 既不像「可悬停」暗示、又跟「点开详情」抢热区，干脆不生成
-      (HAS_HOVER ? `<button type="button" class="more" aria-label="更多操作">⋯</button>` : "");
-    // 快捷格：单击直接执行（丹药 => 吞一颗），详情改走 ⋯ 菜单 / 长按
-    const quick = !!(entry.quick && entry.state !== "lock");
+      (HAS_HOVER ? `<button type="button" class="more" aria-label="更多操作">⋯</button>` : "") +
+      // 按住期间的可见回应：手指压下去什么都没有，玩家就以为长按没生效
+      (quick ? `<span class="holdhint" aria-hidden="true">${holdText}</span>` : "");
     if (quick) cell.classList.add("quick");
     cell.title = [entry.name, entry.rank, entry.kind, entry.effect].filter(Boolean).join(" · ") +
-      (quick ? `（点击直接${entry.quick}，长按看详情）` : "");
+      (quick ? `（点击${entry.quick} 1 ${entry.unit || "次"}，长按选数量可一次多${entry.quick}）` : "");
     const openDetail = () => openEntryDetail(entry, { scene });
     let longPressed = false;
     let pressTimer = 0;
     if (quick) {
       cell.addEventListener("pointerdown", () => {
         longPressed = false;
+        // 覆盖层与进度条由 CSS 延迟 90ms 起跑：轻点不会闪一下，满 550ms 开详情
+        cell.classList.add("pressing");
         pressTimer = setTimeout(() => {
           pressTimer = 0;
           longPressed = true;
+          cell.classList.remove("pressing");
           hideItemTip();
           openDetail();
         }, 550);
@@ -3836,6 +3843,7 @@
         cell.addEventListener(ev, () => {
           clearTimeout(pressTimer);
           pressTimer = 0;
+          cell.classList.remove("pressing");
         })
       );
       // 长按已经开了详情，别让随后的 click 再吞一颗

@@ -81,7 +81,7 @@ FIRST_CELL_JS = """
 """
 
 
-async def run(section, no_browser):
+async def run(section, no_browser, mobile=False):
     # 丹阁的四个分区要补前缀；"符阁 符图" / "器阁" / "百宝阁" 这种本身就是完整命令
     sections = {"丹药", "丹方", "突破丹方", "材料"}
     cmd = f"丹阁 {section}" if section in sections else section
@@ -141,6 +141,14 @@ async def run(section, no_browser):
                 print(f"  总数一致: {'✅' if same else '❌'} 页面 {m.group(1)} / 后端 {back.group(1)}",
                       flush=True)
             print("  页面错误:", await c.js("JSON.stringify(window.__errs||[])"))
+            print("  卡片副标题:", await c.js(
+                "(()=>{const cc=document.querySelectorAll('.card');const C=cc[cc.length-1];"
+                "const s=C&&C.querySelector('.card-sub');return s?s.textContent.trim():'-'})()"),
+                flush=True)
+            # 滚到卡片顶部再截：图里要看得见「点格吃 1 颗 · 长按多吃」和脚注
+            await c.js("(()=>{const cc=document.querySelectorAll('.card');const C=cc[cc.length-1];"
+                       "const s=C&&C.querySelector('.card-sub');if(s)s.scrollIntoView({block:'start'});})()")
+            await asyncio.sleep(0.4)
             await c.shot(str(R.OUT / f"recipe_{tag}.png"))
 
             clicked = await c.js(FIRST_CELL_JS)
@@ -167,7 +175,16 @@ async def run(section, no_browser):
                 "if(!e)return 'no-cell';"
                 "e.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerType:'touch'}));"
                 "return 'pointerdown'})()"), flush=True)
-            await asyncio.sleep(0.9)
+            # 按住一半时抓一张：玩家手指压下去必须先看见「松手 · 选数量」
+            await asyncio.sleep(0.3)
+            print("  按住中提示:", await c.js(
+                "(()=>{const e=[...document.querySelectorAll('.gcell')].find(x=>x.offsetParent!==null);"
+                "if(!e)return '-';const h=e.querySelector('.holdhint');"
+                "const vis=h&&getComputedStyle(h).display!=='none';"
+                "return (e.classList.contains('pressing')?'pressing ':'')+(vis?h.textContent.trim():'无提示')})()"),
+                flush=True)
+            await c.shot(str(R.OUT / f"recipe_{tag}_长按中.png"))
+            await asyncio.sleep(0.6)
             print("  长按后详情:", (await c.js(DETAIL_JS) or "-")[:90], flush=True)
             print("  页面错误:", await c.js("JSON.stringify(window.__errs||[])"))
             await c.js("(()=>{const e=[...document.querySelectorAll('.gcell')].find(x=>x.offsetParent!==null);"
@@ -197,6 +214,9 @@ async def run(section, no_browser):
             print("  消息数:", before, "->",
                   await c.js("document.querySelectorAll('.msg-row').length"), flush=True)
             await c.shot(str(R.OUT / f"recipe_{tag}_服用.png"))
+
+            if mobile:
+                await mobile_pass(c, cmd, tag)
     finally:
         proc.terminate()
         await room_server.stop()
@@ -204,8 +224,81 @@ async def run(section, no_browser):
         Path(dbpath).unlink(missing_ok=True)
 
 
+# CDP 的 emulatedMedia 管不住 hover：移动模拟下 matchMedia('(hover: hover)') 仍是 true。
+# HAS_HOVER 是脚本加载时算死的，所以只能在 reload 前把 matchMedia 打桩。
+HOOK_TOUCH_JS = r"""
+(() => {
+  const raw = window.matchMedia.bind(window);
+  window.matchMedia = (q) => {
+    const s = String(q);
+    if (s.includes('hover') || s.includes('pointer')) {
+      return {
+        media: s, matches: false,
+        onchange: null, addListener() {}, removeListener() {},
+        addEventListener() {}, removeEventListener() {}, dispatchEvent() { return false; },
+      };
+    }
+    return raw(q);
+  };
+})();
+"""
+
+
+async def mobile_pass(c, cmd, tag):
+    """手机视口：按住提示在 78px 的窄格里能不能放下、够不够看清。
+
+    切「触屏能力」必须重载：HAS_HOVER 是脚本加载时算死的，不重载走的还是鼠标分支。
+    """
+    await c.cmd("Emulation.setDeviceMetricsOverride", width=390, height=844,
+                deviceScaleFactor=2, mobile=True)
+    await c.cmd("Emulation.setEmulatedMedia", media="", features=[
+        {"name": "hover", "value": "none"},
+        {"name": "pointer", "value": "coarse"},
+    ])
+    await c.cmd("Page.addScriptToEvaluateOnNewDocument", source=HOOK_TOUCH_JS)
+    await c.cmd("Page.reload")
+    await asyncio.sleep(3.4)
+    print("  触屏能力:", await c.js(
+        "JSON.stringify({hover:matchMedia('(hover: hover)').matches,"
+        "coarse:matchMedia('(pointer: coarse)').matches,"
+        "cards:document.querySelectorAll('.card').length})"), flush=True)
+    print("  调试:", await c.js(
+        "(()=>{const gs=[...document.querySelectorAll('.gcell')];"
+        "const c=[...document.querySelectorAll('.card')].pop();"
+        "return JSON.stringify({cells:gs.length,"
+        "vis:gs.filter(e=>e.offsetParent!==null).length,"
+        "cardCls:c?c.className:'-',"
+        "cardH:c?Math.round(c.getBoundingClientRect().height):-1,"
+        "inner:gs.length?Math.round(gs[0].getBoundingClientRect().width):-1})})()"), flush=True)
+    if not await c.js("document.querySelectorAll('.card').length"):
+        await c.js(H.SEND_JS % json.dumps(f"/{cmd}"))
+        await asyncio.sleep(2.2)
+    await c.js("(()=>{const e=[...document.querySelectorAll('.gcell')].find(x=>x.offsetParent!==null);"
+               "if(e)e.scrollIntoView({block:'center'})})()")
+    await asyncio.sleep(0.5)
+    print("  手机格子:", await c.js(
+        "(()=>{const e=[...document.querySelectorAll('.gcell')].find(x=>x.offsetParent!==null);"
+        "if(!e)return '-';const r=e.getBoundingClientRect();"
+        "return Math.round(r.width)+'x'+Math.round(r.height)})()"), flush=True)
+    await c.js("(()=>{const e=[...document.querySelectorAll('.gcell')].find(x=>x.offsetParent!==null);"
+               "if(e)e.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerType:'touch'}))})()")
+    await asyncio.sleep(0.3)
+    print("  手机按住提示:", await c.js(
+        "(()=>{const e=[...document.querySelectorAll('.gcell')].find(x=>x.offsetParent!==null);"
+        "if(!e)return '-';const h=e.querySelector('.holdhint');"
+        "if(!h||getComputedStyle(h).display==='none')return '无提示';"
+        "const r=h.getBoundingClientRect();"
+        "return h.textContent.trim()+' / 溢出='+(h.scrollWidth>h.clientWidth+1)"
+        "+' / 高 '+Math.round(r.height)})()"), flush=True)
+    await c.shot(str(R.OUT / f"recipe_{tag}_手机长按.png"))
+    await c.js("(()=>{const e=[...document.querySelectorAll('.gcell')].find(x=>x.offsetParent!==null);"
+               "if(e)e.dispatchEvent(new PointerEvent('pointerup',{bubbles:true}));"
+               "const d=document.querySelector('.ed-drawer.on .ed-close');if(d)d.click()})()")
+
+
 if __name__ == "__main__":
     args = [a for a in sys.argv[1:] if not a.startswith("-")]
     raw = args[0] if args else "丹方"
     # 传 "符阁|符图" 这种带竖线的，就是整条命令；否则默认补「丹阁」前缀
-    asyncio.run(run(raw.replace("|", " "), "--no-browser" in sys.argv))
+    asyncio.run(run(raw.replace("|", " "), "--no-browser" in sys.argv,
+                    "--mobile" in sys.argv))

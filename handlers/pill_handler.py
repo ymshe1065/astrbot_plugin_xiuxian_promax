@@ -121,9 +121,9 @@ class PillHandler:
             return await render_web_card_async(
                 "bag",
                 f"丹药背包 · {len(entries)} 格",
-                f"共 {len(entries)} 种（按品质分开）· 点格子直接服用 1 颗",
+                f"共 {len(entries)} 种（按品质分开）· 点格吃 1 颗 · 长按多吃",
                 sections,
-                "点格即服 1 颗 · 长按格子或 ⋯ 看效果与数量 · /服用丹药",
+                "点格即服 1 颗 · 长按格子选数量 · /服用丹药",
             )
         except Exception:
             logger.exception("丹药背包网格生成失败 user=%s", getattr(player, "user_id", "?"))
