@@ -31,16 +31,23 @@ class FakeEscortManager:
         self.finished = 0
 
     async def start_escort(self, player):
+        from astrbot_plugin_xiuxian_promax.core.avatar_rules import total_slots
+
+        if await self.db.ext.get_active_cd(player.user_id, self.status.DELIVERING) is not None:
+            return False, "❌ 你已经在押镖途中了，先走完这一趟。", {}
         self.started += 1
         await self.db.ext.set_user_busy(
             player.user_id, self.status.DELIVERING, int(time.time()) + 1800,
             {"escort_gold": 100, "escort_exp": 50},
+            max_slots=total_slots(player),
         )
         return True, "escort started", {}
 
     async def finish_escort(self, player):
         self.finished += 1
-        await self.db.ext.set_user_free(player.user_id)
+        await self.db.ext.set_user_free(
+            player.user_id, cd_type=self.status.DELIVERING
+        )
         return True, "escort finished"
 
 
@@ -55,15 +62,21 @@ class FakeSectManager:
     async def perform_sect_task(self, user_id):
         if not self.start_ok:
             return False, "❌ 你还未加入宗门！"
+        if await self.db.ext.get_active_cd(user_id, self.status.SECT_TASK) is not None:
+            return False, "❌ 宗门任务进行中，先完成或放弃当前这一轮。"
+        from astrbot_plugin_xiuxian_promax.core.avatar_rules import total_slots
+
         self.started += 1
+        player = await self.db.get_player_by_id(user_id)
         await self.db.ext.set_user_busy(
-            user_id, self.status.SECT_TASK, int(time.time()) + 3600
+            user_id, self.status.SECT_TASK, int(time.time()) + 3600,
+            max_slots=total_slots(player) if player else 1,
         )
         return True, "sect started"
 
     async def finish_sect_task(self, user_id):
         self.finished += 1
-        await self.db.ext.set_user_free(user_id)
+        await self.db.ext.set_user_free(user_id, cd_type=self.status.SECT_TASK)
         return True, "sect finished"
 
 
@@ -149,7 +162,7 @@ class TestAutoProxy(unittest.IsolatedAsyncioTestCase):
         row = await self.db.ext.get_auto_proxy("u1")
         self.assertEqual(row["enabled"], 0)
 
-    async def test_other_busy_state_closes_proxy(self):
+    async def test_other_busy_state_waits_instead_of_closing(self):
         ok, _ = await self.manager.enable("u1", "umo://group", "押镖")
         self.assertTrue(ok)
         self.assertEqual(self.escort.started, 1)
@@ -159,13 +172,18 @@ class TestAutoProxy(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(await self.manager.process_due(), 1)
         row = await self.db.ext.get_auto_proxy("u1")
-        self.assertEqual(row["enabled"], 0)
+        self.assertEqual(row["enabled"], 1)
+        self.assertEqual(row["last_error"], "wait_slot")
         self.assertEqual(self.escort.started, 1)
-        self.assertIn("自动代理已关闭", self.notices[-1][1])
+        self.assertIn("等一个槽位", self.notices[-1][1])
 
+        # 槽位空出来后自动续接
         await self.db.ext.set_user_free("u1")
-        self.assertEqual(await self.manager.process_due(), 0)
-        self.assertEqual(self.escort.started, 1)
+        self.assertEqual(await self.manager.process_due(), 1)
+        self.assertEqual(self.escort.started, 2)
+        row = await self.db.ext.get_auto_proxy("u1")
+        self.assertEqual(row["enabled"], 1)
+        self.assertEqual(row["last_error"], "")
 
     async def test_external_activity_closes_proxy_immediately(self):
         await self.manager.enable("u1", "umo://group", "押镖")
@@ -182,7 +200,7 @@ class TestAutoProxy(unittest.IsolatedAsyncioTestCase):
         )
         ok, msg = await self.manager.enable("u1", "umo://group", "押镖")
         self.assertFalse(ok)
-        self.assertIn("只能接管押镖/宗门任务", msg)
+        self.assertIn("分身都出去了", msg)
         self.assertIsNone(await self.db.ext.get_auto_proxy("u1"))
 
     async def test_switch_task_takes_effect_after_current_round(self):
@@ -321,6 +339,74 @@ class TestAutoProxy(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(bumps, [("u1", "escort_count", 1)])
         self.assertEqual(bounty_calls, [("u1", "escort", 1)])
 
+
+    async def _set_avatars(self, count: int):
+        import json as _json
+
+        player = await self.db.get_player_by_id("u1")
+        player.permanent_bonus = _json.dumps({"avatar_slots": int(count)})
+        await self.db.update_player(player)
+
+    async def test_two_primary_tasks_both_settle_in_one_pass(self):
+        """本体押镖 + 化身宗门任务：两个槽位都要结算，不能只看第一条。"""
+        await self._set_avatars(1)  # 2 个槽位
+        due = int(time.time()) - 1
+        await self.db.ext.set_user_busy(
+            "u1", self.UserStatus.DELIVERING, due,
+            {"escort_gold": 100, "escort_exp": 50}, max_slots=2,
+        )
+        await self.db.ext.set_user_busy(
+            "u1", self.UserStatus.SECT_TASK, due, max_slots=2
+        )
+        ok, msg = await self.manager.enable("u1", "umo://group")
+        self.assertTrue(ok, msg)
+
+        await self.manager.process_due()
+        self.assertEqual(self.escort.finished, 1)
+        self.assertEqual(self.sect.finished, 1)
+        row = await self.db.ext.get_auto_proxy("u1")
+        self.assertEqual(row["enabled"], 1)
+
+    async def test_primary_survives_avatar_holding_other_activity(self):
+        """化身在闭关时，本体押镖代理不能被「检测到别处忙碌」关掉。"""
+        await self._set_avatars(1)
+        ok, msg = await self.manager.enable("u1", "umo://group", "押镖")
+        self.assertTrue(ok, msg)
+        await self.db.ext.set_user_busy(
+            "u1", self.UserStatus.CULTIVATING, int(time.time()) + 3600, max_slots=2
+        )
+        await self.manager.process_due()
+        row = await self.db.ext.get_auto_proxy("u1")
+        self.assertEqual(row["enabled"], 1)
+        self.assertFalse(any("检测到你进入了" in m for _, m in self.notices))
+
+        # 押镖到期后照常结算并续接
+        await self.db.ext.set_user_busy(
+            "u1", self.UserStatus.DELIVERING, int(time.time()) - 1,
+            {"escort_gold": 100, "escort_exp": 50}, max_slots=2,
+        )
+        await self.manager.process_due()
+        self.assertEqual(self.escort.finished, 1)
+        self.assertEqual(self.escort.started, 2)
+        self.assertEqual((await self.db.ext.get_auto_proxy("u1"))["enabled"], 1)
+
+    async def test_primary_waits_instead_of_closing_when_slots_full(self):
+        """没有可接管的押镖/宗门任务、槽位又被占满时，等待而不是关代理。"""
+        ok, _ = await self.manager.enable("u1", "umo://group", "押镖")
+        self.assertTrue(ok)
+        # 押镖槽被别的活动接管（模拟玩家改去历练），唯一槽位占满
+        await self.db.ext.free_slot("u1", 0)
+        await self.db.ext.set_user_busy(
+            "u1", self.UserStatus.ADVENTURING, int(time.time()) + 3600
+        )
+        await self.manager.process_due()
+
+        row = await self.db.ext.get_auto_proxy("u1")
+        self.assertEqual(row["enabled"], 1)
+        self.assertEqual(row["last_error"], "wait_slot")
+        self.assertEqual(self.escort.started, 1)  # 没再起新一轮
+        self.assertTrue(any("等一个槽位" in m for _, m in self.notices))
+        self.assertFalse(any("检测到你进入了" in m for _, m in self.notices))
 
     async def test_start_activity_blocks_injured_player(self):
         cm = _imp("config_manager").ConfigManager(ROOT)

@@ -1089,9 +1089,9 @@ class RiftManager:
             if (cursor.rowcount or 0) == 0:
                 # 认领失败：本次没有写入任何东西，直接放手让认领成功的那次提交
                 return None
-            await self.db.conn.execute(
-                "UPDATE players SET state = ? WHERE user_id = ?", ("空闲", user_id)
-            )
+            # 状态统一由槽位账本推算，别直接写死「空闲」——
+            # 本体在秘境、化身还在闭关时，展示必须仍是「修炼中」。
+            await self.db.ext._sync_player_state(user_id)
 
             mult = self._reward_mult(player)
             exp, gold = self._tick_rewards(extra, 1.0 - self.tick_share, 1)

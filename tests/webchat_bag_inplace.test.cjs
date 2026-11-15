@@ -17,8 +17,12 @@ test('网格带稳定标记并暴露就地重绘入口', () => {
 
 test('筛选状态提升到模块级，重绘后不丢', () => {
   assert.match(source, /const bagFilter = \{ kind: "", quality: "" \}/, '种类/品质筛选要跨刷新保留');
-  assert.match(source, /const state = bagFilter/, 'renderItemGrid 要直接引用模块级筛选状态');
-  assert.doesNotMatch(source, /const state = \{ kind: "", quality: "" \}/, '不该再有局部筛选状态');
+  assert.match(
+    source,
+    /const state = allowBulk \? bagFilter : \{ kind: "", quality: "" \}/,
+    '储物戒（可批量）复用模块级筛选；丹药背包用独立局部筛选，别串味'
+  );
+  assert.doesNotMatch(source, /const state = \{ kind: "", quality: "" \}/, '不该再无条件使用局部筛选状态');
 });
 
 test('储物戒刷新复用旧网格，其余走整体重建', () => {

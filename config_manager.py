@@ -262,7 +262,16 @@ class ConfigManager:
         return self._element_index.get(item_name, "")
 
     def _inject_recipe_scrolls(self):
-        """将未学习丹方作为可交易、可堆叠的“丹方”物品注入物品目录。"""
+        """将未学习丹方作为可交易、可堆叠的“丹方”物品注入物品目录。
+
+        丹方卷轴本身是唯一能在购买前看到产出说明的入口，所以除配方自带
+        描述外，再附一行产出丹药的效果（与 /丹药背包、/丹药配方 同源）。
+        """
+        # 局部导入：core/__init__ 间接导入本模块，顶层导入会形成循环导入。
+        from .pill_effect_text import quality_caps, describe_pill_effect
+
+        # 品质倍率上界整批只算一次，避免 692 条配方各自扫一遍 pill_quality
+        effect_cap, breakthrough_cap = quality_caps(self.pill_quality_data)
         for recipe in self.pill_recipes_data.values():
             name = self.get_recipe_scroll_name(recipe)
             if name in self.items_data:
@@ -276,6 +285,13 @@ class ConfigManager:
                 or {}
             )
             rank = pill_cfg.get("rank") if isinstance(pill_cfg, dict) else None
+            description = recipe.get("desc") or f"记载{recipe.get('output_pill', '丹药')}炼制方法的丹方，使用 /学习丹方 学习。"
+            effect_text = describe_pill_effect(
+                pill_cfg, effect_cap=effect_cap, breakthrough_cap=breakthrough_cap
+            )
+            # 产出物没有效果数据时整行省略；描述里已有则不再重复追加
+            if effect_text and "丹药效果：" not in description:
+                description = f"{description}\n丹药效果：{effect_text}"
             self.items_data[name] = {
                 "id": f"recipe_scroll_{recipe.get('id')}",
                 "name": name,
@@ -285,7 +301,7 @@ class ConfigManager:
                 "shop_weight": int(recipe.get("shop_weight") or 10),
                 "volume": 1,
                 "recipe_id": int(recipe.get("id")),
-                "description": recipe.get("desc") or f"记载{recipe.get('output_pill', '丹药')}炼制方法的丹方，使用 /学习丹方 学习。",
+                "description": description,
             }
 
     def _inject_talisman_items(self):

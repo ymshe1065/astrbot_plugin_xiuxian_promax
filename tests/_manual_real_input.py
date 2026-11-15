@@ -196,7 +196,8 @@ class Router:
         self.log = []
 
     async def on_player_message(self, room_id, player_id, player_name, text,
-                                req_id=None, private=False, want_card=False, **kw):
+                                req_id=None, private=False, want_card=False,
+                                panel=False, audience="public", **kw):
         fn, rest = resolve(text)
         if fn is None:
             self.log.append((text, "未注册命令", 0))
@@ -205,6 +206,12 @@ class Router:
             )
             return
         ev = R.RealEvent(player_id, platform="webroom", text=text, name=player_name)
+        # 真实事件层（webroom_event._deliver）靠这两点决定「回给谁、带不带 req_id」：
+        # 看板/私密请求一律走定向 reply，前端 settlePending(req_id) 才拿得到 ctx.panel，
+        # 卡片才会归位到右侧看板；少了 req_id 就会退化成聊天流里的普通卡片。
+        ev.req_id = req_id or None
+        ev.panel = bool(panel)
+        private = bool(private or panel)
         try:
             # 方法是从类体上取的未绑定函数，要显式传 self
             async for _ in fn(self.plug, ev):
@@ -221,7 +228,14 @@ class Router:
                     names = [e.get("name") for e in (sec.get("entries") or [])]
                     detail.append(f"{sec.get('name')}×{len(names)}:{names}")
         self.log.append((text, fn.__name__, len(payload["cards"]), detail))
-        await room_server.broadcast_bot_payload(room_id, payload)
+        payload["req_id"] = req_id or ""
+        if private:
+            # 与 webroom_event._deliver 一致：看板结果只回给本人，绝不走公屏
+            payload["type"] = "reply"
+            payload["audience"] = "self"
+            await room_server.send_to_player(room_id, player_id, payload)
+        else:
+            await room_server.broadcast_bot_payload(room_id, payload)
 
 
 # ---------- 浏览器侧 ----------
@@ -233,11 +247,15 @@ LOGIN_JS = """
     el.value = v;
     el.dispatchEvent(new Event('input', {bubbles: true}));
   };
+  // 冷启动时 app.js 可能还没绑定点击事件，先等按钮就位再点
+  for (let i = 0; i < 50 && !document.getElementById('btnAuth'); i++) {
+    await new Promise(r => setTimeout(r, 100));
+  }
   set('inUser', %s);
   set('inPwd', %s);
   document.getElementById('btnAuth').click();
   // 登录后还要等 WS 握手 + 首屏 /我的信息，轮询到主界面出现为止
-  for (let i = 0; i < 60; i++) {
+  for (let i = 0; i < 100; i++) {
     const app = document.getElementById('app');
     if (app && !app.hidden) return true;
     await new Promise(r => setTimeout(r, 100));
@@ -269,6 +287,27 @@ COUNT_JS = """
     cells: C.querySelectorAll('.gcell').length,
     facets: f,
     sum: s ? s.innerText : '',
+  });
+})()
+"""
+
+
+# /丹药背包 走右侧看板（v3.45.19 的 pillbag 页），不在聊天流里出 .gcell 卡片，
+# 所以它要另外一套统计：看 #viewPillBag 里的 .icell 与筛选条。
+PANEL_JS = """
+(() => {
+  const v = document.getElementById('viewPillBag');
+  if (!v) return JSON.stringify({panel: 'missing'});
+  const cells = v.querySelectorAll('.icell');
+  const tab = document.querySelector('.panel-tab.active');
+  return JSON.stringify({
+    panel: 'pillbag',
+    tab: tab ? tab.textContent.trim() : '',
+    cells: cells.length,
+    first: cells.length ? cells[0].innerText.replace(/\\n+/g, ' ') : '',
+    filters: [...v.querySelectorAll('.item-filters .fchip')].map(x => x.textContent.trim()),
+    tools: [...v.querySelectorAll('.item-filters .fitem, .item-filters button')]
+      .map(x => x.textContent.trim()).slice(0, 8),
   });
 })()
 """
@@ -322,13 +361,27 @@ async def run(key, no_browser):
         async with shot.CDP(page["webSocketDebuggerUrl"]) as c:
             await c.cmd("Page.enable")
             await c.cmd("Runtime.enable")
-            ok = await c.js(LOGIN_JS % (json.dumps(ACCOUNT), json.dumps(PASSWORD)))
-            print("  登录:", "进入主界面" if ok else "失败", flush=True)
+            ok = False
+            for attempt in range(3):
+                # LOGIN_JS 是 async IIFE，必须等 Promise，否则拿到的是 undefined
+                ok = await c.js(
+                    LOGIN_JS % (json.dumps(ACCOUNT), json.dumps(PASSWORD)),
+                    await_promise=True,
+                )
+                if ok:
+                    break
+                await asyncio.sleep(1.0)
+            print(f"  登录: {'进入主界面' if ok else '失败'}", flush=True)
             await asyncio.sleep(1.5)
             await c.js(SEND_JS % json.dumps(f"/{cmd}"))
             await asyncio.sleep(2.2)
-            stat = json.loads(await c.js(COUNT_JS) or "{}")
+            stat = json.loads(await c.js(PANEL_JS if key == "pill" else COUNT_JS) or "{}")
             print("  页面:", stat, flush=True)
+            if key == "pill":
+                # 验收：看板页签得是「丹药背包」，且格子真的画出来了
+                good = stat.get("tab") == "丹药背包" and stat.get("cells", 0) > 0
+                print(f"  看板归位: {'✅' if good else '❌'} "
+                      f"{stat.get('cells', 0)} 格", flush=True)
             print("  服务端派发:", router.log, flush=True)
             # 防回归：页面汇总的「共 N 条」必须等于后端给出的条目数。
             # v3.45.22 的 bug（默认落凡品）就是这两个数对不上——宗门 5 件只画 2 格。
@@ -340,14 +393,29 @@ async def run(key, no_browser):
                       f"页面 {m.group(1)} / 后端 {back.group(1)}", flush=True)
             print("  页面错误:", await c.js("JSON.stringify(window.__errs||[])"))
             await c.shot(str(R.OUT / f"input_{key}.png"))
-            await c.js("(()=>{const cc=document.querySelectorAll('.card');"
-                       "const C=cc[cc.length-1];if(!C)return;"
-                       "const e=[...C.querySelectorAll('.gcell')].find(x=>x.offsetParent!==null);"
-                       "if(e)e.click()})()")
-            await asyncio.sleep(0.8)
-            print("  详情:", await c.js(
-                "(()=>{const d=document.querySelector('.ed-drawer .ed-title');"
-                "return d?d.textContent:'-'})()"))
+            if key == "pill":
+                # 看板格子点了是弹操作菜单（服用/详情/回收），不是详情抽屉
+                await c.js("(()=>{const v=document.getElementById('viewPillBag');"
+                           "const e=v&&[...v.querySelectorAll('.icell')]"
+                           ".find(x=>x.getClientRects().length);"
+                           "if(e)e.click()})()")
+                await asyncio.sleep(0.8)
+                # 菜单是 position:fixed，offsetParent 恒为 null，只能用 getClientRects 判在不在；
+                # 顺带避开「选择器里再套引号」导致 JS 截串的问题，直接比 style.zIndex
+                print("  格子菜单:", await c.js(
+                    "(()=>{const ms=[...document.querySelectorAll('div')]"
+                    ".filter(x=>x.style&&x.style.zIndex==='70'&&x.getClientRects().length);"
+                    "const m=ms[ms.length-1];"
+                    "return m?m.innerText.replace(/\\n+/g,' / '):'-'})()"), flush=True)
+            else:
+                await c.js("(()=>{const cc=document.querySelectorAll('.card');"
+                           "const C=cc[cc.length-1];if(!C)return;"
+                           "const e=[...C.querySelectorAll('.gcell')].find(x=>x.offsetParent!==null);"
+                           "if(e)e.click()})()")
+                await asyncio.sleep(0.8)
+                print("  详情:", await c.js(
+                    "(()=>{const d=document.querySelector('.ed-drawer .ed-title');"
+                    "return d?d.textContent:'-'})()"))
             await c.shot(str(R.OUT / f"input_{key}_详情.png"))
     finally:
         proc.terminate()

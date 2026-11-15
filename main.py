@@ -2604,9 +2604,7 @@ class XiuXianPlugin(Star):
         async for r in self.daily_task_handlers.handle_claim_reward(event): yield r
 
     # ===== v6.1 动态世界Boss =====
-    @filter.command("挑战世界Boss", "参与全服世界Boss讨伐")
-    @require_whitelist
-    async def handle_challenge_world_boss(self, event: AstrMessageEvent):
+    async def _run_world_boss_challenge(self, event: AstrMessageEvent):
         user_id = event.get_sender_id()
         async for r in self.world_boss_handlers.handle_challenge(event): yield r
         # 挑战成功（真正打出伤害）计入 boss_damage 任务进度
@@ -2622,6 +2620,11 @@ class XiuXianPlugin(Star):
         settle_msg = get_event_flag(event, "world_boss_settle_msg", None)
         if settle_msg:
             await self._broadcast_world_boss_spawn(settle_msg)
+
+    @filter.command("挑战世界Boss", "参与全服世界Boss讨伐")
+    @require_whitelist
+    async def handle_challenge_world_boss(self, event: AstrMessageEvent):
+        async for r in self._run_world_boss_challenge(event): yield r
 
     @filter.command("世界Boss状态", "查看动态世界Boss信息")
     @require_whitelist
@@ -2714,9 +2717,7 @@ class XiuXianPlugin(Star):
         yield event.plain_result(msg)
 
     # ===== v6.29 世界Boss团本 =====
-    @filter.command("挑战团本", "参与全服多阶段团本讨伐")
-    @require_whitelist
-    async def handle_challenge_raid(self, event: AstrMessageEvent):
+    async def _run_raid_challenge(self, event: AstrMessageEvent):
         user_id = event.get_sender_id()
         async for r in self.raid_handlers.handle_challenge(event): yield r
         if get_event_flag(event, "raid_challenge", False):
@@ -2729,6 +2730,34 @@ class XiuXianPlugin(Star):
         broadcast_msg = get_event_flag(event, "raid_broadcast_msg", None)
         if broadcast_msg:
             await self._broadcast_world_boss_spawn(broadcast_msg)
+
+    @filter.command("挑战团本", "参与全服多阶段团本讨伐")
+    @require_whitelist
+    async def handle_challenge_raid(self, event: AstrMessageEvent):
+        async for r in self._run_raid_challenge(event): yield r
+
+    @filter.command("一键挑战", "依次讨伐江湖事件、世界Boss、团本")
+    @require_whitelist
+    async def handle_one_key_challenge(self, event: AstrMessageEvent):
+        """按固定顺序连打三场：讨伐 → 世界Boss → 团本。
+
+        顺序不能并行：三场都会写玩家气血/奖励，并发执行会互相覆盖存档。
+        前一阶段异常只跳过该阶段，后面的仍继续，避免一个空事件拖垮整轮挑战。
+        """
+        stages = (
+            ("讨伐", self._run_battle_event_attack),
+            ("世界Boss", self._run_world_boss_challenge),
+            ("团本", self._run_raid_challenge),
+        )
+        for label, runner in stages:
+            try:
+                async for r in runner(event):
+                    yield r
+            except Exception:
+                logger.exception(
+                    "一键挑战阶段失败：%s user=%s", label, event.get_sender_id()
+                )
+                yield event.plain_result(f"⚠️ {label}阶段异常，已跳过，其余挑战继续。")
 
     @filter.command("团本状态", "查看当前团本阶段与进度")
     @require_whitelist
@@ -2911,10 +2940,11 @@ class XiuXianPlugin(Star):
     async def handle_fate_shop(self, event: AstrMessageEvent):
         async for r in self.reinc_handlers.handle_fate_shop(event): yield r
 
-    # ===== 新增：仙缘兑换 =====
+    # 注意：内层 ReincarnationHandlers.handle_fate_exchange 已带 @player_required
+    # （同一把玩家锁 + 贷款/忙碌校验），此处不可再叠 @with_player_lock，
+    # 否则同锁嵌套会永久死锁，把该玩家后续所有指令与网页看板一起卡死。
     @filter.command("仙缘兑换", "购买仙缘商店的永久加成；灵石换点用 /仙缘兑换 灵石 <点数>")
     @require_whitelist
-    @with_player_lock
     async def handle_fate_exchange(self, event: AstrMessageEvent, item_id: str = "0", count: str = "0"):
         async for r in self.reinc_handlers.handle_fate_exchange(event, item_id, count):
             yield r
@@ -4282,9 +4312,19 @@ class XiuXianPlugin(Star):
                 yield event.plain_result(f"❌ 未找到该玩家。")
                 return
                 
-            user_cd = await self.db.ext.first_busy_cd(target.user_id)
+            try:
+                cds = [
+                    cd
+                    for cd in await self.db.ext.list_user_cds(target.user_id)
+                    if int(cd.type or 0) != UserStatus.IDLE
+                ]
+            except Exception:
+                cds = []
             loan = await self.db.ext.get_active_loan(target.user_id)
-            status = UserStatus.get_name(user_cd.type) if user_cd else "空闲"
+            # 多分身：把本体/化身正在进行的活动全列出来，别只显示第一条
+            status = "、".join(
+                UserStatus.get_name(int(cd.type)) for cd in cds
+            ) or "空闲"
             yield event.plain_result(
                 f"🔍 玩家数据\n"
                 f"━━━━━━━━━━━━━━━\n"

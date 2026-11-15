@@ -223,5 +223,23 @@ class TestAutoProxyRift(unittest.IsolatedAsyncioTestCase):
         self.assertIn("秘境代理已关闭", results[0])
 
 
+    async def test_rift_waits_when_all_slots_busy(self):
+        """唯一槽位被闭关占着时，秘境代理等槽位而不是自行关闭。"""
+        await self.db.ext.set_user_busy(
+            "u1", self.UserStatus.CULTIVATING, int(time.time()) + 3600
+        )
+        ok, msg = await self.manager.enable("u1", "umo://group", "秘境 1")
+        self.assertTrue(ok, msg)
+        self.assertIn("分身都在忙", msg)
+        _row, config = await self._rift_cfg()
+        self.assertTrue(config["rift"]["enabled"])
+
+        # 槽位空出来后下一轮自动进入秘境
+        await self.db.ext.set_user_free("u1", cd_type=self.UserStatus.CULTIVATING)
+        await self.manager.process_due()
+        cd = await self.db.ext.get_active_cd("u1", self.UserStatus.EXPLORING)
+        self.assertIsNotNone(cd)
+
+
 if __name__ == "__main__":
     unittest.main()

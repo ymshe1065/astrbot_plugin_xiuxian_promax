@@ -71,8 +71,8 @@ class RecoveryHandler:
                 else "❌ 分身都出去了，没人手替你调息。"
             )
             return
-        player.state = "调息中"
-        await self.db.update_player(player)
+        # players.state 由 start_activity → _sync_player_state 统一维护，
+        # 这里不再手写 player.state，避免整行回写盖掉别的分身状态。
         rate_text = await self._rest_rate_text(player)
         yield event.plain_result(
             "🧘 开始调息\n"
@@ -89,6 +89,5 @@ class RecoveryHandler:
             yield event.plain_result("❌ 你当前没有在调息。")
             return
         await self.db.ext.set_user_free(player.user_id, cd_type=UserStatus.RESTING)
-        player.state = "空闲"
-        await self.db.update_player(player)
+        # set_user_free 已同步 players.state（别的分身若还在忙会显示对应状态）
         yield event.plain_result("✅ 调息结束。")

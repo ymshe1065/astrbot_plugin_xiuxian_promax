@@ -48,7 +48,7 @@
     seq: 0,
     pending: new Map(),      // req_id -> { cmd, panel }
     cards: new Map(),        // card id -> card
-    panelCard: { status: null, bag: null },
+    panelCard: { status: null, bag: null, pillbag: null },
     bagDirty: true,          // 储物戒在别处发生变更，切回看板时需要重新拉取
     lastCmd: null,           // 用于刷新
     reconnectTimer: null,
@@ -1561,8 +1561,8 @@
     }
   }
 
-  /** 固定进看板的指令：/我的信息、/储物戒（与后端 visibility.PANEL_COMMANDS 对齐） */
-  const PANEL_CMDS = { "/我的信息": "status", "/储物戒": "bag" };
+  /** 固定进看板的指令：/我的信息、/储物戒、/丹药背包（与后端 visibility.PANEL_COMMANDS 对齐） */
+  const PANEL_CMDS = { "/我的信息": "status", "/储物戒": "bag", "/丹药背包": "pillbag" };
 
   function panelOfCmd(text) {
     const name = String(text || "").trim().split(/\s+/)[0];
@@ -1581,7 +1581,7 @@
   /**
    * 发指令并等待定向回复
    * @param {string} text 指令原文
-   * @param {{panel?: 'status'|'bag', card?: boolean, silent?: boolean, awaitReply?: boolean}} opts
+   * @param {{panel?: 'status'|'bag'|'pillbag', card?: boolean, silent?: boolean, awaitReply?: boolean}} opts
    *   awaitReply 为真时返回 Promise<boolean>，供批量指令逐条串行发送
    */
   function sendCmd(text, opts = {}) {
@@ -1645,11 +1645,13 @@
         // 重连/换号后看板必须重新取：防止展示上一个账号或过期的储物戒
         S.bagDirty = true;
         if (switchedUser) {
-          S.panelCard = { status: null, bag: null };
+          S.panelCard = { status: null, bag: null, pillbag: null };
           const statusView = $("viewStatus");
           const bagView = $("viewBag");
+          const pillView = $("viewPillBag");
           if (statusView) statusView.innerHTML = "";
           if (bagView) bagView.innerHTML = "";
+          if (pillView) pillView.innerHTML = "";
         }
         applySettings(m.settings);
         setUnreadBadge(m.unread || 0);
@@ -1786,7 +1788,7 @@
 
     // 迟到的看板回复（本地等待态已超时/丢失）不要落进公屏，按卡片类型归位
     if (!ctx && m.req_id && cards.length) {
-      const inferred = { info: "status", bag: "bag" }[cards[0].kind] || "";
+      const inferred = { info: "status", bag: "bag", pillbag: "pillbag" }[cards[0].kind] || "";
       if (inferred) {
         setPanelCard(inferred, cards[0]);
         return;
@@ -2774,7 +2776,11 @@
     if (isBag) {
       // 结构化条目优先；老卡片没有 entries 时回退到从展示名解析
       const entries = Array.isArray(sec.entries) ? sec.entries.filter((it) => it && it.name) : [];
-      box.appendChild(entries.length ? renderItemGrid(entries) : renderChips(rows));
+      box.appendChild(
+        entries.length
+          ? renderItemGrid(entries, { bulk: card.kind !== "pillbag" })
+          : renderChips(rows)
+      );
     } else if (isSlots) {
       box.appendChild(renderSlots(rows));
     } else if (rows.length) {
@@ -3052,7 +3058,8 @@
       `<div class="tip-name">${esc(entry.name)}</div>` +
       rows
         .map(([k, v]) => `<div class="tip-row"><span>${k}</span><b>${esc(v)}</b></div>`)
-        .join("");
+        .join("") +
+      (entry.effect ? `<div class="tip-eff">${esc(entry.effect)}</div>` : "");
     document.body.appendChild(tip);
     const r = anchor.getBoundingClientRect();
     const w = tip.offsetWidth;
@@ -3114,12 +3121,13 @@
   }
 
   /** 储物戒网格：结构化条目 + 种类/品质筛选 + 多选批量回收/赠予 */
-  function renderItemGrid(initialItems) {
+  function renderItemGrid(initialItems, opts = {}) {
+    const allowBulk = opts.bulk !== false;
     const wrap = document.createElement("div");
     wrap.className = "item-grid-wrap";
     wrap.dataset.role = "bag-grid"; // 无感刷新时靠它找回旧网格
     let items = initialItems.slice();
-    pruneBagSelection(items);
+    if (allowBulk) pruneBagSelection(items);
 
     const bulk = document.createElement("div");
     bulk.className = "bag-bulk";
@@ -3148,7 +3156,7 @@
     giftBtn.textContent = "批量赠予";
     tools.append(countEl, allBtn, clearBtn, recycleBtn, giftBtn);
     bulk.append(toggle, tools);
-    wrap.appendChild(bulk);
+    if (allowBulk) wrap.appendChild(bulk);
 
     const filters = document.createElement("div");
     filters.className = "item-filters";
@@ -3159,7 +3167,8 @@
     empty.textContent = "没有符合筛选的物品";
     empty.hidden = true;
 
-    const state = bagFilter; // 模块级对象：重绘后筛选条件不丢
+    // 储物戒的多选状态/筛选跨刷新保留；丹药背包没有批量回收，独立一套筛选，避免把储物戒筛选带过来
+    const state = allowBulk ? bagFilter : { kind: "", quality: "" };
     let visible = items.slice();
     let kinds = [];
     const qualitiesOf = (kind) =>
@@ -3330,11 +3339,10 @@
       const b = document.createElement("button");
       b.type = "button";
       const key = bagEntryKey(it);
-      const checked = bagSelection.keys.has(key);
+      const selectMode = allowBulk && bagSelection.on;
+      const checked = selectMode && bagSelection.keys.has(key);
       b.className =
-        "icell" +
-        (bagSelection.on ? " is-select" : "") +
-        (bagSelection.on && checked ? " is-checked" : "");
+        "icell" + (selectMode ? " is-select" : "") + (checked ? " is-checked" : "");
       b.style.setProperty("--kd", KIND_COLORS[it.kind] || "transparent");
       const meta = [it.rank, it.quality, it.equipped].filter(Boolean).join("·") || it.kind || "—";
       b.innerHTML =
@@ -3344,12 +3352,12 @@
           : "") +
         `<span class="ic-meta">${esc(meta)}</span>` +
         `<span class="ic-cnt">×${it.count}</span>` +
-        (bagSelection.on ? `<span class="ic-check">${checked ? "✓" : ""}</span>` : "");
+        (selectMode ? `<span class="ic-check">${checked ? "✓" : ""}</span>` : "");
       b.classList.toggle("is-equipped", !!it.equipped);
-      b.title = bagSelection.on
+      b.title = selectMode
         ? `${checked ? "取消勾选" : "勾选"} ${it.name}`
         : [it.name, it.rank, it.quality, it.element, it.equipped].filter(Boolean).join(" · ");
-      if (bagSelection.on) {
+      if (selectMode) {
         b.addEventListener("click", () => {
           if (bagSelection.keys.has(key)) bagSelection.keys.delete(key);
           else bagSelection.keys.add(key);
@@ -3380,7 +3388,7 @@
     /** 无感刷新入口：换数据只重画格子与筛选项，工具条/筛选按钮/滚动位置都不动 */
     wrap.__repaint = (nextItems) => {
       items = (nextItems || []).slice();
-      pruneBagSelection(items);
+      if (allowBulk) pruneBagSelection(items);
       syncFacets();
       buildFilters();
       paint();
@@ -3774,27 +3782,6 @@
     mountCtxMenu(menu, anchor, ev);
   }
 
-  /**
-   * 格子上的一步操作（目前只有丹药服用）：点一下就发指令，不再过详情抽屉。
-   * 本地先扣 1 颗——服务端下一次 /丹药背包 才是准数，但背包卡片不会因为吃药
-   * 自动重刷，不扣的话连点会一直对着空瓶点。
-   */
-  function quickRun(entry, cell) {
-    dispatchCommand(entry.cmd || entryPrimaryCommand(entry, "1"));
-    const held = Number(entry.held);
-    if (!Number.isFinite(held)) return;
-    entry.held = Math.max(0, held - 1);
-    if (entry.max !== null && entry.max !== undefined) entry.max = entry.held;
-    const gc = cell.querySelector(".gc");
-    if (gc) gc.textContent = entry.held > 0 ? `×${entry.held}` : "已用完";
-    if (!entry.held) {
-      entry.state = "lock";
-      cell.classList.add("used");
-      const dot = cell.querySelector(".st");
-      if (dot) dot.className = "st lock";
-    }
-  }
-
   /** 一格：品阶色条 + 名称 / 关键数字 / 数值 + 状态点 */
   function entryCell(entry, scene) {
     const cell = document.createElement("div");
@@ -3805,10 +3792,6 @@
     cell.style.setProperty("--qd", RANK_COLORS[gridRankOf(entry)] || "#c9bfa9");
     const state = entry.state === "lock" ? "lock" : entry.state === "lack" ? "lack" : "ok";
     const value = entryValue(entry);
-    // 快捷格：单击直接执行（丹药 => 吞一颗），详情改走 ⋯ 菜单 / 长按
-    const quick = !!(entry.quick && entry.state !== "lock");
-    // 长按的正文：服用类说「选数量」，别的快捷动作说不出来就退回「看详情」
-    const holdText = entry.quick === "服用" ? "松手 · 选数量" : "松手 · 看详情";
     cell.innerHTML =
       `<span class="gn">${esc(entry.name)}</span>` +
       `<span class="gm">${esc(entryMeta(entry))}</span>` +
@@ -3817,59 +3800,17 @@
       `</span>` +
       (entry.state ? `<span class="st ${state}"></span>` : "") +
       // 触屏没有 hover，⋯ 既不像「可悬停」暗示、又跟「点开详情」抢热区，干脆不生成
-      (HAS_HOVER ? `<button type="button" class="more" aria-label="更多操作">⋯</button>` : "") +
-      // 按住期间的可见回应：手指压下去什么都没有，玩家就以为长按没生效
-      (quick ? `<span class="holdhint" aria-hidden="true">${holdText}</span>` : "");
-    if (quick) cell.classList.add("quick");
-    cell.title = [entry.name, entry.rank, entry.kind, entry.effect].filter(Boolean).join(" · ") +
-      (quick ? `（点击${entry.quick} 1 ${entry.unit || "次"}，长按选数量可一次多${entry.quick}）` : "");
+      (HAS_HOVER ? `<button type="button" class="more" aria-label="更多操作">⋯</button>` : "");
+    cell.title = [entry.name, entry.rank, entry.kind, entry.effect].filter(Boolean).join(" · ");
     const openDetail = () => openEntryDetail(entry, { scene });
-    let longPressed = false;
-    let pressTimer = 0;
-    if (quick) {
-      cell.addEventListener("pointerdown", () => {
-        longPressed = false;
-        // 覆盖层与进度条由 CSS 延迟 90ms 起跑：轻点不会闪一下，满 550ms 开详情
-        cell.classList.add("pressing");
-        pressTimer = setTimeout(() => {
-          pressTimer = 0;
-          longPressed = true;
-          cell.classList.remove("pressing");
-          hideItemTip();
-          openDetail();
-        }, 550);
-      });
-      ["pointerup", "pointerleave", "pointercancel"].forEach((ev) =>
-        cell.addEventListener(ev, () => {
-          clearTimeout(pressTimer);
-          pressTimer = 0;
-          cell.classList.remove("pressing");
-        })
-      );
-      // 长按已经开了详情，别让随后的 click 再吞一颗
-      cell.addEventListener("contextmenu", (e) => e.preventDefault());
-    }
-    const activate = () => {
-      if (!quick) {
-        openDetail();
-        return;
-      }
-      if (longPressed) {
-        longPressed = false;
-        return;
-      }
-      quickRun(entry, cell);
-    };
     cell.addEventListener("click", (e) => {
       if (e.target.closest(".more")) return;
-      activate();
+      openDetail();
     });
     cell.addEventListener("keydown", (e) => {
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
-        // 键盘党同样要能看详情：Shift+Enter 绕过快捷操作
-        if (quick && e.shiftKey) openDetail();
-        else activate();
+        openDetail();
       }
     });
     const moreBtn = cell.querySelector(".more");
@@ -4424,12 +4365,30 @@
     const key = entry && entry.quality ? `${name}|${entry.quality}` : name;
     const menu = newCtxMenu();
     const ops = [];
+    if (tag.kind === "符箓") ops.push(["使用", () => useTalisman(name, count)]);
+    if (tag.kind === "丹药") ops.push(["服用", () => takePill(key, count)]);
     if (equippable) ops.push(["装备", () => quickEquip(name, entry)]);
     ops.push(["详情", () => dispatchCommand(`/物品信息 ${name}`)]);
     ops.push(["回收", () => recycleItem(key, count)]);
     ops.push(["赠予", () => giftItem(key, count, isGear)]);
     ops.forEach(([label, onClick]) => menu.appendChild(ctxMenuButton(label, onClick)));
     mountCtxMenu(menu, anchor, sourceEvent);
+  }
+
+  /** 符箓快捷使用：名称已带入，数量默认全部 */
+  function useTalisman(name, total) {
+    const count = String(Math.max(1, Number(total) || 1));
+    openSheet("使用符箓", "确认使用数量", "/使用符箓", name, {
+      defaults: { count },
+    });
+  }
+
+  /** 丹药快捷服用：名称带品质（名|品质），数量默认全部；可选品质由后端解析 */
+  function takePill(pillKey, total) {
+    const count = String(Math.max(1, Number(total) || 1));
+    openSheet("服用丹药", "确认服用数量", "/服用丹药", pillKey, {
+      defaults: { count },
+    });
   }
 
   /** 回收：弹窗选择数量，默认当前全部数量 */
@@ -4503,9 +4462,41 @@
   }
 
   /* ================= 指令分发 ================= */
+  /** 一键挑战：按顺序串行发三条战斗指令，避免同时写存档互相覆盖 */
+  const ONE_KEY_CHALLENGE = ["/讨伐", "/挑战世界Boss", "/挑战团本"];
+  let oneKeyRunning = false;
+
+  async function runOneKeyChallenge() {
+    if (oneKeyRunning) {
+      toast("一键挑战正在进行中…");
+      return;
+    }
+    oneKeyRunning = true;
+    let ok = 0;
+    let fail = 0;
+    try {
+      for (const cmd of ONE_KEY_CHALLENGE) {
+        const passed = await sendCmd(cmd, { card: true, awaitReply: true });
+        if (passed) ok += 1;
+        else fail += 1;
+        markBagDirty();
+      }
+    } finally {
+      oneKeyRunning = false;
+    }
+    toast(`一键挑战完成：成功 ${ok} 项${fail ? `，失败 ${fail} 项` : ""}`);
+    refreshBagSoon(120);
+  }
+
   function dispatchCommand(cmd, opts = {}) {
     if (!cmd) return;
     const text = cmd.startsWith("/") ? cmd : `/${cmd}`;
+
+    // 一键挑战由前端串行调度三条指令，后端没有同名处理器
+    if (/^\/一键挑战(?:\s|$)/.test(text)) {
+      void runOneKeyChallenge();
+      return;
+    }
 
     // 带参指令先补参数，别把半截命令发出去换一句报错
     if (!opts.noCheck) {
@@ -4525,6 +4516,11 @@
     if (/^\/储物戒(?:\s|$)/.test(text)) {
       sendCmd(text, { panel: "bag", card: true, silent: true });
       switchPanelTab("bag");
+      return;
+    }
+    if (/^\/丹药背包(?:\s|$)/.test(text)) {
+      sendCmd(text, { panel: "pillbag", card: true, silent: true });
+      switchPanelTab("pillbag");
       return;
     }
     sendCmd(text, { card: true });
@@ -4552,6 +4548,7 @@
   /** 储物戒是否已过期：后台变更时只打标记，等玩家切回储物戒界面再刷新 */
   let bagRefreshTimer = 0;
   let bagLoadedAt = 0; // 最近一次成功渲染储物戒卡片的时间
+  let pillBagLoadedAt = 0; // 最近一次成功渲染丹药背包卡片的时间
 
   function markBagDirty() {
     S.bagDirty = true;
@@ -4583,6 +4580,7 @@
     if (panelPending(which)) return;
     if (which === "status") sendCmd("/我的信息", { panel: "status", card: true, silent: true });
     if (which === "bag") sendCmd("/储物戒", { panel: "bag", card: true, silent: true });
+    if (which === "pillbag") sendCmd("/丹药背包", { panel: "pillbag", card: true, silent: true });
   }
 
   /** 看板是否已有同类请求在路上，避免切页/推送触发重复渲染 */
@@ -4594,7 +4592,8 @@
   }
 
   function panelView(which) {
-    return which === "status" ? $("viewStatus") : $("viewBag");
+    const map = { status: "viewStatus", bag: "viewBag", pillbag: "viewPillBag" };
+    return $(map[which] || "");
   }
 
   function setPanelCard(which, card) {
@@ -4604,14 +4603,17 @@
       S.bagDirty = false;
       bagLoadedAt = Date.now();
     }
+    if (which === "pillbag") {
+      pillBagLoadedAt = Date.now();
+    }
     const view = panelView(which);
     const fresh = renderCard(card, { expanded: true });
 
-    // 储物戒：旧卡片里已经有物品网格就复用它，只换数据。
+    // 储物戒/丹药背包：旧卡片里已经有物品网格就复用它，只换数据。
     // 以前这里是 view.innerHTML = "" 整体重建，筛选会被打回「全部」、勾选清空、
     // 滚动位置归零 —— 点一次物品就体验一次「页面刷新」。现在只替换卡片外壳，
     // 网格节点连同它的筛选条/多选工具条一起留着。
-    if (which === "bag") {
+    if (which === "bag" || which === "pillbag") {
       const oldCard = view.querySelector(".card");
       const oldGrid = view.querySelector('[data-role="bag-grid"]');
       const newGrid = fresh.querySelector('[data-role="bag-grid"]');
@@ -4626,14 +4628,36 @@
     view.innerHTML = "";
     const head = document.createElement("div");
     head.className = "panel-head";
-    head.innerHTML = `<span class="ph-title">${which === "status" ? "道体状态" : "储物戒"}</span>`;
+    const titles = { status: "道体状态", bag: "储物戒", pillbag: "丹药背包" };
+    head.innerHTML = `<span class="ph-title">${titles[which] || ""}</span>`;
     const btn = document.createElement("button");
     btn.className = "ph-refresh";
     btn.textContent = "刷新";
     btn.addEventListener("click", () => loadPanel(which));
     head.appendChild(btn);
     view.appendChild(head);
+    if (which === "pillbag") view.appendChild(renderPillBagActions());
     view.appendChild(fresh);
+  }
+
+  /** 丹药背包的快捷指令：不必再切到指令页找丹道按钮 */
+  function renderPillBagActions() {
+    const row = document.createElement("div");
+    row.className = "panel-actions";
+    [
+      ["已学丹方", "/丹药配方"],
+      ["炼丹", "/炼丹"],
+      ["丹阁", "/丹阁"],
+      ["升级丹炉", "/升级丹炉"],
+    ].forEach(([label, cmd]) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "panel-action";
+      b.textContent = label;
+      b.addEventListener("click", () => dispatchCommand(cmd));
+      row.appendChild(b);
+    });
+    return row;
   }
 
   function renderPanelText(which, text) {
@@ -4649,7 +4673,8 @@
 
   function renderPanelEmpty(which, msg) {
     const view = panelView(which);
-    view.innerHTML = `<div class="panel-empty"><span class="big">${which === "status" ? "☯" : "🎒"}</span>${
+    const icons = { status: "☯", bag: "🎒", pillbag: "💊" };
+    view.innerHTML = `<div class="panel-empty"><span class="big">${icons[which] || "☯"}</span>${
       esc(msg) || "暂无数据"
     }<br><button>点击查询</button></div>`;
     view.querySelector("button").addEventListener("click", () => loadPanel(which));
@@ -4675,6 +4700,12 @@
       // 这样连 QQ 端改动的存档也会在切页时同步过来。
       if (S.bagDirty || !S.panelCard.bag || Date.now() - bagLoadedAt > 3000) {
         loadPanel("bag");
+      }
+    }
+    if (tab === "pillbag" && S.connected) {
+      // 丹药会在别处（服用/炼丹/商店）增减，切页时同样以 3 秒为界刷新
+      if (!S.panelCard.pillbag || Date.now() - pillBagLoadedAt > 3000) {
+        loadPanel("pillbag");
       }
     }
     if (isMobile()) openDrawer();

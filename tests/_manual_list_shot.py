@@ -39,37 +39,6 @@ def _player(**kw):
     return p
 
 
-def build_pill_card():
-    from astrbot_plugin_xiuxian_promax.core.pill_manager import PillManager
-    mgr = PillManager(G._FakeDB(_player()), CM)
-    player = _player()
-    inv = {}
-    names = [v.get("name") for v in CM.pills_data.values()][:6]
-    names += [v.get("name") for v in CM.exp_pills_data.values()][:6]
-    qualities = ["一般", "良好", "极佳", "大师"]
-    for i, n in enumerate(names):
-        if not n:
-            continue
-        for q in qualities[: 1 + i % 3]:
-            inv[f"{n}|{q}"] = 1 + i % 7
-    player.set_pills_inventory(inv)
-    entries = mgr.build_pill_bag_entries(player)
-    print(f"[丹药背包] entries={len(entries)} 品质={sorted({e['kind'] for e in entries})}")
-    return {
-        "kind": "bag",
-        "title": "云无月 的丹药背包",
-        "subtitle": f"共 {len(entries)} 格（按品质分开）",
-        "sections": [{
-            "name": "丹药",
-            "view": "grid",
-            "entries": entries,
-            "facet": {"label": "品质", "okLabel": "可用"},
-        }],
-        "footer": "/服用丹药 <名> [品质] [数量]",
-        "ts": int(time.time()),
-    }
-
-
 def build_sect_card():
     from astrbot_plugin_xiuxian_promax.handlers.sect_shop_handler import SectShopHandler
     from astrbot_plugin_xiuxian_promax.core.shop_manager import ShopManager
@@ -237,7 +206,6 @@ def build_title_card():
 
 
 _KEYS = {
-    "pill": ("/丹药背包", "list_pill", build_pill_card),
     "sect": ("/宗门商店", "list_sect", build_sect_card),
     "fate": ("/仙缘商店", "list_fate", build_fate_card),
     "market": ("/坊市", "list_market", build_market_card),

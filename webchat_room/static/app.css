@@ -1243,6 +1243,11 @@ html[data-theme="fish"] .msg-row {
 .item-tip .tip-row { display: flex; justify-content: space-between; gap: 14px; }
 .item-tip .tip-row span { color: var(--card-dim); }
 .item-tip .tip-row b { font-weight: 500; }
+.item-tip .tip-eff {
+  margin-top: 5px; padding-top: 5px; max-width: 236px; white-space: normal;
+  border-top: 1px dashed rgba(var(--edge-rgb), .32); color: var(--jade);
+  font-size: 11.5px; line-height: 1.55;
+}
 
 /* 装备槽 */
 .slot-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; }
@@ -1467,8 +1472,9 @@ html[data-theme="fish"] .msg-row {
   background: var(--tabs-grad);
 }
 .panel-tab {
-  flex: 1; padding: 11px 6px; font-size: 13.5px;
+  flex: 1; min-width: 0; padding: 11px 3px; font-size: 12.5px;
   color: var(--dim); border-bottom: 2px solid transparent;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   transition: color .15s, border-color .15s;
 }
 .panel-tab.active { color: var(--cinnabar); border-bottom-color: var(--cinnabar); font-weight: 600; }
@@ -1496,6 +1502,14 @@ html[data-theme="fish"] .msg-row {
   margin-left: auto; font-size: 12px; color: var(--accent);
   padding: 3px 9px; border-radius: 6px; background: var(--accent-soft);
 }
+/* 丹药背包里的丹道快捷按钮 */
+.panel-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 2px 10px; }
+.panel-action {
+  font-size: 12px; line-height: 1; padding: 6px 10px; border-radius: 999px;
+  border: 1px solid rgba(var(--jade-rgb), .32); background: var(--glass-3);
+  color: var(--chip-ink); cursor: pointer; transition: background .12s, border-color .12s;
+}
+.panel-action:hover { background: var(--jade-soft); border-color: rgba(var(--jade-rgb), .55); }
 
 /* 自动代理面板 */
 .proxy-master {
@@ -2714,48 +2728,6 @@ button.chan-main { cursor: pointer; }
 }
 .gcell:hover .more, .gcell:focus-within .more { opacity: 1; }
 .gcell .more:hover { background: rgba(var(--jade-rgb), .14); color: var(--jade); }
-/* 快捷格（丹药）：单击直接服用，左上角挂个「服」小标，别让玩家当普通格子点 */
-/* 快捷格（丹药）：单击直接服用。标在左下角——左上角会被两行的长名字（《固基丹·后》）压住 */
-.gcell.quick::after {
-  content: "服"; position: absolute; left: 4px; bottom: 3px;
-  width: 14px; height: 14px; line-height: 14px; text-align: center;
-  font-size: 10px; border-radius: 4px;
-  color: var(--jade); background: rgba(var(--jade-rgb), .16);
-  opacity: .95; pointer-events: none;
-}
-/* 长按的回应：按住时盖一层「松手 · 选数量」，底部一条进度走满 550ms 才开详情。
-   光有长按没有反馈，手指压下去界面纹丝不动，玩家只会以为这格子卡了。 */
-.gcell .holdhint {
-  position: absolute; inset: 0; z-index: 2; display: none;
-  align-items: center; justify-content: center;
-  font-size: 10.5px; font-weight: 600; letter-spacing: .2px;
-  color: var(--jade); background: var(--glass-3);
-  pointer-events: none; opacity: 0;
-}
-.gcell.pressing .holdhint { display: flex; animation: hold-in .12s ease-out .09s both; }
-/* 底下那三行文字要退场：留着就透过覆盖层重影，糊成一片看不清提示 */
-.gcell.pressing > .gn,
-.gcell.pressing > .gm,
-.gcell.pressing > .gc,
-.gcell.pressing > .st,
-.gcell.pressing::after { opacity: 0; }
-.gcell .gn, .gcell .gm, .gcell .gc { transition: opacity .1s; }
-.gcell .holdhint::after {
-  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
-  background: var(--jade); transform: scaleX(0); transform-origin: left center;
-}
-/* 90ms 延迟 + 460ms 走完 = 550ms，与 app.js 里 pressTimer 的时长对齐：
-   轻点（<90ms）什么都不会显示，按住满 550ms 正好走满并开详情 */
-.gcell.pressing .holdhint::after { animation: hold-grow .46s linear .09s forwards; }
-@keyframes hold-in { from { opacity: 0; } to { opacity: 1; } }
-@keyframes hold-grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
-@media (prefers-reduced-motion: reduce) {
-  .gcell.pressing .holdhint { animation: none; opacity: 1; }
-  .gcell.pressing .holdhint::after { animation: none; transform: scaleX(1); }
-}
-/* 吃完的格子留在原位但淡下去：玩家还要看得见「这个成色已经没了」 */
-.gcell.used { opacity: .5; }
-.gcell.used:hover { transform: none; box-shadow: none; }
 
 /* 「全部」模式的档位小标题 */
 .eg-sec {

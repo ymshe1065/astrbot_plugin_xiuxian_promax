@@ -100,6 +100,13 @@ class TestPillRecipeEffectDisplay(unittest.IsolatedAsyncioTestCase):
 
     async def test_missing_effect_is_explicit_not_blank(self):
         """真缺数据（display 层拿到哨兵）时必须明说未录入，不许留白。"""
+        # 产出丹根本不存在：_normalize_recipe 要落到 DESC_MISSING 哨兵
+        ghost = self.am._normalize_recipe(9999, {
+            "name": "无效果测试方",
+            "output_pill": "不存在的测试丹",
+        })
+        self.assertEqual(ghost["desc"], self.am.DESC_MISSING)
+
         self.player.learned_recipes = "[500]"
         await self.db.update_player(self.player)
         self.am.recipes[500]["desc"] = self.am.DESC_MISSING

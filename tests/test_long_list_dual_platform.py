@@ -106,14 +106,20 @@ class TestPillBagDualPlatform(unittest.IsolatedAsyncioTestCase):
 
         payload = json.loads(card_path.with_suffix(".json").read_text(encoding="utf-8"))
         sec = payload["sections"][0]
-        self.assertEqual(sec["view"], "grid")
-        # 一味丹 × 一个品质 = 一格
+        # v3.45.27：背包卡片改由 lsq3497 的看板链路产出（rows + entries），
+        # 不再是本线原来的 view=grid 网格；契约改为「一排键值 + 结构化条目」。
+        self.assertEqual(sec["name"], "物品清单")
+        self.assertTrue(sec.get("rows"), "键值行要留给 QQ 位图/老前端兜底")
+        # 一味丹 × 一个品质 = 一条
         self.assertEqual(len(sec["entries"]), 3)
-        names = {(e["name"], e["kind"]) for e in sec["entries"]}
-        self.assertIn(("炼气丹", "一般"), names)
-        self.assertIn(("炼气丹", "良好"), names)
-        # 条目必须带完整指令，前端点格子才能直接下单
-        self.assertTrue(all(e.get("cmd", "").startswith("/服用丹药") for e in sec["entries"]))
+        self.assertEqual({e["quality"] for e in sec["entries"]}, {"一般", "良好", "极佳"})
+        for entry in sec["entries"]:
+            self.assertEqual(entry["kind"], "丹药")
+            self.assertTrue(entry.get("rank"), "前端要靠品阶上色")
+            self.assertTrue(int(entry.get("count") or 0) > 0)
+            self.assertTrue(entry.get("effect"), "每格都要有丹药效果，不能空着")
+        # 卡片类型必须是 pillbag：前端据此归到右侧看板，而不是储物戒页
+        self.assertEqual(payload.get("kind"), "pillbag")
 
     async def test_text_identical_across_platforms(self):
         """文本路径不受旁路影响：网页端丢掉的文本，必须与 QQ 端收到的完全一致。"""

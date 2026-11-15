@@ -82,6 +82,12 @@ FIRST_CELL_JS = """
 
 
 async def run(section, no_browser, mobile=False):
+    # /丹药背包 已改走右侧看板（lsq3497 v3.45.19 的 pillbag 页），
+    # 不再是聊天流里的 bag 卡片，本脚本的 .gcell 断言对它不适用。
+    if section == "丹药背包":
+        print("丹药背包现在是右侧看板（pillbag），不在本脚本覆盖范围；"
+              "请在页面里点 /丹药背包 手动验收", flush=True)
+        return
     # 丹阁的四个分区要补前缀；"符阁 符图" / "器阁" / "百宝阁" 这种本身就是完整命令
     sections = {"丹药", "丹方", "突破丹方", "材料"}
     cmd = f"丹阁 {section}" if section in sections else section

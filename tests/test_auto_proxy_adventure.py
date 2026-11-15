@@ -29,13 +29,16 @@ class FakeEscortManager:
         self.status = status
 
     async def start_escort(self, player):
+        from astrbot_plugin_xiuxian_promax.core.avatar_rules import total_slots
+
         await self.db.ext.set_user_busy(
-            player.user_id, self.status.DELIVERING, int(time.time()) + 1800, {}
+            player.user_id, self.status.DELIVERING, int(time.time()) + 1800, {},
+            max_slots=total_slots(player),
         )
         return True, "escort started", {}
 
     async def finish_escort(self, player):
-        await self.db.ext.set_user_free(player.user_id)
+        await self.db.ext.set_user_free(player.user_id, cd_type=self.status.DELIVERING)
         return True, "escort finished", {}
 
 
@@ -107,6 +110,9 @@ class FakeAdventureManager:
         route_key = self.resolve_route(route_token) or route_token
         if await self.get_route_cooldown(user_id, route_key) > int(time.time()):
             return False, "⚠️ 该路线尚在休整中，请稍后再试。"
+        from astrbot_plugin_xiuxian_promax.core.avatar_rules import total_slots
+
+        player = await self.db.get_player_by_id(user_id)
         self.calls.append((user_id, route_key))
         route = self.routes.get(route_key) or {}
         await self.db.ext.set_user_busy(
@@ -114,6 +120,7 @@ class FakeAdventureManager:
             self.status.ADVENTURING,
             int(time.time()) + int(route.get("duration", 600) or 600),
             {"route_key": route_key, "umo": umo or ""},
+            max_slots=total_slots(player) if player else 1,
         )
         return True, f"出发前往{route.get('name', route_key)}"
 
@@ -495,6 +502,47 @@ class TestAutoProxyAdventure(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(config["adventure"]["mode"], "alternate")
         self.assertNotEqual(config["adventure"]["route2"], "scout")
         self.assertTrue(config["adventure"]["route2"])
+
+
+    async def _set_avatars(self, count: int):
+        import json as _json
+
+        player = await self.db.get_player_by_id("u1")
+        player.permanent_bonus = _json.dumps({"avatar_slots": int(count)})
+        await self.db.update_player(player)
+
+    async def test_adventure_starts_in_free_slot_while_player_cultivates(self):
+        """玩家自己在闭关、化身为空时，历练代理应当用另一个槽位出发。"""
+        await self._set_avatars(1)  # 2 个槽位
+        await self.db.ext.set_user_busy(
+            "u1", self.UserStatus.CULTIVATING, int(time.time()) + 3600, max_slots=2
+        )
+        ok, msg = await self.manager.enable("u1", "umo://group", "历练 巡山问道")
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.adventure_mgr.calls, [("u1", "scout")])
+        cult = await self.db.ext.get_active_cd("u1", self.UserStatus.CULTIVATING)
+        self.assertIsNotNone(cult)
+        adv = await self.db.ext.get_active_cd("u1", self.UserStatus.ADVENTURING)
+        self.assertIsNotNone(adv)
+        self.assertNotEqual(int(cult.slot), int(adv.slot))
+
+    async def test_adventure_waits_when_all_slots_busy(self):
+        """唯一槽位被玩家自己闭关占着时，历练代理等槽位而不是自行关闭。"""
+        await self.db.ext.set_user_busy(
+            "u1", self.UserStatus.CULTIVATING, int(time.time()) + 3600
+        )
+        ok, msg = await self.manager.enable("u1", "umo://group", "历练 巡山问道")
+        self.assertTrue(ok, msg)
+        self.assertIn("分身都在忙", msg)
+        _row, config = await self._config()
+        self.assertTrue(config["adventure"]["enabled"])
+        self.assertEqual(self.adventure_mgr.calls, [])
+        self.assertEqual(config["adventure"]["note"], "wait_slot")
+
+        # 槽位空出来后下一轮自动出发
+        await self.db.ext.set_user_free("u1", cd_type=self.UserStatus.CULTIVATING)
+        await self.manager.process_due()
+        self.assertEqual(self.adventure_mgr.calls, [("u1", "scout")])
 
 
 if __name__ == "__main__":

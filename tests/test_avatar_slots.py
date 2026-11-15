@@ -122,6 +122,34 @@ class TestAvatarCatalog(unittest.TestCase):
         self.assertEqual(item["cap"], 4)
         self.assertEqual(item["group"], "便利")
 
+    def test_legacy_parallel_action_migrates_to_avatar_slots(self):
+        """旧档【一心二用】账本键要并进【身外化身】，否则老玩家分身归零。"""
+        player = _Player()
+        player.permanent_bonus = json.dumps({"parallel_action": 2})
+        bonus = self.rules.parse_bonus(player)
+        self.assertEqual(bonus.get("avatar_slots"), 2)
+        self.assertNotIn("parallel_action", bonus)
+        self.assertEqual(self.avatar.avatar_count(player), 2)
+        self.assertEqual(self.avatar.total_slots(player), 3)
+        # 读档即写回内存，后续保存玩家时自然落库
+        self.assertIn("avatar_slots", json.loads(player.permanent_bonus))
+
+    def test_legacy_migration_is_idempotent_and_merges(self):
+        player = _Player(avatars=1)
+        data = json.loads(player.permanent_bonus)
+        data["parallel_action"] = 1
+        player.permanent_bonus = json.dumps(data)
+        bonus = self.rules.parse_bonus(player)
+        self.assertEqual(bonus.get("avatar_slots"), 2)
+        again = self.rules.parse_bonus(player)
+        self.assertEqual(again.get("avatar_slots"), 2)
+        self.assertEqual(self.avatar.avatar_count(player), 2)
+
+    def test_legacy_migration_respects_cap(self):
+        player = _Player()
+        player.permanent_bonus = json.dumps({"parallel_action": 9})
+        self.assertEqual(self.avatar.avatar_count(player), 4)
+
 
 class TestBusyRules(unittest.TestCase):
     """忙碌判定：只看还有没有空闲分身。"""

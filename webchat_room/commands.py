@@ -219,6 +219,7 @@ CATEGORIES: list[dict[str, Any]] = [
             {"cmd": "/接受双修", "label": "接受双修"},
             {"cmd": "/拒绝双修", "label": "拒绝双修"},
             {"cmd": "/讨伐", "label": "讨伐", "tone": "gold"},
+            {"cmd": "/一键挑战", "label": "一键挑战", "tone": "gold"},
             {"cmd": "/江湖事件", "label": "江湖事件", "panel": True},
             {"cmd": "/挑战世界Boss", "label": "挑战世界Boss", "tone": "gold"},
             {"cmd": "/世界Boss状态", "label": "世界Boss状态", "panel": True},

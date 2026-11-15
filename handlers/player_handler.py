@@ -759,7 +759,9 @@ class PlayerHandler:
             else f"仅本体（{busy_count}/1 出动）"
         )
         if user_cd:
-            status_text = UserStatus.get_name(user_cd.type)
+            # 多分身：把本体/化身正在做的事都列出来，避免只显示其中一项
+            names = await self.db.ext.busy_activity_names(player.user_id)
+            status_text = "、".join(names) or UserStatus.get_name(user_cd.type)
             if slot_total > 1:
                 status_text += f" · 分身 {busy_count}/{slot_total} 出动"
         else:
