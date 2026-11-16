@@ -34,9 +34,11 @@ class PersonalCommandTest(unittest.TestCase):
         self.assertEqual(visibility.command_name("@机器人 /我的坊市"), "我的坊市")
 
     def test_panel_command(self):
-        for text in ("/我的信息", "我的信息", "/我的信息 ", "/储物戒"):
+        for text in ("/我的信息", "我的信息", "/我的信息 ", "/储物戒",
+                     "/丹药背包", "/仙缘商店", "仙缘商店"):
             self.assertTrue(visibility.is_panel_command(text), text)
-        for text in ("/签到", "/我的装备", "/储物戒列表", "晚上好", ""):
+        for text in ("/签到", "/我的装备", "/储物戒列表", "/仙缘兑换 1",
+                     "晚上好", ""):
             self.assertFalse(visibility.is_panel_command(text), text)
 
 

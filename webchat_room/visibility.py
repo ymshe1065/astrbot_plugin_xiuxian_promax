@@ -47,7 +47,8 @@ PERSONAL_ALIASES = {
 
 # 固定送入右侧看板的指令：无论前端是否带 panel 标记，都必须私密。
 # 兼容旧版前端（只发 private、不发 panel）以及玩家在输入框直接敲指令的情况。
-PANEL_COMMANDS = frozenset({"我的信息", "储物戒", "丹药背包"})
+# 仙缘商店是 52 件商品的目录，画成格子墙能占满整屏公屏，所以同样只看板。
+PANEL_COMMANDS = frozenset({"我的信息", "储物戒", "丹药背包", "仙缘商店"})
 
 
 def command_name(text: str) -> str:

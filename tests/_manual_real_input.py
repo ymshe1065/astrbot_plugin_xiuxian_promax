@@ -342,6 +342,29 @@ PANEL_JS = """
 """
 
 
+# /仙缘商店 同样只看板：数据来自 /api/fate_shop，看板里是一组组小卡片 + 层数晶块
+FATE_JS = """
+(() => {
+  const v = document.getElementById('viewFate');
+  if (!v) return JSON.stringify({panel: 'missing'});
+  const tab = document.querySelector('.panel-tab.active');
+  const cards = [...v.querySelectorAll('.fate-card')];
+  const first = cards[0];
+  const pips = first ? [...first.querySelectorAll('.fp-pips > i')] : [];
+  return JSON.stringify({
+    panel: 'fate',
+    tab: tab ? tab.textContent.trim() : '',
+    groups: v.querySelectorAll('.fate-group').length,
+    cards: cards.length,
+    pips: pips.length,
+    pipsOn: pips.filter(x => x.classList.contains('on')).length,
+    first: first ? first.innerText.replace(/\\n+/g, ' ') : '',
+    points: (v.querySelector('.fate-points') || {}).innerText || '',
+  });
+})()
+"""
+
+
 async def run(key, no_browser):
     cmd = SCENES[key]
     fd, dbpath = tempfile.mkstemp(suffix=".db")
@@ -418,13 +441,24 @@ async def run(key, no_browser):
             await asyncio.sleep(1.5)
             await c.js(SEND_JS % json.dumps(f"/{cmd}"))
             await asyncio.sleep(2.2)
-            stat = json.loads(await c.js(PANEL_JS if key == "pill" else COUNT_JS) or "{}")
+            stat_js = {"pill": PANEL_JS, "fate": FATE_JS}.get(key, COUNT_JS)
+            stat = json.loads(await c.js(stat_js) or "{}")
             print("  页面:", stat, flush=True)
             if key == "pill":
                 # 验收：看板页签得是「丹药背包」，且格子真的画出来了
                 good = stat.get("tab") == "丹药背包" and stat.get("cells", 0) > 0
                 print(f"  看板归位: {'✅' if good else '❌'} "
                       f"{stat.get('cells', 0)} 格", flush=True)
+            if key == "fate":
+                # 验收：52 件商品按 8 组进看板，聊天流里不该再有格子墙
+                good = (
+                    stat.get("tab") == "仙缘"
+                    and stat.get("cards", 0) > 0
+                    and stat.get("groups", 0) > 0
+                )
+                print(f"  看板归位: {'✅' if good else '❌'} "
+                      f"{stat.get('groups', 0)} 组 / {stat.get('cards', 0)} 张卡片", flush=True)
+                print(f"  晶块: {stat.get('pipsOn', 0)}/{stat.get('pips', 0)} 已点亮", flush=True)
             print("  服务端派发:", router.log, flush=True)
             # 防回归：页面汇总的「共 N 条」必须等于后端给出的条目数。
             # v3.45.22 的 bug（默认落凡品）就是这两个数对不上——宗门 5 件只画 2 格。
@@ -475,6 +509,34 @@ async def run(key, no_browser):
                 print(f"  服用后: {after.get('first', '')}", flush=True)
                 refreshed = after.get("first", "") != before
                 print(f"  自动刷新: {'✅' if refreshed else '❌ 页面没变'}", flush=True)
+            elif key == "fate":
+                # 点一张还买得起的商品：应当弹「说明 + 购买一层」菜单，而不是点一下就扣点
+                await c.js("(()=>{const v=document.getElementById('viewFate');"
+                           "const e=v&&[...v.querySelectorAll('.fate-card:not(.maxed)')]"
+                           ".find(x=>x.getClientRects().length);"
+                           "if(e)e.click()})()")
+                await asyncio.sleep(0.7)
+                menu_js = (
+                    "(()=>{const ms=[...document.querySelectorAll('div')]"
+                    ".filter(x=>x.style&&x.style.zIndex==='70'&&x.getClientRects().length);"
+                    "const m=ms[ms.length-1];"
+                    "return m?m.innerText.replace(/\\n+/g,' / '):'-'})()"
+                )
+                print("  商品菜单:", await c.js(menu_js), flush=True)
+                await c.shot(str(R.OUT / f"input_{key}_菜单.png"))
+                # 菜单确认购买一层：晶块要跟着多点亮一颗
+                await c.js("(()=>{const ms=[...document.querySelectorAll('div')]"
+                           ".filter(x=>x.style&&x.style.zIndex==='70'&&x.getClientRects().length);"
+                           "const m=ms[ms.length-1];const b=m&&m.querySelector('button');"
+                           "if(b)b.click()})()")
+                await asyncio.sleep(2.0)
+                after = json.loads(await c.js(FATE_JS) or "{}")
+                print(f"  购买前: {stat.get('first', '')} 晶块 {stat.get('pipsOn', 0)}/{stat.get('pips', 0)}",
+                      flush=True)
+                print(f"  购买后: {after.get('first', '')} 晶块 {after.get('pipsOn', 0)}/{after.get('pips', 0)}",
+                      flush=True)
+                bought = after.get("pipsOn", 0) > stat.get("pipsOn", 0)
+                print(f"  晶块增加: {'✅' if bought else '❌ 没变'}", flush=True)
             else:
                 await c.js("(()=>{const cc=document.querySelectorAll('.card');"
                            "const C=cc[cc.length-1];if(!C)return;"

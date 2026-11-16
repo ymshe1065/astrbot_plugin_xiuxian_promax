@@ -77,9 +77,15 @@ class _FakeDB:
 
 
 class _FakePlugin:
+    """属性名照抄生产：main.py 的 initialize 里是 ``self.reinc_mgr``。
+
+    早先这里写成 ``reincarnation_mgr``，刚好掩盖了「网页点卡片买不了」的 bug
+    ——面板快照不依赖管理器，所以列表一直正常，一买就报「模块未加载」。
+    """
+
     def __init__(self, player=None):
         self.db = _FakeDB(player)
-        self.reincarnation_mgr = ReincarnationManager(
+        self.reinc_mgr = ReincarnationManager(
             self.db, ConfigManager(ROOT), None
         )
 
@@ -332,6 +338,52 @@ class TestCrossLifeItems(unittest.TestCase):
             {"dao_gift_times": 1, "fate_title": 2}
         )
         self.assertAlmostEqual(mult, 1.05 * 1.02, places=6)
+
+
+class TestFateShopManagerLookup(unittest.IsolatedAsyncioTestCase):
+    """管理器属性名：生产是 reinc_mgr，历史写法 reincarnation_mgr 也要认。
+
+    这条守的是「网页点卡片购买」整条通路——取不到管理器时
+    ``fate_shop_buy`` 会直接返回「仙缘商店模块未加载」，而列表页不依赖它，
+    所以 bug 表现成「能看不能买」，很容易被当成 UI 问题。
+    """
+
+    def _player(self, points=300):
+        player = Player(user_id="u1")
+        player.fate_points = points
+        return player
+
+    async def test_buy_works_with_production_attribute_name(self):
+        player = self._player()
+        plugin = _FakePlugin(player)          # 只有 reinc_mgr
+        data = await panel.fate_shop_buy(plugin, "u1", 1)
+        self.assertTrue(data["ok"], data.get("error") or data.get("message"))
+        self.assertEqual(data["points"], 200)
+
+    async def test_buy_works_with_legacy_attribute_name(self):
+        player = self._player()
+        plugin = _FakePlugin(player)
+        plugin.reincarnation_mgr = plugin.reinc_mgr
+        del plugin.reinc_mgr
+        data = await panel.fate_shop_buy(plugin, "u1", 1)
+        self.assertTrue(data["ok"], data.get("error") or data.get("message"))
+
+    async def test_buy_falls_back_to_handler_owned_manager(self):
+        player = self._player()
+        plugin = _FakePlugin(player)
+        mgr = plugin.reinc_mgr
+        del plugin.reinc_mgr
+        plugin.reinc_handlers = type("H", (), {"reinc_mgr": mgr})()
+        data = await panel.fate_shop_buy(plugin, "u1", 1)
+        self.assertTrue(data["ok"], data.get("error") or data.get("message"))
+
+    async def test_buy_reports_missing_manager(self):
+        player = self._player()
+        plugin = _FakePlugin(player)
+        del plugin.reinc_mgr
+        data = await panel.fate_shop_buy(plugin, "u1", 1)
+        self.assertFalse(data["ok"])
+        self.assertIn("未加载", data.get("error", ""))
 
 
 if __name__ == "__main__":

@@ -1575,8 +1575,16 @@
     }
   }
 
-  /** 固定进看板的指令：/我的信息、/储物戒、/丹药背包（与后端 visibility.PANEL_COMMANDS 对齐） */
-  const PANEL_CMDS = { "/我的信息": "status", "/储物戒": "bag", "/丹药背包": "pillbag" };
+  /**
+   * 固定进看板的指令：/我的信息、/储物戒、/丹药背包、/仙缘商店
+   * （与后端 visibility.PANEL_COMMANDS 对齐）
+   */
+  const PANEL_CMDS = {
+    "/我的信息": "status",
+    "/储物戒": "bag",
+    "/丹药背包": "pillbag",
+    "/仙缘商店": "fate",
+  };
 
   function panelOfCmd(text) {
     const name = String(text || "").trim().split(/\s+/)[0];
@@ -1595,7 +1603,7 @@
   /**
    * 发指令并等待定向回复
    * @param {string} text 指令原文
-   * @param {{panel?: 'status'|'bag'|'pillbag', card?: boolean, silent?: boolean, awaitReply?: boolean}} opts
+   * @param {{panel?: 'status'|'bag'|'pillbag'|'fate', card?: boolean, silent?: boolean, awaitReply?: boolean}} opts
    *   awaitReply 为真时返回 Promise<boolean>，供批量指令逐条串行发送
    */
   function sendCmd(text, opts = {}) {
@@ -1817,6 +1825,12 @@
 
     // 面板请求：结果归位到看板，不进聊天流
     if (ctx?.panel) {
+      // 仙缘商店的数据源是 /api/fate_shop（带已购层数与兑换额度），
+      // 指令回复只是老式「商品一览」卡片，直接丢掉，让看板自己取最新快照
+      if (ctx.panel === "fate") {
+        switchPanelTab("fate");
+        return;
+      }
       if (cards.length) {
         setPanelCard(ctx.panel, cards[0]);
       } else if (m.text) {
@@ -4927,6 +4941,26 @@
     }
   }
 
+  /**
+   * 层数晶块：一个方块 = 一层，买过的点亮，没买的留空。
+   * 无上限的商品（cap=0）至少画 3 个槽、随层数增长到 6 个，
+   * 保证「0 层」也看得出这是一排进度块，而不是一条装饰线。
+   */
+  function fatePips(item) {
+    const owned = Math.max(0, Number(item.owned) || 0);
+    const cap = Math.max(0, Number(item.cap) || 0);
+    const slots = cap
+      ? Math.min(cap, 6)
+      : Math.min(6, Math.max(3, owned + 1));
+    let html = "";
+    for (let i = 0; i < slots; i++) {
+      html += '<i class="' + (i < owned ? "on" : "") + '"></i>';
+    }
+    // 层数超过能画下的槽位数（只可能是无上限商品）时补个角标
+    const extra = owned > slots ? '<b class="fp-more">+' + (owned - slots) + "</b>" : "";
+    return '<span class="fp-pips">' + html + extra + "</span>";
+  }
+
   function fateCard(item) {
     const card = document.createElement("button");
     card.type = "button";
@@ -4934,23 +4968,55 @@
       "fate-card" + (item.maxed ? " maxed" : item.affordable ? "" : " poor");
     card.dataset.id = item.id;
     card.innerHTML =
-      '<div class="fc-top"><span class="fc-name">' + esc(item.name) + "</span>" +
-      '<span class="fc-cost">' + (item.maxed ? "已满" : item.cost + " 点") + "</span></div>" +
-      '<div class="fc-desc">' + esc(item.desc) + "</div>" +
-      '<div class="fc-foot"><span class="fc-owned">' +
-      (item.owned ? "已买 " + item.owned + " 层" : "未购买") +
-      '</span><span class="fc-unit">' + esc(item.unit || "") + "</span></div>";
-    if (!item.maxed) {
-      card.addEventListener("click", () => buyFateItem(item.id, card));
-    } else {
-      card.disabled = true;
-    }
+      '<span class="fc-name">' + esc(item.name) + "</span>" +
+      fatePips(item) +
+      '<span class="fc-foot">' +
+      '<span class="fc-cost">' + (item.maxed ? "已满" : item.cost + " 点") + "</span>" +
+      (item.owned ? '<span class="fc-owned">×' + item.owned + "</span>" : "") +
+      "</span>";
+    // 点卡片不直接扣点：先弹菜单，菜单里同时给出效果说明再确认购买
+    card.addEventListener("click", (e) => openFateMenu(item, card, e));
     return card;
   }
 
-  function renderFatePanel(data) {
+  /** 商品菜单：说明 + 「购买一层」确认项，避免误触花掉仙缘点 */
+  function openFateMenu(item, anchor, sourceEvent = null) {
+    const menu = newCtxMenu();
+    menu.style.minWidth = "196px";
+    menu.style.maxWidth = "236px";
+    const intro = document.createElement("div");
+    intro.style.cssText =
+      "padding:5px 12px 8px;font-size:12px;line-height:1.55;color:#6b6157;" +
+      "white-space:normal;border-bottom:1px solid #f0e8db;margin-bottom:4px";
+    intro.textContent = [
+      item.desc || "",
+      item.unit ? "每层 " + item.unit : "",
+      item.cap ? "上限 " + item.cap + " 层（已买 " + (item.owned || 0) + "）" : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    menu.appendChild(intro);
+    if (item.maxed) {
+      const done = document.createElement("div");
+      done.style.cssText = "padding:6px 12px;font-size:12.5px;color:#8a9a86";
+      done.textContent = "已买满，不能再买";
+      menu.appendChild(done);
+    } else {
+      menu.appendChild(
+        ctxMenuButton("购买一层 · " + item.cost + " 点", () =>
+          buyFateItem(item.id, anchor)
+        )
+      );
+    }
+    mountCtxMenu(menu, anchor, sourceEvent);
+  }
+
+  function renderFatePanel(data, keepScroll = false) {
     const view = $("viewFate");
     if (!view) return;
+    // 买一层会整页重画，先把滚动位置记下来，否则点一次商品就弹回顶部
+    const scroller = view.parentElement;
+    const top = keepScroll && scroller ? scroller.scrollTop : 0;
     view.innerHTML = "";
     if (!data.has_player) {
       view.innerHTML = '<div class="panel-empty">尚未创建角色，请先发送 /我要修仙</div>';
@@ -4968,12 +5034,17 @@
     const exBox = document.createElement("div");
     exBox.className = "fate-exchange";
     exBox.innerHTML =
-      '<span>灵石兑换 ' + fateWan(ex.gold_per_point) + " 万 / 点 · 本轮剩 " +
+      '<span>' + fateWan(ex.gold_per_point) + " 万灵石 / 点 · 本轮剩 " +
       (ex.left || 0) + "/" + (ex.max || 0) + " 点</span>";
     const exBtn = document.createElement("button");
     exBtn.type = "button";
     exBtn.className = "btn-ghost small";
-    exBtn.textContent = "换 " + (ex.affordable || 0) + " 点";
+    // 换不了的时候别只写「换 0 点」：分不清是额度用完还是灵石不够
+    exBtn.textContent = ex.affordable
+      ? "换 " + ex.affordable + " 点"
+      : (ex.left || 0) <= 0
+        ? "本轮已换满"
+        : "灵石不足";
     exBtn.disabled = !ex.affordable;
     exBtn.addEventListener("click", () => exchangeFatePoints(0));
     exBox.appendChild(exBtn);
@@ -4985,7 +5056,8 @@
       sec.className = "fate-group";
       const gh = document.createElement("div");
       gh.className = "fate-group-head";
-      gh.innerHTML = "<b>" + esc(group.name) + "</b><small>" + esc(group.note || "") + "</small>";
+      gh.innerHTML =
+        "<b>" + esc(group.name) + "</b>" + '<small>' + esc(group.note || "") + "</small>";
       sec.appendChild(gh);
       const grid = document.createElement("div");
       grid.className = "fate-grid";
@@ -4993,6 +5065,7 @@
       sec.appendChild(grid);
       view.appendChild(sec);
     });
+    if (keepScroll && scroller) scroller.scrollTop = top;
   }
 
   async function buyFateItem(itemId, card) {
@@ -5012,7 +5085,7 @@
       if (!data) throw new Error("bad response");
       if (data.message) toast(data.message);
       if (data.ok === false) loadFatePanel();
-      else renderFatePanel(data);
+      else renderFatePanel(data, true);
     } catch {
       toast("网络异常，购买失败");
       loadFatePanel();
@@ -5038,7 +5111,7 @@
       if (!data) throw new Error("bad response");
       if (data.message) toast(data.message);
       if (data.ok === false) loadFatePanel();
-      else renderFatePanel(data);
+      else renderFatePanel(data, true);
     } catch {
       toast("网络异常，兑换失败");
       loadFatePanel();

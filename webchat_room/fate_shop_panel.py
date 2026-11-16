@@ -106,9 +106,26 @@ async def fate_shop_snapshot(plugin: "XiuXianPlugin", user_id: str) -> dict[str,
     }
 
 
+def _reinc_mgr(plugin: "XiuXianPlugin"):
+    """取转生管理器。
+
+    生产里插件上的属性叫 ``reinc_mgr``（``main.py`` 的 ``initialize``），
+    早先这里写的是 ``reincarnation_mgr``，取不到就当成「模块未加载」，
+    于是网页点卡片购买一直失败——列表能看（不依赖管理器），一买就报错。
+    三个来源都试一遍，别再因为改名把购买通路打断。
+    """
+    mgr = getattr(plugin, "reinc_mgr", None)
+    if mgr is None:
+        mgr = getattr(plugin, "reincarnation_mgr", None)
+    if mgr is None:
+        handlers = getattr(plugin, "reinc_handlers", None)
+        mgr = getattr(handlers, "reinc_mgr", None)
+    return mgr
+
+
 async def fate_shop_buy(plugin: "XiuXianPlugin", user_id: str, item_id: int) -> dict[str, Any]:
     """买一层，返回 (ok, msg) + 最新快照。"""
-    mgr = getattr(plugin, "reincarnation_mgr", None)
+    mgr = _reinc_mgr(plugin)
     if mgr is None:
         return {"ok": False, "error": "仙缘商店模块未加载"}
 
