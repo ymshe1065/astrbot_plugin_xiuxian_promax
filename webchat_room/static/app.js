@@ -50,6 +50,7 @@
     cards: new Map(),        // card id -> card
     panelCard: { status: null, bag: null, pillbag: null },
     bagDirty: true,          // 储物戒在别处发生变更，切回看板时需要重新拉取
+    pillBagDirty: true,      // 丹药背包同上（服用/炼丹/买卖都会改动它）
     lastCmd: null,           // 用于刷新
     reconnectTimer: null,
     manualClose: false,
@@ -939,7 +940,12 @@
       return;
     }
     S.ws = ws;
+    // 换连接时旧 socket 的 open/close/message 可能迟到：只认当前 S.ws 的事件，
+    // 否则旧连接的 onclose 会把新连接的 S.connected 踩成 false —— 之后
+    // bag_changed / pillbag_changed 的自动刷新都会被「未连接」守卫静默吞掉。
+    const stale = () => S.ws !== ws;
     ws.onopen = () => {
+      if (stale()) return;
       S.connected = true;
       failCount = 0;
       setConn("已连接", true);
@@ -948,6 +954,7 @@
       loadPanel("status");
     };
     ws.onclose = async (e) => {
+      if (stale()) return;
       S.connected = false;
       setConn("已断开", false);
       if (S.manualClose) return;
@@ -964,8 +971,15 @@
       addSys("连接断开，正在重连…");
       scheduleReconnect();
     };
-    ws.onerror = () => setConn("连接异常", false);
-    ws.onmessage = onMessage;
+    ws.onerror = () => {
+      if (stale()) return;
+      setConn("连接异常", false);
+    };
+    ws.onmessage = (ev) => {
+      // 旧连接残留的消息不再渲染，避免同一张卡片进两次聊天流
+      if (stale()) return;
+      onMessage(ev);
+    };
   }
 
   /* ================= 工具 ================= */
@@ -1644,6 +1658,7 @@
         if (typeof m.avatar === "string") S.avatar = m.avatar;
         // 重连/换号后看板必须重新取：防止展示上一个账号或过期的储物戒
         S.bagDirty = true;
+        S.pillBagDirty = true;
         if (switchedUser) {
           S.panelCard = { status: null, bag: null, pillbag: null };
           const statusView = $("viewStatus");
@@ -1725,6 +1740,11 @@
         // 后端确认储物戒内容有变：界面正开着就立即刷新，否则等切回来再取
         markBagDirty();
         refreshBagSoon();
+        break;
+      case "pillbag_changed":
+        // 服用/炼丹/买卖改了丹药数量：丹药背包页开着就地重画，没开着只标脏
+        markPillBagDirty();
+        refreshPillBagSoon();
         break;
       case "notice":
         onNotice(m);
@@ -4548,16 +4568,42 @@
   /** 储物戒是否已过期：后台变更时只打标记，等玩家切回储物戒界面再刷新 */
   let bagRefreshTimer = 0;
   let bagLoadedAt = 0; // 最近一次成功渲染储物戒卡片的时间
+  let pillBagRefreshTimer = 0;
   let pillBagLoadedAt = 0; // 最近一次成功渲染丹药背包卡片的时间
 
   function markBagDirty() {
     S.bagDirty = true;
   }
 
+  function markPillBagDirty() {
+    S.pillBagDirty = true;
+  }
+
   /** 当前看板是否停在储物戒页 */
   function bagTabActive() {
     const tab = document.querySelector(".panel-tab.active");
     return !!tab && tab.dataset.tab === "bag";
+  }
+
+  /** 当前看板是否停在丹药背包页 */
+  function pillBagTabActive() {
+    const tab = document.querySelector(".panel-tab.active");
+    return !!tab && tab.dataset.tab === "pillbag";
+  }
+
+  /** 丹药背包同理：合并短时间内的多次刷新请求 */
+  function refreshPillBagSoon(delay = 220, retry = 0) {
+    if (!S.connected) return;
+    clearTimeout(pillBagRefreshTimer);
+    pillBagRefreshTimer = setTimeout(() => {
+      pillBagRefreshTimer = 0;
+      if (!pillBagTabActive()) return;
+      if (panelPending("pillbag") && retry < 5) {
+        refreshPillBagSoon(400, retry + 1);
+        return;
+      }
+      loadPanel("pillbag");
+    }, delay);
   }
 
   /** 合并短时间内的多次刷新请求，避免连发指令时重复渲染卡片 */
@@ -4604,6 +4650,7 @@
       bagLoadedAt = Date.now();
     }
     if (which === "pillbag") {
+      S.pillBagDirty = false;
       pillBagLoadedAt = Date.now();
     }
     const view = panelView(which);
@@ -4703,8 +4750,9 @@
       }
     }
     if (tab === "pillbag" && S.connected) {
-      // 丹药会在别处（服用/炼丹/商店）增减，切页时同样以 3 秒为界刷新
-      if (!S.panelCard.pillbag || Date.now() - pillBagLoadedAt > 3000) {
+      // 丹药会在别处（服用/炼丹/商店）增减：脏标记、卡片过期或距上次渲染
+      // 超过 3 秒都重拉，切页时就能拿到最新数量
+      if (S.pillBagDirty || !S.panelCard.pillbag || Date.now() - pillBagLoadedAt > 3000) {
         loadPanel("pillbag");
       }
     }

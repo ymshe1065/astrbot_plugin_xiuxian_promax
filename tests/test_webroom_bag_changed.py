@@ -54,6 +54,7 @@ class FakePlayer:
         self.permanent_bonus = "{}"
         self._items = {"聚气丹": 3}
         self._overflow = {}
+        self._pills = {"凝气丹|一般": 2}
         self._instances = [
             {"id": 1, "name": "青锋剑", "quality": "一般", "location": "storage"},
             {"id": 2, "name": "青锋剑", "quality": "极品", "location": "storage"},
@@ -66,6 +67,9 @@ class FakePlayer:
 
     def get_overflow_items(self):
         return dict(self._overflow)
+
+    def get_pills_inventory(self):
+        return dict(self._pills)
 
     def get_equipment_instances(self):
         return [dict(i) for i in self._instances]
@@ -91,11 +95,13 @@ class BagChangedTest(unittest.IsolatedAsyncioTestCase):
         rs.push_to_username = fake_push
         rs._plugin = SimpleNamespace(db=SimpleNamespace(get_player_by_id=fake_get_player))
         rs._bag_sigs.clear()
+        rs._pill_sigs.clear()
 
     def tearDown(self):
         rs._plugin = self._orig_plugin
         rs.push_to_username = self._orig_push
         rs._bag_sigs.clear()
+        rs._pill_sigs.clear()
 
     async def test_first_check_only_seeds_cache(self):
         await rs._bag_check(rs.ROOM_ID, "web_u1", "u1")
@@ -151,6 +157,88 @@ class BagChangedTest(unittest.IsolatedAsyncioTestCase):
         await rs._bag_check(rs.ROOM_ID, "web_u1", "u1")
         self.assertEqual(self.sent, [])
         self.assertNotIn("web_u1", rs._bag_sigs)
+
+
+class PillBagChangedTest(unittest.IsolatedAsyncioTestCase):
+    """丹药背包单独一份指纹：吃丹不该让储物戒重画，反之亦然。"""
+
+    def setUp(self):
+        self.sent = []
+        self._orig_plugin = rs._plugin
+        self._orig_push = rs.push_to_username
+        self.player = FakePlayer()
+
+        async def fake_push(room_id, username, payload):
+            self.sent.append((room_id, username, payload))
+            return 1
+
+        async def fake_get_player(_key):
+            return self.player
+
+        rs.push_to_username = fake_push
+        rs._plugin = SimpleNamespace(db=SimpleNamespace(get_player_by_id=fake_get_player))
+        rs._bag_sigs.clear()
+        rs._pill_sigs.clear()
+
+    def tearDown(self):
+        rs._plugin = self._orig_plugin
+        rs.push_to_username = self._orig_push
+        rs._bag_sigs.clear()
+        rs._pill_sigs.clear()
+
+    def _types(self):
+        return [p["type"] for _, _, p in self.sent]
+
+    async def test_first_check_only_seeds_cache(self):
+        await rs._bag_check(rs.ROOM_ID, "web_u1", "u1")
+        self.assertEqual(self.sent, [])
+        self.assertIn("web_u1", rs._pill_sigs)
+
+    async def test_eating_pill_pushes_pillbag_changed(self):
+        # 服用一颗：凝气丹 2 → 1，看板要自己重画
+        await rs._bag_check(rs.ROOM_ID, "web_u1", "u1")
+        self.player._pills["凝气丹|一般"] = 1
+        await rs._bag_check(rs.ROOM_ID, "web_u1", "u1")
+        self.assertEqual(self._types(), ["pillbag_changed"])
+
+    async def test_pill_running_out_pushes(self):
+        await rs._bag_check(rs.ROOM_ID, "web_u1", "u1")
+        self.player._pills.pop("凝气丹|一般")
+        await rs._bag_check(rs.ROOM_ID, "web_u1", "u1")
+        self.assertEqual(self._types(), ["pillbag_changed"])
+
+    async def test_zero_count_counts_as_gone(self):
+        # 数量归零与「没有这味丹」等价，同样是变化
+        await rs._bag_check(rs.ROOM_ID, "web_u1", "u1")
+        self.player._pills["凝气丹|一般"] = 0
+        await rs._bag_check(rs.ROOM_ID, "web_u1", "u1")
+        self.assertEqual(self._types(), ["pillbag_changed"])
+
+    async def test_storage_change_does_not_touch_pillbag(self):
+        await rs._bag_check(rs.ROOM_ID, "web_u1", "u1")
+        self.player._items["聚气丹"] = 9
+        await rs._bag_check(rs.ROOM_ID, "web_u1", "u1")
+        self.assertEqual(self._types(), ["bag_changed"])
+
+    async def test_pill_change_does_not_touch_bag(self):
+        await rs._bag_check(rs.ROOM_ID, "web_u1", "u1")
+        self.player._pills["筑基丹|极佳"] = 1
+        await rs._bag_check(rs.ROOM_ID, "web_u1", "u1")
+        self.assertEqual(self._types(), ["pillbag_changed"])
+
+    async def test_key_order_does_not_matter(self):
+        self.player._pills = {"凝气丹|一般": 2, "聚灵丹|一般": 1}
+        await rs._bag_check(rs.ROOM_ID, "web_u1", "u1")
+        self.player._pills = {"聚灵丹|一般": 1, "凝气丹|一般": 2}
+        await rs._bag_check(rs.ROOM_ID, "web_u1", "u1")
+        self.assertEqual(self._types(), [])
+
+    async def test_broken_inventory_does_not_raise(self):
+        # 老存档对象未必有 get_pills_inventory，取不到就当空，不许抛
+        await rs._bag_check(rs.ROOM_ID, "web_u1", "u1")
+        self.player.get_pills_inventory = None
+        await rs._bag_check(rs.ROOM_ID, "web_u1", "u1")
+        self.assertEqual(self._types(), ["pillbag_changed"])
 
 
 if __name__ == "__main__":

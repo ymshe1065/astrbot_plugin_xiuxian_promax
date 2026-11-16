@@ -75,6 +75,10 @@ _site: web.TCPSite | None = None
 # 指令执行后比较一次，只有真的变了才推送 bag_changed，避免每条消息都重渲染卡片。
 _BAG_SIG_LIMIT = 2000
 _bag_sigs: "OrderedDict[str, str]" = OrderedDict()
+# 丹药背包指纹：与储物戒分开算——服用丹药不动储物戒，储物戒增减也不代表丹药变了。
+# 两边各推各的事件，前端只重画对应那一页。
+_PILL_SIG_LIMIT = 2000
+_pill_sigs: "OrderedDict[str, str]" = OrderedDict()
 _bag_tasks: set[asyncio.Task] = set()
 
 # 最近发出的公屏消息：撤回时校验发送者，避免撤回别人的消息。
@@ -332,6 +336,7 @@ async def stop() -> None:
         await asyncio.gather(*tasks, return_exceptions=True)
     _bag_tasks.clear()
     _bag_sigs.clear()
+    _pill_sigs.clear()
     _rooms.clear()
     _recent_msgs.clear()
     _channel_history.clear()
@@ -504,7 +509,11 @@ async def push_to_username(room_id: str, username: str, payload: dict[str, Any])
 
 
 async def _bag_check(room_id: str, player_key: str, username: str) -> None:
-    """比对储物戒指纹，变化时通知该玩家的所有网页连接刷新看板。"""
+    """比对储物戒与丹药背包指纹，变化时通知该玩家的所有网页连接刷新看板。
+
+    两块数据各有各的存储（物品栏 vs 丹药背包），所以分别算指纹、分别推送：
+    吃一颗丹药只会推 pillbag_changed，不会连带重画储物戒。
+    """
     plugin = _plugin
     if plugin is None or not player_key or not username:
         return
@@ -526,6 +535,17 @@ async def _bag_check(room_id: str, player_key: str, username: str) -> None:
     if old is not None and old != sig:
         await push_to_username(
             room_id, username, {"type": "bag_changed", "ts": int(time.time())}
+        )
+
+    pill_sig = _pill_signature(player)
+    pill_old = _pill_sigs.get(player_key)
+    _pill_sigs[player_key] = pill_sig
+    _pill_sigs.move_to_end(player_key)
+    while len(_pill_sigs) > _PILL_SIG_LIMIT:
+        _pill_sigs.popitem(last=False)
+    if pill_old is not None and pill_old != pill_sig:
+        await push_to_username(
+            room_id, username, {"type": "pillbag_changed", "ts": int(time.time())}
         )
 
 
@@ -609,6 +629,28 @@ def _storage_signature(player: Any) -> str:
         "main": str(getattr(player, "main_technique", "") or ""),
     }
     raw = json.dumps(payload, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()
+
+
+def _pill_signature(player: Any) -> str:
+    """丹药背包展示状态的轻量指纹：丹药名|品质 → 数量。
+
+    丹药存在 get_pills_inventory() 里，与储物戒的物品栏是两套存储，
+    所以必须单独算一份——否则吃了丹药储物戒指纹不变，看板就不会刷新。
+    """
+    try:
+        data = player.get_pills_inventory() or {}
+    except Exception:
+        return ""
+    out: dict[str, int] = {}
+    for key, value in data.items():
+        try:
+            amount = int(value or 0)
+        except (TypeError, ValueError):
+            amount = 0
+        if amount > 0:
+            out[str(key)] = amount
+    raw = json.dumps(out, sort_keys=True, ensure_ascii=False)
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()
 
 

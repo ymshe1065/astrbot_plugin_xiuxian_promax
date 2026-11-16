@@ -18,6 +18,7 @@
 """
 
 import asyncio
+import inspect
 import json
 import os
 import re
@@ -162,6 +163,23 @@ def resolve(text):
     return ROUTES.get(head), rest.strip()
 
 
+def wants_args(fn) -> bool:
+    """handler 是否是「带参命令」（self, event, GreedyStr）。
+
+    @require_whitelist 用 functools.wraps 包了一层，signature 会顺着
+    __wrapped__ 摸回原函数，所以数一下位置参数个数就够了。
+    """
+    try:
+        params = list(inspect.signature(fn).parameters.values())
+    except (TypeError, ValueError):
+        return False
+    positional = [
+        p for p in params
+        if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)
+    ]
+    return len(positional) >= 3
+
+
 def result_to_payload(ev):
     """把一次方法调用的产出转成 room_server 能广播的 payload。"""
     cards = []
@@ -194,6 +212,7 @@ class Router:
     def __init__(self, plug):
         self.plug = plug
         self.log = []
+        self.last_text = ""
 
     async def on_player_message(self, room_id, player_id, player_name, text,
                                 req_id=None, private=False, want_card=False,
@@ -213,8 +232,13 @@ class Router:
         ev.panel = bool(panel)
         private = bool(private or panel)
         try:
-            # 方法是从类体上取的未绑定函数，要显式传 self
-            async for _ in fn(self.plug, ev):
+            # 方法是从类体上取的未绑定函数，要显式传 self。
+            # 带参命令（如 /服用丹药 <名> [品质] [数量]）的第三个形参是 GreedyStr，
+            # 真 astrbot 会把命令名之后的整段文本原样传进去；这里照做。
+            argv = [self.plug, ev]
+            if wants_args(fn):
+                argv.append(rest)
+            async for _ in fn(*argv):
                 pass
             payload = result_to_payload(ev)
         except Exception:
@@ -228,6 +252,7 @@ class Router:
                     names = [e.get("name") for e in (sec.get("entries") or [])]
                     detail.append(f"{sec.get('name')}×{len(names)}:{names}")
         self.log.append((text, fn.__name__, len(payload["cards"]), detail))
+        self.last_text = payload.get("text", "")
         payload["req_id"] = req_id or ""
         if private:
             # 与 webroom_event._deliver 一致：看板结果只回给本人，绝不走公屏
@@ -236,6 +261,10 @@ class Router:
             await room_server.send_to_player(room_id, player_id, payload)
         else:
             await room_server.broadcast_bot_payload(room_id, payload)
+        # 真实事件层在 _deliver 末尾会补一次看板变更检查（储物戒 / 丹药背包各算
+        # 一份指纹，变了就推 bag_changed / pillbag_changed）。桩绕过了事件层，
+        # 这里照做，否则「服用后看板自动刷新」这条链路根本没被触发。
+        room_server.schedule_bag_check(room_id, player_id, ACCOUNT)
 
 
 # ---------- 浏览器侧 ----------
@@ -332,6 +361,20 @@ async def run(key, no_browser):
 
     router = Router(plug)
     room_server.set_adapter(router)
+    # 看板变更推送（bag_changed / pillbag_changed）要读存档算指纹，
+    # 生产环境 main.py 的 initialize 里会注入；这里同样补上。
+    room_server.set_plugin(plug)
+
+    # 记录后端到底推了哪些事件，便于验证「服用后自动刷新」这条链路
+    pushed = []
+    _orig_push = room_server.push_to_username
+
+    async def _spy_push(room_id, username, payload):
+        n = await _orig_push(room_id, username, payload)
+        pushed.append((payload.get("type"), n))
+        return n
+
+    room_server.push_to_username = _spy_push
 
     # 先离线跑一遍，确认这条命令能被解析（不开服务也能看到）
     fn, _ = resolve(cmd)
@@ -407,6 +450,31 @@ async def run(key, no_browser):
                     ".filter(x=>x.style&&x.style.zIndex==='70'&&x.getClientRects().length);"
                     "const m=ms[ms.length-1];"
                     "return m?m.innerText.replace(/\\n+/g,' / '):'-'})()"), flush=True)
+
+                # 服丹后看板要自己刷新。这里由桩直接提交命令（等价于玩家在聊天框
+                # 敲了一条 /服用丹药），浏览器全程停在丹药背包页不切走：
+                # 命令回复照旧进聊天流，看板只靠后端推的 pillbag_changed 自己重画。
+                before = stat.get("first", "")
+                await router.on_player_message(
+                    "room_main", PLAYER_ID, NICK, "/服用丹药 凝气丹 一般 1"
+                )
+                await asyncio.sleep(2.5)
+                after = json.loads(await c.js(PANEL_JS) or "{}")
+                used = [r for r in router.log if r[1] == "handle_use_pill"]
+                print(f"  服用: {used[-1][1] if used else '未执行'}", flush=True)
+                lines = (router.last_text or "").splitlines()
+                print(f"  回复: {lines[0][:60] if lines else '(卡片)'}", flush=True)
+                p_after = await db.get_player_by_id(PLAYER_ID)
+                inv = {
+                    k: v for k, v in (p_after.get_pills_inventory() or {}).items()
+                    if "凝气丹" in k
+                }
+                print(f"  存档丹药: {inv}", flush=True)
+                print(f"  后端推送: {pushed}", flush=True)
+                print(f"  服用前: {before}", flush=True)
+                print(f"  服用后: {after.get('first', '')}", flush=True)
+                refreshed = after.get("first", "") != before
+                print(f"  自动刷新: {'✅' if refreshed else '❌ 页面没变'}", flush=True)
             else:
                 await c.js("(()=>{const cc=document.querySelectorAll('.card');"
                            "const C=cc[cc.length-1];if(!C)return;"
