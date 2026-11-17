@@ -4541,6 +4541,9 @@
       }
     }
 
+    // 真正发出的指令才计入「最近使用」
+    rememberCmdUse(text);
+
     // 看板常驻类指令：结果只进对应面板（注意中文后没有 \b 词边界）
     if (/^\/我的信息(?:\s|$)/.test(text)) {
       sendCmd(text, { panel: "status", card: true, silent: true });
@@ -4771,6 +4774,139 @@
       }
     }
     if (isMobile()) openDrawer();
+  }
+
+  /* ================= 指令联想（Tab 补全） ================= */
+  const CMD_RECENT_KEY = "wx_cmd_recent";
+  const CMD_SUGGEST_SWITCH = "wx_cmd_ac";
+
+  function cmdSuggestEnabled() {
+    try {
+      return localStorage.getItem(CMD_SUGGEST_SWITCH) !== "off";
+    } catch {
+      return true;
+    }
+  }
+
+  /** 取行首指令 token（不含 /）；非 / 开头返回 null，空串表示只输入了 / */
+  function cmdSuggestToken(value) {
+    if (typeof value !== "string" || !value.startsWith("/")) return null;
+    const m = value.slice(1).match(/^\S*/);
+    return m ? m[0] : "";
+  }
+
+  /** 输入已等于某个正式指令名时应收起面板（别名不算，仍允许补全） */
+  function cmdSuggestExact(items, query) {
+    const q = String(query || "").trim().toLowerCase();
+    if (!q) return false;
+    return items.some((it) => it.cmd.replace(/^\//, "").toLowerCase() === q);
+  }
+
+  /** 把目录拉平成联想条目；desc 用参数提示，没有则用分组名 */
+  function cmdSuggestItems() {
+    const cats = (S.cmdCatalog && S.cmdCatalog.categories) || [];
+    const out = [];
+    cats.forEach((cat) => {
+      (cat.items || []).forEach((it) => {
+        out.push({
+          cmd: it.cmd,
+          label: it.label || it.cmd,
+          desc: it.arg || "",
+          group: cat.name || "",
+        });
+      });
+    });
+    return out;
+  }
+
+  function readRecentCmds() {
+    try {
+      const arr = JSON.parse(localStorage.getItem(CMD_RECENT_KEY) || "[]");
+      return Array.isArray(arr) ? arr : [];
+    } catch {
+      return [];
+    }
+  }
+
+  /** 记录玩家实际发出的指令，供联想排序使用；别名归一到正式写法 */
+  function rememberCmdUse(text) {
+    const token = String(text || "").trim().split(/\s+/)[0].replace(/^\//, "");
+    if (!token) return;
+    const aliases = (S.cmdCatalog && S.cmdCatalog.aliases) || {};
+    const canonical = aliases[token] || `/${token}`;
+    const list = readRecentCmds().filter((c) => c !== canonical);
+    list.unshift(canonical);
+    try {
+      localStorage.setItem(CMD_RECENT_KEY, JSON.stringify(list.slice(0, 20)));
+    } catch {
+      /* 隐私模式 / 存储不可用时忽略 */
+    }
+  }
+
+  /**
+   * 指令联想匹配：名称/别名前缀优先，其次按钮文案与关键词包含。
+   * 空查询时最近使用最多 3 条置顶，其余按目录顺序；同分时最近使用优先。
+   */
+  function matchCommandSuggest(items, aliases, query, recent) {
+    const limit = 10;
+    const q = String(query || "").trim().toLowerCase();
+    const order = new Map(items.map((it, i) => [it.cmd, i]));
+    const recentRank = new Map((recent || []).map((c, i) => [c, i]));
+    const aliasOf = (it) =>
+      Object.keys(aliases || {})
+        .filter((a) => aliases[a] === it.cmd)
+        .map((a) => a.toLowerCase());
+
+    if (!q) {
+      const head = [];
+      (recent || []).forEach((cmd) => {
+        if (head.length >= 3) return;
+        const hit = items.find((it) => it.cmd === cmd);
+        if (hit) head.push({ ...hit, recent: true });
+      });
+      const seen = new Set(head.map((it) => it.cmd));
+      return head.concat(items.filter((it) => !seen.has(it.cmd))).slice(0, limit);
+    }
+
+    const scored = [];
+    items.forEach((it) => {
+      const name = it.cmd.replace(/^\//, "").toLowerCase();
+      const label = String(it.label || "").toLowerCase();
+      const aliasList = aliasOf(it);
+      let score = 0;
+      if (name === q) score = 1000;
+      else if (name.startsWith(q)) score = 800 - Math.min(name.length - q.length, 99);
+      else if (aliasList.some((a) => a === q)) score = 700;
+      else if (aliasList.some((a) => a.startsWith(q))) score = 600;
+      else if (label.startsWith(q)) score = 500;
+      else if (label.includes(q)) score = 300;
+      else if (name.includes(q)) score = 280;
+      else if (aliasList.some((a) => a.includes(q))) score = 260;
+      else if (
+        (it.desc || "").toLowerCase().includes(q) ||
+        (it.group || "").toLowerCase().includes(q)
+      ) {
+        score = 100;
+      }
+      if (score) scored.push({ ...it, score });
+    });
+    scored.sort(
+      (a, b) =>
+        b.score - a.score ||
+        (recentRank.has(a.cmd) ? recentRank.get(a.cmd) : 999) -
+          (recentRank.has(b.cmd) ? recentRank.get(b.cmd) : 999) ||
+        order.get(a.cmd) - order.get(b.cmd)
+    );
+    return scored.slice(0, limit);
+  }
+
+  /** 用选中指令替换行首 token，保留后面已经输入的参数 */
+  function completeCommandText(value, cmd) {
+    const text = String(value || "");
+    if (!text.startsWith("/") || !cmd) return { text, caret: text.length };
+    const rest = text.replace(/^\/\S*/, "").trim();
+    const next = rest ? `${cmd} ${rest}` : `${cmd} `;
+    return { text: next, caret: next.length };
   }
 
   /* ================= 指令格 ================= */
@@ -6281,11 +6417,124 @@
     });
 
     const input = $("inMsg");
+    const sugBox = $("cmdSuggest");
+    const sug = { open: false, items: [], active: 0 };
+
     const autosize = () => {
       input.style.height = "auto";
       input.style.height = Math.min(input.scrollHeight, 132) + "px";
     };
-    input.addEventListener("input", autosize);
+
+    const closeSuggest = () => {
+      sug.open = false;
+      sug.items = [];
+      sug.active = 0;
+      sugBox.hidden = true;
+      sugBox.innerHTML = "";
+      input.setAttribute("aria-expanded", "false");
+    };
+
+    const drawSuggest = () => {
+      const token = (cmdSuggestToken(input.value) || "").trim().toLowerCase();
+      sugBox.innerHTML = "";
+      sug.items.forEach((it, i) => {
+        const row = document.createElement("button");
+        row.type = "button";
+        row.className = "cmd-suggest-item" + (i === sug.active ? " on" : "");
+        row.setAttribute("role", "option");
+        row.setAttribute("aria-selected", String(i === sug.active));
+        row.dataset.idx = String(i);
+
+        const cmdEl = document.createElement("span");
+        cmdEl.className = "cs-cmd";
+        const idx = token ? it.cmd.toLowerCase().indexOf(token) : -1;
+        if (idx >= 0) {
+          cmdEl.appendChild(document.createTextNode(it.cmd.slice(0, idx)));
+          const mark = document.createElement("b");
+          mark.textContent = it.cmd.slice(idx, idx + token.length);
+          cmdEl.appendChild(mark);
+          cmdEl.appendChild(document.createTextNode(it.cmd.slice(idx + token.length)));
+        } else {
+          cmdEl.textContent = it.cmd;
+        }
+        row.appendChild(cmdEl);
+
+        const desc = document.createElement("span");
+        desc.className = "cs-desc";
+        desc.textContent = it.desc || it.label || "";
+        row.appendChild(desc);
+
+        const tagText = it.recent ? "最近" : it.group || "";
+        if (tagText) {
+          const tag = document.createElement("span");
+          tag.className = "cs-tag";
+          tag.textContent = tagText;
+          row.appendChild(tag);
+        }
+        sugBox.appendChild(row);
+      });
+      sugBox.hidden = false;
+      input.setAttribute("aria-expanded", "true");
+      const on = sugBox.querySelector(".on");
+      if (on && on.scrollIntoView) on.scrollIntoView({ block: "nearest" });
+    };
+
+    const refreshSuggest = () => {
+      if (!cmdSuggestEnabled() || input.dataset.composing === "1") {
+        closeSuggest();
+        return;
+      }
+      const token = cmdSuggestToken(input.value);
+      if (token === null) {
+        closeSuggest();
+        return;
+      }
+      const q = token.trim();
+      const items = matchCommandSuggest(
+        cmdSuggestItems(),
+        (S.cmdCatalog || {}).aliases || {},
+        q,
+        readRecentCmds()
+      );
+      // 正式指令已完整输入时收起面板，避免挡住后面的参数输入
+      if (cmdSuggestExact(items, q)) {
+        closeSuggest();
+        return;
+      }
+      if (!items.length) {
+        closeSuggest();
+        return;
+      }
+      sug.open = true;
+      sug.items = items;
+      sug.active = 0;
+      drawSuggest();
+    };
+
+    const acceptSuggest = (idx) => {
+      const it = sug.items[typeof idx === "number" ? idx : sug.active];
+      if (!it) return;
+      const next = completeCommandText(input.value, it.cmd);
+      input.value = next.text;
+      input.setSelectionRange(next.caret, next.caret);
+      closeSuggest();
+      autosize();
+      input.focus();
+    };
+
+    input.addEventListener("input", () => {
+      autosize();
+      refreshSuggest();
+    });
+
+    sugBox.addEventListener("mousedown", (e) => e.preventDefault());
+    sugBox.addEventListener("click", (e) => {
+      const row = e.target.closest && e.target.closest("[data-idx]");
+      if (row) acceptSuggest(Number(row.dataset.idx));
+    });
+    document.addEventListener("click", (e) => {
+      if (sug.open && !sugBox.contains(e.target) && e.target !== input) closeSuggest();
+    });
 
     const submit = () => {
       const text = input.value.trim();
@@ -6296,12 +6545,14 @@
       const shortcut = stickerByShortcut(text);
       if (shortcut) {
         sendSticker(shortcut.id);
-      } else if (text.startsWith("/")) dispatchCommand(text);
-      else if (sendChat(text)) {
+      } else if (text.startsWith("/")) {
+        dispatchCommand(text);
+      } else if (sendChat(text)) {
         /* 公屏消息由服务端回显 */
       }
       input.value = "";
       autosize();
+      closeSuggest();
       $("quickOptions").hidden = true;
     };
 
@@ -6309,8 +6560,28 @@
     input.addEventListener("compositionend", () => {
       input.dataset.composing = "0";
       autosize();
+      refreshSuggest();
     });
     input.addEventListener("keydown", (e) => {
+      if (sug.open && input.dataset.composing !== "1") {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          closeSuggest();
+          return;
+        }
+        if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+          e.preventDefault();
+          const n = sug.items.length;
+          sug.active = (sug.active + (e.key === "ArrowDown" ? 1 : n - 1)) % n;
+          drawSuggest();
+          return;
+        }
+        if (e.key === "Tab") {
+          e.preventDefault();
+          acceptSuggest();
+          return;
+        }
+      }
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         submit();

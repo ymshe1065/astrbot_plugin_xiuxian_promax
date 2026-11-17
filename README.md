@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v7.9.22 (网页丹药背包 · 一键挑战 · 长清单全量网格)
+# AstrBot 插件：模拟修仙 v7.9.23 (网页指令联想)
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/iqapi/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/iqapi/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v7.9.20-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v7.9.23-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -31,7 +31,7 @@
 
 ---
 
-> **插件版本:** v3.45.29 · **游戏版本:** v7.9.22 · **数据库:** v62
+> **插件版本:** v3.45.30 · **游戏版本:** v7.9.23 · **数据库:** v62
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，257 条注册指令（网页指令目录 245 个功能按钮 + 12 个别名）、17 个大系统、111 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
@@ -43,7 +43,23 @@
 <sub>点击展开对应版本查看详细变更（默认折叠以保持页面简洁）</sub>
 
 <details open>
-<summary><b>本次更新 · 插件 v3.45.29（仙缘商店改看板 UI，顺手修好「能看不能买」）</b></summary>
+<summary><b>本次更新 · 插件 v3.45.30（网页输入框指令联想）</b></summary>
+
+| 项 | 内容 |
+| --- | --- |
+| 起因 | 输入框只能整条手打，245 个按钮记不住，手机端翻指令页更费劲 |
+| 交互 | 行首输入 `/` 即弹出候选，继续输入过滤；`↑/↓` 移动高亮、`Tab` 补全、`Enter` 仍是发送、`Esc` 关闭；空格不会关闭面板 |
+| 匹配 | 命令名/别名前缀优先，按钮文案与关键词包含兜底；空查询时最近使用 3 条置顶，其余按目录顺序；同分时最近使用优先 |
+| 别名 | `/api/commands` 新增 `aliases`（别名 → 正式指令），前端据同一份目录补全，不新增接口 |
+| 补全 | 只替换行首 token，已输入的参数保留；补全后补一个空格并把光标放到末尾 |
+| 细节 | 中文输入法组合期间不弹面板；正式指令已输全时自动收起；`localStorage.wx_cmd_ac = "off"` 可关闭 |
+| 回归 | 新增 `tests/webchat_command_suggest.test.cjs`（8 例）与别名映射契约测试；网页指令目录 9 例通过 |
+| 版本与数据库 | 插件 **v3.45.30** / 游戏及帮助 **v7.9.23**；无表结构变更，数据库仍为 **v62**。 |
+
+</details>
+
+<details>
+<summary><b>插件 v3.45.29（仙缘商店改看板 UI，顺手修好「能看不能买」）</b></summary>
 
 | 项 | 内容 |
 | --- | --- |

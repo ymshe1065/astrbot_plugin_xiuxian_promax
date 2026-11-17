@@ -1424,6 +1424,7 @@ html[data-theme="fish"] .msg-row {
 /* ================= 输入区 ================= */
 .composer {
   flex: 0 0 auto;
+  position: relative;
   display: flex; align-items: flex-end; gap: 8px;
   padding: 10px 14px calc(10px + var(--safe-b));
   background: var(--bar-bg-2);
@@ -1456,6 +1457,51 @@ html[data-theme="fish"] .msg-row {
   box-shadow: 0 2px 8px rgba(var(--accent-deep-rgb), .28);
 }
 .composer-btn.send:disabled { opacity: .4; }
+
+/* 指令联想面板：锚在输入区上方，最多 10 条，超出滚动 */
+.cmd-suggest {
+  position: absolute; left: 14px; right: 14px;
+  bottom: calc(100% + 6px);
+  max-height: min(40vh, 380px);
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--bar-bg-2);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 10px 28px rgba(var(--shade-rgb), .18);
+  z-index: 40;
+}
+.cmd-suggest[hidden] { display: none; }
+.cmd-suggest-item {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; padding: 8px 10px;
+  border: 0; border-radius: 8px; background: transparent;
+  color: var(--ink); text-align: left; cursor: pointer;
+  box-shadow: inset 3px 0 0 transparent;
+}
+.cmd-suggest-item:hover { background: var(--line-soft); }
+.cmd-suggest-item.on {
+  background: var(--accent-soft);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.cmd-suggest-item .cs-cmd {
+  flex: 0 0 auto; max-width: 55%;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 14px; color: var(--ink);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cmd-suggest-item .cs-cmd b { color: var(--accent); font-weight: 600; }
+.cmd-suggest-item .cs-desc {
+  flex: 1 1 auto; min-width: 0; color: var(--dim); font-size: 12px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cmd-suggest-item .cs-tag {
+  flex: 0 0 auto; max-width: 30%;
+  padding: 0 5px; border: 1px solid var(--line);
+  border-radius: 6px; font-size: 11px; color: var(--dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 
 /* ================= 看板 ================= */
 .panel-pane {

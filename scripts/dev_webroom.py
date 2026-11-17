@@ -24,11 +24,22 @@ import asyncio
 import sys
 import tempfile
 import types
+from importlib import import_module
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+PARENT = ROOT.parent
+PKG = ROOT.name
+# 以「仓库目录名.子包」导入，保证 webchat_room 内 `from ..core` 的相对层级正确；
+# 同时保留 ROOT，兼容插件内部使用顶层模块名（models / core.xxx）的写法。
+for _path in (str(PARENT), str(ROOT)):
+    if _path not in sys.path:
+        sys.path.insert(0, _path)
+
+
+def _import(module: str):
+    """按包名导入，避免把 webchat_room 当成顶层包。"""
+    return import_module(f"{PKG}.{module}")
 
 
 def _install_astrbot_stubs() -> None:
@@ -96,7 +107,7 @@ class _DemoAdapter:
         private: bool = False,
         want_card: bool = False,
     ) -> None:
-        from webchat_room import room_server
+        room_server = _import("webchat_room.room_server")
 
         self._count += 1
         await asyncio.sleep(0.15)
@@ -110,7 +121,8 @@ class _DemoAdapter:
 async def _main(args: argparse.Namespace) -> None:
     _install_astrbot_stubs()
 
-    from webchat_room import accounts, room_server
+    accounts = _import("webchat_room.accounts")
+    room_server = _import("webchat_room.room_server")
 
     if args.demo:
         room_server.set_adapter(_DemoAdapter())

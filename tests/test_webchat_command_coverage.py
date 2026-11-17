@@ -66,6 +66,17 @@ class TestWebCommandCoverage(unittest.TestCase):
         self.assertEqual(sorted(commands.ALIASES - registered), [], "别名列表包含未注册指令")
         self.assertEqual(sorted(commands.ALIASES & grid), [], "别名不应重复占用按钮")
 
+    def test_alias_map_points_to_grid_commands(self):
+        """输入联想的别名映射必须指向网格里的正式指令，且与别名单一致。"""
+        aliases = commands.all_commands()["aliases"]
+        grid = set(grid_names())
+        self.assertEqual(sorted(aliases), sorted(commands.ALIASES))
+        for alias, target in aliases.items():
+            self.assertIn(
+                target.lstrip("/"), grid,
+                f"别名 {alias} 指向不存在的按钮指令 {target}",
+            )
+
     def test_legacy_world_boss_button_removed_from_grid(self):
         grid = set(grid_names())
         self.assertNotIn("世界Boss", grid, "旧世界Boss入口不应再出现在前端按钮网格")

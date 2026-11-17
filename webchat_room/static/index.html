@@ -114,10 +114,12 @@
       </div>
 
       <div class="composer">
+        <div class="cmd-suggest" id="cmdSuggest" role="listbox" aria-label="指令联想" hidden></div>
         <button class="composer-btn" id="btnQuick" title="快捷指令">☰</button>
         <button class="composer-btn" id="btnSticker" title="表情包" aria-label="表情包">🙂</button>
         <textarea id="inMsg" rows="1" maxlength="2000"
-                  placeholder="发消息或 /指令…"></textarea>
+                  placeholder="发消息或 /指令…"
+                  aria-autocomplete="list" aria-controls="cmdSuggest" aria-expanded="false"></textarea>
         <button class="composer-btn send" id="btnSend" title="发送">➤</button>
       </div>
     </section>
