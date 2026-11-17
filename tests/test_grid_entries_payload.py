@@ -194,6 +194,102 @@ class TestPavilionEntries(unittest.TestCase):
         for note in entry["notes"]:
             self.assertNotIn(entry["effect"], note)
 
+    def test_pill_effect_uses_real_effect_not_placeholder(self):
+        """百宝阁丹药优先展示「效果」行，不能拿占位描述充当产出效果。"""
+        src = next(
+            (v for v in self.cm.items_data.values()
+             if isinstance(v, dict) and v.get("type") == "丹药"
+             and isinstance(v.get("effect"), dict) and v["effect"].get("add_experience")
+             and "蕴含" in str(v.get("description"))),
+            None,
+        )
+        self.assertIsNotNone(src, "配置里找不到带占位描述的丹药")
+        items = [{"name": src["name"], "type": "丹药", "rank": src.get("rank", "凡品"),
+                  "price": 50, "stock": 3, "discount": 1.0, "data": dict(src)}]
+        entry = self.mgr.build_pavilion_entries(items)[0]
+        self.assertTrue(entry["effect"])
+        self.assertNotIn("蕴含天地之力", entry["effect"])
+        self.assertIn("修为", entry["effect"])
+        self.assertEqual(entry["effectLabel"], "效果")
+        self.assertFalse(any("蕴含" in note for note in entry["notes"]))
+
+    def test_material_placeholder_hidden_with_explain_label(self):
+        """材料没有产出效果：占位描述不冒充效果，标签改成「说明」。"""
+        src = next(
+            (v for v in self.cm.items_data.values()
+             if isinstance(v, dict) and v.get("type") == "材料"
+             and "蕴含" in str(v.get("description"))),
+            None,
+        )
+        self.assertIsNotNone(src, "配置里找不到带占位描述的材料")
+        items = [{"name": src["name"], "type": "材料", "rank": src.get("rank", "凡品"),
+                  "price": 50, "stock": 3, "discount": 1.0, "data": dict(src)}]
+        entry = self.mgr.build_pavilion_entries(items)[0]
+        self.assertTrue(entry["effect"], "材料不能留空")
+        self.assertEqual(entry["effectLabel"], "用途")
+        self.assertFalse(any("蕴含" in note for note in entry["notes"]))
+
+    def test_all_pills_and_materials_have_effect(self):
+        """在售丹药与材料不允许出现空的产出效果。"""
+        items = []
+        for item in self.cm.items_data.values():
+            if not isinstance(item, dict) or item.get("type") not in ("丹药", "材料"):
+                continue
+            if float(item.get("shop_weight") or 0) <= 0:
+                continue
+            items.append({"name": item["name"], "type": item["type"],
+                          "rank": item.get("rank", "凡品"), "price": 100,
+                          "stock": 5, "discount": 1.0, "data": dict(item)})
+        self.assertTrue(items)
+        entries = self.mgr.build_pavilion_entries(items)
+        empty = [entry["name"] for entry in entries if not entry["effect"]]
+        self.assertEqual(empty, [], f"这些条目没有产出效果：{empty[:10]}")
+
+    def test_talisman_effect_uses_fullwidth_effect_line(self):
+        """符箓详情用全角「效果：」，不能被漏掉后拿描述兜底。"""
+        src = next(
+            (v for v in self.cm.items_data.values()
+             if isinstance(v, dict) and v.get("type") == "符箓"
+             and float(v.get("shop_weight") or 0) > 0),
+            None,
+        )
+        self.assertIsNotNone(src, "配置里没有在售符箓")
+        items = [{"name": src["name"], "type": "符箓", "rank": src.get("rank", "凡品"),
+                  "price": 50, "stock": 3, "discount": 1.0, "data": dict(src)}]
+        entry = self.mgr.build_pavilion_entries(items)[0]
+        self.assertTrue(entry["effect"], f"{src['name']} 的效果行没取到")
+        self.assertEqual(entry["effectLabel"], "效果")
+
+    def test_gear_effect_prefers_attributes_over_flavor(self):
+        """装备的「产出效果」应显示属性行，而不是描述里的风味文案。"""
+        src = next(
+            (v for v in self.cm.items_data.values()
+             if isinstance(v, dict) and v.get("type") == "weapon"
+             and float(v.get("shop_weight") or 0) > 0),
+            None,
+        )
+        self.assertIsNotNone(src, "配置里没有在售武器")
+        items = [{"name": src["name"], "type": "weapon", "rank": src.get("rank", "凡品"),
+                  "price": 50, "stock": 3, "discount": 1.0, "data": dict(src)}]
+        entry = self.mgr.build_pavilion_entries(items)[0]
+        self.assertTrue(entry["effect"])
+        self.assertEqual(entry["effectLabel"], "属性")
+
+    def test_chinese_gear_type_uses_attribute_label(self):
+        """配置里 48 条武器用中文类型名，标签同样应是「属性」。"""
+        src = next(
+            (v for v in self.cm.items_data.values()
+             if isinstance(v, dict) and v.get("type") == "武器"
+             and float(v.get("shop_weight") or 0) > 0),
+            None,
+        )
+        self.assertIsNotNone(src, "配置里没有中文类型名的武器")
+        items = [{"name": src["name"], "type": "武器", "rank": src.get("rank", "凡品"),
+                  "price": 50, "stock": 3, "discount": 1.0, "data": dict(src)}]
+        entry = self.mgr.build_pavilion_entries(items)[0]
+        self.assertTrue(entry["effect"])
+        self.assertEqual(entry["effectLabel"], "属性")
+
 
 class TestTalismanBookEntries(unittest.TestCase):
     """符箓配方总览：拿不到背包，材料只能报需量，不能谎称「缺 N」。"""

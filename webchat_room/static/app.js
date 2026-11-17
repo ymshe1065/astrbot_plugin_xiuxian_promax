@@ -4795,11 +4795,13 @@
     return m ? m[0] : "";
   }
 
-  /** 输入已等于某个正式指令名时应收起面板（别名不算，仍允许补全） */
-  function cmdSuggestExact(items, query) {
+  /** 输入精确命中指令、且没有更长的可补全指令时才收起（/拍卖会 仍会列出报名/出价等） */
+  function cmdSuggestOnlyExact(items, query) {
     const q = String(query || "").trim().toLowerCase();
     if (!q) return false;
-    return items.some((it) => it.cmd.replace(/^\//, "").toLowerCase() === q);
+    const names = items.map((it) => it.cmd.replace(/^\//, "").toLowerCase());
+    if (!names.includes(q)) return false;
+    return !names.some((n) => n.startsWith(q) && n.length > q.length);
   }
 
   /** 把目录拉平成联想条目；desc 用参数提示，没有则用分组名 */
@@ -6489,6 +6491,12 @@
         closeSuggest();
         return;
       }
+      // 已进入参数段（指令后已有空格）：P0 只补命令名，空格即关闭面板；
+      // 后续接入参数联想（P1）时，这里改为把候选切换成参数项。
+      if (input.value.slice(1 + token.length).length > 0) {
+        closeSuggest();
+        return;
+      }
       const q = token.trim();
       const items = matchCommandSuggest(
         cmdSuggestItems(),
@@ -6496,8 +6504,8 @@
         q,
         readRecentCmds()
       );
-      // 正式指令已完整输入时收起面板，避免挡住后面的参数输入
-      if (cmdSuggestExact(items, q)) {
+      // 输入已是完整指令且没有更长候选（如 /签到）时收起；/拍卖会 仍展示报名、出价等
+      if (cmdSuggestOnlyExact(items, q)) {
         closeSuggest();
         return;
       }

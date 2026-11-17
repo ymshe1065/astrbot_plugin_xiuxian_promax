@@ -46,6 +46,10 @@ MAX_BACKFILL_TICKS = 112
 LOT_SIZE = 100
 FEE_RATE = 0.0015
 MIN_FEE = 20
+# 基金份额保留 2 位小数，股票只按整数股交易；灵石金额一律取整
+SHARE_DECIMALS = 2
+SHARE_UNIT = 10 ** SHARE_DECIMALS
+MIN_FUND_SHARES = 1 / SHARE_UNIT
 MAX_LOTS_PER_TICK = 0     # 单盘单标的买入手数上限；0 = 不限（仅受灵石余额约束）
 MAX_POS_PER_STOCK = 0     # 单只股票持仓市值上限；0 = 不限（灵石余额仍是硬约束）
 MAX_POS_TOTAL = 0         # 股票总持仓市值上限；0 = 不限
@@ -312,6 +316,7 @@ class InvestManager:
             # 存量部署：静态数值字段随代码升级刷新（v6 换了整套 σ/msg_base/限幅/日漂移），
             # 但保留 price/prev_close/prev_change/day_open 等运行时行情状态，避免重置盘面。
             await self._refresh_product_defs()
+        await self._normalize_holdings_precision()
         self._ready = True
 
     async def _seed_products(self):
@@ -692,6 +697,54 @@ class InvestManager:
     def _calc_fee(amount: int) -> int:
         return max(MIN_FEE, int(amount * FEE_RATE))
 
+    @staticmethod
+    def _floor_shares(value: float) -> float:
+        """份额向下取整到 2 位小数，避免申购/赎回时凭空多出份额。"""
+        return math.floor(float(value) * SHARE_UNIT + 1e-9) / SHARE_UNIT
+
+    async def _normalize_holdings_precision(self):
+        """归整历史持仓精度：股票取整、基金份额保留 2 位。可重复执行。"""
+        await self.db.conn.execute(
+            "UPDATE invest_holdings SET "
+            " cost = CAST(ROUND(cost * CAST(shares AS INTEGER) / shares) AS INTEGER), "
+            " shares = CAST(shares AS INTEGER) "
+            "WHERE shares > 0 AND shares != CAST(shares AS INTEGER) "
+            "AND code IN (SELECT code FROM invest_products WHERE kind = 'stock')"
+        )
+        await self.db.conn.execute(
+            "DELETE FROM invest_holdings WHERE shares <= 0 "
+            "AND code IN (SELECT code FROM invest_products WHERE kind = 'stock')"
+        )
+        await self.db.conn.execute(
+            "UPDATE invest_holdings SET shares = CAST(shares * 100 AS INTEGER) / 100.0 "
+            "WHERE shares > 0 AND shares != ROUND(shares, 2) "
+            "AND code IN (SELECT code FROM invest_products WHERE kind = 'fund')"
+        )
+        await self.db.conn.execute(
+            "DELETE FROM invest_holdings WHERE shares < 0.01 "
+            "AND code IN (SELECT code FROM invest_products WHERE kind = 'fund')"
+        )
+        await self.db.conn.commit()
+
+    async def _normalize_stock_shares(self, user_id: str, code: str, held: dict) -> int:
+        """股票只允许整数股：历史小数股向下取整，并按比例修正成本。"""
+        raw = float(held["shares"])
+        whole = int(math.floor(raw + 1e-9))
+        if abs(raw - whole) <= 1e-9:
+            return whole
+        if whole <= 0:
+            await self.db.conn.execute(
+                "DELETE FROM invest_holdings WHERE user_id = ? AND code = ?",
+                (user_id, code),
+            )
+            return 0
+        cost = int(round(int(held["cost"]) * whole / raw))
+        await self.db.conn.execute(
+            "UPDATE invest_holdings SET shares = ?, cost = ? WHERE user_id = ? AND code = ?",
+            (whole, cost, user_id, code),
+        )
+        return whole
+
     def _check_market(self) -> Tuple[bool, str]:
         if self.is_open():
             return True, ""
@@ -704,6 +757,9 @@ class InvestManager:
 
     async def buy_stock(self, player: Player, code: str, lots: int) -> Tuple[bool, str]:
         code = (code or "").strip().upper()
+        if isinstance(lots, bool) or not isinstance(lots, (int, float)) or float(lots) != int(lots):
+            return False, "买入手数必须是整数（1 手 = 100 股）。"
+        lots = int(lots)
         if lots <= 0:
             return False, "买入手数必须大于 0，1 手 = 100 股。"
         if MAX_LOTS_PER_TICK > 0 and lots > MAX_LOTS_PER_TICK:
@@ -747,7 +803,7 @@ class InvestManager:
 
             rows = await self._holdings_rows(player.user_id)
             held = next((r for r in rows if r["code"] == code), None)
-            held_shares = float(held["shares"]) if held else 0.0
+            held_shares = await self._normalize_stock_shares(player.user_id, code, held) if held else 0
             new_value = (held_shares + shares) * price
             if MAX_POS_PER_STOCK > 0 and new_value > MAX_POS_PER_STOCK:
                 await self.db.conn.rollback()
@@ -770,7 +826,7 @@ class InvestManager:
             await self.db.update_player(fresh, commit=False)
 
             tick = self.tick_of()
-            if held:
+            if held and held_shares > 0:
                 await self.db.conn.execute(
                     "UPDATE invest_holdings SET shares = shares + ?, cost = cost + ?, last_buy = ? "
                     "WHERE user_id = ? AND code = ?",
@@ -802,6 +858,9 @@ class InvestManager:
 
     async def sell_stock(self, player: Player, code: str, lots: int) -> Tuple[bool, str]:
         code = (code or "").strip().upper()
+        if isinstance(lots, bool) or not isinstance(lots, (int, float)) or float(lots) != int(lots):
+            return False, "卖出手数必须是整数（1 手 = 100 股）。"
+        lots = int(lots)
         if lots <= 0:
             return False, "卖出手数必须大于 0。"
 
@@ -828,7 +887,10 @@ class InvestManager:
                 return False, f"你没有持有 {product['name']}。"
 
             price = float(product["price"])
-            held_shares = float(held["shares"])
+            held_shares = await self._normalize_stock_shares(player.user_id, code, held)
+            if held_shares <= 0:
+                await self.db.conn.rollback()
+                return False, f"你没有持有 {product['name']}。"
             sell_shares = min(lots * LOT_SIZE, held_shares)
             amount = int(round(sell_shares * price))
             fee = self._calc_fee(amount)
@@ -841,7 +903,7 @@ class InvestManager:
             await self.db.update_player(fresh, commit=False)
 
             remaining = held_shares - sell_shares
-            if remaining <= 1e-6:
+            if remaining <= 0:
                 await self.db.conn.execute(
                     "DELETE FROM invest_holdings WHERE user_id = ? AND code = ?",
                     (player.user_id, code),
@@ -850,7 +912,7 @@ class InvestManager:
                 remaining_cost = round(int(held["cost"]) * remaining / held_shares)
                 await self.db.conn.execute(
                     "UPDATE invest_holdings SET shares = ?, cost = ? WHERE user_id = ? AND code = ?",
-                    (remaining, remaining_cost, player.user_id, code),
+                    (int(remaining), remaining_cost, player.user_id, code),
                 )
 
             await self.db.conn.execute(
@@ -891,7 +953,9 @@ class InvestManager:
             return False, f"你当前有 {loan:,} 灵石贷款未清，基金不接受贷款资金申购。\n请先还清贷款。"
 
         nav = float(product["price"])
-        shares = amount / nav
+        shares = self._floor_shares(amount / nav)
+        if shares < MIN_FUND_SHARES:
+            return False, "申购金额过小，按当前净值不足 0.01 份，请增加金额。"
 
         await self.db.conn.execute("BEGIN IMMEDIATE")
         try:
@@ -910,10 +974,11 @@ class InvestManager:
             rows = await self._holdings_rows(player.user_id)
             held = next((r for r in rows if r["code"] == code), None)
             if held:
+                base = self._floor_shares(float(held["shares"]))
                 await self.db.conn.execute(
-                    "UPDATE invest_holdings SET shares = shares + ?, cost = cost + ?, last_buy = ? "
+                    "UPDATE invest_holdings SET shares = ?, cost = cost + ?, last_buy = ? "
                     "WHERE user_id = ? AND code = ?",
-                    (shares, amount, tick, player.user_id, code),
+                    (round(base + shares, SHARE_DECIMALS), amount, tick, player.user_id, code),
                 )
             else:
                 await self.db.conn.execute(
@@ -944,6 +1009,11 @@ class InvestManager:
         code = (code or "").strip().upper()
         if not math.isfinite(shares) or shares < 0:
             return False, "份额必须为正数或「全部」。"
+        want = 0.0
+        if shares > 0:
+            want = self._floor_shares(shares)
+            if want < MIN_FUND_SHARES:
+                return False, "赎回份额至少 0.01 份；如需全部赎回请发送「全部」。"
         opened, why = self._check_market()
         if not opened:
             return False, why
@@ -966,8 +1036,8 @@ class InvestManager:
                 await self.db.conn.rollback()
                 return False, f"你没有持有 {product['name']}。"
 
-            held_shares = float(held["shares"])
-            sell_shares = held_shares if shares <= 0 else min(shares, held_shares)
+            held_shares = self._floor_shares(float(held["shares"]))
+            sell_shares = held_shares if shares <= 0 else min(want, held_shares)
             nav = float(product["price"])
             amount = int(sell_shares * nav)
 
@@ -979,8 +1049,8 @@ class InvestManager:
             fresh.gold += net
             await self.db.update_player(fresh, commit=False)
 
-            remaining = held_shares - sell_shares
-            if remaining <= 1e-6:
+            remaining = round(held_shares - sell_shares, SHARE_DECIMALS)
+            if remaining < MIN_FUND_SHARES:
                 await self.db.conn.execute(
                     "DELETE FROM invest_holdings WHERE user_id = ? AND code = ?",
                     (player.user_id, code),

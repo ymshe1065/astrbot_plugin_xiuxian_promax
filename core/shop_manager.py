@@ -2,6 +2,7 @@
 
 import math
 import random
+import re
 import time
 import json
 from typing import List, Dict, Optional, Tuple
@@ -11,8 +12,30 @@ from ..config_manager import ConfigManager
 from ..models import Item
 from ..rank_rules import RANK_NAMES, level_to_rank, normalize_rank
 from .item_rules import ItemRules
-from .pill_effect_text import PLACEHOLDER_DESC_RE, recipe_scroll_info
+from .pill_effect_text import GENERIC_DESC_RE, PLACEHOLDER_DESC_RE, recipe_scroll_info
 from .realm_rules import format_applicable_realm
+
+# 货架「效果」行的取值规则：按语义优先级分三档，兼容半角/全角冒号与「（品质）」括注
+_EFFECT_PATTERNS = (
+    re.compile(r"^(产出|效果|开启|用途)(?:（[^）]*）)?[:：]\s*(.+)$"),
+    re.compile(r"^(基础属性|属性)(?:（[^）]*）)?[:：]\s*(.+)$"),
+    re.compile(r"^(特殊效果|特效)(?:（[^）]*）)?[:：]\s*(.+)$"),
+)
+_DESC_LINE_RE = re.compile(r"^描述[:：]\s*(.+)$")
+# 材料没有效果行时，按类别给一句真正的用途说明，避免详情出现空白
+MATERIAL_USE_TEXT = {
+    "灵植": "炼丹材料，可用于炼制丹药",
+    "灵液": "炼丹材料，可用于炼制丹药",
+    "矿材": "锻造材料，可用于打造装备",
+    "妖兽": "炼丹 / 锻造材料，可用于炼制与打造",
+    "天材": "稀有炼制材料",
+    "特殊": "特殊用途材料",
+}
+DEFAULT_MATERIAL_USE = "可用于炼制、锻造或回收"
+# 装备类型有英文键也有中文类型名（武器/防具/饰品/法器），标签统一走「属性」
+GEAR_TYPE_NAMES = set(ItemRules.GEAR_TYPES) | {
+    "武器", "防具", "头饰", "甲胄", "手套", "靴子", "戒指", "护符", "饰品", "法器",
+}
 
 # 货架类型 → 展示种类。文本列表与网页网格共用一份，避免两处各写一套标签。
 PAVILION_TYPE_LABELS = {
@@ -202,20 +225,69 @@ class ShopManager:
                 details = []
             effect = ""
             effect_line = ""
-            for line in details:
-                # 「产出:」是丹方卷轴的产出效果：它讲的是炼出来的那颗丹干什么用
-                if line.startswith(("描述:", "效果:", "产出:")):
-                    effect = line.split(":", 1)[1].strip()
-                    effect_line = line
-                    break
-            if not effect:
+            # 结构化效果行优先，且按「产出/效果 → 基础属性 → 特殊效果」分档：
+            # 丹药的「效果:」排在描述之后，必须按行类型找；装备优先展示基础属性。
+            for pattern in _EFFECT_PATTERNS:
                 for line in details:
-                    if line.startswith("属性:"):
-                        effect = line.split(":", 1)[1].strip()
+                    match = pattern.match(line)
+                    if match:
+                        effect = match.group(2).strip()
                         effect_line = line
                         break
-            # 已经当「产出效果」显示过的那一行不再塞进明细，否则详情页同一句话出现两次
-            notes = [line for line in details if line != effect_line] if effect_line else details
+                if effect:
+                    break
+            # 没有结构化效果时才用描述兜底，且跳过占位文案
+            if not effect:
+                for line in details:
+                    match = _DESC_LINE_RE.match(line)
+                    if not match:
+                        continue
+                    text = match.group(1).strip()
+                    if PLACEHOLDER_DESC_RE.search(text) or GENERIC_DESC_RE.search(text):
+                        continue
+                    effect = text
+                    effect_line = line
+                    break
+            if item_type in ("talisman_recipe", "符图"):
+                effect_label = "用途"
+            elif item_type in ("material_package", "材料包"):
+                effect_label = "开启"
+            elif item_type in ("material", "材料"):
+                effect_label = "说明"
+            elif item_type in GEAR_TYPE_NAMES:
+                effect_label = "属性"
+            elif item_type in ("pill", "exp_pill", "utility_pill", "inventory_pill",
+                               "legacy_pill", "丹药", "符箓",
+                               "main_technique", "technique", "功法", "心法"):
+                effect_label = "效果"
+            else:
+                effect_label = ""
+            # 材料没有效果行：按类别补一句用途，不能留空
+            if not effect and item_type in ("material", "材料"):
+                category = str(self.get_material_category(item.get("name", ""), data) or "")
+                effect = MATERIAL_USE_TEXT.get(category, DEFAULT_MATERIAL_USE)
+                effect_label = "用途"
+            # 材料包同理，写明开出来是什么
+            if not effect and item_type in ("material_package", "材料包"):
+                package = str(data.get("package_category") or "材料")
+                effect = f"开启后随机获得 1-3 个{package}材料"
+                effect_label = "开启"
+            # 丹方保留空值，让前端显示「效果未录入」；其余条目一律给一句兜底
+            if not effect and item_type not in ("recipe", "丹方"):
+                effect = "无面板属性" if item_type in GEAR_TYPE_NAMES else "暂无特殊效果"
+            # 已经当「产出效果」显示过的那一行不再塞进明细；占位描述也一并丢掉
+            notes = []
+            for line in details:
+                if line == effect_line:
+                    continue
+                if line.startswith("描述"):
+                    match = _DESC_LINE_RE.match(line)
+                    if match and (
+                        PLACEHOLDER_DESC_RE.search(match.group(1))
+                        or GENERIC_DESC_RE.search(match.group(1))
+                    ):
+                        continue
+                notes.append(line)
             try:
                 discount = float(item.get("discount", 1.0) or 1.0)
             except (TypeError, ValueError):
@@ -234,6 +306,7 @@ class ShopManager:
                 "unlimited": unlimited,
                 "always": bool(item.get("always_available")),
                 "effect": effect,
+                "effectLabel": effect_label,
                 "notes": notes,
                 "source": "shop",
                 "action": "购买",

@@ -13,7 +13,7 @@ const plain = (value) => JSON.parse(JSON.stringify(value));
 
 function setup() {
   const ctx = vm.createContext({});
-  for (const name of ['cmdSuggestToken', 'cmdSuggestExact', 'matchCommandSuggest', 'completeCommandText']) {
+  for (const name of ['cmdSuggestToken', 'cmdSuggestOnlyExact', 'matchCommandSuggest', 'completeCommandText']) {
     const start = source.indexOf(`  function ${name}(`);
     assert.ok(start >= 0, `app.js 缺少函数 ${name}`);
     const end = source.indexOf('\n  }', start) + 4;
@@ -40,12 +40,22 @@ test('只对行首 / 后的第一个 token 联想', () => {
   assert.equal(cmdSuggestToken(''), null);
 });
 
-test('输入等于正式指令名时收起面板，别名与半截输入不收起', () => {
-  const { cmdSuggestExact } = setup();
-  assert.equal(cmdSuggestExact(ITEMS, '储物戒'), true);
-  assert.equal(cmdSuggestExact(ITEMS, '储物'), false);
-  assert.equal(cmdSuggestExact(ITEMS, 'bag'), false);
-  assert.equal(cmdSuggestExact(ITEMS, ''), false);
+test('精确命中但还有更长指令时继续联想，只有唯一完整指令才收起', () => {
+  const { cmdSuggestOnlyExact } = setup();
+  // /拍卖会 是完整指令，但还有 /拍卖会报名、/拍卖会出价，不能收起
+  const auction = [
+    { cmd: '/拍卖会', label: '拍卖会', desc: '', group: '交易' },
+    { cmd: '/拍卖会报名', label: '拍卖会报名', desc: '', group: '交易' },
+    { cmd: '/拍卖会出价', label: '拍卖会出价', desc: '', group: '交易' },
+  ];
+  assert.equal(cmdSuggestOnlyExact(auction, '拍卖会'), false);
+  assert.equal(cmdSuggestOnlyExact(ITEMS, '储物戒'), false);
+  // /签到 没有更长候选，收起
+  assert.equal(cmdSuggestOnlyExact(ITEMS, '签到'), true);
+  // 半截输入与别名都不收起
+  assert.equal(cmdSuggestOnlyExact(ITEMS, '储物'), false);
+  assert.equal(cmdSuggestOnlyExact(ITEMS, 'bag'), false);
+  assert.equal(cmdSuggestOnlyExact(ITEMS, ''), false);
 });
 
 test('正式指令精确匹配排第一，前缀次之', () => {

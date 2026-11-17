@@ -534,7 +534,8 @@ class TestInvestMarket(unittest.IsolatedAsyncioTestCase):
         shares = float(await self.manager._scalar(
             "SELECT shares FROM invest_holdings WHERE user_id = 'u1' AND code = 'F01'"
         ))
-        self.assertAlmostEqual(shares, 50_000 / nav, places=4)
+        expected = int(50_000 / nav * 100) / 100  # 份额向下取整到 2 位
+        self.assertAlmostEqual(shares, expected, places=6)
 
     # ===== 分红 =====
 
