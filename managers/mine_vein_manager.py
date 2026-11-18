@@ -141,36 +141,93 @@ class MineVeinManager:
             "SELECT * FROM mine_veins WHERE owner_id = ? AND status = 'active' ORDER BY id DESC",
             (user_id,),
         )
-        if not mines:
+        partner_rows = await self._fetchall(
+            "SELECT mine_id, share FROM mine_partners "
+            "WHERE user_id = ? AND status = 'accepted' ORDER BY mine_id DESC",
+            (user_id,),
+        )
+        joined: List[dict] = []
+        joined_share: Dict[int, int] = {}
+        if partner_rows:
+            joined_share = {int(r["mine_id"]): int(r.get("share") or 0) for r in partner_rows}
+            ids = list(joined_share)
+            placeholders = ",".join("?" for _ in ids)
+            joined = await self._fetchall(
+                f"SELECT * FROM mine_veins WHERE id IN ({placeholders}) AND status = 'active' "
+                "ORDER BY id DESC",
+                tuple(ids),
+            )
+        pending = await self._fetchall(
+            "SELECT mp.*, mv.name AS mine_name, mv.tier AS mine_tier, "
+            "mv.expire_at AS mine_expire_at, mv.owner_id AS mine_owner "
+            "FROM mine_partners mp JOIN mine_veins mv ON mv.id = mp.mine_id "
+            "WHERE mp.user_id = ? AND mp.status = 'pending' AND mv.status = 'active' "
+            "ORDER BY mp.mine_id DESC",
+            (user_id,),
+        )
+        if not mines and not joined and not pending:
             return "⛏️ 你当前没有矿脉。使用 `/矿脉` 查看可购买的勘探权。"
-        lines = ["⛏️ 我的矿脉", "━━━━━━━━━━━━━━━"]
-        now = int(time.time())
-        for mine in mines:
-            partners = await self._fetchall(
-                "SELECT * FROM mine_partners WHERE mine_id = ? AND status = 'accepted'",
-                (mine["id"],),
-            )
-            shares = sum(int(p.get("share") or 0) for p in partners)
-            remaining = max(0, int(mine["expire_at"]) - now)
-            lines.append(
-                f"[{mine['id']}] {mine['name']}（{mine['tier']}阶）"
-                f" 剩余 {remaining // 3600} 时 {(remaining % 3600) // 60} 分"
-            )
-            lines.append(
-                f"    基础时产：{int(mine['base_yield']):,} 灵石｜你的份额：{100 - shares}%"
-            )
-            if partners:
-                names = []
-                for p in partners:
-                    player = await self.db.get_player_by_id(p["user_id"])
-                    names.append(f"{(player.user_name if player else p['user_id'])} {p['share']}%")
-                lines.append("    合伙人：" + "、".join(names))
-            pending = await self._fetchall(
-                "SELECT * FROM mine_partners WHERE mine_id = ? AND status = 'pending'",
-                (mine["id"],),
-            )
-            if pending:
-                lines.append(f"    ⏳ 待接受邀请：{len(pending)} 人")
+
+        lines: List[str] = []
+        if mines:
+            lines.extend(["⛏️ 我的矿脉", "━━━━━━━━━━━━━━━"])
+            now = int(time.time())
+            for mine in mines:
+                partners = await self._fetchall(
+                    "SELECT * FROM mine_partners WHERE mine_id = ? AND status = 'accepted'",
+                    (mine["id"],),
+                )
+                shares = sum(int(p.get("share") or 0) for p in partners)
+                remaining = max(0, int(mine["expire_at"]) - now)
+                lines.append(
+                    f"[{mine['id']}] {mine['name']}（{mine['tier']}阶）"
+                    f" 剩余 {remaining // 3600} 时 {(remaining % 3600) // 60} 分"
+                )
+                lines.append(
+                    f"    基础时产：{int(mine['base_yield']):,} 灵石｜你的份额：{100 - shares}%"
+                )
+                if partners:
+                    names = []
+                    for p in partners:
+                        player = await self.db.get_player_by_id(p["user_id"])
+                        names.append(f"{(player.user_name if player else p['user_id'])} {p['share']}%")
+                    lines.append("    合伙人：" + "、".join(names))
+                waiting = await self._fetchall(
+                    "SELECT * FROM mine_partners WHERE mine_id = ? AND status = 'pending'",
+                    (mine["id"],),
+                )
+                if waiting:
+                    lines.append(f"    ⏳ 待接受邀请：{len(waiting)} 人")
+        if joined:
+            if lines:
+                lines.append("")
+            lines.extend(["🤝 我参与的矿脉", "━━━━━━━━━━━━━━━"])
+            now = int(time.time())
+            for mine in joined:
+                share = joined_share.get(int(mine["id"]), 0)
+                remaining = max(0, int(mine["expire_at"]) - now)
+                owner = await self.db.get_player_by_id(mine["owner_id"])
+                owner_name = owner.user_name if owner else mine["owner_id"]
+                lines.append(
+                    f"[{mine['id']}] {mine['name']}（{mine['tier']}阶）"
+                    f" 矿主：{owner_name}"
+                    f" 剩余 {remaining // 3600} 时 {(remaining % 3600) // 60} 分"
+                )
+                lines.append(
+                    f"    基础时产：{int(mine['base_yield']):,} 灵石｜你的份额：{share}%"
+                )
+        if pending:
+            if lines:
+                lines.append("")
+            lines.extend(["📨 待处理的合伙邀请", "━━━━━━━━━━━━━━━"])
+            for row in pending:
+                owner = await self.db.get_player_by_id(row["mine_owner"])
+                owner_name = owner.user_name if owner else row["mine_owner"]
+                lines.append(
+                    f"[{row['mine_id']}] {row['mine_name']}（{row['mine_tier']}阶）"
+                    f" 矿主：{owner_name}｜邀请份额：{int(row['share'])}%"
+                )
+            lines.append("💡 `/矿脉 接受 <编号>` 接受｜`/矿脉 拒绝 <编号>` 拒绝")
         lines.extend([
             "━━━━━━━━━━━━━━━",
             "💡 `/矿脉 开采 <编号>` 结算你的份额",
@@ -318,9 +375,9 @@ class MineVeinManager:
                 await self.db.conn.rollback()
                 return False, f"❌ 合伙人份额已满（合计最多 {MAX_PARTNER_TOTAL}%），无法接受。"
             cursor = await self.db.conn.execute(
-                "UPDATE mine_partners SET status = 'accepted' "
+                "UPDATE mine_partners SET status = 'accepted', last_claim_hour = ? "
                 "WHERE mine_id = ? AND user_id = ? AND status = 'pending'",
-                (mine_id, player.user_id),
+                (self._hour_key(), mine_id, player.user_id),
             )
             if not cursor.rowcount:
                 await self.db.conn.rollback()

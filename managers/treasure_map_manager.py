@@ -174,7 +174,7 @@ class TreasureMapManager:
                 "━━━━━━━━━━━━━━━\n"
                 "逐层深入古修墓府，每层都可能遇到陷阱与妖兽。\n"
                 "气血归零则本次战利品尽失；可随时撤退落袋为安。\n"
-                "⚠️ 爬塔期间无法自然恢复/调息，丹药符箓回血有每层上限。\n"
+                "⚠️ 爬塔期间无法自然恢复/调息；丹药回血每层有上限，符箓不能直接补战斗气血。\n"
                 "━━━━━━━━━━━━━━━\n"
                 "💡 `/藏宝图 开始 <1-3>` 购买并进入：\n"
                 "  1 残破藏宝图 8,000 灵石\n"
@@ -264,7 +264,7 @@ class TreasureMapManager:
             f"━━━━━━━━━━━━━━━\n"
             f"{cfg['desc']}\n"
             f"当前气血：{hp:,}/{max_hp:,}\n"
-            f"⚠️ 爬塔期间无法自然恢复/调息，丹药符箓每层最多回 {budget:,} 气血。\n"
+            f"⚠️ 爬塔期间无法自然恢复/调息；丹药回血每层最多 {budget:,}，符箓不能直接补战斗气血。\n"
             f"💡 `/藏宝图 继续` 深入第一层"
         )
 
@@ -289,7 +289,6 @@ class TreasureMapManager:
         hp_before = int(player.hp or 0)
         hp_after = hp_before - damage
 
-        log_entries = [(run.get("log") or [])[-1]] if run.get("log") else []
         log_entries = list(run.get("log") or [])
         if trap:
             log_entries.append(f"第{floor_no}层触发陷阱，气血 -{damage:,}")
@@ -298,6 +297,9 @@ class TreasureMapManager:
 
         if hp_after <= 0:
             # 失败：清空战利品，气血压到 1，结束爬塔
+            old_loot = list(run.get("loot") or [])
+            lost_items = [x for x in old_loot if x.get("kind") != "gold"]
+            lost_gold = sum(int(x.get("amount") or 0) for x in old_loot if x.get("kind") == "gold")
             await self.db.conn.execute(
                 "UPDATE players SET hp = 1 WHERE user_id = ?", (player.user_id,)
             )
@@ -308,10 +310,13 @@ class TreasureMapManager:
             )
             await self.db.conn.commit()
             player.hp = 1
+            lost_desc = f"本次获得的 {len(lost_items)} 件战利品"
+            if lost_gold:
+                lost_desc += f"与 {lost_gold:,} 灵石"
             return True, (
                 f"💀 你在第 {floor_no} 层倒下了！\n"
                 f"━━━━━━━━━━━━━━━\n"
-                f"气血被打空，本次获得的 {len(run.get('loot') or [])} 件战利品全部遗失。\n"
+                f"气血被打空，{lost_desc}全部遗失。\n"
                 f"你拖着残躯爬出墓府，气血仅余 1 点。\n"
                 f"⚠️ 下次请在气血见底前及时撤退。"
             )
@@ -322,7 +327,9 @@ class TreasureMapManager:
         cfg = MAP_TIERS.get(int(run["map_tier"]), MAP_TIERS[1])
         if rng.random() < 0.78:
             gold_gain = int(cfg["gold"] * floor_no * rng.uniform(0.7, 1.3))
-            log_entries.append(f"拾得灵石 {gold_gain:,}")
+            # 层内灵石先记入战利品，撤退/通关时统一结算；中途倒下则随战利品一起丢失
+            loot.append({"kind": "gold", "amount": gold_gain})
+            log_entries.append(f"拾得灵石 {gold_gain:,}（撤退时结算）")
         new_loot = self._roll_loot(int(run["map_tier"]), floor_no, rng)
         for item in new_loot:
             loot.append(item)
@@ -340,7 +347,7 @@ class TreasureMapManager:
                 "UPDATE players SET hp = ? WHERE user_id = ?", (hp_after, player.user_id)
             )
             await self.db.conn.commit()
-            return await self._settle(player, run, success=True, reason="通关主墓", extra_gold=gold_gain)
+            return await self._settle(player, run, success=True, reason="通关主墓")
 
         budget = max(1, int(max_hp * HEAL_BUDGET_RATE))
         await self.db.conn.execute(
@@ -363,8 +370,8 @@ class TreasureMapManager:
             f"━━━━━━━━━━━━━━━\n"
             f"气血 -{damage:,} → {hp_after:,}/{max_hp:,}"
             f"{'（陷阱！）' if trap else ''}\n"
-            f"灵石 +{gold_gain:,}\n"
-            f"战利品：{len(loot)} 件\n"
+            f"灵石 +{gold_gain:,}（撤退/通关时结算）\n"
+            f"战利品：{sum(1 for x in loot if x.get('kind') != 'gold')} 件\n"
             f"━━━━━━━━━━━━━━━\n"
             + ("\n".join(log_entries[-3:]) + "\n")
             + f"💡 /藏宝图 继续 深入第 {floor_no + 1} 层｜/藏宝图 撤退 落袋为安\n"
@@ -379,7 +386,11 @@ class TreasureMapManager:
 
     async def _settle(self, player: Player, run: dict, success: bool,
                       reason: str, extra_gold: int = 0) -> Tuple[bool, str]:
-        loot = list(run.get("loot") or [])
+        all_loot = list(run.get("loot") or [])
+        loot = [item for item in all_loot if item.get("kind") != "gold"]
+        loot_gold = sum(
+            int(item.get("amount") or 0) for item in all_loot if item.get("kind") == "gold"
+        )
         labels = []
         if success:
             if self.gamble_mgr:
@@ -404,7 +415,7 @@ class TreasureMapManager:
                         labels.append(f"【{name}】")
         gold_bonus = 0
         if success:
-            gold_bonus = int(extra_gold or 0)
+            gold_bonus = int(extra_gold or 0) + loot_gold
             if reason == "通关主墓":
                 cfg = MAP_TIERS.get(int(run.get("map_tier")), MAP_TIERS[1])
                 gold_bonus += int(cfg["price"] * 1.8)
@@ -429,6 +440,8 @@ class TreasureMapManager:
             lines.append("物品收获：" + "、".join(labels[:8]) + ("…" if len(labels) > 8 else ""))
         elif loot:
             lines.append("物品收获：无（储物戒空间不足或发放失败）")
+        elif loot_gold:
+            lines.append("物品收获：无（只带回了灵石）")
         else:
             lines.append("物品收获：空手而归")
         lines.extend([

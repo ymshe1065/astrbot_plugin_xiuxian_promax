@@ -461,23 +461,42 @@ class BlindAuctionManager:
         min_bid = int(lot["min_bid"])
         if amount < min_bid:
             return False, f"❌ 暗价不能低于起拍价 {min_bid:,} 灵石。"
-        existing = await self._fetchone(
-            "SELECT * FROM blind_auction_bids WHERE round_key = ? AND lot_no = ? AND user_id = ?",
-            (rnd["round_key"], lot_no, player.user_id),
-        )
-        old_amount = int(existing["amount"]) if existing else 0
-        if existing and existing["status"] != "active":
-            old_amount = 0
-        if existing and existing["status"] == "active" and amount <= old_amount:
-            return False, f"❌ 你的新暗价必须高于当前暗价 {old_amount:,}。"
-        delta = amount - old_amount
-        if delta > 0 and player.gold < delta:
-            return False, (
-                f"❌ 灵石不足！本次需要追加冻结 {delta:,} 灵石，"
-                f"你当前只有 {player.gold:,}。"
-            )
         await self.db.conn.execute("BEGIN IMMEDIATE")
         try:
+            # 出价与结算可能并发：事务内重读轮次/拍品/旧出价，
+            # 避免结算刚把出价置为 lost 后又被本事务重新激活并冻结灵石。
+            round_row = await self._fetchone(
+                "SELECT settled, end_ts FROM blind_auction_rounds WHERE round_key = ?",
+                (rnd["round_key"],),
+            )
+            if not round_row or int(round_row.get("settled") or 0):
+                await self.db.conn.rollback()
+                return False, "❌ 本轮暗标已结算，请等待下一轮。"
+            if now >= int(round_row.get("end_ts") or 0):
+                await self.db.conn.rollback()
+                return False, "❌ 本轮暗标已经结束。"
+            fresh_lot = await self._fetchone(
+                "SELECT min_bid FROM blind_auction_lots WHERE round_key = ? AND lot_no = ?",
+                (rnd["round_key"], lot_no),
+            )
+            if not fresh_lot:
+                await self.db.conn.rollback()
+                return False, "❌ 无效的暗标编号。"
+            min_bid = int(fresh_lot.get("min_bid") or 0)
+            if amount < min_bid:
+                await self.db.conn.rollback()
+                return False, f"❌ 暗价不能低于起拍价 {min_bid:,} 灵石。"
+            existing = await self._fetchone(
+                "SELECT * FROM blind_auction_bids WHERE round_key = ? AND lot_no = ? AND user_id = ?",
+                (rnd["round_key"], lot_no, player.user_id),
+            )
+            old_amount = int(existing["amount"]) if existing else 0
+            if existing and existing["status"] != "active":
+                old_amount = 0
+            if existing and existing["status"] == "active" and amount <= old_amount:
+                await self.db.conn.rollback()
+                return False, f"❌ 你的新暗价必须高于当前暗价 {old_amount:,}。"
+            delta = amount - old_amount
             if delta > 0:
                 cursor = await self.db.conn.execute(
                     "UPDATE players SET gold = gold - ? WHERE user_id = ? AND gold >= ?",

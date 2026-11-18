@@ -329,13 +329,18 @@ class EscortManager:
         await self.db.ext.set_user_free(user_id, cd_type=UserStatus.DELIVERING)
 
         if mode == "blood":
+            karma_text = (
+                f"☠️ 业力 +{abs(karma_delta)}（功德 -{abs(karma_delta)}）"
+                if karma_delta < 0
+                else f"✨ 功德 +{karma_delta}"
+            )
             return True, (
                 f"🩸 血镖送达！\n"
                 f"━━━━━━━━━━━━━━━\n"
                 f"{ambush_note}"
                 f"黑镖实收：+{escort_gold:,} 灵石\n"
                 f"获得酬劳：+{escort_exp:,} 修为\n"
-                f"☠️ 业力 {'+' if karma_delta > 0 else ''}{karma_delta}"
+                f"{karma_text}"
             )
         return True, (
             f"🎉 押镖成功！\n"

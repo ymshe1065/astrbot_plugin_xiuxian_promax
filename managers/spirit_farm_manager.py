@@ -767,6 +767,8 @@ class SpiritFarmManager:
         if unlocked_now:
             lines.append("🌟 你永久解锁了新的灵植：" + "、".join(unlocked_now))
             lines.append("💡 之后可用 `/种植 <灵植名>` 直接种植。")
+        if rare_pool == common_pool:
+            lines.append("💡 灵田等级较低，暂无可种的高级灵草，高级结果会暂按普通灵草结算。")
         if not counts:
             lines.append("💀 这一批全是空壳，颗粒无收。")
         lines.extend([

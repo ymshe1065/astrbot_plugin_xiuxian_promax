@@ -237,6 +237,24 @@ class BettingPoolManager:
             return False, f"❌ 灵石不足，你当前只有 {player.gold:,}。"
         await self.db.conn.execute("BEGIN IMMEDIATE")
         try:
+            # 下注与封盘结算可能并发：事务内重读盘口状态，避免封盘后仍插入永不派彩的注单
+            fresh_pool = await self._fetchone(
+                "SELECT status, close_at FROM betting_pools WHERE id = ?", (pool["id"],)
+            )
+            if (
+                not fresh_pool
+                or fresh_pool.get("status") != "open"
+                or now >= int(fresh_pool.get("close_at") or 0)
+            ):
+                await self.db.conn.rollback()
+                return False, "❌ 该盘口已封盘。"
+            existing = await self._fetchone(
+                "SELECT id FROM betting_bets WHERE pool_id = ? AND user_id = ?",
+                (pool["id"], player.user_id),
+            )
+            if existing:
+                await self.db.conn.rollback()
+                return False, "❌ 每个盘口只能下一注，落子无悔。"
             cursor = await self.db.conn.execute(
                 "UPDATE players SET gold = gold - ? WHERE user_id = ? AND gold >= ?",
                 (amount, player.user_id, amount),

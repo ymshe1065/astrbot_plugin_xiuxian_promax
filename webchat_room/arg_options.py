@@ -2505,7 +2505,23 @@ async def _src_mine_arg1(plugin: "XiuXianPlugin", player: Any, field: dict, valu
                     f"{_nm(item['price'])} 灵石 · {item['hours']} 小时 · {item['hint']}",
                     "待购矿脉",
                 ))
-        elif sub in ("开采", "合伙", "拒绝"):
+        elif sub == "开采":
+            rows = []
+            async with plugin.db.conn.execute(
+                "SELECT id, name, expire_at, 1 AS is_owner FROM mine_veins "
+                "WHERE owner_id = ? AND status = 'active' "
+                "UNION ALL "
+                "SELECT v.id, v.name, v.expire_at, 0 AS is_owner FROM mine_veins v "
+                "JOIN mine_partners p ON p.mine_id = v.id "
+                "WHERE p.user_id = ? AND p.status = 'accepted' AND v.status = 'active' "
+                "ORDER BY id DESC",
+                (player.user_id, player.user_id),
+            ) as cursor:
+                rows = await cursor.fetchall()
+            for row in rows:
+                role = "自有矿脉" if int(row[3] or 0) else "参与矿脉"
+                options.append(_opt(f"矿脉 {row[0]}：{row[1]}", row[0], role, "我的矿脉"))
+        elif sub == "合伙":
             rows = []
             async with plugin.db.conn.execute(
                 "SELECT id, name, expire_at FROM mine_veins "
@@ -2515,6 +2531,16 @@ async def _src_mine_arg1(plugin: "XiuXianPlugin", player: Any, field: dict, valu
                 rows = await cursor.fetchall()
             for row in rows:
                 options.append(_opt(f"矿脉 {row[0]}：{row[1]}", row[0], "自有矿脉", "我的矿脉"))
+        elif sub == "拒绝":
+            async with plugin.db.conn.execute(
+                "SELECT p.mine_id, v.name, p.share FROM mine_partners p "
+                "JOIN mine_veins v ON v.id = p.mine_id "
+                "WHERE p.user_id = ? AND p.status = 'pending' ORDER BY p.created_at DESC",
+                (player.user_id,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+            for row in rows:
+                options.append(_opt(f"矿脉 {row[0]}：{row[1]}（{row[2]}%）", row[0], "待处理邀请", "合伙邀请"))
         elif sub == "接受":
             async with plugin.db.conn.execute(
                 "SELECT p.mine_id, v.name, p.share FROM mine_partners p "
@@ -2645,7 +2671,7 @@ async def _src_escort_modes(plugin: "XiuXianPlugin", player: Any, field: dict, v
 async def _src_invest_subs(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
     return [
         _opt("行情总览", "行情", "查看仙市股票与基金行情", "仙市"),
-        _opt("杠杆状态", "杠杆", "查看未平仓杠杆持仓与强平线", "杠杆"),
+        _opt("杠杆状态", "杠杆 状态", "查看未平仓杠杆持仓与强平线", "杠杆"),
         _opt("杠杆开仓", "杠杆", "选择股票、倍数与保证金做多", "杠杆"),
         _opt("杠杆平仓", "杠杆 平仓", "平掉指定杠杆持仓", "杠杆"),
     ], ""
@@ -2840,6 +2866,18 @@ def plan_for(cmd: str, values: Optional[List[str]] = None) -> List[dict[str, Any
         plan = plan + [
             _f("plots", "要停止的格号（留空 = 全部，如 1-3）", "", optional=True)
         ]
+    elif key == "仙市" and first.startswith("杠杆"):
+        base = [dict(plan[0])] if plan else [_f("sub", "选择仙市操作", "invest_subs", optional=True)]
+        if "平仓" in first:
+            plan = base + [_f("arg1", "选择要平仓的持仓", "margin_arg1")]
+        elif "状态" in first:
+            plan = base
+        else:
+            plan = base + [
+                _f("arg1", "选择股票", "margin_arg1"),
+                _f("arg2", "杠杆倍数", "margin_leverage"),
+                _f("arg3", "保证金（灵石，最低 10,000）", "", optional=True),
+            ]
     elif key == "周本备战":
         # 阶段 1：选择推荐/清空或战前/战中阶段；
         # 阶段 2：按所选阶段逐枚挑选丹药（战前/战中各自最多 6 枚）。

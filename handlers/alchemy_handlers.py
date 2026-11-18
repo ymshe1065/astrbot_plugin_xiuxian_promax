@@ -3,7 +3,8 @@ from astrbot.api.event import AstrMessageEvent
 from ..core.material_selection import split_material_options
 from ..managers.alchemy_manager import AlchemyManager
 from ..data.data_manager import DataBase
-from .utils import set_event_flag
+from .utils import player_required, set_event_flag
+from ..models import Player
 from ..models_extended import UserStatus
 
 # 火候别名：数字 1-3 为旧写法，中文关键字便于直接连写批量次数
@@ -99,13 +100,10 @@ class AlchemyHandlers:
         success, msg = await self.alchemy_mgr.learn_recipe(player, identifier)
         yield event.plain_result(msg)
 
-    async def handle_ancient(self, event: AstrMessageEvent, args: str = ""):
+    @player_required
+    async def handle_ancient(self, player: Player, event: AstrMessageEvent, args: str = ""):
         """古方残卷：查看与参悟。"""
-        user_id = event.get_sender_id()
-        player = await self.db.get_player_by_id(user_id)
-        if not player:
-            yield event.plain_result("❌ 你还未踏入修仙之路！")
-            return
+        user_id = player.user_id
         parts = str(args or "").strip().split()
         sub = parts[0] if parts else ""
         if not sub or sub in ("帮助", "菜单", "列表", "查看"):

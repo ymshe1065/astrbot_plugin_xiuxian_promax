@@ -1467,15 +1467,15 @@ class AlchemyManager:
         candidates = self._ancient_candidates(user_id)
         if not candidates:
             return False, "❌ 当前没有可参悟的古方残卷。"
-        learned = set()
+        keys = set()
         try:
             async with self.db.conn.execute(
                 "SELECT recipe_key FROM ancient_recipe_unlocks WHERE user_id = ?", (user_id,)
             ) as cursor:
                 rows = await cursor.fetchall()
-            learned = {int(row[0]) for row in rows if str(row[0]).isdigit()}
+            keys = {str(row[0]) for row in rows}
         except Exception:
-            learned = set()
+            keys = set()
         now = int(time.time())
         remaining = self.ANCIENT_PERIOD_SECONDS - (now % self.ANCIENT_PERIOD_SECONDS)
         lines = [
@@ -1483,7 +1483,9 @@ class AlchemyManager:
             "━━━━━━━━━━━━━━━",
         ]
         for item in candidates:
-            state = " ✅已参悟" if item["recipe_id"] in learned else ""
+            attempt_key = f"attempt:{item['period']}:{item['index']}"
+            used = str(item["recipe_id"]) in keys or attempt_key in keys
+            state = " ✅已参悟" if used else ""
             lines.append(
                 f"[{item['index']}] 无名残卷 - {item['cost']:,} 灵石{state}"
             )
@@ -1517,12 +1519,36 @@ class AlchemyManager:
         if recipe_id in learned and unlocked:
             return False, f"❌ 你已经参悟过【{recipe.get('name')}】了，等待下次刷新。"
 
+        attempt_key = f"attempt:{item['period']}:{index}"
+        try:
+            async with self.db.conn.execute(
+                "SELECT 1 FROM ancient_recipe_unlocks WHERE user_id = ? AND recipe_key = ?",
+                (player.user_id, attempt_key),
+            ) as cursor:
+                already_attempted = await cursor.fetchone() is not None
+        except Exception:
+            already_attempted = False
+        if already_attempted:
+            return False, (
+                "❌ 这张残卷本周期已经参悟过了。\n"
+                "💡 每张残卷 6 小时只能参悟一次，等待刷新后再来。"
+            )
+
         cost = int(item["cost"])
         if player.gold < cost:
             return False, f"❌ 参悟这张残卷需要 {cost:,} 灵石，你当前只有 {player.gold:,}。"
 
         await self.db.conn.execute("BEGIN IMMEDIATE")
         try:
+            # 参悟记录与扣费同事务：无论结果好坏都记一次，防止同一残卷反复付费刷结果
+            cursor = await self.db.conn.execute(
+                "INSERT OR IGNORE INTO ancient_recipe_unlocks "
+                "(user_id, recipe_key, learned_at) VALUES (?, ?, ?)",
+                (player.user_id, attempt_key, int(time.time())),
+            )
+            if not cursor.rowcount:
+                await self.db.conn.rollback()
+                return False, "❌ 这张残卷本周期已经参悟过了，等待下次刷新。"
             cursor = await self.db.conn.execute(
                 "UPDATE players SET gold = gold - ? WHERE user_id = ? AND gold >= ?",
                 (cost, player.user_id, cost),
