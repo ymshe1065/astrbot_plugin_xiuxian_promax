@@ -79,6 +79,9 @@ class GambleHandlers:
                 "━━━━━━━━━━━━━━━\n"
                 "🛒 `/黑市 商店` 查看本小时黑市货架\n"
                 "💎 `/黑市 原石` 查看五档赌石与真假线索\n"
+                "🧧 `/黑市 锦囊` 查看密封锦囊与真假线索\n"
+                "🔎 `/黑市 验囊 <编号>` 付费验囊（每袋仅一次）\n"
+                "🧨 `/黑市 拆囊 <编号>` 拆开锦囊\n"
                 "⛏️ `/黑市 切原石 <编号>` 切开本小时该档原石\n"
                 "🔎 `/黑市 开窗 <编号>` 付费揭示一条真线索（每块仅一次）\n"
                 "💳 `/黑市 购买 <编号>` 购买黑市商店商品\n"
@@ -97,6 +100,52 @@ class GambleHandlers:
             return
         if sub in ("原石", "赌石", "看石"):
             success, msg = await self.gamble_mgr.get_stone_market(player.user_id)
+            yield event.plain_result(msg)
+            return
+        if sub in ("锦囊", "囊", "密封锦囊"):
+            success, msg = None, ""
+            entries = []
+            try:
+                period = self.gamble_mgr._pouch_period()
+                state = await self.gamble_mgr._get_pouch_state(player.user_id, period)
+                entries = self.gamble_mgr.build_pouch_entries(player.user_id, state)
+            except Exception:
+                entries = []
+            if entries:
+                try:
+                    from ..utils.image_generator import render_web_card_async
+                    card = await render_web_card_async(
+                        "shop", "🕶️ 黑市 · 密封锦囊",
+                        f"{len(entries)} 袋在售 · 每小时刷新",
+                        [{
+                            "name": "在售", "view": "grid", "entries": entries,
+                            "facet": {"label": "", "okLabel": "在售"},
+                        }],
+                        "点格子拆囊 · /黑市 验囊 <编号> 可先验 · 真假自负",
+                    )
+                    if card:
+                        yield event.image_result(card)
+                        return
+                except Exception:
+                    pass
+            success, msg = await self.gamble_mgr.get_pouches(player.user_id)
+            yield event.plain_result(msg)
+            return
+        if sub in ("验囊", "验", "探查"):
+            index = self._parse_index(rest or (parts[1] if len(parts) > 1 else ""))
+            if index <= 0:
+                yield event.plain_result("❌ 请指定锦囊编号，例如：/黑市 验囊 2")
+                return
+            success, msg = await self.gamble_mgr.inspect_pouch(player, index)
+            yield event.plain_result(msg)
+            return
+        if sub in ("拆囊", "拆锦囊", "开囊"):
+            index = self._parse_index(rest or (parts[1] if len(parts) > 1 else ""))
+            if index <= 0:
+                yield event.plain_result("❌ 请指定锦囊编号，例如：/黑市 拆囊 1")
+                return
+            success, msg = await self.gamble_mgr.open_pouch(player, index)
+            set_event_flag(event, "gamble_success", bool(success))
             yield event.plain_result(msg)
             return
         if sub in ("切原石", "切石", "切"):
@@ -127,8 +176,8 @@ class GambleHandlers:
             return
         yield event.plain_result(
             f"❌ 未知的黑市子命令「{sub}」。\n"
-            "💡 可用：`/黑市 商店`、`/黑市 原石`、`/黑市 切原石 <编号>`、"
-            "`/黑市 开窗 <编号>`、`/黑市 购买 <编号>`"
+            "💡 可用：`/黑市 商店`、`/黑市 原石`、`/黑市 锦囊`、`/黑市 验囊 <编号>`、"
+            "`/黑市 拆囊 <编号>`、`/黑市 切原石 <编号>`、`/黑市 开窗 <编号>`、`/黑市 购买 <编号>`"
         )
 
     @player_required

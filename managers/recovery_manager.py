@@ -148,6 +148,21 @@ class RecoveryManager:
         if self.config_manager is None:
             return player
         now = int(now or time.time())
+        # 藏宝图爬塔期间：锁死自然恢复与调息恢复，避免边爬边回血绕过风险设计
+        try:
+            from .treasure_map_manager import TreasureMapManager
+            if await TreasureMapManager.is_climbing(self.db, player.user_id):
+                cd = await self._get_cd(player.user_id)
+                extra = self._extra(cd)
+                extra["last_natural_regen"] = now
+                await self.db.conn.execute(
+                    "UPDATE user_cd SET extra_data = ? WHERE user_id = ? AND slot = 0",
+                    (json.dumps(extra, ensure_ascii=False), player.user_id),
+                )
+                await self.db.conn.commit()
+                return player
+        except Exception:
+            pass
         # 0 号槽只做「全局恢复记账」（last_natural_regen 必须落在固定一行，
         # 否则调息与常态切换时会来回跳槽，导致自然恢复被重复结算）。
         cd = await self._get_cd(player.user_id)

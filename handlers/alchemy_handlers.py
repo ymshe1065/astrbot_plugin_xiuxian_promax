@@ -99,6 +99,37 @@ class AlchemyHandlers:
         success, msg = await self.alchemy_mgr.learn_recipe(player, identifier)
         yield event.plain_result(msg)
 
+    async def handle_ancient(self, event: AstrMessageEvent, args: str = ""):
+        """古方残卷：查看与参悟。"""
+        user_id = event.get_sender_id()
+        player = await self.db.get_player_by_id(user_id)
+        if not player:
+            yield event.plain_result("❌ 你还未踏入修仙之路！")
+            return
+        parts = str(args or "").strip().split()
+        sub = parts[0] if parts else ""
+        if not sub or sub in ("帮助", "菜单", "列表", "查看"):
+            success, msg = await self.alchemy_mgr.get_ancient_recipes(user_id)
+            yield event.plain_result(msg)
+            return
+        if sub in ("参悟", "悟", "解读"):
+            if len(parts) < 2:
+                yield event.plain_result("❌ 用法：/古方 参悟 <编号>，例如 /古方 参悟 1")
+                return
+            try:
+                index = int(parts[1])
+            except (TypeError, ValueError):
+                yield event.plain_result("❌ 残卷编号必须是整数。")
+                return
+            success, msg = await self.alchemy_mgr.study_ancient(player, index)
+            set_event_flag(event, "ancient_study_success", bool(success))
+            yield event.plain_result(msg)
+            return
+        yield event.plain_result(
+            f"❌ 未知的古方子命令「{sub}」。\n"
+            "💡 可用：`/古方`、`/古方 参悟 <编号>`"
+        )
+
     async def handle_craft(self, event: AstrMessageEvent, args: str):
         """炼丹"""
         user_id = event.get_sender_id()

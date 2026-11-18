@@ -863,6 +863,15 @@ class PillManager:
                 pct = max(0.0, min(1.0, float(pill_data.get("restore_hp_percent", 0) or 0) * mult))
                 old = max(0, int(player.hp or 0))
                 new = stats.max_hp if pct >= 1.0 else min(stats.max_hp, old + int(stats.max_hp * pct))
+                # 藏宝图爬塔期间：丹药回血受每层额度限制
+                try:
+                    from ..managers.treasure_map_manager import TreasureMapManager
+                    allowed = await TreasureMapManager.allow_heal(
+                        self.db, player.user_id, max(0, new - old), stats.max_hp
+                    )
+                    new = old + max(0, int(allowed))
+                except Exception:
+                    pass
                 player.hp = new
                 msg_parts.append(f"🌟 恢复气血：+{max(0, new - old)}")
                 msg_parts.append(f"🩸 当前气血：{player.hp}/{stats.max_hp}")

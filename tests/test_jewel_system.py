@@ -171,9 +171,17 @@ class TestTierStone(JewelTestBase):
             self.assertGreaterEqual(cfg["empty_chance"], 0.06)
             self.assertGreaterEqual(cfg["display_clues"], 3)
             self.assertLess(cfg["jewel_chance"], 0.7)
-        # 越高档，空石风险越低，但开窗与切垮的成本越高
+        # 越高档，空石率越高；稀有珠宝概率也越高，形成高风险高回报
         empties = [cfg["empty_chance"] for cfg in config]
-        self.assertEqual(empties, sorted(empties, reverse=True))
+        self.assertEqual(empties, [0.08, 0.12, 0.16, 0.20, 0.25])
+        self.assertEqual(empties, sorted(empties))
+        rare_share = [
+            cfg["jewel_chance"]
+            * sum(cfg["quality_weights"].get(q, 0) for q in ("极佳", "大师"))
+            / sum(cfg["quality_weights"].values())
+            for cfg in config
+        ]
+        self.assertEqual(rare_share, sorted(rare_share))
         self.assertGreaterEqual(self.gm.STONE_WINDOW_COST_RATE, 0.25)
         self.assertEqual(self.gm.STONE_WINDOW_MAX, 1)
 

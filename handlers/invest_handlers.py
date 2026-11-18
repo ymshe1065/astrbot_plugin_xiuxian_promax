@@ -274,6 +274,48 @@ class InvestHandlers:
     # ===== 持仓与流水 =====
 
     @player_required
+    async def handle_margin(self, player: Player, event: AstrMessageEvent, args: str = ""):
+        """仙市杠杆：/仙市 杠杆 [代码 倍数 保证金 | 平仓 编号 | 状态]"""
+        tokens = str(args or "").strip().split()
+        if tokens and tokens[0] in ("杠杆", "配资", "margin"):
+            tokens = tokens[1:]
+        if not tokens or tokens[0] in ("状态", "查看", "列表", "help", "帮助"):
+            yield event.plain_result(await self.invest_mgr.get_margin_status(player))
+            return
+        if tokens[0] in ("平仓", "结算", "close"):
+            if len(tokens) < 2:
+                yield event.plain_result("❌ 用法：/仙市 杠杆 平仓 <持仓编号>")
+                return
+            try:
+                position_id = int(tokens[1])
+            except (TypeError, ValueError):
+                yield event.plain_result("❌ 持仓编号必须是整数。")
+                return
+            success, msg = await self.invest_mgr.close_margin(player, position_id)
+            yield event.plain_result(msg)
+            return
+        if len(tokens) < 3:
+            yield event.plain_result(
+                "📈 仙市杠杆用法\n"
+                "━━━━━━━━━━━━━━━\n"
+                "开仓：/仙市 杠杆 <股票代码> <2|3|5> <保证金>\n"
+                "示例：/仙市 杠杆 S01 3 50000\n"
+                "平仓：/仙市 杠杆 平仓 <持仓编号>\n"
+                "状态：/仙市 杠杆\n"
+                "⚠️ 只支持股票；保证金至少 10,000；爆仓线为保证金 20%。"
+            )
+            return
+        code = tokens[0]
+        try:
+            leverage = int(tokens[1])
+            margin = int(tokens[2])
+        except (TypeError, ValueError):
+            yield event.plain_result("❌ 倍数与保证金必须是整数。")
+            return
+        success, msg = await self.invest_mgr.open_margin(player, code, leverage, margin)
+        yield event.plain_result(msg)
+
+    @player_required
     async def handle_holdings(self, player: Player, event: AstrMessageEvent):
         holdings = await self.invest_mgr.get_holdings(player.user_id)
         if not holdings:

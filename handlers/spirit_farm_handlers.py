@@ -131,12 +131,17 @@ class SpiritFarmHandlers:
                 "━━━━━━━━━━━━━━━",
                 f"当前灵田：Lv.{farm_level}",
             ]
+            unlocked_specials = set(self.mgr.get_unlocked_specials(player))
             for name, cfg in SPIRIT_HERBS.items():
+                if cfg.get("unlock_only"):
+                    continue
                 need = get_herb_unlock_level(name)
                 mark = "✅" if farm_level >= need else f"🔒Lv.{need}"
                 hours = max(1, int(cfg["grow_time"]) // 3600)
                 note = "（需杂交种苗）" if cfg.get("hybrid_only") else ""
                 lines.append(f"{mark} {name} - {hours}小时 (修为+{int(cfg['exp_yield']):,}){note}")
+            if unlocked_specials:
+                lines.append("🌟 已解锁盲种灵植：" + "、".join(sorted(unlocked_specials)))
             lines.extend([
                 "━━━━━━━━━━━━━━━",
                 "🌱 所有灵草统一：种1收2（普通灵草可直接种植）",
@@ -149,12 +154,20 @@ class SpiritFarmHandlers:
                 "   /种植 灵草 all    （种满所有空格）",
                 "💡 也可紧贴书写：/种植 灵草6、/种植 灵草1-3、/种植 灵草all",
                 "💡 /种植 all 不写灵草时，自动沿用灵田里种得最多的灵草",
+                "🎲 /种植 盲种 [数量|all]：买未知种子，运气好可永久解锁帝品等特殊灵植",
                 "💡 提升灵田等级可解锁更高级灵草与更多格数：/升级灵田",
             ])
             yield event.plain_result("\n".join(lines))
             return
         
         name, count, slot_range, fill_all = parse_plant_args(herb_name)
+        if name in ("盲种", "盲种灵田", "摸盲盒"):
+            success, msg = await self.mgr.blind_plant(
+                player, count, slot_range=slot_range, fill_all=fill_all
+            )
+            set_event_flag(event, "farm_plant_ok", bool(success))
+            yield event.plain_result(msg)
+            return
         success, msg = await self.mgr.plant_herb(
             player, name, count, slot_range=slot_range, fill_all=fill_all
         )

@@ -37,7 +37,22 @@ SPIRIT_HERBS = {
     "冰火双生花": {"grow_time": 21600, "exp_yield": 12500, "gold_yield": 4000, "wither_time": 172800, "unlock_level": 5, "hybrid_only": True},
     "血玉灵芝": {"grow_time": 36000, "exp_yield": 25000, "gold_yield": 6250, "wither_time": 172800, "unlock_level": 4, "hybrid_only": True},
     "九幽仙芝": {"grow_time": 43200, "exp_yield": 37500, "gold_yield": 8750, "wither_time": 172800, "unlock_level": 5, "hybrid_only": True},
+    # 盲种专属灵植：无法按灵田等级正常种植，只能通过 /种植 盲种 永久解锁后种植
+    "血菩提": {"grow_time": 8 * 3600, "exp_yield": 25000, "gold_yield": 22000, "wither_time": 16 * 3600, "unlock_level": 99, "unlock_only": True, "bonus_item": "强化石", "bonus_qty": 1, "bonus_chance": 0.30},
+    "太初道莲": {"grow_time": 10 * 3600, "exp_yield": 33000, "gold_yield": 50000, "wither_time": 20 * 3600, "unlock_level": 99, "unlock_only": True, "bonus_item": "洗练石", "bonus_qty": 1, "bonus_chance": 0.30},
+    "帝流浆": {"grow_time": 12 * 3600, "exp_yield": 39000, "gold_yield": 150000, "wither_time": 24 * 3600, "unlock_level": 99, "unlock_only": True, "bonus_item": "强化石", "bonus_qty": 2, "bonus_chance": 0.50},
 }
+
+# 盲种可解锁的特殊灵植（按稀有度从高到低）
+BLIND_SPECIAL_HERBS = (
+    {"name": "血菩提", "chance": 0.060},
+    {"name": "太初道莲", "chance": 0.030},
+    {"name": "帝流浆", "chance": 0.015},
+)
+BLIND_SEED_COST = 8000
+BLIND_SEED_COMMON_CHANCE = 0.55
+BLIND_SEED_RARE_CHANCE = 0.80   # 累计：普通 + 高级
+BLIND_SEED_EMPTY_CHANCE = 0.88  # 累计：普通 + 高级 + 空壳
 
 # 杂交配方：材料 -> 产物
 HYBRID_RECIPES = {
@@ -312,9 +327,13 @@ def get_herb_unlock_level(herb_name: str) -> int:
 
 
 def get_herbs_for_level(level: int) -> List[str]:
-    """当前灵田等级可种植的灵草"""
+    """当前灵田等级可种植的灵草（盲种专属灵植不在常规列表里）"""
     level = int(level or 1)
-    return [name for name, cfg in SPIRIT_HERBS.items() if int(cfg.get("unlock_level", 1) or 1) <= level]
+    return [
+        name for name, cfg in SPIRIT_HERBS.items()
+        if not cfg.get("unlock_only")
+        and int(cfg.get("unlock_level", 1) or 1) <= level
+    ]
 
 
 def get_next_unlock(level: int) -> Tuple[Optional[int], List[str]]:
@@ -323,9 +342,12 @@ def get_next_unlock(level: int) -> Tuple[Optional[int], List[str]]:
     locked = {
         int(cfg.get("unlock_level", 1) or 1): []
         for cfg in SPIRIT_HERBS.values()
-        if int(cfg.get("unlock_level", 1) or 1) > level
+        if not cfg.get("unlock_only")
+        and int(cfg.get("unlock_level", 1) or 1) > level
     }
     for name, cfg in SPIRIT_HERBS.items():
+        if cfg.get("unlock_only"):
+            continue
         need = int(cfg.get("unlock_level", 1) or 1)
         if need > level:
             locked[need].append(name)
@@ -603,6 +625,157 @@ class SpiritFarmManager:
             "💡 升级灵田可解锁更高级的灵草与更多格数"
         )
     
+    # ===== 盲种与永久解锁（v7.10.3）=====
+    @staticmethod
+    def get_unlocked_specials(player: Player) -> List[str]:
+        try:
+            raw = json.loads(getattr(player, "farm_unlocks", "[]") or "[]")
+        except Exception:
+            raw = []
+        if not isinstance(raw, list):
+            return []
+        return [str(name) for name in raw if name in SPIRIT_HERBS]
+
+    @staticmethod
+    def _save_unlocked_specials(player: Player, names: List[str]) -> None:
+        player.farm_unlocks = json.dumps(sorted(set(names)), ensure_ascii=False)
+
+    def is_herb_available(self, player: Player, herb_name: str, farm_level: int) -> bool:
+        cfg = SPIRIT_HERBS.get(herb_name)
+        if not cfg:
+            return False
+        if cfg.get("unlock_only"):
+            return herb_name in self.get_unlocked_specials(player)
+        return int(farm_level or 1) >= int(cfg.get("unlock_level", 1) or 1)
+
+    def _blind_pool(self, farm_level: int) -> Tuple[List[str], List[str]]:
+        common, rare = [], []
+        for name, cfg in SPIRIT_HERBS.items():
+            if cfg.get("unlock_only") or cfg.get("hybrid_only"):
+                continue
+            need = int(cfg.get("unlock_level", 1) or 1)
+            if need > int(farm_level or 1):
+                continue
+            (rare if need >= 4 else common).append(name)
+        return common or ["灵草"], rare or common or ["灵草"]
+
+    async def blind_plant(
+        self,
+        player: Player,
+        count: int = 1,
+        slot_range: Optional[Tuple[int, int]] = None,
+        fill_all: bool = False,
+        rng=None,
+    ) -> Tuple[bool, str]:
+        """灵田盲种：买未知种子，可能种出普通灵草、稀有灵草或永久解锁特殊灵植。"""
+        farm = await self.get_user_farm(player.user_id)
+        if not farm:
+            return False, "❌ 你还没有灵田！使用 /开垦灵田"
+        max_slots = self.get_max_slots(farm)
+        farm_level = int(farm.get("level", 1) or 1)
+        crops = farm["crops"]
+        used_slots = {int(c.get("slot") or 0) for c in crops}
+        free_slots = [s for s in range(1, max_slots + 1) if s not in used_slots]
+        if slot_range:
+            start, end = slot_range
+            free_slots = [s for s in free_slots if start <= s <= end]
+        if not free_slots:
+            return False, "❌ 灵田已满，没有空格可以盲种。"
+        if fill_all or slot_range:
+            seed_count = len(free_slots)
+        else:
+            seed_count = min(max(1, int(count or 1)), len(free_slots))
+        total_cost = BLIND_SEED_COST * seed_count
+        if player.gold < total_cost:
+            return False, (
+                f"❌ 盲种 {seed_count} 枚需要 {total_cost:,} 灵石，"
+                f"你当前只有 {player.gold:,}。"
+            )
+
+        rng = rng or random.Random()
+        unlocked = self.get_unlocked_specials(player)
+        common_pool, rare_pool = self._blind_pool(farm_level)
+        planted: List[str] = []
+        unlocked_now: List[str] = []
+        empty_count = 0
+        plant_time = int(time.time())
+        target_slots = free_slots[:seed_count]
+        for slot in target_slots:
+            roll = rng.random()
+            if roll < BLIND_SEED_COMMON_CHANCE:
+                herb_name = rng.choice(common_pool)
+            elif roll < BLIND_SEED_RARE_CHANCE:
+                herb_name = rng.choice(rare_pool)
+            elif roll < BLIND_SEED_EMPTY_CHANCE:
+                empty_count += 1
+                continue
+            else:
+                remaining = [x for x in BLIND_SPECIAL_HERBS if x["name"] not in unlocked]
+                if remaining:
+                    weights = [x["chance"] for x in remaining]
+                    pick = rng.choices(remaining, weights=weights, k=1)[0]
+                    herb_name = pick["name"]
+                    unlocked.append(herb_name)
+                    unlocked_now.append(herb_name)
+                else:
+                    herb_name = rng.choice([x["name"] for x in BLIND_SPECIAL_HERBS])
+            cfg = SPIRIT_HERBS[herb_name]
+            grow_base = int(cfg["grow_time"])
+            crops.append({
+                "name": herb_name,
+                "slot": slot,
+                "plant_time": plant_time,
+                "grow_base": grow_base,
+                "mature_time": compute_crop_mature_time(herb_name, plant_time, grow_base),
+            })
+            planted.append(herb_name)
+        self._normalize_crop_slots(crops, max_slots)
+        self._save_unlocked_specials(player, unlocked)
+
+        await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            cursor = await self.db.conn.execute(
+                "UPDATE players SET gold = gold - ?, farm_unlocks = ? "
+                "WHERE user_id = ? AND gold >= ?",
+                (total_cost, player.farm_unlocks, player.user_id, total_cost),
+            )
+            if not cursor.rowcount:
+                await self.db.conn.rollback()
+                return False, "❌ 灵石不足，盲种失败。"
+            await self.db.conn.execute(
+                "UPDATE spirit_farms SET crops = ? WHERE user_id = ?",
+                (json.dumps(crops, ensure_ascii=False), player.user_id),
+            )
+            await self.db.conn.commit()
+            player.gold -= total_cost
+        except Exception:
+            await self.db.conn.rollback()
+            raise
+
+        counts: Dict[str, int] = {}
+        for name in planted:
+            counts[name] = counts.get(name, 0) + 1
+        lines = [
+            "🎲 灵田盲种",
+            "━━━━━━━━━━━━━━━",
+            f"播下 {seed_count} 枚未知种子，花费 {total_cost:,} 灵石",
+        ]
+        if counts:
+            lines.append("发芽：" + "、".join(f"{k}×{v}" for k, v in counts.items()))
+        if empty_count:
+            lines.append(f"💨 有 {empty_count} 枚是空壳，什么也没长出来。")
+        if unlocked_now:
+            lines.append("🌟 你永久解锁了新的灵植：" + "、".join(unlocked_now))
+            lines.append("💡 之后可用 `/种植 <灵植名>` 直接种植。")
+        if not counts:
+            lines.append("💀 这一批全是空壳，颗粒无收。")
+        lines.extend([
+            "━━━━━━━━━━━━━━━",
+            f"💰 当前灵石：{player.gold:,}",
+            "💡 盲种不消耗灵田肥力，成熟后正常收获。",
+        ])
+        return True, "\n".join(lines)
+
     async def plant_herb(
         self,
         player: Player,
@@ -634,8 +807,13 @@ class SpiritFarmManager:
             auto_herb = True
 
         farm_level = int(farm.get("level", 1) or 1)
-        need_level = get_herb_unlock_level(herb_name)
-        if farm_level < need_level:
+        if not self.is_herb_available(player, herb_name, farm_level):
+            if SPIRIT_HERBS.get(herb_name, {}).get("unlock_only"):
+                return False, (
+                    f"🔒 【{herb_name}】是盲种专属灵植，尚未永久解锁。\n"
+                    "💡 使用 `/种植 盲种` 碰碰运气，运气好即可永久解锁。"
+                )
+            need_level = get_herb_unlock_level(herb_name)
             return False, (
                 f"🔒 【{herb_name}】需要灵田 Lv.{need_level} 才能种植（当前 Lv.{farm_level}）。\n"
                 "💡 使用 /升级灵田 提升灵田等级"
@@ -776,7 +954,7 @@ class SpiritFarmManager:
                 continue
             if herb_name not in SPIRIT_HERBS:
                 continue
-            if farm_level < get_herb_unlock_level(herb_name):
+            if not self.is_herb_available(player, herb_name, farm_level):
                 continue
             if requires_seed(herb_name):
                 if not self.storage_ring_manager:
@@ -953,6 +1131,7 @@ class SpiritFarmManager:
         harvest_details = []
         hybrid_details = []
         herb_counts = {}
+        bonus_counts = {}
         shield_penalized = False
 
         for job in completed_jobs:
@@ -974,6 +1153,11 @@ class SpiritFarmManager:
             harvest_details.append(herb_name)
             # 统一规则：每株成功种植的灵草收获 HERB_YIELD_PER_CROP 份
             herb_counts[herb_name] = herb_counts.get(herb_name, 0) + HERB_YIELD_PER_CROP
+            # 盲种解锁的特殊灵植，收获时可能额外伴生稀有道具
+            bonus_item = herb_config.get("bonus_item")
+            if bonus_item and random.random() < float(herb_config.get("bonus_chance") or 0):
+                bonus_qty = int(herb_config.get("bonus_qty") or 1)
+                bonus_counts[bonus_item] = bonus_counts.get(bonus_item, 0) + bonus_qty
         
         # 应用奖励（收益字段先在事务外计算好加成）
         if total_exp > 0 or total_gold > 0:
@@ -1034,7 +1218,7 @@ class SpiritFarmManager:
         stored_items = []
         store_failed = False
         if self.storage_ring_manager:
-            for herb_name, count in herb_counts.items():
+            for herb_name, count in list(herb_counts.items()) + list(bonus_counts.items()):
                 try:
                     success, _ = await self.storage_ring_manager.store_item(player, herb_name, count, silent=True)
                 except Exception as e:
@@ -1066,6 +1250,10 @@ class SpiritFarmManager:
             if season_mult != 1.0:
                 pct = int((season_mult - 1) * 100)
                 msg_lines.append(f"{season['icon']} 季节【{season['name']}】生效：修为/灵石收益{pct:+d}%")
+            if bonus_counts:
+                msg_lines.append("🌟 特殊灵植伴生：" + "、".join(
+                    f"{name}×{qty}" for name, qty in bonus_counts.items()
+                ))
             if shield_penalized:
                 shield_penalty_pct = 10 if getattr(player, "life_skill", "") == "阵法师" else 20
                 msg_lines.append(f"⚠️ 护府大阵生效期间，灵田收益降低{shield_penalty_pct}%")

@@ -608,7 +608,11 @@ class SectManager:
             return False, (
                 "❌ 宗门任务进行中，先完成或放弃当前这一轮。"
                 if why == "already_running"
-                else "❌ 分身都出去了，没人手去做宗门任务。"
+                else (
+                    "❌ 你正在古修藏宝图里爬塔，先撤退或走完再做宗门任务。"
+                    if why == "treasure_climbing"
+                    else "❌ 分身都出去了，没人手去做宗门任务。"
+                )
             )
         return True, "✨ 你开始执行宗门任务！任务需要1小时完成，请在完成后使用 /完成宗门任务 领取奖励。"
 

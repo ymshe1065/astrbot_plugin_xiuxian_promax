@@ -25,7 +25,7 @@ from .handlers import (
     DailyTaskHandlers, WorldBossHandlers, RaidHandlers, RobberyHandlers, ReincarnationHandlers,
     GambleHandlers, ForgeHandlers, DemonInvasionHandlers, PetHandlers,
     AuctionHandlers, AuctionHouseHandlers, SectShopHandler, AutoProxyHandlers, BattleEventHandlers,
-    InvestHandlers, WeeklyBossHandlers
+    InvestHandlers, WeeklyBossHandlers, HighStakesHandlers
 )
 from .managers import (
     CombatManager, SectManager, RiftManager,
@@ -36,7 +36,8 @@ from .managers import (
     TutorialManager, GambleManager, ForgeManager, GlobalEventManager,
     DemonInvasionManager, PetManager,
     AuctionManager, AuctionHouseManager, EscortManager, EncounterManager, LifeSkillManager, TalismanManager, CalamityManager,
-    AutoProxyManager, BattleEventManager, InvestManager, WeeklyBossManager
+    AutoProxyManager, BattleEventManager, InvestManager, WeeklyBossManager,
+    BlindAuctionManager, TreasureMapManager, MineVeinManager, BettingPoolManager
 )
 from .models_extended import UserStatus
 
@@ -152,6 +153,7 @@ CMD_INVEST_HINT_SUBSCRIBE = "仙市订阅"
 CMD_BOUNTY_LIST = "悬赏令"
 CMD_BOUNTY_ACCEPT = "接取悬赏"
 CMD_BOUNTY_STATUS = "悬赏状态"
+CMD_BOUNTY_CHALLENGE = "挑战悬赏"
 CMD_BOUNTY_COMPLETE = "完成悬赏"
 CMD_BOUNTY_ABANDON = "放弃悬赏"
 CMD_IMPART_CHALLENGE = "传承挑战"
@@ -340,7 +342,13 @@ class XiuXianPlugin(Star):
         self.auction_house_mgr = AuctionHouseManager(
             self.db, self.storage_ring_mgr, self.config_manager, self.config
         )
-        self.auction_house_handlers = AuctionHouseHandlers(self.db, self.auction_house_mgr)
+        # v7.10.3 拍卖暗标（与主拍卖会独立，只给模糊描述盲出价）
+        self.blind_auction_mgr = BlindAuctionManager(
+            self.db, self.storage_ring_mgr, self.config_manager
+        )
+        self.auction_house_handlers = AuctionHouseHandlers(
+            self.db, self.auction_house_mgr, blind_manager=self.blind_auction_mgr
+        )
         self.auction_ai = AuctionAIBroadcaster(
             self.context,
             enabled=bool(auction_cfg.get("AI_ENABLED", True)),
@@ -348,6 +356,19 @@ class XiuXianPlugin(Star):
             timeout=auction_cfg.get("AI_TIMEOUT", 8),
             max_chars=auction_cfg.get("AI_MAX_CHARS", 300),
             provider_id=auction_cfg.get("AI_PROVIDER_ID", ""),
+        )
+
+        # v7.10.3 高风险玩法：藏宝图爬塔 / 矿脉勘探 / 斗法盘口
+        self.treasure_map_mgr = TreasureMapManager(
+            self.db, self.storage_ring_mgr, self.config_manager,
+            combat_mgr=self.combat_mgr, gamble_mgr=self.gamble_mgr,
+        )
+        self.mine_vein_mgr = MineVeinManager(
+            self.db, self.storage_ring_mgr, self.config_manager
+        )
+        self.betting_pool_mgr = BettingPoolManager(self.db)
+        self.high_stakes_handlers = HighStakesHandlers(
+            self.db, self.treasure_map_mgr, self.mine_vein_mgr, self.betting_pool_mgr
         )
 
         # v6.8 押镖劫道 & 奇遇
@@ -503,6 +524,8 @@ class XiuXianPlugin(Star):
         self.invest_task = asyncio.create_task(self._schedule_invest())
         # v6.51 周常 Boss（周本）周期维护
         self.weekly_boss_task = asyncio.create_task(self._schedule_weekly_boss())
+        # v7.10.3 高风险玩法：暗标/盘口结算、矿脉过期、藏宝图僵尸状态清理
+        self.high_stakes_task = asyncio.create_task(self._schedule_high_stakes())
         # v7.6 历练分段结算（每 5 分钟一段，到期自动发奖）
         self.adventure_finish_task = asyncio.create_task(self._schedule_adventure_finish())
         self.rift_tick_task = asyncio.create_task(self._schedule_rift_ticks())
@@ -523,6 +546,7 @@ class XiuXianPlugin(Star):
                      getattr(self, "auction_house_task", None),
                      getattr(self, "invest_task", None),
                      getattr(self, "weekly_boss_task", None),
+                     getattr(self, "high_stakes_task", None),
                      getattr(self, "adventure_finish_task", None),
                      getattr(self, "rift_tick_task", None),
                      getattr(self, "encounter_expire_task", None)):
@@ -1248,6 +1272,59 @@ class XiuXianPlugin(Star):
             except Exception as e:
                 logger.error(f"江湖事件任务异常: {e}", exc_info=True)
                 await asyncio.sleep(60)
+
+    async def _schedule_high_stakes(self):
+        """v7.10.3 高风险玩法后台维护：结算暗标/盘口，清理过期矿脉与僵尸爬塔。"""
+        while True:
+            try:
+                await self.db.ensure_connection()
+                now = int(time.time())
+                try:
+                    settled = await self.blind_auction_mgr.settle_due(now)
+                    if settled:
+                        logger.info(f"【修仙插件】暗标结算 {settled} 轮")
+                except Exception as e:
+                    logger.error(f"暗标结算异常: {e}")
+                try:
+                    settled = await self.betting_pool_mgr.settle_due(now)
+                    if settled:
+                        logger.info(f"【修仙插件】斗法盘口结算 {settled} 场")
+                except Exception as e:
+                    logger.error(f"盘口结算异常: {e}")
+                try:
+                    liquidated = await self.invest_mgr.liquidate_due()
+                    if liquidated:
+                        logger.info(f"【修仙插件】仙市杠杆强平 {liquidated} 笔")
+                except Exception as e:
+                    logger.error(f"仙市杠杆强平异常: {e}")
+                try:
+                    cursor = await self.db.conn.execute(
+                        "UPDATE mine_veins SET status = 'expired' "
+                        "WHERE status = 'active' AND expire_at + 3600 < ?",
+                        (now,),
+                    )
+                    if cursor.rowcount:
+                        logger.info(f"【修仙插件】清理过期矿脉 {cursor.rowcount} 条")
+                    await self.db.conn.commit()
+                except Exception as e:
+                    logger.error(f"矿脉过期清理异常: {e}")
+                try:
+                    cursor = await self.db.conn.execute(
+                        "UPDATE treasure_map_runs SET status = 'ended', updated_at = ? "
+                        "WHERE status = 'active' AND updated_at + 86400 < ?",
+                        (now, now),
+                    )
+                    if cursor.rowcount:
+                        logger.info(f"【修仙插件】清理异常藏宝图状态 {cursor.rowcount} 条")
+                    await self.db.conn.commit()
+                except Exception as e:
+                    logger.error(f"藏宝图状态清理异常: {e}")
+                await asyncio.sleep(60)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"高风险玩法维护任务异常: {e}")
+                await asyncio.sleep(120)
 
     async def _schedule_auction_house(self):
         """v6.35 拍卖会：推进状态机并发送 AI/模板播报。"""
@@ -2250,6 +2327,11 @@ class XiuXianPlugin(Star):
     async def handle_recipe_book(self, event: AstrMessageEvent):
         async for r in self.alchemy_handlers.handle_recipes(event): yield r
 
+    @filter.command("古方", "参悟古方残卷（高风险炼丹赌注）")
+    @require_whitelist
+    async def handle_ancient_recipe(self, event: AstrMessageEvent, args: GreedyStr):
+        async for r in self.alchemy_handlers.handle_ancient(event, args): yield r
+
     @filter.command(CMD_LEARN_RECIPE, "学习丹方")
     @require_whitelist
     @idle_player_lock
@@ -2346,9 +2428,12 @@ class XiuXianPlugin(Star):
 
     # ===== v6.40 仙市投资系统 =====
 
-    @filter.command(CMD_INVEST_MARKET, "仙市行情总览")
+    @filter.command(CMD_INVEST_MARKET, "仙市行情总览（/仙市 杠杆 进入杠杆交易）")
     @require_whitelist
-    async def handle_invest_market(self, event: AstrMessageEvent):
+    async def handle_invest_market(self, event: AstrMessageEvent, args: str = ""):
+        if str(args or "").strip().startswith(("杠杆", "配资", "margin")):
+            async for r in self.invest_handlers.handle_margin(event, args): yield r
+            return
         async for r in self.invest_handlers.handle_market(event): yield r
 
     @filter.command(CMD_INVEST_QUOTE, "查看单个标的行情")
@@ -2410,6 +2495,11 @@ class XiuXianPlugin(Star):
     @require_whitelist
     async def handle_bounty_status(self, event: AstrMessageEvent):
         async for r in self.bounty_handlers.handle_bounty_status(event): yield r
+
+    @filter.command(CMD_BOUNTY_CHALLENGE, "挑战已接取的通缉目标")
+    @require_whitelist
+    async def handle_bounty_challenge(self, event: AstrMessageEvent):
+        async for r in self.bounty_handlers.handle_challenge_bounty(event): yield r
 
     @filter.command(CMD_BOUNTY_COMPLETE, "完成悬赏任务")
     @require_whitelist
@@ -2673,10 +2763,10 @@ class XiuXianPlugin(Star):
         async for r in self._run_battle_event_attack(event):
             yield r
 
-    @filter.command("挑战通缉犯", "讨伐当前江湖事件目标(别名)")
+    @filter.command("挑战通缉犯", "挑战已接取的通缉目标(别名)")
     @require_whitelist
     async def handle_battle_event_attack_alias2(self, event: AstrMessageEvent):
-        async for r in self._run_battle_event_attack(event):
+        async for r in self.bounty_handlers.handle_challenge_bounty(event):
             yield r
 
     @filter.command(CMD_BATTLE_EVENT_STATUS, "查看当前江湖事件")
@@ -2685,10 +2775,10 @@ class XiuXianPlugin(Star):
         async for r in self.battle_event_handlers.handle_status(event):
             yield r
 
-    @filter.command("通缉令", "查看当前江湖事件(别名)")
+    @filter.command("通缉令", "查看今日通缉榜(别名)")
     @require_whitelist
     async def handle_battle_event_status_alias(self, event: AstrMessageEvent):
-        async for r in self.battle_event_handlers.handle_status(event):
+        async for r in self.bounty_handlers.handle_bounty_list(event):
             yield r
 
     @filter.command(CMD_BATTLE_EVENT_SPAWN, "手动生成江湖事件(管理员)")
@@ -3154,6 +3244,22 @@ class XiuXianPlugin(Star):
             if tmsg:
                 yield event.plain_result(tmsg)
 
+    # ===== v7.10.3 高风险玩法 =====
+    @filter.command("藏宝图", "古修藏宝图爬塔：开始/继续/撤退")
+    @require_whitelist
+    async def handle_treasure_map(self, event: AstrMessageEvent, args: GreedyStr):
+        async for r in self.high_stakes_handlers.handle_treasure_map(event, args): yield r
+
+    @filter.command("矿脉", "矿脉勘探权：购买/开采/合伙")
+    @require_whitelist
+    async def handle_mine_vein(self, event: AstrMessageEvent, args: GreedyStr):
+        async for r in self.high_stakes_handlers.handle_mine(event, args): yield r
+
+    @filter.command("盘口", "斗法盘口与赌石即时下注")
+    @require_whitelist
+    async def handle_betting_pool(self, event: AstrMessageEvent, args: GreedyStr):
+        async for r in self.high_stakes_handlers.handle_betting(event, args): yield r
+
     # ===== v6.3 珠宝体系 =====
     @filter.command("珠宝", "查看珠囊、珠宝详情与装备孔位")
     @require_whitelist
@@ -3198,7 +3304,12 @@ class XiuXianPlugin(Star):
                 if tmsg:
                     yield event.plain_result(tmsg)
 
-    @filter.command("炼器", "妖兽材料定向洗练装备词条")
+    @filter.command("血炼", "以精血为代价为装备赌一次词条（高风险）")
+    @require_whitelist
+    async def handle_blood_forge(self, event: AstrMessageEvent, slot: str = ""):
+        async for r in self.forge_handlers.handle_blood_forge(event, slot): yield r
+
+    @filter.command("炼器", "妖兽材料定向洗练 / 血炼装备词条")
     @require_whitelist
     async def handle_forge(self, event: AstrMessageEvent, args: GreedyStr):
         async for r in self.forge_handlers.handle_forge(event, args): yield r
@@ -3365,15 +3476,15 @@ class XiuXianPlugin(Star):
         async for r in self.auction_handlers.handle_decline_offer(event, offer_id): yield r
 
     # ===== v6.35 拍卖会 =====
-    @filter.command("拍卖会", "查看拍卖会状态与拍品名单（每日22:00开拍）")
+    @filter.command("拍卖会", "查看拍卖会状态（/拍卖会 暗标 进入暗标场）")
     @require_whitelist
-    async def handle_auction_house_status(self, event: AstrMessageEvent):
-        async for r in self.auction_house_handlers.handle_status(event): yield r
+    async def handle_auction_house_status(self, event: AstrMessageEvent, args: GreedyStr):
+        async for r in self.auction_house_handlers.handle_status_or_blind(event, args): yield r
 
-    @filter.command("拍卖会信息", "查看拍卖会状态与拍品名单（每日22:00开拍）")
+    @filter.command("拍卖会信息", "查看拍卖会状态（/拍卖会 暗标 进入暗标场）")
     @require_whitelist
-    async def handle_auction_house_status_alias(self, event: AstrMessageEvent):
-        async for r in self.auction_house_handlers.handle_status(event): yield r
+    async def handle_auction_house_status_alias(self, event: AstrMessageEvent, args: GreedyStr):
+        async for r in self.auction_house_handlers.handle_status_or_blind(event, args): yield r
 
     @filter.command("拍卖会报名", "缴纳灵石报名拍卖会")
     @require_whitelist
@@ -3436,10 +3547,10 @@ class XiuXianPlugin(Star):
         yield event.plain_result(msg)
 
     # ===== v6.8 押镖与劫道 =====
-    @filter.command("押镖", "接一趟灵石镖（期间可被劫镖）")
+    @filter.command("押镖", "接一趟灵石镖（/押镖 黑线 走高收益血镖）")
     @require_whitelist
     @with_player_lock
-    async def handle_start_escort(self, event: AstrMessageEvent):
+    async def handle_start_escort(self, event: AstrMessageEvent, mode: str = ""):
         player = await self.db.get_player_by_id(event.get_sender_id())
         if not player:
             yield event.plain_result("❌ 道友尚未踏入仙途，请先发送「我要修仙」。")
@@ -3447,13 +3558,22 @@ class XiuXianPlugin(Star):
         if await self.db.ext.get_active_cd(player.user_id, UserStatus.DELIVERING) is not None:
             yield event.plain_result("❌ 你已经在押镖途中了，先走完这一趟。")
             return
-        success, msg, _ = await self.escort_mgr.start_escort(player)
+        route = "blood" if str(mode or "").strip().lower() in (
+            "黑线", "血镖", "血线", "blood", "black"
+        ) else "normal"
+        success, msg, info = await self.escort_mgr.start_escort(player, route)
         if success:
             player_name = player.user_name or str(player.user_id)[:8]
-            await self._broadcast_world_boss_spawn(
-                f"🛡️ 修士【{player_name}】接下了一趟灵石镖，正行走于官道之上...\n"
-                f"💡 可消耗【迷神香】发送 /劫镖 @此人 截取镖银（天道压制·每日每人最多被劫一次）！"
-            )
+            if route == "blood":
+                await self._broadcast_world_boss_spawn(
+                    f"🩸 修士【{player_name}】接下了一趟血镖黑线，正走在小道之上...\n"
+                    f"💡 黑线镖银丰厚，可消耗【迷神香】发送 /劫镖 @此人 截取镖银（分成更高）！"
+                )
+            else:
+                await self._broadcast_world_boss_spawn(
+                    f"🛡️ 修士【{player_name}】接下了一趟灵石镖，正行走于官道之上...\n"
+                    f"💡 可消耗【迷神香】发送 /劫镖 @此人 截取镖银（天道压制·每日每人最多被劫一次）！"
+                )
             await self.auto_proxy_mgr.note_activity_started(
                 player.user_id, str(getattr(event, "unified_msg_origin", "") or "")
             )

@@ -38,6 +38,11 @@ from .auction_manager import AuctionManager
 
 # v6.34 拍卖会
 from .auction_house_manager import AuctionHouseManager
+# v7.10.3 高风险玩法
+from .blind_auction_manager import BlindAuctionManager
+from .treasure_map_manager import TreasureMapManager
+from .mine_vein_manager import MineVeinManager
+from .betting_pool_manager import BettingPoolManager
 
 # v6.8 押镖劫道
 from .escort_manager import EscortManager
@@ -66,5 +71,6 @@ __all__ = [
     "DailyTaskManager", "WorldBossManager", "RaidManager", "RobberyManager", "TutorialManager", "ReincarnationManager",
     "GambleManager", "ForgeManager", "GlobalEventManager", "DemonInvasionManager", "PetManager",
     "AuctionManager", "AuctionHouseManager", "EscortManager", "EncounterManager", "LifeSkillManager", "TalismanManager", "CalamityManager", "LuckManager",
-    "AutoProxyManager", "BattleEventManager", "InvestManager", "WeeklyBossManager"
+    "AutoProxyManager", "BattleEventManager", "InvestManager", "WeeklyBossManager",
+    "BlindAuctionManager", "TreasureMapManager", "MineVeinManager", "BettingPoolManager"
 ]

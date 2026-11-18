@@ -148,7 +148,7 @@ FIELD_PLANS: Dict[str, List[dict[str, Any]]] = {
     "黑市购买": [_f("id", "选择黑市商品", "black_market")],
     "黑市": [
         _f("sub", "选择黑市功能", "black_market_subs"),
-        _f("index", "编号（商店购买/切原石/开窗时填写）", "", optional=True),
+        _f("index", "编号（商店购买/锦囊/原石/开窗时填写）", "black_market_index", optional=True),
     ],
     # ---- 珠宝 ----
     "珠宝": [_f("detail", "查看珠宝详情（可选）", "jewel_details", optional=True)],
@@ -257,6 +257,39 @@ FIELD_PLANS: Dict[str, List[dict[str, Any]]] = {
     "逐出师门": [_f("target", "选择要逐出的弟子", "disciples")],
     "佩戴称号": [_f("title", "选择称号", "owned_titles")],
     "仙灵结缘": [_f("name", "选择仙灵", "spirit_companions")],
+    # ---- 高风险玩法（v7.10.3）----
+    "藏宝图": [
+        _f("sub", "选择藏宝图操作", "treasure_subs"),
+        _f("arg", "地图档位（1-3，开始/进入时选）", "treasure_tiers", optional=True),
+    ],
+    "矿脉": [
+        _f("sub", "选择矿脉操作", "mine_subs"),
+        _f("arg1", "矿脉编号（可选）", "mine_arg1", optional=True),
+        _f("arg2", "道号 份额%（合伙时填，如 云无月 20）", "", optional=True),
+    ],
+    "盘口": [
+        _f("sub", "选择盘口操作", "betting_subs"),
+        _f("arg1", "盘口编号 / 原石档位（可选）", "betting_arg1", optional=True),
+        _f("arg2", "A / B / 出货 / 切垮（可选）", "betting_sides", optional=True),
+        _f("arg3", "下注金额（可选）", "", optional=True),
+    ],
+    "血炼": [_f("slot", "选择已装备部位", "wash_slots")],
+    "古方": [
+        _f("sub", "选择古方操作", "ancient_subs"),
+        _f("index", "残卷编号（参悟时选）", "ancient_scrolls", optional=True),
+    ],
+    "拍卖会": [
+        _f("sub", "选择拍卖会操作", "auction_subs"),
+        _f("lot", "暗标编号（暗标出价/鉴定时选）", "blind_lots", optional=True),
+        _f("amount", "暗标出价金额（可选）", "", optional=True),
+    ],
+    "押镖": [_f("mode", "选择押镖线路", "escort_modes", optional=True)],
+    "仙市": [
+        _f("sub", "选择仙市操作（留空看行情）", "invest_subs", optional=True),
+        _f("arg1", "股票代码 / 持仓编号（杠杆时选）", "margin_arg1", optional=True),
+        _f("arg2", "杠杆倍数（可选）", "margin_leverage", optional=True),
+        _f("arg3", "保证金（可选）", "", optional=True),
+    ],
 }
 
 
@@ -1063,10 +1096,43 @@ async def _src_black_market_subs(plugin: "XiuXianPlugin", player: Any, field: di
     return [
         _opt("商店", "商店", "查看本小时黑市货架", "黑市"),
         _opt("原石", "原石", "查看五档赌石与真假线索", "黑市"),
+        _opt("锦囊", "锦囊", "查看密封锦囊与真假线索", "黑市"),
+        _opt("验囊", "验囊", "付费验囊，每袋仅一次", "黑市"),
+        _opt("拆囊", "拆囊", "拆开指定锦囊（可能空囊或诅咒）", "黑市"),
         _opt("切原石", "切原石", "切开本小时指定档位原石", "黑市"),
         _opt("开窗", "开窗", "付费揭示一条真线索（每块仅一次）", "黑市"),
         _opt("购买", "购买", "购买黑市商店指定商品", "黑市"),
     ], ""
+
+
+async def _src_black_market_index(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    sub = str(values[0]).strip() if values else ""
+    options: List[dict[str, str]] = []
+    try:
+        if sub in ("验囊", "拆囊"):
+            for idx, item in enumerate(plugin.gamble_mgr._get_pouch_candidates(
+                getattr(player, "user_id", "") or ""
+            ), 1):
+                options.append(_opt(
+                    f"[{idx}] {item['name']}（{_nm(item['price'])} 灵石）", idx,
+                    f"风险 {item.get('risk', '')} · {item.get('desc', '')}", "密封锦囊",
+                ))
+        elif sub in ("切原石", "开窗"):
+            for idx, cfg in enumerate(getattr(plugin.gamble_mgr, "STONE_TIER_CONFIG", ()), 1):
+                options.append(_opt(
+                    f"[{idx}] {cfg.get('name', f'档位{idx}')}", idx,
+                    f"{_nm(cfg.get('price', 0))} 灵石", "原石档位",
+                ))
+        elif sub == "购买":
+            items, _next = plugin.gamble_mgr._get_black_market_items()
+            for idx, item in enumerate(items, 1):
+                options.append(_opt(
+                    f"[{idx}] {item.get('name')}", idx,
+                    f"{_nm(item.get('price', 0))} 灵石", "黑市商品",
+                ))
+    except Exception:
+        pass
+    return options, "" if options else "该黑市功能无需编号或暂无可选"
 
 
 def _jewel_manager(plugin: "XiuXianPlugin"):
@@ -1236,9 +1302,10 @@ async def _src_bounty_ids(plugin: "XiuXianPlugin", player: Any, field: dict, val
             reward = b.get("reward") or {}
             options.append(
                 _opt(
-                    f"[{b.get('id')}] {b.get('name')}（{b.get('difficulty_name', '')}）",
+                    f"[{b.get('id')}] {b.get('name')}（{b.get('realm_name', '')}·{b.get('danger', '')}）",
                     b.get("id"),
-                    f"目标 x{b.get('count')} · 灵石 {_nm(reward.get('stone', 0))} · 修为 {_nm(reward.get('exp', 0))}",
+                    f"气血 {_nm(b.get('max_hp', 0))} · 攻击 {_nm(b.get('atk', 0))} · "
+                    f"灵石 {_nm(reward.get('stone', 0))} · 修为 {_nm(reward.get('exp', 0))}",
                     "悬赏令",
                 )
             )
@@ -1414,20 +1481,32 @@ async def _src_farm_herbs(plugin: "XiuXianPlugin", player: Any, field: dict, val
         if not farm:
             return [], "你还没有灵田，请先 /开垦灵田"
         level = _int(farm.get("level", 1))
+        specials = set(plugin.spirit_farm_mgr.get_unlocked_specials(player))
         for name, cfg in SPIRIT_HERBS.items():
             need = get_herb_unlock_level(name)
-            if level < need:
+            if name in specials:
+                pass  # 盲种永久解锁的特殊灵植不受灵田等级限制
+            elif level < need:
+                continue
+            if cfg.get("unlock_only") and name not in specials:
                 continue
             if requires_seed(name):
                 have = plugin.storage_ring_mgr.get_item_count(player, name)
                 if have <= 0:
                     continue
                 desc = f"需杂交种苗（持有 {have}）"
+            elif cfg.get("unlock_only"):
+                desc = "盲种永久解锁 · 特殊灵植"
             else:
                 desc = "普通灵草"
             hours = max(1, _int(cfg.get("grow_time", 3600)) // 3600)
             desc += f" · {hours} 小时 · 修为 +{_nm(cfg.get('exp_yield', 0))}"
             options.append(_opt(name, name, desc, "可种植灵草"))
+        options.insert(
+            0,
+            _opt("盲种（随机未知种子）", "盲种",
+                 f"花费 {_nm(8000)} 灵石，可能种出高级灵植或永久解锁特殊灵植", "赌一把"),
+        )
     except Exception:
         pass
     if not options:
@@ -2379,6 +2458,238 @@ async def _src_furniture_names(plugin: "XiuXianPlugin", player: Any, field: dict
     return options, ""
 
 
+async def _src_treasure_subs(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    return [
+        _opt("查看当前状态", "状态", "查看是否在爬塔、层数与回血额度", "藏宝图"),
+        _opt("开始 / 进入藏宝图", "开始", "购买地图并进入第一层", "藏宝图"),
+        _opt("继续深入一层", "继续", "推进一层，伤害与陷阱逐层提高", "藏宝图"),
+        _opt("撤退结算", "撤退", "带走已获得战利品并结束本次爬塔", "藏宝图"),
+    ], ""
+
+
+async def _src_treasure_tiers(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    try:
+        from ..managers.treasure_map_manager import MAP_TIERS
+
+        return [
+            _opt(f"{cfg['name']}（{_nm(cfg['price'])} 灵石）", tier, cfg.get("desc", ""), "地图档位")
+            for tier, cfg in sorted(MAP_TIERS.items())
+        ], ""
+    except Exception:
+        return [], "地图档位暂时不可用"
+
+
+async def _src_mine_subs(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    return [
+        _opt("勘探市场", "市场", "查看本小时可购买的矿脉", "矿脉"),
+        _opt("我的矿脉", "我的", "查看自有矿脉、合伙人分成与待接受邀请", "矿脉"),
+        _opt("购买矿脉", "购买", "买下勘探权", "矿脉"),
+        _opt("开采结算", "开采", "结算整点产量并领取分成", "矿脉"),
+        _opt("招募合伙人", "合伙", "向其他玩家发出合伙邀请", "矿脉"),
+        _opt("接受邀请", "接受", "接受一条待处理的合伙邀请", "矿脉"),
+        _opt("拒绝邀请", "拒绝", "拒绝一条待处理的合伙邀请", "矿脉"),
+    ], ""
+
+
+async def _src_mine_arg1(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    if not player:
+        return [], "尚未创建角色"
+    sub = str(values[0]).strip() if values else ""
+    options: List[dict[str, str]] = []
+    try:
+        if sub == "购买":
+            for item in plugin.mine_vein_mgr._candidates(player.user_id):
+                options.append(_opt(
+                    f"[{item['index']}] {item['name']}",
+                    item["index"],
+                    f"{_nm(item['price'])} 灵石 · {item['hours']} 小时 · {item['hint']}",
+                    "待购矿脉",
+                ))
+        elif sub in ("开采", "合伙", "拒绝"):
+            rows = []
+            async with plugin.db.conn.execute(
+                "SELECT id, name, expire_at FROM mine_veins "
+                "WHERE owner_id = ? AND status = 'active' ORDER BY id DESC",
+                (player.user_id,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+            for row in rows:
+                options.append(_opt(f"矿脉 {row[0]}：{row[1]}", row[0], "自有矿脉", "我的矿脉"))
+        elif sub == "接受":
+            async with plugin.db.conn.execute(
+                "SELECT p.mine_id, v.name, p.share FROM mine_partners p "
+                "JOIN mine_veins v ON v.id = p.mine_id "
+                "WHERE p.user_id = ? AND p.status = 'pending' ORDER BY p.created_at DESC",
+                (player.user_id,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+            for row in rows:
+                options.append(_opt(f"矿脉 {row[0]}：{row[1]}（{row[2]}%）", row[0], "待接受邀请", "合伙邀请"))
+    except Exception:
+        pass
+    return options, "" if options else "暂无可选矿脉"
+
+
+async def _src_betting_subs(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    return [
+        _opt("查看盘口", "列表", "查看当前 3 场 NPC 斗法盘口与赔率", "盘口"),
+        _opt("押注斗法", "押注", "选择一场盘口押 A 或 B", "盘口"),
+        _opt("赌石盘口", "赌石", "直接押某档原石出货或切垮", "盘口"),
+    ], ""
+
+
+async def _src_betting_arg1(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    sub = str(values[0]).strip() if values else ""
+    options: List[dict[str, str]] = []
+    if sub == "赌石":
+        try:
+            from ..managers.betting_pool_manager import STONE_TIERS
+
+            for idx, cfg in enumerate(STONE_TIERS, 1):
+                options.append(_opt(
+                    f"{idx}. {cfg['name']}", idx,
+                    f"参考出货率 {float(cfg['p']) * 100:.1f}%", "原石档位",
+                ))
+        except Exception:
+            pass
+        return options, ""
+    try:
+        pools = await plugin.betting_pool_mgr.ensure_pools()
+        for idx, pool in enumerate(pools, 1):
+            options.append(_opt(
+                f"[{idx}] {pool['title']}", idx,
+                f"A {pool['side_a']} {pool['odds_a']}｜B {pool['side_b']} {pool['odds_b']}",
+                "斗法盘口",
+            ))
+    except Exception:
+        pass
+    return options, "" if options else "当前没有开放盘口"
+
+
+async def _src_betting_sides(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    sub = str(values[0]).strip() if values else ""
+    if sub == "赌石":
+        return [
+            _opt("押出货", "出货", "原石切出真货则为赢", "下注方向"),
+            _opt("押切垮", "切垮", "原石切垮则为赢", "下注方向"),
+        ], ""
+    options: List[dict[str, str]] = []
+    try:
+        idx = int(values[1])
+        pools = await plugin.betting_pool_mgr.ensure_pools()
+        if 1 <= idx <= len(pools):
+            pool = pools[idx - 1]
+            options = [
+                _opt(f"A. {pool['side_a']}（赔率 {pool['odds_a']}）", "A", pool.get("info_a", ""), "斗法盘口"),
+                _opt(f"B. {pool['side_b']}（赔率 {pool['odds_b']}）", "B", pool.get("info_b", ""), "斗法盘口"),
+            ]
+    except Exception:
+        pass
+    if not options:
+        options = [_opt("A 方", "A", "", "斗法盘口"), _opt("B 方", "B", "", "斗法盘口")]
+    return options, ""
+
+
+async def _src_ancient_subs(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    return [
+        _opt("查看残卷", "查看", "查看本 6 小时刷新的古方残卷", "古方"),
+        _opt("参悟残卷", "参悟", "付灵石强行参悟，可能悟得真方或反噬", "古方"),
+    ], ""
+
+
+async def _src_ancient_scrolls(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    if not player:
+        return [], "尚未创建角色"
+    options: List[dict[str, str]] = []
+    try:
+        for item in plugin.alchemy_mgr._ancient_candidates(player.user_id):
+            options.append(_opt(
+                f"[{item['index']}] {item['name']}（{_nm(item['cost'])} 灵石）",
+                item["index"], item.get("hint", ""), "古方残卷",
+            ))
+    except Exception:
+        pass
+    return options, "" if options else "当前没有可参悟的残卷"
+
+
+async def _src_auction_subs(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    return [
+        _opt("查看拍卖会", "状态", "查看拍卖会当前状态", "拍卖会"),
+        _opt("暗标场", "暗标", "查看本轮三件盲拍品与模糊描述", "暗标"),
+        _opt("暗标出价", "暗标出价", "对指定暗标盲出价，出价即冻结", "暗标"),
+        _opt("暗标鉴定", "暗标鉴定", "付费鉴定品阶区间，可能被做局", "暗标"),
+    ], ""
+
+
+async def _src_blind_lots(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    options: List[dict[str, str]] = []
+    try:
+        rnd = await plugin.blind_auction_mgr._ensure_round()
+        for idx, lot in enumerate(rnd["lots"], 1):
+            options.append(_opt(
+                f"[{idx}] {lot['hint']}", lot["lot_no"],
+                f"起拍 {_nm(lot['min_bid'])} 灵石", "暗标",
+            ))
+    except Exception:
+        pass
+    return options, "" if options else "本轮暗标暂不可用"
+
+
+async def _src_escort_modes(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    return [
+        _opt("普通镖", "普通", "常规押镖：风险低、收益稳定", "押镖线路"),
+        _opt("黑线血镖", "黑线", "高风险高收益：45 分钟，镖银 ×2.8，可能黑吃黑", "押镖线路"),
+    ], ""
+
+
+async def _src_invest_subs(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    return [
+        _opt("行情总览", "行情", "查看仙市股票与基金行情", "仙市"),
+        _opt("杠杆状态", "杠杆", "查看未平仓杠杆持仓与强平线", "杠杆"),
+        _opt("杠杆开仓", "杠杆", "选择股票、倍数与保证金做多", "杠杆"),
+        _opt("杠杆平仓", "杠杆 平仓", "平掉指定杠杆持仓", "杠杆"),
+    ], ""
+
+
+async def _src_margin_arg1(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    if not player:
+        return [], "尚未创建角色"
+    sub = str(values[0]).strip() if values else ""
+    options: List[dict[str, str]] = []
+    if "平仓" in sub:
+        try:
+            async with plugin.db.conn.execute(
+                "SELECT id, code, leverage, margin FROM invest_margin_positions "
+                "WHERE user_id = ? AND status = 'open' ORDER BY id DESC",
+                (player.user_id,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+            for row in rows:
+                options.append(_opt(
+                    f"[{row[0]}] {row[1]} {row[2]} 倍", row[0],
+                    f"保证金 {_nm(row[3])} 灵石", "我的持仓",
+                ))
+        except Exception:
+            pass
+        return options, "" if options else "当前没有未平仓杠杆持仓"
+    try:
+        from ..managers.invest_manager import STOCK_DEFS
+
+        for d in STOCK_DEFS:
+            options.append(_opt(f"{d[0]} {d[1]}", d[0], f"{d[2]} · 基准 {d[3]} 灵石", "股票"))
+    except Exception:
+        pass
+    return options, ""
+
+
+async def _src_margin_leverage(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    return [
+        _opt("2 倍（稳健）", "2", "保证金 20% 强平", "杠杆倍数"),
+        _opt("3 倍（均衡）", "3", "保证金 20% 强平", "杠杆倍数"),
+        _opt("5 倍（激进）", "5", "保证金 20% 强平，波动极大", "杠杆倍数"),
+    ], ""
+
+
 SOURCES: Dict[str, Callable[..., Any]] = {
     "equip_items": _src_equip_items,
     "equipped_slots": _src_equipped_slots,
@@ -2390,6 +2701,7 @@ SOURCES: Dict[str, Callable[..., Any]] = {
     "recycle_items": _src_recycle_items,
     "market_standard_price": _src_market_standard_price,
     "black_market_subs": _src_black_market_subs,
+    "black_market_index": _src_black_market_index,
     "jewel_inventory": _src_jewel_inventory,
     "jewel_details": _src_jewel_details,
     "socket_targets": _src_socket_targets,
@@ -2464,6 +2776,22 @@ SOURCES: Dict[str, Callable[..., Any]] = {
     "pet_types": _src_pet_types,
     "my_pets": _src_my_pets,
     "furniture_names": _src_furniture_names,
+    # v7.10.3 高风险玩法
+    "treasure_subs": _src_treasure_subs,
+    "treasure_tiers": _src_treasure_tiers,
+    "mine_subs": _src_mine_subs,
+    "mine_arg1": _src_mine_arg1,
+    "betting_subs": _src_betting_subs,
+    "betting_arg1": _src_betting_arg1,
+    "betting_sides": _src_betting_sides,
+    "ancient_subs": _src_ancient_subs,
+    "ancient_scrolls": _src_ancient_scrolls,
+    "auction_subs": _src_auction_subs,
+    "blind_lots": _src_blind_lots,
+    "escort_modes": _src_escort_modes,
+    "invest_subs": _src_invest_subs,
+    "margin_arg1": _src_margin_arg1,
+    "margin_leverage": _src_margin_leverage,
 }
 
 

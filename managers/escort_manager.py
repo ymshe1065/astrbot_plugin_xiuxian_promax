@@ -53,6 +53,30 @@ class EscortManager:
     ROB_COMP_RATE = 0.2             # 失败赔偿至少为镖银的 20%
     ROB_DEFENDER_HP_BONUS = 0.1     # 护镖方气血加成
 
+    # v7.10.3 血镖黑线：走的是见不得光的私镖，酬劳翻倍但劫掠更狠、还有黑吃黑
+    ESCORT_MODES = {
+        "normal": {
+            "name": "灵石镖",
+            "duration": 1800,
+            "gold_mult": 1.0,
+            "exp_mult": 1.0,
+            "rob_cut_bonus": 0.0,
+            "ambush_chance": 0.0,
+            "ambush_loss": 0.0,
+            "karma": 0,
+        },
+        "blood": {
+            "name": "血镖黑线",
+            "duration": 2700,
+            "gold_mult": 2.8,
+            "exp_mult": 1.35,
+            "rob_cut_bonus": 0.12,
+            "ambush_chance": 0.28,
+            "ambush_loss": 0.25,
+            "karma": -1,
+        },
+    }
+
     def __init__(self, db: DataBase, combat_mgr: CombatManager, storage_ring_mgr, config_manager=None):
         self.db = db
         self.combat_mgr = combat_mgr
@@ -167,9 +191,17 @@ class EscortManager:
             pass
         return gold, exp
 
-    async def start_escort(self, player: Player) -> Tuple[bool, str, Dict]:
-        """接镖：进入押镖状态，期间奖励随时间增长，但可被劫"""
+    async def start_escort(self, player: Player, mode: str = "normal") -> Tuple[bool, str, Dict]:
+        """接镖：进入押镖状态，期间奖励随时间增长，但可被劫。
+
+        ``mode="blood"`` 为血镖黑线：时长更长、酬劳约 2.8 倍，
+        但劫镖分成更高，且送达时有概率被「黑吃黑」吞掉部分镖银。
+        """
         user_id = player.user_id
+        mode = str(mode or "normal").strip().lower()
+        mode_cfg = self.ESCORT_MODES.get(mode)
+        if not mode_cfg:
+            return False, "❌ 未知的押镖路线。可用：/押镖 或 /押镖 黑线", {}
 
         if player.level_index < self.MIN_LEVEL:
             return False, f"❌ 押镖需要达到境界等级 {self.MIN_LEVEL}（练气后期）。", {}
@@ -192,39 +224,62 @@ class EscortManager:
         escort_exp = self.calculate_escort_exp(player.level_index)
         # 统一口径：开镖即结算全部加成，提示值与最终到手一致（被劫扣减除外）
         escort_gold, escort_exp = await self._apply_escort_bonuses(player, escort_gold, escort_exp)
+        escort_gold = int(escort_gold * float(mode_cfg["gold_mult"]))
+        escort_exp = int(escort_exp * float(mode_cfg["exp_mult"]))
 
+        duration = int(mode_cfg["duration"])
         now = int(time.time())
         extra = {
             "escort_gold": escort_gold,
             "escort_exp": escort_exp,
             "bonus_applied": 1,
+            "escort_mode": mode,
         }
         from ..core.avatar_rules import total_slots
 
         started, _slot, why = await self.db.ext.start_activity(
-            user_id, UserStatus.DELIVERING, now + self.ESCORT_DURATION,
+            user_id, UserStatus.DELIVERING, now + duration,
             extra_data=extra, max_slots=total_slots(player),
         )
         if not started:
             return False, (
                 "❌ 你已经在押镖途中了，先走完这一趟。"
                 if why == "already_running"
-                else "❌ 分身都出去了，没人手再押一趟镖。"
+                else (
+                    "❌ 你正在古修藏宝图里爬塔，先撤退或走完再押镖。"
+                    if why == "treasure_climbing"
+                    else "❌ 分身都出去了，没人手再押一趟镖。"
+                )
             ), {}
 
-        msg = (
-            f"🛡️ 你接下了一趟灵石镖！\n"
-            f"━━━━━━━━━━━━━━━\n"
-            f"镖银：{escort_gold:,} 灵石\n"
-            f"酬劳：{escort_exp:,} 修为\n"
-            f"押送时长：{self.ESCORT_DURATION // 60} 分钟\n"
-            f"━━━━━━━━━━━━━━━\n"
-            f"⚠️ 押镖期间全服玩家可消耗【迷神香】劫镖！\n"
-            f"被劫失败将损失部分镖银\n"
-            f"💡 押镖以灵石为主，修为请以 /闭关 为主\n"
-            f"💡 时间到后发送 /完成押镖 结算"
-        )
-        return True, msg, {"gold": escort_gold, "exp": escort_exp}
+        if mode == "blood":
+            msg = (
+                "🩸 你接下一趟血镖黑线！\n"
+                "━━━━━━━━━━━━━━━\n"
+                f"黑镖酬劳：{escort_gold:,} 灵石\n"
+                f"附带酬劳：{escort_exp:,} 修为\n"
+                f"押送时长：{duration // 60} 分钟\n"
+                "━━━━━━━━━━━━━━━\n"
+                "⚠️ 黑线见不得光：劫镖分成更高，镖车更容易被盯上\n"
+                f"⚠️ 送达时有 {int(mode_cfg['ambush_chance'] * 100)}% 概率遭遇黑吃黑，"
+                f"损失 {int(mode_cfg['ambush_loss'] * 100)}% 镖银\n"
+                "⚠️ 血镖不积功德，反而业力 +1\n"
+                "💡 时间到后发送 /完成押镖 结算"
+            )
+        else:
+            msg = (
+                f"🛡️ 你接下了一趟灵石镖！\n"
+                f"━━━━━━━━━━━━━━━\n"
+                f"镖银：{escort_gold:,} 灵石\n"
+                f"酬劳：{escort_exp:,} 修为\n"
+                f"押送时长：{duration // 60} 分钟\n"
+                f"━━━━━━━━━━━━━━━\n"
+                f"⚠️ 押镖期间全服玩家可消耗【迷神香】劫镖！\n"
+                f"被劫失败将损失部分镖银\n"
+                f"💡 押镖以灵石为主，修为请以 /闭关 为主\n"
+                f"💡 时间到后发送 /完成押镖 结算"
+            )
+        return True, msg, {"gold": escort_gold, "exp": escort_exp, "mode": mode}
 
     async def finish_escort(self, player: Player) -> Tuple[bool, str]:
         """完成押镖：到达时长领全款"""
@@ -241,13 +296,29 @@ class EscortManager:
         extra = user_cd.get_extra_data() if hasattr(user_cd, "get_extra_data") else {}
         escort_gold = int(extra.get("escort_gold", 2000))
         escort_exp = int(extra.get("escort_exp", 1000))
+        mode = str(extra.get("escort_mode") or "normal")
+        mode_cfg = self.ESCORT_MODES.get(mode, self.ESCORT_MODES["normal"])
 
         # 开镖时已结算全部加成；旧存档（无 bonus_applied 标记）在结算时补算一次
         if not extra.get("bonus_applied"):
             escort_gold, escort_exp = await self._apply_escort_bonuses(player, escort_gold, escort_exp)
+            escort_gold = int(escort_gold * float(mode_cfg["gold_mult"]))
+            escort_exp = int(escort_exp * float(mode_cfg["exp_mult"]))
+
+        ambush_loss = 0
+        ambush_note = ""
+        if mode == "blood" and random.random() < float(mode_cfg["ambush_chance"]):
+            ambush_loss = max(1, int(escort_gold * float(mode_cfg["ambush_loss"])))
+            escort_gold = max(0, escort_gold - ambush_loss)
+            ambush_note = (
+                f"🩸 黑吃黑！半路杀出一队蒙面修士，硬生生截走 {ambush_loss:,} 灵石。\n"
+            )
 
         player.gold += escort_gold
         player.experience += escort_exp
+        karma_delta = int(mode_cfg.get("karma") or 0)
+        if karma_delta:
+            player.karma = (getattr(player, "karma", 0) or 0) + karma_delta
         # 只回写结算字段，避免旧快照覆盖并发更新后的气血/灵气
         await self.db.update_player_fields(
             user_id,
@@ -257,6 +328,15 @@ class EscortManager:
         )
         await self.db.ext.set_user_free(user_id, cd_type=UserStatus.DELIVERING)
 
+        if mode == "blood":
+            return True, (
+                f"🩸 血镖送达！\n"
+                f"━━━━━━━━━━━━━━━\n"
+                f"{ambush_note}"
+                f"黑镖实收：+{escort_gold:,} 灵石\n"
+                f"获得酬劳：+{escort_exp:,} 修为\n"
+                f"☠️ 业力 {'+' if karma_delta > 0 else ''}{karma_delta}"
+            )
         return True, (
             f"🎉 押镖成功！\n"
             f"━━━━━━━━━━━━━━━\n"
@@ -399,6 +479,9 @@ class EscortManager:
         # 这里不能把平衡面板的残余值写回玩家真实状态；灵兽同理不回写。
         extra = target_cd.get_extra_data() if hasattr(target_cd, "get_extra_data") else {}
         escort_gold = int(extra.get("escort_gold", 2000))
+        escort_mode = str(extra.get("escort_mode") or "normal")
+        mode_cfg = self.ESCORT_MODES.get(escort_mode, self.ESCORT_MODES["normal"])
+        blood_note = "\n🩸 这是一趟血镖黑线，镖银丰厚，劫掠分成额外提高。" if escort_mode == "blood" else ""
 
         log = "\n".join(result["combat_log"][-8:])  # 只展示最后8行战报，防刷屏
 
@@ -413,6 +496,7 @@ class EscortManager:
                 self.ROB_CUT_MAX,
                 self.ROB_WIN_CUT + self.ROB_CUT_STEP * (-level_diff),
             )
+        cut = min(0.7, cut + float(mode_cfg.get("rob_cut_bonus") or 0))
         cut_pct = int(round(cut * 100))
 
         if result["winner"] == attacker.user_id:
@@ -474,9 +558,10 @@ class EscortManager:
                 f"⚔️ 劫镖成功！\n"
                 f"━━━━━━━━━━━━━━━\n"
                 f"你从【{target.user_name or target_id[:8]}】的镖车上抢走 {robbed:,} 灵石！\n"
-                f"📜 本次分成：{cut_pct}%（境界差 {level_diff:+d}）\n"
+                f"📜 本次分成：{cut_pct}%（境界差 {level_diff:+d}）"
                 f"🌑 劫镖为恶行，业力 +1；劫镖调息 10 分钟\n"
                 f"🛡️ 该镖主今日已被劫，今日内不会再被其他人劫镖"
+                f"{blood_note}"
             )
         else:
             # 劫镖失败：赔偿押镖人，境界差越大惩罚越重

@@ -178,6 +178,9 @@ class Player:
     talisman_exp: int = 0  # 制符熟练点（累计，无每日上限）
     talisman_recipes: str = "[]"  # 已习得的符图（JSON数组，存符名）
 
+    # v7.10.3 灵田盲种：永久解锁的稀有灵植（JSON数组，存灵植名）
+    farm_unlocks: str = "[]"
+
     def shield_output_multiplier(self, period_start: int, period_end: int) -> float:
         """护府大阵生效期间产出系数（按时间重叠比例计算）"""
         if self.shield_expire_time <= 0 or self.shield_start_time <= 0:

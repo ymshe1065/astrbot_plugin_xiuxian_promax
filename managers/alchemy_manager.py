@@ -1400,3 +1400,238 @@ class AlchemyManager:
             "tribulation_count": tribulation_count,
             "failure_count": normal_fail,
         }
+
+    # ===== 古方残卷（v7.10.3）=====
+    # 每 6 小时刷新 3 张来历不明的古方残卷：参悟需要付灵石，可能悟得真方，
+    # 也可能只得到废纸甚至被丹毒反噬。悟得的丹方会永久并入 learned_recipes。
+    ANCIENT_PERIOD_SECONDS = 6 * 3600
+    ANCIENT_HP_BACKLASH = 0.15
+    ANCIENT_OUTCOMES = (
+        ("true", 8, "古方真传"),
+        ("partial", 24, "残篇有灵"),
+        ("waste", 28, "废纸一张"),
+        ("backlash", 25, "丹毒反噬"),
+        ("poison", 15, "走火入魔"),
+    )
+
+    @classmethod
+    def _ancient_period(cls) -> int:
+        return int(time.time()) // cls.ANCIENT_PERIOD_SECONDS
+
+    def _ancient_pool(self) -> List[Dict]:
+        pool = []
+        for recipe in self.recipes.values():
+            level = int(recipe.get("level_required") or 0)
+            price = int(recipe.get("price") or 0)
+            if 8 <= level <= 30 and price >= 1000:
+                pool.append(recipe)
+        return sorted(pool, key=lambda r: int(r.get("id") or 0))
+
+    def _ancient_candidates(self, user_id: str) -> List[Dict]:
+        pool = self._ancient_pool()
+        if not pool:
+            return []
+        period = self._ancient_period()
+        rng = random.Random(f"ancient:{period}:{user_id}")
+        picked = rng.sample(pool, min(3, len(pool)))
+        result = []
+        for index, recipe in enumerate(picked, 1):
+            price = int(recipe.get("price") or 0)
+            cost = max(4000, min(80000, int(price * rng.uniform(0.45, 0.65))))
+            result.append({
+                "index": index,
+                "recipe": recipe,
+                "recipe_id": int(recipe.get("id")),
+                "name": str(recipe.get("name") or ""),
+                "output": str(recipe.get("output_pill") or ""),
+                "cost": cost,
+                "period": period,
+                "hint": self._ancient_hint(recipe, rng),
+            })
+        return result
+
+    @staticmethod
+    def _ancient_hint(recipe: Dict, rng) -> str:
+        desc = str(recipe.get("desc") or "").strip()
+        if not desc or desc == AlchemyManager.DESC_MISSING:
+            desc = f"似乎记载着【{recipe.get('output_pill') or recipe.get('name')}】的炼制法门"
+        styles = (
+            "残卷边缘焦黑，字迹在灵光下若隐若现。",
+            "以血为墨写就，读久了会头晕目眩。",
+            "竹简已经朽坏，只剩中间一段尚能辨认。",
+            "被多重禁制封着，隐约能嗅到药香。",
+        )
+        return f"{rng.choice(styles)}{desc}"
+
+    async def get_ancient_recipes(self, user_id: str) -> Tuple[bool, str]:
+        candidates = self._ancient_candidates(user_id)
+        if not candidates:
+            return False, "❌ 当前没有可参悟的古方残卷。"
+        learned = set()
+        try:
+            async with self.db.conn.execute(
+                "SELECT recipe_key FROM ancient_recipe_unlocks WHERE user_id = ?", (user_id,)
+            ) as cursor:
+                rows = await cursor.fetchall()
+            learned = {int(row[0]) for row in rows if str(row[0]).isdigit()}
+        except Exception:
+            learned = set()
+        now = int(time.time())
+        remaining = self.ANCIENT_PERIOD_SECONDS - (now % self.ANCIENT_PERIOD_SECONDS)
+        lines = [
+            "📜 古方残卷（每 6 小时刷新）",
+            "━━━━━━━━━━━━━━━",
+        ]
+        for item in candidates:
+            state = " ✅已参悟" if item["recipe_id"] in learned else ""
+            lines.append(
+                f"[{item['index']}] 无名残卷 - {item['cost']:,} 灵石{state}"
+            )
+            lines.append(f"    {item['hint']}")
+        lines.extend([
+            "━━━━━━━━━━━━━━━",
+            f"⏳ 下次刷新：{remaining // 60} 分 {remaining % 60} 秒后",
+            "💡 `/古方 参悟 <编号>` 付灵石强行参悟",
+            "⚠️ 可能悟得真方，也可能只是废纸，甚至被丹毒反噬。",
+            "⚠️ 已参悟的残卷不会重复收费，悟得丹方永久并入已学丹方。",
+        ])
+        return True, "\n".join(lines)
+
+    async def study_ancient(self, player: Player, index: int) -> Tuple[bool, str]:
+        candidates = self._ancient_candidates(player.user_id)
+        if index < 1 or index > len(candidates):
+            return False, "❌ 无效的残卷编号，请使用 `/古方` 查看。"
+        item = candidates[index - 1]
+        recipe = item["recipe"]
+        recipe_id = item["recipe_id"]
+        learned = set(await self.ensure_learned_recipes(player))
+        unlocked = False
+        try:
+            async with self.db.conn.execute(
+                "SELECT 1 FROM ancient_recipe_unlocks WHERE user_id = ? AND recipe_key = ?",
+                (player.user_id, str(recipe_id)),
+            ) as cursor:
+                unlocked = await cursor.fetchone() is not None
+        except Exception:
+            unlocked = False
+        if recipe_id in learned and unlocked:
+            return False, f"❌ 你已经参悟过【{recipe.get('name')}】了，等待下次刷新。"
+
+        cost = int(item["cost"])
+        if player.gold < cost:
+            return False, f"❌ 参悟这张残卷需要 {cost:,} 灵石，你当前只有 {player.gold:,}。"
+
+        await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            cursor = await self.db.conn.execute(
+                "UPDATE players SET gold = gold - ? WHERE user_id = ? AND gold >= ?",
+                (cost, player.user_id, cost),
+            )
+            if not cursor.rowcount:
+                await self.db.conn.rollback()
+                return False, "❌ 灵石不足，参悟失败。"
+            await self.db.conn.commit()
+            player.gold -= cost
+        except Exception:
+            await self.db.conn.rollback()
+            raise
+
+        rng = random.Random(f"ancient-study:{player.user_id}:{item['period']}:{index}")
+        total = sum(weight for _, weight, _ in self.ANCIENT_OUTCOMES)
+        roll = rng.uniform(0, total)
+        acc = 0
+        outcome, label = "waste", "废纸一张"
+        for key, weight, text in self.ANCIENT_OUTCOMES:
+            acc += weight
+            if roll <= acc:
+                outcome, label = key, text
+                break
+
+        notes = []
+        pills_gained = 0
+        hp_loss_pct = 0.0
+        if outcome in ("true", "partial"):
+            learned.add(recipe_id)
+            player.learned_recipes = json.dumps(sorted(learned), ensure_ascii=False)
+            try:
+                await self.db.conn.execute(
+                    "INSERT OR REPLACE INTO ancient_recipe_unlocks "
+                    "(user_id, recipe_key, learned_at) VALUES (?, ?, ?)",
+                    (player.user_id, str(recipe_id), int(time.time())),
+                )
+            except Exception as exc:
+                from astrbot.api import logger
+                logger.warning(f"【古方】写入解锁记录失败: {exc}")
+            notes.append(f"📜 你悟得了【{recipe.get('name')}】，丹方已永久并入已学列表。")
+            if outcome == "true":
+                pills_gained = 2
+        elif outcome == "backlash":
+            hp_loss_pct = self.ANCIENT_HP_BACKLASH
+            notes.append("💥 丹毒沿经脉逆冲，你强行压了下去。")
+        else:
+            if outcome == "poison":
+                hp_loss_pct = self.ANCIENT_HP_BACKLASH * 2
+                notes.append("☠️ 残卷中封着一缕丹毒，你当场走火入魔。")
+            else:
+                hp_loss_pct = 0.0
+                notes.append("💨 灵光一闪而逝，残卷化作飞灰，什么也没留下。")
+
+        if hp_loss_pct:
+            try:
+                from .combat_manager import CombatManager
+                stats = CombatManager.build_player_combat_stats(
+                    player, self.config_manager, db=self.db
+                )
+                max_hp = max(1, int(stats.max_hp))
+            except Exception:
+                max_hp = max(1, int(player.max_blood_qi or 100))
+            loss = max(1, int(max_hp * hp_loss_pct))
+            player.hp = max(1, int(player.hp or max_hp) - loss)
+            notes.append(f"🩸 气血 -{loss:,}")
+
+        if pills_gained:
+            try:
+                from ..core.pill_manager import PillManager
+                pm = PillManager(self.db, self.config_manager)
+                await pm.add_pill_to_inventory(
+                    player, str(recipe.get("output_pill") or ""), pills_gained,
+                    quality="极佳",
+                )
+                notes.append(f"🎁 真传附带成品：【{recipe.get('output_pill')}·极佳】x{pills_gained}")
+            except Exception as exc:
+                from astrbot.api import logger
+                logger.warning(f"【古方】发放成品丹药失败: {exc}")
+
+        await self.db.update_player(player)
+        lines = [
+            f"📜 古方参悟 · {label}",
+            "━━━━━━━━━━━━━━━",
+            f"消耗：{cost:,} 灵石",
+        ]
+        lines.extend(notes)
+        lines.extend([
+            "━━━━━━━━━━━━━━━",
+            f"💰 当前灵石：{player.gold:,}",
+            "💡 已悟丹方可直接 /炼丹 <ID> 炼制。",
+        ])
+        return True, "\n".join(lines)
+
+    def build_ancient_entries(self, user_id: str) -> list:
+        entries = []
+        for item in self._ancient_candidates(user_id):
+            entries.append({
+                "id": item["index"],
+                "name": "无名古方残卷",
+                "rank": "古方",
+                "kind": "残卷",
+                "price": item["cost"],
+                "currency": "灵石",
+                "effect": item["hint"],
+                "effectLabel": "残卷描述",
+                "state": "ok",
+                "cmd": f"/古方 参悟 {item['index']}",
+                "source": "ancient_recipe",
+                "action": "参悟",
+                "notes": ["可能悟得真方，也可能反噬", "悟得丹方永久保留"],
+            })
+        return entries

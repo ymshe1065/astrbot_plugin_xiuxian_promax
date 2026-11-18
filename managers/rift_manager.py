@@ -829,7 +829,11 @@ class RiftManager:
             return False, (
                 "❌ 你已经在探索秘境了，先出来再进下一处。"
                 if why == "already_running"
-                else "❌ 分身都出去了，没人手再探一处秘境。"
+                else (
+                    "❌ 你正在古修藏宝图里爬塔，先撤退或走完再探秘境。"
+                    if why == "treasure_climbing"
+                    else "❌ 分身都出去了，没人手再探一处秘境。"
+                )
             )
         
         return True, (

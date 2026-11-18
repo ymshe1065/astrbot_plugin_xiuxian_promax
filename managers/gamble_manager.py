@@ -46,7 +46,7 @@ class GambleManager:
             "desc": "石皮粗劣、灵气稀薄，只适合手痒时赌一刀。",
             "risk": "低·试水",
             "jewel_chance": 0.05, "gear_chance": 0.010,
-            "egg_chance": 0.0002, "empty_chance": 0.20,
+            "egg_chance": 0.0002, "empty_chance": 0.08,
             "display_clues": 3, "true_clues": 1,
             "bonus_jewel_chance": 0.0,
             "saint_gear_share": 0.0,
@@ -58,7 +58,7 @@ class GambleManager:
             "desc": "市集常见货色，石皮真真假假，全凭眼力。",
             "risk": "中",
             "jewel_chance": 0.12, "gear_chance": 0.025,
-            "egg_chance": 0.0005, "empty_chance": 0.16,
+            "egg_chance": 0.0005, "empty_chance": 0.12,
             "display_clues": 4, "true_clues": 1,
             "bonus_jewel_chance": 0.0,
             "saint_gear_share": 0.02,
@@ -70,7 +70,7 @@ class GambleManager:
             "desc": "石皮有天然灵纹流转，但商贩最会在纹路上做手脚。",
             "risk": "高",
             "jewel_chance": 0.26, "gear_chance": 0.045,
-            "egg_chance": 0.001, "empty_chance": 0.12,
+            "egg_chance": 0.001, "empty_chance": 0.16,
             "display_clues": 5, "true_clues": 2,
             "bonus_jewel_chance": 0.02,
             "saint_gear_share": 0.06,
@@ -82,7 +82,7 @@ class GambleManager:
             "desc": "据传出自上古秘境矿脉，灵压沉厚，也最容易看走眼。",
             "risk": "极高",
             "jewel_chance": 0.44, "gear_chance": 0.075,
-            "egg_chance": 0.002, "empty_chance": 0.09,
+            "egg_chance": 0.002, "empty_chance": 0.20,
             "display_clues": 5, "true_clues": 2,
             "bonus_jewel_chance": 0.06,
             "saint_gear_share": 0.12,
@@ -94,7 +94,7 @@ class GambleManager:
             "desc": "太古遗脉所结，石中或封着帝品珠玉，也可能只是一场空。",
             "risk": "九死一生",
             "jewel_chance": 0.62, "gear_chance": 0.110,
-            "egg_chance": 0.004, "empty_chance": 0.06,
+            "egg_chance": 0.004, "empty_chance": 0.25,
             "display_clues": 6, "true_clues": 3,
             "bonus_jewel_chance": 0.14,
             "saint_gear_share": 0.20,
@@ -440,6 +440,7 @@ class GambleManager:
         lines.append("━━━━━━━━━━━━━━━")
         lines.append(f"⏳ 下次刷新：{remaining // 60} 分 {remaining % 60} 秒后")
         lines.append("💡 `/黑市 切原石 <编号>` 切割｜`/黑市 开窗 <编号>` 付费揭示一条真线索")
+        lines.append("📈 档位越高，稀有珠宝概率越高，但空石率也越高。")
         lines.append("⚠️ 赌石十切九空：线索真假混杂，每块原石只能开窗一次，切垮自负。")
         return True, "\n".join(lines)
 
@@ -1057,4 +1058,293 @@ class GambleManager:
         return True, (
             f"✅ 交易成功！你获得了【{target['name']}】x1，已存入储物戒。\n"
             f"消耗灵石：{price:,}"
+        )
+    # ===== 黑市密封锦囊（v7.10.3）=====
+    # 与赌石同源：每小时刷新、真假线索、付费验囊、一次性拆开。
+    # 风险设计：档位越高，稀有物概率越高，但空囊/假货/诅咒概率也同步提高。
+    POUCH_TIER_CONFIG = (
+        {
+            "name": "灰布锦囊", "price": 1800, "stone_tier": 1,
+            "risk": "低·试水", "fake_chance": 0.34, "curse_chance": 0.05,
+            "desc": "灰布缝得潦草，商贩说是从散修遗物里翻出来的。",
+        },
+        {
+            "name": "灵纹锦囊", "price": 8000, "stone_tier": 2,
+            "risk": "中", "fake_chance": 0.32, "curse_chance": 0.07,
+            "desc": "袋口灵纹半明半灭，像是封过什么东西。",
+        },
+        {
+            "name": "紫金锦囊", "price": 30000, "stone_tier": 4,
+            "risk": "高", "fake_chance": 0.30, "curse_chance": 0.09,
+            "desc": "紫金丝线织成，灵压沉得压手，也最容易被做局。",
+        },
+        {
+            "name": "太古锦囊", "price": 100000, "stone_tier": 5,
+            "risk": "九死一生", "fake_chance": 0.28, "curse_chance": 0.12,
+            "desc": "传自太古秘市，袋上禁制已经斑驳，里面可能是帝品遗珍。",
+        },
+    )
+    POUCH_INSPECT_RATE = 0.20
+    POUCH_TIPS_TRUE = {
+        "jewel": ["灵压沉凝如珠玉", "袋中隐有清越的碰撞声", "隔着锦囊也能感到温润宝光"],
+        "gear": ["有金铁之气透袋而出", "袋身沉甸甸，像封着兵刃", "灵纹随呼吸微微发亮"],
+        "material": ["灵气驳杂但充沛", "袋底有细碎的矿砂声", "药香与土腥气混在一起"],
+        "egg": ["袋中似乎有活物在动", "隐约传来极轻的心跳声", "锦囊内里微微发热"],
+        "fake": ["袋口死气沉沉", "轻得几乎没有分量", "灵纹早已断裂"],
+        "curse": ["袋身透出一股阴冷", "指尖触到禁制时微微刺痛", "隐约有煞气外泄"],
+    }
+    POUCH_TIPS_FALSE = {
+        "jewel": ["商贩赌咒说里面是帝品珠玉", "袋面绣着夸张的宝物纹样"],
+        "gear": ["说是某位剑修的随身锦囊", "外袋写着「神兵」二字"],
+        "material": ["据说是灵矿脉心所结", "闻起来有一股浓重药味"],
+        "fake": ["商贩拍胸脯保证有货", "说是刚从秘境里带出来的"],
+        "curse": ["商贩说只是普通旧物", "袋口被人用朱砂封过"],
+    }
+
+    @staticmethod
+    def _pouch_period() -> str:
+        return time.strftime("%Y-%m-%d-%H", time.localtime())
+
+    def _get_pouch_candidates(self, user_id: str) -> List[dict]:
+        period = self._pouch_period()
+        result = []
+        for index, cfg in enumerate(self.POUCH_TIER_CONFIG, 1):
+            rng = random.Random(f"pouch:{period}:{user_id}:{index}")
+            roll = rng.random()
+            fake_end = float(cfg["fake_chance"])
+            curse_end = fake_end + float(cfg["curse_chance"])
+            if roll < fake_end:
+                hidden = {"kind": "fake", "loot": []}
+            elif roll < curse_end:
+                hidden = {"kind": "curse", "loot": [], "hp_pct": 0.12, "gold_pct": 0.08}
+            else:
+                hidden = self._roll_tier_loot(int(cfg["stone_tier"]), rng)
+                if hidden.get("kind") == "dust":
+                    hidden = {"kind": "fake", "loot": []}
+            kind = hidden.get("kind") or "fake"
+            true_pool = self.POUCH_TIPS_TRUE.get(kind) or self.POUCH_TIPS_TRUE["material"]
+            false_pool = self.POUCH_TIPS_FALSE.get(kind) or self.POUCH_TIPS_FALSE["fake"]
+            clues = [{"text": rng.choice(true_pool), "true": True}]
+            if rng.random() < 0.55:
+                clues.append({"text": rng.choice(true_pool), "true": True})
+            while len(clues) < 4:
+                clues.append({"text": rng.choice(false_pool), "true": False})
+            rng.shuffle(clues)
+            result.append({
+                "index": index,
+                "name": cfg["name"],
+                "price": int(cfg["price"]),
+                "desc": cfg["desc"],
+                "risk": cfg["risk"],
+                "clues": clues,
+                "hidden": hidden,
+                "period": period,
+            })
+        return result
+
+    async def _get_pouch_state(self, user_id: str, period: str) -> dict:
+        async with self.db.conn.execute(
+            "SELECT slot, inspected, opened, result FROM black_market_pouches "
+            "WHERE user_id = ? AND period = ?",
+            (user_id, period),
+        ) as cursor:
+            rows = await cursor.fetchall()
+        return {
+            int(row[0]): {
+                "inspected": bool(row[1]),
+                "opened": bool(row[2]),
+                "result": row[3] or "",
+            }
+            for row in rows
+        }
+
+    async def _save_pouch_state(self, user_id: str, period: str, slot: int,
+                                inspected: bool, opened: bool, result: str = "",
+                                commit: bool = True) -> None:
+        await self.db.conn.execute(
+            "INSERT INTO black_market_pouches "
+            "(user_id, period, slot, inspected, opened, result) VALUES (?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(user_id, period, slot) DO UPDATE SET "
+            "inspected = excluded.inspected, opened = excluded.opened, result = excluded.result",
+            (user_id, period, slot, int(inspected), int(opened), result),
+        )
+        if commit:
+            await self.db.conn.commit()
+
+    async def get_pouches(self, user_id: str) -> Tuple[bool, str]:
+        candidates = self._get_pouch_candidates(user_id)
+        state = await self._get_pouch_state(user_id, candidates[0]["period"])
+        lines = ["🕶️ 黑市 · 密封锦囊（每小时刷新）", "━━━━━━━━━━━━━━━"]
+        for item in candidates:
+            slot_state = state.get(item["index"], {})
+            status = " ❌已拆开" if slot_state.get("opened") else ""
+            lines.append(
+                f"[{item['index']}] {item['name']} - {item['price']:,} 灵石"
+                f"（风险：{item['risk']}）{status}"
+            )
+            lines.append(f"    {item['desc']}")
+            for clue in item["clues"]:
+                lines.append(f"    🔍 {clue['text']}")
+            if slot_state.get("inspected"):
+                lines.append(f"    🔎 已验囊：{slot_state.get('result') or '禁制反噬，未看到结果'}")
+        remaining = 3600 - (int(time.time()) % 3600)
+        lines.extend([
+            "━━━━━━━━━━━━━━━",
+            f"⏳ 下次刷新：{remaining // 60} 分 {remaining % 60} 秒后",
+            "💡 `/黑市 拆囊 <编号>` 拆开｜`/黑市 验囊 <编号>` 付费验囊（每袋一次）",
+            "⚠️ 档位越高，稀有物概率越高，但空囊、假货与诅咒也越多。",
+        ])
+        return True, "\n".join(lines)
+
+    def build_pouch_entries(self, user_id: str, state: dict = None) -> list:
+        state = state or {}
+        entries = []
+        for item in self._get_pouch_candidates(user_id):
+            slot_state = state.get(item["index"], {})
+            entries.append({
+                "id": item["index"],
+                "name": item["name"],
+                "rank": "密封",
+                "kind": "锦囊",
+                "price": item["price"],
+                "currency": "灵石",
+                "effect": item["desc"],
+                "effectLabel": "商贩说辞",
+                "state": "sold" if slot_state.get("opened") else "ok",
+                "cmd": f"/黑市 拆囊 {item['index']}",
+                "source": "pouch",
+                "action": "拆囊",
+                "notes": [clue["text"] for clue in item["clues"]]
+                         + ([f"已验囊：{slot_state.get('result')}"] if slot_state.get("inspected") else [])
+                         + ["可先 /黑市 验囊 <编号> 付费验囊"],
+            })
+        return entries
+
+    async def inspect_pouch(self, player: Player, index: int) -> Tuple[bool, str]:
+        candidates = self._get_pouch_candidates(player.user_id)
+        if index < 1 or index > len(candidates):
+            return False, "❌ 无效的锦囊编号，请使用 `/黑市 锦囊` 查看。"
+        item = candidates[index - 1]
+        period = item["period"]
+        state = await self._get_pouch_state(player.user_id, period)
+        slot_state = state.get(index, {})
+        if slot_state.get("opened"):
+            return False, "❌ 这个锦囊已经拆开了。"
+        if slot_state.get("inspected"):
+            return False, "❌ 每个锦囊只能验一次，禁制已经惊动了。"
+        cost = max(100, int(item["price"] * self.POUCH_INSPECT_RATE))
+        if player.gold < cost:
+            return False, f"❌ 验囊需要 {cost:,} 灵石，你当前只有 {player.gold:,}。"
+
+        await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            cursor = await self.db.conn.execute(
+                "UPDATE players SET gold = gold - ? WHERE user_id = ? AND gold >= ?",
+                (cost, player.user_id, cost),
+            )
+            if not cursor.rowcount:
+                await self.db.conn.rollback()
+                return False, "❌ 灵石不足，验囊失败。"
+            fresh = await self.db.get_player_by_id(player.user_id)
+            if fresh:
+                player.gold = fresh.gold
+            await self.db.conn.commit()
+        except Exception:
+            await self.db.conn.rollback()
+            raise
+
+        # 验囊结果 80% 指向真实类别，20% 被商贩做局误导
+        rng = random.Random(f"pouch-inspect:{period}:{player.user_id}:{index}")
+        kind = item["hidden"].get("kind") or "fake"
+        if rng.random() < 0.20:
+            kind = rng.choice([k for k in self.POUCH_TIPS_TRUE if k != kind])
+        pool = self.POUCH_TIPS_TRUE.get(kind) or self.POUCH_TIPS_TRUE["fake"]
+        hint = rng.choice(pool)
+        await self._save_pouch_state(
+            player.user_id, period, index, True, False, hint
+        )
+        return True, (
+            f"🔎 你花 {cost:,} 灵石请老师傅验囊。\n"
+            f"老师傅眯眼看了半晌，只说了一句：\n"
+            f"「{hint}」\n"
+            f"━━━━━━━━━━━━━━━\n"
+            f"💰 剩余灵石：{player.gold:,}\n"
+            f"⚠️ 验囊结果也可能被做局，拆囊前请自行判断。"
+        )
+
+    async def open_pouch(self, player: Player, index: int) -> Tuple[bool, str]:
+        candidates = self._get_pouch_candidates(player.user_id)
+        if index < 1 or index > len(candidates):
+            return False, "❌ 无效的锦囊编号，请使用 `/黑市 锦囊` 查看。"
+        item = candidates[index - 1]
+        period = item["period"]
+        state = await self._get_pouch_state(player.user_id, period)
+        if state.get(index, {}).get("opened"):
+            return False, "❌ 这个锦囊本小时已经被你拆开了，请等待下次刷新。"
+
+        price = int(item["price"])
+        if player.gold < price:
+            return False, f"❌ 灵石不足！拆开【{item['name']}】需要 {price:,} 灵石。"
+
+        hidden = item["hidden"]
+        await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            cursor = await self.db.conn.execute(
+                "UPDATE players SET gold = gold - ? WHERE user_id = ? AND gold >= ?",
+                (price, player.user_id, price),
+            )
+            if not cursor.rowcount:
+                await self.db.conn.rollback()
+                return False, "❌ 灵石不足，拆囊失败。"
+            fresh = await self.db.get_player_by_id(player.user_id)
+            if not fresh:
+                await self.db.conn.rollback()
+                return False, "❌ 角色数据异常，本次交易已取消。"
+
+            kind = hidden.get("kind") or "fake"
+            extra_lines = []
+            if kind == "curse":
+                hp_pct = float(hidden.get("hp_pct") or 0.12)
+                gold_pct = float(hidden.get("gold_pct") or 0.08)
+                from ..managers.combat_manager import CombatManager
+                stats = CombatManager.build_player_combat_stats(
+                    fresh, self.config_manager, db=self.db
+                )
+                max_hp = max(1, int(stats.max_hp))
+                hp_loss = max(0, int(max_hp * hp_pct))
+                gold_loss = min(fresh.gold, max(0, int(fresh.gold * gold_pct)))
+                new_hp = max(1, int(fresh.hp or max_hp) - hp_loss)
+                await self.db.conn.execute(
+                    "UPDATE players SET hp = ?, gold = gold - ? WHERE user_id = ?",
+                    (new_hp, gold_loss, player.user_id),
+                )
+                fresh.hp = new_hp
+                fresh.gold = max(0, fresh.gold - gold_loss)
+                extra_lines.append(
+                    f"☠️ 锦囊上残留的诅咒爆发：气血 -{hp_loss:,}、灵石 -{gold_loss:,}"
+                )
+                result_text = "诅咒锦囊"
+            elif kind == "fake":
+                result_text = "空囊/假货"
+                extra_lines.append("💨 袋中只有几张废符纸和一把灰，商贩早已不知去向。")
+            else:
+                result_text = await self._award_tier_loot(fresh, hidden)
+            await self.db.update_player(fresh, commit=False)
+            await self._save_pouch_state(
+                player.user_id, period, index,
+                bool(state.get(index, {}).get("inspected")), True, result_text,
+                commit=False,
+            )
+            await self.db.conn.commit()
+            player.gold = fresh.gold
+            player.hp = fresh.hp
+        except Exception:
+            await self.db.conn.rollback()
+            raise
+
+        body = "\n".join(extra_lines) if extra_lines else result_text
+        return True, (
+            f"🧧 你花 {price:,} 灵石拆开了【{item['name']}】（风险：{item['risk']}）：\n"
+            f"━━━━━━━━━━━━━━━\n{body}\n━━━━━━━━━━━━━━━\n"
+            f"💰 剩余灵石：{player.gold:,}"
         )

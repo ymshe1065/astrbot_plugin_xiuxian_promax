@@ -39,6 +39,16 @@ class RecoveryHandler:
 
     @player_required
     async def handle_rest(self, player: Player, event: AstrMessageEvent):
+        try:
+            from ..managers.treasure_map_manager import TreasureMapManager
+            if await TreasureMapManager.is_climbing(self.db, player.user_id):
+                yield event.plain_result(
+                    "❌ 你正在古修藏宝图中，墓府禁制压制了自然恢复与调息。\n"
+                    "💡 只能靠丹药/符箓有限回血，或 `/藏宝图 撤退` 离开。"
+                )
+                return
+        except Exception:
+            pass
         rest_cd = await self.db.ext.get_active_cd(player.user_id, UserStatus.RESTING)
         if rest_cd is not None:
             rate_text = await self._rest_rate_text(player)

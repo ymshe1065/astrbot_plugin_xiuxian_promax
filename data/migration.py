@@ -10,7 +10,7 @@ from astrbot.api import logger
 if TYPE_CHECKING:
     from ..config_manager import ConfigManager
 
-LATEST_DB_VERSION = 63  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求；v49: 统一物品品阶名称；v50: 仙市投资系统（基金/股票）；v51: 符箓熟练度与符图习得；v52: 仙市 v6（16 盘 + 赌场级波动 + 不对称日熔断）；v53: 拍卖会未开拍拍品按固定品阶曲线重建（并兼容分叉旧库补授符图）；v54: 灵田肥力上限按等级分级（旧值按百分比换算）；v55: 生活职业更换费用峰值与时间衰减；v56: 误存进储物戒/溢出仓库的丹药迁回丹药背包；v57: 旧50/50装备改名迁移到混合倾向新装备；v58: 周常 Boss（周本）周期/队伍/成员/领奖/周榜/次数表；v59: 仙市分红/风声唯一索引（结算幂等，先去重再建索引）；v60: 功德机制重做，清空全服既有功德（业力）；v61: 秘境难度分级（rift_key/product/difficulty/duration）；v62: 活动状态位按槽位多行（本体 + 身外化身）；v63: 珠宝体系（珠囊字段 jewel_inventory）
+LATEST_DB_VERSION = 65  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求；v49: 统一物品品阶名称；v50: 仙市投资系统（基金/股票）；v51: 符箓熟练度与符图习得；v52: 仙市 v6（16 盘 + 赌场级波动 + 不对称日熔断）；v53: 拍卖会未开拍拍品按固定品阶曲线重建（并兼容分叉旧库补授符图）；v54: 灵田肥力上限按等级分级（旧值按百分比换算）；v55: 生活职业更换费用峰值与时间衰减；v56: 误存进储物戒/溢出仓库的丹药迁回丹药背包；v57: 旧50/50装备改名迁移到混合倾向新装备；v58: 周常 Boss（周本）周期/队伍/成员/领奖/周榜/次数表；v59: 仙市分红/风声唯一索引（结算幂等，先去重再建索引）；v60: 功德机制重做，清空全服既有功德（业力）；v61: 秘境难度分级（rift_key/product/difficulty/duration）；v62: 活动状态位按槽位多行（本体 + 身外化身）；v63: 珠宝体系（珠囊字段 jewel_inventory）；v64: 通缉令改为每日悬赏榜（每日挑战次数表 bounty_daily）；v65: 高风险玩法（锦囊/暗标/藏宝图/矿脉/古方/盘口/杠杆）与灵田永久解锁
 
 MIGRATION_TASKS: Dict[int, Callable[[aiosqlite.Connection, ConfigManager], Awaitable[None]]] = {}
 
@@ -449,6 +449,230 @@ async def _ensure_weekly_boss_v58(conn: aiosqlite.Connection):
     )
 
 
+async def _ensure_high_stakes_v65(conn: aiosqlite.Connection):
+    """v65：高风险玩法（锦囊/暗标/藏宝图/矿脉/古方/盘口/杠杆）。
+
+    全部使用 IF NOT EXISTS，旧库迁移与全新库建表共用同一份 DDL。
+    """
+    await _add_column_if_missing(conn, "players", "farm_unlocks", "TEXT NOT NULL DEFAULT '[]'")
+
+    # --- 黑市密封锦囊 ---
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS black_market_pouches (
+            user_id TEXT NOT NULL,
+            period TEXT NOT NULL,
+            slot INTEGER NOT NULL,
+            inspected INTEGER NOT NULL DEFAULT 0,
+            opened INTEGER NOT NULL DEFAULT 0,
+            result TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY (user_id, period, slot)
+        )
+        """
+    )
+
+    # --- 拍卖暗标 ---
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS blind_auction_rounds (
+            round_key TEXT PRIMARY KEY,
+            start_ts INTEGER NOT NULL,
+            end_ts INTEGER NOT NULL,
+            settled INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL DEFAULT 0
+        )
+        """
+    )
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS blind_auction_lots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            round_key TEXT NOT NULL,
+            lot_no INTEGER NOT NULL,
+            payload TEXT NOT NULL DEFAULT '{}',
+            base_value INTEGER NOT NULL DEFAULT 0,
+            min_bid INTEGER NOT NULL DEFAULT 0,
+            hint TEXT NOT NULL DEFAULT '',
+            revealed INTEGER NOT NULL DEFAULT 0,
+            winner_id TEXT NOT NULL DEFAULT '',
+            winning_bid INTEGER NOT NULL DEFAULT 0,
+            settled INTEGER NOT NULL DEFAULT 0,
+            UNIQUE(round_key, lot_no)
+        )
+        """
+    )
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS blind_auction_bids (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            round_key TEXT NOT NULL,
+            lot_no INTEGER NOT NULL,
+            user_id TEXT NOT NULL,
+            amount INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'active',
+            created_at INTEGER NOT NULL DEFAULT 0,
+            UNIQUE(round_key, lot_no, user_id)
+        )
+        """
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_blind_bids_round ON blind_auction_bids(round_key, lot_no, status)"
+    )
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS blind_auction_appraisals (
+            round_key TEXT NOT NULL,
+            lot_no INTEGER NOT NULL,
+            user_id TEXT NOT NULL,
+            hint TEXT NOT NULL DEFAULT '',
+            created_at INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (round_key, lot_no, user_id)
+        )
+        """
+    )
+
+    # --- 古修藏宝图爬塔 ---
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS treasure_map_runs (
+            user_id TEXT PRIMARY KEY,
+            floor INTEGER NOT NULL DEFAULT 0,
+            map_tier INTEGER NOT NULL DEFAULT 1,
+            hp INTEGER NOT NULL DEFAULT 0,
+            max_hp INTEGER NOT NULL DEFAULT 0,
+            heal_used INTEGER NOT NULL DEFAULT 0,
+            heal_budget INTEGER NOT NULL DEFAULT 0,
+            loot TEXT NOT NULL DEFAULT '[]',
+            log TEXT NOT NULL DEFAULT '[]',
+            status TEXT NOT NULL DEFAULT 'active',
+            started_at INTEGER NOT NULL DEFAULT 0,
+            updated_at INTEGER NOT NULL DEFAULT 0
+        )
+        """
+    )
+
+    # --- 矿脉勘探权 ---
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS mine_veins (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            owner_id TEXT NOT NULL,
+            vein_key TEXT NOT NULL,
+            name TEXT NOT NULL,
+            tier INTEGER NOT NULL DEFAULT 1,
+            buy_price INTEGER NOT NULL DEFAULT 0,
+            base_yield INTEGER NOT NULL DEFAULT 0,
+            richness INTEGER NOT NULL DEFAULT 100,
+            created_at INTEGER NOT NULL DEFAULT 0,
+            expire_at INTEGER NOT NULL DEFAULT 0,
+            owner_claimed_hour INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'active'
+        )
+        """
+    )
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS mine_partners (
+            mine_id INTEGER NOT NULL,
+            user_id TEXT NOT NULL,
+            share INTEGER NOT NULL DEFAULT 30,
+            invested INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'pending',
+            last_claim_hour INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (mine_id, user_id)
+        )
+        """
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_mine_owner ON mine_veins(owner_id, status)"
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_mine_partner_user ON mine_partners(user_id, status)"
+    )
+
+    # --- 古方残卷 ---
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ancient_recipe_unlocks (
+            user_id TEXT NOT NULL,
+            recipe_key TEXT NOT NULL,
+            learned_at INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (user_id, recipe_key)
+        )
+        """
+    )
+
+    # --- 斗法盘口 ---
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS betting_pools (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pool_key TEXT NOT NULL UNIQUE,
+            kind TEXT NOT NULL DEFAULT 'duel',
+            title TEXT NOT NULL,
+            side_a TEXT NOT NULL,
+            side_b TEXT NOT NULL,
+            info_a TEXT NOT NULL DEFAULT '',
+            info_b TEXT NOT NULL DEFAULT '',
+            odds_a REAL NOT NULL DEFAULT 1.9,
+            odds_b REAL NOT NULL DEFAULT 1.9,
+            min_bet INTEGER NOT NULL DEFAULT 100,
+            max_bet INTEGER NOT NULL DEFAULT 100000,
+            open_at INTEGER NOT NULL DEFAULT 0,
+            close_at INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'open',
+            result TEXT NOT NULL DEFAULT '',
+            settled_at INTEGER NOT NULL DEFAULT 0
+        )
+        """
+    )
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS betting_bets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pool_id INTEGER NOT NULL,
+            user_id TEXT NOT NULL,
+            side TEXT NOT NULL,
+            amount INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'active',
+            payout INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL DEFAULT 0,
+            UNIQUE(pool_id, user_id)
+        )
+        """
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_betting_status ON betting_pools(status, close_at)"
+    )
+
+    # --- 仙市杠杆 ---
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS invest_margin_positions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            code TEXT NOT NULL,
+            leverage INTEGER NOT NULL DEFAULT 2,
+            margin INTEGER NOT NULL DEFAULT 0,
+            borrow INTEGER NOT NULL DEFAULT 0,
+            entry_price REAL NOT NULL DEFAULT 0,
+            shares REAL NOT NULL DEFAULT 0,
+            opened_tick INTEGER NOT NULL DEFAULT 0,
+            opened_at INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'open',
+            close_price REAL NOT NULL DEFAULT 0,
+            payout INTEGER NOT NULL DEFAULT 0,
+            pnl INTEGER NOT NULL DEFAULT 0,
+            closed_at INTEGER NOT NULL DEFAULT 0
+        )
+        """
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_margin_user ON invest_margin_positions(user_id, status)"
+    )
+
+
 async def _ensure_latest_columns(conn: aiosqlite.Connection):
     """终极兜底：确保 NPC、宗门、贷款等最新增量列/表齐全。"""
     await _add_column_if_missing(conn, "players", "karma", "INTEGER NOT NULL DEFAULT 0")
@@ -503,6 +727,8 @@ async def _ensure_latest_columns(conn: aiosqlite.Connection):
     await _ensure_weekly_boss_v58(conn)
     # v62：活动状态位槽位化（老库改主键只能重建表，放这里兜底一次）
     await _ensure_user_cd_slots_v62(conn)
+    # v65：高风险玩法相关表与灵田永久解锁字段（新库/旧库共用）
+    await _ensure_high_stakes_v65(conn)
     await conn.commit()
 
 class MigrationManager:
@@ -1006,6 +1232,17 @@ async def _create_all_tables_v2(conn: aiosqlite.Connection):
     """)
     await conn.execute("CREATE INDEX IF NOT EXISTS idx_bounty_user ON bounty_tasks(user_id)")
     await conn.execute("""
+        CREATE TABLE IF NOT EXISTS bounty_daily (
+            user_id TEXT NOT NULL,
+            day TEXT NOT NULL,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (user_id, day)
+        )
+    """)
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_bounty_daily_day ON bounty_daily(day)"
+    )
+    await conn.execute("""
         CREATE TABLE IF NOT EXISTS daily_tasks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id TEXT NOT NULL,
@@ -1189,6 +1426,12 @@ async def _migrate_to_v14(conn: aiosqlite.Connection, config_manager: ConfigMana
         )
     """)
     await conn.execute("CREATE INDEX IF NOT EXISTS idx_bounty_user ON bounty_tasks(user_id)")
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS bounty_daily (
+            user_id TEXT NOT NULL, day TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (user_id, day)
+        )
+    """)
 
 @migration(15)
 async def _migrate_to_v15(conn: aiosqlite.Connection, config_manager: ConfigManager):
@@ -2685,3 +2928,35 @@ async def _migrate_to_v63(conn: aiosqlite.Connection, config_manager: ConfigMana
     logger.info("开始迁移到 v63：新增珠宝珠囊字段")
     await _add_column_if_missing(conn, "players", "jewel_inventory", "TEXT NOT NULL DEFAULT '[]'")
     logger.info("v63迁移完成：players.jewel_inventory 已就绪")
+
+
+@migration(64)
+async def _migrate_to_v64(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """v64：通缉令改为每日悬赏榜，新增每日挑战次数表。"""
+    logger.info("开始迁移到 v64：通缉令每日挑战次数表")
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS bounty_daily (
+            user_id TEXT NOT NULL,
+            day TEXT NOT NULL,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (user_id, day)
+        )
+        """
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_bounty_daily_day ON bounty_daily(day)"
+    )
+    # 旧版通缉令快照结构与新挑战制不兼容，升级时统一作废，避免玩家卡在损坏目标上
+    await conn.execute("UPDATE bounty_tasks SET status = 3 WHERE status = 1")
+    await conn.commit()
+    logger.info("v64迁移完成：bounty_daily 已就绪，旧通缉令已作废")
+
+
+@migration(65)
+async def _migrate_to_v65(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """v65：高风险玩法与灵田永久解锁。"""
+    logger.info("开始迁移到 v65：高风险玩法数据表")
+    await _ensure_high_stakes_v65(conn)
+    await conn.commit()
+    logger.info("v65迁移完成：锦囊/暗标/藏宝图/矿脉/古方/盘口/杠杆表已就绪")

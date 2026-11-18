@@ -63,6 +63,8 @@ from .battle_event_handlers import BattleEventHandlers
 from .invest_handlers import InvestHandlers
 # v6.51 周常 Boss（周本）
 from .weekly_boss_handlers import WeeklyBossHandlers
+# v7.10.3 高风险玩法（藏宝图/矿脉/盘口）
+from .high_stakes_handlers import HighStakesHandlers
 
 __all__ = [
     "PlayerHandler", "RecoveryHandler", "MiscHandler", "EquipmentHandler", "BreakthroughHandler",
@@ -74,5 +76,5 @@ __all__ = [
     "DailyTaskHandlers", "WorldBossHandlers", "RaidHandlers", "RobberyHandlers", "ReincarnationHandlers",
     "GambleHandlers", "ForgeHandlers", "DemonInvasionHandlers", "PetHandlers",
     "AuctionHandlers", "AuctionHouseHandlers", "SectShopHandler", "AutoProxyHandlers", "BattleEventHandlers",
-    "InvestHandlers", "WeeklyBossHandlers"
+    "InvestHandlers", "WeeklyBossHandlers", "HighStakesHandlers"
 ]

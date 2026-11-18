@@ -409,3 +409,158 @@ class ForgeManager:
         lines.extend(f"· {a.get('display', a.get('name', ''))}" for a in affixes)
         master_note = "\n⚒️ 炼器师专精：灵石消耗减半" if getattr(player, "life_skill", "") == "炼器师" else ""
         return True, "\n".join(lines) + master_note
+    # ===== 血炼（v7.10.3）=====
+    # 以自身精血为引强行淬炼装备，收益高、反噬更狠：
+    # 大成可附加超高数值词条，但也可能魔化换词条，甚至把整件装备的词条烧空。
+    BLOOD_FORGE_HP_COST = 0.30          # 基础精血消耗（最大气血占比）
+    BLOOD_FORGE_HP_BACKLASH = 0.15      # 反噬额外气血
+    BLOOD_FORGE_MIN_HP = 0.55           # 低于该气血比例禁止血炼
+    BLOOD_FORGE_OUTCOMES = (
+        ("great", 10, "血炼大成"),
+        ("good", 27, "血炼小成"),
+        ("backlash", 28, "血煞反噬"),
+        ("corrupt", 25, "魔化"),
+        ("ruin", 10, "器毁"),
+    )
+
+    def _blood_forge_cost(self, instance: dict) -> int:
+        tier = rank_tier(instance.get("rank"), 1)
+        cost = int(18000 * (tier ** 1.6))
+        return max(8000, cost)
+
+    @staticmethod
+    def _scale_affix(base: dict, mult: float) -> dict:
+        affix = dict(base)
+        if isinstance(affix.get("value"), float):
+            affix["value"] = round(affix["value"] * mult, 3)
+            affix["display"] = f"{affix['name']}+{affix['value'] * 100:.1f}%"
+        else:
+            affix["value"] = max(1, int(affix["value"] * mult))
+            affix["display"] = f"{affix['name']}+{affix['value']}"
+        return affix
+
+    async def blood_forge(self, player: Player, slot: str = "") -> Tuple[bool, str]:
+        """血炼：消耗精血与灵石为装备赌一次词条。"""
+        target, err = self._find_equipped_target(player, slot)
+        if not target:
+            return False, err
+        try:
+            from ..managers.combat_manager import CombatManager
+            stats = CombatManager.build_player_combat_stats(
+                player, self.config_manager, db=self.db
+            )
+            max_hp = max(1, int(stats.max_hp))
+        except Exception:
+            max_hp = max(1, int(player.max_blood_qi or 100))
+        hp = max(0, int(player.hp or 0))
+        if hp < int(max_hp * self.BLOOD_FORGE_MIN_HP):
+            return False, (
+                f"❌ 血炼至少需要 {int(self.BLOOD_FORGE_MIN_HP * 100)}% 气血护住心脉。\n"
+                f"当前气血：{hp:,}/{max_hp:,}，请先调息恢复。"
+            )
+        cost = self._blood_forge_cost(target)
+        if getattr(player, "life_skill", "") == "炼器师":
+            cost //= 2
+        if player.gold < cost:
+            return False, f"❌ 血炼需要 {cost:,} 灵石布阵，你当前只有 {player.gold:,}。"
+
+        hp_cost = max(1, int(max_hp * self.BLOOD_FORGE_HP_COST))
+        hp_after = max(1, hp - hp_cost)
+        await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            cursor = await self.db.conn.execute(
+                "UPDATE players SET gold = gold - ?, hp = ? WHERE user_id = ? AND gold >= ?",
+                (cost, hp_after, player.user_id, cost),
+            )
+            if not cursor.rowcount:
+                await self.db.conn.rollback()
+                return False, "❌ 灵石不足，血炼失败。"
+            await self.db.conn.commit()
+            player.gold -= cost
+            player.hp = hp_after
+        except Exception:
+            await self.db.conn.rollback()
+            raise
+
+        rng = random.Random()
+        total = sum(weight for _, weight, _ in self.BLOOD_FORGE_OUTCOMES)
+        roll = rng.uniform(0, total)
+        acc = 0
+        outcome, label = "backlash", "血煞反噬"
+        for key, weight, text in self.BLOOD_FORGE_OUTCOMES:
+            acc += weight
+            if roll <= acc:
+                outcome, label = key, text
+                break
+
+        affixes = list(target.get("affixes", []) or [])
+        extra_lines = []
+        if outcome in ("great", "good", "corrupt"):
+            base = rng.choice(self.AFFIX_POOL)
+            if outcome == "great":
+                new_affix = self._scale_affix(base, rng.uniform(1.7, 2.2))
+            elif outcome == "good":
+                new_affix = self._scale_affix(base, rng.uniform(1.15, 1.4))
+            else:
+                new_affix = self._scale_affix(base, rng.uniform(1.4, 1.7))
+            affixes.append(new_affix)
+            if len(affixes) > 3:
+                affixes.pop(0)
+            extra_lines.append(f"获得血炼词条：{new_affix['display']}")
+            if outcome == "corrupt":
+                if len(affixes) > 1:
+                    burned = affixes.pop(rng.randrange(len(affixes)))
+                    extra_lines.append(
+                        f"☠️ 魔化反噬，原有的【{burned.get('display', burned.get('name', '词条'))}】被血煞烧毁。"
+                    )
+                extra_lines.append("☠️ 装备沾染血煞，词条虽强却带着不祥气息。")
+        elif outcome == "backlash":
+            backlash = max(1, int(max_hp * self.BLOOD_FORGE_HP_BACKLASH))
+            player.hp = max(1, player.hp - backlash)
+            await self.db.conn.execute(
+                "UPDATE players SET hp = ? WHERE user_id = ?",
+                (player.hp, player.user_id),
+            )
+            extra_lines.append(f"💥 血煞逆冲心脉，额外损失 {backlash:,} 气血。")
+        else:
+            if affixes:
+                affixes.clear()
+                extra_lines.append("💀 血焰失控，装备上的所有词条被烧成灰烬！")
+            else:
+                extra_lines.append("💀 血焰失控，所幸装备本就没有词条可烧。")
+
+        target["affixes"] = affixes
+        im = ItemInstanceManager(self.db, self.config_manager)
+        instances = im.load(player)
+        for index, inst in enumerate(instances):
+            if int(inst.get("id", 0) or 0) == int(target.get("id", 0) or 0):
+                instances[index] = target
+                break
+        im.save(player, instances)
+        fresh = await self.db.get_player_by_id(player.user_id)
+        if fresh:
+            fresh.set_equipment_instances(player.get_equipment_instances())
+            fresh.hp = player.hp
+            await self.db.update_player(fresh)
+        else:
+            await self.db.update_player(player)
+
+        lines = [
+            f"🩸 血炼 · {label}",
+            "━━━━━━━━━━━━━━━",
+            f"装备：{target.get('name') or '未知装备'}（{target.get('rank') or '凡品'}）",
+            f"消耗：气血 -{hp_cost:,}｜灵石 -{cost:,}",
+        ]
+        lines.extend(extra_lines)
+        if affixes:
+            lines.append("【当前装备词条】")
+            lines.extend(f"· {a.get('display', a.get('name', ''))}" for a in affixes)
+        else:
+            lines.append("【当前装备词条】无")
+        lines.extend([
+            "━━━━━━━━━━━━━━━",
+            f"💗 当前气血：{player.hp:,}/{max_hp:,}",
+            f"💰 当前灵石：{player.gold:,}",
+        ])
+        master = "\n⚒️ 炼器师专精：灵石消耗减半" if getattr(player, "life_skill", "") == "炼器师" else ""
+        return True, "\n".join(lines) + master

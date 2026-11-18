@@ -1329,3 +1329,246 @@ class InvestManager:
             "WHERE d.user_id = ? ORDER BY d.id DESC LIMIT ?",
             (user_id, limit),
         )
+
+    # ===== 仙市杠杆（v7.10.3）=====
+    # 只做股票合约：玩家出保证金，仙市按倍数配资，盈亏按整仓结算。
+    # 规则刻意做成「亏损不超过保证金」：爆仓即强平，不会倒欠仙市。
+    MARGIN_LEVERAGES = (2, 3, 5)
+    MARGIN_MIN = 10_000
+    MARGIN_MAX_TOTAL = 5_000_000
+    MARGIN_OPEN_FEE_RATE = 0.002
+    MARGIN_CLOSE_FEE_RATE = 0.002
+    MARGIN_BORROW_RATE_PER_TICK = 0.0008
+    MARGIN_LIQUIDATION_RATIO = 0.20
+
+    async def open_margin(self, player: Player, code: str, leverage: int, margin: int) -> Tuple[bool, str]:
+        code = (code or "").strip().upper()
+        try:
+            leverage = int(leverage)
+            margin = int(margin)
+        except (TypeError, ValueError):
+            return False, "❌ 倍数与保证金必须是整数。"
+        if leverage not in self.MARGIN_LEVERAGES:
+            return False, f"❌ 杠杆倍数只能是 {'/'.join(str(x) for x in self.MARGIN_LEVERAGES)} 倍。"
+        if margin < self.MARGIN_MIN:
+            return False, f"❌ 保证金至少 {self.MARGIN_MIN:,} 灵石。"
+        if margin > self.MARGIN_MAX_TOTAL:
+            return False, f"❌ 单笔保证金上限 {self.MARGIN_MAX_TOTAL:,} 灵石。"
+        opened, why = self._check_market()
+        if not opened:
+            return False, why
+        await self.settle_to()
+        product = await self._load_product(code)
+        if not product or product.get("kind") != "stock":
+            return False, f"❌ 仙市中不存在股票代码「{code}」。"
+        if product.get("status") != "trading":
+            return False, "❌ 该标的已停牌。"
+        price = float(product["price"])
+        if price <= 0:
+            return False, "❌ 当前价格异常，无法开仓。"
+
+        total = margin * leverage
+        fee = max(1, int(round(total * self.MARGIN_OPEN_FEE_RATE)))
+        if player.gold < margin + fee:
+            return False, (
+                f"❌ 开 {leverage} 倍杠杆需要保证金 {margin:,} + 开仓费 {fee:,}，"
+                f"你当前只有 {player.gold:,}。"
+            )
+        borrow = total - margin
+        shares = round(total / price, 4)
+        tick = self.tick_of()
+        now = int(time.time())
+
+        await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            cursor = await self.db.conn.execute(
+                "UPDATE players SET gold = gold - ? WHERE user_id = ? AND gold >= ?",
+                (margin + fee, player.user_id, margin + fee),
+            )
+            if not cursor.rowcount:
+                await self.db.conn.rollback()
+                return False, "❌ 灵石不足，开仓失败。"
+            cursor = await self.db.conn.execute(
+                "INSERT INTO invest_margin_positions "
+                "(user_id, code, leverage, margin, borrow, entry_price, shares, "
+                "opened_tick, opened_at, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'open')",
+                (player.user_id, code, leverage, margin, borrow, price, shares, tick, now),
+            )
+            position_id = cursor.lastrowid
+            await self.db.conn.commit()
+            player.gold -= margin + fee
+        except Exception:
+            await self.db.conn.rollback()
+            raise
+        return True, (
+            f"📈 仙市杠杆开仓成功\n"
+            f"━━━━━━━━━━━━━━━\n"
+            f"标的：{product['name']}（{code}）\n"
+            f"方向：做多｜杠杆：{leverage} 倍\n"
+            f"保证金：{margin:,}｜开仓费：{fee:,}\n"
+            f"配资：{borrow:,}｜名义仓位：{total:,}\n"
+            f"开仓价：{price:.2f}｜持仓编号：{position_id}\n"
+            f"━━━━━━━━━━━━━━━\n"
+            f"⚠️ 每盘配资利息 {self.MARGIN_BORROW_RATE_PER_TICK * 100:.2f}%，"
+            f"保证金亏至 {int(self.MARGIN_LIQUIDATION_RATIO * 100)}% 将被强平。\n"
+            f"💡 `/仙市 杠杆 平仓 {position_id}` 主动平仓"
+        )
+
+    @staticmethod
+    def _margin_interest(position: dict, tick: int) -> int:
+        borrow = float(position.get("borrow") or 0)
+        opened_tick = int(position.get("opened_tick") or tick)
+        held = max(1, tick - opened_tick)
+        return max(0, int(round(borrow * InvestManager.MARGIN_BORROW_RATE_PER_TICK * held)))
+
+    async def _margin_equity(self, position: dict, price: float, tick: int) -> dict:
+        shares = float(position.get("shares") or 0)
+        borrow = float(position.get("borrow") or 0)
+        margin = float(position.get("margin") or 0)
+        value = shares * price
+        interest = self._margin_interest(position, tick)
+        close_fee = max(0, int(round(value * self.MARGIN_CLOSE_FEE_RATE)))
+        equity = value - borrow - interest - close_fee
+        return {
+            "value": value,
+            "interest": interest,
+            "close_fee": close_fee,
+            "equity": equity,
+            "pnl": equity - margin,
+        }
+
+    async def close_margin(self, player: Player, position_id: int, *,
+                           force: bool = False, liquidated: bool = False) -> Tuple[bool, str]:
+        await self.settle_to()
+        rows = await self._rows(
+            "SELECT * FROM invest_margin_positions WHERE id = ? AND user_id = ? AND status = 'open'",
+            (int(position_id), player.user_id),
+        )
+        if not rows:
+            return False, "❌ 没有找到可平仓的杠杆持仓。"
+        position = rows[0]
+        product = await self._load_product(position["code"])
+        price = float(product["price"]) if product else float(position["entry_price"])
+        tick = self.tick_of()
+        calc = await self._margin_equity(position, price, tick)
+        equity = calc["equity"]
+        margin = float(position.get("margin") or 0)
+        if not force and equity <= margin * self.MARGIN_LIQUIDATION_RATIO:
+            liquidated = True
+        payout = max(0, int(round(equity)))
+        pnl = payout - int(margin)
+        status = "liquidated" if liquidated else "closed"
+
+        await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            cursor = await self.db.conn.execute(
+                "UPDATE invest_margin_positions SET status = ?, close_price = ?, payout = ?, "
+                "pnl = ?, closed_at = ? WHERE id = ? AND status = 'open'",
+                (status, price, payout, pnl, int(time.time()), int(position_id)),
+            )
+            if not cursor.rowcount:
+                await self.db.conn.rollback()
+                return False, "❌ 该持仓已被结算。"
+            if payout > 0:
+                await self.db.conn.execute(
+                    "UPDATE players SET gold = gold + ? WHERE user_id = ?",
+                    (payout, player.user_id),
+                )
+            await self.db.conn.commit()
+            player.gold += payout
+        except Exception:
+            await self.db.conn.rollback()
+            raise
+        title = "💥 强制平仓" if liquidated else "📉 杠杆平仓"
+        return True, (
+            f"{title}\n"
+            f"━━━━━━━━━━━━━━━\n"
+            f"标的：{position['code']}｜{int(position['leverage'])} 倍\n"
+            f"开仓价：{float(position['entry_price']):.2f}｜平仓价：{price:.2f}\n"
+            f"配资利息：{calc['interest']:,}｜平仓费：{calc['close_fee']:,}\n"
+            f"保证金：{int(margin):,}\n"
+            f"返还：{payout:,}｜盈亏：{pnl:+,}\n"
+            f"━━━━━━━━━━━━━━━\n"
+            f"💰 当前灵石：{player.gold:,}"
+        )
+
+    async def liquidate_due(self) -> int:
+        """后台自动强平：保证金亏至强平线的持仓立即平仓。
+
+        玩家离线时价格仍会波动，如果没有自动强平，持仓可以一直拖到回本，
+        杠杆就失去风险意义。这里逐仓检查，平仓本身带条件更新，天然幂等。
+        """
+        await self.settle_to()
+        positions = await self._rows(
+            "SELECT * FROM invest_margin_positions WHERE status = 'open' ORDER BY id"
+        )
+        if not positions:
+            return 0
+        tick = self.tick_of()
+        liquidated = 0
+        for pos in positions:
+            try:
+                player = await self.db.get_player_by_id(pos["user_id"])
+                if not player:
+                    continue
+                product = await self._load_product(pos["code"])
+                price = float(product["price"]) if product else float(pos["entry_price"])
+                calc = await self._margin_equity(pos, price, tick)
+                margin = float(pos.get("margin") or 0)
+                if calc["equity"] <= margin * self.MARGIN_LIQUIDATION_RATIO:
+                    ok, _ = await self.close_margin(
+                        player, int(pos["id"]), force=True, liquidated=True
+                    )
+                    if ok:
+                        liquidated += 1
+            except Exception as exc:
+                logger.warning(f"【仙市杠杆】自动强平失败 持仓{pos.get('id')}: {exc}")
+        return liquidated
+
+    async def get_margin_status(self, player: Player) -> str:
+        await self.settle_to()
+        positions = await self._rows(
+            "SELECT * FROM invest_margin_positions WHERE user_id = ? AND status = 'open' "
+            "ORDER BY id DESC", (player.user_id,)
+        )
+        closed = await self._rows(
+            "SELECT * FROM invest_margin_positions WHERE user_id = ? AND status != 'open' "
+            "ORDER BY closed_at DESC LIMIT 5", (player.user_id,)
+        )
+        lines = ["📈 仙市杠杆", "━━━━━━━━━━━━━━━"]
+        tick = self.tick_of()
+        if not positions:
+            lines.append("当前没有未平仓的杠杆持仓。")
+        for pos in positions:
+            product = await self._load_product(pos["code"])
+            price = float(product["price"]) if product else float(pos["entry_price"])
+            calc = await self._margin_equity(pos, price, tick)
+            margin = float(pos.get("margin") or 0)
+            rate = calc["pnl"] / margin if margin else 0.0
+            lines.append(
+                f"[{pos['id']}] {pos['code']} {int(pos['leverage'])}倍 "
+                f"保证金 {int(margin):,}"
+            )
+            lines.append(
+                f"    现价 {price:.2f}（开 {float(pos['entry_price']):.2f}）"
+                f"｜权益 {int(calc['equity']):,}｜盈亏 {int(calc['pnl']):+,}（{rate:+.1%}）"
+            )
+            lines.append(
+                f"    利息 {calc['interest']:,}｜强平线约 "
+                f"{(float(pos['borrow']) + margin * self.MARGIN_LIQUIDATION_RATIO) / max(0.0001, float(pos['shares'])):.2f}"
+            )
+        if closed:
+            lines.append("—— 最近结算 ——")
+            for pos in closed:
+                tag = "强平" if pos["status"] == "liquidated" else "平仓"
+                lines.append(
+                    f"[{pos['id']}] {pos['code']} {int(pos['leverage'])}倍 {tag}"
+                    f"｜返还 {int(pos['payout'] or 0):,}｜盈亏 {int(pos['pnl'] or 0):+,}"
+                )
+        lines.extend([
+            "━━━━━━━━━━━━━━━",
+            "💡 `/仙市 杠杆 <代码> <倍数> <保证金>` 开多仓",
+            "💡 `/仙市 杠杆 平仓 <编号>` 主动平仓",
+            "⚠️ 杠杆放大盈亏，保证金亏至 20% 会被强制平仓。",
+        ])
+        return "\n".join(lines)
