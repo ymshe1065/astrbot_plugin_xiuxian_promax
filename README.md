@@ -32,9 +32,17 @@
 ---
 
 > **插件版本:** v3.45.34 · **游戏版本:** v7.9.26 · **数据库:** v62
-> **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改维护:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497) · lan
+> **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497) · [lan](https://github.com/lanxue0)
 
 一款为 AstrBot 深度重构的**放置类群聊修仙游戏**。从炼气一层到混元大罗金仙，257 条注册指令（网页指令目录 245 个功能按钮 + 12 个别名）、17 个大系统、111 个称号、60 条历练路线、110+ 奇遇事件，与群友一起修仙问道。
+
+## 👥 四改维护分工
+
+| 开发者 | 主要分工 |
+| --- | --- |
+| [ymshe1065](https://github.com/ymshe1065) | 数值与经济（丹药定价、百宝阁供给、贷款与押镖）、机制重做（重修、灵根、功德）、测试基建与版本维护 |
+| [lsq3497](https://github.com/lsq3497) | 自动代理（历练、灵田、秘境）、网页交互（丹药背包、储物戒批量操作、代理面板）、并发与锁修复 |
+| [lan](https://github.com/lanxue0) | 核心玩法与网页功能（飞升与仙缘商店、物品网格化、秘境与历练收益、商店效果展示、丹药背包体验） |
 
 ---
 
