@@ -163,7 +163,7 @@ class ReincarnationHandlers:
         """`/仙缘兑换 <编号>` 买商品；`/仙缘兑换 灵石 <点数>` 用灵石换仙缘点。"""
         token = str(item_id or "").strip()
         if token in ("灵石", "gold", "灵石头"):
-            async for r in self._exchange_gold_for_points(player, count):
+            async for r in self._exchange_gold_for_points(player, event, count):
                 yield r
             return
 
@@ -183,7 +183,9 @@ class ReincarnationHandlers:
         success, msg = await self.reinc_mgr.buy_fate_shop_item(player, idx)
         yield event.plain_result(msg)
 
-    async def _exchange_gold_for_points(self, player: Player, count: str):
+    async def _exchange_gold_for_points(
+        self, player: Player, event: AstrMessageEvent, count: str
+    ):
         """灵石 → 仙缘点：1 点 = 1000 万灵石，每世最多 100 点。"""
         left = await self._exchange_left(player)
         if left <= 0:

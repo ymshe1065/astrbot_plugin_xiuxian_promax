@@ -53,6 +53,7 @@ SCENES = {
     "pill": "丹药背包",
     "sect": "宗门商店",
     "fate": "仙缘商店",
+    "fate_ex": "仙缘兑换 灵石 10",
     "market": "坊市",
     "black": "黑市",
     "title": "称号图鉴",
@@ -137,6 +138,12 @@ async def prepare_scene(key, db, player, sect_mgr, auction_mgr):
             else:
                 print(f"  挂单失败 {pill_key}: {msg}", flush=True)
         print(f"  坊市挂单: {n} 件", flush=True)
+    elif key == "fate_ex":
+        # 灵石换点要够钱：建号时只有 24 万，这里补到 1.2 亿（10 点 = 1000 万/点）
+        player.gold = 120_000_000
+        await db.update_player(player)
+        player = await db.get_player_by_id(PLAYER_ID)
+        print(f"  备好灵石: {int(player.gold):,}", flush=True)
     return player
 
 
@@ -164,7 +171,7 @@ def resolve(text):
 
 
 def wants_args(fn) -> bool:
-    """handler 是否是「带参命令」（self, event, GreedyStr）。
+    """handler 是否是「带参命令」（self, event, ...）。
 
     @require_whitelist 用 functools.wraps 包了一层，signature 会顺着
     __wrapped__ 摸回原函数，所以数一下位置参数个数就够了。
@@ -178,6 +185,43 @@ def wants_args(fn) -> bool:
         if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)
     ]
     return len(positional) >= 3
+
+
+def split_args(fn, rest: str) -> list:
+    """按真 astrbot 的规则把命令行尾巴拆成实参。
+
+    两种形态：
+    - ``GreedyStr``：整段原样给一个形参（``/服用丹药 凝气丹 一般 1``）；
+    - 普通 ``str`` 形参：按空格逐个拆（``/仙缘兑换 灵石 10`` →
+      ``item_id="灵石", count="10"``），多出来的词并进最后一个形参。
+
+    桩以前一律把整段塞给第一个形参，于是「两个形参」的命令（仙缘兑换）
+    永远只收到 ``"灵石 10"`` 这一个字符串，被当成品名报错——
+    是桩失真，不是产品 bug。
+    """
+    if not rest:
+        return []
+    try:
+        params = [
+            p for p in inspect.signature(fn).parameters.values()
+            if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)
+        ]
+    except (TypeError, ValueError):
+        return [rest]
+    extra = params[2:]  # 去掉 self / event
+    if not extra:
+        return []
+
+    ann = extra[0].annotation
+    ann_name = getattr(ann, "__name__", "") or str(ann)
+    if "GreedyStr" in ann_name:
+        return [rest]
+
+    tokens = rest.split()
+    if len(tokens) <= len(extra):
+        return tokens
+    head = tokens[: len(extra) - 1]
+    return head + [" ".join(tokens[len(extra) - 1:])]
 
 
 def result_to_payload(ev):
@@ -233,11 +277,9 @@ class Router:
         private = bool(private or panel)
         try:
             # 方法是从类体上取的未绑定函数，要显式传 self。
-            # 带参命令（如 /服用丹药 <名> [品质] [数量]）的第三个形参是 GreedyStr，
-            # 真 astrbot 会把命令名之后的整段文本原样传进去；这里照做。
+            # 带参命令按真 astrbot 的规则拆参：GreedyStr 吃整段，普通形参按空格拆。
             argv = [self.plug, ev]
-            if wants_args(fn):
-                argv.append(rest)
+            argv.extend(split_args(fn, rest))
             async for _ in fn(*argv):
                 pass
             payload = result_to_payload(ev)
@@ -410,6 +452,7 @@ async def run(key, no_browser):
     if no_browser:
         await router.on_player_message("room_main", PLAYER_ID, NICK, f"/{cmd}")
         print("  离线派发结果:", router.log, flush=True)
+        print("  回复文本:", (router.last_text or "(空)").replace("\n", " / ")[:160], flush=True)
         await db.close()
         Path(dbpath).unlink(missing_ok=True)
         return
