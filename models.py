@@ -143,6 +143,7 @@ class Player:
     overflow_items: str = "{}"  # 储物戒满时暂存的溢出物品（JSON字符串，格式：{item_name: count}）
     equipment_instances: str = "[]"  # 装备实例列表（JSON数组）
     equipped_instances: str = "{}"  # 已装备实例槽位映射（JSON对象）
+    jewel_inventory: str = "[]"  # 珠囊（JSON数组，每项为带唯一 id 的珠宝实例）
 
     # 洞天仓库（藏宝阁）：等级 0 表示未开通；物品随人不随洞天，进阶洞天不丢
     warehouse_level: int = 0
@@ -287,6 +288,13 @@ class Player:
 
     def set_equipped_instances(self, mapping: dict):
         self.equipped_instances = json.dumps(mapping, ensure_ascii=False)
+
+    def get_jewel_inventory(self) -> list:
+        """获取珠囊中的珠宝实例列表。"""
+        return self._load_json_field(self.jewel_inventory, [])
+
+    def set_jewel_inventory(self, jewels: list):
+        self.jewel_inventory = json.dumps(jewels, ensure_ascii=False)
 
     def get_total_attributes(self, equipped_items: List[Item], pill_multipliers: Optional[dict] = None, base_attributes: Optional[dict] = None) -> dict:
         """计算包含装备加成和丹药效果的总属性"""

@@ -573,6 +573,13 @@ class CombatManager:
                     continue
                 for affix in inst.get("affixes", []) or []:
                     add_gear_effect(affix.get("key"), affix.get("value", 0))
+                # 珠宝词条与装备词条同属装备层，共用 GEAR_EFFECT_CAPS 上限。
+                for gem in inst.get("sockets", []) or []:
+                    if not isinstance(gem, dict):
+                        continue
+                    for affix in gem.get("affixes", []) or []:
+                        if isinstance(affix, dict):
+                            add_gear_effect(affix.get("key"), affix.get("value", 0))
         except Exception:
             pass
         for key, cap in GEAR_EFFECT_CAPS.items():

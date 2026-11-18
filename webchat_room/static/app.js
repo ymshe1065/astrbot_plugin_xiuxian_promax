@@ -5814,7 +5814,9 @@
     $("sheetInput").style.display = "";
     applySheetDefault(ctx, data);
     $("sheetSkip").hidden = !field.optional;
-    $("sheetSkip").textContent = field.skip_value ? "留空，下一步" : "留空发送";
+    $("sheetSkip").textContent = field.default
+      ? `留空 = ${field.default}`
+      : field.skip_value ? "留空，下一步" : "留空发送";
     // 全局示例只在第一段/纯手动指令出现，避免把「炼气丹 5」塞进数量字段
     const showExample = !options.length && !!ctx.example && Number(data.index || 0) === 0;
     $("sheetExample").hidden = !showExample;
@@ -5947,6 +5949,10 @@
 
     if (!data.done) {
       let val = $("sheetInput").value.trim();
+      // 数量等字段允许直接留空，留空时按默认值补齐，避免少一段参数导致指令错位
+      if (!val && field && field.default !== undefined && field.default !== null) {
+        val = String(field.default);
+      }
       // 数量显式加 x，避免跳过火候后把 1/2/3 当成旧式火候编号。
       if (ctx.name === "炼丹" && field?.key === "count" && /^\d+$/.test(val)) val = `x${val}`;
       if (val) {

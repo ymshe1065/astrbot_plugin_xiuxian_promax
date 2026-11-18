@@ -1,0 +1,188 @@
+{
+  "comment": "珠宝体系配置：qualities 为品质倍率/权重，templates 为珠宝模板。affix.scale=percent 表示百分点，rate 表示小数倍率，flat 表示整数。",
+  "qualities": {
+    "一般": {"weight": 58, "multiplier": 1.0, "rank": "黄品"},
+    "良好": {"weight": 27, "multiplier": 1.40, "rank": "玄品"},
+    "极佳": {"weight": 12, "multiplier": 1.90, "rank": "圣品"},
+    "大师": {"weight": 3, "multiplier": 2.60, "rank": "帝品"}
+  },
+  "templates": [
+    {
+      "id": "blood_jade",
+      "name": "血纹玉",
+      "category": "attack",
+      "price": 6000,
+      "description": "玉中血纹如脉，贴身可催动杀伐之气。",
+      "affixes": [
+        {"key": "crit_rate", "value": 2.2, "scale": "percent"},
+        {"key": "crit_damage", "value": 0.03, "scale": "rate"}
+      ]
+    },
+    {
+      "id": "thunder_stone",
+      "name": "雷鸣石",
+      "category": "attack",
+      "price": 7500,
+      "description": "石心封着一缕雷音，击中时可能令对手麻痹。",
+      "affixes": [
+        {"key": "stun_chance", "value": 2.8, "scale": "percent"},
+        {"key": "armor_penetration", "value": 2.0, "scale": "percent"}
+      ]
+    },
+    {
+      "id": "flame_orb",
+      "name": "赤炎珠",
+      "category": "attack",
+      "price": 7200,
+      "description": "珠内赤焰不熄，可在伤口上留下灼烧。",
+      "affixes": [
+        {"key": "burn_chance", "value": 3.2, "scale": "percent"},
+        {"key": "burn_damage_pct", "value": 1.2, "scale": "percent"}
+      ]
+    },
+    {
+      "id": "war_crystal",
+      "name": "破军晶",
+      "category": "attack",
+      "price": 9000,
+      "description": "晶棱如兵锋，直接增幅双攻。",
+      "affixes": [
+        {"key": "physical_damage", "value": 0.018, "scale": "rate"},
+        {"key": "magic_damage", "value": 0.018, "scale": "rate"}
+      ]
+    },
+    {
+      "id": "spirit_orb",
+      "name": "灵犀珠",
+      "category": "attack",
+      "price": 8000,
+      "description": "灵犀一点，专破护体罡气。",
+      "affixes": [
+        {"key": "armor_penetration", "value": 2.5, "scale": "percent"},
+        {"key": "sunder_chance", "value": 2.5, "scale": "percent"}
+      ]
+    },
+    {
+      "id": "wind_jade",
+      "name": "疾风玉",
+      "category": "attack",
+      "price": 7800,
+      "description": "玉纹如风，出招连绵不绝。",
+      "affixes": [
+        {"key": "combo_rate", "value": 2.6, "scale": "percent"},
+        {"key": "extra_attack_chance", "value": 2.4, "scale": "percent"}
+      ]
+    },
+    {
+      "id": "frost_orb",
+      "name": "寒霜珠",
+      "category": "attack",
+      "price": 7600,
+      "description": "寒意凝珠，可冻缓对手攻势。",
+      "affixes": [
+        {"key": "frost_chance", "value": 3.0, "scale": "percent"},
+        {"key": "frost_atk_reduction", "value": 1.8, "scale": "percent"}
+      ]
+    },
+    {
+      "id": "soul_bead",
+      "name": "噬魂珠",
+      "category": "attack",
+      "price": 8800,
+      "description": "珠中幽光吞吐，伤敌之余反哺自身。",
+      "affixes": [
+        {"key": "lifesteal", "value": 2.4, "scale": "percent"},
+        {"key": "curse_chance", "value": 1.8, "scale": "percent"}
+      ]
+    },
+    {
+      "id": "turtle_jade",
+      "name": "玄龟玉",
+      "category": "defense",
+      "price": 6500,
+      "description": "玄龟背纹盘踞，双防俱增。",
+      "affixes": [
+        {"key": "physical_defense", "value": 0.022, "scale": "rate"},
+        {"key": "magic_defense", "value": 0.022, "scale": "rate"}
+      ]
+    },
+    {
+      "id": "thorn_jade",
+      "name": "荆棘玉",
+      "category": "defense",
+      "price": 7000,
+      "description": "玉刺暗藏，受击时反震来敌。",
+      "affixes": [
+        {"key": "counter_damage", "value": 3.5, "scale": "percent"},
+        {"key": "status_resist", "value": 1.5, "scale": "percent"}
+      ]
+    },
+    {
+      "id": "mountain_stone",
+      "name": "镇岳石",
+      "category": "defense",
+      "price": 7400,
+      "description": "岳石沉稳，尤其擅长硬抗物理攻势。",
+      "affixes": [
+        {"key": "physical_defense", "value": 0.035, "scale": "rate"},
+        {"key": "counter_damage", "value": 1.8, "scale": "percent"}
+      ]
+    },
+    {
+      "id": "ice_jade",
+      "name": "玄冰玉",
+      "category": "defense",
+      "price": 7200,
+      "description": "寒冰不化，受击时可能冻结对手。",
+      "affixes": [
+        {"key": "freeze_chance", "value": 3.2, "scale": "percent"},
+        {"key": "status_resist", "value": 2.2, "scale": "percent"}
+      ]
+    },
+    {
+      "id": "curse_bead",
+      "name": "咒怨珠",
+      "category": "defense",
+      "price": 7600,
+      "description": "怨气缠珠，可削弱来犯者的护体之力。",
+      "affixes": [
+        {"key": "curse_chance", "value": 3.4, "scale": "percent"},
+        {"key": "curse_defense_pct", "value": 1.8, "scale": "percent"}
+      ]
+    },
+    {
+      "id": "spring_jade",
+      "name": "回春玉",
+      "category": "defense",
+      "price": 6800,
+      "description": "玉色温润，护住心神与身法。",
+      "affixes": [
+        {"key": "dodge", "value": 1.6, "scale": "percent"},
+        {"key": "status_resist", "value": 2.0, "scale": "percent"}
+      ]
+    },
+    {
+      "id": "shock_jade",
+      "name": "反震玉",
+      "category": "defense",
+      "price": 8000,
+      "description": "内蕴震纹，将所受之力原样弹回。",
+      "affixes": [
+        {"key": "counter_damage", "value": 4.2, "scale": "percent"},
+        {"key": "dodge", "value": 1.0, "scale": "percent"}
+      ]
+    },
+    {
+      "id": "five_element_jade",
+      "name": "五行灵玉",
+      "category": "defense",
+      "price": 9500,
+      "description": "五行流转，同时滋养双防与反击。",
+      "affixes": [
+        {"key": "physical_defense", "value": 0.014, "scale": "rate"},
+        {"key": "magic_defense", "value": 0.014, "scale": "rate"},
+        {"key": "counter_damage", "value": 1.5, "scale": "percent"}
+      ]
+    }
+  ]
+}

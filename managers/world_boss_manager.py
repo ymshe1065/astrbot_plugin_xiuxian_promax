@@ -157,6 +157,20 @@ class WorldBossManager:
     }
     EQUIPMENT_CHANCE_CAPS: Dict[str, int] = {"killer": 45, "top3": 20, "participate": 10}
 
+    # 珠宝独立掉落：与装备分开判定，每人每次结算最多 1 枚。
+    JEWEL_CHANCES: Dict[str, Dict[str, tuple]] = {
+        "world_boss": {"killer": (10, 4), "top3": (4, 2), "participate": (1, 1)},
+        "raid": {"killer": (12, 5), "top3": (5, 2), "participate": (2, 1)},
+        "event": {"killer": (9, 3), "top3": (3, 2), "participate": (1, 1)},
+    }
+    JEWEL_CHANCE_CAPS: Dict[str, int] = {"killer": 30, "top3": 15, "participate": 6}
+    # 珠宝品质随档位提升；世界 Boss 是高品质珠宝的稳定来源之一。
+    JEWEL_QUALITY_WEIGHTS: Dict[int, Dict[str, int]] = {
+        1: {"一般": 85, "良好": 15, "极佳": 0, "大师": 0},
+        2: {"一般": 58, "良好": 34, "极佳": 8, "大师": 0},
+        3: {"一般": 28, "良好": 45, "极佳": 25, "大师": 2},
+    }
+
     TIER_REWARDS: Dict[int, dict] = {
         1: {"rank1": 30000, "top3": 15000, "participate": 5000, "killer": 50000},
         2: {"rank1": 60000, "top3": 30000, "participate": 10000, "killer": 100000},
@@ -743,6 +757,33 @@ class WorldBossManager:
             logger.warning(f"Boss/团本装备掉落判定失败：{e}")
             return None
 
+    def roll_jewel_reward(
+        self,
+        player: Player,
+        role: str,
+        tier: int,
+        source: str = "world_boss",
+    ) -> Optional[dict]:
+        """按角色与档位判定独立珠宝掉落，返回珠宝 dict 或 None。"""
+        chance_cfg = self.JEWEL_CHANCES.get(source) or self.JEWEL_CHANCES["world_boss"]
+        base, per_tier = chance_cfg.get(role, chance_cfg["participate"])
+        tier = max(1, int(tier or 1))
+        chance = int(base) + int(per_tier) * (tier - 1)
+        chance = min(self.JEWEL_CHANCE_CAPS.get(role, 2), max(0, chance))
+        if chance <= 0 or random.randint(1, 100) > chance:
+            return None
+        try:
+            from ..core.jewel_manager import JewelManager
+
+            manager = JewelManager(self.db, self.config_manager, self.storage_ring_mgr)
+            weights = self.JEWEL_QUALITY_WEIGHTS.get(
+                tier, self.JEWEL_QUALITY_WEIGHTS[3]
+            )
+            return manager.roll_jewel(quality_weights=weights)
+        except Exception as e:
+            logger.warning(f"Boss/团本珠宝掉落判定失败：{e}")
+            return None
+
     async def _grant_title_async(self, player: Player) -> str:
         if not self.title_mgr:
             return ""
@@ -1045,6 +1086,20 @@ class WorldBossManager:
                 drops_to_grant.append(
                     (equipment["name"], 1, str(equipment.get("quality") or ""))
                 )
+            jewel = self.roll_jewel_reward(
+                target_player, role, tier, source="world_boss"
+            )
+            if jewel:
+                try:
+                    from ..core.jewel_manager import JewelManager
+
+                    gem = JewelManager(
+                        self.db, self.config_manager, self.storage_ring_mgr
+                    ).add_jewel(target_player, jewel)
+                    label = f"珠宝·{gem.get('name')}（{gem.get('quality')}）"
+                    collected[label] = collected.get(label, 0) + 1
+                except Exception as e:
+                    logger.warning(f"世界Boss珠宝发放失败：{e}")
             for entry in drops_to_grant:
                 item_name, count = entry[0], entry[1]
                 quality = str(entry[2]) if len(entry) > 2 else ""

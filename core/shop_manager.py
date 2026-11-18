@@ -45,7 +45,7 @@ PAVILION_TYPE_LABELS = {
     'pill': '破境丹', 'exp_pill': '修为丹', 'utility_pill': '功能丹',
     'inventory_pill': '丹药', 'legacy_pill': '丹药', 'recipe': '丹方',
     'material': '材料', 'material_package': '材料包', 'accessory': '饰品', '符箓': '符箓',
-    'talisman_recipe': '符图',
+    'talisman_recipe': '符图', 'jewel': '珠宝',
 }
 
 
@@ -67,6 +67,7 @@ class ShopManager:
         "符箓": 1,
         "pill": 2, "exp_pill": 2, "utility_pill": 2,
         "inventory_pill": 2, "legacy_pill": 2,
+        "jewel": 3,
         "main_technique": 3, "technique": 3,
         "material": 4, "material_package": 4, "recipe": 4,
     }
@@ -225,6 +226,13 @@ class ShopManager:
                 details = []
             effect = ""
             effect_line = ""
+            # 珠宝的「词条:」不在结构化效果模板里，单独先取，供网格展示
+            if item_type == "jewel":
+                for line in details:
+                    if line.startswith("词条:"):
+                        effect = line.split(":", 1)[1].strip()
+                        effect_line = line
+                        break
             # 结构化效果行优先，且按「产出/效果 → 基础属性 → 特殊效果」分档：
             # 丹药的「效果:」排在描述之后，必须按行类型找；装备优先展示基础属性。
             for pattern in _EFFECT_PATTERNS:
@@ -254,6 +262,8 @@ class ShopManager:
                 effect_label = "开启"
             elif item_type in ("material", "材料"):
                 effect_label = "说明"
+            elif item_type == "jewel":
+                effect_label = "词条"
             elif item_type in GEAR_TYPE_NAMES:
                 effect_label = "属性"
             elif item_type in ("pill", "exp_pill", "utility_pill", "inventory_pill",
@@ -985,6 +995,9 @@ class ShopManager:
             discount = random.uniform(discount_min, discount_max)
             unlimited = bool(item.get('always_available'))
             stock = self._calculate_stock(item.get('weight', 100), item.get('data'))
+            # 珠宝是带独立词条的实例，每次刷新每款只挂 1 枚
+            if item.get('type') == 'jewel':
+                stock = 1
             # 百宝阁消耗品限量：丹药/材料每次刷新 1-5 个，避免大量囤积
             if stock_cap and not unlimited and item.get('type') in self.CONSUMABLE_SHELF_TYPES:
                 stock = max(1, min(stock, stock_cap))
@@ -1454,6 +1467,46 @@ class ShopManager:
                                     "price": item["price"], "rank": item.get("rank", "凡品"), "data": item})
         return self.filter_by_rank_band(all_weapons)
 
+    # 百宝阁每次最多上架的珠宝条目数（模板池按品质随机后抽样）
+    JEWEL_SHELF_LIMIT = 8
+
+    def get_jewels_for_display(self, count: int) -> List[Dict]:
+        """百宝阁珠宝货架：按模板随机品质，返回可购买的珠宝条目。
+
+        珠宝不是无限库存的成品模板，而是每次刷新现滚品质：条目里携带完整
+        的 ``affixes``，购买时直接写入珠囊，不占储物戒格数。
+        """
+        from .jewel_manager import JewelManager
+
+        manager = JewelManager(None, self.config_manager)
+        templates = [t for t in manager.templates() if isinstance(t, dict) and t.get("name")]
+        if not templates:
+            return []
+        try:
+            requested = int(count or 0)
+        except (TypeError, ValueError):
+            requested = 0
+        limit = self.JEWEL_SHELF_LIMIT if requested <= 0 else min(self.JEWEL_SHELF_LIMIT, max(1, requested // 3 or 1))
+        picked = random.sample(templates, min(limit, len(templates)))
+        entries: List[Dict] = []
+        for template in picked:
+            jewel = manager.roll_jewel(template=template)
+            try:
+                price = int(jewel.get("price") or 0)
+            except (TypeError, ValueError):
+                price = 0
+            if price <= 0:
+                continue
+            entries.append({
+                "name": f"{jewel.get('name')}·{jewel.get('quality')}",
+                "type": "jewel",
+                "price": price,
+                "rank": jewel.get("rank", "黄品"),
+                "weight": 26,
+                "data": jewel,
+            })
+        return entries
+
     def get_all_items_for_display(self, count: int, apply_band_all: bool = False) -> List[Dict]:
         """获取所有物品用于百宝阁展示
 
@@ -1489,6 +1542,7 @@ class ShopManager:
         for pill in self.config_manager.utility_pills_data.values():
             if pill.get('price', 0) > 0:
                 all_items.append({'name': pill['name'], 'type': 'utility_pill', 'price': pill['price'], 'rank': pill.get('rank', '凡品'), 'data': pill})
+        all_items.extend(self.get_jewels_for_display(count))
         return self.filter_by_rank_band(all_items, all_types=apply_band_all)
 
     def get_treasure_items_for_display(self, count: int) -> List[Dict]:
@@ -1569,6 +1623,24 @@ class ShopManager:
                 'description': recipe.get('desc') or f"{recipe.get('category', '')}符箓，可绘制使用。",
             }
             return _wrap(data, '符箓')
+        # 珠宝：支持「破军晶」「破军晶·良好」两种查法（品质缺省时随机滚一次用于展示）
+        from .jewel_manager import JewelManager
+        jewel_manager = JewelManager(None, self.config_manager)
+        base_name, _, quality_suffix = name.rpartition("·")
+        if not base_name or quality_suffix not in jewel_manager.qualities():
+            base_name, quality_suffix = name, ""
+        template = jewel_manager.template_by_name(base_name)
+        if template:
+            jewel = jewel_manager.roll_jewel(
+                template=template, quality=quality_suffix or None
+            )
+            return {
+                'name': f"{jewel.get('name')}·{jewel.get('quality')}",
+                'type': 'jewel',
+                'price': int(jewel.get('price') or 0),
+                'rank': jewel.get('rank', '黄品'),
+                'data': jewel,
+            }
         return None
 
     def format_pavilion_display(self, pavilion_name: str, items: List[Dict], refresh_hours: int = 6, last_refresh: int = 0) -> str:
@@ -1713,7 +1785,7 @@ class ShopManager:
         detail_type = item.get("type") or data.get("type")
         if not detail_type:
             detail_type = "exp_pill" if "exp_gain" in data else "utility_pill" if "effect_type" in data else ""
-        if detail_type not in ("pill", "exp_pill", "utility_pill"):
+        if detail_type not in ("pill", "exp_pill", "utility_pill", "jewel"):
             detail_type = "符箓" if data.get("type") == "符箓" else ItemRules.normalize_shop_type(data)
         # 实例品质必须在第一次 get_item_details 前传进去：否则特殊效果会按
         # 「一般」缩放，而下方主属性却按实例品质缩放，同一件装备出现两套口径。
@@ -1900,6 +1972,23 @@ class ShopManager:
             category = data.get('package_category', '材料')
             tier = data.get('package_tier', '')
             details.append(f"开启：随机获得 1-3 个{tier}{category}材料")
+
+        elif item_type == 'jewel':
+            from .jewel_manager import JewelRules
+            category = str(data.get('category') or 'attack')
+            details.append(f"类别: {JewelRules.category_label(category)}珠宝")
+            affixes = [
+                JewelRules.format_affix(a.get('key', ''), a.get('value', 0), a.get('scale', ''))
+                for a in (data.get('affixes') or []) if isinstance(a, dict)
+            ]
+            details.append("词条: " + ("、".join(affixes) if affixes else "无"))
+            equip_hint = (
+                "武器 / 手套 / 戒指 / 护符 / 饰品"
+                if category == "attack" else "防具 / 头饰 / 甲胄 / 靴子"
+            )
+            details.append(f"可镶嵌: {equip_hint}")
+            details.append("拆卸费用: 一般 2000 / 良好 6000 / 极佳 15000 / 大师 40000 灵石")
+            details.append("获取: /切原石、百宝阁、黑市、拍卖会、世界Boss")
 
         elif item_type == 'recipe':
             # 丹方买的是「炼出来是什么」，不是「这是一张丹方」。

@@ -19,7 +19,7 @@ __all__ = ["MiscHandler"]
 class MiscHandler:
     """杂项指令处理器 - 提供帮助信息、一键日常与强制解卡"""
 
-    VERSION = HELP_VERSION  # v7.9.26：百宝阁效果取真实生效行（数据库 v62）
+    VERSION = HELP_VERSION  # v7.10.1：赌石价格上抬、假线索与开窗限制（数据库 v63）
 
     def __init__(self, db: DataBase, config: dict = None):
         self.db = db

@@ -21,12 +21,11 @@
       "count": 2
     },
     {
-      "category": "equipment",
-      "slot": "ring",
-      "rank": "灵品",
+      "category": "jewel",
+      "rank": "玄品",
       "tier": 3,
       "count": 1,
-      "quality_weights": {"一般": 45, "良好": 45, "极佳": 10, "大师": 0}
+      "quality_weights": {"一般": 40, "良好": 45, "极佳": 14, "大师": 1}
     },
     {
       "category": "equipment",

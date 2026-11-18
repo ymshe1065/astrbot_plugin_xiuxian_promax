@@ -17,7 +17,7 @@ from .handlers.utils import (
 )
 from .handlers import (
     MiscHandler, PlayerHandler, RecoveryHandler, EquipmentHandler, BreakthroughHandler,
-    PillHandler, ShopHandler, StorageRingHandler, WarehouseHandler,
+    PillHandler, ShopHandler, StorageRingHandler, WarehouseHandler, JewelHandler,
     SectHandlers, CombatHandlers, RankingHandlers,
     RiftHandlers, AdventureHandlers, AlchemyHandlers, ImpartHandlers,
     NicknameHandler, BankHandlers, BountyHandlers, ImpartPkHandlers,
@@ -233,6 +233,7 @@ class XiuXianPlugin(Star):
         
         from .core import StorageRingManager
         self.storage_ring_mgr = StorageRingManager(self.db, self.config_manager)
+        self.jewel_handler = JewelHandler(self.db, self.config_manager, self.storage_ring_mgr)
         
         self.combat_mgr = CombatManager()
         self.sect_mgr = SectManager(self.db, self.config_manager)
@@ -3131,10 +3132,18 @@ class XiuXianPlugin(Star):
             if tmsg:
                 yield event.plain_result(tmsg)
 
-    @filter.command("黑市", "查看当前小时黑市")
+    @filter.command("黑市", "黑市入口：商店 / 原石 / 切原石 / 开窗 / 购买")
     @require_whitelist
-    async def handle_market(self, event: AstrMessageEvent):
-        async for r in self.gamble_handlers.handle_market(event): yield r
+    async def handle_market(self, event: AstrMessageEvent, args: GreedyStr):
+        async for r in self.gamble_handlers.handle_market(event, args): yield r
+        if get_event_flag(event, "gamble_success", False):
+            tmsg = await self._title_bump(event.get_sender_id(), "gamble_count")
+            if tmsg:
+                yield event.plain_result(tmsg)
+        if get_event_flag(event, "blackmarket_success", False):
+            tmsg = await self._title_bump(event.get_sender_id(), "blackmarket_buy")
+            if tmsg:
+                yield event.plain_result(tmsg)
 
     @filter.command("黑市购买", "从黑市购买商品")
     @require_whitelist
@@ -3144,6 +3153,27 @@ class XiuXianPlugin(Star):
             tmsg = await self._title_bump(event.get_sender_id(), "blackmarket_buy")
             if tmsg:
                 yield event.plain_result(tmsg)
+
+    # ===== v6.3 珠宝体系 =====
+    @filter.command("珠宝", "查看珠囊、珠宝详情与装备孔位")
+    @require_whitelist
+    async def handle_jewel(self, event: AstrMessageEvent, args: GreedyStr):
+        async for r in self.jewel_handler.handle_jewel(event, args): yield r
+
+    @filter.command("镶嵌", "将珠宝镶嵌到装备孔位")
+    @require_whitelist
+    async def handle_socket_jewel(self, event: AstrMessageEvent, args: GreedyStr):
+        async for r in self.jewel_handler.handle_socket(event, args): yield r
+
+    @filter.command("拆卸", "从装备孔位拆下珠宝（消耗灵石）")
+    @require_whitelist
+    async def handle_unsocket_jewel(self, event: AstrMessageEvent, args: GreedyStr):
+        async for r in self.jewel_handler.handle_unsocket(event, args): yield r
+
+    @filter.command("扩孔", "消耗强化石为装备扩展孔位")
+    @require_whitelist
+    async def handle_expand_socket(self, event: AstrMessageEvent, args: GreedyStr):
+        async for r in self.jewel_handler.handle_expand(event, args): yield r
 
     # ===== v6.3 炼器与洗练 =====
     @filter.command("强化", "消耗强化石提升炼器等级")

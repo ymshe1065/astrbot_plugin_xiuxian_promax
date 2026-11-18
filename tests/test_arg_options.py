@@ -15,6 +15,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT.parent))
 PKG = ROOT.name
 
+from tests._astrbot_stub import install as _install_astrbot_stub  # noqa: E402
+
+_install_astrbot_stub()
+
 from importlib import import_module  # noqa: E402
 
 arg_options = import_module(f"{PKG}.webchat_room.arg_options")
@@ -453,6 +457,45 @@ class TestCraftArgOptions(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(data["options"], [])
         self.assertIn("不足", data["message"])
+
+
+class _MarketPlayer:
+    user_id = "web_market"
+    user_name = "坊市道友"
+
+
+class _MarketDB:
+    async def get_player_by_id(self, user_id):
+        return _MarketPlayer()
+
+
+class _MarketPlugin:
+    config = {}
+    db = _MarketDB()
+
+    def __init__(self):
+        self.config_manager = import_module(f"{PKG}.config_manager").ConfigManager(ROOT)
+
+
+class TestMarketArgOptions(unittest.IsolatedAsyncioTestCase):
+    async def test_count_field_defaults_to_one(self):
+        data = await arg_options.build_arg_options(
+            _MarketPlugin(), "web_market", "/坊市上架", ["玄铁"]
+        )
+        self.assertEqual(data["field"]["key"], "count")
+        self.assertTrue(data["field"]["optional"])
+        self.assertEqual(data["field"]["default"], "1")
+
+    async def test_price_offers_standard_value(self):
+        plugin = _MarketPlugin()
+        data = await arg_options.build_arg_options(
+            plugin, "web_market", "/坊市上架", ["玄铁", "1"]
+        )
+        self.assertEqual(data["field"]["key"], "price")
+        shop_manager = import_module(f"{PKG}.core.shop_manager").ShopManager({}, plugin.config_manager)
+        expected = int(shop_manager.find_item_by_name("玄铁")["price"])
+        self.assertEqual([opt["value"] for opt in data["options"]], [str(expected)])
+        self.assertIn("标准价值", data["options"][0]["label"])
 
 
 if __name__ == "__main__":

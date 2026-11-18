@@ -2,7 +2,8 @@
 import json
 import random
 import time
-from typing import Tuple
+from typing import List, Tuple
+from ..core.jewel_manager import JewelManager
 from ..data import DataBase
 from ..models import Player
 from ..rank_rules import RANK_NAMES, normalize_rank
@@ -35,10 +36,89 @@ class GambleManager:
         "凡品": ("切出了", "（碎石渣）"),
     }
 
+    # ===== 赌石市场：五档价位，线索真假混杂 =====
+    # 每档每小时只生成一颗，价格小幅浮动；隐藏结果预生成但不在列表中展示。
+    # 风险设计：价格整体上抬，低档不再稳定回本；空石率、假线索与开窗成本同步提高，
+    # 高档靠稀有法器与双珠宝拉开方差，绝大多数切割都是亏损。
+    STONE_TIER_CONFIG = (
+        {
+            "name": "碎玉原石", "price": 3600,
+            "desc": "石皮粗劣、灵气稀薄，只适合手痒时赌一刀。",
+            "risk": "低·试水",
+            "jewel_chance": 0.05, "gear_chance": 0.010,
+            "egg_chance": 0.0002, "empty_chance": 0.20,
+            "display_clues": 3, "true_clues": 1,
+            "bonus_jewel_chance": 0.0,
+            "saint_gear_share": 0.0,
+            "quality_weights": {"一般": 920, "良好": 75, "极佳": 5, "大师": 0},
+            "gear_quality_weights": {"一般": 85, "良好": 13, "极佳": 2, "大师": 0},
+        },
+        {
+            "name": "寻常原石", "price": 12000,
+            "desc": "市集常见货色，石皮真真假假，全凭眼力。",
+            "risk": "中",
+            "jewel_chance": 0.12, "gear_chance": 0.025,
+            "egg_chance": 0.0005, "empty_chance": 0.16,
+            "display_clues": 4, "true_clues": 1,
+            "bonus_jewel_chance": 0.0,
+            "saint_gear_share": 0.02,
+            "quality_weights": {"一般": 830, "良好": 145, "极佳": 24, "大师": 1},
+            "gear_quality_weights": {"一般": 70, "良好": 25, "极佳": 5, "大师": 0},
+        },
+        {
+            "name": "灵纹原石", "price": 32000,
+            "desc": "石皮有天然灵纹流转，但商贩最会在纹路上做手脚。",
+            "risk": "高",
+            "jewel_chance": 0.26, "gear_chance": 0.045,
+            "egg_chance": 0.001, "empty_chance": 0.12,
+            "display_clues": 5, "true_clues": 2,
+            "bonus_jewel_chance": 0.02,
+            "saint_gear_share": 0.06,
+            "quality_weights": {"一般": 680, "良好": 240, "极佳": 72, "大师": 8},
+            "gear_quality_weights": {"一般": 42, "良好": 40, "极佳": 15, "大师": 3},
+        },
+        {
+            "name": "秘境原石", "price": 72000,
+            "desc": "据传出自上古秘境矿脉，灵压沉厚，也最容易看走眼。",
+            "risk": "极高",
+            "jewel_chance": 0.44, "gear_chance": 0.075,
+            "egg_chance": 0.002, "empty_chance": 0.09,
+            "display_clues": 5, "true_clues": 2,
+            "bonus_jewel_chance": 0.06,
+            "saint_gear_share": 0.12,
+            "quality_weights": {"一般": 520, "良好": 300, "极佳": 145, "大师": 35},
+            "gear_quality_weights": {"一般": 18, "良好": 38, "极佳": 32, "大师": 12},
+        },
+        {
+            "name": "太古原石", "price": 150000,
+            "desc": "太古遗脉所结，石中或封着帝品珠玉，也可能只是一场空。",
+            "risk": "九死一生",
+            "jewel_chance": 0.62, "gear_chance": 0.110,
+            "egg_chance": 0.004, "empty_chance": 0.06,
+            "display_clues": 6, "true_clues": 3,
+            "bonus_jewel_chance": 0.14,
+            "saint_gear_share": 0.20,
+            "quality_weights": {"一般": 380, "良好": 320, "极佳": 220, "大师": 80},
+            "gear_quality_weights": {"一般": 6, "良好": 24, "极佳": 42, "大师": 28},
+        },
+    )
+    STONE_TIER_MATERIAL_TABLES = {
+        1: (("凡品", 6, 42), ("黄品", 4, 32), ("玄品", 2, 23), ("圣品", 1, 3)),
+        2: (("凡品", 8, 34), ("黄品", 6, 34), ("玄品", 3, 25), ("圣品", 1, 7)),
+        3: (("凡品", 6, 22), ("黄品", 10, 34), ("玄品", 6, 32), ("圣品", 2, 12)),
+        4: (("黄品", 8, 36), ("玄品", 10, 40), ("圣品", 4, 24)),
+        5: (("黄品", 6, 18), ("玄品", 12, 38), ("圣品", 8, 44)),
+    }
+    STONE_WINDOW_COST_RATE = 0.25
+    STONE_WINDOW_MAX = 1
+    STONE_STATE_KEY = "stone_market_state"
+    BLACK_MARKET_JEWEL_CHANCE = 0.08
+
     def __init__(self, db: DataBase, config_manager, storage_ring_mgr):
         self.db = db
         self.config_manager = config_manager
         self.storage_ring_mgr = storage_ring_mgr
+        self.jewel_manager = JewelManager(db, config_manager, storage_ring_mgr)
         self._stone_pools = None
 
     # ===== 掉落池：只收「能存进储物戒」的物品，避免切出后静默丢失 =====
@@ -100,9 +180,11 @@ class GambleManager:
                 return {"kind": "material", "rank": candidate, "name": rng.choice(pool), "qty": qty}
         return {"kind": "dust", "rank": rank, "name": None, "qty": 0}
 
-    def _roll_stone_gear(self, rng) -> dict:
+    def _roll_stone_gear(self, rng=None, saint_share: float = None) -> dict:
+        rng = rng or random
         _, gears = self._stone_pool_cache()
-        rank = "圣品" if rng.random() < self.STONE_SAINT_GEAR_SHARE else "玄品"
+        share = self.STONE_SAINT_GEAR_SHARE if saint_share is None else max(0.0, min(1.0, float(saint_share)))
+        rank = "圣品" if rng.random() < share else "玄品"
         for candidate in self._rank_fallback(rank):
             pool = gears.get(candidate)
             if pool:
@@ -134,17 +216,347 @@ class GambleManager:
             prefix, suffix = self.STONE_FLAVOR.get(rank, ("切出了", ""))
         return f"{prefix}【{name}】" + (f"x{qty}" if qty > 1 else "") + suffix
 
-    async def _award_loot(self, player: Player, loot: dict) -> str:
+    async def _award_loot(self, player: Player, loot: dict, quality: str = "") -> str:
         label = self._loot_label(loot)
         name = loot.get("name")
         if not name:
             return label
         success, reason = await self.storage_ring_mgr.store_item(
-            player, name, int(loot.get("qty") or 1), silent=True, external_transaction=True
+            player, name, int(loot.get("qty") or 1), silent=True,
+            external_transaction=True, quality=quality or loot.get("quality") or "",
         )
         if success:
             return label
         return f"{label}\n   ⚠️ 未能存入储物戒：{reason}"
+
+    # ===== 分档原石：候选、线索、开窗与切割 =====
+    @staticmethod
+    def _stone_hour_key() -> int:
+        return int(time.time()) // 3600
+
+    def _stone_state_key(self, user_id: str) -> str:
+        return f"{self.STONE_STATE_KEY}_{user_id}"
+
+    async def _get_stone_state(self, user_id: str) -> dict:
+        """读取本小时赌石状态；跨小时自动清空，不在系统配置里无限堆积。"""
+        hour = self._stone_hour_key()
+        try:
+            raw = await self.db.ext.get_system_config(self._stone_state_key(user_id))
+            data = json.loads(raw) if raw else {}
+        except Exception:
+            data = {}
+        if not isinstance(data, dict) or int(data.get("hour", -1) or -1) != hour:
+            data = {"hour": hour, "bought": [], "revealed": {}}
+        data["bought"] = [int(x) for x in (data.get("bought") or []) if str(x).lstrip("-").isdigit()]
+        if not isinstance(data.get("revealed"), dict):
+            data["revealed"] = {}
+        return data
+
+    async def _save_stone_state(self, user_id: str, state: dict) -> None:
+        await self.db.ext.set_system_config(
+            self._stone_state_key(user_id),
+            json.dumps(state, ensure_ascii=False),
+        )
+
+    def _stone_clue_pools(self, hidden: dict, tier_index: int, rng) -> Tuple[List[str], List[str]]:
+        """按隐藏结果生成真假线索池。
+
+        设计原则：真线索只给「倾向」，不直接报结果；假线索刻意模仿真线索的措辞，
+        让玩家无法靠单个关键词判断，只能结合多条线索与价位自行下注。
+        """
+        kind = str(hidden.get("kind") or "dust")
+        gear_quality = str((hidden.get("loot") or [{}])[0].get("quality") or "一般")
+        fake_quality = rng.choice(("一般", "良好", "极佳", "大师"))
+        fake_rank = rng.choice(("凡品", "黄品", "玄品", "圣品"))
+        if kind == "jewel":
+            gem = hidden.get("jewel") or {}
+            quality = str(gem.get("quality") or "一般")
+            true = [
+                "石皮薄处透出一线温润光晕，指尖能触到极细的玉脉。",
+                "石体比同体积的原石轻上三分，叩之声脆，余音发甜。",
+                "裂缝深处凝着一层不散的脂光，像是被什么温养过。",
+                "石心有一处细小空腔，灵识探入时被柔和的阻力弹回。",
+                f"断口处的灵韵偏「{quality}」品，但石皮太厚，看不真切。",
+            ]
+        elif kind == "gear":
+            true = [
+                "敲击时石心传来一声极短的金铁回响，随后又归于沉闷。",
+                "石皮上有一道笔直的暗纹，轮廓像某种器物的边。",
+                "灵识探到一处棱角分明的硬物，不像天然石核。",
+                f"石心透出的锋锐灵压约为「{gear_quality}」品，若有若无。",
+                "这块石料沉得反常，像是裹着一层未化开的精铁。",
+            ]
+        elif kind == "egg":
+            true = [
+                "石心有一点温热，像被什么符箓压着。",
+                "缝隙里偶尔闪过一缕极淡的金光，转瞬即逝。",
+                "夜里贴近耳边，能听到极轻的震颤声。",
+                "石皮内侧有一圈细密的符纹，不像天然生成。",
+            ]
+        elif kind == "material":
+            rank = str((hidden.get("loot") or [{}])[0].get("rank") or "凡品")
+            true = [
+                f"矿脉走线整齐，品阶大致在「{rank}」上下。",
+                "石体沉重，断口泛着细碎而稳定的矿光。",
+                "灵气不浓，却很绵长，像一整块未经提炼的矿料。",
+                "石皮上有一层自然沉积的矿壳，不是人为做旧。",
+                "敲击声厚实，回音里带着砂砾般的粗粝感。",
+            ]
+        else:
+            true = [
+                "敲击声发闷，回音散得很快，石心没有明显空腔。",
+                "石皮裂纹里的灵气已经散尽，断口只剩灰白石质。",
+                "灵识探进去几乎没有阻碍，里面是空荡荡的一片。",
+                "石体重量正常，却沉得没有一丝灵性。",
+            ]
+
+        false = [
+            "石皮薄处透出一线温润光晕，也可能只是灵砂反光。",
+            "叩之声脆，但脆声未必来自珠玉，也可能是中空裂层。",
+            "石心传来极短的金铁回响，兴许只是伴生矿。",
+            "断口泛着细碎矿光，看着像有货，也可能只是石屑。",
+            "石体轻得反常，商贩说是老坑料，谁知道呢。",
+            "有一道笔直的暗纹，像是人为封痕，也可能只是石脉。",
+            "缝隙里闪过一缕金光，转瞬即逝，再看就没了。",
+            "石心有一点温热，摸着却像刚被人捂过。",
+            "矿脉走线整齐，可惜表层灵气驳杂，做不得准。",
+            "敲击声发闷，但老坑石常有这种闷响，未必是空石。",
+            "商贩拍着胸口保证这是秘境老料，眼神却有些飘。",
+            "石皮上的灵纹太规整，像是后天描上去的。",
+            f"灵识里晃过一丝「{fake_quality}」品灵韵，细探又散了。",
+            f"断口看着像「{fake_rank}」矿料，表层却被人抹过灵砂。",
+            "石心似乎有一处空腔，敲起来却又不像中空。",
+            "这块石头被反复转手，灵气驳杂，什么可能都有。",
+        ]
+        # 高档原石也会故意给出“像空石”“像废料”的真线索，不能只靠价位判断。
+        if tier_index >= 4:
+            if kind in ("jewel", "gear", "egg"):
+                true.append("石皮最不起眼的那道暗纹下，反而藏着最浓的灵机。")
+            else:
+                true.append("石皮上的灵纹亮得刺眼，反而像是诱人下刀的幌子。")
+        return true, false
+
+    def _roll_tier_jewel(self, cfg: dict, rng) -> dict:
+        category = rng.choice(("attack", "defense"))
+        pool = [
+            t for t in self.jewel_manager.templates()
+            if str(t.get("category") or "attack") == category
+        ] or self.jewel_manager.templates()
+        return self.jewel_manager.roll_jewel(
+            template=rng.choice(pool),
+            quality_weights=cfg["quality_weights"],
+            rng=rng,
+        )
+
+    def _roll_tier_loot(self, tier_index: int, rng) -> dict:
+        cfg = self.STONE_TIER_CONFIG[tier_index - 1]
+        roll = rng.random()
+        jewel_end = float(cfg["jewel_chance"])
+        gear_end = jewel_end + float(cfg["gear_chance"])
+        egg_end = gear_end + float(cfg["egg_chance"])
+        empty_end = egg_end + float(cfg["empty_chance"])
+        if roll < jewel_end:
+            gem = self._roll_tier_jewel(cfg, rng)
+            loot = [{
+                "kind": "jewel", "name": gem["name"], "rank": gem["rank"],
+                "qty": 1, "jewel": gem,
+            }]
+            # 高档原石可能一刀开出双珠，这是高价石唯一值得赌的念想。
+            if rng.random() < float(cfg.get("bonus_jewel_chance", 0) or 0):
+                extra = self._roll_tier_jewel(cfg, rng)
+                loot.append({
+                    "kind": "jewel", "name": extra["name"], "rank": extra["rank"],
+                    "qty": 1, "jewel": extra,
+                })
+            return {"kind": "jewel", "jewel": gem, "loot": loot}
+        if roll < gear_end:
+            gear = self._roll_stone_gear(rng, cfg.get("saint_gear_share"))
+            qualities = list(cfg["gear_quality_weights"])
+            weights = [max(0, int(cfg["gear_quality_weights"][q])) for q in qualities]
+            gear["quality"] = rng.choices(qualities, weights=weights, k=1)[0]
+            return {"kind": "gear", "loot": [gear]}
+        if roll < egg_end:
+            return {"kind": "egg", "loot": [{"kind": "egg", "rank": "", "name": "护府令", "qty": 3}]}
+        if roll < empty_end:
+            return {"kind": "dust", "loot": [{"kind": "dust", "rank": "", "name": None, "qty": 0}]}
+        table = self.STONE_TIER_MATERIAL_TABLES[tier_index]
+        categories = ("矿材",) if rng.random() < self.STONE_ORE_SHARE else ("妖兽", "灵植", "灵液")
+        loot = [self._roll_stone_material(table, categories, rng)]
+        # 高档石出材料时多给一份，避免高价位切开只得到一堆碎矿。
+        if tier_index >= 3 and rng.random() < 0.35:
+            loot.append(self._roll_stone_material(table, categories, rng))
+        return {"kind": "material", "loot": loot}
+
+    def _get_stone_candidates(self, user_id: str) -> List[dict]:
+        """每小时每名玩家固定生成五档候选，结果与线索都由种子稳定复现。"""
+        hour = self._stone_hour_key()
+        candidates = []
+        for index, cfg in enumerate(self.STONE_TIER_CONFIG, 1):
+            market_rng = random.Random(f"stone-market:{hour}:{user_id}:{index}")
+            price = max(1, int(round(cfg["price"] * (1 + market_rng.uniform(-0.08, 0.08)))))
+            hidden_rng = random.Random(f"stone-hidden:{hour}:{user_id}:{index}")
+            hidden = self._roll_tier_loot(index, hidden_rng)
+            true_clues, false_clues = self._stone_clue_pools(hidden, index, market_rng)
+            true_count = max(0, min(int(cfg["true_clues"]), len(true_clues)))
+            false_count = max(0, int(cfg["display_clues"]) - true_count)
+            shown_true = market_rng.sample(true_clues, true_count) if true_count else []
+            shown_false = market_rng.sample(false_clues, min(false_count, len(false_clues)))
+            clues = [{"text": text, "true": True} for text in shown_true]
+            clues += [{"text": text, "true": False} for text in shown_false]
+            market_rng.shuffle(clues)
+            extra_true = [text for text in true_clues if text not in shown_true]
+            candidates.append({
+                "index": index,
+                "name": cfg["name"],
+                "price": price,
+                "desc": cfg["desc"],
+                "risk": cfg.get("risk", "未知"),
+                "clues": clues,
+                "extra_true": extra_true,
+                "hidden": hidden,
+            })
+        return candidates
+
+    async def get_stone_market(self, user_id: str) -> Tuple[bool, str]:
+        """`/黑市 原石`：展示本小时五档原石与真假线索。"""
+        candidates = self._get_stone_candidates(user_id)
+        state = await self._get_stone_state(user_id)
+        bought = set(state.get("bought") or [])
+        revealed_map = state.get("revealed") or {}
+        lines = ["🕶️ 黑市 · 赌石原石（每小时刷新）", "━━━━━━━━━━━━━━━"]
+        for item in candidates:
+            index = item["index"]
+            status = " ❌已售出" if index in bought else ""
+            lines.append(
+                f"[{index}] {item['name']} - {item['price']:,} 灵石"
+                f"（风险：{item['risk']}）{status}"
+            )
+            lines.append(f"    {item['desc']}")
+            for clue in item["clues"]:
+                lines.append(f"    🔍 {clue['text']}")
+            for text in revealed_map.get(str(index)) or []:
+                lines.append(f"    🔎 已开窗真线索：{text}")
+        remaining = 3600 - (int(time.time()) % 3600)
+        lines.append("━━━━━━━━━━━━━━━")
+        lines.append(f"⏳ 下次刷新：{remaining // 60} 分 {remaining % 60} 秒后")
+        lines.append("💡 `/黑市 切原石 <编号>` 切割｜`/黑市 开窗 <编号>` 付费揭示一条真线索")
+        lines.append("⚠️ 赌石十切九空：线索真假混杂，每块原石只能开窗一次，切垮自负。")
+        return True, "\n".join(lines)
+
+    async def open_stone_window(self, player: Player, index: int) -> Tuple[bool, str]:
+        """付费开窗：额外揭示一条隐藏的真线索。"""
+        candidates = self._get_stone_candidates(player.user_id)
+        if index < 1 or index > len(candidates):
+            return False, "❌ 无效的原石编号，请使用 `/黑市 原石` 查看。"
+        state = await self._get_stone_state(player.user_id)
+        if index in set(state.get("bought") or []):
+            return False, "❌ 这块原石已经被你切开了。"
+        candidate = candidates[index - 1]
+        revealed_map = state.setdefault("revealed", {})
+        shown = list(revealed_map.get(str(index)) or [])
+        if len(shown) >= self.STONE_WINDOW_MAX:
+            return False, "❌ 这块原石已经开过窗了，赌石没有第二次机会。"
+        available = [text for text in candidate["extra_true"] if text not in shown]
+        if not available:
+            return False, "❌ 这块原石石皮太死，老师傅也找不出更多真线索。"
+        cost = max(100, int(candidate["price"] * self.STONE_WINDOW_COST_RATE))
+        if player.gold < cost:
+            return False, f"❌ 开窗需要 {cost:,} 灵石，你当前只有 {player.gold:,}。"
+
+        await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            fresh = await self.db.get_player_by_id(player.user_id)
+            if not fresh:
+                await self.db.conn.rollback()
+                return False, "❌ 角色数据异常，请重新踏入仙途。"
+            player.gold = fresh.gold
+            cursor = await self.db.conn.execute(
+                "UPDATE players SET gold = gold - ? WHERE user_id = ? AND gold >= ?",
+                (cost, player.user_id, cost),
+            )
+            if not cursor.rowcount:
+                await self.db.conn.rollback()
+                return False, f"❌ 开窗需要 {cost:,} 灵石，你当前只有 {fresh.gold:,}。"
+            player.gold -= cost
+            await self.db.conn.commit()
+        except Exception:
+            await self.db.conn.rollback()
+            raise
+
+        clue = available[0]
+        shown.append(clue)
+        revealed_map[str(index)] = shown
+        await self._save_stone_state(player.user_id, state)
+        return True, (
+            f"🔎 你花费 {cost:,} 灵石，请老师傅在【{candidate['name']}】上开了一扇小窗。\n"
+            f"真线索：{clue}\n"
+            f"⚠️ 开窗只有一次，剩下的只能靠你自己判断。\n"
+            f"💰 剩余灵石：{player.gold:,}"
+        )
+
+    async def _award_tier_loot(self, player: Player, hidden: dict) -> str:
+        labels = []
+        for loot in hidden.get("loot") or []:
+            if loot.get("kind") == "jewel" and isinstance(loot.get("jewel"), dict):
+                gem = self.jewel_manager.add_jewel(player, loot["jewel"])
+                labels.append(
+                    f"💎 切出了【{gem.get('name')}·{gem.get('quality')}】！\n"
+                    f"   词条：{self.jewel_manager.describe_jewel(gem)}"
+                )
+            else:
+                labels.append(await self._award_loot(player, loot, loot.get("quality") or ""))
+        if not labels:
+            return "💀 石皮崩开，里面只有一团死气沉沉的废料——这刀切垮了。"
+        if hidden.get("kind") == "dust":
+            return "💀 石皮崩开，里面只有一团死气沉沉的废料——这刀切垮了。"
+        return "\n".join(labels)
+
+    async def cut_tier_stone(self, player: Player, index: int) -> Tuple[bool, str]:
+        """按档位切割本小时的一颗原石（每个档位每小时限切一次）。"""
+        candidates = self._get_stone_candidates(player.user_id)
+        if index < 1 or index > len(candidates):
+            return False, "❌ 无效的原石编号，请使用 `/黑市 原石` 查看。"
+        state = await self._get_stone_state(player.user_id)
+        if index in set(state.get("bought") or []):
+            return False, "❌ 这块原石本小时已经被你切开了，请等待下次刷新。"
+        candidate = candidates[index - 1]
+        price = int(candidate["price"])
+        if player.gold < price:
+            return False, f"❌ 灵石不足！切割【{candidate['name']}】需要 {price:,} 灵石。"
+
+        await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            fresh = await self.db.get_player_by_id(player.user_id)
+            if not fresh:
+                await self.db.conn.rollback()
+                return False, "❌ 角色数据异常，请重新踏入仙途。"
+            player.gold = fresh.gold
+            cursor = await self.db.conn.execute(
+                "UPDATE players SET gold = gold - ? WHERE user_id = ? AND gold >= ?",
+                (price, player.user_id, price),
+            )
+            if not cursor.rowcount:
+                await self.db.conn.rollback()
+                return False, (
+                    f"❌ 灵石不足！切割【{candidate['name']}】需要 {price:,} 灵石，"
+                    f"你当前只有 {fresh.gold:,}。"
+                )
+            player.gold -= price
+            result = await self._award_tier_loot(player, candidate["hidden"])
+            await self.db.update_player(player, commit=False)
+            await self.db.conn.commit()
+        except Exception:
+            await self.db.conn.rollback()
+            raise
+
+        state.setdefault("bought", []).append(index)
+        await self._save_stone_state(player.user_id, state)
+        return True, (
+            f"⛏️ 你花费 {price:,} 灵石，切开了【{candidate['name']}】"
+            f"（风险：{candidate['risk']}）：\n"
+            f"━━━━━━━━━━━━━━━\n{result}\n━━━━━━━━━━━━━━━\n"
+            f"💰 剩余灵石：{player.gold:,}"
+        )
 
     async def cut_stone(self, player: Player, count: int) -> Tuple[bool, str]:
         """切原石"""
@@ -347,6 +759,33 @@ class GambleManager:
             if ItemRules.normalize_equipment_type(data) in ItemRules.GEAR_TYPES:
                 item["quality"] = rng.choices(quality_names, weights=quality_weights, k=1)[0]
                 item["desc"] = self._black_market_effect(data, item["quality"])
+
+        # 黑市小概率混入一件珠宝：用替补而不是加第四件，保持「每小时三件」的节奏。
+        if items and rng.random() < self.BLACK_MARKET_JEWEL_CHANCE:
+            gem = self.jewel_manager.roll_jewel(
+                quality_weights={"一般": 40, "良好": 40, "极佳": 17, "大师": 3},
+                rng=rng,
+            )
+            base_price = max(1, int(gem.get("price") or 1))
+            premium = 1.9 + self._rank_index(gem.get("rank", "")) * 0.18 + rng.uniform(0.0, 0.5)
+            price = max(1, int(base_price * premium))
+            affix_text = self.jewel_manager.describe_jewel(gem)
+            idx = rng.randrange(len(items))
+            items[idx] = {
+                "name": gem["name"],
+                "price": price,
+                "fake": False,
+                "rank": gem.get("rank", "黄品"),
+                "type": "珠宝",
+                "quality": gem.get("quality", "一般"),
+                "desc": f"珠宝（{gem.get('category') == 'attack' and '攻击' or '防御'}）：{affix_text}",
+                "jewel": gem,
+                "data": {
+                    "name": gem["name"], "type": "jewel", "price": base_price,
+                    "rank": gem.get("rank", "黄品"),
+                    "description": gem.get("description", ""),
+                },
+            }
 
         next_refresh = (hour_key + 1) * 3600
         return items, next_refresh
@@ -552,6 +991,25 @@ class GambleManager:
                 return False, (
                     f"❌ 灵石不足！需要 {price:,} 灵石，"
                     f"你当前只有 {have:,}。"
+                )
+
+            if target.get("jewel"):
+                # 珠宝进入独立珠囊，不占储物戒格数；与扣款同事务落库。
+                fresh = await self.db.get_player_by_id(player.user_id)
+                if not fresh:
+                    await self.db.conn.rollback()
+                    return False, "❌ 角色数据异常，本次交易已取消。"
+                gem = self.jewel_manager.add_jewel(fresh, dict(target["jewel"]))
+                await self.db.update_player(fresh, commit=False)
+                await self.db.conn.commit()
+                player.gold = fresh.gold
+                player.set_jewel_inventory(fresh.get_jewel_inventory())
+                await self._mark_black_market_bought(player.user_id, index)
+                return True, (
+                    f"✅ 交易成功！你获得了珠宝【{gem.get('name')}·{gem.get('quality')}】，"
+                    f"已放入珠囊（#{gem.get('id')}）。\n"
+                    f"词条：{self.jewel_manager.describe_jewel(gem)}\n"
+                    f"消耗灵石：{price:,}"
                 )
 
             if is_pill:

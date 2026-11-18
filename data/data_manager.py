@@ -180,10 +180,11 @@ class DataBase:
                 active_pill_effects, permanent_pill_gains, has_resurrection_pill, resurrection_pill_quality,
                 has_debuff_shield, pills_inventory, learned_recipes,
                 storage_ring, storage_ring_items, overflow_items, equipment_instances, equipped_instances,
+                jewel_inventory,
                 daily_pill_usage, last_daily_reset, shield_start_time, shield_expire_time,
                 tutorial_step, reincarnation_count, fate_points, permanent_bonus, luck,
                 talisman_exp, talisman_recipes, warehouse_level, warehouse_items
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 player.user_id,
@@ -235,6 +236,7 @@ class DataBase:
                 getattr(player, "overflow_items", "{}"),
                 getattr(player, "equipment_instances", "[]"),
                 getattr(player, "equipped_instances", "{}"),
+                getattr(player, "jewel_inventory", "[]"),
                 player.daily_pill_usage,
                 player.last_daily_reset,
                 player.shield_start_time,
@@ -329,6 +331,7 @@ class DataBase:
                 overflow_items = ?,
                 equipment_instances = ?,
                 equipped_instances = ?,
+                jewel_inventory = ?,
                 daily_pill_usage = ?,
                 last_daily_reset = ?,
                 shield_start_time = ?,
@@ -399,6 +402,7 @@ class DataBase:
                 getattr(player, "overflow_items", "{}"),
                 getattr(player, "equipment_instances", "[]"),
                 getattr(player, "equipped_instances", "{}"),
+                getattr(player, "jewel_inventory", "[]"),
                 player.daily_pill_usage,
                 player.last_daily_reset,
                 player.shield_start_time,

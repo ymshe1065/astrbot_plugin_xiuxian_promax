@@ -10,6 +10,7 @@ from .pill_handler import PillHandler
 from .shop_handler import ShopHandler
 from .storage_ring_handler import StorageRingHandler
 from .warehouse_handler import WarehouseHandler
+from .jewel_handler import JewelHandler
 
 # 宗门与战斗
 from .sect_handlers import SectHandlers
@@ -65,7 +66,7 @@ from .weekly_boss_handlers import WeeklyBossHandlers
 
 __all__ = [
     "PlayerHandler", "RecoveryHandler", "MiscHandler", "EquipmentHandler", "BreakthroughHandler",
-    "PillHandler", "ShopHandler", "StorageRingHandler", "WarehouseHandler", "SectHandlers", 
+    "PillHandler", "ShopHandler", "StorageRingHandler", "WarehouseHandler", "JewelHandler", "SectHandlers",
     "CombatHandlers", "RankingHandlers", "RiftHandlers", 
     "AdventureHandlers", "AlchemyHandlers", "ImpartHandlers", "NicknameHandler", 
     "BankHandlers", "BountyHandlers", "ImpartPkHandlers", "BlessedLandHandlers", 

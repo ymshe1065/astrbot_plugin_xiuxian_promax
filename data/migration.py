@@ -10,7 +10,7 @@ from astrbot.api import logger
 if TYPE_CHECKING:
     from ..config_manager import ConfigManager
 
-LATEST_DB_VERSION = 62  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求；v49: 统一物品品阶名称；v50: 仙市投资系统（基金/股票）；v51: 符箓熟练度与符图习得；v52: 仙市 v6（16 盘 + 赌场级波动 + 不对称日熔断）；v53: 拍卖会未开拍拍品按固定品阶曲线重建（并兼容分叉旧库补授符图）；v54: 灵田肥力上限按等级分级（旧值按百分比换算）；v55: 生活职业更换费用峰值与时间衰减；v56: 误存进储物戒/溢出仓库的丹药迁回丹药背包；v57: 旧50/50装备改名迁移到混合倾向新装备；v58: 周常 Boss（周本）周期/队伍/成员/领奖/周榜/次数表；v59: 仙市分红/风声唯一索引（结算幂等，先去重再建索引）；v60: 功德机制重做，清空全服既有功德（业力）；v61: 秘境难度分级（rift_key/product/difficulty/duration）；v62: 活动状态位按槽位多行（本体 + 身外化身）
+LATEST_DB_VERSION = 63  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求；v49: 统一物品品阶名称；v50: 仙市投资系统（基金/股票）；v51: 符箓熟练度与符图习得；v52: 仙市 v6（16 盘 + 赌场级波动 + 不对称日熔断）；v53: 拍卖会未开拍拍品按固定品阶曲线重建（并兼容分叉旧库补授符图）；v54: 灵田肥力上限按等级分级（旧值按百分比换算）；v55: 生活职业更换费用峰值与时间衰减；v56: 误存进储物戒/溢出仓库的丹药迁回丹药背包；v57: 旧50/50装备改名迁移到混合倾向新装备；v58: 周常 Boss（周本）周期/队伍/成员/领奖/周榜/次数表；v59: 仙市分红/风声唯一索引（结算幂等，先去重再建索引）；v60: 功德机制重做，清空全服既有功德（业力）；v61: 秘境难度分级（rift_key/product/difficulty/duration）；v62: 活动状态位按槽位多行（本体 + 身外化身）；v63: 珠宝体系（珠囊字段 jewel_inventory）
 
 MIGRATION_TASKS: Dict[int, Callable[[aiosqlite.Connection, ConfigManager], Awaitable[None]]] = {}
 
@@ -471,6 +471,7 @@ async def _ensure_latest_columns(conn: aiosqlite.Connection):
     # 洞天仓库（藏宝阁）：等级 0 表示未开通；物品挂玩家身上，进阶洞天不会丢
     await _add_column_if_missing(conn, "players", "warehouse_level", "INTEGER NOT NULL DEFAULT 0")
     await _add_column_if_missing(conn, "players", "warehouse_items", "TEXT NOT NULL DEFAULT '{}'")
+    await _add_column_if_missing(conn, "players", "jewel_inventory", "TEXT NOT NULL DEFAULT '[]'")
     await _add_column_if_missing(conn, "boss", "archetype", "TEXT NOT NULL DEFAULT 'balanced'")
     await _ensure_rift_difficulty_v61(conn)
     await _ensure_trade_v39(conn)
@@ -768,6 +769,7 @@ async def _create_all_tables_v2(conn: aiosqlite.Connection):
             storage_ring_items TEXT NOT NULL DEFAULT '{}',
             warehouse_level INTEGER NOT NULL DEFAULT 0,
             warehouse_items TEXT NOT NULL DEFAULT '{}',
+            jewel_inventory TEXT NOT NULL DEFAULT '[]',
             
             daily_pill_usage TEXT NOT NULL DEFAULT '{}',
             last_daily_reset TEXT NOT NULL DEFAULT '',
@@ -2675,3 +2677,11 @@ async def _migrate_to_v62(conn: aiosqlite.Connection, config_manager: ConfigMana
     await _ensure_user_cd_slots_v62(conn)
     await conn.commit()
     logger.info("v62迁移完成：user_cd 已支持多槽位（本体 + 身外化身）")
+
+
+@migration(63)
+async def _migrate_to_v63(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """v63：新增珠宝体系，玩家珠囊使用独立 JSON 字段。"""
+    logger.info("开始迁移到 v63：新增珠宝珠囊字段")
+    await _add_column_if_missing(conn, "players", "jewel_inventory", "TEXT NOT NULL DEFAULT '[]'")
+    logger.info("v63迁移完成：players.jewel_inventory 已就绪")

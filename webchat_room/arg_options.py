@@ -138,14 +138,29 @@ FIELD_PLANS: Dict[str, List[dict[str, Any]]] = {
     # ---- 坊市 / 黑市 ----
     "坊市上架": [
         _f("item", "选择要上架的物品", "recycle_items"),
-        _f("count", "上架数量（默认 1）", ""),
-        _f("price", "单价（灵石）", ""),
+        _f("count", "上架数量（留空 = 1）", "", optional=True, default="1"),
+        _f("price", "单价（灵石，可选标准价值）", "market_standard_price"),
     ],
     "坊市下架": [_f("id", "选择要下架的商品", "my_listings")],
     "坊市购买": [_f("id", "选择要购买的商品", "market_listings")],
     "坊市卖出": [_f("id", "选择要接受的问价", "market_offers", allow_all=True)],
     "坊市等待": [_f("id", "选择要放弃的问价", "market_offers")],
     "黑市购买": [_f("id", "选择黑市商品", "black_market")],
+    "黑市": [
+        _f("sub", "选择黑市功能", "black_market_subs"),
+        _f("index", "编号（商店购买/切原石/开窗时填写）", "", optional=True),
+    ],
+    # ---- 珠宝 ----
+    "珠宝": [_f("detail", "查看珠宝详情（可选）", "jewel_details", optional=True)],
+    "镶嵌": [
+        _f("jewel", "选择要镶嵌的珠宝", "jewel_inventory"),
+        _f("target", "选择目标装备", "socket_targets"),
+    ],
+    "拆卸": [
+        _f("target", "选择要拆卸的装备", "socket_targets"),
+        _f("slot", "选择要拆下的孔位", "socket_slots"),
+    ],
+    "扩孔": [_f("target", "选择要扩孔的装备", "socket_targets")],
     # ---- 秘境 / 历练 / 悬赏 / 灵眼 ----
     "探索秘境": [_f("id", "选择秘境", "rift_ids")],
     "开始历练": [_f("route", "选择历练路线", "adventure_routes")],
@@ -523,6 +538,83 @@ async def _src_recycle_items(plugin: "XiuXianPlugin", player: Any, field: dict, 
     if not options:
         return [], "储物戒和丹药背包里都没有可回收的物品"
     return options, ""
+
+
+def _listing_item_meta(plugin: "XiuXianPlugin", player: Any, raw_name: str) -> tuple:
+    """拆出上架物品的基名、品质与词条，供标准价值估算使用。"""
+    raw = str(raw_name or "").strip()
+    if not raw:
+        return "", "", []
+    name, quality, affixes = raw, "", []
+    pm = None
+    try:
+        pills = getattr(plugin, "pill_handler", None)
+        pm = pills.pill_manager if pills is not None else None
+    except Exception:
+        pm = None
+    base_name, embedded_quality = pm.split_pill_key(name) if pm else (name.split("|", 1)[0], "")
+    if pm and pm.get_pill_by_name(base_name):
+        return base_name, (embedded_quality if "|" in name else ""), []
+    try:
+        from ..core.item_rules import ItemRules
+
+        im = plugin.equipment_handler.equipment_manager.instance_manager
+        if im.item_type(name) in ItemRules.GEAR_TYPES:
+            insts = im.list_instances(player, "storage", name)
+            if insts:
+                inst = sorted(insts, key=lambda x: int(x.get("id", 0) or 0))[0]
+                quality = str(inst.get("quality") or "")
+                affixes = list(inst.get("affixes") or [])
+    except Exception:
+        pass
+    return name, quality, affixes
+
+
+def _listing_standard_price(plugin: "XiuXianPlugin", player: Any, raw_name: str) -> int:
+    """按物品信息里的配置价估算单价：品质与词条加成与统一估值口径一致。"""
+    name, quality, affixes = _listing_item_meta(plugin, player, raw_name)
+    if not name:
+        return 0
+    config_manager = getattr(plugin, "config_manager", None)
+    if config_manager is None:
+        storage = getattr(plugin, "storage_ring_mgr", None)
+        config_manager = getattr(storage, "config_manager", None)
+    if config_manager is None:
+        return 0
+    try:
+        from ..core.item_valuation import affix_price_multiplier, quality_price_multiplier
+        from ..core.shop_manager import ShopManager
+
+        found = ShopManager(getattr(plugin, "config", {}) or {}, config_manager).find_item_by_name(name)
+        if not found:
+            return 0
+        base = int(found.get("price") or 0)
+        if base <= 0:
+            return 0
+        value = base * quality_price_multiplier(quality or "一般") * affix_price_multiplier(affixes)
+        return max(1, int(round(value)))
+    except Exception:
+        return 0
+
+
+async def _src_market_standard_price(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    """坊市定价参考：直接把所选物品的标准价值填进单价。"""
+    if not player:
+        return [], "尚未创建角色"
+    item_name = str(values[0]).strip() if values else ""
+    if not item_name:
+        return [], "请先选择要上架的物品"
+    price = _listing_standard_price(plugin, player, item_name)
+    if price <= 0:
+        return [], "未找到该物品的标准价值，请手动输入单价"
+    return [
+        _opt(
+            f"标准价值：{price:,} 灵石",
+            str(price),
+            "按物品信息中的标准价值定价",
+            "定价参考",
+        )
+    ], ""
 
 
 async def _src_gift_items(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
@@ -964,6 +1056,118 @@ async def _src_black_market(plugin: "XiuXianPlugin", player: Any, field: dict, v
         pass
     if not options:
         return [], "黑市暂时没有商品"
+    return options, ""
+
+
+async def _src_black_market_subs(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    return [
+        _opt("商店", "商店", "查看本小时黑市货架", "黑市"),
+        _opt("原石", "原石", "查看五档赌石与真假线索", "黑市"),
+        _opt("切原石", "切原石", "切开本小时指定档位原石", "黑市"),
+        _opt("开窗", "开窗", "付费揭示一条真线索（每块仅一次）", "黑市"),
+        _opt("购买", "购买", "购买黑市商店指定商品", "黑市"),
+    ], ""
+
+
+def _jewel_manager(plugin: "XiuXianPlugin"):
+    from ..core.jewel_manager import JewelManager
+
+    return JewelManager(None, getattr(plugin, "config_manager", None))
+
+
+async def _src_jewel_inventory(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    if not player:
+        return [], "尚未创建角色"
+    manager = _jewel_manager(plugin)
+    options: List[dict[str, str]] = []
+    for gem in sorted(
+        manager.get_inventory(player), key=lambda x: int(x.get("id", 0) or 0)
+    ):
+        category = "攻击" if gem.get("category") == "attack" else "防御"
+        options.append(_opt(
+            f"#{gem.get('id')} {gem.get('name')}·{gem.get('quality')}",
+            gem.get("id"),
+            f"{category}珠宝 · {manager.describe_jewel(gem)}",
+            "珠囊",
+        ))
+    if not options:
+        return [], "珠囊空空如也，先去切原石或百宝阁看看吧"
+    return options, ""
+
+
+async def _src_jewel_details(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    options, message = await _src_jewel_inventory(plugin, player, field, values)
+    for index, option in enumerate(options):
+        gem_id = option["value"]
+        options[index] = {
+            **option,
+            "label": f"详情 {gem_id}｜{option['label']}",
+            "value": f"详情 {gem_id}",
+        }
+    return options, message
+
+
+def _gear_type_of(instance: dict) -> str:
+    from ..core.item_rules import ItemRules
+
+    return ItemRules.normalize_equipment_type(instance)
+
+
+async def _src_socket_targets(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    if not player:
+        return [], "尚未创建角色"
+    from ..core.item_rules import ItemRules
+    from ..core.jewel_manager import JewelRules
+
+    manager = _jewel_manager(plugin)
+    options: List[dict[str, str]] = []
+    for inst in player.get_equipment_instances():
+        if not isinstance(inst, dict):
+            continue
+        if _gear_type_of(inst) not in ItemRules.GEAR_TYPES:
+            continue
+        category = manager.instance_category(inst)
+        if not category:
+            continue
+        sockets = manager.sockets_of(inst)
+        capacity = JewelRules.socket_capacity(inst)
+        options.append(_opt(
+            f"#{inst.get('id')} {inst.get('name')}·{inst.get('quality', '一般')}",
+            inst.get("id"),
+            f"{'攻击' if category == 'attack' else '防御'}装备 · 孔位 {len(sockets)}/{capacity}",
+            "装备",
+        ))
+    if not options:
+        return [], "没有可镶嵌的装备"
+    return options, ""
+
+
+async def _src_socket_slots(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    if not player or not values:
+        return [], "请先选择要拆卸的装备"
+
+    selector = str(values[-1]).strip().lstrip("#")
+    manager = _jewel_manager(plugin)
+    instances = [x for x in player.get_equipment_instances() if isinstance(x, dict)]
+    target = next(
+        (x for x in instances if str(x.get("id")) == selector), None
+    )
+    if not target:
+        matched = [x for x in instances if str(x.get("name") or "") == selector]
+        target = matched[0] if len(matched) == 1 else None
+    if not target:
+        return [], "未找到该装备"
+    sockets = manager.sockets_of(target)
+    if not sockets:
+        return [], "该装备没有已镶嵌的珠宝"
+    options = []
+    for index, gem in enumerate(sockets, 1):
+        options.append(_opt(
+            f"{index}. {gem.get('name')}·{gem.get('quality')}",
+            index,
+            manager.describe_jewel(gem),
+            "孔位",
+        ))
     return options, ""
 
 
@@ -2184,6 +2388,12 @@ SOURCES: Dict[str, Callable[..., Any]] = {
     "warehouse_categories": _src_warehouse_categories,
     "warehouse_upgrade_modes": _src_warehouse_upgrade_modes,
     "recycle_items": _src_recycle_items,
+    "market_standard_price": _src_market_standard_price,
+    "black_market_subs": _src_black_market_subs,
+    "jewel_inventory": _src_jewel_inventory,
+    "jewel_details": _src_jewel_details,
+    "socket_targets": _src_socket_targets,
+    "socket_slots": _src_socket_slots,
     "gift_items": _src_gift_items,
     "pills_inventory": _src_pills_inventory,
     "pill_names": _src_pill_names,
@@ -2420,6 +2630,7 @@ async def build_arg_options(
             "label": field.get("label", spec.get("hint", "")),
             "optional": bool(field.get("optional")),
             "skip_value": field.get("skip_value"),
+            "default": field.get("default"),
         },
         "options": options,
         "done": False,

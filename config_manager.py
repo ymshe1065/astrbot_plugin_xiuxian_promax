@@ -32,6 +32,7 @@ class ConfigManager:
         self.material_catalog: Dict[str, dict] = {}
         self.talisman_recipes_data: Dict[str, dict] = {}
         self.auction_house_config: Dict[str, Any] = {}
+        self.jewels_data: Dict[str, Any] = {}
         
         self._load_all()
 
@@ -188,6 +189,9 @@ class ConfigManager:
         for recipe in raw_talisman_recipes:
             if isinstance(recipe, dict) and recipe.get("name"):
                 self.talisman_recipes_data[recipe["name"]] = recipe
+
+        # 珠宝体系配置：缺失时由 JewelManager 使用内置兜底模板
+        self.jewels_data = self._load_config_with_default(config_dir / "jewels.json", {})
 
         self._normalize_ranks()
         self._inject_recipe_scrolls()

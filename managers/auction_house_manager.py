@@ -30,6 +30,7 @@ RANK_INDEX = {name: index for index, name in enumerate(RANK_NAMES)}
 CATEGORY_LABELS = {
     "equipment": "装备", "talisman": "符箓", "pill": "丹药", "recipe": "丹方",
     "technique": "功法", "main_technique": "心法", "material": "材料",
+    "jewel": "珠宝",
 }
 
 
@@ -926,6 +927,16 @@ class AuctionHouseManager:
         desc = payload.get("description") or ""
         if desc:
             lines.append(f"  {desc}")
+        jewel = payload.get("jewel") if isinstance(payload.get("jewel"), dict) else None
+        if jewel:
+            from ..core.jewel_manager import JewelRules
+            lines.append(f"  类别：{JewelRules.category_label(jewel.get('category'))}珠宝")
+            affix_text = "、".join(
+                JewelRules.format_affix(a.get("key", ""), a.get("value", 0), a.get("scale", ""))
+                for a in (jewel.get("affixes") or []) if isinstance(a, dict)
+            )
+            if affix_text:
+                lines.append(f"  词条：{affix_text}")
         rates = payload.get("equipment_rates") or {}
         if rates:
             from ..core.equipment_balance import ATTRIBUTE_LABELS, QUALITY
@@ -1144,8 +1155,8 @@ class AuctionHouseManager:
         if rank_target:
             tier = RANK_TIER.get(rank_target, tier)
         count = max(1, self._as_int(entry.get("count"), 1))
-        # 装备拍品固定 1 件，避免同一实例被拆分。
-        if category == "equipment":
+        # 装备/珠宝拍品固定 1 件，避免同一实例或词条被拆分。
+        if category in ("equipment", "jewel"):
             count = 1
         item_names = entry.get("item_names") or entry.get("item_name")
         selected = self._select_item(
@@ -1167,6 +1178,26 @@ class AuctionHouseManager:
             payload["equipment_rates"] = item_cfg.get("equipment_rates") or {}
             payload["effects"] = dict(item_cfg.get("effects") or {})
             payload["effect_quality_scaling"] = bool(item_cfg.get("effect_quality_scaling"))
+        elif category == "jewel":
+            from ..core.jewel_manager import JewelManager
+            weights = entry.get("quality_weights") or self._default_quality_weights(tier)
+            quality = self._weighted_choice(weights) or "一般"
+            template = payload.get("jewel_template")
+            jewel = JewelManager(
+                self.db, self.config_manager, self.storage_ring_mgr
+            ).roll_jewel(template=template, quality=quality)
+            rank = jewel.get("rank") or rank
+            item_name = f"{jewel.get('name')}·{jewel.get('quality')}"
+            item_cfg = {
+                **item_cfg,
+                "price": int(jewel.get("price") or item_cfg.get("price") or 0),
+                "description": jewel.get("description") or item_cfg.get("description") or "",
+            }
+            payload = {
+                "category": "jewel",
+                "description": item_cfg["description"],
+                "jewel": jewel,
+            }
 
         base_price = self._base_price(category, item_cfg, payload) * count
         if category == "equipment":
@@ -1355,6 +1386,24 @@ class AuctionHouseManager:
                     "category": "recipe",
                     "recipe_id": recipe.get("id"),
                 }))
+        elif category == "jewel":
+            from ..core.jewel_manager import JewelManager
+            manager = JewelManager(self.db, self.config_manager, self.storage_ring_mgr)
+            for template in manager.templates():
+                if not isinstance(template, dict) or not template.get("name"):
+                    continue
+                # 拍品实际品阶由开拍时滚出的品质决定，这里给中间档用于蓝图筛选。
+                result.append((
+                    str(template.get("name")),
+                    {**template, "shop_weight": int(template.get("weight", 10) or 10)},
+                    3,
+                    "玄品",
+                    {
+                        "description": template.get("description", ""),
+                        "category": "jewel",
+                        "jewel_template": template,
+                    },
+                ))
         return result
 
     @staticmethod
@@ -1524,6 +1573,18 @@ class AuctionHouseManager:
                     affixes=payload.get("affixes") or [],
                     location=location,
                 )
+                await self.db.update_player(player, commit=False)
+                if not external_transaction:
+                    await self.db.conn.commit()
+                return True, ""
+            if category == "jewel":
+                from ..core.jewel_manager import JewelManager
+                jewel = payload.get("jewel") if isinstance(payload.get("jewel"), dict) else None
+                if not jewel or not jewel.get("name"):
+                    raise ValueError("珠宝拍品数据缺失")
+                JewelManager(
+                    self.db, self.config_manager, self.storage_ring_mgr
+                ).add_jewel(player, jewel)
                 await self.db.update_player(player, commit=False)
                 if not external_transaction:
                     await self.db.conn.commit()

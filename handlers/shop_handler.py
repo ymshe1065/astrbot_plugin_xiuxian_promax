@@ -52,6 +52,7 @@ class ShopHandler:
         'main_technique': "百宝阁稀有刷新、历练/秘境/奇遇低概率掉落、Boss/世界Boss/团本稀有掉落",
         'technique': "百宝阁、宗门商店、历练、秘境、奇遇、Boss 掉落",
         'storage_ring': "基础储物戒初始自带；高级储物戒商店/百宝阁购买",
+        'jewel': "切原石、百宝阁、黑市、拍卖会、世界Boss",
     }
 
     def __init__(self, db: DataBase, config: AstrBotConfig, config_manager: ConfigManager):
@@ -646,6 +647,10 @@ class ShopHandler:
         if norm_type == 'talisman_recipe' and quantity > 1:
             quantity = 1
             limited_note = "⚠️ 符图每次限购 1 份，已按 1 份结算。\n"
+        # 珠宝是带独立词条的实例，每件单品限购 1 枚
+        if norm_type == 'jewel' and quantity > 1:
+            quantity = 1
+            limited_note = "⚠️ 珠宝每次限购 1 枚，已按 1 枚结算。\n"
         if not unlimited and quantity > stock:
             yield event.plain_result(f"【{target_item['name']}】库存不足，当前库存: {stock}。")
             return
@@ -806,6 +811,24 @@ class ShopHandler:
                     return
                 result_lines.append(f"成功购入符图【{recipe_base}】，已参悟绘制方法。")
                 result_lines.append(f"💡 使用 /制符 {recipe_base} 绘制，/符箓书 查看材料与可画张数")
+
+            elif item_type == 'jewel':
+                from ..core.jewel_manager import JewelManager
+                payload = target_item.get('data') or {}
+                jewel = payload.get('jewel') if isinstance(payload, dict) else None
+                if not isinstance(jewel, dict):
+                    jewel = payload
+                if not isinstance(jewel, dict) or not jewel.get('name'):
+                    await self.db.conn.rollback()
+                    yield event.plain_result("❌ 珠宝数据异常，本次未扣除灵石。")
+                    return
+                manager = JewelManager(self.db, self.config_manager, self.storage_ring_manager)
+                gem = manager.add_jewel(player, jewel)
+                result_lines.append(
+                    f"成功购买珠宝【{gem.get('name')}·{gem.get('quality')}】"
+                    f"（珠囊编号 #{gem.get('id')}）。"
+                )
+                result_lines.append("💡 使用 /珠宝 查看珠囊，/镶嵌 <编号> <装备名或实例编号> 镶嵌")
 
             elif item_type == 'material':
                 success, msg = await self.storage_ring_manager.store_item(player, target_item['name'], quantity, external_transaction=True)

@@ -30,6 +30,21 @@ class EquipmentManager:
         from ..managers.combat_manager import CombatManager
         return CombatManager.collect_combat_effects(player, self.config_manager)
 
+    @staticmethod
+    def _socket_affixes(instance: dict) -> list:
+        """装备实例上已镶嵌珠宝的词条。"""
+        sockets = (instance or {}).get("sockets")
+        result = []
+        if not isinstance(sockets, list):
+            return result
+        for gem in sockets:
+            if not isinstance(gem, dict):
+                continue
+            for affix in gem.get("affixes") or []:
+                if isinstance(affix, dict) and affix.get("key"):
+                    result.append((affix.get("key"), affix.get("value", 0)))
+        return result
+
     def get_gear_effects(self, player: Player) -> dict:
         effects = {}
         for name, inst in self.get_gear_slots(player).values():
@@ -37,6 +52,7 @@ class EquipmentManager:
             quality = (inst or {}).get("quality", "一般")
             sources = list(effective_effects(cfg, quality).items())
             sources += [(a.get("key"), a.get("value", 0)) for a in (inst or {}).get("affixes", [])]
+            sources += self._socket_affixes(inst)
             for key, value in sources:
                 if key in GEAR_EFFECT_CAPS and key not in ("physical_damage_multiplier", "magic_damage_multiplier"):
                     effects[key] = effects.get(key, 0) + max(0, value)
@@ -60,6 +76,13 @@ class EquipmentManager:
                 attr = {"physical_damage_multiplier": "physical_damage", "magic_damage_multiplier": "magic_damage"}.get(key)
                 if attr:
                     rates[attr] = rates.get(attr, 0) + min(.10, max(0, value))
+            # 珠宝词条：双攻/双防/精神力按百分比并入对应属性池，与其他装备加成同口径封顶。
+            for key, value in self._socket_affixes(inst):
+                if key in RATE_CAPS:
+                    try:
+                        rates[key] = rates.get(key, 0) + max(0.0, float(value or 0))
+                    except (TypeError, ValueError):
+                        continue
         return {key: min(value, RATE_CAPS[key]) for key, value in rates.items()}
 
     # ===== 单件装备加成展示 =====
@@ -141,6 +164,16 @@ class EquipmentManager:
                     effects[key] = effects.get(key, 0.0) + float(affix.get("value", 0) or 0)
                 except (TypeError, ValueError):
                     continue
+            # 珠宝：主属性同样按百分比并入面板；特效与装备词条共用单件上限。
+            for key, value in self._socket_affixes(instance):
+                try:
+                    number = float(value or 0)
+                except (TypeError, ValueError):
+                    continue
+                if key in RATE_CAPS:
+                    values[key] = values.get(key, 0.0) + max(0.0, number)
+                elif key:
+                    effects[key] = effects.get(key, 0.0) + number
             for key, value in effects.items():
                 cap = GEAR_EFFECT_CAPS.get(key)
                 if cap is not None:
