@@ -160,6 +160,22 @@ class FeedbackStoreTest(unittest.TestCase):
         pending = accounts.list_feedback(status=0)
         self.assertEqual([i["id"] for i in pending], [mine["id"]])
 
+    def test_list_limit_is_clamped(self):
+        with accounts._lock:
+            db = accounts._db()
+            now = int(time.time())
+            for i in range(3):
+                db.execute(
+                    "INSERT INTO webroom_feedback "
+                    "(username, player_key, kind, content, contact, snapshot, status, admin_note, created, updated) "
+                    "VALUES (?,?,?,?,?,?,0,'',?,0)",
+                    ("alice", "", "bug", f"限流测试 {i}", "", "{}", now - 100 - i),
+                )
+            db.commit()
+        self.assertEqual(len(accounts.list_feedback("alice", limit=0)), 1)
+        self.assertEqual(len(accounts.list_feedback("alice", limit=-5)), 1)
+        self.assertEqual(len(accounts.list_feedback("alice", limit=1000)), 3)
+
     def test_update_status_rejects_invalid_values(self):
         _, _, item = accounts.add_feedback("alice", kind="bug", content="等待处理的反馈")
         ok, _, _ = accounts.update_feedback_status(item["id"], 0)
@@ -210,6 +226,19 @@ class FeedbackApiTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(data["items"]), 1)
         self.assertFalse(data["is_admin"])
 
+    async def test_list_limit_zero_is_clamped_to_one(self):
+        accounts.add_feedback("alice", kind="bug", content="限流边界反馈")
+        response = await rs._api_feedback(
+            FakeRequest(
+                method="GET",
+                query={"scope": "mine", "limit": "0"},
+                token=self._token("alice"),
+            )
+        )
+        data = _payload(response)
+        self.assertTrue(data["ok"])
+        self.assertEqual(len(data["items"]), 1)
+
     async def test_invalid_submission_returns_400(self):
         response = await rs._api_feedback(
             FakeRequest(method="POST", token=self._token("alice"), body={"kind": "bug", "content": "短"})
@@ -221,6 +250,20 @@ class FeedbackApiTest(unittest.IsolatedAsyncioTestCase):
         response = await rs._api_feedback(
             FakeRequest(method="GET", query={"scope": "all"}, token=self._token("alice"))
         )
+        self.assertEqual(response.status, 403)
+
+    async def test_username_equal_to_admin_qq_cannot_impersonate(self):
+        """BOSS_ADMINS 是纯数字 QQ 时，注册同名账号不能拿到管理员权限。"""
+        accounts.register("10001", "secret3", "冒充者")
+        plugin = FakePlugin(admins=["10001"])
+        with patch.object(rs, "_plugin", plugin):
+            response = await rs._api_feedback(
+                FakeRequest(
+                    method="GET",
+                    query={"scope": "all"},
+                    token=self._token("10001"),
+                )
+            )
         self.assertEqual(response.status, 403)
 
     async def test_admin_can_view_all_and_resolve(self):

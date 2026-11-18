@@ -1264,7 +1264,11 @@ async def _api_notices_clear(request: web.Request) -> web.Response:
 
 
 def _feedback_admin(user: dict | None) -> bool:
-    """网页账号是否为反馈管理员：绑定的 QQ 或账号名命中 BOSS_ADMINS。"""
+    """网页账号是否为反馈管理员：只认绑定 QQ 命中 BOSS_ADMINS。
+
+    不能用账号名兜底：BOSS_ADMINS 通常是纯数字 QQ，开放注册下
+    玩家注册同名账号就能冒充管理员查看/处理全部反馈。
+    """
     if not user:
         return False
     admins = []
@@ -1273,8 +1277,7 @@ def _feedback_admin(user: dict | None) -> bool:
     if not admins:
         return False
     qq = str(user.get("qq") or "")
-    name = str(user.get("username") or "")
-    return bool(qq and qq in admins) or bool(name and name in admins)
+    return bool(qq and qq in admins)
 
 
 async def _feedback_snapshot(user: dict, body: dict) -> dict[str, Any]:

@@ -72,6 +72,10 @@
     noticesOpen: false,
     feedbackScope: "mine",   // 意见反馈：mine / all（管理员）
     feedbackAdmin: false,    // 当前账号是否反馈管理员
+    feedbackBefore: 0,       // 意见反馈翻页游标（最后一条 id）
+    feedbackHasMore: false,  // 是否还能继续加载
+    feedbackSeq: 0,          // 反馈请求序号，丢弃过期响应
+    feedbackAppending: false,// 正在追加下一页，防双击重复追加
     stickers: [],            // 内置表情包 [{id,label,url}]
     stickerLoaded: false,    // 是否已拉取表情目录
   };
@@ -410,6 +414,10 @@
     $("fbMask").hidden = true;
     S.feedbackScope = "mine";
     S.feedbackAdmin = false;
+    S.feedbackBefore = 0;
+    S.feedbackHasMore = false;
+    S.feedbackSeq = 0;
+    S.feedbackAppending = false;
     S.noticesOpen = false;
     S.notices = [];
     S.unreadNotices = 0;
@@ -701,8 +709,10 @@
     $("fbMask").hidden = false;
     $("fbErr").textContent = "";
     $("fbCount").textContent = String($("fbContent").value.length);
-    loadFeedback();
+    loadFeedback(true);
   }
+
+  const FB_PAGE = 30;
 
   function feedbackSnapshotLine(item) {
     const s = item.snapshot || {};
@@ -713,18 +723,21 @@
     return bits.join(" · ");
   }
 
-  function renderFeedback(items) {
+  function renderFeedback(items, append = false) {
     const box = $("fbList");
     if (!box) return;
     if (!items.length) {
-      box.innerHTML = '<div class="fb-empty">还没有反馈记录。</div>';
+      if (!append) box.innerHTML = '<div class="fb-empty">还没有反馈记录。</div>';
       return;
     }
     const admin = S.feedbackAdmin && S.feedbackScope === "all";
-    box.innerHTML = items
+    const html = items
       .map((it) => {
         const st = Number(it.status) || 0;
+        const snapBits = [];
+        if (admin && it.username) snapBits.push(`提交者 ${it.username}`);
         const snap = feedbackSnapshotLine(it);
+        if (snap) snapBits.push(snap);
         const acts = admin
           ? '<div class="fb-acts">' +
             (st === 0
@@ -741,7 +754,7 @@
           `<span class="fb-time">${esc(fbDay(it.created))}</span>` +
           "</div>" +
           `<div class="fb-text">${esc(it.content || "")}</div>` +
-          (snap ? `<div class="fb-snap">${esc(snap)}</div>` : "") +
+          (snapBits.length ? `<div class="fb-snap">${esc(snapBits.join(" · "))}</div>` : "") +
           (it.contact ? `<div class="fb-snap">联系方式：${esc(it.contact)}</div>` : "") +
           (it.admin_note ? `<div class="fb-note">处理备注：${esc(it.admin_note)}</div>` : "") +
           acts +
@@ -749,20 +762,39 @@
         );
       })
       .join("");
+    if (append) box.insertAdjacentHTML("beforeend", html);
+    else box.innerHTML = html;
   }
 
-  async function loadFeedback() {
+  async function loadFeedback(reset = true) {
     const box = $("fbList");
     if (!box) return;
-    box.innerHTML = '<div class="fb-empty">加载中…</div>';
+    if (!reset && S.feedbackAppending) return;
+    if (!reset) {
+      S.feedbackAppending = true;
+      $("fbMore").disabled = true;
+    }
+    const seq = ++S.feedbackSeq;
+    if (reset) {
+      S.feedbackBefore = 0;
+      S.feedbackHasMore = false;
+      $("fbMore").hidden = true;
+      box.innerHTML = '<div class="fb-empty">加载中…</div>';
+    }
     const scope = S.feedbackScope === "all" ? "all" : "mine";
+    const before = reset ? 0 : S.feedbackBefore;
     try {
-      const r = await fetch(`/api/feedback?scope=${scope}&limit=30`, {
+      const url =
+        `/api/feedback?scope=${scope}&limit=${FB_PAGE}` +
+        (before ? `&before=${before}` : "");
+      const r = await fetch(url, {
         headers: { Authorization: "Bearer " + S.token },
       });
       const d = await r.json().catch(() => ({}));
+      if (seq !== S.feedbackSeq) return;
       if (!d.ok) {
-        box.innerHTML = `<div class="fb-empty">${esc(d.error || "读取失败")}</div>`;
+        if (reset) box.innerHTML = `<div class="fb-empty">${esc(d.error || "读取失败")}</div>`;
+        else toast(d.error || "读取失败");
         return;
       }
       S.feedbackAdmin = !!d.is_admin;
@@ -770,9 +802,20 @@
       $("fbAdminToggle").textContent = scope === "all" ? "查看我的" : "查看全部";
       $("fbListTitle").textContent =
         scope === "all" ? `全部反馈${d.pending ? `（待处理 ${d.pending}）` : ""}` : "我的反馈";
-      renderFeedback(Array.isArray(d.items) ? d.items : []);
+      const items = Array.isArray(d.items) ? d.items : [];
+      renderFeedback(items, !reset);
+      if (items.length) S.feedbackBefore = items[items.length - 1].id;
+      S.feedbackHasMore = items.length >= FB_PAGE;
+      $("fbMore").hidden = !S.feedbackHasMore;
     } catch {
-      box.innerHTML = '<div class="fb-empty">网络异常，稍后再试</div>';
+      if (seq !== S.feedbackSeq) return;
+      if (reset) box.innerHTML = '<div class="fb-empty">网络异常，稍后再试</div>';
+      else toast("网络异常，稍后再试");
+    } finally {
+      if (!reset) {
+        S.feedbackAppending = false;
+        $("fbMore").disabled = false;
+      }
     }
   }
 
@@ -807,7 +850,7 @@
       $("fbCount").textContent = "0";
       S.feedbackScope = "mine";
       toast(d.message || "反馈已提交，感谢你的建议");
-      loadFeedback();
+      loadFeedback(true);
     } catch {
       err.textContent = "网络异常，稍后再试";
     } finally {
@@ -825,7 +868,7 @@
       const d = await r.json().catch(() => ({}));
       if (!d.ok) return toast(d.error || "操作失败");
       toast(d.message || "已更新");
-      loadFeedback();
+      loadFeedback(true);
     } catch {
       toast("网络异常，稍后再试");
     }
@@ -6271,8 +6314,9 @@
     $("fbSubmit").addEventListener("click", submitFeedback);
     $("fbAdminToggle").addEventListener("click", () => {
       S.feedbackScope = S.feedbackScope === "all" ? "mine" : "all";
-      loadFeedback();
+      loadFeedback(true);
     });
+    $("fbMore").addEventListener("click", () => loadFeedback(false));
     $("fbList").addEventListener("click", (e) => {
       const done = e.target.closest && e.target.closest("[data-fb-done]");
       if (done) return setFeedbackStatus(Number(done.dataset.fbDone), 1);

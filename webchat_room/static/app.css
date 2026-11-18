@@ -2547,6 +2547,10 @@ button.chan-main { cursor: pointer; }
   width: auto; margin-top: 0; padding: 6px 10px;
   font-size: 12px; border-radius: 8px;
 }
+.fb-more {
+  display: block; width: auto; margin: 8px auto 0; padding: 6px 14px;
+  font-size: 12px; border-radius: 8px;
+}
 
 @media (min-width: 901px) {
   #fbMask { align-items: center; }

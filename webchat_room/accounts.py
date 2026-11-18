@@ -754,7 +754,11 @@ def list_feedback(
     before: int = 0,
 ) -> list[dict[str, Any]]:
     """按时间倒序返回反馈；username 为空表示管理端全量查询。"""
-    limit = max(1, min(int(limit or 50), 100))
+    try:
+        limit = int(limit)
+    except (TypeError, ValueError):
+        limit = 50
+    limit = max(1, min(limit, 100))
     before = int(before or 0)
     sql = "SELECT * FROM webroom_feedback WHERE 1=1"
     args: list[Any] = []
