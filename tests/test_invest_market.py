@@ -443,6 +443,38 @@ class TestInvestMarket(unittest.IsolatedAsyncioTestCase):
             ok, msg = await self.manager.buy_stock(player, "S01", 1)
         self.assertTrue(ok, msg)
 
+    async def test_loan_threshold_blocks_margin(self):
+        """杠杆开仓同样受贷款门槛限制：欠着钱不能加杠杆。"""
+        await self.manager._settle_tick(10)
+        player = await self._player()
+        await self.conn.execute(
+            "INSERT INTO bank_loans (user_id, principal, interest_rate, borrowed_at, due_at, status) "
+            "VALUES (?, ?, 0.005, ?, ?, 'active')",
+            ("u1", 150_000, 0, 9999999999),
+        )
+        await self.conn.commit()
+        with self._patch_tick(10):
+            ok, msg = await self.manager.open_margin(player, "S01", 3, 50_000)
+        self.assertFalse(ok)
+        self.assertIn("贷款余额", msg)
+        async with self.conn.execute(
+            "SELECT COUNT(*) FROM invest_margin_positions WHERE user_id = 'u1'"
+        ) as cursor:
+            self.assertEqual(int((await cursor.fetchone())[0]), 0)
+
+    async def test_margin_under_loan_threshold_allowed(self):
+        await self.manager._settle_tick(10)
+        player = await self._player()
+        await self.conn.execute(
+            "INSERT INTO bank_loans (user_id, principal, interest_rate, borrowed_at, due_at, status) "
+            "VALUES (?, ?, 0.005, ?, ?, 'active')",
+            ("u1", 30_000, 0, 9999999999),
+        )
+        await self.conn.commit()
+        with self._patch_tick(10):
+            ok, msg = await self.manager.open_margin(player, "S01", 3, 50_000)
+        self.assertTrue(ok, msg)
+
     async def test_fund_rejects_any_loan(self):
         await self.manager._settle_tick(10)
         player = await self._player()

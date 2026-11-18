@@ -930,6 +930,10 @@ class WorldBossManager:
         try:
             final_hp = max(1, int(battle.get("player_final_hp") or player_remaining or 1))
             final_mp = max(0, int(battle.get("player_final_mp") or 0))
+            # 爬塔中的玩家：战斗内吸血不能绕过每层回血额度
+            from .treasure_map_manager import TreasureMapManager
+
+            final_hp = await TreasureMapManager.clamp_combat_hp(self.db, player.user_id, final_hp)
             await self.db.update_player_fields(
                 player.user_id, hp=final_hp, mp=final_mp, spiritual_qi=final_mp,
             )

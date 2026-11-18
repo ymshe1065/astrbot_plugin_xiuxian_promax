@@ -11,7 +11,6 @@
 from __future__ import annotations
 
 import json
-import random
 import time
 from typing import Dict, List, Optional, Tuple
 
@@ -19,12 +18,15 @@ from astrbot.api import logger
 
 from ..data import DataBase
 from ..models import Player
+from ..utils.game_secret import seeded_rng
 
 __all__ = ["TreasureMapManager"]
 
 MAX_FLOOR = 6
 HEAL_BUDGET_RATE = 0.18
 MIN_START_HP_RATE = 0.35
+# 超过 24 小时没有推进的爬塔视为异常中断，由后台按撤退结算
+STALE_RUN_SECONDS = 86400
 
 MAP_TIERS = {
     1: {"name": "残破藏宝图", "price": 8000, "gold": 900, "loot_chance": 0.55, "desc": "边角残缺，只能看出前几层路径。"},
@@ -58,6 +60,12 @@ class TreasureMapManager:
             return None
         keys = [d[0] for d in cursor.description]
         return dict(zip(keys, row))
+
+    async def _fetchall(self, sql: str, params: tuple = ()) -> List[dict]:
+        async with self.db.conn.execute(sql, params) as cursor:
+            rows = await cursor.fetchall()
+            keys = [d[0] for d in cursor.description]
+        return [dict(zip(keys, row)) for row in rows]
 
     @staticmethod
     async def is_climbing(db: DataBase, user_id: str) -> bool:
@@ -127,6 +135,38 @@ class TreasureMapManager:
         except Exception:
             return requested
 
+    # ================= 战斗写回裁剪 =================
+    @staticmethod
+    async def clamp_combat_hp(db: DataBase, user_id: str, new_hp: int) -> int:
+        """战斗结束写回气血前裁剪爬塔玩家的治疗量。
+
+        爬塔期间禁止自然恢复/调息，丹药回血也受每层额度限制。但切磋战后是
+        「按满血写回」、决斗/世界Boss/悬赏的战斗内又有吸血与治疗，若直接落库
+        就等于绕过额度。这里统一按 :meth:`allow_heal` 裁剪：掉血照常，
+        回血只能吃掉本层剩余额度。非爬塔状态原样返回。
+        """
+        try:
+            new_hp = int(new_hp)
+        except (TypeError, ValueError):
+            return new_hp
+        try:
+            async with db.conn.execute(
+                "SELECT p.hp FROM treasure_map_runs r "
+                "JOIN players p ON p.user_id = r.user_id "
+                "WHERE r.user_id = ? AND r.status = 'active'",
+                (user_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+            if not row:
+                return new_hp
+            current = int(row[0] or 0)
+            if new_hp <= current:
+                return new_hp
+            allowed = await TreasureMapManager.allow_heal(db, user_id, new_hp - current, 0)
+            return current + max(0, int(allowed or 0))
+        except Exception:
+            return new_hp
+
     # ================= 战利品 =================
     def _roll_loot(self, tier: int, floor_no: int, rng) -> List[dict]:
         cfg = MAP_TIERS.get(tier, MAP_TIERS[1])
@@ -175,6 +215,7 @@ class TreasureMapManager:
                 "逐层深入古修墓府，每层都可能遇到陷阱与妖兽。\n"
                 "气血归零则本次战利品尽失；可随时撤退落袋为安。\n"
                 "⚠️ 爬塔期间无法自然恢复/调息；丹药回血每层有上限，符箓不能直接补战斗气血。\n"
+                "⚠️ 战斗也不回血：切磋不按满血复原，决斗/世界Boss/悬赏的战斗吸血只吃本层剩余额度。\n"
                 "━━━━━━━━━━━━━━━\n"
                 "💡 `/藏宝图 开始 <1-3>` 购买并进入：\n"
                 "  1 残破藏宝图 8,000 灵石\n"
@@ -201,6 +242,7 @@ class TreasureMapManager:
             "━━━━━━━━━━━━━━━",
             "💡 `/藏宝图 继续` 深入｜`/藏宝图 撤退` 结算带走",
             "⚠️ 越深掉落越好，但陷阱伤害与触发率也越高。",
+            "⚠️ 战斗回血同样只吃本层额度；超过 24 小时未推进会由后台按撤退结算。",
         ])
         return "\n".join(lines)
 
@@ -265,6 +307,7 @@ class TreasureMapManager:
             f"{cfg['desc']}\n"
             f"当前气血：{hp:,}/{max_hp:,}\n"
             f"⚠️ 爬塔期间无法自然恢复/调息；丹药回血每层最多 {budget:,}，符箓不能直接补战斗气血。\n"
+            f"⚠️ 战斗回血（切磋满血复原、决斗/世界Boss/悬赏吸血）同样只吃这 {budget:,} 的额度。\n"
             f"💡 `/藏宝图 继续` 深入第一层"
         )
 
@@ -277,7 +320,7 @@ class TreasureMapManager:
             return await self._settle(player, run, success=True, reason="已通关全图")
         rule = FLOOR_RULES.get(floor_no, FLOOR_RULES[MAX_FLOOR])
         max_hp = int(run.get("max_hp") or 1)
-        rng = random.Random(f"map:{player.user_id}:{run['started_at']}:{floor_no}")
+        rng = seeded_rng("map", player.user_id, run["started_at"], floor_no)
 
         # 先结算本层伤害
         low, high = rule["damage"]
@@ -338,13 +381,25 @@ class TreasureMapManager:
             log_entries.append("这一层空空如也，只有尘土")
 
         if floor_no >= MAX_FLOOR:
-            # 最后一层：自动结算并给通关额外奖励
+            # 最后一层：自动结算并给通关额外奖励。
+            # 先把本层的 floor/loot/log 落库再结算，保证数据库里的记录
+            # 与实际发放的战利品一致（否则 _settle 回滚后无法排查发了什么）。
             run["floor"] = floor_no
             run["loot"] = loot
             run["log"] = log_entries
             player.hp = hp_after
             await self.db.conn.execute(
                 "UPDATE players SET hp = ? WHERE user_id = ?", (hp_after, player.user_id)
+            )
+            await self.db.conn.execute(
+                "UPDATE treasure_map_runs SET floor=?, hp=?, loot=?, log=?, updated_at=? "
+                "WHERE user_id = ? AND status='active'",
+                (
+                    floor_no, hp_after,
+                    json.dumps(loot, ensure_ascii=False),
+                    json.dumps(log_entries[-12:], ensure_ascii=False),
+                    int(time.time()), player.user_id,
+                ),
             )
             await self.db.conn.commit()
             return await self._settle(player, run, success=True, reason="通关主墓")
@@ -378,6 +433,47 @@ class TreasureMapManager:
             f"⚠️ 下一层伤害更高，撤退保留现有全部战利品。"
         )
 
+    async def settle_stale_runs(self, now: Optional[int] = None,
+                                stale_seconds: int = STALE_RUN_SECONDS) -> int:
+        """后台清理长时间没有推进的爬塔。
+
+        旧实现直接把 run 置为 ended，玩家攒在 ``loot`` 里的灵石与战利品会被
+        静默吞掉（既没发放也没提示）。这里改为按「撤退」结算：
+        已经活着拿到的东西照常带走，只是不能再继续深入。
+        """
+        now = int(now or time.time())
+        rows = await self._fetchall(
+            "SELECT user_id FROM treasure_map_runs "
+            "WHERE status = 'active' AND updated_at + ? < ?",
+            (int(stale_seconds), now),
+        )
+        settled = 0
+        for row in rows:
+            user_id = str(row.get("user_id") or "")
+            if not user_id:
+                continue
+            try:
+                player = await self.db.get_player_by_id(user_id)
+                run = await self.get_active_run(user_id)
+                if not player or not run:
+                    # 角色已不存在：直接结束，避免每 60 秒重复扫描同一条僵尸记录
+                    await self.db.conn.execute(
+                        "UPDATE treasure_map_runs SET status='ended', updated_at=? "
+                        "WHERE user_id = ? AND status='active'",
+                        (now, user_id),
+                    )
+                    await self.db.conn.commit()
+                    continue
+                ok, msg = await self._settle(
+                    player, run, success=True, reason="墓府封闭（超时自动结算）"
+                )
+                if ok:
+                    settled += 1
+                    logger.info(f"【藏宝图】超时结算 {user_id}：{msg.splitlines()[2] if len(msg.splitlines()) > 2 else ''}")
+            except Exception as exc:
+                logger.warning(f"【藏宝图】超时结算失败 {user_id}: {exc}")
+        return settled
+
     async def retreat(self, player: Player) -> Tuple[bool, str]:
         run = await self.get_active_run(player.user_id)
         if not run:
@@ -392,27 +488,6 @@ class TreasureMapManager:
             int(item.get("amount") or 0) for item in all_loot if item.get("kind") == "gold"
         )
         labels = []
-        if success:
-            if self.gamble_mgr:
-                for item in loot:
-                    try:
-                        if item.get("kind") == "jewel" and isinstance(item.get("jewel"), dict):
-                            gem = self.gamble_mgr.jewel_manager.add_jewel(player, dict(item["jewel"]))
-                            labels.append(f"💎【{gem.get('name')}·{gem.get('quality')}】")
-                        else:
-                            labels.append(await self.gamble_mgr._award_loot(player, item, item.get("quality") or ""))
-                    except Exception as exc:
-                        logger.warning(f"【藏宝图】发放战利品失败: {exc}")
-            else:
-                for item in loot:
-                    name = item.get("name")
-                    if not name:
-                        continue
-                    ok, _msg = await self.storage_ring_mgr.store_item(
-                        player, name, int(item.get("qty") or 1), silent=True
-                    )
-                    if ok:
-                        labels.append(f"【{name}】")
         gold_bonus = 0
         if success:
             gold_bonus = int(extra_gold or 0) + loot_gold
@@ -422,14 +497,52 @@ class TreasureMapManager:
             elif reason == "已通关全图":
                 cfg = MAP_TIERS.get(int(run.get("map_tier")), MAP_TIERS[1])
                 gold_bonus += int(cfg["price"] * 1.5)
-            if gold_bonus:
-                player.gold += gold_bonus
-        await self.db.update_player(player)
-        await self.db.conn.execute(
-            "UPDATE treasure_map_runs SET status='ended', updated_at=? WHERE user_id = ?",
-            (int(time.time()), player.user_id),
-        )
-        await self.db.conn.commit()
+        # 「结束本次爬塔」与发奖必须同事务并带 status 守卫：
+        # 否则中途异常会留下 active 的 run，玩家再撤退一次就能领双份。
+        await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            cursor = await self.db.conn.execute(
+                "UPDATE treasure_map_runs SET status='ended', updated_at=? "
+                "WHERE user_id = ? AND status='active'",
+                (int(time.time()), player.user_id),
+            )
+            if not cursor.rowcount:
+                await self.db.conn.rollback()
+                return False, "❌ 本次爬塔已经结算过了。"
+            if success:
+                if self.gamble_mgr:
+                    for item in loot:
+                        try:
+                            if item.get("kind") == "jewel" and isinstance(item.get("jewel"), dict):
+                                gem = self.gamble_mgr.jewel_manager.add_jewel(player, dict(item["jewel"]))
+                                labels.append(f"💎【{gem.get('name')}·{gem.get('quality')}】")
+                            else:
+                                labels.append(await self.gamble_mgr._award_loot(player, item, item.get("quality") or ""))
+                        except Exception as exc:
+                            logger.warning(f"【藏宝图】发放战利品失败: {exc}")
+                else:
+                    for item in loot:
+                        name = item.get("name")
+                        if not name:
+                            continue
+                        ok, _msg = await self.storage_ring_mgr.store_item(
+                            player, name, int(item.get("qty") or 1), silent=True,
+                            external_transaction=True,
+                        )
+                        if ok:
+                            labels.append(f"【{name}】")
+                # 事务内重读灵石：后台暗标退款/盘口派彩不持玩家锁，
+                # 直接用命令开始时的旧快照回写会把它们的入账覆盖掉。
+                fresh = await self._fetchone(
+                    "SELECT gold FROM players WHERE user_id = ?", (player.user_id,)
+                )
+                base_gold = int((fresh or {}).get("gold") or 0) if fresh else int(player.gold or 0)
+                player.gold = base_gold + gold_bonus
+            await self.db.update_player(player, commit=False)
+            await self.db.conn.commit()
+        except Exception:
+            await self.db.conn.rollback()
+            raise
         lines = [
             f"🗺️ 藏宝图结算 · {reason}",
             "━━━━━━━━━━━━━━━",

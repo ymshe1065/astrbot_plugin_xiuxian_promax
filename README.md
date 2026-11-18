@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v7.10.4 · 网页聊天室版
+# AstrBot 插件：模拟修仙 v7.10.5 · 网页聊天室版
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/ymshe1065/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/ymshe1065/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v7.10.4-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v7.10.5-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -27,7 +27,7 @@
 
 ---
 
-> **插件版本:** v3.46.4 · **游戏版本:** v7.10.4 · **数据库:** v65 · **分支:** `feat/web-chatroom`
+> **插件版本:** v3.46.5 · **游戏版本:** v7.10.5 · **数据库:** v65 · **分支:** `feat/web-chatroom`
 >
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497) · [lan](https://github.com/lanxue0)
 
@@ -48,7 +48,36 @@
 <sub>点击展开对应版本查看详细变更；v3.44.3 之前的版本按游戏版本系列汇总在下方。</sub>
 
 <details open>
-<summary><b>本次更新 · 插件 v3.46.4（高风险玩法联调修复）</b></summary>
+<summary><b>本次更新 · 插件 v3.46.5（高风险玩法第三轮加固）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 赌局随机 | 新增 `utils/game_secret.py`：启动时生成并落库 `system_config.game_rng_secret`，锦囊/暗标/藏宝图/矿脉/盘口/古方等全部 `random.Random(时间戳)` 改为 `seeded_rng(...)` 混入服务器密钥，玩家无法再用「结果 = f(时间, 编号)」推算开奖或反复刷新骗结果；密钥为空时退回旧行为 |
+| 斗法盘口 | 赌石赔率口径修正：「出货」按 `1 - 空石率`（8/12/16/20/25%）定价，与 `/黑市` 切原石实际概率一致。旧实现把珠宝+法器+灵兽蛋三个小概率相加当出货率（一档仅 6%），真实出货率 92% 却按 6% 定价 → 押「出货」期望收益 14 倍，属于无限印钞漏洞；赔率下限改为 `MIN_STONE_ODDS = 1.01`（旧 1.05 白送 5% 期望），派彩改 `round()` 避免浮点截断少给 1 灵石 |
+| 盘口结算 | `settle_due` 逐盘口 `try/except` 隔离，单个异常盘口不再阻塞其余盘口，玩家下注不会长期挂着不派彩 |
+| 拍卖暗标 | 信息梯度重做：免费描述只给「品阶区间」（真实品阶 ±1 名），付费鉴定才给准确品阶。旧实现免费 hint 直接写出真实品阶、付费鉴定还可能被做局，等于「花钱买到的信息严格劣于免费信息」 |
+| 暗标做局 | 误导改按 `RANK_TIERS` 反查同档名称。旧写法 `RANK_NAMES[fake_tier - 1]` 把「档位」当「列表下标」，12 个品阶名共享 5 档，tier 4/5 会映射回「灵品/地品」（tier 3），升档反而显示得更低 |
+| 暗标结算 | `settle_due` 逐轮隔离；`_award` 三处全字段 `update_player` 前重读灵石，避免把同事务里刚入账的派彩/退款抹掉 |
+| 古方残卷 | 列表区分「✅已掌握 / ✅本周期已参悟」；`study_ancient` 的 `and` 拆成两个独立 guard——旧逻辑要求「既在已学列表又有解锁记录」才拦，靠境界自动学会的丹方没有解锁记录，玩家能花几万灵石「参悟」一张自己早就会的方子且什么都拿不到；反噬改 `hp <= 0` 不扣血（旧 `player.hp or max_hp` 在 hp=0 时退回满血，反噬变成免费大治疗）；结算前重读灵石 |
+| 血炼 | 魔化只烧「原有」词条。旧实现从 `affixes` 里随机 `pop`，有 1/N 概率把刚获得的血炼词条自己烧掉，玩家付出 30% 气血净亏一条词，还与文案自相矛盾；无旧词条时明确提示「血煞散去」；反噬裸 `UPDATE` 补 `commit()`，防止后续异常回滚掉惩罚 |
+| 黑市验囊 | 「抢占验囊权（`INSERT OR IGNORE` → 条件 `UPDATE inspected=0 AND opened=0`）」与扣费合并到同一事务。旧实现先提交扣费再单独写标记，两步之间崩溃就是「钱扣了没记录」，玩家被迫再付一次；并发两次验囊也都能通过前置检查 |
+| 锦囊诅咒 | `open_pouch` 诅咒分支 `hp <= 0` 时不再动血，杜绝「hp=0 → 退回 max_hp → 免费满血」 |
+| 押镖结算 | `finish_escort` 的灵石/修为/业力改 `COALESCE(...) + ?` 原子增量单事务，删掉 `update_player_fields` 绝对值回写——`player` 是命令开始时的快照，后台暗标退款/盘口派彩不持玩家锁，覆盖式回写会把它们刚入账的灵石直接抹掉 |
+| 仙市杠杆 | `open_margin` 补齐 `_active_loan() > LOAN_LIMIT_FOR_STOCK` 门槛，与现货买股同口径，杜绝「贷款买币 → 加杠杆爆仓 → 拍拍屁股走人」的免费单向期权 |
+| 矿脉 | `MAX_ACTIVE_MINES` 复核移入 `BEGIN IMMEDIATE`。只在事务外读一次的话，两个并发请求都能通过校验，玩家会同时持有 3 条以上矿脉 |
+| 藏宝图 | 新增 `clamp_combat_hp`：切磋满血复原、决斗/世界Boss/悬赏的战斗吸血统一裁剪到本层剩余额度（掉血照常），比对基准为 `players.hp`；僵尸爬塔改由 `settle_stale_runs()` 按「撤退」结算（24 小时），不再直接置 `status='ended'` 吞掉暂存战利品；通关分支补落库 floor/hp/loot/log；`_settle` 单事务化并用 `AND status='active'` 抢占结算权，重复撤退无法领双份 |
+| 指令参数 | `/仙市`、`/飞升` 的形参改 `args: GreedyStr`（**无默认值**才是 greedy）。AstrBot 只把无默认值参数当贪婪串，带 `= ""` 时 `/仙市 杠杆 S01 3 50000` 只会收到 `杠杆`；暗标连写子命令拆分路由，三个高风险入口与拍卖会入口加 `resolve_greedy_args` 兜底 |
+| 忙碌白名单 | `BUSY_STATE_ALLOWED_COMMANDS` 增加「藏宝图」。爬塔不占分身槽位，玩家因异常卡在「修炼中」时连 `/藏宝图 撤退` 都发不出去；`start()` 自身仍会校验 `first_busy_cd`，不会被绕过 |
+| 网页端 | `plan_for` 仙市杠杆分支处理手输「平仓/状态」（先选「杠杆开仓」再在下一栏打「平仓」时插入 `kw` 占位字段），否则会把倍数当持仓编号平掉不该平的仓；`_src_margin_arg1` 改看 `values[:2]`；暗标候选文案同步 |
+| 灵田盲种 | `config/material_catalog.json` 补 `血菩提`、`帝流浆`（灵植/帝品/30000），盲种解锁的特殊灵植不再因缺目录条目而回收价跌成凡品 |
+| 后台维护 | `_schedule_high_stakes` 改调 `settle_stale_runs`，并新增 7 天历史清理（`black_market_pouches` 按 `period < cutoff`、`ancient_recipe_unlocks` 按 `recipe_key LIKE 'attempt:%'`） |
+| 回归 | 新增 `tests/test_high_stakes_round3.py`（18 项：赔率口径与期望收益、区间描述、做局档位、古方重复收费、血炼烧词条、验囊原子性、密钥混入、网页参数计划、忙碌白名单、矿脉上限、GreedyStr 无默认值静态检查）；补强藏宝图结算/重放/超时/战斗裁剪、押镖原子增量、杠杆贷款门槛用例；全量 **1699 项测试通过（3 skipped）** |
+| 版本与数据库 | 插件 **v3.46.5** / 游戏及帮助 **v7.10.5** / 数据库保持 **v65**（无表结构变更） |
+
+</details>
+
+<details>
+<summary><b>插件 v3.46.4（高风险玩法联调修复）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |
@@ -78,8 +107,8 @@
 | 放弃机制 | `/放弃悬赏` 缴纳悬赏灵石 **80%** 的罚款后可放弃当前目标并重新选择；罚款不足时无法放弃，已消耗的挑战次数不返还 |
 | 旧系统兼容 | 旧模板式悬赏进度（历练/秘境/切磋推进）停用，`/完成悬赏` 改为提示直接使用 `/挑战悬赏`；`/江湖事件` 仍用于查看江湖战斗事件，不再与通缉令混用 |
 | 黑市锦囊 | `/黑市 锦囊` 每小时刷新四档密封锦囊（灰布/灵纹/紫金/太古），真假线索混排；`/黑市 验囊 <编号>` 付费验囊（每袋一次），`/黑市 拆囊 <编号>` 可能开出珠宝/装备/材料/灵兽蛋，也可能空囊、假货或中诅咒 |
-| 拍卖暗标 | `/拍卖会 暗标` 每 6 小时一轮、每轮 3 件盲拍品，只给模糊描述；`/拍卖会 暗标出价 <编号> <金额>` 出价即冻结灵石，价高者得、落败原路退回；`/拍卖会 暗标鉴定 <编号>` 付费看品阶区间，但有 20% 概率被做局误导 |
-| 古修藏宝图 | `/藏宝图 开始 <1-3>` 进入 6 层爬塔，逐层陷阱与伤害提高；`/藏宝图 继续` 推进、`/藏宝图 撤退` 带走战利品，失败清空本次掉落；爬塔期间禁止闭关/历练/秘境/押镖，且无法自然恢复或调息，丹药回血每层最多 18% 最大气血（符箓不能直接补战斗气血） |
+| 拍卖暗标 | `/拍卖会 暗标` 每 6 小时一轮、每轮 3 件盲拍品，免费只给品阶区间；`/拍卖会 暗标出价 <编号> <金额>` 出价即冻结灵石，价高者得、落败原路退回；`/拍卖会 暗标鉴定 <编号>` 付费看准确品阶，但有 20% 概率被做局误导 |
+| 古修藏宝图 | `/藏宝图 开始 <1-3>` 进入 6 层爬塔，逐层陷阱与伤害提高；`/藏宝图 继续` 推进、`/藏宝图 撤退` 带走战利品，失败清空本次掉落；爬塔期间禁止闭关/历练/秘境/押镖，且无法自然恢复或调息，丹药回血每层最多 18% 最大气血（符箓不能直接补战斗气血），切磋/决斗/世界Boss/悬赏的战斗回血同样受该额度裁剪 |
 | 血镖黑线 | `/押镖 黑线` 走高收益血镖：45 分钟、镖银 ×2.8、修为 ×1.35，28% 概率黑吃黑损失 25% 镖银，送达扣 1 点业力；劫血镖分成 +12% |
 | 矿脉勘探 | `/矿脉` 查看 5 档矿脉，`/矿脉 购买 <编号>` 买勘探权，隐藏富集度与整点随机事件；`/矿脉 开采 <编号>` 结算产量，`/矿脉 合伙 <编号> <道号> <份额%>` 招募合伙人（合计上限 80%），`/矿脉 接受|拒绝 <编号>` 处理邀请 |
 | 斗法盘口 | `/盘口` 每 2 小时生成 3 场 NPC 模拟战，只给双方流派/伤势/气势与赔率；`/盘口 押注 <编号> <A|B> <金额>` 下注，`/盘口 赌石 <1-5> <出货|切垮> <金额>` 直接对赌原石结果 |
@@ -1495,11 +1524,11 @@ python3 -m unittest discover -s tests -q         # 现有单测
 | 原版 | xiaojuwa | 插件初版（借鉴 nonebot_plugin_xiuxian_2） |
 | 二改 | [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) | v2.5~v3.1.3 稳定性修复：储物戒枢纽化、银行体系、悬赏模板、并发保护 |
 | **三改** | **[云兮](https://github.com/iqapi)** | **v6.0~v6.35.1**：17 个大系统、110 称号、60 路线、卡片渲染器、装备百分比平衡、离线测试体系 |
-| **四改** | **[ymshe1065](https://github.com/ymshe1065)**<br>**[lsq3497](https://github.com/lsq3497)**<br>**[lan](https://github.com/lanxue0)** | **v6.35.2~v7.10.4**：数值与经济、机制重做、测试基建、自动代理、网页聊天室、网格化看板、飞升仙缘、仙市精度、每日悬赏通缉等 |
+| **四改** | **[ymshe1065](https://github.com/ymshe1065)**<br>**[lsq3497](https://github.com/lsq3497)**<br>**[lan](https://github.com/lanxue0)** | **v6.35.2~v7.10.5**：数值与经济、机制重做、测试基建、自动代理、网页聊天室、网格化看板、飞升仙缘、仙市精度、每日悬赏通缉等 |
 
 ### 四改说明
 
-四改自 `v6.35.2` 起承接三改，现由三位维护者共同推进；插件 **v3.46.4** / 游戏 **v7.10.4** / 数据库 **v65**，当前开发分支为 `feat/web-chatroom`。工作主线：
+四改自 `v6.35.2` 起承接三改，现由三位维护者共同推进；插件 **v3.46.5** / 游戏 **v7.10.5** / 数据库 **v65**，当前开发分支为 `feat/web-chatroom`。工作主线：
 
 | 主线 | 主要变更 |
 | --- | --- |
@@ -1513,8 +1542,8 @@ python3 -m unittest discover -s tests -q         # 现有单测
 | 项 | 当前 |
 | --- | --- |
 | 开发分支 | `feat/web-chatroom` |
-| 插件版本 | v3.46.4 |
-| 游戏版本 | v7.10.4 |
+| 插件版本 | v3.46.5 |
+| 游戏版本 | v7.10.5 |
 | 数据库版本 | v65 |
 | 运行环境 | AstrBot 4.29.x + Python 3.12 |
 | 仓库 | [ymshe1065/astrbot_plugin_xiuxian_promax](https://github.com/ymshe1065/astrbot_plugin_xiuxian_promax) |

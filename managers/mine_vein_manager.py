@@ -11,7 +11,6 @@
 from __future__ import annotations
 
 import json
-import random
 import time
 from typing import Dict, List, Optional, Tuple
 
@@ -19,6 +18,7 @@ from astrbot.api import logger
 
 from ..data import DataBase
 from ..models import Player
+from ..utils.game_secret import seeded_rng
 
 __all__ = ["MineVeinManager"]
 
@@ -69,7 +69,7 @@ class MineVeinManager:
         hour = self._hour_key()
         result = []
         for idx, tpl in enumerate(MINE_TEMPLATES, 1):
-            rng = random.Random(f"mine:{hour}:{user_id}:{idx}")
+            rng = seeded_rng("mine", hour, user_id, idx)
             price = max(100, int(tpl["price"] * rng.uniform(0.92, 1.08)))
             richness = int(rng.uniform(62, 142))
             if richness >= 120:
@@ -252,6 +252,16 @@ class MineVeinManager:
         expire = now + int(item["hours"]) * 3600
         await self.db.conn.execute("BEGIN IMMEDIATE")
         try:
+            # 持有上限必须在事务内复核：只在事务外读一次的话，
+            # 两个并发请求都能通过校验，玩家就同时持有 3 条以上矿脉。
+            cursor = await self.db.conn.execute(
+                "SELECT COUNT(*) FROM mine_veins WHERE owner_id = ? AND status = 'active'",
+                (player.user_id,),
+            )
+            row = await cursor.fetchone()
+            if int((row[0] if row else 0) or 0) >= MAX_ACTIVE_MINES:
+                await self.db.conn.rollback()
+                return False, f"❌ 你最多同时持有 {MAX_ACTIVE_MINES} 条矿脉，先等旧的到期。"
             cursor = await self.db.conn.execute(
                 "UPDATE players SET gold = gold - ? WHERE user_id = ? AND gold >= ?",
                 (price, player.user_id, price),
@@ -393,7 +403,7 @@ class MineVeinManager:
         )
 
     async def _roll_event(self, mine_id: int, hour: int) -> Tuple[str, float, str]:
-        rng = random.Random(f"mine-event:{mine_id}:{hour}")
+        rng = seeded_rng("mine-event", mine_id, hour)
         total = sum(weight for _, weight, _, _ in EVENTS)
         roll = rng.uniform(0, total)
         acc = 0
@@ -457,7 +467,7 @@ class MineVeinManager:
         event_lines = []
         for h in range(start_hour + 1, start_hour + 1 + hours):
             key, mult, text = await self._roll_event(mine_id, h)
-            rng = random.Random(f"mine-gain:{mine_id}:{h}:{player.user_id}")
+            rng = seeded_rng("mine-gain", mine_id, h, player.user_id)
             per_hour = int(int(mine["base_yield"]) * (int(mine["richness"]) / 100.0) * mult * (share / 100.0))
             per_hour = int(per_hour * rng.uniform(0.92, 1.08))
             total_gold += max(0, per_hour)

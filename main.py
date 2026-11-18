@@ -476,6 +476,15 @@ class XiuXianPlugin(Star):
         await migration_manager.migrate()
         await self.db.ext.ensure_system_config_table()
 
+        # v7.10.5 赌局随机密钥：盘口/暗标/矿脉/赌石/锦囊/古方的随机结果
+        # 必须混入本部署独有的密钥，否则玩家可离线复现种子算出赢家。
+        try:
+            from .utils.game_secret import ensure_game_secret
+
+            await ensure_game_secret(self.db)
+        except Exception as e:
+            logger.warning(f"【修仙插件】赌局随机密钥初始化失败（本轮随机可被推算）: {e}")
+
         # 秘境配置按「秘境 × 难度」下发到数据库（幂等），改配置重启即生效
         try:
             synced = await self.rift_mgr.sync_rifts()
@@ -1309,16 +1318,32 @@ class XiuXianPlugin(Star):
                 except Exception as e:
                     logger.error(f"矿脉过期清理异常: {e}")
                 try:
-                    cursor = await self.db.conn.execute(
-                        "UPDATE treasure_map_runs SET status = 'ended', updated_at = ? "
-                        "WHERE status = 'active' AND updated_at + 86400 < ?",
-                        (now, now),
-                    )
-                    if cursor.rowcount:
-                        logger.info(f"【修仙插件】清理异常藏宝图状态 {cursor.rowcount} 条")
-                    await self.db.conn.commit()
+                    settled = await self.treasure_map_mgr.settle_stale_runs(now)
+                    if settled:
+                        logger.info(f"【修仙插件】超时爬塔按撤退结算 {settled} 条")
                 except Exception as e:
                     logger.error(f"藏宝图状态清理异常: {e}")
+                try:
+                    # 赌局历史行只增不删：黑市锦囊按小时一行、古方参悟哨兵按周期一行，
+                    # 长期运行会把表撑大，这里保留最近 7 天。
+                    cutoff = now - 7 * 86400
+                    # period 形如 2026-11-19-08，字典序即时间序，可直接比较
+                    cutoff_period = time.strftime("%Y-%m-%d-%H", time.localtime(cutoff))
+                    cursor = await self.db.conn.execute(
+                        "DELETE FROM black_market_pouches WHERE period < ?", (cutoff_period,)
+                    )
+                    removed = cursor.rowcount or 0
+                    cursor = await self.db.conn.execute(
+                        "DELETE FROM ancient_recipe_unlocks "
+                        "WHERE recipe_key LIKE 'attempt:%' AND learned_at < ?",
+                        (cutoff,),
+                    )
+                    removed += cursor.rowcount or 0
+                    if removed:
+                        logger.info(f"【修仙插件】清理赌局历史记录 {removed} 行")
+                    await self.db.conn.commit()
+                except Exception as e:
+                    logger.error(f"赌局历史清理异常: {e}")
                 await asyncio.sleep(60)
             except asyncio.CancelledError:
                 break
@@ -2430,7 +2455,9 @@ class XiuXianPlugin(Star):
 
     @filter.command(CMD_INVEST_MARKET, "仙市行情总览（/仙市 杠杆 进入杠杆交易）")
     @require_whitelist
-    async def handle_invest_market(self, event: AstrMessageEvent, args: str = ""):
+    async def handle_invest_market(self, event: AstrMessageEvent, args: GreedyStr):
+        # 必须是 GreedyStr：AstrBot 对「带默认值的 str 形参」只传第一个空格分段，
+        # `/仙市 杠杆 S01 3 50000` 会被截成 `杠杆`，开仓/平仓永远进不去。
         if str(args or "").strip().startswith(("杠杆", "配资", "margin")):
             async for r in self.invest_handlers.handle_margin(event, args): yield r
             return
@@ -3005,7 +3032,9 @@ class XiuXianPlugin(Star):
     # ===== v6.1 飞升转生 =====
     @filter.command("飞升", "达到最高境界后飞升（先出确认页，带「确认」才执行；可附加装备名封印为传家宝）")
     @require_whitelist
-    async def handle_reincarnate(self, event: AstrMessageEvent, args: str = ""):
+    async def handle_reincarnate(self, event: AstrMessageEvent, args: GreedyStr):
+        # 同样必须 GreedyStr：`/飞升 青锋剑 确认` 有两段参数，
+        # 带默认值的 str 形参只会收到「青锋剑」，确认词被丢掉。
         before = None
         p0 = await self.db.get_player_by_id(event.get_sender_id())
         if p0: before = p0.reincarnation_count

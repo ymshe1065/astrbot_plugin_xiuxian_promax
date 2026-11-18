@@ -10,7 +10,7 @@ from ..managers.betting_pool_manager import BettingPoolManager
 from ..managers.mine_vein_manager import MineVeinManager
 from ..managers.treasure_map_manager import TreasureMapManager
 from ..models import Player
-from .utils import player_required, set_event_flag
+from .utils import player_required, resolve_greedy_args, set_event_flag
 
 __all__ = ["HighStakesHandlers"]
 
@@ -26,6 +26,9 @@ class HighStakesHandlers:
     # ================= 藏宝图 =================
     @player_required
     async def handle_treasure_map(self, player: Player, event: AstrMessageEvent, args: str = ""):
+        # 贪婪参数兜底：GreedyStr 在部分平台会退化成只回传第一个分段，
+        # `/藏宝图 开始 2` 会静默按 tier=1 买错图（白花 8000 灵石）。
+        args = resolve_greedy_args(event, args, "藏宝图")
         parts = str(args or "").strip().split()
         sub = parts[0] if parts else ""
         if not sub or sub in ("帮助", "菜单", "状态"):
@@ -61,6 +64,9 @@ class HighStakesHandlers:
     # ================= 矿脉 =================
     @player_required
     async def handle_mine(self, player: Player, event: AstrMessageEvent, args: str = ""):
+        # 贪婪参数兜底：GreedyStr 在部分平台会退化成只回传第一个分段，
+        # `/藏宝图 开始 2` 会静默按 tier=1 买错图（白花 8000 灵石）。
+        args = resolve_greedy_args(event, args, "矿脉")
         parts = str(args or "").strip().split()
         sub = parts[0] if parts else ""
         if not sub or sub in ("帮助", "菜单", "市场", "勘探"):
@@ -141,6 +147,9 @@ class HighStakesHandlers:
     # ================= 盘口 =================
     @player_required
     async def handle_betting(self, player: Player, event: AstrMessageEvent, args: str = ""):
+        # 贪婪参数兜底：GreedyStr 在部分平台会退化成只回传第一个分段，
+        # `/藏宝图 开始 2` 会静默按 tier=1 买错图（白花 8000 灵石）。
+        args = resolve_greedy_args(event, args, "盘口")
         parts = str(args or "").strip().split()
         sub = parts[0] if parts else ""
         if not sub or sub in ("帮助", "菜单", "列表"):

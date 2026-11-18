@@ -48,9 +48,52 @@ class _FakeExt(SlotCdStubMixin):
         self.cd = None
 
 
+class _FakeResult:
+    """同时支持 ``await conn.execute(...)`` 与 ``async with conn.execute(...)``。"""
+
+    rowcount = 1
+    lastrowid = 1
+
+    def __await__(self):
+        async def _done():
+            return self
+
+        return _done().__await__()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def fetchone(self):
+        return None
+
+    async def fetchall(self):
+        return []
+
+
+class _FakeConn:
+    """最小连接桩：押镖结算走原子增量 SQL，这里只记录不执行。"""
+
+    def __init__(self):
+        self.statements = []
+
+    def execute(self, sql, params=()):
+        self.statements.append((sql, params))
+        return _FakeResult()
+
+    async def commit(self):
+        return None
+
+    async def rollback(self):
+        return None
+
+
 class _FakeDB:
     def __init__(self):
         self.ext = _FakeExt()
+        self.conn = _FakeConn()
 
     async def update_player_fields(self, *a, **k):
         return None
@@ -130,6 +173,11 @@ class TestEscortBonuses(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(ok, msg)
         self.assertEqual(player.gold, 17820)
         self.assertEqual(player.experience, 1320)
+        # 结算必须走「原子增量」而不是绝对值回写，
+        # 否则后台暗标退款/盘口派彩刚入账的灵石会被旧快照覆盖。
+        paid = [p for sql, p in db.conn.statements if "gold = COALESCE(gold, 0) + ?" in sql]
+        self.assertEqual(len(paid), 1)
+        self.assertEqual(tuple(paid[0])[:2], (17820, 1320))
 
     async def test_legacy_escort_without_flag_gets_bonus_at_finish(self):
         from unittest import mock

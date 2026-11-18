@@ -2641,9 +2641,9 @@ async def _src_ancient_scrolls(plugin: "XiuXianPlugin", player: Any, field: dict
 async def _src_auction_subs(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
     return [
         _opt("查看拍卖会", "状态", "查看拍卖会当前状态", "拍卖会"),
-        _opt("暗标场", "暗标", "查看本轮三件盲拍品与模糊描述", "暗标"),
+        _opt("暗标场", "暗标", "查看本轮三件盲拍品与品阶区间描述", "暗标"),
         _opt("暗标出价", "暗标出价", "对指定暗标盲出价，出价即冻结", "暗标"),
-        _opt("暗标鉴定", "暗标鉴定", "付费鉴定品阶区间，可能被做局", "暗标"),
+        _opt("暗标鉴定", "暗标鉴定", "付费看准确品阶，20% 概率被做局", "暗标"),
     ], ""
 
 
@@ -2680,7 +2680,9 @@ async def _src_invest_subs(plugin: "XiuXianPlugin", player: Any, field: dict, va
 async def _src_margin_arg1(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
     if not player:
         return [], "尚未创建角色"
-    sub = str(values[0]).strip() if values else ""
+    # 关键字可能在第一段（网页弹层的「杠杆 平仓」整值），
+    # 也可能被手打到第二段（先选「杠杆开仓」再输入「平仓」），两段都要看。
+    sub = " ".join(str(v).strip() for v in values[:2])
     options: List[dict[str, str]] = []
     if "平仓" in sub:
         try:
@@ -2868,10 +2870,22 @@ def plan_for(cmd: str, values: Optional[List[str]] = None) -> List[dict[str, Any
         ]
     elif key == "仙市" and first.startswith("杠杆"):
         base = [dict(plan[0])] if plan else [_f("sub", "选择仙市操作", "invest_subs", optional=True)]
-        if "平仓" in first:
-            plan = base + [_f("arg1", "选择要平仓的持仓", "margin_arg1")]
-        elif "状态" in first:
-            plan = base
+        second = str(values[1]).strip() if len(values) > 1 else ""
+        # 手输兜底：网页弹层里「杠杆平仓」是一个整值（"杠杆 平仓"），
+        # 但也有人先选「杠杆开仓」再在下一栏手打「平仓」。此时关键字落在第二段，
+        # 若仍按开仓分支拼参数，最终会发出 `/仙市 杠杆 平仓 3 50000`，
+        # 把「杠杆倍数」那一栏的值当成持仓编号，平掉不该平的仓。
+        if ("平仓" in first) or second in ("平仓", "结算", "close"):
+            if first.strip() == "杠杆" and second:
+                # 关键字已占掉第二段，持仓编号要排到第三段
+                plan = base + [
+                    _f("kw", "平仓（已选）", "", optional=True),
+                    _f("arg1", "选择要平仓的持仓", "margin_arg1"),
+                ]
+            else:
+                plan = base + [_f("arg1", "选择要平仓的持仓", "margin_arg1")]
+        elif ("状态" in first) or second in ("状态", "status"):
+            plan = base + ([_f("kw", "状态（已选）", "", optional=True)] if second else [])
         else:
             plan = base + [
                 _f("arg1", "选择股票", "margin_arg1"),

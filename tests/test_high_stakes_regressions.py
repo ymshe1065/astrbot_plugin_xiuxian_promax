@@ -19,6 +19,27 @@ class TestHighStakesRegressions(unittest.IsolatedAsyncioTestCase):
         fresh = await self.db.get_player_by_id(user_id)
         return int(fresh.gold or 0)
 
+    async def _insert_active_run(self, user_id, run):
+        """写入一条 active 爬塔记录。
+
+        v3.46.5 起 `_settle` 用 `UPDATE ... AND status='active'` 抢占结算权，
+        没有这条记录就会被判定为「已经结算过了」。
+        """
+        import json as _json
+
+        now = int(time.time())
+        await self.db.conn.execute(
+            "INSERT INTO treasure_map_runs "
+            "(user_id, floor, map_tier, hp, max_hp, heal_used, heal_budget, "
+            "loot, log, status, started_at, updated_at) "
+            "VALUES (?, ?, ?, 100, 1000, 0, 180, ?, '[]', 'active', ?, ?)",
+            (
+                user_id, int(run.get("floor") or 0), int(run.get("map_tier") or 1),
+                _json.dumps(run.get("loot") or [], ensure_ascii=False), now, now,
+            ),
+        )
+        await self.db.conn.commit()
+
     def _manager(self, module, cls_name, *args):
         return getattr(self._imp(module), cls_name)(*args)
 
@@ -36,18 +57,83 @@ class TestHighStakesRegressions(unittest.IsolatedAsyncioTestCase):
             ],
             "log": [],
         }
+        await self._insert_active_run(p.user_id, run)
         ok, msg = await mgr._settle(p, run, success=True, reason="主动撤退")
         self.assertTrue(ok, msg)
         self.assertEqual(await self._gold(p.user_id), 1000 + 1234)
+
+    async def test_treasure_map_settle_cannot_be_replayed(self):
+        """同一次爬塔重复撤退不能领双份战利品。"""
+        p = await self._player("treasure_replay", gold=1000)
+        mgr = self._manager("managers.treasure_map_manager", "TreasureMapManager",
+                            self.db, self.ring, self.cm)
+        run = {"floor": 2, "map_tier": 1, "loot": [{"kind": "gold", "amount": 500}], "log": []}
+        await self._insert_active_run(p.user_id, run)
+        ok, _msg = await mgr._settle(p, run, success=True, reason="主动撤退")
+        self.assertTrue(ok)
+        self.assertEqual(await self._gold(p.user_id), 1500)
+        ok, msg = await mgr._settle(p, run, success=True, reason="主动撤退")
+        self.assertFalse(ok)
+        self.assertIn("已经结算过", msg)
+        self.assertEqual(await self._gold(p.user_id), 1500)
+
+    async def test_treasure_map_stale_run_is_settled_as_retreat(self):
+        """超时爬塔按撤退结算，不能把暂存灵石一起吞掉。"""
+        p = await self._player("treasure_stale", gold=1000)
+        mgr = self._manager("managers.treasure_map_manager", "TreasureMapManager",
+                            self.db, self.ring, self.cm)
+        run = {"floor": 4, "map_tier": 2, "loot": [{"kind": "gold", "amount": 2600}], "log": []}
+        await self._insert_active_run(p.user_id, run)
+        stale = int(time.time()) - 2 * 86400
+        await self.db.conn.execute(
+            "UPDATE treasure_map_runs SET updated_at = ? WHERE user_id = ?",
+            (stale, p.user_id),
+        )
+        await self.db.conn.commit()
+        settled = await mgr.settle_stale_runs()
+        self.assertEqual(settled, 1)
+        self.assertEqual(await self._gold(p.user_id), 1000 + 2600)
+        self.assertIsNone(await mgr.get_active_run(p.user_id))
 
     async def test_treasure_map_failed_run_keeps_no_pending_gold(self):
         p = await self._player("treasure_dead", gold=1000)
         mgr = self._manager("managers.treasure_map_manager", "TreasureMapManager",
                             self.db, self.ring, self.cm)
         run = {"floor": 2, "map_tier": 1, "loot": [{"kind": "gold", "amount": 999}], "log": []}
+        await self._insert_active_run(p.user_id, run)
         ok, _msg = await mgr._settle(p, run, success=False, reason="倒下")
         self.assertTrue(ok)
         self.assertEqual(await self._gold(p.user_id), 1000)
+
+    async def test_clamp_combat_hp_blocks_heal_but_allows_damage(self):
+        """爬塔中战斗回血只能吃本层额度，掉血照常。"""
+        TreasureMapManager = self._imp("managers.treasure_map_manager").TreasureMapManager
+        p = await self._player("treasure_clamp", gold=0)
+        run = {"floor": 1, "map_tier": 1, "loot": [], "log": []}
+        await self._insert_active_run(p.user_id, run)
+        # 爬塔时 players.hp 与 run 的 hp 同步推进，战斗写回比对的是 players.hp
+        await self.db.conn.execute(
+            "UPDATE treasure_map_runs SET hp = 500, heal_budget = 180, heal_used = 0 "
+            "WHERE user_id = ?", (p.user_id,)
+        )
+        await self.db.conn.execute(
+            "UPDATE players SET hp = 500 WHERE user_id = ?", (p.user_id,)
+        )
+        await self.db.conn.commit()
+        # 掉血不受限制
+        self.assertEqual(await TreasureMapManager.clamp_combat_hp(self.db, p.user_id, 200), 200)
+        await self.db.conn.execute(
+            "UPDATE treasure_map_runs SET heal_used = 0 WHERE user_id = ?", (p.user_id,)
+        )
+        await self.db.conn.commit()
+        # 满血写回（切磋）只能吃到本层 180 的额度
+        self.assertEqual(await TreasureMapManager.clamp_combat_hp(self.db, p.user_id, 1000), 680)
+        # 额度用完后不能再回血，但掉血照常
+        self.assertEqual(await TreasureMapManager.clamp_combat_hp(self.db, p.user_id, 900), 500)
+        self.assertEqual(await TreasureMapManager.clamp_combat_hp(self.db, p.user_id, 300), 300)
+        # 非爬塔玩家原样返回
+        other = await self._player("not_climbing", gold=0)
+        self.assertEqual(await TreasureMapManager.clamp_combat_hp(self.db, other.user_id, 777), 777)
 
     # ===== 拍卖暗标 =====
     async def test_blind_auction_bid_rolls_back_if_round_settles_mid_flight(self):
@@ -165,7 +251,12 @@ class TestHighStakesRegressions(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(gold_after_first, 500000 - cost)
         ok, msg = await mgr.study_ancient(p, 1)
         self.assertFalse(ok, msg)
-        self.assertIn("已经参悟过", msg)
+        # 拒绝理由取决于首次参悟的结果：悟得真方 → 「早已掌握」，
+        # 废纸/反噬 → 「本周期已经参悟过」。两种都不该再收一次钱。
+        self.assertTrue(
+            ("已经参悟过" in msg) or ("早已掌握" in msg) or ("本周期" in msg),
+            msg,
+        )
         self.assertEqual(await self._gold(p.user_id), gold_after_first)
 
     # ===== 网页仙市杠杆参数 =====

@@ -6,7 +6,7 @@ from astrbot.api.event import AstrMessageEvent
 from ..data import DataBase
 from ..managers.auction_house_manager import AuctionHouseManager
 from ..models import Player
-from .utils import player_required
+from .utils import player_required, resolve_greedy_args
 
 
 class AuctionHouseHandlers:
@@ -97,12 +97,20 @@ class AuctionHouseHandlers:
     @player_required
     async def handle_status_or_blind(self, player: Player, event: AstrMessageEvent, args: str = ""):
         """统一入口：/拍卖会 [暗标|暗标出价 ...|暗标鉴定 ...]"""
-        text = str(args or "").strip()
+        # 贪婪参数兜底：`暗标出价 1 12000` 有三段，退化后会只剩「暗标出价」
+        text = resolve_greedy_args(event, args, "拍卖会", "拍卖会信息").strip()
         if not text or text in ("状态", "信息", "名单", "查看"):
             yield event.plain_result(await self.manager.get_status(player))
             return
         parts = text.split()
         head = parts[0]
+        # 兼容连写子命令：`暗标出价 1 12000` / `暗标鉴定 1` 要拆成 暗标 + 动作，
+        # 否则 head 匹配不上会静默退回主拍卖会状态（帮助与网页按钮都用连写形式）。
+        if head not in ("暗标", "盲拍", "暗标场") and head.startswith(("暗标", "盲拍")):
+            action_word = head[2:]
+            if action_word:
+                parts = [head[:2], action_word] + parts[1:]
+                head = parts[0]
         if head in ("暗标", "盲拍", "暗标场"):
             if len(parts) == 1:
                 if not self.blind_manager:

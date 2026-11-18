@@ -7,6 +7,7 @@ from ..core.jewel_manager import JewelManager
 from ..data import DataBase
 from ..models import Player
 from ..rank_rules import RANK_NAMES, normalize_rank
+from ..utils.game_secret import seeded_rng
 
 class GambleManager:
     """赌石与黑市管理器"""
@@ -392,9 +393,9 @@ class GambleManager:
         hour = self._stone_hour_key()
         candidates = []
         for index, cfg in enumerate(self.STONE_TIER_CONFIG, 1):
-            market_rng = random.Random(f"stone-market:{hour}:{user_id}:{index}")
+            market_rng = seeded_rng("stone-market", hour, user_id, index)
             price = max(1, int(round(cfg["price"] * (1 + market_rng.uniform(-0.08, 0.08)))))
-            hidden_rng = random.Random(f"stone-hidden:{hour}:{user_id}:{index}")
+            hidden_rng = seeded_rng("stone-hidden", hour, user_id, index)
             hidden = self._roll_tier_loot(index, hidden_rng)
             true_clues, false_clues = self._stone_clue_pools(hidden, index, market_rng)
             true_count = max(0, min(int(cfg["true_clues"]), len(true_clues)))
@@ -690,7 +691,7 @@ class GambleManager:
         """按小时生成黑市商品；同一小时展示与购买一致。"""
         now = int(time.time())
         hour_key = now // 3600
-        rng = random.Random(hour_key)
+        rng = seeded_rng("black-market-items", hour_key)
 
         real_pool = {}
         for source in (
@@ -1109,7 +1110,7 @@ class GambleManager:
         period = self._pouch_period()
         result = []
         for index, cfg in enumerate(self.POUCH_TIER_CONFIG, 1):
-            rng = random.Random(f"pouch:{period}:{user_id}:{index}")
+            rng = seeded_rng("pouch", period, user_id, index)
             roll = rng.random()
             fake_end = float(cfg["fake_chance"])
             curse_end = fake_end + float(cfg["curse_chance"])
@@ -1236,8 +1237,36 @@ class GambleManager:
         if player.gold < cost:
             return False, f"❌ 验囊需要 {cost:,} 灵石，你当前只有 {player.gold:,}。"
 
+        # 验囊结果 80% 指向真实类别，20% 被商贩做局误导。
+        # 结果是种子的纯函数，先算出来再进事务，避免事务里夹无谓的计算。
+        rng = seeded_rng("pouch-inspect", period, player.user_id, index)
+        kind = item["hidden"].get("kind") or "fake"
+        if rng.random() < 0.20:
+            kind = rng.choice([k for k in self.POUCH_TIPS_TRUE if k != kind])
+        pool = self.POUCH_TIPS_TRUE.get(kind) or self.POUCH_TIPS_TRUE["fake"]
+        hint = rng.choice(pool)
+
+        # 「抢占验囊权」与扣费必须同事务：
+        # 旧实现先提交扣费、再单独写 inspected 标记，两步之间崩溃就变成
+        # 「钱扣了但没记录」，玩家被迫再付一次；并发两次验囊也都能通过前置检查。
         await self.db.conn.execute("BEGIN IMMEDIATE")
         try:
+            cursor = await self.db.conn.execute(
+                "INSERT OR IGNORE INTO black_market_pouches "
+                "(user_id, period, slot, inspected, opened, result) VALUES (?, ?, ?, 1, 0, ?)",
+                (player.user_id, period, index, hint),
+            )
+            if not cursor.rowcount:
+                # 已有记录：只有 inspected=0 且未拆开时才允许翻成已验
+                cursor = await self.db.conn.execute(
+                    "UPDATE black_market_pouches SET inspected = 1, result = ? "
+                    "WHERE user_id = ? AND period = ? AND slot = ? "
+                    "AND inspected = 0 AND opened = 0",
+                    (hint, player.user_id, period, index),
+                )
+            if not cursor.rowcount:
+                await self.db.conn.rollback()
+                return False, "❌ 每个锦囊只能验一次，禁制已经惊动了。"
             cursor = await self.db.conn.execute(
                 "UPDATE players SET gold = gold - ? WHERE user_id = ? AND gold >= ?",
                 (cost, player.user_id, cost),
@@ -1245,24 +1274,16 @@ class GambleManager:
             if not cursor.rowcount:
                 await self.db.conn.rollback()
                 return False, "❌ 灵石不足，验囊失败。"
-            fresh = await self.db.get_player_by_id(player.user_id)
-            if fresh:
-                player.gold = fresh.gold
+            async with self.db.conn.execute(
+                "SELECT gold FROM players WHERE user_id = ?", (player.user_id,)
+            ) as gold_cursor:
+                gold_row = await gold_cursor.fetchone()
+            if gold_row:
+                player.gold = int(gold_row[0] or 0)
             await self.db.conn.commit()
         except Exception:
             await self.db.conn.rollback()
             raise
-
-        # 验囊结果 80% 指向真实类别，20% 被商贩做局误导
-        rng = random.Random(f"pouch-inspect:{period}:{player.user_id}:{index}")
-        kind = item["hidden"].get("kind") or "fake"
-        if rng.random() < 0.20:
-            kind = rng.choice([k for k in self.POUCH_TIPS_TRUE if k != kind])
-        pool = self.POUCH_TIPS_TRUE.get(kind) or self.POUCH_TIPS_TRUE["fake"]
-        hint = rng.choice(pool)
-        await self._save_pouch_state(
-            player.user_id, period, index, True, False, hint
-        )
         return True, (
             f"🔎 你花 {cost:,} 灵石请老师傅验囊。\n"
             f"老师傅眯眼看了半晌，只说了一句：\n"
@@ -1313,7 +1334,14 @@ class GambleManager:
                 max_hp = max(1, int(stats.max_hp))
                 hp_loss = max(0, int(max_hp * hp_pct))
                 gold_loss = min(fresh.gold, max(0, int(fresh.gold * gold_pct)))
-                new_hp = max(1, int(fresh.hp or max_hp) - hp_loss)
+                current_hp = int(fresh.hp or 0)
+                if current_hp <= 0:
+                    # `fresh.hp or max_hp` 在 hp=0 时会退回满血，
+                    # 诅咒锦囊反而变成一次免费大治疗。气血已空就不再动血。
+                    hp_loss = 0
+                    new_hp = current_hp
+                else:
+                    new_hp = max(1, current_hp - hp_loss)
                 await self.db.conn.execute(
                     "UPDATE players SET hp = ?, gold = gold - ? WHERE user_id = ?",
                     (new_hp, gold_loss, player.user_id),

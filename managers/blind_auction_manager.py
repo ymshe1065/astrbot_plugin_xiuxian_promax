@@ -6,14 +6,14 @@
   刷新页面不会改变结果，防止反复刷信息。
 - 出价即冻结灵石，被更高价顶掉或落败时原路退回；结算与发奖在同一个事务里，
   避免重复领奖或灵石复制。
-- 可付费请鉴定师看一次「品阶区间」，但鉴定结果有 20% 概率被做局误导。
+- 免费描述只给「品阶区间」（真实品阶 ±1 名）；付费请鉴定师掌眼才给准确品阶，
+  但鉴定结果有 20% 概率被做局误导（挪到相邻档位）。
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
-import random
 import time
 from typing import Dict, List, Optional, Tuple
 
@@ -23,6 +23,7 @@ from ..core.jewel_manager import JewelManager
 from ..data import DataBase
 from ..models import Player
 from ..rank_rules import normalize_rank, rank_tier
+from ..utils.game_secret import seeded_rng
 
 __all__ = ["BlindAuctionManager"]
 
@@ -157,26 +158,47 @@ class BlindAuctionManager:
             "quality": "", "qty": qty, "value": max(1, value),
         }
 
+    @staticmethod
+    def _rank_range(rank: str) -> str:
+        """把真实品阶摊成「±1 名的区间」，用于免费描述。
+
+        旧实现免费 hint 直接写出真实品阶，而付费鉴定还可能被做局，
+        结果「花钱买到的信息严格劣于免费信息」，玩法自相矛盾。
+        现在：免费只给区间，付费才给准确品阶。
+        """
+        from ..rank_rules import RANK_NAMES
+
+        name = normalize_rank(rank, "")
+        if name not in RANK_NAMES:
+            return str(rank or "未知")
+        idx = RANK_NAMES.index(name)
+        low = max(0, idx - 1)
+        high = min(len(RANK_NAMES) - 1, idx + 1)
+        if low == high:
+            return RANK_NAMES[idx]
+        return f"{RANK_NAMES[low]}～{RANK_NAMES[high]}"
+
     def _describe(self, payload: dict, rng) -> Tuple[str, str]:
         kind = payload.get("kind")
         rank = payload.get("rank") or "未知"
+        span = self._rank_range(rank)
         if kind == "gear":
             templates = [
-                f"一只被禁制缠住的兵器匣，灵压约在【{rank}】上下",
-                f"蒙尘的{('长匣' if rng.random() < 0.5 else '布包')}，隐约透出金铁气，疑似【{rank}】器物",
-                f"残留剑意的密封拍品，鉴定师只肯说「不低于{rank}」",
+                f"一只被禁制缠住的兵器匣，灵压约在【{span}】之间",
+                f"蒙尘的{('长匣' if rng.random() < 0.5 else '布包')}，隐约透出金铁气，疑似【{span}】器物",
+                f"残留剑意的密封拍品，鉴定师只肯给出【{span}】的模糊区间",
             ]
         elif kind == "jewel":
             templates = [
-                f"一枚被封在蜡丸里的宝珠，灵光内敛，约【{rank}】",
-                f"看不清材质的珠玉，触手温润，可能达到【{rank}】",
-                f"密封玉盒中传来清越碰撞声，鉴定为【{rank}】珠宝",
+                f"一枚被封在蜡丸里的宝珠，灵光内敛，约【{span}】",
+                f"看不清材质的珠玉，触手温润，可能达到【{span}】",
+                f"密封玉盒中传来清越碰撞声，粗判在【{span}】",
             ]
         else:
             templates = [
-                f"一袋封灵材料，灵气驳杂，品阶约【{rank}】",
-                f"沉甸甸的矿材包裹，鉴定师估价在【{rank}】",
-                f"不知名的灵材匣，隐约有药香，约【{rank}】",
+                f"一袋封灵材料，灵气驳杂，品阶约【{span}】",
+                f"沉甸甸的矿材包裹，鉴定师只肯估价到【{span}】",
+                f"不知名的灵材匣，隐约有药香，约【{span}】",
             ]
         return rng.choice(templates), rank
 
@@ -202,7 +224,7 @@ class BlindAuctionManager:
         )
         if not lots:
             for lot_no in range(1, LOTS_PER_ROUND + 1):
-                rng = random.Random(f"{key}:lot:{lot_no}")
+                rng = seeded_rng(key, "lot", lot_no)
                 payload = self._generate_payload(rng)
                 hint, _rank = self._describe(payload, rng)
                 base = max(1000, int(payload.get("value") or 0))
@@ -229,8 +251,14 @@ class BlindAuctionManager:
             )
             settled = 0
             for rnd in rounds:
-                if await self._settle_round(rnd["round_key"], now):
-                    settled += 1
+                try:
+                    if await self._settle_round(rnd["round_key"], now):
+                        settled += 1
+                except Exception as exc:
+                    # 单个「毒轮次」不能阻塞其余到期轮次：异常会沿 settle_due
+                    # 传播到 get_status / place_bid，把玩家指令一起打挂，
+                    # 已冻结的灵石就可能长期退不回来。
+                    logger.error(f"【暗标】轮次 {rnd.get('round_key')} 结算失败: {exc}")
             return settled
 
     async def _settle_round(self, key: str, now: int) -> bool:
@@ -324,6 +352,7 @@ class BlindAuctionManager:
             return False, "拍品信息异常"
         if kind == "jewel" and isinstance(payload.get("jewel"), dict):
             gem = self.jewel_manager.add_jewel(player, dict(payload["jewel"]))
+            await self._refresh_gold(player)
             await self.db.update_player(player, commit=False)
             return True, gem.get("name", name)
         if kind == "gear":
@@ -332,6 +361,7 @@ class BlindAuctionManager:
                 quality=payload.get("quality") or "", external_transaction=True,
             )
             if ok:
+                await self._refresh_gold(player)
                 await self.db.update_player(player, commit=False)
             return ok, msg
         ok, msg = await self.storage_ring_mgr.store_item(
@@ -339,8 +369,26 @@ class BlindAuctionManager:
             external_transaction=True,
         )
         if ok:
+            await self._refresh_gold(player)
             await self.db.update_player(player, commit=False)
         return ok, msg
+
+    async def _refresh_gold(self, player: Player) -> None:
+        """全字段回写前重读一次灵石。
+
+        ``store_item`` 内部有 await，同连接上的其他协程（后台派彩、退款、
+        另一个玩家转账）可能已经改过 gold。直接拿 ``_award`` 开头读的快照
+        做全字段回写，会把那笔入账悄悄抹掉。
+        """
+        try:
+            async with self.db.conn.execute(
+                "SELECT gold FROM players WHERE user_id = ?", (player.user_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+            if row:
+                player.gold = int(row[0] or 0)
+        except Exception:
+            pass
 
     # ================= 玩家操作 =================
     async def get_status(self, user_id: str, now: Optional[int] = None) -> str:
@@ -387,8 +435,8 @@ class BlindAuctionManager:
             "━━━━━━━━━━━━━━━",
             f"⏳ 本轮结束：{remaining // 3600} 时 {(remaining % 3600) // 60} 分后",
             "💡 `/拍卖会 暗标出价 <编号> <金额>` 盲出价（出价即冻结）",
-            "💡 `/拍卖会 暗标鉴定 <编号>` 付费鉴定品阶区间（可能被做局）",
-            "⚠️ 只给模糊描述，价高者得；落败与顶价会原路退回。",
+            "💡 `/拍卖会 暗标鉴定 <编号>` 付费看准确品阶（20% 概率被做局）",
+            "⚠️ 免费描述只给品阶区间，价高者得；落败与顶价会原路退回。",
         ])
         return "\n".join(lines)
 
@@ -409,18 +457,24 @@ class BlindAuctionManager:
         cost = max(300, int(int(lot["base_value"]) * APPRAISE_RATE))
         if player.gold < cost:
             return False, f"❌ 鉴定需要 {cost:,} 灵石，你当前只有 {player.gold:,}。"
-        rng = random.Random(f"blind-appraise:{rnd['round_key']}:{lot_no}:{player.user_id}")
+        rng = seeded_rng("blind-appraise", rnd["round_key"], lot_no, player.user_id)
         payload = json.loads(lot.get("payload") or "{}")
         rank = payload.get("rank") or "未知"
-        from ..rank_rules import RANK_NAMES
+        from ..rank_rules import RANK_NAMES, RANK_TIERS
         tier = rank_tier(rank, 1)
         if rng.random() < MISLEAD_CHANCE:
+            # 做局：把品阶挪到相邻档位。必须用 RANK_TIERS 反查同档名称——
+            # 旧写法 `RANK_NAMES[fake_tier - 1]` 把「档位」当「列表下标」，
+            # 12 个品阶名共享 5 档，tier=4/5 会映射回「灵品/地品」（tier 3），
+            # 结果是「升档」反而显示得更低，做局完全失真。
             fake_tier = max(1, min(5, tier + rng.choice([-1, 1])))
-            rank = RANK_NAMES[fake_tier - 1] if fake_tier - 1 < len(RANK_NAMES) else rank
+            same_tier = [n for n in RANK_NAMES if RANK_TIERS.get(n) == fake_tier]
+            if same_tier:
+                rank = rng.choice(same_tier)
         kind_label = {"gear": "器物", "jewel": "珠宝", "material": "灵材"}.get(
             payload.get("kind"), "物品"
         )
-        hint = f"像是【{rank}】品阶的{kind_label}，具体真假当面难断"
+        hint = f"鉴定为【{rank}】{kind_label}，具体真假当面难断"
         await self.db.conn.execute("BEGIN IMMEDIATE")
         try:
             cursor = await self.db.conn.execute(

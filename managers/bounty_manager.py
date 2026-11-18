@@ -1286,6 +1286,10 @@ class BountyManager:
         rounds = int(result.get("rounds", 0) or 0)
         player_hp = max(1, int(result.get("player1_real_hp", 1) or 1))
         player_mp = max(0, int(result.get("player1_final_mp", 0) or 0))
+        # 爬塔中的玩家：战斗内吸血不能绕过每层回血额度
+        from .treasure_map_manager import TreasureMapManager
+
+        player_hp = await TreasureMapManager.clamp_combat_hp(self.db, player.user_id, player_hp)
         enemy_hp = max(0, int(result.get("player2_real_hp", 0) or 0))
         enemy_max_hp = max(1, int(snapshot.get("max_hp", 1) or 1))
 

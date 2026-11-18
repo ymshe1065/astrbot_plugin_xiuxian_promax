@@ -18,6 +18,7 @@ from ..core.talisman_rules import (
     TRIBULATION_DEMAND, TRIBULATION_RATE, pill_rank_of, rank_from_level,
 )
 from ..core.active_effects import format_duration
+from ..utils.game_secret import seeded_rng
 
 if TYPE_CHECKING:
     from ..config_manager import ConfigManager
@@ -1432,7 +1433,7 @@ class AlchemyManager:
         if not pool:
             return []
         period = self._ancient_period()
-        rng = random.Random(f"ancient:{period}:{user_id}")
+        rng = seeded_rng("ancient", period, user_id)
         picked = rng.sample(pool, min(3, len(pool)))
         result = []
         for index, recipe in enumerate(picked, 1):
@@ -1478,14 +1479,28 @@ class AlchemyManager:
             keys = set()
         now = int(time.time())
         remaining = self.ANCIENT_PERIOD_SECONDS - (now % self.ANCIENT_PERIOD_SECONDS)
+        # 残卷池不按玩家已学丹方过滤，高等级玩家会刷到一堆早就学会的方子。
+        # 这里显式标注「已掌握」，避免玩家白付灵石参悟一张对自己毫无价值的残卷。
+        learned_ids = set()
+        try:
+            holder = await self.db.get_player_by_id(user_id)
+            if holder:
+                learned_ids = {int(x) for x in self.get_learned_recipe_ids(holder)}
+        except Exception:
+            learned_ids = set()
         lines = [
             "📜 古方残卷（每 6 小时刷新）",
             "━━━━━━━━━━━━━━━",
         ]
         for item in candidates:
             attempt_key = f"attempt:{item['period']}:{item['index']}"
-            used = str(item["recipe_id"]) in keys or attempt_key in keys
-            state = " ✅已参悟" if used else ""
+            known = item["recipe_id"] in learned_ids or str(item["recipe_id"]) in keys
+            if known:
+                state = " ✅已掌握"
+            elif attempt_key in keys:
+                state = " ✅本周期已参悟"
+            else:
+                state = ""
             lines.append(
                 f"[{item['index']}] 无名残卷 - {item['cost']:,} 灵石{state}"
             )
@@ -1495,7 +1510,7 @@ class AlchemyManager:
             f"⏳ 下次刷新：{remaining // 60} 分 {remaining % 60} 秒后",
             "💡 `/古方 参悟 <编号>` 付灵石强行参悟",
             "⚠️ 可能悟得真方，也可能只是废纸，甚至被丹毒反噬。",
-            "⚠️ 已参悟的残卷不会重复收费，悟得丹方永久并入已学丹方。",
+            "⚠️ 已掌握/已参悟的残卷不会重复收费，悟得丹方永久并入已学丹方。",
         ])
         return True, "\n".join(lines)
 
@@ -1516,7 +1531,16 @@ class AlchemyManager:
                 unlocked = await cursor.fetchone() is not None
         except Exception:
             unlocked = False
-        if recipe_id in learned and unlocked:
+        # 已学丹方（升级自动习得或此前参悟所得）都不该再付费参悟一次。
+        # 旧写法用 `and`：只有「既在已学列表又有解锁记录」才拦，
+        # 靠境界自动学会的丹方没有 ancient_recipe_unlocks 记录，
+        # 玩家会被允许花几万灵石去「参悟」一张自己早就会的方子，什么都拿不到。
+        if recipe_id in learned:
+            return False, (
+                f"❌ 你早已掌握【{recipe.get('name')}】，这张残卷对你没有价值。\n"
+                "💡 换一张编号，或等 6 小时后刷新。"
+            )
+        if unlocked:
             return False, f"❌ 你已经参悟过【{recipe.get('name')}】了，等待下次刷新。"
 
         attempt_key = f"attempt:{item['period']}:{index}"
@@ -1562,7 +1586,7 @@ class AlchemyManager:
             await self.db.conn.rollback()
             raise
 
-        rng = random.Random(f"ancient-study:{player.user_id}:{item['period']}:{index}")
+        rng = seeded_rng("ancient-study", player.user_id, item["period"], index)
         total = sum(weight for _, weight, _ in self.ANCIENT_OUTCOMES)
         roll = rng.uniform(0, total)
         acc = 0
@@ -1611,9 +1635,16 @@ class AlchemyManager:
                 max_hp = max(1, int(stats.max_hp))
             except Exception:
                 max_hp = max(1, int(player.max_blood_qi or 100))
-            loss = max(1, int(max_hp * hp_loss_pct))
-            player.hp = max(1, int(player.hp or max_hp) - loss)
-            notes.append(f"🩸 气血 -{loss:,}")
+            current_hp = int(player.hp or 0)
+            if current_hp <= 0:
+                # `player.hp or max_hp` 是个陷阱：hp=0 时会退回 max_hp，
+                # 结果「丹毒反噬」反而把濒死玩家治成满血减一点。
+                # 气血已空就不再扣，也绝不借机回血。
+                notes.append("🩸 你已气血枯竭，丹毒无处可侵。")
+            else:
+                loss = max(1, int(max_hp * hp_loss_pct))
+                player.hp = max(1, current_hp - loss)
+                notes.append(f"🩸 气血 -{loss:,}")
 
         if pills_gained:
             try:
@@ -1628,6 +1659,17 @@ class AlchemyManager:
                 from astrbot.api import logger
                 logger.warning(f"【古方】发放成品丹药失败: {exc}")
 
+        # 扣费已经在上面的事务里原子完成；这里回写全字段前重读一次灵石，
+        # 否则后台暗标退款/盘口派彩刚入账的灵石会被命令开始时的旧快照覆盖掉。
+        try:
+            async with self.db.conn.execute(
+                "SELECT gold FROM players WHERE user_id = ?", (player.user_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+            if row:
+                player.gold = int(row[0] or 0)
+        except Exception:
+            pass
         await self.db.update_player(player)
         lines = [
             f"📜 古方参悟 · {label}",

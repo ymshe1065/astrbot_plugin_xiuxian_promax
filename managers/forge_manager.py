@@ -508,19 +508,28 @@ class ForgeManager:
                 affixes.pop(0)
             extra_lines.append(f"获得血炼词条：{new_affix['display']}")
             if outcome == "corrupt":
-                if len(affixes) > 1:
-                    burned = affixes.pop(rng.randrange(len(affixes)))
+                # 只能烧「原有」词条。旧写法从 affixes 里随机 pop，
+                # 有 1/N 概率把刚获得的血炼词条自己烧掉——玩家付出 30% 气血
+                # 却净亏一条词，还与「原有的…被烧毁」的文案自相矛盾。
+                old_idx = [i for i, a in enumerate(affixes) if a is not new_affix]
+                if old_idx:
+                    burned = affixes.pop(rng.choice(old_idx))
                     extra_lines.append(
                         f"☠️ 魔化反噬，原有的【{burned.get('display', burned.get('name', '词条'))}】被血煞烧毁。"
                     )
+                else:
+                    extra_lines.append("☠️ 魔化反噬，但装备上没有旧词条可烧，血煞散去。")
                 extra_lines.append("☠️ 装备沾染血煞，词条虽强却带着不祥气息。")
         elif outcome == "backlash":
             backlash = max(1, int(max_hp * self.BLOOD_FORGE_HP_BACKLASH))
             player.hp = max(1, player.hp - backlash)
+            # 这条裸 UPDATE 之前没有 commit，全靠后面 update_player 顺带提交；
+            # 一旦后续写库抛异常，反噬掉的血就会回滚，玩家白嫖一次血炼惩罚。
             await self.db.conn.execute(
                 "UPDATE players SET hp = ? WHERE user_id = ?",
                 (player.hp, player.user_id),
             )
+            await self.db.conn.commit()
             extra_lines.append(f"💥 血煞逆冲心脉，额外损失 {backlash:,} 气血。")
         else:
             if affixes:

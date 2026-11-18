@@ -1338,6 +1338,20 @@
       "volume": 1
     },
     {
+      "name": "血菩提",
+      "category": "灵植",
+      "tier": "帝品",
+      "price": 30000,
+      "volume": 1
+    },
+    {
+      "name": "帝流浆",
+      "category": "灵植",
+      "tier": "帝品",
+      "price": 30000,
+      "volume": 1
+    },
+    {
       "name": "九劫长生草",
       "category": "灵植",
       "tier": "帝品",

@@ -314,18 +314,30 @@ class EscortManager:
                 f"🩸 黑吃黑！半路杀出一队蒙面修士，硬生生截走 {ambush_loss:,} 灵石。\n"
             )
 
-        player.gold += escort_gold
-        player.experience += escort_exp
         karma_delta = int(mode_cfg.get("karma") or 0)
+        # 收益走「原子增量」而不是绝对值回写：player 是命令开始时读的快照，
+        # 暗标退款 / 盘口派彩等后台任务并不持玩家锁，
+        # 用 `player.gold + x` 覆盖式回写会把它们刚入账的灵石直接抹掉。
+        await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            await self.db.conn.execute(
+                "UPDATE players SET gold = COALESCE(gold, 0) + ?, "
+                "experience = COALESCE(experience, 0) + ? WHERE user_id = ?",
+                (escort_gold, escort_exp, user_id),
+            )
+            if karma_delta:
+                await self.db.conn.execute(
+                    "UPDATE players SET karma = COALESCE(karma, 0) + ? WHERE user_id = ?",
+                    (karma_delta, user_id),
+                )
+            await self.db.conn.commit()
+        except Exception:
+            await self.db.conn.rollback()
+            raise
+        player.gold = (player.gold or 0) + escort_gold
+        player.experience = (player.experience or 0) + escort_exp
         if karma_delta:
             player.karma = (getattr(player, "karma", 0) or 0) + karma_delta
-        # 只回写结算字段，避免旧快照覆盖并发更新后的气血/灵气
-        await self.db.update_player_fields(
-            user_id,
-            gold=player.gold,
-            experience=player.experience,
-            karma=player.karma,
-        )
         await self.db.ext.set_user_free(user_id, cd_type=UserStatus.DELIVERING)
 
         if mode == "blood":

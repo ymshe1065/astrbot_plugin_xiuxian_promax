@@ -11,12 +11,12 @@ from __future__ import annotations
 
 import asyncio
 import json
-import random
 import time
 from typing import List, Optional, Tuple
 
 from ..data import DataBase
 from ..models import Player
+from ..utils.game_secret import seeded_rng
 
 __all__ = ["BettingPoolManager"]
 
@@ -33,13 +33,20 @@ NPC_NAMES = (
 STYLES = ("刚猛体修", "飘逸剑修", "阴狠魔修", "稳健灵修", "诡谲鬼修", "佛门苦修")
 INJURIES = ("状态巅峰", "旧伤未愈", "气血略亏", "灵力不稳", "刚经历恶战", "藏有底牌")
 
+# 赌石盘口的「出货」口径必须与 gamble_manager 的切石结果一致：
+# 只有 `empty_chance`（切开是石粉废料）才算「切垮」，出材料/珠宝/法器/护府令都算「出货」。
+# 旧写法把 jewel+gear+egg 三个小概率相加当出货率（tier1 仅 6%），
+# 而真实出货率高达 92%，赔率却按 6% 定价 → 押「出货」期望收益 14 倍，属于无限印钞漏洞。
 STONE_TIERS = (
-    {"name": "碎玉原石", "p": 0.05 + 0.010 + 0.0002},
-    {"name": "寻常原石", "p": 0.12 + 0.025 + 0.0005},
-    {"name": "灵纹原石", "p": 0.26 + 0.045 + 0.001},
-    {"name": "秘境原石", "p": 0.44 + 0.075 + 0.002},
-    {"name": "太古原石", "p": 0.62 + 0.110 + 0.004},
+    {"name": "碎玉原石", "p": 1 - 0.08},
+    {"name": "寻常原石", "p": 1 - 0.12},
+    {"name": "灵纹原石", "p": 1 - 0.16},
+    {"name": "秘境原石", "p": 1 - 0.20},
+    {"name": "太古原石", "p": 1 - 0.25},
 )
+# 赔率下限：高概率一侧（tier1 出货 92%）算出来正好 1.00，
+# 下限必须贴住 1.0 而不是 1.05，否则白送 5% 期望值。
+MIN_STONE_ODDS = 1.01
 
 
 class BettingPoolManager:
@@ -77,7 +84,7 @@ class BettingPoolManager:
             exists = await self._fetchone("SELECT id FROM betting_pools WHERE pool_key = ?", (key,))
             if exists:
                 continue
-            rng = random.Random(f"pool:{key}")
+            rng = seeded_rng("pool", key)
             name_a, name_b = rng.sample(NPC_NAMES, 2)
             style_a, style_b = rng.sample(STYLES, 2)
             injury_a, injury_b = rng.sample(INJURIES, 2)
@@ -115,13 +122,19 @@ class BettingPoolManager:
             )
             settled = 0
             for pool in pools:
-                if await self._settle_pool(pool, now):
-                    settled += 1
+                try:
+                    if await self._settle_pool(pool, now):
+                        settled += 1
+                except Exception as exc:
+                    # 单个盘口异常不能阻塞其余盘口，否则玩家的下注灵石会一直挂着
+                    from astrbot.api import logger
+
+                    logger.error(f"【盘口】{pool.get('pool_key')} 结算失败: {exc}")
             return settled
 
     async def _settle_pool(self, pool: dict, now: int) -> bool:
         pool_key = pool["pool_key"]
-        rng = random.Random(f"pool-result:{pool_key}")
+        rng = seeded_rng("pool-result", pool_key)
         if pool.get("kind") == "stone":
             # 赌石盘口：结果由 meta 中的真实概率决定
             try:
@@ -152,7 +165,7 @@ class BettingPoolManager:
             for bet in bets:
                 if bet["side"] == result:
                     odds = float(pool["odds_a"] if result == "A" else pool["odds_b"])
-                    payout = int(int(bet["amount"]) * odds)
+                    payout = int(round(int(bet["amount"]) * odds))
                     await self.db.conn.execute(
                         "UPDATE players SET gold = gold + ? WHERE user_id = ?",
                         (payout, bet["user_id"]),
@@ -204,6 +217,7 @@ class BettingPoolManager:
             "━━━━━━━━━━━━━━━",
             "💡 `/盘口 押注 <编号> <A|B> <金额>` 下注（每个盘口限一注）",
             "💡 `/盘口 赌石 <1-5> <出货|切垮> <金额>` 直接对赌原石能否出货",
+            "    出货＝切开不是废料（材料/珠宝/法器都算），切垮＝只切出一堆石粉。",
             "⚠️ 赔率已含庄家抽水，久赌必亏。",
         ])
         return "\n".join(lines)
@@ -296,9 +310,9 @@ class BettingPoolManager:
         cfg = STONE_TIERS[tier - 1]
         p_success = max(0.02, min(0.95, float(cfg["p"])))
         p_bet = p_success if side == "出货" else (1 - p_success)
-        odds = max(1.05, round(HOUSE_RATE / p_bet, 2))
+        odds = max(MIN_STONE_ODDS, round(HOUSE_RATE / p_bet, 2))
         now = int(time.time())
-        rng = random.Random(f"stone-bet:{player.user_id}:{now}:{amount}:{tier}:{side}")
+        rng = seeded_rng("stone-bet", player.user_id, now, amount, tier, side)
         success = rng.random() < p_success
         win = (side == "出货" and success) or (side == "切垮" and not success)
         await self.db.conn.execute("BEGIN IMMEDIATE")
@@ -310,7 +324,7 @@ class BettingPoolManager:
             if not cursor.rowcount:
                 await self.db.conn.rollback()
                 return False, "❌ 灵石不足，下注失败。"
-            payout = int(amount * odds) if win else 0
+            payout = int(round(amount * odds)) if win else 0
             if payout:
                 await self.db.conn.execute(
                     "UPDATE players SET gold = gold + ? WHERE user_id = ?",

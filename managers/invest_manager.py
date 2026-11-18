@@ -1367,6 +1367,15 @@ class InvestManager:
         if price <= 0:
             return False, "❌ 当前价格异常，无法开仓。"
 
+        # 与现货买股同一道贷款门槛：欠着钱还能加杠杆，
+        # 等于让「贷款买币 → 爆仓 → 拍拍屁股走人」成为免费的单向期权。
+        loan = await self._active_loan(player.user_id)
+        if loan > LOAN_LIMIT_FOR_STOCK:
+            return False, (
+                f"你当前贷款余额 {loan:,} 灵石，超过 {LOAN_LIMIT_FOR_STOCK:,} 的入市门槛。\n"
+                "请先还款后再开杠杆仓。"
+            )
+
         total = margin * leverage
         fee = max(1, int(round(total * self.MARGIN_OPEN_FEE_RATE)))
         if player.gold < margin + fee:

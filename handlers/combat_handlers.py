@@ -4,6 +4,7 @@ import time
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api.all import *
 from ..managers.combat_manager import CombatManager, CombatStats
+from ..managers.treasure_map_manager import TreasureMapManager
 from ..data.data_manager import DataBase
 from ..core import EquipmentManager, PillManager
 from .utils import player_required, set_event_flag
@@ -397,8 +398,11 @@ class CombatHandlers:
         set_event_flag(event, "duel_result", result)
         await self._save_pet_states(p1_stats, p2_stats)
         
-        await self.db.ext.update_player_hp_mp(user_id, max(1, p1_stats.hp), max(0, p1_stats.mp))
-        await self.db.ext.update_player_hp_mp(target_id, max(1, p2_stats.hp), max(0, p2_stats.mp))
+        # 爬塔中的玩家战斗内吸血不能当作回血：写回前按本层额度裁剪
+        p1_hp = await TreasureMapManager.clamp_combat_hp(self.db, user_id, max(1, p1_stats.hp))
+        p2_hp = await TreasureMapManager.clamp_combat_hp(self.db, target_id, max(1, p2_stats.hp))
+        await self.db.ext.update_player_hp_mp(user_id, p1_hp, max(0, p1_stats.mp))
+        await self.db.ext.update_player_hp_mp(target_id, p2_hp, max(0, p2_stats.mp))
         await self._update_combat_cooldown(user_id, "duel")
         # 与发起者一致：决斗对目标也造成真实战损，同样为目标写入决斗 CD
         await self._update_combat_cooldown(target_id, "duel")
@@ -619,6 +623,9 @@ class CombatHandlers:
         # 避免把战斗内残血（p1_stats.hp/p2_stats.hp）误落库导致切磋后气血被削。
         p1_final_hp = max(1, int(result.get("player1_final_hp", p1_stats.max_hp)))
         p2_final_hp = max(1, int(result.get("player2_final_hp", p2_stats.max_hp)))
+        # 切磋按满血写回，爬塔中的玩家必须裁剪，否则一次切磋就等于免费回满
+        p1_final_hp = await TreasureMapManager.clamp_combat_hp(self.db, initiator_id, p1_final_hp)
+        p2_final_hp = await TreasureMapManager.clamp_combat_hp(self.db, acceptor_id, p2_final_hp)
         p1_final_mp = max(0, int(result.get("player1_final_mp", p1_stats.mp)))
         p2_final_mp = max(0, int(result.get("player2_final_mp", p2_stats.mp)))
         await self.db.ext.update_player_hp_mp(initiator_id, p1_final_hp, p1_final_mp)
