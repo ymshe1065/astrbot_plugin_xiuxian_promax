@@ -27,7 +27,7 @@
 
 用法
 ----
-    python scripts/fate_shop_balance.py           # 重写 docs/仙缘商店定价表.md
+    python scripts/fate_shop_balance.py           # 重写 docs/player/仙缘商店定价表.md
     python scripts/fate_shop_balance.py --check   # 校验表与 _SHOP_DEFS 是否同步
 """
 from __future__ import annotations
@@ -38,7 +38,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 RULES_FILE = ROOT / "core" / "reincarnation_rules.py"
-DOC_FILE = ROOT / "docs" / "仙缘商店定价表.md"
+DOC_FILE = ROOT / "docs" / "player" / "仙缘商店定价表.md"
 
 MARK_BEGIN = "<!-- FATE_SHOP_BALANCE_AUTO_BEGIN -->"
 MARK_END = "<!-- FATE_SHOP_BALANCE_AUTO_END -->"

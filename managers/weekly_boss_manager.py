@@ -8,7 +8,7 @@
 * 战前携带丹药 + 战中自动触发，真实扣除丹药背包；
 * 通关后按实际伤害占比分配灵石、材料、装备与专属材料。
 
-设计文档见 ``docs/周常BOSS评估与设计.md``。
+设计文档见 ``docs/design/周常BOSS评估与设计.md``。
 """
 
 from __future__ import annotations

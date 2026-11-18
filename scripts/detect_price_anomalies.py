@@ -6,7 +6,7 @@
 - 价格/属性预算比偏离该部位中位数的倍数过大；
 - 显式境界门槛与品阶锚点差超过 2 级。
 
-结果写入 docs/price_adjustment/equipment_anomalies.csv。
+结果写入 docs/reports/price_adjustment/equipment_anomalies.csv。
 """
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "config"
-OUT = ROOT / "docs" / "price_adjustment" / "equipment_anomalies.csv"
+OUT = ROOT / "docs" / "reports" / "price_adjustment" / "equipment_anomalies.csv"
 
 RANK_ORDER = ["凡品", "黄品", "玄品", "灵品", "地品", "天品", "皇品", "圣品", "帝品", "道品", "仙品", "混元先天"]
 RANK_LEVEL = {"凡品": 0, "黄品": 3, "玄品": 9, "灵品": 10, "地品": 12, "天品": 13,

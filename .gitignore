@@ -23,3 +23,7 @@ Desktop.ini
 
 # 临时规划文档（仅本地持久化，不提交）
 _planning_tmp/
+
+# 本地验收产物
+.screenshots/
+_grid_shot/

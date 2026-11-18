@@ -1,7 +1,7 @@
 # tests/test_fate_shop_balance.py
 # 仙缘商店定价配平（v3.45.20）：以【修炼加速】为锚，锁住三件事——
 #   1. 锚本身没被改（100 点 = 闭关 +10%），否则整张表都要重算；
-#   2. 每项价格与自己「折算出来的价值」一致（docs/仙缘商店定价表.md 与 _SHOP_DEFS 同步）；
+#   2. 每项价格与自己「折算出来的价值」一致（docs/player/仙缘商店定价表.md 与 _SHOP_DEFS 同步）；
 #   3. 掉落组（v3.45.6 已单独配平）不被顺手改掉。
 import subprocess
 import sys
@@ -26,7 +26,7 @@ def _imp(module_path: str):
 rules = _imp("core.reincarnation_rules")
 
 SCRIPT = ROOT / "scripts" / "fate_shop_balance.py"
-DOC = ROOT / "docs" / "仙缘商店定价表.md"
+DOC = ROOT / "docs" / "player" / "仙缘商店定价表.md"
 
 
 class TestAnchor(unittest.TestCase):

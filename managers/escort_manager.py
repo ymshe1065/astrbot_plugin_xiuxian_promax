@@ -28,7 +28,7 @@ class EscortManager:
     ESCORT_GOLD_BASE = 9000         # 基准镖银（境界等级3，大境界台阶 ×1.0）
     ESCORT_GOLD_RANDOM = 500        # 镖银对称浮动 ±500
     # 方案A：大境界台阶曲线。境界等级 -> 镖银倍率，区间内线性插值，
-    # 全游戏约 45 倍增长；押镖收入是经济基准，改动必须同步 docs/经济基准表.md。
+    # 全游戏约 45 倍增长；押镖收入是经济基准，改动必须同步 docs/player/经济基准表.md。
     ESCORT_REALM_MULTIPLIERS = {
         3: 1.0,    # 炼气
         10: 1.6,   # 筑基

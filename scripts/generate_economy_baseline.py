@@ -1,4 +1,4 @@
-"""生成/校验 docs/经济基准表.md。
+"""生成/校验 docs/player/经济基准表.md。
 
 基准：24h 押镖名义镖银（48 趟/天、自动代理全勤、不扣劫镖期望）。
 L0~L2 无押镖，用历练最优路线金/时过渡。
@@ -17,7 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 ESCORT_FILE = ROOT / "managers" / "escort_manager.py"
 ADVENTURE_FILE = ROOT / "config" / "adventure_config.json"
-DOC_FILE = ROOT / "docs" / "经济基准表.md"
+DOC_FILE = ROOT / "docs" / "player" / "经济基准表.md"
 
 MARK_BEGIN = "<!-- ECONOMY_BASELINE_AUTO_BEGIN -->"
 MARK_END = "<!-- ECONOMY_BASELINE_AUTO_END -->"

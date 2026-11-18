@@ -1,4 +1,4 @@
-"""校验 docs/price_adjustment 下的价格表；不改游戏配置。"""
+"""校验 docs/reports/price_adjustment 下的价格表；不改游戏配置。"""
 from __future__ import annotations
 
 import csv
@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-DATA = ROOT / "docs" / "price_adjustment"
+DATA = ROOT / "docs" / "reports" / "price_adjustment"
 
 
 def rows(name: str):
