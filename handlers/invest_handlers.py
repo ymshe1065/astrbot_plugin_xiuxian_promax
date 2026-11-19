@@ -59,7 +59,17 @@ def _hint_lines(label: str, hint: Optional[dict]) -> list:
     if not hint:
         return []
     prefix = "全市场 · " if hint.get("code") == "*" else ""
-    body = [LINE, label, f"· {prefix}{hint.get('title') or '盘面平静'}"]
+    credibility = hint.get("credibility") or ""
+    pattern = str(hint.get("pattern") or "")
+    if pattern in ("calm", ""):
+        tag = ""
+    elif credibility == "confirmed":
+        tag = "（正式）"
+    elif credibility == "rumor":
+        tag = "（传闻）"
+    else:
+        tag = ""
+    body = [LINE, label, f"· {prefix}{hint.get('title') or '盘面平静'}{tag}"]
     if hint.get("detail"):
         body.append(f"　{hint['detail']}")
     return body
@@ -128,6 +138,7 @@ class InvestHandlers:
                 LINE,
                 f"{'闭市中' if not data['open'] else '下盘 ' + data['next_tick']}　·　{tail}",
                 "指令：/行情 <代码>　/买入股 <代码> <手>　/申购 <代码> <金额>",
+                "代理人：/仙市 代理　（雇佣 NPC 代管股票基金）",
             ]
         )
         yield event.plain_result("\n".join(lines))
@@ -158,6 +169,10 @@ class InvestHandlers:
         ]
         if quote["kind"] == "stock":
             lines.append(f"日熔断 ±{quote['day_limit']:.0%}　·　1 手 = {LOT_SIZE} 股")
+            if quote.get("news_impact"):
+                lines.append(
+                    f"⚠️ 新闻窗口冲击：买卖各收 {quote['news_impact']:.2%}（抢跑/消息盘内成交）"
+                )
         else:
             lines.append(f"风险 {'★' * quote['risk']}　·　赎回费按持有盘数递减")
 

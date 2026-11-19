@@ -294,6 +294,8 @@ class TestInvestMarket(unittest.IsolatedAsyncioTestCase):
         player = await self._player(gold=1_000_000)
         start_gold = player.gold
         price = await self._price("S01")
+        # 本用例只验证同盘同价与手续费；新闻冲击成本另有专项测试
+        self.manager._news_impact_rate = mock.AsyncMock(return_value=0.0)
 
         with self._patch_tick(10):
             ok, msg = await self.manager.buy_stock(player, "S01", 1)
@@ -313,6 +315,7 @@ class TestInvestMarket(unittest.IsolatedAsyncioTestCase):
         """小额交易按 20 灵石最低手续费收，防止刷单。"""
         await self.manager._settle_tick(10)
         player = await self._player()
+        self.manager._news_impact_rate = mock.AsyncMock(return_value=0.0)
         with self._patch_tick(10):
             ok, msg = await self.manager.buy_stock(player, "S03", 1)
         self.assertTrue(ok, msg)

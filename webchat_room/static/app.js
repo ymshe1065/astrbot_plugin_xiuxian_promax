@@ -2592,6 +2592,12 @@
       const rows = (m.rows || []).filter((r) => r.kind === g.key);
       if (rows.length) box.appendChild(renderMarketTable(g, rows));
     });
+    const agentBtn = document.createElement("button");
+    agentBtn.type = "button";
+    agentBtn.className = "mk-agent-entry";
+    agentBtn.textContent = "投资代理人 · 让 NPC 代管股票基金";
+    agentBtn.addEventListener("click", () => switchPanelTab("invest"));
+    box.appendChild(agentBtn);
     return box;
   }
 
@@ -4797,6 +4803,7 @@
     if (tab === "cmds") renderCommandGrid();
     if (tab === "proxy") loadProxyPanel();
     if (tab === "fate") loadFatePanel();
+    if (tab === "invest") loadInvestAgentPanel();
     // 面板还没数据、或期间储物戒发生过变更时重新拉取：
     // 不在储物戒界面时不急着渲染卡片，回到这里再取最新状态。
     if (tab === "status" && !S.panelCard.status && S.connected) {
@@ -5302,6 +5309,363 @@
     } finally {
       fateBusy = false;
     }
+  }
+
+  /* ================= 仙市投资代理人 ================= */
+  let investBusy = false;
+  let investDraft = { agent: "qinghe", principal: 100000, duration: 8, maxPrincipal: 0 };
+
+  function agentMoney(n) {
+    return Number(n || 0).toLocaleString("zh-CN");
+  }
+
+  function agentPct(v) {
+    const n = Number(v) || 0;
+    return (n > 0 ? "+" : "") + (n * 100).toFixed(2) + "%";
+  }
+
+  async function loadInvestAgentPanel() {
+    const view = $("viewInvest");
+    if (!view) return;
+    view.innerHTML = '<div class="panel-empty">投资代理人加载中…</div>';
+    try {
+      const r = await fetch("/api/invest/agents", {
+        headers: { Authorization: "Bearer " + S.token },
+      });
+      const data = await r.json().catch(() => null);
+      if (!data) throw new Error("bad response");
+      if (data.ok === false) {
+        view.innerHTML = `<div class="panel-empty">${esc(
+          data.error || "投资代理人加载失败"
+        )}<br><button>重试</button></div>`;
+        view.querySelector("button").addEventListener("click", loadInvestAgentPanel);
+        return;
+      }
+      renderInvestAgentPanel(data);
+    } catch {
+      view.innerHTML =
+        '<div class="panel-empty">网络异常，投资代理人加载失败<br><button>重试</button></div>';
+      view.querySelector("button").addEventListener("click", loadInvestAgentPanel);
+    }
+  }
+
+  async function investAgentAction(path, payload) {
+    if (investBusy) return;
+    investBusy = true;
+    const view = $("viewInvest");
+    if (view) view.classList.add("busy");
+    try {
+      const r = await fetch(path, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + S.token,
+        },
+        body: JSON.stringify(payload || {}),
+      });
+      const data = await r.json().catch(() => null);
+      if (!data) throw new Error("bad response");
+      if (data.message) toast(data.message);
+      if (data.error) toast(data.error);
+      if (Array.isArray(data.agents)) renderInvestAgentPanel(data, true);
+      else loadInvestAgentPanel();
+    } catch {
+      toast("网络异常，请稍后重试");
+    } finally {
+      investBusy = false;
+      if (view) view.classList.remove("busy");
+    }
+  }
+
+  function investActiveCard(active) {
+    const box = document.createElement("div");
+    box.className = "ia-active";
+    const pnlClass = active.pnl > 0 ? "up" : active.pnl < 0 ? "down" : "flat";
+    box.innerHTML =
+      '<div class="ia-active-head"><b>' +
+      esc(active.agent_name) +
+      "</b><span>剩余 " +
+      (active.remaining_ticks || 0) +
+      " 盘</span></div>" +
+      '<div class="ia-active-value"><b>' +
+      agentMoney(active.value) +
+      '</b><span class="' +
+      pnlClass +
+      '">' +
+      agentPct(active.pnl_pct) +
+      "</span></div>" +
+      '<div class="ia-active-meta">本金 ' +
+      agentMoney(active.principal) +
+      " · 现金 " +
+      agentMoney(active.cash) +
+      " · 止损 " +
+      agentMoney(active.stop_loss_value) +
+      " / 止盈 " +
+      agentMoney(active.take_profit_value) +
+      "</div>";
+    const pos = active.positions || [];
+    if (pos.length) {
+      const list = document.createElement("div");
+      list.className = "ia-pos";
+      pos.forEach((p) => {
+        const row = document.createElement("div");
+        row.className = "ia-pos-row";
+        row.innerHTML =
+          "<span>" +
+          esc(p.code) +
+          " " +
+          esc(p.name) +
+          "</span><span>" +
+          Number(p.shares || 0).toLocaleString("zh-CN") +
+          "</span><span>" +
+          agentMoney(p.value) +
+          "</span>";
+        list.appendChild(row);
+      });
+      box.appendChild(list);
+    }
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn-ghost small";
+    btn.textContent = "停止委托（扣本金 1%）";
+    btn.addEventListener("click", () => {
+      if (window.confirm("确定停止？会按当前盘面清仓，并扣本金 1% 违约金。")) {
+        investAgentAction("/api/invest/agents/stop");
+      }
+    });
+    box.appendChild(btn);
+    return box;
+  }
+
+  function investPendingCard(item) {
+    const box = document.createElement("div");
+    box.className = "ia-pending";
+    const reason = {
+      matured: "到期结算",
+      stop_loss: "触发止损",
+      take_profit: "触发止盈",
+      stopped: "提前停止",
+    }[item.close_reason] || item.close_reason || "已结算";
+    box.innerHTML =
+      '<div class="ia-pending-head"><b>' +
+      esc(item.agent_name) +
+      " · " +
+      esc(reason) +
+      "</b><span>#" +
+      item.id +
+      "</span></div>" +
+      '<div class="ia-pending-body">本金 ' +
+      agentMoney(item.principal) +
+      " → 实得 <b>" +
+      agentMoney(item.payout) +
+      "</b>（分成 " +
+      agentMoney(item.profit_fee) +
+      (item.exp_delta ? " · 经验 " + (item.exp_delta > 0 ? "+" : "") + item.exp_delta : "") +
+      "）</div>";
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn-ghost small";
+    btn.textContent = "领取灵石";
+    btn.addEventListener("click", () => investAgentAction("/api/invest/agents/claim"));
+    box.appendChild(btn);
+    return box;
+  }
+
+  function investAgentCard(agent, data) {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "ia-agent" + (data.active ? " disabled" : "");
+    card.dataset.key = agent.key;
+    const maxed = Number(agent.level) >= Number(agent.level_max);
+    const expText = maxed
+      ? "已满级"
+      : `${agent.exp_in_level}/${agent.level_span}（距 Lv.${Number(agent.level) + 1} 还差 ${agent.exp_to_next}）`;
+    const feeText =
+      Number(agent.management_fee).toFixed(4) !== Number(agent.base_management_fee).toFixed(4)
+        ? `${(Number(agent.management_fee) * 100).toFixed(2)}%（基础 ${(Number(agent.base_management_fee) * 100).toFixed(2)}%）`
+        : `${(Number(agent.management_fee) * 100).toFixed(2)}%`;
+    const shareText =
+      Number(agent.profit_share) !== Number(agent.base_profit_share)
+        ? `${(Number(agent.profit_share) * 100).toFixed(0)}%（基础 ${(Number(agent.base_profit_share) * 100).toFixed(0)}%）`
+        : `${(Number(agent.profit_share) * 100).toFixed(0)}%`;
+    card.innerHTML =
+      '<div class="ia-agent-head"><b>' +
+      esc(agent.name) +
+      "</b><span>" +
+      esc(agent.title) +
+      '</span><em class="ia-lv">Lv.' +
+      Number(agent.level) +
+      "</em></div>" +
+      '<div class="ia-agent-risk">' +
+      "★".repeat(Math.max(1, Number(agent.risk) || 1)) +
+      " · " +
+      esc(agent.level_title) +
+      "</div>" +
+      '<div class="ia-exp"><i style="width:' +
+      Math.max(0, Math.min(1, Number(agent.exp_progress) || 0)) * 100 +
+      '%"></i></div>' +
+      '<div class="ia-exp-text">' +
+      expText +
+      "</div>" +
+      '<div class="ia-agent-desc">' +
+      esc(agent.desc) +
+      "</div>" +
+      '<div class="ia-agent-meta">管理费 ' +
+      feeText +
+      " · 盈利分成 " +
+      shareText +
+      "</div>" +
+      '<div class="ia-agent-meta">止损 ' +
+      (Number(agent.stop_loss) * 100).toFixed(0) +
+      "% / 止盈 " +
+      (Number(agent.take_profit) * 100).toFixed(0) +
+      "% · 本金 " +
+      agentMoney(agent.min_principal) +
+      "–" +
+      agentMoney(agent.max_principal) +
+      "</div>";
+    if (data.active) return card;
+    card.addEventListener("click", () => {
+      card.parentElement
+        .querySelectorAll(".ia-agent")
+        .forEach((el) => el.classList.toggle("sel", el === card));
+      investDraft.agent = agent.key;
+      investDraft.maxPrincipal = Number(agent.max_principal) || 1000000;
+      const view = card.closest(".panel-view");
+      const input = view && view.querySelector(".ia-input");
+      if (input) {
+        input.max = String(investDraft.maxPrincipal);
+        input.placeholder = `本金（10,000–${agentMoney(investDraft.maxPrincipal)}）`;
+      }
+    });
+    return card;
+  }
+
+  function investForm() {
+    const box = document.createElement("div");
+    box.className = "ia-form";
+    const title = document.createElement("div");
+    title.className = "ia-form-title";
+    title.textContent = "雇佣代理人";
+    box.appendChild(title);
+
+    const amount = document.createElement("input");
+    amount.type = "number";
+    amount.min = "10000";
+    amount.max = String(investDraft.maxPrincipal || 1000000);
+    amount.step = "1000";
+    amount.value = String(investDraft.principal || 100000);
+    amount.className = "ia-input";
+    amount.placeholder = `本金（10,000–${agentMoney(investDraft.maxPrincipal || 1000000)}）`;
+    amount.addEventListener("input", () => {
+      investDraft.principal = Number(amount.value) || 0;
+    });
+
+    const lengths = document.createElement("div");
+    lengths.className = "ia-lengths";
+    [8, 16, 32].forEach((d) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "ia-chip" + (investDraft.duration === d ? " on" : "");
+      b.textContent = d + " 盘";
+      b.addEventListener("click", () => {
+        investDraft.duration = d;
+        lengths.querySelectorAll(".ia-chip").forEach((el) => el.classList.toggle("on", el === b));
+      });
+      lengths.appendChild(b);
+    });
+
+    const row = document.createElement("div");
+    row.className = "ia-form-row";
+    row.appendChild(amount);
+    row.appendChild(lengths);
+
+    const submit = document.createElement("button");
+    submit.type = "button";
+    submit.className = "btn-ghost";
+    submit.textContent = "确认委托";
+    submit.addEventListener("click", () => {
+      const selected = box.parentElement.querySelector(".ia-agent.sel");
+      const agent = (selected && selected.dataset.key) || investDraft.agent;
+      investAgentAction("/api/invest/agents/start", {
+        agent,
+        principal: Number(investDraft.principal) || 0,
+        duration: Number(investDraft.duration) || 0,
+      });
+    });
+
+    box.appendChild(row);
+    box.appendChild(submit);
+    return box;
+  }
+
+  function renderInvestAgentPanel(data, keepScroll = false) {
+    const view = $("viewInvest");
+    if (!view) return;
+    const scroller = view.parentElement;
+    const top = keepScroll && scroller ? scroller.scrollTop : 0;
+    view.innerHTML = "";
+    if (!data.has_player) {
+      view.innerHTML = '<div class="panel-empty">尚未创建角色，请先发送 /我要修仙</div>';
+      return;
+    }
+
+    const head = document.createElement("div");
+    head.className = "ia-head";
+    head.innerHTML =
+      '<div class="ia-gold"><b>' +
+      agentMoney(data.gold) +
+      "</b><small>灵石</small></div>" +
+      '<div class="ia-tip">代理人只做股票/基金，不保本；管理费开仓即扣。</div>';
+    view.appendChild(head);
+
+    if (data.active) view.appendChild(investActiveCard(data.active));
+
+    (data.pending || []).forEach((item) => view.appendChild(investPendingCard(item)));
+
+    const grid = document.createElement("div");
+    grid.className = "ia-agents";
+    (data.agents || []).forEach((a) => {
+      const card = investAgentCard(a, data);
+      if (!data.active && a.key === investDraft.agent) {
+        card.classList.add("sel");
+        // 等级变化会提高上限：每次渲染都以快照为准，避免表单沿用旧上限
+        investDraft.maxPrincipal = Number(a.max_principal) || 1000000;
+      }
+      grid.appendChild(card);
+    });
+    view.appendChild(grid);
+
+    if (!data.active) view.appendChild(investForm());
+
+    const history = data.history || [];
+    if (history.length) {
+      const sec = document.createElement("div");
+      sec.className = "ia-history";
+      const h = document.createElement("div");
+      h.className = "ia-form-title";
+      h.textContent = "最近记录";
+      sec.appendChild(h);
+      history.forEach((item) => {
+        const row = document.createElement("div");
+        row.className = "ia-history-row";
+        row.textContent =
+          "#" +
+          item.id +
+          " " +
+          item.agent_name +
+          "　本金 " +
+          agentMoney(item.principal) +
+          " → " +
+          agentMoney(item.payout) +
+          "　" +
+          (item.close_reason || item.status) +
+          (item.exp_delta ? "　经验 " + (item.exp_delta > 0 ? "+" : "") + item.exp_delta : "");
+        sec.appendChild(row);
+      });
+      view.appendChild(sec);
+    }
+    if (keepScroll && scroller) scroller.scrollTop = top;
   }
 
   let proxyBusy = false;

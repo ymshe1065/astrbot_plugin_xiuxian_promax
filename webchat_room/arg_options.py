@@ -2671,9 +2671,36 @@ async def _src_escort_modes(plugin: "XiuXianPlugin", player: Any, field: dict, v
 async def _src_invest_subs(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
     return [
         _opt("行情总览", "行情", "查看仙市股票与基金行情", "仙市"),
+        _opt("投资代理人", "代理", "雇佣 NPC 代管股票基金，查看委托状态", "代理人"),
         _opt("杠杆状态", "杠杆 状态", "查看未平仓杠杆持仓与强平线", "杠杆"),
         _opt("杠杆开仓", "杠杆", "选择股票、倍数与保证金做多", "杠杆"),
         _opt("杠杆平仓", "杠杆 平仓", "平掉指定杠杆持仓", "杠杆"),
+    ], ""
+
+
+async def _src_invest_agent_subs(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    return [
+        _opt("查看状态", "状态", "当前委托与收益", "委托"),
+        _opt("雇佣代理人", "雇佣", "选择代理人、本金与期限", "委托"),
+        _opt("停止委托", "停止", "按当前盘面清仓，扣本金 1%", "委托"),
+        _opt("领取结算", "领取", "领取已结算的灵石", "委托"),
+        _opt("委托记录", "记录", "最近 10 条委托记录", "委托"),
+    ], ""
+
+
+async def _src_invest_agents(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    return [
+        _opt("青禾（稳健）", "青禾", "股票 30% / 基金 60%，止损 6% 止盈 10%", "稳健"),
+        _opt("玄衡（均衡）", "玄衡", "股票 55% / 基金 30%，止损 10% 止盈 18%", "均衡"),
+        _opt("赤霄（激进）", "赤霄", "股票 75% / 基金 15%，止损 18% 止盈 35%", "激进"),
+    ], ""
+
+
+async def _src_invest_agent_duration(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    return [
+        _opt("8 盘", "8", "约半个交易日"),
+        _opt("16 盘", "16", "一个交易日"),
+        _opt("32 盘", "32", "两个交易日"),
     ], ""
 
 
@@ -2834,6 +2861,9 @@ SOURCES: Dict[str, Callable[..., Any]] = {
     "blind_lots": _src_blind_lots,
     "escort_modes": _src_escort_modes,
     "invest_subs": _src_invest_subs,
+    "invest_agent_subs": _src_invest_agent_subs,
+    "invest_agents": _src_invest_agents,
+    "invest_agent_duration": _src_invest_agent_duration,
     "margin_arg1": _src_margin_arg1,
     "margin_leverage": _src_margin_leverage,
 }
@@ -2884,6 +2914,22 @@ def plan_for(cmd: str, values: Optional[List[str]] = None) -> List[dict[str, Any
         plan = plan + [
             _f("plots", "要停止的格号（留空 = 全部，如 1-3）", "", optional=True)
         ]
+    elif key == "仙市" and first.startswith("代理"):
+        base = [dict(plan[0])] if plan else [_f("sub", "选择仙市操作", "invest_subs", optional=True)]
+        second = str(values[1]).strip() if len(values) > 1 else ""
+        if ("雇佣" in first) or second in ("雇佣", "委托", "start"):
+            head = base
+            if first.strip() in ("代理", "代理人", "投资代理", "agent") and second:
+                head = base + [_f("kw", "雇佣（已选）", "", optional=True)]
+            plan = head + [
+                _f("agent", "选择代理人", "invest_agents"),
+                _f("principal", "本金（10,000–1,000,000 灵石）", ""),
+                _f("duration", "期限", "invest_agent_duration"),
+            ]
+        else:
+            plan = base + [
+                _f("sub2", "代理人操作（留空看状态）", "invest_agent_subs", optional=True)
+            ]
     elif key == "仙市" and first.startswith("杠杆"):
         base = [dict(plan[0])] if plan else [_f("sub", "选择仙市操作", "invest_subs", optional=True)]
         second = str(values[1]).strip() if len(values) > 1 else ""

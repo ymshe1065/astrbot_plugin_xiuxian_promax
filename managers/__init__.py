@@ -61,6 +61,7 @@ from .battle_event_manager import BattleEventManager
 # v6.26 自动代理
 from .auto_proxy_manager import AutoProxyManager
 from .invest_manager import InvestManager
+from .invest_agent_manager import InvestAgentManager
 from .weekly_boss_manager import WeeklyBossManager
 
 # v7.12.0 AI 向导：上下文双缓冲 + 分层知识库问答
@@ -75,7 +76,7 @@ __all__ = [
     "DailyTaskManager", "WorldBossManager", "RaidManager", "RobberyManager", "TutorialManager", "ReincarnationManager",
     "GambleManager", "ForgeManager", "GlobalEventManager", "DemonInvasionManager", "PetManager",
     "AuctionManager", "AuctionHouseManager", "EscortManager", "EncounterManager", "LifeSkillManager", "TalismanManager", "CalamityManager", "LuckManager",
-    "AutoProxyManager", "BattleEventManager", "InvestManager", "WeeklyBossManager",
+    "AutoProxyManager", "BattleEventManager", "InvestManager", "InvestAgentManager", "WeeklyBossManager",
     "BlindAuctionManager", "TreasureMapManager", "MineVeinManager", "BettingPoolManager",
     "ChatContextManager", "AIChatManager"
 ]

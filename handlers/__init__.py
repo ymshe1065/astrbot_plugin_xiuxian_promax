@@ -61,6 +61,7 @@ from .auto_proxy_handlers import AutoProxyHandlers
 from .battle_event_handlers import BattleEventHandlers
 # v6.40 仙市投资系统
 from .invest_handlers import InvestHandlers
+from .invest_agent_handlers import InvestAgentHandlers
 # v6.51 周常 Boss（周本）
 from .weekly_boss_handlers import WeeklyBossHandlers
 # v7.10.3 高风险玩法（藏宝图/矿脉/盘口）
@@ -78,5 +79,5 @@ __all__ = [
     "DailyTaskHandlers", "WorldBossHandlers", "RaidHandlers", "RobberyHandlers", "ReincarnationHandlers",
     "GambleHandlers", "ForgeHandlers", "DemonInvasionHandlers", "PetHandlers",
     "AuctionHandlers", "AuctionHouseHandlers", "SectShopHandler", "AutoProxyHandlers", "BattleEventHandlers",
-    "InvestHandlers", "WeeklyBossHandlers", "HighStakesHandlers", "AiChatHandler"
+    "InvestHandlers", "InvestAgentHandlers", "WeeklyBossHandlers", "HighStakesHandlers", "AiChatHandler"
 ]

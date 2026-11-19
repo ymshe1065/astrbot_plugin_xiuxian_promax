@@ -2976,3 +2976,131 @@ button.chan-main { cursor: pointer; }
 @media (hover: none) {
   .gcell .more { display: none; }
 }
+
+/* ================= 仙市投资代理人面板 ================= */
+
+.mk-agent-entry {
+  display: block; width: 100%; margin-top: 10px;
+  padding: 9px 12px; text-align: center;
+  border: 1px dashed var(--line); border-radius: 9px;
+  background: var(--paper); color: var(--jade);
+  font-size: 12.5px; cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.mk-agent-entry:hover { border-color: var(--jade); background: var(--jade-soft); }
+
+.ia-head {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 10px 12px; margin-bottom: 12px;
+  border: 1px solid var(--line); border-radius: 12px;
+  background: var(--card-bg);
+}
+.ia-gold { display: flex; align-items: baseline; gap: 5px; flex: 0 0 auto; }
+.ia-gold b {
+  font-size: 20px; font-weight: 700; color: var(--gold);
+  font-variant-numeric: tabular-nums; line-height: 1;
+}
+.ia-gold small { font-size: 11px; color: var(--dim); }
+.ia-tip { flex: 1 1 150px; font-size: 11.5px; color: var(--dim); line-height: 1.5; }
+
+.ia-active, .ia-pending {
+  padding: 11px 12px; margin-bottom: 10px;
+  border: 1px solid var(--jade); border-radius: 12px;
+  background: var(--jade-soft);
+}
+.ia-pending { border-color: var(--gold); background: var(--gold-soft); }
+.ia-active-head, .ia-pending-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  font-size: 13px; color: var(--ink);
+}
+.ia-active-head b, .ia-pending-head b { font-weight: 600; }
+.ia-active-head span, .ia-pending-head span { font-size: 11.5px; color: var(--dim); }
+.ia-active-value {
+  display: flex; align-items: baseline; gap: 8px; margin-top: 7px;
+}
+.ia-active-value b {
+  font-size: 21px; font-weight: 700; color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.ia-active-value .up { color: var(--mk-up); font-size: 12.5px; }
+.ia-active-value .down { color: var(--mk-down); font-size: 12.5px; }
+.ia-active-value .flat { color: var(--dim); font-size: 12.5px; }
+.ia-active-meta, .ia-pending-body {
+  margin-top: 6px; font-size: 11.5px; color: var(--dim); line-height: 1.6;
+}
+.ia-pending-body b { color: var(--gold); }
+.ia-pos { margin: 8px 0; border-top: 1px solid var(--line-soft); }
+.ia-pos-row {
+  display: grid; grid-template-columns: 1fr auto auto; gap: 10px;
+  padding: 4px 0; font-size: 11.5px; color: var(--ink);
+  border-bottom: 1px solid var(--line-soft);
+  font-variant-numeric: tabular-nums;
+}
+.ia-active .btn-ghost, .ia-pending .btn-ghost {
+  width: auto; margin-top: 8px; padding: 5px 11px; font-size: 12px; border-radius: 8px;
+}
+
+.ia-agents {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 7px; margin-bottom: 12px;
+}
+.ia-agent {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 9px 10px; text-align: left;
+  border: 1px solid var(--line-soft); border-radius: 10px;
+  background: var(--paper); color: var(--ink);
+  cursor: pointer; min-width: 0;
+  transition: border-color .15s, box-shadow .15s;
+}
+.ia-agent:hover { border-color: var(--gold); }
+.ia-agent.sel { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold) inset; }
+.ia-agent.disabled { opacity: .55; cursor: default; }
+.ia-agent-head { display: flex; align-items: baseline; gap: 6px; }
+.ia-agent-head b { font-size: 14px; }
+.ia-agent-head span { font-size: 11px; color: var(--dim); }
+.ia-agent-risk { font-size: 11px; color: var(--gold); letter-spacing: 1px; }
+.ia-agent-desc { font-size: 11.5px; color: var(--card-text); line-height: 1.55; }
+.ia-agent-meta { font-size: 11px; color: var(--dim); line-height: 1.5; }
+
+.ia-form {
+  padding: 11px 12px; margin-bottom: 12px;
+  border: 1px solid var(--line); border-radius: 12px;
+  background: var(--card-bg);
+}
+.ia-form-title { font-size: 12.5px; color: var(--ink); margin-bottom: 8px; font-weight: 600; }
+.ia-form-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ia-input {
+  flex: 1 1 130px; min-width: 0;
+  padding: 7px 9px; font-size: 12.5px;
+  border: 1px solid var(--line); border-radius: 8px;
+  background: var(--paper); color: var(--ink);
+}
+.ia-input:focus { outline: none; border-color: var(--gold); }
+.ia-lengths { display: flex; gap: 5px; flex: 0 0 auto; }
+.ia-chip {
+  padding: 6px 10px; font-size: 12px;
+  border: 1px solid var(--line); border-radius: 7px;
+  background: var(--paper); color: var(--dim); cursor: pointer;
+}
+.ia-chip.on { border-color: var(--gold); color: var(--gold); background: var(--gold-soft); }
+.ia-form > .btn-ghost {
+  width: 100%; margin-top: 9px; padding: 8px 12px; font-size: 12.5px; border-radius: 8px;
+}
+
+.ia-history { margin-top: 4px; }
+.ia-history-row {
+  padding: 5px 2px; font-size: 11.5px; color: var(--dim);
+  border-bottom: 1px dashed var(--line-soft);
+}
+
+.ia-agent-head .ia-lv {
+  margin-left: auto; font-style: normal; font-size: 11px;
+  color: var(--jade); border: 1px solid var(--line); border-radius: 6px;
+  padding: 0 5px; line-height: 16px; flex: 0 0 auto;
+}
+.ia-exp {
+  height: 4px; margin-top: 2px; border-radius: 2px;
+  background: var(--line-soft); overflow: hidden;
+}
+.ia-exp > i { display: block; height: 100%; border-radius: 2px; background: var(--gold); }
+.ia-exp-text { font-size: 10.5px; color: var(--dim); line-height: 1.45; }

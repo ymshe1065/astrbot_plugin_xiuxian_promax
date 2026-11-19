@@ -10,7 +10,7 @@ from astrbot.api import logger
 if TYPE_CHECKING:
     from ..config_manager import ConfigManager
 
-LATEST_DB_VERSION = 65  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求；v49: 统一物品品阶名称；v50: 仙市投资系统（基金/股票）；v51: 符箓熟练度与符图习得；v52: 仙市 v6（16 盘 + 赌场级波动 + 不对称日熔断）；v53: 拍卖会未开拍拍品按固定品阶曲线重建（并兼容分叉旧库补授符图）；v54: 灵田肥力上限按等级分级（旧值按百分比换算）；v55: 生活职业更换费用峰值与时间衰减；v56: 误存进储物戒/溢出仓库的丹药迁回丹药背包；v57: 旧50/50装备改名迁移到混合倾向新装备；v58: 周常 Boss（周本）周期/队伍/成员/领奖/周榜/次数表；v59: 仙市分红/风声唯一索引（结算幂等，先去重再建索引）；v60: 功德机制重做，清空全服既有功德（业力）；v61: 秘境难度分级（rift_key/product/difficulty/duration）；v62: 活动状态位按槽位多行（本体 + 身外化身）；v63: 珠宝体系（珠囊字段 jewel_inventory）；v64: 通缉令改为每日悬赏榜（每日挑战次数表 bounty_daily）；v65: 高风险玩法（锦囊/暗标/藏宝图/矿脉/古方/盘口/杠杆）与灵田永久解锁
+LATEST_DB_VERSION = 68  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求；v49: 统一物品品阶名称；v50: 仙市投资系统（基金/股票）；v51: 符箓熟练度与符图习得；v52: 仙市 v6（16 盘 + 赌场级波动 + 不对称日熔断）；v53: 拍卖会未开拍拍品按固定品阶曲线重建（并兼容分叉旧库补授符图）；v54: 灵田肥力上限按等级分级（旧值按百分比换算）；v55: 生活职业更换费用峰值与时间衰减；v56: 误存进储物戒/溢出仓库的丹药迁回丹药背包；v57: 旧50/50装备改名迁移到混合倾向新装备；v58: 周常 Boss（周本）周期/队伍/成员/领奖/周榜/次数表；v59: 仙市分红/风声唯一索引（结算幂等，先去重再建索引）；v60: 功德机制重做，清空全服既有功德（业力）；v61: 秘境难度分级（rift_key/product/difficulty/duration）；v62: 活动状态位按槽位多行（本体 + 身外化身）；v63: 珠宝体系（珠囊字段 jewel_inventory）；v64: 通缉令改为每日悬赏榜（每日挑战次数表 bounty_daily）；v65: 高风险玩法（锦囊/暗标/藏宝图/矿脉/古方/盘口/杠杆）与灵田永久解锁；v66: 仙市投资代理人（委托/持仓/日志表）；v67: 代理人等级（经验表 / 委托经验字段）；v68: 风声可信度与新闻冲击成本
 
 MIGRATION_TASKS: Dict[int, Callable[[aiosqlite.Connection, ConfigManager], Awaitable[None]]] = {}
 
@@ -729,6 +729,12 @@ async def _ensure_latest_columns(conn: aiosqlite.Connection):
     await _ensure_user_cd_slots_v62(conn)
     # v65：高风险玩法相关表与灵田永久解锁字段（新库/旧库共用）
     await _ensure_high_stakes_v65(conn)
+    # v66：仙市投资代理人委托/日志表
+    await _ensure_invest_agent_v66(conn)
+    # v67：代理人等级（经验表与委托经验字段）
+    await _ensure_invest_agent_v67(conn)
+    # v68：风声可信度与新闻冲击成本
+    await _ensure_invest_news_v68(conn)
     await conn.commit()
 
 class MigrationManager:
@@ -2960,3 +2966,121 @@ async def _migrate_to_v65(conn: aiosqlite.Connection, config_manager: ConfigMana
     await _ensure_high_stakes_v65(conn)
     await conn.commit()
     logger.info("v65迁移完成：锦囊/暗标/藏宝图/矿脉/古方/盘口/杠杆表已就绪")
+
+
+@migration(66)
+async def _migrate_to_v66(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """v66：仙市投资代理人委托与操作日志。"""
+    logger.info("开始迁移到 v66：仙市投资代理人表")
+    await _ensure_invest_agent_v66(conn)
+    await conn.commit()
+    logger.info("v66迁移完成：invest_agent_mandates / invest_agent_logs 已就绪")
+
+
+async def _ensure_invest_agent_v66(conn: aiosqlite.Connection):
+    """v66 投资代理人表；用 IF NOT EXISTS，全新库与旧库升级共用。"""
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS invest_agent_mandates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            agent_key TEXT NOT NULL,
+            principal INTEGER NOT NULL,
+            cash INTEGER NOT NULL,
+            positions_json TEXT NOT NULL DEFAULT '{}',
+            start_tick INTEGER NOT NULL,
+            end_tick INTEGER NOT NULL,
+            last_settle_tick INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'active',
+            close_reason TEXT,
+            management_fee INTEGER NOT NULL DEFAULT 0,
+            profit_fee INTEGER NOT NULL DEFAULT 0,
+            final_value INTEGER NOT NULL DEFAULT 0,
+            payout INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL,
+            settled_at INTEGER,
+            claimed_at INTEGER
+        )
+        """
+    )
+    await conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_invest_agent_active "
+        "ON invest_agent_mandates(user_id) WHERE status = 'active'"
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_invest_agent_status "
+        "ON invest_agent_mandates(status, end_tick)"
+    )
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS invest_agent_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            mandate_id INTEGER NOT NULL,
+            tick INTEGER NOT NULL,
+            action TEXT NOT NULL,
+            code TEXT NOT NULL DEFAULT '',
+            amount REAL NOT NULL DEFAULT 0,
+            price REAL NOT NULL DEFAULT 0,
+            note TEXT NOT NULL DEFAULT '',
+            value_after INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL
+        )
+        """
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_invest_agent_logs_mandate "
+        "ON invest_agent_logs(mandate_id, id)"
+    )
+
+
+@migration(67)
+async def _migrate_to_v67(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """v67：投资代理人等级（每个玩家对每个代理人独立经验）。"""
+    logger.info("开始迁移到 v67：代理人等级")
+    await _ensure_invest_agent_v66(conn)
+    await _ensure_invest_agent_v67(conn)
+    await conn.commit()
+    logger.info("v67迁移完成：invest_agent_levels 与 exp_delta 已就绪")
+
+
+async def _ensure_invest_agent_v67(conn: aiosqlite.Connection):
+    """v67 代理人经验表与委托经验字段；新库/旧库共用。"""
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS invest_agent_levels (
+            user_id TEXT NOT NULL,
+            agent_key TEXT NOT NULL,
+            exp INTEGER NOT NULL DEFAULT 0,
+            level INTEGER NOT NULL DEFAULT 1,
+            updated_at INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (user_id, agent_key)
+        )
+        """
+    )
+    await _add_column_if_missing(
+        conn, "invest_agent_mandates", "exp_delta", "INTEGER NOT NULL DEFAULT 0"
+    )
+
+
+@migration(68)
+async def _migrate_to_v68(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """v68：风声可信度与新闻冲击成本。"""
+    logger.info("开始迁移到 v68：风声可信度")
+    await _ensure_invest_v50(conn)
+    await _ensure_invest_news_v68(conn)
+    await conn.commit()
+    logger.info("v68迁移完成：invest_events 可信度字段已就绪")
+
+
+async def _ensure_invest_news_v68(conn: aiosqlite.Connection):
+    """v68 风声可信度与叙事方向；旧消息按「确认」并沿用原方向补齐。"""
+    await _add_column_if_missing(
+        conn, "invest_events", "credibility", "TEXT NOT NULL DEFAULT 'confirmed'"
+    )
+    await _add_column_if_missing(
+        conn, "invest_events", "narrative_direction", "INTEGER NOT NULL DEFAULT 0"
+    )
+    await conn.execute(
+        "UPDATE invest_events SET narrative_direction = direction "
+        "WHERE narrative_direction = 0 AND direction != 0"
+    )

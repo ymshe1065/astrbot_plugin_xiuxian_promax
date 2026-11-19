@@ -33,6 +33,12 @@ from . import stickers as stickers_catalog
 from .arg_options import build_arg_options
 from .proxy_panel import proxy_snapshot, toggle_proxy
 from .fate_shop_panel import fate_shop_buy, fate_shop_exchange, fate_shop_snapshot
+from .invest_agent_panel import (
+    invest_agent_claim,
+    invest_agent_snapshot,
+    invest_agent_start,
+    invest_agent_stop,
+)
 from .visibility import is_panel_command
 
 if TYPE_CHECKING:
@@ -268,6 +274,10 @@ async def start(host: str, port: int) -> None:
     app.router.add_get("/api/equip_context", _api_equip_context)
     app.router.add_get("/api/proxy", _api_proxy)
     app.router.add_get("/api/market/candles", _api_market_candles)
+    app.router.add_get("/api/invest/agents", _api_invest_agents)
+    app.router.add_post("/api/invest/agents/start", _api_invest_agents_start)
+    app.router.add_post("/api/invest/agents/stop", _api_invest_agents_stop)
+    app.router.add_post("/api/invest/agents/claim", _api_invest_agents_claim)
     app.router.add_post("/api/proxy/toggle", _api_proxy_toggle)
     app.router.add_get("/api/fate_shop", _api_fate_shop)
     app.router.add_post("/api/fate_shop/buy", _api_fate_shop_buy)
@@ -1502,6 +1512,83 @@ async def _api_market_candles(request: web.Request) -> web.Response:
     if not data:
         return web.json_response({"ok": False, "error": f"仙市中不存在代码「{code}」"}, status=404)
     return web.json_response({"ok": True, **data})
+
+
+async def _api_invest_agents(request: web.Request) -> web.Response:
+    """代理人面板：三个 NPC + 当前委托 + 待领取 + 历史。"""
+    user = _token_user(request)
+    if user is None:
+        return web.json_response({"ok": False, "error": "登录已过期"}, status=401)
+    if _plugin is None:
+        return web.json_response({"ok": False, "error": "插件尚未就绪"}, status=503)
+
+    user_id = accounts_store.player_key_of(user)
+    try:
+        data = await invest_agent_snapshot(_plugin, user_id)
+    except Exception as exc:
+        logger.exception("[webroom] 读取投资代理人失败")
+        return web.json_response({"ok": False, "error": f"读取失败：{exc}"}, status=500)
+    return web.json_response(data)
+
+
+async def _api_invest_agents_start(request: web.Request) -> web.Response:
+    user = _token_user(request)
+    if user is None:
+        return web.json_response({"ok": False, "error": "登录已过期"}, status=401)
+    if _plugin is None:
+        return web.json_response({"ok": False, "error": "插件尚未就绪"}, status=503)
+
+    body = await _read_json(request)
+    if not body:
+        return web.json_response({"ok": False, "error": "请求格式不对"}, status=400)
+    agent_key = str(body.get("agent") or body.get("agent_key") or "").strip()
+    if not agent_key:
+        return web.json_response({"ok": False, "error": "缺少代理人"}, status=400)
+    try:
+        principal = int(body.get("principal") or 0)
+        duration = int(body.get("duration") or 0)
+    except (TypeError, ValueError):
+        return web.json_response({"ok": False, "error": "本金和期限必须是整数"}, status=400)
+
+    user_id = accounts_store.player_key_of(user)
+    try:
+        data = await invest_agent_start(_plugin, user_id, agent_key, principal, duration)
+    except Exception as exc:
+        logger.exception("[webroom] 雇佣投资代理人失败")
+        return web.json_response({"ok": False, "error": f"委托失败：{exc}"}, status=500)
+    return web.json_response(data)
+
+
+async def _api_invest_agents_stop(request: web.Request) -> web.Response:
+    user = _token_user(request)
+    if user is None:
+        return web.json_response({"ok": False, "error": "登录已过期"}, status=401)
+    if _plugin is None:
+        return web.json_response({"ok": False, "error": "插件尚未就绪"}, status=503)
+
+    user_id = accounts_store.player_key_of(user)
+    try:
+        data = await invest_agent_stop(_plugin, user_id)
+    except Exception as exc:
+        logger.exception("[webroom] 停止投资代理人失败")
+        return web.json_response({"ok": False, "error": f"停止失败：{exc}"}, status=500)
+    return web.json_response(data)
+
+
+async def _api_invest_agents_claim(request: web.Request) -> web.Response:
+    user = _token_user(request)
+    if user is None:
+        return web.json_response({"ok": False, "error": "登录已过期"}, status=401)
+    if _plugin is None:
+        return web.json_response({"ok": False, "error": "插件尚未就绪"}, status=503)
+
+    user_id = accounts_store.player_key_of(user)
+    try:
+        data = await invest_agent_claim(_plugin, user_id)
+    except Exception as exc:
+        logger.exception("[webroom] 领取投资代理人结算失败")
+        return web.json_response({"ok": False, "error": f"领取失败：{exc}"}, status=500)
+    return web.json_response(data)
 
 
 async def _api_health(_request: web.Request) -> web.Response:

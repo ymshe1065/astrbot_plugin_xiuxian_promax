@@ -26,7 +26,7 @@ from .handlers import (
     DailyTaskHandlers, WorldBossHandlers, RaidHandlers, RobberyHandlers, ReincarnationHandlers,
     GambleHandlers, ForgeHandlers, DemonInvasionHandlers, PetHandlers,
     AuctionHandlers, AuctionHouseHandlers, SectShopHandler, AutoProxyHandlers, BattleEventHandlers,
-    InvestHandlers, WeeklyBossHandlers, HighStakesHandlers, AiChatHandler
+    InvestHandlers, InvestAgentHandlers, WeeklyBossHandlers, HighStakesHandlers, AiChatHandler
 )
 from .managers import (
     CombatManager, SectManager, RiftManager,
@@ -37,7 +37,7 @@ from .managers import (
     TutorialManager, GambleManager, ForgeManager, GlobalEventManager,
     DemonInvasionManager, PetManager,
     AuctionManager, AuctionHouseManager, EscortManager, EncounterManager, LifeSkillManager, TalismanManager, CalamityManager,
-    AutoProxyManager, BattleEventManager, InvestManager, WeeklyBossManager,
+    AutoProxyManager, BattleEventManager, InvestManager, InvestAgentManager, WeeklyBossManager,
     BlindAuctionManager, TreasureMapManager, MineVeinManager, BettingPoolManager,
     ChatContextManager, AIChatManager
 )
@@ -271,6 +271,8 @@ class XiuXianPlugin(Star):
         self.bank_handlers = BankHandlers(self.db, self.bank_mgr)
         self.invest_mgr = InvestManager(self.db, self.config, self.config_manager)
         self.invest_handlers = InvestHandlers(self.db, self.invest_mgr)
+        self.invest_agent_mgr = InvestAgentManager(self.db, self.invest_mgr)
+        self.invest_agent_handlers = InvestAgentHandlers(self.db, self.invest_agent_mgr)
         self.bounty_handlers = BountyHandlers(self.db, self.bounty_mgr)
         
         self.impart_pk_mgr = ImpartPkManager(self.db, self.combat_mgr, self.config_manager)
@@ -1164,6 +1166,12 @@ class XiuXianPlugin(Star):
                         f"【仙市】结算 {moved} 盘，当前第 {tick % 16 + 1} 盘"
                         f"（{self.invest_mgr.slot_label(tick)}）"
                     )
+                try:
+                    handled = await self.invest_agent_mgr.settle_due()
+                    if handled:
+                        logger.info(f"【仙市代理】推进 {handled} 个委托")
+                except Exception as e:
+                    logger.error(f"仙市代理结算异常: {e}")
                 # HH:30 风声推送
                 pushed_hint_tick = await self._maybe_push_invest_hint(pushed_hint_tick)
                 await asyncio.sleep(60)
@@ -1195,11 +1203,18 @@ class XiuXianPlugin(Star):
         if hint.get("pattern") in (None, "calm", ""):
             return pushed_hint_tick
         prefix = "全市场 · " if hint.get("code") == "*" else ""
+        credibility = hint.get("credibility") or ""
+        if credibility == "confirmed":
+            tag = "（正式）"
+        elif credibility == "rumor":
+            tag = "（传闻）"
+        else:
+            tag = ""
         text = (
             f"📈 仙市风声（{hint.get('hour', '--')}:00 结算计入）\n"
-            f"{prefix}{hint.get('title', '')}\n"
+            f"{prefix}{hint.get('title', '')}{tag}\n"
             f"　{hint.get('detail', '')}\n"
-            f"── 半小时后开盘，可 /买入股 抢跑"
+            f"── 半小时后开盘，可 /买入股 抢跑；消息盘内买卖有冲击成本"
         )
         if self.broadcast_groups:
             message_chain = MessageChain().message(text)
@@ -2517,13 +2532,17 @@ class XiuXianPlugin(Star):
 
     # ===== v6.40 仙市投资系统 =====
 
-    @filter.command(CMD_INVEST_MARKET, "仙市行情总览（/仙市 杠杆 进入杠杆交易）")
+    @filter.command(CMD_INVEST_MARKET, "仙市行情总览（/仙市 杠杆 配资 · /仙市 代理 投资代理人）")
     @require_whitelist
     async def handle_invest_market(self, event: AstrMessageEvent, args: GreedyStr):
         # 必须是 GreedyStr：AstrBot 对「带默认值的 str 形参」只传第一个空格分段，
         # `/仙市 杠杆 S01 3 50000` 会被截成 `杠杆`，开仓/平仓永远进不去。
-        if str(args or "").strip().startswith(("杠杆", "配资", "margin")):
+        text = str(args or "").strip()
+        if text.startswith(("杠杆", "配资", "margin")):
             async for r in self.invest_handlers.handle_margin(event, args): yield r
+            return
+        if text.startswith(("代理", "代理人", "投资代理", "agent")):
+            async for r in self.invest_agent_handlers.handle(event, args): yield r
             return
         async for r in self.invest_handlers.handle_market(event): yield r
 

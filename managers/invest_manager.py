@@ -160,9 +160,10 @@ NEWS_POOL: Dict[str, List[Tuple[str, int, str, str]]] = {
 }
 
 # 全市场消息：10% 概率取代个股消息，影响所有标的（利好/利空分列）
+# v68：改为「先抑后扬 / 冲高回落」的传闻，避免一篮子股票同向的确定性套利
 MARKET_NEWS = (
-    ("single", -1, "坊市整顿，各铺停业自查", "三日之内不得开张，各业皆受影响。"),
-    ("single", 1, "新灵石矿脉现世", "市面银钱充裕，各铺生意兴隆。"),
+    ("pump_dump", -1, "坊市整顿传闻四起，各铺暂缓进货", "消息尚未证实，市面观望情绪浓。"),
+    ("reverse", 1, "传有新灵石矿脉现世", "矿脉位置未明，矿工已陆续出动。"),
 )
 
 MARKET_NEWS_CHANCE = 0.10
@@ -170,6 +171,15 @@ MARKET_NEWS_CHANCE = 0.10
 # 每盘真消息概率（其余为「盘面平静」氛围文案，不产生 bias）
 # 纯掷骰：不做连续平静保底，长草期与连出消息都可能出现，长度由随机决定
 NEWS_CHANCE = 0.33
+
+# v68 可信度：正式消息 70% 为真，传闻 60% 为真；假消息按相反方向结算。
+NEWS_CONFIRMED_CHANCE = 0.50
+NEWS_CONFIRMED_TRUE = 0.70
+NEWS_RUMOR_TRUE = 0.60
+CREDIBILITY_SCALE = {"confirmed": 1.0, "rumor": 0.7}
+
+# v68 总体消息幅度下调，避免单条消息贡献过高
+NEWS_BIAS_SCALE = 0.40
 
 # 盘面平静文案池（不影响行情，只让风声「每盘都有」）
 CALM_NEWS = (
@@ -181,10 +191,16 @@ CALM_NEWS = (
 )
 
 # 非个股消息的传导折扣
-MARKET_NEWS_SCALE = 0.5
+MARKET_NEWS_SCALE = 0.25
+# 基金对全市场消息再打折：基金主要是净值漂移，不跟个股剧本
+FUND_NEWS_SCALE = 0.5
 
 # 消息影响窗口：当盘 + 后 3 盘（共 4 盘）
 NEWS_WINDOW = 4
+
+# v68 新闻冲击成本：按「消息盘距当前盘」的偏移收费，买卖双向都收。
+# 1 = 下一盘消息（抢跑），0 = 消息当盘，-1/-2 = 消息后第 1/2 盘。
+NEWS_IMPACT_RATES = {1: 0.008, 0: 0.008, -1: 0.005, -2: 0.0025, -3: 0.0}
 
 
 class InvestManager:
@@ -566,9 +582,48 @@ class InvestManager:
                 continue  # 超出影响窗口，跳过
             scale = MARKET_NEWS_SCALE if scope == "*" else 1.0
             if is_fund:
-                scale *= MARKET_NEWS_SCALE
-            total += script[idx] * float(product["msg_base"]) * float(item["strength"]) * int(item["direction"]) * scale
+                scale *= FUND_NEWS_SCALE
+            cred_scale = CREDIBILITY_SCALE.get(
+                str(item.get("credibility") or "confirmed"), 1.0
+            )
+            total += (
+                script[idx]
+                * float(product["msg_base"])
+                * float(item["strength"])
+                * int(item["direction"])
+                * scale
+                * NEWS_BIAS_SCALE
+                * cred_scale
+            )
         return total
+
+    async def _news_impact_rate(self, code: str, tick: int) -> float:
+        """当前标的的新闻冲击费率（买卖双向都收）。
+
+        覆盖「抢跑下一盘」到「消息后第 2 盘」；交易前先确保当前盘与下一盘的
+        风声已生成，否则玩家可以在半点推送前抢先成交、绕开冲击成本。
+        """
+        code = (code or "").strip().upper()
+        if not code:
+            return 0.0
+        day, slot = divmod(int(tick), TICKS_PER_DAY)
+        await self._ensure_news(day, slot)
+        nday, nslot = divmod(int(tick) + 1, TICKS_PER_DAY)
+        await self._ensure_news(nday, nslot)
+        rows = await self._rows(
+            "SELECT code, trade_day, slot FROM invest_events "
+            "WHERE pattern NOT IN ('calm', '') "
+            "AND (trade_day * ? + slot) BETWEEN ? AND ?",
+            (TICKS_PER_DAY, int(tick) - 3, int(tick) + 1),
+        )
+        rate = 0.0
+        for row in rows:
+            if str(row["code"]) not in (code, "*"):
+                continue
+            msg_abs = int(row["trade_day"]) * TICKS_PER_DAY + int(row["slot"])
+            offset = msg_abs - int(tick)
+            rate = max(rate, NEWS_IMPACT_RATES.get(offset, 0.0))
+        return rate
 
     @staticmethod
     def _tag_for(product: dict, news: List[dict]) -> str:
@@ -617,29 +672,43 @@ class InvestManager:
                 return
 
             rng = self._rng(day, slot, "news")
+            credibility = "calm"
+            narrative = 0
             if rng.random() >= NEWS_CHANCE:
                 # 盘面平静：无 bias
                 title = rng.choice(CALM_NEWS)
                 pattern, direction, code, detail = "calm", 0, "", ""
-            elif rng.random() < MARKET_NEWS_CHANCE:
-                # 全市场消息
-                code = "*"
-                pattern, direction, title, detail = rng.choice(MARKET_NEWS)
             else:
-                # 个股消息：先掷方向（1:1），再从该标的下对应方向的消息里抽
-                code = rng.choice(sorted(NEWS_POOL.keys()))
-                direction = 1 if rng.random() < 0.5 else -1
-                candidates = [n for n in NEWS_POOL[code] if n[1] == direction]
-                if not candidates:  # 兜底：该标的某方向无文案时回退到全池
-                    candidates = NEWS_POOL[code]
-                pattern, direction, title, detail = rng.choice(candidates)
+                if rng.random() < MARKET_NEWS_CHANCE:
+                    # 全市场风声：一律按传闻处理，避免一篮子股票同向套利
+                    code = "*"
+                    pattern, narrative, title, detail = rng.choice(MARKET_NEWS)
+                    credibility = "rumor"
+                else:
+                    # 个股消息：先掷叙事方向（1:1），再从该方向文案里抽
+                    code = rng.choice(sorted(NEWS_POOL.keys()))
+                    narrative = 1 if rng.random() < 0.5 else -1
+                    candidates = [n for n in NEWS_POOL[code] if n[1] == narrative]
+                    if not candidates:  # 兜底：该标的某方向无文案时回退到全池
+                        candidates = NEWS_POOL[code]
+                    pattern, narrative, title, detail = rng.choice(candidates)
+                    credibility = (
+                        "confirmed" if rng.random() < NEWS_CONFIRMED_CHANCE else "rumor"
+                    )
+                # 可信度决定「标题说的方向」是否等于「实际结算方向」
+                truth_rate = (
+                    NEWS_CONFIRMED_TRUE if credibility == "confirmed" else NEWS_RUMOR_TRUE
+                )
+                direction = narrative if rng.random() < truth_rate else -narrative
 
-            strength = round(self._rng(day, slot, "strength").uniform(0.7, 1.3), 4)
+            strength = round(self._rng(day, slot, "strength").uniform(0.6, 1.1), 4)
             await self.db.conn.execute(
                 "INSERT OR IGNORE INTO invest_events "
-                "(trade_day, slot, code, pattern, direction, base_bias, strength, title, detail) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (day, slot, code, pattern, direction, 0.0, strength, title, detail),
+                "(trade_day, slot, code, pattern, direction, base_bias, strength, title, detail, "
+                " credibility, narrative_direction) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (day, slot, code, pattern, direction, 0.0, strength, title, detail,
+                 credibility, narrative),
             )
 
     async def _load_news_window(self, day: int, slot: int) -> List[dict]:
@@ -826,8 +895,10 @@ class InvestManager:
         if product["status"] != "trading":
             return False, "该标的已停牌。"
 
+        tick = self.tick_of()
+        impact = await self._news_impact_rate(code, tick)
         shares = lots * LOT_SIZE
-        price = float(product["price"])
+        price = float(product["price"]) * (1 + impact)
         amount = int(round(shares * price))
         fee = self._calc_fee(amount)
         total_cost = amount + fee
@@ -875,7 +946,6 @@ class InvestManager:
             fresh.gold -= total_cost
             await self.db.update_player(fresh, commit=False)
 
-            tick = self.tick_of()
             if held and held_shares > 0:
                 await self.db.conn.execute(
                     "UPDATE invest_holdings SET shares = shares + ?, cost = cost + ?, last_buy = ? "
@@ -902,7 +972,9 @@ class InvestManager:
 
         return True, (
             f"买入 {product['name']} {lots} 手（{shares} 股）\n"
-            f"成交价 {price:.2f}，金额 {amount:,}，手续费 {fee:,}\n"
+            f"成交价 {price:.2f}"
+            + (f"（新闻冲击 +{impact:.2%}）" if impact else "")
+            + f"，金额 {amount:,}，手续费 {fee:,}\n"
             f"剩余灵石：{fresh.gold:,}"
         )
 
@@ -922,6 +994,8 @@ class InvestManager:
         product = await self._load_product(code)
         if not product or product["kind"] != "stock":
             return False, f"仙市中不存在股票代码「{code}」。"
+        tick = self.tick_of()
+        impact = await self._news_impact_rate(code, tick)
 
         await self.db.conn.execute("BEGIN IMMEDIATE")
         try:
@@ -936,7 +1010,7 @@ class InvestManager:
                 await self.db.conn.rollback()
                 return False, f"你没有持有 {product['name']}。"
 
-            price = float(product["price"])
+            price = float(product["price"]) * (1 - impact)
             held_shares = await self._normalize_stock_shares(player.user_id, code, held)
             if held_shares <= 0:
                 await self.db.conn.rollback()
@@ -969,7 +1043,7 @@ class InvestManager:
                 "INSERT INTO invest_orders "
                 "(user_id, code, side, shares, price, amount, fee, tick, backfilled, created_at) "
                 "VALUES (?, ?, 'sell', ?, ?, ?, ?, ?, 0, ?)",
-                (player.user_id, code, sell_shares, price, amount, fee, self.tick_of(), int(time.time())),
+                (player.user_id, code, sell_shares, price, amount, fee, tick, int(time.time())),
             )
             await self.db.conn.commit()
         except Exception:
@@ -978,7 +1052,9 @@ class InvestManager:
 
         return True, (
             f"卖出 {product['name']} {sell_shares / LOT_SIZE:.2f} 手（{int(sell_shares)} 股）\n"
-            f"成交价 {price:.2f}，金额 {amount:,}，手续费 {fee:,}\n"
+            f"成交价 {price:.2f}"
+            + (f"（新闻冲击 -{impact:.2%}）" if impact else "")
+            + f"，金额 {amount:,}，手续费 {fee:,}\n"
             f"到账 {net:,}，当前灵石 {fresh.gold:,}"
         )
 
@@ -1159,6 +1235,22 @@ class InvestManager:
                 }
             )
 
+        # 风声只暴露标题/细节/可信度；direction、strength、narrative_direction
+        # 属于结算内部字段，不能跟着面板数据一起下发。
+        public_news = [
+            {
+                "trade_day": int(row["trade_day"]),
+                "slot": int(row["slot"]),
+                "hour": row.get("hour"),
+                "code": row["code"],
+                "pattern": row["pattern"],
+                "credibility": row.get("credibility") or "confirmed",
+                "title": row["title"],
+                "detail": row["detail"],
+            }
+            for row in await self.today_news(moment)
+        ]
+
         return {
             "tick": tick,
             "label": self.slot_label(tick),
@@ -1167,7 +1259,7 @@ class InvestManager:
             "seconds_to_open": self.seconds_to_open(moment),
             "seconds_to_close": self.seconds_to_close(moment),
             "items": items,
-            "news": await self.today_news(moment),
+            "news": public_news,
             "current_hint": await self._current_hint(moment),
             "next_hint": await self._next_hint(moment),
         }
@@ -1207,6 +1299,11 @@ class InvestManager:
         )
         rows.reverse()
         day_open = float(product["day_open"]) or float(product["price"])
+        news_impact = (
+            await self._news_impact_rate(product["code"], self.tick_of(moment))
+            if product["kind"] == "stock"
+            else 0.0
+        )
         return {
             "code": product["code"],
             "name": product["name"],
@@ -1218,6 +1315,7 @@ class InvestManager:
             "risk": int(product["risk_level"]),
             "day_limit": float(product["day_limit"]),
             "history": rows,
+            "news_impact": news_impact,
         }
 
     @staticmethod
@@ -1502,6 +1600,9 @@ class InvestManager:
         price = float(product["price"])
         if price <= 0:
             return False, "❌ 当前价格异常，无法开仓。"
+        tick = self.tick_of()
+        impact = await self._news_impact_rate(code, tick)
+        price *= (1 + impact)
 
         # 倍数上限按标的波动收口：5 倍的强平距离只有 -16%，
         # 放在 σ=8.5%/盘的 S05 上，一个交易日内爆仓概率超过 2/3。
@@ -1533,7 +1634,6 @@ class InvestManager:
             )
         borrow = total - margin
         shares = round(total / price, 4)
-        tick = self.tick_of()
         now = int(time.time())
 
         await self.db.conn.execute("BEGIN IMMEDIATE")
@@ -1572,7 +1672,9 @@ class InvestManager:
             f"方向：做多｜杠杆：{leverage} 倍\n"
             f"保证金：{margin:,}｜开仓费：{fee:,}\n"
             f"配资：{borrow:,}｜名义仓位：{total:,}\n"
-            f"开仓价：{price:.2f}｜持仓编号：{position_id}\n"
+            f"开仓价：{price:.2f}"
+            + (f"（新闻冲击 +{impact:.2%}）" if impact else "")
+            + f"｜持仓编号：{position_id}\n"
             f"额度占用：{used + margin:,} / {cap:,}\n"
             f"━━━━━━━━━━━━━━━\n"
             f"⚠️ 每盘配资利息 {self.MARGIN_BORROW_RATE_PER_TICK * 100:.2f}%，"
@@ -1637,6 +1739,9 @@ class InvestManager:
         product = await self._load_product(position["code"])
         price = float(product["price"]) if product else float(position["entry_price"])
         tick = self.tick_of()
+        impact = await self._news_impact_rate(position["code"], tick)
+        if impact:
+            price *= (1 - impact)
         calc = await self._margin_equity(position, price, tick)
         equity = calc["equity"]
         margin = float(position.get("margin") or 0)
@@ -1671,7 +1776,9 @@ class InvestManager:
             f"{title}\n"
             f"━━━━━━━━━━━━━━━\n"
             f"标的：{position['code']}｜{int(position['leverage'])} 倍\n"
-            f"开仓价：{float(position['entry_price']):.2f}｜平仓价：{price:.2f}\n"
+            f"开仓价：{float(position['entry_price']):.2f}｜平仓价：{price:.2f}"
+            + (f"（新闻冲击 -{impact:.2%}）" if impact else "")
+            + f"\n"
             f"配资利息：{calc['interest']:,}｜平仓费：{calc['close_fee']:,}\n"
             f"保证金：{int(margin):,}\n"
             f"返还：{payout:,}｜盈亏：{pnl:+,}\n"

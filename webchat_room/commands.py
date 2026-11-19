@@ -113,7 +113,7 @@ CATEGORIES: list[dict[str, Any]] = [
             {"cmd": "/器阁", "label": "器阁", "panel": True},
             {"cmd": "/百宝阁", "label": "百宝阁", "panel": True},
             {"cmd": "/购买", "label": "购买", "arg": "物品名 数量"},
-            {"cmd": "/仙市", "label": "仙市", "arg": "留空看行情 / 杠杆 状态 / 杠杆 代码 倍数 保证金 / 杠杆 平仓 编号", "panel": True},
+            {"cmd": "/仙市", "label": "仙市", "arg": "留空看行情 / 代理 状态 · 代理 雇佣 青禾 100000 8 / 杠杆 状态 / 杠杆 代码 倍数 保证金", "panel": True},
             {"cmd": "/行情", "label": "行情", "arg": "股票/基金代码（如 S01 / F01）", "panel": True},
             {"cmd": "/我的持仓", "label": "我的持仓", "panel": True},
             {"cmd": "/仙市流水", "label": "仙市流水", "panel": True},
