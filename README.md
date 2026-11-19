@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v7.10.5 · 网页聊天室版
+# AstrBot 插件：模拟修仙 v7.11.0 · 网页聊天室版
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/ymshe1065/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/ymshe1065/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v7.10.5-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v7.11.0-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -27,7 +27,7 @@
 
 ---
 
-> **插件版本:** v3.46.5 · **游戏版本:** v7.10.5 · **数据库:** v65 · **分支:** `feat/web-chatroom`
+> **插件版本:** v3.47.0 · **游戏版本:** v7.11.0 · **数据库:** v65 · **分支:** `feat/web-chatroom`
 >
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497) · [lan](https://github.com/lanxue0)
 
@@ -48,7 +48,18 @@
 <sub>点击展开对应版本查看详细变更；v3.44.3 之前的版本按游戏版本系列汇总在下方。</sub>
 
 <details open>
-<summary><b>本次更新 · 插件 v3.46.5（高风险玩法第三轮加固）</b></summary>
+<summary><b>本次更新 · 插件 v3.47.0（迭代版本发布）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 版本迭代 | 插件版本由 **v3.46.5** 升至 **v3.47.0**，游戏及帮助版本由 **v7.10.5** 升至 **v7.11.0**，完成 v3.46.x「每日悬赏榜 · 十项高风险玩法」系列的阶段归档 |
+| 文档同步 | README、游戏机制知识库、`/修仙帮助` 版本号统一同步；数据库保持 **v65**（无表结构变更） |
+| 回归 | 沿用 v3.46.5 测试基线（**1699 项通过 / 3 skipped**），本版本无功能性代码变更 |
+
+</details>
+
+<details>
+<summary><b>插件 v3.46.5（高风险玩法第三轮加固）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |
@@ -1524,11 +1535,11 @@ python3 -m unittest discover -s tests -q         # 现有单测
 | 原版 | xiaojuwa | 插件初版（借鉴 nonebot_plugin_xiuxian_2） |
 | 二改 | [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) | v2.5~v3.1.3 稳定性修复：储物戒枢纽化、银行体系、悬赏模板、并发保护 |
 | **三改** | **[云兮](https://github.com/iqapi)** | **v6.0~v6.35.1**：17 个大系统、110 称号、60 路线、卡片渲染器、装备百分比平衡、离线测试体系 |
-| **四改** | **[ymshe1065](https://github.com/ymshe1065)**<br>**[lsq3497](https://github.com/lsq3497)**<br>**[lan](https://github.com/lanxue0)** | **v6.35.2~v7.10.5**：数值与经济、机制重做、测试基建、自动代理、网页聊天室、网格化看板、飞升仙缘、仙市精度、每日悬赏通缉等 |
+| **四改** | **[ymshe1065](https://github.com/ymshe1065)**<br>**[lsq3497](https://github.com/lsq3497)**<br>**[lan](https://github.com/lanxue0)** | **v6.35.2~v7.11.0**：数值与经济、机制重做、测试基建、自动代理、网页聊天室、网格化看板、飞升仙缘、仙市精度、每日悬赏通缉等 |
 
 ### 四改说明
 
-四改自 `v6.35.2` 起承接三改，现由三位维护者共同推进；插件 **v3.46.5** / 游戏 **v7.10.5** / 数据库 **v65**，当前开发分支为 `feat/web-chatroom`。工作主线：
+四改自 `v6.35.2` 起承接三改，现由三位维护者共同推进；插件 **v3.47.0** / 游戏 **v7.11.0** / 数据库 **v65**，当前开发分支为 `feat/web-chatroom`。工作主线：
 
 | 主线 | 主要变更 |
 | --- | --- |
@@ -1542,8 +1553,8 @@ python3 -m unittest discover -s tests -q         # 现有单测
 | 项 | 当前 |
 | --- | --- |
 | 开发分支 | `feat/web-chatroom` |
-| 插件版本 | v3.46.5 |
-| 游戏版本 | v7.10.5 |
+| 插件版本 | v3.47.0 |
+| 游戏版本 | v7.11.0 |
 | 数据库版本 | v65 |
 | 运行环境 | AstrBot 4.29.x + Python 3.12 |
 | 仓库 | [ymshe1065/astrbot_plugin_xiuxian_promax](https://github.com/ymshe1065/astrbot_plugin_xiuxian_promax) |

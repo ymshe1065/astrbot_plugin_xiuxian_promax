@@ -5,7 +5,7 @@ language: zh-CN
 audience:
   - AI 问答助手
   - 玩家
-game_version: v7.10.5
+game_version: v7.11.0
 last_verified: 2026-11-19
 content_type: game_mechanics_reference
 chunk_strategy: heading
@@ -1722,4 +1722,4 @@ keywords:
 - 玩家数据保存在 `data/plugin_data/astrbot_plugin_xiuxian_promax/xiuxian_data_lite.db`。
 - 插件使用 SQLite 数据库；启动时如检测到结构变更会自动迁移，升级前建议备份数据目录。
 - 升级/更新前建议备份整个 `astrbot_plugin_xiuxian_promax` 数据目录。
-- 插件版本以 `metadata.yaml` 与 README 为准；本文对应 v7.10.5，数据库 v65。
+- 插件版本以 `metadata.yaml` 与 README 为准；本文对应 v7.11.0，数据库 v65。
