@@ -3368,7 +3368,7 @@ class XiuXianPlugin(Star):
                 yield event.plain_result(tmsg)
 
     # ===== v7.10.3 高风险玩法 =====
-    @filter.command("藏宝图", "古修藏宝图爬塔：开始/继续/撤退")
+    @filter.command("藏宝图", "古修藏宝图肉鸽爬塔：开始/继续/选择奇遇/撤退")
     @require_whitelist
     async def handle_treasure_map(self, event: AstrMessageEvent, args: GreedyStr):
         async for r in self.high_stakes_handlers.handle_treasure_map(event, args): yield r

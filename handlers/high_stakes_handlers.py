@@ -51,6 +51,22 @@ class HighStakesHandlers:
             set_event_flag(event, "treasure_advance_ok", bool(success))
             yield event.plain_result(msg)
             return
+        if sub in ("选择", "抉择", "奇遇", "choose"):
+            if len(parts) < 2:
+                yield event.plain_result(
+                    "❌ 用法：`/藏宝图 选择 <编号>`\n"
+                    "💡 当前奇遇与可选编号请发送 `/藏宝图` 查看。"
+                )
+                return
+            try:
+                choice = int(parts[1])
+            except (TypeError, ValueError):
+                yield event.plain_result("❌ 奇遇选项编号必须是整数。")
+                return
+            success, msg = await self.treasure_mgr.choose(player, choice)
+            set_event_flag(event, "treasure_choose_ok", bool(success))
+            yield event.plain_result(msg)
+            return
         if sub in ("撤退", "结算", "离开", "跑"):
             success, msg = await self.treasure_mgr.retreat(player)
             set_event_flag(event, "treasure_retreat_ok", bool(success))
@@ -58,7 +74,8 @@ class HighStakesHandlers:
             return
         yield event.plain_result(
             f"❌ 未知的藏宝图子命令「{sub}」。\n"
-            "💡 可用：`/藏宝图`、`/藏宝图 开始 <1-3>`、`/藏宝图 继续`、`/藏宝图 撤退`"
+            "💡 可用：`/藏宝图`、`/藏宝图 开始 <1-3>`、`/藏宝图 继续`、"
+            "`/藏宝图 选择 <编号>`、`/藏宝图 撤退`"
         )
 
     # ================= 矿脉 =================

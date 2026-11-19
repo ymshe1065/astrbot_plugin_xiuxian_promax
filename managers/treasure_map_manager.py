@@ -6,6 +6,13 @@
 - 丹药/符箓回血有每层上限（默认最大气血的 18%），不能靠嗑药无限续命；
 - 每层都可能触发陷阱/妖兽，气血归零则本次所有战利品尽失；
 - 层数越深，掉落品阶与灵石越高，但受伤也更重。
+
+v3.49 肉鸽化：
+- 每推进一层，除了原本的伤害与战利品，还会触发一次随机奇遇；
+- 玩家必须从 2-3 个选项中做出抉择，选项可能带来灵石/战利品/气血变化，
+  也会叠上一层「临时效果」；
+- 临时效果只在本次爬塔内生效，可叠加，涵盖减伤、陷阱规避、寻宝、聚财、
+  回血额度、护身符与负面诅咒等，让每一趟爬塔的构筑都不一样。
 """
 
 from __future__ import annotations
@@ -42,6 +49,409 @@ FLOOR_RULES = {
     5: {"damage": (0.22, 0.34), "trap": 0.50, "trap_mult": 2.0, "label": "万骨祭坛"},
     6: {"damage": (0.28, 0.42), "trap": 0.58, "trap_mult": 2.1, "label": "古修主墓"},
 }
+
+# ================= 肉鸽临时效果 =================
+# value 为每层叠加的数值，max 为本次爬塔内的叠加上限。
+# 效果只在当前 treasure_map_runs 记录内生效，撤退/阵亡/通关后自动失效。
+EFFECT_DEFS = {
+    "iron_body": {
+        "name": "铜皮铁骨", "kind": "buff", "value": 0.08, "max": 5,
+        "desc": "后续楼层受到伤害 -{pct}",
+    },
+    "keen_sense": {
+        "name": "灵觉敏锐", "kind": "buff", "value": 0.10, "max": 4,
+        "desc": "陷阱触发率 -{pct}",
+    },
+    "treasure_luck": {
+        "name": "寻宝直觉", "kind": "buff", "value": 0.08, "max": 5,
+        "desc": "战利品概率 +{pct}，额外掉落率 +{extra}",
+    },
+    "gold_luck": {
+        "name": "聚财灵光", "kind": "buff", "value": 0.12, "max": 5,
+        "desc": "灵石收获 +{pct}",
+    },
+    "heal_flow": {
+        "name": "回春灵息", "kind": "buff", "value": 0.10, "max": 5,
+        "desc": "每层回血额度 +{pct}",
+    },
+    "ward": {
+        "name": "护身灵符", "kind": "token", "value": 1, "max": 3,
+        "desc": "可抵挡 {n} 次陷阱伤害，触发后消耗一层",
+    },
+    "fragile": {
+        "name": "魂体受损", "kind": "debuff", "value": 0.10, "max": 4,
+        "desc": "受到伤害 +{pct}",
+    },
+    "curse": {
+        "name": "墓府诅咒", "kind": "debuff", "value": 0.10, "max": 3,
+        "desc": "灵石收获 -{pct}",
+    },
+}
+
+# 每层结算后随机抽取的奇遇。actions 为成功结果，risk 为失败分支。
+# 动作类型：effect / hp / gold / loot / cleanse / rand_effect。
+EVENT_POOL = [
+    {
+        "key": "ancient_spirit",
+        "name": "古修残魂",
+        "desc": "一缕残魂悬在墓道尽头，正打量着你。",
+        "options": [
+            {
+                "label": "承接传承", "desc": "以精血换取古修留下的炼体感悟。",
+                "actions": [
+                    {"type": "hp", "pct": -0.08},
+                    {"type": "effect", "key": "iron_body", "stacks": 2},
+                ],
+                "risk": {
+                    "chance": 0.25, "text": "残魂骤然反噬，你的神魂一阵刺痛。",
+                    "actions": [{"type": "effect", "key": "fragile", "stacks": 1}],
+                },
+            },
+            {
+                "label": "超度残魂", "desc": "诵经送残魂往生，墓府灵气反哺己身。",
+                "actions": [
+                    {"type": "hp", "pct": 0.12},
+                    {"type": "effect", "key": "heal_flow", "stacks": 1},
+                ],
+            },
+            {
+                "label": "搜刮陪葬", "desc": "不理会残魂，翻找棺椁中的陪葬品。",
+                "actions": [
+                    {"type": "loot", "count": 1},
+                    {"type": "hp", "pct": -0.10},
+                ],
+            },
+        ],
+    },
+    {
+        "key": "spirit_spring",
+        "name": "灵泉",
+        "desc": "一汪灵泉从石缝中涌出，寒气沁骨却生机盎然。",
+        "options": [
+            {
+                "label": "饮下灵泉", "desc": "任由灵泉冲刷经脉，伤势缓缓愈合。",
+                "actions": [{"type": "hp", "pct": 0.16}],
+            },
+            {
+                "label": "装瓶带走", "desc": "把灵泉封进玉瓶，转手便是白花花的灵石。",
+                "actions": [
+                    {"type": "gold", "mult": 0.8},
+                    {"type": "effect", "key": "treasure_luck", "stacks": 1},
+                ],
+            },
+            {
+                "label": "引泉淬体", "desc": "以灵泉淬炼肉身，痛楚中透着坚韧。",
+                "actions": [
+                    {"type": "hp", "pct": -0.12},
+                    {"type": "effect", "key": "iron_body", "stacks": 2},
+                ],
+            },
+        ],
+    },
+    {
+        "key": "gambler_idol",
+        "name": "赌徒石像",
+        "desc": "一尊咧嘴大笑的石像，手里攥着两枚斑驳的骰子。",
+        "options": [
+            {
+                "label": "与石像对赌", "desc": "押上自己的气血与运气，赌石像肚里的陪葬。",
+                "actions": [
+                    {"type": "hp", "pct": -0.10},
+                    {"type": "gold", "mult": 2.0},
+                    {"type": "effect", "key": "gold_luck", "stacks": 2},
+                ],
+                "risk": {
+                    "chance": 0.50, "text": "石像咧嘴一笑，你的钱袋凭空瘪了一截。",
+                    "actions": [{"type": "effect", "key": "curse", "stacks": 1}],
+                },
+            },
+            {
+                "label": "献上灵石", "desc": "花钱买个心安，也让石像记住你的供奉。",
+                "cost_mult": 0.8,
+                "actions": [{"type": "effect", "key": "gold_luck", "stacks": 2}],
+            },
+            {
+                "label": "转身离开", "desc": "不与邪物纠缠，继续赶路。",
+                "actions": [],
+            },
+        ],
+    },
+    {
+        "key": "guardian_beast",
+        "name": "镇墓兽",
+        "desc": "石兽双目亮起幽光，拦在通往深处的石门前。",
+        "options": [
+            {
+                "label": "血战镇墓兽", "desc": "硬碰硬撕开一条路，石兽身上也许藏着护符。",
+                "actions": [
+                    {"type": "hp", "pct": -0.15},
+                    {"type": "loot", "count": 1},
+                    {"type": "effect", "key": "ward", "stacks": 1},
+                ],
+                "risk": {
+                    "chance": 0.30, "text": "石兽利爪撕开护体灵光，你伤得不轻。",
+                    "actions": [{"type": "effect", "key": "fragile", "stacks": 2}],
+                },
+            },
+            {
+                "label": "绕行暗道", "desc": "贴着墙缝摸过去，记下石兽的巡逻规律。",
+                "actions": [{"type": "effect", "key": "keen_sense", "stacks": 1}],
+            },
+            {
+                "label": "投喂灵兽", "desc": "用灵石供品换石兽让路，顺便讨一张旧符。",
+                "cost_mult": 0.6,
+                "actions": [{"type": "effect", "key": "ward", "stacks": 1}],
+            },
+        ],
+    },
+    {
+        "key": "alchemy_furnace",
+        "name": "古修丹炉",
+        "desc": "一座熄火多年的丹炉，炉腹仍残留着药香。",
+        "options": [
+            {
+                "label": "开炉取丹", "desc": "掀开炉盖，赌里面还留着一枚古丹。",
+                "actions": [
+                    {"type": "effect", "key": "heal_flow", "stacks": 2},
+                    {"type": "effect", "key": "ward", "stacks": 1},
+                ],
+                "risk": {
+                    "chance": 0.35, "text": "炉中残火烧穿护体灵光，你被灼伤。",
+                    "actions": [
+                        {"type": "hp", "pct": -0.12},
+                        {"type": "effect", "key": "fragile", "stacks": 2},
+                    ],
+                },
+            },
+            {
+                "label": "拆炉取材", "desc": "把炉壁上的灵金与药渣一并拆走。",
+                "actions": [
+                    {"type": "loot", "count": 1},
+                    {"type": "gold", "mult": 0.5},
+                ],
+            },
+            {
+                "label": "添柴炼体", "desc": "引炉火淬炼筋骨，借余温逼出体内杂质。",
+                "actions": [
+                    {"type": "hp", "pct": -0.08},
+                    {"type": "effect", "key": "iron_body", "stacks": 1},
+                ],
+            },
+        ],
+    },
+    {
+        "key": "maze",
+        "name": "机关迷宫",
+        "desc": "四面石壁缓缓移动，脚下地砖刻满看不懂的纹路。",
+        "options": [
+            {
+                "label": "强行破阵", "desc": "以蛮力撞开机关，赌自己的身板够硬。",
+                "actions": [
+                    {"type": "hp", "pct": -0.12},
+                    {"type": "effect", "key": "ward", "stacks": 2},
+                ],
+                "risk": {
+                    "chance": 0.25, "text": "机关连环触发，你的护体被磨去一层。",
+                    "actions": [{"type": "effect", "key": "fragile", "stacks": 1}],
+                },
+            },
+            {
+                "label": "推演生门", "desc": "静心推演阵纹，找出真正的出口。",
+                "actions": [
+                    {"type": "loot", "count": 2},
+                    {"type": "effect", "key": "treasure_luck", "stacks": 1},
+                ],
+                "risk": {
+                    "chance": 0.40, "text": "推演出了偏差，你被阵纹反噬。",
+                    "actions": [{"type": "hp", "pct": -0.15}],
+                },
+            },
+            {
+                "label": "原路返回", "desc": "不冒这个险，退回安全处重新观察。",
+                "actions": [{"type": "effect", "key": "keen_sense", "stacks": 1}],
+            },
+        ],
+    },
+    {
+        "key": "merchant",
+        "name": "幽冥商贩",
+        "desc": "一个披着黑斗篷的身影在墓道里摆摊，货物来路不明。",
+        "options": [
+            {
+                "label": "买护身符", "desc": "摊主说这符能替你挡下墓府里的致命机关。",
+                "cost_mult": 0.9,
+                "actions": [{"type": "effect", "key": "ward", "stacks": 2}],
+            },
+            {
+                "label": "买寻宝罗盘", "desc": "罗盘指针乱转，据说能指向陪葬品所在。",
+                "cost_mult": 1.1,
+                "actions": [{"type": "effect", "key": "treasure_luck", "stacks": 2}],
+            },
+            {
+                "label": "买回血丹", "desc": "丹药腥气扑鼻，但确实是疗伤的好东西。",
+                "cost_mult": 0.7,
+                "actions": [
+                    {"type": "hp", "pct": 0.20},
+                    {"type": "effect", "key": "heal_flow", "stacks": 1},
+                ],
+            },
+            {
+                "label": "离开摊位", "desc": "不买来路不明的东西，继续深入。",
+                "actions": [],
+            },
+        ],
+    },
+    {
+        "key": "sword_tomb",
+        "name": "剑冢",
+        "desc": "万千残剑插在土中，剑鸣如泣，隐隐指向一柄古剑。",
+        "options": [
+            {
+                "label": "拔出古剑", "desc": "握住剑柄的瞬间，凌厉剑意冲入识海。",
+                "actions": [
+                    {"type": "hp", "pct": -0.10},
+                    {"type": "effect", "key": "gold_luck", "stacks": 2},
+                    {"type": "effect", "key": "treasure_luck", "stacks": 1},
+                ],
+                "risk": {
+                    "chance": 0.45, "text": "古剑不认主，剑气反噬神魂。",
+                    "actions": [{"type": "effect", "key": "fragile", "stacks": 2}],
+                },
+            },
+            {
+                "label": "祭拜剑冢", "desc": "以灵力安抚剑灵，剑冢回以温润灵气。",
+                "actions": [
+                    {"type": "hp", "pct": 0.10},
+                    {"type": "effect", "key": "treasure_luck", "stacks": 1},
+                ],
+            },
+            {
+                "label": "收集残剑", "desc": "把还能用的残剑捆成一束带走。",
+                "actions": [
+                    {"type": "loot", "count": 1},
+                    {"type": "gold", "mult": 0.6},
+                ],
+            },
+        ],
+    },
+    {
+        "key": "blood_pool",
+        "name": "血池",
+        "desc": "一池暗红液体翻滚着血气，池底似乎沉着什么。",
+        "options": [
+            {
+                "label": "沐浴血池", "desc": "以血气修补伤势，但邪气也会趁虚而入。",
+                "actions": [
+                    {"type": "hp", "pct": 0.18},
+                    {"type": "effect", "key": "fragile", "stacks": 1},
+                ],
+            },
+            {
+                "label": "汲取血精", "desc": "强行炼化池中血精，以伤换财。",
+                "actions": [
+                    {"type": "hp", "pct": -0.18},
+                    {"type": "effect", "key": "gold_luck", "stacks": 2},
+                    {"type": "effect", "key": "treasure_luck", "stacks": 1},
+                ],
+            },
+            {
+                "label": "净化血池", "desc": "以灵力净化污血，顺便洗去身上的邪气。",
+                "actions": [
+                    {"type": "effect", "key": "heal_flow", "stacks": 1},
+                    {"type": "cleanse", "count": 1},
+                ],
+            },
+        ],
+    },
+    {
+        "key": "stone_tablet",
+        "name": "古碑",
+        "desc": "半截残碑立在墓室中央，碑文被岁月磨得模糊不清。",
+        "options": [
+            {
+                "label": "参悟古碑", "desc": "凝神参悟碑文，或许能窥得古修的一鳞半爪。",
+                "actions": [
+                    {"type": "rand_effect", "stacks": 2,
+                     "pool": ["iron_body", "keen_sense", "treasure_luck", "gold_luck"]},
+                ],
+                "risk": {
+                    "chance": 0.40, "text": "碑文暗藏杀机，你的心神被狠狠撕扯。",
+                    "actions": [
+                        {"type": "hp", "pct": -0.12},
+                        {"type": "effect", "key": "fragile", "stacks": 1},
+                    ],
+                },
+            },
+            {
+                "label": "拓印碑文", "desc": "把碑文拓下来，出去后也许能卖个好价钱。",
+                "actions": [
+                    {"type": "loot", "count": 1},
+                    {"type": "gold", "mult": 0.5},
+                ],
+            },
+            {
+                "label": "静心调息", "desc": "不碰碑文，借墓室寂静梳理自身灵力。",
+                "actions": [{"type": "effect", "key": "heal_flow", "stacks": 1}],
+            },
+        ],
+    },
+    {
+        "key": "fox_mirage",
+        "name": "妖狐幻境",
+        "desc": "粉雾弥漫，隐约有女子轻笑，脚下的路变得真假难辨。",
+        "options": [
+            {
+                "label": "破幻而出", "desc": "咬破舌尖，以痛楚守住灵台清明。",
+                "actions": [
+                    {"type": "hp", "pct": -0.10},
+                    {"type": "effect", "key": "keen_sense", "stacks": 2},
+                ],
+            },
+            {
+                "label": "沉沦幻境", "desc": "在幻境中醉生梦死，醒来时怀里多了些东西。",
+                "actions": [
+                    {"type": "effect", "key": "gold_luck", "stacks": 3},
+                    {"type": "effect", "key": "curse", "stacks": 1},
+                ],
+            },
+            {
+                "label": "献宝求路", "desc": "给幻境中的妖狐留下买路财，换一条生路。",
+                "cost_mult": 1.0,
+                "actions": [{"type": "effect", "key": "treasure_luck", "stacks": 2}],
+            },
+        ],
+    },
+    {
+        "key": "grave_keeper",
+        "name": "守墓人",
+        "desc": "一个佝偻老人坐在石阶上，脚边放着一盏将熄的油灯。",
+        "options": [
+            {
+                "label": "与守墓人交易", "desc": "用灵石换一碗热汤与片刻喘息。",
+                "cost_mult": 0.8,
+                "actions": [
+                    {"type": "hp", "pct": 0.25},
+                    {"type": "effect", "key": "heal_flow", "stacks": 1},
+                ],
+            },
+            {
+                "label": "强夺祭品", "desc": "老人守着的祭品里，说不定有值钱的东西。",
+                "actions": [{"type": "loot", "count": 2}],
+                "risk": {
+                    "chance": 0.40, "text": "老人突然暴起，枯瘦的手爪撕开了你的护体。",
+                    "actions": [
+                        {"type": "hp", "pct": -0.15},
+                        {"type": "effect", "key": "fragile", "stacks": 1},
+                    ],
+                },
+            },
+            {
+                "label": "问路", "desc": "向老人打听前路机关，记在心里。",
+                "actions": [{"type": "effect", "key": "keen_sense", "stacks": 1}],
+            },
+        ],
+    },
+]
 
 
 class TreasureMapManager:
@@ -93,7 +503,131 @@ class TreasureMapManager:
             run["log"] = json.loads(run.get("log") or "[]")
         except Exception:
             run["log"] = []
+        try:
+            run["effects"] = json.loads(run.get("effects") or "[]")
+        except Exception:
+            run["effects"] = []
+        # 保留原始 JSON，供「选择奇遇」时做 CAS 守卫：同一事件只能被处理一次。
+        raw_event = run.get("event") or "{}"
+        run["_event_raw"] = raw_event
+        try:
+            run["event"] = json.loads(raw_event)
+        except Exception:
+            run["event"] = {}
         return run
+
+    # ================= 肉鸽效果辅助 =================
+    @staticmethod
+    def _effect_stacks(effects: List[dict], key: str) -> int:
+        total = 0
+        for item in effects or []:
+            if not isinstance(item, dict) or item.get("key") != key:
+                continue
+            try:
+                total += max(0, int(item.get("stacks") or 0))
+            except (TypeError, ValueError):
+                continue
+        return total
+
+    @classmethod
+    def effect_rate(cls, effects: List[dict], key: str) -> float:
+        """返回某个百分比效果的合计数值（已按上限截断）。"""
+        cfg = EFFECT_DEFS.get(key)
+        if not cfg:
+            return 0.0
+        stacks = min(cls._effect_stacks(effects, key), int(cfg.get("max") or 1))
+        try:
+            value = float(cfg.get("value") or 0)
+        except (TypeError, ValueError):
+            value = 0.0
+        return stacks * value
+
+    @staticmethod
+    def _add_effect(effects: List[dict], key: str, stacks: int = 1) -> str:
+        cfg = EFFECT_DEFS.get(key)
+        if not cfg:
+            return ""
+        try:
+            stacks = max(1, int(stacks))
+        except (TypeError, ValueError):
+            stacks = 1
+        cap = max(1, int(cfg.get("max") or 1))
+        entry = next(
+            (item for item in effects if isinstance(item, dict) and item.get("key") == key),
+            None,
+        )
+        if entry is None:
+            entry = {"key": key, "stacks": 0}
+            effects.append(entry)
+        before = max(0, int(entry.get("stacks") or 0))
+        after = min(cap, before + stacks)
+        entry["stacks"] = after
+        if after <= before:
+            return f"【{cfg['name']}】已达叠加上限（{cap} 层）"
+        gained = after - before
+        return f"获得临时效果【{cfg['name']}×{gained}】（当前 {after}/{cap} 层）"
+
+    @staticmethod
+    def _remove_effect(effects: List[dict], key: str, stacks: int = 1) -> int:
+        try:
+            stacks = max(0, int(stacks))
+        except (TypeError, ValueError):
+            stacks = 0
+        removed = 0
+        for item in list(effects or []):
+            if not isinstance(item, dict) or item.get("key") != key:
+                continue
+            try:
+                current = max(0, int(item.get("stacks") or 0))
+            except (TypeError, ValueError):
+                current = 0
+            take = min(current, stacks - removed)
+            if take <= 0:
+                break
+            item["stacks"] = current - take
+            removed += take
+            if item["stacks"] <= 0:
+                effects.remove(item)
+            if removed >= stacks:
+                break
+        return removed
+
+    @classmethod
+    def effect_value_text(cls, key: str, stacks: int) -> str:
+        cfg = EFFECT_DEFS.get(key) or {}
+        try:
+            pct = float(cfg.get("value") or 0) * int(stacks or 0)
+        except (TypeError, ValueError):
+            pct = 0.0
+        n = max(0, int(stacks or 0))
+        return str(cfg.get("desc") or "").format(
+            pct=f"{pct:.0%}",
+            extra=f"{min(0.50, pct * 0.8):.0%}",
+            n=n,
+        )
+
+    @classmethod
+    def _effect_line(cls, effects: List[dict]) -> str:
+        parts = []
+        for key in EFFECT_DEFS:
+            stacks = cls._effect_stacks(effects, key)
+            if stacks <= 0:
+                continue
+            cap = int(EFFECT_DEFS[key].get("max") or 1)
+            parts.append(f"{EFFECT_DEFS[key]['name']}×{min(stacks, cap)}")
+        return "、".join(parts) if parts else "无"
+
+    @classmethod
+    def _effects_detail(cls, effects: List[dict]) -> List[str]:
+        lines = []
+        for key, cfg in EFFECT_DEFS.items():
+            stacks = cls._effect_stacks(effects, key)
+            if stacks <= 0:
+                continue
+            stacks = min(stacks, int(cfg.get("max") or 1))
+            icon = "🟢" if cfg.get("kind") == "buff" else ("🟡" if cfg.get("kind") == "token" else "🔴")
+            lines.append(f"{icon} {cfg['name']}×{stacks}：{cls.effect_value_text(key, stacks)}")
+        return lines
 
     async def _max_hp(self, player: Player) -> int:
         if self.combat_mgr:
@@ -168,10 +702,14 @@ class TreasureMapManager:
             return new_hp
 
     # ================= 战利品 =================
-    def _roll_loot(self, tier: int, floor_no: int, rng) -> List[dict]:
+    def _roll_loot(self, tier: int, floor_no: int, rng, bonus: float = 0.0) -> List[dict]:
         cfg = MAP_TIERS.get(tier, MAP_TIERS[1])
         loot: List[dict] = []
-        if rng.random() > float(cfg["loot_chance"]) + floor_no * 0.03:
+        try:
+            bonus = max(0.0, min(0.5, float(bonus or 0)))
+        except (TypeError, ValueError):
+            bonus = 0.0
+        if rng.random() > float(cfg["loot_chance"]) + floor_no * 0.03 + bonus:
             return loot
         if self.gamble_mgr:
             try:
@@ -205,6 +743,272 @@ class TreasureMapManager:
         qty = int(loot.get("qty") or 1)
         return f"【{name}】" + (f"x{qty}" if qty > 1 else "")
 
+    # ================= 奇遇 =================
+    @staticmethod
+    def _scale_gold(tier: int, floor_no: int, mult: float) -> int:
+        cfg = MAP_TIERS.get(tier, MAP_TIERS[1])
+        try:
+            base = int(cfg["gold"]) * max(1, int(floor_no))
+            return max(1, int(base * float(mult or 0)))
+        except (TypeError, ValueError):
+            return 0
+
+    def _build_event(self, run: dict, floor_no: int, rng) -> dict:
+        """为下一层生成一次奇遇；尽量避开最近出现过的奇遇。"""
+        recent = " ".join(str(x) for x in (run.get("log") or []))
+        pool = [ev for ev in EVENT_POOL if ev.get("name") not in recent] or EVENT_POOL
+        picked = rng.choice(pool)
+        tier = int(run.get("map_tier") or 1)
+        options = []
+        for opt in picked.get("options") or []:
+            item = {
+                "label": opt.get("label") or "查看",
+                "desc": opt.get("desc") or "",
+                "actions": list(opt.get("actions") or []),
+            }
+            if opt.get("risk"):
+                item["risk"] = {
+                    "chance": float(opt["risk"].get("chance") or 0),
+                    "text": opt["risk"].get("text") or "事与愿违。",
+                    "actions": list(opt["risk"].get("actions") or []),
+                }
+            if opt.get("cost_mult"):
+                item["cost_gold"] = self._scale_gold(
+                    tier, floor_no, float(opt.get("cost_mult") or 0)
+                )
+            options.append(item)
+        return {
+            "key": picked.get("key"),
+            "name": picked.get("name"),
+            "desc": picked.get("desc") or "",
+            "floor": int(floor_no),
+            "options": options,
+        }
+
+    @classmethod
+    def _event_prompt(cls, run: dict) -> str:
+        event = run.get("event") or {}
+        options = event.get("options") or []
+        lines = [
+            f"🎲 第 {int(event.get('floor') or int(run.get('floor') or 0) + 1)} 层奇遇 · "
+            f"{event.get('name') or '未知奇遇'}",
+            "━━━━━━━━━━━━━━━",
+            str(event.get("desc") or ""),
+            "请做出选择：",
+        ]
+        for idx, opt in enumerate(options, 1):
+            suffix = ""
+            try:
+                cost = int(opt.get("cost_gold") or 0)
+            except (TypeError, ValueError):
+                cost = 0
+            if cost > 0:
+                suffix = f"（需 {cost:,} 灵石）"
+            lines.append(f"{idx}. {opt.get('label') or '查看'}{suffix}")
+            if opt.get("desc"):
+                lines.append(f"   {opt['desc']}")
+        lines.extend([
+            "━━━━━━━━━━━━━━━",
+            f"当前临时效果：{cls._effect_line(run.get('effects') or [])}",
+            "💡 `/藏宝图 选择 <编号>` 做出抉择｜`/藏宝图 撤退` 放弃本次探索",
+        ])
+        return "\n".join(lines)
+
+    async def choose(self, player: Player, index: int) -> Tuple[bool, str]:
+        """处理当前待选择的奇遇，按选择结算临时效果与即时收益/损失。"""
+        run = await self.get_active_run(player.user_id)
+        if not run:
+            return False, "❌ 你当前没有在爬塔。使用 `/藏宝图 开始 <1-3>` 进入。"
+        event = run.get("event") or {}
+        options = event.get("options") or []
+        if not options:
+            return False, "❌ 当前没有待处理的奇遇，直接 `/藏宝图 继续` 深入即可。"
+        try:
+            index = int(index)
+        except (TypeError, ValueError):
+            return False, "❌ 奇遇选项编号必须是整数。"
+        if index < 1 or index > len(options):
+            return False, f"❌ 奇遇选项编号只能是 1-{len(options)}。"
+        option = options[index - 1]
+
+        fresh = await self._fetchone(
+            "SELECT hp, gold FROM players WHERE user_id = ?", (player.user_id,)
+        )
+        hp = int((fresh or {}).get("hp") or player.hp or 0)
+        gold = int((fresh or {}).get("gold") or player.gold or 0)
+        max_hp = max(1, int(run.get("max_hp") or 1))
+        tier = int(run.get("map_tier") or 1)
+        floor_no = max(1, int(event.get("floor") or int(run.get("floor") or 0) + 1))
+        effects = list(run.get("effects") or [])
+        loot = list(run.get("loot") or [])
+        log_entries = list(run.get("log") or [])
+
+        try:
+            cost_gold = max(0, int(option.get("cost_gold") or 0))
+        except (TypeError, ValueError):
+            cost_gold = 0
+        if cost_gold > gold:
+            return False, (
+                f"❌ 你选择了「{option.get('label')}」，但需要 {cost_gold:,} 灵石，"
+                f"你当前只有 {gold:,}。"
+            )
+
+        rng = seeded_rng(
+            "map-event", player.user_id, run.get("started_at"),
+            event.get("key"), floor_no, index,
+        )
+        actions = list(option.get("actions") or [])
+        result_text = str(option.get("desc") or "")
+        risk = option.get("risk") or {}
+        if risk and rng.random() < float(risk.get("chance") or 0):
+            actions = list(risk.get("actions") or [])
+            result_text = str(risk.get("text") or "事与愿违。")
+
+        gold -= cost_gold
+        changes: List[str] = []
+        if cost_gold:
+            changes.append(f"灵石 -{cost_gold:,}")
+            log_entries.append(f"奇遇「{option.get('label')}」花费 {cost_gold:,} 灵石")
+
+        # 先记录选择，再逐条执行动作。
+        for action in actions:
+            if not isinstance(action, dict):
+                continue
+            kind = action.get("type")
+            if kind == "effect":
+                msg = self._add_effect(effects, str(action.get("key") or ""),
+                                       int(action.get("stacks") or 1))
+                if msg:
+                    changes.append(msg)
+            elif kind == "rand_effect":
+                pool = [k for k in (action.get("pool") or []) if k in EFFECT_DEFS]
+                if pool:
+                    key = rng.choice(pool)
+                    msg = self._add_effect(effects, key, int(action.get("stacks") or 1))
+                    if msg:
+                        changes.append(msg)
+            elif kind == "hp":
+                try:
+                    pct = float(action.get("pct") or 0)
+                except (TypeError, ValueError):
+                    pct = 0.0
+                delta = int(max_hp * abs(pct))
+                if pct >= 0:
+                    healed = min(max_hp - hp, delta)
+                    if healed > 0:
+                        hp += healed
+                        changes.append(f"气血 +{healed:,}")
+                else:
+                    hp -= delta
+                    changes.append(f"气血 -{delta:,}")
+            elif kind == "gold":
+                amount = self._scale_gold(tier, floor_no, float(action.get("mult") or 0))
+                if amount > 0:
+                    loot.append({"kind": "gold", "amount": amount})
+                    changes.append(f"灵石 +{amount:,}（撤退时结算）")
+                    log_entries.append(f"奇遇所得灵石 {amount:,}（撤退时结算）")
+            elif kind == "loot":
+                count = max(0, int(action.get("count") or 0))
+                for _ in range(count):
+                    found = self._roll_loot(tier, floor_no, rng, bonus=0.5)
+                    for item in found:
+                        loot.append(item)
+                        changes.append("发现 " + self._loot_label(item))
+                        log_entries.append("奇遇发现 " + self._loot_label(item))
+            elif kind == "cleanse":
+                count = max(0, int(action.get("count") or 0))
+                for key in ("fragile", "curse"):
+                    if count <= 0:
+                        break
+                    removed = self._remove_effect(effects, key, count)
+                    if removed:
+                        count -= removed
+                        changes.append(f"祛除【{EFFECT_DEFS[key]['name']}×{removed}】")
+
+        dead = hp <= 0
+        if dead:
+            hp = 0
+        effects_json = json.dumps(effects, ensure_ascii=False)
+        loot_json = json.dumps([] if dead else loot, ensure_ascii=False)
+        log_entries.append(f"奇遇「{option.get('label')}」：{result_text}")
+        # 死亡时把本次战利品与临时效果一并清空，只保留历史日志。
+        effects_json = "[]" if dead else effects_json
+        status = "ended" if dead else "active"
+        player_hp = 1 if dead else hp
+        new_budget = int(run.get("heal_budget") or 0)
+        if not dead and self.effect_rate(effects, "heal_flow"):
+            new_budget = max(1, int(max_hp * HEAL_BUDGET_RATE * (
+                1 + self.effect_rate(effects, "heal_flow")
+            )))
+
+        await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            payload = (
+                status, player_hp, effects_json, loot_json,
+                json.dumps(log_entries[-12:], ensure_ascii=False),
+                new_budget, int(time.time()), player.user_id, run.get("_event_raw") or "{}",
+            )
+            cursor = await self.db.conn.execute(
+                "UPDATE treasure_map_runs SET status=?, hp=?, effects=?, loot=?, log=?, "
+                "heal_budget=?, updated_at=?, event='{}' "
+                "WHERE user_id = ? AND status='active' AND event = ?",
+                payload,
+            )
+            if not cursor.rowcount:
+                await self.db.conn.rollback()
+                return False, "⏳ 这次奇遇已经被处理过了，或本次爬塔已结算。"
+            if cost_gold:
+                upd = await self.db.conn.execute(
+                    "UPDATE players SET hp = ?, gold = gold - ? "
+                    "WHERE user_id = ? AND gold >= ?",
+                    (player_hp, cost_gold, player.user_id, cost_gold),
+                )
+                if not upd.rowcount:
+                    await self.db.conn.rollback()
+                    return False, "❌ 灵石不足，无法完成这次奇遇选择。"
+            else:
+                await self.db.conn.execute(
+                    "UPDATE players SET hp = ? WHERE user_id = ?",
+                    (player_hp, player.user_id),
+                )
+            await self.db.conn.commit()
+        except Exception:
+            await self.db.conn.rollback()
+            raise
+
+        player.hp = player_hp
+        player.gold = gold if not dead else max(0, gold)
+
+        if dead:
+            lost_items = sum(1 for x in loot if x.get("kind") != "gold")
+            lost_gold = sum(int(x.get("amount") or 0) for x in loot if x.get("kind") == "gold")
+            lost_desc = f"本次获得的 {lost_items} 件战利品"
+            if lost_gold:
+                lost_desc += f"与 {lost_gold:,} 灵石"
+            return True, (
+                f"💀 你在奇遇「{event.get('name')}」中倒下了！\n"
+                f"━━━━━━━━━━━━━━━\n"
+                f"{result_text}\n"
+                f"气血被打空，{lost_desc}全部遗失。\n"
+                f"你拖着残躯爬出墓府，气血仅余 1 点。"
+            )
+
+        lines = [
+            f"🎲 奇遇 · {event.get('name') or '未知'}",
+            "━━━━━━━━━━━━━━━",
+            f"你选择了「{option.get('label')}」。",
+            result_text,
+        ]
+        if changes:
+            lines.extend(f"· {x}" for x in changes)
+        lines.extend([
+            f"气血：{hp:,} / {max_hp:,}",
+            f"当前临时效果：{self._effect_line(effects)}",
+            "━━━━━━━━━━━━━━━",
+            f"💡 `/藏宝图 继续` 深入第 {floor_no} 层｜`/藏宝图 撤退` 落袋为安",
+        ])
+        return True, "\n".join(lines)
+
     # ================= 指令 =================
     async def get_status(self, player: Player) -> str:
         run = await self.get_active_run(player.user_id)
@@ -213,6 +1017,7 @@ class TreasureMapManager:
                 "🗺️ 古修藏宝图\n"
                 "━━━━━━━━━━━━━━━\n"
                 "逐层深入古修墓府，每层都可能遇到陷阱与妖兽。\n"
+                "每层结算后还会触发随机奇遇，做出选择即可获得临时效果，构筑本趟爬塔的增益。\n"
                 "气血归零则本次战利品尽失；可随时撤退落袋为安。\n"
                 "⚠️ 爬塔期间无法自然恢复/调息；丹药回血每层有上限，符箓不能直接补战斗气血。\n"
                 "⚠️ 战斗也不回血：切磋不按满血复原，决斗/世界Boss/悬赏的战斗吸血只吃本层剩余额度。\n"
@@ -221,7 +1026,7 @@ class TreasureMapManager:
                 "  1 残破藏宝图 8,000 灵石\n"
                 "  2 古修藏宝图 40,000 灵石\n"
                 "  3 太古董藏图 180,000 灵石\n"
-                "💡 `/藏宝图 继续` 深入一层｜`/藏宝图 撤退` 带走战利品"
+                "💡 `/藏宝图 继续` 深入一层｜`/藏宝图 选择 <编号>` 处理奇遇｜`/藏宝图 撤退` 带走战利品"
             )
         max_hp = int(run.get("max_hp") or 1)
         hp = int(player.hp or 0)
@@ -235,12 +1040,22 @@ class TreasureMapManager:
             f"气血：{hp:,} / {max_hp:,}",
             f"本层回血额度：{max(0, budget - used):,} / {budget:,}",
             f"已获战利品：{len(run.get('loot') or [])} 件",
+            f"临时效果：{self._effect_line(run.get('effects') or [])}",
         ]
+        detail = self._effects_detail(run.get("effects") or [])
+        if detail:
+            lines.append("效果明细：")
+            lines.extend(f"· {line}" for line in detail)
+        if run.get("event"):
+            lines.extend([
+                "━━━━━━━━━━━━━━━",
+                self._event_prompt(run),
+            ])
         for entry in (run.get("log") or [])[-4:]:
             lines.append(f"· {entry}")
         lines.extend([
             "━━━━━━━━━━━━━━━",
-            "💡 `/藏宝图 继续` 深入｜`/藏宝图 撤退` 结算带走",
+            "💡 `/藏宝图 继续` 深入｜`/藏宝图 选择 <编号>` 处理奇遇｜`/藏宝图 撤退` 结算带走",
             "⚠️ 越深掉落越好，但陷阱伤害与触发率也越高。",
             "⚠️ 战斗回血同样只吃本层额度；超过 24 小时未推进会由后台按撤退结算。",
         ])
@@ -289,11 +1104,13 @@ class TreasureMapManager:
                 return False, "❌ 灵石不足，购买失败。"
             await self.db.conn.execute(
                 "INSERT INTO treasure_map_runs "
-                "(user_id, floor, map_tier, hp, max_hp, heal_used, heal_budget, loot, log, status, started_at, updated_at) "
-                "VALUES (?, 0, ?, ?, ?, 0, ?, '[]', '[]', 'active', ?, ?) "
+                "(user_id, floor, map_tier, hp, max_hp, heal_used, heal_budget, loot, log, "
+                "effects, event, status, started_at, updated_at) "
+                "VALUES (?, 0, ?, ?, ?, 0, ?, '[]', '[]', '[]', '{}', 'active', ?, ?) "
                 "ON CONFLICT(user_id) DO UPDATE SET floor=0, map_tier=excluded.map_tier, "
                 "hp=excluded.hp, max_hp=excluded.max_hp, heal_used=0, heal_budget=excluded.heal_budget, "
-                "loot='[]', log='[]', status='active', started_at=excluded.started_at, updated_at=excluded.updated_at",
+                "loot='[]', log='[]', effects='[]', event='{}', status='active', "
+                "started_at=excluded.started_at, updated_at=excluded.updated_at",
                 (player.user_id, tier, hp, max_hp, budget, now, now),
             )
             await self.db.conn.commit()
@@ -308,6 +1125,7 @@ class TreasureMapManager:
             f"当前气血：{hp:,}/{max_hp:,}\n"
             f"⚠️ 爬塔期间无法自然恢复/调息；丹药回血每层最多 {budget:,}，符箓不能直接补战斗气血。\n"
             f"⚠️ 战斗回血（切磋满血复原、决斗/世界Boss/悬赏吸血）同样只吃这 {budget:,} 的额度。\n"
+            f"🎲 每层结算后会触发随机奇遇，选择可叠加临时效果；层数越深收益越高。\n"
             f"💡 `/藏宝图 继续` 深入第一层"
         )
 
@@ -315,38 +1133,54 @@ class TreasureMapManager:
         run = await self.get_active_run(player.user_id)
         if not run:
             return False, "❌ 你当前没有在爬塔。使用 `/藏宝图 开始 <1-3>` 进入。"
-        floor_no = int(run["floor"]) + 1
+        if run.get("event"):
+            return False, self._event_prompt(run)
+        old_floor = int(run["floor"])
+        floor_no = old_floor + 1
         if floor_no > MAX_FLOOR:
             return await self._settle(player, run, success=True, reason="已通关全图")
         rule = FLOOR_RULES.get(floor_no, FLOOR_RULES[MAX_FLOOR])
         max_hp = int(run.get("max_hp") or 1)
+        effects = list(run.get("effects") or [])
         rng = seeded_rng("map", player.user_id, run["started_at"], floor_no)
 
-        # 先结算本层伤害
+        # 先结算本层伤害：铜皮铁骨减伤、魂体受损增伤、灵觉敏锐降低陷阱率。
+        damage_reduce = min(0.60, self.effect_rate(effects, "iron_body"))
+        damage_amp = self.effect_rate(effects, "fragile")
+        trap_chance = max(0.0, float(rule["trap"]) - self.effect_rate(effects, "keen_sense"))
         low, high = rule["damage"]
         damage_pct = rng.uniform(low, high)
-        trap = rng.random() < rule["trap"]
+        damage_pct *= max(0.20, 1.0 - damage_reduce + damage_amp)
+        trap = rng.random() < trap_chance
         if trap:
             damage_pct *= rule["trap_mult"]
         damage = max(1, int(max_hp * damage_pct))
+        ward_used = False
+        if trap and self._effect_stacks(effects, "ward") > 0:
+            self._remove_effect(effects, "ward", 1)
+            damage = 0
+            ward_used = True
         hp_before = int(player.hp or 0)
         hp_after = hp_before - damage
 
         log_entries = list(run.get("log") or [])
-        if trap:
+        if ward_used:
+            log_entries.append(f"第{floor_no}层护身灵符挡下陷阱")
+        elif trap:
             log_entries.append(f"第{floor_no}层触发陷阱，气血 -{damage:,}")
         else:
             log_entries.append(f"第{floor_no}层环境侵蚀，气血 -{damage:,}")
 
         if hp_after <= 0:
-            # 失败：清空战利品，气血压到 1，结束爬塔
+            # 失败：清空战利品与临时效果，气血压到 1，结束爬塔
             old_loot = list(run.get("loot") or [])
             lost_items = [x for x in old_loot if x.get("kind") != "gold"]
             lost_gold = sum(int(x.get("amount") or 0) for x in old_loot if x.get("kind") == "gold")
             # 带 status 守卫：后台 settle_stale_runs 可能刚好把这条 run 按撤退结算掉，
             # 此时战利品已经发放，不能再显示「全部遗失」误导玩家。
             cursor = await self.db.conn.execute(
-                "UPDATE treasure_map_runs SET status='ended', floor=?, hp=1, loot='[]', log=?, "
+                "UPDATE treasure_map_runs SET status='ended', floor=?, hp=1, loot='[]', "
+                "effects='[]', event='{}', log=?, "
                 "updated_at=? WHERE user_id = ? AND status='active'",
                 (
                     floor_no,
@@ -373,21 +1207,31 @@ class TreasureMapManager:
             return True, (
                 f"💀 你在第 {floor_no} 层倒下了！\n"
                 f"━━━━━━━━━━━━━━━\n"
-                f"气血被打空，{lost_desc}全部遗失。\n"
+                f"气血被打空，{lost_desc}全部遗失，临时效果也随之消散。\n"
                 f"你拖着残躯爬出墓府，气血仅余 1 点。\n"
                 f"⚠️ 下次请在气血见底前及时撤退。"
             )
 
-        # 再结算本层收获
+        # 再结算本层收获：聚财灵光/墓府诅咒影响灵石，寻宝直觉影响掉落。
         gold_gain = 0
         loot = list(run.get("loot") or [])
         cfg = MAP_TIERS.get(int(run["map_tier"]), MAP_TIERS[1])
+        gold_mult = max(
+            0.10,
+            1.0 + self.effect_rate(effects, "gold_luck") - self.effect_rate(effects, "curse"),
+        )
         if rng.random() < 0.78:
-            gold_gain = int(cfg["gold"] * floor_no * rng.uniform(0.7, 1.3))
+            gold_gain = int(cfg["gold"] * floor_no * rng.uniform(0.7, 1.3) * gold_mult)
             # 层内灵石先记入战利品，撤退/通关时统一结算；中途倒下则随战利品一起丢失
             loot.append({"kind": "gold", "amount": gold_gain})
             log_entries.append(f"拾得灵石 {gold_gain:,}（撤退时结算）")
-        new_loot = self._roll_loot(int(run["map_tier"]), floor_no, rng)
+        loot_bonus = self.effect_rate(effects, "treasure_luck")
+        new_loot = self._roll_loot(int(run["map_tier"]), floor_no, rng, bonus=loot_bonus)
+        extra_chance = min(0.50, loot_bonus * 0.8)
+        if extra_chance > 0 and rng.random() < extra_chance:
+            new_loot.extend(self._roll_loot(
+                int(run["map_tier"]), floor_no, rng, bonus=loot_bonus
+            ))
         for item in new_loot:
             loot.append(item)
             log_entries.append("发现 " + self._loot_label(item))
@@ -401,46 +1245,66 @@ class TreasureMapManager:
             run["floor"] = floor_no
             run["loot"] = loot
             run["log"] = log_entries
-            player.hp = hp_after
-            await self.db.conn.execute(
-                "UPDATE players SET hp = ? WHERE user_id = ?", (hp_after, player.user_id)
-            )
-            await self.db.conn.execute(
-                "UPDATE treasure_map_runs SET floor=?, hp=?, loot=?, log=?, updated_at=? "
-                "WHERE user_id = ? AND status='active'",
+            run["effects"] = effects
+            run["event"] = {}
+            cursor = await self.db.conn.execute(
+                "UPDATE treasure_map_runs SET floor=?, hp=?, loot=?, log=?, effects=?, "
+                "event='{}', updated_at=? WHERE user_id = ? AND status='active'",
                 (
                     floor_no, hp_after,
                     json.dumps(loot, ensure_ascii=False),
                     json.dumps(log_entries[-12:], ensure_ascii=False),
+                    json.dumps(effects, ensure_ascii=False),
                     int(time.time()), player.user_id,
                 ),
             )
+            if not cursor.rowcount:
+                return False, (
+                    "⏳ 本次爬塔已被后台按「撤退」结算，此前战利品已发放。\n"
+                    "💡 发送 `/藏宝图` 查看状态，或 `/藏宝图 开始 <1-3>` 重新进入。"
+                )
+            await self.db.conn.execute(
+                "UPDATE players SET hp = ? WHERE user_id = ?", (hp_after, player.user_id)
+            )
             await self.db.conn.commit()
+            player.hp = hp_after
             return await self._settle(player, run, success=True, reason="通关主墓")
 
-        budget = max(1, int(max_hp * HEAL_BUDGET_RATE))
-        # 落库带 status 守卫：后台 settle_stale_runs 可能刚好把这条 run 按撤退结算，
-        # 此时本层推进不能再写回一条已结束的记录，否则玩家会看到「已结算」却又
-        # 多出一层战利品的错乱状态。
+        # 每层结算后生成一次奇遇，处理完才能继续深入。
+        next_event = self._build_event(run, floor_no + 1, rng)
+        log_entries.append(f"奇遇：{next_event['name']}（待抉择）")
+        budget = max(1, int(max_hp * HEAL_BUDGET_RATE * (
+            1 + self.effect_rate(effects, "heal_flow")
+        )))
+        # 落库带 status/floor/event 三重守卫：后台结算、并发推进、重复处理奇遇
+        # 都不能把本层结果写成两条。
         #
         # 这里刻意不开事务：单条条件 UPDATE 在 SQLite 里本身就是原子的，守卫语义
         # 已经完整；而全库共用一条 autocommit 连接，多一个 BEGIN IMMEDIATE 就多一处
         # 「cannot start a transaction within a transaction」的嵌套抛错面。
-        # 与上面阵亡分支保持同一写法。守卫先行，通过了才写气血，失败时不留半截状态。
         cursor = await self.db.conn.execute(
             "UPDATE treasure_map_runs SET floor=?, hp=?, heal_used=0, heal_budget=?, "
-            "loot=?, log=?, updated_at=? WHERE user_id = ? AND status='active'",
+            "loot=?, log=?, effects=?, event=?, updated_at=? "
+            "WHERE user_id = ? AND status='active' AND floor = ? AND event = ?",
             (
                 floor_no, hp_after, budget,
                 json.dumps(loot, ensure_ascii=False),
                 json.dumps(log_entries[-12:], ensure_ascii=False),
-                int(time.time()), player.user_id,
+                json.dumps(effects, ensure_ascii=False),
+                json.dumps(next_event, ensure_ascii=False),
+                int(time.time()), player.user_id, old_floor, run.get("_event_raw") or "{}",
             ),
         )
         if not cursor.rowcount:
+            current = await self.get_active_run(player.user_id)
+            if not current:
+                return False, (
+                    "⏳ 本次爬塔已被后台按「撤退」结算，此前战利品已发放。\n"
+                    "💡 发送 `/藏宝图` 查看状态，或 `/藏宝图 开始 <1-3>` 重新进入。"
+                )
             return False, (
-                "⏳ 本次爬塔已被后台按「撤退」结算，此前战利品已发放。\n"
-                "💡 发送 `/藏宝图` 查看状态，或 `/藏宝图 开始 <1-3>` 重新进入。"
+                "⏳ 本次爬塔状态已变化（可能已推进或处理过奇遇）。\n"
+                "💡 发送 `/藏宝图` 查看最新状态。"
             )
         await self.db.conn.execute(
             "UPDATE players SET hp = ? WHERE user_id = ?", (hp_after, player.user_id)
@@ -451,13 +1315,15 @@ class TreasureMapManager:
             f"🗺️ 第 {floor_no} 层 · {rule['label']}\n"
             f"━━━━━━━━━━━━━━━\n"
             f"气血 -{damage:,} → {hp_after:,}/{max_hp:,}"
-            f"{'（陷阱！）' if trap else ''}\n"
+            f"{'（护身灵符挡下陷阱）' if ward_used else ('（陷阱！）' if trap else '')}\n"
             f"灵石 +{gold_gain:,}（撤退/通关时结算）\n"
             f"战利品：{sum(1 for x in loot if x.get('kind') != 'gold')} 件\n"
+            f"临时效果：{self._effect_line(effects)}\n"
             f"━━━━━━━━━━━━━━━\n"
-            + ("\n".join(log_entries[-3:]) + "\n")
-            + f"💡 /藏宝图 继续 深入第 {floor_no + 1} 层｜/藏宝图 撤退 落袋为安\n"
-            f"⚠️ 下一层伤害更高，撤退保留现有全部战利品。"
+            + self._event_prompt({
+                "event": next_event, "effects": effects, "floor": floor_no,
+            })
+            + "\n⚠️ 必须先处理奇遇，才能继续深入下一层。"
         )
 
     async def settle_stale_runs(self, now: Optional[int] = None,
@@ -529,8 +1395,8 @@ class TreasureMapManager:
         await self.db.conn.execute("BEGIN IMMEDIATE")
         try:
             cursor = await self.db.conn.execute(
-                "UPDATE treasure_map_runs SET status='ended', updated_at=? "
-                "WHERE user_id = ? AND status='active'",
+                "UPDATE treasure_map_runs SET status='ended', effects='[]', event='{}', "
+                "updated_at=? WHERE user_id = ? AND status='active'",
                 (int(time.time()), player.user_id),
             )
             if not cursor.rowcount:

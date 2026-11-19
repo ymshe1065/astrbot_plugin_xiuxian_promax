@@ -260,7 +260,7 @@ FIELD_PLANS: Dict[str, List[dict[str, Any]]] = {
     # ---- 高风险玩法（v7.10.3）----
     "藏宝图": [
         _f("sub", "选择藏宝图操作", "treasure_subs"),
-        _f("arg", "地图档位（1-3，开始/进入时选）", "treasure_tiers", optional=True),
+        _f("arg", "地图档位（开始）/ 奇遇选项编号（选择）", "treasure_tiers", optional=True),
     ],
     "矿脉": [
         _f("sub", "选择矿脉操作", "mine_subs"),
@@ -2460,14 +2460,38 @@ async def _src_furniture_names(plugin: "XiuXianPlugin", player: Any, field: dict
 
 async def _src_treasure_subs(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
     return [
-        _opt("查看当前状态", "状态", "查看是否在爬塔、层数与回血额度", "藏宝图"),
+        _opt("查看当前状态", "状态", "查看层数、回血额度、临时效果与待处理奇遇", "藏宝图"),
         _opt("开始 / 进入藏宝图", "开始", "购买地图并进入第一层", "藏宝图"),
         _opt("继续深入一层", "继续", "推进一层，伤害与陷阱逐层提高", "藏宝图"),
+        _opt("处理随机奇遇", "选择", "从奇遇选项中抉择，获得临时效果或即时收益", "藏宝图"),
         _opt("撤退结算", "撤退", "带走已获得战利品并结束本次爬塔", "藏宝图"),
     ], ""
 
 
 async def _src_treasure_tiers(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
+    sub = str(values[0]).strip() if values else ""
+    if sub in ("选择", "抉择", "奇遇"):
+        if not player:
+            return [], "尚未创建角色"
+        try:
+            run = await plugin.treasure_map_mgr.get_active_run(player.user_id)
+            event = (run or {}).get("event") or {}
+            options = event.get("options") or []
+            if not options:
+                return [], "当前没有待处理的奇遇"
+            result = []
+            for idx, opt in enumerate(options, 1):
+                desc = str(opt.get("desc") or "")
+                cost = int(opt.get("cost_gold") or 0)
+                if cost > 0:
+                    desc = f"需 {_nm(cost)} 灵石 · " + desc
+                result.append(_opt(
+                    f"{idx}. {opt.get('label') or '查看'}", idx, desc,
+                    f"奇遇：{event.get('name') or '未知'}",
+                ))
+            return result, ""
+        except Exception:
+            return [], "奇遇选项暂时不可用"
     try:
         from ..managers.treasure_map_manager import MAP_TIERS
 

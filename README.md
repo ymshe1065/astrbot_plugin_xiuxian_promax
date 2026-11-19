@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v7.12.3 · 网页聊天室版
+# AstrBot 插件：模拟修仙 v7.13.0 · 网页聊天室版
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/ymshe1065/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/ymshe1065/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v7.12.3-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v7.13.0-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -27,7 +27,7 @@
 
 ---
 
-> **插件版本:** v3.48.3 · **游戏版本:** v7.12.3 · **数据库:** v68 · **分支:** `feat/web-chatroom`
+> **插件版本:** v3.49.0 · **游戏版本:** v7.13.0 · **数据库:** v69 · **分支:** `feat/web-chatroom`
 >
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497) · [lan](https://github.com/lanxue0)
 
@@ -48,7 +48,23 @@
 <sub>点击展开对应版本查看详细变更；v3.44.3 之前的版本按游戏版本系列汇总在下方。</sub>
 
 <details open>
-<summary><b>本次更新 · 插件 v3.48.3（仙市代理人 · 风声平衡 · 符图详情 · 仙市按灵石买入）</b></summary>
+<summary><b>本次更新 · 插件 v3.49.0（藏宝图肉鸽爬塔 · 随机奇遇 · 临时效果构筑）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 肉鸽奇遇 | 藏宝图每层结算后新增随机奇遇：古修残魂、灵泉、赌徒石像、镇墓兽、古修丹炉、机关迷宫、幽冥商贩、剑冢、血池、古碑、妖狐幻境、守墓人等 12 类事件，每类提供 2–4 个选项，必须抉择后才能继续深入 |
+| 临时效果 | 奇遇选择可叠加本次爬塔专属效果：铜皮铁骨（减伤）、灵觉敏锐（降陷阱率）、寻宝直觉（提升掉落与额外掉落）、聚财灵光（灵石加成）、回春灵息（回血额度）、护身灵符（抵挡陷阱）、魂体受损 / 墓府诅咒（负面）；效果有叠加上限，撤退、通关或阵亡后自动失效 |
+| 风险抉择 | 部分选项带概率风险与灵石费用：可花灵石购买护符/罗盘/回血丹，也可用气血或运气赌高额灵石与战利品；灵石不足时直接拒绝且不扣费 |
+| 构筑反馈 | `/藏宝图` 状态新增临时效果明细与待处理奇遇选项；每层结算、奇遇结果都会显示当前效果层数，方便规划撤退或继续深入 |
+| 指令与网页 | 新增 `/藏宝图 选择 <编号>`；网页藏宝图面板新增「处理奇遇」，参数弹层按当前奇遇动态列出选项与费用 |
+| 数据迁移 | 数据库升级到 **v69**：`treasure_map_runs` 新增 `effects`（临时效果）与 `event`（待处理奇遇）字段，旧库自动补列 |
+| 版本与数据库 | 插件 **v3.49.0** / 游戏及帮助 **v7.13.0** / 数据库 **v69** |
+| 回归 | 新增 `tests/test_treasure_map_roguelike.py`（9 项：奇遇生成与继续拦截、效果写入与防重复、灵石不足拒绝、奇遇致死清空、撤退清理效果、护身灵符挡陷阱、效果叠加上限、迁移字段、网页奇遇选项）；原高风险玩法回归保持通过 |
+
+</details>
+
+<details>
+<summary><b>插件 v3.48.3（仙市代理人 · 风声平衡 · 符图详情 · 仙市按灵石买入）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |
@@ -1601,14 +1617,14 @@ python3 -m unittest discover -s tests -q         # 现有单测
 | 指标 | 数量 |
 |------|------|
 | Python 代码文件 | 158（核心插件 + 管理端 + 网页服务，不含 `tests/`、`scripts/`） |
-| 测试模块 | 165 个（其中 157 个 `test_*.py`，884 个测试方法）+ 6 个前端契约 `.cjs` |
+| 测试模块 | 166 个（其中 158 个 `test_*.py`，893 个测试方法）+ 6 个前端契约 `.cjs` |
 | 注册指令 | 261（网页目录 249 个功能按钮 + 12 个别名） |
 | 奇遇事件 | 113 |
 | 称号 | 111（六品阶） |
 | 历练路线 | 60（境界 0–31 全覆盖） |
 | 丹方 | 692 |
 | 符箓 | 35（八类） |
-| 数据库版本 | v68（全程自动迁移） |
+| 数据库版本 | v69（全程自动迁移） |
 | 网页聊天室 | 内置 `aiohttp`，默认端口 6198，主频道 `room_main` |
 
 ---
@@ -1617,7 +1633,7 @@ python3 -m unittest discover -s tests -q         # 现有单测
 
 - **双端同源**：QQ 端与网页聊天室共用玩家存档、指令与结算逻辑；网页端只读结构化 sidecar，丹方等长列表从秒级降到毫秒级
 - **数据一致性**：原子增量更新 / 乐观锁事务 / 嵌套事务静态扫描（`_scan_tx.py`）
-- **幂等迁移**：`_add_column_if_missing` 全路径兜底，坏库自愈（含全新安装路径），数据库 v68 全程自动迁移
+- **幂等迁移**：`_add_column_if_missing` 全路径兜底，坏库自愈（含全新安装路径），数据库 v69 全程自动迁移
 - **网格化呈现**：物品、丹药背包、商店、坊市、称号图鉴统一格子 UI + 品阶页签 + 就地详情，QQ 端文本保持原样
 - **图片渲染**：纯 Pillow 实现鎏金渐变 / 卷轴金线 / emoji 镀金混排，五级字体层次（思源宋体 Heavy~Medium + 马善政行楷 + OpenMoji）
 - **离线测试**：共享 AstrBot 桩 + 核心逻辑单测 + 事件池结构校验 + 渲染冒烟 + 前端契约测试，改动一键回归
@@ -1631,11 +1647,11 @@ python3 -m unittest discover -s tests -q         # 现有单测
 | 原版 | xiaojuwa | 插件初版（借鉴 nonebot_plugin_xiuxian_2） |
 | 二改 | [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) | v2.5~v3.1.3 稳定性修复：储物戒枢纽化、银行体系、悬赏模板、并发保护 |
 | **三改** | **[云兮](https://github.com/iqapi)** | **v6.0~v6.35.1**：17 个大系统、110 称号、60 路线、卡片渲染器、装备百分比平衡、离线测试体系 |
-| **四改** | **[ymshe1065](https://github.com/ymshe1065)**<br>**[lsq3497](https://github.com/lsq3497)**<br>**[lan](https://github.com/lanxue0)** | **v6.35.2~v7.12.3**：数值与经济、机制重做、测试基建、自动代理、网页聊天室、网格化看板、飞升仙缘、仙市精度、每日悬赏通缉、投资代理人、AI 向导等 |
+| **四改** | **[ymshe1065](https://github.com/ymshe1065)**<br>**[lsq3497](https://github.com/lsq3497)**<br>**[lan](https://github.com/lanxue0)** | **v6.35.2~v7.13.0**：数值与经济、机制重做、测试基建、自动代理、网页聊天室、网格化看板、飞升仙缘、仙市精度、每日悬赏通缉、投资代理人、AI 向导、藏宝图肉鸽等 |
 
 ### 四改说明
 
-四改自 `v6.35.2` 起承接三改，现由三位维护者共同推进；插件 **v3.48.3** / 游戏 **v7.12.3** / 数据库 **v68**，当前开发分支为 `feat/web-chatroom`。工作主线：
+四改自 `v6.35.2` 起承接三改，现由三位维护者共同推进；插件 **v3.49.0** / 游戏 **v7.13.0** / 数据库 **v69**，当前开发分支为 `feat/web-chatroom`。工作主线：
 
 | 主线 | 主要变更 |
 | --- | --- |
@@ -1650,9 +1666,9 @@ python3 -m unittest discover -s tests -q         # 现有单测
 | 项 | 当前 |
 | --- | --- |
 | 开发分支 | `feat/web-chatroom` |
-| 插件版本 | v3.48.3 |
-| 游戏版本 | v7.12.3 |
-| 数据库版本 | v68 |
+| 插件版本 | v3.49.0 |
+| 游戏版本 | v7.13.0 |
+| 数据库版本 | v69 |
 | 运行环境 | AstrBot 4.29.x + Python 3.12 |
 | 仓库 | [ymshe1065/astrbot_plugin_xiuxian_promax](https://github.com/ymshe1065/astrbot_plugin_xiuxian_promax) |
 
