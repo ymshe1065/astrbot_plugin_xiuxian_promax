@@ -5,7 +5,7 @@ language: zh-CN
 audience:
   - AI 问答助手
   - 玩家
-game_version: v7.11.1
+game_version: v7.12.0
 last_verified: 2026-11-19
 content_type: game_mechanics_reference
 chunk_strategy: heading
@@ -104,6 +104,8 @@ keywords:
 /器阁              查看武器
 /购买 青铜剑       购买第一件武器
 /装备 青铜剑       从储物戒穿戴
+/新手指南          第一天上手流程与玩法体系地图
+/chat 问题         AI 向导：问玩法/指令/机制（别名 /问道）
 /修仙帮助          查看完整指令
 ```
 
@@ -1332,6 +1334,9 @@ keywords:
 | `/我的信息` | 查看角色面板 |
 | `/我的装备` | 查看装备面板；`比较 <装备名>` 可与已穿戴装备对比 |
 | `/心法 [名称]` / `/技能 [名称]` | 查询当前或指定主修心法的主动绝技 |
+| `/新手指南` | 第一天上手流程与玩法体系地图（与 AI 向导共用一份文档，不消耗问答次数） |
+| `/chat <问题>` | AI 向导问答（别名 `/问道`）：只带提问者自己的上下文；`/chat 深度 <问题>` 深度查阅、`/chat 清空` 忘掉上下文 |
+| `/chatall <问题>` | 频道问答（别名 `/群聊问答`）：带上当前频道近期聊天记录一起问，回复全频道可见 |
 | `/修仙帮助` | 查看全部指令 |
 | `/签到` | 每日签到 |
 | `/一键日常` | 日常操作提示 |
@@ -1722,4 +1727,4 @@ keywords:
 - 玩家数据保存在 `data/plugin_data/astrbot_plugin_xiuxian_promax/xiuxian_data_lite.db`。
 - 插件使用 SQLite 数据库；启动时如检测到结构变更会自动迁移，升级前建议备份数据目录。
 - 升级/更新前建议备份整个 `astrbot_plugin_xiuxian_promax` 数据目录。
-- 插件版本以 `metadata.yaml` 与 README 为准；本文对应 v7.11.1，数据库 v65。
+- 插件版本以 `metadata.yaml` 与 README 为准；本文对应 v7.12.0，数据库 v65。

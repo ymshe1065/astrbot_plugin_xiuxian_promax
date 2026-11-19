@@ -65,6 +65,8 @@ from .invest_handlers import InvestHandlers
 from .weekly_boss_handlers import WeeklyBossHandlers
 # v7.10.3 高风险玩法（藏宝图/矿脉/盘口）
 from .high_stakes_handlers import HighStakesHandlers
+# v7.12.0 AI 向导（/chat · /chatall · /新手指南）
+from .ai_chat_handler import AiChatHandler
 
 __all__ = [
     "PlayerHandler", "RecoveryHandler", "MiscHandler", "EquipmentHandler", "BreakthroughHandler",
@@ -76,5 +78,5 @@ __all__ = [
     "DailyTaskHandlers", "WorldBossHandlers", "RaidHandlers", "RobberyHandlers", "ReincarnationHandlers",
     "GambleHandlers", "ForgeHandlers", "DemonInvasionHandlers", "PetHandlers",
     "AuctionHandlers", "AuctionHouseHandlers", "SectShopHandler", "AutoProxyHandlers", "BattleEventHandlers",
-    "InvestHandlers", "WeeklyBossHandlers", "HighStakesHandlers"
+    "InvestHandlers", "WeeklyBossHandlers", "HighStakesHandlers", "AiChatHandler"
 ]

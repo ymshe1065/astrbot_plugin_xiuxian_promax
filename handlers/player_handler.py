@@ -633,11 +633,28 @@ class PlayerHandler:
             f"━━━━━━━━━━━━━━━\n"
             f"💡 发送「{CMD_PLAYER_INFO}」查看状态"
         )
+        reply_msg += self._ai_guide_hint()
         tutorial_msg = await self.tutorial_mgr.check_and_advance(new_player, "create")
         reply_msg += tutorial_msg
         if new_player_title_msg:
             reply_msg += f"\n{new_player_title_msg}"
         return reply_msg
+
+    def _ai_guide_hint(self) -> str:
+        """创号与新手引导第 0 步的 AI 向导提示（受 AI_CHAT.ENABLED 与 NEWBIE_HINT 控制）。
+
+        新手最容易卡在「不知道下一条该发什么」，所以把 /新手指南 和 /chat 放在最显眼的位置。
+        """
+        try:
+            cfg = (self.config or {}).get("AI_CHAT", {}) or {}
+            if not cfg.get("ENABLED", True) or not cfg.get("NEWBIE_HINT", True):
+                return ""
+        except Exception:
+            return ""
+        return (
+            "\n💡 不知道下一步干什么？发送「/新手指南」看第一天上手流程；"
+            "任何玩法问题直接「/chat <问题>」问 AI 向导。"
+        )
 
     @player_required
     async def handle_player_info(self, player: Player, event: AstrMessageEvent):

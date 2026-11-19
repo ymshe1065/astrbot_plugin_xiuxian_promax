@@ -63,6 +63,10 @@ from .auto_proxy_manager import AutoProxyManager
 from .invest_manager import InvestManager
 from .weekly_boss_manager import WeeklyBossManager
 
+# v7.12.0 AI 向导：上下文双缓冲 + 分层知识库问答
+from .channel_context_manager import ChatContextManager
+from .ai_chat_manager import AIChatManager
+
 __all__ = [
     "CombatManager", "CombatStats", "SectManager", "RiftManager",
     "RankingManager", "AdventureManager", "AlchemyManager", "ImpartManager",
@@ -72,5 +76,6 @@ __all__ = [
     "GambleManager", "ForgeManager", "GlobalEventManager", "DemonInvasionManager", "PetManager",
     "AuctionManager", "AuctionHouseManager", "EscortManager", "EncounterManager", "LifeSkillManager", "TalismanManager", "CalamityManager", "LuckManager",
     "AutoProxyManager", "BattleEventManager", "InvestManager", "WeeklyBossManager",
-    "BlindAuctionManager", "TreasureMapManager", "MineVeinManager", "BettingPoolManager"
+    "BlindAuctionManager", "TreasureMapManager", "MineVeinManager", "BettingPoolManager",
+    "ChatContextManager", "AIChatManager"
 ]

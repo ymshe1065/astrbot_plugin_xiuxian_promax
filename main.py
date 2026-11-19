@@ -9,6 +9,7 @@ from astrbot.api import logger, AstrBotConfig
 from astrbot.api.star import Context, Star, StarTools
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.core.star.filter.command import GreedyStr
+from astrbot.core.star.filter.event_message_type import EventMessageType
 from .data import DataBase, MigrationManager
 from .config_manager import ConfigManager
 from .handlers.utils import (
@@ -25,7 +26,7 @@ from .handlers import (
     DailyTaskHandlers, WorldBossHandlers, RaidHandlers, RobberyHandlers, ReincarnationHandlers,
     GambleHandlers, ForgeHandlers, DemonInvasionHandlers, PetHandlers,
     AuctionHandlers, AuctionHouseHandlers, SectShopHandler, AutoProxyHandlers, BattleEventHandlers,
-    InvestHandlers, WeeklyBossHandlers, HighStakesHandlers
+    InvestHandlers, WeeklyBossHandlers, HighStakesHandlers, AiChatHandler
 )
 from .managers import (
     CombatManager, SectManager, RiftManager,
@@ -37,7 +38,8 @@ from .managers import (
     DemonInvasionManager, PetManager,
     AuctionManager, AuctionHouseManager, EscortManager, EncounterManager, LifeSkillManager, TalismanManager, CalamityManager,
     AutoProxyManager, BattleEventManager, InvestManager, WeeklyBossManager,
-    BlindAuctionManager, TreasureMapManager, MineVeinManager, BettingPoolManager
+    BlindAuctionManager, TreasureMapManager, MineVeinManager, BettingPoolManager,
+    ChatContextManager, AIChatManager
 )
 from .models_extended import UserStatus
 
@@ -184,6 +186,11 @@ CMD_AUTO_PROXY_STATUS = "代理状态"
 CMD_BATTLE_EVENT_ATTACK = "讨伐"
 CMD_BATTLE_EVENT_STATUS = "江湖事件"
 CMD_BATTLE_EVENT_SPAWN = "生成江湖事件"
+
+# v7.12.0 AI 向导（别名「问道」「群聊问答」按仓库惯例用字面量注册）
+CMD_AI_CHAT = "chat"
+CMD_AI_CHAT_ALL = "chatall"
+CMD_NEWBIE_GUIDE = "新手指南"
 
 class XiuXianPlugin(Star):
     """修仙插件 - 文字修仙游戏"""
@@ -442,6 +449,26 @@ class XiuXianPlugin(Star):
         self.broadcast_groups = broadcast_groups or list(self.whitelist_groups)
         self.boss_admins = [str(a) for a in access_control_config.get("BOSS_ADMINS", [])]
 
+        # ===== v7.12.0 AI 向导（/chat · /chatall · /新手指南） =====
+        # 上下文自建双缓冲：AstrBot 的 conversation_manager 是会话级的，而网页聊天室的
+        # UMO 是房间级（webroom:group:<room_id>），直接用会把所有玩家混在一起，
+        # 且 /reset 会连带清空。所以个人缓冲按 umo+uid、频道缓冲按 umo+频道 分开存。
+        self.chat_context_mgr = ChatContextManager(db=self.db)
+        self.ai_chat_mgr = AIChatManager(
+            context=self.context,
+            db=self.db,
+            config_manager=self.config_manager,
+            ctx_mgr=self.chat_context_mgr,
+            config=self.config,  # 内部会把 AI_CHAT 段的容量/TTL 同步给 chat_context_mgr
+        )
+        self.ai_chat_handler = AiChatHandler(
+            self.db,
+            self.config,
+            ai_chat_mgr=self.ai_chat_mgr,
+            ctx_mgr=self.chat_context_mgr,
+            admin_checker=self._check_boss_admin,
+        )
+
         # 网页聊天室参数候选：注入插件实例，供 /api/arg_options 读取真实存档
         try:
             from .webchat_room import room_server as _room_server
@@ -475,6 +502,36 @@ class XiuXianPlugin(Star):
         migration_manager = MigrationManager(self.db.conn, self.config_manager)
         await migration_manager.migrate()
         await self.db.ext.ensure_system_config_table()
+
+        # v7.12.0 AI 向导：预热知识库索引 + 文档版本告警。
+        # 索引要读 ~29 万字文档，放线程池跑，别把插件启动卡住。
+        try:
+            from .utils.static_pages import HELP_VERSION
+
+            info = await asyncio.to_thread(self.ai_chat_mgr.warmup, HELP_VERSION)
+            stats = info.get("stats") or {}
+            if info.get("ok"):
+                logger.info(
+                    f"【AI向导】知识库就绪：{stats.get('chunks', 0)} 块 / "
+                    f"{stats.get('items', 0)} 个物品条目 / 词表 {stats.get('vocab', 0)}"
+                )
+            else:
+                logger.warning(
+                    f"【AI向导】知识库索引未建立（{info.get('error') or '文档缺失'}），"
+                    "/chat 将只能依赖模型自身知识"
+                )
+            stale = info.get("stale") or []
+            if stale:
+                logger.warning(
+                    f"【AI向导】这些玩家文档标注的版本落后于 {HELP_VERSION}："
+                    f"{'、'.join(stale)}；涉及数值的回答会附「以游戏内为准」提示"
+                )
+            # 新手引导长图固定页注册（幂等），/新手指南 首次调用才有图可发
+            from .utils.newbie_guide import register_newbie_page
+
+            register_newbie_page()
+        except Exception as e:
+            logger.warning(f"【AI向导】知识库预热失败（/chat 会按需重建索引）: {e}")
 
         # v7.10.5 赌局随机密钥：盘口/暗标/矿脉/赌石/锦囊/古方的随机结果
         # 必须混入本部署独有的密钥，否则玩家可离线复现种子算出赢家。
@@ -565,6 +622,13 @@ class XiuXianPlugin(Star):
         # cancel() 只发出取消请求；先等待任务回滚/清理，才能关闭其数据库连接。
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
+        # AI 向导的个人上下文是内存缓冲 + 节流落盘，卸载前补一次写，别丢掉最近几轮对话
+        try:
+            saved = await self.chat_context_mgr.flush()
+            if saved:
+                logger.info(f"【AI向导】已保存 {saved} 位玩家的对话上下文")
+        except Exception as e:
+            logger.debug(f"【AI向导】上下文落盘失败: {e}")
         await self.db.close()
         logger.info("【修仙插件】已卸载。")
 
@@ -4616,3 +4680,102 @@ class XiuXianPlugin(Star):
             "/仙界管理 重置状态 <ID/@玩家>\n"
             "/仙界管理 公告 <文本>"
         )
+
+    # ===== v7.12.0 AI 向导（/chat · /chatall · /新手指南） =====
+    # 不加 @player_required / @with_player_lock：问答是纯查询，未创号也该能问，
+    # 更不能因为玩家在闭关/历练就被忙碌状态拦截。
+    @filter.command(CMD_AI_CHAT, "问 AI 向导：玩法/指令/机制（只带你自己的上下文）")
+    @require_whitelist
+    async def handle_ai_chat(self, event: AstrMessageEvent, question: GreedyStr):
+        async for r in self.ai_chat_handler.handle_chat(event, question): yield r
+
+    @filter.command("问道", "AI 向导问答（/chat 的别名）")
+    @require_whitelist
+    async def handle_ai_chat_alias(self, event: AstrMessageEvent, question: GreedyStr):
+        async for r in self.ai_chat_handler.handle_chat(event, question, aliases=("问道",)): yield r
+
+    @filter.command(CMD_AI_CHAT_ALL, "带上当前频道近期聊天记录一起问 AI 向导")
+    @require_whitelist
+    async def handle_ai_chat_all(self, event: AstrMessageEvent, question: GreedyStr):
+        async for r in self.ai_chat_handler.handle_chat(event, question, channel_mode=True): yield r
+
+    @filter.command("群聊问答", "频道问答（/chatall 的别名）")
+    @require_whitelist
+    async def handle_ai_chat_all_alias(self, event: AstrMessageEvent, question: GreedyStr):
+        async for r in self.ai_chat_handler.handle_chat(
+            event, question, channel_mode=True, aliases=("群聊问答",)
+        ): yield r
+
+    @filter.command(CMD_NEWBIE_GUIDE, "新手上手流程与玩法体系地图（不消耗问答次数）")
+    @require_whitelist
+    async def handle_newbie_guide(self, event: AstrMessageEvent):
+        async for r in self.ai_chat_handler.handle_newbie_guide(event): yield r
+
+    # ----- 上下文采集 -----
+    # 自建缓冲的原因见 __init__ 里的注释：AstrBot 的会话历史是房间级的，会串用户。
+    @filter.event_message_type(EventMessageType.ALL)
+    async def collect_player_message_for_ai(self, event: AstrMessageEvent):
+        """记录玩家发言。只采集、绝不回写结果，避免干扰正常指令流。"""
+        try:
+            mgr = getattr(self, "chat_context_mgr", None)
+            if mgr is None or not self._ai_chat_enabled():
+                return
+            text = (event.get_message_str() or "").strip()
+            if not text:
+                return
+            umo, uid, name, channel = AiChatHandler.origin(event)
+            if not uid:
+                return
+            await mgr.record_user(umo, uid, name, text, channel=channel)
+        except Exception as e:
+            logger.debug(f"【AI向导】采集玩家发言失败: {e}")
+
+    @filter.on_decorating_result()
+    async def collect_bot_reply_for_ai(self, event: AstrMessageEvent):
+        """发送前记录系统回复。
+
+        这个钩子上 ``event.get_result()`` 还是**未加唤醒前缀、未分段、未转图**的原文，
+        归属取 ``message_obj.sender.user_id``（触发者），所以回复一定记到对的人头上。
+        网页端「仅自己 / 看板」结果只进个人缓冲——那是别人的储物戒和余额。
+        """
+        try:
+            mgr = getattr(self, "chat_context_mgr", None)
+            if mgr is None or not self._ai_chat_enabled():
+                return
+            result = event.get_result()
+            if result is None:
+                return
+            umo, uid, name, channel = AiChatHandler.origin(event)
+            if not uid:
+                return
+            private = AiChatHandler.is_private_reply(event)
+            text = self._ai_result_text(result)
+            if not text:
+                await mgr.record_image_only(umo, uid, channel=channel, private=private)
+                return
+            await mgr.record_system(umo, uid, text, channel=channel, private=private, name=name)
+        except Exception as e:
+            logger.debug(f"【AI向导】采集系统回复失败: {e}")
+
+    def _ai_chat_enabled(self) -> bool:
+        try:
+            cfg = self.config.get("AI_CHAT", {}) or {}
+            return bool(cfg.get("ENABLED", True))
+        except Exception:
+            return False
+
+    @staticmethod
+    def _ai_result_text(result) -> str:
+        """从消息链取纯文本；纯图片回复返回空串，由调用方记为 [图片]。"""
+        parts = []
+        has_image = False
+        for comp in getattr(result, "chain", None) or []:
+            text = getattr(comp, "text", None)
+            if isinstance(text, str) and text.strip():
+                parts.append(text.strip())
+            elif type(comp).__name__ == "Image":
+                has_image = True
+        joined = "\n".join(parts).strip()
+        if not joined and has_image:
+            return "[图片]"
+        return joined

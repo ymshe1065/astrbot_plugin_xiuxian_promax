@@ -21,6 +21,12 @@
         "default": true,
         "hint": "/符箓配方 发送全部符箓配方长图（材料/灵石/成功率），图片不可用时自动降级为文本。"
       },
+      "CARD_NEWBIE": {
+        "description": "新手指南长图",
+        "type": "bool",
+        "default": true,
+        "hint": "/新手指南 发送预生成的双栏长图，图片不可用时自动降级为文本。"
+      },
       "STATIC_AUTO_REGEN": {
         "description": "固定页面自动重生成",
         "type": "bool",
@@ -242,6 +248,234 @@
         "type": "bool",
         "default": false,
         "hint": "关闭时出价播报使用模板，减少 AI 调用次数。"
+      }
+    }
+  },
+  "AI_CHAT": {
+    "description": "AI 向导（/chat · /chatall · /新手指南）",
+    "type": "object",
+    "items": {
+      "ENABLED": {
+        "description": "启用 AI 向导",
+        "type": "bool",
+        "default": true,
+        "hint": "关闭后 /chat、/chatall 直接回未启用提示，并且不再采集对话上下文（省内存）。"
+      },
+      "PROVIDER_ID": {
+        "description": "指定对话模型 Provider ID",
+        "type": "string",
+        "default": "",
+        "hint": "留空则使用 AstrBot 当前会话的对话模型；填了会强制用这个 Provider（需与 providers.json 里的 id 一致）。"
+      },
+      "CHATALL_ENABLED": {
+        "description": "启用频道问答 /chatall",
+        "type": "bool",
+        "default": true,
+        "hint": "关闭后只保留 /chat（只带提问者自己的上下文），/chatall 会回未启用提示。"
+      },
+      "ALLOW_UNREGISTERED": {
+        "description": "允许未创号玩家提问",
+        "type": "bool",
+        "default": true,
+        "hint": "关闭后必须先 /我要修仙 创建角色才能使用 AI 向导。"
+      },
+      "INCLUDE_PLAYER_STATE": {
+        "description": "注入玩家修行状态",
+        "type": "bool",
+        "default": true,
+        "hint": "把提问者的境界/职业/灵根/状态/修为进度给模型，回答更贴合。注意：回复在公屏可见，所以不含灵石与资产。"
+      },
+      "TIMEOUT": {
+        "description": "普通问答超时（秒）",
+        "type": "int",
+        "default": 20,
+        "hint": "超时后回固定降级话术，并引导玩家用 /修仙帮助、/修仙诊断。"
+      },
+      "DEEP_TIMEOUT": {
+        "description": "深度查阅超时（秒）",
+        "type": "int",
+        "default": 30,
+        "hint": "/chat 深度 或触发深度检索时的超时；不会小于普通超时。"
+      },
+      "DEEP_AGENT_TIMEOUT": {
+        "description": "关键词扩展超时（秒）",
+        "type": "int",
+        "default": 8,
+        "hint": "深度检索前那次小模型调用的超时；超时或失败会退回浅层检索结果，不影响出答案。"
+      },
+      "CONCURRENCY": {
+        "description": "全局并发上限",
+        "type": "int",
+        "default": 3,
+        "hint": "同时最多几个 AI 问答在跑（1-8），超出的排队。防止一个群刷屏把模型额度打光。"
+      },
+      "COOLDOWN_SEC": {
+        "description": "个人冷却（秒）",
+        "type": "int",
+        "default": 10,
+        "hint": "同一个人两次普通提问的最小间隔；模型报错/超时也计冷却，防连点刷请求。"
+      },
+      "DEEP_COOLDOWN_SEC": {
+        "description": "深度查阅冷却（秒）",
+        "type": "int",
+        "default": 30,
+        "hint": "同一个人两次深度查阅的最小间隔。"
+      },
+      "DAILY_LIMIT": {
+        "description": "个人每日次数",
+        "type": "int",
+        "default": 30,
+        "hint": "每人每天可提问次数，0 表示不限。只统计成功出答案的那次。"
+      },
+      "DEEP_DAILY_LIMIT": {
+        "description": "个人每日深度次数",
+        "type": "int",
+        "default": 10,
+        "hint": "每人每天可深度查阅次数（含低分自动触发），0 表示不限。"
+      },
+      "GROUP_DAILY_LIMIT": {
+        "description": "频道每日次数",
+        "type": "int",
+        "default": 300,
+        "hint": "单个群/房间每天的总提问次数，0 表示不限。网页端按仙界频道分别计。"
+      },
+      "DEEP_ENABLED": {
+        "description": "启用深度检索",
+        "type": "bool",
+        "default": true,
+        "hint": "关闭后 /chat 深度 与低分自动深挖都失效，只走一次浅层检索。"
+      },
+      "DEEP_ON_LOW_SCORE": {
+        "description": "低分自动深度检索",
+        "type": "bool",
+        "default": true,
+        "hint": "浅层检索最高分低于阈值时自动升级为深度检索（玩家没说「帮我查」也会触发）。"
+      },
+      "DEEP_SCORE_THRESHOLD": {
+        "description": "自动深挖的分数阈值",
+        "type": "float",
+        "default": 8.0,
+        "hint": "浅层最高分低于此值就认为没查到东西，自动深挖一次。调高会更容易触发（更慢更贵）。"
+      },
+      "DEEP_TOP_K": {
+        "description": "深度检索取几段资料",
+        "type": "int",
+        "default": 9,
+        "hint": "深度模式下注入提示词的资料块数量上限（浅层见 KB_TOP_K）。"
+      },
+      "KB_TOP_K": {
+        "description": "浅层检索取几段资料",
+        "type": "int",
+        "default": 5,
+        "hint": "普通提问注入提示词的资料块数量上限。资料来自 docs/player 下的玩家文档。"
+      },
+      "KB_MAX_CHARS": {
+        "description": "检索资料字数上限",
+        "type": "int",
+        "default": 6000,
+        "hint": "所有检索片段加起来最多多少字，超出按打分从高到低截断。"
+      },
+      "KB_CORE_MAX_CHARS": {
+        "description": "核心手册字数上限",
+        "type": "int",
+        "default": 7000,
+        "hint": "每次无条件注入的固定内容（术语/快速上手/职业/核心数值/FAQ，新玩家换成整篇《新手引导》）。"
+      },
+      "MAX_TOTAL_CHARS": {
+        "description": "提示词总字数闸门",
+        "type": "int",
+        "default": 16000,
+        "hint": "玩家状态+手册+资料+对话+问题的总上限；超限时按优先级丢弃（对话最先被裁）。按模型窗口调。"
+      },
+      "CONTEXT_MAX": {
+        "description": "个人上下文条数",
+        "type": "int",
+        "default": 20,
+        "hint": "记住本人最近多少条发言与系统回复（含 /chat 问答），持久化到 system_config，不新增数据表。"
+      },
+      "CONTEXT_TTL_MIN": {
+        "description": "个人上下文有效期（分钟）",
+        "type": "int",
+        "default": 30,
+        "hint": "超过这个时间的记录不再带入提示词。/chat 清空 可立即抹掉。"
+      },
+      "CHANNEL_CONTEXT_MAX": {
+        "description": "频道上下文条数",
+        "type": "int",
+        "default": 60,
+        "hint": "/chatall 能看到的当前频道近期消息条数（所有人发言 + 公开回复，带用户名）。"
+      },
+      "CHANNEL_CONTEXT_TTL_MIN": {
+        "description": "频道上下文有效期（分钟）",
+        "type": "int",
+        "default": 15,
+        "hint": "频道上下文只在内存里保留这么久，重启即清空。"
+      },
+      "CONTEXT_CLIP": {
+        "description": "单条上下文截断字数",
+        "type": "int",
+        "default": 200,
+        "hint": "每条消息最多记多少字；长战报/长面板只留首行结论，避免上下文被日志占满。"
+      },
+      "CONTEXT_LIMIT": {
+        "description": "个人对话带入条数",
+        "type": "int",
+        "default": 12,
+        "hint": "组装提示词时最多带入本人最近多少条对话（不超过 CONTEXT_MAX）。"
+      },
+      "CHANNEL_CONTEXT_LIMIT": {
+        "description": "频道对话带入条数",
+        "type": "int",
+        "default": 24,
+        "hint": "组装提示词时最多带入频道最近多少条对话（不超过 CHANNEL_CONTEXT_MAX）。"
+      },
+      "MAX_QUESTION_CHARS": {
+        "description": "问题长度上限",
+        "type": "int",
+        "default": 300,
+        "hint": "超出部分直接截断，避免有人拿长文刷 token。"
+      },
+      "MAX_ANSWER_CHARS": {
+        "description": "回答字数上限",
+        "type": "int",
+        "default": 400,
+        "hint": "普通提问的回答上限，按句末标点截断。群聊里太长没人看。"
+      },
+      "DEEP_MAX_ANSWER_CHARS": {
+        "description": "深度回答字数上限",
+        "type": "int",
+        "default": 800,
+        "hint": "深度查阅的回答上限；超过 MAX_ANSWER_CHARS 时拆成最多 2 条发送。"
+      },
+      "SPLIT_LONG_ANSWER": {
+        "description": "长回答拆条发送",
+        "type": "bool",
+        "default": true,
+        "hint": "深度回答超过单条上限时拆成两条，避免一条超长消息被平台截断。"
+      },
+      "NEWBIE_HINT": {
+        "description": "创号/引导处提示 AI 向导",
+        "type": "bool",
+        "default": true,
+        "hint": "在创建角色回复与新手引导第 0 步追加一行「不懂就 /chat <问题>」。"
+      },
+      "NEWBIE_DAYS": {
+        "description": "新玩家判定天数",
+        "type": "int",
+        "default": 7,
+        "hint": "创号不满这么多天、或引导未走完、或境界仍在新手区，就把整篇《新手引导》注入提示词。"
+      },
+      "NEWBIE_MAX_LEVEL_INDEX": {
+        "description": "新玩家判定境界序号",
+        "type": "int",
+        "default": 5,
+        "hint": "境界序号（level_index）不超过此值视为新玩家；默认 5 约为筑基期。"
+      },
+      "NEWBIE_MAX_TUTORIAL_STEP": {
+        "description": "新玩家判定引导进度",
+        "type": "int",
+        "default": 4,
+        "hint": "tutorial_step 小于此值视为新玩家（4 表示新手引导四步已走完）。"
       }
     }
   },
