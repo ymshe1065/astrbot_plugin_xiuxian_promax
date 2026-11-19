@@ -1,7 +1,8 @@
 # managers/betting_pool_manager.py
 """斗法盘口：NPC 模拟对决与赌石复盘下注。
 
-- 每 2 小时刷新 3 个 NPC 斗法盘口，只给双方模糊信息，玩家判断后下注；
+- 每 2 小时一轮，每轮 3 个 NPC 斗法盘口，只给双方模糊信息，玩家判断后下注；
+- 每轮前 90 分钟可下注，最后 30 分钟开奖展示，下注截止后由后台自动结算；
 - 赔率已含庄家抽水，长期期望为负；
 - 另提供 `/盘口 赌石 <档位> <出货/切垮> <金额>`，直接对赌本档原石能否出货，
   概率取自当前赌石配置，适合“我就赌这一刀”的短平快玩法。
@@ -20,7 +21,11 @@ from ..utils.game_secret import seeded_rng
 __all__ = ["BettingPoolManager"]
 
 POOL_SECONDS = 2 * 3600
-BET_WINDOW = 30 * 60
+# 每轮前 90 分钟可下注；最后 30 分钟已封盘，用于展示开奖结果。
+# 旧实现把 close_at 写成 `start + 30 分钟`，而轮次是 2 小时：
+# 每轮只有前 30 分钟能下注，剩下 1.5 小时盘面一直卡在「0 分 0 秒后」，
+# 且若玩家没在前 30 分钟内打开过盘口，补生成的盘口天生就是过期状态。
+BET_SECONDS = 90 * 60
 POOLS_PER_BLOCK = 3
 HOUSE_RATE = 0.92
 MIN_BET = 200
@@ -72,12 +77,18 @@ class BettingPoolManager:
     def _block(ts: Optional[int] = None) -> int:
         return int(ts or time.time()) // POOL_SECONDS
 
+    async def _fetch_block(self, block: int) -> List[dict]:
+        return await self._fetchall(
+            "SELECT * FROM betting_pools WHERE pool_key LIKE ? ORDER BY id",
+            (f"duel:{block}:%",),
+        )
+
     # ================= 生成 =================
     async def ensure_pools(self, now: Optional[int] = None) -> List[dict]:
         now = int(now or time.time())
         block = self._block(now)
         start = block * POOL_SECONDS
-        close_at = min(start + BET_WINDOW, start + POOL_SECONDS - 60)
+        close_at = start + BET_SECONDS
         for i in range(1, POOLS_PER_BLOCK + 1):
             key = f"duel:{block}:{i}"
             exists = await self._fetchone("SELECT id FROM betting_pools WHERE pool_key = ?", (key,))
@@ -107,10 +118,7 @@ class BettingPoolManager:
                 ),
             )
         await self.db.conn.commit()
-        return await self._fetchall(
-            "SELECT * FROM betting_pools WHERE pool_key LIKE ? ORDER BY id",
-            (f"duel:{block}:%",),
-        )
+        return await self._fetch_block(block)
 
     # ================= 结算 =================
     async def settle_due(self, now: Optional[int] = None) -> int:
@@ -195,8 +203,12 @@ class BettingPoolManager:
     # ================= 查询 =================
     async def get_board(self, user_id: str, now: Optional[int] = None) -> str:
         now = int(now or time.time())
+        # 先补齐本轮盘口、再结算到期盘口。顺序不能反：先结算后生成时，
+        # 若后台停机错过了下注窗口，补出来的盘口会带着已经过期的 close_at
+        # 以 open 状态出现在盘面上，倒计时永远卡在 0、又无法下注。
+        await self.ensure_pools(now)
         await self.settle_due(now)
-        pools = await self.ensure_pools(now)
+        pools = await self._fetch_block(self._block(now))
         if not pools:
             return "🎲 当前没有开放的盘口。"
         lines = ["🎲 斗法盘口（NPC 模拟战 · 每 2 小时一轮）", "━━━━━━━━━━━━━━━"]
@@ -205,7 +217,13 @@ class BettingPoolManager:
             lines.append(f"[{idx}] {pool['title']}")
             lines.append(f"    A. {pool['side_a']}：{pool['info_a']}｜赔率 {pool['odds_a']}")
             lines.append(f"    B. {pool['side_b']}：{pool['info_b']}｜赔率 {pool['odds_b']}")
-            lines.append(f"    ⏳ 下注截止：{remaining // 60} 分 {remaining % 60} 秒后")
+            if pool.get("status") == "settled" and pool.get("result") in ("A", "B"):
+                winner = pool["side_a"] if pool["result"] == "A" else pool["side_b"]
+                lines.append(f"    🏁 已开奖：{pool['result']} 方 {winner} 胜")
+            elif remaining <= 0:
+                lines.append("    ⏳ 已封盘，正在结算…")
+            else:
+                lines.append(f"    ⏳ 下注截止：{remaining // 60} 分 {remaining % 60} 秒后")
             my_bet = await self._fetchone(
                 "SELECT side, amount, status, payout FROM betting_bets "
                 "WHERE pool_id = ? AND user_id = ?",
@@ -223,6 +241,7 @@ class BettingPoolManager:
             "💡 `/盘口 押注 <编号> <A|B> <金额>` 下注（每个盘口限一注）",
             "💡 `/盘口 赌石 <1-5> <出货|切垮> <金额>` 直接对赌原石能否出货",
             "    出货＝切开不是废料（材料/珠宝/法器都算），切垮＝只切出一堆石粉。",
+            "🕒 每轮前 90 分钟可下注，最后 30 分钟开奖展示。",
             "⚠️ 赔率已含庄家抽水，久赌必亏。",
         ])
         return "\n".join(lines)
@@ -230,8 +249,10 @@ class BettingPoolManager:
     # ================= 下注 =================
     async def place_bet(self, player: Player, index: int, side: str, amount: int) -> Tuple[bool, str]:
         now = int(time.time())
+        # 与 get_board 同序：先补齐、再结算，保证编号对应本轮最新状态
+        await self.ensure_pools(now)
         await self.settle_due(now)
-        pools = await self.ensure_pools(now)
+        pools = await self._fetch_block(self._block(now))
         if index < 1 or index > len(pools):
             return False, "❌ 无效的盘口编号，请使用 `/盘口` 查看。"
         pool = pools[index - 1]

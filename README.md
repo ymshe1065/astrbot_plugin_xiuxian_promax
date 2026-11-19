@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v7.12.1 · 网页聊天室版
+# AstrBot 插件：模拟修仙 v7.12.2 · 网页聊天室版
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/ymshe1065/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/ymshe1065/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v7.12.1-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v7.12.2-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -27,7 +27,7 @@
 
 ---
 
-> **插件版本:** v3.48.1 · **游戏版本:** v7.12.1 · **数据库:** v65 · **分支:** `feat/web-chatroom`
+> **插件版本:** v3.48.2 · **游戏版本:** v7.12.2 · **数据库:** v65 · **分支:** `feat/web-chatroom`
 >
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497) · [lan](https://github.com/lanxue0)
 
@@ -48,7 +48,25 @@
 <sub>点击展开对应版本查看详细变更；v3.44.3 之前的版本按游戏版本系列汇总在下方。</sub>
 
 <details open>
-<summary><b>本次更新 · 插件 v3.48.1（仙缘祭祀 · 仙市杠杆风控）</b></summary>
+<summary><b>本次更新 · 插件 v3.48.2（强化/洗练修正 · 斗法盘口时钟）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 强化说明 | `/强化` 明确为**角色全局炼器等级**，不绑定单件武器；同步修正玩家指南中「强化信息绑定在装备实例上」的错误描述 |
+| 洗练目标 | `/洗练` 不带部位时只洗**当前武器**，不再静默回退到头饰/甲胄等其他槽位；目标部位无装备时直接提示，且不会消耗洗练石 |
+| 结果展示 | `/洗练` 与 `/炼器 洗练` 成功消息新增「🎯 目标：部位·装备名（品质）」，避免玩家不知道洗了哪件 |
+| 词条规则 | 随机洗练遇到同 key 词条改为替换旧词条，与定向洗练一致，不再叠出多条暴击率；旧版全局词条回退死代码同步清理 |
+| 文档与提示 | 玩家指南 6.20 更新强化/洗练/定向洗练口径；`/修仙帮助`、网页指令按钮与参数弹层同步说明「留空只洗当前武器」 |
+| 盘口时钟 | `close_at` 由「本轮起点 + 30 分钟」改为 **「本轮起点 + 90 分钟」**：轮次仍是每 2 小时一轮，前 90 分钟可下注、最后 30 分钟开奖展示。旧写法让每轮只有前 30 分钟能下注，之后 1.5 小时盘面一直显示「下注截止：0 分 0 秒后」且无法下注 |
+| 盘口生成 | `get_board` / `place_bet` 改为「先补齐本轮盘口、再结算到期盘口」，后台维护任务也会在每轮开始时 `ensure_pools`。旧实现只在玩家查看时按需生成：若玩家未在前 30 分钟内打开过 `/盘口`，补出来的盘口天生已过期，倒计时永远卡在 0 |
+| 开奖展示 | 已结算盘口不再显示「0 分 0 秒后」，改为「🏁 已开奖：X 方 某某 胜」；封盘后尚未结算的盘口显示「正在结算…」，玩家自己的中奖/派彩信息照常保留 |
+| 版本与数据库 | 插件 **v3.48.2** / 游戏及帮助 **v7.12.2** / 数据库保持 **v65**（无表结构变更，无需迁移）；`/修仙帮助` 图已重绘 |
+| 回归 | 新增 2 项盘口时钟用例 + 3 项洗练目标/无武器拒绝/同 key 替换用例；全量 **1873 项测试通过（3 skipped）** |
+
+</details>
+
+<details>
+<summary><b>插件 v3.48.1（仙缘祭祀 · 仙市杠杆风控）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |
@@ -1591,11 +1609,11 @@ python3 -m unittest discover -s tests -q         # 现有单测
 | 原版 | xiaojuwa | 插件初版（借鉴 nonebot_plugin_xiuxian_2） |
 | 二改 | [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) | v2.5~v3.1.3 稳定性修复：储物戒枢纽化、银行体系、悬赏模板、并发保护 |
 | **三改** | **[云兮](https://github.com/iqapi)** | **v6.0~v6.35.1**：17 个大系统、110 称号、60 路线、卡片渲染器、装备百分比平衡、离线测试体系 |
-| **四改** | **[ymshe1065](https://github.com/ymshe1065)**<br>**[lsq3497](https://github.com/lsq3497)**<br>**[lan](https://github.com/lanxue0)** | **v6.35.2~v7.12.1**：数值与经济、机制重做、测试基建、自动代理、网页聊天室、网格化看板、飞升仙缘、仙市精度、每日悬赏通缉、AI 向导等 |
+| **四改** | **[ymshe1065](https://github.com/ymshe1065)**<br>**[lsq3497](https://github.com/lsq3497)**<br>**[lan](https://github.com/lanxue0)** | **v6.35.2~v7.12.2**：数值与经济、机制重做、测试基建、自动代理、网页聊天室、网格化看板、飞升仙缘、仙市精度、每日悬赏通缉、AI 向导等 |
 
 ### 四改说明
 
-四改自 `v6.35.2` 起承接三改，现由三位维护者共同推进；插件 **v3.48.1** / 游戏 **v7.12.1** / 数据库 **v65**，当前开发分支为 `feat/web-chatroom`。工作主线：
+四改自 `v6.35.2` 起承接三改，现由三位维护者共同推进；插件 **v3.48.2** / 游戏 **v7.12.2** / 数据库 **v65**，当前开发分支为 `feat/web-chatroom`。工作主线：
 
 | 主线 | 主要变更 |
 | --- | --- |
@@ -1603,15 +1621,15 @@ python3 -m unittest discover -s tests -q         # 现有单测
 | 机制重做 | 重修与三选一灵根、功德（业力）、飞升与仙缘商店、身外化身、周本与拍卖会 |
 | 网页聊天室 | webroom 平台适配器、仙界频道、网格化看板、指令联想、意见反馈、结构化卡片直通 |
 | AI 向导 | `/chat`、`/chatall`、`/新手指南`：分层知识库检索、深度查阅、上下文双缓冲、限流降级 |
-| 工程保障 | 共享测试桩、全量回归（164 个测试模块 / 1793 项测试 + 36 个前端契约）、幂等迁移与并发修复 |
+| 工程保障 | 共享测试桩、全量回归（164 个测试模块 / 1873 项测试 + 36 个前端契约）、幂等迁移与并发修复 |
 
 ### 分支与版本
 
 | 项 | 当前 |
 | --- | --- |
 | 开发分支 | `feat/web-chatroom` |
-| 插件版本 | v3.48.1 |
-| 游戏版本 | v7.12.1 |
+| 插件版本 | v3.48.2 |
+| 游戏版本 | v7.12.2 |
 | 数据库版本 | v65 |
 | 运行环境 | AstrBot 4.29.x + Python 3.12 |
 | 仓库 | [ymshe1065/astrbot_plugin_xiuxian_promax](https://github.com/ymshe1065/astrbot_plugin_xiuxian_promax) |

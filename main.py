@@ -1359,6 +1359,11 @@ class XiuXianPlugin(Star):
                 except Exception as e:
                     logger.error(f"暗标结算异常: {e}")
                 try:
+                    # 每轮开始时把 3 场盘口落库，避免玩家没打开过 /盘口 时这一轮直接不存在
+                    await self.betting_pool_mgr.ensure_pools(now)
+                except Exception as e:
+                    logger.error(f"盘口生成异常: {e}")
+                try:
                     settled = await self.betting_pool_mgr.settle_due(now)
                     if settled:
                         logger.info(f"【修仙插件】斗法盘口结算 {settled} 场")
@@ -3381,7 +3386,7 @@ class XiuXianPlugin(Star):
         async for r in self.jewel_handler.handle_expand(event, args): yield r
 
     # ===== v6.3 炼器与洗练 =====
-    @filter.command("强化", "消耗强化石提升炼器等级")
+    @filter.command("强化", "消耗强化石提升角色全局炼器等级，不绑定单件装备")
     @require_whitelist
     async def handle_enhance(self, event: AstrMessageEvent):
         async for r in self.forge_handlers.handle_enhance(event): yield r
@@ -3392,7 +3397,7 @@ class XiuXianPlugin(Star):
                 if tmsg:
                     yield event.plain_result(tmsg)
 
-    @filter.command("洗练", "消耗洗练石重置装备词条，可指定 武器/防具")
+    @filter.command("洗练", "消耗洗练石重置装备词条，留空只洗当前武器，可指定部位")
     @require_whitelist
     async def handle_wash(self, event: AstrMessageEvent, slot: str = ""):
         async for r in self.forge_handlers.handle_wash(event, slot): yield r

@@ -98,7 +98,7 @@ FIELD_PLANS: Dict[str, List[dict[str, Any]]] = {
     "升级仓库": [_f("times", "选择扩建次数", "warehouse_upgrade_modes", optional=True)],
     "一键转移": [_f("category", "选择要转入仓库的分类", "warehouse_categories", optional=True)],
     "一键取出": [_f("category", "选择要取出到储物戒的分类", "warehouse_categories", optional=True)],
-    "洗练": [_f("slot", "选择要洗练的部位", "wash_slots", optional=True)],
+    "洗练": [_f("slot", "选择要洗练的部位（留空 = 只洗当前武器）", "wash_slots", optional=True)],
     "取出": [
         _f("item", "选择要从藏宝阁取出的物品", "warehouse_items"),
         _f("count", "数量（留空 = 全部）", "", optional=True),

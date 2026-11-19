@@ -266,6 +266,71 @@ class TestSlots(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.im.get_instance(p, first["id"])["affixes"], [])
         self.assertTrue(self.im.get_instance(p, second["id"])["affixes"])
 
+    async def test_wash_without_slot_only_targets_weapon(self):
+        p = await self._player()
+        head_name = next(
+            n for n, c in self.cm.items_data.items() if c.get("equip_slot") == "head"
+        )
+        head = self.im.create_instances(
+            p, head_name, location="equipped", slot="head"
+        )[0]
+        p.set_equipped_instances({"head": head["id"]})
+        await self.db.update_player(p)
+        weapon = await self.equip(p, self.weapon)
+        await self.ring.store_item(p, "洗练石", 1)
+        forge = _imp("managers.forge_manager").ForgeManager(self.db, self.cm, self.ring)
+        ok, msg = await forge.wash_equipment(p)
+        self.assertTrue(ok, msg)
+        self.assertIn("目标：武器", msg)
+        self.assertIn(self.weapon, msg)
+        self.assertTrue(self.im.get_instance(p, weapon["id"])["affixes"])
+        self.assertEqual(self.im.get_instance(p, head["id"])["affixes"], [])
+
+    async def test_wash_without_weapon_refuses_and_keeps_stone(self):
+        p = await self._player()
+        head_name = next(
+            n for n, c in self.cm.items_data.items() if c.get("equip_slot") == "head"
+        )
+        head = self.im.create_instances(
+            p, head_name, location="equipped", slot="head"
+        )[0]
+        p.set_equipped_instances({"head": head["id"]})
+        await self.db.update_player(p)
+        await self.ring.store_item(p, "洗练石", 1)
+        forge = _imp("managers.forge_manager").ForgeManager(self.db, self.cm, self.ring)
+        ok, msg = await forge.wash_equipment(p)
+        self.assertFalse(ok)
+        self.assertIn("没有装备武器", msg)
+        self.assertEqual(self.ring.get_item_count(p, "洗练石"), 1)
+        self.assertEqual(self.im.get_instance(p, head["id"])["affixes"], [])
+
+    async def test_wash_replaces_same_key_affix(self):
+        p = await self._player()
+        inst = await self.equip(p, self.weapon)
+        instances = self.im.load(p)
+        for row in instances:
+            if int(row.get("id", 0) or 0) == int(inst["id"]):
+                row["affixes"] = [
+                    {"key": "crit_rate", "name": "暴击率", "value": 3, "display": "暴击率+3"}
+                ]
+                break
+        self.im.save(p, instances)
+        await self.ring.store_item(p, "洗练石", 1)
+        forge_mod = _imp("managers.forge_manager")
+        forge = forge_mod.ForgeManager(self.db, self.cm, self.ring)
+        with patch(
+            f"{fixtures.PKG}.managers.forge_manager.random.choice",
+            return_value=forge_mod.ForgeManager.AFFIX_POOL[0],
+        ), patch(
+            f"{fixtures.PKG}.managers.forge_manager.random.uniform",
+            return_value=1.0,
+        ):
+            ok, msg = await forge.wash_equipment(p, "武器")
+        self.assertTrue(ok, msg)
+        affixes = self.im.get_instance(p, inst["id"])["affixes"]
+        self.assertEqual(len(affixes), 1, affixes)
+        self.assertEqual(affixes[0]["key"], "crit_rate")
+
     async def test_targeted_wash_uses_monster_material_and_specified_affix(self):
         p = await self._player()
         inst = await self.equip(p, self.weapon)
@@ -286,6 +351,8 @@ class TestSlots(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(affixes[-1]["key"], "crit_rate")
         self.assertIn("暴击率+", affixes[-1]["display"])
         self.assertIn("定向洗练成功", msg)
+        self.assertIn("目标：武器", msg)
+        self.assertIn(self.weapon, msg)
 
     async def test_targeted_wash_rejects_non_monster_material(self):
         p = await self._player()

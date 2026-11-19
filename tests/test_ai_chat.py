@@ -251,10 +251,10 @@ class TestKnowledgeRetriever(unittest.TestCase):
         self.assertFalse(any(h.chunk.admin_only for h in player_hits))
 
     def test_version_report_flags_stale_docs(self):
-        stale = self.r.stale_docs("v7.12.1")
+        stale = self.r.stale_docs("v7.12.2")
         self.assertIn("物品图鉴", stale, "物品图鉴仍标 v7.9.26，必须被告警出来")
-        report = dict((label, ver) for label, ver, _ in self.r.version_report("v7.12.1"))
-        self.assertEqual(report.get("新手引导"), "v7.12.1")
+        report = dict((label, ver) for label, ver, _ in self.r.version_report("v7.12.2"))
+        self.assertEqual(report.get("新手引导"), "v7.12.2")
 
     def test_multi_search_rewards_multi_query_hits(self):
         single = self.r.multi_search(["押镖"], top_k=5)
@@ -1079,7 +1079,7 @@ class TestWiringConsistency(unittest.TestCase):
 
     def test_help_page_lists_new_commands(self):
         pages = import_module(f"{PKG}.utils.static_pages")
-        self.assertEqual(pages.HELP_VERSION, "v7.12.1")
+        self.assertEqual(pages.HELP_VERSION, "v7.12.2")
         text = pages.build_help_text()
         for cmd in ("/chat", "/chatall", "/新手指南", "/问道", "/群聊问答"):
             self.assertIn(cmd, text)
