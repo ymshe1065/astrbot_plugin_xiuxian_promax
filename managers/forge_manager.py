@@ -135,8 +135,7 @@ class ForgeManager:
             return False, f"💥 炼器失败！由于火候不佳，消耗了材料和灵石，但等级未提升（当前 +{current_level}）。{skill_note}"
 
     async def wash_equipment(self, player: Player, slot: str = "") -> Tuple[bool, str]:
-        """洗练装备词条（可用 slot 指定武器/防具，默认优先武器）"""
-        data = self._get_bonus_data(player)
+        """洗练装备词条（不指定部位时只洗当前武器，指定部位时洗对应槽位）"""
         im = ItemInstanceManager(self.db, self.config_manager)
         equipped_map = player.get_equipped_instances()
 
@@ -146,19 +145,22 @@ class ForgeManager:
         if normalized_slot and normalized_slot not in slot_aliases:
             return False, "❌ 洗练部位：武器/头饰/甲胄/手套/靴子/戒指1/戒指2/护符"
         requested_slot = slot_aliases.get(normalized_slot)
-        slots = [requested_slot] if requested_slot else list(ItemRules.SLOT_LABELS)
+        # 不指定部位时只认武器，避免玩家以为在洗武器、实际洗到别的部位。
+        slots = [requested_slot] if requested_slot else ["weapon"]
 
+        target_slot = ""
         target_instance = None
         for slot_key in slots:
             inst = im.get_instance(player, equipped_map.get(slot_key, 0))
             if inst:
                 target_instance = inst
+                target_slot = slot_key
                 break
 
-        if requested_slot and not target_instance:
-            return False, "❌ 该部位没有已装备的装备实例，无法洗练。"
         if not target_instance:
-            return False, "❌ 你当前没有已装备的装备实例，无法洗练。请先穿上需要洗练的装备。"
+            if requested_slot:
+                return False, "❌ 该部位没有已装备的装备实例，无法洗练。"
+            return False, "❌ 你当前没有装备武器，无法洗练。请先装备武器，或用 /洗练 <部位> 指定其他部位。"
 
         # 每次洗练消耗一个洗练石
         if not self.storage_ring_mgr.has_item(player, "洗练石", 1):
@@ -190,53 +192,51 @@ class ForgeManager:
         if isinstance(new_affix["value"], float):
             new_affix["display"] = f"{new_affix['name']}+{new_affix['value']*100:.1f}%"
             
-        if target_instance:
-            affixes = target_instance.get("affixes", []) or []
+        # 同 key 词条直接替换，避免随机洗练叠出多条暴击率；与定向洗练保持一致。
+        affixes = list(target_instance.get("affixes", []) or [])
+        replaced = False
+        for index, old in enumerate(affixes):
+            if isinstance(old, dict) and old.get("key") == new_affix["key"]:
+                affixes[index] = new_affix
+                replaced = True
+                break
+        if not replaced:
             affixes.append(new_affix)
-            if len(affixes) > 3:
-                affixes.pop(0)
-            target_instance["affixes"] = affixes
-            instances = im.load(player)
-            for idx, inst in enumerate(instances):
-                if int(inst.get("id", 0) or 0) == int(target_instance.get("id", 0) or 0):
-                    instances[idx] = target_instance
-                    break
-            im.save(player, instances)
-        else:
-            # 兼容旧版全局词条
-            affixes = data.get("affixes", [])
-            affixes.append(new_affix)
-            if len(affixes) > 3:
-                affixes.pop(0)
-            data["affixes"] = affixes
-            player.permanent_bonus = json.dumps(data)
+        if len(affixes) > 3:
+            affixes.pop(0)
+        target_instance["affixes"] = affixes
+        instances = im.load(player)
+        for idx, inst in enumerate(instances):
+            if int(inst.get("id", 0) or 0) == int(target_instance.get("id", 0) or 0):
+                instances[idx] = target_instance
+                break
+        im.save(player, instances)
 
         # 重读最新数据合并本次洗练结果，避免旧快照全字段覆盖并发入账
         fresh = await self.db.get_player_by_id(player.user_id)
         if fresh:
             fresh.set_equipment_instances(player.get_equipment_instances())
-            if not target_instance:
-                # 仅旧版全局词条分支会修改 permanent_bonus；实例分支不复制，
-                # 防止用旧值覆盖并发期间炼器强化等修改
-                fresh.permanent_bonus = player.permanent_bonus
             await self.db.update_player(fresh)
             player.gold = fresh.gold
         else:
             await self.db.update_player(player)
-        
+
+        slot_label = ItemRules.SLOT_LABELS.get(target_slot, target_slot)
         msg = [
             "✨ 洗练成功！你获得了新词条：",
             f"👉 {new_affix['display']}",
+            f"🎯 目标：{slot_label}·{target_instance.get('name') or '未知装备'}"
+            f"（{target_instance.get('quality') or '一般'}）",
             "━━━━━━━━━━━━━━━",
             "【当前装备总词条】"
         ]
         for a in affixes:
-            msg.append(f"· {a['display']}")
-            
+            msg.append(f"· {a.get('display', a.get('name', ''))}")
+
         return True, "\n".join(msg)
 
     def _find_equipped_target(self, player: Player, slot: str = ""):
-        """返回 (装备实例, 错误信息)；定向洗练必须针对已装备实例。"""
+        """返回 (装备实例, 错误信息)；洗练/血炼必须针对已装备实例。"""
         from ..core.item_rules import ItemRules
 
         normalized_slot = (slot or "").strip().lower()
@@ -252,8 +252,8 @@ class ForgeManager:
             if inst:
                 return inst, ""
         if requested_slot:
-            return None, "❌ 该部位没有已装备的装备实例，无法洗练。"
-        return None, "❌ 你当前没有已装备的装备实例，无法洗练。请先穿上需要洗练的装备。"
+            return None, "❌ 该部位没有已装备的装备实例，无法进行此操作。"
+        return None, "❌ 你当前没有已装备的装备实例，无法进行此操作。"
 
     def resolve_targeted_affix(self, token: str):
         """把玩家输入的词条名转换为词条基础配置。"""
@@ -286,6 +286,16 @@ class ForgeManager:
         target, error = self._find_equipped_target(player, slot)
         if not target:
             return False, error
+        from ..core.item_rules import ItemRules
+
+        target_slot_key = str(target.get("slot") or "").strip()
+        if not target_slot_key:
+            target_slot_key = ItemRules.SLOT_ALIASES.get(
+                (slot or "").strip().lower(), ""
+            )
+        target_slot_label = ItemRules.SLOT_LABELS.get(
+            target_slot_key, slot or "未知部位"
+        )
         affix_base = self.resolve_targeted_affix(affix_token)
         if not affix_base:
             names = "、".join(a["name"] for a in self.AFFIX_POOL)
@@ -402,6 +412,8 @@ class ForgeManager:
         lines = [
             "✨ 定向洗练成功！",
             f"👉 指定词条：{new_affix['display']}",
+            f"🎯 目标：{target_slot_label}·{target.get('name') or '未知装备'}"
+            f"（{target.get('quality') or '一般'}）",
             f"消耗：{material_name}×{count}、洗练石×1、{gold_cost:,}灵石",
             "━━━━━━━━━━━━━━━",
             "【当前装备总词条】",

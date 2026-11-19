@@ -386,7 +386,7 @@ class TestChatContextManager(_AsyncRunner):
         self.assertEqual([e.role for e in entries], ["u", "s"])
 
     def test_persistence_does_not_create_new_tables(self):
-        """DB 版本保持 v65：只能复用 system_config，不许新增表或列。"""
+        """AI 向导只能复用 system_config，不许新增表或列（v68 来自仙市代理人）。"""
         db = _FakeDB()
         mgr, _ = self.make(db=db, persist=True)
         self.run_async(mgr.record_user("umo", "u1", "甲", "hi"))

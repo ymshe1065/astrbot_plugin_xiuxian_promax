@@ -197,6 +197,39 @@ class TestHighStakesRegressions(unittest.IsolatedAsyncioTestCase):
         ) as cursor:
             self.assertEqual(int((await cursor.fetchone())[0]), 0)
 
+    async def test_betting_pool_clock_covers_whole_round(self):
+        """下注倒计时应覆盖本轮大部分时间，而不是开局 30 分钟就卡在 0。"""
+        pool_mod = self._imp("managers.betting_pool_manager")
+        mgr = self._manager("managers.betting_pool_manager", "BettingPoolManager", self.db)
+        start = mgr._block(int(time.time())) * pool_mod.POOL_SECONDS
+        now = start + 10 * 60  # 本轮第 10 分钟
+        pools = await mgr.ensure_pools(now)
+        self.assertEqual(len(pools), pool_mod.POOLS_PER_BLOCK)
+        for pool in pools:
+            self.assertEqual(int(pool["open_at"]), start)
+            self.assertEqual(int(pool["close_at"]), start + pool_mod.BET_SECONDS)
+        board = await mgr.get_board("clock_user", now=now)
+        self.assertIn("80 分 0 秒后", board)
+        self.assertNotIn("已开奖", board)
+
+    async def test_betting_pool_late_generation_settles_instead_of_zero_clock(self):
+        """后台停机错过下注窗口后补生成的盘口，应立即结算并展示开奖结果。
+
+        旧实现先结算、后生成：补出来的盘口 close_at 已过期却仍是 open，
+        盘面显示「0 分 0 秒后」，玩家下注又会被「已封盘」拒绝。
+        """
+        pool_mod = self._imp("managers.betting_pool_manager")
+        mgr = self._manager("managers.betting_pool_manager", "BettingPoolManager", self.db)
+        start = mgr._block(int(time.time())) * pool_mod.POOL_SECONDS
+        late = start + pool_mod.BET_SECONDS + 60
+        board = await mgr.get_board("clock_user", now=late)
+        self.assertIn("已开奖", board)
+        self.assertNotIn("下注截止", board)
+        async with self.db.conn.execute(
+            "SELECT COUNT(*) FROM betting_pools WHERE status = 'settled'"
+        ) as cursor:
+            self.assertEqual(int((await cursor.fetchone())[0]), pool_mod.POOLS_PER_BLOCK)
+
     # ===== 矿脉合伙人 =====
     async def test_mine_partner_acceptance_does_not_backpay_history(self):
         owner = await self._player("mine_owner", gold=0)
