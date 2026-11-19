@@ -1,4 +1,5 @@
 # 珠宝体系与分档赌石回归测试
+import asyncio
 import json
 import random
 import sys
@@ -281,6 +282,19 @@ class TestTierStoneWindow(unittest.IsolatedAsyncioTestCase):
 
 
 class TestJewelDistribution(JewelTestBase):
+    # Python 3.9 的 asyncio.Lock() 构造时就要取当前事件循环，
+    # 同步用例没有运行中的循环会直接抛 RuntimeError（3.10+ 才改为惰性绑定）。
+    # 这里给同步用例挂一个临时循环，服务器 3.12 上等价于空操作。
+    def setUp(self):
+        super().setUp()
+        self._loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self._loop)
+
+    def tearDown(self):
+        asyncio.set_event_loop(None)
+        self._loop.close()
+        super().tearDown()
+
     def test_auction_generates_jewel_lot_with_payload(self):
         manager = AuctionHouseManager(None, self.ring, self.cm)
         lot = manager._generate_lot(
