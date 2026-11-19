@@ -137,7 +137,7 @@ class InvestHandlers:
             [
                 LINE,
                 f"{'闭市中' if not data['open'] else '下盘 ' + data['next_tick']}　·　{tail}",
-                "指令：/行情 <代码>　/买入股 <代码> <手>　/申购 <代码> <金额>",
+                "指令：/行情 <代码>　/买入股 <代码> <灵石>　/申购 <代码> <金额>",
                 "代理人：/仙市 代理　（雇佣 NPC 代管股票基金）",
             ]
         )
@@ -196,7 +196,7 @@ class InvestHandlers:
             lines.extend([LINE, "暂无历史行情"])
 
         if quote["kind"] == "stock":
-            hint = f"/买入股 {quote['code']} <手数>　/卖出股 {quote['code']} <手数>　/仙市"
+            hint = f"/买入股 {quote['code']} <灵石>　/卖出股 {quote['code']} <手数>　/仙市"
         else:
             hint = f"/申购 {quote['code']} <金额>　/赎回 {quote['code']} <份额|全部>　/仙市"
         lines.extend([LINE, f"指令：{hint}"])
@@ -206,17 +206,20 @@ class InvestHandlers:
 
     @player_required
     async def handle_buy_stock(self, player: Player, event: AstrMessageEvent,
-                               code: str = "", lots: str = ""):
-        try:
-            lots_int = int(str(lots).strip())
-        except (TypeError, ValueError):
-            yield event.plain_result("❌ 手数必须是整数，例如：/买入股 S01 2（1 手 = 100 股）")
-            return
+                               code: str = "", amount: str = ""):
         if not code:
-            yield event.plain_result("❌ 请输入标的代码，例如：/买入股 S01 2")
+            yield event.plain_result("❌ 请输入标的代码，例如：/买入股 S01 190")
+            return
+        try:
+            budget = int(str(amount).strip().replace(",", ""))
+        except (TypeError, ValueError):
+            yield event.plain_result(
+                "❌ 买入金额必须是整数灵石，例如：/买入股 S01 190\n"
+                "💡 按现价自动折算整数股，例：现价 100 灵石/股，190 灵石买 1 股。"
+            )
             return
 
-        ok, msg = await self.invest_mgr.buy_stock(player, code, lots_int)
+        ok, msg = await self.invest_mgr.buy_stock_by_amount(player, code, budget)
         prefix = "✅" if ok else "❌"
         yield event.plain_result(f"{prefix} {msg}")
 
@@ -341,7 +344,7 @@ class InvestHandlers:
         if not holdings:
             yield event.plain_result(
                 "📭 你还没有任何持仓。\n"
-                "发送「/仙市」查看行情，用「/买入股 S01 1」或「/申购 F01 10000」建仓。"
+                "发送「/仙市」查看行情，用「/买入股 S01 10000」或「/申购 F01 10000」建仓。"
             )
             return
 

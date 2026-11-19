@@ -2870,7 +2870,7 @@
       const list = document.createElement("div");
       list.className = "card-rows";
       rows.forEach(([k, v]) => {
-        // 「指令：/行情 <代码>　/买入股 <代码> <手>」被解析成键值对，这里还原成按钮行
+        // 「指令：/行情 <代码>　/买入股 <代码> <灵石>」被解析成键值对，这里还原成按钮行
         const tmpl = parseTmplLine(String(v ?? ""));
         if (tmpl) {
           tmpl.items.forEach((it) => {
@@ -2917,7 +2917,7 @@
       // 只有真的渲染成条目列表时才跳过这些行，否则「· 风声标题」会被整行吞掉
       .filter((l) => !(bulletsRendered && bulletLines.includes(l)))
       .forEach((ln) => {
-        // 「指令：/行情 <代码>　/买入股 <代码> <手>」这类模板行拆成可点按钮
+        // 「指令：/行情 <代码>　/买入股 <代码> <灵石>」这类模板行拆成可点按钮
         const tmpl = parseTmplLine(ln);
         if (tmpl) {
           box.appendChild(renderTmplLine(tmpl));
@@ -2944,8 +2944,8 @@
   }
 
   /**
-   * 指令模板行解析：`指令：/行情 <代码>　/买入股 <代码> <手>`
-   * 命令间常用全角空格分隔，且可能已带具体代码（/买入股 S01 <手数>）。
+   * 指令模板行解析：`指令：/行情 <代码>　/买入股 <代码> <灵石>`
+   * 命令间常用全角空格分隔，且可能已带具体代码（/买入股 S01 <灵石>）。
    * 至少两个命令才算模板行，否则交给普通文本渲染。
    */
   const TMPL_CMD_RE = /[/／]([\u4e00-\u9fffA-Za-z][\u4e00-\u9fffA-Za-z0-9]{1,11})/g;
@@ -3049,7 +3049,7 @@
         ]
       : [
           { label: "行情", cmd: "/行情", hint: "股票代码", example: code },
-          { label: "买入股", cmd: "/买入股", hint: "股票代码 手数（1 手 = 100 股）", example: `${code} 2` },
+          { label: "买入股", cmd: "/买入股", hint: "股票代码 买入金额（灵石，自动折算整数股）", example: `${code} 10000` },
           { label: "卖出股", cmd: "/卖出股", hint: "股票代码 手数", example: `${code} 1` },
         ];
     const cur = actions.find((a) => a.cmd === cmd) || actions[1];

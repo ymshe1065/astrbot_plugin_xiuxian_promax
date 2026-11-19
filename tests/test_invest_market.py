@@ -324,6 +324,40 @@ class TestInvestMarket(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(int(fee), 20)
 
+    async def test_buy_stock_by_amount_converts_to_integer_shares(self):
+        """按灵石预算买入：190 灵石 / 现价 100 = 1 股，只扣 100 而不是 190。"""
+        await self.manager._settle_tick(10)
+        player = await self._player(gold=1_000_000)
+        price = await self._price("S01")
+        # 本用例只验证预算折股；新闻冲击成本另有专项测试
+        self.manager._news_impact_rate = mock.AsyncMock(return_value=0.0)
+        budget = int(price) + 1  # 只够 1 股，余钱不能被吞掉
+        start_gold = player.gold
+        with self._patch_tick(10):
+            ok, msg = await self.manager.buy_stock_by_amount(player, "S01", budget)
+        self.assertTrue(ok, msg)
+        rows = await self.manager._holdings_rows("u1")
+        self.assertEqual(int(float(rows[0]["shares"])), 1)
+        amount = int(round(price))
+        fee = max(20, int(amount * 0.0015))
+        after = (await self.db.get_player_by_id("u1")).gold
+        self.assertEqual(after, start_gold - amount - fee)
+        self.assertIn("预算", msg)
+
+    async def test_buy_stock_by_amount_rejects_below_one_share(self):
+        await self.manager._settle_tick(10)
+        player = await self._player(gold=1_000_000)
+        price = await self._price("S01")
+        self.manager._news_impact_rate = mock.AsyncMock(return_value=0.0)
+        budget = max(1, int(price) - 1)
+        start_gold = player.gold
+        with self._patch_tick(10):
+            ok, msg = await self.manager.buy_stock_by_amount(player, "S01", budget)
+        self.assertFalse(ok, msg)
+        self.assertIn("不足买入 1 股", msg)
+        self.assertEqual(await self.manager._holdings_rows("u1"), [])
+        self.assertEqual((await self.db.get_player_by_id("u1")).gold, start_gold)
+
     async def test_partial_stock_sale_reduces_remaining_cost(self):
         player = await self._player()
         with self._patch_tick(10):

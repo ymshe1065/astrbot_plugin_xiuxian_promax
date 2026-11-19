@@ -2556,10 +2556,10 @@ class XiuXianPlugin(Star):
     async def handle_invest_quote(self, event: AstrMessageEvent, code: str = ""):
         async for r in self.invest_handlers.handle_quote(event, code): yield r
 
-    @filter.command(CMD_INVEST_BUY, "买入股票")
+    @filter.command(CMD_INVEST_BUY, "按灵石金额买入股票（自动折算整数股）")
     @require_whitelist
-    async def handle_invest_buy(self, event: AstrMessageEvent, code: str = "", lots: str = ""):
-        async for r in self.invest_handlers.handle_buy_stock(event, code, lots): yield r
+    async def handle_invest_buy(self, event: AstrMessageEvent, code: str = "", amount: str = ""):
+        async for r in self.invest_handlers.handle_buy_stock(event, code, amount): yield r
 
     @filter.command(CMD_INVEST_SELL, "卖出股票")
     @require_whitelist

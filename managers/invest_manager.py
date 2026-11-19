@@ -895,11 +895,66 @@ class InvestManager:
         if product["status"] != "trading":
             return False, "该标的已停牌。"
 
+        return await self._execute_stock_buy(
+            player, product, lots * LOT_SIZE, lots=lots
+        )
+
+    async def buy_stock_by_amount(self, player: Player, code: str, budget: int) -> Tuple[bool, str]:
+        """按灵石预算买入股票：股数 = floor(预算 / 现价)，未用完的灵石不扣。
+
+        例：现价 100 灵石/股，指定 190 灵石 → 买入 1 股，实付 100 灵石。
+        """
+        code = (code or "").strip().upper()
+        if isinstance(budget, bool) or not isinstance(budget, (int, float)) or float(budget) != int(budget):
+            return False, "买入金额必须是整数灵石。"
+        budget = int(budget)
+        if budget <= 0:
+            return False, "买入金额必须大于 0，例如：/买入股 S01 190"
+
+        opened, why = self._check_market()
+        if not opened:
+            return False, why
+
+        await self.settle_to()
+        product = await self._load_product(code)
+        if not product or product["kind"] != "stock":
+            return False, f"仙市中不存在股票代码「{code}」。发送「/仙市」查看全部标的。"
+        if product["status"] != "trading":
+            return False, "该标的已停牌。"
+
         tick = self.tick_of()
         impact = await self._news_impact_rate(code, tick)
-        shares = lots * LOT_SIZE
+        price = float(product["price"]) * (1 + impact)
+        if price <= 0:
+            return False, "该标的现价异常，暂无法买入。"
+        shares = int(math.floor(budget / price + 1e-9))
+        if shares <= 0:
+            return False, (
+                f"按现价 {price:.2f} 灵石/股，{budget:,} 灵石不足买入 1 股，"
+                "请加大买入金额。"
+            )
+        return await self._execute_stock_buy(
+            player, product, shares, budget=budget
+        )
+
+    async def _execute_stock_buy(self, player: Player, product: dict, shares: int,
+                                 lots: Optional[int] = None,
+                                 budget: Optional[int] = None) -> Tuple[bool, str]:
+        """买卖共用的成交落库；手数买入与灵石预算买入都走这里。"""
+        code = product["code"]
+        if MAX_LOTS_PER_TICK > 0 and shares > MAX_LOTS_PER_TICK * LOT_SIZE:
+            return False, (
+                f"单盘单标的最多买入 {MAX_LOTS_PER_TICK} 手"
+                f"（{MAX_LOTS_PER_TICK * LOT_SIZE} 股），请分盘操作。"
+            )
+
+        tick = self.tick_of()
+        impact = await self._news_impact_rate(code, tick)
         price = float(product["price"]) * (1 + impact)
         amount = int(round(shares * price))
+        # 预算买入绝不允许超支：极端浮点误差下压回用户指定金额
+        if budget is not None:
+            amount = min(amount, budget)
         fee = self._calc_fee(amount)
         total_cost = amount + fee
 
@@ -970,11 +1025,16 @@ class InvestManager:
             await self.db.conn.rollback()
             raise
 
+        head = (
+            f"买入 {product['name']} {lots} 手（{shares} 股）"
+            if lots is not None
+            else f"买入 {product['name']} {shares} 股（预算 {budget:,} 灵石）"
+        )
         return True, (
-            f"买入 {product['name']} {lots} 手（{shares} 股）\n"
+            f"{head}\n"
             f"成交价 {price:.2f}"
             + (f"（新闻冲击 +{impact:.2%}）" if impact else "")
-            + f"，金额 {amount:,}，手续费 {fee:,}\n"
+            + f"，实付 {amount:,}，手续费 {fee:,}\n"
             f"剩余灵石：{fresh.gold:,}"
         )
 

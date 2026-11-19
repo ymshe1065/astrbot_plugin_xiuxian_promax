@@ -131,7 +131,7 @@ FIELD_PLANS: Dict[str, List[dict[str, Any]]] = {
     "学习丹方": [_f("recipe", "选择要学习的丹方", "all_recipes")],
     # ---- 仙市 ----
     "行情": [_f("code", "选择股票或基金", "market_codes")],
-    "买入股": [_f("code", "选择股票", "stock_codes"), _f("lots", "手数（1 手 = 100 股）", "")],
+    "买入股": [_f("code", "选择股票", "stock_codes"), _f("amount", "买入金额（灵石，自动折算整数股）", "")],
     "卖出股": [_f("code", "选择持仓股票", "stock_holdings"), _f("lots", "手数", "")],
     "申购": [_f("code", "选择基金", "fund_codes"), _f("amount", "申购金额", "")],
     "赎回": [_f("code", "选择持仓基金", "fund_holdings"), _f("shares", "赎回份额", "")],

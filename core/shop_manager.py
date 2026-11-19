@@ -257,7 +257,7 @@ class ShopManager:
                     effect_line = line
                     break
             if item_type in ("talisman_recipe", "符图"):
-                effect_label = "用途"
+                effect_label = "产出"
             elif item_type in ("material_package", "材料包"):
                 effect_label = "开启"
             elif item_type in ("material", "材料"):
@@ -1922,15 +1922,80 @@ class ShopManager:
             details.append(f"适用境界: {self._format_applicable_realm(data)}")
 
         elif item_type in ('符图', 'talisman_recipe'):
-            details.append("用途：购买后习得该符箓的绘制方法")
+            # 符图买的是「画出来是什么符」，不是「这是一张图纸」。
+            # 与丹方同口径：先给产出符箓的实际效果，再给习得 / 境界 / 成功率 / 材料。
+            from .active_effects import format_duration
+            from .talisman_rules import build_profile
+            # 货架名带「·符图」后缀，绘制指令与配方都要用基础符名
+            craft_name = data.get('base_name') or data.get('name') or self.entry_base_name(item_data)
+            recipe = (getattr(self.config_manager, "talisman_recipes_data", {}) or {}).get(craft_name)
+            if not isinstance(recipe, dict):
+                recipe = {}
+            talisman = (getattr(self.config_manager, "items_data", {}) or {}).get(craft_name, {})
+            if not isinstance(talisman, dict):
+                talisman = {}
+            rank = normalize_rank(
+                recipe.get("rank") or talisman.get("rank") or item_data.get("rank"), "凡品"
+            )
+            raw_effects = recipe.get("effects")
             try:
-                required = int(data.get('level_required', 0) or 0)
+                profile = build_profile(
+                    craft_name,
+                    rank,
+                    recipe.get("category", ""),
+                    effects=raw_effects if isinstance(raw_effects, dict) else None,
+                    duration=recipe.get("duration"),
+                    description=recipe.get("desc", ""),
+                    uses=recipe.get("uses"),
+                )
+            except Exception:
+                profile = {}
+            if profile:
+                details.append(
+                    f"产出: 【{craft_name}】（{profile['rank']}·{profile['category']}）"
+                    f"{profile.get('description') or '效果未录入'}"
+                )
+                if profile.get("run_scoped"):
+                    details.append(f"生效: {int(profile.get('uses') or 0)}次（历练·秘境）")
+                elif int(profile.get("duration") or 0) > 0:
+                    details.append(f"持续: {format_duration(int(profile['duration']))}")
+                shield = self.recipe_tribulation_shield(recipe)
+                if shield > 0:
+                    details.append(f"护劫: 可保全劫数 ≤ {shield} 的丹劫")
+            else:
+                details.append(f"产出: 【{craft_name}】效果未录入")
+
+            usage = [f"习得后绘制【{craft_name}】"]
+            try:
+                required = int(
+                    recipe.get('level_required', data.get('level_required', 0)) or 0
+                )
             except (TypeError, ValueError):
                 required = 0
             if required:
-                details.append(f"适用境界: {self._format_applicable_realm(data, required)}")
-            # 货架名带「·符图」后缀，绘制指令要用基础符名
-            craft_name = data.get('base_name') or data.get('name') or self.entry_base_name(item_data)
+                usage.append(f"需境界等级 {required}")
+            try:
+                rate = float(recipe.get('success_rate', 0) or 0)
+            except (TypeError, ValueError):
+                rate = 0.0
+            if rate > 0:
+                usage.append(f"成功率 {rate:.0f}%")
+            try:
+                gold_cost = int(recipe.get('gold_cost', 0) or 0)
+            except (TypeError, ValueError):
+                gold_cost = 0
+            if gold_cost > 0:
+                usage.append(f"工费 {gold_cost:,} 灵石")
+            details.append("用途: " + " · ".join(usage))
+
+            materials = recipe.get("materials") or []
+            mat_text = "、".join(
+                f"{spec.get('name') or (str(spec.get('tier') or '') + str(spec.get('category') or '材料'))}"
+                f"×{spec.get('count', 0)}"
+                for spec in materials if isinstance(spec, dict)
+            )
+            if mat_text:
+                details.append(f"配方材料: {mat_text}")
             details.append(f"绘制需求: /制符 {craft_name}")
 
         elif item_type == '符箓':

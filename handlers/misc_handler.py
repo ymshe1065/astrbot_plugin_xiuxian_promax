@@ -19,7 +19,7 @@ __all__ = ["MiscHandler"]
 class MiscHandler:
     """杂项指令处理器 - 提供帮助信息、一键日常与强制解卡"""
 
-    VERSION = HELP_VERSION  # v7.12.2：v3.48.2 仙市代理人/风声平衡 · 强化/洗练 · 盘口时钟（数据库 v68）
+    VERSION = HELP_VERSION  # v7.12.3：v3.48.3 仙市代理人/风声平衡 · 符图详情 · 仙市按灵石买入（数据库 v68）
 
     def __init__(self, db: DataBase, config: dict = None):
         self.db = db

@@ -134,6 +134,64 @@ class TestPavilionRecipeEffect(unittest.TestCase):
                     self.assertIsNone(cjk_slash.search(line), f"效果行含假指令：{line}")
 
 
+class TestPavilionTalismanRecipeEffect(unittest.TestCase):
+    """符阁·符图的详情必须与丹方同口径：买的是产出符箓，不是一张图纸。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.cm = _imp("config_manager").ConfigManager(ROOT)
+        cls.sm = _imp("core.shop_manager").ShopManager({"VALUES": {}}, cls.cm)
+        cls.recipes = cls.sm.get_talisman_recipes_for_display(0)
+
+    def _shelf_item(self, base_name: str) -> dict:
+        for item in self.recipes:
+            if item["data"].get("base_name") == base_name:
+                return {**item, "stock": 3}
+        self.fail(f"符图货架里没有 {base_name}")
+
+    def test_every_talisman_recipe_shows_output_effect(self):
+        self.assertTrue(self.recipes, "符图货架不应为空")
+        for item in self.recipes:
+            details = self.sm.get_trade_details({**item, "stock": 1})
+            effect_lines = [d for d in details if d.startswith("产出:")]
+            self.assertTrue(effect_lines, f"{item['name']} 没有产出效果行：{details}")
+            self.assertNotIn("效果未录入", effect_lines[0], item["name"])
+
+    def test_output_line_names_the_crafted_talisman(self):
+        item = self._shelf_item("星辰符")
+        details = self.sm.get_trade_details(item)
+        effect = next(d for d in details if d.startswith("产出:"))
+        self.assertIn("星辰符", effect)
+        self.assertIn("攻击", effect)
+
+    def test_usage_line_keeps_craft_requirements(self):
+        details = self.sm.get_trade_details(self._shelf_item("星辰符"))
+        usage = next(d for d in details if d.startswith("用途:"))
+        self.assertIn("习得后绘制", usage)
+        self.assertIn("需境界等级", usage)
+        self.assertIn("成功率", usage)
+        self.assertIn("工费", usage)
+        self.assertTrue(any(d.startswith("配方材料:") for d in details), details)
+
+    def test_web_entry_uses_output_as_effect(self):
+        entries = self.sm.build_pavilion_entries([self._shelf_item("星辰符")])
+        self.assertEqual(len(entries), 1)
+        entry = entries[0]
+        self.assertEqual(entry["kind"], "符图")
+        self.assertEqual(entry["effectLabel"], "产出")
+        self.assertIn("星辰符", entry["effect"])
+        self.assertTrue(any("习得后绘制" in note for note in entry["notes"]), entry["notes"])
+        self.assertFalse(any(note.startswith("产出:") for note in entry["notes"]))
+
+    def test_text_shelf_carries_output_and_usage(self):
+        text = self.sm.format_pavilion_display(
+            "符阁·符图", [self._shelf_item("星辰符")], 0, 0
+        )
+        self.assertIn("产出:", text)
+        self.assertIn("星辰符", text)
+        self.assertIn("用途:", text)
+
+
 class TestShopShelfDefaultsToFullGrid(unittest.TestCase):
     """货架默认必须给全量，不能落成品阶条的第一档。
 
