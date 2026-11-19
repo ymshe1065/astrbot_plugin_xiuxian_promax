@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v7.12.1 · 网页聊天室版
+# AstrBot 插件：模拟修仙 v7.12.2 · 网页聊天室版
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/ymshe1065/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/ymshe1065/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v7.12.1-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v7.12.2-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -27,7 +27,7 @@
 
 ---
 
-> **插件版本:** v3.48.1 · **游戏版本:** v7.12.1 · **数据库:** v65 · **分支:** `feat/web-chatroom`
+> **插件版本:** v3.48.2 · **游戏版本:** v7.12.2 · **数据库:** v68 · **分支:** `feat/web-chatroom`
 >
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497) · [lan](https://github.com/lanxue0)
 
@@ -48,7 +48,23 @@
 <sub>点击展开对应版本查看详细变更；v3.44.3 之前的版本按游戏版本系列汇总在下方。</sub>
 
 <details open>
-<summary><b>本次更新 · 插件 v3.48.1（仙缘祭祀 · 仙市杠杆风控）</b></summary>
+<summary><b>本次更新 · 插件 v3.48.2（仙市投资代理人 · 代理人等级 · 风声平衡）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 投资代理人 | 新增青禾（稳健）/ 玄衡（均衡）/ 赤霄（激进）三位 NPC，支持 10,000–1,000,000 本金与 8 / 16 / 32 盘委托；自动调仓、固定止损止盈、提前停止、到期/止损/止盈结算、领取与历史记录；同一时间仅允许 1 个进行中委托，不做杠杆、不做空 |
+| 代理人等级 | 每个玩家对每个代理人独立 Lv.1–5；按委托盈亏获得/扣减经验，等级不回退；升级降低管理费与盈利分成，并把单笔本金上限从 20 万提高到 100 万 |
+| 风声平衡 | 数据库 v68 新增风声可信度：正式消息 70% 兑现、传闻 60% 兑现，假消息按反方向结算；消息幅度整体下调，全市场消息改为传闻并降低传导，拆掉一篮子同向套利 |
+| 新闻冲击成本 | 消息当盘/下一盘买卖各 0.8%，消息后第 1 盘 0.5%、第 2 盘 0.25%；现货与杠杆开/平仓双向收取，`/行情` 显示当前费率 |
+| 双端入口 | QQ 新增 `/仙市 代理` 状态 / 雇佣 / 停止 / 领取 / 记录；网页聊天室新增「仙市」页签、代理人面板与 `/api/invest/agents*` 接口 |
+| 数据迁移 | 数据库升级到 **v68**：新增 `invest_agent_mandates`、`invest_agent_logs`、`invest_agent_levels`，`invest_agent_mandates` 新增 `exp_delta`，`invest_events` 新增 `credibility` / `narrative_direction` |
+| 回归 | 新增 `tests/test_invest_agent.py`、`tests/test_invest_news_balance.py`、`tests/webchat_invest_agent.test.cjs`；仙市行情 35 项、代理人 29 项、风声平衡 12 项等相关套件全部通过；2400 盘离线回测确认无脑抢跑不再稳定盈利 |
+| 版本与数据库 | 插件 **v3.48.2** / 游戏及帮助 **v7.12.2** / 数据库 **v68** |
+
+</details>
+
+<details>
+<summary><b>插件 v3.48.1（仙缘祭祀 · 仙市杠杆风控）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |
@@ -100,6 +116,7 @@
 | 黑市拆囊 | `open_pouch` 把「抢占拆开权」（`INSERT OR IGNORE` → 条件 `UPDATE opened=0`）与扣费合并到同一事务，与 `inspect_pouch` 同构。旧实现的 `opened` 预检查在事务外、完全依赖玩家锁，任何绕过锁的调用方（自动代理、管理员工具）都能反复拆同一个锦囊；同时修正拆囊会把已有验囊标记覆盖成未验 |
 | 回归 | 新增 `tests/test_high_stakes_round4.py`（**27 项**：矿脉并发入账不被覆盖与领取进度守卫、藏宝图阵亡清空战利品/推进与阵亡的后台结算竞态/失败分支重读灵石、盘口两侧期望收益恒 ≤ 1 与结算口径唯一性静态护栏、脏 `stone` 行不崩不印钞、锦囊重复拆开与验囊标记、盲种失败不污染存档、杠杆强平线与权益公式自洽且能真正触发强平）；另根治一处 v3.46.5 遗留的偶发失败——赌石派彩用例守卫 `"命中" in msg` 会把 `💀 未命中` 误判成命中导致正则空匹配抛 `AttributeError`（tier1 出货率 92%，每次全量约 8% 概率触发），改为注入可控 rng 后对赢/输两分支做确定性断言；全量 **1726 项测试通过（3 skipped）** |
 | 版本与数据库 | 插件 **v3.47.1** / 游戏及帮助 **v7.11.1** / 数据库保持 **v65**（无表结构变更，无需迁移） |
+
 
 </details>
 
@@ -1569,7 +1586,7 @@ python3 -m unittest discover -s tests -q         # 现有单测
 | 历练路线 | 60（境界 0–31 全覆盖） |
 | 丹方 | 692 |
 | 符箓 | 35（八类） |
-| 数据库版本 | v65（全程自动迁移） |
+| 数据库版本 | v68（全程自动迁移） |
 | 网页聊天室 | 内置 `aiohttp`，默认端口 6198，主频道 `room_main` |
 
 ---
@@ -1578,7 +1595,7 @@ python3 -m unittest discover -s tests -q         # 现有单测
 
 - **双端同源**：QQ 端与网页聊天室共用玩家存档、指令与结算逻辑；网页端只读结构化 sidecar，丹方等长列表从秒级降到毫秒级
 - **数据一致性**：原子增量更新 / 乐观锁事务 / 嵌套事务静态扫描（`_scan_tx.py`）
-- **幂等迁移**：`_add_column_if_missing` 全路径兜底，坏库自愈（含全新安装路径），数据库 v63 全程自动迁移
+- **幂等迁移**：`_add_column_if_missing` 全路径兜底，坏库自愈（含全新安装路径），数据库 v68 全程自动迁移
 - **网格化呈现**：物品、丹药背包、商店、坊市、称号图鉴统一格子 UI + 品阶页签 + 就地详情，QQ 端文本保持原样
 - **图片渲染**：纯 Pillow 实现鎏金渐变 / 卷轴金线 / emoji 镀金混排，五级字体层次（思源宋体 Heavy~Medium + 马善政行楷 + OpenMoji）
 - **离线测试**：共享 AstrBot 桩 + 核心逻辑单测 + 事件池结构校验 + 渲染冒烟 + 前端契约测试，改动一键回归
@@ -1592,11 +1609,11 @@ python3 -m unittest discover -s tests -q         # 现有单测
 | 原版 | xiaojuwa | 插件初版（借鉴 nonebot_plugin_xiuxian_2） |
 | 二改 | [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) | v2.5~v3.1.3 稳定性修复：储物戒枢纽化、银行体系、悬赏模板、并发保护 |
 | **三改** | **[云兮](https://github.com/iqapi)** | **v6.0~v6.35.1**：17 个大系统、110 称号、60 路线、卡片渲染器、装备百分比平衡、离线测试体系 |
-| **四改** | **[ymshe1065](https://github.com/ymshe1065)**<br>**[lsq3497](https://github.com/lsq3497)**<br>**[lan](https://github.com/lanxue0)** | **v6.35.2~v7.12.1**：数值与经济、机制重做、测试基建、自动代理、网页聊天室、网格化看板、飞升仙缘、仙市精度、每日悬赏通缉、AI 向导等 |
+| **四改** | **[ymshe1065](https://github.com/ymshe1065)**<br>**[lsq3497](https://github.com/lsq3497)**<br>**[lan](https://github.com/lanxue0)** | **v6.35.2~v7.12.2**：数值与经济、机制重做、测试基建、自动代理、网页聊天室、网格化看板、飞升仙缘、仙市精度、每日悬赏通缉、投资代理人、AI 向导等 |
 
 ### 四改说明
 
-四改自 `v6.35.2` 起承接三改，现由三位维护者共同推进；插件 **v3.48.1** / 游戏 **v7.12.1** / 数据库 **v65**，当前开发分支为 `feat/web-chatroom`。工作主线：
+四改自 `v6.35.2` 起承接三改，现由三位维护者共同推进；插件 **v3.48.2** / 游戏 **v7.12.2** / 数据库 **v68**，当前开发分支为 `feat/web-chatroom`。工作主线：
 
 | 主线 | 主要变更 |
 | --- | --- |
@@ -1611,9 +1628,9 @@ python3 -m unittest discover -s tests -q         # 现有单测
 | 项 | 当前 |
 | --- | --- |
 | 开发分支 | `feat/web-chatroom` |
-| 插件版本 | v3.48.1 |
-| 游戏版本 | v7.12.1 |
-| 数据库版本 | v65 |
+| 插件版本 | v3.48.2 |
+| 游戏版本 | v7.12.2 |
+| 数据库版本 | v68 |
 | 运行环境 | AstrBot 4.29.x + Python 3.12 |
 | 仓库 | [ymshe1065/astrbot_plugin_xiuxian_promax](https://github.com/ymshe1065/astrbot_plugin_xiuxian_promax) |
 
