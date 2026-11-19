@@ -107,7 +107,7 @@ def build_fate_card():
             "entries": entries,
             "facet": {"label": "分组", "okLabel": "可兑"},
         }],
-        "footer": "点格子兑换 · /仙缘兑换 <编号>",
+        "footer": "点格子兑换 · /仙缘兑换 <编号> · /仙缘祭祀 <次数>",
         "ts": int(time.time()),
     }
 

@@ -11,6 +11,7 @@
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT.parent))
@@ -91,11 +92,18 @@ def _handlers(db=None, mgr=None):
 
 
 async def _run(handlers, player, event, item_id="0", count="0"):
-    """绕过 @player_required（它会开玩家锁并重读档），直接跑被装饰的函数体。"""
+    """绕过 @player_required（它会开玩家锁并重读档），直接跑被装饰的函数体。
+
+    祭祀现在按概率判定，回归用例统一把基础成功率顶到 100%，
+    只验证「扣钱 / 记点 / 记额度」的管线；概率本身在 test_fate_ritual 里单独测。
+    """
     fn = handlers.handle_fate_exchange.__wrapped__
     out = []
-    async for r in fn(handlers, player, event, item_id, count):
-        out.append(r)
+    with mock.patch.object(rules, "FATE_RITUAL_BASE_RATE", 1.0), mock.patch.object(
+        rules, "FATE_RITUAL_MAX_RATE", 1.0
+    ):
+        async for r in fn(handlers, player, event, item_id, count):
+            out.append(r)
     return out
 
 
@@ -111,7 +119,7 @@ class TestFateExchangeCommand(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(ev.plain), 1, ev.plain)
         text = ev.plain[0]
-        self.assertIn("获得仙缘点：+10", text)
+        self.assertIn("仙缘点 +10", text)
         self.assertIn("当前仙缘点：10", text)
         self.assertEqual(player.gold, GOLD_PER_FATE_POINT * 20)
         self.assertEqual(player.fate_points, 10)
@@ -123,21 +131,29 @@ class TestFateExchangeCommand(unittest.IsolatedAsyncioTestCase):
         player = _player(gold=GOLD_PER_FATE_POINT * 5)
         ev = _Ev()
         await _run(_handlers(), player, ev, item_id="gold", count="5")
-        self.assertIn("获得仙缘点：+5", ev.plain[0])
+        self.assertIn("仙缘点 +5", ev.plain[0])
 
     async def test_zero_count_uses_all_available(self):
-        """不填点数（或填 0）时按持币量自动算满。"""
+        """显式填 0 才按持币量算满；裸发命令默认只上一份祭品。"""
         player = _player(gold=GOLD_PER_FATE_POINT * 7)
         ev = _Ev()
         await _run(_handlers(), player, ev, item_id="灵石", count="0")
-        self.assertIn("获得仙缘点：+7", ev.plain[0])
+        self.assertIn("仙缘点 +7", ev.plain[0])
+
+    async def test_blank_count_only_offers_once(self):
+        """不填次数时只祭祀 1 次，避免误触烧光灵石。"""
+        player = _player(gold=GOLD_PER_FATE_POINT * 7)
+        ev = _Ev()
+        await _run(_handlers(), player, ev, item_id="灵石", count="")
+        self.assertIn("仙缘点 +1", ev.plain[0])
+        self.assertEqual(player.gold, GOLD_PER_FATE_POINT * 6)
 
     async def test_quota_exhausted(self):
         player = _player(gold=GOLD_PER_FATE_POINT * 99)
         db = _FakeDB(used=FATE_EXCHANGE_MAX)
         ev = _Ev()
         await _run(_handlers(db), player, ev, item_id="灵石", count="1")
-        self.assertIn("本轮已换满", ev.plain[0])
+        self.assertIn("本轮已积满", ev.plain[0])
         self.assertEqual(player.gold, GOLD_PER_FATE_POINT * 99, "额度用完不该扣钱")
 
     async def test_not_enough_gold(self):
@@ -150,7 +166,7 @@ class TestFateExchangeCommand(unittest.IsolatedAsyncioTestCase):
         player = _player(gold=GOLD_PER_FATE_POINT * 5)
         ev = _Ev()
         await _run(_handlers(), player, ev, item_id="灵石", count="十个")
-        self.assertIn("请输入要兑换的点数", ev.plain[0])
+        self.assertIn("请输入祭祀次数", ev.plain[0])
 
     async def test_quota_is_capped_by_remaining(self):
         """要的比剩余额度多时按剩余额度成交。"""
@@ -158,7 +174,7 @@ class TestFateExchangeCommand(unittest.IsolatedAsyncioTestCase):
         db = _FakeDB(used=FATE_EXCHANGE_MAX - 3)
         ev = _Ev()
         await _run(_handlers(db), player, ev, item_id="灵石", count="20")
-        self.assertIn("获得仙缘点：+3", ev.plain[0])
+        self.assertIn("仙缘点 +3", ev.plain[0])
         self.assertEqual(player.fate_points, 3)
 
     async def test_index_path_still_buys(self):

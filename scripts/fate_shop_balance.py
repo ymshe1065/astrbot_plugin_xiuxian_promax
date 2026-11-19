@@ -165,8 +165,9 @@ def build_rows() -> list:
 def load_shop_defs() -> dict:
     """直接 exec 规则文件读 _SHOP_DEFS。
 
-    这个模块只依赖 json / typing，没有 astrbot 依赖，所以可以脱离插件包单独跑；
-    用 exec 而不是 ast.literal_eval，是因为表里有 ``NEWLIFE_ESCORT_TRIPS_PER_STACK`` 这种常量引用。
+    这个模块只依赖标准库（json / typing / random / datetime），没有 astrbot 依赖，
+    所以可以脱离插件包单独跑；用 exec 而不是 ast.literal_eval，是因为表里有
+    ``NEWLIFE_ESCORT_TRIPS_PER_STACK`` 这种常量引用。
     """
     ns: dict = {"__name__": "reincarnation_rules_standalone", "__file__": str(RULES_FILE)}
     exec(compile(RULES_FILE.read_text(encoding="utf-8"), str(RULES_FILE), "exec"), ns)

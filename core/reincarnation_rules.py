@@ -21,6 +21,8 @@
 from __future__ import annotations
 
 import json
+import random
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 # ---------- 灵根重抽 ----------
@@ -523,6 +525,154 @@ def fate_exchange_points(gold: int) -> int:
     if gold <= 0:
         return 0
     return int(gold // GOLD_PER_FATE_POINT)
+
+
+# ---------- 仙缘祭祀：灵石 → 仙缘点 ----------
+#
+# v3.48.1 起「灵石换点」不再是一手交钱一手交货，而是一场祭祀：
+# 每份祭品固定 1000 万灵石（花费口径不变），但天道只以小概率回应。
+# 成功率受三件事影响：
+#   * 日期：修仙界节日 +10%，每月初一/十五（朔望）+4%
+#   * 气运：每点 +0.4%，最多 +20%
+#   * 功德：每点 +0.5%，最多 +25%；业力最多 -20%
+# 每次祭品独立判定，失败只烧香火不返灵石，成功才 +1 仙缘点并占用本轮额度。
+
+FATE_RITUAL_BASE_RATE = 0.08       # 基础成功率 8%
+FATE_RITUAL_FESTIVAL_BONUS = 0.10  # 节日吉日
+FATE_RITUAL_LUNAR_BONUS = 0.04     # 每月初一 / 十五
+FATE_RITUAL_LUCK_PER_POINT = 0.004
+FATE_RITUAL_LUCK_CAP = 0.20
+FATE_RITUAL_KARMA_PER_POINT = 0.005
+FATE_RITUAL_KARMA_CAP = 0.25
+FATE_RITUAL_KARMA_FLOOR = -0.20
+FATE_RITUAL_MAX_RATE = 0.55
+FATE_RITUAL_MIN_RATE = 0.01
+
+
+def fate_ritual_date_bonus(today: Any = None) -> tuple[float, str]:
+    """日期对祭祀成功率的影响：返回 (加成, 文案)。
+
+    优先认节日表中的吉日；非节日再看是不是农历朔望（初一/十五）。
+    """
+    day = today or datetime.now()
+    try:
+        month_day = f"{int(day.month):02d}-{int(day.day):02d}"
+        day_of_month = int(day.day)
+    except (AttributeError, TypeError, ValueError):
+        return 0.0, ""
+
+    # 延迟导入：scripts/fate_shop_balance.py 会以单文件 exec 本模块，
+    # 那种场景没有包上下文，顶层相对导入会直接炸掉定价核对脚本。
+    try:
+        from .festival_data import FESTIVALS
+    except ImportError:  # pragma: no cover - 仅单文件 exec 时走到
+        FESTIVALS = {}
+
+    festival = FESTIVALS.get(month_day)
+    if festival:
+        pct = round(FATE_RITUAL_FESTIVAL_BONUS * 100, 1)
+        return FATE_RITUAL_FESTIVAL_BONUS, f"【{festival['name']}】吉日 +{pct:g}%"
+    if day_of_month in (1, 15):
+        pct = round(FATE_RITUAL_LUNAR_BONUS * 100, 1)
+        label = "初一" if day_of_month == 1 else "十五"
+        return FATE_RITUAL_LUNAR_BONUS, f"朔望之日（{label}）+{pct:g}%"
+    return 0.0, ""
+
+
+def fate_ritual_rate(
+    player: Any, config_manager: Any = None, today: Any = None
+) -> Dict[str, Any]:
+    """当前祭祀成功率与各项来源（网页面板和聊天端共用）。"""
+    try:
+        from ..managers.luck_manager import LuckManager
+
+        luck = max(0, int(LuckManager.get_total_luck(player, config_manager) or 0))
+    except Exception:
+        try:
+            luck = max(0, int(getattr(player, "luck", 0) or 0))
+        except (TypeError, ValueError):
+            luck = 0
+
+    try:
+        karma = int(getattr(player, "karma", 0) or 0)
+    except (TypeError, ValueError):
+        karma = 0
+
+    date_bonus, date_label = fate_ritual_date_bonus(today)
+    luck_bonus = min(FATE_RITUAL_LUCK_CAP, luck * FATE_RITUAL_LUCK_PER_POINT)
+    karma_bonus = max(
+        FATE_RITUAL_KARMA_FLOOR,
+        min(FATE_RITUAL_KARMA_CAP, karma * FATE_RITUAL_KARMA_PER_POINT),
+    )
+    rate = (
+        FATE_RITUAL_BASE_RATE
+        + date_bonus
+        + luck_bonus
+        + karma_bonus
+    )
+    rate = max(FATE_RITUAL_MIN_RATE, min(FATE_RITUAL_MAX_RATE, rate))
+
+    return {
+        "rate": rate,
+        "base": FATE_RITUAL_BASE_RATE,
+        "date_bonus": date_bonus,
+        "date_label": date_label,
+        "luck": luck,
+        "luck_bonus": luck_bonus,
+        "karma": karma,
+        "karma_bonus": karma_bonus,
+    }
+
+
+def perform_fate_ritual(
+    player: Any,
+    times: int,
+    config_manager: Any = None,
+    today: Any = None,
+) -> Dict[str, Any]:
+    """举行一次祭祀：每份祭品独立判定，返回成功率与成功次数。
+
+    只负责掷骰，不扣灵石、不写仙缘点——调用方拿到 ``success`` 后再统一落库，
+    这样聊天端与网页端能共用同一套概率，又各自决定事务边界。
+    """
+    try:
+        count = max(0, int(times or 0))
+    except (TypeError, ValueError):
+        count = 0
+
+    info = fate_ritual_rate(player, config_manager=config_manager, today=today)
+    rate = float(info["rate"])
+    success = 0
+    for _ in range(count):
+        if random.random() < rate:
+            success += 1
+
+    info.update(
+        {
+            "times": count,
+            "success": success,
+            "failed": count - success,
+            "cost": count * GOLD_PER_FATE_POINT,
+        }
+    )
+    return info
+
+
+def format_ritual_rate(info: Dict[str, Any]) -> str:
+    """成功率来源文案：基础 / 日期 / 气运 / 功德，聊天端与网页端共用。"""
+    parts = [f"基础 {float(info.get('base', 0)) * 100:.1f}%"]
+    label = str(info.get("date_label") or "").strip()
+    if label:
+        parts.append(label)
+    luck = int(info.get("luck", 0) or 0)
+    if luck > 0:
+        parts.append(f"气运 {luck}（{float(info.get('luck_bonus', 0)) * 100:+.1f}%）")
+    karma = int(info.get("karma", 0) or 0)
+    if karma > 0:
+        parts.append(f"功德 {karma}（{float(info.get('karma_bonus', 0)) * 100:+.1f}%）")
+    elif karma < 0:
+        parts.append(f"业力 {abs(karma)}（{float(info.get('karma_bonus', 0)) * 100:+.1f}%）")
+    return " · ".join(parts)
 
 
 def root_reroll_stock(player: Any) -> int:

@@ -81,8 +81,8 @@ test('购买后整页重画要保住滚动位置', () => {
 test('换不了点数时说清原因', () => {
   assert.match(
     source,
-    /"\u672c\u8f6e\u5df2\u6362\u6ee1"/,
-    '额度用完要提示已换满'
+    /"\u672c\u8f6e\u5df2\u79ef\u6ee1"/,
+    '额度用完要提示已积满'
   );
   assert.match(source, /"\u7075\u77f3\u4e0d\u8db3"/, '灵石不够要提示灵石不足');
   assert.doesNotMatch(

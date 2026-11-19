@@ -2711,11 +2711,27 @@ async def _src_margin_arg1(plugin: "XiuXianPlugin", player: Any, field: dict, va
 
 
 async def _src_margin_leverage(plugin: "XiuXianPlugin", player: Any, field: dict, values: List[str]) -> tuple:
-    return [
+    # 倍数上限按标的波动收口：先看上一栏选中的股票，σ 太高就把 5 倍（甚至 3 倍）藏掉，
+    # 免得玩家选了再被后端打回。没选股票时保留全部选项。
+    code = str(values[1]).strip().upper() if len(values) > 1 else ""
+    mgr = getattr(plugin, "invest_mgr", None)
+    top = None
+    if code and mgr is not None:
+        try:
+            product = await mgr._load_product(code)
+            if product:
+                top = mgr.max_leverage_for(float(product.get("sigma") or 0))
+        except Exception:
+            top = None
+
+    options = [
         _opt("2 倍（稳健）", "2", "保证金 20% 强平", "杠杆倍数"),
         _opt("3 倍（均衡）", "3", "保证金 20% 强平", "杠杆倍数"),
-        _opt("5 倍（激进）", "5", "保证金 20% 强平，波动极大", "杠杆倍数"),
-    ], ""
+        _opt("5 倍（激进）", "5", "保证金 20% 强平；仅限每盘波动 ≤5.5% 的标的", "杠杆倍数"),
+    ]
+    if top is not None:
+        options = [opt for opt in options if int(opt["value"]) <= top]
+    return options, ""
 
 
 SOURCES: Dict[str, Callable[..., Any]] = {

@@ -5214,18 +5214,21 @@
     const ex = data.exchange || {};
     const exBox = document.createElement("div");
     exBox.className = "fate-exchange";
+    const ratePct = ((ex.rate || 0) * 100).toFixed(1);
     exBox.innerHTML =
-      '<span>' + fateWan(ex.gold_per_point) + " 万灵石 / 点 · 本轮剩 " +
-      (ex.left || 0) + "/" + (ex.max || 0) + " 点</span>";
+      "<span>" + fateWan(ex.gold_per_point) + " 万灵石 / 次 · 本轮剩 " +
+      (ex.left || 0) + "/" + (ex.max || 0) + " 点<br>成功率 " + ratePct +
+      "%（" + esc(ex.rate_text || "") + "）</span>";
     const exBtn = document.createElement("button");
     exBtn.type = "button";
     exBtn.className = "btn-ghost small";
     // 换不了的时候别只写「换 0 点」：分不清是额度用完还是灵石不够
     exBtn.textContent = ex.affordable
-      ? "换 " + ex.affordable + " 点"
+      ? "祭祀 " + ex.affordable + " 次"
       : (ex.left || 0) <= 0
-        ? "本轮已换满"
+        ? "本轮已积满"
         : "灵石不足";
+    exBtn.title = "每次 1000 万灵石独立判定，成功才获得 1 仙缘点";
     exBtn.disabled = !ex.affordable;
     exBtn.addEventListener("click", () => exchangeFatePoints(0));
     exBox.appendChild(exBtn);

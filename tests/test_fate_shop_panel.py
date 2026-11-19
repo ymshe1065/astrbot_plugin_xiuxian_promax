@@ -4,6 +4,7 @@ import json
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT.parent))
@@ -177,6 +178,13 @@ class TestFateShopBuy(unittest.IsolatedAsyncioTestCase):
         self.assertIn("已满", data["message"])
 
 
+def _guaranteed_ritual():
+    """祭祀回归统一把成功率顶到 100%，概率本身另测。"""
+    return mock.patch.multiple(
+        rules, FATE_RITUAL_BASE_RATE=1.0, FATE_RITUAL_MAX_RATE=1.0
+    )
+
+
 class TestFateGoldExchange(unittest.IsolatedAsyncioTestCase):
     @classmethod
     def setUpClass(cls):
@@ -191,7 +199,8 @@ class TestFateGoldExchange(unittest.IsolatedAsyncioTestCase):
     async def test_exchange_uses_max_by_default(self):
         unit = rules.GOLD_PER_FATE_POINT
         plugin = self._plugin(gold=unit * 3 + 123)
-        data = await panel.fate_shop_exchange(plugin, "u1", 0)
+        with _guaranteed_ritual():
+            data = await panel.fate_shop_exchange(plugin, "u1", 0)
         self.assertTrue(data["ok"], data.get("message"))
         self.assertEqual(data["points"], 3)
         self.assertEqual(plugin.db.player.gold, 123)
@@ -200,7 +209,8 @@ class TestFateGoldExchange(unittest.IsolatedAsyncioTestCase):
     async def test_exchange_is_capped_per_life(self):
         unit = rules.GOLD_PER_FATE_POINT
         plugin = self._plugin(gold=unit * 200)
-        data = await panel.fate_shop_exchange(plugin, "u1", 0)
+        with _guaranteed_ritual():
+            data = await panel.fate_shop_exchange(plugin, "u1", 0)
         self.assertTrue(data["ok"], data.get("message"))
         self.assertEqual(data["points"], rules.FATE_EXCHANGE_MAX)
         self.assertEqual(data["exchange"]["left"], 0)
@@ -209,7 +219,7 @@ class TestFateGoldExchange(unittest.IsolatedAsyncioTestCase):
         again = await panel.fate_shop_exchange(plugin, "u1", 0)
         self.assertFalse(again["ok"])
         self.assertEqual(plugin.db.player.gold, gold_after)
-        self.assertIn("换满", again["message"])
+        self.assertIn("积满", again["message"])
 
     async def test_exchange_rejects_poor_player(self):
         plugin = self._plugin(gold=rules.GOLD_PER_FATE_POINT - 1)
@@ -221,10 +231,26 @@ class TestFateGoldExchange(unittest.IsolatedAsyncioTestCase):
     async def test_exchange_partial_request(self):
         unit = rules.GOLD_PER_FATE_POINT
         plugin = self._plugin(gold=unit * 10)
-        data = await panel.fate_shop_exchange(plugin, "u1", 4)
+        with _guaranteed_ritual():
+            data = await panel.fate_shop_exchange(plugin, "u1", 4)
         self.assertTrue(data["ok"], data.get("message"))
         self.assertEqual(data["points"], 4)
         self.assertEqual(plugin.db.player.gold, unit * 6)
+
+    async def test_exchange_failure_still_charges_gold(self):
+        """祭祀失败不是报错：香火钱照扣，但不加仙缘点、不占额度。"""
+        unit = rules.GOLD_PER_FATE_POINT
+        plugin = self._plugin(gold=unit * 3)
+        with mock.patch.multiple(
+            rules, FATE_RITUAL_BASE_RATE=0.0, FATE_RITUAL_MAX_RATE=1.0
+        ), mock.patch.object(rules.random, "random", return_value=0.99):
+            data = await panel.fate_shop_exchange(plugin, "u1", 2)
+        self.assertTrue(data["ok"], data.get("message"))
+        self.assertIn("未应", data["message"])
+        self.assertEqual(data["points"], 0)
+        self.assertEqual(plugin.db.player.gold, unit)
+        self.assertEqual(data["exchange"]["left"], rules.FATE_EXCHANGE_MAX)
+        self.assertNotIn(rules.fate_exchange_key("u1"), plugin.db.ext.config)
 
 
 class TestFateShopLocking(unittest.IsolatedAsyncioTestCase):
@@ -238,10 +264,11 @@ class TestFateShopLocking(unittest.IsolatedAsyncioTestCase):
         player.gold = unit
         plugin = _FakePlugin(player)
 
-        results = await asyncio.gather(
-            panel.fate_shop_exchange(plugin, "u1", 1),
-            panel.fate_shop_exchange(plugin, "u1", 1),
-        )
+        with _guaranteed_ritual():
+            results = await asyncio.gather(
+                panel.fate_shop_exchange(plugin, "u1", 1),
+                panel.fate_shop_exchange(plugin, "u1", 1),
+            )
         self.assertEqual(sum(1 for r in results if r["ok"]), 1)
         self.assertEqual(plugin.db.player.gold, 0)
         self.assertEqual(plugin.db.player.fate_points, 1)

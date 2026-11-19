@@ -295,6 +295,7 @@ class InvestHandlers:
             yield event.plain_result(msg)
             return
         if len(tokens) < 3:
+            mgr = self.invest_mgr
             yield event.plain_result(
                 "📈 仙市杠杆用法\n"
                 "━━━━━━━━━━━━━━━\n"
@@ -302,7 +303,11 @@ class InvestHandlers:
                 "示例：/仙市 杠杆 S01 3 50000\n"
                 "平仓：/仙市 杠杆 平仓 <持仓编号>\n"
                 "状态：/仙市 杠杆\n"
-                "⚠️ 只支持股票；保证金至少 10,000；爆仓线为保证金 20%。"
+                "⚠️ 只支持股票；保证金至少 10,000；爆仓线为保证金 20%。\n"
+                f"📏 单玩家总保证金按境界限额，最多 {mgr.margin_max_positions} 笔、"
+                f"同一标的 {mgr.margin_max_positions_per_code} 笔；\n"
+                "   倍数上限按标的波动收口：5 倍仅限每盘波动 ≤5.5% 的标的，"
+                "波动越大可开倍数越低。"
             )
             return
         code = tokens[0]

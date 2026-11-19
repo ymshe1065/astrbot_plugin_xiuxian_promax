@@ -13,10 +13,13 @@ from ..core.reincarnation_rules import (
     shop_price,
     fate_exchange_key,
     fate_exchange_points,
+    fate_ritual_rate,
     format_permanent_summary,
+    format_ritual_rate,
     item_owned,
     items_in_group,
     parse_bonus,
+    perform_fate_ritual,
     shop_entries,
 )
 from .utils import player_required
@@ -112,13 +115,17 @@ class ReincarnationHandlers:
                 )
 
         left = await self._exchange_left(player)
+        ritual = fate_ritual_rate(
+            player, getattr(self.reinc_mgr, "config_manager", None)
+        )
         lines += [
             "━━━━━━━━━━━━━━━",
             f"🌀 每轮转生自带 {FREE_ROOT_REROLLS} 次免费灵根重抽，用完后消耗【灵根洗炼】额度",
             "💰 【转世资粮】按「上一世巅峰境界」折算：层数 × "
             f"{NEWLIFE_ESCORT_TRIPS_PER_STACK:g} 趟镖银（约 0.5 天镖银），转生后直接到账",
-            f"💱 灵石换点：{GOLD_PER_FATE_POINT // 10000} 万灵石 = 1 点，本轮还剩 {left} 点额度"
-            "（发 `/仙缘兑换 灵石 <点数>` 兑换）",
+            f"🔮 仙缘祭祀：{GOLD_PER_FATE_POINT // 10000} 万灵石 / 次，本轮还剩 {left} 次额度"
+            f" · 当前成功率 {float(ritual['rate']) * 100:.1f}%（{format_ritual_rate(ritual)}）"
+            "（发 `/仙缘祭祀 <次数>` 或 `/仙缘兑换 灵石 <次数>`）",
             "💡 使用 `/仙缘兑换 <编号>` 购买；网页聊天室的「仙缘」标签页可点卡片直接买",
         ]
 
@@ -138,7 +145,7 @@ class ReincarnationHandlers:
                         "entries": entries,
                         "facet": {"label": "分组", "okLabel": "可兑"},
                     }],
-                    "点格子兑换 · /仙缘兑换 <编号> · /仙缘兑换 灵石 <点数> 用灵石换仙缘点",
+                    "点格子兑换 · /仙缘兑换 <编号> · /仙缘祭祀 <次数> 以灵石祭天换点",
                 )
                 if card:
                     yield event.image_result(card)
@@ -148,7 +155,7 @@ class ReincarnationHandlers:
         yield event.plain_result("\n".join(lines))
 
     async def _exchange_left(self, player: Player) -> int:
-        """本轮（这一世）还剩多少灵石换点额度。"""
+        """本轮（这一世）还剩多少可成功获得的仙缘点额度。"""
         try:
             raw = await self.db.ext.get_system_config(fate_exchange_key(player.user_id))
             used = max(0, int(raw or 0))
@@ -158,11 +165,11 @@ class ReincarnationHandlers:
 
     @player_required
     async def handle_fate_exchange(
-        self, player: Player, event: AstrMessageEvent, item_id: str = "0", count: str = "0"
+        self, player: Player, event: AstrMessageEvent, item_id: str = "0", count: str = ""
     ):
-        """`/仙缘兑换 <编号>` 买商品；`/仙缘兑换 灵石 <点数>` 用灵石换仙缘点。"""
+        """`/仙缘兑换 <编号>` 买商品；`/仙缘兑换 灵石 <次数>` 举行仙缘祭祀。"""
         token = str(item_id or "").strip()
-        if token in ("灵石", "gold", "灵石头"):
+        if token in ("灵石", "gold", "灵石头", "祭祀", "上供", "香火"):
             async for r in self._exchange_gold_for_points(player, event, count):
                 yield r
             return
@@ -172,7 +179,7 @@ class ReincarnationHandlers:
         except ValueError:
             yield event.plain_result(
                 "❌ 请输入正确的商品编号！例如：/仙缘兑换 1\n"
-                "💱 或用灵石换点：/仙缘兑换 灵石 10"
+                "🔮 或用灵石祭祀：/仙缘祭祀 10（每次 1000 万灵石，小概率得 1 点）"
             )
             return
 
@@ -183,31 +190,44 @@ class ReincarnationHandlers:
         success, msg = await self.reinc_mgr.buy_fate_shop_item(player, idx)
         yield event.plain_result(msg)
 
+    @player_required
+    async def handle_fate_ritual(
+        self, player: Player, event: AstrMessageEvent, count: str = ""
+    ):
+        """`/仙缘祭祀 <次数>`：以灵石为祭品，按日期/气运/功德小概率换仙缘点。"""
+        async for r in self._exchange_gold_for_points(player, event, count):
+            yield r
+
     async def _exchange_gold_for_points(
         self, player: Player, event: AstrMessageEvent, count: str
     ):
-        """灵石 → 仙缘点：1 点 = 1000 万灵石，每世最多 100 点。"""
+        """灵石祭祀 → 仙缘点：每次 1000 万灵石，独立判定，命中才 +1 点。"""
         left = await self._exchange_left(player)
         if left <= 0:
             yield event.plain_result(
-                f"❌ 本轮已换满 {FATE_EXCHANGE_MAX} 点额度，等下一世再来。"
+                f"❌ 本轮已积满 {FATE_EXCHANGE_MAX} 点仙缘，等下一世再来。"
             )
             return
 
         raw = str(count or "").strip()
-        if raw in ("", "0"):
+        if raw == "":
+            # 裸发 /仙缘祭祀 只上一份祭品，避免一次误触烧掉全部余额
+            want = 1
+        elif raw == "0":
             want = min(left, fate_exchange_points(int(player.gold or 0)))
         else:
             try:
                 want = int(raw)
             except ValueError:
-                yield event.plain_result(f"❌ 请输入要兑换的点数，例如：/仙缘兑换 灵石 10")
+                yield event.plain_result(
+                    "❌ 请输入祭祀次数，例如：/仙缘祭祀 10"
+                )
                 return
             want = max(0, min(want, left))
 
         if want <= 0:
             yield event.plain_result(
-                f"❌ 灵石不足：{GOLD_PER_FATE_POINT // 10000} 万灵石换 1 点，"
+                f"❌ 灵石不足：每次祭祀需 {GOLD_PER_FATE_POINT // 10000} 万灵石，"
                 f"当前持有 {int(player.gold or 0):,} 灵石。"
             )
             return
@@ -215,27 +235,43 @@ class ReincarnationHandlers:
         cost = want * GOLD_PER_FATE_POINT
         if int(player.gold or 0) < cost:
             yield event.plain_result(
-                f"❌ 灵石不足：换 {want} 点需要 {cost:,}（{cost // 10000} 万），"
+                f"❌ 灵石不足：祭祀 {want} 次需要 {cost:,}（{cost // 10000} 万），"
                 f"当前 {int(player.gold or 0):,}。"
             )
             return
 
-        player.gold -= cost
-        player.fate_points = int(player.fate_points or 0) + want
-        await self.db.update_player(player)
-        try:
-            used = FATE_EXCHANGE_MAX - left + want
-            await self.db.ext.set_system_config(fate_exchange_key(player.user_id), str(used))
-        except Exception:
-            pass
+        result = perform_fate_ritual(
+            player, want, getattr(self.reinc_mgr, "config_manager", None)
+        )
+        success = int(result["success"])
 
+        # 祭祀一旦举行，香火钱不再退还：失败只烧灵石，成功才记点并占用额度。
+        player.gold -= cost
+        if success:
+            player.fate_points = int(player.fate_points or 0) + success
+        await self.db.update_player(player)
+        if success:
+            try:
+                used = FATE_EXCHANGE_MAX - left + success
+                await self.db.ext.set_system_config(
+                    fate_exchange_key(player.user_id), str(used)
+                )
+            except Exception:
+                pass
+
+        rate = float(result["rate"]) * 100
+        if success:
+            outcome = f"🌠 天道回应：成功 {success} 次，仙缘点 +{success}"
+        else:
+            outcome = "🌫️ 香火散尽，天道未应——此次祭祀没有换到仙缘点"
         yield event.plain_result(
-            f"💱 灵石换仙缘点\n"
+            f"🔮 仙缘祭祀\n"
             f"━━━━━━━━━━━━━━━\n"
-            f"消耗灵石：-{cost:,}（{cost // 10000} 万）\n"
-            f"获得仙缘点：+{want}\n"
+            f"成功率：{rate:.1f}%（{format_ritual_rate(result)}）\n"
+            f"祭品：{want} 次 × {GOLD_PER_FATE_POINT // 10000} 万 = {cost:,} 灵石\n"
+            f"{outcome}\n"
             f"当前仙缘点：{player.fate_points}\n"
-            f"本轮额度：剩余 {left - want}/{FATE_EXCHANGE_MAX} 点\n"
+            f"本轮额度：剩余 {left - success}/{FATE_EXCHANGE_MAX} 点\n"
             f"━━━━━━━━━━━━━━━\n"
-            f"💡 发 /仙缘商店 查看商品，或到网页聊天室的「仙缘」标签页点卡片购买"
+            f"💡 节日与初一/十五更易通神；气运、功德越高，天道回应越勤"
         )

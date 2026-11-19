@@ -6,6 +6,7 @@ from astrbot.api.event import AstrMessageEvent
 from astrbot.api import AstrBotConfig
 from ..data import DataBase
 from ..core import CultivationManager, PillManager, StorageRingManager
+from ..core.festival_data import FESTIVALS
 from ..core.reincarnation_rules import (
     FREE_ROOT_REROLLS,
     NEWLIFE_ESCORT_TRIPS_PER_STACK,
@@ -84,57 +85,8 @@ class PlayerHandler:
         self.storage_ring_mgr = StorageRingManager(db, config_manager)
         self.tutorial_mgr = TutorialManager(self.db)
         
-        # ===== 修仙界专属节日配置表 =====
-        self.FESTIVALS = {
-            "01-01": {
-                "name": "问道节", "desc": "一元复始，感悟天地法则，闭关修炼效率大增。", 
-                "gold": 8888, "exp": 8888, "item": "洗练石", "item_count": 1
-            },
-            "02-14": {
-                "name": "结缘节", "desc": "红线牵缘，道侣情深，天地灵气化作祝福。", 
-                "gold": 5200, "exp": 5200, "item": "强化石", "item_count": 2
-            },
-            "03-03": {
-                "name": "蟠桃盛会", "desc": "瑶池金母设宴，三千年一开花，三千年一结果。", 
-                "gold": 30000, "exp": 50000, "item": "洗练石", "item_count": 3
-            },
-            "05-04": {
-                "name": "百器争鸣", "desc": "天下炼器师齐聚，地火涌动，正是炼器好时节。", 
-                "gold": 10400, "exp": 10400, "item": "混元铁", "item_count": 1
-            },
-            "06-06": {
-                "name": "镇魔日", "desc": "天狗食日，魔气肆虐，天道赐下护身法宝。", 
-                "gold": 6666, "exp": 6666, "item": "迷神香", "item_count": 2
-            },
-            "07-07": {
-                "name": "双星会", "desc": "牛郎织女星交汇，此时双修可得双倍天地馈赠。", 
-                "gold": 7700, "exp": 7700, "item": "护府令", "item_count": 1
-            },
-            "08-15": {
-                "name": "太阴盛会", "desc": "月圆之夜，太阴之精最盛，适合吸收月华修炼。", 
-                "gold": 15000, "exp": 15000, "item": "九叶灵芝", "item_count": 1
-            },
-            "09-09": {
-                "name": "重阳飞升日", "desc": "登高望远，触摸天门，各大宗门发放试炼奖励。", 
-                "gold": 9999, "exp": 9999, "item": "洗练石", "item_count": 3
-            },
-            "10-01": {
-                "name": "万仙来朝", "desc": "普天同庆，仙界大开宝库，降下海量修行资源。", 
-                "gold": 19490, "exp": 19490, "item": "洗练石", "item_count": 3
-            },
-            "11-11": {
-                "name": "清心寡欲日", "desc": "红尘滚滚，我自独行，极致的孤独带来极致的道心。", 
-                "gold": 11110, "exp": 11110, "item": "强化石", "item_count": 5
-            },
-            "12-22": {
-                "name": "阴极冬至", "desc": "阴极之至，阳气始生，天道赐下纯阳之气助你突破。", 
-                "gold": 12220, "exp": 12220, "item": "九幽仙芝", "item_count": 1
-            },
-            "12-25": {
-                "name": "瑞雪丰年", "desc": "天降祥瑞，灵石矿脉爆发，万物生机盎然。", 
-                "gold": 12250, "exp": 12250, "item": "洗练石", "item_count": 2
-            },
-        }
+        # ===== 修仙界专属节日配置表（与仙缘祭祀共用 core/festival_data.py）=====
+        self.FESTIVALS = FESTIVALS
 
     def _avatar_status(self, player: Player) -> str:
         """化身傀儡剩余时间描述"""

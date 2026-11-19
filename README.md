@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v7.11.1 · 网页聊天室版
+# AstrBot 插件：模拟修仙 v7.12.1 · 网页聊天室版
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/ymshe1065/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/ymshe1065/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v7.11.1-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v7.12.1-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -27,11 +27,11 @@
 
 ---
 
-> **插件版本:** v3.48.0 · **游戏版本:** v7.12.0 · **数据库:** v65 · **分支:** `feat/web-chatroom`
+> **插件版本:** v3.48.1 · **游戏版本:** v7.12.1 · **数据库:** v65 · **分支:** `feat/web-chatroom`
 >
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497) · [lan](https://github.com/lanxue0)
 
-一款为 AstrBot 深度重构的**放置类修仙游戏**：既能在 QQ 群聊里与群友共修，也能用插件内置的**网页聊天室（webroom）**开房游玩。277 条注册指令（网页指令目录 262 个功能按钮 + 15 个别名），覆盖修行突破、灵根重修、炼丹符箓、灵田洞天、灵兽宗门、押镖历练、秘境团本、仙市拍卖、珠宝镶嵌、高风险赌局、飞升仙缘与 AI 向导问答等系统；QQ 端与网页端共用同一份玩家存档。
+一款为 AstrBot 深度重构的**放置类修仙游戏**：既能在 QQ 群聊里与群友共修，也能用插件内置的**网页聊天室（webroom）**开房游玩。278 条注册指令（网页指令目录 263 个功能按钮 + 15 个别名），覆盖修行突破、灵根重修、炼丹符箓、灵田洞天、灵兽宗门、押镖历练、秘境团本、仙市拍卖、珠宝镶嵌、高风险赌局、仙缘祭祀、飞升仙缘与 AI 向导问答等系统；QQ 端与网页端共用同一份玩家存档。
 
 ## 👥 维护分工
 
@@ -48,7 +48,26 @@
 <sub>点击展开对应版本查看详细变更；v3.44.3 之前的版本按游戏版本系列汇总在下方。</sub>
 
 <details open>
-<summary><b>本次更新 · 插件 v3.48.0（AI 向导与分层知识库检索）</b></summary>
+<summary><b>本次更新 · 插件 v3.48.1（仙缘祭祀 · 仙市杠杆风控）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 仙缘祭祀 | 「灵石换仙缘点」重做为「仙缘祭祀」：花费仍是 **1000 万灵石 / 次**，但每次上供独立判定，基础成功率仅 **8%**，命中才 +1 仙缘点并占用每世 100 点额度 |
+| 影响因素 | **日期**：修仙界节日 +10%，每月初一/十五 +4%；**气运**：每点 +0.4%，上限 +20%；**功德**：每点 +0.5%，上限 +25%，业力最多 -20%；总成功率封顶 **55%** |
+| 失败口径 | 祭祀失败不报错、不退灵石，不加点也不占额度；聊天端与网页端文案都会给出本次成功率与成功次数 |
+| 指令与网页端 | 新增 `/仙缘祭祀 <次数>`（裸发默认只祭 1 次，填 `0` 才按余额祭满），旧 `/仙缘兑换 灵石 <次数>` 保留为别名，`/仙缘兑换 <编号>` 买商品不受影响；「仙缘」面板按钮改为「祭祀 N 次」，实时显示成功率及来源（基础 / 日期 / 气运 / 功德）；注册指令 277 → **278**（17 分组 / 263 按钮 / 15 别名） |
+| 仙市杠杆风控 | `/仙市 杠杆` 新增单玩家风控：同一标的默认 **1 笔**、单玩家总持仓 **3 笔**、总保证金按境界限额（钱庄默认存款分档的 **20%**，保底 **500 万**）。此前 `MARGIN_MAX_TOTAL` 只是「单笔」上限，同一只票连发几条指令就能把 500 万叠成任意大注 |
+| 杠杆倍数 | 倍数按标的每盘 σ 收口：**σ≤5.5% 可 5 倍**（S01/S03）、**5.5%~7.5% 最多 3 倍**（S04/S02/S06）、**更高只允许 2 倍**（S05）。5 倍的强平距离只有 **−16%**，放在 8.5%/盘 的标的上一个交易日内爆仓概率超过 **2/3**；网页端选择倍数时也会按标的隐藏超额选项 |
+| 并发与展示 | 敞口校验放在 `BEGIN IMMEDIATE` 事务内，与扣款、落库同一事务，连点开仓不会各自读到旧笔数后双双通过；开仓成功与 `/仙市 杠杆 状态` 显示「额度占用 X / Y」「持仓 N / M 笔」，超额时提示还能开多少灵石，被拒绝的开仓不扣款、不落库 |
+| 配置 | `_conf_schema.json` 新增 `INVEST` 段：`MAX_POSITIONS` / `MAX_POSITIONS_PER_CODE`（0 = 不限）、`MAX_TOTAL_MARGIN`（0 = 按境界分档）、`LEVERAGE_SIGMA_CAPS`（格式 `σ:倍数,...`，默认 `0.055:5,0.075:3`） |
+| 数据源 | 节日表抽到 `core/festival_data.py`，签到福利与仙缘祭祀共用，避免两处节日日期漂移；额度仍存 `system_config.fate_gold_exchange_{uid}`，无表结构变更 |
+| 回归 | 新增 `tests/test_fate_ritual.py`（**11 项**：日期 / 气运 / 功德加成、负功德惩罚、封顶、逐次独立判定、掷骰不落库）与 `tests/test_margin_risk_limits.py`（**15 项**：分档解析与非法配置回退、境界额度、同标的与总笔数、总额度、平仓释放额度、σ 倍数上限、状态页额度、拒绝不扣款）；仙缘兑换 / 网页面板 / 仙市相关既有用例同步更新并通过，全量 **1793 项测试通过（10 项因环境缺 aiohttp 跳过）+ 36 个前端契约** |
+| 版本与数据库 | 插件 **v3.48.1** / 游戏及帮助 **v7.12.1** / 数据库保持 **v65**（无表结构变更，无需迁移）；`/修仙帮助` 图已重绘 |
+
+</details>
+
+<details>
+<summary><b>插件 v3.48.0（AI 向导与分层知识库检索）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |
@@ -1572,11 +1591,11 @@ python3 -m unittest discover -s tests -q         # 现有单测
 | 原版 | xiaojuwa | 插件初版（借鉴 nonebot_plugin_xiuxian_2） |
 | 二改 | [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) | v2.5~v3.1.3 稳定性修复：储物戒枢纽化、银行体系、悬赏模板、并发保护 |
 | **三改** | **[云兮](https://github.com/iqapi)** | **v6.0~v6.35.1**：17 个大系统、110 称号、60 路线、卡片渲染器、装备百分比平衡、离线测试体系 |
-| **四改** | **[ymshe1065](https://github.com/ymshe1065)**<br>**[lsq3497](https://github.com/lsq3497)**<br>**[lan](https://github.com/lanxue0)** | **v6.35.2~v7.12.0**：数值与经济、机制重做、测试基建、自动代理、网页聊天室、网格化看板、飞升仙缘、仙市精度、每日悬赏通缉、AI 向导等 |
+| **四改** | **[ymshe1065](https://github.com/ymshe1065)**<br>**[lsq3497](https://github.com/lsq3497)**<br>**[lan](https://github.com/lanxue0)** | **v6.35.2~v7.12.1**：数值与经济、机制重做、测试基建、自动代理、网页聊天室、网格化看板、飞升仙缘、仙市精度、每日悬赏通缉、AI 向导等 |
 
 ### 四改说明
 
-四改自 `v6.35.2` 起承接三改，现由三位维护者共同推进；插件 **v3.48.0** / 游戏 **v7.12.0** / 数据库 **v65**，当前开发分支为 `feat/web-chatroom`。工作主线：
+四改自 `v6.35.2` 起承接三改，现由三位维护者共同推进；插件 **v3.48.1** / 游戏 **v7.12.1** / 数据库 **v65**，当前开发分支为 `feat/web-chatroom`。工作主线：
 
 | 主线 | 主要变更 |
 | --- | --- |
@@ -1584,15 +1603,15 @@ python3 -m unittest discover -s tests -q         # 现有单测
 | 机制重做 | 重修与三选一灵根、功德（业力）、飞升与仙缘商店、身外化身、周本与拍卖会 |
 | 网页聊天室 | webroom 平台适配器、仙界频道、网格化看板、指令联想、意见反馈、结构化卡片直通 |
 | AI 向导 | `/chat`、`/chatall`、`/新手指南`：分层知识库检索、深度查阅、上下文双缓冲、限流降级 |
-| 工程保障 | 共享测试桩、全量回归（162 个测试模块 / 1843 项测试 + 7 个前端契约）、幂等迁移与并发修复 |
+| 工程保障 | 共享测试桩、全量回归（164 个测试模块 / 1793 项测试 + 36 个前端契约）、幂等迁移与并发修复 |
 
 ### 分支与版本
 
 | 项 | 当前 |
 | --- | --- |
 | 开发分支 | `feat/web-chatroom` |
-| 插件版本 | v3.48.0 |
-| 游戏版本 | v7.12.0 |
+| 插件版本 | v3.48.1 |
+| 游戏版本 | v7.12.1 |
 | 数据库版本 | v65 |
 | 运行环境 | AstrBot 4.29.x + Python 3.12 |
 | 仓库 | [ymshe1065/astrbot_plugin_xiuxian_promax](https://github.com/ymshe1065/astrbot_plugin_xiuxian_promax) |

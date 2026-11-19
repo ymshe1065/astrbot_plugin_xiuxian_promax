@@ -5,7 +5,7 @@
 
 - ``GET  /api/fate_shop``：返回仙缘点、八个分组、每件商品的已购层数与是否买得起；
 - ``POST /api/fate_shop/buy``：直接买一层，返回最新面板状态；
-- ``POST /api/fate_shop/exchange``：灵石换仙缘点（1000 万 / 点，每世 100 点）。
+- ``POST /api/fate_shop/exchange``：仙缘祭祀（1000 万 / 次，小概率成功）。
 
 真正的扣点与账本写入仍走 :class:`ReincarnationManager`，与 ``/仙缘兑换`` 共用同一套校验，
 避免网页端和聊天端出现两套价格或两套封顶。
@@ -19,14 +19,18 @@ if TYPE_CHECKING:  # pragma: no cover
 
 from ..core.reincarnation_rules import (
     FATE_EXCHANGE_MAX,
+    FATE_RITUAL_BASE_RATE,
     GOLD_PER_FATE_POINT,
     SHOP_GROUPS,
     SHOP_ITEMS,
     fate_exchange_key,
     fate_exchange_points,
+    fate_ritual_rate,
+    format_ritual_rate,
     item_at_cap,
     item_owned,
     parse_bonus,
+    perform_fate_ritual,
     shop_price,
 )
 
@@ -90,6 +94,8 @@ async def fate_shop_snapshot(plugin: "XiuXianPlugin", user_id: str) -> dict[str,
 
     used = await _exchange_used(plugin, user_id)
     gold = int(getattr(player, "gold", 0) or 0)
+    cfg = getattr(_reinc_mgr(plugin), "config_manager", None)
+    ritual = fate_ritual_rate(player, cfg)
     return {
         "ok": True,
         "has_player": True,
@@ -102,6 +108,9 @@ async def fate_shop_snapshot(plugin: "XiuXianPlugin", user_id: str) -> dict[str,
             "max": FATE_EXCHANGE_MAX,
             "left": max(0, FATE_EXCHANGE_MAX - used),
             "affordable": min(FATE_EXCHANGE_MAX - used, fate_exchange_points(gold)),
+            "base_rate": FATE_RITUAL_BASE_RATE,
+            "rate": float(ritual["rate"]),
+            "rate_text": format_ritual_rate(ritual),
         },
     }
 
@@ -148,7 +157,7 @@ async def fate_shop_buy(plugin: "XiuXianPlugin", user_id: str, item_id: int) -> 
 async def fate_shop_exchange(
     plugin: "XiuXianPlugin", user_id: str, points: int = 0
 ) -> dict[str, Any]:
-    """灵石换仙缘点：points<=0 时按余额与剩余额度换最大值。"""
+    """仙缘祭祀：points<=0 时按余额与剩余额度上供最大值。"""
     from ..handlers.utils import get_player_lock
 
     async with get_player_lock(user_id):
@@ -162,7 +171,7 @@ async def fate_shop_exchange(
         left = max(0, FATE_EXCHANGE_MAX - used)
         if left <= 0:
             snap = await fate_shop_snapshot(plugin, user_id)
-            snap.update({"ok": False, "message": f"本轮已换满 {FATE_EXCHANGE_MAX} 点，等下世再换"})
+            snap.update({"ok": False, "message": f"本轮已积满 {FATE_EXCHANGE_MAX} 点，等下世再祭"})
             return snap
 
         want = int(points or 0)
@@ -186,24 +195,40 @@ async def fate_shop_exchange(
             snap.update(
                 {
                     "ok": False,
-                    "message": f"灵石不足：换 {want} 点需要 {cost // 10000} 万，当前 {gold // 10000} 万",
+                    "message": f"灵石不足：祭祀 {want} 次需要 {cost // 10000} 万，当前 {gold // 10000} 万",
                 }
             )
             return snap
 
+        result = perform_fate_ritual(
+            player, want, getattr(_reinc_mgr(plugin), "config_manager", None)
+        )
+        success = int(result["success"])
+
+        # 与聊天端一致：祭品一旦上供就不退，失败只是没换到点。
         player.gold = gold - cost
-        player.fate_points = int(getattr(player, "fate_points", 0) or 0) + want
+        if success:
+            player.fate_points = int(getattr(player, "fate_points", 0) or 0) + success
         await plugin.db.update_player(player)
-        try:
-            await plugin.db.ext.set_system_config(fate_exchange_key(user_id), str(used + want))
-        except Exception:
-            pass
+        if success:
+            try:
+                await plugin.db.ext.set_system_config(
+                    fate_exchange_key(user_id), str(used + success)
+                )
+            except Exception:
+                pass
 
         snap = await fate_shop_snapshot(plugin, user_id)
-    snap.update(
-        {
-            "ok": True,
-            "message": f"消耗 {cost // 10000} 万灵石，兑换 {want} 仙缘点（本轮剩 {left - want} 点额度）",
-        }
-    )
+    rate = float(result["rate"]) * 100
+    if success:
+        message = (
+            f"祭祀 {want} 次成功 {success} 次，获得 {success} 仙缘点"
+            f"（耗 {cost // 10000} 万灵石，成功率 {rate:.1f}%）"
+        )
+    else:
+        message = (
+            f"祭祀 {want} 次天道未应，未获得仙缘点"
+            f"（耗 {cost // 10000} 万灵石，成功率 {rate:.1f}%）"
+        )
+    snap.update({"ok": True, "message": message})
     return snap

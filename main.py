@@ -3127,10 +3127,16 @@ class XiuXianPlugin(Star):
     # 注意：内层 ReincarnationHandlers.handle_fate_exchange 已带 @player_required
     # （同一把玩家锁 + 贷款/忙碌校验），此处不可再叠 @with_player_lock，
     # 否则同锁嵌套会永久死锁，把该玩家后续所有指令与网页看板一起卡死。
-    @filter.command("仙缘兑换", "购买仙缘商店的永久加成；灵石换点用 /仙缘兑换 灵石 <点数>")
+    @filter.command("仙缘兑换", "购买仙缘商店的永久加成；灵石祭祀用 /仙缘祭祀 <次数>")
     @require_whitelist
-    async def handle_fate_exchange(self, event: AstrMessageEvent, item_id: str = "0", count: str = "0"):
+    async def handle_fate_exchange(self, event: AstrMessageEvent, item_id: str = "0", count: str = ""):
         async for r in self.reinc_handlers.handle_fate_exchange(event, item_id, count):
+            yield r
+
+    @filter.command("仙缘祭祀", "以灵石为祭品，按日期/气运/功德小概率换仙缘点")
+    @require_whitelist
+    async def handle_fate_ritual(self, event: AstrMessageEvent, count: str = ""):
+        async for r in self.reinc_handlers.handle_fate_ritual(event, count):
             yield r
 
     # ===== v6.1 真·一键日常 =====

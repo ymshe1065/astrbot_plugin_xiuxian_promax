@@ -1113,7 +1113,7 @@ async def _api_fate_shop_buy(request: web.Request) -> web.Response:
 
 
 async def _api_fate_shop_exchange(request: web.Request) -> web.Response:
-    """灵石换仙缘点（1000 万 / 点，每世 100 点）。"""
+    """仙缘祭祀（1000 万灵石 / 次，按日期·气运·功德小概率成功）。"""
     user = _token_user(request)
     if user is None:
         return web.json_response({"ok": False, "error": "登录已过期"}, status=401)

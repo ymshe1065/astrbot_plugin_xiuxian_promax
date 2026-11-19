@@ -26,6 +26,7 @@ from astrbot.api import logger
 
 from ..data import DataBase
 from ..models import Player
+from .bank_manager import DEFAULT_DEPOSIT_CAPS
 
 __all__ = ["InvestManager"]
 
@@ -200,6 +201,55 @@ class InvestManager:
         self._settle_lock = asyncio.Lock()
         # 连续结算失败的盘次计数（防刷屏/便于定位卡死的盘）
         self._tick_failures: Dict[int, int] = {}
+        # 杠杆风控（插件配置 INVEST 段可覆盖，缺省走类常量）
+        _invest_cfg = (self.config.get("INVEST")
+                       or (self.config.get("VALUES") or {}).get("INVEST") or {})
+        self.margin_max_positions = self._int_config(
+            _invest_cfg, "MAX_POSITIONS", self.MARGIN_MAX_POSITIONS
+        )
+        self.margin_max_positions_per_code = self._int_config(
+            _invest_cfg, "MAX_POSITIONS_PER_CODE", self.MARGIN_MAX_POSITIONS_PER_CODE
+        )
+        self.margin_total_cap_override = self._int_config(_invest_cfg, "MAX_TOTAL_MARGIN", 0)
+        self.margin_leverage_caps = self._parse_leverage_caps(
+            _invest_cfg.get("LEVERAGE_SIGMA_CAPS")
+        )
+
+    # ===== 配置解析 =====
+
+    @staticmethod
+    def _int_config(cfg: dict, key: str, default: int) -> int:
+        """插件配置里的整数项：非法值或负数一律退回默认值，0 表示「不限」。"""
+        try:
+            value = int((cfg or {}).get(key))
+        except (TypeError, ValueError):
+            return default
+        return max(0, value)
+
+    @classmethod
+    def _parse_leverage_caps(cls, raw) -> tuple:
+        """解析 ``"0.055:5,0.075:3"``；格式非法直接退回默认分档。
+
+        最后一档会补一个 ``inf``，让「高于所有档位」的标的沿用最后一档倍数，
+        避免漏配时变成不限倍数。
+        """
+        if raw is None or str(raw).strip() == "":
+            return cls.MARGIN_LEVERAGE_SIGMA_CAPS
+        caps = []
+        for part in str(raw).replace("，", ",").split(","):
+            part = part.strip()
+            if not part:
+                continue
+            try:
+                sigma_text, lev_text = part.split(":")
+                caps.append((float(sigma_text), int(lev_text)))
+            except (TypeError, ValueError):
+                return cls.MARGIN_LEVERAGE_SIGMA_CAPS
+        if not caps:
+            return cls.MARGIN_LEVERAGE_SIGMA_CAPS
+        caps.sort(key=lambda item: item[0])
+        caps.append((float("inf"), caps[-1][1]))
+        return tuple(caps)
 
     # ===== 时间与盘次 =====
 
@@ -1333,6 +1383,9 @@ class InvestManager:
     # ===== 仙市杠杆（v7.10.3）=====
     # 只做股票合约：玩家出保证金，仙市按倍数配资，盈亏按整仓结算。
     # 规则刻意做成「亏损不超过保证金」：爆仓即强平，不会倒欠仙市。
+    #
+    # v3.48.1 风控：单笔上限本身挡不住「同一标的连开多笔」——截图里的
+    # 3 笔 S04 5 倍就是同一张 5500 万名义的大注。所以按玩家统计总敞口。
     MARGIN_LEVERAGES = (2, 3, 5)
     MARGIN_MIN = 10_000
     MARGIN_MAX_TOTAL = 5_000_000
@@ -1340,6 +1393,89 @@ class InvestManager:
     MARGIN_CLOSE_FEE_RATE = 0.002
     MARGIN_BORROW_RATE_PER_TICK = 0.0008
     MARGIN_LIQUIDATION_RATIO = 0.20
+    # 单玩家同时持仓笔数与同一标的笔数（0 = 不限）
+    MARGIN_MAX_POSITIONS = 3
+    MARGIN_MAX_POSITIONS_PER_CODE = 1
+    # 单玩家总保证金上限 = 钱庄该境界存款上限 × 比例，且不低于地板值。
+    # 复用 bank_manager 的分档表，避免两张表随境界调整各走各的。
+    MARGIN_TOTAL_CAP_RATIO = 0.20
+    MARGIN_TOTAL_CAP_FLOOR = 5_000_000
+    # 杠杆倍数按标的每盘波动限制：(σ 上限, 允许的最高倍数)，超出最后一档沿用最后一档。
+    # 5 倍的强平距离只有 -16%，只该给 σ≤5.5% 的标的（S01 5.5%、S03 4.5%）。
+    MARGIN_LEVERAGE_SIGMA_CAPS = ((0.055, 5), (0.075, 3), (float("inf"), 2))
+
+    def margin_total_cap(self, player: Player) -> int:
+        """单玩家杠杆总保证金上限。
+
+        默认按 ``level_index`` 取钱庄默认存款分档的 20%，并保底 5,000,000，
+        这样低境界不会被卡得太死，高境界也不会因为钱庄额度膨胀而无限放大。
+        插件配置 ``INVEST.MAX_TOTAL_MARGIN > 0`` 时，所有玩家统一用该值；
+        若服主改过 ``config/game_config.json`` 的存款分档，也建议直接用该值覆盖。
+        """
+        if self.margin_total_cap_override > 0:
+            return self.margin_total_cap_override
+        try:
+            level = max(0, int(getattr(player, "level_index", 0) or 0))
+        except (TypeError, ValueError):
+            level = 0
+        deposit_cap = DEFAULT_DEPOSIT_CAPS[0][1]
+        for start, value in DEFAULT_DEPOSIT_CAPS:
+            if level >= start:
+                deposit_cap = value
+        return max(
+            self.MARGIN_TOTAL_CAP_FLOOR,
+            int(deposit_cap * self.MARGIN_TOTAL_CAP_RATIO),
+        )
+
+    def max_leverage_for(self, sigma: float) -> int:
+        """按标的每盘 σ 给出允许的最高杠杆倍数。"""
+        try:
+            sigma = float(sigma or 0)
+        except (TypeError, ValueError):
+            sigma = 0.0
+        if sigma <= 0:
+            # 波动缺失/为 0 的脏数据按最高风险处理，不能默认放行 5 倍
+            return self.margin_leverage_caps[-1][1]
+        for limit, leverage in self.margin_leverage_caps:
+            if sigma <= limit:
+                return leverage
+        return self.margin_leverage_caps[-1][1]
+
+    async def _check_margin_exposure(
+        self, player: Player, code: str, product_name: str, margin: int,
+    ) -> Tuple[bool, str, int, int]:
+        """在开仓事务内校验单玩家敞口。
+
+        返回 ``(通过, 错误文案, 已用保证金, 总上限)``。必须在 ``BEGIN IMMEDIATE``
+        里调用：只读一次再写会和并发开仓互相看不见，玩家能连点开出一串超限仓位。
+        """
+        rows = await self._rows(
+            "SELECT code, margin FROM invest_margin_positions "
+            "WHERE user_id = ? AND status = 'open'",
+            (player.user_id,),
+        )
+        used = sum(int(row.get("margin") or 0) for row in rows)
+        cap = self.margin_total_cap(player)
+        if self.margin_max_positions > 0 and len(rows) >= self.margin_max_positions:
+            return False, (
+                f"❌ 最多同时持有 {self.margin_max_positions} 笔杠杆持仓，"
+                f"当前已有 {len(rows)} 笔，请先平掉一些。"
+            ), used, cap
+        if self.margin_max_positions_per_code > 0:
+            same = sum(1 for row in rows if str(row.get("code") or "").upper() == code)
+            if same >= self.margin_max_positions_per_code:
+                return False, (
+                    f"❌ {product_name}（{code}）已有 {same} 笔未平仓，"
+                    f"同一标的最多 {self.margin_max_positions_per_code} 笔。\n"
+                    "想加大仓位请先平掉旧仓，或换一个标的分散。"
+                ), used, cap
+        if used + margin > cap:
+            return False, (
+                f"❌ 杠杆总保证金超过上限：已用 {used:,} + 本笔 {margin:,} "
+                f"> 上限 {cap:,}。\n"
+                f"当前还能开 {max(0, cap - used):,} 灵石。"
+            ), used, cap
+        return True, "", used, cap
 
     async def open_margin(self, player: Player, code: str, leverage: int, margin: int) -> Tuple[bool, str]:
         code = (code or "").strip().upper()
@@ -1367,6 +1503,18 @@ class InvestManager:
         if price <= 0:
             return False, "❌ 当前价格异常，无法开仓。"
 
+        # 倍数上限按标的波动收口：5 倍的强平距离只有 -16%，
+        # 放在 σ=8.5%/盘的 S05 上，一个交易日内爆仓概率超过 2/3。
+        sigma = float(product.get("sigma") or 0)
+        allowed_leverage = self.max_leverage_for(sigma)
+        if leverage > allowed_leverage:
+            choices = "/".join(str(x) for x in self.MARGIN_LEVERAGES if x <= allowed_leverage)
+            return False, (
+                f"❌ {product['name']}（{code}）每盘波动 {sigma:.1%}，"
+                f"波动越大强平距离相对越窄，该标的最多只能开 {allowed_leverage} 倍。\n"
+                f"可选倍数：{choices} 倍。想开 {leverage} 倍请换波动更低的标的。"
+            )
+
         # 与现货买股同一道贷款门槛：欠着钱还能加杠杆，
         # 等于让「贷款买币 → 爆仓 → 拍拍屁股走人」成为免费的单向期权。
         loan = await self._active_loan(player.user_id)
@@ -1390,6 +1538,14 @@ class InvestManager:
 
         await self.db.conn.execute("BEGIN IMMEDIATE")
         try:
+            # 敞口校验必须和扣款/落库同一事务：放在事务外，两个并发开仓
+            # 会各自读到旧笔数，双双通过检查后超限。
+            passed, why, used, cap = await self._check_margin_exposure(
+                player, code, str(product.get("name") or code), margin
+            )
+            if not passed:
+                await self.db.conn.rollback()
+                return False, why
             cursor = await self.db.conn.execute(
                 "UPDATE players SET gold = gold - ? WHERE user_id = ? AND gold >= ?",
                 (margin + fee, player.user_id, margin + fee),
@@ -1417,6 +1573,7 @@ class InvestManager:
             f"保证金：{margin:,}｜开仓费：{fee:,}\n"
             f"配资：{borrow:,}｜名义仓位：{total:,}\n"
             f"开仓价：{price:.2f}｜持仓编号：{position_id}\n"
+            f"额度占用：{used + margin:,} / {cap:,}\n"
             f"━━━━━━━━━━━━━━━\n"
             f"⚠️ 每盘配资利息 {self.MARGIN_BORROW_RATE_PER_TICK * 100:.2f}%，"
             f"保证金亏至 {int(self.MARGIN_LIQUIDATION_RATIO * 100)}% 将被强平。\n"
@@ -1567,6 +1724,12 @@ class InvestManager:
         )
         lines = ["📈 仙市杠杆", "━━━━━━━━━━━━━━━"]
         tick = self.tick_of()
+        cap = self.margin_total_cap(player)
+        used = sum(int(pos.get("margin") or 0) for pos in positions)
+        max_pos = self.margin_max_positions or "∞"
+        lines.append(
+            f"额度 {used:,} / {cap:,}｜持仓 {len(positions)}/{max_pos} 笔"
+        )
         if not positions:
             lines.append("当前没有未平仓的杠杆持仓。")
         for pos in positions:
@@ -1595,10 +1758,19 @@ class InvestManager:
                     f"[{pos['id']}] {pos['code']} {int(pos['leverage'])}倍 {tag}"
                     f"｜返还 {int(pos['payout'] or 0):,}｜盈亏 {int(pos['pnl'] or 0):+,}"
                 )
+        per_code = self.margin_max_positions_per_code or "∞"
+        lev_text = "，".join(
+            [f"σ≤{limit:.1%} 可 {lev} 倍"
+             for limit, lev in self.margin_leverage_caps
+             if limit != float("inf")]
+            + [f"更高 {self.margin_leverage_caps[-1][1]} 倍"]
+        )
         lines.extend([
             "━━━━━━━━━━━━━━━",
             "💡 `/仙市 杠杆 <代码> <倍数> <保证金>` 开多仓",
             "💡 `/仙市 杠杆 平仓 <编号>` 主动平仓",
             "⚠️ 杠杆放大盈亏，保证金亏至 20% 会被强制平仓。",
+            f"📏 单玩家总保证金按境界限额；同一标的 {per_code} 笔、"
+            f"总持仓 {max_pos} 笔；{lev_text}。",
         ])
         return "\n".join(lines)

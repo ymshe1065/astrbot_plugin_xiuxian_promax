@@ -713,6 +713,36 @@
       }
     }
   },
+  "INVEST": {
+    "description": "仙市杠杆风控",
+    "type": "object",
+    "items": {
+      "MAX_POSITIONS": {
+        "description": "单玩家最大持仓笔数",
+        "type": "int",
+        "default": 3,
+        "hint": "同时未平仓的杠杆仓位数，0 = 不限。"
+      },
+      "MAX_POSITIONS_PER_CODE": {
+        "description": "同一标的最大持仓笔数",
+        "type": "int",
+        "default": 1,
+        "hint": "防止同一只票连开多笔叠加成一张大注，0 = 不限。"
+      },
+      "MAX_TOTAL_MARGIN": {
+        "description": "单玩家总保证金上限",
+        "type": "int",
+        "default": 0,
+        "hint": "0 = 按境界分档（钱庄默认存款分档的 20%，保底 500 万，与存款分档同步）；填大于 0 的值则所有玩家统一用该上限。"
+      },
+      "LEVERAGE_SIGMA_CAPS": {
+        "description": "倍数按标的波动限制",
+        "type": "string",
+        "default": "0.055:5,0.075:3",
+        "hint": "格式「每盘σ上限:最高倍数」，逗号分隔，超出最后一档沿用最后一档倍数。默认 σ≤5.5% 可 5 倍，5.5%~7.5% 最多 3 倍，更高最多 2 倍。"
+      }
+    }
+  },
   "SPIRIT_ROOT_SPEEDS": {
     "description": "灵根修炼速度倍率",
     "type": "object",
