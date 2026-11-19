@@ -1308,8 +1308,26 @@ class GambleManager:
             return False, f"❌ 灵石不足！拆开【{item['name']}】需要 {price:,} 灵石。"
 
         hidden = item["hidden"]
+        inspected_before = bool(state.get(index, {}).get("inspected"))
         await self.db.conn.execute("BEGIN IMMEDIATE")
         try:
+            # 抢占「拆开权」必须与扣费同事务：事务外的 opened 预检查依赖玩家锁，
+            # 一旦有绕过锁的调用方（自动代理、管理员工具），就能反复拆同一个锦囊。
+            # 与 inspect_pouch 同一套「先抢标记再扣费」的写法。
+            cursor = await self.db.conn.execute(
+                "INSERT OR IGNORE INTO black_market_pouches "
+                "(user_id, period, slot, inspected, opened, result) VALUES (?, ?, ?, ?, 1, '')",
+                (player.user_id, period, index, int(inspected_before)),
+            )
+            if not cursor.rowcount:
+                cursor = await self.db.conn.execute(
+                    "UPDATE black_market_pouches SET opened = 1 "
+                    "WHERE user_id = ? AND period = ? AND slot = ? AND opened = 0",
+                    (player.user_id, period, index),
+                )
+            if not cursor.rowcount:
+                await self.db.conn.rollback()
+                return False, "❌ 这个锦囊本小时已经被你拆开了，请等待下次刷新。"
             cursor = await self.db.conn.execute(
                 "UPDATE players SET gold = gold - ? WHERE user_id = ? AND gold >= ?",
                 (price, player.user_id, price),
@@ -1360,7 +1378,7 @@ class GambleManager:
             await self.db.update_player(fresh, commit=False)
             await self._save_pouch_state(
                 player.user_id, period, index,
-                bool(state.get(index, {}).get("inspected")), True, result_text,
+                inspected_before, True, result_text,
                 commit=False,
             )
             await self.db.conn.commit()

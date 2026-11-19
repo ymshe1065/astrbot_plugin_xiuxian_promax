@@ -730,14 +730,16 @@ class SpiritFarmManager:
             })
             planted.append(herb_name)
         self._normalize_crop_slots(crops, max_slots)
-        self._save_unlocked_specials(player, unlocked)
+        # 先把解锁结果算成局部变量：扣费失败时绝不能污染 player 对象，
+        # 否则后续任何一次全字段 update_player 都会把「没付钱的特殊灵植解锁」写进库。
+        new_unlocks_json = json.dumps(sorted(set(unlocked)), ensure_ascii=False)
 
         await self.db.conn.execute("BEGIN IMMEDIATE")
         try:
             cursor = await self.db.conn.execute(
                 "UPDATE players SET gold = gold - ?, farm_unlocks = ? "
                 "WHERE user_id = ? AND gold >= ?",
-                (total_cost, player.farm_unlocks, player.user_id, total_cost),
+                (total_cost, new_unlocks_json, player.user_id, total_cost),
             )
             if not cursor.rowcount:
                 await self.db.conn.rollback()
@@ -748,6 +750,8 @@ class SpiritFarmManager:
             )
             await self.db.conn.commit()
             player.gold -= total_cost
+            # 只有扣费真正成功才把解锁结果写回 player 对象
+            self._save_unlocked_specials(player, unlocked)
         except Exception:
             await self.db.conn.rollback()
             raise

@@ -343,16 +343,30 @@ class TreasureMapManager:
             old_loot = list(run.get("loot") or [])
             lost_items = [x for x in old_loot if x.get("kind") != "gold"]
             lost_gold = sum(int(x.get("amount") or 0) for x in old_loot if x.get("kind") == "gold")
+            # 带 status 守卫：后台 settle_stale_runs 可能刚好把这条 run 按撤退结算掉，
+            # 此时战利品已经发放，不能再显示「全部遗失」误导玩家。
+            cursor = await self.db.conn.execute(
+                "UPDATE treasure_map_runs SET status='ended', floor=?, hp=1, loot='[]', log=?, "
+                "updated_at=? WHERE user_id = ? AND status='active'",
+                (
+                    floor_no,
+                    json.dumps(log_entries[-12:], ensure_ascii=False),
+                    int(time.time()), player.user_id,
+                ),
+            )
+            already_settled = not cursor.rowcount
             await self.db.conn.execute(
                 "UPDATE players SET hp = 1 WHERE user_id = ?", (player.user_id,)
             )
-            await self.db.conn.execute(
-                "UPDATE treasure_map_runs SET status='ended', floor=?, log=?, updated_at=? "
-                "WHERE user_id = ?",
-                (floor_no, json.dumps(log_entries[-12:], ensure_ascii=False), int(time.time()), player.user_id),
-            )
             await self.db.conn.commit()
             player.hp = 1
+            if already_settled:
+                return True, (
+                    f"💀 你在第 {floor_no} 层倒下了！\n"
+                    "━━━━━━━━━━━━━━━\n"
+                    "⚠️ 这座墓府已被后台按「撤退」结算过，此前带回的战利品仍然有效。\n"
+                    "💡 发送 `/藏宝图` 查看当前状态。"
+                )
             lost_desc = f"本次获得的 {len(lost_items)} 件战利品"
             if lost_gold:
                 lost_desc += f"与 {lost_gold:,} 灵石"
@@ -405,18 +419,31 @@ class TreasureMapManager:
             return await self._settle(player, run, success=True, reason="通关主墓")
 
         budget = max(1, int(max_hp * HEAL_BUDGET_RATE))
-        await self.db.conn.execute(
-            "UPDATE players SET hp = ? WHERE user_id = ?", (hp_after, player.user_id)
-        )
-        await self.db.conn.execute(
-            "UPDATE treasure_map_runs SET floor=?, hp=?, heal_used=0, heal_budget=?, loot=?, log=?, updated_at=? "
-            "WHERE user_id = ?",
+        # 落库带 status 守卫：后台 settle_stale_runs 可能刚好把这条 run 按撤退结算，
+        # 此时本层推进不能再写回一条已结束的记录，否则玩家会看到「已结算」却又
+        # 多出一层战利品的错乱状态。
+        #
+        # 这里刻意不开事务：单条条件 UPDATE 在 SQLite 里本身就是原子的，守卫语义
+        # 已经完整；而全库共用一条 autocommit 连接，多一个 BEGIN IMMEDIATE 就多一处
+        # 「cannot start a transaction within a transaction」的嵌套抛错面。
+        # 与上面阵亡分支保持同一写法。守卫先行，通过了才写气血，失败时不留半截状态。
+        cursor = await self.db.conn.execute(
+            "UPDATE treasure_map_runs SET floor=?, hp=?, heal_used=0, heal_budget=?, "
+            "loot=?, log=?, updated_at=? WHERE user_id = ? AND status='active'",
             (
                 floor_no, hp_after, budget,
                 json.dumps(loot, ensure_ascii=False),
                 json.dumps(log_entries[-12:], ensure_ascii=False),
                 int(time.time()), player.user_id,
             ),
+        )
+        if not cursor.rowcount:
+            return False, (
+                "⏳ 本次爬塔已被后台按「撤退」结算，此前战利品已发放。\n"
+                "💡 发送 `/藏宝图` 查看状态，或 `/藏宝图 开始 <1-3>` 重新进入。"
+            )
+        await self.db.conn.execute(
+            "UPDATE players SET hp = ? WHERE user_id = ?", (hp_after, player.user_id)
         )
         await self.db.conn.commit()
         player.hp = hp_after
@@ -509,6 +536,13 @@ class TreasureMapManager:
             if not cursor.rowcount:
                 await self.db.conn.rollback()
                 return False, "❌ 本次爬塔已经结算过了。"
+            # 事务内重读灵石：后台暗标退款/盘口派彩不持玩家锁，
+            # 直接用命令开始时的旧快照回写会把它们的入账覆盖掉。
+            # 失败分支同样要重读——它也会走下面的全字段 update_player。
+            fresh = await self._fetchone(
+                "SELECT gold FROM players WHERE user_id = ?", (player.user_id,)
+            )
+            base_gold = int((fresh or {}).get("gold") or 0) if fresh else int(player.gold or 0)
             if success:
                 if self.gamble_mgr:
                     for item in loot:
@@ -531,13 +565,9 @@ class TreasureMapManager:
                         )
                         if ok:
                             labels.append(f"【{name}】")
-                # 事务内重读灵石：后台暗标退款/盘口派彩不持玩家锁，
-                # 直接用命令开始时的旧快照回写会把它们的入账覆盖掉。
-                fresh = await self._fetchone(
-                    "SELECT gold FROM players WHERE user_id = ?", (player.user_id,)
-                )
-                base_gold = int((fresh or {}).get("gold") or 0) if fresh else int(player.gold or 0)
                 player.gold = base_gold + gold_bonus
+            else:
+                player.gold = base_gold
             await self.db.update_player(player, commit=False)
             await self.db.conn.commit()
         except Exception:

@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v7.11.0 · 网页聊天室版
+# AstrBot 插件：模拟修仙 v7.11.1 · 网页聊天室版
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/ymshe1065/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/ymshe1065/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v7.11.0-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v7.11.1-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -27,7 +27,7 @@
 
 ---
 
-> **插件版本:** v3.47.0 · **游戏版本:** v7.11.0 · **数据库:** v65 · **分支:** `feat/web-chatroom`
+> **插件版本:** v3.47.1 · **游戏版本:** v7.11.1 · **数据库:** v65 · **分支:** `feat/web-chatroom`
 >
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497) · [lan](https://github.com/lanxue0)
 
@@ -48,7 +48,25 @@
 <sub>点击展开对应版本查看详细变更；v3.44.3 之前的版本按游戏版本系列汇总在下方。</sub>
 
 <details open>
-<summary><b>本次更新 · 插件 v3.47.0（迭代版本发布）</b></summary>
+<summary><b>本次更新 · 插件 v3.47.1（高风险玩法第四轮加固）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 矿脉分成 | `claim` 删除事务外的 `player.gold += total_gold` 与两处 rollback 回退，改为在 `BEGIN IMMEDIATE` 内重读灵石后再 `update_player(commit=False)`。`player` 是命令开始时的快照，而后台暗标退款/盘口派彩并不持玩家锁，绝对值回写会把这期间刚入账的灵石整笔抹掉 |
+| 仙市杠杆 | 新增 `InvestManager._liquidation_price(position, interest, margin)`，`/仙市 杠杆 状态` 的强平价改用它反解。旧公式 `(borrow + margin×20%) / shares` 漏算了配资利息与 0.2% 平仓费，显示的强平线偏低——玩家按它设止损会被提前强平；且利息随持有盘数增长，强平线本应动态上移 |
+| 斗法盘口 | 删除 `_settle_pool` 中不可达的 `kind == 'stone'` 分支，开奖口径全局唯一化为 `p_a = HOUSE_RATE / odds_a`。赌石走 `bet_stone()` 即时结算、从不写 `betting_pools`，`ensure_pools()` 也只创建 `duel`，该分支自始至终是死代码，却是颗印钞地雷：`p_success` 缺失时退回 `or 0.5`，而赔率按真实概率定价（太古原石「切垮」3.68 倍）→ 押「切垮」期望收益 1.84 倍；改按 `odds_a` 反推同样不安全（`odds_a` 被 `MIN_STONE_ODDS` 钳到 1.01 后 B 侧期望仍为 1.025）。分支还引用了未导入的 `logger`，真出现脏行会抛 `NameError` 导致该盘口永久无法结算、玩家下注一直挂着 |
+| 藏宝图 · 阵亡 | `advance` 的死亡落库补 `AND status='active'` 守卫，并把战利品真正清成 `loot='[]'`。旧实现只在文案里说「全部遗失」，数据库里 `loot` 原封不动；守卫落空（后台已按撤退结算）时也不再误报战利品尽失 |
+| 藏宝图 · 推进 | 中间层落库同样加 `status='active'` 守卫并包进 `BEGIN IMMEDIATE`，守卫失败整笔回滚（含气血），杜绝「已结算却又多出一层战利品」的半截写入 |
+| 藏宝图 · 结算 | `_settle` 的事务内重读灵石移出 `if success:`——失败分支同样会走全字段 `update_player`，旧写法只在成功时重读，倒下/超时结算仍会覆盖并发入账 |
+| 灵田盲种 | 解锁结果先算成局部 `new_unlocks_json` 写库，只有 commit 成功后才调 `_save_unlocked_specials()`。旧实现在扣费前就改了 `player` 对象，扣费失败（快照够、库里不够）会留下「没付钱的特殊灵植解锁」，之后任何一次全字段回写都会把它永久写进库 |
+| 黑市拆囊 | `open_pouch` 把「抢占拆开权」（`INSERT OR IGNORE` → 条件 `UPDATE opened=0`）与扣费合并到同一事务，与 `inspect_pouch` 同构。旧实现的 `opened` 预检查在事务外、完全依赖玩家锁，任何绕过锁的调用方（自动代理、管理员工具）都能反复拆同一个锦囊；同时修正拆囊会把已有验囊标记覆盖成未验 |
+| 回归 | 新增 `tests/test_high_stakes_round4.py`（**27 项**：矿脉并发入账不被覆盖与领取进度守卫、藏宝图阵亡清空战利品/推进与阵亡的后台结算竞态/失败分支重读灵石、盘口两侧期望收益恒 ≤ 1 与结算口径唯一性静态护栏、脏 `stone` 行不崩不印钞、锦囊重复拆开与验囊标记、盲种失败不污染存档、杠杆强平线与权益公式自洽且能真正触发强平）；另根治一处 v3.46.5 遗留的偶发失败——赌石派彩用例守卫 `"命中" in msg` 会把 `💀 未命中` 误判成命中导致正则空匹配抛 `AttributeError`（tier1 出货率 92%，每次全量约 8% 概率触发），改为注入可控 rng 后对赢/输两分支做确定性断言；全量 **1726 项测试通过（3 skipped）** |
+| 版本与数据库 | 插件 **v3.47.1** / 游戏及帮助 **v7.11.1** / 数据库保持 **v65**（无表结构变更，无需迁移） |
+
+</details>
+
+<details>
+<summary><b>插件 v3.47.0（迭代版本发布）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |
@@ -1535,26 +1553,26 @@ python3 -m unittest discover -s tests -q         # 现有单测
 | 原版 | xiaojuwa | 插件初版（借鉴 nonebot_plugin_xiuxian_2） |
 | 二改 | [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) | v2.5~v3.1.3 稳定性修复：储物戒枢纽化、银行体系、悬赏模板、并发保护 |
 | **三改** | **[云兮](https://github.com/iqapi)** | **v6.0~v6.35.1**：17 个大系统、110 称号、60 路线、卡片渲染器、装备百分比平衡、离线测试体系 |
-| **四改** | **[ymshe1065](https://github.com/ymshe1065)**<br>**[lsq3497](https://github.com/lsq3497)**<br>**[lan](https://github.com/lanxue0)** | **v6.35.2~v7.11.0**：数值与经济、机制重做、测试基建、自动代理、网页聊天室、网格化看板、飞升仙缘、仙市精度、每日悬赏通缉等 |
+| **四改** | **[ymshe1065](https://github.com/ymshe1065)**<br>**[lsq3497](https://github.com/lsq3497)**<br>**[lan](https://github.com/lanxue0)** | **v6.35.2~v7.11.1**：数值与经济、机制重做、测试基建、自动代理、网页聊天室、网格化看板、飞升仙缘、仙市精度、每日悬赏通缉等 |
 
 ### 四改说明
 
-四改自 `v6.35.2` 起承接三改，现由三位维护者共同推进；插件 **v3.47.0** / 游戏 **v7.11.0** / 数据库 **v65**，当前开发分支为 `feat/web-chatroom`。工作主线：
+四改自 `v6.35.2` 起承接三改，现由三位维护者共同推进；插件 **v3.47.1** / 游戏 **v7.11.1** / 数据库 **v65**，当前开发分支为 `feat/web-chatroom`。工作主线：
 
 | 主线 | 主要变更 |
 | --- | --- |
 | 数值与经济 | 属性公式统一、修为溢出转换、丹药定价与修为丹梯度、百宝阁供给、贷款与押镖、仙市份额精度 |
 | 机制重做 | 重修与三选一灵根、功德（业力）、飞升与仙缘商店、身外化身、周本与拍卖会 |
 | 网页聊天室 | webroom 平台适配器、仙界频道、网格化看板、指令联想、意见反馈、结构化卡片直通 |
-| 工程保障 | 共享测试桩、全量回归（156 个测试模块 / 874 个测试方法 + 6 个前端契约）、幂等迁移与并发修复 |
+| 工程保障 | 共享测试桩、全量回归（161 个测试模块 / 1726 项测试 + 6 个前端契约）、幂等迁移与并发修复 |
 
 ### 分支与版本
 
 | 项 | 当前 |
 | --- | --- |
 | 开发分支 | `feat/web-chatroom` |
-| 插件版本 | v3.47.0 |
-| 游戏版本 | v7.11.0 |
+| 插件版本 | v3.47.1 |
+| 游戏版本 | v7.11.1 |
 | 数据库版本 | v65 |
 | 运行环境 | AstrBot 4.29.x + Python 3.12 |
 | 仓库 | [ymshe1065/astrbot_plugin_xiuxian_promax](https://github.com/ymshe1065/astrbot_plugin_xiuxian_promax) |

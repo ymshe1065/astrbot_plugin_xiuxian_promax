@@ -82,16 +82,50 @@ class TestHighStakesRound3(unittest.IsolatedAsyncioTestCase):
                 )
 
     async def test_stone_bet_payout_uses_round_not_truncate(self):
-        """派彩用 int() 截断会因浮点误差少给 1 灵石。"""
+        """派彩用 int() 截断会因浮点误差少给 1 灵石。
+
+        bet_stone 的输赢由当前秒数播种的 seeded_rng 决定（tier1 出货率 92%），
+        不钉死就会有 8% 概率走「未命中」分支。旧守卫 `if "命中" in msg` 还会把
+        `💀 未命中` 误判成命中——输的报文里没有「派彩 X 灵石」，
+        `re.search(...).group(1)` 直接抛 AttributeError（全量回归偶发失败的来源）。
+        这里注入可控 rng，赢/输两个分支都做确定性断言。
+        """
+        pool_mod = self._imp("managers.betting_pool_manager")
         p = await self._player("stone_bettor", gold=1_000_000)
         mgr = self._manager("managers.betting_pool_manager", "BettingPoolManager", self.db)
-        ok, msg = await mgr.bet_stone(p, 1, "出货", 300)
-        self.assertTrue(ok, msg)
-        self.assertIn("赔率：", msg)
-        if "命中" in msg:
-            odds = float(re.search(r"赔率：([\d.]+)", msg).group(1))
-            payout = int(re.search(r"派彩 ([\d,]+) 灵石", msg).group(1).replace(",", ""))
+        original = pool_mod.seeded_rng
+
+        class _WinRng:
+            def random(self):
+                return 0.0
+
+        class _LoseRng:
+            def random(self):
+                return 0.999
+
+        try:
+            pool_mod.seeded_rng = lambda *a, **k: _WinRng()
+            ok, msg = await mgr.bet_stone(p, 1, "出货", 300)
+            self.assertTrue(ok, msg)
+            odds_match = re.search(r"赔率：([\d.]+)", msg)
+            self.assertIsNotNone(odds_match, msg)
+            odds = float(odds_match.group(1))
+            payout_match = re.search(r"派彩 ([\d,]+) 灵石", msg)
+            self.assertIsNotNone(payout_match, f"命中报文必须带派彩金额：{msg}")
+            payout = int(payout_match.group(1).replace(",", ""))
             self.assertEqual(payout, int(round(300 * odds)))
+            gold_after_win = await self._gold(p.user_id)
+            self.assertEqual(gold_after_win, 1_000_000 - 300 + payout)
+
+            pool_mod.seeded_rng = lambda *a, **k: _LoseRng()
+            ok, msg = await mgr.bet_stone(p, 1, "出货", 300)
+            self.assertTrue(ok, msg)
+            self.assertIn("💀 未命中", msg)
+            self.assertNotIn("派彩", msg)
+            self.assertEqual(await self._gold(p.user_id), gold_after_win - 300,
+                             "未命中只能扣赌注，不能有任何派彩")
+        finally:
+            pool_mod.seeded_rng = original
 
     # ===== 暗标：免费区间 / 付费准确 =====
     def test_blind_auction_free_hint_gives_range_not_exact_rank(self):

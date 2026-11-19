@@ -479,7 +479,6 @@ class MineVeinManager:
             if key not in ("normal",):
                 event_lines.append(f"第{h % 24:02d}时：{text}")
 
-        player.gold += total_gold
         stored_names = []
         await self.db.conn.execute("BEGIN IMMEDIATE")
         try:
@@ -498,8 +497,15 @@ class MineVeinManager:
                 )
             if not cursor.rowcount:
                 await self.db.conn.rollback()
-                player.gold -= total_gold
                 return False, "⏳ 这段产量已被结算，请稍后再来开采。"
+            # 全字段回写前必须在事务内重读灵石：player 是命令开始时的快照，
+            # 而后台暗标退款/盘口派彩并不持玩家锁。旧写法 `player.gold += total_gold`
+            # 再 update_player，会把这期间刚入账的灵石整笔抹掉。
+            fresh = await self._fetchone(
+                "SELECT gold FROM players WHERE user_id = ?", (player.user_id,)
+            )
+            base_gold = int((fresh or {}).get("gold") or 0) if fresh else int(player.gold or 0)
+            player.gold = base_gold + total_gold
             for name, qty in material_total.items():
                 try:
                     ok, _ = await self.storage_ring_mgr.store_item(
@@ -513,7 +519,6 @@ class MineVeinManager:
             await self.db.conn.commit()
         except Exception:
             await self.db.conn.rollback()
-            player.gold -= total_gold
             raise
         lines = [
             f"⛏️ 矿脉 {mine_id} 开采结算",

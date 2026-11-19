@@ -1446,6 +1446,27 @@ class InvestManager:
             "pnl": equity - margin,
         }
 
+    @staticmethod
+    def _liquidation_price(position: dict, interest: float, margin: float) -> float:
+        """反解强平触发价，口径必须与 :meth:`_margin_equity` 完全一致。
+
+        强平条件是 ``value - borrow - interest - close_fee <= margin * 20%``，
+        其中 ``close_fee = value * MARGIN_CLOSE_FEE_RATE``。解出：
+
+            price = (borrow + interest + margin * ratio) / (shares * (1 - close_rate))
+
+        旧写法 ``(borrow + margin * ratio) / shares`` 漏掉了利息与平仓费，
+        显示的强平线偏低——玩家按它设止损，实际会被提前强平；而且利息随
+        持有盘数增长，强平线是动态上移的，必须把 interest 传进来。
+        """
+        shares = float(position.get("shares") or 0)
+        if shares <= 0:
+            return 0.0
+        borrow = float(position.get("borrow") or 0)
+        need = borrow + float(interest or 0) + float(margin or 0) * InvestManager.MARGIN_LIQUIDATION_RATIO
+        denom = shares * (1.0 - InvestManager.MARGIN_CLOSE_FEE_RATE)
+        return max(0.0, need / denom) if denom > 0 else 0.0
+
     async def close_margin(self, player: Player, position_id: int, *,
                            force: bool = False, liquidated: bool = False) -> Tuple[bool, str]:
         await self.settle_to()
@@ -1564,7 +1585,7 @@ class InvestManager:
             )
             lines.append(
                 f"    利息 {calc['interest']:,}｜强平线约 "
-                f"{(float(pos['borrow']) + margin * self.MARGIN_LIQUIDATION_RATIO) / max(0.0001, float(pos['shares'])):.2f}"
+                f"{self._liquidation_price(pos, calc['interest'], margin):.2f}"
             )
         if closed:
             lines.append("—— 最近结算 ——")

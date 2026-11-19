@@ -10,7 +10,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import time
 from typing import List, Optional, Tuple
 
@@ -135,18 +134,24 @@ class BettingPoolManager:
     async def _settle_pool(self, pool: dict, now: int) -> bool:
         pool_key = pool["pool_key"]
         rng = seeded_rng("pool-result", pool_key)
-        if pool.get("kind") == "stone":
-            # 赌石盘口：结果由 meta 中的真实概率决定
-            try:
-                meta = json.loads(pool.get("info_a") or "{}")
-            except Exception:
-                meta = {}
-            p = float(meta.get("p_success") or 0.5)
-            result = "A" if rng.random() < p else "B"
-        else:
-            odds_a = float(pool.get("odds_a") or 1.9)
-            p_a = min(0.95, max(0.05, HOUSE_RATE / odds_a))
-            result = "A" if rng.random() < p_a else "B"
+        # 开奖口径全局唯一：p_a = HOUSE_RATE / odds_a。
+        # 赔率本身就是按 `round(HOUSE_RATE / p, 2)` 生成的（见 ensure_pools），
+        # 因此反推回来的 p_a × odds_a ≡ HOUSE_RATE，庄家抽水不可能被绕过。
+        #
+        # 这里曾经有一个 `kind == 'stone'` 的分支，从 info_a 的 p_success 读真实
+        # 概率来开奖。它既是死代码又是地雷，已整体删除：
+        #   - 赌石下注走 bet_stone()，即时开奖、根本不写 betting_pools 行；
+        #   - ensure_pools() 只创建 kind='duel' 的盘口，全库没有任何写入点；
+        #   - 一旦 p_success 缺失就退回 `or 0.5`，而赔率是按真实概率定的
+        #     （太古原石「切垮」赔率 3.68），按 50% 开奖 → 期望收益 1.84 倍，
+        #     是名副其实的印钞机；
+        #   - 改成的「赔率反推」兜底同样不安全：odds_a 被 MIN_STONE_ODDS 钳到
+        #     1.01 后反推出 p=0.911，B 侧期望仍是 1.025 > 1，只是印得慢一点。
+        # 删除后即使真出现 kind='stone' 的历史脏行，也走同一条反推口径，
+        # 宁可让庄家少抽水，也不能出现任何一侧期望收益 > 1 的分支。
+        odds_a = float(pool.get("odds_a") or 1.9)
+        p_a = min(0.95, max(0.05, HOUSE_RATE / odds_a))
+        result = "A" if rng.random() < p_a else "B"
 
         await self.db.conn.execute("BEGIN IMMEDIATE")
         try:
