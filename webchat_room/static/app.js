@@ -6557,14 +6557,16 @@
   }
 
   /* ================= 主题 =================
-   * fish 大肥鱼·浅蓝鱼缸（默认） / xian 宣纸玉简
+   * xian 宣纸玉简 / fish 大肥鱼·浅蓝鱼缸（默认） / doubao 豆包·中国红
    * 只切 data-theme，视觉全交给 CSS 变量；这里只管文案、图标和持久化。
-   * 大肥鱼的 logo 不写在文案里，交给 CSS 背景图（brand/mark 留空即可）。
+   * 大肥鱼 / 豆包的 logo 不写在文案里，交给 CSS 背景图（brand/mark 留空即可）。
    */
   const THEME_KEY = "xiuxian_theme_v2";
+  const THEME_ORDER = ["xian", "fish", "doubao"];
   const FAVICON = {
     xian: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='%23a33b2a'/%3E%3C/svg%3E",
     fish: "/static/img/whale_favicon.png",
+    doubao: "/static/img/doubao_avatar.png",
   };
   const THEMES = {
     xian: {
@@ -6578,11 +6580,20 @@
     },
     fish: {
       name: "大肥鱼 · 浅蓝鱼缸",
-      next: "宣纸玉简",
+      next: "豆包·中国红",
       meta: "#eef4ff",
       brand: "",
       mark: "",
       sub: "一缸浅水 · 一起摸鱼吃饭",
+      btn: "",
+    },
+    doubao: {
+      name: "豆包 · 中国红",
+      next: "宣纸玉简",
+      meta: "#c8102e",
+      brand: "",
+      mark: "",
+      sub: "一盏红灯 · 陪你慢慢聊",
       btn: "☯",
     },
   };
@@ -6612,14 +6623,15 @@
   }
 
   function toggleTheme() {
-    applyTheme(theme === "xian" ? "fish" : "xian", true);
+    const i = THEME_ORDER.indexOf(theme);
+    applyTheme(THEME_ORDER[(i + 1) % THEME_ORDER.length], true);
   }
 
   function initTheme() {
     let start = "fish";
     try {
       const saved = localStorage.getItem(THEME_KEY);
-      if (saved === "fish" || saved === "xian") start = saved;
+      if (THEME_ORDER.indexOf(saved) >= 0) start = saved;
     } catch (e) { /* ignore */ }
     applyTheme(start, false);
   }

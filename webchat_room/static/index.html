@@ -12,7 +12,7 @@
 (function () {
   try {
     var t = localStorage.getItem("xiuxian_theme_v2");
-    if (t !== "fish" && t !== "xian") t = "fish";
+    if (t !== "fish" && t !== "xian" && t !== "doubao") t = "fish";
     document.documentElement.setAttribute("data-theme", t);
   } catch (e) {}
 })();
@@ -263,6 +263,9 @@
       </button>
       <button class="theme-opt" data-theme-val="fish" type="button">
         <i class="sw sw-fish"></i><span>大肥鱼</span>
+      </button>
+      <button class="theme-opt" data-theme-val="doubao" type="button">
+        <i class="sw sw-doubao"></i><span>豆包红</span>
       </button>
     </div>
 
