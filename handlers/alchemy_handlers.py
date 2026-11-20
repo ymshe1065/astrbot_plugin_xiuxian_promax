@@ -74,7 +74,7 @@ class AlchemyHandlers:
                         "view": "grid" if entries else "",
                         "entries": entries,
                     }],
-                    footer="💡 /学习丹方 <ID或名称> · /炼丹 <ID> [火候] [次数|all]",
+                    footer="💡 /炼丹 <ID> [火候] [次数|all] · 丹阁购买丹方即参悟",
                 )
                 if card_path:
                     yield event.image_result(card_path)

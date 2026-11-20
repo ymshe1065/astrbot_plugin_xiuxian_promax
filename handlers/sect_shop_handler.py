@@ -341,7 +341,25 @@ class SectShopHandler:
             )
             return
 
-        if item_type in ItemRules.EQUIPPABLE_TYPES | {"material", "recipe", "符箓", "杂物"}:
+        if item_type == "recipe":
+            # 与符图一致：兑换即参悟，不再发卷轴、不用再 /学习丹方
+            from ..managers.alchemy_manager import AlchemyManager
+            config_manager = getattr(self.storage_ring_mgr, "config_manager", None)
+            alchemy_mgr = AlchemyManager(self.db, config_manager, self.storage_ring_mgr)
+            ok, msg = await alchemy_mgr.learn_recipe(player, item_name, consume=False)
+            if not ok:
+                await self._refund_contribution(player.user_id, price)
+                await self._restore_stock(shop_id, item_name, item_key)
+                yield event.plain_result(f"❌ 兑换失败：{msg}\n贡献已退回。")
+                return
+            set_event_flag(event, "sect_shop_buy", True)
+            yield event.plain_result(
+                f"✅ 兑换成功：{item_name}，已当场参悟。\n{msg}\n"
+                f"消耗宗门贡献：{price:,}"
+            )
+            return
+
+        if item_type in ItemRules.EQUIPPABLE_TYPES | {"material", "符箓", "杂物"}:
             ok, msg = await self.storage_ring_mgr.store_item(
                 player, item_name, 1, silent=False,
                 quality=item.get("quality") or "",

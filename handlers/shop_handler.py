@@ -35,7 +35,7 @@ class ShopHandler:
         'utility_pill': "丹阁、秘境掉落、炼丹产出",
         'inventory_pill': "丹阁刷新、炼丹产出",
         'legacy_pill': "丹阁刷新，购买后进入丹药背包",
-        'recipe': "丹方阁购买后学习",
+        'recipe': "丹方阁购买后自动参悟",
         'talisman_recipe': "符阁·符图 购买后习得绘制方法",
         'material': "材料阁、灵田、历练、秘境、悬赏",
         'material_package': "材料阁购买后开启",
@@ -647,6 +647,10 @@ class ShopHandler:
         if norm_type == 'talisman_recipe' and quantity > 1:
             quantity = 1
             limited_note = "⚠️ 符图每次限购 1 份，已按 1 份结算。\n"
+        # 丹方同样是「一次性习得」（购买后自动参悟），限购 1 份
+        if norm_type == 'recipe' and quantity > 1:
+            quantity = 1
+            limited_note = "⚠️ 丹方每次限购 1 份，已按 1 份结算。\n"
         # 珠宝是带独立词条的实例，每件单品限购 1 枚
         if norm_type == 'jewel' and quantity > 1:
             quantity = 1
@@ -787,14 +791,24 @@ class ShopHandler:
                 result_lines.append(f"💡 使用 /服用丹药 {target_item['name']} [品质] [数量]")
 
             elif item_type == 'recipe':
-                success, msg = await self.storage_ring_manager.store_item(player, target_item['name'], quantity, external_transaction=True)
-                if success:
-                    result_lines.append(f"成功购买丹方【{target_item['name']}】x{quantity}，已存入储物戒。")
-                    result_lines.append(f"💡 使用 /学习丹方 {target_item['name']} 学习")
-                else:
+                # 与符图一致：购买即参悟，不再发卷轴到储物戒、不用再 /学习丹方
+                from ..managers.alchemy_manager import AlchemyManager
+                alchemy_mgr = AlchemyManager(self.db, self.config_manager, self.storage_ring_manager)
+                ok, msg = await alchemy_mgr.learn_recipe(
+                    player, target_item['name'], commit=False, consume=False
+                )
+                if not ok:
                     await self.db.conn.rollback()
-                    yield event.plain_result(f"❌ 丹方存入储物戒失败：{msg}")
+                    yield event.plain_result(f"{msg}\n本次未扣除灵石。")
                     return
+                recipe_data = target_item.get('data') or {}
+                recipe_id = recipe_data.get('recipe_id')
+                if recipe_id is None and self.config_manager:
+                    recipe = self.config_manager.get_recipe_by_scroll(target_item['name'])
+                    recipe_id = (recipe or {}).get('id')
+                result_lines.append(f"成功购入丹方【{target_item['name']}】，已当场参悟。")
+                craft_hint = f"/炼丹 {recipe_id}" if recipe_id is not None else "/炼丹 <编号>"
+                result_lines.append(f"💡 使用 {craft_hint} 开始炼制，/丹方 查看已学丹方")
 
             elif item_type == 'talisman_recipe':
                 from ..managers.talisman_manager import TalismanManager

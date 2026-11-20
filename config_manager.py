@@ -289,7 +289,7 @@ class ConfigManager:
                 or {}
             )
             rank = pill_cfg.get("rank") if isinstance(pill_cfg, dict) else None
-            description = recipe.get("desc") or f"记载{recipe.get('output_pill', '丹药')}炼制方法的丹方，使用 /学习丹方 学习。"
+            description = recipe.get("desc") or f"记载{recipe.get('output_pill', '丹药')}炼制方法的丹方，丹阁购买后自动参悟。"
             effect_text = describe_pill_effect(
                 pill_cfg, effect_cap=effect_cap, breakthrough_cap=breakthrough_cap
             )

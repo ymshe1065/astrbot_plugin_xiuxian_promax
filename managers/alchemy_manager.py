@@ -149,38 +149,52 @@ class AlchemyManager:
                 return recipe
         return None
 
-    async def learn_recipe(self, player: Player, identifier: str) -> Tuple[bool, str]:
+    async def learn_recipe(
+        self,
+        player: Player,
+        identifier: str,
+        commit: bool = True,
+        consume: bool = True,
+    ) -> Tuple[bool, str]:
+        """学习丹方。
+
+        ``consume=False`` 供丹阁购买流程使用：灵石已由货架结算，卷轴不落储物戒，
+        直接写入已学列表。与「符图购买即习得」保持一致。
+        """
         recipe = self.get_recipe_by_identifier(identifier)
         if not recipe:
             return False, f"❌ 未找到丹方【{identifier}】。发送 /丹方 查看已学丹方；/丹阁 丹方 查看可购买丹方。"
 
-        learned = await self.ensure_learned_recipes(player)
+        learned = await self.ensure_learned_recipes(player, commit=commit)
         recipe_id = int(recipe.get("id"))
         if recipe_id in learned:
             return False, f"❌ 你已经学会【{recipe.get('name')}】了。"
 
         scroll_name = self.config_manager.get_recipe_scroll_name(recipe) if self.config_manager else f"《{recipe.get('name')}》"
-        ring_items = player.get_storage_ring_items()
-        if int(ring_items.get(scroll_name, 0) or 0) > 0:
-            left = int(ring_items.get(scroll_name, 0) or 0) - 1
-            if left <= 0:
-                ring_items.pop(scroll_name, None)
-            else:
-                ring_items[scroll_name] = left
-            player.set_storage_ring_items(ring_items)
-            cost_note = f"消耗丹方卷轴【{scroll_name}】x1"
+        if not consume:
+            cost_note = f"已从丹方阁购入【{scroll_name}】并当场参悟"
         else:
-            price = int(recipe.get("price", 0) or 0)
-            if price <= 0:
-                return False, f"❌ 你的储物戒中没有【{scroll_name}】，请先到 /丹阁 丹方 购买。"
-            if player.gold < price:
-                return False, f"❌ 学习【{recipe.get('name')}】需要 {price:,} 灵石，或先从丹方阁购买卷轴。"
-            player.gold -= price
-            cost_note = f"直接参悟，花费 {price:,} 灵石"
+            ring_items = player.get_storage_ring_items()
+            if int(ring_items.get(scroll_name, 0) or 0) > 0:
+                left = int(ring_items.get(scroll_name, 0) or 0) - 1
+                if left <= 0:
+                    ring_items.pop(scroll_name, None)
+                else:
+                    ring_items[scroll_name] = left
+                player.set_storage_ring_items(ring_items)
+                cost_note = f"消耗丹方卷轴【{scroll_name}】x1"
+            else:
+                price = int(recipe.get("price", 0) or 0)
+                if price <= 0:
+                    return False, f"❌ 你的储物戒中没有【{scroll_name}】，请先到 /丹阁 丹方 购买。"
+                if player.gold < price:
+                    return False, f"❌ 学习【{recipe.get('name')}】需要 {price:,} 灵石，或先从丹方阁购买卷轴。"
+                player.gold -= price
+                cost_note = f"直接参悟，花费 {price:,} 灵石"
 
         learned.append(recipe_id)
         player.learned_recipes = json.dumps(sorted(set(learned)), ensure_ascii=False)
-        await self.db.update_player(player)
+        await self.db.update_player(player, commit=commit)
         return True, (
             f"📜 学习成功！\n"
             f"━━━━━━━━━━━━━━━\n"
@@ -768,7 +782,7 @@ class AlchemyManager:
         rows = []
         card_lines = []
         entries = []
-        # 这里只列出已学习丹方；未学习丹方请到 /丹阁 丹方 购买卷轴后学习。
+        # 这里只列出已学习丹方；未学习丹方请到 /丹阁 丹方 购买，购买即参悟。
         learned_ids = []
         for value in learned:
             try:
@@ -780,7 +794,7 @@ class AlchemyManager:
 
         if not learned_ids:
             lines.append("你还没有学习任何丹方。")
-            lines.append("💡 前往 /丹阁 丹方 购买丹方卷轴，再使用 /学习丹方。")
+            lines.append("💡 前往 /丹阁 丹方 购买，购买后自动参悟。")
             return True, "\n".join(lines), [], [], []
 
         held_items = self._items_snapshot(player)
@@ -872,7 +886,7 @@ class AlchemyManager:
                 "action": "炼制",
             })
         lines.append("━━━━━━━━━━━━━━━")
-        lines.append("💡 /学习丹方 <ID或名称> 学习；/炼丹 <ID> [火候] [次数|all] 开始炼制")
+        lines.append("💡 /炼丹 <ID> [火候] [次数|all] 开始炼制；其他途径获得的丹方卷轴可用 /学习丹方 参悟")
         return True, "\n".join(lines), rows, card_lines, entries
 
     # ===== 炼制 =====

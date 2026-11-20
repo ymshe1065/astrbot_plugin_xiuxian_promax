@@ -1,4 +1,4 @@
-# AstrBot 插件：模拟修仙 v8.0.0 · 网页聊天室版
+# AstrBot 插件：模拟修仙 v8.0.1 · 网页聊天室版
 
 <p align="center">
   <img src="logo.png" alt="模拟修仙" width="200">
@@ -16,7 +16,7 @@
   <a href="https://github.com/ymshe1065/astrbot_plugin_xiuxian_promax/issues">
     <img src="https://img.shields.io/github/issues/ymshe1065/astrbot_plugin_xiuxian_promax?style=for-the-badge&logo=github" alt="Issues">
   </a>
-  <img src="https://img.shields.io/badge/version-v8.0.0-gold?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v8.0.1-gold?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python" alt="Python">
 </p>
@@ -27,7 +27,7 @@
 
 ---
 
-> **插件版本:** v4.0.4 · **游戏版本:** v8.0.0 · **数据库:** v71 · **分支:** `feat/web-chatroom`
+> **插件版本:** v4.0.5 · **游戏版本:** v8.0.1 · **数据库:** v71 · **分支:** `feat/web-chatroom`
 >
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497) · [lan](https://github.com/lanxue0)
 
@@ -48,7 +48,21 @@
 <sub>点击展开对应版本查看详细变更；v3.44.3 之前的版本按游戏版本系列汇总在下方。</sub>
 
 <details open>
-<summary><b>本次更新 · 插件 v4.0.4（仙域争霸代码级审查修复）</b></summary>
+<summary><b>本次更新 · 插件 v4.0.5（丹方购买即参悟 · 对齐符图 · v8.0.1）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 丹方购买 | 丹阁「丹方 / 突破丹方」与宗门商店兑换丹方后自动参悟，直接写入已学列表；不再发放卷轴到储物戒，也无需再手动 `/学习丹方`，与符阁购买符图即习得保持一致 |
+| 购买约束 | 丹方为一次性习得，`/购买 <丹方> 3` 会按 1 份结算并提示限购；已学会的丹方再次购买会回滚，不扣灵石、不扣库存 |
+| 指令保留 | `/学习丹方` 保留，用于历练、奇遇、他人交易等其他途径获得的丹方卷轴；卷轴学习仍按原逻辑消耗 1 张或直接参悟 |
+| 文案同步 | `/丹方` 列表、`/修仙帮助`、物品获取途径与丹方卷轴描述统一改为「购买后自动参悟」 |
+| 版本与数据库 | 插件 **v4.0.5** / 游戏及帮助 **v8.0.1** / 数据库保持 **v71**（无表结构变更） |
+| 回归 | 新增 `tests/test_recipe_auto_learn.py`（购买即参悟、限购 1 份、已学会不扣费、卷轴学习保留）；丹方阁 / 符阁 / 炼丹 / 商店相关既有用例全部通过 |
+
+</details>
+
+<details>
+<summary><b>插件 v4.0.4（仙域争霸代码级审查修复）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |
@@ -1707,7 +1721,7 @@ python3 -m unittest discover -s tests -q         # 现有单测
 
 ### 四改说明
 
-四改自 `v6.35.2` 起承接三改，现由三位维护者共同推进；插件 **v4.0.4** / 游戏 **v8.0.0** / 数据库 **v71**，当前开发分支为 `feat/web-chatroom`。工作主线：
+四改自 `v6.35.2` 起承接三改，现由三位维护者共同推进；插件 **v4.0.5** / 游戏 **v8.0.1** / 数据库 **v71**，当前开发分支为 `feat/web-chatroom`。工作主线：
 
 | 主线 | 主要变更 |
 | --- | --- |
@@ -1723,8 +1737,8 @@ python3 -m unittest discover -s tests -q         # 现有单测
 | 项 | 当前 |
 | --- | --- |
 | 开发分支 | `feat/web-chatroom` |
-| 插件版本 | v4.0.4 |
-| 游戏版本 | v8.0.0 |
+| 插件版本 | v4.0.5 |
+| 游戏版本 | v8.0.1 |
 | 数据库版本 | v71 |
 | 运行环境 | AstrBot 4.29.x + Python 3.12 |
 | 仓库 | [ymshe1065/astrbot_plugin_xiuxian_promax](https://github.com/ymshe1065/astrbot_plugin_xiuxian_promax) |
