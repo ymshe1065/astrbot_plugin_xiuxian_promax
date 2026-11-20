@@ -389,11 +389,16 @@ class StrategyServerAuthorityTest(_ManagerBase):
         await self._teardown_manager()
 
     async def _setup_manual_battle(self, troops: int = 1200):
+        # 强制布局：任取一对相邻节点，home 归 alice、target 强制由 NPC 接管，
+        # 避免世界随机生成（种子含启动秒数）导致 next() 抛 StopIteration 的 flake。
         nodes = {n["id"]: n for n in await self.m.get_nodes(self.wid)}
-        home = next(n for n in nodes.values() if n["owner_faction"] == 0)
+        home, adj_id = next((n, x) for n in nodes.values() for x in n["adj"])
         await self._own("web_alice", home)
-        target = nodes[next(x for x in home["adj"]
-                            if nodes[x]["owner_faction"] > 0)]
+        npc = await self.m._fetchone(
+            "SELECT id FROM strategy_factions"
+            " WHERE world_id=? AND kind='npc' LIMIT 1", (self.wid,))
+        target = nodes[adj_id]
+        target["owner_faction"] = int(npc["id"])
         target["npc_garrison"] = {"troops": 600, "morale": 70}
         await self.m.save_node(target)
         army = await self._mk_army("web_alice", home["id"], troops)
@@ -431,10 +436,11 @@ class StrategyServerAuthorityTest(_ManagerBase):
     async def test_state_fog_on_enemy_armies(self):
         # bob 占一个无主据点；alice 占其相邻据点并建军 →
         # bob 视角能看到该敌军（相邻即可见）但后勤数据（grain/veteran）为 None
+        # 强制布局：任取一对相邻节点，一个归 bob、另一个归 alice（不再依赖
+        # 随机布局中恰好存在「无主且邻居无主」的节点，消除 flake）
         nodes = {n["id"]: n for n in await self.m.get_nodes(self.wid)}
-        home_b = next(n for n in nodes.values() if n["owner_faction"] == 0)
+        home_b, adj_id = next((n, x) for n in nodes.values() for x in n["adj"])
         await self._own("web_bob", home_b)
-        adj_id = next(x for x in home_b["adj"] if nodes[x]["owner_faction"] == 0)
         await self._own("web_alice", nodes[adj_id])
         await self._mk_army("web_alice", adj_id, 900)
         st = await self.m.get_state("web_bob")

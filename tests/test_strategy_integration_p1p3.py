@@ -313,11 +313,16 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
     # P2：hex 手操战役
     # ------------------------------------------------------------------
     async def _setup_manual_battle(self, troops: int = 1200):
+        # 强制布局：任取一对相邻节点，home 归 u1、target 强制由 NPC 接管，
+        # 避免世界随机生成（种子含启动秒数）导致 next() 抛 StopIteration 的 flake。
         nodes = {n["id"]: n for n in await self.m.get_nodes(self.wid)}
-        home = next(n for n in nodes.values() if n["owner_faction"] == 0)
+        home, adj_id = next((n, x) for n in nodes.values() for x in n["adj"])
         await self._own("u1", home)
-        target = nodes[next(x for x in home["adj"]
-                            if nodes[x]["owner_faction"] > 0)]
+        npc = await self.m._fetchone(
+            "SELECT id FROM strategy_factions"
+            " WHERE world_id=? AND kind='npc' LIMIT 1", (self.wid,))
+        target = nodes[adj_id]
+        target["owner_faction"] = int(npc["id"])
         target["npc_garrison"] = {"troops": 600, "morale": 70}
         await self.m.save_node(target)
         army = await self._mk_army("u1", home["id"], troops)
