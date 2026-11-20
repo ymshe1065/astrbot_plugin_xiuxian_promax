@@ -3385,7 +3385,7 @@ button.chan-main { cursor: pointer; }
 .dm-input-row { flex: 0 0 auto; display: flex; gap: 8px; padding-top: 10px; }
 .dm-input-row input {
   flex: 1 1 auto; padding: 10px 12px; font-size: 14px;
-  border: 1px solid var(--line); border-radius: 9px; background: var(--field); color: var(--text);
+  border: 1px solid var(--line); border-radius: 9px; background: var(--field); color: var(--ink);
 }
 .dm-send { flex: 0 0 auto; padding: 0 16px; border-radius: 9px; }
 .online-dm {
