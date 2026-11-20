@@ -517,18 +517,9 @@ class DatabaseExtended:
         """
         extra_json = json.dumps(extra_data or {}, ensure_ascii=False)
         cd_type = int(cd_type)
-        # 藏宝图爬塔期间不允许并行开其他活动：爬塔要消耗气血且禁止自然恢复，
-        # 若还能同时闭关/历练，风险和收益就脱钩了。
-        try:
-            async with self.conn.execute(
-                "SELECT 1 FROM treasure_map_runs WHERE user_id = ? AND status = 'active' LIMIT 1",
-                (user_id,),
-            ) as cursor:
-                if await cursor.fetchone():
-                    return False, -1, "treasure_climbing"
-        except Exception:
-            # 旧库未迁移时表可能不存在，保持原有行为
-            pass
+        # 藏宝图本身也走这张表（UserStatus.TREASURE），槽位就是互斥单位：
+        # 不再做「爬塔期间全局封禁其它活动」的二次拦截，否则玩家还剩几个空闲
+        # 化身也开不了历练/押镖，与身外化身的并行设计相反。
         existing = await self.get_active_cd(user_id, cd_type)
         if existing is not None:
             return False, int(existing.slot), "already_running"

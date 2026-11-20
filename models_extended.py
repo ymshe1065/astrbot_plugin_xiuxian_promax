@@ -21,6 +21,7 @@ class UserStatus(IntEnum):
     RAIDING = 7        # 掠夺中 (新增)
     SECT_BATTLE = 8    # 宗门大比中 (新增)
     RESTING = 9        # 调息中
+    TREASURE = 10      # 藏宝图爬塔中（占一个分身槽，便于与其它活动并行）
 
     @classmethod
     def get_name(cls, status: int) -> str:
@@ -36,6 +37,7 @@ class UserStatus(IntEnum):
             cls.RAIDING: "掠夺中",
             cls.SECT_BATTLE: "宗门大比中",
             cls.RESTING: "调息中",
+            cls.TREASURE: "爬塔中",
         }
         return names.get(status, "忙碌中")
 

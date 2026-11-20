@@ -245,11 +245,7 @@ class EscortManager:
             return False, (
                 "❌ 你已经在押镖途中了，先走完这一趟。"
                 if why == "already_running"
-                else (
-                    "❌ 你正在古修藏宝图里爬塔，先撤退或走完再押镖。"
-                    if why == "treasure_climbing"
-                    else "❌ 分身都出去了，没人手再押一趟镖。"
-                )
+                else "❌ 分身都出去了，没人手再押一趟镖。"
             ), {}
 
         if mode == "blood":

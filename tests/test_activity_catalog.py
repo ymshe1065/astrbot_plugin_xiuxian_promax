@@ -40,7 +40,7 @@ class TestActivityCatalogShape(unittest.TestCase):
         cls.UserStatus = _imp("models_extended").UserStatus
 
     def test_catalog_covers_all_slot_activities(self):
-        """六个占槽活动必须都在目录里；新增活动时这条会提醒补登记。"""
+        """占槽活动必须都在目录里；新增活动时这条会提醒补登记。"""
         expected = {
             int(self.UserStatus.CULTIVATING),
             int(self.UserStatus.ADVENTURING),
@@ -48,6 +48,7 @@ class TestActivityCatalogShape(unittest.TestCase):
             int(self.UserStatus.SECT_TASK),
             int(self.UserStatus.DELIVERING),
             int(self.UserStatus.RESTING),
+            int(self.UserStatus.TREASURE),
         }
         self.assertEqual(set(self.CATALOG), expected)
 

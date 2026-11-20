@@ -941,11 +941,7 @@ class PlayerHandler:
         if not started:
             yield event.plain_result(
                 "道友已在闭关中，请勿重复进入。" if why == "already_running"
-                else (
-                    "❌ 你正在古修藏宝图里爬塔，先撤退或走完再闭关。"
-                    if why == "treasure_climbing"
-                    else "❌ 分身都出去了，没人手再开一炉闭关。"
-                )
+                else "❌ 分身都出去了，没人手再开一炉闭关。"
             )
             return
 

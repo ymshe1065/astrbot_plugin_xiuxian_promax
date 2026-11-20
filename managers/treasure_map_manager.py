@@ -25,6 +25,7 @@ from astrbot.api import logger
 
 from ..data import DataBase
 from ..models import Player
+from ..models_extended import UserStatus
 from ..utils.game_secret import seeded_rng
 
 __all__ = ["TreasureMapManager"]
@@ -1021,6 +1022,7 @@ class TreasureMapManager:
                 "气血归零则本次战利品尽失；可随时撤退落袋为安。\n"
                 "⚠️ 爬塔期间无法自然恢复/调息；丹药回血每层有上限，符箓不能直接补战斗气血。\n"
                 "⚠️ 战斗也不回血：切磋不按满血复原，决斗/世界Boss/悬赏的战斗吸血只吃本层剩余额度。\n"
+                "⚠️ 爬塔占用一个分身槽（只要还有空闲分身就能进），撤退/结算后归还。\n"
                 "━━━━━━━━━━━━━━━\n"
                 "💡 `/藏宝图 开始 <1-3>` 购买并进入：\n"
                 "  1 残破藏宝图 8,000 灵石\n"
@@ -1061,6 +1063,17 @@ class TreasureMapManager:
         ])
         return "\n".join(lines)
 
+    async def _free_treasure_slot(self, user_id: str) -> None:
+        """释放爬塔占的分身槽。
+
+        释放失败只记日志不抛：槽位残留最坏是一次「/解卡」，但让结算抛异常会把
+        已经算好的战利品卡在半路。
+        """
+        try:
+            await self.db.ext.set_user_free(str(user_id), cd_type=int(UserStatus.TREASURE))
+        except Exception as exc:
+            logger.warning(f"【藏宝图】释放分身槽失败 {user_id}: {exc}")
+
     async def start(self, player: Player, tier: int = 1) -> Tuple[bool, str]:
         tier = int(tier or 1)
         cfg = MAP_TIERS.get(tier)
@@ -1068,16 +1081,7 @@ class TreasureMapManager:
             return False, "❌ 地图档位只能是 1 / 2 / 3。"
         if await self.get_active_run(player.user_id):
             return False, "❌ 你已经在爬塔途中，先 /藏宝图 继续 或 /藏宝图 撤退。"
-        busy = None
-        try:
-            busy = await self.db.ext.first_busy_cd(player.user_id)
-        except Exception:
-            busy = None
-        if busy is not None:
-            from ..models_extended import UserStatus
-
-            name = UserStatus.get_name(int(busy.type))
-            return False, f"❌ 你正在{name}，无法同时进入藏宝图，先结束当前活动。"
+        # 先把只读门槛查完，再占槽：气血/灵石不够时不该动槽位，省掉「占了又还」。
         max_hp = await self._max_hp(player)
         hp = int(player.hp or 0)
         if hp <= 0:
@@ -1091,6 +1095,31 @@ class TreasureMapManager:
         if player.gold < price:
             return False, f"❌ 购买【{cfg['name']}】需要 {price:,} 灵石，你当前只有 {player.gold:,}。"
 
+        # 占一个分身槽再进塔：只要还有一个空闲分身就能爬，不再要求「全员待在家」。
+        # 以前这里用 first_busy_cd 一刀切，玩家有 5 个槽、4 个化身在外打工就再也
+        # 进不去藏宝图，跟身外化身的并行设计正好相反。
+        from ..core.avatar_rules import is_avatar_maxed, total_slots
+        from ..core.parallel_rules import busy_names_text
+
+        total = total_slots(player)
+        started, _slot, why = await self.db.ext.start_activity(
+            player.user_id, int(UserStatus.TREASURE), 0, max_slots=total_slots(player)
+        )
+        if not started:
+            if why == "already_running":
+                return False, "❌ 你已经在爬塔途中，先 /藏宝图 继续 或 /藏宝图 撤退。"
+            busy_names = await self.db.ext.busy_activity_names(player.user_id)
+            tip = (
+                "💡 化身已经请满了，先收掉一项活动（用对应的完成/退出指令）腾个槽位，"
+                "或等它自己跑完。"
+                if is_avatar_maxed(player)
+                else "💡 去 /仙缘商店 请一尊【身外化身】，多一个空闲槽位就能同时再干一件事。"
+            )
+            return False, (
+                f"❌ 分身都出去了（{len(busy_names)}/{total} 在忙："
+                f"{busy_names_text(busy_names)}），没有空闲槽位进藏宝图。\n" + tip
+            )
+
         now = int(time.time())
         budget = max(1, int(max_hp * HEAL_BUDGET_RATE))
         await self.db.conn.execute("BEGIN IMMEDIATE")
@@ -1101,6 +1130,7 @@ class TreasureMapManager:
             )
             if not cursor.rowcount:
                 await self.db.conn.rollback()
+                await self._free_treasure_slot(player.user_id)
                 return False, "❌ 灵石不足，购买失败。"
             await self.db.conn.execute(
                 "INSERT INTO treasure_map_runs "
@@ -1117,12 +1147,14 @@ class TreasureMapManager:
             player.gold -= price
         except Exception:
             await self.db.conn.rollback()
+            await self._free_treasure_slot(player.user_id)
             raise
         return True, (
             f"🗺️ 你花费 {price:,} 灵石买下【{cfg['name']}】，踏入古修墓府。\n"
             f"━━━━━━━━━━━━━━━\n"
             f"{cfg['desc']}\n"
             f"当前气血：{hp:,}/{max_hp:,}\n"
+            f"⚠️ 爬塔会占用一个分身槽，撤退或结算后自动归还。\n"
             f"⚠️ 爬塔期间无法自然恢复/调息；丹药回血每层最多 {budget:,}，符箓不能直接补战斗气血。\n"
             f"⚠️ 战斗回血（切磋满血复原、决斗/世界Boss/悬赏吸血）同样只吃这 {budget:,} 的额度。\n"
             f"🎲 每层结算后会触发随机奇遇，选择可叠加临时效果；层数越深收益越高。\n"
@@ -1194,6 +1226,7 @@ class TreasureMapManager:
             )
             await self.db.conn.commit()
             player.hp = 1
+            await self._free_treasure_slot(player.user_id)
             if already_settled:
                 return True, (
                     f"💀 你在第 {floor_no} 层倒下了！\n"
@@ -1356,6 +1389,7 @@ class TreasureMapManager:
                         (now, user_id),
                     )
                     await self.db.conn.commit()
+                    await self._free_treasure_slot(user_id)
                     continue
                 ok, msg = await self._settle(
                     player, run, success=True, reason="墓府封闭（超时自动结算）"
@@ -1439,6 +1473,9 @@ class TreasureMapManager:
         except Exception:
             await self.db.conn.rollback()
             raise
+        # 战利品与灵石已经入库，才把分身槽还回去；顺序反了会让「撤退」与
+        # 「再开一项活动」在同一瞬间抢同一个槽。
+        await self._free_treasure_slot(player.user_id)
         lines = [
             f"🗺️ 藏宝图结算 · {reason}",
             "━━━━━━━━━━━━━━━",

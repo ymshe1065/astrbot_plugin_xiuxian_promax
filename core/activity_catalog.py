@@ -121,9 +121,20 @@ RESTING = ActivitySpec(
     action_commands=(),
 )
 
+# 藏宝图是「一条指令带子命令」的玩法（状态/开始/继续/选择/撤退共用 `/藏宝图`），
+# 没法按“开始类”拆开：放进 action_commands 会让重伤玩家连撤退都发不出去，
+# 所以整条指令登记为 exit_commands —— 任何时候都必须能发出。
+TREASURE = ActivitySpec(
+    status=int(UserStatus.TREASURE),
+    key="treasure",
+    name="藏宝图",
+    exit_commands=("藏宝图",),
+    action_commands=(),
+)
+
 CATALOG: Dict[int, ActivitySpec] = {
     spec.status: spec
-    for spec in (CULTIVATION, ADVENTURE, RIFT, SECT_TASK, ESCORT, RESTING)
+    for spec in (CULTIVATION, ADVENTURE, RIFT, SECT_TASK, ESCORT, RESTING, TREASURE)
 }
 
 

@@ -516,10 +516,12 @@ class AutoProxyManager:
         if busy <= 0:
             return False
         # 手动进入秘境/历练：由对应代理接管续接，不能当成“其他活动”关掉
+        # 藏宝图同理：爬塔是玩家本人临时的玩法，占掉一个槽位不算“代理被挤掉”，
+        # 代理等这一槽还回来即可，直接关掉反而要玩家手动重开。
         types = {
             int(cd.type)
             for cd in await self.db.ext.list_user_cds(user_id)
-            if int(cd.type or 0) != UserStatus.IDLE
+            if int(cd.type or 0) not in (int(UserStatus.IDLE), int(UserStatus.TREASURE))
         }
         if types == {int(UserStatus.EXPLORING)} and rift_on:
             return False

@@ -552,8 +552,6 @@ class AdventureManager:
         if not started:
             if why == "already_running":
                 return False, "❌ 你已经在历练途中了，先走完这一趟再出发。"
-            if why == "treasure_climbing":
-                return False, "❌ 你正在古修藏宝图里爬塔，先撤退或走完再历练。"
             ok_slot, slot_hint = await ensure_free_slot(self.db, player, user_id)
             return False, slot_hint or "❌ 分身都出去了，没人手再走一趟。"
 
