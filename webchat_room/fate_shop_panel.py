@@ -17,22 +17,53 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:  # pragma: no cover
     from ..main import XiuXianPlugin
 
-from ..core.reincarnation_rules import (
-    FATE_EXCHANGE_MAX,
-    FATE_RITUAL_BASE_RATE,
-    GOLD_PER_FATE_POINT,
-    SHOP_GROUPS,
-    SHOP_ITEMS,
-    fate_exchange_key,
-    fate_exchange_points,
-    fate_ritual_rate,
-    format_ritual_rate,
-    item_at_cap,
-    item_owned,
-    parse_bonus,
-    perform_fate_ritual,
-    shop_price,
-)
+try:  # 正式环境：插件以包加载，与管理器共用同一套规则常量
+    from ..core.reincarnation_rules import (
+        FATE_EXCHANGE_MAX,
+        FATE_RITUAL_BASE_RATE,
+        GOLD_PER_FATE_POINT,
+        SHOP_GROUPS,
+        SHOP_ITEMS,
+        fate_exchange_key,
+        fate_exchange_points,
+        fate_ritual_rate,
+        format_ritual_rate,
+        item_at_cap,
+        item_owned,
+        parse_bonus,
+        perform_fate_ritual,
+        shop_price,
+    )
+except ImportError:  # pragma: no cover - 单元测试以顶层包导入时的回退
+    import importlib.util as _ilu
+    import sys as _sys
+    from pathlib import Path as _Path
+
+    _MOD_NAME = "core.reincarnation_rules"
+    # 优先复用已注册模块，保证与 core 包内导入的规则身份一致
+    _mod = _sys.modules.get(_MOD_NAME)
+    if _mod is None:
+        _spec = _ilu.spec_from_file_location(
+            _MOD_NAME,
+            _Path(__file__).resolve().parents[1] / "core" / "reincarnation_rules.py",
+        )
+        _mod = _ilu.module_from_spec(_spec)
+        _sys.modules[_MOD_NAME] = _mod
+        _spec.loader.exec_module(_mod)
+    FATE_EXCHANGE_MAX = _mod.FATE_EXCHANGE_MAX
+    FATE_RITUAL_BASE_RATE = _mod.FATE_RITUAL_BASE_RATE
+    GOLD_PER_FATE_POINT = _mod.GOLD_PER_FATE_POINT
+    SHOP_GROUPS = _mod.SHOP_GROUPS
+    SHOP_ITEMS = _mod.SHOP_ITEMS
+    fate_exchange_key = _mod.fate_exchange_key
+    fate_exchange_points = _mod.fate_exchange_points
+    fate_ritual_rate = _mod.fate_ritual_rate
+    format_ritual_rate = _mod.format_ritual_rate
+    item_at_cap = _mod.item_at_cap
+    item_owned = _mod.item_owned
+    parse_bonus = _mod.parse_bonus
+    perform_fate_ritual = _mod.perform_fate_ritual
+    shop_price = _mod.shop_price
 
 
 def _clean(message: str, limit: int = 160) -> str:

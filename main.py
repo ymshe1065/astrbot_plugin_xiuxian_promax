@@ -39,7 +39,8 @@ from .managers import (
     AuctionManager, AuctionHouseManager, EscortManager, EncounterManager, LifeSkillManager, TalismanManager, CalamityManager,
     AutoProxyManager, BattleEventManager, InvestManager, InvestAgentManager, WeeklyBossManager,
     BlindAuctionManager, TreasureMapManager, MineVeinManager, BettingPoolManager,
-    ChatContextManager, AIChatManager
+    ChatContextManager, AIChatManager,
+    StrategyManager
 )
 from .models_extended import UserStatus
 
@@ -380,6 +381,11 @@ class XiuXianPlugin(Star):
             self.db, self.treasure_map_mgr, self.mine_vein_mgr, self.betting_pool_mgr
         )
 
+        # v7.14.0 仙域争霸（战略玩法 P0：世界模拟 + 网页大地图）
+        self.strategy_mgr = StrategyManager(self.db, self.config_manager)
+        # v8.0.0 WS 通知推送（§12.5 strategy.notify → webchat_room）
+        self.strategy_mgr.set_notifier(self._strategy_notify)
+
         # v6.8 押镖劫道 & 奇遇
         self.escort_mgr = EscortManager(self.db, self.combat_mgr, self.storage_ring_mgr, self.config_manager)
         self.encounter_mgr = EncounterManager(self.db, self.storage_ring_mgr, self.config_manager)
@@ -598,6 +604,8 @@ class XiuXianPlugin(Star):
         self.adventure_finish_task = asyncio.create_task(self._schedule_adventure_finish())
         self.rift_tick_task = asyncio.create_task(self._schedule_rift_ticks())
         self.encounter_expire_task = asyncio.create_task(self._schedule_encounter_expire())
+        # v7.14.0 仙域争霸世界 tick
+        self.strategy_tick_task = asyncio.create_task(self._schedule_strategy_tick())
         
         logger.info("【修仙插件】已加载。")
 
@@ -617,7 +625,8 @@ class XiuXianPlugin(Star):
                      getattr(self, "high_stakes_task", None),
                      getattr(self, "adventure_finish_task", None),
                      getattr(self, "rift_tick_task", None),
-                     getattr(self, "encounter_expire_task", None)):
+                     getattr(self, "encounter_expire_task", None),
+                     getattr(self, "strategy_tick_task", None)):
             if task:
                 task.cancel()
                 tasks.append(task)
@@ -866,6 +875,41 @@ class XiuXianPlugin(Star):
                 )
             except Exception as e:
                 logger.warning(f"【奇遇】{user_id} 超时推送失败: {e}")
+
+    async def _strategy_notify(self, user_id: str, kind: str,
+                               payload: dict) -> None:
+        """仙域争霸通知回调：转发到 webchat_room WS（网页端不在线则静默丢弃）。"""
+        try:
+            from .webchat_room import room_server as _room_server
+            await _room_server.notify_strategy(user_id, kind, payload)
+        except Exception as e:
+            logger.debug(f"【仙域争霸】通知推送失败({kind}→{user_id}): {e}")
+
+    async def _schedule_strategy_tick(self):
+        """v7.14.0 仙域争霸：世界 tick 调度（默认 15 分钟/tick；幂等补跑在 manager 内）。"""
+        retry_delay = 30
+        while True:
+            try:
+                await self.db.ensure_connection()
+                if not self.strategy_mgr.enabled():
+                    await asyncio.sleep(600)
+                    continue
+                results = await self.strategy_mgr.run_tick_catchup()
+                if results:
+                    battles = sum(len(r.get("battles") or []) for r in results)
+                    gold = sum(int(r.get("gold_injected") or 0) for r in results)
+                    logger.info(
+                        f"【仙域争霸】世界推进 {len(results)} 批 tick："
+                        f"战报 {battles} 场 / 灵石注入 {gold:,}"
+                    )
+                retry_delay = 30
+                await asyncio.sleep(60)  # 每分钟对账一次，欠账由 manager 幂等补跑
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"【仙域争霸】tick 调度异常: {e}")
+                await asyncio.sleep(retry_delay)
+                retry_delay = min(retry_delay * 2, 1800)
 
     async def _schedule_rift_ticks(self):
         """秘境分段结算：每 5 分钟一段，到期自动推送小结，走完发大结算。"""
@@ -2847,6 +2891,32 @@ class XiuXianPlugin(Star):
         yield event.plain_result(msg)
         if success:
             await self._broadcast_world_boss_spawn(msg)
+
+    # ===== v8.0.0 仙域争霸 GM 运维通道（设计方案 §19，仅超管） =====
+    @filter.command("strategy_admin", "仙域争霸 GM 运维（仅超管：开世界/tick/注入事件/势力平衡/重置赛季）")
+    async def handle_strategy_admin(self, event: AstrMessageEvent, args: GreedyStr):
+        if not self._check_boss_admin(event):
+            yield event.plain_result("❌ 仅超级管理员可使用争霸运维通道")
+            return
+        if not self.strategy_mgr.enabled():
+            yield event.plain_result("❌ 争霸玩法未启用（config strategy.enabled=false）")
+            return
+        parts = str(args or "").strip().split()
+        if not parts:
+            yield event.plain_result(
+                "📖 用法：/strategy_admin <操作> [参数]\n"
+                "· 开世界 <模板ID>（结算并新开世界）\n"
+                "· tick <n>（立即推进 n 个 tick，≤24）\n"
+                "· 注入事件 <事件ID> [据点ID]\n"
+                "· 势力平衡 <势力ID> <铜钱增量> [粮草增量]\n"
+                "· 重置赛季（强制结算当前赛季）")
+            return
+        try:
+            res = await self.strategy_mgr.gm(parts[0], parts[1:])
+            yield event.plain_result(res.get("msg", "✅ GM 操作完成"))
+        except Exception as e:
+            logger.warning(f"【仙域争霸】GM 操作失败({parts[0]}): {e}")
+            yield event.plain_result(f"❌ GM 操作失败：{e}")
 
     # ===== v6.34 江湖战斗小事件 =====
     async def _run_battle_event_attack(self, event: AstrMessageEvent):

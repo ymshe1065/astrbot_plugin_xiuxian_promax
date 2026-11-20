@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>仙域争霸 · 战略大地图</title>
+  <link rel="stylesheet" href="./strategy.css">
+</head>
+<body>
+  <!-- 顶栏 -->
+  <header class="topbar">
+    <div class="brand">⚔️ 仙域争霸</div>
+    <div class="res-bar" id="resBar">
+      <span title="铜钱">🪙 <b id="resCoin">-</b></span>
+      <span title="粮草">🌾 <b id="resGrain">-</b></span>
+      <span title="精铁">⛏️ <b id="resIron">-</b></span>
+      <span title="募将令">🎖️ <b id="resToken">-</b></span>
+      <span title="战功">🏅 <b id="resMerit">-</b></span>
+    </div>
+    <div class="tick-info">
+      <span id="tickNo">tick -</span>
+      <span id="tickCountdown" class="countdown">下次推进 --:--</span>
+    </div>
+    <div class="topbar-right">
+      <button id="btnRefresh" class="btn small" type="button" title="立即刷新">⟳ 刷新</button>
+      <a class="btn small" href="../index.html" title="返回聊天室">💬 聊天室</a>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- 左：大地图 -->
+    <section class="map-pane">
+      <canvas id="mapCanvas"></canvas>
+      <div class="map-legend" id="mapLegend"></div>
+      <div class="map-hint">点击据点查看详情；选中军团后再点目标据点即可出征</div>
+      <!-- 据点抽屉 -->
+      <div class="node-drawer" id="nodeDrawer" hidden>
+        <div class="drawer-head">
+          <span id="drawerTitle">据点</span>
+          <button class="drawer-close" id="drawerClose" type="button">×</button>
+        </div>
+        <div class="drawer-body" id="drawerBody"></div>
+      </div>
+    </section>
+
+    <!-- 右：面板 -->
+    <aside class="side-pane">
+      <nav class="tabs" id="tabs">
+        <button class="tab active" data-tab="overview" type="button">总览</button>
+        <button class="tab" data-tab="chars" type="button">府邸</button>
+        <button class="tab" data-tab="armies" type="button">军团</button>
+        <button class="tab" data-tab="faction" type="button">势力</button>
+        <button class="tab" data-tab="tavern" type="button">酒馆</button>
+        <button class="tab" data-tab="market" type="button">坊市</button>
+        <button class="tab" data-tab="battles" type="button">战报</button>
+        <button class="tab" data-tab="shop" type="button">商店</button>
+        <button class="tab" data-tab="honor" type="button">成就</button>
+        <button class="tab" data-tab="settings" type="button">设置</button>
+      </nav>
+      <div class="tab-body" id="tabBody"></div>
+    </aside>
+  </main>
+
+  <!-- 入场遮罩 -->
+  <div class="overlay" id="joinOverlay" hidden>
+    <div class="overlay-card">
+      <h2>⚔️ 仙域争霸</h2>
+      <p>三十六洞天争夺战已开启。入场即获：</p>
+      <ul>
+        <li>个人势力 + 新手包（铜钱 5000 / 粮草 2000 / 募将令 ×2）</li>
+        <li>凡品武将 ×1、凡品内政官 ×1</li>
+        <li>7 天新手保护期</li>
+      </ul>
+      <button class="btn primary big" id="btnJoin" type="button">入场争霸</button>
+    </div>
+  </div>
+
+  <!-- 编军弹窗 -->
+  <div class="overlay" id="armyOverlay" hidden>
+    <div class="overlay-card">
+      <h2>🛡️ 编成军团</h2>
+      <div class="form-row">
+        <label>主将</label><select id="armyLeader"></select>
+      </div>
+      <div class="form-row">
+        <label>兵种</label><select id="armyTroopType"></select>
+      </div>
+      <div class="form-row">
+        <label>兵力</label><input id="armyTroops" type="number" min="100" step="100" value="500">
+      </div>
+      <div class="form-row">
+        <label>随行</label><select id="armyMembers" multiple size="3"></select>
+      </div>
+      <div class="form-row">
+        <label>器械</label><input id="armyEngine" type="checkbox"> 破城槌（+3000 铜钱，攻城 ×3）
+      </div>
+      <div class="cost-line" id="armyCost"></div>
+      <div class="form-actions">
+        <button class="btn" id="armyCancel" type="button">取消</button>
+        <button class="btn primary" id="armyConfirm" type="button">编成</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 通知授权引导条（§12.5 F：首次进面板请求授权） -->
+  <div class="notify-bar" id="notifyBar" hidden>
+    <span>🔔 开启浏览器通知，手操战役/围城警报不错过</span>
+    <button class="btn small primary" id="btnNotifyEnable" type="button">开启通知</button>
+    <button class="btn small" id="btnNotifyLater" type="button">以后再说</button>
+  </div>
+
+  <!-- hex 手操战役（P2 §7）：全屏覆盖层 -->
+  <div class="battle-overlay" id="battleOverlay" hidden>
+    <header class="battle-top">
+      <div class="battle-title" id="battleTitle">⚔️ 战役</div>
+      <div class="battle-meta">
+        <span id="battleRound">回合 -</span>
+        <span id="battlePhase" class="phase-tag">部署</span>
+        <span id="battleTimer" class="battle-countdown">--</span>
+        <span id="battleActor" class="sub"></span>
+      </div>
+      <div class="battle-top-right">
+        <button class="btn small" id="btnDelegate" type="button">🤖 托管</button>
+        <button class="btn small" id="btnBattleClose" type="button">✕ 返回大地图</button>
+      </div>
+    </header>
+    <div class="battle-main">
+      <div class="battle-board">
+        <canvas id="hexCanvas"></canvas>
+        <div class="battle-hint" id="battleHint"></div>
+      </div>
+      <aside class="battle-side">
+        <div class="battle-units" id="battleUnits"></div>
+        <div class="battle-actions" id="battleActions"></div>
+        <div class="battle-log" id="battleLog"></div>
+      </aside>
+    </div>
+    <!-- 单挑应战弹窗 -->
+    <div class="overlay" id="duelOverlay" hidden>
+      <div class="overlay-card">
+        <h2>⚔️ 单挑邀请</h2>
+        <p id="duelPrompt">敌将向你发起单挑！</p>
+        <div class="form-actions">
+          <button class="btn" id="duelRefuse" type="button">拒战（士气 -5）</button>
+          <button class="btn primary" id="duelAccept" type="button">应战！</button>
+        </div>
+      </div>
+    </div>
+    <!-- 战报回放（步进器） -->
+    <div class="overlay" id="replayOverlay" hidden>
+      <div class="overlay-card wide">
+        <h2>📜 战报回放</h2>
+        <div class="replay-body" id="replayBody"></div>
+        <div class="replay-ctrl">
+          <button class="btn small" id="replayPrev" type="button">◀ 上一步</button>
+          <span id="replayStep">0 / 0</span>
+          <button class="btn small" id="replayNext" type="button">下一步 ▶</button>
+        </div>
+        <div class="form-actions">
+          <button class="btn" id="replayShare" type="button">📋 复制战报</button>
+          <button class="btn primary" id="replayClose" type="button">关闭</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-wrap" id="toastWrap"></div>
+  <script src="./battle.js"></script>
+  <script src="./strategy.js"></script>
+</body>
+</html>

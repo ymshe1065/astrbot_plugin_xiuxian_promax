@@ -1,0 +1,29 @@
+{
+  "personalities": {
+    "expansive": {"name": "霸刀门", "aggression": 85, "econ_weight": 0.6, "troop_pref": "flying_sword"},
+    "developer": {"name": "守成谷", "aggression": 30, "econ_weight": 1.4, "troop_pref": "sword_shield"},
+    "trader": {"name": "坊商会", "aggression": 20, "econ_weight": 1.2, "troop_pref": "sword_shield"},
+    "hermit": {"name": "山门", "aggression": 10, "econ_weight": 1.5, "troop_pref": "heavy_armor"},
+    "demonic": {"name": "血祭教", "aggression": 95, "econ_weight": 0.5, "troop_pref": "beast_horde"}
+  },
+  "faction_names": {
+    "expansive": ["霸刀门", "裂天刀宗", "狂沙战殿", "破军堡", "斩蛟堂"],
+    "developer": ["守成谷", "青木仙庐", "厚土宗", "灵耕世家", "磐石盟"],
+    "trader": ["坊商会", "万宝楼", "通海商盟", "聚珍行", "金梭商会"],
+    "hermit": ["云山派", "雾隐山门", "孤峰剑庐", "寒潭居", "落霞观"],
+    "demonic": ["血祭教", "万魔窟", "幽冥血海", "噬魂殿", "罗刹宗"]
+  },
+  "famous_generals": [
+    {"name": "剑奴·无痕", "rarity": "legend", "role": "general", "profession": "sword"},
+    {"name": "百草真人", "rarity": "legend", "role": "official", "profession": "buddha"},
+    {"name": "血手屠苏", "rarity": "legend", "role": "general", "profession": "demon"},
+    {"name": "天机子", "rarity": "legend", "role": "strategist", "profession": "ghost"},
+    {"name": "搬山力士·岳擎", "rarity": "epic", "role": "general", "profession": "body"},
+    {"name": "御兽尊者·蛮牙", "rarity": "epic", "role": "general", "profession": "beast"},
+    {"name": "灵霄剑主", "rarity": "epic", "role": "general", "profession": "sword"},
+    {"name": "九幽鬼母", "rarity": "epic", "role": "strategist", "profession": "ghost"},
+    {"name": "赤炎法王", "rarity": "epic", "role": "strategist", "profession": "spirit"},
+    {"name": "铁壁将军·关山", "rarity": "rare", "role": "general", "profession": "body"}
+  ],
+  "garrison_names": ["残军", "守寨妖兵", "无主道兵", "护矿傀兵"]
+}

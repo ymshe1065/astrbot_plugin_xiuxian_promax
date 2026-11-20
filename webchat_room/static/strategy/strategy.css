@@ -1,0 +1,254 @@
+/* 仙域争霸 · 战略大地图（P0） */
+:root {
+  --bg: #0d1117;
+  --panel: #161b22;
+  --panel-2: #1c2330;
+  --line: #2d3646;
+  --line-soft: #232c3b;
+  --text: #d7dee8;
+  --dim: #8b98a9;
+  --accent: #e3b341;
+  --ok: #3fb950;
+  --bad: #f85149;
+  --blue: #58a6ff;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  background: var(--bg); color: var(--text);
+  font: 14px/1.5 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+
+/* ---------- 顶栏 ---------- */
+.topbar {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 14px;
+  padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--line);
+}
+.brand { font-weight: 700; font-size: 16px; color: var(--accent); white-space: nowrap; }
+.res-bar { display: flex; gap: 12px; flex-wrap: wrap; font-size: 13px; }
+.res-bar b { color: var(--accent); font-weight: 600; }
+.tick-info { margin-left: auto; display: flex; gap: 10px; font-size: 12px; color: var(--dim); white-space: nowrap; }
+.countdown { color: var(--blue); }
+.topbar-right { display: flex; gap: 8px; align-items: center; }
+
+/* ---------- 布局 ---------- */
+.layout { flex: 1 1 auto; display: flex; min-height: 0; }
+.map-pane { flex: 1 1 auto; position: relative; min-width: 0; background: #0a0e14; }
+#mapCanvas { width: 100%; height: 100%; display: block; cursor: crosshair; }
+.map-legend {
+  position: absolute; left: 10px; top: 10px; background: rgba(13,17,23,.85);
+  border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
+  font-size: 12px; max-height: 40vh; overflow: auto;
+}
+.map-legend .lg-item { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
+.lg-dot { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 auto; }
+.map-hint {
+  position: absolute; left: 10px; bottom: 10px; font-size: 12px; color: var(--dim);
+  background: rgba(13,17,23,.7); padding: 4px 10px; border-radius: 6px;
+}
+
+/* ---------- 右侧面板 ---------- */
+.side-pane {
+  flex: 0 0 400px; display: flex; flex-direction: column; min-height: 0;
+  background: var(--panel); border-left: 1px solid var(--line);
+}
+.tabs { flex: 0 0 auto; display: flex; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: thin; }
+.tab {
+  flex: 1 0 auto; padding: 10px 8px; background: none; border: none; color: var(--dim);
+  font-size: 13px; cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap;
+}
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+.tab-body { flex: 1 1 auto; overflow-y: auto; padding: 12px; }
+
+/* ---------- 据点抽屉 ---------- */
+.node-drawer {
+  position: absolute; right: 10px; bottom: 10px; width: min(420px, calc(100% - 20px));
+  max-height: 70vh; display: flex; flex-direction: column;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.5);
+}
+.drawer-head {
+  flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 12px; border-bottom: 1px solid var(--line); font-weight: 600;
+}
+.drawer-close { background: none; border: none; color: var(--dim); font-size: 18px; cursor: pointer; }
+.drawer-body { padding: 10px 12px; overflow-y: auto; font-size: 13px; }
+.drawer-body .kv { display: flex; gap: 8px; margin: 3px 0; }
+.drawer-body .kv .k { color: var(--dim); flex: 0 0 70px; }
+.drawer-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+
+/* ---------- 通用组件 ---------- */
+.btn {
+  display: inline-flex; align-items: center; gap: 4px; padding: 6px 12px;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px;
+  color: var(--text); font-size: 13px; cursor: pointer; text-decoration: none;
+}
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: #7a5b00; border-color: var(--accent); color: #ffe9b0; }
+.btn.danger { border-color: var(--bad); color: var(--bad); }
+.btn.small { padding: 3px 8px; font-size: 12px; }
+.btn.big { padding: 10px 26px; font-size: 15px; }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+select, input[type="number"], input[type="text"] {
+  background: var(--bg); color: var(--text); border: 1px solid var(--line);
+  border-radius: 6px; padding: 5px 8px; font-size: 13px;
+}
+.card {
+  background: var(--panel-2); border: 1px solid var(--line-soft);
+  border-radius: 8px; padding: 10px 12px; margin-bottom: 10px;
+}
+.card h3 { font-size: 14px; margin-bottom: 6px; }
+.card .sub { color: var(--dim); font-size: 12px; }
+.tag {
+  display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 11px;
+  border: 1px solid var(--line); color: var(--dim); margin-right: 4px;
+}
+.tag.rare { color: #a371f7; border-color: #a371f7; }
+.tag.epic { color: #f0883e; border-color: #f0883e; }
+.tag.legend { color: #e3b341; border-color: #e3b341; }
+.tag.fine { color: #58a6ff; border-color: #58a6ff; }
+.bar { height: 6px; background: var(--bg); border-radius: 3px; overflow: hidden; margin: 3px 0; }
+.bar i { display: block; height: 100%; background: var(--ok); }
+.bar.warn i { background: var(--accent); }
+.bar.bad i { background: var(--bad); }
+table.tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.tbl th, .tbl td { padding: 4px 6px; border-bottom: 1px solid var(--line-soft); text-align: left; }
+.tbl th { color: var(--dim); font-weight: 500; }
+.report-text {
+  white-space: pre-wrap; font-size: 12.5px; background: var(--bg);
+  border-radius: 6px; padding: 8px 10px; margin-top: 6px; color: #b8c4d4;
+}
+.form-row { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
+.form-row label { flex: 0 0 48px; color: var(--dim); font-size: 13px; }
+.form-row select, .form-row input { flex: 1 1 auto; }
+.form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.cost-line { font-size: 12.5px; color: var(--accent); min-height: 18px; }
+.empty { color: var(--dim); text-align: center; padding: 26px 0; font-size: 13px; }
+
+/* ---------- 遮罩 / Toast ---------- */
+.overlay {
+  position: fixed; inset: 0; background: rgba(5,8,12,.78); z-index: 50;
+  display: flex; align-items: center; justify-content: center;
+}
+.overlay-card {
+  width: min(440px, calc(100vw - 40px)); background: var(--panel);
+  border: 1px solid var(--line); border-radius: 12px; padding: 22px 24px;
+  text-align: center;
+}
+.overlay-card h2 { color: var(--accent); margin-bottom: 10px; }
+.overlay-card p { color: var(--dim); font-size: 13px; }
+.overlay-card ul { text-align: left; margin: 10px 0 16px 18px; font-size: 13px; color: var(--text); }
+.overlay-card .btn { margin-top: 6px; }
+.toast-wrap {
+  position: fixed; right: 16px; bottom: 16px; z-index: 99;
+  display: flex; flex-direction: column; gap: 8px; max-width: 360px;
+}
+.toast {
+  background: var(--panel-2); border: 1px solid var(--line); border-left: 3px solid var(--blue);
+  border-radius: 8px; padding: 9px 12px; font-size: 13px; white-space: pre-wrap;
+  box-shadow: 0 6px 18px rgba(0,0,0,.45); animation: tin .18s ease-out;
+}
+.toast.ok { border-left-color: var(--ok); }
+.toast.err { border-left-color: var(--bad); }
+@keyframes tin { from { transform: translateY(8px); opacity: 0; } }
+
+@media (max-width: 860px) {
+  .layout { flex-direction: column; }
+  .map-pane { flex: 0 0 46vh; }
+  .side-pane { flex: 1 1 auto; border-left: none; border-top: 1px solid var(--line); }
+  .res-bar { gap: 8px; font-size: 12px; }
+  .tick-info { display: none; }
+}
+
+/* ---------- v8.0.0：通知授权条 ---------- */
+.notify-bar {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
+  padding: 7px 14px; background: #2a2410; border-bottom: 1px solid var(--accent);
+  font-size: 13px; color: #ffe9b0;
+}
+.notify-bar .btn { margin-left: auto; }
+.notify-bar .btn + .btn { margin-left: 0; }
+
+/* ---------- v8.0.0：面板通用增量 ---------- */
+.section-title {
+  font-size: 13px; font-weight: 600; color: var(--accent);
+  margin: 12px 2px 6px; border-left: 3px solid var(--accent); padding-left: 8px;
+}
+.card.live { border-color: var(--bad); box-shadow: 0 0 8px rgba(248,81,73,.25); }
+.card.thin { padding: 8px 10px; margin: 6px 0; background: var(--panel); }
+.form-col { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+.radio-item { display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
+input[type="color"] {
+  background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+  padding: 2px; height: 30px; cursor: pointer;
+}
+
+/* ---------- v8.0.0：hex 手操战役覆盖层（P2 §7） ---------- */
+.battle-overlay {
+  position: fixed; inset: 0; z-index: 60; background: var(--bg);
+  display: flex; flex-direction: column;
+}
+.battle-top {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 14px;
+  padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--line);
+}
+.battle-title { font-weight: 700; color: var(--accent); white-space: nowrap; }
+.battle-meta { display: flex; align-items: center; gap: 12px; font-size: 13px; }
+.phase-tag {
+  padding: 1px 8px; border-radius: 10px; font-size: 12px;
+  border: 1px solid var(--blue); color: var(--blue);
+}
+.battle-countdown { color: var(--ok); font-variant-numeric: tabular-nums; }
+.battle-countdown.urgent { color: var(--bad); font-weight: 700; }
+.battle-top-right { margin-left: auto; display: flex; gap: 8px; }
+.battle-main { flex: 1 1 auto; display: flex; min-height: 0; }
+.battle-board { flex: 1 1 auto; position: relative; min-width: 0; background: #0a0e14; }
+#hexCanvas { width: 100%; height: 100%; display: block; cursor: pointer; }
+.battle-hint {
+  position: absolute; left: 10px; bottom: 10px; right: 10px;
+  font-size: 12px; color: var(--accent); background: rgba(13,17,23,.8);
+  padding: 5px 10px; border-radius: 6px; pointer-events: none;
+}
+.battle-side {
+  flex: 0 0 340px; display: flex; flex-direction: column; min-height: 0;
+  background: var(--panel); border-left: 1px solid var(--line);
+}
+.battle-units { flex: 0 1 34%; overflow-y: auto; padding: 8px 10px; border-bottom: 1px solid var(--line-soft); }
+.battle-actions { flex: 0 0 auto; padding: 8px 10px; border-bottom: 1px solid var(--line-soft); }
+.battle-log { flex: 1 1 auto; overflow-y: auto; padding: 8px 10px; font-size: 12px; }
+.bu-row {
+  display: flex; align-items: center; gap: 6px; padding: 4px 6px;
+  border-radius: 6px; cursor: pointer; font-size: 12.5px;
+}
+.bu-row:hover { background: var(--panel-2); }
+.bu-row.sel { background: #2a2410; outline: 1px solid var(--accent); }
+.bu-row.me .bu-name { color: var(--blue); }
+.bu-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+.bu-name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bu-troops { color: var(--dim); flex: 0 0 auto; }
+.bu-marks { flex: 0 0 auto; }
+.ba-btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.btn.magic { border-color: #a371f7; color: #a371f7; }
+.bl-row { margin: 2px 0; color: #b8c4d4; line-height: 1.45; }
+.bl-row.duel { color: var(--accent); }
+.bl-r { color: var(--dim); margin-right: 4px; font-size: 11px; }
+
+/* 战役内弹窗（单挑 / 回放）层级需高于覆盖层 */
+.battle-overlay .overlay { z-index: 70; }
+.overlay-card.wide { width: min(640px, calc(100vw - 40px)); text-align: left; }
+.replay-body {
+  max-height: 50vh; overflow-y: auto; background: var(--bg);
+  border-radius: 8px; padding: 10px 12px; margin: 10px 0; font-size: 12.5px;
+}
+.replay-ctrl {
+  display: flex; align-items: center; justify-content: center; gap: 14px;
+  margin-bottom: 8px; font-size: 13px; color: var(--dim);
+}
+
+@media (max-width: 860px) {
+  .battle-main { flex-direction: column; }
+  .battle-board { flex: 0 0 52vh; }
+  .battle-side { flex: 1 1 auto; border-left: none; border-top: 1px solid var(--line); }
+  .battle-meta { gap: 8px; font-size: 12px; }
+}

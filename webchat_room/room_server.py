@@ -29,10 +29,17 @@ from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 from . import accounts as accounts_store
 from . import channels as channels_store
 from . import commands as commands_catalog
+from . import dm_store
 from . import stickers as stickers_catalog
 from .arg_options import build_arg_options
 from .proxy_panel import proxy_snapshot, toggle_proxy
 from .fate_shop_panel import fate_shop_buy, fate_shop_exchange, fate_shop_snapshot
+from .strategy_panel import (
+    StrategyBusyError,
+    StrategyError,
+    strategy_action,
+    strategy_state,
+)
 from .invest_agent_panel import (
     invest_agent_claim,
     invest_agent_snapshot,
@@ -267,6 +274,7 @@ async def start(host: str, port: int) -> None:
     app = web.Application(middlewares=[_cache_control], client_max_size=4 * 1024 * 1024)
     accounts_store.init()
     channels_store.init()
+    dm_store.init()
     app.router.add_get("/", _index)
     app.router.add_get("/api/commands", _api_commands)
     app.router.add_get("/api/stickers", _api_stickers)
@@ -282,6 +290,8 @@ async def start(host: str, port: int) -> None:
     app.router.add_get("/api/fate_shop", _api_fate_shop)
     app.router.add_post("/api/fate_shop/buy", _api_fate_shop_buy)
     app.router.add_post("/api/fate_shop/exchange", _api_fate_shop_exchange)
+    app.router.add_get("/api/strategy/state", _api_strategy_state)
+    app.router.add_post("/api/strategy/action", _api_strategy_action)
     app.router.add_get("/api/settings", _api_settings)
     app.router.add_post("/api/settings", _api_settings)
     app.router.add_get("/api/notices", _api_notices)
@@ -306,6 +316,13 @@ async def start(host: str, port: int) -> None:
     app.router.add_post("/api/channels/create", _api_channels_create)
     app.router.add_post("/api/channels/join", _api_channels_join)
     app.router.add_post("/api/channels/update", _api_channels_update)
+    app.router.add_get("/api/dm/conversations", _api_dm_conversations)
+    app.router.add_get("/api/dm/history", _api_dm_history)
+    app.router.add_get("/api/dm/blocks", _api_dm_blocks)
+    app.router.add_post("/api/dm/send", _api_dm_send)
+    app.router.add_post("/api/dm/read", _api_dm_read)
+    app.router.add_post("/api/dm/block", _api_dm_block)
+    app.router.add_post("/api/dm/unblock", _api_dm_unblock)
     app.router.add_get("/ws", _ws_handler)
     # 旧链接 /ws/{room} 仍然可用，房间号已忽略
     app.router.add_get("/ws/{room_id}", _ws_handler)
@@ -325,6 +342,30 @@ async def start(host: str, port: int) -> None:
         await runner.cleanup()
         raise
     _runner, _site = runner, site
+    # 私聊历史保留 30 天（§12.7）：启动即清一次，之后每 24h 定期清理
+    try:
+        removed = dm_store.prune()
+        if removed:
+            logger.info(f"[webroom] 已清理 {removed} 条过期私聊消息")
+    except Exception:
+        logger.debug("[webroom] 启动私聊清理失败", exc_info=True)
+
+    async def _dm_prune_loop() -> None:
+        while True:
+            await asyncio.sleep(86400)
+            try:
+                removed = dm_store.prune()
+                if removed:
+                    logger.info(f"[webroom] 已清理 {removed} 条过期私聊消息")
+            except Exception:
+                logger.debug("[webroom] 私聊定期清理失败", exc_info=True)
+
+    try:
+        prune_task = asyncio.create_task(_dm_prune_loop())
+        _bag_tasks.add(prune_task)
+        prune_task.add_done_callback(_bag_tasks.discard)
+    except RuntimeError:
+        pass
     logger.info(f"[webroom] 房间服务已启动: http://{host}:{port}/")
 
 
@@ -347,6 +388,7 @@ async def stop() -> None:
     _bag_tasks.clear()
     _bag_sigs.clear()
     _pill_sigs.clear()
+    _dm_rate.clear()
     _rooms.clear()
     _recent_msgs.clear()
     _channel_history.clear()
@@ -738,6 +780,24 @@ async def notify_player(
             },
         )
     return True
+
+
+async def notify_strategy(player_key: str, kind: str,
+                          payload: dict[str, Any] | None = None) -> int:
+    """仙域争霸 WS 通知（§12.5 strategy.notify）：手操窗口/己方被攻/单挑邀请。
+
+    只推给该玩家的在线网页连接（跨频道兜底）；纯 QQ 玩家返回 0。
+    通知分级过滤在 StrategyManager._notify 内完成，这里只管投递。
+    """
+    username = accounts_store.username_of_player_key(player_key)
+    if not username:
+        return 0
+    return await push_to_username("", username, {
+        "type": "strategy.notify",
+        "kind": str(kind or ""),
+        "payload": payload or {},
+        "ts": int(time.time()),
+    })
 
 
 async def broadcast_broadcast(room_id: str, payload: dict) -> int:
@@ -1145,6 +1205,63 @@ async def _api_fate_shop_exchange(request: web.Request) -> web.Response:
     return web.json_response(data)
 
 
+async def _api_strategy_state(request: web.Request) -> web.Response:
+    """仙域争霸：世界快照（大地图 + 玩家面板，含战争迷雾过滤）。"""
+    user = _token_user(request)
+    if user is None:
+        return web.json_response({"ok": False, "error": "登录已过期"}, status=401)
+    if _plugin is None:
+        return web.json_response({"ok": False, "error": "插件尚未就绪"}, status=503)
+
+    user_id = accounts_store.player_key_of(user)
+    try:
+        data = await strategy_state(_plugin, user_id)
+    except StrategyBusyError:
+        return web.json_response({"ok": False, "error": "世界推进中，请稍后再试"},
+                                 status=423)
+    except StrategyError as exc:
+        return web.json_response({"ok": False, "error": str(exc)}, status=400)
+    except Exception as exc:
+        logger.exception("[webroom] 读取争霸快照失败")
+        return web.json_response({"ok": False, "error": f"读取失败：{exc}"}, status=500)
+    return web.json_response({"ok": True, "state": data})
+
+
+async def _api_strategy_action(request: web.Request) -> web.Response:
+    """仙域争霸：统一动作分发（入场/招募/任务/编军/行军/围城/建设/商店）。"""
+    user = _token_user(request)
+    if user is None:
+        return web.json_response({"ok": False, "error": "登录已过期"}, status=401)
+    if _plugin is None:
+        return web.json_response({"ok": False, "error": "插件尚未就绪"}, status=503)
+
+    body = await _read_json(request)
+    if not body:
+        return web.json_response({"ok": False, "error": "请求格式不对"}, status=400)
+    action = str(body.get("action") or "").strip()
+    if not action:
+        return web.json_response({"ok": False, "error": "缺少 action"}, status=400)
+    params = body.get("params") if isinstance(body.get("params"), dict) else {}
+
+    user_id = accounts_store.player_key_of(user)
+    try:
+        result = await strategy_action(
+            _plugin, user_id, action, params,
+            nickname=str(user.get("nick") or user.get("username") or ""))
+    except StrategyBusyError:
+        return web.json_response({"ok": False, "error": "世界推进中，请稍后再试"},
+                                 status=423)
+    except StrategyError as exc:
+        return web.json_response({"ok": False, "error": str(exc)}, status=400)
+    except Exception as exc:
+        logger.exception(f"[webroom] 争霸动作 {action} 失败")
+        return web.json_response({"ok": False, "error": f"操作失败：{exc}"}, status=500)
+    if not isinstance(result, dict):
+        result = {"ok": True}
+    result.setdefault("ok", True)
+    return web.json_response(result)
+
+
 async def _api_proxy(request: web.Request) -> web.Response:
     """自动代理面板：读取五项代理的布尔状态与详情。"""
     user = _token_user(request)
@@ -1482,6 +1599,125 @@ async def _api_channels_update(request: web.Request) -> web.Response:
     if not ok:
         return web.json_response({"ok": False, "error": msg}, status=400)
     return web.json_response({"ok": True, "message": msg, "channel": channel})
+
+
+# ---------- 私聊（DM）API（§12.7，通用能力） ----------
+
+#: username -> 最近 1 秒内的发送时间戳（私聊限速与公屏同标准，§18：>2 条/秒丢弃）
+_dm_rate: dict[str, deque] = {}
+
+
+def _dm_rate_ok(username: str) -> bool:
+    now = time.monotonic()
+    dq = _dm_rate.get(username)
+    if dq is None:
+        dq = _dm_rate[username] = deque()
+    while dq and now - dq[0] > 1.0:
+        dq.popleft()
+    if len(dq) >= 2:
+        return False
+    dq.append(now)
+    return True
+
+
+async def _api_dm_conversations(request: web.Request) -> web.Response:
+    """我的私聊会话列表（含对方资料 / 预览 / 未读数）。"""
+    user = _token_user(request)
+    if user is None:
+        return web.json_response({"ok": False, "error": "登录已过期"}, status=401)
+    try:
+        items = dm_store.conversations(user["username"])
+        unread = dm_store.unread_total(user["username"])
+    except Exception as exc:
+        logger.exception("[webroom] 读取私聊会话失败")
+        return web.json_response({"ok": False, "error": f"读取失败：{exc}"}, status=500)
+    return web.json_response({"ok": True, "items": items, "unread": unread})
+
+
+async def _api_dm_history(request: web.Request) -> web.Response:
+    """与某人的私聊历史：GET /api/dm/history?with=xxx&limit=50&before=0"""
+    user = _token_user(request)
+    if user is None:
+        return web.json_response({"ok": False, "error": "登录已过期"}, status=401)
+    other = str(request.query.get("with", "") or "").strip()
+    if not other:
+        return web.json_response({"ok": False, "error": "缺少对方账号"}, status=400)
+    try:
+        limit = int(request.query.get("limit") or 50)
+        before = int(request.query.get("before") or 0)
+    except (TypeError, ValueError, OverflowError):
+        return web.json_response({"ok": False, "error": "分页参数必须为整数"}, status=400)
+    try:
+        items = dm_store.history(user["username"], other, limit=limit, before=before)
+    except Exception as exc:
+        logger.exception("[webroom] 读取私聊历史失败")
+        return web.json_response({"ok": False, "error": f"读取失败：{exc}"}, status=500)
+    return web.json_response({"ok": True, "items": items, "with": other})
+
+
+async def _api_dm_send(request: web.Request) -> web.Response:
+    """REST 发送私聊（WS dm.send 的兜底通道），成功后实时推给收件人。"""
+    user = _token_user(request)
+    if user is None:
+        return web.json_response({"ok": False, "error": "登录已过期"}, status=401)
+    body = await _read_json(request)
+    to = str(body.get("to", "") or "").strip()
+    text = str(body.get("text", "") or "").strip()
+    if not _dm_rate_ok(user["username"]):
+        return web.json_response(
+            {"ok": False, "error": "发送太快了，歇一歇（>2 条/秒）"}, status=429)
+    ok, err, msg = dm_store.send(user["username"], to, text)
+    if not ok:
+        return web.json_response({"ok": False, "error": err}, status=400)
+    await push_to_username("", to, {"type": "dm.new", "message": msg})
+    return web.json_response({"ok": True, "message": msg})
+
+
+async def _api_dm_read(request: web.Request) -> web.Response:
+    user = _token_user(request)
+    if user is None:
+        return web.json_response({"ok": False, "error": "登录已过期"}, status=401)
+    body = await _read_json(request)
+    other = str(body.get("with", "") or "").strip()
+    if not other:
+        return web.json_response({"ok": False, "error": "缺少对方账号"}, status=400)
+    dm_store.mark_read(user["username"], other)
+    # 已读回执推给对方（前端显示「已读」）
+    await push_to_username("", other, {
+        "type": "dm.read", "by": user["username"],
+        "convo_id": dm_store.convo_id(user["username"], other)})
+    return web.json_response({"ok": True, "unread": dm_store.unread_total(user["username"])})
+
+
+async def _api_dm_block(request: web.Request) -> web.Response:
+    user = _token_user(request)
+    if user is None:
+        return web.json_response({"ok": False, "error": "登录已过期"}, status=401)
+    body = await _read_json(request)
+    ok, msg = dm_store.block(user["username"], str(body.get("target", "") or ""))
+    if not ok:
+        return web.json_response({"ok": False, "error": msg}, status=400)
+    return web.json_response({"ok": True, "message": msg,
+                              "items": dm_store.blocks(user["username"])})
+
+
+async def _api_dm_unblock(request: web.Request) -> web.Response:
+    user = _token_user(request)
+    if user is None:
+        return web.json_response({"ok": False, "error": "登录已过期"}, status=401)
+    body = await _read_json(request)
+    ok, msg = dm_store.unblock(user["username"], str(body.get("target", "") or ""))
+    if not ok:
+        return web.json_response({"ok": False, "error": msg}, status=400)
+    return web.json_response({"ok": True, "message": msg,
+                              "items": dm_store.blocks(user["username"])})
+
+
+async def _api_dm_blocks(request: web.Request) -> web.Response:
+    user = _token_user(request)
+    if user is None:
+        return web.json_response({"ok": False, "error": "登录已过期"}, status=401)
+    return web.json_response({"ok": True, "items": dm_store.blocks(user["username"])})
 
 
 async def _api_market_candles(request: web.Request) -> web.Response:
@@ -2237,6 +2473,81 @@ async def _broadcast_sticker(
         _drop(room_id, killed)
 
 
+async def _handle_dm_action(room_id: str, ws: web.WebSocketResponse,
+                            action: str, data: dict) -> None:
+    """WS 私聊消息族：dm.send / dm.history / dm.list / dm.read / dm.block / dm.unblock。
+
+    鉴权复用连接握手的网页账号；限速与公屏同标准（§18：>2 条/秒丢弃并警告）。
+    """
+    info = _rooms.get(room_id, {}).get(ws)
+    if info is None:
+        await send_to_ws(ws, {"type": "error", "text": "尚未完成连接握手"})
+        return
+    username = str(info.get("username") or "")
+    if not username:
+        await send_to_ws(ws, {"type": "error", "text": "请先登录"})
+        return
+    req_id = str(data.get("req_id") or "").strip()[:64]
+    try:
+        if action == "dm.send":
+            if not _dm_rate_ok(username):
+                await send_to_ws(ws, {"type": "dm.error", "req_id": req_id,
+                                      "text": "发送太快了，歇一歇（>2 条/秒）"})
+                return
+            to = str(data.get("to") or "").strip()
+            text = str(data.get("text") or "").strip()
+            ok, err, msg = dm_store.send(username, to, text)
+            if not ok:
+                await send_to_ws(ws, {"type": "dm.error", "req_id": req_id,
+                                      "text": err})
+                return
+            await send_to_ws(ws, {"type": "dm.sent", "req_id": req_id,
+                                  "message": msg})
+            # 实时投递给收件人（跨频道兜底搜索）
+            await push_to_username("", to, {"type": "dm.new", "message": msg})
+        elif action == "dm.history":
+            other = str(data.get("with") or "").strip()
+            items = dm_store.history(username, other,
+                                     limit=int(data.get("limit") or 50),
+                                     before=int(data.get("before") or 0))
+            await send_to_ws(ws, {"type": "dm.history", "req_id": req_id,
+                                  "with": other, "items": items})
+        elif action == "dm.list":
+            await send_to_ws(ws, {
+                "type": "dm.list", "req_id": req_id,
+                "items": dm_store.conversations(username),
+                "unread": dm_store.unread_total(username)})
+        elif action == "dm.read":
+            other = str(data.get("with") or "").strip()
+            dm_store.mark_read(username, other)
+            # 已读回执推给对方
+            await push_to_username("", other, {
+                "type": "dm.read", "by": username,
+                "convo_id": dm_store.convo_id(username, other)})
+            await send_to_ws(ws, {
+                "type": "dm.read_ok", "req_id": req_id, "with": other,
+                "unread": dm_store.unread_total(username)})
+        elif action in ("dm.block", "dm.unblock"):
+            target = str(data.get("target") or "").strip()
+            if action == "dm.block":
+                ok, msg = dm_store.block(username, target)
+            else:
+                ok, msg = dm_store.unblock(username, target)
+            await send_to_ws(ws, {
+                "type": "dm.block_ok", "req_id": req_id, "ok": ok, "text": msg,
+                "target": target, "blocked": action == "dm.block",
+                "items": dm_store.blocks(username)})
+        else:
+            await send_to_ws(ws, {"type": "error", "text": f"未知 action: {action}"})
+    except (TypeError, ValueError, OverflowError):
+        await send_to_ws(ws, {"type": "dm.error", "req_id": req_id,
+                              "text": "参数无效"})
+    except Exception:
+        logger.exception("[webroom] 私聊处理失败")
+        await send_to_ws(ws, {"type": "dm.error", "req_id": req_id,
+                              "text": "私聊处理失败，请稍后再试"})
+
+
 async def _handle_client_message(room_id: str, ws: web.WebSocketResponse, raw: str) -> None:
     try:
         data = json.loads(raw)
@@ -2313,6 +2624,9 @@ async def _handle_client_message(room_id: str, ws: web.WebSocketResponse, raw: s
                     "unread": accounts_store.count_unread(username),
                 },
             )
+        return
+    if str(action or "").startswith("dm."):
+        await _handle_dm_action(room_id, ws, str(action), data)
         return
     if action not in ("msg", "cmd"):
         await send_to_ws(ws, {"type": "error", "text": f"未知 action: {action}"})

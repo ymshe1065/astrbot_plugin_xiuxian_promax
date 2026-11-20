@@ -76,10 +76,16 @@
       <button class="fold-all-btn" id="btnFold" type="button" title="折叠全部消息">
         <span class="ft">折叠</span>
       </button>
+      <button class="icon-btn msg-btn" id="btnDm" type="button" title="私聊消息" aria-label="私聊消息">
+        <span class="msg-ico">💬</span>
+        <span class="msg-badge" id="dmBadge" hidden>0</span>
+      </button>
       <button class="icon-btn msg-btn" id="btnInbox" type="button" title="我的消息" aria-label="我的消息">
         <span class="msg-ico">✉</span>
         <span class="msg-badge" id="msgBadge" hidden>0</span>
       </button>
+      <a class="icon-btn" id="btnStrategy" href="/static/strategy/index.html" target="_blank"
+         rel="noopener" title="仙域争霸 · 战略大地图">⚔️</a>
       <button class="icon-btn" id="btnTheme" title="切换主题" aria-label="切换主题">🐋</button>
       <button class="me-btn" id="btnMe" title="账号设置">
         <span class="me-dot" id="meDot">我</span>
@@ -389,6 +395,42 @@
 </div>
 
 <!-- ============ 仙界频道 ============ -->
+<div class="sheet-mask" id="dmMask" hidden>
+  <div class="dm-drawer" id="dmDrawer">
+    <div class="sheet-head">
+      <span>私聊</span>
+      <button class="sheet-close" id="dmClose">×</button>
+    </div>
+
+    <div class="dm-tabs">
+      <button class="dm-tab active" id="dmTabConvo" type="button">会话</button>
+      <button class="dm-tab" id="dmTabBlocks" type="button">黑名单</button>
+    </div>
+
+    <!-- 会话列表 -->
+    <div class="dm-convo-list" id="dmConvoList">
+      <div class="dm-empty">暂无私聊会话<br>点击房间成员行的 💬 发起私聊</div>
+    </div>
+
+    <!-- 黑名单 -->
+    <div class="dm-block-list" id="dmBlockList" hidden></div>
+
+    <!-- 聊天窗 -->
+    <div class="dm-chat" id="dmChat" hidden>
+      <div class="dm-chat-head">
+        <button class="dm-back" id="dmBack" type="button" title="返回会话列表">‹</button>
+        <span class="dm-peer" id="dmPeerName"></span>
+        <button class="dm-block-btn" id="dmBlockBtn" type="button" title="拉黑/取消拉黑">🚫</button>
+      </div>
+      <div class="dm-msgs" id="dmMsgs"></div>
+      <div class="dm-input-row">
+        <input id="dmInput" maxlength="500" autocomplete="off" placeholder="写私信…（Enter 发送）">
+        <button class="btn-primary dm-send" id="dmSend" type="button">发送</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="sheet-mask" id="channelMask" hidden>
   <div class="channel-drawer" id="channelDrawer">
     <div class="sheet-head">

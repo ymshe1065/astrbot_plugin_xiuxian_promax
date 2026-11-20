@@ -995,6 +995,8 @@
       refreshOnline();
       // 连接就绪后再拉看板（首次连接与断线重连都走这里）
       loadPanel("status");
+      // 私聊未读角标（§12.7）
+      dmSend("dm.list");
     };
     ws.onclose = async (e) => {
       if (stale()) return;
@@ -1121,6 +1123,8 @@
       `<div class="online-nick">${esc(p.nick)}${isMe(p) ? '<span class="online-me">我</span>' : ""}</div>` +
       `<div class="online-user">@${esc(p.username || p.nick)}</div>` +
       `</div>` +
+      (isMe(p) ? "" :
+        `<button class="online-dm" data-user="${esc(p.username || "")}" data-nick="${esc(p.nick)}" title="私聊">💬</button>`) +
       `<span class="online-dot${p.online ? "" : " off"}"></span>` +
       `</div>`;
     const groupHtml = (label, list) =>
@@ -1129,12 +1133,192 @@
           sortMe(list).map(rowHtml).join("")
         : "";
     box.innerHTML = groupHtml("在线", online) + groupHtml("离线", offline);
+    box.querySelectorAll(".online-dm").forEach((btn) => {
+      btn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        $("onlineMask").hidden = true;
+        openDmChat(btn.dataset.user, btn.dataset.nick);
+        $("dmMask").hidden = false;
+        $("dmConvoList").hidden = true;
+      });
+    });
   }
 
   function openOnline() {
     $("onlineMask").hidden = false;
     renderOnline();
     refreshOnline();
+  }
+
+  /* ================= 私聊 DM（§12.7） ================= */
+  const DM = {
+    convos: [],        // dm.list 会话列表
+    blocks: [],        // 黑名单 [{username, nick, created}]
+    peer: null,        // 当前聊天对象 username
+    peerNick: "",
+    msgs: [],          // 当前会话消息
+    unread: 0,         // 总未读
+    loaded: false,     // 是否已拉过会话列表
+  };
+
+  function dmSend(action, extra = {}) {
+    if (!S.ws || S.ws.readyState !== 1) return;
+    S.ws.send(JSON.stringify({ action, ...extra }));
+  }
+
+  function updateDmBadge() {
+    const b = $("dmBadge");
+    if (!b) return;
+    b.hidden = !(DM.unread > 0);
+    b.textContent = DM.unread > 99 ? "99+" : String(DM.unread);
+  }
+
+  function dmPeerNick(username) {
+    const c = DM.convos.find((x) => x.peer === username);
+    if (c) return c.peer_nick || username;
+    const o = (S.online || []).find((p) => p.username === username);
+    return (o && o.nick) || username;
+  }
+
+  function openDm() {
+    $("dmMask").hidden = false;
+    showDmList();
+    dmSend("dm.list");
+  }
+
+  function closeDm() {
+    $("dmMask").hidden = true;
+    DM.peer = null;
+  }
+
+  function showDmList() {
+    $("dmChat").hidden = true;
+    $("dmConvoList").hidden = false;
+    DM.peer = null;
+    renderDmConvos();
+    dmSend("dm.list");
+  }
+
+  function renderDmConvos() {
+    const box = $("dmConvoList");
+    if (!DM.convos.length) {
+      box.innerHTML = '<div class="dm-empty">暂无私聊会话<br>点击房间成员行的 💬 发起私聊</div>';
+      return;
+    }
+    box.innerHTML = DM.convos.map((c) =>
+      `<div class="dm-convo${c.unread ? " unread" : ""}" data-user="${esc(c.peer)}">` +
+      avatarHtml(c.peer_nick, c.peer_avatar, "dm-convo-avatar") +
+      `<div class="dm-convo-info">` +
+      `<div class="dm-convo-nick">${esc(c.peer_nick || c.peer)}</div>` +
+      `<div class="dm-convo-preview">${esc(c.preview || "")}</div>` +
+      `</div>` +
+      (c.unread ? `<span class="dm-convo-badge">${c.unread}</span>` : "") +
+      `</div>`).join("");
+    box.querySelectorAll(".dm-convo").forEach((el) => {
+      el.addEventListener("click", () => openDmChat(el.dataset.user));
+    });
+  }
+
+  function renderDmBlocks() {
+    const box = $("dmBlockList");
+    if (!DM.blocks.length) {
+      box.innerHTML = '<div class="dm-empty">黑名单为空</div>';
+      return;
+    }
+    box.innerHTML = DM.blocks.map((b) =>
+      `<div class="dm-block-row">` +
+      `<div class="dm-convo-info"><div class="dm-convo-nick">${esc(b.nick || b.username)}</div>` +
+      `<div class="dm-convo-preview">@${esc(b.username)}</div></div>` +
+      `<button class="dm-unblock" data-user="${esc(b.username)}">解除</button>` +
+      `</div>`).join("");
+    box.querySelectorAll(".dm-unblock").forEach((btn) => {
+      btn.addEventListener("click", () => dmSend("dm.unblock", { target: btn.dataset.user }));
+    });
+  }
+
+  function openDmChat(peer, nick) {
+    if (!peer || peer === S.username) return;
+    DM.peer = peer;
+    DM.peerNick = nick || dmPeerNick(peer);
+    DM.msgs = [];
+    $("dmPeerName").textContent = DM.peerNick + " (@" + peer + ")";
+    $("dmChat").hidden = false;
+    $("dmConvoList").hidden = true;
+    $("dmBlockList").hidden = true;
+    renderDmChat();
+    dmSend("dm.history", { with: peer, limit: 50 });
+    dmSend("dm.read", { with: peer });
+    const c = DM.convos.find((x) => x.peer === peer);
+    if (c) c.unread = 0;
+    DM.unread = DM.convos.reduce((s, x) => s + Number(x.unread || 0), 0);
+    updateDmBadge();
+    setTimeout(() => $("dmInput") && $("dmInput").focus(), 50);
+  }
+
+  function renderDmChat() {
+    const box = $("dmMsgs");
+    if (!box) return;
+    box.innerHTML = DM.msgs.map((m) => {
+      const mine = m.sender === S.username;
+      const t = new Date(m.created * 1000).toLocaleString("zh-CN",
+        { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+      return `<div class="dm-msg${mine ? " me" : ""}">` +
+        `<div class="dm-msg-text">${esc(m.content)}</div>` +
+        `<div class="dm-msg-meta">${t}${mine ? (m.read ? " · 已读" : "") : ""}</div>` +
+        `</div>`;
+    }).join("") || '<div class="dm-empty">还没有消息，说点什么吧</div>';
+    box.scrollTop = box.scrollHeight;
+  }
+
+  function sendDmText() {
+    const input = $("dmInput");
+    const text = (input.value || "").trim();
+    if (!text || !DM.peer) return;
+    input.value = "";
+    dmSend("dm.send", { to: DM.peer, text });
+  }
+
+  function onDmMessage(m) {
+    // 新私信：正在聊天就追加，否则更新角标/会话列表
+    const msg = m.message || {};
+    if (DM.peer && (msg.sender === DM.peer || msg.recipient === DM.peer)) {
+      DM.msgs.push(msg);
+      renderDmChat();
+      if (msg.sender === DM.peer && $("dmChat") && !$("dmChat").hidden) {
+        dmSend("dm.read", { with: DM.peer });
+      }
+    } else if (msg.sender && msg.sender !== S.username) {
+      DM.unread += 1;
+      updateDmBadge();
+      try {
+        if (typeof Notification !== "undefined" && Notification.permission === "granted" &&
+            $("dmMask").hidden) {
+          new Notification("💬 私聊 · " + dmPeerNick(msg.sender),
+            { body: String(msg.content || "").slice(0, 80), tag: "dm-" + msg.sender });
+        }
+      } catch (_) { /* 移动端忽略 */ }
+    }
+    if (!$("dmConvoList").hidden || DM.loaded) dmSend("dm.list");
+  }
+
+  /* ================= 仙域争霸 WS 通知（§12.5 strategy.notify） ================= */
+  function onStrategyNotify(m) {
+    const kind = String(m.kind || "");
+    const pl = m.payload || {};
+    const nodeName = pl.node_name || (pl.node_id ? "据点#" + pl.node_id : "");
+    const TEXTS = {
+      battle_open: "⚔️ 手操战役打响：" + nodeName + "！前往战略大地图「战报」页进入手操",
+      duel_invite: "🎯 有敌将向你发起阵前单挑！进入手操战役应战",
+      siege_alert: "🔥 我方「" + nodeName + "」正被围城！",
+      event: "🎲 世界事件：" + (pl.name || pl.text || ""),
+    };
+    const text = TEXTS[kind] || ("⚔️ 仙域争霸：" + (pl.text || kind));
+    showBanner(text);
+    try {
+      if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+        new Notification("仙域争霸", { body: text.replace(/^⚔️ |^🔥 |^🎯 |^🎲 /, ""), tag: "strategy-" + kind });
+      }
+    } catch (_) { /* 移动端忽略 */ }
   }
 
   /* ================= 仙界频道 ================= */
@@ -1805,6 +1989,46 @@
         break;
       case "broadcast":
         showBanner(m.text);
+        break;
+      case "dm.new":
+      case "dm.sent":
+        onDmMessage(m);
+        break;
+      case "dm.history":
+        if (DM.peer === m.with) {
+          DM.msgs = m.items || [];
+          renderDmChat();
+        }
+        break;
+      case "dm.list":
+        DM.convos = m.items || [];
+        DM.unread = Number(m.unread || 0);
+        DM.loaded = true;
+        updateDmBadge();
+        if (!$("dmConvoList").hidden) renderDmConvos();
+        break;
+      case "dm.read": {
+        // 对方已读回执：刷新当前会话的「已读」标记
+        if (DM.peer && DM.peer === m.by) {
+          DM.msgs.forEach((x) => { if (x.sender === S.username) x.read = true; });
+          renderDmChat();
+        }
+        break;
+      }
+      case "dm.read_ok":
+        DM.unread = Number(m.unread || 0);
+        updateDmBadge();
+        break;
+      case "dm.block_ok":
+        DM.blocks = m.items || DM.blocks;
+        renderDmBlocks();
+        if (m.text) toast(m.text);
+        break;
+      case "dm.error":
+        toast(m.text || "私聊发送失败", 3000);
+        break;
+      case "strategy.notify":
+        onStrategyNotify(m);
         break;
       case "sys":
         addSys(m.text);
@@ -6705,6 +6929,55 @@
     });
     $("inboxRead").addEventListener("click", () => sendNotices("notices_read", { all: true }));
     $("inboxClear").addEventListener("click", () => sendNotices("notices_clear"));
+
+    // 私聊 DM（§12.7）
+    $("btnDm").addEventListener("click", openDm);
+    $("dmClose").addEventListener("click", closeDm);
+    $("dmMask").addEventListener("click", (e) => {
+      if (e.target === $("dmMask")) closeDm();
+    });
+    $("dmBack").addEventListener("click", () => {
+      $("dmTabConvo").classList.add("active");
+      $("dmTabBlocks").classList.remove("active");
+      $("dmBlockList").hidden = true;
+      showDmList();
+    });
+    $("dmSend").addEventListener("click", sendDmText);
+    $("dmInput").addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.isComposing) {
+        e.preventDefault();
+        sendDmText();
+      }
+    });
+    $("dmTabConvo").addEventListener("click", () => {
+      $("dmTabConvo").classList.add("active");
+      $("dmTabBlocks").classList.remove("active");
+      $("dmBlockList").hidden = true;
+      showDmList();
+    });
+    $("dmTabBlocks").addEventListener("click", async () => {
+      $("dmTabBlocks").classList.add("active");
+      $("dmTabConvo").classList.remove("active");
+      $("dmConvoList").hidden = true;
+      $("dmChat").hidden = true;
+      $("dmBlockList").hidden = false;
+      renderDmBlocks();
+      try {
+        const r = await fetch("/api/dm/blocks", {
+          headers: { Authorization: "Bearer " + S.token },
+        });
+        const d = await r.json().catch(() => ({}));
+        if (d.ok) {
+          DM.blocks = d.items || [];
+          renderDmBlocks();
+        }
+      } catch (_) { /* 离线时忽略 */ }
+    });
+    $("dmBlockBtn").addEventListener("click", () => {
+      if (!DM.peer) return;
+      const blocked = DM.blocks.some((b) => b.username === DM.peer);
+      dmSend(blocked ? "dm.unblock" : "dm.block", { target: DM.peer });
+    });
     $("inboxList").addEventListener("click", (e) => {
       const btn = e.target.closest && e.target.closest(".inbox-toggle");
       if (!btn) return;

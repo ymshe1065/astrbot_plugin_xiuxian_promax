@@ -19,7 +19,7 @@ __all__ = ["MiscHandler"]
 class MiscHandler:
     """杂项指令处理器 - 提供帮助信息、一键日常与强制解卡"""
 
-    VERSION = HELP_VERSION  # v7.13.0：v3.49.0 藏宝图肉鸽爬塔（随机奇遇/临时效果，数据库 v69）
+    VERSION = HELP_VERSION  # v8.0.0：v4.0.0 仙域争霸 P1~P3 完整版（势力外交/hex 手操/赛季，数据库 v71）
 
     def __init__(self, db: DataBase, config: dict = None):
         self.db = db

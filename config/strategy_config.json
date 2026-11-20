@@ -1,0 +1,431 @@
+{
+  "enabled": true,
+  "tick_minutes": 15,
+  "max_catchup_ticks": 8,
+  "world_template": "standard36",
+  "season_days": 75,
+
+  "starter_pack": {
+    "coin": 5000,
+    "grain": 2000,
+    "recruit_token": 2,
+    "characters": [
+      {"role": "general", "rarity": "common"},
+      {"role": "official", "rarity": "common"}
+    ]
+  },
+
+  "node_output_per_tick": {
+    "city":   {"coin": 120, "grain": 0,  "iron": 0},
+    "pass":   {"coin": 40,  "grain": 0,  "iron": 10},
+    "mine":   {"coin": 80,  "grain": 0,  "iron": 40},
+    "grain":  {"coin": 20,  "grain": 100, "iron": 0},
+    "market": {"coin": 60,  "grain": 0,  "iron": 0},
+    "branch": {"coin": 30,  "grain": 20, "iron": 0},
+    "ruin":   {"coin": 30,  "grain": 0,  "iron": 10}
+  },
+
+  "gold_output": {
+    "per_tick_by_type": {"city": 20000, "pass": 5000, "mine": 12000, "grain": 5000, "market": 5000, "branch": 5000, "ruin": 5000},
+    "personal_share": 0.7,
+    "treasury_share": 0.3,
+    "daily_gold_cap": 5000000,
+    "max_daily_gold_cap": 20000000,
+    "overcap_to_merit_rate": 0.00002,
+    "diminish_extra_nodes": 6,
+    "diminish_factor": 0.6
+  },
+
+  "npc": {
+    "faction_count": [6, 8],
+    "owned_node_ratio": 0.6,
+    "output_bonus": 1.2,
+    "aggression_threshold": 10,
+    "garrison_home_reserve": 0.3,
+    "respawn_hours": [48, 96],
+    "respawn_hatred": true
+  },
+
+  "ownerless_garrison": {
+    "city": 3000, "pass": 2000, "mine": 1200, "grain": 1200,
+    "market": 800, "branch": 800, "ruin": 800
+  },
+  "intimidate_ratio": 3.0,
+
+  "stamina": {
+    "enabled": true,
+    "max": 100,
+    "recover_per_tick": 10,
+    "task_cost": 20,
+    "battle_cost": 10,
+    "manual_cost": 15,
+    "stratagem_cost": 30,
+    "duel_cost": 10
+  },
+
+  "injury": {
+    "light": 30, "heavy": 60, "dying": 70,
+    "recover_per_tick": 5,
+    "infirmary_recover": 10,
+    "elixir_merit_cost": 1500,
+    "elixir_heal": 40,
+    "elixir_season_limit": 2
+  },
+
+  "task": {
+    "hours_options": [1, 2, 4, 8],
+    "ticks_per_hour": 4,
+    "base_per_tick": {"govern": 80, "farm": 100, "trade": 70, "scout": 0, "build": 60, "train": 60, "hunt": 50, "heal": 40, "research": 50, "quest": 60, "seek": 40, "convoy": 50, "raid": 0},
+    "recall_loss": 0.5,
+    "mini_event_chance": 0.1,
+    "scout_capture_chance": 0.08,
+    "raid_rep_cost": -8,
+    "raid_counterkill_chance": 0.15
+  },
+
+  "recruit": {
+    "refresh_hours": 4,
+    "candidates": 5,
+    "manual_refresh_coin": 300,
+    "manual_refresh_daily": 3,
+    "normal_cost_coin": 800,
+    "premium_cost_token": 1,
+    "premium_pity": 40,
+    "role_weights": {"general": 4, "strategist": 3, "official": 3},
+    "rarity_weights_normal": {"common": 55, "fine": 33, "rare": 10, "epic": 2, "legend": 0},
+    "rarity_weights_premium": {"common": 0, "fine": 30, "rare": 45, "epic": 20, "legend": 5},
+    "character_cap_base": 10,
+    "character_cap_per_level": 3,
+    "salary_coin_per_tick": 10,
+    "reputation_epic_bonus": 0.10,
+    "host_charm_bonus": 0.10,
+    "zhonglangjiang_bonus": 0.10
+  },
+
+  "army": {
+    "min_troops": 100,
+    "concurrent_base": 2,
+    "concurrent_per_faction_levels": 2,
+    "grain_per_100_per_tick": 0.5,
+    "far_supply_multiplier": 1.5,
+    "far_supply_steps": 2,
+    "starve_morale_per_tick": 20,
+    "starve_desert_pct": 0.05,
+    "refill_only_home": true,
+    "overstaff_morale_penalty": 0.10
+  },
+
+  "siege": {
+    "max_ticks": 20,
+    "city_defense_per_level": 1000,
+    "defender_counter_rate": 0.6,
+    "injury_every_ticks": 3,
+    "injury_amount": 5,
+    "loot_stock_pct": 0.3,
+    "manual_win_merit_mult": 1.5,
+    "manual_win_loot_bonus": 0.1,
+    "street_fight_atk_bonus": 0.3,
+    "street_fight_def_penalty": 0.3,
+    "surrender_troops_keep": 0.5,
+    "encircle_stock_loss_pct": 0.2,
+    "encircle_morale_per_tick": 10,
+    "encircle_surrender_ticks": 4,
+    "manual_prep_seconds": 90
+  },
+
+  "battle": {
+    "max_rounds": 30,
+    "rout_troops_pct": 0.3,
+    "rout_morale": 30,
+    "morale_base": 100,
+    "flank_factor": 1.15,
+    "encircle_factor": 1.3,
+    "damage_soft_cap": 0.6,
+    "counter_factor": 1.3,
+    "merit_per_kill": 0.05,
+    "win_merit_base": 100,
+    "rout_retreat_loss_pct": 0.2,
+    "rout_leader_injury_chance": 0.3,
+    "rout_leader_injury": 15,
+    "pursuit_capture": true,
+    "reorganize_ticks": 2,
+    "night_start_hour": 22,
+    "night_end_hour": 6,
+    "night_demon_initiative": 20,
+    "night_raid_loot_bonus": 0.3,
+    "night_buddha_morale": 5,
+    "encircle_full_rounds": 5,
+    "encircle_full_troop_loss_pct": 0.08,
+    "encircle_full_morale": 15,
+    "encircle_surrender_keep": 0.3
+  },
+
+  "hex": {
+    "field_size": [13, 9],
+    "siege_size": [15, 11],
+    "pass_size": [9, 11],
+    "forest_pct": [0.15, 0.20],
+    "swamp_max_pct": 0.08,
+    "highland_count": [1, 2],
+    "symmetry_tolerance": 0.10,
+    "deploy_depth": 3,
+    "round_seconds": 30,
+    "field_prep_seconds": 300,
+    "siege_prep_seconds": 90,
+    "mana_max": 100,
+    "mana_per_round": 15,
+    "mana_on_hit": 5,
+    "duel_rounds": [1, 3],
+    "duel_respond_seconds": 15,
+    "ambush_max": 2,
+    "max_manual_rounds": 30
+  },
+
+  "skills": {
+    "fire":     {"name": "火攻", "mana": 40, "professions": ["spirit", "demon"], "roles": ["strategist"], "burn_rounds": 2, "forest_mult": 1.5},
+    "flood":    {"name": "水淹", "mana": 50, "professions": ["spirit"], "roles": ["strategist"], "need_river": true, "swamp_rounds": 3},
+    "confuse":  {"name": "惑敌", "mana": 35, "professions": ["ghost"], "roles": [], "immune_profession": "beast"},
+    "taunt":    {"name": "挑衅", "mana": 25, "professions": ["sword"], "roles": []},
+    "bulwark":  {"name": "坚守阵", "mana": 30, "professions": ["body"], "roles": [], "def_bonus": 0.4, "rounds": 3},
+    "heal":     {"name": "治疗术", "mana": 30, "professions": ["buddha"], "roles": [], "heal_pct": 0.05, "injury_heal": 5},
+    "beastrush": {"name": "兽群突袭", "mana": 45, "professions": ["beast"], "roles": [], "summon_troops": 500, "rounds": 3},
+    "barrage":  {"name": "落石/箭雨", "mana": 35, "professions": [], "roles": [], "need_highland": true},
+    "combo":    {"name": "合击技", "mana": 60, "professions": [], "roles": [], "need_bond": "sworn", "damage_mult": 1.8, "morale_hit": 10}
+  },
+
+  "duel": {
+    "valor_min": 75,
+    "rounds_to_win": 2,
+    "max_rounds": 3,
+    "win_morale": 15,
+    "lose_morale": 10,
+    "refuse_morale": -5,
+    "draw_morale": 5,
+    "loser_injury": 20,
+    "winner_execute_chance": 0.2,
+    "winner_execute_injury": 20,
+    "capture_pct": 60,
+    "arena_stake_min": 100,
+    "arena_stake_max": 100000,
+    "drum_tower_mult": 2.0
+  },
+
+  "captive": {
+    "duel_capture_pct": 60,
+    "city_fall_capture_pct": 40,
+    "wipeout_capture_pct": 20,
+    "street_fight_extra_pct": 10,
+    "persuade_cd_hours": 24,
+    "persuade_daily_limit": 3,
+    "loyalty_decay_per_tick": 1,
+    "jail_slots_per_node": 5,
+    "persuade_base_mult": 0.9,
+    "persuade_stat_divisor": 4,
+    "persuade_clamp": [5, 90],
+    "persuade_rep_bonus": 10,
+    "defect_loyalty": 80,
+    "defect_rep_cost": -3,
+    "liberate_merit": 50,
+    "ransom_enable": true,
+    "release_rep_gain": 3,
+    "release_diplomacy_gain": 5,
+    "rescue_coin": 800,
+    "rescue_ticks": [4, 8],
+    "rescue_expose_chance": 0.4
+  },
+
+  "faction": {
+    "create_cost_coin": 10000,
+    "cosign_required": 3,
+    "cosign_expire_hours": 72,
+    "quit_cooldown_hours": 24,
+    "create_protection_days": 7,
+    "level_nodes": [0, 2, 4, 6, 9, 12, 15, 19, 23, 28],
+    "level_merit": 2000,
+    "member_cap_base": 10,
+    "member_cap_per_level": 3,
+    "concurrent_army_per_levels": 2,
+    "treasury_deputy_pct": 0.3,
+    "positions": {"leader": 1, "deputy": 1, "situ": 1, "taiwei": 1, "jijiu": 2, "zhonglangjiang": 2},
+    "capital_relocate_cd_days": 7,
+    "salary_from_treasury": true
+  },
+
+  "diplomacy": {
+    "truce_hours": 48,
+    "truce_break_rep": -15,
+    "truce_break_morale_hours": 24,
+    "war_prep_hours": 24,
+    "ally_max": 3,
+    "ally_cooldown_hours": 48,
+    "ally_base_chance": 40,
+    "ally_charm_divisor": 4,
+    "ally_rep_divisor": 2,
+    "peace_indemnity_cap_pct": 0.2,
+    "war_merchants_rep": -20
+  },
+
+  "reputation": {
+    "righteous": [60, 100],
+    "neutral": [-20, 59],
+    "greedy": [-59, -21],
+    "infamous": [-100, -60],
+    "raid_neutral_cost": -8,
+    "break_truce_cost": -15,
+    "betray_ally_cost": -20,
+    "defend_ally_gain": 5,
+    "faction_quest_gain": 3,
+    "demon_slay_gain": 10,
+    "infamous_npc_aggression": 0.2,
+    "recruit_rank_shift": 0.10,
+    "persuade_shift": 10
+  },
+
+  "tech": {
+    "lines": ["military", "agri", "stratagem"],
+    "levels": 5,
+    "cost_iron": [500, 1000, 2000, 3500, 6000],
+    "cost_coin": [500, 1000, 2000, 3500, 6000],
+    "base_hours_per_level": [8, 16, 24, 32, 40],
+    "stat_speed_divisor": 10,
+    "stat_speed_pct": 0.05,
+    "effects": {
+      "military":  ["全兵种攻击 +2%", "破城槌造价 -30%", "全兵种攻击 +4%（累计 6%）", "ZOC 拦截伤害 +25%", "包抄系数 +5%（夹击 1.20/合围 1.35）"],
+      "agri":      ["全据点产出 +4%", "军团粮耗 -10%", "全据点产出 +8%（累计）", "运粮队机动 +1、被劫损失 -50%", "断粮抵抗（合围断粮延长 2 tick）"],
+      "stratagem": ["计略成功率 +4%", "侦察精度提升（显示敌将职责与适性）", "托管 AI 智谋等效 +5", "计略冷却 -2 tick、暴露率 -15%", "解锁反间（30% 概率反弹针对本势力的计略）"]
+    }
+  },
+
+  "plot": {
+    "types": ["alienate", "rumor", "arson", "persuade_plot", "sabotage", "rescue"],
+    "base_success": 35,
+    "wisdom_diff_divisor": 4,
+    "success_clamp": [10, 85],
+    "expose_chance": 0.4,
+    "expose_rep_cost": -5,
+    "cooldown_ticks": 6,
+    "rumor_morale": -15,
+    "rumor_output_pct": -0.2,
+    "rumor_ticks": 3,
+    "arson_burn_pct": [0.1, 0.3],
+    "arson_iron_cost": 200,
+    "alienate_loyalty": [-40, -20],
+    "alienate_coin_cost": 500,
+    "sabotage_morale": -10,
+    "wind_delay_hours": 24,
+    "counter_spy_chance": 0.3
+  },
+
+  "governance": {
+    "leader_absent_days": 7,
+    "zombie_days": 30,
+    "succession_quit_free_days": 7,
+    "collapse_bandit_chance": 0.3
+  },
+
+  "rebuild": {
+    "base_gold_cost": 3000000,
+    "cost_growth": 0.5,
+    "protect_days": 7,
+    "new_capital_level": 1,
+    "audit_log": true
+  },
+
+  "shield": {
+    "merit_cost": 800,
+    "hours": 12,
+    "cooldown_hours": 72
+  },
+
+  "market": {
+    "tax_pct": 0.05,
+    "max_orders_per_user": 20,
+    "order_expire_hours": 48,
+    "items": ["grain", "iron", "recruit_token", "intel"],
+    "base_prices": {"grain": 2, "iron": 4, "recruit_token": 800, "intel": 300},
+    "npc_maker_interval_ticks": 8,
+    "npc_maker_spread_pct": 0.15,
+    "cross_faction_market_only": true
+  },
+
+  "trade_route": {
+    "coin_per_tick": 20,
+    "trade_task_bonus": 0.3
+  },
+
+  "convoy": {
+    "troops": 100,
+    "speed_edges": 1,
+    "raid_take_pct": 0.5,
+    "guard_vision": true
+  },
+
+  "bandit": {
+    "per_week": [2, 4],
+    "exist_hours": 72,
+    "garrison_troops": [800, 1500],
+    "raid_interval_ticks": 8,
+    "merit_reward": [100, 200],
+    "token_reward_chance": 0.3,
+    "edge_only": true
+  },
+
+  "season": {
+    "node_score": {"city": 3, "pass": 2, "mine": 1, "grain": 1, "market": 1, "branch": 1, "ruin": 1},
+    "mid_day": 31,
+    "late_day": 56,
+    "final_days": 3,
+    "final_aggression_bonus": 0.3,
+    "final_output_bonus": 0.2,
+    "hegemony_trigger_pct": 0.4,
+    "hegemony_release_pct": 0.3,
+    "hegemony_npc_aggression_mult": 1.5,
+    "top_player_count": 10,
+    "honor_per_merit": 1.0,
+    "veteran_carryover_pct": 0.5,
+    "honor_shop": {
+      "gold_pack":   {"honor": 500,  "gold": 100000, "season_limit": 3},
+      "title_pack":  {"honor": 800,  "title": "赛季霸主", "season_limit": 1},
+      "boost_pack":  {"honor": 300,  "output_mult": 1.2, "days": 7, "season_limit": 1},
+      "material_pack": {"honor": 400, "materials": true, "season_limit": 2}
+    }
+  },
+
+  "catchup": {
+    "days": 7,
+    "mid_season_mult": 1.5,
+    "output_mult": 1.5,
+    "output_days": 14,
+    "referral_merit": 200
+  },
+
+  "achievements": {
+    "conquest_first_manual":   {"name": "首破坚城", "desc": "首次手操攻克据点", "merit": 200},
+    "conquest_underdog":       {"name": "以少胜多", "desc": "会战中以劣势兵力获胜", "merit": 300},
+    "conquest_encircle":       {"name": "十面埋伏", "desc": "会战中达成完全合围迫降", "merit": 300},
+    "conquest_bandit_10":      {"name": "扫平匪患", "desc": "讨伐匪寨 10 处", "merit": 500},
+    "civil_farm_100k":         {"name": "屯垦大家", "desc": "累计屯田收获 10 万灵谷", "merit": 200},
+    "civil_build_5":           {"name": "营造司", "desc": "建成 5 座建筑", "merit": 150},
+    "civil_trade_route":       {"name": "开路先锋", "desc": "开辟一条商路", "merit": 200},
+    "social_persuade_epic":    {"name": "舌绽莲花", "desc": "劝降一名极品以上角色", "merit": 300},
+    "social_liberate":         {"name": "侠义心肠", "desc": "解放或营救一名俘虏", "merit": 200},
+    "social_ally":             {"name": "合纵连横", "desc": "与其他势力达成结盟", "merit": 200},
+    "legend_imperial_army":    {"name": "御林统帅", "desc": "培养出一支御林军团", "merit": 800},
+    "legend_slay_legend":      {"name": "斩落名将", "desc": "阵前斩落传世名将", "merit": 1000},
+    "legend_duel_champion":    {"name": "会武夺冠", "desc": "仙盟会武夺冠", "merit": 1500}
+  },
+
+  "merit_shop": {
+    "gold_pack": {"merit": 500, "gold": 100000, "weekly_limit": 5},
+    "elixir": {"merit": 1500, "season_limit_per_char": 2},
+    "material_pack": {"merit": 300, "weekly_limit": 3},
+    "equip_instance": {"merit": 3000, "monthly_limit": 1},
+    "shield": {"merit": 800, "cooldown_hours": 72},
+    "recommend_letter": {"merit": 200}
+  },
+
+  "protection": {
+    "new_node_hours": 168,
+    "newbie_days": 7
+  }
+}

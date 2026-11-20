@@ -10,7 +10,7 @@ from astrbot.api import logger
 if TYPE_CHECKING:
     from ..config_manager import ConfigManager
 
-LATEST_DB_VERSION = 69  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求；v49: 统一物品品阶名称；v50: 仙市投资系统（基金/股票）；v51: 符箓熟练度与符图习得；v52: 仙市 v6（16 盘 + 赌场级波动 + 不对称日熔断）；v53: 拍卖会未开拍拍品按固定品阶曲线重建（并兼容分叉旧库补授符图）；v54: 灵田肥力上限按等级分级（旧值按百分比换算）；v55: 生活职业更换费用峰值与时间衰减；v56: 误存进储物戒/溢出仓库的丹药迁回丹药背包；v57: 旧50/50装备改名迁移到混合倾向新装备；v58: 周常 Boss（周本）周期/队伍/成员/领奖/周榜/次数表；v59: 仙市分红/风声唯一索引（结算幂等，先去重再建索引）；v60: 功德机制重做，清空全服既有功德（业力）；v61: 秘境难度分级（rift_key/product/difficulty/duration）；v62: 活动状态位按槽位多行（本体 + 身外化身）；v63: 珠宝体系（珠囊字段 jewel_inventory）；v64: 通缉令改为每日悬赏榜（每日挑战次数表 bounty_daily）；v65: 高风险玩法（锦囊/暗标/藏宝图/矿脉/古方/盘口/杠杆）与灵田永久解锁；v66: 仙市投资代理人（委托/持仓/日志表）；v67: 代理人等级（经验表 / 委托经验字段）；v68: 风声可信度与新闻冲击成本；v69: 藏宝图肉鸽奇遇（临时效果 / 待处理事件字段）
+LATEST_DB_VERSION = 71  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求；v49: 统一物品品阶名称；v50: 仙市投资系统（基金/股票）；v51: 符箓熟练度与符图习得；v52: 仙市 v6（16 盘 + 赌场级波动 + 不对称日熔断）；v53: 拍卖会未开拍拍品按固定品阶曲线重建（并兼容分叉旧库补授符图）；v54: 灵田肥力上限按等级分级（旧值按百分比换算）；v55: 生活职业更换费用峰值与时间衰减；v56: 误存进储物戒/溢出仓库的丹药迁回丹药背包；v57: 旧50/50装备改名迁移到混合倾向新装备；v58: 周常 Boss（周本）周期/队伍/成员/领奖/周榜/次数表；v59: 仙市分红/风声唯一索引（结算幂等，先去重再建索引）；v60: 功德机制重做，清空全服既有功德（业力）；v61: 秘境难度分级（rift_key/product/difficulty/duration）；v62: 活动状态位按槽位多行（本体 + 身外化身）；v63: 珠宝体系（珠囊字段 jewel_inventory）；v64: 通缉令改为每日悬赏榜（每日挑战次数表 bounty_daily）；v65: 高风险玩法（锦囊/暗标/藏宝图/矿脉/古方/盘口/杠杆）与灵田永久解锁；v66: 仙市投资代理人（委托/持仓/日志表）；v67: 代理人等级（经验表 / 委托经验字段）；v68: 风声可信度与新闻冲击成本；v69: 藏宝图肉鸽奇遇（临时效果 / 待处理事件字段）；v70: 仙域争霸战略玩法（strategy_* 11 表）；v71: 仙域争霸 P1~P3（势力外交 / hex 战役会话 / 英烈祠名将堂 / 赛季结算）
 
 MIGRATION_TASKS: Dict[int, Callable[[aiosqlite.Connection, ConfigManager], Awaitable[None]]] = {}
 
@@ -752,6 +752,10 @@ async def _ensure_latest_columns(conn: aiosqlite.Connection):
     await _ensure_invest_agent_v67(conn)
     # v68：风声可信度与新闻冲击成本
     await _ensure_invest_news_v68(conn)
+    # v70：仙域争霸战略玩法 11 表（新库/旧库共用）
+    await _ensure_strategy_v70(conn)
+    # v71：仙域争霸 P1~P3 扩展（外交/战役会话/纪念堂/赛季结算）
+    await _ensure_strategy_v71(conn)
     await conn.commit()
 
 class MigrationManager:
@@ -3111,3 +3115,283 @@ async def _migrate_to_v69(conn: aiosqlite.Connection, config_manager: ConfigMana
     await _ensure_treasure_map_roguelike_v69(conn)
     await conn.commit()
     logger.info("v69迁移完成：treasure_map_runs.effects / event 已就绪")
+
+
+async def _ensure_strategy_v70(conn: aiosqlite.Connection):
+    """v70「仙域争霸」11 表（设计方案 §13；新库/旧库共用，全部 IF NOT EXISTS）。"""
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS strategy_worlds (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            season_no INTEGER NOT NULL DEFAULT 1,
+            template_id TEXT NOT NULL DEFAULT 'standard36',
+            started_at INTEGER NOT NULL DEFAULT 0,
+            ends_at INTEGER NOT NULL DEFAULT 0,
+            state TEXT NOT NULL DEFAULT 'active',
+            last_tick_at INTEGER NOT NULL DEFAULT 0,
+            tick_no INTEGER NOT NULL DEFAULT 0,
+            data_json TEXT NOT NULL DEFAULT '{}'
+        )
+    """)
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS strategy_nodes (
+            id INTEGER NOT NULL,
+            world_id INTEGER NOT NULL,
+            name TEXT NOT NULL DEFAULT '',
+            type TEXT NOT NULL DEFAULT 'ruin',
+            terrain TEXT NOT NULL DEFAULT 'plain',
+            level INTEGER NOT NULL DEFAULT 1,
+            owner_faction INTEGER NOT NULL DEFAULT 0,
+            buildings_json TEXT NOT NULL DEFAULT '[]',
+            defense INTEGER NOT NULL DEFAULT 1000,
+            morale INTEGER NOT NULL DEFAULT 80,
+            stock_json TEXT NOT NULL DEFAULT '{}',
+            output_json TEXT NOT NULL DEFAULT '{}',
+            pos_x INTEGER NOT NULL DEFAULT 0,
+            pos_y INTEGER NOT NULL DEFAULT 0,
+            adj_json TEXT NOT NULL DEFAULT '[]',
+            siege_state_json TEXT NOT NULL DEFAULT '{}',
+            npc_garrison_json TEXT NOT NULL DEFAULT '{}',
+            protect_until INTEGER NOT NULL DEFAULT 0,
+            contribution_json TEXT NOT NULL DEFAULT '{}',
+            PRIMARY KEY (world_id, id)
+        )
+    """)
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_strategy_nodes_owner ON strategy_nodes(world_id, owner_faction)")
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS strategy_factions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            world_id INTEGER NOT NULL,
+            name TEXT NOT NULL DEFAULT '',
+            color TEXT NOT NULL DEFAULT '#888888',
+            kind TEXT NOT NULL DEFAULT 'npc',
+            leader_id TEXT NOT NULL DEFAULT '',
+            personality_json TEXT NOT NULL DEFAULT '{}',
+            treasury_json TEXT NOT NULL DEFAULT '{}',
+            reputation INTEGER NOT NULL DEFAULT 0,
+            level INTEGER NOT NULL DEFAULT 1,
+            tech_json TEXT NOT NULL DEFAULT '{}',
+            member_cap INTEGER NOT NULL DEFAULT 10,
+            capital_node_id INTEGER NOT NULL DEFAULT 0,
+            faction_state TEXT NOT NULL DEFAULT 'normal',
+            rebuild_count INTEGER NOT NULL DEFAULT 0,
+            alive INTEGER NOT NULL DEFAULT 1
+        )
+    """)
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_strategy_factions_world ON strategy_factions(world_id, kind)")
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS strategy_members (
+            faction_id INTEGER NOT NULL,
+            user_id TEXT NOT NULL,
+            position TEXT NOT NULL DEFAULT '',
+            contribution INTEGER NOT NULL DEFAULT 0,
+            joined_at INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (faction_id, user_id)
+        )
+    """)
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_strategy_members_user ON strategy_members(user_id)")
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS strategy_players (
+            user_id TEXT NOT NULL,
+            world_id INTEGER NOT NULL,
+            faction_id INTEGER NOT NULL DEFAULT 0,
+            coin INTEGER NOT NULL DEFAULT 0,
+            grain INTEGER NOT NULL DEFAULT 0,
+            iron INTEGER NOT NULL DEFAULT 0,
+            recruit_token INTEGER NOT NULL DEFAULT 0,
+            merit INTEGER NOT NULL DEFAULT 0,
+            merit_season INTEGER NOT NULL DEFAULT 0,
+            honor_json TEXT NOT NULL DEFAULT '{}',
+            auto_delegate INTEGER NOT NULL DEFAULT 1,
+            daily_output_log_json TEXT NOT NULL DEFAULT '{}',
+            notify_pref_json TEXT NOT NULL DEFAULT '{}',
+            tutorial_json TEXT NOT NULL DEFAULT '{}',
+            achievements_json TEXT NOT NULL DEFAULT '{}',
+            newcomer_json TEXT NOT NULL DEFAULT '{}',
+            rebuild_pay_log_json TEXT NOT NULL DEFAULT '[]',
+            tavern_json TEXT NOT NULL DEFAULT '{}',
+            created_at INTEGER NOT NULL DEFAULT 0,
+            last_seen_at INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (user_id, world_id)
+        )
+    """)
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS strategy_characters (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            world_id INTEGER NOT NULL DEFAULT 0,
+            faction_id INTEGER NOT NULL DEFAULT 0,
+            owner_user_id TEXT NOT NULL DEFAULT '',
+            name TEXT NOT NULL DEFAULT '',
+            role TEXT NOT NULL DEFAULT 'general',
+            rarity TEXT NOT NULL DEFAULT 'common',
+            profession TEXT NOT NULL DEFAULT 'sword',
+            stats_json TEXT NOT NULL DEFAULT '{}',
+            traits_json TEXT NOT NULL DEFAULT '[]',
+            aptitude_json TEXT NOT NULL DEFAULT '{}',
+            exp INTEGER NOT NULL DEFAULT 0,
+            level INTEGER NOT NULL DEFAULT 1,
+            loyalty INTEGER NOT NULL DEFAULT 70,
+            injury INTEGER NOT NULL DEFAULT 0,
+            stamina INTEGER NOT NULL DEFAULT 100,
+            status TEXT NOT NULL DEFAULT 'idle',
+            captor_faction INTEGER NOT NULL DEFAULT 0,
+            imprisoned_node_id INTEGER NOT NULL DEFAULT 0,
+            bonds_json TEXT NOT NULL DEFAULT '{}',
+            location_json TEXT NOT NULL DEFAULT '{}'
+        )
+    """)
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_strategy_chars_faction ON strategy_characters(faction_id)")
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_strategy_chars_owner ON strategy_characters(owner_user_id, status)")
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_strategy_chars_captor ON strategy_characters(captor_faction)")
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS strategy_armies (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            world_id INTEGER NOT NULL DEFAULT 0,
+            faction_id INTEGER NOT NULL DEFAULT 0,
+            owner_user_id TEXT NOT NULL DEFAULT '',
+            name TEXT NOT NULL DEFAULT '',
+            node_id INTEGER NOT NULL DEFAULT 0,
+            edge_pos REAL NOT NULL DEFAULT 0,
+            characters_json TEXT NOT NULL DEFAULT '[]',
+            troop_type TEXT NOT NULL DEFAULT 'sword_shield',
+            veteran INTEGER NOT NULL DEFAULT 0,
+            troops INTEGER NOT NULL DEFAULT 0,
+            grain INTEGER NOT NULL DEFAULT 0,
+            morale INTEGER NOT NULL DEFAULT 100,
+            state TEXT NOT NULL DEFAULT 'idle',
+            path_json TEXT NOT NULL DEFAULT '[]',
+            arrive_tick INTEGER NOT NULL DEFAULT 0,
+            encircle_ticks INTEGER NOT NULL DEFAULT 0,
+            siege_engine INTEGER NOT NULL DEFAULT 0,
+            reorganize_until_tick INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_strategy_armies_faction ON strategy_armies(faction_id)")
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_strategy_armies_node ON strategy_armies(world_id, node_id)")
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS strategy_tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            world_id INTEGER NOT NULL DEFAULT 0,
+            faction_id INTEGER NOT NULL DEFAULT 0,
+            character_id INTEGER NOT NULL DEFAULT 0,
+            node_id INTEGER NOT NULL DEFAULT 0,
+            task_type TEXT NOT NULL DEFAULT 'farm',
+            start_at INTEGER NOT NULL DEFAULT 0,
+            end_at INTEGER NOT NULL DEFAULT 0,
+            payout_json TEXT NOT NULL DEFAULT '{}',
+            status TEXT NOT NULL DEFAULT 'active',
+            target_faction INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_strategy_tasks_char ON strategy_tasks(character_id, status)")
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_strategy_tasks_end ON strategy_tasks(status, end_at)")
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS strategy_battles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            world_id INTEGER NOT NULL DEFAULT 0,
+            node_id INTEGER NOT NULL DEFAULT 0,
+            attacker_faction INTEGER NOT NULL DEFAULT 0,
+            defender_faction INTEGER NOT NULL DEFAULT 0,
+            kind TEXT NOT NULL DEFAULT 'field',
+            mode TEXT NOT NULL DEFAULT 'auto',
+            state TEXT NOT NULL DEFAULT 'done',
+            round_no INTEGER NOT NULL DEFAULT 0,
+            map_seed TEXT NOT NULL DEFAULT '',
+            terrain_json TEXT NOT NULL DEFAULT '[]',
+            armies_snapshot_json TEXT NOT NULL DEFAULT '[]',
+            result_json TEXT NOT NULL DEFAULT '{}',
+            report_text TEXT NOT NULL DEFAULT '',
+            created_at INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_strategy_battles_world ON strategy_battles(world_id, state)")
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_strategy_battles_node ON strategy_battles(node_id)")
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS strategy_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            world_id INTEGER NOT NULL DEFAULT 0,
+            event_id TEXT NOT NULL DEFAULT '',
+            scope TEXT NOT NULL DEFAULT 'region',
+            target_json TEXT NOT NULL DEFAULT '{}',
+            start_at INTEGER NOT NULL DEFAULT 0,
+            end_at INTEGER NOT NULL DEFAULT 0,
+            start_tick INTEGER NOT NULL DEFAULT 0,
+            end_tick INTEGER NOT NULL DEFAULT 0,
+            data_json TEXT NOT NULL DEFAULT '{}'
+        )
+    """)
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_strategy_events_world ON strategy_events(world_id, end_tick)")
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS strategy_market_orders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            world_id INTEGER NOT NULL DEFAULT 0,
+            node_id INTEGER NOT NULL DEFAULT 0,
+            seller_faction INTEGER NOT NULL DEFAULT 0,
+            seller_user TEXT NOT NULL DEFAULT '',
+            item_type TEXT NOT NULL DEFAULT 'grain',
+            amount INTEGER NOT NULL DEFAULT 0,
+            unit_price INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'open',
+            created_at INTEGER NOT NULL DEFAULT 0,
+            expires_at INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_strategy_market_node ON strategy_market_orders(node_id, status)")
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_strategy_market_seller ON strategy_market_orders(seller_user)")
+
+
+@migration(70)
+async def _migrate_to_v70(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """v70：「仙域争霸」战略玩法 11 表（设计方案 §13；文档原写 v69，因 v69 已被
+    藏宝图肉鸽占用，顺延为 v70）。"""
+    logger.info("开始迁移到 v70：仙域争霸战略玩法建表")
+    await _ensure_strategy_v70(conn)
+    await conn.commit()
+    logger.info("v70迁移完成：strategy_* 11 表已就绪")
+
+
+async def _ensure_strategy_v71(conn: aiosqlite.Connection):
+    """v71「仙域争霸」P1~P3：外交/战役会话列 + 英烈祠名将堂 + 赛季结算表。
+    新库/旧库共用（IF NOT EXISTS + 幂等补列）。"""
+    await _add_column_if_missing(conn, "strategy_factions", "diplomacy_json",
+                               "TEXT NOT NULL DEFAULT '{}'")
+    await _add_column_if_missing(conn, "strategy_battles", "deadline_at",
+                               "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(conn, "strategy_battles", "session_json",
+                               "TEXT NOT NULL DEFAULT '{}'")
+    await _add_column_if_missing(conn, "strategy_market_orders", "buyer_user",
+                               "TEXT NOT NULL DEFAULT ''")
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS strategy_memorials (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            season_no INTEGER NOT NULL DEFAULT 1,
+            world_id INTEGER NOT NULL DEFAULT 0,
+            kind TEXT NOT NULL DEFAULT 'fame',
+            char_name TEXT NOT NULL DEFAULT '',
+            user_id TEXT NOT NULL DEFAULT '',
+            faction_name TEXT NOT NULL DEFAULT '',
+            snapshot_json TEXT NOT NULL DEFAULT '{}',
+            created_at INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_strategy_memorials_kind ON strategy_memorials(kind, season_no)")
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS strategy_season_results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            world_id INTEGER NOT NULL DEFAULT 0,
+            season_no INTEGER NOT NULL DEFAULT 1,
+            ended_at INTEGER NOT NULL DEFAULT 0,
+            faction_scores_json TEXT NOT NULL DEFAULT '[]',
+            top_players_json TEXT NOT NULL DEFAULT '[]',
+            data_json TEXT NOT NULL DEFAULT '{}'
+        )
+    """)
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_strategy_season_results_no ON strategy_season_results(season_no)")
+
+
+@migration(71)
+async def _migrate_to_v71(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """v71：「仙域争霸」P1~P3（势力外交/hex 战役会话/英烈祠名将堂/赛季结算/互市买方）。"""
+    logger.info("开始迁移到 v71：仙域争霸 P1~P3 扩展")
+    await _ensure_strategy_v71(conn)
+    await conn.commit()
+    logger.info("v71迁移完成：strategy 外交/会话/纪念堂/赛季表已就绪")

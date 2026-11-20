@@ -68,6 +68,9 @@ from .weekly_boss_manager import WeeklyBossManager
 from .channel_context_manager import ChatContextManager
 from .ai_chat_manager import AIChatManager
 
+# v7.14.0 仙域争霸（战略玩法 P0）
+from .strategy_manager import StrategyManager, StrategyError, StrategyBusyError
+
 __all__ = [
     "CombatManager", "CombatStats", "SectManager", "RiftManager",
     "RankingManager", "AdventureManager", "AlchemyManager", "ImpartManager",
@@ -78,5 +81,6 @@ __all__ = [
     "AuctionManager", "AuctionHouseManager", "EscortManager", "EncounterManager", "LifeSkillManager", "TalismanManager", "CalamityManager", "LuckManager",
     "AutoProxyManager", "BattleEventManager", "InvestManager", "InvestAgentManager", "WeeklyBossManager",
     "BlindAuctionManager", "TreasureMapManager", "MineVeinManager", "BettingPoolManager",
-    "ChatContextManager", "AIChatManager"
+    "ChatContextManager", "AIChatManager",
+    "StrategyManager", "StrategyError", "StrategyBusyError"
 ]

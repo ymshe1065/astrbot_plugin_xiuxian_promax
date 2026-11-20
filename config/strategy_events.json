@@ -1,0 +1,162 @@
+{
+  "events": [
+    {
+      "id": "harvest",
+      "name": "丰收",
+      "scope": "region",
+      "weight": 12,
+      "cooldown_ticks": 40,
+      "trigger": {"node_types": ["grain"]},
+      "duration_ticks": 8,
+      "effects": [
+        {"type": "node_output", "resource": "grain", "mult": 1.5}
+      ],
+      "announce": "region"
+    },
+    {
+      "id": "drought",
+      "name": "旱灾",
+      "scope": "region",
+      "weight": 8,
+      "cooldown_ticks": 40,
+      "trigger": {"node_types": ["grain"]},
+      "duration_ticks": 8,
+      "effects": [
+        {"type": "node_output", "resource": "grain", "mult": 0.6}
+      ],
+      "announce": "region"
+    },
+    {
+      "id": "plague",
+      "name": "瘟疫",
+      "scope": "region",
+      "weight": 8,
+      "cooldown_ticks": 40,
+      "trigger": {"node_types": ["grain", "city"]},
+      "duration_ticks": 8,
+      "effects": [
+        {"type": "node_dot", "troops_pct": -3, "morale": -10},
+        {"type": "spread", "to": "adjacent", "chance": 0.25},
+        {"type": "task_injury", "chance": 0.05, "injury": 10}
+      ],
+      "counter": {"task": "heal", "ticks_to_cure": 3},
+      "announce": "region"
+    },
+    {
+      "id": "spirit_rain",
+      "name": "灵雨普降",
+      "scope": "world",
+      "weight": 10,
+      "cooldown_ticks": 96,
+      "duration_ticks": 24,
+      "effects": [
+        {"type": "global_output", "mult": 1.2}
+      ],
+      "announce": "world"
+    },
+    {
+      "id": "caravan",
+      "name": "商队来访",
+      "scope": "region",
+      "weight": 10,
+      "cooldown_ticks": 32,
+      "trigger": {"node_types": ["market", "city"]},
+      "duration_ticks": 8,
+      "effects": [
+        {"type": "node_output", "resource": "coin", "mult": 1.4}
+      ],
+      "announce": "region"
+    },
+    {
+      "id": "vein_exhaust",
+      "name": "矿脉枯竭",
+      "scope": "region",
+      "weight": 5,
+      "cooldown_ticks": 48,
+      "trigger": {"node_types": ["mine"]},
+      "duration_ticks": 12,
+      "effects": [
+        {"type": "node_output", "resource": "iron", "mult": 0.5}
+      ],
+      "announce": "region"
+    },
+    {
+      "id": "demon_tide",
+      "name": "魔潮爆发",
+      "scope": "world",
+      "weight": 6,
+      "cooldown_ticks": 192,
+      "duration_ticks": 48,
+      "effects": [
+        {"type": "spawn_demon_armies", "count": [2, 4]},
+        {"type": "hunt_merit_mult", "mult": 2.0}
+      ],
+      "announce": "world"
+    },
+    {
+      "id": "flood",
+      "name": "洪涝",
+      "scope": "region",
+      "weight": 6,
+      "cooldown_ticks": 48,
+      "trigger": {"node_terrain": ["river", "swamp"]},
+      "duration_ticks": 6,
+      "effects": [
+        {"type": "stock_loss", "resource": "grain", "pct": 0.15}
+      ],
+      "announce": "region"
+    },
+    {
+      "id": "secret_realm",
+      "name": "秘境开启",
+      "scope": "region",
+      "weight": 6,
+      "cooldown_ticks": 96,
+      "trigger": {"node_types": ["ruin"]},
+      "duration_ticks": 12,
+      "effects": [
+        {"type": "node_output", "resource": "coin", "mult": 2.0},
+        {"type": "node_output", "resource": "iron", "mult": 1.5}
+      ],
+      "announce": "world"
+    },
+    {
+      "id": "wandering_general",
+      "name": "天降流将",
+      "scope": "world",
+      "weight": 6,
+      "cooldown_ticks": 96,
+      "duration_ticks": 24,
+      "effects": [
+        {"type": "spawn_wandering_char", "count": [1, 2], "rarity": "epic"}
+      ],
+      "announce": "world"
+    },
+    {
+      "id": "alliance_tournament",
+      "name": "仙盟会武",
+      "scope": "world",
+      "weight": 5,
+      "cooldown_ticks": 192,
+      "duration_ticks": 24,
+      "effects": [
+        {"type": "tournament"}
+      ],
+      "announce": "world"
+    },
+    {
+      "id": "raid_incoming",
+      "name": "劫掠来袭",
+      "scope": "region",
+      "weight": 7,
+      "cooldown_ticks": 48,
+      "trigger": {"node_types": ["grain", "market", "branch"]},
+      "duration_ticks": 6,
+      "effects": [
+        {"type": "bandit_raid", "stock_loss_pct": 0.1, "troops": [600, 1200], "hours": 24}
+      ],
+      "announce": "region"
+    }
+  ],
+  "roll_per_tick": [0, 2]
+}

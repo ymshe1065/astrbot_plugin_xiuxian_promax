@@ -1,0 +1,584 @@
+{
+  "templates": [
+    {
+      "template_id": "standard36",
+      "name": "九州仙域·三十六洞天",
+      "width": 1200,
+      "height": 780,
+      "nodes": [
+        {
+          "id": 1,
+          "name": "凝霜灵脉",
+          "type": "mine",
+          "type_name": "灵脉矿",
+          "terrain": "forest",
+          "terrain_name": "森林",
+          "pos_x": 848,
+          "pos_y": 584,
+          "adj": [
+            5,
+            12,
+            22
+          ]
+        },
+        {
+          "id": 2,
+          "name": "赤铜灵脉",
+          "type": "mine",
+          "type_name": "灵脉矿",
+          "terrain": "forest",
+          "terrain_name": "森林",
+          "pos_x": 463,
+          "pos_y": 68,
+          "adj": [
+            11,
+            26,
+            33
+          ]
+        },
+        {
+          "id": 3,
+          "name": "凌霄仙城",
+          "type": "city",
+          "type_name": "仙城",
+          "terrain": "plain",
+          "terrain_name": "平原",
+          "pos_x": 524,
+          "pos_y": 440,
+          "adj": [
+            23,
+            24,
+            25,
+            29
+          ]
+        },
+        {
+          "id": 4,
+          "name": "剑门关",
+          "type": "pass",
+          "type_name": "关隘",
+          "terrain": "mountain",
+          "terrain_name": "山地",
+          "pos_x": 91,
+          "pos_y": 193,
+          "adj": [
+            14,
+            19,
+            33,
+            34
+          ]
+        },
+        {
+          "id": 5,
+          "name": "玄晶灵脉",
+          "type": "mine",
+          "type_name": "灵脉矿",
+          "terrain": "forest",
+          "terrain_name": "森林",
+          "pos_x": 725,
+          "pos_y": 594,
+          "adj": [
+            1,
+            23,
+            24,
+            35
+          ]
+        },
+        {
+          "id": 6,
+          "name": "青禾灵谷田",
+          "type": "grain",
+          "type_name": "灵谷田",
+          "terrain": "plain",
+          "terrain_name": "平原",
+          "pos_x": 293,
+          "pos_y": 185,
+          "adj": [
+            26,
+            33,
+            34
+          ]
+        },
+        {
+          "id": 7,
+          "name": "流火灵脉",
+          "type": "mine",
+          "type_name": "灵脉矿",
+          "terrain": "river",
+          "terrain_name": "河流",
+          "pos_x": 1098,
+          "pos_y": 470,
+          "adj": [
+            8,
+            22,
+            30
+          ]
+        },
+        {
+          "id": 8,
+          "name": "白露灵谷田",
+          "type": "grain",
+          "type_name": "灵谷田",
+          "terrain": "forest",
+          "terrain_name": "森林",
+          "pos_x": 1100,
+          "pos_y": 354,
+          "adj": [
+            7,
+            28
+          ]
+        },
+        {
+          "id": 9,
+          "name": "金穗灵谷田",
+          "type": "grain",
+          "type_name": "灵谷田",
+          "terrain": "plain",
+          "terrain_name": "平原",
+          "pos_x": 142,
+          "pos_y": 554,
+          "adj": [
+            13,
+            31,
+            36
+          ]
+        },
+        {
+          "id": 10,
+          "name": "落雁隘",
+          "type": "pass",
+          "type_name": "关隘",
+          "terrain": "mountain",
+          "terrain_name": "山地",
+          "pos_x": 1111,
+          "pos_y": 679,
+          "adj": [
+            12,
+            22
+          ]
+        },
+        {
+          "id": 11,
+          "name": "沉银灵脉",
+          "type": "mine",
+          "type_name": "灵脉矿",
+          "terrain": "forest",
+          "terrain_name": "森林",
+          "pos_x": 657,
+          "pos_y": 106,
+          "adj": [
+            2,
+            15,
+            20
+          ]
+        },
+        {
+          "id": 12,
+          "name": "丹鼎别院",
+          "type": "branch",
+          "type_name": "门派别院",
+          "terrain": "plain",
+          "terrain_name": "平原",
+          "pos_x": 932,
+          "pos_y": 699,
+          "adj": [
+            1,
+            10,
+            35
+          ]
+        },
+        {
+          "id": 13,
+          "name": "云集市",
+          "type": "market",
+          "type_name": "坊市",
+          "terrain": "river",
+          "terrain_name": "河流",
+          "pos_x": 288,
+          "pos_y": 562,
+          "adj": [
+            9,
+            17,
+            24,
+            31
+          ]
+        },
+        {
+          "id": 14,
+          "name": "落星坊",
+          "type": "market",
+          "type_name": "坊市",
+          "terrain": "plain",
+          "terrain_name": "平原",
+          "pos_x": 67,
+          "pos_y": 305,
+          "adj": [
+            4,
+            31,
+            34
+          ]
+        },
+        {
+          "id": 15,
+          "name": "紫髓灵脉",
+          "type": "mine",
+          "type_name": "灵脉矿",
+          "terrain": "plain",
+          "terrain_name": "平原",
+          "pos_x": 860,
+          "pos_y": 89,
+          "adj": [
+            11,
+            16,
+            21
+          ]
+        },
+        {
+          "id": 16,
+          "name": "云梦灵谷田",
+          "type": "grain",
+          "type_name": "灵谷田",
+          "terrain": "plain",
+          "terrain_name": "平原",
+          "pos_x": 870,
+          "pos_y": 206,
+          "adj": [
+            15,
+            20,
+            21,
+            28,
+            32
+          ]
+        },
+        {
+          "id": 17,
+          "name": "上古剑冢",
+          "type": "ruin",
+          "type_name": "野外遗迹",
+          "terrain": "plain",
+          "terrain_name": "平原",
+          "pos_x": 341,
+          "pos_y": 685,
+          "adj": [
+            13,
+            27,
+            36
+          ]
+        },
+        {
+          "id": 18,
+          "name": "碧落仙城",
+          "type": "city",
+          "type_name": "仙城",
+          "terrain": "forest",
+          "terrain_name": "森林",
+          "pos_x": 658,
+          "pos_y": 331,
+          "adj": [
+            20,
+            23,
+            29,
+            32
+          ]
+        },
+        {
+          "id": 19,
+          "name": "御剑别院",
+          "type": "branch",
+          "type_name": "门派别院",
+          "terrain": "plain",
+          "terrain_name": "平原",
+          "pos_x": 137,
+          "pos_y": 115,
+          "adj": [
+            4,
+            33
+          ]
+        },
+        {
+          "id": 20,
+          "name": "仙人遗府",
+          "type": "ruin",
+          "type_name": "野外遗迹",
+          "terrain": "swamp",
+          "terrain_name": "沼泽",
+          "pos_x": 744,
+          "pos_y": 222,
+          "adj": [
+            11,
+            16,
+            18,
+            26
+          ]
+        },
+        {
+          "id": 21,
+          "name": "镇岳关",
+          "type": "pass",
+          "type_name": "关隘",
+          "terrain": "mountain",
+          "terrain_name": "山地",
+          "pos_x": 1078,
+          "pos_y": 64,
+          "adj": [
+            15,
+            16,
+            28
+          ]
+        },
+        {
+          "id": 22,
+          "name": "断云关",
+          "type": "pass",
+          "type_name": "关隘",
+          "terrain": "mountain",
+          "terrain_name": "山地",
+          "pos_x": 1119,
+          "pos_y": 555,
+          "adj": [
+            1,
+            7,
+            10
+          ]
+        },
+        {
+          "id": 23,
+          "name": "紫霄仙城",
+          "type": "city",
+          "type_name": "仙城",
+          "terrain": "plain",
+          "terrain_name": "平原",
+          "pos_x": 728,
+          "pos_y": 473,
+          "adj": [
+            3,
+            5,
+            18,
+            30
+          ]
+        },
+        {
+          "id": 24,
+          "name": "荒古祭坛",
+          "type": "ruin",
+          "type_name": "野外遗迹",
+          "terrain": "plain",
+          "terrain_name": "平原",
+          "pos_x": 479,
+          "pos_y": 583,
+          "adj": [
+            3,
+            5,
+            13,
+            27
+          ]
+        },
+        {
+          "id": 25,
+          "name": "百草坊市",
+          "type": "market",
+          "type_name": "坊市",
+          "terrain": "forest",
+          "terrain_name": "森林",
+          "pos_x": 321,
+          "pos_y": 449,
+          "adj": [
+            3,
+            31,
+            34
+          ]
+        },
+        {
+          "id": 26,
+          "name": "栖霞灵谷田",
+          "type": "grain",
+          "type_name": "灵谷田",
+          "terrain": "plain",
+          "terrain_name": "平原",
+          "pos_x": 508,
+          "pos_y": 194,
+          "adj": [
+            2,
+            6,
+            20,
+            29
+          ]
+        },
+        {
+          "id": 27,
+          "name": "沐雨灵谷田",
+          "type": "grain",
+          "type_name": "灵谷田",
+          "terrain": "plain",
+          "terrain_name": "平原",
+          "pos_x": 511,
+          "pos_y": 691,
+          "adj": [
+            17,
+            24,
+            35
+          ]
+        },
+        {
+          "id": 28,
+          "name": "琳琅坊市",
+          "type": "market",
+          "type_name": "坊市",
+          "terrain": "plain",
+          "terrain_name": "平原",
+          "pos_x": 1064,
+          "pos_y": 230,
+          "adj": [
+            8,
+            16,
+            21
+          ]
+        },
+        {
+          "id": 29,
+          "name": "太虚仙城",
+          "type": "city",
+          "type_name": "仙城",
+          "terrain": "plain",
+          "terrain_name": "平原",
+          "pos_x": 517,
+          "pos_y": 300,
+          "adj": [
+            3,
+            18,
+            26,
+            34
+          ]
+        },
+        {
+          "id": 30,
+          "name": "沉舟遗迹",
+          "type": "ruin",
+          "type_name": "野外遗迹",
+          "terrain": "plain",
+          "terrain_name": "平原",
+          "pos_x": 891,
+          "pos_y": 424,
+          "adj": [
+            7,
+            23,
+            32
+          ]
+        },
+        {
+          "id": 31,
+          "name": "丰衍灵谷田",
+          "type": "grain",
+          "type_name": "灵谷田",
+          "terrain": "plain",
+          "terrain_name": "平原",
+          "pos_x": 125,
+          "pos_y": 428,
+          "adj": [
+            9,
+            13,
+            14,
+            25
+          ]
+        },
+        {
+          "id": 32,
+          "name": "南亩灵谷田",
+          "type": "grain",
+          "type_name": "灵谷田",
+          "terrain": "plain",
+          "terrain_name": "平原",
+          "pos_x": 936,
+          "pos_y": 334,
+          "adj": [
+            16,
+            18,
+            30
+          ]
+        },
+        {
+          "id": 33,
+          "name": "万兽别院",
+          "type": "branch",
+          "type_name": "门派别院",
+          "terrain": "forest",
+          "terrain_name": "森林",
+          "pos_x": 317,
+          "pos_y": 69,
+          "adj": [
+            2,
+            4,
+            6,
+            19
+          ]
+        },
+        {
+          "id": 34,
+          "name": "寒铁灵脉",
+          "type": "mine",
+          "type_name": "灵脉矿",
+          "terrain": "plain",
+          "terrain_name": "平原",
+          "pos_x": 297,
+          "pos_y": 339,
+          "adj": [
+            4,
+            6,
+            14,
+            25,
+            29
+          ]
+        },
+        {
+          "id": 35,
+          "name": "曜石林",
+          "type": "mine",
+          "type_name": "灵脉矿",
+          "terrain": "mountain",
+          "terrain_name": "山地",
+          "pos_x": 659,
+          "pos_y": 693,
+          "adj": [
+            5,
+            12,
+            27
+          ]
+        },
+        {
+          "id": 36,
+          "name": "天枢隘",
+          "type": "pass",
+          "type_name": "关隘",
+          "terrain": "mountain",
+          "terrain_name": "山地",
+          "pos_x": 140,
+          "pos_y": 687,
+          "adj": [
+            9,
+            17
+          ]
+        }
+      ]
+    }
+  ],
+  "meta": {
+    "seed": 20261119,
+    "generated_by": "scripts/gen_strategy_world.py",
+    "type_names": {
+      "city": "仙城",
+      "pass": "关隘",
+      "mine": "灵脉矿",
+      "grain": "灵谷田",
+      "market": "坊市",
+      "branch": "门派别院",
+      "ruin": "野外遗迹"
+    },
+    "terrain_names": {
+      "plain": "平原",
+      "forest": "森林",
+      "mountain": "山地",
+      "river": "河流",
+      "swamp": "沼泽"
+    }
+  }
+}

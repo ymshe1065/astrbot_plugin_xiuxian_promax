@@ -495,6 +495,10 @@ input:focus, textarea:focus { outline: none; }
   color: var(--dim); font-size: 15px;
 }
 .icon-btn:hover { background: var(--line-soft); }
+a.icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  text-decoration: none; flex: 0 0 auto;
+}
 
 /* 顶栏当前账号 */
 .me-btn {
@@ -3104,3 +3108,84 @@ button.chan-main { cursor: pointer; }
 }
 .ia-exp > i { display: block; height: 100%; border-radius: 2px; background: var(--gold); }
 .ia-exp-text { font-size: 10.5px; color: var(--dim); line-height: 1.45; }
+
+/* ================= 私聊 DM（v8.0.0 §12.7） ================= */
+.dm-drawer {
+  width: min(420px, 94vw);
+  height: 100dvh;
+  display: flex; flex-direction: column;
+  padding: 16px 14px calc(14px + var(--safe-b));
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  border-radius: 0 16px 16px 0;
+  box-shadow: var(--shadow-lg);
+  animation: fadeIn .15s;
+}
+.dm-tabs { display: flex; gap: 6px; margin: 10px 0; }
+.dm-tab {
+  flex: 1; padding: 7px 0; border: 1px solid var(--line); border-radius: 8px;
+  background: none; color: var(--dim); font-size: 13px; cursor: pointer;
+}
+.dm-tab.active { color: var(--gold); border-color: var(--gold); font-weight: 600; }
+.dm-convo-list, .dm-block-list { flex: 1 1 auto; overflow-y: auto; min-height: 0; }
+.dm-empty { color: var(--dim); font-size: 13px; text-align: center; padding: 34px 0; line-height: 1.8; }
+.dm-convo {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 8px; border-radius: 10px; cursor: pointer;
+}
+.dm-convo:hover { background: var(--field); }
+.dm-convo.unread .dm-convo-nick { color: var(--gold); }
+.dm-convo-avatar { width: 38px; height: 38px; flex: 0 0 auto; }
+.dm-convo-info { flex: 1 1 auto; min-width: 0; }
+.dm-convo-nick { font-size: 13.5px; font-weight: 600; }
+.dm-convo-preview {
+  font-size: 12px; color: var(--dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.dm-convo-badge {
+  flex: 0 0 auto; min-width: 18px; height: 18px; padding: 0 5px;
+  border-radius: 9px; background: var(--bad, #f85149); color: #fff;
+  font-size: 11px; line-height: 18px; text-align: center;
+}
+.dm-block-row { display: flex; align-items: center; gap: 10px; padding: 8px; }
+.dm-unblock {
+  flex: 0 0 auto; padding: 4px 10px; border: 1px solid var(--line);
+  border-radius: 7px; background: none; color: var(--dim); font-size: 12px; cursor: pointer;
+}
+.dm-unblock:hover { color: var(--gold); border-color: var(--gold); }
+.dm-chat { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+.dm-chat-head {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 8px;
+  padding: 6px 2px 10px; border-bottom: 1px solid var(--line-soft);
+}
+.dm-back { background: none; border: none; color: var(--dim); font-size: 22px; cursor: pointer; padding: 0 4px; }
+.dm-peer { flex: 1 1 auto; font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dm-block-btn { background: none; border: none; font-size: 15px; cursor: pointer; opacity: .55; }
+.dm-block-btn:hover { opacity: 1; }
+.dm-msgs { flex: 1 1 auto; overflow-y: auto; padding: 10px 2px; min-height: 0; }
+.dm-msg { max-width: 78%; margin: 6px 0; }
+.dm-msg-text {
+  padding: 8px 11px; border-radius: 12px; font-size: 13.5px; line-height: 1.5;
+  background: var(--field); border: 1px solid var(--line-soft);
+  white-space: pre-wrap; word-break: break-word;
+}
+.dm-msg.me { margin-left: auto; text-align: right; }
+.dm-msg.me .dm-msg-text {
+  background: rgba(227, 179, 65, .12); border-color: rgba(227, 179, 65, .35);
+  text-align: left;
+}
+.dm-msg-meta { font-size: 10.5px; color: var(--dim); margin-top: 2px; }
+.dm-input-row { flex: 0 0 auto; display: flex; gap: 8px; padding-top: 10px; }
+.dm-input-row input {
+  flex: 1 1 auto; padding: 10px 12px; font-size: 14px;
+  border: 1px solid var(--line); border-radius: 9px; background: var(--field); color: var(--text);
+}
+.dm-send { flex: 0 0 auto; padding: 0 16px; border-radius: 9px; }
+.online-dm {
+  flex: 0 0 auto; background: none; border: none; font-size: 15px;
+  cursor: pointer; opacity: .5; padding: 4px;
+}
+.online-dm:hover { opacity: 1; }
+@media (max-width: 900px) {
+  .dm-drawer { width: 100vw; max-width: 100vw; border-radius: 0; }
+}
