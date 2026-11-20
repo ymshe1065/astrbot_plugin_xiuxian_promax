@@ -50,10 +50,15 @@ RARITIES = ("common", "fine", "rare", "epic", "legend")
 RARITY_NAMES = {
     "common": "凡品", "fine": "良品", "rare": "珍品", "epic": "极品", "legend": "传世",
 }
+#: 六维总和区间（v4.0.19 大幅下调：避免极品/传世角色多项属性直接顶到 100）。
 RARITY_STAT_RANGE = {
-    "common": (120, 180), "fine": (180, 240), "rare": (240, 300),
-    "epic": (300, 360), "legend": (360, 420),
+    "common": (90, 120), "fine": (125, 160), "rare": (165, 200),
+    "epic": (205, 240), "legend": (245, 280),
 }
+
+#: 单项属性硬上限（生成与成长共用）。100 上限会让主属性过早封顶，
+#: 后期所有名将同质化；统一压到 90，保留长期养成空间。
+STAT_HARD_CAP = 90
 
 #: 职责六维权重（生成时按权重分配总和）
 ROLE_STAT_WEIGHTS = {
@@ -128,6 +133,147 @@ TRAIT_NAMES = {
     "doctor": "名医", "swift": "疾行", "intimidate": "威压",
     "moneybag": "敛财", "ironwall": "铁壁",
 }
+
+
+def trait_army_mods(traits: list[str] | None) -> dict[str, float | int]:
+    """特技 → 军团数值修正（§4.4 八条全部生效）。
+
+    返回键固定包含契约约定的四项，并附带三项专用效果：
+    - ``grain_mult``：行军粮耗乘区（swift ×0.9）
+    - ``speed_mult``：行军速度乘区（swift ×1.15）
+    - ``defense_mult``：守城战力乘区（siege_expert ×1.15、ironwall ×1.20，可叠乘）
+    - ``attack_mult``：攻击乘区（当前无特技提供，保留 1.0 便于调用方统一相乘）
+    - ``fire_mult``：火攻伤害乘区（fire_master ×1.2）
+    - ``recover_pct``：战后伤兵回收比例（doctor 0.08）
+    - ``injury_reduce``：战后角色伤势额外减免（doctor 1）
+    """
+    owned = set(traits or [])
+    mods: dict[str, float | int] = {
+        "grain_mult": 1.0, "speed_mult": 1.0,
+        "defense_mult": 1.0, "attack_mult": 1.0,
+        "fire_mult": 1.0, "recover_pct": 0.0, "injury_reduce": 0,
+    }
+    if "swift" in owned:              # 疾行：机动 +15%、粮耗 -10%、追击捕获 +10%
+        mods["speed_mult"] = 1.15
+        mods["grain_mult"] = 0.9
+    if "siege_expert" in owned:       # 守城专精：城防战防御 +15%
+        mods["defense_mult"] = float(mods["defense_mult"]) * 1.15
+    if "ironwall" in owned:           # 铁壁：守城城防 +20%
+        mods["defense_mult"] = float(mods["defense_mult"]) * 1.20
+    if "fire_master" in owned:        # 火攻大师：火攻伤害 +20%
+        mods["fire_mult"] = 1.2
+    if "doctor" in owned:             # 名医：战后伤兵回收 8%、伤势额外 -1
+        mods["recover_pct"] = 0.08
+        mods["injury_reduce"] = 1
+    return mods
+
+
+def _cfg_value(cfg: dict | None, section: str, key: str, default: Any) -> Any:
+    """配置读取：既支持完整 config（嵌套 section），也支持直接传 section 子块。"""
+    cfg = cfg or {}
+    sub = cfg.get(section)
+    if isinstance(sub, dict) and key in sub:
+        return sub[key]
+    if key in cfg:
+        return cfg[key]
+    return default
+
+
+def morale_task_gain(task_type: str, ticks: int, cfg: dict) -> int:
+    """govem/heal 任务的民心产出（§6.2；每 tick 固定增益）。
+
+    ``govern`` 每 tick +``governance.govern_morale_per_tick``；
+    ``heal`` 每 tick +``governance.heal_morale_per_tick``；其余任务 0。
+    """
+    n = max(0, int(ticks or 0))
+    if n <= 0:
+        return 0
+    if task_type == "govern":
+        per = float(_cfg_value(cfg, "governance", "govern_morale_per_tick", 1.5))
+    elif task_type == "heal":
+        per = float(_cfg_value(cfg, "governance", "heal_morale_per_tick", 1.0))
+    else:
+        return 0
+    return max(0, int(round(per * n)))
+
+
+def riot_check(rng: random.Random, morale: int, cfg: dict) -> bool:
+    """民心低于 ``governance.riot_morale`` 时按 ``riot_chance`` 判定哗变（§8.6）。"""
+    threshold = int(_cfg_value(cfg, "governance", "riot_morale", 20))
+    if int(morale or 0) >= threshold:
+        return False
+    chance = float(_cfg_value(cfg, "governance", "riot_chance", 0.05))
+    return rng.random() < max(0.0, min(1.0, chance))
+
+
+def overstaff_penalty(leader: dict | None, troops: int, cfg: dict) -> int:
+    """超编士气惩罚（§7.5）：兵力 > 统率×20 时每 tick 扣的士气点数。
+
+    返回 0 表示不超编；否则按 ``army.overstaff_morale_penalty``（默认 10%）
+    折算为整数士气点（至少 1 点）。
+    """
+    if not is_overstaffed(leader, troops):
+        return 0
+    pct = float(_cfg_value(cfg, "army", "overstaff_morale_penalty", 0.1))
+    return max(1, int(round(pct * 100)))
+
+
+def bandit_raid_ready(node: dict, tick_no: int, interval: int) -> bool:
+    """匪寨周期劫掠判定（§9.1）：距上次劫掠 ≥ ``interval`` tick 才可再次出手。"""
+    if not node:
+        return False
+    interval = max(1, int(interval or 1))
+    lair = node.get("lair")
+    if lair is None:
+        lair = node.get("lair_json")
+    if isinstance(lair, str):
+        try:
+            import json as _json
+            lair = _json.loads(lair or "{}")
+        except (ValueError, TypeError):
+            lair = {}
+    if not isinstance(lair, dict):
+        lair = {}
+    last = int(lair.get("last_raid_tick", 0) or 0)
+    return int(tick_no or 0) - last >= interval
+
+
+#: 任务小事件（§6.2：10% 触发，收益 0.6~1.6 倍）
+MINI_EVENT_CHANCE = 0.10
+MINI_EVENTS = (
+    ("windfall", "意外之财：途中拾得前人遗落的储物袋", 1.4, 1.6),
+    ("inspiration", "灵机一动：参悟功法，事半功倍", 1.2, 1.4),
+    ("delay", "山路塌方，耽搁了半日行程", 0.6, 0.8),
+    ("mishap", "工具折损，进度略有倒退", 0.85, 0.95),
+)
+
+
+def mini_event_roll(rng: random.Random,
+                    chance: float = MINI_EVENT_CHANCE) -> Optional[dict[str, Any]]:
+    """任务小事件掷骰：按 ``chance``（默认 10%）返回事件或 None。
+
+    允许调用方传入配置概率（task.mini_event_chance），避免 >10% 的配置
+    被旧实现静默忽略。
+    """
+    try:
+        p = float(chance)
+    except (TypeError, ValueError):
+        p = MINI_EVENT_CHANCE
+    if p <= 0 or rng.random() >= min(1.0, p):
+        return None
+    kind, text, lo, hi = rng.choices(
+        MINI_EVENTS, weights=[3, 3, 2, 2], k=1)[0]
+    return {"kind": kind, "text": text, "mult": round(rng.uniform(lo, hi), 3)}
+
+
+def arena_bracket(merit: int) -> str:
+    """会武分档（§11）：战功 <500 新秀 / <2000 宿将 / 其余宗师。"""
+    value = max(0, int(merit or 0))
+    if value < 500:
+        return "novice"
+    if value < 2000:
+        return "veteran"
+    return "master"
 
 # ---------------------------------------------------------------------------
 # 兵种（§7.5）
@@ -217,24 +363,41 @@ def veteran_tier(veteran: int) -> tuple[str, float, int]:
 # ---------------------------------------------------------------------------
 
 def roll_stats(rng: random.Random, rarity: str, role: str) -> dict[str, int]:
-    """按稀有度总和区间与职责权重掷六维。"""
+    """按稀有度总和区间与职责权重掷六维。
+
+    v4.0.19 改为「按权重分配 + 单项硬上限 + 溢出再分配」：
+    - 主属性不会再无脑顶到 100；
+    - 单项封顶后，多余点数回填到次要属性，六维更均衡；
+    - 总和始终落在稀有度区间内（除非区间本身低于 6×5 的下限）。
+    """
     lo, hi = RARITY_STAT_RANGE.get(rarity, RARITY_STAT_RANGE["common"])
-    total = rng.randint(lo, hi)
+    target = rng.randint(lo, hi)
     weights = ROLE_STAT_WEIGHTS.get(role, ROLE_STAT_WEIGHTS[ROLE_GENERAL])
-    w_sum = sum(weights.values())
-    stats: dict[str, int] = {}
-    remain = total
     keys = list(STAT_KEYS)
-    for i, key in enumerate(keys):
-        if i == len(keys) - 1:
-            val = remain
+    # 先按职责权重生成带抖动的分配权重，避免每次都是同一个模板
+    raw = {k: max(1.0, float(weights.get(k, 1)) * rng.uniform(0.9, 1.1))
+           for k in keys}
+    weight_sum = sum(raw.values()) or 1.0
+    stats = {k: max(5, min(STAT_HARD_CAP,
+                           int(round(target * raw[k] / weight_sum))))
+             for k in keys}
+    # 逐点回填/削减，保证总和精确落在 target，且不越过 [5, STAT_HARD_CAP]
+    diff = target - sum(stats.values())
+    while diff != 0:
+        if diff > 0:
+            candidates = [k for k in keys if stats[k] < STAT_HARD_CAP]
+            if not candidates:
+                break
+            pick = max(candidates, key=lambda k: (raw[k], -STAT_KEYS.index(k)))
+            stats[pick] += 1
+            diff -= 1
         else:
-            base = total * weights[key] / w_sum
-            val = int(max(5, min(100, base + rng.randint(-6, 6))))
-            remain -= val
-        stats[key] = val
-    # 末位兜底钳制
-    stats[keys[-1]] = max(5, min(100, stats[keys[-1]]))
+            candidates = [k for k in keys if stats[k] > 5]
+            if not candidates:
+                break
+            pick = min(candidates, key=lambda k: (raw[k], STAT_KEYS.index(k)))
+            stats[pick] -= 1
+            diff += 1
     return stats
 
 
@@ -315,26 +478,74 @@ def exp_to_next(level: int) -> int:
     return 100 + int(level) * 50
 
 
-def gain_exp(char: dict, amount: int, rarity_cap_bonus: int = 0) -> list[str]:
-    """加阅历并升级（六维小幅成长，总和上限=稀有度上限）。"""
+#: 等级硬上限：达到后阅历不再累积，防止无限升级与数值膨胀。
+MAX_LEVEL = 60
+
+#: 每次升级投入的成长点（按职责权重分配到六维，单项上限 STAT_HARD_CAP）。
+LEVEL_GROWTH_POINTS = 2
+
+#: 养成上限额外加成：角色可通过任务/战斗把六维总和练到
+#: 「稀有度生成上限 + 该值」，让长期培养的角色不至于被同稀有度新品直接替换。
+DEFAULT_GROWTH_CAP_BONUS = 30
+
+
+def stat_total(char: dict | None) -> int:
+    """角色六维总和。"""
+    return sum(int(v or 0) for v in ((char or {}).get("stats") or {}).values())
+
+
+def stat_growth_cap(char: dict | None, growth_cap_bonus: int = 0) -> int:
+    """角色六维总和的养成上限（稀有度上限 + 额外历练上限）。"""
+    rarity = str(((char or {}).get("rarity") or "common"))
+    cap = RARITY_STAT_RANGE.get(rarity, RARITY_STAT_RANGE["common"])[1]
+    return int(cap) + max(0, int(growth_cap_bonus or 0))
+
+
+def _grow_stats(char: dict, points: int, growth_cap_bonus: int = 0) -> list[str]:
+    """按职责权重给角色加成长点，返回本次提升的属性名列表。"""
+    stats = char.setdefault("stats", {})
+    total = sum(int(v or 0) for v in stats.values())
+    cap = stat_growth_cap(char, growth_cap_bonus)
+    weights = ROLE_STAT_WEIGHTS.get(str(char.get("role") or ""), {})
+    order = sorted(STAT_KEYS, key=lambda k: (-weights.get(k, 1), STAT_KEYS.index(k)))
+    gained: list[str] = []
+    for _ in range(max(0, int(points))):
+        if total >= cap:
+            break
+        for k in order:
+            # 每个升级阶段优先把点数投给不同的主属性，避免全部堆在一项
+            if k in gained:
+                continue
+            if int(stats.get(k) or 0) >= STAT_HARD_CAP:
+                continue
+            stats[k] = int(stats.get(k) or 0) + 1
+            total += 1
+            gained.append(k)
+            break
+    return [STAT_NAMES.get(k, k) for k in gained]
+
+
+def gain_exp(char: dict, amount: int, rarity_cap_bonus: int = 0,
+             *, max_level: int = MAX_LEVEL,
+             growth_points: int = LEVEL_GROWTH_POINTS) -> list[str]:
+    """加阅历并升级（六维小幅成长，总和上限=稀有度上限+历练加成）。
+
+    ``rarity_cap_bonus`` 为额外历练上限，任务/战斗消耗越多成长越高；
+    达到 ``max_level`` 后阅历封顶，不再无限升级。
+    """
     logs: list[str] = []
     char["exp"] = int(char.get("exp") or 0) + max(0, int(amount))
-    while char["exp"] >= exp_to_next(char.get("level", 1)):
-        char["exp"] -= exp_to_next(char["level"])
-        char["level"] = int(char.get("level", 1)) + 1
-        cap = RARITY_STAT_RANGE.get(char.get("rarity", "common"), (120, 180))[1]
-        total = sum(char["stats"].values())
-        if total < cap:
-            # 升 2 点，偏向职责主属性
-            weights = ROLE_STAT_WEIGHTS.get(char.get("role"), {})
-            keys = sorted(STAT_KEYS, key=lambda k: -weights.get(k, 1))
-            for k in keys[:2]:
-                if total >= cap:
-                    break
-                if char["stats"][k] < 100:
-                    char["stats"][k] += 1
-                    total += 1
-            logs.append(f"{char.get('name', '角色')} 升至 {char['level']} 级")
+    level = max(1, int(char.get("level") or 1))
+    max_level = max(1, int(max_level))
+    while level < max_level and char["exp"] >= exp_to_next(level):
+        char["exp"] -= exp_to_next(level)
+        level += 1
+        gained = _grow_stats(char, growth_points, rarity_cap_bonus)
+        suffix = f"（{'、'.join(gained)}+1）" if gained else "（六维已至成长上限）"
+        logs.append(f"{char.get('name', '角色')} 升至 {level} 级{suffix}")
+    char["level"] = level
+    if level >= max_level:
+        char["exp"] = min(char["exp"], max(0, exp_to_next(level) - 1))
     return logs
 
 
@@ -453,32 +664,36 @@ def is_overstaffed(leader: dict | None, troops: int) -> bool:
 # ---------------------------------------------------------------------------
 
 TASK_TYPES = (
-    "govern", "farm", "trade", "seek", "scout", "build",
+    "govern", "farm", "mining", "trade", "seek", "scout", "build",
     "train", "hunt", "raid", "heal", "supply", "research",
 )
 TASK_NAMES = {
-    "govern": "布政", "farm": "屯田", "trade": "贸易", "seek": "寻访",
-    "scout": "侦察", "build": "修筑", "train": "练兵", "hunt": "讨伐",
-    "raid": "劫掠", "heal": "行医", "supply": "运粮", "research": "研究",
+    "govern": "布政", "farm": "屯田", "mining": "采矿", "trade": "贸易",
+    "seek": "寻访", "scout": "侦察", "build": "修筑", "train": "练兵",
+    "hunt": "讨伐", "raid": "劫掠", "heal": "行医", "supply": "运粮",
+    "research": "研究",
 }
 #: 任务 → 主属性（§6.2）
 TASK_PRIMARY_STAT = {
-    "govern": "admin", "farm": "admin", "trade": "wisdom", "seek": "charm",
-    "scout": "wisdom", "build": "admin", "train": "leadership", "hunt": "valor",
-    "raid": "valor", "heal": "charm", "supply": "admin", "research": "wisdom",
+    "govern": "admin", "farm": "admin", "mining": "valor", "trade": "wisdom",
+    "seek": "charm", "scout": "wisdom", "build": "admin", "train": "leadership",
+    "hunt": "valor", "raid": "valor", "heal": "charm", "supply": "admin",
+    "research": "wisdom",
 }
 #: 任务 → 最佳职责（适配 1.3，其余 1.0）
 TASK_BEST_ROLE = {
-    "govern": ROLE_OFFICIAL, "farm": ROLE_OFFICIAL, "trade": None,  # 内政官/军师均可
+    "govern": ROLE_OFFICIAL, "farm": ROLE_OFFICIAL, "mining": ROLE_GENERAL,
+    "trade": None,  # 内政官/军师均可
     "seek": ROLE_OFFICIAL, "scout": ROLE_STRATEGIST, "build": None,
     "train": ROLE_GENERAL, "hunt": ROLE_GENERAL, "raid": ROLE_GENERAL,
     "heal": None, "supply": ROLE_OFFICIAL, "research": ROLE_STRATEGIST,
 }
 #: 任务 → 产出资源
 TASK_OUTPUT_RES = {
-    "govern": "coin", "farm": "grain", "trade": "coin", "seek": "token",
-    "scout": "intel", "build": "build", "train": "train", "hunt": "merit",
-    "raid": "loot", "heal": "heal", "supply": "grain_move", "research": "tech",
+    "govern": "coin", "farm": "grain", "mining": "iron", "trade": "coin",
+    "seek": "token", "scout": "intel", "build": "build", "train": "train",
+    "hunt": "merit", "raid": "loot", "heal": "heal", "supply": "grain_move",
+    "research": "tech",
 }
 
 
@@ -490,16 +705,64 @@ def role_fit_mult(char: dict, task_type: str) -> float:
 
 
 def task_node_mult(task_type: str, node_type: str) -> float:
-    """据点类型系数（§6.2：仙城布政 ×1.5、谷田屯田 ×2、坊市贸易 +30%…）。"""
+    """据点类型系数（§6.2：仙城布政 ×1.5、谷田屯田 ×2、灵脉矿采矿 ×2…）。"""
     table = {
         ("govern", "city"): 1.5,
         ("farm", "grain"): 2.0,
+        ("mining", "mine"): 2.0,
+        ("mining", "pass"): 1.3,
+        ("mining", "ruin"): 1.3,
         ("trade", "market"): 1.3,
         ("seek", "branch"): 1.4,
         ("hunt", "ruin"): 1.3,
         ("build", "city"): 1.2,
     }
     return table.get((task_type, node_type), 1.0)
+
+
+def task_yield_multiplier(
+    task_type: str,
+    char: dict,
+    node_type: str,
+    node_morale: int = 100,
+    event_mult: float = 1.0,
+) -> float:
+    """任务收益倍率（不含随机波动）：
+    (1+主属性/200) × 职责适配 × 特技 × 据点类型 × 民心系数 × 事件修正
+    """
+    stats = effective_stats(char)
+    primary = TASK_PRIMARY_STAT.get(task_type, "admin")
+    stat_val = int(stats.get(primary, 0))
+    trait_mult = 1.0
+    traits = char.get("traits") or []
+    if task_type == "farm" and "farming" in traits:
+        trait_mult += 0.25
+    if task_type in ("govern", "trade") and "moneybag" in traits:
+        trait_mult += 0.15
+    morale_mult = 0.5 + max(0, min(100, node_morale)) / 100 * 0.5
+    return (
+        (1 + stat_val / 200)
+        * role_fit_mult(char, task_type)
+        * trait_mult
+        * task_node_mult(task_type, node_type)
+        * morale_mult
+        * event_mult
+    )
+
+
+def estimate_task(
+    task_type: str,
+    char: dict,
+    base_per_tick: float,
+    ticks: int,
+    node_type: str,
+    node_morale: int = 100,
+    event_mult: float = 1.0,
+) -> float:
+    """任务预期收益（§6.2 去掉 ±15% 随机波动，供面板预览）。"""
+    per_tick = base_per_tick * task_yield_multiplier(
+        task_type, char, node_type, node_morale, event_mult)
+    return per_tick * max(1, int(ticks))
 
 
 def settle_task(
@@ -515,27 +778,9 @@ def settle_task(
     """结算公式（§6.2）：
     收益 = 基础值 × (1+主属性/200) × 职责适配 × 特技 × 据点类型 × 民心系数 × 随机波动 × 事件修正
     """
-    stats = effective_stats(char)
-    primary = TASK_PRIMARY_STAT.get(task_type, "admin")
-    stat_val = int(stats.get(primary, 0))
-    trait_mult = 1.0
-    traits = char.get("traits") or []
-    if task_type == "farm" and "farming" in traits:
-        trait_mult += 0.25
-    if task_type in ("govern", "trade") and "moneybag" in traits:
-        trait_mult += 0.15
-    morale_mult = 0.5 + max(0, min(100, node_morale)) / 100 * 0.5
-    per_tick = (
-        base_per_tick
-        * (1 + stat_val / 200)
-        * role_fit_mult(char, task_type)
-        * trait_mult
-        * task_node_mult(task_type, node_type)
-        * morale_mult
-        * rng.uniform(0.85, 1.15)
-        * event_mult
-    )
-    return per_tick * max(1, int(ticks))
+    return estimate_task(
+        task_type, char, base_per_tick, ticks, node_type,
+        node_morale, event_mult) * rng.uniform(0.85, 1.15)
 
 
 # ---------------------------------------------------------------------------
@@ -644,9 +889,14 @@ def defense_power(army: dict, defending_node: bool = False) -> float:
     if leader.get("profession") == "body":
         prof_mult = 1.3 if defending_node else 1.1  # 体修守城/阵地 ×1.3（§4.3）
     wall_mult = float(army.get("wall_mult", 1.0)) if defending_node else 1.0
+    # 特技守城加成（§4.4）：以「是否处于守方/守城」为准，避免误加进攻方
+    is_garrison = bool(defending_node or army.get("defending_node"))
+    trait_mult = float(trait_army_mods(leader.get("traits") or [])["defense_mult"]) \
+        if is_garrison else 1.0
     return (
         troop["def"] * math.sqrt(troops) * (1 + leadership / 150)
         * apt * (1 + vet_bonus) * terrain_mult * prof_mult * wall_mult
+        * trait_mult
     )
 
 
@@ -899,20 +1149,30 @@ TERRAIN_MARCH_COST = {
 
 
 def march_speed(army: dict, terrain: str) -> float:
-    """每 tick 可推进的「边当量」：基础 2 边 ÷ 地形系数（机动强的兵种更快）。"""
+    """每 tick 可推进的「边当量」：基础 2 边 ÷ 地形系数（机动强的兵种更快）。
+
+    疾行特技（swift）行军速度 +15%（§4.4）。
+    """
     troop = TROOP_TYPES.get(army.get("troop_type", "sword_shield"), TROOP_TYPES["sword_shield"])
     base = 1.0 + troop["move"] / 3  # 机动 3 → 2.0；机动 5 → 2.67；机动 2 → 1.67
     cost = TERRAIN_MARCH_COST.get(terrain, 1.0)
-    return base / cost
+    swift_mult = float(trait_army_mods(
+        ((army.get("leader") or {}).get("traits")) or [])["speed_mult"])
+    return base / cost * swift_mult
 
 
 def grain_upkeep(army: dict, terrain: str, far_from_home: bool) -> int:
-    """行军粮耗：兵力×0.5/百兵/tick × 地形系数；离家 2 步以上 ×1.5（§5.6）。"""
+    """行军粮耗：兵力×0.5/百兵/tick × 地形系数；离家 2 步以上 ×1.5（§5.6）。
+
+    疾行特技（swift）粮耗 -10%（§4.4）。
+    """
     troop = TROOP_TYPES.get(army.get("troop_type", "sword_shield"), TROOP_TYPES["sword_shield"])
     base = troop["grain_per_tick"] * max(0, int(army.get("troops", 0))) / 100
     mult = TERRAIN_MARCH_COST.get(terrain, 1.0) ** 0.5
     if far_from_home:
         mult *= 1.5
+    mult *= float(trait_army_mods(
+        ((army.get("leader") or {}).get("traits")) or [])["grain_mult"])
     return max(1, int(base * mult))
 
 
@@ -1218,13 +1478,123 @@ def can_ally_count(diplomacy: dict | None, now: int = 0, cap: int = 3) -> bool:
 
 def ally_accept_chance(charm: int, rep_self: int, rep_target: int,
                        base: float = 40.0, charm_div: float = 4.0,
-                       rep_div: float = 2.0) -> float:
-    """结盟谈判成功率% = 基础 40 + 发起者魅力/4 + (双方声望档修正)/2，钳 5~95。"""
+                       rep_div: float = 2.0, favor: int = 0,
+                       favor_div: float = 2.0) -> float:
+    """结盟谈判成功率% = 基础 40 + 发起者魅力/4 + (双方声望档修正)/2
+    + 对方好感/2，钳 5~95。"""
     rank_bonus = {"righteous": 15, "neutral": 0, "greedy": -10, "infamous": -25}
     score = (base + float(charm) / charm_div
              + (rank_bonus.get(reputation_rank(rep_self), 0)
-                + rank_bonus.get(reputation_rank(rep_target), 0)) / rep_div)
+                + rank_bonus.get(reputation_rank(rep_target), 0)) / rep_div
+             + float(favor) / max(1.0, float(favor_div)))
     return max(5.0, min(95.0, score))
+
+
+# ---------------------------------------------------------------------------
+# 好感度（NPC 外交，§8.3/§9.2）
+#   存放在 diplomacy entry 的 "score" 字段（与玩家外交共用结构），
+#   对 NPC 势力即「该势力对玩家的好感」。范围默认 -100~100。
+# ---------------------------------------------------------------------------
+
+FAVOR_MIN, FAVOR_MAX = -100, 100
+
+#: 好感档位（key, 名称, 下限, 上限），与前端展示顺序一致
+FAVOR_TIERS = (
+    ("hostile", "敌对", -100, -60),
+    ("cold", "冷淡", -59, -20),
+    ("neutral", "中立", -19, 19),
+    ("friendly", "友善", 20, 49),
+    ("close", "亲密", 50, 79),
+    ("trusted", "挚友", 80, 100),
+)
+FAVOR_TIER_NAMES = {k: name for k, name, _lo, _hi in FAVOR_TIERS}
+#: 各外交行为对好感度的准入门槛键（war 不设门槛）
+FAVOR_GATE_KEYS = {
+    "ally": "ally_min", "truce": "truce_min", "peace": "peace_min",
+}
+
+
+def clamp_favor(score: Any, lo: int = FAVOR_MIN, hi: int = FAVOR_MAX) -> int:
+    return max(int(lo), min(int(hi), int(score or 0)))
+
+
+def favor_of(diplomacy: dict | None, other_id: int) -> int:
+    """读取对某势力的好感度（缺省 0）。"""
+    entry = (diplomacy or {}).get(str(int(other_id))) or {}
+    return clamp_favor(entry.get("score", 0))
+
+
+def favor_tier(score: int) -> str:
+    val = clamp_favor(score)
+    for key, _name, lo, hi in FAVOR_TIERS:
+        if lo <= val <= hi:
+            return key
+    return "neutral"
+
+
+def favor_name(score: int) -> str:
+    return FAVOR_TIER_NAMES.get(favor_tier(score), "中立")
+
+
+def favor_gate(kind: str, score: int, fcfg: dict | None = None) -> Optional[int]:
+    """返回该外交行为所需最低好感；None 表示无门槛。"""
+    key = FAVOR_GATE_KEYS.get(str(kind))
+    if not key:
+        return None
+    default = {"ally_min": 60, "truce_min": -50, "peace_min": -50}[key]
+    return int((fcfg or {}).get(key, default))
+
+
+def favor_gate_ok(kind: str, score: int, fcfg: dict | None = None) -> bool:
+    need = favor_gate(kind, score, fcfg)
+    return need is None or int(score) >= int(need)
+
+
+def favor_gift_points(value: float, fcfg: dict | None = None) -> int:
+    """赠礼价值 → 好感点数：每 N 币 1 点，单次受 max 点限制。"""
+    cfg = fcfg or {}
+    per = max(1.0, float(cfg.get("gift_coin_per_point", 800)))
+    cap = max(1, int(cfg.get("gift_max_points", 30)))
+    return max(0, min(cap, int(float(value) // per)))
+
+
+def favor_aggression_mult(score: int, fcfg: dict | None = None) -> float:
+    """好感对 NPC 进攻意愿的修正：好感越高越不愿动手。"""
+    cfg = fcfg or {}
+    peace = float(cfg.get("npc_peace_favor", 50))
+    val = clamp_favor(score)
+    if val >= peace:
+        return 0.0
+    # -100 → ×1.25，50 → ×0.6
+    return max(0.55, min(1.25, 1.05 - val / 250.0))
+
+
+def npc_seed_relation(rng: random.Random, pers_a: dict | None,
+                      pers_b: dict | None,
+                      fcfg: dict | None = None) -> tuple[str, int]:
+    """按双方性格预置 NPC 之间的关系与初始好感。"""
+    cfg = fcfg or {}
+    seed = cfg.get("seed") or {}
+    a = pers_a or {}
+    b = pers_b or {}
+    aggr = (float(a.get("aggression", 50)) + float(b.get("aggression", 50))) / 2.0
+    demonic = "demonic" in str(b.get("key", "")).lower() or \
+        "demonic" in str(a.get("key", "")).lower() or \
+        "魔" in str(b.get("name", "")) or "血" in str(b.get("name", ""))
+    ally_p = float(seed.get("ally_base", 0.22)) * max(0.15, 1 - aggr / 120.0)
+    war_p = float(seed.get("war_base", 0.08)) + aggr / 250.0
+    if demonic:
+        ally_p *= float(seed.get("demonic_ally_mult", 0.15))
+        war_p += float(seed.get("demonic_war_bonus", 0.12))
+    roll = rng.random()
+    if roll < war_p:
+        lo, hi = seed.get("war_favor", [-85, -55])
+        return REL_WAR, rng.randint(int(lo), int(hi))
+    if roll < war_p + ally_p:
+        lo, hi = seed.get("ally_favor", [55, 80])
+        return REL_ALLY, rng.randint(int(lo), int(hi))
+    lo, hi = seed.get("neutral_favor", [-15, 20])
+    return REL_NEUTRAL, rng.randint(int(lo), int(hi))
 
 
 # ---------------------------------------------------------------------------
@@ -1331,15 +1701,51 @@ def bond_battle_progress(a: dict, b: dict) -> None:
         bb.update({"type": "yijiao", "level": 1})
 
 
-def maybe_form_shitu(senior: dict, junior: dict, shared_battles: int) -> bool:
-    """师徒：极品+ 与凡/良品同军团 ≥10 场。"""
+def bond_battles(a: dict, b: dict) -> int:
+    """双方「共同经历战役」计数（取两侧较大值，兼容旧数据单边缺字段）。"""
+    return max(int(bond_get(a, b.get("id")).get("battles", 0) or 0),
+               int(bond_get(b, a.get("id")).get("battles", 0) or 0))
+
+
+def maybe_form_yijiao(a: dict, b: dict, rng: random.Random) -> bool:
+    """义交判定（§4.5）：共同经历 ≥5 场战役，或互救成功后按 50% 结义。
+
+    已成为师徒/宿怨的组合不再演化；返回是否本次结成义交。
+    """
+    current = bond_get(a, b.get("id")).get("type")
+    if current in ("shitu", "suyuan"):
+        return False
+    if current == "yijiao":
+        return False
+    battles = bond_battles(a, b)
+    rescued = bool(bond_get(a, b.get("id")).get("rescued")
+                   or bond_get(b, a.get("id")).get("rescued"))
+    if battles < 5 and not rescued:
+        return False
+    if battles < 5 and rescued and rng.random() >= 0.5:
+        return False
+    bond_set_both(a, b, "yijiao", 1)
+    return True
+
+
+def maybe_form_shitu(senior: dict, junior: dict, shared_battles: int | None = None,
+                     allow_upgrade: bool = False) -> bool:
+    """师徒：极品+ 与凡/良品同军团 ≥10 场（§4.5）。
+
+    ``shared_battles`` 传 None 时自动取双方羁绊里的共享战斗计数，
+    与 ``bond_apply_battle`` 的口径保持一致；``allow_upgrade`` 允许由
+    同道升格为师徒（义交/宿怨不降格）。
+    """
     if senior.get("rarity") not in ("epic", "legend"):
         return False
     if junior.get("rarity") not in ("common", "fine"):
         return False
-    if shared_battles < 10:
+    shared = bond_battles(senior, junior) if shared_battles is None \
+        else int(shared_battles)
+    if shared < 10:
         return False
-    if bond_get(senior, junior.get("id")).get("type"):
+    current = bond_get(senior, junior.get("id")).get("type")
+    if current and not (allow_upgrade and current in ("tongdao", "yijiao")):
         return False
     bond_set_both(senior, junior, "shitu", 1)
     return True
@@ -1348,6 +1754,92 @@ def maybe_form_shitu(senior: dict, junior: dict, shared_battles: int) -> bool:
 def form_suyuan(a: dict, b: dict) -> None:
     """宿怨：单挑击败对方 / 击杀其义交。"""
     bond_set_both(a, b, "suyuan", 1)
+
+
+def maybe_form_suyuan(a: dict, b: dict, duel_defeated: bool = False,
+                      killed_bond: bool = False) -> bool:
+    """宿怨触发条件封装（§4.5）：单挑击败 / 击杀对方义交才算结怨。
+
+    普通并肩作战不会结怨；返回是否新结宿怨。
+    """
+    if not (duel_defeated or killed_bond):
+        return False
+    if bond_get(a, b.get("id")).get("type") == "suyuan":
+        return False
+    form_suyuan(a, b)
+    return True
+
+
+def bond_apply_battle(a: dict, b: dict, won: bool) -> dict[str, Any]:
+    """一次完成战斗后羁绊演化（供 managers 调用，§4.5）。
+
+    顺序：同道积累（battles +1）→ 义交 → 师徒 → 宿怨 → 知遇。
+    ``won`` 表示 a 所在阵营是否获胜；宿怨仅在被标记为「单挑落败/义交被杀」
+    时触发（读 ``duel_lost_to`` / ``killed_bond_of`` 标记，避免同袍反目）。
+    返回本次新结成的羁绊类型集合，便于落库/通知。
+    """
+    out: dict[str, Any] = {"tongdao": False, "yijiao": False,
+                           "shitu": False, "suyuan": False, "zhiyu": False}
+    if not a or not b or str(a.get("id")) == str(b.get("id")):
+        return out
+    prev = bond_get(a, b.get("id")).get("type")
+    # 知遇：招募关系在战后首次补登记（优先于同道，保持「一人一羁绊」）
+    recruited = a.get("recruited_by") == b.get("id") or \
+        b.get("recruited_by") == a.get("id")
+    if recruited and not prev:
+        form_zhiyu(a, b)
+        out["zhiyu"] = True
+        out["won"] = bool(won)
+        return out
+    bond_battle_progress(a, b)
+    now_type = bond_get(a, b.get("id")).get("type")
+    if prev not in ("tongdao", "yijiao") and now_type == "tongdao":
+        out["tongdao"] = True
+    if prev != "yijiao" and now_type == "yijiao":
+        out["yijiao"] = True
+    # 义交：≥5 战或互救；用确定性 rng 保证同输入同结果（回放/测试可复现）
+    rng = random.Random(f"yijiao:{a.get('id')}:{b.get('id')}:{bond_battles(a, b)}")
+    if not out["yijiao"] and maybe_form_yijiao(a, b, rng):
+        out["yijiao"] = True
+    # 师徒：按稀有度自动判定长幼（同道可升格，义交/宿怨不降格）
+    shared = bond_battles(a, b)
+    if maybe_form_shitu(a, b, shared, allow_upgrade=True) or \
+            maybe_form_shitu(b, a, shared, allow_upgrade=True):
+        out["shitu"] = True
+    # 宿怨：单挑落败 / 义交被杀的显式标记
+    duel_lost = a.get("duel_lost_to") == b.get("id") or b.get("duel_lost_to") == a.get("id")
+    killed_bond = a.get("killed_bond_of") == b.get("id") or \
+        b.get("killed_bond_of") == a.get("id")
+    if maybe_form_suyuan(a, b, duel_defeated=duel_lost, killed_bond=killed_bond):
+        out["suyuan"] = True
+    out["won"] = bool(won)
+    return out
+
+
+def bond_army_morale_bonus(members: list[dict]) -> int:
+    """整队羁绊士气加成（§4.5）：逐对累加同道 +3 / 义交 +8 / 师徒 +5，封顶 +20。"""
+    total = 0
+    seen: set[int] = set()
+    chars = [c for c in (members or []) if c and c.get("id") is not None]
+    for i, a in enumerate(chars):
+        for b in chars[i + 1:]:
+            key = id(a) * 1000003 + id(b)
+            if key in seen:
+                continue
+            seen.add(key)
+            bonus = bond_morale_bonus_full(a, b) or bond_morale_bonus_full(b, a)
+            total += int(bonus)
+    return max(0, min(20, total))
+
+
+def doctor_aftermath(leader: dict | None, lost_troops: int,
+                     injury: int = 0) -> dict[str, int]:
+    """名医特技战后结算（§4.4）：伤兵回收 8%、角色伤势额外 -1。"""
+    mods = trait_army_mods(((leader or {}).get("traits")) or [])
+    lost = max(0, int(lost_troops or 0))
+    recovered = int(lost * float(mods["recover_pct"]))
+    new_injury = max(0, int(injury or 0) - int(mods["injury_reduce"]))
+    return {"recovered": recovered, "injury": new_injury}
 
 
 def suyuan_attack_bonus(a: dict, b: dict) -> float:
@@ -1565,9 +2057,11 @@ def convoy_raid_success(rng: random.Random, escort_troops: int,
 
 
 def pursuit_capture(rng: random.Random, cavalry: bool = False,
-                    base: float = 0.25) -> bool:
-    """溃逃追击截获：基础 25%，飞剑队（快速机动·劫粮追击）+15%。"""
-    return rng.random() < (base + (0.15 if cavalry else 0.0))
+                    swift: bool = False, base: float = 0.25) -> bool:
+    """溃逃追击截获：基础 25%；飞剑队（快速机动·劫粮追击）+15%；
+    疾行特技（swift）+10%（§4.4 / §7.6）。"""
+    chance = float(base) + (0.15 if cavalry else 0.0) + (0.10 if swift else 0.0)
+    return rng.random() < max(0.0, min(0.95, chance))
 
 
 # ---------------------------------------------------------------------------
@@ -1631,23 +2125,28 @@ def achievement_unlocked(progress: dict, key: str, need: Any) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# 坊市流将竞拍（§11「天降流将」：极品/传世流亡角色，限时竞价）
+# 坊市流将暗标（§11「天降流将」：极品/传世流亡角色，密封战功竞价）
 # ---------------------------------------------------------------------------
 
-def wanderer_auction_price(char: dict, acfg: dict) -> int:
-    """流将起拍价：稀有度底价 + 超出保底六维的成长 + 特技附加。"""
+def wanderer_auction_price(char: dict, acfg: dict,
+                           season_progress: float = 0.0,
+                           world_mult: float = 1.0) -> int:
+    """流将底价（战功）：稀有度底价 + 超出保底六维的成长 + 特技附加。
+
+    v4.0.19 起竞拍货币改为战功，并加入赛季进度/世界战功水位修正，
+    避免后期战功膨胀后仍以极低底价扫货。
+    """
     rarity = str((char or {}).get("rarity") or "epic")
     start = acfg.get("start_price") or {}
     floors = acfg.get("quality_floor") or {}
     steps = acfg.get("quality_step") or {}
-    # 天降流将只出极品/传世；离间与俘虏流亡可能带低稀有度，按低档兜底定价，
-    # 避免凡品/良品被按 2 万起拍而流拍。
+    # 低稀有度流亡角色按低档兜底定价，避免凡品/良品起拍过高直接流拍。
     fallback = {
-        "common": (1000, 180, 100),
-        "fine": (2000, 240, 150),
-        "rare": (4000, 300, 200),
-        "epic": (20000, 300, 250),
-        "legend": (60000, 360, 400),
+        "common": (80, 90, 2),
+        "fine": (150, 125, 2),
+        "rare": (260, 165, 2),
+        "epic": (420, 205, 2),
+        "legend": (1000, 245, 3),
     }
     fb_base, fb_floor, fb_step = fallback.get(rarity, fallback["epic"])
     base = int(start.get(rarity, fb_base))
@@ -1655,22 +2154,36 @@ def wanderer_auction_price(char: dict, acfg: dict) -> int:
     step = int(steps.get(rarity, fb_step))
     total = sum(int(v or 0) for v in ((char or {}).get("stats") or {}).values())
     price = base + max(0, total - floor) * step
-    price += len((char or {}).get("traits") or []) * int(acfg.get("trait_bonus", 2000))
-    return max(1000, int(price))
+    price += len((char or {}).get("traits") or []) * int(
+        acfg.get("trait_bonus", 80))
+    progress = max(0.0, min(1.0, float(season_progress or 0.0)))
+    season_mult = 1.0 + progress * float(
+        acfg.get("season_price_growth", 0.5))
+    total_mult = season_mult * max(1.0, float(world_mult or 1.0))
+    total_mult = max(1.0, min(float(acfg.get("max_price_mult", 2.5)),
+                              total_mult))
+    price = int(math.ceil(price * total_mult / 10.0) * 10)
+    return max(int(acfg.get("min_price", 50)), int(price))
 
 
-def wanderer_buyout_price(start_price: int, acfg: dict) -> int:
-    """一口价：起拍价的固定倍数，向上取整到百位。"""
-    mult = float(acfg.get("buyout_mult", 2.5))
-    return max(1000, int(math.ceil(int(start_price) * mult / 100.0) * 100))
+def wanderer_min_bid(start_price: int, current_price: int = 0,
+                     has_bidder: bool = False, acfg: dict | None = None,
+                     own_bid: int = 0) -> int:
+    """暗标最低出价：不低于底价；已有自己的暗标时给出建议加价。"""
+    acfg = acfg or {}
+    floor = max(1, int(start_price))
+    own = max(0, int(own_bid or 0))
+    if own <= 0:
+        return floor
+    inc = max(int(acfg.get("min_increment_abs", 20)),
+              int(own * float(acfg.get("min_increment_pct", 0.05))))
+    return max(floor, own + max(1, inc))
 
 
-def wanderer_min_bid(start_price: int, current_price: int, has_bidder: bool,
-                     acfg: dict) -> int:
-    """下一次有效出价：无出价时=起拍价；有出价时=当前价+最小加价。"""
-    if not has_bidder:
-        return max(1, int(start_price))
-    cur = max(0, int(current_price))
-    inc = max(int(acfg.get("min_increment_abs", 200)),
-              int(cur * float(acfg.get("min_increment_pct", 0.05))))
-    return cur + max(1, inc)
+def wanderer_quota_limit(acfg: dict, rarity: str) -> int:
+    """单赛季每人可竞得的该稀有度流将数量（0/负数表示不限）。"""
+    quota = (acfg or {}).get("season_quota") or {}
+    try:
+        return int(quota.get(rarity, 3))
+    except (TypeError, ValueError):
+        return 3

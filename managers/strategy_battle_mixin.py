@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import logging
 import random
+import secrets
 import time
 from typing import Any, Optional
 
@@ -93,6 +94,23 @@ class StrategyBattleMixin:
             raise StrategyError("你与此战役无关")
         return world, p, battle
 
+    @staticmethod
+    def _owns_battle_unit(battle: dict, user_id: str) -> bool:
+        """该玩家是否在战役中拥有军团（旁观同势力玩家不算参战方）。"""
+        sess = battle.get("session") or {}
+        owners = sess.get("owners") or {}
+        return any(v.get("owner") == user_id for v in owners.values())
+
+    async def _require_battle_participant(self, user_id: str,
+                                          battle_id: int) -> tuple:
+        """开战 / 布阵等参战操作：必须是发起人或拥有参战军团。"""
+        world, p, battle = await self._require_battle_player(user_id, battle_id)
+        sess = battle.get("session") or {}
+        initiator = str(sess.get("initiator") or "")
+        if initiator != user_id and not self._owns_battle_unit(battle, user_id):
+            raise StrategyError("只有参战方可执行该操作")
+        return world, p, battle
+
     # ------------------------------------------------------------------
     # 发起：围城介入 / 守方出击
     # ------------------------------------------------------------------
@@ -113,7 +131,8 @@ class StrategyBattleMixin:
             raise StrategyError("该据点已有手操战役进行中")
         my_siege = [a for a in await self.get_armies(
             world["id"], faction_id=p["faction_id"], node_id=node["id"],
-            states=("siege",)) if a["troops"] > 0]
+            states=("siege",))
+            if a["troops"] > 0 and not self._is_reorganizing(a, world)]
         if not my_siege:
             raise StrategyError("你没有正在围困该据点的军团")
         atk_sims, dfn_sims = [], []
@@ -121,9 +140,19 @@ class StrategyBattleMixin:
             s = await self._army_sim(a)
             if s:
                 atk_sims.append(s)
-        dfn_armies = [a for a in await self.get_armies(
-            world["id"], node_id=node["id"], states=("idle",))
-            if a["faction_id"] != p["faction_id"] and a["troops"] > 0]
+        dfn_armies = []
+        my_f = await self.get_faction(int(p["faction_id"]))
+        my_alliance = int((my_f or {}).get("alliance_id") or 0)
+        for a in await self.get_armies(
+                world["id"], node_id=node["id"], states=("idle",)):
+            if a["faction_id"] == p["faction_id"] or a["troops"] <= 0:
+                continue
+            # 盟友驻军不视为守方（否则会被拉进战斗并收到 battle_open）
+            if my_alliance:
+                af = await self.get_faction(int(a["faction_id"]))
+                if int((af or {}).get("alliance_id") or 0) == my_alliance:
+                    continue
+            dfn_armies.append(a)
         for a in dfn_armies:
             s = await self._army_sim(a)
             if s:
@@ -154,13 +183,20 @@ class StrategyBattleMixin:
         ss = node.get("siege_state") or {}
         if not ss:
             raise StrategyError("据点未被围困，无需出击")
+        # 只拉「当前围城归属势力」的军团：此前把所有势力的 siege 军团合并，
+        # 围城易手后旧势力残军会被拉进战斗，攻方胜时还会按列表第一支误判
+        # 占城/战利品归属（§7.2 围城唯一攻方）。
+        atk_fid = int(ss.get("attacker_faction") or 0)
         atk_armies = [a for a in await self.get_armies(
-            world["id"], node_id=node["id"], states=("siege",)) if a["troops"] > 0]
+            world["id"], node_id=node["id"], states=("siege",))
+            if a["troops"] > 0
+            and (not atk_fid or int(a["faction_id"]) == atk_fid)]
         if not atk_armies:
             raise StrategyError("围城军团已不存在")
         my_def = [a for a in await self.get_armies(
             world["id"], faction_id=p["faction_id"], node_id=node["id"],
-            states=("idle",)) if a["troops"] > 0]
+            states=("idle",))
+            if a["troops"] > 0 and not self._is_reorganizing(a, world)]
         if not my_def:
             raise StrategyError("据点内没有可出击的驻守军团")
         atk_sims, dfn_sims = [], []
@@ -180,7 +216,7 @@ class StrategyBattleMixin:
             mode="field", kind="field",
             prep_seconds=int((self.main_cfg().get("hex") or {}).get(
                 "field_prep_seconds", 300)),
-            wall_hp=0, initiator=user_id)
+            wall_hp=0, initiator=user_id, attacker_faction=atk_fid)
         return {"ok": True, "battle_id": battle["id"],
                 "msg": f"🛡 已从「{node['name']}」出击！"
                        f"{int(battle['deadline_at']) - _now()} 秒内完成部署"}
@@ -189,20 +225,33 @@ class StrategyBattleMixin:
                                     atk_sims: list, dfn_sims: list,
                                     atk_armies: list, dfn_armies: list,
                                     mode: str, kind: str, prep_seconds: int,
-                                    wall_hp: int, initiator: str) -> dict:
-        hex_cfg = (self.main_cfg().get("hex") or {})
+                                    wall_hp: int, initiator: str,
+                                    attacker_faction: int = 0) -> dict:
+        hex_cfg = dict(self.main_cfg().get("hex") or {})
+        # §7.6 battle 子配置（夜袭/包围/溃逃等）传入 hex 引擎
+        battle_cfg = dict(self.main_cfg().get("battle") or {})
+        hex_cfg["battle"] = battle_cfg
+        for k, v in battle_cfg.items():
+            hex_cfg.setdefault(k, v)
         now = _now()
-        # 先插行拿 battle_id（map_seed = hash(battle_id)，§7.3）
+        # 攻方势力由调用方指定（出击时取 siege_state.attacker_faction），
+        # 避免多势力围城时用「列表第一支」误判归属
+        atk_fid = int(attacker_faction or
+                      (atk_armies[0]["faction_id"] if atk_armies else 0))
+        dfn_fid = int(node.get("owner_faction", 0) or
+                      (dfn_armies[0]["faction_id"] if dfn_armies else 0))
+        # 先插行拿 battle_id（map_seed 含随机盐，§7.3）
         bid = await self.insert_battle({
             "world_id": world["id"], "node_id": node["id"],
-            "attacker_faction": int(atk_armies[0]["faction_id"]),
-            "defender_faction": int(node.get("owner_faction", 0) or
-                                    (dfn_armies[0]["faction_id"] if dfn_armies else 0)),
+            "attacker_faction": atk_fid,
+            "defender_faction": dfn_fid,
             "kind": kind, "mode": "manual", "state": "deploy",
             "round_no": 0, "map_seed": "", "armies_snapshot": [],
             "result": {}, "report_text": "", "created_at": now,
         })
-        map_seed = f"hex-{bid}-{node['id']}"
+        # 服务端私有随机盐：battle_id/node_id 公开可推，若直接作为种子，
+        # 玩家可离线复现整条随机流预知先手与伤害浮动（§7.3 公平性）。
+        map_seed = f"hex-{bid}-{node['id']}-{secrets.token_hex(8)}"
         mi = H.generate_map(map_seed, mode, hex_cfg)
         session = H.new_session(mi, mode, map_seed,
                                 night=R.is_night(time.localtime().tm_hour),
@@ -221,6 +270,7 @@ class StrategyBattleMixin:
                                      "owner": (army or {}).get("owner_user_id", "")}
         session["owners"] = owners
         session["wall_hp"] = int(wall_hp)
+        session["battle_cfg"] = battle_cfg
         session["node_id"] = int(node["id"])
         session["delegate"] = {}       # uid(str) → bool
         session["turn_deadline"] = 0
@@ -232,8 +282,8 @@ class StrategyBattleMixin:
             await self.save_army(a)
         battle = {
             "id": bid, "world_id": world["id"], "node_id": node["id"],
-            "attacker_faction": int(atk_armies[0]["faction_id"]),
-            "defender_faction": int(node.get("owner_faction", 0) or 0),
+            "attacker_faction": atk_fid,
+            "defender_faction": dfn_fid,
             "kind": kind, "mode": "manual", "state": "deploy",
             "map_seed": map_seed, "session": session,
             # 快照存完整 army_sim（含 leader/veteran/faction_id/siege_engine），
@@ -268,6 +318,8 @@ class StrategyBattleMixin:
         sess = battle.get("session") or {}
         owners = sess.get("owners") or {}
         my_uids = [int(uid) for uid, v in owners.items() if v.get("owner") == user_id]
+        cur = H.current_actor(sess) if sess.get("phase") == "battle" else None
+        cur_uid = int((cur or {}).get("uid", 0) or 0)
         units = []
         for u in sess.get("units") or []:
             is_mine = str(u["uid"]) in owners and \
@@ -275,6 +327,11 @@ class StrategyBattleMixin:
             ambush_hidden = any(
                 amb.get("uid") == u["uid"] and not amb.get("revealed")
                 for amb in (sess.get("ambushes") or []))
+            # 未触发的敌方伏兵整支不下发：否则即使隐藏坐标，也能从
+            # 单位数量/兵力/状态推断出林中有伏兵（§15 设伏保密）。
+            # 轮到该伏兵行动时仍下发，避免前端 current_actor 找不到单位。
+            if ambush_hidden and not is_mine and int(u["uid"]) != cur_uid:
+                continue
             pos = u.get("pos")
             if ambush_hidden and not is_mine:
                 pos = None
@@ -286,32 +343,47 @@ class StrategyBattleMixin:
                 "leader_id": (u.get("leader") or {}).get("id"),
                 "troop_type": u.get("troop_type"), "troops": u.get("troops"),
                 "start_troops": u.get("start_troops"), "morale": u.get("morale"),
-                "mana": u.get("mana"), "pos": pos,
+                # 灵力/技能属于对手不可见信息：只下发自己的军团
+                "mana": u.get("mana") if is_mine else None, "pos": pos,
                 "moved": u.get("moved"), "acted": u.get("acted"),
                 "routed": u.get("routed"), "defending": u.get("defending"),
                 "formation": u.get("formation"),
                 "siege_engine": u.get("siege_engine"),
                 "statuses": (sess.get("statuses") or {}).get(str(u["uid"]), {}),
-                "skills": H.unit_skills(sess, u) if pos else [],
+                "skills": (H.unit_skills(sess, u) if pos else []) if is_mine else [],
                 "delegate": bool((sess.get("delegate") or {}).get(str(u["uid"]))),
             })
-        cur = H.current_actor(sess) if sess.get("phase") == "battle" else None
+        # §12.6 观战模式：非参战同势力玩家只读且**延迟 1 回合**（防报点）。
+        spectator = not my_uids
+        snap_round = 0
+        wall_hp = sess.get("wall_hp", 0)
+        if spectator:
+            units, snap_round, snap_wall = self._spectator_units(sess)
+            cur = None
+            # 战斗阶段城防也延迟 1 回合；部署阶段尚无快照，保留实时值。
+            if sess.get("phase") == "battle":
+                wall_hp = snap_wall
         out = {
             "battle_id": int(battle["id"]), "node_id": int(battle["node_id"]),
             "kind": battle["kind"], "state": battle["state"],
             "phase": sess.get("phase"), "round": sess.get("round", 0),
             "mode": sess.get("mode"), "size": sess.get("size"),
             "night": sess.get("night"),
-            "terrain": sess.get("terrain") if not sess.get("fog") else None,
-            "temp_terrain": sess.get("temp_terrain") or {},
-            "wall_hp": sess.get("wall_hp", 0),
+            "terrain": sess.get("terrain"),
+            "temp_terrain": {} if spectator else (sess.get("temp_terrain") or {}),
+            "wall_hp": wall_hp,
             "deploy_zones": sess.get("deploy_zones"),
             "units": units, "my_uids": my_uids,
+            "spectator": spectator, "spectator_round": snap_round,
             "current_actor": (cur or {}).get("uid"),
-            "turn_deadline": sess.get("turn_deadline", 0),
-            "deadline_at": int(battle.get("deadline_at", 0)),
-            "duel": sess.get("duel"),
-            "events": (sess.get("events") or [])[-40:],
+            "turn_deadline": 0 if spectator else sess.get("turn_deadline", 0),
+            # 战斗阶段观战者不得看到当前行动方的实时剩余时间：部署阶段
+            # 的 deadline_at 是公开的布阵截止时间，可保留。
+            "deadline_at": (0 if spectator and sess.get("phase") == "battle"
+                            else int(battle.get("deadline_at", 0))),
+            "duel": None if spectator else sess.get("duel"),
+            "events": [e for e in (sess.get("events") or [])
+                       if not spectator or int(e.get("round", 0) or 0) <= snap_round][-80:],
             "round_seconds": sess.get("round_seconds", 30),
             "winner": sess.get("winner"),
         }
@@ -319,6 +391,39 @@ class StrategyBattleMixin:
             out["result"] = battle.get("result") or {}
             out["report_text"] = battle.get("report_text", "")
         return out
+
+    @staticmethod
+    def _spectator_units(sess: dict) -> tuple[list[dict], int, int]:
+        """观战视图：取最近一条「上一回合」快照（§12.6 延迟 1 回合）。
+
+        返回 ``(units, snap_round, wall_hp)``；城防与单位同口径延迟，
+        避免观战者通过实时城防推断本回合破城槌进度。
+        """
+        log = sess.get("spectator_log") or []
+        if not log:
+            return [], 0, 0
+        snap = log[-1]
+        snap_round = int(snap.get("round", 0) or 0)
+        snap_wall = int(snap.get("wall_hp", 0) or 0)
+        units = []
+        # 兜底：旧快照可能已写入未触发伏兵，按当前 revealed 状态过滤
+        hidden = H.hidden_ambush_uids(sess)
+        for u in snap.get("units") or []:
+            try:
+                if int(u.get("uid", 0)) in hidden:
+                    continue
+            except (TypeError, ValueError):
+                continue
+            d = dict(u)
+            d.update({
+                "mine": False, "mana": None,
+                # 观战者不掌握行动/托管细节
+                "moved": True, "acted": True, "defending": False,
+                "statuses": {}, "skills": [], "delegate": False,
+                "leader_id": None,
+            })
+            units.append(d)
+        return units, snap_round, snap_wall
 
     async def get_battle_replay(self, user_id: str, battle_id: int) -> dict:
         world, p, battle = await self._require_battle_player(user_id, battle_id)
@@ -334,6 +439,9 @@ class StrategyBattleMixin:
             "units_a": [s for s in snap if s.get("side") == "atk"],
             "units_b": [s for s in snap if s.get("side") == "dfn"],
             "commands": sess.get("commands") or [],
+            "events": sess.get("events") or [],
+            # 关键事件（被 events 尾部窗口截断的前中期高光）
+            "key_events": sess.get("key_events") or [],
             "wall_hp": sess.get("wall_hp", 0),
             "result": battle.get("result") or {},
             "report_text": battle.get("report_text", ""),
@@ -350,16 +458,21 @@ class StrategyBattleMixin:
             raise StrategyError("已过部署阶段")
         owners = sess.get("owners") or {}
         placed = 0
-        for pl in placements or []:
+        if not isinstance(placements, (list, tuple)):
+            raise StrategyError("部署参数无效（需为数组）")
+        for pl in placements:
             if not isinstance(pl, dict) or "q" not in pl or "r" not in pl:
                 raise StrategyError("部署参数无效（需含 uid/q/r）")
-            uid = int(pl.get("uid", 0))
+            try:
+                uid, pq, pr = int(pl.get("uid", 0)), int(pl["q"]), int(pl["r"])
+            except (TypeError, ValueError):
+                raise StrategyError("部署参数无效（uid/q/r 须为整数）")
             if owners.get(str(uid), {}).get("owner") != user_id:
                 raise StrategyError("只能部署自己的军团")
-            ok, reason = H.valid_deploy(sess, uid, int(pl["q"]), int(pl["r"]))
+            ok, reason = H.valid_deploy(sess, uid, pq, pr)
             if not ok:
                 raise StrategyError(f"部署位置无效：{reason}")
-            H.place_unit(sess, uid, int(pl["q"]), int(pl["r"]))
+            H.place_unit(sess, uid, pq, pr)
             placed += 1
         await self.update_battle_session(battle)
         await self._commit()
@@ -381,6 +494,28 @@ class StrategyBattleMixin:
         await self._commit()
         return {"ok": True, "msg": f"伏兵已埋设于 ({q},{r})"}
 
+    async def battle_set_formation(self, user_id: str, battle_id: int,
+                                   uid: int, formation: str) -> dict:
+        """部署阶段选择阵型（锋矢攻 +10% / 鹤翼 / 方圆防 +15% / 雁行远程 +10%）。"""
+        world, p, battle = await self._require_battle_player(user_id, battle_id)
+        sess = battle.get("session") or {}
+        if sess.get("phase") != "deploy":
+            raise StrategyError("阵型只能在部署阶段调整")
+        owners = sess.get("owners") or {}
+        if owners.get(str(int(uid)), {}).get("owner") != user_id:
+            raise StrategyError("只能调整自己的军团阵型")
+        formation = str(formation or "")
+        if formation not in H.FORMATIONS:
+            raise StrategyError("未知阵型")
+        unit = H.get_unit(sess, int(uid))
+        if not unit:
+            raise StrategyError("军团不存在")
+        H.set_formation(sess, int(uid), formation)
+        await self.update_battle_session(battle)
+        await self._commit()
+        name = H.FORMATION_NAMES.get(formation, formation or "无阵型")
+        return {"ok": True, "msg": f"「{H.leader_name(unit)}」已切换为{name}"}
+
     async def battle_auto_deploy(self, user_id: str, battle_id: int) -> dict:
         world, p, battle = await self._require_battle_player(user_id, battle_id)
         sess = battle.get("session") or {}
@@ -401,7 +536,7 @@ class StrategyBattleMixin:
         return {"ok": True, "msg": f"已自动部署 {len(missing)} 支军团"}
 
     async def battle_start(self, user_id: str, battle_id: int) -> dict:
-        world, p, battle = await self._require_battle_player(user_id, battle_id)
+        world, p, battle = await self._require_battle_participant(user_id, battle_id)
         sess = battle.get("session") or {}
         if sess.get("phase") != "deploy":
             raise StrategyError("战役已开始")
@@ -430,6 +565,8 @@ class StrategyBattleMixin:
         sess = battle.get("session") or {}
         if battle.get("state") == "done":
             raise StrategyError("战役已结束")
+        if not self._owns_battle_unit(battle, user_id):
+            raise StrategyError("你在本战役中没有可托管的军团")
         owners = sess.get("owners") or {}
         dele = sess.setdefault("delegate", {})
         n = 0
@@ -476,10 +613,14 @@ class StrategyBattleMixin:
             else:
                 out = H.refuse_duel(sess)
             self._save_rng(battle, rng)
-            sess["turn_deadline"] = _now() + int(sess.get("round_seconds", 30))
-            battle["deadline_at"] = sess["turn_deadline"]
             await self.update_battle_session(battle)
             await self._commit()
+            # 15s 窗口内对象已溃/亡时 resolve_duel 会中止（ok=False）。此时
+            # 单挑已清空且挑战次数已消耗，必须明确告知玩家，不能静默成功。
+            if params.get("accept") and not out.get("ok"):
+                return {"ok": False, "action": "duel_respond",
+                        "msg": f"单挑中止：{out.get('reason') or '对象已失去战斗力'}",
+                        "out": out}
             return {"ok": True, "action": "duel_respond", "out": out}
 
         cur = H.current_actor(sess)
@@ -490,11 +631,16 @@ class StrategyBattleMixin:
             raise StrategyError("当前不是你的单位行动")
         if (sess.get("delegate") or {}).get(str(uid)):
             raise StrategyError("该单位已托管（先关闭托管再手操）")
-        st = (sess.get("statuses") or {}).get(str(uid)) or {}
 
         res: dict[str, Any] = {"ok": True, "action": action}
         if action == "move":
-            path = [[int(s[0]), int(s[1])] for s in (params.get("path") or [])]
+            try:
+                raw_path = params.get("path") or []
+                if not isinstance(raw_path, (list, tuple)):
+                    raise TypeError
+                path = [[int(s[0]), int(s[1])] for s in raw_path]
+            except (TypeError, ValueError, IndexError, KeyError):
+                raise StrategyError("移动路径无效（需为 [[q,r], ...]）")
             if not path:
                 raise StrategyError("path 不能为空")
             leader = cur.get("leader") or {}
@@ -514,27 +660,42 @@ class StrategyBattleMixin:
             await self._persist_battle_action(world, battle)
             return self._action_tail(battle, sess, res)
         elif action == "attack":
-            if st.get("confuse"):
+            if H.is_confused(sess, cur):
                 # 惑敌：敌我不分，由引擎按确定性伪随机选目标（与 AI 同规则）
                 atk = H.do_confused_attack(sess, uid, rng)
             else:
-                taunt_by = st.get("taunt_by")
+                taunt_by = H.active_taunter(sess, cur)
                 if taunt_by:
                     tu = H.get_unit(sess, int(taunt_by))
                     if tu and tu["troops"] > 0 and not tu["routed"] and \
-                            int(params.get("target", 0)) != int(taunt_by):
+                            int(params.get("target", 0) or 0) != int(taunt_by):
                         raise StrategyError("已被挑衅：只能攻击挑衅者")
-                target = int(params.get("target", 0))
+                try:
+                    target = int(params.get("target", 0) or 0)
+                except (TypeError, ValueError):
+                    raise StrategyError("攻击目标无效")
                 atk = H.do_attack(sess, uid, target, rng)
             if not atk.get("ok"):
                 raise StrategyError(f"攻击失败：{atk.get('reason')}")
             res["attack"] = atk
         elif action == "skill":
-            if st.get("confuse"):
+            if H.is_confused(sess, cur):
                 raise StrategyError("惑敌：本回合无法施放技能")
+            try:
+                t_uid = params.get("target_uid")
+                t_uid = int(t_uid) if t_uid not in (None, "", 0, "0") else None
+            except (TypeError, ValueError):
+                raise StrategyError("技能目标无效")
+            t_hex = params.get("target_hex")
+            if t_hex is not None:
+                try:
+                    if not isinstance(t_hex, (list, tuple)) or len(t_hex) != 2:
+                        raise TypeError
+                    t_hex = [int(t_hex[0]), int(t_hex[1])]
+                except (TypeError, ValueError, IndexError):
+                    raise StrategyError("技能坐标无效")
             sk = H.do_skill(sess, uid, str(params.get("skill", "")), rng,
-                            target_uid=params.get("target_uid"),
-                            target_hex=params.get("target_hex"))
+                            target_uid=t_uid, target_hex=t_hex)
             if not sk.get("ok"):
                 raise StrategyError(f"技能失败：{sk.get('reason')}")
             res["skill"] = sk
@@ -543,7 +704,10 @@ class StrategyBattleMixin:
         elif action == "retreat":
             res["retreat"] = H.do_retreat(sess, uid, rng)
         elif action == "duel_challenge":
-            target = int(params.get("target", 0))
+            try:
+                target = int(params.get("target", 0) or 0)
+            except (TypeError, ValueError):
+                raise StrategyError("单挑目标无效")
             ok, reason = H.can_challenge(sess, uid, target, duel_cfg)
             if not ok:
                 raise StrategyError(f"无法单挑：{reason}")
@@ -572,6 +736,47 @@ class StrategyBattleMixin:
         await self._persist_battle_action(world, battle)
         return self._action_tail(battle, sess, res)
 
+    async def _sync_hex_injury_heals(self, sess: dict):
+        """把引擎记录的治疗结果写回 strategy_characters（伤势 -N 落库）。"""
+        heals = sess.pop("_injury_heals", None)
+        if not heals:
+            return
+        for cid_s, new_val in list(heals.items()):
+            try:
+                c = await self.get_char(int(cid_s))
+            except (TypeError, ValueError):
+                continue
+            if c and c.get("status") != "dead" and \
+                    int(c.get("injury", 0) or 0) > int(new_val):
+                c["injury"] = int(new_val)
+                await self.save_char(c)
+
+    async def _release_battle_armies(self, world: dict, battle: dict) -> int:
+        """兜底释放参战军团：把仍处于 battle 态的军团恢复 idle。
+
+        仅用于无法走正常善后流程的异常终局（据点已不存在、终局落库失败），
+        否则军团会永远卡在 battle 态，既不围城也不受正常指令驱动。
+        """
+        sess = battle.get("session") or {}
+        released = 0
+        for v in (sess.get("owners") or {}).values():
+            try:
+                aid = int(v.get("army_id", 0) or 0)
+            except (TypeError, ValueError):
+                continue
+            if aid <= 0:
+                continue
+            a = await self.get_army(aid)
+            if a and a.get("state") == "battle":
+                a["state"] = "idle"
+                await self.save_army(a)
+                released += 1
+        if released:
+            await self._commit()
+            logger.info(f"[strategy] 手操战役#{battle.get('id')} 释放 "
+                        f"{released} 支滞留军团（异常终局）")
+        return released
+
     async def _persist_battle_action(self, world: dict, battle: dict):
         """手操指令后落库；若本次行动已触发终局 → 立即走终局落库流程。
 
@@ -579,6 +784,7 @@ class StrategyBattleMixin:
         _finalize_manual_battle，战役永久卡在 state=battle/phase=done，
         参战军团卡 battle 态、据点管线阻塞。）
         """
+        await self._sync_hex_injury_heals(battle.get("session") or {})
         if battle.get("_finished"):
             node = await self.get_node(world["id"], int(battle["node_id"]))
             if node:
@@ -586,6 +792,8 @@ class StrategyBattleMixin:
                 return
             battle["state"] = "done"
             battle["result"] = battle.get("_finished") or {}
+            # 据点已消失：无法占领/掠夺，但必须把军团从 battle 态释放
+            await self._release_battle_armies(world, battle)
         await self.update_battle_session(battle)
         await self._commit()
 
@@ -617,15 +825,53 @@ class StrategyBattleMixin:
         sess["turn_deadline"] = _now() + int(sess.get("round_seconds", 30))
         battle["deadline_at"] = sess["turn_deadline"]
 
+    async def _bump_duel_bond(self, cid_a: int, cid_b: int):
+        """单挑平局：双方羁绊 +1 级（无羁绊则建立同道，最高 5 级）。"""
+        a = await self.get_char(int(cid_a))
+        b = await self.get_char(int(cid_b))
+        if not a or not b or a.get("status") == "dead" or b.get("status") == "dead":
+            return
+        # 宿怨是「仇敌」关系，平局惺惺相惜不应把它升级成更高宿怨
+        old_ab = (a.get("bonds") or {}).get(str(b["id"])) or {}
+        old_bb = (b.get("bonds") or {}).get(str(a["id"])) or {}
+        if old_ab.get("type") == "suyuan" or old_bb.get("type") == "suyuan":
+            return
+        ab = a.setdefault("bonds", {}).setdefault(
+            str(b["id"]), {"type": "tongdao", "level": 0, "battles": 0})
+        bb = b.setdefault("bonds", {}).setdefault(
+            str(a["id"]), {"type": "tongdao", "level": 0, "battles": 0})
+        lv = min(5, max(1, int(ab.get("level", 0)) + 1))
+        ab["level"] = lv
+        bb["level"] = lv
+        ab.setdefault("type", "tongdao")
+        bb.setdefault("type", "tongdao")
+        await self.save_char(a)
+        await self.save_char(b)
+
     async def _handle_duel_outcome(self, world: dict, battle: dict, sess: dict,
                                    out: dict):
-        """单挑结果落库：斩落 → 角色死亡；被俘 60% 掷点；羁绊 +1。"""
+        """单挑结果落库：斩落/伤重 → 角色库；被俘掷点；平局羁绊 +1。
+
+        伤重/斩落/被俘后同步把战场单位置为溃败——主将失去战斗力即军团
+        溃败（§7.6），否则被斩的军团还能继续移动、攻击、施法。
+        """
         if not out.get("ok"):
             return
+        owners = sess.get("owners") or {}
+        loser_uid = out.get("loser_uid")
+        lunit = H.get_unit(sess, int(loser_uid)) if loser_uid else None
+        leader = (lunit or {}).get("leader") or {}
+
+        def _rout_unit():
+            if lunit:
+                lunit["troops"] = 0
+                lunit["routed"] = True
+                lunit["morale"] = 0
+                routed[0] = True
+
+        routed = [False]
+
         if out.get("executed"):
-            loser_uid = out.get("loser_uid")
-            unit = H.get_unit(sess, int(loser_uid)) if loser_uid else None
-            leader = (unit or {}).get("leader") or {}
             if leader.get("id"):
                 c = await self.get_char(int(leader["id"]))
                 if c:
@@ -637,24 +883,30 @@ class StrategyBattleMixin:
                             ([legacy["heir"]] if legacy.get("heir") else []):
                         await self.save_char(av)
                     await self.save_char(c)
-                    killer_uid = out.get("winner_uid")
-                    ku = H.get_unit(sess, int(killer_uid)) if killer_uid else None
-                    kowner = ((sess.get("owners") or {}).get(
-                        str(killer_uid), {}) or {}).get("owner")
-                    if kowner and (ku or {}).get("leader", {}).get("rarity") == "legend":
-                        await self._award_achievement(kowner, "legend_slay_legend")
+            _rout_unit()
+            # 成就归击杀方，但判定对象是「被斩者」是否传世名将
+            killer_uid = out.get("winner_uid")
+            kowner = (owners.get(str(killer_uid), {}) or {}).get("owner")
+            if kowner and leader.get("rarity") == "legend":
+                await self._award_achievement(kowner, "legend_slay_legend")
         elif out.get("loser_injury"):
-            loser_uid = out.get("loser_uid")
-            unit = H.get_unit(sess, int(loser_uid)) if loser_uid else None
-            leader = (unit or {}).get("leader") or {}
             if leader.get("id"):
                 c = await self.get_char(int(leader["id"]))
                 if c:
                     injury = int(out["loser_injury"]) + \
                         (20 if out.get("extra_injury") else 0)
-                    R.apply_injury(c, injury)
-                    leader["injury"] = c["injury"]
+                    if R.apply_injury(c, injury):
+                        # 伤势达到陨落阈值：与 roll_captures/战后善后同口径
+                        c["status"] = "dead"
+                        _rout_unit()
+                    leader["injury"] = int(c["injury"])
                     await self.save_char(c)
+
+        # 平局羁绊 +1（engine 返回 bond_up，此前无人落库）
+        bond_up = out.get("bond_up") or []
+        if len(bond_up) >= 2 and bond_up[0] and bond_up[1]:
+            await self._bump_duel_bond(int(bond_up[0]), int(bond_up[1]))
+
         hint = out.get("capture_hint") or {}
         if hint.get("loser_leader_id"):
             rng = random.Random(f"duelcap-{battle['id']}-{hint['loser_leader_id']}")
@@ -667,6 +919,14 @@ class StrategyBattleMixin:
                     sess.setdefault("_pending_captures", []).append(
                         {"char_id": int(c["id"]),
                          "captor_fid": int(hint.get("captor_faction", 0))})
+                    # 主将被擒 → 军团溃败（不再行动/施法）
+                    _rout_unit()
+        # 把 manager 侧战果回填进刚记录的 duel_resolve 指令，保证 replay()
+        # 用同一指令流重建时，败将所部的溃败状态与实时一致（§7.3）。
+        if routed[0] and sess.get("commands"):
+            last = sess["commands"][-1]
+            if last.get("type") == "duel_resolve":
+                last["apply"] = {"rout_uid": int(loser_uid or 0), "rout": True}
         # 不在此处 commit：由调用方（duel_respond 分支）随 session 落库同一事务提交
 
     # ------------------------------------------------------------------
@@ -708,6 +968,8 @@ class StrategyBattleMixin:
         node = await self.get_node(world["id"], int(battle["node_id"]))
         if not node:
             battle["state"] = "done"
+            # 据点被其他战役/事件销毁：释放参战军团，避免永久 battle 态
+            await self._release_battle_armies(world, battle)
             await self.update_battle_session(battle)
             return
         # 单挑超时 → 自动拒绝
@@ -726,26 +988,34 @@ class StrategyBattleMixin:
             battle["_finished"] = result
         elif battle["state"] == "battle":
             if sess.get("phase") == "done":
-                # 终局续办：此前异常/崩溃导致 phase 已 done 但未走终局落库
-                battle["_finished"] = sess.get("result") or {}
+                # 终局续办：此前异常/崩溃导致 phase 已 done 但未走终局落库。
+                # 必须给 _finished 一个非空哨兵：空 dict 为假值，会跳过
+                # finalize 而把 state=battle/phase=done 永久留在库里。
+                battle["_finished"] = sess.get("result") or {
+                    "winner": sess.get("winner") or "defender"}
             else:
                 rng = self._battle_rng(battle)
                 tech_bonus = await self._tech_wisdom_bonus(world, battle)
                 guard = 0
+                # 兜底上限按「回合数 × 每回合单位数」动态计算：固定 500 在
+                # 多军团长战役中可能截断推进，下一 tick 续推又会与回合计时错位。
+                guard_max = max(64, int(sess.get("max_rounds", 30)) *
+                                (len(sess.get("units") or []) + 4))
                 # 超时单位由 AI 代行，直至轮到未超时的手操单位或终局
-                while sess.get("phase") == "battle" and guard < 500:
+                while sess.get("phase") == "battle" and guard < guard_max:
                     guard += 1
                     if battle.get("_finished"):
                         break
                     cur = H.current_actor(sess)
                     if not cur:
-                        if H.round_complete(sess):
-                            H.begin_round(sess, rng)
-                            winner = H.check_end(sess)
-                            if winner:
-                                sess["winner"] = winner
-                                battle["_finished"] = H.finish(sess)
-                                break
+                        # 先判终局再开新回合：打满 max_rounds 时不得让
+                        # 第 N+1 回合的合围/灼烧结算抢先跑一遍。
+                        winner = H.check_end(sess)
+                        if winner:
+                            sess["winner"] = winner
+                            battle["_finished"] = H.finish(sess)
+                            break
+                        H.begin_round(sess, rng)
                         continue
                     uid = int(cur["uid"])
                     owner = (sess.get("owners") or {}).get(str(uid), {}).get("owner")
@@ -784,16 +1054,74 @@ class StrategyBattleMixin:
             if fid <= 0 or fid in out:
                 continue
             f = await self.get_faction(fid)
-            out[fid] = int(R.tech_effects((f or {}).get("tech") or {}).get(
+            tech = int(R.tech_effects((f or {}).get("tech") or {}).get(
                 "ai_wisdom_bonus", 0))
+            # 祭酒（角色官职）托管智谋 +5，与科技叠加
+            pos = await self._faction_position_bonus(f) if f else {}
+            out[fid] = tech + int((pos or {}).get("ai_wisdom", 0) or 0)
         return out
 
     # ------------------------------------------------------------------
     # 终局：写回军团/守军 + 占领 + 掠夺 + 被俘
     # ------------------------------------------------------------------
     async def _finalize_manual_battle(self, world: dict, battle: dict, node: dict):
+        """终局落库外层兜底：异常时释放军团并留下可诊断战报。
+
+        inner 开头已用原子闸门防重复结算；一旦善后中途抛异常，DB 行已经是
+        done，后续 tick 不会再选中该战役。若不在这里兜底，参战军团会永久
+        卡在 battle 态（既不围城也不受指令驱动），且战报丢失。
+        """
+        try:
+            await self._finalize_manual_battle_inner(world, battle, node)
+        except Exception as e:  # noqa: BLE001
+            logger.exception(
+                f"[strategy] 手操战役#{battle.get('id')} 终局结算异常: {e}")
+            await self._release_battle_armies(world, battle)
+            note = ("⚠️ 本场结算过程出现异常，部分伤亡/战利品可能未落库；"
+                    "参战军团已释放，请联系管理员核查。")
+            battle["state"] = "done"
+            battle["report_text"] = (
+                str(battle.get("report_text") or "") + "\n" + note)[:8000]
+            await self._execute(
+                "UPDATE strategy_battles SET state='done', deadline_at=0, "
+                "report_text=? WHERE id=?",
+                (battle["report_text"], int(battle["id"])))
+            await self._commit()
+
+    async def _finalize_manual_battle_inner(self, world: dict, battle: dict, node: dict):
         sess = battle.get("session") or {}
+        # 幂等闸门：只有把状态从 deploy/battle 原子推进到 done 的那一次调用
+        # 才执行善后。中途异常/进程重启后的续办直接返回，避免战功、掠夺、
+        # 俘虏判定被重复结算（_apply_battle_aftermath 等内部各自 commit）。
+        claimed = await self._exec_count(
+            "UPDATE strategy_battles SET state='done', deadline_at=0 "
+            "WHERE id=? AND state IN ('deploy','battle')",
+            (int(battle["id"]),))
+        if not claimed:
+            battle["state"] = "done"
+            return
+        await self._commit()
+        # 治疗术等引擎侧伤势减免先写回角色表（须早于善后伤势结算）
+        await self._sync_hex_injury_heals(sess)
         result = battle.get("_finished") or sess.get("result") or {}
+        # 单挑被擒（60%）只登记在 _pending_captures，角色此刻仍 idle；
+        # 终局 roll_captures 若再对同一角色掷点会概率叠加（城陷可达 76%），
+        # 关押位满时还会重复驱逐。这里先收集待处理角色，掷点时跳过。
+        pending_ids: set[int] = set()
+        for pc in sess.get("_pending_captures") or []:
+            try:
+                pending_ids.add(int(pc.get("char_id", 0) or 0))
+            except (TypeError, ValueError, AttributeError):
+                continue
+        # 恢复路径（phase 已 done 但 result 丢失/缺 attackers/defenders）：
+        # _apply_battle_aftermath 找不到对应 row 会直接 continue，不会落库，
+        # 参战军团将永久卡在 battle 态。先显式释放，避免僵尸军团。
+        if not result.get("attackers") and not result.get("defenders"):
+            await self._release_battle_armies(world, battle)
+        try:
+            result["highlights"] = self._battle_highlights(result, sess)
+        except Exception:  # noqa: BLE001 - 高光标记失败不影响结算
+            result["highlights"] = []
         report = H.render_hex_report(result, title=f"{node['name']}·手操会战")
         battle["state"] = "done"
         battle["result"] = result
@@ -816,44 +1144,53 @@ class StrategyBattleMixin:
             if not a:
                 continue
             (atk_armies if v.get("side") == "a" else dfn_armies).append(a)
-        atk_sim = [await self._army_sim(a) for a in atk_armies]
-        dfn_sim = [await self._army_sim(a) for a in dfn_armies]
-        gar = self._garrison_sim(node)
-        if gar:
-            dfn_sim.append(gar)
         # 恢复军团状态标记（battle → 原状态由善后逻辑接管）
         for a in atk_armies + dfn_armies:
             if a.get("state") == "battle":
                 a["state"] = "idle"
         await self._apply_battle_aftermath(
-            world, node, atk_armies, dfn_armies, result,
-            [s for s in atk_sim if s], [s for s in dfn_sim if s])
+            world, node, atk_armies, dfn_armies, result)
         winner = result.get("winner")
         atk_fid = int(battle.get("attacker_faction", 0))
         kind = battle.get("kind", "field")
         texts = [report]
-        # 手操获胜奖励：战功 ×1.5（补 0.5）+ 掠夺 +10%
+        if result.get("highlights"):
+            texts.insert(0, "  ".join(result["highlights"]))
+        # 手操获胜奖励：战功 ×manual_win_merit_mult（默认 1.5，即补 0.5）
+        # 多军团时按攻击方军团数均摊，避免"每支军团各领一次"导致成倍膨胀
+        mult = float((self.main_cfg().get("siege") or {}).get(
+            "manual_win_merit_mult", 1.5))
+        base_bcfg = self.main_cfg().get("battle") or {}
+        n_atk = max(1, len(atk_armies))
+        per_army_base = int(
+            int(result.get("dfn_losses", 0)) / n_atk *
+            float(base_bcfg.get("merit_per_kill", 0.05))) + \
+            int(base_bcfg.get("win_merit_base", 100))
+        extra = int(per_army_base * max(0.0, mult - 1.0))
         if winner == "attacker":
             for a in atk_armies:
                 if a.get("owner_user_id") and a.get("troops", 0) > 0:
                     pp = await self.get_player(a["owner_user_id"], world["id"])
                     if pp:
-                        extra = int(result.get("dfn_losses", 0) * 0.05 * 0.5) + \
-                            int((self.main_cfg().get("battle") or {}).get(
-                                "win_merit_base", 100) * 0.5)
                         pp["merit"] += extra
                         pp["merit_season"] += extra
                         await self.save_player(pp)
                     await self._award_achievement(a["owner_user_id"],
                                                   "conquest_first_manual")
         if kind == "siege" and winner == "attacker":
-            # 城破：占领 + 掠夺库存 10% + 被俘判定 + 解放关押俘虏
-            await self._capture_node(world, node, atk_fid)
+            # 城破：占领（内含关押俘虏解放）+ 掠夺库存 10% + 被俘判定
+            freed = await self._capture_node(world, node, atk_fid) or []
+            capture_note = node.get("_capture_note")
             node = await self.get_node(world["id"], node["id"]) or node
+            if capture_note:
+                texts.append(str(capture_note))
+            # 掠夺加成：手操获胜 + 夜战魔修劫掠（§7.6，finish 已算好
+            # loot_bonus）；此前只取 manual_win_loot_bonus，夜袭 +30% 失效。
+            loot_bonus = float((self.main_cfg().get("siege") or {}).get(
+                "manual_win_loot_bonus", 0.1)) + \
+                float(result.get("loot_bonus") or 0.0)
             loot = await self._loot_node(world, node, atk_fid,
-                                         bonus=float((self.main_cfg().get(
-                                             "siege") or {}).get(
-                                             "manual_win_loot_bonus", 0.1)))
+                                         bonus=max(0.0, loot_bonus))
             if loot:
                 texts.append(f"💰 攻方掠得铜钱 {loot.get('coin', 0)} / "
                              f"粮草 {loot.get('grain', 0)}")
@@ -861,29 +1198,46 @@ class StrategyBattleMixin:
             captured = []
             if losers:
                 captured = await self.roll_captures(
-                    world, node, losers, "city_fall", atk_fid, street=False)
-            # 单挑中被擒的将领
-            for pc in sess.get("_pending_captures") or []:
-                c = await self.get_char(pc["char_id"])
-                if c and c.get("status") != "dead":
-                    await self._capture_char(c, pc["captor_fid"], node["id"])
-                    if c["name"] not in captured:
-                        captured.append(c["name"])
-            freed = await self.liberate_captives_at_node(world, node, atk_fid)
+                    world, node, losers, "city_fall", atk_fid, street=False,
+                    skip_ids=pending_ids)
+            # 单挑中被擒的将领统一在分支后处理（见下方 _pending_captures）
             if captured:
                 texts.append(f"⛓ 守将被擒：{'、'.join(captured)}")
             if freed:
                 texts.append(f"🕊 关押的俘虏获释：{'、'.join(freed)}")
             texts.append(f"🏴「{node['name']}」城破易主！")
         elif kind == "siege":
-            # 守方击退介入：攻方残部回到围城状态
+            # 守方击退介入：攻方主力虽败退，幸存军团仍留在城下继续围城
+            # （否则围城线断裂、siege_state 悬挂且城防自修被永久阻塞）
+            restored = 0
             for a in atk_armies:
+                if a.get("_destroyed") or a.get("_routed"):
+                    continue
                 fresh = await self.get_army(a["id"])
-                if fresh and fresh.get("troops", 0) > 0 and \
-                        fresh.get("state") == "idle" and not fresh.get("_routed"):
-                    fresh["state"] = "siege"
-                    await self.save_army(fresh)
-            texts.append(f"🛡「{node['name']}」守住了这轮猛攻")
+                # 只有仍驻扎在本节点的残部才能恢复围城（行军途中的军团
+                # 强行置 siege 会造成 node_id/path 与围城态互相矛盾）
+                if fresh and int(fresh.get("troops", 0) or 0) > 0 and \
+                        int(fresh.get("node_id") or 0) == int(node["id"]) and \
+                        not (fresh.get("path") or []):
+                    await self._begin_siege(world, node, fresh)
+                    restored += 1
+            # 全军覆没/溃逃：清除悬挂围城态
+            await self._clear_orphan_siege(world, node)
+            # 守方胜：被歼灭/溃逃的攻方军团同样进入被俘判定（与自动围城
+            # 反击 wipeout 口径一致，否则守方永远擒不到攻方将领）
+            lost_atk = [a for a in atk_armies
+                        if a.get("_destroyed") or a.get("_routed")]
+            if lost_atk:
+                dfn_fid = int(battle.get("defender_faction", 0)
+                              or node.get("owner_faction", 0) or 0)
+                if dfn_fid > 0:
+                    got = await self.roll_captures(
+                        world, node, lost_atk, "wipeout", dfn_fid,
+                        skip_ids=pending_ids)
+                    if got:
+                        texts.append(f"⛓ 攻将被擒：{'、'.join(got)}")
+            texts.append(f"🛡「{node['name']}」守住了这轮猛攻"
+                         + (f"（{restored} 支残部继续围城）" if restored else ""))
         else:
             # 出击（field）：守方胜 → 围城瓦解
             if winner == "defender":
@@ -891,30 +1245,50 @@ class StrategyBattleMixin:
                 if ss:
                     node["siege_state"] = {}
                     await self.save_node(node)
+                lost_atk = [a for a in atk_armies
+                            if a.get("_destroyed") or a.get("_routed")]
+                if lost_atk:
+                    dfn_fid = int(battle.get("defender_faction", 0)
+                                  or node.get("owner_faction", 0) or 0)
+                    if dfn_fid > 0:
+                        got = await self.roll_captures(
+                            world, node, lost_atk, "wipeout", dfn_fid,
+                            skip_ids=pending_ids)
+                        if got:
+                            texts.append(f"⛓ 攻将被擒：{'、'.join(got)}")
                 texts.append(f"🎉 出击大捷！「{node['name']}」之围遂解")
             else:
-                # 攻方胜：幸存围城军恢复 siege 态（镜像上方守方击退分支），
-                # 否则军团滞留 idle、siege_state 悬挂——围城无法继续且节点自修被阻
+                # 攻方胜：幸存围城军恢复 siege 态并补齐 siege_state，
+                # 否则军团滞留 idle、围城计时悬挂——无法继续围城且节点自修被阻
                 for a in atk_armies:
+                    if a.get("_destroyed") or a.get("_routed"):
+                        continue
                     fresh = await self.get_army(a["id"])
                     if fresh and fresh.get("troops", 0) > 0 and \
-                            fresh.get("state") == "idle" and not fresh.get("_routed"):
-                        fresh["state"] = "siege"
-                        await self.save_army(fresh)
+                            int(fresh.get("node_id") or 0) == int(node["id"]) and \
+                            not (fresh.get("path") or []):
+                        await self._begin_siege(world, node, fresh)
+                # 兜底：若幸存军团均因 node_id/path 不匹配无法重建围城，
+                # 清除悬挂 siege_state（该函数自身幂等，有围城军时不动）
+                await self._clear_orphan_siege(world, node)
                 texts.append(f"⚠️ 出击失利，「{node['name']}」围城继续")
-        for pc in ([] if kind == "siege" else sess.get("_pending_captures") or []):
+        # 单挑被擒统一落库（field 的攻方胜与 siege 守方胜都需要）
+        for pc in sess.get("_pending_captures") or []:
             c = await self.get_char(pc["char_id"])
-            if c and c.get("status") != "captive" and c.get("status") != "dead":
-                await self._capture_char(c, pc["captor_fid"], node["id"])
-                texts.append(f"⛓ 斗法被擒：{c['name']}")
+            if c and c.get("status") not in ("captive", "dead"):
+                got = await self._capture_char(c, pc["captor_fid"], node["id"])
+                texts.append(f"⛓ 斗法被擒：{c['name']}" if got
+                             else f"⛓ {c['name']} 斗法落败，但敌营已满，被就地驱逐")
         sess.pop("_pending_captures", None)
         battle["report_text"] = "\n".join(texts)[:8000]
         await self._execute(
             "UPDATE strategy_battles SET state='done', round_no=?, result_json=?, "
             "report_text=?, deadline_at=0, session_json=? WHERE id=?",
             (int(result.get("rounds", 0)),
-             json.dumps({k: v for k, v in result.items()}, ensure_ascii=False,
-                        default=str)[:200000],
+             # 安全截断：按字符硬切可能产生非法 JSON，_decode 会回退 {}，
+             # 导致整场战报/结果丢失。复用已有的摘要+首尾片段方案。
+             json.dumps(self._clip_battle_result(result), ensure_ascii=False,
+                        default=str),
              battle["report_text"],
              json.dumps(sess, ensure_ascii=False, default=str),
              int(battle["id"])))
@@ -926,7 +1300,10 @@ class StrategyBattleMixin:
                          bonus: float = 0.0) -> dict:
         """攻城掠夺：守方库存 30% + 手操加成 10%，入攻方（国库/玩家）。"""
         scfg = self.main_cfg().get("siege") or {}
-        pct = float(scfg.get("loot_stock_pct", 0.3)) + float(bonus)
+        # 比例必须封顶：夜间劫掠/手操加成配置过大时 pct 可能 >1，
+        # 库存会被 clamp 到 0，但玩家仍按 pct 拿走超过库存的资源。
+        pct = min(1.0, max(0.0, float(scfg.get("loot_stock_pct", 0.3)) +
+                             float(bonus)))
         stock = node.get("stock") or {}
         loot = {k: int(int(v or 0) * pct) for k, v in stock.items()}
         if loot:
@@ -965,6 +1342,34 @@ class StrategyBattleMixin:
     # ------------------------------------------------------------------
     # 和平斗法赌注局（坊市擂台，§7.8）
     # ------------------------------------------------------------------
+    async def _sweep_duel_arena(self, world: dict) -> int:
+        """清理过期擂台（退还赌注）与 1h 前的 done 记录。
+
+        此前只在 open 时顺带清理，玩家只 list/accept 时过期赌注会一直悬挂。
+        """
+        data = world.get("data") or {}
+        arena = data.get("duel_arena") or {}
+        now = _now()
+        removed = 0
+        for k in [k for k, v in arena.items()
+                  if (v.get("state", "open") == "open"
+                      and now > int(v.get("expire_at", 0)))
+                  or (v.get("state") == "done"
+                      and now - int(v.get("created_at", 0)) > 3600)]:
+            old = arena.pop(k)
+            removed += 1
+            if old.get("state", "open") != "open":
+                continue
+            op = await self.get_player(old["challenger"], world["id"])
+            if op:
+                op["coin"] = int(op.get("coin", 0)) + int(old.get("stake", 0))
+                await self.save_player(op)
+        if removed:
+            data["duel_arena"] = arena
+            world["data"] = data
+            await self.save_world(world)
+        return removed
+
     async def duel_arena_open(self, user_id: str, char_id: int, stake: int) -> dict:
         world, p = await self._require_player(user_id)
         dcfg = self.main_cfg().get("duel") or {}
@@ -981,21 +1386,21 @@ class StrategyBattleMixin:
         if p["coin"] < stake:
             raise StrategyError(f"铜钱不足：赌注 {stake}")
         p["coin"] -= stake
+        await self._sweep_duel_arena(world)
         data = world.get("data") or {}
         arena = data.setdefault("duel_arena", {})
-        cid = f"duel{_now()}_{user_id[-4:]}"
+        now = _now()
+        # 同一秒内同一玩家可以重复摆擂（rollback 后重试/连点）：cid 必须唯一，
+        # 否则新擂会覆盖旧擂，旧擂赌注被吞且无法退还。
+        base_cid = f"duel{now}_{user_id[-4:]}"
+        cid = base_cid
+        seq = 1
+        while cid in arena:
+            seq += 1
+            cid = f"{base_cid}_{seq}"
         arena[cid] = {"challenger": user_id, "char_id": int(c["id"]),
                       "char_name": c["name"], "stake": stake, "state": "open",
-                      "created_at": _now(), "expire_at": _now() + 3600}
-        # 过期清理
-        for k in [k for k, v in arena.items()
-                  if v.get("state", "open") == "open" and
-                  _now() > int(v.get("expire_at", 0))]:
-            old = arena.pop(k)
-            op = await self.get_player(old["challenger"], world["id"])
-            if op:
-                op["coin"] = int(op.get("coin", 0)) + int(old.get("stake", 0))
-                await self.save_player(op)
+                      "created_at": now, "expire_at": now + 3600}
         data["duel_arena"] = arena
         world["data"] = data
         await self.save_world(world)
@@ -1007,6 +1412,7 @@ class StrategyBattleMixin:
     async def duel_arena_accept(self, user_id: str, duel_id: str,
                                 char_id: int) -> dict:
         world, p = await self._require_player(user_id)
+        await self._sweep_duel_arena(world)
         data = world.get("data") or {}
         arena = data.get("duel_arena") or {}
         d = arena.get(str(duel_id))
@@ -1023,8 +1429,20 @@ class StrategyBattleMixin:
         if c.get("status") != "idle" or not R.can_challenge_duel(c):
             raise StrategyError("应战需健康且武勇 ≥75 的空闲武将")
         challenger_char = await self.get_char(int(d["char_id"]))
-        if not challenger_char:
-            raise StrategyError("擂主角色已不存在")
+        if not challenger_char or challenger_char.get("status") != "idle" \
+                or not R.can_challenge_duel(challenger_char):
+            # 擂主已被俘/陨落/出征：擂台失效，立即关闭并退还擂主赌注，
+            # 否则应战方会与一个「不存在的武将」结算赌局。
+            arena.pop(str(duel_id), None)
+            data["duel_arena"] = arena
+            world["data"] = data
+            cp = await self.get_player(d["challenger"], world["id"])
+            if cp:
+                cp["coin"] = int(cp.get("coin", 0)) + stake
+                await self.save_player(cp)
+            await self.save_world(world)
+            await self._commit()
+            raise StrategyError("擂主已无法应战，擂台已关闭并退还赌注")
         p["coin"] -= stake
         d["state"] = "done"
         d["acceptor"] = user_id
@@ -1061,10 +1479,12 @@ class StrategyBattleMixin:
         await self.save_player(p)
         await self._commit()
         return {"ok": True, "msg": msg,
-                "rounds": result.get("rounds"), "draw": bool(result.get("draw"))}
+                "rounds": result.get("rounds"), "draw": bool(result.get("draw")),
+                "winner_user": winner_user}
 
     async def duel_arena_list(self, user_id: str) -> list[dict]:
         world, p = await self._require_player(user_id)
+        await self._sweep_duel_arena(world)
         data = world.get("data") or {}
         arena = data.get("duel_arena") or {}
         out = []

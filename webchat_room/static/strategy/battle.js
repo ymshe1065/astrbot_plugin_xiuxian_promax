@@ -35,6 +35,13 @@
     combo: { name: "合击技", mana: 60, target: "unit", range: 2 },
     troop_special: { name: "兵种专属", mana: 0, target: "auto", range: 0 },
   };
+  // 阵型（core/strategy_hex.FORMATIONS 的前端投影）
+  const FORMATIONS = [
+    ["", "无阵型"], ["fengshi", "锋矢阵（攻 +10%）"],
+    ["heyi", "鹤翼阵（包抄）"], ["fangyuan", "方圆阵（防 +15%）"],
+    ["yanhang", "雁行阵（远程 +10%）"],
+  ];
+  const FORMATION_NAMES = Object.fromEntries(FORMATIONS);
 
   let bs = null;              // battle_state 快照
   let battleId = 0;
@@ -46,10 +53,17 @@
   let movePlan = null;        // {uid, cells: Map("q,r"->{q,r,cost,prev})}
   let hoverHex = null;
   let delegated = false;
+  let lastActor = null;       // 上一帧的行动单位（换人时清理移动/技能选择）
+  let spectator = false;      // §12.6 观战（只读，只轮询不提交）
 
   const canvas = document.getElementById("hexCanvas");
   const ctx = canvas.getContext("2d");
-  let view = { size: 26, ox: 0, oy: 0 };
+  // base* 为自适应尺寸；zoom/pan 由移动端手势与滚轮叠加，不改变六边形数据
+  let view = {
+    size: 26, ox: 0, oy: 0,
+    baseSize: 26, baseOx: 0, baseOy: 0,
+    zoom: 1, panX: 0, panY: 0, vw: 0, vh: 0,
+  };
 
   // -------------------------------------------------------------------------
   // 几何（odd-q flat-top）
@@ -135,7 +149,11 @@
     const meta = (typeof S !== "undefined" && S && S.meta) || {};
     const troop = (meta.troop_types || {})[unit.troop_type] || {};
     let mp = Number(troop.move || 3);
-    if ((unit.statuses || {}).suppress) mp *= 0.5;  // 落石/箭雨压制：机动减半
+    // 落石/箭雨压制：下一回合起生效（与服务端 _status_active 同口径）
+    const st = unit.statuses || {};
+    if (st.suppress && Number(st.suppress_from ?? -1) < Number(bs.round ?? 0)) mp *= 0.5;
+    // 剑阵冲锋：3 回合机动 +2（与服务端 move_points 同口径）
+    if (Number(st.charge || 0) > 0) mp += 2;
     const start = unit.pos;   // B6：pos 为 [q, r] 数组
     const sq = start[0], sr = start[1];
     const cells = new Map();
@@ -175,17 +193,28 @@
     return path;
   }
 
-  // 敌方 ZOC 提示格（近似：敌单位 6 邻格，去河流/己方占位）
+  // 当前操作/选中单位的阵营（用于区分敌我，不能只看 u.mine：
+  // 同势力其他玩家的军团 mine=false 但并非敌军）
+  function mySide() {
+    const cur = (bs.units || []).find((u) => u.uid === bs.current_actor);
+    if (cur) return cur.side;
+    const sel = (bs.units || []).find((u) => u.uid === selectedUid);
+    return sel ? sel.side : null;
+  }
+
+  // 敌方 ZOC 提示格（近似：敌方单位 6 邻格，去河流/友军占位）
   function enemyZocTiles() {
     const tiles = new Set();
+    const side = mySide();
     for (const u of bs.units || []) {
-      if (u.mine || !u.pos || u.troops <= 0 || u.routed) continue;
+      if (!u.pos || u.troops <= 0 || u.routed) continue;
+      if (side ? u.side === side : u.mine) continue;
       if (terrainAt(u.pos[0], u.pos[1]) === "river") continue;
       for (const [q, r] of neighbors(u.pos[0], u.pos[1])) {
         if (!inBounds(q, r)) continue;
         if (terrainAt(q, r) === "river") continue;
         const occ = unitAt(q, r);
-        if (occ && occ.mine) continue;  // 友军通道
+        if (occ && (side ? occ.side === side : occ.mine)) continue;  // 友军通道
         tiles.add(q + "," + r);
       }
     }
@@ -212,15 +241,38 @@
     if (!bs) return;
     const dpr = window.devicePixelRatio || 1;
     const box = canvas.parentElement.getBoundingClientRect();
+    view.vw = box.width;
+    view.vh = box.height;
     canvas.width = box.width * dpr;
     canvas.height = box.height * dpr;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const [w, h] = bs.size;
     const needW = w * 1.5 + 0.5, needH = h * Math.sqrt(3) + Math.sqrt(3) / 2;
-    view.size = Math.max(14, Math.min(
+    view.baseSize = Math.max(14, Math.min(
       (box.width - 24) / needW, (box.height - 40) / needH));
-    view.ox = (box.width - needW * view.size) / 2 + view.size;
-    view.oy = (box.height - needH * view.size) / 2 + view.size * Math.sqrt(3) / 2;
+    view.baseOx = (box.width - needW * view.baseSize) / 2 + view.baseSize;
+    view.baseOy = (box.height - needH * view.baseSize) / 2 + view.baseSize * Math.sqrt(3) / 2;
+    applyView();
+    draw();
+  }
+
+  // 把基础布局 + 缩放/平移合成为实际绘制参数（以视口中心为缩放锚点）
+  function applyView() {
+    const cx = view.vw / 2, cy = view.vh / 2;
+    view.size = view.baseSize * view.zoom;
+    view.ox = cx + (view.baseOx - cx) * view.zoom + view.panX;
+    view.oy = cy + (view.baseOy - cy) * view.zoom + view.panY;
+  }
+
+  function setZoom(z) {
+    view.zoom = Math.max(0.5, Math.min(3, Number(z) || 1));
+    applyView();
+    draw();
+  }
+
+  function resetView() {
+    view.zoom = 1; view.panX = 0; view.panY = 0;
+    applyView();
     draw();
   }
 
@@ -338,13 +390,28 @@
       bs.phase === "deploy" ? "部署阶段" : "已结束";
     const ph = document.getElementById("battlePhase");
     ph.textContent = { deploy: "部署", battle: "战斗", done: "结束" }[bs.phase] || bs.phase;
-    const actor = (bs.units || []).find((u) => u.uid === bs.current_actor);
-    document.getElementById("battleActor").textContent = actor
-      ? (actor.mine ? "▶ 轮到你的「" + actor.leader + "」行动"
-                    : "⏳ 等待「" + actor.leader + "」行动…")
-      : "";
-    document.getElementById("btnDelegate").textContent =
-      delegated ? "🤖 已托管（点击取消）" : "🤖 托管";
+    const actorEl = document.getElementById("battleActor");
+    const delegateBtn = document.getElementById("btnDelegate");
+    if (isSpectator()) {
+      // §12.6 观战：顶部明确只读，隐藏托管
+      actorEl.textContent = "👁 观战中（只读）";
+      actorEl.classList.add("spectating");
+      if (delegateBtn) delegateBtn.style.display = "none";
+    } else {
+      const actor = (bs.units || []).find((u) => u.uid === bs.current_actor);
+      actorEl.textContent = actor
+        ? (actor.mine ? "▶ 轮到你的「" + actor.leader + "」行动"
+                      : "⏳ 等待「" + actor.leader + "」行动…")
+        : "";
+      actorEl.classList.remove("spectating");
+      if (delegateBtn) delegateBtn.style.display = "";
+      delegateBtn.textContent =
+        delegated ? "🤖 已托管（点击取消）" : "🤖 托管";
+    }
+  }
+
+  function isSpectator() {
+    return spectator || !!(bs && bs.spectator);
   }
 
   function renderUnits() {
@@ -374,6 +441,18 @@
 
   function renderActions() {
     const el = document.getElementById("battleActions");
+    if (isSpectator()) {
+      // 观战/只读：隐藏部署与全部操作，只保留战报与回放
+      let h = '<div class="sub spectate-note">👁 观战中（只读）：部署与操作已隐藏，战况自动推进' +
+        (bs.round ? "（延迟 1 回合）" : "") + "</div>";
+      if (bs.state === "done" || bs.phase === "done") {
+        h += '<div class="ba-btns"><button class="btn small primary" id="btnViewReport">📜 查看战报</button>' +
+          '<button class="btn small" id="btnViewReplay">🎞️ 回放</button></div>';
+      }
+      el.innerHTML = h;
+      bindDoneButtons();
+      return;
+    }
     if (bs.state === "done" || bs.phase === "done") {
       el.innerHTML = '<button class="btn small primary" id="btnViewReport">📜 查看战报</button>' +
         '<button class="btn small" id="btnViewReplay">🎞️ 回放</button>';
@@ -381,7 +460,13 @@
       return;
     }
     if (bs.phase === "deploy") {
-      const left = (bs.units || []).filter((u) => u.mine && !u.pos && u.troops > 0);
+      // 开战需本方（含盟友/同势力参战者）全部部署完毕：只看 u.mine 会让
+      // 盟友未部署时按钮仍可点，服务端 all_deployed 再拒绝
+      const mySides = new Set((bs.units || [])
+        .filter((u) => (bs.my_uids || []).includes(u.uid))
+        .map((u) => u.side));
+      const left = (bs.units || []).filter(
+        (u) => (mySides.size ? mySides.has(u.side) : u.mine) && !u.pos && u.troops > 0);
       let h = '<div class="sub">点击左侧未部署军团 → 点击蓝色部署区落位</div>';
       h += '<div class="ba-btns">';
       h += '<button class="btn small" id="btnAutoDeploy">⚡ 自动部署</button>';
@@ -390,6 +475,14 @@
       h += "</div>";
       if (selectedUid) {
         h += '<div class="ba-btns"><button class="btn small" id="btnAmbush">🌲 设伏（森林格）</button></div>';
+      }
+      const picked = (bs.units || []).find((u) => u.uid === selectedUid && u.mine);
+      if (picked) {
+        h += '<div class="ba-btns"><label class="sub">阵型：' +
+          '<select id="selFormation">' + FORMATIONS.map(([v, n]) =>
+            '<option value="' + v + '"' +
+            ((picked.formation || "") === v ? " selected" : "") + ">" + n +
+            "</option>").join("") + "</select></label></div>";
       }
       el.innerHTML = h;
       const ad = document.getElementById("btnAutoDeploy");
@@ -401,6 +494,10 @@
         mode = "ambush";
         setHint("点击一个森林格埋设伏兵（敌军接近时触发先手）");
       });
+      const fs = document.getElementById("selFormation");
+      if (fs) fs.addEventListener("change", () => {
+        act("battle_set_formation", { uid: selectedUid, formation: fs.value });
+      });
       return;
     }
     // 战斗阶段
@@ -411,6 +508,7 @@
     if (isMyTurn) {
       const cur = (bs.units || []).find((u) => u.uid === bs.current_actor);
       h += '<div class="sub">行动中：' + esc(cur.leader) +
+        (cur.formation ? " · " + (FORMATION_NAMES[cur.formation] || cur.formation) : "") +
         (cur.moved ? "（已移动）" : "") + (cur.acted ? "（已行动）" : "") + "</div>";
       h += '<div class="ba-btns">';
       if (!cur.moved && !cur.acted) {
@@ -506,6 +604,10 @@
   // 动作
   // -------------------------------------------------------------------------
   async function act(action, params) {
+    if (isSpectator()) {
+      toast("👁 观战模式为只读，无法提交操作", "err");
+      return null;
+    }
     try {
       const r = await api("/api/strategy/action", {
         method: "POST",
@@ -532,10 +634,19 @@
                                params: { battle_id: battleId } }),
       });
       bs = r;
+      // 观战：URL/入口指定，或后端判定为同势力旁观（my_uids 为空）
+      if (r && r.spectator) spectator = true;
+      const actorNow = bs.current_actor || null;
+      if (actorNow !== lastActor) {
+        // 回合超时/换人：清空上一单位的技能与可达路径，
+        // 否则旧路径会以"当前行动单位"名义发出 move，误移动其他军团
+        mode = "select"; movePlan = null; skillId = "";
+        lastActor = actorNow; setHint("");
+      }
       delegated = (bs.units || []).some((u) => u.mine && u.delegate);
       renderTop(); renderUnits(); renderActions(); renderLog(); draw();
       checkDuel();
-      if (bs.state === "done") { showReport(); stopPoll(true); }
+      if (bs.state === "done") { showReport(); stopPoll(false); }
     } catch (e) { /* api 已弹 toast */ }
   }
 
@@ -562,6 +673,11 @@
   function updateTimer() {
     const el = document.getElementById("battleTimer");
     if (!bs) return;
+    if (isSpectator()) {
+      el.textContent = "👁 观战";
+      el.classList.remove("urgent");
+      return;
+    }
     const dl = bs.phase === "deploy" ? bs.deadline_at : bs.turn_deadline;
     const left = Math.max(0, Number(dl || 0) - Math.floor(Date.now() / 1000));
     el.textContent = (bs.phase === "deploy" ? "部署剩余 " : "回合剩余 ") + left + "s";
@@ -571,8 +687,90 @@
   // -------------------------------------------------------------------------
   // Canvas 交互
   // -------------------------------------------------------------------------
+  // 移动端手势：单指拖拽平移 / 双指 pinch 缩放（0.5x~3x）/ 双击复位；
+  // 桌面端滚轮缩放，普通点击选中逻辑保持不变。
+  const gesture = {
+    pointers: new Map(), dragging: false, moved: 0,
+    lastX: 0, lastY: 0, pinch: null,
+    suppressClick: false, lastTapAt: 0, lastTapX: 0, lastTapY: 0,
+  };
+
+  canvas.addEventListener("pointerdown", (ev) => {
+    if (!bs) return;
+    gesture.pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+    gesture.suppressClick = false;
+    if (gesture.pointers.size === 1) {
+      gesture.dragging = true;
+      gesture.moved = 0;
+      gesture.lastX = ev.clientX;
+      gesture.lastY = ev.clientY;
+      try { canvas.setPointerCapture(ev.pointerId); } catch (e) { /* ignore */ }
+      if (ev.pointerType !== "mouse") {
+        const now = Date.now();
+        if (now - gesture.lastTapAt < 320 &&
+            bs.phase === "battle" && mode === "select" &&
+            Math.hypot(ev.clientX - gesture.lastTapX, ev.clientY - gesture.lastTapY) < 30) {
+          resetView();
+          gesture.lastTapAt = 0;
+          gesture.suppressClick = true;
+        } else {
+          gesture.lastTapAt = now;
+          gesture.lastTapX = ev.clientX;
+          gesture.lastTapY = ev.clientY;
+        }
+      }
+    } else if (gesture.pointers.size === 2) {
+      const ps = Array.from(gesture.pointers.values());
+      gesture.pinch = {
+        dist: Math.max(1, Math.hypot(ps[0].x - ps[1].x, ps[0].y - ps[1].y)),
+        zoom: view.zoom,
+      };
+      gesture.dragging = false;
+      gesture.suppressClick = true;
+    }
+  });
+
+  canvas.addEventListener("pointermove", (ev) => {
+    if (!bs) return;
+    if (gesture.pointers.has(ev.pointerId)) {
+      gesture.pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+    }
+    if (gesture.pointers.size >= 2 && gesture.pinch) {
+      const ps = Array.from(gesture.pointers.values()).slice(0, 2);
+      const dist = Math.max(1, Math.hypot(ps[0].x - ps[1].x, ps[0].y - ps[1].y));
+      setZoom(gesture.pinch.zoom * dist / gesture.pinch.dist);
+      return;
+    }
+    if (!gesture.dragging || gesture.pointers.size !== 1) return;
+    const dx = ev.clientX - gesture.lastX;
+    const dy = ev.clientY - gesture.lastY;
+    if (!dx && !dy) return;
+    gesture.lastX = ev.clientX;
+    gesture.lastY = ev.clientY;
+    gesture.moved += Math.abs(dx) + Math.abs(dy);
+    if (gesture.moved > 6) gesture.suppressClick = true;
+    view.panX += dx;
+    view.panY += dy;
+    applyView();
+    draw();
+  });
+
+  const endPointer = (ev) => {
+    gesture.pointers.delete(ev.pointerId);
+    if (gesture.pointers.size < 2) gesture.pinch = null;
+    if (gesture.pointers.size === 0) gesture.dragging = false;
+  };
+  canvas.addEventListener("pointerup", endPointer);
+  canvas.addEventListener("pointercancel", endPointer);
+
+  canvas.addEventListener("wheel", (ev) => {
+    if (!bs) return;
+    ev.preventDefault();
+    setZoom(view.zoom * (ev.deltaY < 0 ? 1.12 : 1 / 1.12));
+  }, { passive: false });
+
   canvas.addEventListener("mousemove", (ev) => {
-    if (!bs || !bs.terrain) return;
+    if (!bs || !bs.terrain || gesture.dragging) return;
     const rect = canvas.getBoundingClientRect();
     const [q, r] = pixelToHex(ev.clientX - rect.left, ev.clientY - rect.top);
     const changed = !hoverHex || hoverHex[0] !== q || hoverHex[1] !== r;
@@ -581,11 +779,18 @@
   });
 
   canvas.addEventListener("click", (ev) => {
+    if (gesture.suppressClick) { gesture.suppressClick = false; return; }
     if (!bs || bs.state === "done") return;
     const rect = canvas.getBoundingClientRect();
     const [q, r] = pixelToHex(ev.clientX - rect.left, ev.clientY - rect.top);
     if (!inBounds(q, r)) return;
     const clicked = unitAt(q, r);
+
+    if (isSpectator()) {
+      // 观战只允许选中查看，不触发任何操作
+      if (clicked) { selectedUid = clicked.uid; renderUnits(); draw(); }
+      return;
+    }
 
     if (bs.phase === "deploy") {
       if (mode === "ambush" && selectedUid) {
@@ -593,7 +798,6 @@
         mode = "select"; setHint("");
         return;
       }
-      if (clicked && clicked.mine && !clicked.pos) return;
       // 选中未部署单位
       const unplaced = myUnits().filter((u) => !u.pos);
       if (clicked && clicked.mine) { selectedUid = clicked.uid; renderUnits(); renderActions(); draw(); return; }
@@ -606,7 +810,7 @@
     }
     if (bs.phase !== "battle") return;
 
-    if (mode === "move" && movePlan && !clicked) {
+    if (mode === "move" && movePlan && movePlan.uid === bs.current_actor && !clicked) {
       const path = pathTo(movePlan.cells, q, r);
       if (!path.length) { toast("该格不可达", "err"); return; }
       const uid = movePlan.uid;
@@ -614,20 +818,22 @@
       act2("move", { path });
       return;
     }
-    if (mode === "attack" && clicked && !clicked.mine) {
+    const my = mySide();
+    const isFoe = (u) => !!u && !!my && u.side !== my;
+    if (mode === "attack" && isFoe(clicked)) {
       act2("attack", { target: clicked.uid });
       return;
     }
-    if (mode === "duel" && clicked && !clicked.mine) {
+    if (mode === "duel" && isFoe(clicked)) {
       act2("duel_challenge", { target: clicked.uid });
       return;
     }
     if (mode === "skill" && skillId) {
       const info = SKILL_INFO[skillId] || {};
-      if (info.target === "unit" && (!clicked || clicked.mine)) {
+      if (info.target === "unit" && !isFoe(clicked)) {
         toast("请选择敌方单位", "err"); return;
       }
-      if (info.target === "friendly" && (!clicked || !clicked.mine)) {
+      if (info.target === "friendly" && (!clicked || !my || clicked.side !== my)) {
         toast("请选择友方单位", "err"); return;
       }
       if (info.target === "empty" && clicked) {
@@ -651,27 +857,241 @@
   // -------------------------------------------------------------------------
   // 战报 / 回放
   // -------------------------------------------------------------------------
+  function hlText(h) {
+    const s = String(h === null || h === undefined ? "" : h).trim().replace(/^⭐\s*/, "");
+    if (!s) return "";
+    const names = {
+      duel_win: "单挑获胜", duel: "单挑决胜", encircle: "完成合围",
+      night_raid: "夜袭得手", night: "夜袭作战", underdog: "以少胜多", ambush: "伏兵突袭",
+    };
+    return names[s] || s;
+  }
+
+  function highlightsOf(res) {
+    const raw = (res && res.highlights) || [];
+    return (Array.isArray(raw) ? raw : []).map(hlText).filter(Boolean);
+  }
+
   function showReport() {
     if (!bs || bs.state !== "done" || !bs.result) return;
     const res = bs.result;
     const winText = res.winner === "attacker" ? "攻方胜" :
       res.winner === "defender" ? "守方胜" : "平局收场";
+    const hl = highlightsOf(res);
     const lines = [
       '<div class="report-head">🏁 ' + winText + " · " + (bs.round || 0) + " 回合</div>",
+      hl.length ? '<div class="hl-report">' + hl.map((t) =>
+        '<div class="hl-item">⭐ ' + esc(t) + "</div>").join("") + "</div>" : "",
       '<div class="report-text">' + esc(bs.report_text || "").replace(/\n/g, "<br>") + "</div>",
-      '<div class="form-actions"><button class="btn small" id="btnCopyReport">📋 复制战报分享</button></div>',
+      '<div class="form-actions"><button class="btn small" id="btnCopyReport">📋 复制战报</button>' +
+        '<button class="btn small primary" id="btnShareCard">📤 分享</button></div>',
     ];
     document.getElementById("battleLog").innerHTML = lines.join("");
     const cp = document.getElementById("btnCopyReport");
     if (cp) cp.addEventListener("click", () => copyReport());
+    const sc = document.getElementById("btnShareCard");
+    if (sc) sc.addEventListener("click", openShareCard);
+  }
+
+  function copyPlain(text, okMsg) {
+    const done = () => toast(okMsg || "已复制");
+    const fail = () => toast("复制失败", "err");
+    const legacy = () => {
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.left = "-9999px";
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand("copy");
+        ta.remove();
+        ok ? done() : fail();
+      } catch (e) { fail(); }
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, legacy);
+    } else legacy();
   }
 
   function copyReport() {
     const text = "【仙域争霸战报】" + (bs.report_text || "");
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(
-        () => toast("战报已复制，去聊天室分享吧"), () => toast("复制失败", "err"));
-    } else { toast("当前浏览器不支持复制", "err"); }
+    copyPlain(text, "战报已复制，去聊天室分享吧");
+  }
+
+  // -------------------------------------------------------------------------
+  // 分享卡片（Canvas 720×960，无外部依赖）
+  // -------------------------------------------------------------------------
+  function shareModel() {
+    const res = bs.result || {};
+    const S0 = (typeof S !== "undefined" && S) || {};
+    const node = ((S0.nodes || []).find((n) => n.id === bs.node_id)) || {};
+    const facName = (fid) => {
+      const f = ((S0.factions || []).find((x) => x.id === fid)) || {};
+      return f.name || (fid ? "势力#" + fid : "无主");
+    };
+    const atk = res.attackers || [];
+    const dfn = res.defenders || [];
+    const uniq = (arr) => Array.from(new Set(arr.map((x) => x.faction_id).filter(Boolean)));
+    const atkName = uniq(atk).map(facName).join("、") || "攻方";
+    const dfnName = uniq(dfn).map(facName).join("、") || "守方";
+    const season = (S0.season || {}).season_no || 1;
+    const tick = (S0.world || {}).tick_no || 0;
+    return {
+      node: node.name || ("据点#" + bs.node_id),
+      winText: res.winner === "attacker" ? "攻方胜" :
+        res.winner === "defender" ? "守方胜" : "平局收场",
+      winner: res.winner || "",
+      rounds: bs.round || res.rounds || 0,
+      atkName: atkName, dfnName: dfnName,
+      atkLoss: Number(res.atk_losses || 0), dfnLoss: Number(res.dfn_losses || 0),
+      atk: atk, dfn: dfn,
+      highlights: highlightsOf(res),
+      season: season, tick: tick,
+      when: new Date().toLocaleString("zh-CN", { hour12: false }),
+    };
+  }
+
+  function shareText(m) {
+    const lines = [
+      "⚔️【仙域争霸·战报】" + m.node,
+      "🏁 " + m.winText + " · " + m.rounds + " 回合",
+      "🔵 攻方：" + m.atkName + "（损 " + m.atkLoss + "）",
+      "🔴 守方：" + m.dfnName + "（损 " + m.dfnLoss + "）",
+    ];
+    if (m.highlights.length) lines.push("⭐ 高光：" + m.highlights.join(" / "));
+    lines.push("📅 第 " + m.season + " 赛季 · 第 " + m.tick + " tick");
+    lines.push("🕰 " + m.when);
+    return lines.join("\n");
+  }
+
+  function drawShareCard(cv, m) {
+    const g = cv.getContext("2d");
+    const W = cv.width, H = cv.height;
+    const FONT = '"PingFang SC","Microsoft YaHei",sans-serif';
+    const bg = g.createLinearGradient(0, 0, 0, H);
+    bg.addColorStop(0, "#0d1117");
+    bg.addColorStop(1, "#1b2330");
+    g.fillStyle = bg;
+    g.fillRect(0, 0, W, H);
+    g.strokeStyle = "#e3b341";
+    g.lineWidth = 4;
+    g.strokeRect(18, 18, W - 36, H - 36);
+
+    g.textAlign = "center";
+    g.textBaseline = "top";
+    g.fillStyle = "#e3b341";
+    g.font = "bold 26px " + FONT;
+    g.fillText("⚔️ 仙域争霸 · 战报", W / 2, 54);
+    g.fillStyle = "#d7dee8";
+    g.font = "bold 34px " + FONT;
+    g.fillText(m.node, W / 2, 100);
+    g.strokeStyle = "#2d3646";
+    g.lineWidth = 1.5;
+    g.beginPath(); g.moveTo(64, 156); g.lineTo(W - 64, 156); g.stroke();
+
+    g.fillStyle = m.winner === "attacker" ? "#58a6ff" :
+      m.winner === "defender" ? "#f85149" : "#e3b341";
+    g.font = "bold 50px " + FONT;
+    g.fillText(m.winText, W / 2, 184);
+    g.fillStyle = "#8b98a9";
+    g.font = "20px " + FONT;
+    g.fillText(m.rounds + " 回合 · 第 " + m.season + " 赛季", W / 2, 246);
+
+    // 双方势力 + 兵力损失
+    function side(y, label, name, units, loss, color) {
+      g.textAlign = "left";
+      g.fillStyle = color;
+      g.font = "bold 22px " + FONT;
+      g.fillText(label, 64, y);
+      g.fillStyle = "#d7dee8";
+      g.font = "bold 24px " + FONT;
+      g.fillText(name.slice(0, 14), 150, y - 2);
+      let yy = y + 44;
+      g.font = "18px " + FONT;
+      units.slice(0, 3).forEach((u) => {
+        const troop = ((S && S.meta && S.meta.troop_types[u.troop_type]) || {}).name || "部队";
+        g.fillStyle = "#8b98a9";
+        g.fillText((u.leader_name || "无主军团") + " · " + troop + "  " +
+          (u.troops_before || 0) + " → " + (u.troops_after || 0), 82, yy, W - 164);
+        yy += 26;
+      });
+      g.fillStyle = "#f85149";
+      g.font = "bold 20px " + FONT;
+      g.fillText("兵力损失 " + loss, 82, yy + 6);
+      return yy + 48;
+    }
+
+    let y = side(286, "🔵 攻方", m.atkName, m.atk, m.atkLoss, "#58a6ff");
+    y = side(y + 18, "🔴 守方", m.dfnName, m.dfn, m.dfnLoss, "#f85149");
+
+    // 高光
+    g.textAlign = "left";
+    g.fillStyle = "#e3b341";
+    g.font = "bold 22px " + FONT;
+    g.fillText("⭐ 本场高光", 64, y + 10);
+    let hy = y + 48;
+    g.font = "20px " + FONT;
+    if (m.highlights.length) {
+      m.highlights.slice(0, 4).forEach((t) => {
+        g.fillStyle = "#ffe9b0";
+        g.fillText("· " + t, 82, hy, W - 164);
+        hy += 28;
+      });
+    } else {
+      g.fillStyle = "#8b98a9";
+      g.fillText("· 本场无特殊高光", 82, hy);
+      hy += 28;
+    }
+
+    g.textAlign = "center";
+    g.fillStyle = "#8b98a9";
+    g.font = "16px " + FONT;
+    g.fillText("第 " + m.season + " 赛季 · 第 " + m.tick + " tick", W / 2, H - 104);
+    g.fillText("生成于 " + m.when, W / 2, H - 76);
+    g.fillStyle = "#2d3646";
+    g.fillText("仙域争霸 · 战略大地图", W / 2, H - 48);
+  }
+
+  function ensureShareOverlay() {
+    let ov = document.getElementById("shareOverlay");
+    if (ov) return ov;
+    ov = document.createElement("div");
+    ov.id = "shareOverlay";
+    ov.className = "overlay";
+    ov.hidden = true;
+    ov.innerHTML = '<div class="overlay-card share-card">' +
+      "<h2>📤 分享战报</h2>" +
+      '<div class="share-canvas-wrap"><canvas id="shareCanvas" width="720" height="960"></canvas></div>' +
+      '<div class="form-actions">' +
+      '<button class="btn small" id="shareDownload" type="button">⬇️ 下载图片</button>' +
+      '<button class="btn small primary" id="shareCopy" type="button">📋 复制文本</button>' +
+      '<button class="btn small" id="shareClose" type="button">关闭</button>' +
+      "</div></div>";
+    (document.getElementById("battleOverlay") || document.body).appendChild(ov);
+    ov.querySelector("#shareClose").addEventListener("click", () => { ov.hidden = true; });
+    ov.querySelector("#shareDownload").addEventListener("click", () => {
+      try {
+        const a = document.createElement("a");
+        a.download = "仙域争霸战报_" + battleId + ".png";
+        a.href = document.getElementById("shareCanvas").toDataURL("image/png");
+        a.click();
+        toast("⬇️ 分享卡片已下载");
+      } catch (e) { toast("下载失败，请尝试截图", "err"); }
+    });
+    ov.querySelector("#shareCopy").addEventListener("click", () => {
+      copyPlain(shareText(shareModel()), "📋 战报文本已复制");
+    });
+    ov.addEventListener("click", (ev) => { if (ev.target === ov) ov.hidden = true; });
+    return ov;
+  }
+
+  function openShareCard() {
+    if (!bs || !bs.result) return;
+    const ov = ensureShareOverlay();
+    const cv = document.getElementById("shareCanvas");
+    drawShareCard(cv, shareModel());
+    ov.hidden = false;
   }
 
   let replay = null, replayIdx = 0;
@@ -691,8 +1111,14 @@
 
   function renderReplay() {
     if (!replay) return;
-    // 回放步进 = 战况事件流（commands 为服务器指令流水，事件文本更适合叙事回放）
-    const evs = bs && bs.events ? bs.events : [];
+    // 回放步进 = 终局战况事件流（battle_state.events 仅尾部 80 条）。
+    // 服务端 events 只保留最近 400 条；更早的关键事件（开局/单挑/伏兵/
+    // 合围）由 key_events 补回，避免回放从战役中段才开始。
+    let evs = replay.events || [];
+    const firstRound = evs.length ? Number(evs[0].round || 0) : 0;
+    const early = (replay.key_events || []).filter(
+      (e) => Number(e.round || 0) < firstRound);
+    if (early.length) evs = early.concat(evs);
     const total = evs.length;
     replayIdx = Math.max(0, Math.min(replayIdx, total));
     document.getElementById("replayStep").textContent = replayIdx + " / " + total;
@@ -735,16 +1161,21 @@
   // -------------------------------------------------------------------------
   // 生命周期
   // -------------------------------------------------------------------------
-  async function open(id) {
+  async function open(id, opts) {
     battleId = Number(id);
+    spectator = !!(opts && opts.spectator);
     selectedUid = null; mode = "select"; movePlan = null; bs = null;
+    lastActor = null;
+    view.zoom = 1; view.panX = 0; view.panY = 0;
     document.getElementById("battleOverlay").hidden = false;
     document.getElementById("duelOverlay").hidden = true;
     document.getElementById("replayOverlay").hidden = true;
-    setHint("加载战场…");
+    const so = document.getElementById("shareOverlay");
+    if (so) so.hidden = true;
+    setHint(spectator ? "加载观战视图…" : "加载战场…");
     await refresh();
     resize();
-    stopPoll(true);
+    stopPoll(false);
     pollTimer = setInterval(refresh, POLL_MS);
     tickTimer = setInterval(updateTimer, 1000);
     updateTimer();
@@ -754,6 +1185,7 @@
     document.getElementById("battleOverlay").hidden = true;
     stopPoll(false);
     bs = null;
+    spectator = false;
     if (window.onBattleClosed) window.onBattleClosed();
   }
 

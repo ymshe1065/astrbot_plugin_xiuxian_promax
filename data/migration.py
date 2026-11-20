@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import aiosqlite
 import json
+import time
 from typing import Dict, Callable, Awaitable, TYPE_CHECKING
 from astrbot.api import logger
 
 if TYPE_CHECKING:
     from ..config_manager import ConfigManager
 
-LATEST_DB_VERSION = 75  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求；v49: 统一物品品阶名称；v50: 仙市投资系统（基金/股票）；v51: 符箓熟练度与符图习得；v52: 仙市 v6（16 盘 + 赌场级波动 + 不对称日熔断）；v53: 拍卖会未开拍拍品按固定品阶曲线重建（并兼容分叉旧库补授符图）；v54: 灵田肥力上限按等级分级（旧值按百分比换算）；v55: 生活职业更换费用峰值与时间衰减；v56: 误存进储物戒/溢出仓库的丹药迁回丹药背包；v57: 旧50/50装备改名迁移到混合倾向新装备；v58: 周常 Boss（周本）周期/队伍/成员/领奖/周榜/次数表；v59: 仙市分红/风声唯一索引（结算幂等，先去重再建索引）；v60: 功德机制重做，清空全服既有功德（业力）；v61: 秘境难度分级（rift_key/product/difficulty/duration）；v62: 活动状态位按槽位多行（本体 + 身外化身）；v63: 珠宝体系（珠囊字段 jewel_inventory）；v64: 通缉令改为每日悬赏榜（每日挑战次数表 bounty_daily）；v65: 高风险玩法（锦囊/暗标/藏宝图/矿脉/古方/盘口/杠杆）与灵田永久解锁；v66: 仙市投资代理人（委托/持仓/日志表）；v67: 代理人等级（经验表 / 委托经验字段）；v68: 风声可信度与新闻冲击成本；v69: 藏宝图肉鸽奇遇（临时效果 / 待处理事件字段）；v70: 仙域争霸战略玩法（strategy_* 11 表）；v71: 仙域争霸 P1~P3（势力外交 / hex 战役会话 / 英烈祠名将堂 / 赛季结算）；v72: 仙域争霸联盟体系（势力 alliance_id / 共同治理与据点交接）；v73: 矿脉到期自动结算消息通道（mine_veins/mine_partners.origin）；v74: 仙域争霸角色官职（strategy_characters.appointed_position / appointed_node_id）；v75: 仙域争霸流将限时竞拍（strategy_char_auctions）
+LATEST_DB_VERSION = 77  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求；v49: 统一物品品阶名称；v50: 仙市投资系统（基金/股票）；v51: 符箓熟练度与符图习得；v52: 仙市 v6（16 盘 + 赌场级波动 + 不对称日熔断）；v53: 拍卖会未开拍拍品按固定品阶曲线重建（并兼容分叉旧库补授符图）；v54: 灵田肥力上限按等级分级（旧值按百分比换算）；v55: 生活职业更换费用峰值与时间衰减；v56: 误存进储物戒/溢出仓库的丹药迁回丹药背包；v57: 旧50/50装备改名迁移到混合倾向新装备；v58: 周常 Boss（周本）周期/队伍/成员/领奖/周榜/次数表；v59: 仙市分红/风声唯一索引（结算幂等，先去重再建索引）；v60: 功德机制重做，清空全服既有功德（业力）；v61: 秘境难度分级（rift_key/product/difficulty/duration）；v62: 活动状态位按槽位多行（本体 + 身外化身）；v63: 珠宝体系（珠囊字段 jewel_inventory）；v64: 通缉令改为每日悬赏榜（每日挑战次数表 bounty_daily）；v65: 高风险玩法（锦囊/暗标/藏宝图/矿脉/古方/盘口/杠杆）与灵田永久解锁；v66: 仙市投资代理人（委托/持仓/日志表）；v67: 代理人等级（经验表 / 委托经验字段）；v68: 风声可信度与新闻冲击成本；v69: 藏宝图肉鸽奇遇（临时效果 / 待处理事件字段）；v70: 仙域争霸战略玩法（strategy_* 11 表）；v71: 仙域争霸 P1~P3（势力外交 / hex 战役会话 / 英烈祠名将堂 / 赛季结算）；v72: 仙域争霸联盟体系（势力 alliance_id / 共同治理与据点交接）；v73: 矿脉到期自动结算消息通道（mine_veins/mine_partners.origin）；v74: 仙域争霸角色官职（strategy_characters.appointed_position / appointed_node_id）；v75: 仙域争霸流将限时竞拍（strategy_char_auctions）；v76: 流将战功暗标（暗标表/赛季名额/坊市地缘/属性上限 90）；v77: 仙域争霸补全（势力任务/动员令/审计/俘虏押运/匪寨与NPC重生状态位/主城迁都）
 
 MIGRATION_TASKS: Dict[int, Callable[[aiosqlite.Connection, ConfigManager], Awaitable[None]]] = {}
 
@@ -735,6 +736,44 @@ async def _ensure_strategy_v75(conn: aiosqlite.Connection):
         "ON strategy_char_auctions(char_id, status)")
 
 
+async def _ensure_strategy_v76(conn: aiosqlite.Connection):
+    """v76：流将战功暗标（货币/赛季名额/暗标表/坊市地缘/流拍游历）。"""
+    await _add_column_if_missing(
+        conn, "strategy_char_auctions", "currency",
+        "TEXT NOT NULL DEFAULT 'merit'")
+    await _add_column_if_missing(
+        conn, "strategy_char_auctions", "sealed",
+        "INTEGER NOT NULL DEFAULT 1")
+    await _add_column_if_missing(
+        conn, "strategy_char_auctions", "season_no",
+        "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(
+        conn, "strategy_char_auctions", "rarity",
+        "TEXT NOT NULL DEFAULT ''")
+    await _add_column_if_missing(
+        conn, "strategy_characters", "auction_cooldown_until",
+        "INTEGER NOT NULL DEFAULT 0")
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS strategy_auction_bids (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            auction_id INTEGER NOT NULL DEFAULT 0,
+            world_id INTEGER NOT NULL DEFAULT 0,
+            user_id TEXT NOT NULL DEFAULT '',
+            amount INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'active',
+            created_at INTEGER NOT NULL DEFAULT 0,
+            updated_at INTEGER NOT NULL DEFAULT 0,
+            UNIQUE(auction_id, user_id)
+        )
+    """)
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_strategy_bids_auction "
+        "ON strategy_auction_bids(auction_id, status, amount)")
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_strategy_bids_user "
+        "ON strategy_auction_bids(world_id, user_id, status)")
+
+
 async def _ensure_latest_columns(conn: aiosqlite.Connection):
     """终极兜底：确保 NPC、宗门、贷款等最新增量列/表齐全。"""
     await _add_column_if_missing(conn, "players", "karma", "INTEGER NOT NULL DEFAULT 0")
@@ -811,6 +850,10 @@ async def _ensure_latest_columns(conn: aiosqlite.Connection):
     await _ensure_strategy_v74(conn)
     # v75：仙域争霸流将限时竞拍
     await _ensure_strategy_v75(conn)
+    # v76：流将战功暗标 / 赛季名额 / 坊市地缘 / 属性上限
+    await _ensure_strategy_v76(conn)
+    # v77：仙域争霸补全（势力任务 / 动员令 / 审计 / 俘虏押运 / NPC 重生 / 主城迁都）
+    await _ensure_strategy_v77(conn)
     await conn.commit()
 
 class MigrationManager:
@@ -3489,6 +3532,70 @@ async def _migrate_to_v75(conn: aiosqlite.Connection, config_manager: ConfigMana
     logger.info("v75迁移完成：strategy_char_auctions 已就绪")
 
 
+@migration(76)
+async def _migrate_to_v76(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """v76：流将铜钱竞拍 → 战功暗标，并压平过高的旧角色属性。
+
+    旧库若仍有未结束的铜钱竞拍，先按当前最高价退款并取消，
+    由下一次 tick 以新规则重新挂拍，避免铜钱托管与战功结算混账。
+    """
+    logger.info("开始迁移到 v76：流将战功暗标与属性上限")
+    await _ensure_strategy_v76(conn)
+    now = int(time.time())
+    # 1) 旧铜钱竞拍退款并取消
+    open_rows = await (await conn.execute(
+        "SELECT id, world_id, bidder_user, current_price "
+        "FROM strategy_char_auctions WHERE status='open'")).fetchall()
+    for row in open_rows:
+        aid, wid, bidder, price = int(row[0]), int(row[1]), str(row[2] or ""), int(row[3] or 0)
+        if bidder and price > 0:
+            await conn.execute(
+                "UPDATE strategy_players SET coin=coin+? "
+                "WHERE user_id=? AND world_id=?", (price, bidder, wid))
+        await conn.execute(
+            "UPDATE strategy_char_auctions SET status='cancelled', "
+            "bidder_user='', current_price=0, settled_at=? WHERE id=?",
+            (now, aid))
+    # 2) 回填赛季号 / 稀有度（用于新赛季名额统计）
+    await conn.execute(
+        "UPDATE strategy_char_auctions SET season_no=COALESCE(("
+        "SELECT season_no FROM strategy_worlds w WHERE w.id=world_id), 0) "
+        "WHERE season_no=0")
+    await conn.execute(
+        "UPDATE strategy_char_auctions SET rarity=COALESCE(("
+        "SELECT rarity FROM strategy_characters c WHERE c.id=char_id), '') "
+        "WHERE rarity=''")
+    # 3) 旧角色单项属性压到 90（只削顶，不重算总和，保留既有养成投入）
+    stat_rows = await (await conn.execute(
+        "SELECT id, stats_json FROM strategy_characters")).fetchall()
+    for row in stat_rows:
+        cid, raw = int(row[0]), row[1] or "{}"
+        try:
+            stats = json.loads(raw)
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(stats, dict):
+            continue
+        changed = False
+        for key, val in list(stats.items()):
+            try:
+                if int(val) > 90:
+                    stats[key] = 90
+                    changed = True
+            except (TypeError, ValueError):
+                continue
+        if changed:
+            await conn.execute(
+                "UPDATE strategy_characters SET stats_json=? WHERE id=?",
+                (json.dumps(stats, ensure_ascii=False), cid))
+    # 4) 所有在野流将解除冷却，交由 tick 重新挂拍
+    await conn.execute(
+        "UPDATE strategy_characters SET auction_cooldown_until=0 "
+        "WHERE status='wander'")
+    await conn.commit()
+    logger.info("v76迁移完成：旧竞拍已退款取消，角色属性已压顶，暗标表已就绪")
+
+
 @migration(71)
 async def _migrate_to_v71(conn: aiosqlite.Connection, config_manager: ConfigManager):
     """v71：「仙域争霸」P1~P3（势力外交/hex 战役会话/英烈祠名将堂/赛季结算/互市买方）。"""
@@ -3496,3 +3603,104 @@ async def _migrate_to_v71(conn: aiosqlite.Connection, config_manager: ConfigMana
     await _ensure_strategy_v71(conn)
     await conn.commit()
     logger.info("v71迁移完成：strategy 外交/会话/纪念堂/赛季表已就绪")
+
+
+async def _ensure_strategy_v77(conn: aiosqlite.Connection):
+    """v77：仙域争霸缺口补全所需状态位与新表。
+
+    - strategy_nodes：NPC 仇恨记忆 / 重生时间 / 匪寨周期状态
+    - strategy_factions：迁都冷却 / 重建合力资金
+    - strategy_faction_tasks：势力任务（§6.4）
+    - strategy_mobilizations：动员令（§6.4）
+    - strategy_audit：策略动作审计（§18.4）
+    - strategy_captive_transfers：俘虏押运（§7.9）
+    """
+    await _add_column_if_missing(
+        conn, "strategy_nodes", "hatred_json", "TEXT NOT NULL DEFAULT '{}'")
+    await _add_column_if_missing(
+        conn, "strategy_nodes", "respawn_at", "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(
+        conn, "strategy_nodes", "lair_json", "TEXT NOT NULL DEFAULT '{}'")
+    await _add_column_if_missing(
+        conn, "strategy_factions", "last_capital_move_at",
+        "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(
+        conn, "strategy_factions", "rebuild_fund", "INTEGER NOT NULL DEFAULT 0")
+    await _add_column_if_missing(
+        conn, "strategy_players", "last_action_at", "INTEGER NOT NULL DEFAULT 0")
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS strategy_faction_tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            world_id INTEGER NOT NULL DEFAULT 0,
+            faction_id INTEGER NOT NULL DEFAULT 0,
+            task_type TEXT NOT NULL DEFAULT '',
+            title TEXT NOT NULL DEFAULT '',
+            node_id INTEGER NOT NULL DEFAULT 0,
+            target_node INTEGER NOT NULL DEFAULT 0,
+            assigned_user TEXT NOT NULL DEFAULT '',
+            assigned_char INTEGER NOT NULL DEFAULT 0,
+            progress INTEGER NOT NULL DEFAULT 0,
+            target INTEGER NOT NULL DEFAULT 1,
+            reward_json TEXT NOT NULL DEFAULT '{}',
+            status TEXT NOT NULL DEFAULT 'open',
+            start_at INTEGER NOT NULL DEFAULT 0,
+            end_at INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_strategy_faction_tasks_live "
+        "ON strategy_faction_tasks(world_id, faction_id, status)")
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS strategy_mobilizations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            world_id INTEGER NOT NULL DEFAULT 0,
+            faction_id INTEGER NOT NULL DEFAULT 0,
+            issued_by TEXT NOT NULL DEFAULT '',
+            kind TEXT NOT NULL DEFAULT 'recruit',
+            buff_json TEXT NOT NULL DEFAULT '{}',
+            start_at INTEGER NOT NULL DEFAULT 0,
+            end_at INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'active'
+        )
+    """)
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_strategy_mobilizations_live "
+        "ON strategy_mobilizations(world_id, faction_id, status)")
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS strategy_audit (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            world_id INTEGER NOT NULL DEFAULT 0,
+            user_id TEXT NOT NULL DEFAULT '',
+            action TEXT NOT NULL DEFAULT '',
+            detail_json TEXT NOT NULL DEFAULT '{}',
+            created_at INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_strategy_audit_time "
+        "ON strategy_audit(world_id, created_at)")
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS strategy_captive_transfers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            world_id INTEGER NOT NULL DEFAULT 0,
+            char_id INTEGER NOT NULL DEFAULT 0,
+            faction_id INTEGER NOT NULL DEFAULT 0,
+            from_node INTEGER NOT NULL DEFAULT 0,
+            to_node INTEGER NOT NULL DEFAULT 0,
+            depart_at INTEGER NOT NULL DEFAULT 0,
+            arrive_at INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'marching'
+        )
+    """)
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_strategy_transfers_live "
+        "ON strategy_captive_transfers(world_id, status, arrive_at)")
+
+
+@migration(77)
+async def _migrate_to_v77(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """v77：仙域争霸缺口补全（势力任务 / 动员令 / 审计 / 俘虏押运 / 状态位）。"""
+    logger.info("开始迁移到 v77：仙域争霸缺口补全")
+    await _ensure_strategy_v77(conn)
+    await conn.commit()
+    logger.info("v77迁移完成：势力任务/动员令/审计/俘虏押运表已就绪")

@@ -292,6 +292,8 @@ async def start(host: str, port: int) -> None:
     app.router.add_post("/api/fate_shop/exchange", _api_fate_shop_exchange)
     app.router.add_get("/api/strategy/state", _api_strategy_state)
     app.router.add_post("/api/strategy/action", _api_strategy_action)
+    app.router.add_get("/api/strategy/memorial", _api_strategy_memorial)
+    app.router.add_get("/api/strategy/guide", _api_strategy_guide)
     app.router.add_get("/api/settings", _api_settings)
     app.router.add_post("/api/settings", _api_settings)
     app.router.add_get("/api/notices", _api_notices)
@@ -366,11 +368,18 @@ async def start(host: str, port: int) -> None:
         prune_task.add_done_callback(_bag_tasks.discard)
     except RuntimeError:
         pass
+    # 仙域争霸：世界 tick 推进 → strategy.delta（不侵入 manager 的 tick 管线）
+    try:
+        delta_task = asyncio.create_task(_strategy_delta_loop())
+        _bag_tasks.add(delta_task)
+        delta_task.add_done_callback(_bag_tasks.discard)
+    except RuntimeError:
+        pass
     logger.info(f"[webroom] 房间服务已启动: http://{host}:{port}/")
 
 
 async def stop() -> None:
-    global _runner, _site
+    global _runner, _site, _strategy_last_tick, _strategy_last_world
     if _site is not None:
         await _site.stop()
     # close 会触发握手协程的 finally 并删除房间，必须先拍下所有连接。
@@ -392,6 +401,9 @@ async def stop() -> None:
     _rooms.clear()
     _recent_msgs.clear()
     _channel_history.clear()
+    _strategy_subs.clear()
+    _strategy_last_tick = 0
+    _strategy_last_world = 0
     if _runner is not None:
         await _runner.cleanup()
     _runner = None
@@ -798,6 +810,263 @@ async def notify_strategy(player_key: str, kind: str,
         "payload": payload or {},
         "ts": int(time.time()),
     })
+
+
+# ---------- 仙域争霸 WS 协议补全（§12.5 / v4.1.0） ----------
+#
+# 现有 strategy.notify（按玩家定向、经 manager._notify 分级过滤）保持不变；
+# 这里补三条通道：
+#   strategy.delta       世界 tick 推进后推给「订阅了策略面板」的连接，前端收到即刷新；
+#   strategy.battle.event手操回合推进后推给该战役的参与者（含 REST 与 WS 两条入口）；
+#   strategy.<上行指令>   客户端手操指令转调 manager.handle_action，回 strategy.battle.ack。
+# REST 轮询照旧可用，WS 只是更低延迟的增量通道。
+
+# 订阅表：最近拉过快照/提交过争霸动作的网页账号 → 最近活跃时间。
+# 只给这些人推 delta，避免每 tick 打扰纯聊天用户；6 小时不活跃自动过期。
+_STRATEGY_SUB_TTL = 6 * 3600
+_STRATEGY_SUB_LIMIT = 2000
+_STRATEGY_DELTA_POLL = 10.0
+_strategy_subs: dict[str, int] = {}
+_strategy_last_tick = 0
+_strategy_last_world = 0
+
+# 可经 WS 上行的手操指令 → (action, act)
+_STRATEGY_WS_KINDS = ("deploy", "move", "skill", "duel", "retreat", "end_turn")
+
+
+def subscribe_strategy(username: str) -> None:
+    """登记策略面板订阅（拉快照/提交动作/发 WS 手操指令时调用）。"""
+    name = str(username or "").strip()
+    if not name:
+        return
+    now = int(time.time())
+    _strategy_subs[name] = now
+    if len(_strategy_subs) > _STRATEGY_SUB_LIMIT:
+        dead = [u for u, ts in _strategy_subs.items()
+                if now - int(ts or 0) > _STRATEGY_SUB_TTL]
+        for u in dead:
+            _strategy_subs.pop(u, None)
+        while len(_strategy_subs) > _STRATEGY_SUB_LIMIT:
+            _strategy_subs.pop(next(iter(_strategy_subs)), None)
+
+
+async def notify_strategy_delta(tick: int, ts: int | None = None) -> int:
+    """世界 tick 推进广播（strategy.delta）：只推给策略面板订阅者。"""
+    try:
+        tick_no = int(tick or 0)
+    except (TypeError, ValueError):
+        return 0
+    if tick_no <= 0:
+        return 0
+    now = int(time.time())
+    payload = {"type": "strategy.delta", "tick": tick_no,
+               "ts": int(ts or now)}
+    sent = 0
+    for username, seen in list(_strategy_subs.items()):
+        if now - int(seen or 0) > _STRATEGY_SUB_TTL:
+            _strategy_subs.pop(username, None)
+            continue
+        sent += await push_to_username("", username, payload)
+    return sent
+
+
+async def _maybe_strategy_delta(tick: int, world_id: int = 0) -> int:
+    """tick 号变化时才广播，避免轮询把同一个 tick 重复推给前端。
+
+    赛季重置会新建世界、tick_no 从 0 重新计数；若只比较 tick 号会因
+    ``tick_no <= _strategy_last_tick`` 而整季静默。这里同时记录 world_id，
+    世界变了就重置基线。
+    """
+    global _strategy_last_tick, _strategy_last_world
+    try:
+        tick_no = int(tick or 0)
+        wid = int(world_id or 0)
+    except (TypeError, ValueError):
+        return 0
+    if wid and wid != _strategy_last_world:
+        _strategy_last_world = wid
+        _strategy_last_tick = 0
+    if _strategy_last_tick <= 0:
+        # 首次只对齐基线，不补推历史 tick
+        _strategy_last_tick = tick_no
+        return 0
+    if tick_no <= _strategy_last_tick:
+        return 0
+    _strategy_last_tick = tick_no
+    return await notify_strategy_delta(tick_no)
+
+
+async def _strategy_delta_loop() -> None:
+    """后台对账：每 10s 看一次世界 tick，有推进就给订阅者推 strategy.delta。
+
+    tick 调度在 main.py（manager 侧无广播钩子），这里用一次轻量读取代替代
+    回调，既不侵入 manager，也能在补跑多个 tick 后只推最终 tick 号。
+    """
+    while True:
+        await asyncio.sleep(_STRATEGY_DELTA_POLL)
+        plugin = _plugin
+        mgr = getattr(plugin, "strategy_mgr", None) if plugin is not None else None
+        if mgr is None:
+            continue
+        try:
+            if callable(getattr(mgr, "enabled", None)) and not mgr.enabled():
+                continue
+            world = await mgr.get_world()
+            if world:
+                await _maybe_strategy_delta(int(world.get("tick_no") or 0),
+                                            int(world.get("id") or 0))
+        except Exception:
+            logger.debug("[webroom] strategy.delta 对账失败", exc_info=True)
+
+
+async def _strategy_battle_owners(battle_id: int) -> list[str]:
+    """取手操战役参与者（player_key 列表），用于 battle.event 定向推送。"""
+    plugin = _plugin
+    mgr = getattr(plugin, "strategy_mgr", None) if plugin is not None else None
+    if mgr is None:
+        return []
+    try:
+        battle = await mgr.get_battle(int(battle_id))
+    except Exception:
+        return []
+    owners = ((battle or {}).get("session") or {}).get("owners") or {}
+    out: list[str] = []
+    seen: set[str] = set()
+    for v in owners.values():
+        uid = str((v or {}).get("owner") or "")
+        if uid and uid not in seen:
+            seen.add(uid)
+            out.append(uid)
+    return out
+
+
+async def notify_strategy_battle(battle_id: int, result: dict | None = None,
+                                 user_ids: list[str] | None = None) -> int:
+    """手操回合推进广播（strategy.battle.event）。
+
+    REST 与 WS 两条入口都会调用：同一回合所有参与者（含只挂 REST 轮询的
+    对手）都能立刻看到新日志，观战者为只读不在此列。
+    """
+    try:
+        bid = int(battle_id or 0)
+    except (TypeError, ValueError):
+        return 0
+    if bid <= 0:
+        return 0
+    res = result if isinstance(result, dict) else {}
+    ids = list(user_ids) if user_ids else await _strategy_battle_owners(bid)
+    payload = {
+        "type": "strategy.battle.event",
+        "battle_id": bid,
+        "round": res.get("round"),
+        "log": list(res.get("events") or [])[-8:],
+        "act": str(res.get("action") or ""),
+        "current_actor": res.get("current_actor"),
+        "finished": bool(res.get("result")),
+        "ts": int(time.time()),
+    }
+    sent = 0
+    for uid in ids:
+        username = accounts_store.username_of_player_key(uid)
+        if not username:
+            continue
+        sent += await push_to_username("", username, payload)
+    return sent
+
+
+async def _handle_strategy_ws(room_id: str, ws: web.WebSocketResponse,
+                              action: str, data: dict[str, Any]) -> None:
+    """WS 上行手操指令 → manager.handle_action(...)，回 strategy.battle.ack。
+
+    鉴权沿用连接握手时的网页账号（player_id 即存档 key），不新开旁路；
+    限速/世界锁/审计仍在 manager.handle_action 内统一执行。
+    """
+    info = _rooms.get(room_id, {}).get(ws) or {}
+    username = str(info.get("username") or "")
+    req = str(data.get("req_id") or data.get("req") or "").strip()[:64]
+    if not username:
+        await send_to_ws(ws, {"type": "strategy.error", "req": req,
+                              "msg": "尚未完成连接握手"})
+        return
+    plugin = _plugin
+    mgr = getattr(plugin, "strategy_mgr", None) if plugin is not None else None
+    if mgr is None:
+        await send_to_ws(ws, {"type": "strategy.error", "req": req,
+                              "msg": "插件尚未就绪"})
+        return
+
+    payload = data.get("payload") if isinstance(data.get("payload"), dict) else {}
+    try:
+        battle_id = int(data.get("battle_id") or payload.get("battle_id") or 0)
+    except (TypeError, ValueError):
+        await send_to_ws(ws, {"type": "strategy.error", "req": req,
+                              "msg": "battle_id 无效"})
+        return
+    user_id = str(info.get("player_id") or "") or \
+        accounts_store.player_key_of({"username": username})
+    subscribe_strategy(username)
+
+    kind = action[len("strategy."):]
+    if kind == "subscribe":
+        # 显式订阅策略通道（前端可选用；REST 拉快照/动作也会自动订阅）
+        await send_to_ws(ws, {"type": "strategy.subscribed",
+                              "req": req,
+                              "tick": int(_strategy_last_tick or 0),
+                              "ts": int(time.time())})
+        return
+    if kind not in _STRATEGY_WS_KINDS:
+        await send_to_ws(ws, {"type": "strategy.error", "req": req,
+                              "msg": f"未知指令：{action[:32]}"})
+        return
+
+    try:
+        if kind == "deploy":
+            act = "deploy"
+            result = await mgr.handle_action(user_id, "battle_deploy", {
+                "battle_id": battle_id,
+                "placements": payload.get("placements") or [],
+            })
+        elif kind == "duel":
+            # 有 accept 视为应战/拒绝，否则视为发起单挑
+            act = "duel_respond" if ("accept" in payload or payload.get("respond")) \
+                else "duel_challenge"
+            result = await mgr.handle_action(user_id, "battle_action", {
+                "battle_id": battle_id, "act": act, "params": payload})
+        else:
+            act = kind
+            result = await mgr.handle_action(user_id, "battle_action", {
+                "battle_id": battle_id, "act": act, "params": payload})
+    except StrategyBusyError:
+        await send_to_ws(ws, {"type": "strategy.error", "req": req,
+                              "msg": "世界推进中，请稍后再试"})
+        return
+    except StrategyError as exc:
+        await send_to_ws(ws, {"type": "strategy.error", "req": req,
+                              "msg": str(exc)})
+        return
+    except Exception as exc:  # noqa: BLE001
+        logger.exception(f"[webroom] 争霸 WS 指令 {action} 失败")
+        await send_to_ws(ws, {"type": "strategy.error", "req": req,
+                              "msg": f"操作失败：{exc}"})
+        return
+
+    if not isinstance(result, dict):
+        result = {"ok": True}
+    await send_to_ws(ws, {
+        "type": "strategy.battle.ack",
+        "req": req,
+        "req_id": req,
+        "action": action,
+        "act": act,
+        "battle_id": battle_id,
+        "result": result,
+        "ts": int(time.time()),
+    })
+    if "round" in result or result.get("result"):
+        try:
+            await notify_strategy_battle(battle_id, result)
+        except Exception:
+            logger.debug("[webroom] 手操回合广播失败", exc_info=True)
 
 
 async def broadcast_broadcast(room_id: str, payload: dict) -> int:
@@ -1224,11 +1493,18 @@ async def _api_strategy_state(request: web.Request) -> web.Response:
     except Exception as exc:
         logger.exception("[webroom] 读取争霸快照失败")
         return web.json_response({"ok": False, "error": f"读取失败：{exc}"}, status=500)
+    # 策略面板活跃订阅 + 顺手对账 tick（轮询也能拿到 delta）
+    subscribe_strategy(str(user.get("username") or ""))
+    try:
+        await _maybe_strategy_delta(
+            int(((data or {}).get("world") or {}).get("tick_no") or 0))
+    except Exception:
+        logger.debug("[webroom] strategy.delta 对账失败", exc_info=True)
     return web.json_response({"ok": True, "state": data})
 
 
 async def _api_strategy_action(request: web.Request) -> web.Response:
-    """仙域争霸：统一动作分发（入场/招募/任务/编军/行军/围城/建设/商店）。"""
+    """仙域争霸：统一动作分发（入场/招募/遣散/任务/编军/行军/围城/建设/商店）。"""
     user = _token_user(request)
     if user is None:
         return web.json_response({"ok": False, "error": "登录已过期"}, status=401)
@@ -1259,7 +1535,228 @@ async def _api_strategy_action(request: web.Request) -> web.Response:
     if not isinstance(result, dict):
         result = {"ok": True}
     result.setdefault("ok", True)
+    # 策略面板活跃订阅（用于 tick 增量推送）
+    subscribe_strategy(str(user.get("username") or ""))
+    # 手操战役：回合推进在 REST 内同步完成 → 同步广播给全部参与者
+    if action in _STRATEGY_REST_BATTLE_ACTIONS:
+        try:
+            await notify_strategy_battle(int(params.get("battle_id") or 0), result)
+        except Exception:
+            logger.debug("[webroom] 手操回合广播失败", exc_info=True)
     return web.json_response(result)
+
+
+# 会推进手操回合（或结束战役）的 REST action：处理完立刻广播 battle.event
+_STRATEGY_REST_BATTLE_ACTIONS = {
+    "battle_action", "battle_start", "battle_auto_deploy",
+    "battle_delegate", "battle_set_ambush", "battle_set_formation",
+}
+
+# 指引目录索引（§12.5 / Agent F）：与 static/strategy/guide-data.js 的
+# id/title/cat/keywords 保持一致，正文仍由前端 data 文件渲染，后端只提供
+# 轻量索引，避免解析 JS 带来的启动开销与耦合。
+_STRATEGY_GUIDE_INDEX: tuple[dict[str, Any], ...] = (
+    {"id": "enter", "title": "入场与主城选择", "cat": "入门与界面",
+     "keywords": ["入场", "入场遮罩", "主城", "起始据点", "新手包", "300 守军", "新城保护"]},
+    {"id": "ui-overview", "title": "界面总览与操作路径", "cat": "入门与界面",
+     "keywords": ["界面", "页签", "总览", "府邸", "军团", "势力", "酒馆", "坊市", "战报", "商店", "成就", "设置", "指引", "据点抽屉"]},
+    {"id": "tick", "title": "回合（tick）与离线推进", "cat": "入门与界面",
+     "keywords": ["tick", "回合", "15 分钟", "96 tick", "离线", "补跑", "倒计时", "世界锁"]},
+    {"id": "catchup", "title": "新手六步与追赶礼包", "cat": "入门与界面",
+     "keywords": ["新手引导", "六步", "追赶礼包", "举荐", "产出加成", "150%", "14 天"]},
+    {"id": "morale", "title": "民心（产出与哗变的核心）", "cat": "据点与建筑",
+     "keywords": ["民心", "士气", "赈济", "布政", "行医", "哗变", "产出系数", "叛乱", "民心上限"]},
+    {"id": "node-types", "title": "七类据点与产出", "cat": "据点与建筑",
+     "keywords": ["据点", "仙城", "关隘", "灵脉矿", "灵谷田", "坊市", "分舵", "遗迹", "产出", "无主残军", "威慑"]},
+    {"id": "node-upgrade", "title": "据点等级、城防与自修", "cat": "据点与建筑",
+     "keywords": ["据点等级", "升级", "城防", "1000", "自修", "5000 币", "500 铁", "破损"]},
+    {"id": "buildings", "title": "九种建筑与真实效果", "cat": "据点与建筑",
+     "keywords": ["建筑", "城主府", "兵营", "坊市摊", "酒馆分号", "护山阵眼", "擂将台", "箭塔", "医馆", "粮仓", "造价"]},
+    {"id": "protection", "title": "新城保护与护山盾", "cat": "据点与建筑",
+     "keywords": ["保护期", "新城保护", "168 小时", "护山盾", "免战", "800 战功", "12 小时", "冷却 72 小时"]},
+    {"id": "roles", "title": "三类角色：武将 / 军师 / 内政官", "cat": "角色与招募",
+     "keywords": ["角色", "武将", "军师", "内政官", "职责", "主将", "副将", "单挑资格"]},
+    {"id": "stats", "title": "六维属性与稀有度", "cat": "角色与招募",
+     "keywords": ["六维", "统率", "武勇", "智谋", "政务", "魅力", "气运", "稀有度", "凡品", "良品", "珍品", "极品", "传世", "90 上限"]},
+    {"id": "tavern", "title": "酒馆招募与保底", "cat": "角色与招募",
+     "keywords": ["酒馆", "招募", "候选", "普通招募", "高级招募", "募将令", "保底", "40", "800 铜钱", "角色上限"]},
+    {"id": "stamina-injury", "title": "体力、伤势与死亡", "cat": "角色与招募",
+     "keywords": ["体力", "100", "恢复", "伤势", "轻伤", "重伤", "濒死", "陨落", "续命灵丹", "医馆"]},
+    {"id": "task-basics", "title": "任务派遣基础规则", "cat": "任务与产出",
+     "keywords": ["任务", "派遣", "1 小时", "2 小时", "4 小时", "8 小时", "体力 20", "召回", "协作", "小事件"]},
+    {"id": "task-govern-heal", "title": "布政与行医（稳定涨民心）", "cat": "任务与产出",
+     "keywords": ["布政", "行医", "民心", "1.5", "1.0", "治疗", "伤兵", "内政官", "佛修"]},
+    {"id": "task-gather", "title": "屯田、采矿、贸易与修筑", "cat": "任务与产出",
+     "keywords": ["屯田", "采矿", "贸易", "修筑", "粮草", "精铁", "铜钱", "商路", "灵脉矿", "灵谷田"]},
+    {"id": "task-special", "title": "寻访、侦察、讨伐、劫掠与运粮", "cat": "任务与产出",
+     "keywords": ["寻访", "侦察", "讨伐", "劫掠", "运粮", "募将令", "被俘", "声望", "反杀", "8%"]},
+    {"id": "army-create", "title": "编军、兵种与带兵上限", "cat": "军团与行军",
+     "keywords": ["编军", "军团", "主将", "兵种", "剑盾步", "重甲", "法修营", "飞剑队", "兽群", "破城槌", "带兵上限", "并发"]},
+    {"id": "army-supply", "title": "粮耗、补给与断粮", "cat": "军团与行军",
+     "keywords": ["粮耗", "补给", "断粮", "携粮", "1.5 倍", "士气", "逃散", "长途"]},
+    {"id": "army-refit", "title": "补兵、操练与老兵精锐", "cat": "军团与行军",
+     "keywords": ["补兵", "操练", "老兵", "精锐", "御林", "100", "300", "士气上限", "全灭"]},
+    {"id": "siege-auto", "title": "围城：自动推进的攻城战", "cat": "围城与攻城",
+     "keywords": ["围城", "攻城", "城防", "20 tick", "破城槌", "反击", "伤势", "自动推进"]},
+    {"id": "siege-manual", "title": "手操介入、巷战与受降", "cat": "围城与攻城",
+     "keywords": ["手操", "督战", "90 秒", "巷战", "投降", "攻克", "1.5 倍", "备战"]},
+    {"id": "encircle-node", "title": "据点合围与断粮迫降", "cat": "围城与攻城",
+     "keywords": ["合围", "断粮", "迫降", "4 tick", "库存", "士气", "围而不打"]},
+    {"id": "hex-board", "title": "hex 棋盘、部署与阵型", "cat": "hex 战役",
+     "keywords": ["hex", "六边形", "棋盘", "13×9", "15×11", "9×11", "部署", "阵型", "备战", "30 秒"]},
+    {"id": "hex-zoc", "title": "ZOC、夹击与完全合围", "cat": "hex 战役",
+     "keywords": ["ZOC", "控制区", "夹击", "合围", "1.15", "1.3", "拦截", "撤退", "断粮"]},
+    {"id": "hex-skills", "title": "战术技能、灵力与兵种专属", "cat": "hex 战役",
+     "keywords": ["技能", "灵力", "火攻", "水淹", "惑敌", "挑衅", "坚守阵", "治疗术", "兽群突袭", "落石", "合击"]},
+    {"id": "hex-night", "title": "夜袭与设伏", "cat": "hex 战役",
+     "keywords": ["夜袭", "22:00", "6:00", "魔修", "佛修", "晨钟", "设伏", "森林", "先手"]},
+    {"id": "duel", "title": "单挑（斗法）规则", "cat": "单挑与擂台",
+     "keywords": ["单挑", "斗法", "武勇 75", "三局两胜", "15 秒", "士气", "伤势", "阵前斩落", "60%"]},
+    {"id": "arena", "title": "演武擂台与会武分档", "cat": "单挑与擂台",
+     "keywords": ["擂台", "摆擂", "应战", "赌注", "100", "100000", "会武", "分档", "彩头"]},
+    {"id": "faction-create", "title": "创建 / 加入玩家势力", "cat": "势力与联盟",
+     "keywords": ["势力", "建派", "10000 铜钱", "联署", "3 人", "72 小时", "退会", "24 小时", "成员上限", "势力等级"]},
+    {"id": "faction-alliance", "title": "联盟会签与据点交接", "cat": "势力与联盟",
+     "keywords": ["联盟", "会签", "盟主", "3 个势力", "据点交接", "退盟", "国库分割", "副主"]},
+    {"id": "reputation", "title": "声望档位与外交四态", "cat": "势力与联盟",
+     "keywords": ["声望", "仁义", "中立", "贪婪", "恶名", "停战", "结盟", "宣战", "备战 24 小时", "48 小时"]},
+    {"id": "positions", "title": "七档官职与带兵上限", "cat": "官职与国库",
+     "keywords": ["官职", "势力主", "太尉", "司徒", "军师祭酒", "中郎将", "太守", "带兵上限", "任命"]},
+    {"id": "treasury", "title": "国库、俸禄与权限", "cat": "官职与国库",
+     "keywords": ["国库", "俸禄", "捐献", "权限", "副主", "30%", "10 铜钱", "贡献"]},
+    {"id": "faction-task", "title": "势力任务与动员令", "cat": "官职与国库",
+     "keywords": ["势力任务", "共襄国库", "开疆拓土", "守土安民", "兴业安邦", "剿匪安境", "动员令", "60 战功", "12 小时"]},
+    {"id": "tech", "title": "势力科技树（三线五级）", "cat": "科技与外交",
+     "keywords": ["科技", "兵学", "农政", "谋略", "5 级", "精铁", "研究", "反间", "指派角色"]},
+    {"id": "diplomacy", "title": "外交提案与 NPC 好感度", "cat": "科技与外交",
+     "keywords": ["外交", "好感度", "赠礼", "结盟", "停战", "和谈", "宣战", "60", "800 铜钱", "魅力"]},
+    {"id": "plot", "title": "六种计略与效果", "cat": "计略",
+     "keywords": ["计略", "离间", "谣言", "纵火", "劝降", "策应", "营救", "军师", "体力 30"]},
+    {"id": "plot-risk", "title": "计略成功率、暴露与反间", "cat": "计略",
+     "keywords": ["成功率", "35%", "85%", "暴露", "40%", "声望", "冷却 6 tick", "风声", "反间"]},
+    {"id": "capture", "title": "被俘的三档概率与关押", "cat": "俘虏",
+     "keywords": ["俘虏", "被俘", "60%", "40%", "20%", "关押", "5 个", "忠诚衰减", "巷战"]},
+    {"id": "persuade", "title": "劝降、离心与忠诚", "cat": "俘虏",
+     "keywords": ["劝降", "离心", "忠诚", "80%", "24 小时", "每日 3 次", "知遇", "声望"]},
+    {"id": "captive-rescue", "title": "解救、赎回与细作营救", "cat": "俘虏",
+     "keywords": ["解救", "营救", "赎回", "释放", "800 铜钱", "4~8 tick", "50 战功", "押运", "截获"]},
+    {"id": "resources", "title": "资源体系与灵石产出", "cat": "经济与商店",
+     "keywords": ["资源", "铜钱", "粮草", "精铁", "募将令", "战功", "灵石", "日限额", "边际递减", "隔离"]},
+    {"id": "merit-shop", "title": "战功商店与荣誉商店", "cat": "经济与商店",
+     "keywords": ["战功商店", "荣誉商店", "灵石包", "续命灵丹", "护山盾", "举荐信", "装备", "限购"]},
+    {"id": "auction", "title": "流将暗标竞拍", "cat": "经济与商店",
+     "keywords": ["流将", "竞拍", "暗标", "战功", "12 小时", "起拍价", "赛季限购", "防狙击"]},
+    {"id": "market", "title": "坊市互市与交易税", "cat": "互市",
+     "keywords": ["互市", "坊市", "挂单", "交易税", "5%", "情报", "20 单", "48 小时", "跨势力"]},
+    {"id": "trade-route", "title": "商路开通与收益", "cat": "互市",
+     "keywords": ["商路", "20 币", "贸易", "30%", "切断", "商队", "7 折"]},
+    {"id": "bandit", "title": "匪寨、妖巢与周期劫掠", "cat": "匪寨与商路",
+     "keywords": ["匪寨", "妖巢", "劫掠", "每周 2~4", "72 小时", "800~1500", "8 tick", "战功", "募将令"]},
+    {"id": "convoy", "title": "运粮队、护送与劫粮", "cat": "匪寨与商路",
+     "keywords": ["运粮", "运粮队", "护送", "劫粮", "50%", "100 兵", "农政 L4", "截获"]},
+    {"id": "season", "title": "赛季时间线、合纵与结算", "cat": "赛季与成就",
+     "keywords": ["赛季", "75 天", "中期", "后期", "决战", "合纵", "40%", "结算", "荣誉", "重置"]},
+    {"id": "achievements", "title": "成就册、名将堂与散修玩法", "cat": "赛季与成就",
+     "keywords": ["成就", "战功", "名将堂", "英烈祠", "散修", "首破坚城", "以少胜多", "会武夺冠"]},
+    {"id": "notify", "title": "通知分级与设置项", "cat": "通知与设置",
+     "keywords": ["通知", "浏览器通知", "授权", "三档", "手操窗口", "设置", "自动托管", "移动端"]},
+    {"id": "security", "title": "服务器权威、限速与观察期", "cat": "安全与规则",
+     "keywords": ["安全", "限速", "90 次", "服务器权威", "观察期", "72 小时", "多开", "审计", "战报保留"]},
+    {"id": "fair-play", "title": "公平游戏与数据说明", "cat": "安全与规则",
+     "keywords": ["公平", "报点", "观战", "延迟", "违规", "数据", "隐私", "建议"]},
+)
+
+_STRATEGY_GUIDE_CATS: tuple[str, ...] = tuple(
+    dict.fromkeys(e["cat"] for e in _STRATEGY_GUIDE_INDEX))
+
+
+def _strategy_guide_tokens(q: str) -> list[str]:
+    """搜索词切分：空格分隔多关键词（AND 语义），统一小写。"""
+    return [t for t in str(q or "").lower().split() if t]
+
+
+def _strategy_guide_hit(entry: dict[str, Any], tokens: list[str]) -> bool:
+    if not tokens:
+        return True
+    blob = " ".join([
+        str(entry.get("title") or ""),
+        str(entry.get("cat") or ""),
+        " ".join(str(k) for k in (entry.get("keywords") or [])),
+    ]).lower()
+    return all(t in blob for t in tokens)
+
+
+async def _api_strategy_memorial(request: web.Request) -> web.Response:
+    """仙域争霸：名将堂 / 英烈祠（§11）。未入场返回空列表而非报错。"""
+    user = _token_user(request)
+    if user is None:
+        return web.json_response({"ok": False, "error": "登录已过期"}, status=401)
+    if _plugin is None:
+        return web.json_response({"ok": False, "error": "插件尚未就绪"}, status=503)
+    mgr = getattr(_plugin, "strategy_mgr", None)
+    if mgr is None:
+        return web.json_response({"ok": False, "error": "争霸玩法未启用"},
+                                 status=503)
+
+    empty = {"ok": True, "hall": [], "shrine": [], "season_no": 0}
+    user_id = accounts_store.player_key_of(user)
+    try:
+        world = await mgr.get_world()
+        if not world:
+            return web.json_response(empty)
+        wid = int(world.get("id") or 0)
+        season_no = int(world.get("season_no") or 0)
+        # 未入场：不拦 200，只回空榜（前端可直接渲染「暂无记录」）
+        get_player = getattr(mgr, "get_player", None)
+        if callable(get_player):
+            player = await get_player(user_id, wid)
+            if not player:
+                return web.json_response({
+                    "ok": True, "hall": [], "shrine": [],
+                    "season_no": season_no or 1, "joined": False,
+                })
+        data = await mgr.get_memorials(wid)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("[webroom] 读取名将堂失败")
+        return web.json_response({"ok": False, "error": f"读取失败：{exc}"},
+                                 status=500)
+
+    data = data if isinstance(data, dict) else {}
+    hall = data.get("hall") if isinstance(data.get("hall"), list) else []
+    shrine = data.get("shrine") if isinstance(data.get("shrine"), list) else []
+    return web.json_response({
+        "ok": True,
+        "hall": hall,
+        "shrine": shrine,
+        "season_no": int(data.get("season_no") or season_no or 1),
+        "joined": True,
+    })
+
+
+async def _api_strategy_guide(request: web.Request) -> web.Response:
+    """仙域争霸：指引目录索引（19 分类 / 54 条），支持 ?q= 过滤。
+
+    只回轻量索引 ``{id,title,cat,keywords}``，正文由前端 guide-data.js 渲染；
+    索引是后端常量，进程内即可回答，不需要登录态以外的任何存档前提。
+    """
+    user = _token_user(request)
+    if user is None:
+        return web.json_response({"ok": False, "error": "登录已过期"}, status=401)
+
+    q = str(request.query.get("q") or "").strip()[:64]
+    tokens = _strategy_guide_tokens(q)
+    items = [dict(e) for e in _STRATEGY_GUIDE_INDEX
+             if _strategy_guide_hit(e, tokens)]
+    return web.json_response({
+        "ok": True,
+        "q": q,
+        "total": len(_STRATEGY_GUIDE_INDEX),
+        "count": len(items),
+        "categories": list(_STRATEGY_GUIDE_CATS),
+        "items": items,
+        # 契约 §3 兼容字段：sections 与 items 同源
+        "sections": items,
+    })
 
 
 async def _api_proxy(request: web.Request) -> web.Response:
@@ -2565,6 +3062,9 @@ async def _handle_client_message(room_id: str, ws: web.WebSocketResponse, raw: s
             break
 
     action = data.get("action")
+    # 仙域争霸上行以 {"type":"strategy.xxx"} 标识（§12.5），兼容旧 action 字段
+    if not action and str(data.get("type") or "").startswith("strategy."):
+        action = data.get("type")
     if action == "ping":
         await send_to_ws(ws, {"type": "pong"})
         return
@@ -2624,6 +3124,9 @@ async def _handle_client_message(room_id: str, ws: web.WebSocketResponse, raw: s
                     "unread": accounts_store.count_unread(username),
                 },
             )
+        return
+    if str(action or "").startswith("strategy."):
+        await _handle_strategy_ws(room_id, ws, str(action), data)
         return
     if str(action or "").startswith("dm."):
         await _handle_dm_action(room_id, ws, str(action), data)

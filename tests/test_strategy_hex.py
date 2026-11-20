@@ -7,6 +7,7 @@ import random
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT.parent))
@@ -864,6 +865,761 @@ class TestBfixRegression(unittest.TestCase):
         self.assertTrue(check["need_break"])
         self.assertEqual(check["end"], 3)
         self.assertIn(e1["uid"], check["intercepts"])
+
+
+class TestManualBattleRegression(unittest.TestCase):
+    """手操战役审查修复的回归用例（部署重叠/状态时序/适性/治疗/单挑次数）。"""
+
+    def setUp(self):
+        self.rng = random.Random(7)
+
+    def test_auto_deploy_skips_occupied_cells(self):
+        for seed in range(20):
+            s = plain_session(seed=f"ov-{seed}")
+            rng = random.Random(seed)
+            a_units = [H.add_unit(s, mk_army(i + 1, 1), "a") for i in range(4)]
+            b_units = [H.add_unit(s, mk_army(i + 101, 2, tt="spell_corps"), "b")
+                       for i in range(4)]
+            # 模拟玩家先手动落位两支，再点自动部署
+            H.place_unit(s, a_units[0]["uid"], 2, 0)
+            H.place_unit(s, b_units[0]["uid"], 12, 0)
+            H.auto_deploy(s, rng)
+            poss = [tuple(u["pos"]) for u in a_units + b_units if u["pos"]]
+            self.assertEqual(len(poss), len(set(poss)), f"seed={seed} 出现重叠")
+            self.assertTrue(all(u["pos"] for u in a_units + b_units))
+
+    def test_auto_deploy_fills_when_zone_crowded(self):
+        s = plain_session()
+        units = [H.add_unit(s, mk_army(i + 1, 1), "a") for i in range(30)]
+        H.auto_deploy(s, random.Random(11))
+        self.assertTrue(all(u["pos"] for u in units))
+        poss = [tuple(u["pos"]) for u in units]
+        self.assertEqual(len(poss), len(set(poss)))
+
+    def test_confuse_survives_target_turn(self):
+        s = plain_session()
+        s["phase"] = "battle"
+        s["round"] = 1
+        caster = H.add_unit(s, mk_army(1, 1, prof="ghost"), "a")
+        caster["leader"]["role"] = "strategist"
+        caster["pos"] = [2, 4]
+        caster["mana"] = 100
+        victim = H.add_unit(s, mk_army(2, 2), "b")
+        victim["pos"] = [4, 4]
+        res = H.do_skill(s, caster["uid"], "confuse", self.rng,
+                         target_uid=victim["uid"])
+        self.assertTrue(res["ok"])
+        # 目标下回合行动时仍应处于惑敌状态（不能被 begin_round 立即清空）
+        H.begin_round(s, self.rng)
+        self.assertTrue(s["statuses"][str(victim["uid"])].get("confuse"))
+        H.begin_round(s, self.rng)
+        self.assertFalse((s["statuses"].get(str(victim["uid"])) or {}).get("confuse"))
+
+    def test_suppress_survives_target_turn(self):
+        s = plain_session()
+        s["phase"] = "battle"
+        s["round"] = 1
+        caster = H.add_unit(s, mk_army(1, 1), "a")
+        caster["pos"] = [2, 4]
+        caster["mana"] = 100
+        s["terrain"]["2,4"] = H.T_HIGHLAND
+        victim = H.add_unit(s, mk_army(2, 2), "b")
+        victim["pos"] = [4, 4]
+        res = H.do_skill(s, caster["uid"], "barrage", self.rng, target_hex=[4, 4])
+        self.assertTrue(res["ok"])
+        H.begin_round(s, self.rng)
+        self.assertTrue(s["statuses"][str(victim["uid"])].get("suppress"))
+        self.assertLess(H.move_points(victim, s),
+                        float(R.TROOP_TYPES["sword_shield"]["move"]))
+        H.begin_round(s, self.rng)
+        self.assertFalse((s["statuses"].get(str(victim["uid"])) or {}).get("suppress"))
+
+    def test_troop_special_requires_aptitude(self):
+        s = plain_session()
+        s["phase"] = "battle"
+        s["round"] = 1
+        u = H.add_unit(s, mk_army(1, 1, tt="sword_shield"), "a")
+        u["pos"] = [2, 4]
+        res = H.do_skill(s, u["uid"], "troop_special", self.rng)
+        self.assertFalse(res["ok"])
+        self.assertIn("适性", res["reason"])
+        self.assertFalse(u.get("special_used"))
+        # S 级适性后可用
+        u["leader"]["aptitude"] = {"sword_shield": "S"}
+        u["acted"] = False
+        res = H.do_skill(s, u["uid"], "troop_special", self.rng)
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["effect"], "shieldwall")
+
+    def test_heal_invalid_target_returns_error(self):
+        s = plain_session()
+        s["phase"] = "battle"
+        s["round"] = 1
+        healer = H.add_unit(s, mk_army(1, 1, prof="buddha"), "a")
+        healer["pos"] = [2, 4]
+        healer["mana"] = 100
+        res = H.do_skill(s, healer["uid"], "heal", self.rng, target_uid=999999)
+        self.assertFalse(res["ok"])
+        self.assertIn("目标", res["reason"])
+
+    def test_heal_records_injury_writeback(self):
+        s = plain_session()
+        s["phase"] = "battle"
+        s["round"] = 1
+        healer = H.add_unit(s, mk_army(1, 1, prof="buddha"), "a")
+        healer["pos"] = [2, 4]
+        healer["mana"] = 100
+        ally = H.add_unit(s, mk_army(2, 1, injury=12), "a")
+        ally["pos"] = [3, 4]
+        ally["troops"] = 900
+        ally["injury_pool"] = 100
+        res = H.do_skill(s, healer["uid"], "heal", self.rng,
+                         target_uid=ally["uid"])
+        self.assertTrue(res["ok"])
+        self.assertEqual(ally["leader"]["injury"], 7)
+        self.assertEqual(s["_injury_heals"][str(ally["leader"]["id"])], 7)
+
+    def test_duel_challenge_per_round_limit(self):
+        s = plain_session()
+        s["phase"] = "battle"
+        s["round"] = 1
+        c = H.add_unit(s, mk_army(1, 1, valor=90), "a")
+        c["pos"] = [3, 4]
+        t = H.add_unit(s, mk_army(2, 2), "b")
+        t["pos"] = [4, 4]
+        ok, _ = H.can_challenge(s, c["uid"], t["uid"])
+        self.assertTrue(ok)
+        H.challenge_duel(s, c["uid"], t["uid"])
+        H.refuse_duel(s)
+        ok, reason = H.can_challenge(s, c["uid"], t["uid"])
+        self.assertFalse(ok)
+        self.assertIn("次数", reason)
+        # 新回合恢复
+        H.begin_round(s, self.rng)
+        ok, _ = H.can_challenge(s, c["uid"], t["uid"])
+        self.assertTrue(ok)
+
+    def test_ai_auto_battle_leaves_no_undeployed(self):
+        s = plain_session()
+        for i in range(30):
+            H.add_unit(s, mk_army(i + 1, 1), "a")
+            H.add_unit(s, mk_army(i + 101, 2, tt="spell_corps"), "b")
+        result = H.ai_auto_battle(s, random.Random(5))
+        self.assertIn(result.get("winner"), ("attacker", "defender"))
+        self.assertTrue(all(u["pos"] for u in s["units"]))
+
+
+# ---------------------------------------------------------------------------
+# 第二轮审查回归（终局/控制时序/兵种技能/设伏/单挑）
+# ---------------------------------------------------------------------------
+
+class TestReviewRound2Regressions(unittest.TestCase):
+    def setUp(self):
+        self.rng = random.Random(2024)
+
+    def _battle_session(self):
+        s = plain_session()
+        s["phase"] = "battle"
+        s["round"] = 1
+        return s
+
+    def test_do_attack_invalid_target_reason(self):
+        s = self._battle_session()
+        u = H.add_unit(s, mk_army(1, 1), "a")
+        u["pos"] = [2, 4]
+        res = H.do_attack(s, 9999, 1, self.rng)
+        self.assertFalse(res["ok"])
+        self.assertEqual(res["reason"], "目标不存在")
+        res2 = H.do_attack(s, u["uid"], 9999, self.rng)
+        self.assertFalse(res2["ok"])
+        self.assertEqual(res2["reason"], "目标不存在")
+
+    def test_check_end_excludes_temp_summons(self):
+        s = self._battle_session()
+        main = H.add_unit(s, mk_army(1, 1, troops=1000), "a")
+        main["troops"] = 0
+        main["routed"] = True
+        temp = H.add_unit(s, mk_army(2, 1, troops=800), "a")
+        temp["temp"] = True
+        # 正规军全灭、召唤物尚存 → 仍应判负（召唤物不计入存活）
+        self.assertEqual(H.check_end(s), "defender")
+
+    def test_heyi_flank_ignores_routed_ally(self):
+        s = self._battle_session()
+        atk = H.add_unit(s, mk_army(1, 1), "a")
+        atk["pos"] = [3, 4]
+        target = H.add_unit(s, mk_army(2, 2), "b")
+        target["pos"] = [4, 4]
+        heyi = H.add_unit(s, mk_army(3, 1), "a")
+        heyi["pos"] = [6, 4]
+        heyi["formation"] = "heyi"
+        self.assertEqual(H.adjacent_enemy_count(s, target), 2)
+        heyi["routed"] = True
+        heyi["troops"] = 0
+        self.assertEqual(H.adjacent_enemy_count(s, target), 1)
+
+    def test_sword_charge_rejects_out_of_range_target(self):
+        s = self._battle_session()
+        u = H.add_unit(s, mk_army(1, 1, tt="flying_sword", prof="ghost"), "a")
+        u["pos"] = [1, 4]
+        u["leader"]["aptitude"] = {"flying_sword": "S"}
+        far = H.add_unit(s, mk_army(2, 2), "b")
+        far["pos"] = [11, 4]
+        res = H.do_skill(s, u["uid"], "troop_special", self.rng,
+                         target_uid=far["uid"])
+        self.assertFalse(res["ok"])
+        self.assertIn("冲锋距离", res["reason"])
+        self.assertFalse(u.get("special_used"))
+
+    def test_can_challenge_requires_adjacency(self):
+        s = self._battle_session()
+        c = H.add_unit(s, mk_army(1, 1, valor=90), "a")
+        c["pos"] = [2, 4]
+        t = H.add_unit(s, mk_army(2, 2), "b")
+        t["pos"] = [5, 4]
+        ok, reason = H.can_challenge(s, c["uid"], t["uid"])
+        self.assertFalse(ok)
+        self.assertIn("相邻", reason)
+
+    def test_can_challenge_rejects_ownerless_target(self):
+        s = self._battle_session()
+        c = H.add_unit(s, mk_army(1, 1, valor=90), "a")
+        c["pos"] = [2, 4]
+        t = H.add_unit(s, mk_army(2, 2), "b")
+        t["pos"] = [3, 4]
+        s["owners"] = {str(t["uid"]): {"owner": ""},
+                       str(c["uid"]): {"owner": "u1"}}
+        ok, reason = H.can_challenge(s, c["uid"], t["uid"])
+        self.assertFalse(ok)
+        self.assertIn("无人应战", reason)
+
+    def test_confuse_takes_effect_next_round_only(self):
+        s = self._battle_session()
+        caster = H.add_unit(s, mk_army(1, 1, prof="ghost"), "a")
+        caster["leader"]["role"] = "strategist"
+        caster["pos"] = [2, 4]
+        caster["mana"] = 100
+        victim = H.add_unit(s, mk_army(2, 2), "b")
+        victim["pos"] = [4, 4]
+        res = H.do_skill(s, caster["uid"], "confuse", self.rng,
+                         target_uid=victim["uid"])
+        self.assertTrue(res["ok"])
+        # 施放当回合不生效（否则等于多赚一回合控制）
+        self.assertFalse(H.is_confused(s, victim))
+        H.begin_round(s, self.rng)
+        self.assertTrue(H.is_confused(s, victim))
+
+    def test_set_ambush_requires_profession_and_caps(self):
+        s = plain_session()
+        zone = [tuple(c) for c in s["deploy_zones"]["a"]]
+        for q, r in zone:
+            s["terrain"][H._key(q, r)] = H.T_FOREST
+        ghost1 = H.add_unit(s, mk_army(1, 1, prof="ghost"), "a")
+        ghost2 = H.add_unit(s, mk_army(2, 1, prof="beast"), "a")
+        ghost3 = H.add_unit(s, mk_army(3, 1, prof="ghost"), "a")
+        sword = H.add_unit(s, mk_army(4, 1, prof="sword"), "a")
+        ok, reason = H.set_ambush(s, sword["uid"], *zone[0])
+        self.assertFalse(ok)
+        self.assertIn("鬼修", reason)
+        for u, cell in ((ghost1, zone[1]), (ghost2, zone[2])):
+            ok, reason = H.set_ambush(s, u["uid"], *cell)
+            self.assertTrue(ok, reason)
+        ok, reason = H.set_ambush(s, ghost3["uid"], *zone[3])
+        self.assertFalse(ok)
+        self.assertIn("至多", reason)
+
+    def test_combo_skips_partner_already_acted(self):
+        la = mk_leader(1, bonds={"2": {"type": "yijiao", "level": 1}})
+        lb = mk_leader(2, bonds={"1": {"type": "yijiao", "level": 1}})
+        u1 = H.add_unit(s := self._battle_session(), mk_army(1, 1), "a")
+        u1["leader"] = la
+        u1["pos"] = [2, 4]
+        u1["mana"] = 100
+        u2 = H.add_unit(s, mk_army(2, 1), "a")
+        u2["leader"] = lb
+        u2["pos"] = [3, 4]
+        u2["mana"] = 100
+        victim = H.add_unit(s, mk_army(3, 2), "b")
+        victim["pos"] = [4, 4]
+        self.assertIn("combo", H.unit_skills(s, u1))
+        u2["acted"] = True
+        res = H.do_skill(s, u1["uid"], "combo", self.rng,
+                         target_uid=victim["uid"])
+        self.assertFalse(res["ok"])
+        self.assertIn("搭档", res["reason"])
+
+    def test_new_session_carries_ambush_max(self):
+        s = H.new_session({"size": [9, 7], "terrain": {},
+                           "deploy_a": [[0, 0]], "deploy_b": [[8, 6]]},
+                          "field", "t", hex_cfg={"ambush_max": 3})
+        self.assertEqual(s["ambush_max"], 3)
+
+
+class TestGapFixHex(unittest.TestCase):
+    """v4.1.0 缺口补全（契约 §3 Agent A）：夜袭 / 特技接线 / 兵种专属技能。"""
+
+    def test_night_halves_defender_ambush_slots(self):
+        s = plain_session()
+        self.assertEqual(H.ambush_limit(s, "a"), 2)
+        self.assertEqual(H.ambush_limit(s, "b"), 2)
+        s["night"] = True
+        self.assertEqual(H.scout_precision(s, "b"), 0.5)
+        self.assertEqual(H.scout_precision(s, "a"), 1.0)
+        self.assertEqual(H.ambush_limit(s, "b"), 1)
+        self.assertEqual(H.ambush_limit(s, "a"), 2)
+
+    def test_night_set_ambush_capped_for_defender(self):
+        s = plain_session()
+        s["night"] = True
+        for q, r in s["deploy_zones"]["b"]:
+            s["terrain"][H._key(q, r)] = H.T_FOREST
+        zone = [tuple(c) for c in s["deploy_zones"]["b"]]
+        g1 = H.add_unit(s, mk_army(1, 2, prof="ghost"), "b")
+        g2 = H.add_unit(s, mk_army(2, 2, prof="ghost"), "b")
+        self.assertTrue(H.set_ambush(s, g1["uid"], *zone[0])[0])
+        ok, reason = H.set_ambush(s, g2["uid"], *zone[1])
+        self.assertFalse(ok)
+        self.assertIn("至多 1 处", reason)
+
+    def test_night_buddha_first_round_morale(self):
+        s = plain_session()
+        s["night"] = True
+        buddha = H.add_unit(s, mk_army(1, 2, prof="buddha"), "b")
+        buddha["pos"] = [10, 4]
+        mate = H.add_unit(s, mk_army(2, 2, prof="sword"), "b")
+        mate["pos"] = [10, 5]
+        rng = random.Random(5)
+        H.start_battle(s, rng)
+        self.assertEqual(buddha["morale"], 105)  # 守方佛修 → 全军 +5
+        self.assertEqual(mate["morale"], 105)
+        H.begin_round(s, rng)
+        self.assertEqual(buddha["morale"], 105)  # 只结算首回合
+
+        # 无佛修的守方不获得晨钟加成
+        s2 = plain_session()
+        s2["night"] = True
+        u = H.add_unit(s2, mk_army(3, 2, prof="sword"), "b")
+        u["pos"] = [10, 4]
+        H.start_battle(s2, random.Random(5))
+        self.assertEqual(u["morale"], 100)
+
+    def test_night_demon_raid_loot_bonus(self):
+        s = plain_session()
+        s["night"] = True
+        H.add_unit(s, mk_army(1, 1, prof="demon"), "a")["pos"] = [2, 4]
+        H.add_unit(s, mk_army(2, 2, prof="sword"), "b")["pos"] = [10, 4]
+        s["winner"] = "attacker"
+        res = H.finish(s)
+        self.assertAlmostEqual(res["loot_bonus"], 0.3)
+        # 白天无加成
+        s2 = plain_session()
+        H.add_unit(s2, mk_army(1, 1, prof="demon"), "a")["pos"] = [2, 4]
+        H.add_unit(s2, mk_army(2, 2, prof="sword"), "b")["pos"] = [10, 4]
+        s2["winner"] = "attacker"
+        self.assertEqual(H.finish(s2)["loot_bonus"], 0.0)
+
+    def test_fire_master_bonus_damage(self):
+        def run(traits):
+            s = plain_session()
+            s["phase"] = "battle"
+            s["round"] = 1
+            caster = H.add_unit(s, mk_army(1, 1, prof="spirit"), "a")
+            caster["leader"]["role"] = "strategist"
+            caster["leader"]["traits"] = traits
+            caster["pos"] = [2, 4]
+            caster["mana"] = 100
+            victim = H.add_unit(s, mk_army(2, 2), "b")
+            victim["pos"] = [4, 4]
+            before = victim["troops"]
+            res = H.do_skill(s, caster["uid"], "fire", random.Random(5),
+                             target_hex=[4, 4])
+            self.assertTrue(res["ok"])
+            return before - victim["troops"]
+
+        plain = run([])
+        master = run(["fire_master"])
+        self.assertEqual(master, int(plain * 1.2))
+        self.assertGreater(master, plain)
+
+    def test_shieldwall_static_defense_bonus(self):
+        s = plain_session()
+        s["phase"] = "battle"
+        u = H.add_unit(s, mk_army(1, 1), "a")
+        u["pos"] = [2, 4]
+        self.assertAlmostEqual(H._sim_view(s, u)["def_terrain_mult"], 1.0)
+        s["statuses"][str(u["uid"])] = {"shieldwall": 1}
+        self.assertAlmostEqual(H._sim_view(s, u)["def_terrain_mult"], 1.15)
+
+    def test_chant_grants_range_for_three_rounds(self):
+        s = plain_session()
+        s["phase"] = "battle"
+        s["round"] = 1
+        caster = H.add_unit(s, mk_army(1, 1, tt="spell_corps", prof="spirit"), "a")
+        caster["leader"]["aptitude"] = {"spell_corps": "S"}
+        caster["pos"] = [2, 4]
+        ally = H.add_unit(s, mk_army(2, 1, tt="spell_corps", prof="spirit"), "a")
+        ally["pos"] = [2, 5]
+        self.assertEqual(H.attack_range(ally, s), 3)
+        res = H.do_skill(s, caster["uid"], "troop_special", random.Random(3))
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["effect"], "chant")
+        self.assertEqual(H.attack_range(ally, s), 4)
+        rng = random.Random(3)
+        for _ in range(3):
+            H.begin_round(s, rng)
+        self.assertEqual(H.attack_range(ally, s), 3)
+
+    def test_sword_charge_grants_speed(self):
+        s = plain_session()
+        s["phase"] = "battle"
+        s["round"] = 1
+        u = H.add_unit(s, mk_army(1, 1, tt="flying_sword", prof="ghost"), "a")
+        u["leader"]["aptitude"] = {"flying_sword": "S"}
+        u["pos"] = [2, 4]
+        foe = H.add_unit(s, mk_army(2, 2), "b")
+        foe["pos"] = [3, 4]
+        self.assertEqual(H.move_points(u, s), 5.0)
+        res = H.do_skill(s, u["uid"], "troop_special", random.Random(3),
+                         target_uid=foe["uid"])
+        self.assertTrue(res["ok"])
+        self.assertEqual(s["statuses"][str(u["uid"])]["charge"], 3)
+        self.assertEqual(H.move_points(u, s), 7.0)
+
+    def test_bashan_boosts_intercept_damage(self):
+        def intercept_loss(with_bashan):
+            s = plain_session()
+            s["phase"] = "battle"
+            victim = H.add_unit(s, mk_army(1, 1, troops=1000), "a")
+            victim["pos"] = [6, 4]
+            heavy = H.add_unit(s, mk_army(2, 2, tt="heavy_armor"), "b")
+            heavy["pos"] = [7, 4]
+            if with_bashan:
+                s["statuses"][str(heavy["uid"])] = {"bashan": 3}
+            H.do_move(s, victim["uid"], [[5, 4]], random.Random(3))
+            return 1000 - victim["troops"]
+
+        plain = intercept_loss(False)
+        buffed = intercept_loss(True)
+        self.assertGreater(buffed, plain)
+        self.assertAlmostEqual(buffed / max(1, plain), 1.5, places=1)
+
+    def test_horde_special_hits_morale_only(self):
+        s = plain_session()
+        s["phase"] = "battle"
+        s["round"] = 1
+        beast = H.add_unit(s, mk_army(1, 1, tt="beast_horde", prof="beast"), "a")
+        beast["leader"]["aptitude"] = {"beast_horde": "S"}
+        beast["pos"] = [2, 4]
+        foe = H.add_unit(s, mk_army(2, 2, troops=1000), "b")
+        foe["pos"] = [3, 4]
+        res = H.do_skill(s, beast["uid"], "troop_special", random.Random(3))
+        self.assertTrue(res["ok"])
+        self.assertEqual(foe["morale"], 95)
+        self.assertEqual(foe["troops"], 1000)
+
+    def test_doctor_aftermath_in_finish(self):
+        s = plain_session()
+        s["phase"] = "battle"
+        u = H.add_unit(s, mk_army(1, 1, troops=1000), "a")
+        u["pos"] = [2, 4]
+        u["troops"] = 500
+        u["leader"]["traits"] = ["doctor"]
+        u["leader"]["injury"] = 5
+        s["winner"] = "defender"
+        res = H.finish(s)
+        self.assertEqual(u["troops"], 540)  # 500 战损 × 8% 回收
+        self.assertEqual(res["attackers"][0]["troops_after"], 540)
+        self.assertEqual(u["leader"]["injury"], 4)
+        self.assertEqual(s["_injury_heals"][str(u["leader"]["id"])], 4)
+
+
+class TestReviewRound3Regressions(unittest.TestCase):
+    """第三轮审查修复项回归：灼烧/撤退/观战延迟/单挑回放回填。"""
+
+    def setUp(self):
+        self.rng = random.Random(2026)
+
+    def _battle_session(self):
+        s = plain_session()
+        s["phase"] = "battle"
+        s["round"] = 1
+        return s
+
+    def test_burn_skips_zero_and_routed_but_ticks(self):
+        """灼烧对 0 兵/溃逃不结算伤害，但计时照常递减（避免僵尸状态）。"""
+        s = self._battle_session()
+        dead = H.add_unit(s, mk_army(1, 1, troops=100), "a")
+        dead["pos"] = [2, 4]
+        dead["troops"] = 0
+        routed = H.add_unit(s, mk_army(2, 1, troops=100), "a")
+        routed["pos"] = [3, 4]
+        routed["routed"] = True
+        alive = H.add_unit(s, mk_army(3, 1, troops=100), "b")
+        alive["pos"] = [4, 4]
+        s["statuses"] = {
+            str(dead["uid"]): {"burn": 2},
+            str(routed["uid"]): {"burn": 2},
+            str(alive["uid"]): {"burn": 2},
+        }
+        before = alive["troops"]
+        H._tick_statuses(s, self.rng)
+        self.assertEqual(dead["troops"], 0)
+        self.assertEqual(routed["troops"], 100)   # 溃逃不再掉兵
+        self.assertEqual(s["statuses"][str(dead["uid"])]["burn"], 1)
+        self.assertEqual(s["statuses"][str(routed["uid"])]["burn"], 1)
+        self.assertLess(alive["troops"], before)
+
+    def test_retreat_rejects_routed_unit(self):
+        """已溃逃单位不可再主动撤退（与 defend/skill 口径一致）。"""
+        s = self._battle_session()
+        u = H.add_unit(s, mk_army(1, 1), "a")
+        u["pos"] = [2, 4]
+        u["routed"] = True
+        res = H.do_retreat(s, u["uid"], self.rng)
+        self.assertFalse(res["ok"])
+        self.assertEqual(res["reason"], "无法撤退")
+
+    def test_spectator_snapshot_delayed_and_trimmed(self):
+        """观战快照固定滞后 1 回合，且只保留最近两条。"""
+        s = self._battle_session()
+        u = H.add_unit(s, mk_army(1, 1), "a")
+        u["pos"] = [2, 4]
+        H.begin_round(s, self.rng)  # round 2，快照记 round 1
+        log = s["spectator_log"]
+        self.assertEqual(len(log), 1)
+        self.assertEqual(log[-1]["round"], 1)
+        self.assertEqual(log[-1]["units"][0]["uid"], u["uid"])
+        for _ in range(3):
+            H.begin_round(s, self.rng)
+        self.assertLessEqual(len(s["spectator_log"]), 2)
+        self.assertEqual(s["spectator_log"][-1]["round"], s["round"] - 1)
+
+    def test_duel_apply_routs_loser_and_records_command(self):
+        """单挑战果（整军溃败）写入指令流，回放据此重建。"""
+        s = self._battle_session()
+        c = H.add_unit(s, mk_army(1, 1, valor=90), "a")
+        c["pos"] = [3, 4]
+        t = H.add_unit(s, mk_army(2, 2), "b")
+        t["pos"] = [4, 4]
+        H.challenge_duel(s, c["uid"], t["uid"])
+        apply = {"rout_uid": t["uid"], "rout": True}
+        out = H.resolve_duel(s, self.rng, None, apply)
+        self.assertTrue(out["ok"])
+        self.assertTrue(t["routed"])
+        self.assertEqual(t["troops"], 0)
+        cmd = s["commands"][-1]
+        self.assertEqual(cmd["type"], "duel_resolve")
+        self.assertEqual(cmd["apply"], apply)
+
+    def test_replay_forwards_duel_apply(self):
+        """replay() 把 duel_resolve 指令里的 apply 原样交给 resolve_duel。"""
+        apply = {"rout_uid": 2, "rout": True}
+        cmds = [{"type": "duel_resolve", "outcome": "challenger_win",
+                 "rounds": [], "apply": apply}]
+        with mock.patch.object(H, "resolve_duel",
+                               return_value={"ok": True}) as patched:
+            H.replay("duel-replay", "field", [], [], cmds,
+                     random.Random(7))
+        patched.assert_called_once()
+        self.assertEqual(patched.call_args.args[3], apply)
+
+
+class TestReviewRound4Regressions(unittest.TestCase):
+    """第四轮审查修复项回归：名医/合击/回合上限/单挑/观战伏兵/关键事件。"""
+
+    def setUp(self):
+        self.rng = random.Random(2027)
+
+    def _battle_session(self):
+        s = plain_session()
+        s["phase"] = "battle"
+        s["round"] = 1
+        return s
+
+    def test_doctor_does_not_revive_wiped_unit(self):
+        """0 兵覆没军团不得靠名医回收"复活"为残军。"""
+        s = plain_session()
+        u = H.add_unit(s, mk_army(1, 1, troops=1000, traits=["doctor"]), "a")
+        u["pos"] = [2, 4]
+        u["troops"] = 0
+        v = H.add_unit(s, mk_army(2, 2, troops=1000), "b")
+        v["pos"] = [3, 4]
+        s["phase"] = "battle"
+        s["round"] = 5
+        s["winner"] = "defender"
+        res = H.finish(s)
+        row = next(r for r in res["attackers"] if r["id"] == u["army_id"])
+        self.assertEqual(row["troops_after"], 0)
+        self.assertEqual(u["troops"], 0)
+
+    def test_max_rounds_counts_full_round(self):
+        """打满 max_rounds：回合开始不判负，最后一个单位行动完才判守方胜。"""
+        s = plain_session()
+        a = H.add_unit(s, mk_army(1, 1, troops=1000), "a")
+        a["pos"] = [0, 0]
+        b = H.add_unit(s, mk_army(2, 2, troops=1000), "b")
+        b["pos"] = [12, 8]
+        s["max_rounds"] = 1
+        H.start_battle(s, self.rng)
+        self.assertEqual(s["round"], 1)
+        # 回合刚开始、尚未行动：不得提前终止（旧实现会立刻判守方胜）
+        self.assertIsNone(H.check_end(s))
+        s["acted"] = list(s["order"])
+        self.assertEqual(H.check_end(s), "defender")
+
+    def test_combo_consumes_partner_action(self):
+        """合击搭档同样消耗本回合行动权，不能一次行动换两单位输出。"""
+        s = self._battle_session()
+        la = mk_leader(1, bonds={"2": {"type": "yijiao", "level": 1}})
+        lb = mk_leader(2, bonds={"1": {"type": "yijiao", "level": 1}})
+        u1 = H.add_unit(s, mk_army(1, 1), "a")
+        u1["leader"] = la
+        u1["pos"] = [2, 4]
+        u1["mana"] = 100
+        u2 = H.add_unit(s, mk_army(2, 1), "a")
+        u2["leader"] = lb
+        u2["pos"] = [3, 4]
+        u2["mana"] = 100
+        v = H.add_unit(s, mk_army(3, 2), "b")
+        v["pos"] = [4, 4]
+        res = H.do_skill(s, u1["uid"], "combo", self.rng, target_uid=v["uid"])
+        self.assertTrue(res["ok"])
+        self.assertTrue(u1["acted"])
+        self.assertTrue(u2["acted"])
+        # 搭档本回合不可再行动
+        res2 = H.do_skill(s, u2["uid"], "taunt", self.rng, target_uid=v["uid"])
+        self.assertFalse(res2["ok"])
+        self.assertEqual(res2["reason"], "本回合已行动")
+
+    def test_combo_rejects_routed_target(self):
+        """合击不得作用于已溃逃/0 兵单位。"""
+        s = self._battle_session()
+        u1 = H.add_unit(s, mk_army(1, 1), "a")
+        u1["leader"] = mk_leader(1, bonds={"2": {"type": "yijiao", "level": 1}})
+        u1["pos"] = [2, 4]
+        u1["mana"] = 100
+        u2 = H.add_unit(s, mk_army(2, 1), "a")
+        u2["leader"] = mk_leader(2, bonds={"1": {"type": "yijiao", "level": 1}})
+        u2["pos"] = [3, 4]
+        u2["mana"] = 100
+        v = H.add_unit(s, mk_army(3, 2), "b")
+        v["pos"] = [4, 4]
+        v["routed"] = True
+        v["troops"] = 0
+        res = H.do_skill(s, u1["uid"], "combo", self.rng, target_uid=v["uid"])
+        self.assertFalse(res["ok"])
+        self.assertEqual(res["reason"], "目标已失去战斗力")
+        self.assertFalse(u1["acted"])
+        self.assertEqual(u1["mana"], 100)
+
+    def test_duel_aborts_when_unit_lost(self):
+        """应答窗口内一方被击溃 → 单挑中止，不再结算士气/伤势/斩落。"""
+        s = self._battle_session()
+        c = H.add_unit(s, mk_army(1, 1, valor=90), "a")
+        c["pos"] = [3, 4]
+        t = H.add_unit(s, mk_army(2, 2), "b")
+        t["pos"] = [4, 4]
+        H.challenge_duel(s, c["uid"], t["uid"])
+        t["troops"] = 0
+        t["routed"] = True
+        before = c["morale"]
+        out = H.resolve_duel(s, self.rng)
+        self.assertFalse(out["ok"])
+        self.assertIsNone(s["duel"])
+        self.assertEqual(c["morale"], before)  # 未追加胜负士气
+
+    def test_spectator_snapshot_round1_and_ambush_hidden(self):
+        """首回合也有观战快照；未触发伏兵整支不得出现在快照中。"""
+        s = plain_session()
+        g = H.add_unit(s, mk_army(1, 1, prof="ghost"), "a")
+        cell = s["deploy_zones"]["a"][0]
+        s["terrain"][f"{cell[0]},{cell[1]}"] = H.T_FOREST
+        ok, reason = H.set_ambush(s, g["uid"], cell[0], cell[1])
+        self.assertTrue(ok, reason)
+        ally = H.add_unit(s, mk_army(2, 1), "a")
+        ally["pos"] = s["deploy_zones"]["a"][1]
+        s["phase"] = "battle"
+        H.begin_round(s, self.rng)   # round 1 → 快照 round 0（部署完成）
+        log = s.get("spectator_log") or []
+        self.assertEqual(len(log), 1)
+        self.assertEqual(log[-1]["round"], 0)
+        uids = [u["uid"] for u in log[-1]["units"]]
+        self.assertNotIn(g["uid"], uids)
+        self.assertIn(ally["uid"], uids)
+
+    def test_key_events_survive_event_trim(self):
+        """events 只留尾部 400 条，但关键事件须长期保留给回放。"""
+        s = plain_session()
+        u = H.add_unit(s, mk_army(1, 1), "a")
+        u["pos"] = [2, 4]
+        v = H.add_unit(s, mk_army(2, 2), "b")
+        v["pos"] = [3, 4]
+        s["phase"] = "battle"
+        s["round"] = 5
+        for i in range(500):
+            H._log(s, f"普通事件 {i}", "")
+        H._log(s, "伏兵突袭得手", "ambush")
+        self.assertLessEqual(len(s["events"]), 400)
+        s["winner"] = "attacker"
+        res = H.finish(s)
+        kinds = [e.get("kind") for e in res["key_events"]]
+        self.assertIn("ambush", kinds)
+
+
+class TestReviewRound5Regressions(unittest.TestCase):
+    """第五轮审查修复项回归：合击行动权/移动 acted 兜底/观战城防延迟。"""
+
+    def setUp(self):
+        self.rng = random.Random(2031)
+
+    def _battle_session(self):
+        s = plain_session()
+        s["phase"] = "battle"
+        s["round"] = 1
+        return s
+
+    def test_combo_partner_enters_session_acted(self):
+        """合击搭档必须写入 session["acted"]，否则仍会被选为当前行动者。"""
+        s = self._battle_session()
+        u1 = H.add_unit(s, mk_army(1, 1), "a")
+        u1["leader"] = mk_leader(1, bonds={"2": {"type": "yijiao", "level": 1}})
+        u1["pos"] = [2, 4]
+        u1["mana"] = 100
+        u2 = H.add_unit(s, mk_army(2, 1), "a")
+        u2["leader"] = mk_leader(2, bonds={"1": {"type": "yijiao", "level": 1}})
+        u2["pos"] = [3, 4]
+        u2["mana"] = 100
+        v = H.add_unit(s, mk_army(3, 2), "b")
+        v["pos"] = [4, 4]
+        res = H.do_skill(s, u1["uid"], "combo", self.rng, target_uid=v["uid"])
+        self.assertTrue(res["ok"])
+        self.assertIn(u2["uid"], s["acted"])
+        # current_actor 不得再返回搭档（若还有其它未行动单位则返回它们）
+        nxt = H.current_actor(s)
+        self.assertNotEqual((nxt or {}).get("uid"), u2["uid"])
+
+    def test_move_rejects_acted_unit(self):
+        """移动是唯一不查 unit["acted"] 的行动入口，必须有兜底拦截。"""
+        s = self._battle_session()
+        u = H.add_unit(s, mk_army(1, 1), "a")
+        u["pos"] = [2, 4]
+        u["acted"] = True
+        res = H.do_move(s, u["uid"], [[3, 4]], self.rng)
+        self.assertFalse(res["ok"])
+        self.assertEqual(res["reason"], "本回合已行动")
+        self.assertEqual(u["pos"], [2, 4])
+
+    def test_spectator_snapshot_records_wall_hp(self):
+        """观战快照记录城防，供 battle_state 延迟一回合下发。"""
+        s = plain_session()
+        u = H.add_unit(s, mk_army(1, 1), "a")
+        u["pos"] = [2, 4]
+        s["phase"] = "battle"
+        s["wall_hp"] = 777
+        H.begin_round(s, self.rng)
+        log = s.get("spectator_log") or []
+        self.assertTrue(log)
+        self.assertEqual(log[-1]["wall_hp"], 777)
 
 
 if __name__ == "__main__":

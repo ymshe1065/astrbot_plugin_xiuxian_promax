@@ -71,7 +71,8 @@ class StrategyPlotMixin:
             p["coin"] -= cost_coin
         elif plot_type == "rescue":
             tc = await self.get_char(target_id)
-            if not tc or tc.get("status") != "captive":
+            # §7.9：关押中的俘虏 + 押运途中的俘虏都可劫走
+            if not tc or tc.get("status") not in ("captive", "transfer"):
                 raise StrategyError("营救目标不是俘虏")
             if (tc.get("location") or {}).get("home_owner") != user_id and \
                     int((tc.get("location") or {}).get("home_faction", 0)) != \
@@ -178,17 +179,25 @@ class StrategyPlotMixin:
                 countered = True
         if plot == "rescue":
             tc = await self.get_char(target)
-            if not tc or tc.get("status") != "captive":
-                out["texts"].append("营救目标已不在关押中，行动取消")
+            if not tc or tc.get("status") not in ("captive", "transfer"):
+                out["texts"].append("营救目标已不在关押/押运中，行动取消")
                 return out
+            in_transit = tc.get("status") == "transfer"
             lead = int((tc.get("stats") or {}).get("leadership", 50))
             rate = R.rescue_success_rate(wisdom_self, wisdom_target, lead, bonus)
             success = (not countered) and rng.random() * 100 < rate
             out["success"] = success
             if success:
+                if in_transit:
+                    # 押运途中截获：删除押运单，俘虏直接脱身
+                    await self._execute(
+                        "DELETE FROM strategy_captive_transfers "
+                        "WHERE char_id=? AND status='marching'", (int(tc["id"]),))
                 await self._return_captive_home(tc)
-                out["texts"].append(f"🕊 营救成功！{tc['name']} 悄然脱身"
-                                    f"（成功率 {rate:.0f}%）")
+                out["texts"].append(
+                    f"🕊 营救成功！{tc['name']} "
+                    f"{'在押运途中被劫走' if in_transit else '悄然脱身'}"
+                    f"（成功率 {rate:.0f}%）")
             else:
                 expose_chance = float((self.main_cfg().get("captive") or {}).get(
                     "rescue_expose_chance", 0.4))
@@ -226,9 +235,11 @@ class StrategyPlotMixin:
                 drop = rng.randint(int(lo), int(hi))
                 tc["loyalty"] = max(0, int(tc.get("loyalty", 70)) + drop)
                 if tc["loyalty"] < 30:
+                    await self._detach_from_armies(tc)
                     tc["status"] = "wander"
                     tc["faction_id"] = 0
                     tc["owner_user_id"] = ""
+                    tc["auction_cooldown_until"] = 0
                     # 离心出走：清除囚禁标记（角色此前可能处于被俘状态），
                     # 防 captor_faction/imprisoned_node_id 悬挂导致重复解放/迁移
                     tc["captor_faction"] = 0
@@ -239,14 +250,29 @@ class StrategyPlotMixin:
                     out["texts"].append(
                         f"离间生效：{tc['name']} 忠诚 -{-drop}（现 {tc['loyalty']}）")
                 await self.save_char(tc)
+                await self._audit(str(c.get("owner_user_id", "") or ""),
+                                  "plot_alienate", {
+                                      "char_id": int(tc["id"]),
+                                      "loyalty": int(tc["loyalty"]),
+                                      "drop": drop,
+                                      "fled": tc["loyalty"] < 30})
         elif plot == "rumor":
             node = await self.get_node(world["id"], target)
             if node:
                 node["morale"] = max(0, int(node.get("morale", 80)) +
                                      int(pcfg.get("rumor_morale", -15)))
-                await self.save_node(node)
                 ticks = int(pcfg.get("rumor_ticks", 3))
                 tick_no = int(world.get("tick_no", 0))
+                # §6.3：产出 -20% 只落节点 output_json（plot_output_mult 读取），
+                # 事件记录仅作展示。切勿再写 node_output 乘区，否则会与
+                # plot_output_mult 叠乘成 0.8×0.8=0.64（-36%），偏离设计 -20%。
+                pct = float(pcfg.get("rumor_output_pct", -0.2))
+                out_d = node.get("output") or {}
+                out_d["plot_debuff"] = {
+                    "mult": max(0.1, 1.0 + pct),
+                    "until": _now() + ticks * self.tick_seconds()}
+                node["output"] = out_d
+                await self.save_node(node)
                 await self._execute("""
                     INSERT INTO strategy_events (world_id, event_id, scope, target_json,
                         start_at, end_at, start_tick, end_tick, data_json)
@@ -257,13 +283,14 @@ class StrategyPlotMixin:
                       _now(), _now() + ticks * self.tick_seconds(), tick_no,
                       tick_no + ticks,
                       json.dumps({"name": "谣言四起", "effects": [
-                          {"type": "node_output", "resource": "coin",
-                           "mult": 1 + float(pcfg.get("rumor_output_pct", -0.2))},
-                          {"type": "node_output", "resource": "grain",
-                           "mult": 1 + float(pcfg.get("rumor_output_pct", -0.2))}]},
+                          {"type": "plot_effect", "resource": "coin",
+                           "mult": 1 + pct},
+                          {"type": "plot_effect", "resource": "grain",
+                           "mult": 1 + pct}]},
                           ensure_ascii=False)))
                 out["texts"].append(
-                    f"谣言在「{node['name']}」蔓延：民心 -15，产出 -20%（{ticks} tick）")
+                    f"谣言在「{node['name']}」蔓延：民心 -15，"
+                    f"产出 {pct * 100:+.0f}%（{ticks} tick）")
         elif plot == "arson":
             node = await self.get_node(world["id"], target)
             if node:
@@ -311,6 +338,35 @@ class StrategyPlotMixin:
             await self.save_world(world)
         await self._commit()
         return out
+
+    def plot_output_mult(self, node: dict) -> float:
+        """计略造成的据点产出乘区（§6.3 谣言 -20%）。
+
+        供主管理器 `_tick_node_output` / 任务结算调用；读取
+        ``node["output_debuff"]``（临时态）或持久化的
+        ``node["output"]["plot_debuff"]``，过期自动失效。无减益返回 1.0。
+        """
+        if not node:
+            return 1.0
+        now = _now()
+        mult = 1.0
+        cands = []
+        if node.get("output_debuff"):
+            cands.append(node["output_debuff"])
+        od = (node.get("output") or {}).get("plot_debuff")
+        if od:
+            cands.append(od)
+        for d in cands:
+            if isinstance(d, (int, float)):
+                mult *= float(d)
+                continue
+            if not isinstance(d, dict):
+                continue
+            until = int(d.get("until", 0) or 0)
+            if until and until <= now:
+                continue
+            mult *= float(d.get("mult", 1.0) or 1.0)
+        return max(0.1, min(1.0, mult))
 
     async def _faction_best_wisdom(self, world_id: int, faction_id: int) -> int:
         if not faction_id or faction_id < 0:

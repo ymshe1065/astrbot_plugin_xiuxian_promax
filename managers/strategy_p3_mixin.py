@@ -29,10 +29,11 @@ def _now() -> int:
 ACHIEVEMENT_NEEDS = {
     "conquest_bandit_10": 10,
     "civil_farm_100k": 100_000,
+    "civil_mine_100k": 100_000,
     "civil_build_5": 5,
 }
 
-#: 流将已改为坊市限时竞拍，当前价由 core.strategy_rules.wanderer_* 计算
+#: 流将已改为坊市战功暗标，底价由 core.strategy_rules.wanderer_* 计算
 
 
 class StrategyP3Mixin:
@@ -66,8 +67,11 @@ class StrategyP3Mixin:
         unlocked[key] = _now()
         merit = int((self.main_cfg().get("achievements") or {}).get(
             key, {}).get("merit", 0))
-        p["merit"] = int(p.get("merit", 0)) + merit
-        p["merit_season"] = int(p.get("merit_season", 0)) + merit
+        # 成就战功同样走观察期/多开门禁，避免成为绕过通道
+        merit = await self._settle_merit(user_id, merit, "achievement")
+        if merit > 0:
+            p["merit"] = int(p.get("merit", 0)) + merit
+            p["merit_season"] = int(p.get("merit_season", 0)) + merit
         p["achievements"] = ach
         await self.save_player(p)
         await self._commit()
@@ -88,28 +92,70 @@ class StrategyP3Mixin:
     # ------------------------------------------------------------------
     # 坊市互市（§5.5）
     # ------------------------------------------------------------------
+    #: 坊市可挂售品类（market.items 缺省时兜底）
+    _MARKET_ITEMS = ("grain", "iron", "recruit_token", "intel")
+
+    @staticmethod
+    def _market_item_qty(p: dict, item: str) -> int:
+        """玩家持有量：情报存于 tavern.intel，其余为钱包字段。"""
+        if item == "intel":
+            return int((p.get("tavern") or {}).get("intel", 0) or 0)
+        return int(p.get(item, 0) or 0)
+
+    @staticmethod
+    def _market_item_add(p: dict, item: str, amount: int) -> None:
+        amount = int(amount)
+        if item == "intel":
+            tavern = p.get("tavern") or {}
+            tavern["intel"] = int(tavern.get("intel", 0) or 0) + amount
+            p["tavern"] = tavern
+        else:
+            p[item] = int(p.get(item, 0) or 0) + amount
+
+    async def _market_at_war(self, fid_a: int, fid_b: int) -> bool:
+        """双方是否处于交战（§5.5 交战势力不可互市）。"""
+        fid_a, fid_b = int(fid_a or 0), int(fid_b or 0)
+        if fid_a <= 0 or fid_b <= 0 or fid_a == fid_b:
+            return False
+        fa = await self.get_faction(fid_a)
+        if not fa:
+            return False
+        return R.relation_of(fa.get("diplomacy") or {}, fid_b, _now()) == R.REL_WAR
+
     async def market_list(self, user_id: str, node_id: int, item_type: str,
                           amount: int, unit_price: int) -> dict:
         world, p = await self._require_player(user_id)
         mcfg = self.main_cfg().get("market") or {}
         item_type = str(item_type)
         amount, unit_price = int(amount), int(unit_price)
-        if item_type not in ("grain", "iron", "recruit_token"):
-            raise StrategyError("仅可挂售 粮草/精铁/招募令")
+        items = [str(x) for x in (mcfg.get("items") or self._MARKET_ITEMS)]
+        if item_type not in items:
+            raise StrategyError(f"仅可挂售 {'/'.join(items)}")
+        base_prices = mcfg.get("base_prices") or {}
+        if unit_price <= 0:
+            # 未定价 → 取配置基准价（情报 market.base_prices.intel）
+            unit_price = int(base_prices.get(item_type, 0) or 0)
         if amount <= 0 or unit_price <= 0:
             raise StrategyError("数量与单价须为正")
-        if int(p.get(item_type, 0)) < amount:
-            raise StrategyError(f"{item_type} 不足（现有 {int(p.get(item_type, 0))}）")
+        held = self._market_item_qty(p, item_type)
+        if held < amount:
+            raise StrategyError(f"{item_type} 不足（现有 {held}）")
         node = await self.get_node(world["id"], int(node_id))
-        if not node or node["type"] not in ("market", "city"):
-            raise StrategyError("只能在坊市/仙城挂单")
+        if not node or node["type"] not in ("city", "market"):
+            raise StrategyError("只能在仙城/坊市挂单")
+        # §5.5：不能在本方正在交战的势力所属坊市挂单（挂单侧校验）
+        owner = int(node.get("owner_faction", 0) or 0)
+        if owner and owner != int(p["faction_id"]) and \
+                mcfg.get("cross_faction_market_only", True) and \
+                await self._market_at_war(int(p["faction_id"]), owner):
+            raise StrategyError("交战势力不可互市")
         row = await self._fetchone(
             "SELECT COUNT(*) AS n FROM strategy_market_orders WHERE world_id=? "
             "AND seller_user=? AND status='open'", (world["id"], user_id))
         limit = int(mcfg.get("max_orders_per_user", 20))
         if int((row or {}).get("n", 0)) >= limit:
             raise StrategyError(f"挂单数已达上限（{limit}）")
-        p[item_type] = int(p[item_type]) - amount
+        self._market_item_add(p, item_type, -amount)
         await self.save_player(p)
         oid = await self._execute("""
             INSERT INTO strategy_market_orders (world_id, node_id, seller_faction,
@@ -145,23 +191,27 @@ class StrategyP3Mixin:
         if mcfg.get("cross_faction_market_only", True) and row["seller_user"] and \
                 int(row["seller_faction"]) == int(p["faction_id"]):
             raise StrategyError("互市仅限跨势力交易（同势力请自行转移）")
+        # §5.5 交战势力不可互市（买卖双方，含 NPC 卖方）
+        if mcfg.get("cross_faction_market_only", True) and \
+                int(row["seller_faction"] or 0) != int(p["faction_id"]) and \
+                await self._market_at_war(int(p["faction_id"]),
+                                          int(row["seller_faction"] or 0)):
+            raise StrategyError("交战势力不可互市")
         avail = int(row["amount"])
         want = avail if int(amount) <= 0 else min(int(amount), avail)
         if want <= 0:
             raise StrategyError("数量无效")
-        cost = want * int(row["unit_price"])
+        # §5.6 商队：我方商队途经的坊市享 convoy.discount_pct 折扣
+        discount = await self._convoy_discount(world, p, int(row["node_id"]))
+        cost = int(round(want * int(row["unit_price"]) * (1.0 - discount)))
+        cost = max(0, cost)
         if int(p.get("coin", 0)) < cost:
             raise StrategyError(f"铜钱不足：需 {cost}")
         p["coin"] -= cost
         tax = R.market_tax(cost, float(mcfg.get("tax_pct", 0.05)))
         payout = cost - tax
         item = row["item_type"]
-        if item == "intel":
-            tavern = p.get("tavern") or {}
-            tavern["intel"] = int(tavern.get("intel", 0)) + want
-            p["tavern"] = tavern
-        else:
-            p[item] = int(p.get(item, 0)) + want
+        self._market_item_add(p, item, want)
         await self.save_player(p)
         # 卖方入账
         if row["seller_user"]:
@@ -191,8 +241,49 @@ class StrategyP3Mixin:
             await self.db.conn.rollback()
             raise StrategyError("订单已被并发修改，请重试")
         await self._commit()
+        # 与 NPC 势力通商 → 好感小幅提升（每日上限，失败不影响成交）
+        if not row["seller_user"]:
+            try:
+                await self.add_trade_favor(int(p["faction_id"]),
+                                           int(row["seller_faction"]))
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"[strategy] 通商好感结算失败：{e}")
+        extra = f"，商队折扣 {discount * 100:.0f}%" if discount > 0 else ""
         return {"ok": True,
-                "msg": f"购入 {item} ×{want}，花费 {cost} 铜钱（含税 {tax}）"}
+                "msg": f"购入 {item} ×{want}，花费 {cost} 铜钱"
+                       f"（含税 {tax}{extra}）",
+                "discount": discount, "amount": want,
+                "unit_price": int(row["unit_price"]),
+                "cost": int(cost), "tax": int(tax)}
+
+    async def convoy_discount_for(self, user_id: str, node_id: int) -> float:
+        """我方商队途经该坊市时的价格折扣比例（§5.6，0~0.5）。
+
+        供主管理器 market_buy / 价格计算复用；本类 `_market_buy` 已内置
+        同一折扣，调用方不要重复扣减。
+        """
+        world = await self.get_world()
+        if not world:
+            return 0.0
+        p = await self.get_player(user_id, world["id"])
+        if not p:
+            return 0.0
+        return await self._convoy_discount(world, p, int(node_id))
+
+    async def _convoy_discount(self, world: dict, p: dict,
+                               node_id: int) -> float:
+        dcfg = self.main_cfg().get("convoy") or {}
+        pct = float(dcfg.get("discount_pct", 0) or 0)
+        if pct <= 0 or int(node_id) <= 0:
+            return 0.0
+        for cv in (world.get("data") or {}).get("convoys") or []:
+            if cv.get("owner") != p.get("user_id") and \
+                    int(cv.get("faction", 0) or 0) != int(p["faction_id"]):
+                continue
+            path = [int(x) for x in (cv.get("path") or [])]
+            if int(node_id) in path:
+                return max(0.0, min(0.5, pct / 100.0))
+        return 0.0
 
     async def market_cancel(self, user_id: str, order_id: int) -> dict:
         # C2：与买入同锁，撤单退货与撮合互斥
@@ -207,8 +298,8 @@ class StrategyP3Mixin:
         if not row or row["status"] != "open":
             raise StrategyError("订单不存在或已结束")
         item = row["item_type"]
-        if item in ("grain", "iron", "recruit_token"):
-            p[item] = int(p.get(item, 0)) + int(row["amount"])
+        if item in self._MARKET_ITEMS:
+            self._market_item_add(p, item, int(row["amount"]))
             await self.save_player(p)
         n = await self._exec_count(
             "UPDATE strategy_market_orders SET status='cancelled', amount=0 "
@@ -249,10 +340,10 @@ class StrategyP3Mixin:
             "SELECT * FROM strategy_market_orders WHERE world_id=? AND status='open' "
             "AND expires_at<?", (world["id"], _now()))
         for r in rows:
-            if r["seller_user"] and r["item_type"] in ("grain", "iron", "recruit_token"):
+            if r["seller_user"] and r["item_type"] in self._MARKET_ITEMS:
                 sp = await self.get_player(r["seller_user"], world["id"])
                 if sp:
-                    sp[r["item_type"]] = int(sp.get(r["item_type"], 0)) + int(r["amount"])
+                    self._market_item_add(sp, r["item_type"], int(r["amount"]))
                     await self.save_player(sp)
             await self._execute(
                 "UPDATE strategy_market_orders SET status='expired', amount=0 WHERE id=?",
@@ -348,6 +439,9 @@ class StrategyP3Mixin:
             node = nodes.get(int(nid))
             if not node or _now() > int(info.get("until", 0)):
                 continue
+            # 与 raid_bandit 的可讨伐条件保持一致：只展示无主匪寨
+            if int(node.get("owner_faction", 0) or 0) != 0:
+                continue
             out.append({"node_id": int(nid), "name": node["name"],
                         "type": node["type"],
                         "troops": int((node.get("npc_garrison") or {}).get("troops", 0)),
@@ -362,6 +456,8 @@ class StrategyP3Mixin:
         data = world.get("data") or {}
         bandits = data.get("bandits") or {}
         army = await self._own_army(p, army_id)
+        if self._is_reorganizing(army, world):
+            raise StrategyError(self._reorg_msg(army, world))
         if army.get("state") != "idle" or int(army.get("troops", 0)) <= 0:
             raise StrategyError("军团须为驻扎状态且有兵力")
         nodes = {n["id"]: n for n in await self.get_nodes(world["id"])}
@@ -386,8 +482,7 @@ class StrategyP3Mixin:
         report = R.render_battle_report(result, title=f"{node['name']}·讨伐匪寨")
         await self._persist_battle(world, node, int(p["faction_id"]), 0,
                                    "bandit", result, report, [atk_sim], [dfn_sim])
-        await self._apply_battle_aftermath(world, node, [army], [], result,
-                                           [atk_sim], [dfn_sim])
+        await self._apply_battle_aftermath(world, node, [army], [], result)
         if result["winner"] != "attacker":
             await self._commit()
             return {"ok": True, "win": False,
@@ -401,13 +496,17 @@ class StrategyP3Mixin:
         gar["troops"] = 0
         node["npc_garrison"] = gar
         await self.save_node(node)
+        # §6.4 势力任务：剿匪安境
+        await self._faction_task_progress(int(p["faction_id"]), "subdue", 1)
         mlo, mhi = bcfg.get("merit_reward") or [100, 200]
         merit = rng.randint(int(mlo), int(mhi))
+        merit = await self._settle_merit(user_id, merit, "raid_bandit")
         merit_msg = ""
         pp = await self.get_player(user_id, world["id"])
         if pp:
-            pp["merit"] = int(pp.get("merit", 0)) + merit
-            pp["merit_season"] = int(pp.get("merit_season", 0)) + merit
+            if merit > 0:
+                pp["merit"] = int(pp.get("merit", 0)) + merit
+                pp["merit_season"] = int(pp.get("merit_season", 0)) + merit
             if rng.random() < float(bcfg.get("token_reward_chance", 0.3)):
                 pp["recruit_token"] = int(pp.get("recruit_token", 0)) + 1
                 merit_msg = "，缴获招募令 ×1"
@@ -459,31 +558,70 @@ class StrategyP3Mixin:
         trcfg = self.main_cfg().get("trade_route") or {}
         coin = int(trcfg.get("coin_per_tick", 20))
         routes = await self._compute_trade_routes(world)
+        nodes = {n["id"]: n for n in await self.get_nodes(world["id"])}
         data = world.get("data") or {}
-        seen = set(data.get("trade_routes_seen") or [])
-        new_keys = set()
+        # v4.0.17：seen 从「key 列表」升级为 {key: {owner, label}}，
+        # 以便商路被切断时知道该通知哪个势力并展示两端名称。
+        raw_seen = data.get("trade_routes_seen") or {}
+        if isinstance(raw_seen, dict):
+            prev = {str(k): (v if isinstance(v, dict) else
+                             {"owner": int(v or 0), "label": str(k)})
+                    for k, v in raw_seen.items()}
+        else:
+            # 旧版只存 key 列表：尽力还原两端名称与起点归属，避免升级后
+            # 第一条被切断的商路因 owner=0 而漏发提醒。
+            prev = {}
+            for key in raw_seen:
+                key = str(key)
+                try:
+                    a_id, b_id = (int(x) for x in key.split("-", 1))
+                except (TypeError, ValueError):
+                    prev[key] = {"owner": 0, "label": key}
+                    continue
+                a, b = nodes.get(a_id), nodes.get(b_id)
+                prev[key] = {
+                    "owner": int((a or {}).get("owner_faction", 0) or 0),
+                    "label": f"{(a or {}).get('name', key)} ⇄ "
+                             f"{(b or {}).get('name', key)}"}
+        current: dict[str, dict] = {}
         for rt in routes:
             key = f"{rt['a']}-{rt['b']}"
-            new_keys.add(key)
-        fresh = new_keys - seen
-        for rt in routes:
+            a, b = nodes.get(rt["a"]), nodes.get(rt["b"])
+            label = f"{(a or {}).get('name', '?')} ⇄ {(b or {}).get('name', '?')}"
             # 收益归属：路径起点所有者
             owner_fid = await self._route_owner(world, rt)
+            current[key] = {"owner": owner_fid, "label": label}
             if owner_fid <= 0:
                 continue
             await self._pay_route_income(world, owner_fid, coin)
-        if fresh:
-            # 新商路 → 开路先锋成就（归属势力全员）
-            for rt in routes:
-                if f"{rt['a']}-{rt['b']}" in fresh:
-                    fid = await self._route_owner(world, rt)
-                    rows = await self._fetchall(
-                        "SELECT user_id FROM strategy_players WHERE world_id=? "
-                        "AND faction_id=?", (world["id"], fid))
-                    for row in rows:
-                        await self._award_achievement(row["user_id"],
-                                                      "civil_trade_route")
-        data["trade_routes_seen"] = sorted(new_keys)
+        fresh = set(current) - set(prev)
+        broken = set(prev) - set(current)
+        # 新商路 → 开路先锋成就（归属势力全员）
+        for key in fresh:
+            fid = int(current[key].get("owner") or 0)
+            if fid <= 0:
+                continue
+            rows = await self._fetchall(
+                "SELECT user_id FROM strategy_players WHERE world_id=? "
+                "AND faction_id=?", (world["id"], fid))
+            for row in rows:
+                await self._award_achievement(row["user_id"],
+                                              "civil_trade_route")
+        # 商路被第三方切断 → 推送提醒（§5.5）
+        for key in broken:
+            info = prev.get(key) or {}
+            fid = int(info.get("owner") or 0)
+            if fid <= 0:
+                continue
+            rows = await self._fetchall(
+                "SELECT user_id FROM strategy_players WHERE world_id=? "
+                "AND faction_id=?", (world["id"], fid))
+            await self._notify(
+                world, [r["user_id"] for r in rows], "trade_route_cut",
+                {"trade_route_key": key,
+                 "text": f"商路中断：{info.get('label', key)}"
+                         "（途经据点被敌方切断，收益已停止）"})
+        data["trade_routes_seen"] = current
         world["data"] = data
         await self.save_world(world)
         await self._commit()
@@ -526,12 +664,47 @@ class StrategyP3Mixin:
             out.append({"a": rt["a"], "b": rt["b"],
                         "a_name": (a or {}).get("name", "?"),
                         "b_name": (b or {}).get("name", "?"),
-                        "path": rt["path"]})
+                        "path": rt["path"],
+                        "path_names": [(nodes.get(int(nid)) or {}).get("name", "?")
+                                       for nid in rt["path"]]})
         return out
 
     # ------------------------------------------------------------------
     # 运粮队（§5.6）
     # ------------------------------------------------------------------
+    async def _find_convoy_path(self, world: dict, faction_id: int,
+                                src: int, dst: int) -> Optional[list[int]]:
+        """运粮路径 BFS：只允许经过本方/盟友据点（§5.6 沿商路行进）。"""
+        if src == dst:
+            return [dst]
+        nodes = {n["id"]: n for n in await self.get_nodes(world["id"])}
+        if src not in nodes or dst not in nodes:
+            return None
+        fn = await self._ally_or_self_fn(world)
+        if not fn(int(faction_id), int(nodes[dst]["owner_faction"])):
+            return None
+        from collections import deque
+
+        prev: dict[int, Optional[int]] = {src: None}
+        queue = deque([src])
+        while queue:
+            cur = queue.popleft()
+            for nxt in nodes[cur].get("adj") or []:
+                nxt = int(nxt)
+                if nxt in prev or nxt not in nodes:
+                    continue
+                owner = int(nodes[nxt]["owner_faction"])
+                if owner <= 0 or not fn(int(faction_id), owner):
+                    continue
+                prev[nxt] = cur
+                if nxt == dst:
+                    path = [dst]
+                    while prev[path[-1]] is not None:
+                        path.append(prev[path[-1]])
+                    return list(reversed(path))
+                queue.append(nxt)
+        return None
+
     async def send_convoy(self, user_id: str, from_node: int, to_node: int,
                           grain: int, escort_army_id: int = 0) -> dict:
         world, p = await self._require_player(user_id)
@@ -548,28 +721,42 @@ class StrategyP3Mixin:
             fn = await self._ally_or_self_fn(world)
             if not fn(int(p["faction_id"]), int(dst["owner_faction"])):
                 raise StrategyError("只能向本方或盟友据点运粮")
-        path = await self.find_path(world["id"], int(src["id"]), int(dst["id"]))
+        path = await self._find_convoy_path(
+            world, int(p["faction_id"]), int(src["id"]), int(dst["id"]))
         if not path or len(path) < 2:
-            raise StrategyError("两地不通")
+            raise StrategyError("两地不通：运粮路线须全程经由本方/盟友据点")
         escort_troops = 0
+        escort_army = None
         if int(escort_army_id):
-            army = await self._own_army(p, escort_army_id)
-            if army.get("state") != "idle" or int(army["node_id"]) != int(src["id"]):
-                raise StrategyError("护卫军团须驻扎在出发地")
-            escort_troops = int(army.get("troops", 0))
+            escort_army = await self._own_army(p, escort_army_id)
+            if escort_army.get("state") != "idle" or \
+                    int(escort_army["node_id"]) != int(src["id"]):
+                raise StrategyError("护卫军团须空闲且驻扎在出发地")
+            escort_troops = int(escort_army.get("troops", 0))
         p["grain"] -= grain
         await self.save_player(p)
         data = world.get("data") or {}
         convoys = data.setdefault("convoys", [])
-        cid = f"cv{_now()}_{user_id[-4:]}"
+        # 上限 40：溢出时释放被挤出粮队的护送军，避免军团永久卡在 escort
+        for old in convoys[:-39]:
+            await self._release_convoy_escort(old)
+        convoys = convoys[-39:]
+        cid = f"cv{_now()}_{time.time_ns() % 100000000:08d}"
         convoys.append({"id": cid, "owner": user_id,
                         "faction": int(p["faction_id"]),
                         "from": int(src["id"]), "to": int(dst["id"]),
                         "path": [int(x) for x in path], "idx": 0,
                         "grain": grain, "escort_troops": escort_troops,
+                        "escort_army_id": int(escort_army_id) if escort_army else 0,
                         "created_tick": int(world.get("tick_no", 0))})
-        data["convoys"] = convoys[-40:]
+        data["convoys"] = convoys
         world["data"] = data
+        if escort_army:
+            # 护送期间军团被占用：随粮队移动，抵达/被截后释放（§5.6）
+            escort_army["state"] = "escort"
+            escort_army["path"] = []
+            escort_army["edge_pos"] = 0.0
+            await self.save_army(escort_army)
         await self.save_world(world)
         await self._commit()
         return {"ok": True, "convoy_id": cid,
@@ -577,17 +764,62 @@ class StrategyP3Mixin:
                        f"（粮 {grain}，护军 {escort_troops}，"
                        f"{len(path) - 1} tick 后抵达）"}
 
+    async def _release_convoy_escort(self, cv: dict, node_id: int = 0) -> bool:
+        """释放粮队护送军：恢复 idle 并落到指定据点（缺省保持原地）。"""
+        aid = int(cv.get("escort_army_id") or 0)
+        if aid <= 0:
+            return False
+        army = await self.get_army(aid)
+        if not army or army.get("state") != "escort":
+            return False
+        army["state"] = "idle"
+        army["path"] = []
+        army["edge_pos"] = 0.0
+        if int(node_id) > 0:
+            army["node_id"] = int(node_id)
+        await self.save_army(army)
+        return True
+
+    async def _release_orphan_convoy_escorts(self, world: dict,
+                                             convoys: list[dict]) -> int:
+        """兜底：清理已无对应粮队却仍处于 escort 的军团。"""
+        keep = {int(c.get("escort_army_id") or 0) for c in convoys}
+        keep.discard(0)
+        released = 0
+        for army in await self.get_armies(world["id"], states=("escort",)):
+            if int(army["id"]) in keep:
+                continue
+            army["state"] = "idle"
+            army["path"] = []
+            army["edge_pos"] = 0.0
+            await self.save_army(army)
+            released += 1
+        return released
+
     async def _step_convoys(self, world: dict):
         ccfg = self.main_cfg().get("convoy") or {}
         data = world.get("data") or {}
         convoys = data.get("convoys") or []
         if not convoys:
+            if await self._release_orphan_convoy_escorts(world, []):
+                await self._commit()
             return
-        speed = max(1, int(ccfg.get("speed_edges", 1)))
+        speed_cfg = max(1, int(ccfg.get("speed_edges", 1)))
+        base_troops = max(0, int(ccfg.get("troops", 100)))
+        raid_pct = float(ccfg.get("raid_take_pct", 0.5))
         remaining = []
         nodes = {n["id"]: n for n in await self.get_nodes(world["id"])}
         fn = await self._ally_or_self_fn(world)
+        effects_cache: dict[int, dict] = {}
         for cv in convoys:
+            fid = int(cv.get("faction", 0))
+            if fid not in effects_cache:
+                faction = await self.get_faction(fid) if fid > 0 else None
+                effects_cache[fid] = R.tech_effects(
+                    (faction or {}).get("tech") or {})
+            eff = effects_cache[fid]
+            # 农政科技 L4：运粮队机动 +1（§8.4）
+            speed = max(1, speed_cfg + int(eff.get("convoy_move_bonus", 0)))
             cv["idx"] = int(cv.get("idx", 0)) + speed
             path = cv.get("path") or []
             arrived = cv["idx"] >= len(path) - 1
@@ -598,8 +830,21 @@ class StrategyP3Mixin:
                     stock["grain"] = int(stock.get("grain", 0)) + int(cv["grain"])
                     dst["stock"] = stock
                     await self.save_node(dst)
+                await self._release_convoy_escort(cv, int(cv["to"]))
+                await self._notify(
+                    world, [cv.get("owner")], "convoy_arrived",
+                    {"convoy_id": cv["id"], "node_id": int(cv["to"]),
+                     "text": f"运粮队抵达「{(dst or {}).get('name', '?')}」，"
+                             f"入库粮草 {int(cv['grain'])}"})
                 continue
             cur_id = path[min(cv["idx"], len(path) - 1)]
+            # 护送军随粮队行进（仍在 escort 状态，不可另行出征）
+            if int(cv.get("escort_army_id") or 0):
+                army = await self.get_army(int(cv["escort_army_id"]))
+                if army and army.get("state") == "escort" and \
+                        int(army.get("node_id", 0)) != int(cur_id):
+                    army["node_id"] = int(cur_id)
+                    await self.save_army(army)
             if int(cv.get("raided_at", -1)) == int(cur_id):
                 remaining.append(cv)
                 continue
@@ -607,18 +852,31 @@ class StrategyP3Mixin:
             raider = await self._find_convoy_raider(world, cur_id, int(cv["faction"]), fn)
             if raider:
                 rng = self._rng("convoy", cv["id"], cur_id)
-                if R.convoy_raid_success(rng, int(cv.get("escort_troops", 0)),
-                                         int(raider["troops"])):
-                    take = int(int(cv["grain"]) * float(ccfg.get("raid_take_pct", 0.5)))
+                defense = base_troops + int(cv.get("escort_troops", 0))
+                if R.convoy_raid_success(rng, defense, int(raider["troops"])):
+                    # 农政科技 L4：被劫损失 -50%
+                    take = int(int(cv["grain"]) * raid_pct *
+                               float(eff.get("convoy_loss_mult", 1.0)))
+                    take = min(int(cv["grain"]), max(1, take))
                     cv["grain"] = int(cv["grain"]) - take
                     await self._give_raid_spoils(world, raider, take)
                     cv["raided_at"] = int(cur_id)
+                    await self._notify(
+                        world, [cv.get("owner")], "convoy_raided",
+                        {"convoy_id": cv["id"], "node_id": int(cur_id),
+                         "text": f"运粮队「{(nodes.get(int(cv['from'])) or {}).get('name', '?')}"
+                                 f" → {(nodes.get(int(cv['to'])) or {}).get('name', '?')}」"
+                                 f"在「{(nodes.get(int(cur_id)) or {}).get('name', '?')}」"
+                                 f"被劫，损失粮草 {take}（剩余 {int(cv['grain'])}）"})
                     if cv["grain"] <= 0:
-                        continue  # 粮尽被截
+                        # 粮尽被截：护送军退回出发地
+                        await self._release_convoy_escort(cv, int(cv.get("from", 0)))
+                        continue
             remaining.append(cv)
         # idx 每 tick 都在推进，必须落盘（否则进度丢失）
         data["convoys"] = remaining
         world["data"] = data
+        await self._release_orphan_convoy_escorts(world, remaining)
         await self.save_world(world)
         await self._commit()
 
@@ -680,14 +938,218 @@ class StrategyP3Mixin:
                 continue
             path = cv.get("path") or []
             idx = min(int(cv.get("idx", 0)), max(0, len(path) - 1))
+            cur_id = int(path[idx]) if path else 0
             out.append({"id": cv["id"], "grain": cv["grain"],
                         "escort_troops": cv.get("escort_troops", 0),
+                        "escort_army_id": int(cv.get("escort_army_id") or 0),
                         "from": (nodes.get(int(cv["from"])) or {}).get("name", "?"),
                         "to": (nodes.get(int(cv["to"])) or {}).get("name", "?"),
-                        "cur_node": (nodes.get(path[idx]) or {}).get("name", "?")
+                        "cur_node": (nodes.get(cur_id) or {}).get("name", "?")
                         if path else "?",
+                        "from_id": int(cv["from"]), "to_id": int(cv["to"]),
+                        "cur_node_id": cur_id,
                         "progress": f"{idx}/{max(1, len(path) - 1)}"})
         return out
+
+    # ------------------------------------------------------------------
+    # 匪寨周期劫掠（§9.1）
+    # ------------------------------------------------------------------
+    async def _step_bandit_raids(self, world: dict) -> int:
+        """匪寨每隔 `bandit.raid_interval_ticks` 劫掠相邻玩家据点。
+
+        扣库存 30%、民心 -5，并向据点所属势力玩家发通知；状态写
+        `strategy_nodes.lair_json.last_raid_tick`。由主 Agent 在 tick 管线接线。
+        """
+        bcfg = self.main_cfg().get("bandit") or {}
+        interval = max(1, int(bcfg.get("raid_interval_ticks", 8) or 8))
+        tick_no = int(world.get("tick_no", 0))
+        stock_pct = 0.3
+        morale_delta = -5
+        data = world.get("data") or {}
+        bandits = data.get("bandits") or {}
+        nodes = {n["id"]: n for n in await self.get_nodes(world["id"])}
+        kind_cache: dict[int, str] = {}
+        raided = 0
+        for nid, node in nodes.items():
+            # 匪寨判定不再绑定 type=="ruin"：无主据点/城池崩塌/事件生成
+            # 的匪寨都可能分布在 city/pass/branch/mine 等类型上，统一以
+            # lair_json / data.bandits 标记为准。
+            lair = node.get("lair") or {}
+            in_bandits = str(nid) in bandits and \
+                int(node.get("owner_faction", 0) or 0) <= 0
+            # data.bandits 派生的临时匪寨：随数据清理失效（lair 只作缓存）；
+            # lair_json.bandit=true 的静态匪寨长期存在
+            is_lair = in_bandits or (
+                bool(lair.get("bandit")) and lair.get("source") != "bandit_data")
+            if not is_lair:
+                continue
+            info = bandits.get(str(nid)) or {}
+            if int(info.get("until", 0) or 0) and _now() > int(info["until"]):
+                continue
+            if "last_raid_tick" not in lair:
+                # 新匪寨：从当前 tick 起算，避免「生成即劫掠」
+                lair["bandit"] = True
+                if in_bandits:
+                    lair["source"] = "bandit_data"
+                lair["last_raid_tick"] = tick_no
+                node["lair"] = lair
+                await self.save_node(node)
+                continue
+            lair.setdefault("bandit", True)
+            if in_bandits and not lair.get("source"):
+                lair["source"] = "bandit_data"
+            if not R.bandit_raid_ready({"lair": lair}, tick_no, interval):
+                continue
+            targets = []
+            for adj in node.get("adj") or []:
+                t = nodes.get(int(adj))
+                if not t or int(t.get("owner_faction", 0) or 0) <= 0:
+                    continue
+                fid = int(t["owner_faction"])
+                if fid not in kind_cache:
+                    f = await self.get_faction(fid)
+                    kind_cache[fid] = str((f or {}).get("kind", ""))
+                if kind_cache[fid] != "player":
+                    continue
+                targets.append(t)
+            if not targets:
+                continue
+            # 优先劫掠存粮最多的据点，每轮最多 2 处
+            targets.sort(key=lambda t: -int((t.get("stock") or {}).get("grain", 0) or 0))
+            for t in targets[:2]:
+                stock = t.get("stock") or {}
+                lost: dict[str, int] = {}
+                for k, v in list(stock.items()):
+                    loss = int(int(v or 0) * stock_pct)
+                    if loss > 0:
+                        lost[k] = loss
+                        stock[k] = max(0, int(v or 0) - loss)
+                if lost:
+                    t["stock"] = stock
+                new_morale = await self._bump_morale(t, morale_delta, "bandit_raid")
+                t["morale"] = new_morale
+                await self.save_node(t)
+                fid = int(t["owner_faction"])
+                rows = await self._fetchall(
+                    "SELECT user_id FROM strategy_players WHERE world_id=? AND faction_id=?",
+                    (world["id"], fid))
+                loss_txt = "、".join(f"{k}×{v}" for k, v in lost.items()) or "无"
+                await self._notify(
+                    world, [r["user_id"] for r in rows], "bandit_raid",
+                    {"node_id": int(t["id"]),
+                     "text": f"匪寨「{node['name']}」劫掠「{t['name']}」："
+                             f"损失 {loss_txt}，民心 {morale_delta}"
+                             f"（现 {new_morale}）"})
+                raided += 1
+            lair["last_raid_tick"] = tick_no
+            node["lair"] = lair
+            await self.save_node(node)
+        if raided:
+            await self._commit()
+        return raided
+
+    # ------------------------------------------------------------------
+    # 会武分档报名（§11）/ 名将堂·英烈祠（§11）
+    # ------------------------------------------------------------------
+    def arena_reward_mult(self, node: Optional[dict] = None) -> float:
+        """会武奖励乘区：战鼓楼 duel.drum_tower_mult × 擂将台（arena）加成。"""
+        mult = float((self.main_cfg().get("duel") or {}).get(
+            "drum_tower_mult", 2.0) or 2.0)
+        if node:
+            mult *= 1.0 + 0.10 * min(5, self._building_level(node, "arena"))
+        return mult
+
+    async def arena_register(self, user_id: str, bracket: str) -> dict:
+        """会武按战功分档报名（novice/veteran/master，不可跨档）。"""
+        world, p = await self._require_player(user_id)
+        dcfg = self.main_cfg().get("duel") or {}
+        my_bracket = R.arena_bracket(int(p.get("merit", 0) or 0))
+        bracket = str(bracket or "").strip() or my_bracket
+        if bracket not in ("novice", "veteran", "master"):
+            raise StrategyError("会武档位无效（novice/veteran/master）")
+        if bracket != my_bracket:
+            names = {"novice": "新秀", "veteran": "宿将", "master": "宗师"}
+            raise StrategyError(
+                f"档位不符：你当前为「{names[my_bracket]}」档，不可跨档报名")
+        fee = int(dcfg.get("arena_stake_min", 100))
+        if int(p.get("coin", 0)) < fee:
+            raise StrategyError(f"铜钱不足：报名费 {fee}")
+        data = world.get("data") or {}
+        arena = data.setdefault("duel_arena", {})
+        season_no = int(world.get("season_no", 1) or 1)
+        key = f"arenaS{season_no}_{bracket}_{user_id}"
+        now = _now()
+        # 清理过期/已结算报名，避免 world.data 膨胀
+        for k in [k for k, v in arena.items()
+                  if str(v.get("state")) in ("signup", "done")
+                  and now > int(v.get("expire_at", 0) or 0)]:
+            arena.pop(k, None)
+        if str((arena.get(key) or {}).get("state")) == "signup":
+            raise StrategyError("已报名本档会武，请等待开赛")
+        f = await self.get_faction(int(p["faction_id"]))
+        cap_node = None
+        if f and int(f.get("capital_node_id") or 0):
+            cap_node = await self.get_node(world["id"], int(f["capital_node_id"]))
+        reward_mult = self.arena_reward_mult(cap_node)
+        p["coin"] = int(p.get("coin", 0)) - fee
+        arena[key] = {"challenger": user_id, "char_id": 0, "char_name": "",
+                      "stake": fee, "state": "signup", "bracket": bracket,
+                      "merit": int(p.get("merit", 0) or 0),
+                      "reward_mult": reward_mult,
+                      "created_at": now, "expire_at": now + 7 * 86400}
+        data["duel_arena"] = arena
+        world["data"] = data
+        await self.save_world(world)
+        await self.save_player(p)
+        await self._commit()
+        await self._audit(user_id, "arena_register", {
+            "bracket": bracket, "fee": fee, "reward_mult": reward_mult})
+        names = {"novice": "新秀", "veteran": "宿将", "master": "宗师"}
+        return {"ok": True, "bracket": bracket, "fee": fee,
+                "reward_mult": reward_mult, "signup_id": key,
+                "msg": f"🥁 已报名「{names[bracket]}」档会武"
+                       f"（报名费 {fee}，奖励 ×{reward_mult:g}）"}
+
+    async def get_memorials(self, world_id: int) -> dict:
+        """名将堂 / 英烈祠（§11）：按赛季倒序，最多各 20 条。"""
+        rows = await self._fetchall(
+            "SELECT * FROM strategy_memorials WHERE world_id=? "
+            "ORDER BY season_no DESC, id DESC", (int(world_id),))
+        hall: list[dict] = []
+        shrine: list[dict] = []
+        season_no = 0
+        for r in rows:
+            season = int(r.get("season_no", 1) or 1)
+            season_no = max(season_no, season)
+            snap = r.get("snapshot_json")
+            if isinstance(snap, str):
+                try:
+                    snap = json.loads(snap or "{}")
+                except (ValueError, TypeError):
+                    snap = {}
+            if not isinstance(snap, dict):
+                snap = {}
+            kind = str(r.get("kind") or "")
+            item = {"name": r.get("char_name") or snap.get("name")
+                    or r.get("user_id") or "",
+                    "rarity": snap.get("rarity", ""),
+                    "faction": r.get("faction_name", ""),
+                    "season": season,
+                    "merit": int(snap.get("merit_season", snap.get("merit", 0)) or 0),
+                    "achievements": snap.get("achievements") or [],
+                    "kind": kind,
+                    "user_id": r.get("user_id", "")}
+            if kind == "fame":
+                # 阵亡/名将陈列 → 英烈祠
+                shrine.append(item)
+            else:
+                # hall_of_fame / season_summary → 名将堂
+                hall.append(item)
+        world = await self.get_world()
+        if world and int(world.get("id", 0) or 0) == int(world_id):
+            season_no = max(season_no, int(world.get("season_no", 0) or 0))
+        return {"hall": hall[:20], "shrine": shrine[:20],
+                "season_no": season_no or 1}
 
     # ------------------------------------------------------------------
     # 赛季（§11）：阶段 / 合纵 / 结算 / 结转 / 追赶
@@ -750,12 +1212,16 @@ class StrategyP3Mixin:
         return 1.0
 
     def player_output_mult(self, p: dict) -> float:
-        """追赶礼包产出加成（14 天 ×1.5，§17）。"""
+        """个人产出加成：追赶礼包（14 天 ×1.5）与荣誉商店开局加成取较高者。"""
         ccfg = self.main_cfg().get("catchup") or {}
+        mult = 1.0
         until = int(((p.get("newcomer") or {}).get("catchup_boost_until", 0)))
         if until > _now():
-            return float(ccfg.get("output_mult", 1.5))
-        return 1.0
+            mult = max(mult, float(ccfg.get("output_mult", 1.5)))
+        boost = (p.get("honor") or {}).get("boost") or {}
+        if int(boost.get("until", 0) or 0) > _now():
+            mult = max(mult, float(boost.get("mult", 1.2) or 1.2))
+        return mult
 
     async def _settle_season(self, world: dict) -> dict:
         """赛季结算：霸权排名 / 荣誉发放 / 英烈祠名将堂 / 老兵结转 / 开新世界。"""
@@ -1003,14 +1469,14 @@ class StrategyP3Mixin:
                                              name_pools=self.cfg.get("names") or {})
                     c.update({"world_id": world["id"], "faction_id": 0,
                               "owner_user_id": "", "loyalty": 50,
-                              "status": "wander",
+                              "status": "wander", "auction_cooldown_until": 0,
                               "location": {"node_id": int(node["id"]),
                                            "origin": "auction"}})
                     await self.insert_char(c)
                     await self._open_auction(world, c, int(node["id"]))
                     open_n += 1
                     logger.info(f"[strategy] 流将 {c['name']}（{rarity}）现身"
-                                f"「{node['name']}」，进入坊市限时竞拍")
+                                f"「{node['name']}」，进入坊市战功暗标")
             elif etype == "bandit_raid":
                 bandits = data.setdefault("bandits", {})
                 for nid in target.get("node_ids") or []:
@@ -1023,12 +1489,16 @@ class StrategyP3Mixin:
                         node["stock"] = {k: max(0, int(v or 0) - int(int(v or 0) * pct))
                                          for k, v in stock.items()}
                     lo, hi = eff.get("troops") or [600, 1200]
-                    node["npc_garrison"] = {"troops": rng.randint(int(lo), int(hi)),
-                                            "morale": 90}
+                    # 有主据点只吃「库存损失」，不得写入 npc_garrison /
+                    # bandits：否则会给受害方凭空加守军，且视图展示为可讨伐
+                    # 但 raid_bandit 要求 owner_faction==0，玩家点了必失败。
+                    if int(node.get("owner_faction", 0) or 0) <= 0:
+                        node["npc_garrison"] = {
+                            "troops": rng.randint(int(lo), int(hi)), "morale": 90}
+                        bandits[str(node["id"])] = {
+                            "spawned_at": _now(), "origin": "event",
+                            "until": _now() + int(eff.get("hours", 24)) * 3600}
                     await self.save_node(node)
-                    bandits[str(node["id"])] = {
-                        "spawned_at": _now(), "origin": "event",
-                        "until": _now() + int(eff.get("hours", 24)) * 3600}
                 dirty = True
             elif etype == "tournament":
                 data["tournament_until_tick"] = int(world.get("tick_no", 0)) + \
@@ -1063,7 +1533,7 @@ class StrategyP3Mixin:
         return False
 
     # ------------------------------------------------------------------
-    # 坊市流将限时竞拍（§11「天降流将」：极品/传世流亡角色，限时竞价）
+    # 坊市流将战功暗标（§11「天降流将」：极品/传世流亡角色，密封竞价）
     # ------------------------------------------------------------------
     def _auction_cfg(self) -> dict:
         return self.main_cfg().get("wanderer_auction") or {}
@@ -1075,47 +1545,199 @@ class StrategyP3Mixin:
         ownerless = [n for n in nodes if int(n["owner_faction"]) == 0]
         return markets or ownerless or nodes
 
-    async def _open_auction(self, world: dict, c: dict, node_id: int) -> int:
-        """把一名在野流将挂上坊市竞拍，返回拍卖 id。"""
+    def _season_progress(self, world: dict) -> float:
+        days = max(1, int(self.main_cfg().get("season_days", 75)))
+        return max(0.0, min(1.0, float(self._season_day(world)) / days))
+
+    async def _world_merit_mult(self, world: dict) -> float:
+        """世界战功水位系数：战功中位数越高，流将底价越贵。"""
         acfg = self._auction_cfg()
-        start = R.wanderer_auction_price(c, acfg)
-        buyout = R.wanderer_buyout_price(start, acfg)
+        ref = max(1.0, float(acfg.get("world_merit_ref", 2000) or 2000))
+        cap = max(1.0, float(acfg.get("world_merit_mult_cap", 2.0) or 2.0))
+        rows = await self._fetchall(
+            "SELECT merit_season FROM strategy_players "
+            "WHERE world_id=? AND merit_season>0", (world["id"],))
+        vals = sorted(int(r["merit_season"] or 0) for r in rows)
+        if not vals:
+            return 1.0
+        median = vals[len(vals) // 2]
+        return max(1.0, min(cap, float(median) / ref))
+
+    async def _auction_access(self, world: dict, p: Optional[dict], row: dict,
+                              now: int) -> dict:
+        """坊市地缘准入：控制方及盟友在优先期可出价，之后向全服开放。"""
+        acfg = self._auction_cfg()
+        node = await self.get_node(world["id"], int(row["node_id"]))
+        controller = int((node or {}).get("owner_faction", 0) or 0)
+        out = {"allowed": True, "access": "open", "reason": "",
+               "controller_faction": controller, "controller_name": "无主",
+               "priority_until": 0}
+        if controller <= 0 or not bool(acfg.get("market_binding", True)):
+            return out
+        cf = await self.get_faction(controller)
+        out["controller_name"] = (cf or {}).get("name", "?")
+        priority_until = int(row.get("created_at", 0)) + int(
+            float(acfg.get("controller_priority_hours", 2) or 0) * 3600)
+        out["priority_until"] = priority_until
+        if not p:
+            out.update({"allowed": False, "reason": "尚未加入仙域争霸"})
+            return out
+        my_fid = int(p.get("faction_id", 0) or 0)
+        my_faction = await self.get_faction(my_fid) if my_fid else None
+        ally_ids = await self._alliance_ids(world["id"], my_faction) \
+            if my_faction else {my_fid}
+        if controller in ally_ids:
+            out["access"] = "controller"
+            return out
+        if now < priority_until:
+            left = max(1, priority_until - now)
+            hours = max(1, (left + 3599) // 3600)
+            out.update({
+                "allowed": False, "access": "priority",
+                "reason": f"「{out['controller_name']}」优先竞价中，约 {hours} 小时后全服开放"})
+            return out
+        out["access"] = "open"
+        return out
+
+    async def _auction_quota_used(self, world: dict, user_id: str,
+                                  rarity: str) -> int:
+        if not user_id:
+            return 0
+        row = await self._fetchone(
+            "SELECT COUNT(*) AS n FROM strategy_char_auctions "
+            "WHERE world_id=? AND season_no=? AND status='settled' "
+            "AND settled_user=? AND rarity=?",
+            (world["id"], int(world.get("season_no", 1) or 1),
+             str(user_id), str(rarity)))
+        return int((row or {}).get("n", 0) or 0)
+
+    async def _auction_pending_wins(self, world: dict, user_id: str,
+                                    rarity: str,
+                                    exclude_auction_id: int = 0) -> int:
+        """统计玩家当前处于最高暗标的其它拍卖（防一人同时锁定多个名额）。"""
+        if not user_id:
+            return 0
+        row = await self._fetchone(
+            "SELECT COUNT(*) AS n FROM strategy_char_auctions a "
+            "WHERE a.world_id=? AND a.season_no=? AND a.status='open' "
+            "AND a.rarity=? AND a.id<>? AND EXISTS ("
+            "  SELECT 1 FROM strategy_auction_bids b "
+            "  WHERE b.auction_id=a.id AND b.user_id=? AND b.status='active' "
+            "    AND b.amount=(SELECT MAX(b2.amount) FROM strategy_auction_bids b2 "
+            "                 WHERE b2.auction_id=a.id AND b2.status='active'))",
+            (world["id"], int(world.get("season_no", 1) or 1), str(rarity),
+             int(exclude_auction_id or 0), str(user_id)))
+        return int((row or {}).get("n", 0) or 0)
+
+    async def _auction_quota_left(self, world: dict, user_id: str,
+                                  rarity: str, exclude_auction_id: int = 0) -> int:
+        acfg = self._auction_cfg()
+        limit = R.wanderer_quota_limit(acfg, rarity)
+        if limit <= 0:
+            return 999
+        used = await self._auction_quota_used(world, user_id, rarity)
+        pending = await self._auction_pending_wins(
+            world, user_id, rarity, exclude_auction_id)
+        return max(0, limit - used - pending)
+
+    async def _refresh_auction_aggregate(self, auction_id: int) -> None:
+        agg = await self._fetchone(
+            "SELECT COUNT(*) AS n, MAX(amount) AS mx "
+            "FROM strategy_auction_bids WHERE auction_id=? AND status='active'",
+            (int(auction_id),)) or {}
+        top = await self._fetchone(
+            "SELECT user_id FROM strategy_auction_bids "
+            "WHERE auction_id=? AND status='active' "
+            "ORDER BY amount DESC, created_at ASC, id ASC LIMIT 1",
+            (int(auction_id),)) or {}
+        await self._execute(
+            "UPDATE strategy_char_auctions SET bid_count=?, current_price=?, "
+            "bidder_user=? WHERE id=?",
+            (int(agg.get("n", 0) or 0), int(agg.get("mx", 0) or 0),
+             str(top.get("user_id", "") or ""), int(auction_id)))
+
+    async def _refund_auction_bid(self, world: dict, bid: dict,
+                                  status: str) -> None:
+        uid = str(bid.get("user_id", "") or "")
+        amount = int(bid.get("amount", 0) or 0)
+        if uid and amount > 0:
+            p = await self.get_player(uid, world["id"])
+            if p:
+                p["merit"] = int(p.get("merit", 0) or 0) + amount
+                await self.save_player(p)
+        await self._execute(
+            "UPDATE strategy_auction_bids SET status=?, updated_at=? WHERE id=?",
+            (str(status), _now(), int(bid["id"])))
+
+    async def _open_auction(self, world: dict, c: dict, node_id: int) -> int:
+        """把一名在野流将挂上坊市暗标，返回拍卖 id。"""
+        acfg = self._auction_cfg()
+        start = R.wanderer_auction_price(
+            c, acfg, self._season_progress(world),
+            await self._world_merit_mult(world))
         now = _now()
         return await self._execute("""
             INSERT INTO strategy_char_auctions (world_id, node_id, char_id,
                 start_price, current_price, buyout_price, bidder_user, bid_count,
-                status, created_at, expire_at)
-            VALUES (?,?,?,?,0,?,'',0,'open',?,?)
+                status, created_at, expire_at, currency, sealed, season_no, rarity)
+            VALUES (?,?,?,?,0,0,'',0,'open',?,?,'merit',1,?,?)
         """, (int(world["id"]), int(node_id), int(c["id"]), int(start),
-              int(buyout), now,
-              now + int(acfg.get("duration_hours", 12)) * 3600))
+              now, now + int(acfg.get("duration_hours", 12)) * 3600,
+              int(world.get("season_no", 1) or 1),
+              str(c.get("rarity", "common") or "common")))
 
     async def get_wanderer_auctions_view(self, world: dict,
                                          user_id: str = "") -> list[dict]:
-        """当前开放的流将竞拍（含倒计时、当前价、下一次最低出价）。"""
+        """当前开放的流将暗标（不泄露他人出价，仅返回人数与自己的暗标）。"""
         acfg = self._auction_cfg()
+        now = _now()
         rows = await self._fetchall(
             "SELECT * FROM strategy_char_auctions WHERE world_id=? "
             "AND status='open' AND expire_at>? ORDER BY expire_at ASC",
-            (world["id"], _now()))
+            (world["id"], now))
         if not rows:
             return []
-        nodes = {n["id"]: n["name"] for n in await self.get_nodes(world["id"])}
+        nodes = {n["id"]: n for n in await self.get_nodes(world["id"])}
         chars = {c["id"]: c for c in await self.get_chars(
             world_id=world["id"], status="wander")}
+        p = await self.get_player(user_id, world["id"]) if user_id else None
+        cap_info = await self._char_cap_info(world["id"], p) if p else None
+        owned = await self._roster_count(user_id, world["id"]) if p else 0
         out = []
         for r in rows:
             c = chars.get(int(r["char_id"]))
             if not c:
                 continue
-            cur = int(r["current_price"] or 0)
-            has = bool(r["bidder_user"])
-            mine = has and str(r["bidder_user"]) == str(user_id)
+            rarity = str(r.get("rarity") or c.get("rarity") or "common")
+            my_bid_row = await self._fetchone(
+                "SELECT * FROM strategy_auction_bids WHERE auction_id=? "
+                "AND user_id=? AND status='active'",
+                (int(r["id"]), str(user_id))) if user_id else None
+            my_bid = int((my_bid_row or {}).get("amount", 0) or 0)
+            bidder_count = int((await self._fetchone(
+                "SELECT COUNT(*) AS n FROM strategy_auction_bids "
+                "WHERE auction_id=? AND status='active'",
+                (int(r["id"]),)) or {}).get("n", 0) or 0)
+            access = await self._auction_access(world, p, r, now)
+            quota_limit = R.wanderer_quota_limit(acfg, rarity)
+            quota_used = await self._auction_quota_used(world, user_id, rarity)
+            quota_left = await self._auction_quota_left(
+                world, user_id, rarity, int(r["id"]))
+            node = nodes.get(int(r["node_id"])) or {}
+            block = ""
+            if not p:
+                block = "尚未加入仙域争霸"
+            elif not access.get("allowed"):
+                block = str(access.get("reason") or "当前不可出价")
+            elif quota_limit > 0 and quota_left <= 0:
+                block = f"本赛季{R.RARITY_NAMES.get(rarity, rarity)}名额已用完"
+            elif cap_info and owned >= int(cap_info["cap"]):
+                block = (f"角色数量已达上限（{owned}/{cap_info['cap']}）"
+                         f"：扩建据点可增加名额")
             out.append({
                 "id": int(r["id"]), "char_id": int(c["id"]),
-                "name": c["name"], "rarity": c.get("rarity", "common"),
-                "rarity_name": R.RARITY_NAMES.get(
-                    c.get("rarity", "common"), c.get("rarity", "")),
+                "name": c["name"], "rarity": rarity,
+                "rarity_name": R.RARITY_NAMES.get(rarity, rarity),
                 "role": c.get("role", ""),
                 "role_name": R.ROLE_NAMES.get(c.get("role", ""), ""),
                 "profession": c.get("profession", ""),
@@ -1126,15 +1748,30 @@ class StrategyP3Mixin:
                 "trait_names": [R.TRAIT_NAMES.get(t, t)
                                 for t in (c.get("traits") or [])],
                 "node_id": int(r["node_id"]),
-                "node_name": nodes.get(int(r["node_id"]), ""),
+                "node_name": node.get("name", ""),
+                "controller_faction": int(access.get("controller_faction", 0) or 0),
+                "controller_name": access.get("controller_name", "无主"),
+                "access": access.get("access", "open"),
+                "access_reason": access.get("reason", ""),
+                "priority_until": int(access.get("priority_until", 0) or 0),
+                "currency": "merit",
+                "sealed": True,
                 "start_price": int(r["start_price"]),
-                "current_price": cur,
-                "bid_count": int(r["bid_count"] or 0),
                 "min_next": R.wanderer_min_bid(
-                    int(r["start_price"]), cur, has, acfg),
-                "buyout_price": int(r["buyout_price"]),
-                "bidder_label": "你" if mine else ("他人" if has else ""),
-                "bidder_is_me": mine,
+                    int(r["start_price"]), 0, False, acfg, own_bid=my_bid),
+                "my_bid": my_bid,
+                "has_my_bid": my_bid > 0,
+                "bidder_count": bidder_count,
+                "bidder_label": "你已出价" if my_bid > 0 else (
+                    f"{bidder_count} 人已出价" if bidder_count else ""),
+                "can_bid": bool(p) and not block,
+                "block_reason": block,
+                "quota_limit": quota_limit,
+                "quota_used": quota_used,
+                "quota_left": quota_left,
+                # 兼容旧前端字段：暗标不再公开当前价/一口价
+                "current_price": 0,
+                "buyout_price": 0,
                 "created_at": int(r["created_at"]),
                 "expire_at": int(r["expire_at"]),
             })
@@ -1142,7 +1779,9 @@ class StrategyP3Mixin:
 
     async def bid_wanderer(self, user_id: str, auction_id: int,
                            amount: int = 0, buyout: bool = False) -> dict:
-        """坊市流将出价（铜钱即时托管，被超价自动退还）。"""
+        """坊市流将暗标出价（战功即时托管，仅自己可见，到期统一开标）。"""
+        if buyout:
+            raise StrategyError("一口价已取消，请使用暗标出价")
         async with self._market_lock:
             world, p = await self._require_player(user_id)
             acfg = self._auction_cfg()
@@ -1153,147 +1792,225 @@ class StrategyP3Mixin:
                 raise StrategyError("拍卖不存在或已结束")
             now = _now()
             if int(row["expire_at"]) <= now:
-                raise StrategyError("拍卖已结束")
-            if str(row["bidder_user"]) == str(user_id):
-                raise StrategyError("你已是当前最高出价者")
+                raise StrategyError("拍卖已结束，等待开标")
             c = await self.get_char(int(row["char_id"]))
             if not c or int(c.get("world_id", 0) or 0) != int(world["id"]) \
                     or c.get("status") != "wander":
                 raise StrategyError("该流将已离去")
-            rcfg = self.main_cfg().get("recruit") or {}
-            cap = int(rcfg.get("character_cap_base", 10)) + \
-                int(rcfg.get("character_cap_per_level", 3)) * 0
-            owned = await self.get_chars(owner_user_id=user_id,
-                                         world_id=world["id"])
-            if len(owned) >= cap:
-                raise StrategyError(f"角色数量已达上限（{cap}）")
-            cur = int(row["current_price"] or 0)
-            has = bool(row["bidder_user"])
-            buyout_price = int(row["buyout_price"] or 0)
-            if bool(buyout) and buyout_price > 0:
-                price = buyout_price
-            else:
-                price = int(amount or 0)
-                min_next = R.wanderer_min_bid(
-                    int(row["start_price"]), cur, has, acfg)
-                if price < min_next:
-                    raise StrategyError(f"出价过低：至少需 {min_next}")
-                if buyout_price > 0 and price >= buyout_price:
-                    price = buyout_price
-            if int(p.get("coin", 0)) < price:
-                raise StrategyError(f"铜钱不足：需 {price}")
-            # 退还上一位出价者的托管铜钱
-            if has:
-                prev = await self.get_player(str(row["bidder_user"]), world["id"])
-                if prev:
-                    prev["coin"] = int(prev.get("coin", 0)) + cur
-                    await self.save_player(prev)
-            p["coin"] = int(p.get("coin", 0)) - price
+            access = await self._auction_access(world, p, row, now)
+            if not access.get("allowed"):
+                raise StrategyError(str(access.get("reason") or "当前不可出价"))
+            rarity = str(row.get("rarity") or c.get("rarity") or "common")
+            quota_left = await self._auction_quota_left(
+                world, user_id, rarity, int(row["id"]))
+            limit = R.wanderer_quota_limit(acfg, rarity)
+            if limit > 0 and quota_left <= 0:
+                used = await self._auction_quota_used(world, user_id, rarity)
+                raise StrategyError(
+                    f"本赛季{R.RARITY_NAMES.get(rarity, rarity)}竞得名额"
+                    f"已用完（{used}/{limit}）")
+            cap_info = await self._char_cap_info(world["id"], p)
+            cap = int(cap_info["cap"])
+            owned = await self._roster_count(user_id, world["id"])
+            if owned >= cap:
+                raise StrategyError(
+                    f"角色数量已达上限（{owned}/{cap}）"
+                    f"：当前据点 {cap_info['nodes']} 座，扩建据点可增加名额")
+            price = int(amount or 0)
+            start = int(row["start_price"] or 0)
+            if price < start:
+                raise StrategyError(f"暗标不能低于底价 {start} 战功")
+            old = await self._fetchone(
+                "SELECT * FROM strategy_auction_bids WHERE auction_id=? "
+                "AND user_id=? AND status='active'",
+                (int(row["id"]), user_id))
+            old_amount = int((old or {}).get("amount", 0) or 0)
+            if price == old_amount:
+                raise StrategyError("暗标金额未变化")
+            delta = price - old_amount
+            if delta > 0 and int(p.get("merit", 0) or 0) < delta:
+                raise StrategyError(
+                    f"战功不足：当前 {int(p.get('merit', 0) or 0)}，"
+                    f"需补 {delta}")
+            p["merit"] = int(p.get("merit", 0) or 0) - delta
             await self.save_player(p)
-            # 防狙击：最后 anti_snipe_sec 内出价自动延时（总延时有上限）
+            if old:
+                await self._execute(
+                    "UPDATE strategy_auction_bids SET amount=?, updated_at=?, "
+                    "status='active' WHERE id=?",
+                    (price, now, int(old["id"])))
+            else:
+                await self._execute("""
+                    INSERT INTO strategy_auction_bids (auction_id, world_id,
+                        user_id, amount, status, created_at, updated_at)
+                    VALUES (?,?,?,?,'active',?,?)
+                """, (int(row["id"]), int(world["id"]), user_id, price,
+                      now, now))
+            await self._refresh_auction_aggregate(int(row["id"]))
+            # 防狙击：最后 anti_snipe_sec 内有人提交/改价则顺延（总延时有上限）
             new_expire = int(row["expire_at"])
             anti = int(acfg.get("anti_snipe_sec", 300))
             max_ext = int(acfg.get("max_extend_sec", 600))
             if anti > 0 and new_expire - now <= anti:
-                limit = int(row["created_at"]) + \
+                limit_ts = int(row["created_at"]) + \
                     int(acfg.get("duration_hours", 12)) * 3600 + max_ext
-                new_expire = min(max(new_expire + anti, now + anti), limit)
+                new_expire = min(max(new_expire + anti, now + anti), limit_ts)
                 if new_expire <= now:
                     new_expire = now + anti
-            n = await self._exec_count(
-                "UPDATE strategy_char_auctions SET current_price=?, bidder_user=?, "
-                "bid_count=bid_count+1, expire_at=? WHERE id=? AND status='open' "
-                "AND current_price=? AND bidder_user=?",
-                (price, user_id, new_expire, int(row["id"]),
-                 cur, str(row["bidder_user"])))
-            if n != 1:
-                await self.db.conn.rollback()
-                raise StrategyError("拍卖已被并发修改，请重试")
-            instant = bool(buyout) or (buyout_price > 0 and price >= buyout_price)
-            if instant:
-                settled = await self._settle_wanderer_auction(
-                    world, row, price, user_id)
+                await self._execute(
+                    "UPDATE strategy_char_auctions SET expire_at=? "
+                    "WHERE id=? AND status='open'",
+                    (new_expire, int(row["id"])))
             await self._commit()
-            if instant:
-                if not settled:
-                    raise StrategyError(
-                        "竞得失败：流将已离去或名册已满，托管铜钱已退还")
-                return {"ok": True,
-                        "msg": f"🏆 一口价竞得 {c['name']}（{price} 铜钱）"}
+            word = "改价" if old else "提交"
             return {"ok": True,
-                    "msg": f"✅ 出价 {price} 铜钱，暂列最高（{c['name']}）"}
+                    "amount": price,
+                    "msg": f"🔒 暗标已{word}：{price} 战功"
+                           f"（仅你可见，到期统一开标；被超价不退还，落标全额退还）"}
 
-    async def _settle_wanderer_auction(self, world: dict, row: dict,
-                                       price: int, user_id: str) -> bool:
-        """把流将交给竞得者；失败（角色已离去/名册满）则退还托管铜钱。"""
+    async def cancel_wanderer_bid(self, user_id: str,
+                                  auction_id: int) -> dict:
+        """撤回自己的暗标，托管战功全额退还。"""
+        async with self._market_lock:
+            world, p = await self._require_player(user_id)
+            row = await self._fetchone(
+                "SELECT * FROM strategy_char_auctions WHERE id=? AND world_id=?",
+                (int(auction_id), world["id"]))
+            if not row or row["status"] != "open":
+                raise StrategyError("拍卖不存在或已结束")
+            if int(row["expire_at"]) <= _now():
+                raise StrategyError("拍卖已结束，等待开标")
+            bid = await self._fetchone(
+                "SELECT * FROM strategy_auction_bids WHERE auction_id=? "
+                "AND user_id=? AND status='active'",
+                (int(row["id"]), user_id))
+            if not bid:
+                raise StrategyError("你没有进行中的暗标")
+            await self._refund_auction_bid(world, bid, "cancelled")
+            await self._refresh_auction_aggregate(int(row["id"]))
+            await self._commit()
+            return {"ok": True,
+                    "msg": f"↩️ 已撤回暗标，退还 {int(bid['amount'])} 战功"}
+
+    async def _expire_wanderer_auction(self, world: dict, row: dict,
+                                       c: Optional[dict], status: str = "expired") -> None:
+        """流拍/无人可交付：退还全部暗标，流将进入游历冷却，不删除角色。"""
         now = _now()
-        c = await self.get_char(int(row["char_id"]))
-        p = await self.get_player(user_id, world["id"]) if user_id else None
-        ok = bool(c) and int(c.get("world_id", 0) or 0) == int(world["id"]) \
-            and c.get("status") == "wander" and not c.get("owner_user_id") \
-            and bool(p)
-        if ok and p:
-            rcfg = self.main_cfg().get("recruit") or {}
-            cap = int(rcfg.get("character_cap_base", 10)) + \
-                int(rcfg.get("character_cap_per_level", 3)) * 0
-            owned = await self.get_chars(owner_user_id=user_id,
-                                         world_id=world["id"])
-            if len(owned) >= cap:
-                ok = False
-        if not ok:
-            if p and int(price) > 0:
-                p["coin"] = int(p.get("coin", 0)) + int(price)
-                await self.save_player(p)
-            await self._execute(
-                "UPDATE strategy_char_auctions SET status='failed', settled_at=? "
-                "WHERE id=?", (now, int(row["id"])))
-            return False
-        c["status"] = "idle"
-        c["owner_user_id"] = user_id
-        c["faction_id"] = int(p["faction_id"])
-        c["loyalty"] = 60
-        await self.save_char(c)
+        bids = await self._fetchall(
+            "SELECT * FROM strategy_auction_bids "
+            "WHERE auction_id=? AND status='active'", (int(row["id"]),))
+        for bid in bids:
+            await self._refund_auction_bid(world, bid, "lost")
+        if c and c.get("status") == "wander" and not c.get("owner_user_id"):
+            acfg = self._auction_cfg()
+            c["auction_cooldown_until"] = now + int(
+                float(acfg.get("roam_days", 7) or 0) * 86400)
+            nodes = await self._auction_nodes(world)
+            cur_id = int((c.get("location") or {}).get("node_id", 0) or 0)
+            choices = [n for n in nodes if int(n["id"]) != cur_id] or nodes
+            if choices:
+                node = choices[now % len(choices)]
+                c["location"] = {"node_id": int(node["id"]),
+                                 "origin": "auction_roam"}
+            await self.save_char(c)
         await self._execute(
-            "UPDATE strategy_char_auctions SET status='settled', settled_at=?, "
-            "settled_user=?, settled_price=? WHERE id=?",
-            (now, user_id, int(price), int(row["id"])))
-        logger.info(f"[strategy] 流将 {c['name']} 以 {price} 铜钱被 {user_id} 竞得")
-        return True
+            "UPDATE strategy_char_auctions SET status=?, settled_at=?, "
+            "bidder_user='', current_price=0 WHERE id=?",
+            (str(status), now, int(row["id"])))
+
+    async def _settle_wanderer_auction(self, world: dict, row: dict) -> bool:
+        """到期开标：最高暗标成交；名额/名册不足则顺延给下一位。"""
+        now = _now()
+        n = await self._exec_count(
+            "UPDATE strategy_char_auctions SET status='settling' "
+            "WHERE id=? AND status='open'", (int(row["id"]),))
+        if n != 1:
+            return False
+        acfg = self._auction_cfg()
+        c = await self.get_char(int(row["char_id"]))
+        bids = await self._fetchall(
+            "SELECT * FROM strategy_auction_bids WHERE auction_id=? "
+            "AND status='active' ORDER BY amount DESC, created_at ASC, id ASC",
+            (int(row["id"]),))
+        if not bids:
+            await self._expire_wanderer_auction(world, row, c, "expired")
+            return False
+        rarity = str((row or {}).get("rarity") or
+                     (c or {}).get("rarity") or "common")
+        limit = R.wanderer_quota_limit(acfg, rarity)
+        for bid in bids:
+            uid = str(bid.get("user_id", "") or "")
+            price = int(bid.get("amount", 0) or 0)
+            p = await self.get_player(uid, world["id"]) if uid else None
+            ok = bool(c) and int(c.get("world_id", 0) or 0) == int(world["id"]) \
+                and c.get("status") == "wander" and not c.get("owner_user_id") \
+                and bool(p)
+            if ok and p:
+                cap_info = await self._char_cap_info(world["id"], p)
+                owned = await self._roster_count(uid, world["id"])
+                if owned >= int(cap_info["cap"]):
+                    ok = False
+            if ok:
+                used = await self._auction_quota_used(world, uid, rarity)
+                if limit > 0 and used >= limit:
+                    ok = False
+            if not ok:
+                await self._refund_auction_bid(world, bid, "invalid")
+                continue
+            c["status"] = "idle"
+            c["owner_user_id"] = uid
+            c["faction_id"] = int(p["faction_id"])
+            c["loyalty"] = 60
+            c["auction_cooldown_until"] = 0
+            await self.save_char(c)
+            await self._execute(
+                "UPDATE strategy_auction_bids SET status='won', updated_at=? "
+                "WHERE id=?", (now, int(bid["id"])))
+            # 其余暗标全额退还
+            others = await self._fetchall(
+                "SELECT * FROM strategy_auction_bids WHERE auction_id=? "
+                "AND status='active'", (int(row["id"]),))
+            for other in others:
+                await self._refund_auction_bid(world, other, "lost")
+            await self._execute(
+                "UPDATE strategy_char_auctions SET status='settled', "
+                "settled_at=?, settled_user=?, settled_price=?, "
+                "current_price=?, bidder_user=? WHERE id=?",
+                (now, uid, price, price, uid, int(row["id"])))
+            logger.info(f"[strategy] 流将 {c['name']} 以 {price} 战功被 {uid} 竞得")
+            await self._notify(
+                world, [uid], "wanderer_auction",
+                {"auction_id": int(row["id"]), "char_id": int(c["id"]),
+                 "text": f"🏆 你以 {price} 战功竞得流将「{c['name']}」"})
+            return True
+        # 所有暗标都因名额/名册失效：流将转入游历
+        await self._expire_wanderer_auction(world, row, c, "failed")
+        return False
 
     async def _step_wanderer_auctions(self, world: dict) -> None:
-        """tick：结算到期竞拍；把尚未挂拍的流将补挂到坊市。"""
+        """tick：到期开标；把冷却结束的在野流将补挂到坊市。"""
         acfg = self._auction_cfg()
         now = _now()
         rows = await self._fetchall(
             "SELECT * FROM strategy_char_auctions WHERE world_id=? "
             "AND status='open' AND expire_at<=?", (world["id"], now))
         for r in rows:
-            if r["bidder_user"]:
-                await self._settle_wanderer_auction(
-                    world, r, int(r["current_price"] or r["start_price"]),
-                    str(r["bidder_user"]))
-            else:
-                # 无人出价：流将遁走，删除角色，避免无限累积
-                await self._execute(
-                    "UPDATE strategy_char_auctions SET status='expired', "
-                    "settled_at=? WHERE id=?", (now, int(r["id"])))
-                await self._execute(
-                    "DELETE FROM strategy_characters WHERE id=? AND status='wander' "
-                    "AND owner_user_id=''", (int(r["char_id"]),))
+            await self._settle_wanderer_auction(world, r)
         # 旧版本遗留流将、离间/俘虏流亡角色统一补挂（每 tick 补到上限）
         cnt = await self._fetchone(
             "SELECT COUNT(*) AS n FROM strategy_char_auctions "
             "WHERE world_id=? AND status='open'", (world["id"],))
         open_n = int((cnt or {}).get("n", 0) or 0)
-        cap = int(acfg.get("max_open_per_world", 6))
+        cap = int(acfg.get("max_open_per_world", 4))
         if open_n < cap:
             pool = await self._fetchall("""
                 SELECT * FROM strategy_characters c
                 WHERE c.world_id=? AND c.status='wander' AND c.owner_user_id=''
+                  AND COALESCE(c.auction_cooldown_until, 0)<=?
                   AND NOT EXISTS (SELECT 1 FROM strategy_char_auctions a
                                   WHERE a.char_id=c.id AND a.status='open')
                 ORDER BY c.id ASC LIMIT ?
-            """, (world["id"], cap - open_n))
+            """, (world["id"], now, cap - open_n))
             cands = await self._auction_nodes(world)
             by_id = {n["id"]: n for n in cands}
             for row in pool:
@@ -1312,4 +2029,4 @@ class StrategyP3Mixin:
         c = await self.get_char(int(char_id))
         if c and int(c.get("world_id", 0) or 0) != int(world["id"]):
             raise StrategyError("对象不在当前世界")
-        raise StrategyError("在野流将已改为坊市限时竞拍，请到坊市出价竞得")
+        raise StrategyError("在野流将已改为坊市战功暗标，请到坊市出价竞得")

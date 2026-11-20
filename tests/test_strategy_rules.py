@@ -154,7 +154,6 @@ class TestCharacterSystem(unittest.TestCase):
             "quality_floor": {"epic": 300, "legend": 360},
             "quality_step": {"epic": 250, "legend": 400},
             "trait_bonus": 2000,
-            "buyout_mult": 2.5,
             "min_increment_abs": 200,
             "min_increment_pct": 0.05,
         }
@@ -166,12 +165,29 @@ class TestCharacterSystem(unittest.TestCase):
         self.assertEqual(R.wanderer_auction_price(epic, acfg),
                          20000 + (330 - 300) * 250 + 2000)
         self.assertEqual(R.wanderer_min_bid(27500, 0, False, acfg), 27500)
-        self.assertEqual(R.wanderer_min_bid(27500, 27500, True, acfg), 28875)
-        self.assertEqual(R.wanderer_buyout_price(10000, acfg), 25000)
+        self.assertEqual(R.wanderer_min_bid(27500, own_bid=27500, acfg=acfg), 28875)
         # 低稀有度流亡角色按低档兜底，不被按极品底价起拍
         common = {"rarity": "common",
                   "stats": {k: 25 for k in R.STAT_KEYS}, "traits": []}
         self.assertLessEqual(R.wanderer_auction_price(common, acfg), 2000)
+
+    def test_wanderer_quota_and_stat_cap(self):
+        acfg = {"season_quota": {"common": 5, "fine": 4, "rare": 3,
+                                 "epic": 2, "legend": 1}}
+        self.assertEqual(R.wanderer_quota_limit(acfg, "common"), 5)
+        self.assertEqual(R.wanderer_quota_limit(acfg, "legend"), 1)
+        self.assertEqual(R.wanderer_quota_limit({}, "epic"), 3)
+        # 生成与成长的单项属性都不应出现 100
+        for rarity in R.RARITIES:
+            for seed in range(20):
+                c = R.generate_character(random.Random(seed), rarity=rarity)
+                self.assertLessEqual(max(c["stats"].values()), R.STAT_HARD_CAP)
+        c = {"exp": 0, "level": 1, "rarity": "legend", "role": "general",
+             "stats": {k: 5 for k in R.STAT_KEYS}}
+        c["stats"]["valor"] = 89
+        R.gain_exp(c, 10_000_000, 30)
+        self.assertLessEqual(max(c["stats"].values()), R.STAT_HARD_CAP)
+        self.assertEqual(c["stats"]["valor"], R.STAT_HARD_CAP)
 
     def test_overstaffed(self):
         leader = {"stats": {"leadership": 50}}  # 50×20 = 1000
@@ -187,6 +203,25 @@ class TestCharacterSystem(unittest.TestCase):
         total = sum(c["stats"].values())
         self.assertLessEqual(total, R.RARITY_STAT_RANGE["common"][1])
 
+    def test_gain_exp_can_exceed_rarity_with_growth_bonus(self):
+        # 满成长后普通角色仍可继续历练 30 点，鼓励长期养成而非反复替换
+        c = {"exp": 0, "level": 1, "rarity": "common", "role": "general",
+             "stats": {k: 15 for k in R.STAT_KEYS}}  # 90，低于凡品生成上限
+        base_cap = R.RARITY_STAT_RANGE["common"][1]
+        R.gain_exp(c, 100_000, 30)
+        self.assertEqual(R.stat_total(c), base_cap + 30)
+        # 达到历练上限后继续加阅历不会突破
+        R.gain_exp(c, 10_000, 30)
+        self.assertEqual(R.stat_total(c), base_cap + 30)
+        self.assertEqual(R.stat_growth_cap(c, 30), base_cap + 30)
+
+    def test_gain_exp_respects_max_level(self):
+        c = {"exp": 0, "level": 1, "rarity": "legend", "role": "general",
+             "stats": {k: 60 for k in R.STAT_KEYS}}
+        R.gain_exp(c, 10_000_000, 30)
+        self.assertLessEqual(c["level"], R.MAX_LEVEL)
+        self.assertLess(c["exp"], R.exp_to_next(R.MAX_LEVEL))
+
 
 class TestTaskSettle(unittest.TestCase):
     def test_settle_task_formula(self):
@@ -199,10 +234,41 @@ class TestTaskSettle(unittest.TestCase):
         # × [0.85,1.15] × 4tick = 1950 ± 15%
         self.assertTrue(1950 * 0.84 <= v <= 1950 * 1.16, v)
 
+    def test_estimate_task_without_random_roll(self):
+        """面板预期收益 = 结算公式去掉 ±15% 随机波动。"""
+        c = {"role": R.ROLE_OFFICIAL, "stats": {"admin": 100}, "traits": ["farming"],
+             "injury": 0}
+        est = R.estimate_task("farm", c, base_per_tick=100, ticks=4,
+                              node_type="grain", node_morale=100)
+        self.assertAlmostEqual(est, 1950.0, places=6)
+        for seed in range(20):
+            v = R.settle_task(random.Random(seed), "farm", c, base_per_tick=100,
+                              ticks=4, node_type="grain", node_morale=100)
+            self.assertTrue(est * 0.85 <= v <= est * 1.15, (seed, v))
+
     def test_task_node_mult(self):
         self.assertEqual(R.task_node_mult("govern", "city"), 1.5)
         self.assertEqual(R.task_node_mult("farm", "grain"), 2.0)
         self.assertEqual(R.task_node_mult("farm", "city"), 1.0)
+        # 采矿：灵脉矿 ×2.0，关隘/遗迹 ×1.3，其他 ×1.0
+        self.assertEqual(R.task_node_mult("mining", "mine"), 2.0)
+        self.assertEqual(R.task_node_mult("mining", "pass"), 1.3)
+        self.assertEqual(R.task_node_mult("mining", "ruin"), 1.3)
+        self.assertEqual(R.task_node_mult("mining", "city"), 1.0)
+
+    def test_mining_task_settle(self):
+        """采矿：武勇主属性 + 武将适配 1.3，非矿据点也能稳定出铁。"""
+        c = {"role": R.ROLE_GENERAL, "stats": {"valor": 100}, "traits": [],
+             "injury": 0}
+        # 20 × (1+100/200) × 1.3 × 1.0(普通据点) × 1.0(民心) × 32tick
+        v_city = R.settle_task(random.Random(1), "mining", c, base_per_tick=20,
+                               ticks=32, node_type="city", node_morale=100)
+        self.assertTrue(1248 * 0.84 <= v_city <= 1248 * 1.16, v_city)
+        # 灵脉矿系数 ×2 → 约为普通据点两倍
+        v_mine = R.settle_task(random.Random(1), "mining", c, base_per_tick=20,
+                               ticks=32, node_type="mine", node_morale=100)
+        self.assertTrue(2496 * 0.84 <= v_mine <= 2496 * 1.16, v_mine)
+        self.assertGreater(v_mine, v_city * 1.7)
 
     def test_role_fit(self):
         off = {"role": R.ROLE_OFFICIAL}
@@ -441,6 +507,258 @@ class TestCaptiveDuelBond(unittest.TestCase):
         self.assertEqual(R.merit_from_battle(1000, winner=False), 50)
         self.assertEqual(R.merit_from_battle(0, True, manual_win=True), 150)
         self.assertEqual(R.veteran_gain(True, siege=True), 5)
+
+
+class TestNpcFavor(unittest.TestCase):
+    """NPC 好感度：档位 / 门槛 / 赠礼换算 / 性格预置 / 结盟加成。"""
+
+    def test_favor_tiers_and_gate(self):
+        self.assertEqual(R.favor_of(None, 3), 0)
+        self.assertEqual(R.favor_of({"3": {"score": 45}}, 3), 45)
+        self.assertEqual(R.favor_tier(45), "friendly")
+        self.assertEqual(R.favor_name(45), "友善")
+        self.assertEqual(R.favor_tier(-70), "hostile")
+        self.assertEqual(R.favor_tier(90), "trusted")
+        # 档位边界
+        self.assertEqual(R.favor_tier(19), "neutral")
+        self.assertEqual(R.favor_tier(20), "friendly")
+        self.assertEqual(R.favor_tier(-20), "cold")
+        self.assertEqual(R.favor_tier(-60), "hostile")
+        # 门槛：结盟 60 / 停战 -20 / 和谈 -40 / 宣战无门槛
+        cfg = {"ally_min": 60, "truce_min": -20, "peace_min": -40}
+        self.assertFalse(R.favor_gate_ok("ally", 59, cfg))
+        self.assertTrue(R.favor_gate_ok("ally", 60, cfg))
+        self.assertFalse(R.favor_gate_ok("truce", -25, cfg))
+        self.assertTrue(R.favor_gate_ok("peace", -35, cfg))
+        self.assertTrue(R.favor_gate_ok("war", -100, cfg))
+        self.assertEqual(R.favor_gate("ally", 0, cfg), 60)
+        self.assertIsNone(R.favor_gate("war", 0, cfg))
+
+    def test_favor_gift_points(self):
+        cfg = {"gift_coin_per_point": 800, "gift_max_points": 30}
+        self.assertEqual(R.favor_gift_points(800, cfg), 1)
+        self.assertEqual(R.favor_gift_points(8000, cfg), 10)
+        self.assertEqual(R.favor_gift_points(100_000, cfg), 30)  # 单次封顶
+        self.assertEqual(R.favor_gift_points(100, cfg), 0)
+
+    def test_favor_aggression(self):
+        cfg = {"npc_peace_favor": 50}
+        self.assertEqual(R.favor_aggression_mult(60, cfg), 0.0)
+        self.assertGreater(R.favor_aggression_mult(-80, cfg), 1.0)
+        self.assertLess(R.favor_aggression_mult(30, cfg), 1.0)
+
+    def test_npc_seed_relation(self):
+        a = {"aggression": 10, "key": "hermit"}
+        b = {"aggression": 20, "key": "developer"}
+        rels = set()
+        scores = []
+        for seed in range(50):
+            rel, score = R.npc_seed_relation(random.Random(seed), a, b)
+            rels.add(rel)
+            scores.append(score)
+        self.assertTrue(rels.issubset({R.REL_NEUTRAL, R.REL_ALLY, R.REL_WAR}))
+        self.assertTrue(all(-100 <= s <= 100 for s in scores))
+        # 同样输入 + 同 seed 可复现
+        self.assertEqual(R.npc_seed_relation(random.Random(7), a, b),
+                         R.npc_seed_relation(random.Random(7), a, b))
+        # 魔道性格更难结盟、更易开战
+        demon = {"aggression": 95, "key": "demonic"}
+        demon_war = sum(R.npc_seed_relation(random.Random(s), a, demon)[0]
+                        == R.REL_WAR for s in range(200))
+        normal_war = sum(R.npc_seed_relation(random.Random(s), a, b)[0]
+                         == R.REL_WAR for s in range(200))
+        self.assertGreater(demon_war, normal_war)
+
+    def test_ally_chance_favor_bonus(self):
+        low = R.ally_accept_chance(50, 0, 0, favor=0)
+        high = R.ally_accept_chance(50, 0, 0, favor=80)
+        self.assertGreater(high, low)
+        self.assertLessEqual(high, 95.0)
+
+
+
+class TestGapFixRules(unittest.TestCase):
+    """v4.1.0 缺口补全（契约 §3 Agent A）：特技 / 夜袭 / 羁绊 / 规则工具。"""
+
+    # ---- 特技 8 条 ----
+    def test_trait_army_mods_all(self):
+        mods = R.trait_army_mods([])
+        self.assertEqual(mods["grain_mult"], 1.0)
+        self.assertEqual(mods["speed_mult"], 1.0)
+        self.assertEqual(mods["defense_mult"], 1.0)
+        self.assertEqual(mods["attack_mult"], 1.0)
+        self.assertEqual(mods["fire_mult"], 1.0)
+        self.assertEqual(mods["recover_pct"], 0.0)
+        swift = R.trait_army_mods(["swift"])
+        self.assertAlmostEqual(swift["speed_mult"], 1.15)
+        self.assertAlmostEqual(swift["grain_mult"], 0.9)
+        self.assertAlmostEqual(R.trait_army_mods(["fire_master"])["fire_mult"], 1.2)
+        doctor = R.trait_army_mods(["doctor"])
+        self.assertAlmostEqual(doctor["recover_pct"], 0.08)
+        self.assertEqual(doctor["injury_reduce"], 1)
+
+    def test_trait_defense_mult_stacks(self):
+        both = R.trait_army_mods(["siege_expert", "ironwall"])["defense_mult"]
+        self.assertAlmostEqual(both, 1.15 * 1.20)
+
+    def test_swift_affects_march_grain_and_pursuit(self):
+        leader = {"stats": {"leadership": 50}, "traits": ["swift"]}
+        base_army = {"troop_type": "sword_shield", "troops": 1000,
+                     "leader": {"stats": {"leadership": 50}, "traits": []}}
+        fast_army = dict(base_army, leader=leader)
+        self.assertAlmostEqual(
+            R.march_speed(fast_army, "plain") / R.march_speed(base_army, "plain"),
+            1.15)
+        self.assertEqual(R.grain_upkeep(fast_army, "plain", False),
+                         int(R.grain_upkeep(base_army, "plain", False) * 0.9))
+
+        def count(**kw):
+            rng = random.Random(9)
+            return sum(R.pursuit_capture(rng, **kw) for _ in range(500))
+
+        plain = count()
+        swift = count(swift=True)
+        cavalry = count(cavalry=True)
+        both = count(cavalry=True, swift=True)
+        self.assertGreater(swift, plain)
+        self.assertGreater(cavalry, plain)
+        self.assertGreater(both, swift)
+
+    def test_garrison_defense_trait(self):
+        def leader(traits):
+            return {"stats": {"leadership": 50}, "profession": "sword",
+                    "traits": traits}
+        army = {"troop_type": "sword_shield", "troops": 1000,
+                "leader": leader([])}
+        base = R.defense_power(army)
+        garrison = R.defense_power(dict(army, leader=leader(["siege_expert", "ironwall"])),
+                                   defending_node=True)
+        field = R.defense_power(dict(army, leader=leader(["siege_expert", "ironwall"])))
+        self.assertAlmostEqual(garrison / base, 1.15 * 1.20)
+        self.assertAlmostEqual(field, base)  # 非守城不加成
+
+    # ---- 规则工具（契约 §2.2）----
+    def test_morale_task_gain(self):
+        cfg = {"governance": {"govern_morale_per_tick": 1.5,
+                              "heal_morale_per_tick": 1.0}}
+        self.assertEqual(R.morale_task_gain("govern", 4, cfg), 6)
+        self.assertEqual(R.morale_task_gain("heal", 4, cfg), 4)
+        self.assertEqual(R.morale_task_gain("farm", 4, cfg), 0)
+        self.assertEqual(R.morale_task_gain("govern", 0, cfg), 0)
+
+    def test_riot_check(self):
+        cfg = {"governance": {"riot_morale": 20, "riot_chance": 1.0}}
+        self.assertTrue(R.riot_check(random.Random(1), 10, cfg))
+        self.assertFalse(R.riot_check(random.Random(1), 20, cfg))
+        self.assertFalse(R.riot_check(random.Random(1), 90, cfg))
+        never = {"governance": {"riot_morale": 20, "riot_chance": 0.0}}
+        self.assertFalse(R.riot_check(random.Random(1), 0, never))
+
+    def test_overstaff_penalty(self):
+        leader = {"stats": {"leadership": 50}}  # 上限 1000
+        cfg = {"army": {"overstaff_morale_penalty": 0.1}}
+        self.assertEqual(R.overstaff_penalty(leader, 1000, cfg), 0)
+        self.assertEqual(R.overstaff_penalty(leader, 1200, cfg), 10)
+        # 直接传子配置块也兼容
+        self.assertEqual(R.overstaff_penalty(leader, 1200,
+                                             {"overstaff_morale_penalty": 0.1}), 10)
+
+    def test_bandit_raid_ready(self):
+        node = {"lair": {"last_raid_tick": 8}}
+        self.assertFalse(R.bandit_raid_ready(node, 15, 8))
+        self.assertTrue(R.bandit_raid_ready(node, 16, 8))
+        as_json = {"lair_json": '{"last_raid_tick": 8}'}
+        self.assertTrue(R.bandit_raid_ready(as_json, 16, 8))
+        self.assertTrue(R.bandit_raid_ready({"lair": {}}, 8, 8))   # 新匪寨从 0 起算
+        self.assertFalse(R.bandit_raid_ready(None, 99, 8))
+
+    def test_mini_event_roll(self):
+        hits = 0
+        for seed in range(400):
+            ev = R.mini_event_roll(random.Random(seed))
+            if ev is None:
+                continue
+            hits += 1
+            self.assertIn("kind", ev)
+            self.assertTrue(ev["text"])
+            self.assertGreaterEqual(ev["mult"], 0.6)
+            self.assertLessEqual(ev["mult"], 1.6)
+        self.assertTrue(20 <= hits <= 80, f"10% 期望命中 40 左右，实际 {hits}")
+
+    def test_arena_bracket(self):
+        self.assertEqual(R.arena_bracket(0), "novice")
+        self.assertEqual(R.arena_bracket(499), "novice")
+        self.assertEqual(R.arena_bracket(500), "veteran")
+        self.assertEqual(R.arena_bracket(1999), "veteran")
+        self.assertEqual(R.arena_bracket(2000), "master")
+
+    # ---- 羁绊 ----
+    def test_maybe_form_yijiao(self):
+        a = {"id": 1, "bonds": {"2": {"type": "tongdao", "battles": 5}}}
+        b = {"id": 2, "bonds": {"1": {"type": "tongdao", "battles": 5}}}
+        self.assertTrue(R.maybe_form_yijiao(a, b, random.Random(1)))
+        self.assertEqual(R.bond_get(a, 2)["type"], "yijiao")
+        self.assertFalse(R.maybe_form_yijiao(a, b, random.Random(1)))  # 幂等
+        # 互救：无 5 战也可按 50% 结义
+        formed = [R.maybe_form_yijiao(
+            {"id": 3, "bonds": {"4": {"type": "tongdao", "battles": 1, "rescued": True}}},
+            {"id": 4, "bonds": {"3": {"type": "tongdao", "battles": 1, "rescued": True}}},
+            random.Random(seed)) for seed in range(20)]
+        self.assertTrue(any(formed) and not all(formed))
+
+    def test_bond_apply_battle_evolution(self):
+        a = {"id": 1, "rarity": "legend", "bonds": {}}
+        b = {"id": 2, "rarity": "common", "bonds": {}}
+        out = R.bond_apply_battle(a, b, won=True)
+        self.assertTrue(out["tongdao"])
+        self.assertFalse(out["yijiao"])
+        for _ in range(4):
+            R.bond_apply_battle(a, b, won=True)
+        self.assertEqual(R.bond_get(a, 2)["type"], "yijiao")  # ≥5 战结义
+        out10 = None
+        for _ in range(5):
+            out10 = R.bond_apply_battle(a, b, won=True)
+        self.assertTrue(out10["shitu"])  # 传世 + 凡品 10 战 → 师徒
+        self.assertEqual(R.bond_get(a, 2)["type"], "shitu")
+
+        # 宿怨：显式标记单挑落败
+        c = {"id": 3, "bonds": {}, "duel_lost_to": 4}
+        d = {"id": 4, "bonds": {}}
+        out2 = R.bond_apply_battle(c, d, won=False)
+        self.assertTrue(out2["suyuan"])
+        self.assertEqual(R.bond_get(c, 4)["type"], "suyuan")
+
+        # 知遇：招募关系战后补登记
+        e = {"id": 5, "bonds": {}, "recruited_by": 6}
+        f = {"id": 6, "bonds": {}}
+        out3 = R.bond_apply_battle(e, f, won=True)
+        self.assertTrue(out3["zhiyu"])
+        self.assertEqual(R.bond_get(e, 6)["type"], "zhiyu")
+
+    def test_maybe_form_suyuan_condition(self):
+        a, b = {"id": 1, "bonds": {}}, {"id": 2, "bonds": {}}
+        self.assertFalse(R.maybe_form_suyuan(a, b))
+        self.assertTrue(R.maybe_form_suyuan(a, b, duel_defeated=True))
+        self.assertEqual(R.bond_get(a, 2)["type"], "suyuan")
+        self.assertFalse(R.maybe_form_suyuan(a, b, killed_bond=True))
+
+    def test_bond_army_morale_bonus(self):
+        a = {"id": 1, "bonds": {"2": {"type": "tongdao", "level": 1}}}
+        b = {"id": 2, "bonds": {"1": {"type": "tongdao", "level": 1}}}
+        c = {"id": 3, "bonds": {"4": {"type": "yijiao", "level": 1}}}
+        d = {"id": 4, "bonds": {"3": {"type": "yijiao", "level": 1}}}
+        self.assertEqual(R.bond_army_morale_bonus([a, b]), 3)
+        self.assertEqual(R.bond_army_morale_bonus([c, d]), 8)
+        self.assertEqual(R.bond_army_morale_bonus([a, b, c, d]), 11)
+        self.assertEqual(R.bond_army_morale_bonus([]), 0)
+        self.assertEqual(R.bond_army_morale_bonus([a]), 0)
+
+    def test_doctor_aftermath(self):
+        doc = {"traits": ["doctor"]}
+        plain = {"traits": []}
+        self.assertEqual(R.doctor_aftermath(doc, 1000, 5), {"recovered": 80, "injury": 4})
+        self.assertEqual(R.doctor_aftermath(plain, 1000, 5), {"recovered": 0, "injury": 5})
+        self.assertEqual(R.doctor_aftermath({}, 0, 0), {"recovered": 0, "injury": 0})
 
 
 if __name__ == "__main__":

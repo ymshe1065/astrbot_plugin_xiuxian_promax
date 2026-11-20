@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>仙域争霸 · 战略大地图</title>
   <link rel="stylesheet" href="./strategy.css">
+  <link rel="stylesheet" href="./guide.css">
 </head>
 <body>
   <!-- 顶栏 -->
@@ -53,6 +54,7 @@
     <aside class="side-pane">
       <nav class="tabs" id="tabs">
         <button class="tab active" data-tab="overview" type="button">总览</button>
+        <button class="tab" data-tab="guide" type="button">指引</button>
         <button class="tab" data-tab="chars" type="button">府邸</button>
         <button class="tab" data-tab="armies" type="button">军团</button>
         <button class="tab" data-tab="faction" type="button">势力</button>
@@ -181,6 +183,8 @@
   </div>
 
   <div class="toast-wrap" id="toastWrap"></div>
+  <script src="./guide-data.js"></script>
+  <script src="./guide.js"></script>
   <script src="./battle.js"></script>
   <script src="./strategy.js"></script>
 </body>

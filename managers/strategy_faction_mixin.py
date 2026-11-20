@@ -5,6 +5,10 @@
 国库存取 / 势力科技 / 外交（宣战·停战·结盟·和谈）/ 声望 /
 治理（继任·僵尸势力崩溃）/ 主城重建 / 护山盾。
 
+v4.1.0 补全（§6.4/§8.7/§10.3/§18）：势力任务（刷新·进度·领取）/
+动员令 / 势力事件（六种 effect）/ 科技指派角色 / 迁都 /
+重建合力（rebuild_fund）/ 入盟观察期（官职·战功）/ 低忠诚出走。
+
 作为 StrategyManager 的 mixin 使用，依赖主类的
 cfg/main_cfg/_fetchall/_execute/_commit/get_*/save_* 等方法。
 临时态（会签/申请/退盟CD/护山盾CD）统一存 strategy_worlds.data_json。
@@ -12,6 +16,7 @@ cfg/main_cfg/_fetchall/_execute/_commit/get_*/save_* 等方法。
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import random
 import time
@@ -76,7 +81,30 @@ class StrategyFactionMixin:
             "contribution, joined_at) VALUES (?,?,?,?,?)",
             (int(faction_id), user_id, position or "",
              int(contribution or 0), int(joined_at or _now())))
+        # §18.4 入盟留痕：供 _settle_merit 判定「24h 内转投」的多开嫌疑
+        await self._record_faction_join(faction_id, user_id)
         return await self.get_member(faction_id, user_id)
+
+    async def _record_faction_join(self, faction_id: int, user_id: str) -> None:
+        """记录一次真实的入盟（仅当玩家当前 faction_id 就是该势力）。
+
+        联盟名册登记（玩家仍在自身势力）不计入，避免结盟误判多开。
+        """
+        try:
+            f = await self.get_faction(int(faction_id))
+            if not f:
+                return
+            p = await self.get_player(str(user_id), int(f["world_id"]))
+            if not p or int(p.get("faction_id") or 0) != int(faction_id):
+                return
+            await self._execute(
+                "INSERT INTO strategy_audit (world_id, user_id, action, "
+                "detail_json, created_at) VALUES (?,?,?,?,?)",
+                (int(f["world_id"]), str(user_id), "faction_join",
+                 json.dumps({"faction_id": int(faction_id)},
+                            ensure_ascii=False), _now()))
+        except Exception:  # noqa: BLE001 - 留痕失败不影响入盟
+            logger.debug("[strategy] 入盟留痕失败", exc_info=True)
 
     async def delete_member(self, faction_id: int, user_id: str):
         await self._execute(
@@ -689,6 +717,12 @@ class StrategyFactionMixin:
                                 f"（{caps.get(position, 1)}）")
         if target.get("position") == "leader":
             raise StrategyError("不能变更主公官职（请走移交）")
+        # §18.4 观察期：入盟不足 min_join_hours_for_position 不可任官
+        hours = int((self.main_cfg().get("security") or {}).get(
+            "min_join_hours_for_position", 0) or 0)
+        if position and hours > 0 and not await self._position_tenure_ok(
+                int(f["id"]), str(target_user), hours):
+            raise StrategyError(f"入盟不足 {hours} 小时，暂不可担任官职（观察期）")
         await self.upsert_member(f["id"], str(target_user), position=position)
         await self._commit()
         cn = POSITION_CN.get(position, position)
@@ -711,6 +745,14 @@ class StrategyFactionMixin:
         if c.get("status") in ("dead", "captive") or \
                 R.injury_state(c.get("injury", 0)) == "dead":
             raise StrategyError("该角色已陨落/被俘，无法任免")
+        # §18.4 观察期：角色主人入盟不足 min_join_hours_for_position 不可任官
+        hours = int((self.main_cfg().get("security") or {}).get(
+            "min_join_hours_for_position", 0) or 0)
+        owner_uid = str(c.get("owner_user_id") or "")
+        if position and hours > 0 and owner_uid and \
+                not await self._position_tenure_ok(int(f["id"]), owner_uid, hours):
+            raise StrategyError(f"该角色主人入盟不足 {hours} 小时，"
+                                "暂不可担任官职（观察期）")
         position = str(position or "").strip()
         if position and position not in R.APPOINTABLE_POSITIONS:
             raise StrategyError("官职无效（主公/副主是玩家治理身份，不属于角色官职）")
@@ -841,6 +883,8 @@ class StrategyFactionMixin:
         await self.save_faction(f)
         await self.save_player(p)
         await self.add_contribution(f["id"], user_id, max(1, amount // 10))
+        # §6.4 势力任务：共襄国库
+        await self._faction_task_progress(f["id"], "donate", amount)
         await self._commit()
         label = "联盟国库" if int(f.get("alliance_id") or 0) else "国库"
         return {"ok": True, "msg": f"存入{label} {resource} ×{amount}"}
@@ -877,7 +921,8 @@ class StrategyFactionMixin:
     # ------------------------------------------------------------------
     # 势力科技（§8.4）
     # ------------------------------------------------------------------
-    async def tech_research(self, user_id: str, line: str) -> dict:
+    async def tech_research(self, user_id: str, line: str,
+                            char_id: int = 0) -> dict:
         world, p = await self._require_player(user_id)
         tcfg = self.main_cfg().get("tech") or {}
         line = str(line)
@@ -901,9 +946,12 @@ class StrategyFactionMixin:
         treasury = f.get("treasury") or {}
         if int(treasury.get("coin", 0)) < cost_coin or int(treasury.get("iron", 0)) < cost_iron:
             raise StrategyError(f"国库不足：研究 L{lvl + 1} 需铜钱 {cost_coin} / 精铁 {cost_iron}")
-        # 耗时：基础小时 × 主属性加速（取本势力在任文官最高智谋/政务）
+        # §8.4 指派 1 名角色「研究」：占用其时间，智谋/政务加速
+        c = await self._pick_research_char(world["id"], f, int(char_id or 0))
+        stat = max(int((c.get("stats") or {}).get("wisdom", 0)),
+                   int((c.get("stats") or {}).get("admin", 0)))
+        # 耗时：基础小时 × 主属性加速（以主研角色的智谋/政务计算）
         base_hours = float((tcfg.get("base_hours_per_level") or [8, 16, 24, 32, 40])[lvl])
-        stat = await self._best_research_stat(f, world["id"])
         hours = R.tech_research_hours(base_hours, stat,
                                       float(tcfg.get("stat_speed_divisor", 10)),
                                       float(tcfg.get("stat_speed_pct", 0.05)))
@@ -918,16 +966,51 @@ class StrategyFactionMixin:
         treasury["iron"] = int(treasury.get("iron", 0)) - cost_iron
         f["treasury"] = treasury
         tech["pending"] = {"line": line, "by": user_id,
-                           "finish_at": _now() + int(hours * 3600)}
+                           "finish_at": _now() + int(hours * 3600),
+                           "char_id": int(c["id"]), "char_name": c.get("name", ""),
+                           "exp": int(tcfg.get("research_exp", 60)) + 20 * lvl}
         f["tech"] = tech
+        c["status"] = "research"
+        await self.save_char(c)
         await self.save_faction(f)
         await self._commit()
+        await self._audit(user_id, "tech_research",
+                          {"faction_id": int(f["id"]), "line": line,
+                           "char_id": int(c["id"]), "hours": round(hours, 2)})
         return {"ok": True,
-                "msg": f"开始研究 {line} L{lvl + 1}（{hours:.1f}h，"
+                "msg": f"开始研究 {line} L{lvl + 1}（{hours:.1f}h，主研 {c['name']}，"
                        f"扣{'联盟' if int(f.get('alliance_id') or 0) else ''}"
                        f"国库铜钱 {cost_coin}/精铁 {cost_iron}"
                        + (f"，科技点抵扣 {cut_min} 分钟" if cut_min > 0 else "")
                        + "）"}
+
+    async def _pick_research_char(self, world_id: int, f: dict,
+                                  char_id: int = 0) -> dict:
+        """§8.4 研究角色：显式指派优先，否则自动挑智谋最高且 idle 者。"""
+        ids = await self._alliance_ids(world_id, f) or {int(f["id"])}
+        if int(char_id or 0) > 0:
+            c = await self.get_char(int(char_id))
+            if not c or int(c.get("faction_id") or 0) not in ids:
+                raise StrategyError("只能指派本势力/联盟内的角色研究")
+            if c.get("status") in ("dead", "captive", "army", "task", "wander") or \
+                    R.injury_state(c.get("injury", 0)) == "dead":
+                raise StrategyError(f"{c['name']} 当前无法研究（{c.get('status')}）")
+            if c.get("status") not in ("idle", "research"):
+                raise StrategyError(f"{c['name']} 正在执行其他任务，无法研究")
+            return c
+        best: Optional[tuple[int, dict]] = None
+        for fid in ids:
+            for c in await self.get_chars(faction_id=int(fid), world_id=world_id,
+                                          status="idle"):
+                if R.injury_state(c.get("injury", 0)) == "dead":
+                    continue
+                st = c.get("stats") or {}
+                score = max(int(st.get("wisdom", 0)), int(st.get("admin", 0)))
+                if best is None or score > best[0]:
+                    best = (score, c)
+        if best is None:
+            raise StrategyError("暂无可指派的空闲角色（研究需 idle 状态角色）")
+        return best[1]
 
     async def _best_research_stat(self, f: dict, world_id: int) -> int:
         best = 50
@@ -959,6 +1042,22 @@ class StrategyFactionMixin:
                     await self.save_faction(f)
                     await self._sync_alliance_meta(f)
                     changed = True
+                    # §8.4 研究完成：主研角色回到 idle 并结算经验
+                    cid = int(pend.get("char_id", 0) or 0)
+                    if cid:
+                        c = await self.get_char(cid)
+                        if c:
+                            if c.get("status") == "research":
+                                c["status"] = "idle"
+                            c["exp"] = int(c.get("exp", 0) or 0) + \
+                                int(pend.get("exp", 0) or 0)
+                            await self.save_char(c)
+                    await self._notify_faction_event(
+                        world, int(f["id"]),
+                        {"event": "tech_done", "line": line,
+                         "text": f"科技 {line} 研究完成（L{tech[line]}）"
+                                 + (f"，{pend.get('char_name', '')} 归队"
+                                    if pend.get("char_name") else "")})
                     logger.info(f"[strategy] 势力#{f['id']} 科技 {line} → L{tech[line]}")
         if changed:
             await self._commit()
@@ -991,6 +1090,240 @@ class StrategyFactionMixin:
         """剔除已覆灭势力的外交记录（结盟计数等仅看存续势力）。"""
         return {k: v for k, v in (dip or {}).items() if str(k) in alive_ids}
 
+    # ------------------------------------------------------------------
+    # 好感度（NPC 外交，§8.3/§9.2）
+    #   diplomacy entry["score"] 即好感度；进入/退出战争、赠礼、通商、
+    #   结盟/停战/和谈、撕毁条约、以及 NPC 盟友/敌人的反应都会增减。
+    # ------------------------------------------------------------------
+    def _favor_cfg(self) -> dict:
+        dcfg = self.main_cfg().get("diplomacy") or {}
+        return dcfg.get("favor") or {}
+
+    @staticmethod
+    def _bump_favor_entry(dip: dict, other_id: int, delta: int,
+                          fcfg: dict) -> int:
+        lo = int(fcfg.get("min", R.FAVOR_MIN))
+        hi = int(fcfg.get("max", R.FAVOR_MAX))
+        entry = dip.setdefault(str(int(other_id)), {"rel": R.REL_NEUTRAL})
+        entry["score"] = max(lo, min(hi, int(entry.get("score", 0) or 0) +
+                                     int(delta)))
+        return int(entry["score"])
+
+    def _apply_favor_delta(self, f: dict, tf: dict, delta: int,
+                           fcfg: Optional[dict] = None) -> int:
+        """双向修改两势力好感（就地写入 f/tf，由调用方统一落盘）。"""
+        if not delta:
+            return R.favor_of(f.get("diplomacy") or {}, tf["id"])
+        cfg = fcfg or self._favor_cfg()
+        if not cfg.get("enabled", True):
+            return R.favor_of(f.get("diplomacy") or {}, tf["id"])
+        f_dip = f.setdefault("diplomacy", {})
+        t_dip = tf.setdefault("diplomacy", {})
+        score = self._bump_favor_entry(f_dip, tf["id"], delta, cfg)
+        self._bump_favor_entry(t_dip, f["id"], delta, cfg)
+        return score
+
+    async def _add_favor(self, fid: int, other_fid: int, delta: int,
+                         reason: str = "") -> int:
+        """独立地给两个势力加好感（自动落到联盟盟主势力）。"""
+        if int(fid) <= 0 or int(other_fid) <= 0 or int(fid) == int(other_fid):
+            return 0
+        cfg = self._favor_cfg()
+        if not cfg.get("enabled", True) or not delta:
+            return 0
+        f = await self._alliance_host(await self.get_faction(int(fid)))
+        tf = await self._alliance_host(await self.get_faction(int(other_fid)))
+        if not f or not tf or int(f["id"]) == int(tf["id"]):
+            return 0
+        score = self._apply_favor_delta(f, tf, int(delta), cfg)
+        await self.save_faction(f)
+        await self.save_faction(tf)
+        await self._sync_alliance_meta(f)
+        await self._sync_alliance_meta(tf)
+        await self._commit()
+        if reason:
+            logger.info(f"[strategy] 好感 {f['id']}→{tf['id']} "
+                        f"{int(delta):+d} → {score}（{reason}）")
+        return score
+
+    async def _favor_third_party(self, world_id: int, actor_f: dict,
+                                 target_f: dict, kind: str,
+                                 fcfg: Optional[dict] = None):
+        """第三方反应：与目标结盟者厌恶、与目标交恶者叫好。"""
+        cfg = fcfg or self._favor_cfg()
+        if not cfg.get("enabled", True):
+            return
+        ally_cost = int(cfg.get("third_party_ally_cost", -10))
+        enemy_gain = int(cfg.get("third_party_enemy_gain", 8))
+        ally_min = int(cfg.get("ally_min", 60))
+        war_favor = int(cfg.get("npc_war_favor", -50))
+        if kind not in ("war", "ally"):
+            return
+        rows = await self._fetchall(
+            "SELECT * FROM strategy_factions WHERE world_id=? AND alive=1 "
+            "AND kind='npc'", (int(world_id),))
+        changed = False
+        for row in rows:
+            c = self._decode("strategy_factions", row)
+            c = await self._alliance_host(c)
+            if int(c["id"]) in (int(actor_f["id"]), int(target_f["id"])):
+                continue
+            rel_target = R.relation_of(c.get("diplomacy") or {},
+                                       int(target_f["id"]), _now())
+            favor_target = R.favor_of(c.get("diplomacy") or {},
+                                      int(target_f["id"]))
+            delta = 0
+            if kind == "war":
+                if rel_target == R.REL_ALLY or favor_target >= ally_min:
+                    delta = ally_cost
+                elif rel_target == R.REL_WAR or favor_target <= war_favor:
+                    delta = enemy_gain
+            elif kind == "ally" and (rel_target == R.REL_WAR or
+                                     favor_target <= war_favor):
+                delta = ally_cost
+            if not delta:
+                continue
+            actor = await self._alliance_host(
+                await self.get_faction(int(actor_f["id"])))
+            if not actor:
+                continue
+            self._apply_favor_delta(actor, c, int(delta), cfg)
+            await self.save_faction(c)
+            await self.save_faction(actor)
+            await self._sync_alliance_meta(actor)
+            changed = True
+        if changed:
+            await self._commit()
+
+    async def _favor_on_war(self, actor_f: dict, target_f: dict,
+                            surprise: bool = False):
+        """宣战 / 突袭：双方好感下降，NPC 盟友与敌人按立场表态。"""
+        cfg = self._favor_cfg()
+        if not cfg.get("enabled", True):
+            return
+        actor = await self._alliance_host(
+            await self.get_faction(int(actor_f["id"])))
+        target = await self._alliance_host(
+            await self.get_faction(int(target_f["id"])))
+        if not actor or not target or int(actor["id"]) == int(target["id"]):
+            return
+        key = "surprise_attack_cost" if surprise else "war_declare_cost"
+        delta = int(cfg.get(key, -20))
+        if surprise:
+            # 未宣战突袭直接进入战争态，避免连续进攻反复扣好感
+            self._set_relation(actor.setdefault("diplomacy", {}),
+                               int(target["id"]), R.REL_WAR, war_at=_now())
+            self._set_relation(target.setdefault("diplomacy", {}),
+                               int(actor["id"]), R.REL_WAR, war_at=_now())
+        self._apply_favor_delta(actor, target, delta, cfg)
+        await self.save_faction(actor)
+        await self.save_faction(target)
+        await self._sync_alliance_meta(actor)
+        await self._sync_alliance_meta(target)
+        await self._commit()
+        await self._favor_third_party(int(actor["world_id"]), actor,
+                                      target, "war", cfg)
+
+    async def _step_favor_decay(self, world: dict):
+        """每日好感向 0 缓慢回落（热情与仇恨都会随时间淡化）。"""
+        cfg = self._favor_cfg()
+        per_day = int(cfg.get("decay_per_day", 0) or 0)
+        if not cfg.get("enabled", True) or per_day <= 0:
+            return
+        day = _now() // 86400
+        data = world.get("data") or {}
+        if int(data.get("favor_decay_day", 0) or 0) >= day:
+            return
+        data["favor_decay_day"] = day
+        world["data"] = data
+        rows = await self._fetchall(
+            "SELECT * FROM strategy_factions WHERE world_id=? AND alive=1 "
+            "AND kind='npc'", (int(world["id"]),))
+        changed = False
+        for row in rows:
+            f = self._decode("strategy_factions", row)
+            dip = f.get("diplomacy") or {}
+            dirty = False
+            for v in dip.values():
+                if not isinstance(v, dict):
+                    continue
+                score = int(v.get("score", 0) or 0)
+                if score > 0:
+                    v["score"] = max(0, score - per_day)
+                elif score < 0:
+                    v["score"] = min(0, score + per_day)
+                else:
+                    continue
+                dirty = changed = True
+            if dirty:
+                f["diplomacy"] = dip
+                await self.save_faction(f)
+        if changed:
+            await self.save_world(world)
+            await self._commit()
+
+    async def seed_npc_diplomacy(self, world_id: int, factions: list[dict],
+                                 rng: random.Random):
+        """按性格给 NPC 之间预置外交关系与初始好感（只补缺失的双边记录）。"""
+        cfg = self._favor_cfg()
+        ids = [int(x["id"]) for x in factions]
+        if len(ids) < 2:
+            return
+        marks = ",".join("?" for _ in ids)
+        rows = await self._fetchall(
+            f"SELECT id, diplomacy_json FROM strategy_factions WHERE id IN ({marks})",
+            tuple(ids))
+        dips: dict[int, dict] = {}
+        for row in rows:
+            try:
+                dips[int(row["id"])] = json.loads(row["diplomacy_json"] or "{}")
+            except (TypeError, ValueError):
+                dips[int(row["id"])] = {}
+        changed = False
+        for i in range(len(factions)):
+            for j in range(i + 1, len(factions)):
+                a, b = factions[i], factions[j]
+                aid, bid = int(a["id"]), int(b["id"])
+                da = dips.setdefault(aid, {})
+                db = dips.setdefault(bid, {})
+                if da.get(str(bid)) or db.get(str(aid)):
+                    continue
+                rel, favor = R.npc_seed_relation(
+                    rng, a.get("personality"), b.get("personality"), cfg)
+                entry = {"rel": rel, "score": int(favor)}
+                if rel == R.REL_WAR:
+                    entry["war_at"] = 0  # NPC 之间直接进入战争
+                da[str(bid)] = dict(entry)
+                db[str(aid)] = dict(entry)
+                changed = True
+        if not changed:
+            return
+        for fid, dip in dips.items():
+            await self._execute(
+                "UPDATE strategy_factions SET diplomacy_json=? WHERE id=?",
+                (json.dumps(dip, ensure_ascii=False), int(fid)))
+        await self._commit()
+        logger.info(f"[strategy] 世界#{world_id} NPC 外交预置完成"
+                    f"（{len(factions)} 家）")
+
+    async def ensure_npc_diplomacy(self, world: dict):
+        """旧存档补齐：为缺失的 NPC 双边关系补种（不覆盖已有外交）。"""
+        rows = await self._fetchall(
+            "SELECT id, personality_json, diplomacy_json FROM strategy_factions "
+            "WHERE world_id=? AND kind='npc' AND alive=1", (int(world["id"]),))
+        if len(rows) < 2:
+            return
+        factions = []
+        for row in rows:
+            try:
+                pers = json.loads(row["personality_json"] or "{}")
+            except (TypeError, ValueError):
+                pers = {}
+            factions.append({"id": int(row["id"]), "personality": pers})
+        rng = self._rng("npc_diplomacy_seed", int(world["id"]))
+        await self.seed_npc_diplomacy(int(world["id"]), factions, rng)
+
+
     async def diplomacy_propose(self, user_id: str, target_fid: int, kind: str,
                                 indemnity: int = 0) -> dict:
         """外交提案：war（宣战，立即进入备战）/ truce / ally / peace（和谈赔款）。"""
@@ -1012,6 +1345,8 @@ class StrategyFactionMixin:
         f_dip = f.get("diplomacy") or {}
         t_dip = tf.get("diplomacy") or {}
         cur = R.relation_of(f_dip, tf["id"], now)
+        fcfg = dcfg.get("favor") or {}
+        is_npc = str(tf.get("kind") or "") == "npc"
         if kind == "war":
             if cur in ("war", "war_pending"):
                 raise StrategyError("双方已处于战争状态")
@@ -1028,11 +1363,14 @@ class StrategyFactionMixin:
             self._set_relation(t_dip, f["id"], R.REL_WAR, war_at=now + prep)
             f["diplomacy"] = f_dip
             tf["diplomacy"] = t_dip
+            # 宣战/背盟：双方好感下降，NPC 盟友与敌人按立场表态
+            self._apply_favor_delta(f, tf, int(fcfg.get("war_declare_cost", -25)), fcfg)
             await self.save_faction(f)
             await self.save_faction(tf)
             await self._sync_alliance_meta(f)
             await self._sync_alliance_meta(tf)
             await self._commit()
+            await self._favor_third_party(world["id"], f, tf, "war", fcfg)
             return {"ok": True,
                     "msg": f"⚔️ 已向「{tf['name']}」宣战！备战期 {prep // 3600} 小时后全面开战"}
         if kind == "peace":
@@ -1055,6 +1393,15 @@ class StrategyFactionMixin:
         if kind == "truce":
             if cur not in ("war", "war_pending"):
                 raise StrategyError("仅在战争状态下可提出停战")
+        # 对 NPC 的外交行为设有好感门槛（宣战无门槛）
+        if is_npc and kind in ("ally", "truce", "peace"):
+            need = R.favor_gate(kind, 0, fcfg)
+            favor = R.favor_of(f_dip, tf["id"])
+            if need is not None and favor < need:
+                raise StrategyError(
+                    f"「{tf['name']}」对你好感不足（{favor}，"
+                    f"{self._kind_cn(kind)}需 {need}，当前{R.favor_name(favor)}）"
+                    f"，可先赠礼或与其通商提升好感")
         # --- 提案（对方为玩家 → 等待回应；NPC → 立即掷点）---
         if tf.get("kind") == "npc":
             accepted = self._npc_diplomacy_roll(world, f, tf, kind, indemnity, dcfg)
@@ -1085,20 +1432,25 @@ class StrategyFactionMixin:
     def _npc_diplomacy_roll(self, world: dict, f: dict, tf: dict, kind: str,
                             indemnity: int, dcfg: dict) -> bool:
         rng = self._rng("diplomacy", f["id"], tf["id"], kind, _now() // 3600)
+        fcfg = dcfg.get("favor") or {}
+        favor = R.favor_of(tf.get("diplomacy") or {}, f["id"])
         if kind == "truce":
-            return rng.random() < 0.7
+            return rng.random() < max(0.35, min(0.95, 0.7 + favor / 250.0))
         if kind == "ally":
             charm = 50
             base = float(dcfg.get("ally_base_chance", 40))
             chance = R.ally_accept_chance(
                 charm, int(f.get("reputation", 0)), int(tf.get("reputation", 0)),
                 base=base, charm_div=float(dcfg.get("ally_charm_divisor", 4)),
-                rep_div=float(dcfg.get("ally_rep_divisor", 2)))
+                rep_div=float(dcfg.get("ally_rep_divisor", 2)),
+                favor=favor,
+                favor_div=float(fcfg.get("ally_favor_divisor", 2)))
             return rng.random() * 100 < chance
         if kind == "peace":
             cap = max(1, int(int((f.get("treasury") or {}).get("coin", 0)) *
                              float(dcfg.get("peace_indemnity_cap_pct", 0.2))))
-            chance = min(0.9, 0.3 + 0.6 * int(indemnity) / cap)
+            chance = min(0.95, max(0.1, 0.3 + 0.6 * int(indemnity) / cap
+                                   + favor / 300.0))
             return rng.random() < chance
         return False
 
@@ -1122,6 +1474,15 @@ class StrategyFactionMixin:
         elif kind == "ally":
             self._set_relation(f_dip, tf["id"], R.REL_ALLY)
             self._set_relation(t_dip, f["id"], R.REL_ALLY)
+        elif kind == "war":
+            prep = int(dcfg.get("war_prep_hours", 24)) * 3600
+            self._set_relation(f_dip, tf["id"], R.REL_WAR, war_at=now + prep)
+            self._set_relation(t_dip, f["id"], R.REL_WAR, war_at=now + prep)
+        fcfg = dcfg.get("favor") or {}
+        favor_key = {"war": "war_declare_cost", "truce": "truce_sign_gain",
+                     "peace": "peace_sign_gain", "ally": "ally_sign_gain"}.get(kind)
+        if favor_key:
+            self._apply_favor_delta(f, tf, int(fcfg.get(favor_key, 0)), fcfg)
         f["diplomacy"] = f_dip
         tf["diplomacy"] = t_dip
         await self.save_faction(f)
@@ -1129,10 +1490,102 @@ class StrategyFactionMixin:
         await self._sync_alliance_meta(f)
         await self._sync_alliance_meta(tf)
         await self._commit()
+        if kind in ("war", "ally"):
+            await self._favor_third_party(int(f["world_id"]), f, tf, kind, fcfg)
         if kind == "ally":
             for uid in (f.get("leader_id"), tf.get("leader_id")):
                 if uid:
                     await self._award_achievement(uid, "social_ally")
+
+    async def diplomacy_gift(self, user_id: str, target_fid: int,
+                             resource: str = "coin", amount: int = 0) -> dict:
+        """向 NPC 势力赠礼：按价值换算好感，每日有上限。"""
+        world, p = await self._require_player(user_id)
+        fcfg = self._favor_cfg()
+        if not fcfg.get("enabled", True):
+            raise StrategyError("当前世界未开放好感度系统")
+        f = await self._governance_faction(p)
+        if not f or f.get("kind") == "npc":
+            raise StrategyError("当前不在玩家势力中")
+        await self._require_position(f, user_id, OFFICER_POSITIONS)
+        tf = await self.get_faction(int(target_fid))
+        if not tf or not int(tf.get("alive", 0)):
+            raise StrategyError("目标势力无效")
+        if str(tf.get("kind") or "") != "npc":
+            raise StrategyError("赠礼仅可对 NPC 势力发起")
+        tf = await self._alliance_host(tf)
+        resource = str(resource)
+        amount = int(amount)
+        if resource not in ("coin", "grain", "iron"):
+            raise StrategyError("仅可赠送 coin/grain/iron")
+        if amount <= 0:
+            raise StrategyError("赠礼数量须为正")
+        if int(p.get(resource, 0)) < amount:
+            raise StrategyError(f"{resource} 不足（现有 {int(p.get(resource, 0))}）")
+        values = fcfg.get("gift_resource_value") or {}
+        value = amount * float(values.get(resource, 1))
+        points = R.favor_gift_points(value, fcfg)
+        if points <= 0:
+            per = int(fcfg.get("gift_coin_per_point", 800))
+            raise StrategyError(f"赠礼价值过低（约 {per} 币 = 1 点好感）")
+        f_dip = f.setdefault("diplomacy", {})
+        entry = f_dip.setdefault(str(int(tf["id"])),
+                                 {"rel": R.REL_NEUTRAL})
+        day = _now() // 86400
+        if int(entry.get("gift_day", 0) or 0) != day:
+            entry["gift_day"] = day
+            entry["gift_gain"] = 0
+        cap = max(0, int(fcfg.get("gift_daily_cap", 40)))
+        gained = int(entry.get("gift_gain", 0) or 0)
+        if gained >= cap:
+            raise StrategyError(f"今日对「{tf['name']}」的赠礼好感已达上限（{cap}）")
+        points = min(points, cap - gained)
+        entry["gift_gain"] = gained + points
+        p[resource] = int(p.get(resource, 0)) - amount
+        score = self._apply_favor_delta(f, tf, points, fcfg)
+        await self.save_player(p)
+        await self.save_faction(f)
+        await self.save_faction(tf)
+        await self._sync_alliance_meta(f)
+        await self._sync_alliance_meta(tf)
+        await self._commit()
+        return {"ok": True,
+                "favor": int(score), "favor_name": R.favor_name(score),
+                "msg": f"🎁 向「{tf['name']}」赠送 {resource} ×{amount}，"
+                       f"好感 +{points}（现为 {score}·{R.favor_name(score)}）"}
+
+    async def add_trade_favor(self, fid: int, seller_fid: int) -> int:
+        """与 NPC 势力通商（坊市成交）后提升好感，每日有上限。"""
+        fcfg = self._favor_cfg()
+        if not fcfg.get("enabled", True):
+            return 0
+        f = await self._alliance_host(await self.get_faction(int(fid)))
+        tf = await self.get_faction(int(seller_fid))
+        if not f or not tf or int(tf["id"]) == int(f["id"]):
+            return 0
+        if str(tf.get("kind") or "") != "npc" or not int(tf.get("alive", 0)):
+            return 0
+        tf = await self._alliance_host(tf)
+        f_dip = f.setdefault("diplomacy", {})
+        entry = f_dip.setdefault(str(int(tf["id"])),
+                                 {"rel": R.REL_NEUTRAL})
+        day = _now() // 86400
+        if int(entry.get("trade_day", 0) or 0) != day:
+            entry["trade_day"] = day
+            entry["trade_gain"] = 0
+        cap = max(0, int(fcfg.get("trade_daily_cap", 10)))
+        gained = int(entry.get("trade_gain", 0) or 0)
+        if gained >= cap:
+            return 0
+        points = min(max(1, int(fcfg.get("trade_gain", 1))), cap - gained)
+        entry["trade_gain"] = gained + points
+        score = self._apply_favor_delta(f, tf, points, fcfg)
+        await self.save_faction(f)
+        await self.save_faction(tf)
+        await self._sync_alliance_meta(f)
+        await self._sync_alliance_meta(tf)
+        await self._commit()
+        return int(score)
 
     async def diplomacy_respond(self, user_id: str, from_fid: int,
                                 accept: bool) -> dict:
@@ -1210,11 +1663,14 @@ class StrategyFactionMixin:
         tf_dip = tf.setdefault("diplomacy", {})
         self._set_relation(f_dip, dfn_fid, R.REL_WAR, war_at=now)
         self._set_relation(tf_dip, atk_fid, R.REL_WAR, war_at=now)
+        fcfg = dcfg.get("favor") or {}
+        self._apply_favor_delta(f, tf, int(fcfg.get("treaty_break_cost", -30)), fcfg)
         await self.save_faction(f)
         await self.save_faction(tf)
         await self._sync_alliance_meta(f)
         await self._sync_alliance_meta(tf)
         await self._commit()
+        await self._favor_third_party(int(world["id"]), f, tf, "war", fcfg)
         logger.info(f"[strategy] 势力#{atk_fid} 撕毁条约进攻 #{dfn_fid}，转入战争")
         return True
 
@@ -1224,6 +1680,7 @@ class StrategyFactionMixin:
     async def _step_governance(self, world: dict):
         gcfg = self.main_cfg().get("governance") or {}
         now = _now()
+        await self._step_favor_decay(world)
         # 过期外交提案清理（propose_* 残留条目，避免面板/关系判定长期背负脏数据）
         for row in await self._fetchall(
                 "SELECT id FROM strategy_factions WHERE world_id=? AND alive=1",
@@ -1400,8 +1857,26 @@ class StrategyFactionMixin:
         cost = R.rebuild_gold_cost(int(rcfg.get("base_gold_cost", 3_000_000)),
                                    int(f.get("rebuild_count", 0)),
                                    float(rcfg.get("cost_growth", 0.5)))
-        if not await self._deduct_main_gold(user_id, cost):
-            raise StrategyError(f"主玩法灵石不足：重建需 {cost:,}")
+        # §8.7 重建合力：先扣 rebuild_fund（以灵石计价），国库铜钱按
+        # ``rebuild.coin_per_gold`` 折算抵充，不足部分由发起人补主玩法灵石；
+        # 成功后合力资金清零。
+        treasury = dict(f.get("treasury") or {})
+        fund = max(0, int(f.get("rebuild_fund") or 0))
+        # 国库铜钱按 rebuild.coin_per_gold 折算灵石（默认 1000:1）
+        coin_per_gold = max(1, int(rcfg.get("coin_per_gold", 1000) or 1000))
+        coin_gold = max(0, int(treasury.get("coin", 0) or 0)) // coin_per_gold
+        covered = min(int(cost), fund + coin_gold)
+        gold_need = int(cost) - covered
+        use_fund = min(fund, covered)
+        use_coin = (covered - use_fund) * coin_per_gold
+        if gold_need > 0 and not await self._deduct_main_gold(user_id, gold_need):
+            raise StrategyError(
+                f"重建资金不足：还需灵石 {gold_need:,}"
+                f"（国库+合力已抵 {covered:,}/{int(cost):,}）")
+        if use_coin > 0:
+            treasury["coin"] = int(treasury.get("coin", 0)) - int(use_coin)
+            f["treasury"] = treasury
+        f["rebuild_fund"] = 0
         if not owned:
             # 流亡重建：无主残军自动散尽，据点归入本势力后再设为主城
             node["owner_faction"] = int(f["id"])
@@ -1411,18 +1886,35 @@ class StrategyFactionMixin:
                 node["defense"] = R.city_defense_max(max(1, int(node.get("level", 1))))
         f["capital_node_id"] = int(node["id"])
         f["rebuild_count"] = int(f.get("rebuild_count", 0)) + 1
+        f["faction_state"] = "normal"
         await self.save_faction(f)
+        await self._execute(
+            "UPDATE strategy_factions SET rebuild_fund=0 WHERE id=?", (int(f["id"]),))
         node["protect_until"] = _now() + int(rcfg.get("protect_days", 7)) * 86400
         node["level"] = max(int(node.get("level", 1)),
                             int(rcfg.get("new_capital_level", 1)))
         await self.save_node(node)
         log = p.get("rebuild_pay_log") or []
-        log.append({"at": _now(), "cost": cost, "node_id": int(node["id"])})
+        log.append({"at": _now(), "cost": int(cost), "node_id": int(node["id"]),
+                    "from_fund": int(use_fund), "from_treasury": int(use_coin),
+                    "from_gold": int(gold_need)})
         p["rebuild_pay_log"] = log[-20:]
         await self.save_player(p)
         await self._commit()
+        await self._audit(user_id, "rebuild_capital",
+                          {"faction_id": int(f["id"]), "node_id": int(node["id"]),
+                           "cost": int(cost), "from_fund": int(use_fund),
+                           "from_treasury": int(use_coin),
+                           "from_gold": int(gold_need)})
+        parts = []
+        if use_fund:
+            parts.append(f"合力 -{use_fund:,}")
+        if use_coin:
+            parts.append(f"国库 -{use_coin:,}")
+        if gold_need:
+            parts.append(f"灵石 -{gold_need:,}")
         return {"ok": True,
-                "msg": f"🏯 主城迁至「{node['name']}」（灵石 -{cost:,}，"
+                "msg": f"🏯 主城迁至「{node['name']}」（{'、'.join(parts) or '无需付费'}，"
                        f"{int(rcfg.get('protect_days', 7))} 天保护期）"}
 
     async def buy_shield(self, user_id: str, node_id: int) -> dict:
@@ -1452,6 +1944,786 @@ class StrategyFactionMixin:
         await self.save_player(p)
         await self._commit()
         return {"ok": True, "msg": f"🛡「{node['name']}」护山盾已展开（{hours}h 免战）"}
+
+    # ==================================================================
+    # v4.1.0 势力缺口补全（设计稿 §6.4 / §8.4 / §8.6 / §8.7 / §10.3 / §18）
+    # ==================================================================
+    # ------------------------------------------------------------------
+    # 通知助手（势力全员；失败静默）
+    # ------------------------------------------------------------------
+    async def _notify_faction_event(self, world: dict, faction_id: int,
+                                    payload: dict) -> None:
+        """向某势力全体成员推送一条事件通知（§12.5）。"""
+        try:
+            rows = await self._fetchall(
+                "SELECT user_id FROM strategy_players WHERE world_id=? AND faction_id=?",
+                (int(world["id"]), int(faction_id)))
+            uids = [str(r["user_id"]) for r in rows]
+            if uids:
+                await self._notify(world, uids, "event", payload)
+        except Exception:  # noqa: BLE001 - 通知失败不影响主流程
+            logger.debug("[strategy] 势力通知失败", exc_info=True)
+
+    # ------------------------------------------------------------------
+    # 势力任务（§6.4：高层发布集体目标，按贡献发放战功）
+    # ------------------------------------------------------------------
+    def _faction_task_cfg(self) -> dict:
+        return self.main_cfg().get("faction_task") or {}
+
+    def _faction_task_slots(self) -> int:
+        return max(0, int((self.main_cfg().get("governance") or {}).get(
+            "faction_task_slots", 3)))
+
+    async def get_faction_tasks(self, faction_id: int,
+                                status: str = "") -> list[dict]:
+        sql = ("SELECT * FROM strategy_faction_tasks WHERE faction_id=?")
+        params: list = [int(faction_id)]
+        if status:
+            sql += " AND status=?"
+            params.append(str(status))
+        sql += " ORDER BY id DESC"
+        return await self._fetchall(sql, tuple(params))
+
+    @staticmethod
+    def _task_reward(task: dict) -> dict:
+        try:
+            return json.loads(task.get("reward_json") or "{}") or {}
+        except (TypeError, ValueError):
+            return {}
+
+    async def _generate_faction_tasks(self, world: dict, f: dict,
+                                      count: Optional[int] = None) -> list[dict]:
+        """按 slots 随机生成势力任务（status=open，end_at=now+duration_hours）。"""
+        tcfg = self._faction_task_cfg()
+        types = tcfg.get("types") or {}
+        if not types:
+            return []
+        slots = self._faction_task_slots() if count is None else max(0, int(count))
+        if slots <= 0:
+            return []
+        now = _now()
+        end_at = now + int(tcfg.get("duration_hours", 24)) * 3600
+        rng = self._rng("faction_task", int(f["id"]),
+                        int(world.get("tick_no", 0)), now)
+        keys = list(types.keys())
+        out: list[dict] = []
+        for _ in range(slots):
+            key = rng.choice(keys)
+            spec = types.get(key) or {}
+            title = str(spec.get("name") or key)
+            target = max(1, int(spec.get("target", 1) or 1))
+            reward = {"merit": max(0, int(spec.get("reward_merit", 0) or 0))}
+            tid = await self._execute(
+                "INSERT INTO strategy_faction_tasks (world_id, faction_id, task_type, "
+                "title, progress, target, reward_json, status, start_at, end_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (int(world["id"]), int(f["id"]), key, title, 0, target,
+                 json.dumps(reward, ensure_ascii=False), "open", now, end_at))
+            out.append({"id": int(tid), "faction_id": int(f["id"]),
+                        "task_type": key, "title": title, "progress": 0,
+                        "target": target, "reward": reward, "status": "open",
+                        "start_at": now, "end_at": end_at})
+        return out
+
+    async def faction_task_refresh(self, user_id: str) -> dict:
+        """手动刷新势力任务（势力主/副主/祭酒，每 refresh_hours 一次）。"""
+        world, p = await self._require_player(user_id)
+        f = await self._governance_faction(p)
+        if not f or f.get("kind") == "npc":
+            raise StrategyError("当前不在玩家势力中")
+        await self._require_position(f, user_id, ("leader", "deputy", "jijiu"))
+        tcfg = self._faction_task_cfg()
+        hours = int(tcfg.get("refresh_hours", 12) or 0)
+        now = _now()
+        data = world.get("data") or {}
+        cd = data.get("faction_task_refresh") or {}
+        last = int(cd.get(str(f["id"]), 0) or 0)
+        if hours > 0 and last and now - last < hours * 3600:
+            left = (hours * 3600 - (now - last) + 3599) // 3600
+            raise StrategyError(f"势力任务刷新冷却中（还剩 {left} 小时）")
+        slots = self._faction_task_slots()
+        open_tasks = await self.get_faction_tasks(int(f["id"]), "open")
+        if len(open_tasks) >= slots:
+            raise StrategyError(
+                f"当前已有 {len(open_tasks)} 条进行中的势力任务，请先完成再刷新")
+        tasks = await self._generate_faction_tasks(
+            world, f, slots - len(open_tasks))
+        cd[str(f["id"])] = now
+        data["faction_task_refresh"] = cd
+        world["data"] = data
+        await self.save_world(world)
+        await self._commit()
+        await self._audit(user_id, "faction_task_refresh",
+                          {"faction_id": int(f["id"]), "count": len(tasks),
+                           "manual": True})
+        return {"ok": True, "tasks": open_tasks + tasks,
+                "msg": f"📜 势力任务已刷新（新增 {len(tasks)} 条，"
+                       f"{int(tcfg.get('duration_hours', 24))}h 内有效）"}
+
+    async def faction_task_claim(self, user_id: str, task_id: int) -> dict:
+        """领取已达标的势力任务奖励（战功，受 §18.4 观察期限制）。"""
+        world, p = await self._require_player(user_id)
+        f = await self._governance_faction(p)
+        if not f or f.get("kind") == "npc":
+            raise StrategyError("当前不在玩家势力中")
+        row = await self._fetchone(
+            "SELECT * FROM strategy_faction_tasks WHERE id=? AND world_id=?",
+            (int(task_id), int(world["id"])))
+        if not row:
+            raise StrategyError("势力任务不存在")
+        task = dict(row)
+        if int(task.get("faction_id", 0)) != int(f["id"]):
+            raise StrategyError("该势力任务不属于你的势力")
+        if str(task.get("status")) != "open":
+            raise StrategyError("该势力任务已完成或已过期")
+        if int(task.get("progress", 0) or 0) < int(task.get("target", 1) or 1):
+            raise StrategyError(
+                f"任务进度不足（{int(task.get('progress', 0))}/"
+                f"{int(task.get('target', 1))}）")
+        reward = self._task_reward(task)
+        raw_merit = max(0, int(reward.get("merit", 0) or 0))
+        merit = await self._settle_merit(user_id, raw_merit, "faction_task")
+        p["merit"] = int(p.get("merit", 0)) + int(merit)
+        p["merit_season"] = int(p.get("merit_season", 0)) + int(merit)
+        await self.save_player(p)
+        # 乐观锁：仅 open 状态可领取；并发双击/多端领取只有一次成功
+        n = await self._exec_count(
+            "UPDATE strategy_faction_tasks SET status='claimed', assigned_user=? "
+            "WHERE id=? AND status='open'", (str(user_id), int(task_id)))
+        if n != 1:
+            await self.db.conn.rollback()
+            raise StrategyError("该势力任务已被领取，请刷新后重试")
+        await self.add_contribution(int(f["id"]), user_id,
+                                    max(1, int(merit) // 5))
+        await self._commit()
+        await self._audit(user_id, "faction_task_claim",
+                          {"faction_id": int(f["id"]), "task_id": int(task_id),
+                           "task_type": task.get("task_type"),
+                           "merit": int(merit), "raw_merit": int(raw_merit)})
+        note = "" if int(merit) == int(raw_merit) else \
+            "（观察期内战功不计，详见审计）"
+        return {"ok": True, "reward": {"merit": int(merit)},
+                "msg": f"🎖「{task.get('title', '')}」已完成，"
+                       f"战功 +{int(merit)}{note}"}
+
+    async def _faction_task_progress(self, faction_id: int, task_type: str,
+                                     amount: int = 1) -> int:
+        """回填势力任务进度（供 B 在 tick/战斗/捐献事件中调用）。
+
+        进度上限为 target；返回受影响的任务行数。**不提交事务**，
+        由调用方的 tick/动作统一 ``_commit``。
+        """
+        try:
+            fid = int(faction_id)
+        except (TypeError, ValueError):
+            return 0
+        if fid <= 0 or not task_type:
+            return 0
+        try:
+            amount = int(amount)
+        except (TypeError, ValueError):
+            return 0
+        if amount == 0:
+            return 0
+        # 联盟语义：任务挂在盟主势力名下，玩家所属成员势力自动上溯
+        try:
+            f = await self.get_faction(fid)
+            if f:
+                host = await self._alliance_host(f)
+                if host:
+                    fid = int(host["id"])
+        except Exception:  # noqa: BLE001 - 上溯失败按原势力记录
+            pass
+        return await self._exec_count(
+            "UPDATE strategy_faction_tasks "
+            "SET progress=MIN(target, MAX(0, progress+?)) "
+            "WHERE faction_id=? AND task_type=? AND status='open'",
+            (int(amount), fid, str(task_type)))
+
+    async def _step_faction_tasks(self, world: dict):
+        """tick：过期任务置 expired，并按 refresh_hours 自动补刷新。"""
+        tcfg = self._faction_task_cfg()
+        now = _now()
+        await self._execute(
+            "UPDATE strategy_faction_tasks SET status='expired' "
+            "WHERE world_id=? AND status='open' AND end_at>0 AND end_at<=?",
+            (int(world["id"]), now))
+        slots = self._faction_task_slots()
+        if slots <= 0:
+            await self._commit()
+            return
+        hours = int(tcfg.get("refresh_hours", 12) or 0)
+        data = world.get("data") or {}
+        cd = data.get("faction_task_refresh") or {}
+        rows = await self._fetchall(
+            "SELECT * FROM strategy_factions WHERE world_id=? AND kind='player' "
+            "AND alive=1", (int(world["id"]),))
+        for row in rows:
+            f = self._decode("strategy_factions", row)
+            aid = int(f.get("alliance_id") or 0)
+            if aid and aid != int(f["id"]):
+                continue  # 联盟任务只在盟主势力推进
+            cnt = await self._fetchone(
+                "SELECT COUNT(*) AS n FROM strategy_faction_tasks "
+                "WHERE faction_id=? AND status='open'", (int(f["id"]),))
+            open_n = int((cnt or {}).get("n", 0) or 0)
+            if open_n >= slots:
+                continue
+            last = int(cd.get(str(f["id"]), 0) or 0)
+            if hours > 0 and last and now - last < hours * 3600:
+                continue
+            await self._generate_faction_tasks(world, f, slots - open_n)
+            cd[str(f["id"])] = now
+        data["faction_task_refresh"] = cd
+        world["data"] = data
+        await self.save_world(world)
+        await self._commit()
+
+    # ------------------------------------------------------------------
+    # 动员令（§6.4：全军攻击/防御 +5%，24h；覆盖为 recruit/march/defend/attack）
+    # ------------------------------------------------------------------
+    async def mobilization_issue(self, user_id: str, kind: str) -> dict:
+        world, p = await self._require_player(user_id)
+        mcfg = self.main_cfg().get("mobilization") or {}
+        kinds = mcfg.get("kinds") or {}
+        kind = str(kind or "")
+        if kind not in kinds:
+            raise StrategyError("动员令类型无效（recruit/march/defend/attack）")
+        f = await self._governance_faction(p)
+        if not f or f.get("kind") == "npc":
+            raise StrategyError("当前不在玩家势力中")
+        await self._require_position(f, user_id, ("leader", "deputy", "jijiu"))
+        now = _now()
+        cd_hours = int(mcfg.get("cooldown_hours", 24) or 0)
+        last_row = await self._fetchone(
+            "SELECT MAX(start_at) AS t FROM strategy_mobilizations "
+            "WHERE faction_id=?", (int(f["id"]),))
+        last = int((last_row or {}).get("t", 0) or 0)
+        if cd_hours > 0 and last and now - last < cd_hours * 3600:
+            left = (cd_hours * 3600 - (now - last) + 3599) // 3600
+            raise StrategyError(f"动员令冷却中（还剩 {left} 小时）")
+        cost = max(0, int(mcfg.get("cost_merit", 60) or 0))
+        if int(p.get("merit", 0)) < cost:
+            raise StrategyError(f"战功不足：动员令需 {cost}")
+        p["merit"] = int(p.get("merit", 0)) - cost
+        await self.save_player(p)
+        spec = kinds.get(kind) or {}
+        buff = {"effect": str(spec.get("effect") or ""),
+                "value": float(spec.get("value", 1) or 1)}
+        hours = max(1, int(mcfg.get("hours", 12) or 12))
+        end_at = now + hours * 3600
+        await self._execute(
+            "UPDATE strategy_mobilizations SET status='expired' "
+            "WHERE faction_id=? AND status='active'", (int(f["id"]),))
+        mid = await self._execute(
+            "INSERT INTO strategy_mobilizations (world_id, faction_id, issued_by, "
+            "kind, buff_json, start_at, end_at, status) "
+            "VALUES (?,?,?,?,?,?,?,'active')",
+            (int(world["id"]), int(f["id"]), str(user_id), kind,
+             json.dumps(buff, ensure_ascii=False), now, end_at))
+        await self._commit()
+        await self._audit(user_id, "mobilization_issue",
+                          {"faction_id": int(f["id"]), "kind": kind,
+                           "buff": buff, "cost_merit": cost,
+                           "mobilization_id": int(mid)})
+        name = str(spec.get("name") or kind)
+        await self._notify_faction_event(
+            world, int(f["id"]),
+            {"event": "mobilization", "kind": kind, "name": name,
+             "ends_at": end_at,
+             "text": f"📣「{f['name']}」发布{name}（{hours}h，"
+                     f"{buff['effect']} {buff['value']}）"})
+        return {"ok": True, "ends_at": end_at, "cost_merit": cost,
+                "msg": f"📣 已发布「{name}」，持续 {hours}h（战功 -{cost}）"}
+
+    async def _step_mobilizations(self, world: dict):
+        """tick：过期动员令置 expired。"""
+        n = await self._exec_count(
+            "UPDATE strategy_mobilizations SET status='expired' "
+            "WHERE world_id=? AND status='active' AND end_at<=?",
+            (int(world["id"]), _now()))
+        if n:
+            await self._commit()
+
+    # ------------------------------------------------------------------
+    # 势力事件（§10.3：角色出走 / 民心沸腾 / 哗变 / 细作 / 秘藏 / 名将迟暮）
+    # ------------------------------------------------------------------
+    async def _step_faction_events(self, world: dict) -> list[str]:
+        """tick：按权重掷点触发一个 scope=faction 事件并即时结算。"""
+        ecfg = self.cfg.get("events") or {}
+        events = [e for e in (ecfg.get("events") or [])
+                  if str(e.get("scope") or "") == "faction"]
+        if not events:
+            return []
+        tick_no = int(world.get("tick_no", 0))
+        rng = self._rng("faction_events", int(world["id"]), tick_no)
+        lo, hi = (ecfg.get("roll_per_tick") or [0, 2])
+        if rng.randint(int(lo), int(hi)) <= 0:
+            return []
+        data = world.get("data") or {}
+        # 独立 cooldown 键：避免与主类 _step_events 的全 scope 掷点互相抢占
+        cd = data.get("faction_event_cd") or {}
+        eligible = [e for e in events if tick_no >= int(cd.get(e["id"], 0) or 0)]
+        if not eligible:
+            return []
+        weights = [max(1, int(e.get("weight", 1) or 1)) for e in eligible]
+        ev = rng.choices(eligible, weights=weights)[0]
+        rows = await self._fetchall(
+            "SELECT id FROM strategy_factions WHERE world_id=? AND kind='player' "
+            "AND alive=1", (int(world["id"]),))
+        cands = [int(r["id"]) for r in rows]
+        if not cands:
+            cd[ev["id"]] = tick_no + int(ev.get("cooldown_ticks", 96) or 0)
+            data["faction_event_cd"] = cd
+            world["data"] = data
+            return []
+        fid = rng.choice(cands)
+        f = await self.get_faction(fid)
+        if not f:
+            return []
+        await self._apply_faction_event(world, f, ev, rng)
+        cd[ev["id"]] = tick_no + int(ev.get("cooldown_ticks", 96) or 0)
+        data["faction_event_cd"] = cd
+        world["data"] = data
+        await self.save_world(world)
+        await self._commit()
+        return [str(ev.get("name") or ev["id"])]
+
+    async def _apply_faction_event(self, world: dict, f: dict, ev: dict,
+                                   rng: random.Random) -> dict:
+        """结算一个势力事件的全部 effects，并写审计 + 势力公告。"""
+        msgs: list[str] = []
+        for eff in ev.get("effects") or []:
+            try:
+                msg = await self._faction_event_effect(world, f, eff, rng)
+            except Exception as e:  # noqa: BLE001 - 单个效果失败不拖垮 tick
+                logger.warning(f"[strategy] 势力事件 {ev.get('id')} 效果失败: {e}")
+                msg = ""
+            if msg:
+                msgs.append(msg)
+        text = "；".join(msgs)
+        await self._audit(str(f.get("leader_id") or ""), "faction_event",
+                          {"faction_id": int(f["id"]), "event": ev.get("id"),
+                           "name": ev.get("name", ev.get("id")), "text": text})
+        if text:
+            await self._notify_faction_event(
+                world, int(f["id"]),
+                {"event": ev.get("id"), "name": ev.get("name", ev.get("id")),
+                 "text": f"⚡「{f['name']}」{ev.get('name', '')}：{text}"})
+        return {"ok": True, "text": text}
+
+    async def _faction_event_effect(self, world: dict, f: dict, eff: dict,
+                                    rng: random.Random) -> str:
+        etype = str(eff.get("type") or "")
+        wid = int(world["id"])
+        fid = int(f["id"])
+        nodes = [n for n in await self.get_nodes(wid)
+                 if int(n.get("owner_faction", 0)) == fid]
+        chars = [c for c in await self.get_chars(faction_id=fid, world_id=wid)
+                 if c.get("status") not in ("dead", "captive", "wander")]
+        if etype == "char_leave":
+            below = int(eff.get("loyalty_below", 30) or 30)
+            cands = [c for c in chars if int(c.get("loyalty", 70)) < below]
+            if not cands:
+                return ""
+            c = rng.choice(cands)
+            if rng.random() >= float(eff.get("leave_chance", 0.5) or 0.5):
+                return (f"「{c['name']}」心生去意，但暂未离队"
+                        f"（忠诚 {int(c.get('loyalty', 0))}）")
+            owner = str(c.get("owner_user_id") or "")
+            # 先移出军团名册：否则在途军团仍带「已出走」武将出战/结算
+            await self._detach_from_armies(c)
+            c["status"] = "wander"
+            c["faction_id"] = 0
+            c["owner_user_id"] = ""
+            c["appointed_position"] = ""
+            c["appointed_node_id"] = 0
+            c["captor_faction"] = 0
+            c["imprisoned_node_id"] = 0
+            c["auction_cooldown_until"] = 0
+            c["loyalty"] = max(40, int(c.get("loyalty", 40)))
+            await self.save_char(c)
+            if owner:
+                await self._notify(world, [owner], "event",
+                                   {"event": "char_leave",
+                                    "text": f"「{c['name']}」忠诚过低，已挂印出走"})
+            return f"「{c['name']}」忠诚过低，挂印出走"
+        if etype == "morale":
+            delta = int(eff.get("delta", 8) or 0)
+            if not nodes or not delta:
+                return ""
+            for n in nodes:
+                await self._bump_morale(n, delta, "faction_event")
+                await self.save_node(n)
+            return f"全境民心 {delta:+d}（{len(nodes)} 据点）"
+        if etype == "riot":
+            if not nodes:
+                return ""
+            # 与本 tick 的「低民心哗变」（_step_recovery）互斥：同一据点
+            # 一个 tick 只允许一次哗变，避免事件与民意双重扣兵/扣库。
+            tick_no = int(world.get("tick_no", 0) or 0)
+            data = world.get("data") or {}
+            riot_map = data.get("riot_tick_nodes") or {}
+            pool = [n for n in nodes if riot_map.get(str(n["id"])) != tick_no]
+            if not pool:
+                return ""
+            n = rng.choice(pool)
+            riot_map[str(n["id"])] = tick_no
+            data["riot_tick_nodes"] = riot_map
+            world["data"] = data
+            pct = float(eff.get("troops_pct", 0.2) or 0.2)
+            gar = n.get("npc_garrison") or {}
+            loss = 0
+            if int(gar.get("troops", 0) or 0) > 0:
+                loss = max(1, int(int(gar["troops"]) * pct))
+                gar["troops"] = max(0, int(gar["troops"]) - loss)
+                n["npc_garrison"] = gar
+            # 仓库同时被哄抢（按同比例损耗库存）
+            stock = dict(n.get("stock") or {})
+            stolen: list[str] = []
+            for k in ("coin", "grain", "iron"):
+                have = int(stock.get(k, 0) or 0)
+                if have <= 0:
+                    continue
+                cut = int(have * pct)
+                if cut <= 0:
+                    continue
+                stock[k] = have - cut
+                stolen.append(f"{k}-{cut}")
+            if stolen:
+                n["stock"] = stock
+            await self._bump_morale(n, int(eff.get("morale_delta", 5) or 0), "riot")
+            await self.save_node(n)
+            text = f"「{n['name']}」哗变，驻军 -{loss}"
+            if stolen:
+                text += "，库存 " + "、".join(stolen)
+            if chars and rng.random() < float(eff.get("injury_chance", 0.3) or 0.3):
+                c = rng.choice(chars)
+                c["injury"] = min(100, int(c.get("injury", 0) or 0) +
+                                  int(eff.get("injury", 10) or 10))
+                await self.save_char(c)
+                text += f"，{c['name']} 受伤"
+            return text
+        if etype == "spy":
+            if not nodes:
+                return ""
+            n = rng.choice(nodes)
+            stock = n.get("stock") or {}
+            gar = n.get("npc_garrison") or {}
+            intel = (f"「{n['name']}」库存 铜钱{int(stock.get('coin', 0) or 0)}/"
+                     f"粮{int(stock.get('grain', 0) or 0)}/"
+                     f"铁{int(stock.get('iron', 0) or 0)}，"
+                     f"驻军{int(gar.get('troops', 0) or 0)}")
+            loss = max(0, int(eff.get("merit_loss", 0) or 0))
+            if loss:
+                leader = await self.get_player(str(f.get("leader_id") or ""), wid)
+                if leader:
+                    leader["merit"] = max(0, int(leader.get("merit", 0)) - loss)
+                    await self.save_player(leader)
+            return f"细作潜入，{intel} 已泄露" + (f"（战功 -{loss}）" if loss else "")
+        if etype == "treasure":
+            if rng.random() > float(eff.get("chance", 1.0) or 0.0):
+                return "秘藏线索中断，一无所获"
+            rewards = eff.get("rewards") or {}
+            treasury = f.get("treasury") or {}
+            got = []
+            for k, v in rewards.items():
+                amount = int(v or 0)
+                if amount <= 0:
+                    continue
+                treasury[k] = int(treasury.get(k, 0) or 0) + amount
+                got.append(f"{k}+{amount}")
+            if not got:
+                return ""
+            f["treasury"] = treasury
+            await self.save_faction(f)
+            return "挖出秘藏：" + "、".join(got)
+        if etype == "char_aging":
+            rarity = str(eff.get("rarity") or "legend")
+            cands = [c for c in chars if str(c.get("rarity") or "") == rarity]
+            if not cands:
+                return ""
+            c = rng.choice(cands)
+            stats = dict(c.get("stats") or {})
+            if stats:
+                key = rng.choice(list(stats.keys()))
+                drop = rng.randint(1, 3)
+                stats[key] = max(1, int(stats.get(key, 0) or 0) - drop)
+                c["stats"] = stats
+            else:
+                key, drop = "stats", 0
+            c["loyalty"] = max(0, int(c.get("loyalty", 70) or 0) +
+                               int(eff.get("loyalty_delta", -5) or 0))
+            pack = max(0, int(eff.get("exp_pack", 0) or 0))
+            if pack > 0:
+                c["exp"] = int(c.get("exp", 0) or 0) + pack
+            await self.save_char(c)
+            return (f"名将迟暮：「{c['name']}」{key} -{drop}"
+                    f"（忠诚 {c['loyalty']}）")
+        return ""
+
+    # ------------------------------------------------------------------
+    # 治理：低忠诚出走（§8.6）
+    # ------------------------------------------------------------------
+    async def _step_loyalty_defect(self, world: dict):
+        """tick：忠诚低于 governance.loyalty_defect 的角色出走（转 wander）。"""
+        gcfg = self.main_cfg().get("governance") or {}
+        thr = int(gcfg.get("loyalty_defect", 30) or 0)
+        if thr <= 0:
+            return
+        rows = await self._fetchall(
+            "SELECT * FROM strategy_characters WHERE world_id=? AND faction_id>0 "
+            "AND status NOT IN ('dead','captive','wander')", (int(world["id"]),))
+        changed = False
+        for row in rows:
+            c = self._decode("strategy_characters", row)
+            if int(c.get("loyalty", 70) or 0) >= thr:
+                continue
+            fid = int(c.get("faction_id") or 0)
+            f = await self.get_faction(fid)
+            if not f or str(f.get("kind")) != "player":
+                continue  # NPC 角色不走忠诚出走
+            owner = str(c.get("owner_user_id") or "")
+            old_loyalty = int(c.get("loyalty", 0) or 0)
+            await self._detach_from_armies(c)
+            c["status"] = "wander"
+            c["faction_id"] = 0
+            c["owner_user_id"] = ""
+            c["appointed_position"] = ""
+            c["appointed_node_id"] = 0
+            c["captor_faction"] = 0
+            c["imprisoned_node_id"] = 0
+            c["auction_cooldown_until"] = 0
+            await self.save_char(c)
+            changed = True
+            payload = {"event": "char_defect",
+                       "text": f"「{c['name']}」忠诚跌至 {old_loyalty}，已离队出走"}
+            targets = [u for u in (owner, str(f.get("leader_id") or "")) if u]
+            if targets:
+                await self._notify(world, targets, "event", payload)
+            await self._audit(owner or str(f.get("leader_id") or ""), "char_defect",
+                              {"char_id": int(c["id"]), "faction_id": fid,
+                               "loyalty": old_loyalty, "threshold": thr})
+        if changed:
+            await self._commit()
+
+    # ------------------------------------------------------------------
+    # 迁都（§8.7：CD faction.capital_relocate_cd_days，扣国库）
+    # ------------------------------------------------------------------
+    async def capital_relocate(self, user_id: str, node_id: int) -> dict:
+        world, p = await self._require_player(user_id)
+        f = await self.get_faction(int(p["faction_id"]))
+        if not f or f.get("kind") == "npc":
+            raise StrategyError("当前不在玩家势力中")
+        await self._require_position(f, user_id, ("leader",))
+        old_cap = int(f.get("capital_node_id") or 0)
+        node = await self.get_node(int(world["id"]), int(node_id))
+        if not node:
+            raise StrategyError("据点不存在")
+        if node["type"] not in ("city", "pass", "branch"):
+            raise StrategyError("新主城须为城池/关隘/分舵")
+        if int(node.get("owner_faction", 0)) != int(f["id"]):
+            raise StrategyError("只能迁都至我方据点")
+        if int(f.get("capital_node_id") or 0) == int(node["id"]):
+            raise StrategyError("该据点已是主城")
+        now = _now()
+        fcfg = self.main_cfg().get("faction") or {}
+        cd_days = int(fcfg.get("capital_relocate_cd_days", 7) or 0)
+        raw = await self._fetchone(
+            "SELECT last_capital_move_at FROM strategy_factions WHERE id=?",
+            (int(f["id"]),))
+        last = int((raw or {}).get("last_capital_move_at", 0) or 0)
+        cd_until = last + cd_days * 86400 if cd_days > 0 else 0
+        if cd_until and now < cd_until:
+            left = (cd_until - now + 3599) // 3600
+            raise StrategyError(f"迁都冷却中（还剩 {left} 小时）")
+        rcfg = self.main_cfg().get("rebuild") or {}
+        cost = int(int(rcfg.get("base_gold_cost", 3_000_000)) * 0.1)
+        treasury = dict(f.get("treasury") or {})
+        if int(treasury.get("coin", 0) or 0) < cost:
+            raise StrategyError(
+                f"国库铜钱不足：迁都需 {cost:,}（现有 "
+                f"{int(treasury.get('coin', 0) or 0):,}）")
+        treasury["coin"] = int(treasury.get("coin", 0)) - cost
+        f["treasury"] = treasury
+        f["capital_node_id"] = int(node["id"])
+        # 迁都成功即脱离流亡态（否则 faction_state 永远停留在 exiled）
+        f["faction_state"] = "normal"
+        await self.save_faction(f)
+        await self._execute(
+            "UPDATE strategy_factions SET last_capital_move_at=?, treasury_json=? "
+            "WHERE id=?",
+            (now, json.dumps(treasury, ensure_ascii=False), int(f["id"])))
+        await self._commit()
+        await self._audit(user_id, "capital_relocate",
+                          {"faction_id": int(f["id"]), "from": old_cap,
+                           "node_id": int(node["id"]), "cost": cost,
+                           "cooldown_days": cd_days})
+        await self._notify_faction_event(
+            world, int(f["id"]),
+            {"event": "capital_relocate",
+             "text": f"🏯「{f['name']}」迁都至「{node['name']}」"
+                     f"（国库铜钱 -{cost:,}）"})
+        return {"ok": True, "capital_node_id": int(node["id"]),
+                "cooldown_until": now + cd_days * 86400,
+                "msg": f"🏯 已迁都至「{node['name']}」（国库 -{cost:,} 铜钱，"
+                       f"{cd_days} 天内不可再迁）"}
+
+    # ------------------------------------------------------------------
+    # 重建合力（§8.7：多人凑款，成功后清零）
+    # ------------------------------------------------------------------
+    async def rebuild_donate(self, user_id: str, amount: int) -> dict:
+        """成员向势力 rebuild_fund 捐铜钱（用于主城重建，成功后清零）。"""
+        world, p = await self._require_player(user_id)
+        f = await self._governance_faction(p)
+        if not f or f.get("kind") == "npc":
+            raise StrategyError("当前不在玩家势力中")
+        try:
+            amount = int(amount)
+        except (TypeError, ValueError):
+            raise StrategyError("捐款数额无效") from None
+        if amount <= 0:
+            raise StrategyError("捐款数额须为正")
+        # §8.7 重建消耗主玩法灵石：合力资金以「灵石」计价，盟友可共同凑款
+        if not await self._deduct_main_gold(user_id, amount):
+            raise StrategyError(f"灵石不足（需 {amount:,}）")
+        cur = await self._fetchone(
+            "SELECT rebuild_fund FROM strategy_factions WHERE id=?",
+            (int(f["id"]),))
+        fund = int((cur or {}).get("rebuild_fund", 0) or 0) + amount
+        await self._execute(
+            "UPDATE strategy_factions SET rebuild_fund=? WHERE id=?",
+            (fund, int(f["id"])))
+        await self.add_contribution(int(f["id"]), user_id, max(1, amount // 1000))
+        await self._commit()
+        await self._audit(user_id, "rebuild_donate",
+                          {"faction_id": int(f["id"]), "amount": amount,
+                           "fund": fund})
+        return {"ok": True, "fund": fund,
+                "msg": f"💰 已向重建合力捐入灵石 {amount:,}（当前合力 "
+                       f"{fund:,}）"}
+
+    # ------------------------------------------------------------------
+    # 安全（§18.4：观察期 / 多开战功 ×0）
+    # ------------------------------------------------------------------
+    async def _position_tenure_ok(self, faction_id: int, user_id: str,
+                                  hours: int) -> bool:
+        """官职观察期校验；创派元勋（与最早成员同期入盟）豁免。"""
+        if int(hours) <= 0:
+            return True
+        members = await self.get_members(int(faction_id))
+        target = next((m for m in members if m["user_id"] == str(user_id)), None)
+        if not target:
+            return True
+        if self._is_joined_long_enough(target, int(hours)):
+            return True
+        joined = int(target.get("joined_at", 0) or 0)
+        oldest = min((int(m.get("joined_at", 0) or 0) for m in members
+                      if int(m.get("joined_at", 0) or 0) > 0), default=0)
+        # 2h 内与最早成员先后入盟 → 同批创派，不设观察期
+        return bool(oldest and joined and joined - oldest <= 2 * 3600)
+
+    async def _settle_merit(self, user_id: str, amount: int,
+                            reason: str = "") -> int:
+        """战功入账前门禁：返回实发战功（观察期/多开嫌疑 ×0）。
+
+        调用方拿到返回值后再自行累加 ``merit/merit_season`` 并 save_player。
+        """
+        try:
+            amount = int(amount or 0)
+        except (TypeError, ValueError):
+            return 0
+        if amount <= 0:
+            return 0
+        sec = self.main_cfg().get("security") or {}
+        world_id = await self._current_world_id()
+        if world_id <= 0:
+            return amount
+        p = await self.get_player(str(user_id), world_id)
+        member = None
+        if p:
+            # 联盟语义下以「共同治理势力（盟主）名册」为准
+            gov = await self._governance_faction(p)
+            if gov:
+                member = await self.get_member(int(gov["id"]), str(user_id))
+        hours = int(sec.get("min_join_hours_for_merit", 0) or 0)
+        if hours > 0 and member and not self._is_joined_long_enough(member, hours):
+            await self._audit(user_id, "merit_zero",
+                              {"rule": "min_join_hours_for_merit",
+                               "hours": hours, "amount": amount,
+                               "source": reason})
+            return 0
+        if bool(sec.get("multi_open_merit_zero", True)):
+            rows = await self._fetchall(
+                "SELECT detail_json FROM strategy_audit WHERE world_id=? AND "
+                "user_id=? AND action='faction_join' AND created_at>=?",
+                (world_id, str(user_id), _now() - 86400))
+            fids: set[int] = set()
+            for r in rows:
+                try:
+                    detail = json.loads(r.get("detail_json") or "{}") or {}
+                    fids.add(int(detail.get("faction_id", 0) or 0))
+                except (TypeError, ValueError):
+                    continue
+            fids.discard(0)
+            if len(fids) >= 2:
+                await self._audit(user_id, "merit_zero",
+                                  {"rule": "multi_open_24h_switch",
+                                   "factions": sorted(fids),
+                                   "amount": amount, "source": reason})
+                return 0
+        return amount
+
+    # ------------------------------------------------------------------
+    # 面板视图（§2.4 faction_ext，供 B 的 get_state 调用）
+    # ------------------------------------------------------------------
+    async def get_faction_ext(self, world: dict, f: dict) -> dict:
+        """势力扩展视图：任务 / 动员令 / 重建合力 / 主城 / 迁都冷却。"""
+        host = await self._alliance_host(f) or f
+        if host is not f and int(host.get("id", 0)) != int(f.get("id", 0)):
+            f = host
+        tasks = await self.get_faction_tasks(int(f["id"]), "open")
+        task_view = [{"id": int(t["id"]), "title": t.get("title", ""),
+                      "task_type": t.get("task_type", ""),
+                      "progress": int(t.get("progress", 0) or 0),
+                      "target": int(t.get("target", 1) or 1),
+                      "status": t.get("status", "open"),
+                      "reward": self._task_reward(t),
+                      "end_at": int(t.get("end_at", 0) or 0)}
+                     for t in tasks]
+        mob = await self._fetchone(
+            "SELECT * FROM strategy_mobilizations WHERE faction_id=? AND "
+            "status='active' AND end_at>? ORDER BY id DESC LIMIT 1",
+            (int(f["id"]), _now()))
+        mob_view = None
+        if mob:
+            try:
+                buff = json.loads(mob.get("buff_json") or "{}") or {}
+            except (TypeError, ValueError):
+                buff = {}
+            spec = ((self.main_cfg().get("mobilization") or {}).get("kinds")
+                    or {}).get(str(mob.get("kind")), {})
+            mob_view = {"kind": mob.get("kind"),
+                        "name": spec.get("name", mob.get("kind")),
+                        "effect": buff.get("effect"), "value": buff.get("value"),
+                        "ends_at": int(mob.get("end_at", 0) or 0)}
+        raw = await self._fetchone(
+            "SELECT rebuild_fund, last_capital_move_at FROM strategy_factions "
+            "WHERE id=?", (int(f["id"]),)) or {}
+        cd_days = int((self.main_cfg().get("faction") or {}).get(
+            "capital_relocate_cd_days", 7) or 0)
+        last = int(raw.get("last_capital_move_at", 0) or 0)
+        return {
+            "tasks": task_view,
+            "mobilization": mob_view,
+            "rebuild_fund": int(raw.get("rebuild_fund", 0) or 0),
+            "capital": {
+                "node_id": int(f.get("capital_node_id") or 0),
+                "bonus_pct": float((self.main_cfg().get("governance") or {}).get(
+                    "capital_output_bonus", 0.1) or 0),
+            },
+            "relocate_cd_until": (last + cd_days * 86400) if cd_days else 0,
+        }
 
 
 def hashlib_md5(s: str) -> str:

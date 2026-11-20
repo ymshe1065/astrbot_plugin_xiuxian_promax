@@ -319,3 +319,69 @@ input[type="color"] {
   .battle-side { flex: 1 1 auto; border-left: none; border-top: 1px solid var(--line); }
   .battle-meta { gap: 8px; font-size: 12px; }
 }
+
+/* ---------- v4.1.0：民心 / 建筑（据点抽屉） ---------- */
+.morale-kv { align-items: center; }
+.morale-wrap { display: flex; align-items: center; gap: 8px; flex: 1 1 auto; min-width: 0; }
+.morale-wrap .bar { flex: 1 1 auto; margin: 0; }
+.relief-box {
+  margin: 6px 0 2px; padding: 6px 8px; border: 1px dashed var(--line);
+  border-radius: 7px; background: rgba(227,179,65,.05);
+}
+.relief-box .drawer-actions { margin-top: 6px; }
+.building-box {
+  margin: 8px 0 2px; padding: 6px 8px; border: 1px solid var(--line-soft);
+  border-radius: 7px;
+}
+.building-box .tbl td, .building-box .tbl th { padding: 3px 4px; }
+.building-build { flex-wrap: wrap; margin: 6px 0 0; }
+.building-build select { flex: 1 1 130px; min-width: 0; }
+
+/* ---------- v4.1.0：战报高光 ---------- */
+.tag.star {
+  color: var(--accent); border-color: var(--accent);
+  background: rgba(227,179,65,.12); font-weight: 600;
+}
+.card.highlight { border-color: rgba(227,179,65,.45); }
+.hl-line {
+  display: flex; flex-wrap: wrap; gap: 4px; margin: 5px 0 2px;
+  font-size: 12px; color: #ffe9b0;
+}
+.hl-item {
+  display: inline-block; padding: 1px 7px; border-radius: 10px;
+  border: 1px solid rgba(227,179,65,.45); background: rgba(227,179,65,.10);
+}
+.hl-report { margin: 6px 0; }
+.hl-report .hl-item { display: block; margin: 3px 0; padding: 4px 8px; }
+
+/* ---------- v4.1.0：名将堂 / 英烈祠 ---------- */
+.memorial-card { padding: 8px 12px; }
+.memorial-card summary {
+  cursor: pointer; font-size: 14px; font-weight: 600; color: var(--accent);
+  list-style: none; user-select: none;
+}
+.memorial-card summary::-webkit-details-marker { display: none; }
+.memorial-card summary::before { content: "▸ "; color: var(--dim); }
+.memorial-card[open] summary::before { content: "▾ "; }
+.memorial-row {
+  padding: 6px 0; border-bottom: 1px dashed var(--line-soft); font-size: 12.5px;
+}
+.memorial-row:last-child { border-bottom: none; }
+.mr-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.mr-name { font-weight: 600; color: var(--text); }
+.mr-meta { color: var(--dim); font-size: 12px; }
+.mr-ach { color: var(--dim); font-size: 12px; margin-top: 2px; }
+.memorial-empty { padding: 8px 0 4px; }
+
+/* ---------- v4.1.0：观战 / 分享卡片 ---------- */
+#hexCanvas { touch-action: none; }
+#battleActor.spectating { color: var(--accent); font-weight: 600; }
+.spectate-note { color: var(--accent); }
+.share-card { width: min(420px, calc(100vw - 32px)); }
+.share-canvas-wrap { margin: 10px auto; }
+#shareCanvas {
+  display: block; width: 100%; max-width: 300px; height: auto;
+  margin: 0 auto; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--bg);
+}
+

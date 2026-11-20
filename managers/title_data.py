@@ -123,7 +123,8 @@ TITLES = [
     T("轮回至尊", 4, "reincarnation", condition=10, exp=0.25, luck=18),
     T("功德无量", 4, "karma", condition=50, luck=20, exp=0.20),
 
-    # ========== 圣品（传奇，12）==========
+    # ========== 圣品（传奇，13）==========
+    T("赛季霸主", 5, "manual", atk=320, exp=0.20, luck=15),
     T("仙界传说", 5, "manual", atk=400, crit=10, exp=0.30),
     T("万古一帝", 5, "reincarnation", condition=20, exp=0.35, luck=25, atk=350),
     T("天道亲女儿", 5, "luck_event", condition=100, luck=30, exp=0.30),

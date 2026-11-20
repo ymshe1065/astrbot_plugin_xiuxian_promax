@@ -77,8 +77,9 @@
   "task": {
     "hours_options": [1, 2, 4, 8],
     "ticks_per_hour": 4,
-    "base_per_tick": {"govern": 80, "farm": 100, "trade": 70, "scout": 0, "build": 60, "train": 60, "hunt": 50, "heal": 40, "research": 50, "quest": 60, "seek": 40, "convoy": 50, "raid": 0},
+    "base_per_tick": {"govern": 80, "farm": 100, "mining": 20, "trade": 70, "scout": 0, "build": 60, "train": 60, "hunt": 50, "heal": 40, "research": 50, "quest": 60, "seek": 40, "convoy": 50, "raid": 0},
     "recall_loss": 0.5,
+    "exp_per_tick": 5,
     "mini_event_chance": 0.1,
     "scout_capture_chance": 0.08,
     "raid_rep_cost": -8,
@@ -96,8 +97,10 @@
     "role_weights": {"general": 4, "strategist": 3, "official": 3},
     "rarity_weights_normal": {"common": 55, "fine": 33, "rare": 10, "epic": 2, "legend": 0},
     "rarity_weights_premium": {"common": 0, "fine": 30, "rare": 45, "epic": 20, "legend": 5},
-    "character_cap_base": 10,
-    "character_cap_per_level": 3,
+    "character_cap_base": 4,
+    "character_cap_per_node": 2,
+    "character_cap_max": 30,
+    "stat_growth_cap_bonus": 30,
     "salary_coin_per_tick": 10,
     "reputation_epic_bonus": 0.10,
     "host_charm_bonus": 0.10,
@@ -123,6 +126,7 @@
     "defender_counter_rate": 0.6,
     "injury_every_ticks": 3,
     "injury_amount": 5,
+    "timeout_injury": 10,
     "loot_stock_pct": 0.3,
     "manual_win_merit_mult": 1.5,
     "manual_win_loot_bonus": 0.1,
@@ -146,6 +150,10 @@
     "counter_factor": 1.3,
     "merit_per_kill": 0.05,
     "win_merit_base": 100,
+    "exp_win_base": 25,
+    "exp_lose_base": 10,
+    "exp_kill_divisor": 10,
+    "member_exp_ratio": 0.5,
     "rout_retreat_loss_pct": 0.2,
     "rout_leader_injury_chance": 0.3,
     "rout_leader_injury": 15,
@@ -209,6 +217,7 @@
     "capture_pct": 60,
     "arena_stake_min": 100,
     "arena_stake_max": 100000,
+    "challenges_per_round": 1,
     "drum_tower_mult": 2.0
   },
 
@@ -267,7 +276,42 @@
     "ally_charm_divisor": 4,
     "ally_rep_divisor": 2,
     "peace_indemnity_cap_pct": 0.2,
-    "war_merchants_rep": -20
+    "war_merchants_rep": -20,
+    "favor": {
+      "enabled": true,
+      "min": -100,
+      "max": 100,
+      "ally_min": 60,
+      "truce_min": -50,
+      "peace_min": -50,
+      "gift_coin_per_point": 800,
+      "gift_max_points": 30,
+      "gift_daily_cap": 40,
+      "gift_resource_value": {"coin": 1, "grain": 2, "iron": 4},
+      "trade_gain": 1,
+      "trade_daily_cap": 10,
+      "war_declare_cost": -25,
+      "surprise_attack_cost": -20,
+      "truce_sign_gain": 10,
+      "peace_sign_gain": 15,
+      "ally_sign_gain": 25,
+      "treaty_break_cost": -30,
+      "third_party_ally_cost": -10,
+      "third_party_enemy_gain": 8,
+      "decay_per_day": 1,
+      "npc_peace_favor": 50,
+      "npc_war_favor": -50,
+      "war_target_bonus": 1.35,
+      "seed": {
+        "ally_base": 0.22,
+        "war_base": 0.08,
+        "demonic_ally_mult": 0.15,
+        "demonic_war_bonus": 0.12,
+        "ally_favor": [55, 80],
+        "war_favor": [-85, -55],
+        "neutral_favor": [-15, 20]
+      }
+    }
   },
 
   "reputation": {
@@ -325,7 +369,20 @@
     "leader_absent_days": 7,
     "zombie_days": 30,
     "succession_quit_free_days": 7,
-    "collapse_bandit_chance": 0.3
+    "collapse_bandit_chance": 0.3,
+    "relief_coin_cost": 3000,
+    "relief_grain_cost": 800,
+    "relief_morale": 6,
+    "relief_daily_limit": 3,
+    "relief_node_daily_limit": 2,
+    "govern_morale_per_tick": 1.5,
+    "heal_morale_per_tick": 1.0,
+    "riot_morale": 20,
+    "riot_chance": 0.05,
+    "riot_troops_pct": 0.3,
+    "capital_output_bonus": 0.10,
+    "loyalty_defect": 30,
+    "faction_task_slots": 3
   },
 
   "rebuild": {
@@ -333,7 +390,42 @@
     "cost_growth": 0.5,
     "protect_days": 7,
     "new_capital_level": 1,
-    "audit_log": true
+    "audit_log": true,
+    "coin_per_gold": 1000
+  },
+
+  "faction_task": {
+    "duration_hours": 24,
+    "refresh_hours": 12,
+    "types": {
+      "donate":  {"name": "共襄国库", "target": 20000, "reward_merit": 40},
+      "conquer": {"name": "开疆拓土", "target": 1, "reward_merit": 80},
+      "defend":  {"name": "守土安民", "target": 3, "reward_merit": 60},
+      "develop": {"name": "兴业安邦", "target": 3, "reward_merit": 50},
+      "subdue":  {"name": "剿匪安境", "target": 1, "reward_merit": 70}
+    }
+  },
+
+  "mobilization": {
+    "cost_merit": 60,
+    "hours": 12,
+    "cooldown_hours": 24,
+    "kinds": {
+      "recruit":  {"name": "征兵动员", "effect": "troop_cost_mult", "value": 0.8},
+      "march":    {"name": "行军动员", "effect": "grain_cost_mult", "value": 0.7},
+      "defend":   {"name": "守土动员", "effect": "defense_bonus", "value": 0.15},
+      "attack":   {"name": "征伐动员", "effect": "attack_bonus", "value": 0.10}
+    }
+  },
+
+  "security": {
+    "min_join_hours_for_merit": 72,
+    "min_join_hours_for_position": 12,
+    "action_rate_per_min": 90,
+    "audit_keep_days": 30,
+    "result_max_bytes": 51200,
+    "result_keep_days": 7,
+    "multi_open_merit_zero": true
   },
 
   "shield": {
@@ -354,15 +446,25 @@
   },
 
   "wanderer_auction": {
+    "currency": "merit",
+    "sealed_bid": true,
     "duration_hours": 12,
     "min_increment_pct": 0.05,
-    "min_increment_abs": 200,
-    "start_price": {"common": 1000, "fine": 2000, "rare": 4000, "epic": 20000, "legend": 60000},
-    "quality_floor": {"common": 180, "fine": 240, "rare": 300, "epic": 300, "legend": 360},
-    "quality_step": {"common": 100, "fine": 150, "rare": 200, "epic": 250, "legend": 400},
-    "trait_bonus": 2000,
-    "buyout_mult": 2.5,
-    "max_open_per_world": 6,
+    "min_increment_abs": 20,
+    "start_price": {"common": 80, "fine": 150, "rare": 260, "epic": 420, "legend": 1000},
+    "quality_floor": {"common": 90, "fine": 125, "rare": 165, "epic": 205, "legend": 245},
+    "quality_step": {"common": 2, "fine": 2, "rare": 2, "epic": 2, "legend": 3},
+    "trait_bonus": 80,
+    "min_price": 50,
+    "max_open_per_world": 4,
+    "season_quota": {"common": 5, "fine": 4, "rare": 3, "epic": 2, "legend": 1},
+    "season_price_growth": 0.5,
+    "world_merit_ref": 2000,
+    "world_merit_mult_cap": 2.0,
+    "max_price_mult": 2.5,
+    "market_binding": true,
+    "controller_priority_hours": 2,
+    "roam_days": 7,
     "anti_snipe_sec": 300,
     "max_extend_sec": 600
   },
@@ -376,7 +478,8 @@
     "troops": 100,
     "speed_edges": 1,
     "raid_take_pct": 0.5,
-    "guard_vision": true
+    "guard_vision": true,
+    "discount_pct": 30
   },
 
   "bandit": {
@@ -406,7 +509,7 @@
       "gold_pack":   {"honor": 500,  "gold": 100000, "season_limit": 3},
       "title_pack":  {"honor": 800,  "title": "赛季霸主", "season_limit": 1},
       "boost_pack":  {"honor": 300,  "output_mult": 1.2, "days": 7, "season_limit": 1},
-      "material_pack": {"honor": 400, "materials": true, "season_limit": 2}
+      "material_pack": {"honor": 400, "coin": 30000, "grain": 30000, "iron": 1500, "season_limit": 2}
     }
   },
 
@@ -424,6 +527,7 @@
     "conquest_encircle":       {"name": "十面埋伏", "desc": "会战中达成完全合围迫降", "merit": 300},
     "conquest_bandit_10":      {"name": "扫平匪患", "desc": "讨伐匪寨 10 处", "merit": 500},
     "civil_farm_100k":         {"name": "屯垦大家", "desc": "累计屯田收获 10 万灵谷", "merit": 200},
+    "civil_mine_100k":         {"name": "矿脉大亨", "desc": "累计采矿 10 万精铁", "merit": 200},
     "civil_build_5":           {"name": "营造司", "desc": "建成 5 座建筑", "merit": 150},
     "civil_trade_route":       {"name": "开路先锋", "desc": "开辟一条商路", "merit": 200},
     "social_persuade_epic":    {"name": "舌绽莲花", "desc": "劝降一名极品以上角色", "merit": 300},
@@ -436,9 +540,10 @@
 
   "merit_shop": {
     "gold_pack": {"merit": 500, "gold": 100000, "weekly_limit": 5},
+    "iron_pack": {"merit": 300, "iron": 500, "weekly_limit": 3},
     "elixir": {"merit": 1500, "season_limit_per_char": 2},
-    "material_pack": {"merit": 300, "weekly_limit": 3},
-    "equip_instance": {"merit": 3000, "monthly_limit": 1},
+    "material_pack": {"merit": 300, "coin": 8000, "grain": 8000, "iron": 400, "weekly_limit": 3},
+    "equip_instance": {"merit": 3000, "monthly_limit": 1, "quality": "极佳"},
     "shield": {"merit": 800, "cooldown_hours": 72},
     "recommend_letter": {"merit": 200}
   },

@@ -157,6 +157,83 @@
         {"type": "bandit_raid", "stock_loss_pct": 0.1, "troops": [600, 1200], "hours": 24}
       ],
       "announce": "region"
+    },
+    {
+      "id": "faction_char_leave",
+      "name": "角色出走",
+      "scope": "faction",
+      "weight": 6,
+      "cooldown_ticks": 168,
+      "duration_ticks": 0,
+      "effects": [
+        {"type": "char_leave", "loyalty_below": 30, "leave_chance": 0.5,
+         "betray_chance": 0.4}
+      ],
+      "announce": "faction"
+    },
+    {
+      "id": "faction_morale_boil",
+      "name": "民心沸腾",
+      "scope": "faction",
+      "weight": 8,
+      "cooldown_ticks": 96,
+      "duration_ticks": 24,
+      "effects": [
+        {"type": "morale", "delta": 8, "recruit_discount": 0.2}
+      ],
+      "announce": "faction"
+    },
+    {
+      "id": "faction_riot",
+      "name": "哗变",
+      "scope": "faction",
+      "weight": 6,
+      "cooldown_ticks": 72,
+      "duration_ticks": 0,
+      "effects": [
+        {"type": "riot", "troops_pct": 0.2, "morale_delta": 5,
+         "injury_chance": 0.3, "injury": 10}
+      ],
+      "announce": "faction"
+    },
+    {
+      "id": "faction_spy",
+      "name": "细作潜入",
+      "scope": "faction",
+      "weight": 7,
+      "cooldown_ticks": 96,
+      "duration_ticks": 12,
+      "effects": [
+        {"type": "spy", "reveal_nodes": 1, "intel_loss": 1,
+         "merit_loss": 20}
+      ],
+      "announce": "faction"
+    },
+    {
+      "id": "faction_treasure",
+      "name": "挖出秘藏",
+      "scope": "faction",
+      "weight": 5,
+      "cooldown_ticks": 144,
+      "duration_ticks": 0,
+      "effects": [
+        {"type": "treasure", "chance": 0.35,
+         "rewards": {"coin": 4000, "grain": 2000, "iron": 400}}
+      ],
+      "announce": "faction"
+    },
+    {
+      "id": "faction_general_aging",
+      "name": "名将迟暮",
+      "scope": "faction",
+      "weight": 4,
+      "cooldown_ticks": 288,
+      "duration_ticks": 0,
+      "effects": [
+        {"type": "char_aging", "rarity": "legend", "loyalty_delta": -5,
+         "inherit_trait": true, "exp_pack": 300}
+      ],
+      "announce": "faction"
     }
   ],
   "roll_per_tick": [0, 2]

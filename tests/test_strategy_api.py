@@ -91,6 +91,28 @@ class FakePlugin:
         self.strategy_mgr = strategy_mgr
 
 
+class StubStrategyManager:
+    """WS 协议测试替身：只记录 handle_action 调用并按需抛错。"""
+
+    def __init__(self, result=None, error=None):
+        self.calls = []
+        self.result = result if result is not None else {
+            "ok": True, "round": 2, "events": ["第 2 回合开始"],
+            "current_actor": 1,
+        }
+        self.error = error
+
+    async def handle_action(self, user_id, action, params=None):
+        self.calls.append((user_id, action, dict(params or {})))
+        if self.error is not None:
+            raise self.error
+        return dict(self.result)
+
+    async def get_battle(self, battle_id):
+        return {"id": int(battle_id),
+                "session": {"owners": {"1": {"owner": "web_alice"}}}}
+
+
 class _ManagerBase(unittest.IsolatedAsyncioTestCase):
     """主玩法 DB + StrategyManager 的最小骨架（同 test_strategy_integration_p1p3）。"""
 
@@ -204,6 +226,8 @@ class StrategyRestApiTest(_AccountsBase, _ManagerBase):
         app.router.add_post("/api/register", rs._api_register)
         app.router.add_get("/api/strategy/state", rs._api_strategy_state)
         app.router.add_post("/api/strategy/action", rs._api_strategy_action)
+        app.router.add_get("/api/strategy/memorial", rs._api_strategy_memorial)
+        app.router.add_get("/api/strategy/guide", rs._api_strategy_guide)
         sel = TestServer(app)
         self.cli = TestClient(sel)
         await self.cli.start_server()
@@ -335,6 +359,95 @@ class StrategyRestApiTest(_AccountsBase, _ManagerBase):
         r = await self._action("alice", "set_notify_pref", {"level": 2})
         self.assertTrue(r["ok"], r)
 
+    # ------------------------------------------------------------------
+    # §12.5 新端点：名将堂 / 指引索引
+    # ------------------------------------------------------------------
+    async def test_memorial_returns_hall_and_shrine(self):
+        await self._action("alice", "enter")
+        rows = (
+            ("hall_of_fame", "关羽", "hall_of_fame", "蜀汉",
+             json.dumps({"name": "关羽", "rarity": "legend",
+                         "merit_season": 3200, "achievements": ["首破坚城"]},
+                        ensure_ascii=False), 11),
+            ("fame", "张飞", "fame", "蜀汉",
+             json.dumps({"name": "张飞", "rarity": "epic",
+                         "merit": 900, "achievements": []},
+                        ensure_ascii=False), 12),
+        )
+        for kind, name, _k, faction, snap, season in rows:
+            await self.db.conn.execute(
+                "INSERT INTO strategy_memorials (season_no, world_id, kind,"
+                " char_name, user_id, faction_name, snapshot_json, created_at)"
+                " VALUES (?,?,?,?,?,?,?,?)",
+                (season, self.wid, kind, name, "web_alice", faction, snap, _now()))
+        await self.m._commit()
+
+        resp = await self.cli.get("/api/strategy/memorial", headers=self._h("alice"))
+        self.assertEqual(resp.status, 200)
+        body = await resp.json()
+        self.assertTrue(body["ok"], body)
+        self.assertEqual(len(body["hall"]), 1)
+        self.assertEqual(len(body["shrine"]), 1)
+        self.assertGreaterEqual(int(body["season_no"]), 1)
+        top = body["hall"][0]
+        for key in ("name", "rarity", "faction", "season", "merit",
+                    "achievements", "kind", "user_id"):
+            self.assertIn(key, top)
+        self.assertEqual(top["name"], "关羽")
+        self.assertEqual(top["merit"], 3200)
+        self.assertEqual(body["shrine"][0]["kind"], "fame")
+
+    async def test_memorial_unjoined_returns_empty(self):
+        # bob 未入场 → 200 + 空榜（不报 500 / 401）
+        resp = await self.cli.get("/api/strategy/memorial", headers=self._h("bob"))
+        self.assertEqual(resp.status, 200)
+        body = await resp.json()
+        self.assertTrue(body["ok"], body)
+        self.assertEqual(body["hall"], [])
+        self.assertEqual(body["shrine"], [])
+        self.assertFalse(body.get("joined", True))
+
+    async def test_memorial_and_guide_unauthorized(self):
+        for path in ("/api/strategy/memorial", "/api/strategy/guide"):
+            resp = await self.cli.get(path)
+            self.assertEqual(resp.status, 401, path)
+
+    async def test_guide_index_and_search(self):
+        resp = await self.cli.get("/api/strategy/guide", headers=self._h("alice"))
+        self.assertEqual(resp.status, 200)
+        body = await resp.json()
+        self.assertTrue(body["ok"], body)
+        self.assertEqual(body["total"], 54)
+        self.assertEqual(body["count"], 54)
+        self.assertEqual(len(body["categories"]), 19)
+        self.assertEqual(body["categories"], list(rs._STRATEGY_GUIDE_CATS))
+        ids = {e["id"] for e in body["items"]}
+        self.assertIn("enter", ids)
+        self.assertIn("fair-play", ids)
+        for entry in body["items"]:
+            self.assertEqual(set(entry), {"id", "title", "cat", "keywords"})
+            self.assertTrue(entry["keywords"])
+
+        hit = await (await self.cli.get(
+            "/api/strategy/guide?q=民心", headers=self._h("alice"))).json()
+        self.assertGreaterEqual(hit["count"], 1)
+        hit_ids = {e["id"] for e in hit["items"]}
+        self.assertIn("morale", hit_ids)
+        # 空格多关键词为 AND 语义
+        and_hit = await (await self.cli.get(
+            "/api/strategy/guide?q=民心 赈济", headers=self._h("alice"))).json()
+        self.assertIn("morale", {e["id"] for e in and_hit["items"]})
+        self.assertLessEqual(and_hit["count"], hit["count"])
+
+    async def test_guide_empty_result(self):
+        body = await (await self.cli.get(
+            "/api/strategy/guide?q=不存在的关键词xyz", headers=self._h("alice"))).json()
+        self.assertTrue(body["ok"], body)
+        self.assertEqual(body["count"], 0)
+        self.assertEqual(body["items"], [])
+        self.assertEqual(body["sections"], [])
+        self.assertEqual(body["total"], 54)
+
 
 class StrategyNotifyTest(_AccountsBase, _ManagerBase):
     """通知链路：_notify 档位过滤 + notify_strategy WS 推送。"""
@@ -412,6 +525,164 @@ class StrategyNotifyTest(_AccountsBase, _ManagerBase):
             await rs.notify_strategy("web_alice", "event", {}), 0)
 
 
+class StrategyWsProtocolTest(_AccountsBase, unittest.IsolatedAsyncioTestCase):
+    """§12.5 WS 上行手操指令 + strategy.delta / battle.event 下行。"""
+
+    async def asyncSetUp(self):
+        self._accounts_setup()
+        ok, err = acc.register("alice", "secret1", "阿狸")
+        self.assertTrue(ok, err)
+        self.mgr = StubStrategyManager()
+        self.plugin = FakePlugin(None, self.mgr)
+        rs.set_plugin(self.plugin)
+        rs._strategy_subs.clear()
+        rs._strategy_last_tick = 0
+        self.ws = FakeWS()
+        rs._rooms[rs.ROOM_ID] = {
+            self.ws: {"player_id": "web_alice", "player_name": "阿狸",
+                      "username": "alice", "avatar": "", "room": rs.ROOM_ID}}
+
+    async def asyncTearDown(self):
+        rs.set_plugin(None)
+        rs._rooms.clear()
+        rs._strategy_subs.clear()
+        rs._strategy_last_tick = 0
+        self._accounts_teardown()
+
+    async def _send(self, payload):
+        await rs._handle_client_message(
+            rs.ROOM_ID, self.ws, json.dumps(payload, ensure_ascii=False))
+
+    def _last(self, typ=None):
+        sent = [m for m in self.ws.sent if typ is None or m.get("type") == typ]
+        self.assertTrue(sent, f"未收到 {typ}: {self.ws.sent}")
+        return sent[-1]
+
+    async def test_ws_deploy_maps_to_battle_deploy(self):
+        # 真实 battle_deploy 只回 {ok,msg}（不推进回合），照此构造
+        self.mgr.result = {"ok": True, "msg": "部署完成"}
+        await self._send({"type": "strategy.deploy", "battle_id": 7,
+                          "payload": {"placements": [{"uid": 1, "q": 0, "r": 0}]},
+                          "req_id": "r-deploy"})
+        self.assertEqual(len(self.mgr.calls), 1)
+        uid, action, params = self.mgr.calls[0]
+        self.assertEqual(uid, "web_alice")
+        self.assertEqual(action, "battle_deploy")
+        self.assertEqual(params["battle_id"], 7)
+        self.assertEqual(params["placements"], [{"uid": 1, "q": 0, "r": 0}])
+        ack = self._last("strategy.battle.ack")
+        self.assertEqual(ack["req"], "r-deploy")
+        self.assertEqual(ack["action"], "strategy.deploy")
+        self.assertEqual(ack["battle_id"], 7)
+        self.assertTrue(ack["result"]["ok"])
+        # deploy 不推进回合 → 不推 battle.event
+        self.assertFalse([m for m in self.ws.sent
+                          if m.get("type") == "strategy.battle.event"])
+
+    async def test_ws_move_maps_to_battle_action_and_emits_event(self):
+        await self._send({"type": "strategy.move", "battle_id": 8,
+                          "payload": {"path": [[0, 0], [1, 0]]},
+                          "req_id": "r-move"})
+        uid, action, params = self.mgr.calls[0]
+        self.assertEqual(action, "battle_action")
+        self.assertEqual(params["act"], "move")
+        self.assertEqual(params["params"]["path"], [[0, 0], [1, 0]])
+        ack = self._last("strategy.battle.ack")
+        self.assertEqual(ack["act"], "move")
+        ev = self._last("strategy.battle.event")
+        self.assertEqual(ev["battle_id"], 8)
+        self.assertEqual(ev["round"], 2)
+        self.assertEqual(ev["log"], ["第 2 回合开始"])
+
+    async def test_ws_all_kind_mapping(self):
+        cases = {"skill": "skill", "retreat": "retreat",
+                 "end_turn": "end_turn"}
+        for kind, act in cases.items():
+            self.mgr.calls.clear()
+            await self._send({"action": f"strategy.{kind}", "battle_id": 9,
+                              "payload": {}, "req_id": f"r-{kind}"})
+            self.assertEqual(self.mgr.calls[0][1], "battle_action")
+            self.assertEqual(self.mgr.calls[0][2]["act"], act)
+            self.assertEqual(self._last("strategy.battle.ack")["req"], f"r-{kind}")
+        # duel：默认发起，带 accept 则视为应战
+        self.mgr.calls.clear()
+        await self._send({"type": "strategy.duel", "battle_id": 9,
+                          "payload": {"target": 3}, "req_id": "r-duel"})
+        self.assertEqual(self.mgr.calls[0][2]["act"], "duel_challenge")
+        await self._send({"type": "strategy.duel", "battle_id": 9,
+                          "payload": {"accept": True}, "req_id": "r-duel2"})
+        self.assertEqual(self.mgr.calls[1][2]["act"], "duel_respond")
+
+    async def test_ws_subscribe_channel(self):
+        await self._send({"type": "strategy.subscribe", "req_id": "r-sub"})
+        msg = self._last("strategy.subscribed")
+        self.assertIn("tick", msg)
+        self.assertIn("alice", rs._strategy_subs)
+        self.assertFalse(self.mgr.calls)
+
+    async def test_ws_strategy_error(self):
+        self.mgr.error = StrategyError("当前不是你的单位行动")
+        await self._send({"type": "strategy.skill", "battle_id": 10,
+                          "payload": {"skill": "fire"}, "req_id": "r-err"})
+        e = self._last("strategy.error")
+        self.assertEqual(e["req"], "r-err")
+        self.assertEqual(e["msg"], "当前不是你的单位行动")
+        self.assertFalse([m for m in self.ws.sent
+                          if m.get("type") == "strategy.battle.ack"])
+
+    async def test_ws_strategy_error_bad_battle_id(self):
+        await self._send({"type": "strategy.move", "battle_id": "abc",
+                          "payload": {}, "req_id": "r-bad"})
+        self.assertEqual(self._last("strategy.error")["req"], "r-bad")
+        self.assertFalse(self.mgr.calls)
+
+    async def test_delta_and_battle_event_push(self):
+        # 订阅后推 delta
+        rs.subscribe_strategy("alice")
+        self.assertEqual(await rs.notify_strategy_delta(5), 1)
+        d = self._last("strategy.delta")
+        self.assertEqual(d["tick"], 5)
+        self.assertLessEqual(d["ts"], _now())
+
+        # tick 号不变不重复推；推进后才再推
+        rs._strategy_last_tick = 0
+        self.assertEqual(await rs._maybe_strategy_delta(5), 0)  # 基线
+        self.assertEqual(await rs._maybe_strategy_delta(5), 0)  # 未变
+        self.assertEqual(await rs._maybe_strategy_delta(6), 1)  # 推进
+
+        # 定向 battle.event（参与者解析走 stub get_battle）
+        n = await rs.notify_strategy_battle(
+            9, {"round": 3, "events": ["斩将"], "current_actor": 2})
+        self.assertEqual(n, 1)
+        ev = self._last("strategy.battle.event")
+        self.assertEqual(ev["battle_id"], 9)
+        self.assertEqual(ev["round"], 3)
+        self.assertEqual(ev["log"], ["斩将"])
+        self.assertFalse(ev["finished"])
+
+        # 未订阅/无连接：静默返回 0
+        rs._rooms.clear()
+        self.assertEqual(await rs.notify_strategy_delta(7), 0)
+
+
+class StrategyStaticRouteTest(unittest.IsolatedAsyncioTestCase):
+    """静态资源：/static/strategy/guide.{js,css} 与 guide-data.js 必须可访问。"""
+
+    async def test_guide_assets_served(self):
+        app = web.Application()
+        app.router.add_static("/static/", rs.STATIC_DIR, name="static")
+        cli = TestClient(TestServer(app))
+        await cli.start_server()
+        try:
+            for name in ("guide.js", "guide.css", "guide-data.js"):
+                resp = await cli.get(f"/static/strategy/{name}")
+                self.assertEqual(resp.status, 200, name)
+                text = await resp.text()
+                self.assertTrue(text.strip(), name)
+        finally:
+            await cli.close()
+
+
 class StrategyServerAuthorityTest(_ManagerBase):
     """服务器权威：快照不泄露 seed / 伏兵坐标 / 敌军后勤数据。"""
 
@@ -456,17 +727,23 @@ class StrategyServerAuthorityTest(_ManagerBase):
         garrison = [u for u in st["units"] if u["army_id"] < 0]
         self.assertTrue(garrison)
         self.assertTrue(all(not u["mine"] for u in garrison))
-        # 注入一条未揭晓伏兵（挂在守军上）→ 对玩家 pos=None
+        # 注入一条未揭晓伏兵（挂在守军上）→ 对敌方视角整支不下发：
+        # 连「存在一支伏兵」都不该泄露（否则可推断林中有埋伏）
         b = await self.m.get_battle(bid)
         sess = b["session"]
         sess["ambushes"].append(
             {"uid": garrison[0]["uid"], "q": 1, "r": 1, "revealed": False})
         await self.m.update_battle_session(b)
         st2 = await self.m.battle_state("web_alice", bid)
-        hidden = next(u for u in st2["units"]
-                      if u["uid"] == garrison[0]["uid"])
-        self.assertIsNone(hidden["pos"])
-        self.assertEqual(hidden["skills"], [])
+        self.assertFalse([u for u in st2["units"]
+                          if u["uid"] == garrison[0]["uid"]])
+        # 己方伏兵正常下发（自己是知情方）
+        own_uid = next(u["uid"] for u in st2["units"] if u["mine"])
+        sess["ambushes"].append(
+            {"uid": own_uid, "q": 0, "r": 0, "revealed": False})
+        await self.m.update_battle_session(b)
+        st3 = await self.m.battle_state("web_alice", bid)
+        self.assertIn(own_uid, [u["uid"] for u in st3["units"]])
 
     async def test_state_fog_on_enemy_armies(self):
         # bob 占一个无主据点；alice 占其相邻据点并建军 →

@@ -1310,13 +1310,16 @@
       battle_open: "⚔️ 手操战役打响：" + nodeName + "！前往战略大地图「战报」页进入手操",
       duel_invite: "🎯 有敌将向你发起阵前单挑！进入手操战役应战",
       siege_alert: "🔥 我方「" + nodeName + "」正被围城！",
+      trade_route_cut: "🛤️ " + (pl.text || "商路已被切断"),
+      convoy_arrived: "🚚 " + (pl.text || "运粮队已抵达"),
+      convoy_raided: "🏴 " + (pl.text || "运粮队被劫掠"),
       event: "🎲 世界事件：" + (pl.name || pl.text || ""),
     };
     const text = TEXTS[kind] || ("⚔️ 仙域争霸：" + (pl.text || kind));
     showBanner(text);
     try {
       if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-        new Notification("仙域争霸", { body: text.replace(/^⚔️ |^🔥 |^🎯 |^🎲 /, ""), tag: "strategy-" + kind });
+        new Notification("仙域争霸", { body: text.replace(/^⚔️ |^🔥 |^🎯 |^🎲 |^🛤️ |^🚚 |^🏴 /, ""), tag: "strategy-" + kind });
       }
     } catch (_) { /* 移动端忽略 */ }
   }

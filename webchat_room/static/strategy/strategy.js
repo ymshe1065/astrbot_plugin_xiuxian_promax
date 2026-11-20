@@ -10,7 +10,13 @@ const WORLD_W = 1200, WORLD_H = 780;
 const TYPE_ICON = { city: "🏯", pass: "⛰️", mine: "⛏️", grain: "🌾", market: "🏪", branch: "🏘️", ruin: "🗿" };
 const TYPE_NAME = { city: "仙城", pass: "关隘", mine: "灵脉矿", grain: "灵谷田", market: "坊市", branch: "分舵", ruin: "遗迹" };
 const TERRAIN_NAME = { plain: "平原", forest: "森林", mountain: "山地", river: "河流", swamp: "沼泽" };
-const STATE_NAME = { idle: "驻守", march: "行军", siege: "围城", retreat: "撤退" };
+const STATE_NAME = { idle: "驻守", march: "行军", siege: "围城", retreat: "撤退", escort: "护送粮队" };
+// 任务产出图标（后端 task_meta.output_kind / 进行中任务 output_kind）
+const OUTPUT_ICON = {
+  coin: "💰", grain: "🌾", iron: "⛏️", token: "🎟️", merit: "🎖️",
+  tech: "🔬", build: "🛡️", train: "⚔️", heal: "💊", intel: "🕵️",
+  grain_move: "🌾", loot: "💎", plot: "🎴",
+};
 // 羁绊（core/strategy_rules.BOND_NAMES 前端投影）
 const BOND_NAMES = { tongdao: "同道", zhiyu: "知遇", yijiao: "义交", shitu: "师徒", suyuan: "宿怨" };
 // 外交关系
@@ -401,14 +407,18 @@ function renderDrawer() {
   let html = "";
   html += kv("类型", (TYPE_NAME[n.type] || n.type) + " · " + (TERRAIN_NAME[n.terrain] || n.terrain) + " · Lv" + n.level);
   html += kv("归属", '<span style="color:' + (n.owner ? n.owner.color : "#999") + '">' + esc(n.owner ? n.owner.name : "无主") + "</span>");
-  html += kv("民心", n.morale + " / 100");
+  html += moraleBarHtml(n, mine);
   if (n.defense_max > 0) {
     const pct = Math.round(n.defense / n.defense_max * 100);
     html += kv("城防", n.defense + " / " + n.defense_max + ' <span class="sub">(' + pct + '%)</span>');
   }
   const gar = n.garrison !== null && n.garrison !== undefined ? n.garrison + " 兵" : (n.garrison_bucket ? "约 " + n.garrison_bucket : "无");
   html += kv("守军", gar);
-  if (n.buildings && n.buildings.length) html += kv("建筑", n.buildings.map((b) => (S.meta.buildings[b] || {}).name || b).join("、"));
+  if (n.respawn_at) {
+    const left = Math.max(0, Number(n.respawn_at) - Math.floor(Date.now() / 1000));
+    if (left > 0) html += kv("重生", "👹 匪寨驻军约 " + fmtRemain(left) + " 后重生");
+  }
+  html += buildingSectionHtml(n, mine);
   if (n.siege && n.siege.ticks > 0) html += kv("围城", "已围 " + n.siege.ticks + " tick" + (n.siege.attacker_faction === myFactionId() ? "（我方发起）" : ""));
   if (n.protected) html += kv("保护", "🛡 保护期中");
   if (n.scouted_until) {
@@ -434,7 +444,6 @@ function renderDrawer() {
   if (mine) {
     html += '<button class="btn small" onclick="openArmyModal(' + n.id + ')">🛡️ 在此编军</button>';
     if (["city", "pass"].includes(n.type)) html += '<button class="btn small" onclick="doAction(\'upgrade_node\',{node_id:' + n.id + '})">⬆️ 升级（5000币/500铁起）</button>';
-    html += buildSelectHtml(n);
     html += taskFormHtml(n, p);
   } else {
     const idleArmies = (p.armies || []).filter((a) => a.state === "idle");
@@ -449,12 +458,82 @@ function renderDrawer() {
 
 function kv(k, v) { return '<div class="kv"><span class="k">' + k + "</span><span>" + v + "</span></div>"; }
 
-function buildSelectHtml(n) {
+// 民心进度条 + 赈济（§8.6，用户重点）
+function moraleBarHtml(n, mine) {
+  const cap = Math.max(1, Number(n.morale_cap || 100));
+  const morale = Math.max(0, Math.min(cap, Number(n.morale || 0)));
+  const cls = morale < 20 ? "bad" : morale < 50 ? "warn" : "";
+  let h = '<div class="kv morale-kv"><span class="k">民心</span><span class="morale-wrap">' +
+    '<span>' + morale + " / " + cap + "</span>" +
+    '<span class="bar ' + cls + '"><i style="width:' + Math.round(morale / cap * 100) + '%"></i></span></span></div>';
+  if (!mine) return h;
+  const gcfg = ((S.meta || {}).governance_cfg) || {};
+  const perNode = Math.max(1, Number(gcfg.relief_node_daily_limit || 2));
+  const coinCost = Math.max(1, Number(gcfg.relief_coin_cost || 3000));
+  const grainCost = Math.max(1, Number(gcfg.relief_grain_cost || 800));
+  const gain = Math.max(1, Number(gcfg.relief_morale || 6));
+  const used = Math.max(0, Number(n.relief_used || 0));
+  const left = Math.max(0, perNode - used);
+  const full = morale >= cap;
+  const dis = (left <= 0 || full) ? " disabled" : "";
+  h += '<div class="relief-box"><div class="sub">🎁 赈济：本据点今日剩余 <b>' + left + " / " + perNode +
+    " 次</b>" + (full ? "（民心已满）" : left <= 0 ? "（今日已达上限）" : "") + "</div>" +
+    '<div class="drawer-actions">' +
+    '<button class="btn small primary" data-act="relief" data-id="' + n.id + '" data-res="coin"' + dis +
+    ">🪙 赈济铜钱（" + fmtNum(coinCost) + "，+" + gain + " 民心）</button>" +
+    '<button class="btn small" data-act="relief" data-id="' + n.id + '" data-res="grain"' + dis +
+    ">🌾 赈济粮草（" + fmtNum(grainCost) + "，+" + gain + " 民心）</button>" +
+    "</div></div>";
+  return h;
+}
+
+// 建筑：9 种目录（S.buildings 或 S.meta.buildings），支持建设与升级
+function buildingSectionHtml(n, mine) {
   if (!["city", "pass", "branch"].includes(n.type)) return "";
-  const opts = Object.entries(S.meta.buildings).map(([id, b]) =>
-    '<option value="' + id + '">' + b.name + "（" + b.coin + "币" + (b.iron ? "/" + b.iron + "铁" : "") + "）</option>").join("");
-  return '<select id="buildSel_' + n.id + '" style="max-width:150px">' + opts + "</select>" +
-    '<button class="btn small" onclick="doAction(\'build\',{node_id:' + n.id + ",building_id:document.getElementById('buildSel_" + n.id + "').value})" + '">🏗️ 建设</button>';
+  const metaCatalog = (S.meta || {}).buildings || {};
+  const ownCatalog = S.buildings || {};
+  const catalog = Object.keys(ownCatalog).length ? ownCatalog : metaCatalog;
+  const ids = Object.keys(catalog);
+  if (!ids.length) return "";
+  const levels = {};
+  for (const b of (n.buildings || [])) {
+    const bid = typeof b === "string" ? b : (b && b.id);
+    if (!bid) continue;
+    const lv = (b && typeof b === "object" && Number(b.level)) ? Number(b.level) : 1;
+    levels[bid] = Math.max(levels[bid] || 0, Math.max(1, lv));
+  }
+  const built = Object.keys(levels);
+  let h = '<div class="building-box"><div class="sub">🏗️ 建筑（' + ids.length + " 种，最高 5 级）</div>";
+  if (built.length) {
+    h += '<div class="tbl-wrap"><table class="tbl"><tr><th>建筑</th><th>等级</th><th>效果</th><th></th></tr>';
+    for (const bid of built) {
+      const spec = catalog[bid] || {};
+      const maxLv = Number(spec.max || 5);
+      const lv = Math.min(maxLv, levels[bid]);
+      h += '<tr><td>' + esc(spec.name || bid) + "</td><td>Lv " + lv + " / " + maxLv +
+        '</td><td class="sub">' + esc(spec.desc || "") + "</td><td>" +
+        (mine && lv < maxLv
+          ? '<button class="btn small" data-act="upgrade-building" data-id="' + n.id +
+            '" data-building="' + esc(bid) + '">升级</button>'
+          : '<span class="sub">' + (lv >= maxLv ? "满级" : "-") + "</span>") + "</td></tr>";
+    }
+    h += "</table></div>";
+  } else {
+    h += '<div class="sub">尚未建造任何建筑</div>';
+  }
+  if (mine) {
+    const avail = ids.filter((id) => !levels[id]);
+    if (avail.length) {
+      h += '<div class="form-row building-build"><select id="buildSel_' + n.id + '" style="max-width:150px">' +
+        avail.map((id) => {
+          const spec = catalog[id] || {};
+          return '<option value="' + esc(id) + '">' + esc(spec.name || id) + "（" +
+            fmtNum(spec.coin || 0) + "币" + (spec.iron ? "/" + fmtNum(spec.iron) + "铁" : "") + "）</option>";
+        }).join("") +
+        '</select><button class="btn small" data-act="build-building" data-id="' + n.id + '">🏗️ 建设</button></div>';
+    }
+  }
+  return h + "</div>";
 }
 
 function taskFormHtml(n, p) {
@@ -464,11 +543,18 @@ function taskFormHtml(n, p) {
   const meta = S.meta.task_meta || {};
   const taskOpts = Object.entries(S.meta.task_types).map(([t, name]) => {
     const m = meta[t] || {};
-    const label = m.name ? m.name + "（" + (m.stat || "?") + "）" : name;
+    const icon = OUTPUT_ICON[m.output_kind] || "";
+    const label = m.name
+      ? m.name + "·" + icon + (m.output || "产出") + "（" + (m.stat || "?") + "）"
+      : name;
     const tip = [m.role ? "最佳职责：" + m.role : "", m.output ? "产出：" + m.output : "",
       m.node ? "据点加成：" + m.node : ""].filter(Boolean).join(" · ");
     return '<option value="' + t + '" title="' + esc(tip) + '">' + esc(label) + "</option>";
   }).join("");
+  const outputLegend = Object.entries(S.meta.task_types).map(([t]) => {
+    const m = meta[t] || {};
+    return (m.name || t) + "→" + (OUTPUT_ICON[m.output_kind] || "") + (m.output || "?");
+  }).join(" · ");
   const hourOpts = (S.meta.task_hours || [1, 2, 4, 8]).map((h) => '<option value="' + h + '">' + h + "h</option>").join("");
   const uid = "task_" + n.id;
   return '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px;width:100%">' +
@@ -476,7 +562,8 @@ function taskFormHtml(n, p) {
     '<select id="' + uid + '_t" style="max-width:120px">' + taskOpts + "</select>" +
     '<select id="' + uid + '_h" style="max-width:60px">' + hourOpts + "</select>" +
     '<button class="btn small" onclick="dispatchFrom(\'' + uid + "'," + n.id + ')">📜 派遣</button></div>' +
-    '<div class="sub" style="width:100%">括号内为任务核心属性；悬停可看最佳职责、产出与据点加成</div>';
+    '<div class="sub" style="width:100%">括号内为任务核心属性；悬停可看最佳职责与据点加成</div>' +
+    '<div class="sub" style="width:100%">任务产出：' + esc(outputLegend) + "</div>";
 }
 
 function dispatchFrom(uid, nodeId) {
@@ -486,6 +573,16 @@ function dispatchFrom(uid, nodeId) {
     task_type: document.getElementById(uid + "_t").value,
     hours: Number(document.getElementById(uid + "_h").value),
   });
+}
+
+function taskPayoutText(t) {
+  const icon = OUTPUT_ICON[t.output_kind] || "🎁";
+  let s = icon + " " + esc(t.output_name || "产出");
+  if (t.estimate !== null && t.estimate !== undefined) s += " ≈" + fmtNum(t.estimate);
+  if (t.note) s += ' <span class="sub">（' + esc(t.note) + "）</span>";
+  if (t.morale_gain) s += ' <span class="sub">· 民心 +' + t.morale_gain + "</span>";
+  if (t.partner_name) s += ' <span class="sub">· 与 ' + esc(t.partner_name) + " 协作</span>";
+  return s;
 }
 
 document.getElementById("drawerClose").addEventListener("click", () => {
@@ -507,14 +604,85 @@ document.getElementById("tabs").addEventListener("click", (ev) => {
 
 function renderTab() {
   const el = document.getElementById("tabBody");
-  if (!S || !S.joined) { el.innerHTML = '<div class="empty">入场后展示</div>'; return; }
+  // 「指引」不依赖入场态：未入场也能查全部玩法文档（guide.js 提供 tabGuide/initGuide）
+  const isGuide = activeTab === "guide";
+  if ((!S || !S.joined) && !isGuide) {
+    el.innerHTML = '<div class="empty">入场后展示</div>';
+    return;
+  }
+  // 指引页已渲染时跳过重绘：20s 轮询不打断输入框焦点与光标（搜索词存于 guide.js state）
+  if (isGuide && document.getElementById("guideSearch")) {
+    if (typeof window.initGuide === "function") window.initGuide();
+    return;
+  }
   const fn = {
     overview: tabOverview, chars: tabChars, armies: tabArmies,
     faction: tabFaction, tavern: tabTavern, market: tabMarket,
     battles: tabBattles, shop: tabShop, honor: tabHonor, settings: tabSettings,
+    guide: (window.tabGuide || (() => "")),
   }[activeTab];
   el.innerHTML = fn ? fn() : "";
   bindTabEvents();
+  // 指引页：事件全部委托在 #tabBody 上，重复调用不会重复绑定；
+  // 搜索词保存在 guide.js 的 state 中，20s 轮询重绘后仍会回填。
+  if (isGuide && typeof window.initGuide === "function") window.initGuide();
+}
+
+// ---------------------------------------------------------------------------
+// 战报高光（§12.6）：后端 result.highlights 可能是英文码或中文短句，统一成中文
+// ---------------------------------------------------------------------------
+const HIGHLIGHT_NAMES = {
+  duel_win: "单挑获胜", duel: "单挑决胜",
+  encircle: "完成合围", night_raid: "夜袭得手",
+  night: "夜袭作战", underdog: "以少胜多", ambush: "伏兵突袭",
+};
+
+// 战报列表不含 result.highlights 时，按需静默拉取详情并缓存（仅前 12 场）
+const battleHlCache = {};
+const battleHlPending = {};
+function hydrateBattleHighlights(list) {
+  const need = (list || []).filter((b) => b && b.state === "done" &&
+    battleHlCache[b.id] === undefined && !battleHlPending[b.id] &&
+    !battleHighlights(b).length).slice(0, 12);
+  if (!need.length) return;
+  const a = auth();
+  if (!a || !a.token) return;
+  need.forEach((b) => { battleHlPending[b.id] = true; });
+  let left = need.length;
+  need.forEach((b) => {
+    fetch("/api/strategy/action", {
+      method: "POST",
+      headers: { "Authorization": "Bearer " + a.token, "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "battle_report", params: { battle_id: b.id } }),
+    }).then((r) => (r.ok ? r.json() : null)).then((d) => {
+      const res = (d && d.report && d.report.result) || {};
+      battleHlCache[b.id] = ((res.highlights || []).map(highlightText).filter(Boolean));
+    }).catch(() => { battleHlCache[b.id] = []; }).then(() => {
+      delete battleHlPending[b.id];
+      if (--left === 0 && activeTab === "battles") renderTab();
+    });
+  });
+}
+
+function highlightText(h) {
+  const s = String(h === null || h === undefined ? "" : h).trim().replace(/^⭐\s*/, "");
+  if (!s) return "";
+  return HIGHLIGHT_NAMES[s] || s;
+}
+
+function battleHighlights(b) {
+  if (b && Object.prototype.hasOwnProperty.call(battleHlCache, b.id) &&
+      battleHlCache[b.id].length) {
+    return battleHlCache[b.id];
+  }
+  const src = (b && (b.highlights || (b.result || {}).highlights)) || [];
+  let raw = Array.isArray(src) ? src.slice() : [];
+  // 兼容只落库 report_text 的旧战报：首行以 ⭐ 标记高光
+  if (!raw.length && b && b.report_text) {
+    const line = String(b.report_text).split("\n").find((x) => x.includes("⭐"));
+    if (line) raw = line.split("⭐").map((x) => x.trim()).filter(Boolean);
+  }
+  return raw.map(highlightText).filter(Boolean);
 }
 
 function guideSteps() {
@@ -534,8 +702,11 @@ function guideSteps() {
       desc: "在己方据点抽屉底部，选内政官执行屯田/布政/挖矿，离线也会持续产出。" },
     { title: "⑤ 招贤纳士", done: (p.chars || []).length > 2,
       desc: "酒馆普通招募 800 铜钱；募将令高级招募 40 抽保底极品。更多武将才能多线出征。" },
-    { title: "⑥ 势力与官职", done: (f.members || []).length > 1,
-      desc: "势力页可任免角色官职：据点越多，可任免的官职档位越高；主将带兵上限按其角色官职计算。" },
+    { title: "⑥ 势力与官职",
+      done: (f.members || []).length > 1 || (f.appointments || []).length > 0,
+      desc: (f.appointments || []).length
+        ? "已任免 " + f.appointments.length + " 名角色的官职；可随时在势力页调整，主将带兵上限按其官职计算。"
+        : "势力页可任免角色官职：据点越多，可任免的官职档位越高；主将带兵上限按其角色官职计算。" },
   ];
 }
 
@@ -573,12 +744,13 @@ function tabOverview() {
   const tasks = (S.player || {}).tasks || [];
   h += '<div class="card"><h3>📜 进行中任务</h3>';
   if (tasks.length) {
-    h += '<table class="tbl"><tr><th>角色</th><th>任务</th><th>据点</th><th>剩余</th><th></th></tr>' +
+    h += '<table class="tbl"><tr><th>角色</th><th>任务</th><th>收益</th><th>据点</th><th>剩余</th><th></th></tr>' +
       tasks.map((t) => "<tr><td>" + esc(t.char_name) + "</td><td>" + esc(t.task_name) +
+        "</td><td>" + taskPayoutText(t) +
         "</td><td>" + esc(t.node_name) + "</td><td>" + fmtRemain(t.remain_sec) +
         '</td><td><button class="btn small" data-act="recall-task" data-id="' + t.id +
         '" data-name="' + esc(t.char_name) + '">召回</button></td></tr>').join("") +
-      "</table><div class='sub'>随时可召回；已进行部分按比例结算，但收益额外损失 50%</div>";
+      "</table><div class='sub'>收益为满期预期值（不含 ±15% 随机波动与小事件）；随时可召回，已进行部分按比例结算，但收益额外损失 50%</div>";
   } else {
     h += '<span class="sub">暂无进行中的任务（在己方据点抽屉底部派遣）</span>';
   }
@@ -617,7 +789,9 @@ function charCard(c) {
     (c.trait_names && c.trait_names.length ? '<div class="sub">特技：' + c.trait_names.join("、") + "</div>" : "") +
     (apt ? '<div class="sub">适性：' + esc(apt) + "</div>" : "") +
     (bonds ? '<div class="sub">羁绊：' + bonds + "</div>" : "") +
-    '<div class="sub">阅历 ' + c.exp + "/" + c.exp_next + " · 忠诚 " + c.loyalty +
+    '<div class="sub">阅历 ' + c.exp + "/" + c.exp_next +
+    " · 成长 " + (c.stat_total || 0) + "/" + (c.stat_cap || 0) +
+    " · 忠诚 " + c.loyalty +
     " · 状态 " + ({ idle: "空闲", task: "执行任务", army: "随军", captive: "被俘", wander: "在野", dead: "陨落" }[c.status] || c.status) +
     (c.location ? " · 位于 " + esc(c.location) : "") + "</div>" +
     (c.appointed_position
@@ -626,17 +800,29 @@ function charCard(c) {
       : "") +
     '<div class="sub">伤势 ' + c.injury_name + "(" + c.injury + ") · 体力 " + c.stamina + "</div>" +
     '<div class="bar ' + (c.injury >= 60 ? "bad" : c.injury >= 30 ? "warn" : "") + '"><i style="width:' + (100 - c.injury) + '%"></i></div>' +
-    (c.status === "idle" && c.role !== "official"
-      ? '<div class="drawer-actions"><button class="btn small" data-act="duel-open" data-id="' + c.id + '">🎯 摆擂（单挑赌注）</button></div>'
+    (c.status === "idle"
+      ? '<div class="drawer-actions">' +
+        (c.role !== "official"
+          ? '<button class="btn small" data-act="duel-open" data-id="' + c.id + '">🎯 摆擂（单挑赌注）</button>'
+          : "") +
+        (!c.appointed_position
+          ? '<button class="btn small danger" data-act="dismiss-char" data-id="' + c.id +
+            '" data-name="' + esc(c.name) + '">🗑 遣散（腾出名额）</button>'
+          : "") +
+        "</div>"
       : "") +
     "</div>";
 }
 
 function tabChars() {
-  const chars = ((S.player || {}).chars || []).filter((c) => c.status !== "dead");
-  const dead = ((S.player || {}).chars || []).filter((c) => c.status === "dead");
-  if (!chars.length && !dead.length) return '<div class="empty">尚无角色，去酒馆招募吧</div>';
-  let h = "";
+  const p = S.player || {};
+  const chars = (p.chars || []).filter((c) => !["dead", "captive"].includes(c.status));
+  const dead = (p.chars || []).filter((c) => c.status === "dead");
+  let h = '<div class="card"><h3>👥 名册 ' + (p.char_count || 0) + " / " + (p.char_cap || 0) + "</h3>" +
+    '<div class="sub">按本势力据点数量提供名额：当前 ' + (p.char_cap_nodes || 0) +
+    " 座据点，每座 +" + (p.char_cap_per_node || 0) + " 名；被俘/陨落角色不占名额。角色的六维总和可通过任务与战斗历练，最高成长到稀有度上限 +" +
+    (p.growth_cap_bonus || 0) + "，满额后可遣散腾出名额。</div></div>";
+  if (!chars.length && !dead.length) return h + '<div class="empty">尚无角色，去酒馆招募吧</div>';
   const sections = [
     ["⚔️ 武将", chars.filter((c) => c.role === "general")],
     ["🪶 军师", chars.filter((c) => c.role === "strategist")],
@@ -686,6 +872,8 @@ function armyButtons(a) {
     b += '<button class="btn small" onclick="doAction(\'siege_choice\',{army_id:' + a.id + ",choice:'street_fight'})" + '">巷战</button>';
     b += '<button class="btn small" onclick="doAction(\'siege_choice\',{army_id:' + a.id + ",choice:'surrender'})" + '">受降(需3倍兵力)</button>';
     b += '<button class="btn small danger" onclick="doAction(\'retreat\',{army_id:' + a.id + '})">撤围</button>';
+  } else if (a.state === "escort") {
+    b += '<span class="sub">护送运粮队中，抵达或被截后自动归队</span>';
   } else {
     b += '<button class="btn small danger" onclick="doAction(\'retreat\',{army_id:' + a.id + '})">🏳️ 撤退</button>';
   }
@@ -700,7 +888,10 @@ function refillPrompt(armyId) {
 function tabTavern() {
   const p = S.player || {};
   const t = p.tavern || {};
-  let h = '<div class="card"><h3>🍶 招贤酒馆</h3><div class="sub">普通招募 800 铜钱；募将令招募必得良品以上，40 抽保底极品+（当前保底进度 ' +
+  let h = '<div class="card"><h3>🍶 招贤酒馆</h3><div class="sub">名册 ' +
+    (p.char_count || 0) + " / " + (p.char_cap || 0) + "（据点 " +
+    (p.char_cap_nodes || 0) + " 座 × 每座 +" + (p.char_cap_per_node || 0) +
+    "）；普通招募 800 铜钱；募将令招募必得良品以上，40 抽保底极品+（当前保底进度 " +
     ((p.honor || {}).pity || 0) + "/40）</div>" +
     '<div class="drawer-actions"><button class="btn small" id="btnTavernRefresh">🔄 手动刷新(300币 ' +
     (t.daily_refresh_used || 0) + "/3)</button></div></div>";
@@ -722,49 +913,107 @@ function tabTavern() {
 }
 
 function tabBattles() {
-  const bs = S.battles || [];
-  if (!bs.length) return '<div class="empty">尚无战报</div>';
-  return bs.map((b) => {
+  const all = S.battles || [];
+  if (!all.length) return '<div class="empty">尚无战报</div>';
+  // §12.6 高光战报置顶（同组内保持后端原顺序：新→旧）
+  const bs = all.map((b) => ({ b, hl: battleHighlights(b) }))
+    .sort((x, y) => (y.hl.length ? 1 : 0) - (x.hl.length ? 1 : 0));
+  // 列表缺 highlights 字段时后台补拉详情（会缓存，拉全后自动重排一次）
+  hydrateBattleHighlights(all);
+  return bs.map(({ b, hl }) => {
     const when = new Date(b.created_at * 1000).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
     const node = nodeById(b.node_id);
     const manualLive = b.mode === "manual" && ["deploy", "battle"].includes(b.state);
+    const hlTag = hl.length ? ' <span class="tag star">⭐ 高光</span>' : "";
+    const hlLine = hl.length
+      ? '<div class="hl-line">⭐ ' + hl.map((t) => '<span class="hl-item">' + esc(t) + "</span>").join("") + "</div>"
+      : "";
     if (manualLive) {
       const left = Math.max(0, Number(b.deadline_at || 0) - Math.floor(Date.now() / 1000));
       return '<div class="card live"><h3>🔴 ' +
         ({ field: "会战", street: "巷战", siege: "攻城战" }[b.kind] || "战役") +
         " · " + esc(node ? node.name : "据点#" + b.node_id) +
-        ' <span class="tag epic">' + (b.state === "deploy" ? "部署中" : "手操进行中") + "</span></h3>" +
+        ' <span class="tag epic">' + (b.state === "deploy" ? "部署中" : "手操进行中") + "</span>" + hlTag + "</h3>" +
         '<div class="sub">' + (b.state === "deploy" ? "部署剩余 " + left + " 秒" : "回合限时 " + left + " 秒") + "</div>" +
-        '<div class="drawer-actions"><button class="btn small primary" data-act="enter-battle" data-id="' + b.id + '">⚔️ 进入手操</button></div></div>';
+        hlLine +
+        '<div class="drawer-actions"><button class="btn small primary" data-act="enter-battle" data-id="' + b.id + '">⚔️ 进入手操</button>' +
+        '<button class="btn small" data-act="spectate-battle" data-id="' + b.id + '">👁 观战（只读）</button></div></div>';
     }
     const win = b.winner === "attacker" ? "攻方胜" : b.winner === "defender" ? "守方胜" : "未分胜负";
-    return '<div class="card"><h3>' + ({ field: "⚔️", street: "🏙️", siege: "🔥" }[b.kind] || "⚔️") +
+    return '<div class="card' + (hl.length ? " highlight" : "") + '"><h3>' +
+      ({ field: "⚔️", street: "🏙️", siege: "🔥" }[b.kind] || "⚔️") +
       " " + esc(node ? node.name : "据点#" + b.node_id) + " · " + win +
-      (b.mode === "manual" ? ' <span class="tag">手操</span>' : "") +
+      (b.mode === "manual" ? ' <span class="tag">手操</span>' : "") + hlTag +
       ' <span class="sub">' + when + " · " + b.rounds + " 回合</span></h3>" +
+      hlLine +
       '<details><summary class="sub">展开战报</summary><div class="report-text">' + esc(b.report_text) + "</div></details>" +
-      '<div class="drawer-actions"><button class="btn small" data-act="enter-battle" data-id="' + b.id + '">🎞️ 复盘/回放</button></div></div>';
+      '<div class="drawer-actions">' +
+      '<button class="btn small" data-act="enter-battle" data-id="' + b.id + '">🎞️ 复盘/回放</button>' +
+      '<button class="btn small" data-act="spectate-battle" data-id="' + b.id + '">👁 观战（只读）</button>' +
+      "</div></div>";
   }).join("");
 }
 
 function tabShop() {
   const p = S.player || {};
-  const week = ((p.honor || {}).merit_shop_week || {});
-  const elixirUsed = (p.honor || {}).elixir_used || {};
+  const meta = S.meta || {};
+  const shop = meta.merit_shop || {};
+  const injury = meta.injury_cfg || {};
+  const goldSpec = Object.assign({ merit: 500, gold: 100000, weekly_limit: 5 }, shop.gold_pack || {});
+  const ironSpec = Object.assign({ merit: 300, iron: 500, weekly_limit: 3 }, shop.iron_pack || {});
+  const materialSpec = Object.assign({ merit: 300, coin: 8000, grain: 8000, iron: 400, weekly_limit: 3 }, shop.material_pack || {});
+  const equipSpec = Object.assign({ merit: 3000, monthly_limit: 1, quality: "极佳" }, shop.equip_instance || {});
+  const letterSpec = Object.assign({ merit: 200 }, shop.recommend_letter || {});
+  const elixirSpec = Object.assign({ merit: 1500, season_limit_per_char: 2 }, shop.elixir || {});
+  const elixirCost = Number(injury.elixir_merit_cost || elixirSpec.merit || 1500);
+  const elixirHeal = Number(injury.elixir_heal || 40);
+  const elixirLimit = Number(elixirSpec.season_limit_per_char || injury.elixir_season_limit || 2);
+  const honor = p.honor || {};
+  const week = honor.merit_shop_week || {};
+  const ironWeek = honor.merit_shop_week_iron || {};
+  const materialWeek = honor.merit_shop_week_material || {};
+  const month = honor.merit_shop_month || {};
+  const monthUsed = month.used || {};
+  const elixirUsed = honor.elixir_used || {};
   const injured = (p.chars || []).filter((c) => c.injury > 0);
-  let h = '<div class="card"><h3>💰 灵石包</h3><div class="sub">500 战功 → 100,000 灵石（注入主玩法钱包，计入每日限额）<br>本周已兑 ' +
-    (week.used || 0) + "/5</div>" +
+  let h = '<div class="card"><h3>🏅 我的战功</h3><div class="sub">当前 <b>' + fmtNum(p.merit) +
+    '</b>，可在本页兑换战略资源；赛季结算后折算为荣誉点。</div></div>';
+  h += '<div class="card"><h3>💰 灵石包</h3><div class="sub">' + goldSpec.merit + " 战功 → " +
+    fmtNum(goldSpec.gold) + " 灵石（注入主玩法钱包，计入每日限额；达硬上限时拒绝兑换且不扣战功）<br>本周已兑 " +
+    (Number(week.used) || 0) + "/" + goldSpec.weekly_limit + "</div>" +
     '<div class="drawer-actions"><button class="btn small primary" data-act="buy-gold">兑换灵石包</button></div></div>';
-  h += '<div class="card"><h3>💊 疗伤丹</h3><div class="sub">1500 战功 → 指定角色伤势 -40（每角色每赛季 2 次）</div>';
+  h += '<div class="card"><h3>⛏️ 精铁包</h3><div class="sub">' + ironSpec.merit + " 战功 → " +
+    fmtNum(ironSpec.iron) + " 精铁（建筑/科技通用，无灵脉矿也能补缺口）<br>本周已兑 " +
+    (Number(ironWeek.used) || 0) + "/" + ironSpec.weekly_limit + "</div>" +
+    '<div class="drawer-actions"><button class="btn small primary" data-act="buy-iron">兑换精铁包</button></div></div>';
+  h += '<div class="card"><h3>📦 物资包</h3><div class="sub">' + materialSpec.merit + " 战功 → 铜钱 +" +
+    fmtNum(materialSpec.coin) + "、粮草 +" + fmtNum(materialSpec.grain) + "、精铁 +" +
+    fmtNum(materialSpec.iron) + "<br>本周已兑 " + (Number(materialWeek.used) || 0) + "/" +
+    materialSpec.weekly_limit + "</div>" +
+    '<div class="drawer-actions"><button class="btn small primary" data-act="buy-material">兑换物资包</button></div></div>';
+  h += '<div class="card"><h3>📜 举荐信</h3><div class="sub">' + letterSpec.merit +
+    " 战功 → 定向刷新酒馆候选职责（本次全部为该职责）</div>" +
+    '<div class="form-row"><select id="recommendRole">' +
+    Object.keys(meta.role_names || { general: "武将", strategist: "军师", official: "内政官" })
+      .map((k) => '<option value="' + k + '">' + esc((meta.role_names || {})[k] || k) + "</option>").join("") +
+    '</select><button class="btn small primary" data-act="buy-recommend">使用举荐信</button></div></div>';
+  h += '<div class="card"><h3>🗡️ 装备副本</h3><div class="sub">' + equipSpec.merit +
+    " 战功 → 主玩法随机装备（" + esc(equipSpec.quality || "极佳") +
+    "，按当前境界掉落，存入储物戒）<br>本月已兑 " +
+    (Number(monthUsed.equip_instance) || 0) + "/" + equipSpec.monthly_limit + "</div>" +
+    '<div class="drawer-actions"><button class="btn small primary" data-act="buy-equip">兑换装备</button></div></div>';
+  h += '<div class="card"><h3>💊 疗伤丹</h3><div class="sub">' + elixirCost + " 战功 → 指定角色伤势 -" +
+    elixirHeal + "（每角色每赛季 " + elixirLimit + " 次）</div>";
   if (injured.length) {
     h += '<div class="form-row"><select id="elixirChar">' + injured.map((c) =>
-      '<option value="' + c.id + '">' + esc(c.name) + "（" + c.injury_name + " " + c.injury + "，已用 " + (elixirUsed[String(c.id)] || 0) + "/2）</option>").join("") +
+      '<option value="' + c.id + '">' + esc(c.name) + "（" + c.injury_name + " " + c.injury + "，已用 " + (elixirUsed[String(c.id)] || 0) + "/" + elixirLimit + "）</option>").join("") +
       '</select><button class="btn small primary" data-act="buy-elixir">服用</button></div>';
   } else {
     h += '<div class="sub">（当前无受伤角色）</div>';
   }
   h += "</div>";
-  h += '<div class="card"><h3>📖 战功来源</h3><div class="sub">会战击杀 ×0.05 + 胜利 100；据点产出灵石超过每日限额（500 万）的部分自动折算战功；讨伐任务</div></div>';
+  const goldDailyCap = Number((meta.gold_output || {}).daily_gold_cap || 5000000);
+  h += '<div class="card"><h3>📖 战功来源</h3><div class="sub">会战击杀 ×0.05 + 胜利 100（手操获胜 ×1.5）；讨伐匪寨 100~200（魔潮期 ×2）；成就册解锁；据点灵石产出超过每日限额（' + fmtNum(goldDailyCap) + '）的部分自动折算战功</div></div>';
   return h;
 }
 
@@ -773,6 +1022,17 @@ function tabShop() {
 // ---------------------------------------------------------------------------
 function myNodes() {
   return (S.nodes || []).filter((n) => n.owner && n.owner.id === myFactionId());
+}
+
+function friendlyNodes() {
+  const myFid = myFactionId();
+  const me = (S.factions || []).find((f) => f.id === myFid) || {};
+  const aid = Number(me.alliance_id || 0);
+  return (S.nodes || []).filter((n) => {
+    const oid = n.owner ? n.owner.id : 0;
+    if (oid === myFid) return true;
+    return aid > 0 && n.owner && Number(n.owner.alliance_id || 0) === aid;
+  });
 }
 
 function positionName(pos) {
@@ -961,29 +1221,57 @@ function tabFaction() {
     '<button class="btn small" data-act="deposit">📥 捐入国库</button></div></div>';
   // --- 外交矩阵 ---
   h += '<div class="card"><h3>🤝 外交</h3>';
+  const favorCfg = ((S.meta || {}).favor_cfg) || {};
+  const allyMin = Number(favorCfg.ally_min || 60);
+  h += '<div class="sub">与 NPC 势力存在好感度：赠礼、通商、停战/和谈、共同敌人等会提升；宣战、背盟、突袭会降低。好感 ≥ ' +
+    allyMin + " 才能尝试结盟。好感会随时间缓慢回落。</div>";
   const rels = f.relations || [];
   if (rels.length) {
-    h += '<table class="tbl"><tr><th>势力</th><th>关系</th><th>操作</th></tr>';
+    h += '<table class="tbl"><tr><th>势力</th><th>关系</th><th>好感</th><th>操作</th></tr>';
     for (const r of rels) {
       let ops = "-";
       if (r.rel.startsWith("propose_") && r.from !== f.id && canGovern) {
         ops = '<button class="btn small primary" data-act="dip-respond" data-id="' + r.faction_id + '" data-accept="1">接受</button> ' +
           '<button class="btn small" data-act="dip-respond" data-id="' + r.faction_id + '" data-accept="0">拒绝</button>';
       }
-      h += "<tr><td>" + esc(r.name) + "</td><td>" + (REL_NAMES[r.rel] || r.rel) +
-        (r.indemnity ? "（赔款 " + fmtNum(r.indemnity) + "）" : "") + "</td><td>" + ops + "</td></tr>";
+      const favor = Number(r.favor || 0);
+      const tier = r.favor_name || "中立";
+      const favorColor = favor >= allyMin ? "#2e7d32" : (favor <= -20 ? "#c62828" : "#666");
+      h += "<tr><td>" + esc(r.name) + (r.kind === "npc" ? ' <span class="tag">NPC</span>' : "") +
+        "</td><td>" + (REL_NAMES[r.rel] || r.rel) +
+        (r.indemnity ? "（赔款 " + fmtNum(r.indemnity) + "）" : "") +
+        '</td><td style="color:' + favorColor + '">' + favor + " · " + tier +
+        '</td><td>' + ops + "</td></tr>";
     }
     h += "</table>";
   }
   if (canGovern) {
-    const others = (S.factions || []).filter((x) => x.kind === "player" && x.alive && x.id !== f.id);
-    h += '<div class="form-row"><select id="dipTarget" style="max-width:120px">' +
-      others.map((x) => '<option value="' + x.id + '">' + esc(x.name) + "</option>").join("") +
+    const others = (S.factions || []).filter((x) => x.alive && x.id !== f.id &&
+      (x.kind === "player" || x.kind === "npc"));
+    h += '<div class="form-row"><select id="dipTarget" style="max-width:150px">' +
+      others.map((x) => '<option value="' + x.id + '">' +
+        (x.kind === "npc" ? "🏯 " : "") + esc(x.name) +
+        (x.kind === "npc" ? "（好感 " + Number(x.favor || 0) + "）" : "") +
+        "</option>").join("") +
       '</select><select id="dipKind" style="max-width:100px">' +
       '<option value="ally">结盟提案</option><option value="truce">停战提案</option>' +
       '<option value="peace">和谈（赔款）</option><option value="war">宣战</option></select>' +
       '<input id="dipIndemnity" type="number" min="0" placeholder="赔款(和谈)" style="max-width:100px">' +
       '<button class="btn small primary" data-act="dip-propose">发起</button></div>';
+    const npcs = others.filter((x) => x.kind === "npc");
+    if (npcs.length) {
+      h += '<div class="form-row"><span class="sub">🎁 赠礼：</span>' +
+        '<select id="dipGiftTarget" style="max-width:150px">' +
+        npcs.map((x) => '<option value="' + x.id + '">' + esc(x.name) +
+          "（好感 " + Number(x.favor || 0) + "）</option>").join("") +
+        '</select><select id="dipGiftRes" style="max-width:80px">' +
+        '<option value="coin">铜钱</option><option value="grain">粮草</option>' +
+        '<option value="iron">精铁</option></select>' +
+        '<input id="dipGiftAmt" type="number" min="1" placeholder="数量" style="max-width:100px">' +
+        '<button class="btn small" data-act="dip-gift">赠送</button>' +
+        '<span class="sub">约 ' + Number(favorCfg.gift_coin_per_point || 800) +
+        " 币 = 1 好感，每日上限 " + Number(favorCfg.gift_daily_cap || 40) + "</span></div>";
+    }
   } else h += '<div class="sub">（仅势力主/副主/司徒/太尉/祭酒可发起外交）</div>';
   h += "</div>";
   // --- 科技树 ---
@@ -1112,11 +1400,16 @@ const ITEM_NAMES = { grain: "粮草", iron: "精铁", recruit_token: "募将令"
 function tabMarket() {
   const p = S.player || {};
   let h = "";
-  // --- 流将限时竞拍（§11 天降流将）---
+  // --- 流将战功暗标（§11 天降流将）---
   const auctions = S.wanderer_auctions || [];
-  h += '<div class="card"><h3>🎴 流将竞拍（限时）</h3>';
+  h += '<div class="card"><h3>🎴 流将暗标（战功）</h3>';
   if (auctions.length) {
     for (const a of auctions) {
+      const own = Number(a.my_bid || 0);
+      const quotaText = a.quota_limit > 0
+        ? '名额 ' + a.quota_used + '/' + a.quota_limit +
+          '（剩余 ' + a.quota_left + '）'
+        : '名额不限';
       h += '<div class="card thin"><h3>' + esc(a.name) +
         ' <span class="tag ' + a.rarity + '">' + esc(a.rarity_name || a.rarity) + "</span>" +
         '<span class="tag">' + esc(a.role_name || "") + "</span></h3>" +
@@ -1125,23 +1418,33 @@ function tabMarket() {
         fmtRemain(a.expire_at - Math.floor(Date.now() / 1000)) + "</span></div>" +
         ((a.trait_names || []).length
           ? '<div class="sub">特技：' + a.trait_names.map(esc).join("、") + "</div>" : "") +
-        '<div class="sub">起拍 ' + fmtNum(a.start_price) + " · 当前 " +
-        (a.current_price > 0
-          ? fmtNum(a.current_price) + "（" + esc(a.bidder_label || "") + "）"
-          : "无人出价") +
-        " · 一口价 " + fmtNum(a.buyout_price) + "</div>" +
-        (a.bidder_is_me
-          ? '<div class="sub">✅ 你正领先；被超价后托管铜钱自动退还</div>'
-          : '<div class="form-row"><input id="aid_' + a.id + '" type="number" min="' + a.min_next +
-            '" value="' + a.min_next + '" style="max-width:110px">' +
-            '<button class="btn small primary" data-act="bid-wanderer" data-id="' + a.id +
-            '" data-buyout="0">出价</button>' +
-            '<button class="btn small" data-act="bid-wanderer" data-id="' + a.id +
-            '" data-buyout="1">一口价 ' + fmtNum(a.buyout_price) + "</button></div>") +
+        '<div class="sub">底价 ' + fmtNum(a.start_price) + " 战功 · 你的暗标 " +
+        (own > 0 ? fmtNum(own) + "（仅你可见）" : "未出价") +
+        " · " + (a.bidder_count > 0 ? a.bidder_count + " 人已出价" : "暂无人出价") + "</div>" +
+        '<div class="sub">' + esc(quotaText) + " · 坊市归属：" +
+        esc(a.controller_name || "无主") +
+        (a.access === "priority" && a.priority_until
+          ? '（优先期剩余 <span class="aucLeft" data-expire="' + a.priority_until + '">' +
+            fmtRemain(a.priority_until - Math.floor(Date.now() / 1000)) + "</span>）"
+          : "") + "</div>" +
+        (a.block_reason
+          ? '<div class="sub">🔒 ' + esc(a.block_reason) + "</div>"
+          : (a.can_bid
+            ? '<div class="form-row"><input id="aid_' + a.id + '" type="number" min="' +
+              a.min_next + '" value="' + (own > 0 ? a.min_next : a.min_next) +
+              '" style="max-width:130px">' +
+              '<button class="btn small primary" data-act="bid-wanderer" data-id="' +
+              a.id + '">' + (own > 0 ? "改价" : "提交暗标") + "</button>" +
+              (own > 0
+                ? '<button class="btn small" data-act="cancel-wanderer-bid" data-id="' +
+                  a.id + '">撤标</button>'
+                : "") + "</div>" +
+              '<div class="sub">暗标仅自己可见，到期统一开标；落标全额退还战功。</div>'
+            : "")) +
         "</div>";
     }
   } else {
-    h += '<div class="sub">（暂无流将挂拍；世界事件「天降流将」开启时，极品/传世流将会在坊市限时竞拍）</div>';
+    h += '<div class="sub">（暂无流将挂拍；世界事件「天降流将」开启时，极品/传世流将会在坊市挂出暗标）</div>';
   }
   h += "</div>";
   // --- 挂单 ---
@@ -1175,30 +1478,50 @@ function tabMarket() {
   h += "</div>";
   // --- 商路 ---
   const routes = S.trade_routes || [];
+  const trCfg = S.trade_route_cfg || {};
+  const trCoin = fmtNum(trCfg.coin_per_tick != null ? trCfg.coin_per_tick : 20);
+  const trBonus = Math.round(Number(
+    trCfg.trade_task_bonus != null ? trCfg.trade_task_bonus : 0.3) * 100);
+  h += '<div class="card"><h3>🛤️ 商路</h3>' +
+    '<div class="sub">自动开通：己方/盟友据点全程连通两个坊市或仙城。每条商路每 tick +' +
+    trCoin + " 币（归起点所属势力），途经节点的贸易任务 +" + trBonus +
+    "%；被敌方切断会收到提醒。</div>";
   if (routes.length) {
-    h += '<div class="card"><h3>🛤️ 商路</h3><div class="sub">' + routes.map((r) =>
-      esc(r.a_name) + " ⇄ " + esc(r.b_name) + "（途经 " + (r.path || []).length + " 节点）").join("<br>") +
-      "</div></div>";
+    h += routes.map((r) => '<div class="sub">• ' + esc(r.a_name) + " ⇄ " + esc(r.b_name) +
+      "（途经 " + esc((r.path_names || []).join(" → ")) + "）</div>").join("");
+  } else {
+    h += '<div class="sub">（暂无商路：占领并连通两个坊市/仙城即可自动开通）</div>';
   }
+  h += "</div>";
   // --- 运粮队 ---
-  h += '<div class="card"><h3>🚚 运粮队</h3>';
+  const convoyCfg = S.convoy_cfg || {};
+  const baseGuard = fmtNum(convoyCfg.troops != null ? convoyCfg.troops : 100);
+  h += '<div class="card"><h3>🚚 运粮队</h3>' +
+    '<div class="sub">粮队自带护卫 ' + baseGuard +
+    " 兵，可另派空闲军团护送（护送期间军团随队移动、不可出征/解散）。</div>";
   const convoys = p.convoys || [];
   if (convoys.length) {
     h += convoys.map((c) => '<div class="sub">🌾 ' + fmtNum(c.grain) + " 粮 · 护送 " +
-      fmtNum(c.escort_troops || 0) + " 兵 · " + esc((nodeById(c.from) || {}).name || "?") + " → " +
-      esc((nodeById(c.to) || {}).name || "?") + "（现于 " + esc((nodeById(c.cur_node) || {}).name || "?") + "）</div>").join("");
-  } else h += '<div class="sub">（无在途粮队；粮队沿商路自动行进，可能被匪寨劫掠）</div>';
+      fmtNum(c.escort_troops || 0) + " 兵 · " + esc(c.from || "?") + " → " +
+      esc(c.to || "?") + "（现于 " + esc(c.cur_node || "?") + " · 进度 " +
+      esc(c.progress || "?") + "）</div>").join("");
+  } else h += '<div class="sub">（无在途粮队；粮队沿本方/盟友通路自动行进，可能被匪寨/敌军劫掠）</div>';
   const srcs = myNodes();
-  if (srcs.length > 1) {
+  const dests = friendlyNodes();
+  if (srcs.length && dests.length > 1) {
     const escorts = (p.armies || []).filter((a) => a.state === "idle");
     h += '<div class="form-row"><select id="cvFrom" style="max-width:110px">' +
       srcs.map((n) => '<option value="' + n.id + '">' + esc(n.name) + "</option>").join("") +
-      '</select>→<select id="cvTo" style="max-width:110px">' +
-      srcs.map((n) => '<option value="' + n.id + '">' + esc(n.name) + "</option>").join("") +
+      '</select>→<select id="cvTo" style="max-width:130px">' +
+      dests.map((n) => '<option value="' + n.id + '">' + esc(n.name) +
+        (n.owner && n.owner.id !== myFactionId() ? "（盟友）" : "") + "</option>").join("") +
       '</select><input id="cvGrain" type="number" min="1" placeholder="粮草" style="max-width:80px">' +
-      '<select id="cvEscort" style="max-width:120px"><option value="0">无护送</option>' +
-      escorts.map((a) => '<option value="' + a.id + '">' + esc(a.name) + "</option>").join("") +
+      '<select id="cvEscort" style="max-width:150px"><option value="0">无护送</option>' +
+      escorts.map((a) => '<option value="' + a.id + '">' + esc(a.name) +
+        "（" + esc(a.node_name || "?") + "）</option>").join("") +
       '</select><button class="btn small primary" data-act="send-convoy">发粮队</button></div>';
+  } else {
+    h += '<div class="sub">（需至少 2 个己方/盟友据点才能派出运粮队）</div>';
   }
   h += "</div>";
   // --- 匪寨 ---
@@ -1218,7 +1541,7 @@ function tabMarket() {
     h += "</div>";
   }
   // --- 流将 ---
-  // 已统一为上方「流将竞拍」卡片，旧的一口价招募入口不再提供
+  // 已统一为上方「流将暗标」卡片，旧的一口价招募入口不再提供
   return h;
 }
 
@@ -1240,6 +1563,44 @@ function tabHonor() {
       ? '<details><summary class="sub">历史赛季</summary>' + season.history.map((s) =>
         '<div class="sub">S' + s.season_no + "：" + (s.scores || []).map((x) => esc(x.name || "?") + " " + fmtNum(x.score || 0)).join(" · ") + "</div>").join("") +
         "</details>" : "") + "</div>";
+  // --- 荣誉商店（赛季保留）---
+  const honor = p.honor || {};
+  const honorShop = S.meta.honor_shop || {};
+  const honorBalance = Number(honor.balance !== undefined
+    ? honor.balance
+    : Math.max(0, Number(honor.total || 0) - Object.values(honor.spent || {}).reduce(
+      (a, b) => a + (b && typeof b === "object" ? Number(b.amount || 0) : Number(b || 0)), 0)));
+  const seasonSpent = honor.season_spent || {};
+  const HONOR_UI = {
+    gold_pack: ["💰 主玩法灵石礼包", (v) => "灵石 +" + fmtNum(v.gold || 100000)],
+    title_pack: ["🏅 赛季称号", (v) => "称号「" + (v.title || "赛季霸主") + "」"],
+    boost_pack: ["⚡ 开局加成", (v) => "战略产出 ×" + (v.output_mult || 1.2) + "，持续 " + (v.days || 7) + " 天"],
+    material_pack: ["📦 战略物资礼包", (v) => "铜钱 +" + fmtNum(v.coin || 0) + "、粮草 +" + fmtNum(v.grain || 0) + "、精铁 +" + fmtNum(v.iron || 0)],
+  };
+  const hk = Object.keys(honorShop);
+  if (hk.length) {
+    h += '<div class="card"><h3>🏅 荣誉商店（可支配 ' + fmtNum(honorBalance) + '）</h3>' +
+      '<div class="sub">荣誉点由赛季结算按战功发放，跨赛季结转；每件商品有独立赛季限购。</div>';
+    for (const k of hk) {
+      const v = honorShop[k] || {};
+      const ui = HONOR_UI[k] || [k, () => ""];
+      const cost = Number(v.honor || 0);
+      const limit = Number(v.season_limit || 0);
+      const used = Number(seasonSpent[k] || 0);
+      const reached = limit > 0 && used >= limit;
+      const poor = honorBalance < cost;
+      h += '<div class="card thin"><h3>' + esc(ui[0]) + ' <span class="tag">' + fmtNum(cost) + ' 荣誉</span></h3>' +
+        '<div class="sub">' + esc(ui[1](v)) + (limit > 0 ? " · 本赛季 " + used + "/" + limit : " · 不限购") + "</div>" +
+        '<div class="drawer-actions"><button class="btn small primary" data-act="buy-honor" data-item="' + esc(k) + '"' +
+        (reached || poor ? " disabled" : "") + ">" + (reached ? "本赛季已兑完" : poor ? "荣誉点不足" : "兑换") + "</button></div></div>";
+    }
+    const boost = honor.boost || {};
+    if (Number(boost.until || 0) > Math.floor(Date.now() / 1000)) {
+      h += '<div class="sub">⚡ 当前开局加成：产出 ×' + (boost.mult || 1.2) + "，剩余 " +
+        fmtRemain(Number(boost.until) - Math.floor(Date.now() / 1000)) + "</div>";
+    }
+    h += "</div>";
+  }
   // --- 新手福利 ---
   h += '<div class="card"><h3>🎁 入场福利</h3>';
   h += '<div class="form-row"><button class="btn small primary" data-act="claim-catchup"' +
@@ -1269,17 +1630,69 @@ function tabHonor() {
   } else h += '<div class="sub">（暂无成就配置）</div>';
   h += "</div>";
   // --- 擂台 ---
-  h += '<div class="card"><h3>🎯 演武擂台</h3><div class="sub">摆擂押战功，全服应战；胜者通吃（每赛季限次）</div>';
+  h += '<div class="card"><h3>🎯 演武擂台</h3><div class="sub">摆擂押铜钱，全服应战；胜者通吃（1 小时有效，平局各自收回）</div>';
   const duels = p.duels || [];
   if (duels.length) {
     for (const d of duels) {
       h += '<div class="form-row">' + (d.mine ? "🔵 我的擂台：" : "🔴 ") + esc(d.challenger || "?") + " 的 " +
-        esc(d.char_name || "?") + "（赌注 " + fmtNum(d.stake) + " 战功）" +
+        esc(d.char_name || "?") + "（赌注 " + fmtNum(d.stake) + " 铜钱）" +
         (d.mine ? "" : '<button class="btn small primary" data-act="duel-accept" data-id="' + esc(d.duel_id) + '">应战</button>') + "</div>";
     }
   } else h += '<div class="sub">（当前无人摆擂；在府邸页武将卡片可摆擂）</div>';
   h += "</div>";
+  // --- 名将堂 / 英烈祠（§11 赛季陈列，最多各 20 条）---
+  const mem = memorialData();
+  h += memorialCard("🏛️ 名将堂", mem.hall, true);
+  h += memorialCard("🕯️ 英烈祠", mem.shrine, false);
   return h;
+}
+
+const RARITY_TAG_CLASS = {
+  common: "", fine: "fine", rare: "rare", epic: "epic", legend: "legend",
+  凡品: "", 良品: "fine", 稀有: "rare", 极品: "epic", 传世: "legend",
+};
+
+// 名将堂数据：优先随 get_state 下发，缺失时按需拉 /api/strategy/memorial（只读）
+let memorialCache = null; // null=未加载；false=加载失败；object=已加载
+function memorialData() {
+  const src = S.memorials;
+  if (src && (Array.isArray(src.hall) || Array.isArray(src.shrine))) return src;
+  if (memorialCache === null) {
+    memorialCache = false;
+    api("/api/strategy/memorial").then((r) => {
+      memorialCache = {
+        hall: (r && r.hall) || [],
+        shrine: (r && r.shrine) || [],
+        season_no: (r && r.season_no) || (S.season || {}).season_no,
+      };
+      if (activeTab === "honor") renderTab();
+    }).catch(() => { /* 加载失败保持空态 */ });
+  }
+  return (memorialCache && typeof memorialCache === "object") ? memorialCache : {};
+}
+
+function memorialRow(m) {
+  m = m || {};
+  const cls = RARITY_TAG_CLASS[m.rarity] || "";
+  const rname = ((S.meta || {}).rarity_names || {})[m.rarity] || m.rarity || "";
+  const achs = (m.achievements || []).map((x) =>
+    typeof x === "string" ? x : ((x && (x.name || x.title)) || "")).filter(Boolean);
+  return '<div class="memorial-row">' +
+    '<div class="mr-head"><span class="mr-name">' + esc(m.name || "无名") + "</span>" +
+    (rname ? '<span class="tag ' + cls + '">' + esc(rname) + "</span>" : "") +
+    '<span class="mr-meta">' + esc(m.faction || "在野") + " · S" + esc(m.season || "?") +
+    " · 战功 " + fmtNum(m.merit || 0) + "</span></div>" +
+    (achs.length ? '<div class="mr-ach">' + achs.map(esc).join(" · ") + "</div>" : "") +
+    "</div>";
+}
+
+function memorialCard(title, list, open) {
+  const arr = (list || []).slice(0, 20);
+  let h = '<details class="card memorial-card"' + (open ? " open" : "") + ">" +
+    "<summary>" + title + ' <span class="sub">（' + arr.length + "）</span></summary>";
+  h += arr.length ? arr.map(memorialRow).join("")
+    : '<div class="sub memorial-empty">本赛季尚无记录</div>';
+  return h + "</details>";
 }
 
 // ---------------------------------------------------------------------------
@@ -1318,13 +1731,33 @@ function tabSettings() {
 
 function bindTabEvents() {
   document.querySelectorAll("[data-act]").forEach((btn) => {
+    // 幂等绑定：切换 tab 时 renderTab 会对仍存在的抽屉按钮重复绑定，
+    // 导致一次点击触发多次动作。已绑过的节点跳过。
+    if (btn.dataset.boundAct === "1") return;
+    btn.dataset.boundAct = "1";
     btn.addEventListener("click", () => {
       const act = btn.dataset.act;
       const id = Number(btn.dataset.id);
       if (act === "recruit") doAction("recruit", { index: Number(btn.dataset.i) });
       else if (act === "recruit-premium") doAction("recruit", { index: Number(btn.dataset.i), premium: true });
+      else if (act === "dismiss-char") {
+        const name = btn.dataset.name || "该角色";
+        if (confirm("确认遣散 " + name + "？该操作不可撤销，将腾出 1 个名册名额。")) {
+          doAction("dismiss_char", { char_id: Number(btn.dataset.id) });
+        }
+      }
       else if (act === "buy-gold") doAction("buy_merit_shop", { item: "gold_pack" });
-      else if (act === "buy-elixir") {
+      else if (act === "buy-iron") doAction("buy_merit_shop", { item: "iron_pack" });
+      else if (act === "buy-material") doAction("buy_merit_shop", { item: "material_pack" });
+      else if (act === "buy-equip") {
+        if (confirm("确认消耗 " + Number(((S.meta || {}).merit_shop || {}).equip_instance?.merit || 3000) +
+          " 战功兑换一件随机装备？")) doAction("buy_merit_shop", { item: "equip_instance" });
+      } else if (act === "buy-recommend") {
+        const sel = document.getElementById("recommendRole");
+        doAction("buy_merit_shop", { item: "recommend_letter", role: sel ? sel.value : "" });
+      } else if (act === "buy-honor") {
+        doAction("buy_honor_shop", { item: btn.dataset.item || "" });
+      } else if (act === "buy-elixir") {
         const sel = document.getElementById("elixirChar");
         if (sel) doAction("buy_merit_shop", { item: "elixir", char_id: Number(sel.value) });
       } else if (act === "march-pick") {
@@ -1336,8 +1769,15 @@ function bindTabEvents() {
       else if (act === "enter-battle") {
         if (window.BattleView) BattleView.open(id);
         else toast("战役模块未加载", "err");
+      } else if (act === "spectate-battle") {
+        // §12.6 只读观战：隐藏部署/操作栏，只轮询不提交
+        if (window.BattleView) BattleView.open(id, { spectator: true });
+        else toast("战役模块未加载", "err");
       } else if (act === "duel-open") {
-        const stake = prompt("摆擂赌注（战功，≥100）：", "100");
+        const dc = (S.meta || {}).duel_cfg || {};
+        const lo = Number(dc.arena_stake_min || 100);
+        const hi = Number(dc.arena_stake_max || 100000);
+        const stake = prompt("摆擂赌注（铜钱，" + lo + "~" + hi + "）：", String(lo));
         if (stake) doAction("duel_arena_open", { char_id: id, stake: Number(stake) });
       } else if (act === "duel-accept") {
         const gens = ((S.player || {}).chars || []).filter((c) => c.role === "general" && c.status === "idle");
@@ -1386,6 +1826,12 @@ function bindTabEvents() {
           kind: (document.getElementById("dipKind") || {}).value || "ally",
           indemnity: Number((document.getElementById("dipIndemnity") || {}).value || 0),
         });
+      } else if (act === "dip-gift") {
+        const gt = Number((document.getElementById("dipGiftTarget") || {}).value || 0);
+        const gres = (document.getElementById("dipGiftRes") || {}).value || "coin";
+        const gamt = Number((document.getElementById("dipGiftAmt") || {}).value || 0);
+        if (!gt || gamt <= 0) { toast("请选择目标并填写赠礼数量", "err"); return; }
+        doAction("diplomacy_gift", { target_fid: gt, resource: gres, amount: gamt });
       } else if (act === "tech") doAction("tech_research", { line: btn.dataset.line });
       else if (act === "dispatch-plot") {
         const ptype = (document.getElementById("plotType") || {}).value || "";
@@ -1468,10 +1914,13 @@ function bindTabEvents() {
           unit_price: Number((document.getElementById("mkPrice") || {}).value || 0),
         });
       } else if (act === "send-convoy") {
+        const from = Number((document.getElementById("cvFrom") || {}).value || 0);
+        const to = Number((document.getElementById("cvTo") || {}).value || 0);
+        const grain = Number((document.getElementById("cvGrain") || {}).value || 0);
+        if (!grain || grain <= 0) { toast("请输入运粮数量", "err"); return; }
+        if (!from || !to || from === to) { toast("起点与终点需为不同据点", "err"); return; }
         doAction("send_convoy", {
-          from_node: Number((document.getElementById("cvFrom") || {}).value || 0),
-          to_node: Number((document.getElementById("cvTo") || {}).value || 0),
-          grain: Number((document.getElementById("cvGrain") || {}).value || 0),
+          from_node: from, to_node: to, grain: grain,
           escort_army_id: Number((document.getElementById("cvEscort") || {}).value || 0),
         });
       } else if (act === "raid") {
@@ -1479,11 +1928,12 @@ function bindTabEvents() {
         doAction("raid_bandit", { army_id: Number(sel ? sel.value : 0), node_id: Number(btn.dataset.node) });
       } else if (act === "bid-wanderer") {
         const inp = document.getElementById("aid_" + id);
-        const instant = btn.dataset.buyout === "1";
-        const amount = instant ? 0 : Number((inp || {}).value || 0);
-        if (!instant && !amount) { toast("请输入出价", "err"); return; }
-        if (instant && !confirm("确认按一口价直接竞得该流将？")) return;
-        doAction("bid_wanderer", { auction_id: id, amount: amount, buyout: instant });
+        const amount = Number((inp || {}).value || 0);
+        if (!amount || amount <= 0) { toast("请输入暗标战功数", "err"); return; }
+        doAction("bid_wanderer", { auction_id: id, amount: amount });
+      } else if (act === "cancel-wanderer-bid") {
+        if (!confirm("确认撤标并退还已托管战功？")) return;
+        doAction("cancel_wanderer_bid", { auction_id: id });
       }
       // --- 赛季 / 设置 ---
       else if (act === "claim-catchup") doAction("claim_catchup", {});
@@ -1595,10 +2045,49 @@ function renderAll() {
   renderTab();
 }
 
+// ---------------------------------------------------------------------------
+// 据点抽屉：赈济 / 建筑（事件委托，抽屉重绘后依然有效）
+// ---------------------------------------------------------------------------
+function initDrawerEvents() {
+  const drawer = document.getElementById("nodeDrawer");
+  if (!drawer) return;
+  drawer.addEventListener("click", (ev) => {
+    const btn = ev.target && ev.target.closest ? ev.target.closest("[data-act]") : null;
+    if (!btn) return;
+    const act = btn.dataset.act;
+    const nodeId = Number(btn.dataset.id || btn.dataset.node || 0);
+    if (!nodeId) return;
+    if (act === "relief") {
+      doAction("govern_relief", { node_id: nodeId, resource: btn.dataset.res || "coin" });
+    } else if (act === "upgrade-building") {
+      doAction("upgrade_building", { node_id: nodeId, building_id: btn.dataset.building || "" });
+    } else if (act === "build-building") {
+      const sel = document.getElementById("buildSel_" + nodeId);
+      if (!sel) return;
+      doAction("build", { node_id: nodeId, building_id: sel.value });
+    }
+  });
+}
+
+// 战报链接直达：?battle=ID[&spectate=1]
+function openBattleFromUrl() {
+  try {
+    const m = (/[?&]battle=(\d+)/).exec(location.search || "");
+    if (!m || !window.BattleView) return;
+    const spectator = /[?&]spectate=1/.test(location.search || "");
+    BattleView.open(Number(m[1]), { spectator: spectator });
+  } catch (e) { /* 忽略非法参数 */ }
+}
+
+// 供 guide.js 的 URL 直达（?guide=xxx）调用
+window.renderTab = renderTab;
+
 (async function init() {
   initLegend();
+  initDrawerEvents();
   resizeCanvas();
   await load();
+  openBattleFromUrl();
   setInterval(tickCountdown, 1000);
   pollTimer = setInterval(load, POLL_MS);
   // 页面重新可见时立即刷新
