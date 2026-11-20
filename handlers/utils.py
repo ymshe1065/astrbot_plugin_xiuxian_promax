@@ -590,3 +590,32 @@ async def _check_loan_status(db, player: Player, config_manager=None) -> dict:
         
     except Exception:
         return None
+
+
+# ===== 活动目录派生 =====
+# 上面三个名单里**手写**的是没法从活动属性推导的指令：只读查询、社交回应、
+# 代理管理、恢复类、通用解卡、无状态对应项（悬赏）。这部分保持不变。
+#
+# 下面**派生**的是能推导的部分：每项占槽活动的退出/完成指令、开始/进入指令。
+# 只追加、不删除：
+#   - 少一条退出指令 → 玩家卡死出不来，而且不报错；
+#   - 多一条只读指令 → 没有任何副作用（_is_command_allowed 是遍历匹配）。
+# 等这段稳定跑一段时间，再单独做一轮「收敛手写冗余项」。
+#
+# 注意类型：BUSY_STATE_ALLOWED_COMMANDS 是 list（_is_command_allowed 遍历），
+# BUSY_BYPASS_COMMANDS 是 tuple（command_text.startswith(...) 直接用），
+# INJURED_BLOCKED_COMMANDS 是 tuple（调用处再包 list()）。三者不能混。
+from ..core.activity_catalog import (  # noqa: E402  (放在派生处，便于和名单对照)
+    all_action_commands as _activity_action_commands,
+    all_exit_commands as _activity_exit_commands,
+)
+
+BUSY_STATE_ALLOWED_COMMANDS = list(
+    dict.fromkeys([*BUSY_STATE_ALLOWED_COMMANDS, *_activity_exit_commands()])
+)
+BUSY_BYPASS_COMMANDS = tuple(
+    dict.fromkeys([*BUSY_BYPASS_COMMANDS, *_activity_exit_commands()])
+)
+INJURED_BLOCKED_COMMANDS = tuple(
+    dict.fromkeys([*INJURED_BLOCKED_COMMANDS, *_activity_action_commands()])
+)

@@ -18,6 +18,8 @@ except ImportError:  # pragma: no cover - 测试/非 AstrBot 环境
 from ..data.data_manager import DataBase
 from ..models_extended import UserStatus
 from ..utils.arg_parse import PLOT_ALL_KEYWORDS, is_all_keyword, normalize_arg_text
+from ..core.activity_catalog import task_names as _catalog_task_names
+from ..core.activity_catalog import task_status as _catalog_task_status
 
 __all__ = ["AutoProxyManager"]
 
@@ -28,13 +30,14 @@ TASK_RIFT = "rift"
 TASK_FERTILIZE = "fertilize"
 TASK_ADVENTURE = "adventure"
 
+# 活动名从 core.activity_catalog 派生，避免与忙碌白名单 / 重伤名单各维护一份。
+# 灵田与施肥是**维护动作**（不占槽、不进 user_cd），不在活动目录里，必须在这里
+# 手写补上 —— 少了它们，TASK_ALIASES 仍能解析「灵田」「施肥」，但所有拼文案的
+# 地方（/自动代理 联想、代理状态详情、keep_text）会露出英文 key。
 TASK_NAMES = {
-    TASK_ESCORT: "押镖",
-    TASK_SECT: "宗门任务",
+    **_catalog_task_names(),
     TASK_FARM: "灵田",
-    TASK_RIFT: "秘境",
     TASK_FERTILIZE: "施肥",
-    TASK_ADVENTURE: "历练",
 }
 
 TASK_ALIASES = {
@@ -68,10 +71,11 @@ ADV_MIN_RETREAT_SECONDS = 90
 ADV_MODE_CONTINUE = "continue"
 ADV_MODE_ALTERNATE = "alternate"
 
-TASK_STATUS = {
-    TASK_ESCORT: UserStatus.DELIVERING,
-    TASK_SECT: UserStatus.SECT_TASK,
-}
+# 只含「可作为 /自动代理 <名称> 主任务」的活动（押镖 / 宗门任务），从活动目录派生。
+# 历练与秘境是 PROXY_CONFIG，靠 config_json 的开关驱动，**不能**进这张表：
+# _active_primary / STATUS_TASK 会遍历它去查槽位，多出这两项就会把历练、秘境
+# 当成押镖一样逐轮结算，等于重复结算。
+TASK_STATUS = _catalog_task_status()
 
 STATUS_TASK = {status: task for task, status in TASK_STATUS.items()}
 

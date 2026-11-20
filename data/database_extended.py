@@ -12,18 +12,15 @@ from ..models_extended import (
     Sect, BuffInfo, Rift, ImpartInfo, UserCd, UserStatus
 )
 
-# players.state 的展示文案：闭关沿用既有的“修炼中”，其余用 UserStatus 名称
+# players.state 的展示文案。
+#
+# 唯一定义在 UserStatus.get_name，这里只做派生 + 一条显式例外：
+# CULTIVATING 早期写死为「修炼中」，而 get_name 返回「闭关中」。这个差异会直接
+# 出现在 `我的信息` 的「状态：」一行，属于玩家可见文本，是否统一需产品确认
+# （见 docs/身外化身活动接入改造方案.md 的 S1b）。确认之前保留原值，行为零变化。
 _STATE_TEXT = {
-    UserStatus.IDLE: "空闲",
+    **{int(status): UserStatus.get_name(int(status)) for status in UserStatus},
     UserStatus.CULTIVATING: "修炼中",
-    UserStatus.ADVENTURING: "历练中",
-    UserStatus.EXPLORING: "探索秘境中",
-    UserStatus.SECT_TASK: "宗门任务中",
-    UserStatus.TRIBULATION: "渡劫中",
-    UserStatus.DELIVERING: "押镖中",
-    UserStatus.RAIDING: "掠夺中",
-    UserStatus.SECT_BATTLE: "宗门大比中",
-    UserStatus.RESTING: "调息中",
 }
 
 
@@ -698,14 +695,19 @@ class DatabaseExtended:
             await self.conn.commit()
 
     async def list_enabled_auto_proxies(self) -> List[dict]:
-        """列出所有已开启的代理，并附带当前 user_cd 状态"""
+        """列出所有已开启的代理，每个玩家一行。
+
+        v62 起 user_cd 是 (user_id, slot) 复合主键。这里原先 LEFT JOIN user_cd
+        只按 user_id 关联，一个玩家有几个槽位就返回几行，导致 process_due 对
+        同一玩家串行跑多遍 _process_one（施肥/灵田这类周期动作会重复执行、重复推送）。
+        卡片字段 cd_type / cd_scheduled_time 全仓无人读取（_process_one 自己重查），
+        所以直接去掉这个 JOIN。
+        """
         async with self.conn.execute(
             """
-            SELECT ap.*, uc.type AS cd_type, uc.scheduled_time AS cd_scheduled_time
-            FROM auto_proxy ap
-            LEFT JOIN user_cd uc ON uc.user_id = ap.user_id
-            WHERE ap.enabled = 1
-            ORDER BY ap.updated_at ASC
+            SELECT * FROM auto_proxy
+            WHERE enabled = 1
+            ORDER BY updated_at ASC
             """
         ) as cursor:
             return [dict(row) for row in await cursor.fetchall()]
