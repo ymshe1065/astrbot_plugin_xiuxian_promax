@@ -818,24 +818,62 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
         view = await self.m.get_achievements_view("u1")
         self.assertIn("conquest_bandit_10", view["unlocked"])
 
-    async def test_p3_event_onset_wanderer_and_recruit(self):
+    async def test_p3_event_onset_wanderer_auction_flow(self):
         import random as _random
         world = await self.m.get_world()
         rng = _random.Random(42)
-        ev = {"id": "wandering_general", "duration_ticks": 24,
+        ev = {"id": "wandering_general", "duration_ticks": 48,
               "effects": [{"type": "spawn_wandering_char",
-                           "count": [1, 2], "rarity": "epic"}]}
+                           "count": [1, 1],
+                           "rarity_weights": {"epic": 100}}]}
         await self.m._apply_event_onset(world, ev, {}, rng)
-        wanders = await self.m.get_chars(world_id=self.wid, status="wander")
-        self.assertGreaterEqual(len(wanders), 1)
-        w = wanders[0]
-        self.assertEqual(w["owner_user_id"], "")
-        await self._give("u1", coin=100_000)
-        r = await self.m.recruit_wanderer("u1", w["id"])
+        auctions = await self.m.get_wanderer_auctions_view(world, "u1")
+        self.assertEqual(len(auctions), 1)
+        a = auctions[0]
+        self.assertEqual(a["current_price"], 0)
+        self.assertEqual(a["bidder_label"], "")
+        # 旧的一口价招募入口已关闭
+        with self.assertRaises(self.StrategyError):
+            await self.m.recruit_wanderer("u1", a["char_id"])
+        # u1 出价：铜钱即时托管
+        p0 = await self.m.get_player("u1", self.wid)
+        coin0 = int(p0["coin"])
+        r = await self.m.bid_wanderer("u1", a["id"], a["min_next"])
         self.assertTrue(r["ok"])
-        c = await self.m.get_char(w["id"])
+        p1 = await self.m.get_player("u1", self.wid)
+        self.assertEqual(int(p1["coin"]), coin0 - a["min_next"])
+        # u2 超价：u1 的托管铜钱自动退还
+        au = (await self.m.get_wanderer_auctions_view(world, "u2"))[0]
+        r2 = await self.m.bid_wanderer("u2", au["id"], au["min_next"])
+        self.assertTrue(r2["ok"])
+        p1b = await self.m.get_player("u1", self.wid)
+        self.assertEqual(int(p1b["coin"]), coin0)
+        # 到期结算：流将归最高出价者
+        await self.m._execute(
+            "UPDATE strategy_char_auctions SET expire_at=? WHERE id=?",
+            (_now() - 1, au["id"]))
+        await self.m._step_wanderer_auctions(await self.m.get_world())
+        c = await self.m.get_char(au["char_id"])
         self.assertEqual(c["status"], "idle")
-        self.assertEqual(c["owner_user_id"], "u1")
+        self.assertEqual(c["owner_user_id"], "u2")
+        # 无出价到期：流将遁走（角色删除）
+        world = await self.m.get_world()
+        await self.m._apply_event_onset(world, ev, {}, rng)
+        a2 = (await self.m.get_wanderer_auctions_view(world, "u1"))[0]
+        self.assertIsNotNone(await self.m.get_char(a2["char_id"]))
+        await self.m._execute(
+            "UPDATE strategy_char_auctions SET expire_at=? WHERE id=?",
+            (_now() - 1, a2["id"]))
+        await self.m._step_wanderer_auctions(await self.m.get_world())
+        self.assertIsNone(await self.m.get_char(a2["char_id"]))
+        # 一口价：立即成交
+        world = await self.m.get_world()
+        await self.m._apply_event_onset(world, ev, {}, rng)
+        a3 = (await self.m.get_wanderer_auctions_view(world, "u3"))[0]
+        r3 = await self.m.bid_wanderer("u3", a3["id"], 0, buyout=True)
+        self.assertTrue(r3["ok"])
+        c3 = await self.m.get_char(a3["char_id"])
+        self.assertEqual(c3["owner_user_id"], "u3")
         #  tournament 效果
         ev2 = {"id": "alliance_tournament", "duration_ticks": 24,
                "effects": [{"type": "tournament"}]}
@@ -1106,6 +1144,109 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
         # 参战方（u1 攻方）可查
         rep = await self.m.get_battle_report("u1", bid)
         self.assertEqual(int(rep["id"]), bid)
+
+    async def test_task_meta_recall_and_research_points(self):
+        """任务选择提示 / 随时召回零结算 / 研究任务科技点抵扣。"""
+        meta = self.m._frontend_meta()["task_meta"]
+        self.assertEqual(meta["train"]["stat"], "统率")
+        self.assertEqual(meta["farm"]["role"], "内政官")
+        self.assertEqual(meta["scout"]["output"], "情报")
+        self.assertEqual(meta["research"]["output"], "科技点")
+
+        p1 = await self.m.get_player("u1", self.wid)
+        f = await self.m.get_faction(int(p1["faction_id"]))
+        home = int(f["capital_node_id"])
+        general = await self._char_of("u1", "general")
+        r = await self.m.dispatch_task("u1", general["id"], home, "farm", 8)
+        out = await self.m.recall_task("u1", int(r["task_id"]))
+        self.assertEqual(int(out["payout"].get("amount", 0)), 0)
+        c = await self.m.get_char(general["id"])
+        self.assertEqual(c["status"], "idle")
+
+        f = await self.m.get_faction(int(p1["faction_id"]))
+        f["treasury"] = {"coin": 100_000, "iron": 100_000, "grain": 0, "gold": 0}
+        f["tech"] = {"points": 600}
+        await self.m.save_faction(f)
+        await self.m._commit()
+        res = await self.m.tech_research("u1", "military")
+        self.assertIn("科技点抵扣", res["msg"])
+        f = await self.m.get_faction(int(p1["faction_id"]))
+        self.assertTrue((f.get("tech") or {}).get("pending"))
+        self.assertEqual(int((f.get("tech") or {}).get("points", 0)), 360)
+
+    async def test_char_appointment_unlock_and_troop_cap(self):
+        """角色官职：绑角色、按据点解锁、主将带兵上限随角色官职。"""
+        p1 = await self.m.get_player("u1", self.wid)
+        fid = int(p1["faction_id"])
+        f = await self.m.get_faction(fid)
+        home = int(f["capital_node_id"])
+        general = await self._char_of("u1", "general")
+        # 1 据点：仅中郎将
+        f = await self.m.get_faction(fid)
+        avail = self.R.available_positions(
+            await self.m._governance_node_count(self.wid, f))
+        self.assertEqual(avail, {"zhonglang": 1})
+        await self.m.faction_appoint_char("u1", general["id"], "zhonglang")
+        c = await self.m.get_char(general["id"])
+        self.assertEqual(c["appointed_position"], "zhonglang")
+        self.assertEqual(await self.m._leader_cap(c, f, home), 2000)
+        # 未解锁官职报错
+        with self.assertRaises(self.StrategyError) as cm:
+            await self.m.faction_appoint_char("u1", general["id"], "taiwei")
+        self.assertIn("据点不足", str(cm.exception))
+        # 扩到 8 据点：太尉/太守解锁
+        extra = [n for n in await self.m.get_nodes(self.wid)
+                 if int(n["owner_faction"]) == 0 and n["type"] != "ruin"][:7]
+        self.assertGreaterEqual(len(extra), 7)
+        for n in extra:
+            n["owner_faction"] = fid
+            await self.m.save_node(n)
+        f = await self.m.get_faction(fid)
+        node_count = await self.m._governance_node_count(self.wid, f)
+        self.assertEqual(node_count, 8)
+        avail = self.R.available_positions(node_count)
+        self.assertIn("taiwei", avail)
+        self.assertEqual(avail["taishou"], 8)
+        strategist = await self._recruit_role("u1", self.R.ROLE_STRATEGIST)
+        await self.m.faction_appoint_char("u1", strategist["id"], "taiwei")
+        c2 = await self.m.get_char(strategist["id"])
+        self.assertEqual(c2["appointed_position"], "taiwei")
+        self.assertEqual(await self.m._leader_cap(c2, f, home), 3000)
+        # 太守须绑据点：辖内 2000，辖外 1500
+        await self.m.faction_appoint_char("u1", general["id"], "taishou", home)
+        c = await self.m.get_char(general["id"])
+        self.assertEqual(c["appointed_position"], "taishou")
+        self.assertEqual(int(c["appointed_node_id"]), home)
+        self.assertEqual(await self.m._leader_cap(c, f, home), 2000)
+        other = int(extra[0]["id"])
+        self.assertEqual(await self.m._leader_cap(c, f, other), 1500)
+        # 同一据点不可有两个太守
+        with self.assertRaises(self.StrategyError):
+            await self.m.faction_appoint_char("u1", strategist["id"], "taishou", home)
+        # 卸任
+        await self.m.faction_appoint_char("u1", general["id"], "")
+        c = await self.m.get_char(general["id"])
+        self.assertEqual(c["appointed_position"], "")
+
+    async def test_scout_task_reveals_extra_ring(self):
+        """侦察任务点亮 2 跳范围，且情报按势力隔离。"""
+        p1 = await self.m.get_player("u1", self.wid)
+        f1 = await self.m.get_faction(int(p1["faction_id"]))
+        home = int(f1["capital_node_id"])
+        world = await self.m.get_world()
+        n = await self.m._apply_scout_intel(
+            world, {"node_id": home, "faction_id": int(p1["faction_id"])}, 32)
+        self.assertGreater(n, 1)
+        world = await self.m.get_world()
+        bucket = ((world.get("data") or {}).get("scouted") or {}).get(
+            str(int(p1["faction_id"]))) or {}
+        self.assertTrue(bucket)
+        state = await self.m.get_state("u1")
+        self.assertTrue(any(int(x.get("scouted_until") or 0) > 0
+                            for x in state["nodes"]))
+        state2 = await self.m.get_state("u2")
+        self.assertFalse(any(int(x.get("scouted_until") or 0) > 0
+                             for x in state2["nodes"]))
 
     # ------------------------------------------------------------------
     async def _fetchall(self, sql: str, params: tuple = ()):

@@ -25,7 +25,10 @@ import time
 from typing import Any, Optional
 
 from ..core import strategy_rules as R
-from ..data.migration import _ensure_strategy_v70, _ensure_strategy_v71, _ensure_strategy_v72
+from ..data.migration import (
+    _ensure_strategy_v70, _ensure_strategy_v71, _ensure_strategy_v72,
+    _ensure_strategy_v74, _ensure_strategy_v75,
+)
 from .strategy_errors import StrategyBusyError, StrategyError
 from .strategy_faction_mixin import StrategyFactionMixin
 from .strategy_captive_mixin import StrategyCaptiveMixin
@@ -355,6 +358,8 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         await _ensure_strategy_v70(self.db.conn)
         await _ensure_strategy_v71(self.db.conn)
         await _ensure_strategy_v72(self.db.conn)
+        await _ensure_strategy_v74(self.db.conn)
+        await _ensure_strategy_v75(self.db.conn)
         await self._commit()
         self._tables_ready = True
 
@@ -525,7 +530,8 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             UPDATE strategy_characters SET world_id=?, faction_id=?, owner_user_id=?, name=?,
                 role=?, rarity=?, profession=?, stats_json=?, traits_json=?, aptitude_json=?,
                 exp=?, level=?, loyalty=?, injury=?, stamina=?, status=?, captor_faction=?,
-                imprisoned_node_id=?, bonds_json=?, location_json=?
+                imprisoned_node_id=?, bonds_json=?, location_json=?,
+                appointed_position=?, appointed_node_id=?
             WHERE id=?
         """, (
             int(c.get("world_id", 0)), int(c.get("faction_id", 0)), c.get("owner_user_id", ""),
@@ -539,6 +545,8 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             int(c.get("captor_faction", 0)), int(c.get("imprisoned_node_id", 0)),
             json.dumps(c.get("bonds") or {}, ensure_ascii=False),
             json.dumps(c.get("location") or {}, ensure_ascii=False),
+            str(c.get("appointed_position") or ""),
+            int(c.get("appointed_node_id", 0) or 0),
             int(c["id"]),
         ))
 
@@ -546,8 +554,8 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         cid = await self._execute("""
             INSERT INTO strategy_characters (world_id, faction_id, owner_user_id, name, role,
                 rarity, profession, stats_json, traits_json, aptitude_json, exp, level,
-                loyalty, injury, stamina, status)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                loyalty, injury, stamina, status, appointed_position, appointed_node_id)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, (
             int(c.get("world_id", 0)), int(c.get("faction_id", 0)), c.get("owner_user_id", ""),
             c.get("name", ""), c.get("role", "general"), c.get("rarity", "common"),
@@ -557,6 +565,8 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             json.dumps(c.get("aptitude") or {}, ensure_ascii=False),
             int(c.get("exp", 0)), int(c.get("level", 1)), int(c.get("loyalty", 70)),
             int(c.get("injury", 0)), int(c.get("stamina", 100)), c.get("status", "idle"),
+            str(c.get("appointed_position") or ""),
+            int(c.get("appointed_node_id", 0) or 0),
         ))
         c["id"] = cid
         return cid
@@ -1071,6 +1081,15 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
     # ------------------------------------------------------------------
     # 酒馆招募（§6.1）
     # ------------------------------------------------------------------
+    async def _recruit_quality_bonus(self, faction_id: int) -> float:
+        """中郎将（角色官职）提供的招募高品质概率加成。"""
+        f = await self.get_faction(int(faction_id or 0))
+        if not f:
+            return 0.0
+        host = await self._alliance_host(f) or f
+        bonus = await self._faction_position_bonus(host)
+        return float(bonus.get("recruit_quality", 0.0))
+
     async def _tavern(self, player: dict, world_id: int) -> dict:
         """取/刷新酒馆候选（4 小时一刷，手刷 300 币 ×3/日）。"""
         cfg = (self.main_cfg().get("recruit") or {})
@@ -1078,7 +1097,9 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         now = _now()
         refresh_sec = int(cfg.get("refresh_hours", 4)) * 3600
         if not tavern.get("candidates") or now >= int(tavern.get("refresh_at", 0)):
-            tavern = self._roll_tavern(player["user_id"], world_id, tavern, cfg, now)
+            qb = await self._recruit_quality_bonus(int(player.get("faction_id") or 0))
+            tavern = self._roll_tavern(player["user_id"], world_id, tavern, cfg, now,
+                                       quality_bonus=qb)
             tavern["refresh_at"] = now + refresh_sec
             player["tavern"] = tavern
             await self.save_player(player)
@@ -1086,7 +1107,7 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         return tavern
 
     def _roll_tavern(self, user_id: str, world_id: int, old: dict, cfg: dict,
-                     now: int, salt: int = 0) -> dict:
+                     now: int, salt: int = 0, quality_bonus: float = 0.0) -> dict:
         # salt=0：自动刷新按小时粒度稳定候选；手动刷新传精确时间戳，
         # 保证同小时内多次付费刷新得到不同候选
         rng = random.Random(int(hashlib.md5(
@@ -1096,6 +1117,10 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         role_w = [int((cfg.get("role_weights") or {}).get(k, 1)) for k in role_keys]
         rar_keys = list((cfg.get("rarity_weights_normal") or {}).keys()) or ["common"]
         rar_w = [int((cfg.get("rarity_weights_normal") or {}).get(k, 0)) for k in rar_keys]
+        if quality_bonus > 0:
+            # 中郎将：高品质档位权重 ×(1+10%)（common 不变，避免抽到白身的概率被稀释）
+            rar_w = [w if k == "common" else max(w + 1, int(round(w * (1 + quality_bonus))))
+                     for k, w in zip(rar_keys, rar_w)]
         cands = []
         for _ in range(n):
             c = R.generate_character(
@@ -1124,8 +1149,9 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             if player["coin"] < cost:
                 raise StrategyError(f"铜钱不足：手动刷新需 {cost}")
             player["coin"] -= cost
+            qb = await self._recruit_quality_bonus(int(player.get("faction_id") or 0))
             tavern = self._roll_tavern(player["user_id"], world_id, tavern, cfg,
-                                       _now(), salt=_now())
+                                       _now(), salt=_now(), quality_bonus=qb)
             tavern["daily_refresh_used"] = used + 1
             tavern["refresh_at"] = _now() + int(cfg.get("refresh_hours", 4)) * 3600
             player["tavern"] = tavern
@@ -1282,11 +1308,44 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 q.append(nxt)
         return None
 
-    async def _leader_cap(self, leader: Optional[dict], faction: Optional[dict]) -> int:
-        """主将带兵上限：按主将自己的势力官职决定（势力主/太尉 3000）。
+    async def _governance_node_count(self, world_id: int, f: dict) -> int:
+        """势力（含联盟成员势力）当前拥有的据点总数，用于官职开放档位。"""
+        ids = await self._alliance_ids(int(world_id), f)
+        if not ids:
+            return 0
+        marks = ",".join("?" for _ in ids)
+        row = await self._fetchone(
+            f"SELECT COUNT(*) AS c FROM strategy_nodes WHERE world_id=? "
+            f"AND owner_faction IN ({marks})",
+            (int(world_id), *sorted(int(x) for x in ids)))
+        return int((row or {}).get("c", 0) or 0)
 
-        NPC 势力军队视为主帅亲征；玩家势力必须查成员名册，不能靠
-        faction.leader_id 与角色 id 比较（二者一个是 user_id、一个是 char_id）。
+    async def _alliance_chars(self, world_id: int, f: dict) -> list[dict]:
+        """本势力/联盟内的全部可用角色（官职任免与效果统计用）。"""
+        ids = await self._alliance_ids(int(world_id), f)
+        chars = await self.get_chars(world_id=int(world_id))
+        return [c for c in chars
+                if int(c.get("faction_id") or 0) in ids and
+                c.get("status") not in ("dead", "captive")]
+
+    async def _faction_position_bonus(self, f: Optional[dict]) -> dict:
+        """角色级官职聚合出的势力加成（太尉攻/司徒产出/祭酒计略/中郎将招募）。"""
+        if not f:
+            return R.faction_position_bonus({})
+        chars = await self._alliance_chars(int(f["world_id"]), f)
+        positions: dict[str, list] = {}
+        for c in chars:
+            pos = str(c.get("appointed_position") or "")
+            if pos:
+                positions.setdefault(pos, []).append(c)
+        return R.faction_position_bonus(positions)
+
+    async def _leader_cap(self, leader: Optional[dict], faction: Optional[dict],
+                          node_id: int = 0) -> int:
+        """主将带兵上限：按其角色的官职决定（§4.5）。
+
+        官职绑定角色而非玩家；无官职角色 1500。太守离开所辖据点出征时
+        按辖外 1500 计算。
         """
         if not leader or not faction:
             return R.troop_cap("")
@@ -1294,9 +1353,10 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             return R.troop_cap("")
         if str(faction.get("kind") or "") == "npc":
             return R.troop_cap("leader")
-        members = await self.get_members(int(faction["id"]))
-        pos = self._position_of(members, str(leader.get("owner_user_id") or ""))
-        return R.troop_cap(pos)
+        pos = str(leader.get("appointed_position") or "")
+        outside = (pos == "taishou" and int(leader.get("appointed_node_id") or 0)
+                   != int(node_id or 0))
+        return R.troop_cap(pos, is_taishou_outside=outside)
 
     # ------------------------------------------------------------------
     # 任务（§6.2）
@@ -1355,7 +1415,10 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         full_ticks = int((task.get("payout") or {}).get("ticks", 4))
         got_ticks = max(0, int(full_ticks * elapsed / total *
                                (1 - float(tcfg.get("recall_loss", 0.5)))))
-        payout = await self._pay_task(world, p, task, c, got_ticks)
+        # 刚派出就召回时可能结算 0 tick；不能再走 settle_task（其内部按
+        # max(1, ticks) 兜底，会白送 1 tick 收益）
+        payout = await self._pay_task(world, p, task, c, got_ticks) \
+            if got_ticks > 0 else {"kind": "none", "amount": 0}
         task["status"] = "recalled"
         await self.db.conn.execute(
             "UPDATE strategy_tasks SET status='recalled' WHERE id=?", (task_id,))
@@ -1420,15 +1483,20 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         elif kind == "train":
             drills = await self._drill_armies_at_node(p, task["node_id"], amount)
             out["amount"] = drills
-        elif kind == "research":
-            f = await self.get_faction(p["faction_id"])
+        elif kind == "tech":
+            # 研究任务产出势力科技点（结盟后记在盟主势力名下）
+            f = await self._governance_faction(p)
             if f:
                 tech = f.get("tech") or {}
                 tech["points"] = int(tech.get("points", 0)) + amount
                 f["tech"] = tech
                 await self.save_faction(f)
             out["amount"] = amount
-        else:  # intel / loot / tech / grain_move → P0 折半转币
+        elif kind == "intel":
+            # 侦察任务：揭示任务据点及相邻据点的守军/军团情报
+            revealed = await self._apply_scout_intel(world, task, ticks)
+            out["amount"] = revealed
+        else:  # loot / grain_move → P0 折半转币
             p["coin"] += amount // 2
             out["amount"] = amount // 2
         if kind in ("coin", "grain"):
@@ -1444,6 +1512,40 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         out["exp_logs"] = logs
         return out
 
+    async def _apply_scout_intel(self, world: dict, task: dict, ticks: int) -> int:
+        """侦察结算：点亮任务据点周边 2 跳范围的守军/驻军情报。
+
+        默认战争迷雾只显示己方及 1 步邻接；侦察任务额外把 2 跳内的节点
+        点亮，能提前看到更外侧的敌军与守军。有效期 = 任务时长
+        （4 tick = 1h），至少 1 小时。
+        """
+        nodes = {n["id"]: n for n in await self.get_nodes(world["id"])}
+        origin = int(task["node_id"])
+        if origin not in nodes:
+            return 0
+        ids = {origin}
+        frontier = {origin}
+        for _ in range(2):
+            nxt: set[int] = set()
+            for nid in frontier:
+                for adj in nodes.get(nid, {}).get("adj") or []:
+                    if int(adj) in nodes and int(adj) not in ids:
+                        nxt.add(int(adj))
+            ids.update(nxt)
+            frontier = nxt
+        data = world.get("data") or {}
+        scouted = data.setdefault("scouted", {})
+        fid = str(int(task.get("faction_id") or 0))
+        bucket = scouted.setdefault(fid, {})
+        now = _now()
+        until = now + max(1, int(ticks) // 4) * 3600
+        for nid in ids:
+            bucket[str(nid)] = max(int(bucket.get(str(nid), 0) or 0), until)
+        # 顺手清理过期项，避免 world.data 无限增长
+        scouted[fid] = {k: int(v) for k, v in bucket.items() if int(v) > now}
+        world["data"] = data
+        await self.save_world(world)
+        return len(ids)
     async def _task_event_mult(self, world: dict, task: dict, node: Optional[dict]) -> float:
         mult = 1.0
         for ev in await self.get_active_events(world["id"], world.get("tick_no", 0)):
@@ -1519,7 +1621,7 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 raise StrategyError(f"{mc['name']} 无法出征（{mc['status']}）")
             members.append(mc)
         faction = await self.get_faction(p["faction_id"])
-        cap = await self._leader_cap(leader, faction)
+        cap = await self._leader_cap(leader, faction, int(node["id"]))
         if troops > cap:
             raise StrategyError(f"超过主将带兵上限（{cap}）")
         # 招募成本（§7.5 兵种价目）
@@ -1595,7 +1697,7 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             raise StrategyError("补员数量须为正")
         leader = await self.get_char((a.get("characters") or [0])[0])
         faction = await self.get_faction(a["faction_id"])
-        cap = await self._leader_cap(leader, faction)
+        cap = await self._leader_cap(leader, faction, int(a["node_id"]))
         if a["troops"] + troops > cap:
             raise StrategyError(f"超过带兵上限（{cap}）")
         tt = R.TROOP_TYPES.get(a["troop_type"], R.TROOP_TYPES["sword_shield"])
@@ -1963,6 +2065,8 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             # 2. 据点产出分配（铜钱/粮/铁 + 主玩法灵石注入含日限额）
             gold_total = await self._step_distribute_output(world, output_only)
             summary["gold_injected"] = gold_total
+            # 2b. 坊市流将竞拍：到期结算/补挂（补跑 tick 也执行，避免流将无限挂起）
+            await self._step_wanderer_auctions(world)
             if not output_only:
                 # 3. 围城推进
                 battles = await self._step_sieges(world)
@@ -2123,11 +2227,17 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 key=lambda n: -(R.NODE_OUTPUT_VALUE.get(n["type"], 40)))
             if not f_nodes:
                 continue
+            # 势力国库 + 司徒（角色官职）据点产出加成；结盟后统一进入盟主国库
+            f = await self.get_faction(p["faction_id"])
+            f = await self._alliance_host(f) if f else None
+            pos_bonus = await self._faction_position_bonus(f) if f else {}
+            output_mult = 1.0 + float(pos_bonus.get("node_output", 0.0))
             for idx, node in enumerate(f_nodes):
                 base = per_tick.get(node["type"]) or {}
                 mult = global_mult * (1 + 0.2 * (node["level"] - 1))
-                # 赛季决战 +20% / 追赶礼包 ×1.5（§11/§17）
-                mult *= self.player_output_mult(p) * self.season_output_mult(world)
+                # 赛季决战 +20% / 追赶礼包 ×1.5（§11/§17）/ 司徒加成
+                mult *= self.player_output_mult(p) * self.season_output_mult(world) \
+                    * output_mult
                 nm = node_mult.get(node["id"], {})
                 gain_coin = int(base.get("coin", 0) * mult * nm.get("coin", 1.0))
                 gain_grain = int(base.get("grain", 0) * mult * nm.get("grain", 1.0))
@@ -2145,16 +2255,14 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                     # 循环尾统一 save_player 落库
                     got, _m = await self._inject_gold(p, personal)
                     gold_total += got
-                # 势力国库份额（审计）；结盟后统一进入盟主国库
-                f = await self.get_faction(p["faction_id"])
-                f = await self._alliance_host(f) if f else None
                 if f:
                     treasury = f.get("treasury") or {}
                     treasury["gold"] = int(treasury.get("gold", 0)) + int(
                         gross * float(gcfg.get("treasury_share", 0.3)))
                     f["treasury"] = treasury
-                    await self.save_faction(f)
             await self.save_player(p)
+            if f:
+                await self.save_faction(f)
         # --- NPC 势力国库 ---
         npc_factions = await self._fetchall(
             "SELECT id FROM strategy_factions WHERE world_id=? AND kind='npc' AND alive=1",
@@ -2436,8 +2544,12 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         rows = await self._fetchall(
             "SELECT * FROM strategy_characters WHERE world_id=? AND status!='dead'",
             (world["id"],))
+        taishou_nodes: set[int] = set()
         for row in rows:
             c = self._decode("strategy_characters", row)
+            if str(c.get("appointed_position") or "") == "taishou" and \
+                    int(c.get("appointed_node_id") or 0) > 0:
+                taishou_nodes.add(int(c.get("appointed_node_id") or 0))
             per = int(icfg.get("recover_per_tick", 5))
             loc_node = int((c.get("location") or {}).get("node_id", 0) or 0)
             if loc_node in infirmary_nodes:
@@ -2453,8 +2565,10 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             if node["owner_faction"] != 0 and not node.get("siege_state"):
                 if node["defense"] > 0:
                     node["defense"] = R.city_self_repair(node["defense"], node["level"])
-                node["morale"] = min(100, node["morale"] + 1) if node["morale"] < 80 \
-                    else max(80, node["morale"] - 1)
+                # 太守辖地：民心恢复 ×2（§4.5 官职表）
+                step = 2 if nid in taishou_nodes else 1
+                node["morale"] = min(100, node["morale"] + step) \
+                    if node["morale"] < 80 else max(80, node["morale"] - 1)
             for ev in active:
                 for eff in (ev.get("data") or {}).get("effects") or []:
                     if eff.get("type") == "node_dot" and nid in (
@@ -2537,6 +2651,11 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             return f"🚩「{node['name']}」被 {await self._faction_name(atk_fid)} 占领"
         # 会战
         atk_sim, dfn_sim, gar_sim = [], [], None
+        node_taishou = any(
+            str(c.get("appointed_position") or "") == "taishou" and
+            int(c.get("appointed_node_id") or 0) == int(node["id"])
+            for c in await self.get_chars(
+                world_id=world["id"], faction_id=int(node.get("owner_faction") or 0)))
         for a in attackers:
             s = await self._army_sim(a)
             if s:
@@ -2546,11 +2665,15 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             if s:
                 s["wall_mult"] = 1.0 + min(0.3, node["defense"] / R.city_defense_max(
                     max(1, node["level"])) * 0.3)
+                if node_taishou:
+                    s["wall_mult"] *= 1.10  # 太守辖地城防 +10%
                 dfn_sim.append(s)
         if garrison_troops > 0:
             gar_sim = self._garrison_sim(node)
             if unowned:
                 gar_sim["def_terrain_mult"] = 1.1  # 残军据险
+            if node_taishou:
+                gar_sim["wall_mult"] = 1.10
             dfn_sim.append(gar_sim)
         if not atk_sim:
             for a in attackers:
@@ -2638,12 +2761,15 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 continue  # C-M4：被俘/陨落者不领队，顺延下一位军中角色
             leader = c
             break
+        f = await self.get_faction(int(army.get("faction_id") or 0))
+        pos_bonus = await self._faction_position_bonus(f) if f else {}
         return {
             "id": int(army["id"]), "faction_id": int(army.get("faction_id", 0)),
             "troop_type": army.get("troop_type", "sword_shield"),
             "troops": int(army["troops"]), "morale": int(army.get("morale", 100)),
             "veteran": int(army.get("veteran", 0)), "leader": leader,
             "siege_engine": bool(army.get("siege_engine", 0)),
+            "pos_atk_mult": 1.0 + float(pos_bonus.get("army_atk", 0.0)),
         }
 
     def _garrison_sim(self, node: dict) -> Optional[dict]:
@@ -3104,23 +3230,8 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         return "0"
 
     async def get_wanderers_view(self, world: dict) -> list[dict]:
-        """在野流将（天降流将事件产物，§11）：任意玩家可花铜钱招募。"""
-        from .strategy_p3_mixin import WANDERER_PRICE
-        nodes = {n["id"]: n["name"] for n in await self.get_nodes(world["id"])}
-        out = []
-        for c in await self.get_chars(world_id=world["id"], status="wander"):
-            nid = int((c.get("location") or {}).get("node_id", 0) or 0)
-            out.append({"id": c["id"], "name": c["name"],
-                        "rarity": c.get("rarity", "common"),
-                        "rarity_name": R.RARITY_NAMES.get(
-                            c.get("rarity", "common"), c.get("rarity", "")),
-                        "role": c.get("role", ""),
-                        "role_name": R.ROLE_NAMES.get(c.get("role", ""), ""),
-                        "stats": c.get("stats") or {},
-                        "node_id": nid, "node_name": nodes.get(nid, ""),
-                        "price": int(WANDERER_PRICE.get(
-                            c.get("rarity", "common"), 2000))})
-        return out
+        """在野流将（兼容旧前端）：已统一改为坊市限时竞拍，不再直接挂价招募。"""
+        return []
 
     async def get_state(self, user_id: str) -> dict:
         """网页面板全量状态（含战争迷雾过滤）。"""
@@ -3158,10 +3269,18 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         for n in nodes:
             if n["id"] in my_nodes:
                 visible_nodes.update(n["adj"])
+        now_ts = _now()
+        raw_scouted = (world.get("data") or {}).get("scouted") or {}
+        scouted: dict[int, int] = {}
+        for fid in alliance_ids or {my_fid}:
+            for k, v in (raw_scouted.get(str(int(fid))) or {}).items():
+                until = int(v or 0)
+                if until > now_ts and until > scouted.get(int(k), 0):
+                    scouted[int(k)] = until
         out_nodes = []
         for n in nodes:
             gar = int((n.get("npc_garrison") or {}).get("troops", 0))
-            visible = n["id"] in visible_nodes
+            visible = n["id"] in visible_nodes or n["id"] in scouted
             ss = n.get("siege_state") or {}
             out_nodes.append({
                 "id": n["id"], "name": n["name"], "type": n["type"],
@@ -3180,7 +3299,9 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                           "attacker_faction": ss.get("attacker_faction", 0)} if ss else None,
                 "garrison": gar if visible else None,
                 "garrison_bucket": None if visible else self._garrison_bucket(gar),
-                "protected": n.get("protect_until", 0) > _now(),
+                "scouted_until": scouted.get(n["id"], 0)
+                if n["id"] not in visible_nodes else 0,
+                "protected": n.get("protect_until", 0) > now_ts,
             })
         # 军团（迷雾：非可见据点上的敌军不展示）
         out_armies = []
@@ -3190,9 +3311,10 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         for a in await self.get_armies(wid):
             is_mine = a.get("owner_user_id") == user_id or \
                 a["faction_id"] in alliance_ids
-            if not is_mine and a["node_id"] not in visible_nodes and a["state"] != "march":
+            node_visible = a["node_id"] in visible_nodes or a["node_id"] in scouted
+            if not is_mine and not node_visible and a["state"] != "march":
                 continue
-            if not is_mine and a["state"] == "march" and a["node_id"] not in visible_nodes:
+            if not is_mine and a["state"] == "march" and not node_visible:
                 continue
             fm = f_meta.get(a["faction_id"], {"name": "?", "color": "#888"})
             out_armies.append({
@@ -3200,7 +3322,7 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 "faction_color": fm["color"], "mine": is_mine,
                 "node_id": a["node_id"], "state": a["state"],
                 "path": a["path"], "troops": a["troops"] if is_mine or
-                a["node_id"] in visible_nodes else None,
+                node_visible else None,
                 "troop_type": a["troop_type"], "morale": a["morale"] if is_mine else None,
                 "veteran": a["veteran"] if is_mine else None,
                 "grain": a["grain"] if is_mine else None,
@@ -3225,6 +3347,8 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             "bandits": await self.get_bandits_view(world),
             "trade_routes": await self.get_trade_routes_view(world),
             "wanderers": await self.get_wanderers_view(world),
+            "wanderer_auctions": await self.get_wanderer_auctions_view(
+                world, user_id),
             "petitions": [
                 {"id": pet.get("id"), "name": pet.get("name"),
                  "color": pet.get("color"), "creator": pet.get("creator"),
@@ -3266,6 +3390,12 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 "injury_state": R.injury_state(c["injury"]),
                 "injury_name": R.INJURY_STATE_NAMES.get(R.injury_state(c["injury"]), ""),
                 "stamina": c["stamina"], "status": c["status"],
+                "appointed_position": str(c.get("appointed_position") or ""),
+                "appointed_name": R.POSITION_NAMES.get(
+                    str(c.get("appointed_position") or ""), "无官职"),
+                "appointed_node_id": int(c.get("appointed_node_id") or 0),
+                "appointed_node_name": node_names.get(
+                    int(c.get("appointed_node_id") or 0), ""),
                 "bonds": {str(k): v for k, v in (c.get("bonds") or {}).items()},
                 "location": node_names.get(
                     int((c.get("location") or {}).get("node_id", 0) or 0), ""),
@@ -3339,6 +3469,41 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             pmap = {str(r["user_id"]): int(r["faction_id"]) for r in await self._fetchall(
                 "SELECT user_id, faction_id FROM strategy_players WHERE world_id=?",
                 (world["id"],))}
+            # 角色级官职：开放档位按势力（含联盟）据点总数
+            gov_ids = await self._alliance_ids(world["id"], f)
+            gov_nodes = sum(1 for n in nodes
+                            if int(n["owner_faction"]) in gov_ids)
+            gov_chars = [c for c in await self.get_chars(world_id=world["id"])
+                         if int(c.get("faction_id") or 0) in gov_ids and
+                         c.get("status") not in ("dead", "captive")]
+            avail = R.available_positions(gov_nodes)
+            appointable = {
+                pos: {
+                    "name": R.POSITION_NAMES.get(pos, pos),
+                    "cap": int(cap),
+                    "used": sum(1 for c in gov_chars
+                                if str(c.get("appointed_position") or "") == pos),
+                    "effect": R.POSITION_EFFECT_TEXT.get(pos, ""),
+                    "unlock_nodes": R.position_unlock_nodes(pos),
+                    "troop_cap": R.POSITION_TROOP_CAP.get(pos, 1500),
+                }
+                for pos, cap in avail.items()}
+            appointments = [
+                {"char_id": c["id"], "name": c["name"],
+                 "owner_user_id": c.get("owner_user_id", ""),
+                 "position": str(c.get("appointed_position") or ""),
+                 "position_name": R.POSITION_NAMES.get(
+                     str(c.get("appointed_position") or ""), "无官职"),
+                 "node_id": int(c.get("appointed_node_id") or 0),
+                 "node_name": node_names.get(int(c.get("appointed_node_id") or 0), "")}
+                for c in gov_chars if str(c.get("appointed_position") or "")]
+            appoint_chars = [
+                {"id": c["id"], "name": c["name"],
+                 "owner_user_id": c.get("owner_user_id", ""),
+                 "role_name": R.ROLE_NAMES.get(c.get("role", ""), c.get("role", "")),
+                 "position": str(c.get("appointed_position") or ""),
+                 "node_id": int(c.get("appointed_node_id") or 0)}
+                for c in gov_chars]
             faction_view = {
                 "id": f["id"], "name": f["name"], "kind": f["kind"],
                 "level": f["level"], "reputation": f["reputation"],
@@ -3364,6 +3529,13 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 "applications": sorted(
                     ((world.get("data") or {}).get("join_apps") or {})
                     .get(str(host["id"]), {}).keys()),
+                # 角色级官职（v74）
+                "governance_node_count": int(gov_nodes),
+                "can_appoint": self._position_of(members, p["user_id"])
+                in ("leader", "deputy"),
+                "appointable": appointable,
+                "appointments": appointments,
+                "appoint_chars": appoint_chars,
             }
         return {
             "user_id": p["user_id"], "faction_id": p["faction_id"],
@@ -3422,6 +3594,33 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 "report_text": b["report_text"], "result": b.get("result"),
                 "created_at": b["created_at"]}
 
+    def _task_meta(self) -> dict:
+        """任务选择提示：核心属性 / 最佳职责 / 产出 / 据点加成。"""
+        out_name = {"coin": "铜钱", "grain": "粮草", "token": "募将令",
+                    "intel": "情报", "build": "城防", "train": "精锐",
+                    "merit": "战功", "heal": "疗伤", "tech": "科技点"}
+        node_bonus = {"govern": "仙城 ×1.5", "farm": "灵谷田 ×2.0",
+                      "trade": "坊市 ×1.3", "seek": "分舵 ×1.4",
+                      "hunt": "遗迹 ×1.3", "build": "仙城 ×1.2"}
+        meta = {}
+        for k in ("govern", "farm", "trade", "seek", "scout", "build",
+                  "train", "hunt", "heal", "research"):
+            best = R.TASK_BEST_ROLE.get(k)
+            if best:
+                role = R.ROLE_NAMES.get(best, best)
+            elif k in ("trade", "build", "heal"):
+                role = "内政官/军师"
+            else:
+                role = "任意"
+            meta[k] = {
+                "name": R.TASK_NAMES.get(k, k),
+                "stat": R.STAT_NAMES.get(R.TASK_PRIMARY_STAT.get(k, "admin"), ""),
+                "role": role,
+                "output": out_name.get(R.TASK_OUTPUT_RES.get(k, ""), ""),
+                "node": node_bonus.get(k, ""),
+            }
+        return meta
+
     def _frontend_meta(self) -> dict:
         cfg = self.main_cfg()
         return {
@@ -3437,6 +3636,7 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             "task_types": {k: R.TASK_NAMES.get(k, k) for k in
                            ("govern", "farm", "trade", "seek", "scout", "build",
                             "train", "hunt", "heal", "research")},
+            "task_meta": self._task_meta(),
             "task_hours": (cfg.get("task") or {}).get("hours_options", [1, 2, 4, 8]),
             "rarity_names": dict(R.RARITY_NAMES),
             "role_names": dict(R.ROLE_NAMES),
@@ -3447,6 +3647,15 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             "gold_output": {k: v for k, v in (cfg.get("gold_output") or {}).items()},
             "positions": {k or "none": {"name": v, "cap": R.POSITION_TROOP_CAP.get(k, 1500)}
                           for k, v in R.POSITION_NAMES.items()},
+            "appointable_positions": {
+                p: {"name": R.POSITION_NAMES.get(p, p),
+                    "effect": R.POSITION_EFFECT_TEXT.get(p, ""),
+                    "unlock_nodes": R.position_unlock_nodes(p),
+                    "troop_cap": R.POSITION_TROOP_CAP.get(p, 1500)}
+                for p in R.APPOINTABLE_POSITIONS},
+            "position_unlocks": [
+                {"nodes": int(nodes), "positions": dict(caps)}
+                for nodes, caps in R.POSITION_UNLOCKS],
             # --- P1~P3 元数据 ---
             "plot_types": dict(R.PLOT_NAMES),
             "tech_lines": list(R.TECH_LINES),
@@ -3465,6 +3674,7 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             "duel_cfg": cfg.get("duel") or {},
             "hex_cfg": cfg.get("hex") or {},
             "market_cfg": cfg.get("market") or {},
+            "wanderer_auction_cfg": cfg.get("wanderer_auction") or {},
             "season_cfg": cfg.get("season") or {},
             "shield_cfg": cfg.get("shield") or {},
             "rebuild_cfg": cfg.get("rebuild") or {},
@@ -3571,6 +3781,11 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             if action == "faction_set_position":
                 return await self.faction_set_position(
                     user_id, str(params["target_user"]), str(params["position"]))
+            if action == "faction_appoint_char":
+                return await self.faction_appoint_char(
+                    user_id, int(params["char_id"]),
+                    str(params.get("position", "")),
+                    int(params.get("node_id", 0) or 0))
             if action == "transfer_leader":
                 return await self.transfer_leader(user_id, str(params["target_user"]))
             if action == "transfer_node":
@@ -3674,6 +3889,11 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 return await self.claim_catchup(user_id)
             if action == "claim_carryover":
                 return await self.claim_carryover(user_id, int(params["army_id"]))
+            if action == "bid_wanderer":
+                return await self.bid_wanderer(
+                    user_id, int(params["auction_id"]),
+                    int(params.get("amount", 0) or 0),
+                    buyout=bool(params.get("buyout")))
             if action == "recruit_wanderer":
                 return await self.recruit_wanderer(user_id, int(params["char_id"]))
             if action == "set_notify_pref":

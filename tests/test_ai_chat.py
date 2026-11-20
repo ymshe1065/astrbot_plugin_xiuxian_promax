@@ -1106,9 +1106,16 @@ class TestWiringConsistency(unittest.TestCase):
         self.assertIn(f"game_version: {pages.HELP_VERSION}", raw)
 
     def test_database_version_unchanged(self):
-        """AI 向导个人上下文复用 system_config；v72 来自仙域争霸联盟体系，不是 AI 向导。"""
+        """AI 向导个人上下文复用 system_config；这里只确认它没有新增迁移步骤。"""
         migration = (ROOT / "data" / "migration.py").read_text(encoding="utf-8")
-        self.assertIn("LATEST_DB_VERSION = 72", migration, "本次发布数据库版本为 v72")
+        version_line = next(
+            (line for line in migration.splitlines()
+             if line.startswith("LATEST_DB_VERSION")),
+            "",
+        )
+        self.assertTrue(version_line, "未找到 LATEST_DB_VERSION")
+        version = int(version_line.split("=", 1)[1].split("#", 1)[0].strip())
+        self.assertGreaterEqual(version, 72, "AI 向导不得回退数据库版本")
         self.assertNotIn("ai_chat", migration.lower(), "AI 向导不得新增迁移步骤")
 
 

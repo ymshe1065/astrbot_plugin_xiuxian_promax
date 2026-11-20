@@ -148,9 +148,9 @@ class StrategyFactionMixin:
         for m in await self._alliance_factions(int(host["world_id"]), host):
             if int(m["id"]) == int(host["id"]):
                 continue
-            # 研究进度只保留在盟主势力，成员只同步已完成等级
+            # 研究进度/科技点只保留在盟主势力，成员只同步已完成等级
             m["tech"] = {k: v for k, v in (host.get("tech") or {}).items()
-                         if k != "pending"}
+                         if k not in ("pending", "points")}
             m["diplomacy"] = dict(host.get("diplomacy") or {})
             await self.save_faction(m)
 
@@ -450,7 +450,8 @@ class StrategyFactionMixin:
     async def _move_player_to_faction(self, world: dict, p: dict, fid: int):
         """把玩家角色/军团迁入指定势力，并登记为该势力主公。"""
         await self._execute(
-            "UPDATE strategy_characters SET faction_id=? WHERE world_id=? AND owner_user_id=?",
+            "UPDATE strategy_characters SET faction_id=?, appointed_position='', "
+            "appointed_node_id=0 WHERE world_id=? AND owner_user_id=?",
             (int(fid), world["id"], p["user_id"]))
         await self._execute(
             "UPDATE strategy_armies SET faction_id=? WHERE world_id=? AND owner_user_id=?",
@@ -695,6 +696,66 @@ class StrategyFactionMixin:
             cn = "白身"
         return {"ok": True, "msg": f"已任命 {target_user} 为「{cn}」"}
 
+    async def faction_appoint_char(self, user_id: str, char_id: int,
+                                   position: str = "", node_id: int = 0) -> dict:
+        """角色级官职任免（§4.5）：官职随角色，开放档位随势力据点数量。"""
+        world, p = await self._require_player(user_id)
+        f = await self._governance_faction(p)
+        if not f or f.get("kind") == "npc":
+            raise StrategyError("当前不在玩家势力中")
+        await self._require_position(f, user_id, ("leader", "deputy"))
+        c = await self.get_char(int(char_id))
+        ids = await self._alliance_ids(int(world["id"]), f)
+        if not c or int(c.get("faction_id") or 0) not in ids:
+            raise StrategyError("只能任免本势力/联盟内的角色")
+        if c.get("status") in ("dead", "captive") or \
+                R.injury_state(c.get("injury", 0)) == "dead":
+            raise StrategyError("该角色已陨落/被俘，无法任免")
+        position = str(position or "").strip()
+        if position and position not in R.APPOINTABLE_POSITIONS:
+            raise StrategyError("官职无效（主公/副主是玩家治理身份，不属于角色官职）")
+        node_count = await self._governance_node_count(int(world["id"]), f)
+        avail = R.available_positions(node_count)
+        if position and position not in avail:
+            need = R.position_unlock_nodes(position)
+            raise StrategyError(
+                f"据点不足：{R.POSITION_NAMES.get(position, position)}需 {need} 座据点"
+                f"（当前 {node_count} 座）")
+        if position:
+            holders = [x for x in await self._alliance_chars(int(world["id"]), f)
+                       if str(x.get("appointed_position") or "") == position
+                       and int(x["id"]) != int(c["id"])]
+            cap = int(avail.get(position, 1))
+            if len(holders) >= cap:
+                raise StrategyError(
+                    f"{R.POSITION_NAMES.get(position, position)}名额已满（{cap}）")
+        if position == "taishou":
+            if int(node_id or 0) <= 0:
+                raise StrategyError("任命太守须指定所辖据点")
+            node = await self.get_node(int(world["id"]), int(node_id))
+            if not node or int(node.get("owner_faction") or 0) not in ids:
+                raise StrategyError("太守所辖据点须为本势力/联盟据点")
+            for x in await self._alliance_chars(int(world["id"]), f):
+                if int(x["id"]) != int(c["id"]) and \
+                        str(x.get("appointed_position") or "") == "taishou" and \
+                        int(x.get("appointed_node_id") or 0) == int(node_id):
+                    raise StrategyError("该据点已有太守")
+        else:
+            node_id = 0
+        c["appointed_position"] = position
+        c["appointed_node_id"] = int(node_id) if position == "taishou" else 0
+        await self.save_char(c)
+        await self._commit()
+        if not position:
+            return {"ok": True, "msg": f"{c['name']} 已卸任官职"}
+        node_txt = ""
+        if position == "taishou":
+            node = await self.get_node(int(world["id"]), int(node_id))
+            node_txt = f"（辖「{(node or {}).get('name', node_id)}」）"
+        return {"ok": True,
+                "msg": f"已任命 {c['name']} 为「"
+                       f"{R.POSITION_NAMES.get(position, position)}」{node_txt}"}
+
     async def transfer_leader(self, user_id: str, target_user: str) -> dict:
         world, p = await self._require_player(user_id)
         # 只移交玩家自身势力的主公（联盟盟主势力移交即联盟盟主移交）
@@ -846,6 +907,13 @@ class StrategyFactionMixin:
         hours = R.tech_research_hours(base_hours, stat,
                                       float(tcfg.get("stat_speed_divisor", 10)),
                                       float(tcfg.get("stat_speed_pct", 0.05)))
+        # 研究任务产出的科技点可抵扣研究时长（最多抵 50%，1 点 = 1 分钟）
+        points = max(0, int(tech.get("points", 0) or 0))
+        max_cut_min = int(base_hours * 60 * 0.5)
+        cut_min = min(points, max_cut_min)
+        if cut_min > 0:
+            hours = max(0.5, hours - cut_min / 60.0)
+            tech["points"] = points - cut_min
         treasury["coin"] = int(treasury.get("coin", 0)) - cost_coin
         treasury["iron"] = int(treasury.get("iron", 0)) - cost_iron
         f["treasury"] = treasury
@@ -857,7 +925,9 @@ class StrategyFactionMixin:
         return {"ok": True,
                 "msg": f"开始研究 {line} L{lvl + 1}（{hours:.1f}h，"
                        f"扣{'联盟' if int(f.get('alliance_id') or 0) else ''}"
-                       f"国库铜钱 {cost_coin}/精铁 {cost_iron}）"}
+                       f"国库铜钱 {cost_coin}/精铁 {cost_iron}"
+                       + (f"，科技点抵扣 {cut_min} 分钟" if cut_min > 0 else "")
+                       + "）"}
 
     async def _best_research_stat(self, f: dict, world_id: int) -> int:
         best = 50

@@ -19,7 +19,7 @@ __all__ = ["MiscHandler"]
 class MiscHandler:
     """杂项指令处理器 - 提供帮助信息、一键日常与强制解卡"""
 
-    VERSION = HELP_VERSION  # v8.0.1：v4.0.9 重塑仙域争霸联盟并改为自选起始据点
+    VERSION = HELP_VERSION  # v8.0.1：v4.0.14 仙域争霸角色官职与据点解锁
 
     def __init__(self, db: DataBase, config: dict = None):
         self.db = db

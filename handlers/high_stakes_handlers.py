@@ -101,7 +101,9 @@ class HighStakesHandlers:
             except (TypeError, ValueError):
                 yield event.plain_result("❌ 矿脉编号必须是整数。")
                 return
-            success, msg = await self.mine_mgr.buy(player, index)
+            success, msg = await self.mine_mgr.buy(
+                player, index, origin=str(getattr(event, "unified_msg_origin", "") or "")
+            )
             set_event_flag(event, "mine_buy_ok", bool(success))
             yield event.plain_result(msg)
             return
@@ -140,7 +142,10 @@ class HighStakesHandlers:
             except (TypeError, ValueError):
                 yield event.plain_result("❌ 矿脉编号必须是整数。")
                 return
-            success, msg = await self.mine_mgr.respond_invite(player, mine_id, True)
+            success, msg = await self.mine_mgr.respond_invite(
+                player, mine_id, True,
+                origin=str(getattr(event, "unified_msg_origin", "") or ""),
+            )
             yield event.plain_result(msg)
             return
         if sub in ("拒绝", "放弃"):

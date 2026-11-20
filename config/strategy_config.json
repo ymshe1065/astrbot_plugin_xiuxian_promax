@@ -353,6 +353,20 @@
     "cross_faction_market_only": true
   },
 
+  "wanderer_auction": {
+    "duration_hours": 12,
+    "min_increment_pct": 0.05,
+    "min_increment_abs": 200,
+    "start_price": {"common": 1000, "fine": 2000, "rare": 4000, "epic": 20000, "legend": 60000},
+    "quality_floor": {"common": 180, "fine": 240, "rare": 300, "epic": 300, "legend": 360},
+    "quality_step": {"common": 100, "fine": 150, "rare": 200, "epic": 250, "legend": 400},
+    "trait_bonus": 2000,
+    "buyout_mult": 2.5,
+    "max_open_per_world": 6,
+    "anti_snipe_sec": 300,
+    "max_extend_sec": 600
+  },
+
   "trade_route": {
     "coin_per_tick": 20,
     "trade_task_bonus": 0.3

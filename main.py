@@ -374,7 +374,8 @@ class XiuXianPlugin(Star):
             combat_mgr=self.combat_mgr, gamble_mgr=self.gamble_mgr,
         )
         self.mine_vein_mgr = MineVeinManager(
-            self.db, self.storage_ring_mgr, self.config_manager
+            self.db, self.storage_ring_mgr, self.config_manager,
+            notifier=self._send_to_origin,
         )
         self.betting_pool_mgr = BettingPoolManager(self.db)
         self.high_stakes_handlers = HighStakesHandlers(
@@ -1143,7 +1144,7 @@ class XiuXianPlugin(Star):
             + (f"{keep_text}代理继续运行。" if keep_text else "发送 /自动代理 历练 可重新开启。")
         )
 
-    async def _send_to_origin(self, origin: str, msg: str, user_id: str = ""):
+    async def _send_to_origin(self, origin: str, msg: str, user_id: str = "", title: str = "自动代理"):
         if not origin:
             return
         # 网页聊天室：自动代理消息默认只进个人消息历史，不刷公屏
@@ -1153,7 +1154,7 @@ class XiuXianPlugin(Star):
 
                 room_id = origin.rsplit(":", 1)[-1] or _room_server.ROOM_ID
                 if await _room_server.notify_player(
-                    room_id, str(user_id), msg, title="自动代理"
+                    room_id, str(user_id), msg, title=title or "自动代理"
                 ):
                     return
             except Exception as e:
@@ -1461,13 +1462,23 @@ class XiuXianPlugin(Star):
                 except Exception as e:
                     logger.error(f"仙市杠杆强平异常: {e}")
                 try:
+                    settled = await self.mine_vein_mgr.settle_expired(now)
+                    if settled:
+                        logger.info(f"【修仙插件】矿脉到期自动结算 {settled} 条")
+                except Exception as e:
+                    logger.error(f"矿脉到期自动结算异常: {e}")
+                try:
+                    # 兜底：若某条矿脉反复结算失败，也不能让它长期占用 active 名额。
+                    # 留 6 小时重试窗口，正常情况早已在上一步自动结算完毕。
                     cursor = await self.db.conn.execute(
                         "UPDATE mine_veins SET status = 'expired' "
-                        "WHERE status = 'active' AND expire_at + 3600 < ?",
+                        "WHERE status = 'active' AND expire_at + 6 * 3600 < ?",
                         (now,),
                     )
                     if cursor.rowcount:
-                        logger.info(f"【修仙插件】清理过期矿脉 {cursor.rowcount} 条")
+                        logger.warning(
+                            f"【修仙插件】兜底清理长期未结算矿脉 {cursor.rowcount} 条"
+                        )
                     await self.db.conn.commit()
                 except Exception as e:
                     logger.error(f"矿脉过期清理异常: {e}")

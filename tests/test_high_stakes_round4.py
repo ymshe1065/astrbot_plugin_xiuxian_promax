@@ -47,8 +47,8 @@ class TestHighStakesRound4(unittest.IsolatedAsyncioTestCase):
     _player = fixtures.TestEquipmentInstances._player
     _imp = staticmethod(fixtures._imp)
 
-    def _manager(self, module, cls_name, *args):
-        return getattr(self._imp(module), cls_name)(*args)
+    def _manager(self, module, cls_name, *args, **kwargs):
+        return getattr(self._imp(module), cls_name)(*args, **kwargs)
 
     async def _gold(self, user_id):
         fresh = await self.db.get_player_by_id(user_id)
@@ -132,6 +132,98 @@ class TestHighStakesRound4(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(ok)
         self.assertIn("还没有新的整点产量", msg)
         self.assertEqual(await self._gold(p.user_id), first)
+
+    # ===== 矿脉：到期自动结算 =====
+    async def test_mine_auto_settles_owner_and_partner_on_expiry(self):
+        """到期后后台必须把矿主与已接受合伙人的剩余产量补发，不能静默作废。"""
+        owner = await self._player("mine_auto_owner", gold=0)
+        partner = await self._player("mine_auto_partner", gold=0)
+        pending = await self._player("mine_auto_pending", gold=0)
+        notices = []
+
+        async def notifier(origin, msg, user_id="", title="", **_kwargs):
+            notices.append((origin, user_id, title, msg))
+
+        mgr = self._manager("managers.mine_vein_manager", "MineVeinManager",
+                            self.db, self.ring, self.cm, notifier=notifier)
+        now = int(time.time())
+        hour = now // 3600
+        await self.db.conn.execute(
+            "INSERT INTO mine_veins "
+            "(owner_id, vein_key, name, tier, buy_price, base_yield, richness, "
+            "created_at, expire_at, owner_claimed_hour, origin, status) "
+            "VALUES (?, ?, ?, 1, 0, 1000, 100, ?, ?, ?, ?, 'active')",
+            (owner.user_id, "auto:1", "到期矿脉", (hour - 5) * 3600, hour * 3600,
+             hour - 5, "webroom:group:r1"),
+        )
+        mine_id = int((await mgr._fetchone(
+            "SELECT id FROM mine_veins WHERE owner_id = ?", (owner.user_id,)
+        ))["id"])
+        for uid, share, status, origin in (
+            (partner.user_id, 30, "accepted", "webroom:group:r2"),
+            (pending.user_id, 20, "pending", ""),
+        ):
+            await self.db.conn.execute(
+                "INSERT INTO mine_partners "
+                "(mine_id, user_id, share, invested, status, last_claim_hour, created_at, origin) "
+                "VALUES (?, ?, ?, 0, ?, ?, ?, ?)",
+                (mine_id, uid, share, status, hour - 5, now, origin),
+            )
+        await self.db.conn.commit()
+
+        settled = await mgr.settle_expired(now)
+        self.assertEqual(settled, 1)
+        self.assertEqual(await self._scalar(
+            "SELECT status FROM mine_veins WHERE id = ?", (mine_id,)
+        ), "expired")
+        owner_gold = await self._gold(owner.user_id)
+        partner_gold = await self._gold(partner.user_id)
+        self.assertGreater(owner_gold, 0, "矿主到期产量必须自动入账")
+        self.assertGreater(partner_gold, 0, "已接受合伙人到期产量必须自动入账")
+        self.assertEqual(await self._gold(pending.user_id), 0, "未接受的邀请不能分红")
+
+        # 结算消息必须走自动代理同一条链路（notifier），且带收入明细
+        by_user = {uid: (origin, title, msg) for origin, uid, title, msg in notices}
+        self.assertEqual(set(by_user), {owner.user_id, partner.user_id},
+                         "只给矿主与已接受合伙人推送，待接受邀请不推送")
+        self.assertEqual(by_user[owner.user_id][0], "webroom:group:r1")
+        self.assertEqual(by_user[partner.user_id][0], "webroom:group:r2")
+        self.assertEqual(by_user[owner.user_id][1], "矿脉结算")
+        for uid in (owner.user_id, partner.user_id):
+            self.assertIn("到期自动结算", by_user[uid][2])
+            self.assertIn("灵石收入：+", by_user[uid][2])
+
+        # 幂等：再次执行不得重复派彩，也不应重复推送
+        notice_count = len(notices)
+        self.assertEqual(await mgr.settle_expired(now), 0)
+        self.assertEqual(await self._gold(owner.user_id), owner_gold)
+        self.assertEqual(await self._gold(partner.user_id), partner_gold)
+        self.assertEqual(len(notices), notice_count)
+
+    async def test_mine_auto_settle_leaves_active_mine_alone(self):
+        """未到期的矿脉不能被自动结算，玩家仍可手动开采。"""
+        p = await self._player("mine_auto_active", gold=0)
+        mgr = self._manager("managers.mine_vein_manager", "MineVeinManager",
+                            self.db, self.ring, self.cm)
+        now = int(time.time())
+        hour = now // 3600
+        await self.db.conn.execute(
+            "INSERT INTO mine_veins "
+            "(owner_id, vein_key, name, tier, buy_price, base_yield, richness, "
+            "created_at, expire_at, owner_claimed_hour, status) "
+            "VALUES (?, ?, ?, 1, 0, 1000, 100, ?, ?, ?, 'active')",
+            (p.user_id, "auto:2", "未到期矿脉", (hour - 2) * 3600,
+             (hour + 6) * 3600, hour - 2),
+        )
+        await self.db.conn.commit()
+        self.assertEqual(await mgr.settle_expired(now), 0)
+        self.assertEqual(await self._gold(p.user_id), 0)
+        mine_id = int((await mgr._fetchone(
+            "SELECT id FROM mine_veins WHERE owner_id = ?", (p.user_id,)
+        ))["id"])
+        ok, msg = await mgr.claim(p, mine_id)
+        self.assertTrue(ok, msg)
+        self.assertGreater(await self._gold(p.user_id), 0)
 
     # ===== 藏宝图 =====
     async def _insert_active_run(self, user_id, run, hp=100, max_hp=1000):

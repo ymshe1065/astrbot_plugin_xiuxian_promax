@@ -5,6 +5,7 @@
 - 每小时刷新 5 档矿脉，购买后获得限时开采权；
 - 产量由隐藏「富集度」决定，列表只给模糊灵压提示；
 - 每次开采按小时结算，并随机触发塌方、妖兽、富矿等事件；
+- 矿脉到期时，后台会自动把剩余产量结算给矿主与合伙人；
 - 矿主可邀请合伙人（需对方接受），双方按份额各自领取。
 """
 
@@ -42,10 +43,32 @@ EVENTS = (
 
 
 class MineVeinManager:
-    def __init__(self, db: DataBase, storage_ring_mgr, config_manager):
+    def __init__(self, db: DataBase, storage_ring_mgr, config_manager, notifier=None):
         self.db = db
         self.storage_ring_mgr = storage_ring_mgr
         self.config_manager = config_manager
+        # 与自动代理共用同一条消息链路（main._send_to_origin）：
+        # 网页端落个人消息历史，QQ 端直接发送到购买/接受邀请时的会话。
+        self.notifier = notifier
+
+    async def _notify(self, origin: str, msg: str, user_id: str = "", title: str = "矿脉结算"):
+        if not origin or not self.notifier or not msg:
+            return
+        try:
+            # 新回调支持 title；测试/外部实现的精简回调仍按两参或三参调用
+            await self.notifier(origin, msg, user_id, title=title)
+        except TypeError:
+            try:
+                await self.notifier(origin, msg, user_id)
+            except TypeError:
+                try:
+                    await self.notifier(origin, msg)
+                except Exception as e:
+                    logger.warning(f"【矿脉】结算消息发送失败: {e}")
+            except Exception as e:
+                logger.warning(f"【矿脉】结算消息发送失败: {e}")
+        except Exception as e:
+            logger.warning(f"【矿脉】结算消息发送失败: {e}")
 
     async def _fetchone(self, sql: str, params: tuple = ()) -> Optional[dict]:
         async with self.db.conn.execute(sql, params) as cursor:
@@ -131,6 +154,7 @@ class MineVeinManager:
             "━━━━━━━━━━━━━━━",
             "💡 `/矿脉 购买 <编号>` 买下勘探权｜`/矿脉 我的` 查看自有矿脉",
             "💡 `/矿脉 开采 <编号>` 按小时结算产量（可随时结算）",
+            "💡 到期后剩余产量会自动结算入账，无需手动领取",
             "🤝 `/矿脉 合伙 <编号> <道号> <份额%>` 邀请合伙人（对方需接受）",
             "⚠️ 矿脉会触发塌方/妖兽等事件，收益随事件波动。",
         ])
@@ -231,10 +255,11 @@ class MineVeinManager:
         lines.extend([
             "━━━━━━━━━━━━━━━",
             "💡 `/矿脉 开采 <编号>` 结算你的份额",
+            "💡 到期时剩余产量会自动结算入账",
         ])
         return "\n".join(lines)
 
-    async def buy(self, player: Player, index: int) -> Tuple[bool, str]:
+    async def buy(self, player: Player, index: int, origin: str = "") -> Tuple[bool, str]:
         candidates = self._candidates(player.user_id)
         if index < 1 or index > len(candidates):
             return False, "❌ 无效的矿脉编号，请使用 `/矿脉` 查看。"
@@ -272,12 +297,12 @@ class MineVeinManager:
             cursor = await self.db.conn.execute(
                 "INSERT INTO mine_veins "
                 "(owner_id, vein_key, name, tier, buy_price, base_yield, richness, "
-                "created_at, expire_at, owner_claimed_hour, status) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')",
+                "created_at, expire_at, owner_claimed_hour, origin, status) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')",
                 (
                     player.user_id, f"{item['hour']}:{index}", item["name"], item["tier"],
                     price, item["base_yield"], item["richness"], now, expire,
-                    self._hour_key(now),
+                    self._hour_key(now), str(origin or ""),
                 ),
             )
             mine_id = cursor.lastrowid
@@ -291,7 +316,8 @@ class MineVeinManager:
             f"━━━━━━━━━━━━━━━\n"
             f"勘探提示：{item['hint']}\n"
             f"期限：{item['hours']} 小时｜基础时产：{item['base_yield']:,} 灵石\n"
-            f"💡 `/矿脉 开采 {mine_id}` 结算产量，`/矿脉 合伙 {mine_id} <道号> <份额%>` 招合伙人"
+            f"💡 `/矿脉 开采 {mine_id}` 结算产量，`/矿脉 合伙 {mine_id} <道号> <份额%>` 招合伙人\n"
+            f"✅ 到期时剩余产量会自动结算入账，不用担心忘记领取。"
         )
 
     async def invite_partner(self, player: Player, mine_id: int, target: str, share: int) -> Tuple[bool, str]:
@@ -346,7 +372,9 @@ class MineVeinManager:
             f"💡 对方可发送 `/矿脉 接受 {mine_id}` 或 `/矿脉 拒绝 {mine_id}`。"
         )
 
-    async def respond_invite(self, player: Player, mine_id: int, accept: bool) -> Tuple[bool, str]:
+    async def respond_invite(
+        self, player: Player, mine_id: int, accept: bool, origin: str = ""
+    ) -> Tuple[bool, str]:
         row = await self._fetchone(
             "SELECT * FROM mine_partners WHERE mine_id = ? AND user_id = ? AND status = 'pending'",
             (mine_id, player.user_id),
@@ -385,9 +413,9 @@ class MineVeinManager:
                 await self.db.conn.rollback()
                 return False, f"❌ 合伙人份额已满（合计最多 {MAX_PARTNER_TOTAL}%），无法接受。"
             cursor = await self.db.conn.execute(
-                "UPDATE mine_partners SET status = 'accepted', last_claim_hour = ? "
+                "UPDATE mine_partners SET status = 'accepted', last_claim_hour = ?, origin = ? "
                 "WHERE mine_id = ? AND user_id = ? AND status = 'pending'",
-                (self._hour_key(), mine_id, player.user_id),
+                (self._hour_key(), str(origin or ""), mine_id, player.user_id),
             )
             if not cursor.rowcount:
                 await self.db.conn.rollback()
@@ -424,25 +452,20 @@ class MineVeinManager:
             return None
         return rng.choice(pool)
 
-    async def claim(self, player: Player, mine_id: int) -> Tuple[bool, str]:
-        mine = await self._fetchone("SELECT * FROM mine_veins WHERE id = ?", (mine_id,))
-        if not mine or mine["status"] != "active":
-            return False, "❌ 矿脉不存在或已到期。"
-        now = int(time.time())
-        if now > int(mine["expire_at"]) + 3600:
-            await self.db.conn.execute(
-                "UPDATE mine_veins SET status = 'expired' WHERE id = ?", (mine_id,)
-            )
-            await self.db.conn.commit()
-            return False, "❌ 矿脉已经过期。"
-        is_owner = mine["owner_id"] == player.user_id
-        partner = await self._fetchone(
-            "SELECT * FROM mine_partners WHERE mine_id = ? AND user_id = ? AND status = 'accepted'",
-            (mine_id, player.user_id),
-        )
-        if not is_owner and not partner:
-            return False, "❌ 你既不是矿主也不是已接受的合伙人。"
+    async def _settle_claim_for(
+        self,
+        mine: dict,
+        player: Player,
+        is_owner: bool,
+        partner: Optional[dict],
+        now: int,
+    ) -> Tuple[bool, str, dict]:
+        """计算并发放某玩家在一条矿脉上的剩余产量。
 
+        矿主与合伙人的结算逻辑完全一致，因此手动开采与到期自动结算共用这里，
+        避免两条路径算出不同的产量。并发安全依赖 ``last_*_hour`` 的条件更新。
+        """
+        mine_id = int(mine["id"])
         if is_owner:
             shares = await self._fetchall(
                 "SELECT * FROM mine_partners WHERE mine_id = ? AND status = 'accepted'", (mine_id,)
@@ -451,16 +474,18 @@ class MineVeinManager:
             share = max(0, 100 - used)
             last_hour = int(mine["owner_claimed_hour"] or 0)
         else:
-            share = int(partner.get("share") or 0)
-            last_hour = int(partner.get("last_claim_hour") or 0)
+            share = int((partner or {}).get("share") or 0)
+            last_hour = int((partner or {}).get("last_claim_hour") or 0)
 
         start_hour = max(int(mine["created_at"]) // 3600, last_hour)
         end_hour = min(self._hour_key(now), int(mine["expire_at"]) // 3600)
         hours = max(0, end_hour - start_hour)
         if hours <= 0:
-            return False, "⏳ 还没有新的整点产量，过一段时间再来开采。"
+            return False, "⏳ 还没有新的整点产量，过一段时间再来开采。", {}
         if hours > 48:
+            # 超出上限的部分留到下次结算，不能让领取进度直接跳过它们
             hours = 48
+            end_hour = start_hour + hours
 
         total_gold = 0
         material_total: Dict[str, int] = {}
@@ -497,7 +522,7 @@ class MineVeinManager:
                 )
             if not cursor.rowcount:
                 await self.db.conn.rollback()
-                return False, "⏳ 这段产量已被结算，请稍后再来开采。"
+                return False, "⏳ 这段产量已被结算，请稍后再来开采。", {}
             # 全字段回写前必须在事务内重读灵石：player 是命令开始时的快照，
             # 而后台暗标退款/盘口派彩并不持玩家锁。旧写法 `player.gold += total_gold`
             # 再 update_player，会把这期间刚入账的灵石整笔抹掉。
@@ -520,21 +545,142 @@ class MineVeinManager:
         except Exception:
             await self.db.conn.rollback()
             raise
+        return True, "", {
+            "mine_id": mine_id,
+            "hours": hours,
+            "share": share,
+            "gold": total_gold,
+            "materials": stored_names,
+            "events": event_lines,
+        }
+
+    async def claim(self, player: Player, mine_id: int) -> Tuple[bool, str]:
+        mine = await self._fetchone("SELECT * FROM mine_veins WHERE id = ?", (mine_id,))
+        if not mine:
+            return False, "❌ 矿脉不存在。"
+        if mine["status"] != "active":
+            return False, "✅ 该矿脉已到期，剩余产量已自动结算入账，无需再手动开采。"
+        now = int(time.time())
+        is_owner = mine["owner_id"] == player.user_id
+        partner = await self._fetchone(
+            "SELECT * FROM mine_partners WHERE mine_id = ? AND user_id = ? AND status = 'accepted'",
+            (mine_id, player.user_id),
+        )
+        if not is_owner and not partner:
+            return False, "❌ 你既不是矿主也不是已接受的合伙人。"
+
+        ok, err, summary = await self._settle_claim_for(mine, player, is_owner, partner, now)
+        if not ok:
+            return False, err
+        return True, self._format_claim_message(mine_id, summary, player.gold)
+
+    def _format_claim_message(
+        self, mine_id: int, summary: dict, gold: int, auto: bool = False
+    ) -> str:
+        title = "到期自动结算" if auto else "开采结算"
         lines = [
-            f"⛏️ 矿脉 {mine_id} 开采结算",
+            f"⛏️ 矿脉 {mine_id} {title}",
             "━━━━━━━━━━━━━━━",
-            f"结算时长：{hours} 小时｜你的份额：{share}%",
-            f"灵石收入：+{total_gold:,}",
+            f"结算时长：{summary['hours']} 小时｜你的份额：{summary['share']}%",
+            f"灵石收入：+{summary['gold']:,}",
         ]
-        if stored_names:
-            lines.append("伴生材料：" + "、".join(stored_names))
-        if event_lines:
+        if auto:
+            lines.append("✅ 剩余产量已自动入账，无需再手动领取。")
+        if summary["materials"]:
+            lines.append("伴生材料：" + "、".join(summary["materials"]))
+        if summary["events"]:
             lines.append("矿脉事件：")
-            lines.extend(event_lines[-5:])
+            lines.extend(summary["events"][-5:])
         else:
             lines.append("矿脉事件：无异常")
         lines.extend([
             "━━━━━━━━━━━━━━━",
-            f"💰 当前灵石：{player.gold:,}",
+            f"💰 当前灵石：{gold:,}",
         ])
-        return True, "\n".join(lines)
+        return "\n".join(lines)
+
+    async def _origin_for(self, stored_origin: str, user_id: str) -> str:
+        """取结算消息的投递会话。
+
+        优先使用购买/接受邀请时记录的 origin；旧矿脉没有该字段时，
+        回退到自动代理已保存的 origin，保持与自动代理同一条消息链路。
+        """
+        origin = str(stored_origin or "")
+        if origin:
+            return origin
+        try:
+            row = await self.db.ext.get_auto_proxy(user_id)
+        except Exception:
+            row = None
+        return str((row or {}).get("origin") or "")
+
+    async def settle_expired(self, now: Optional[int] = None) -> int:
+        """到期自动结算：矿脉到期后把矿主与已接受合伙人的剩余产量补发入账。
+
+        后台维护任务每轮调用一次。返回本轮真正完成结算（并置为 expired）的矿脉条数。
+        单条矿脉结算失败只记录日志，下一轮会重试，不会让未结算产量凭空消失。
+        """
+        now = int(now or time.time())
+        mines = await self._fetchall(
+            "SELECT * FROM mine_veins WHERE status = 'active' AND expire_at <= ? ORDER BY id",
+            (now,),
+        )
+        settled = 0
+        for mine in mines:
+            try:
+                if await self._auto_settle_mine(mine, now):
+                    settled += 1
+            except Exception as exc:
+                logger.error(
+                    f"【矿脉】到期自动结算失败 mine_id={mine.get('id')}: {exc}", exc_info=True
+                )
+        return settled
+
+    async def _auto_settle_mine(self, mine: dict, now: int) -> bool:
+        mine_id = int(mine["id"])
+        payouts: List[str] = []
+
+        owner = await self.db.get_player_by_id(mine["owner_id"])
+        if owner:
+            ok, _msg, summary = await self._settle_claim_for(mine, owner, True, None, now)
+            if ok:
+                if summary.get("gold"):
+                    payouts.append(f"矿主 {mine['owner_id']} +{int(summary['gold']):,}")
+                if summary.get("gold") or summary.get("materials"):
+                    origin = await self._origin_for(mine.get("origin", ""), mine["owner_id"])
+                    await self._notify(
+                        origin,
+                        self._format_claim_message(mine_id, summary, owner.gold, auto=True),
+                        mine["owner_id"],
+                    )
+
+        partners = await self._fetchall(
+            "SELECT * FROM mine_partners WHERE mine_id = ? AND status = 'accepted'", (mine_id,)
+        )
+        for row in partners:
+            partner = await self.db.get_player_by_id(row["user_id"])
+            if not partner:
+                continue
+            ok, _msg, summary = await self._settle_claim_for(mine, partner, False, row, now)
+            if ok:
+                if summary.get("gold"):
+                    payouts.append(f"合伙人 {row['user_id']} +{int(summary['gold']):,}")
+                if summary.get("gold") or summary.get("materials"):
+                    origin = await self._origin_for(row.get("origin", ""), row["user_id"])
+                    await self._notify(
+                        origin,
+                        self._format_claim_message(mine_id, summary, partner.gold, auto=True),
+                        row["user_id"],
+                    )
+
+        # 只有仍处于 active 时才置为 expired，避免并发下重复统计/重复派彩
+        cursor = await self.db.conn.execute(
+            "UPDATE mine_veins SET status = 'expired' WHERE id = ? AND status = 'active'",
+            (mine_id,),
+        )
+        await self.db.conn.commit()
+        if not cursor.rowcount:
+            return False
+        if payouts:
+            logger.info(f"【矿脉】矿脉 {mine_id} 到期自动结算：" + "；".join(payouts))
+        return True

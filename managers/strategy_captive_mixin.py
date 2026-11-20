@@ -174,16 +174,12 @@ class StrategyCaptiveMixin:
                 "msg": f"🎉 {c['name']} 归顺！（忠诚 40，原势力声望 -3）"}
 
     async def _faction_plot_bonus(self, f: Optional[dict]) -> float:
-        """势力官职（祭酒）对计略/劝降的加成合计。"""
+        """势力角色官职（祭酒）对计略/劝降的加成合计。"""
         if not f:
             return 0.0
-        members = await self.get_members(f["id"])
-        positions: dict[str, list] = {}
-        for m in members:
-            pos = m.get("position") or ""
-            if pos:
-                positions.setdefault(pos, []).append(m["user_id"])
-        return float(R.faction_position_bonus(positions).get("plot_bonus", 0.0))
+        host = await self._alliance_host(f) or f
+        bonus = await self._faction_position_bonus(host)
+        return float(bonus.get("plot_bonus", 0.0))
 
     async def release_captive(self, user_id: str, char_id: int) -> dict:
         """无条件释放：声望 +3、与原势力外交 +5。"""

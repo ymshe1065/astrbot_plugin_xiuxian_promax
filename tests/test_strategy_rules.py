@@ -131,6 +131,48 @@ class TestCharacterSystem(unittest.TestCase):
         self.assertEqual(R.troop_cap("taishou", is_taishou_outside=True), 1500)
         self.assertEqual(R.troop_cap(""), 1500)
 
+    def test_position_unlock_by_node_count(self):
+        # 角色官职随据点数量逐步开放（§4.5）
+        self.assertEqual(R.available_positions(0), {})
+        self.assertEqual(R.available_positions(1), {"zhonglang": 1})
+        self.assertEqual(R.position_unlock_nodes("zhonglang"), 1)
+        self.assertEqual(R.position_unlock_nodes("jijiu"), 2)
+        self.assertEqual(R.position_unlock_nodes("situ"), 3)
+        self.assertEqual(R.position_unlock_nodes("taiwei"), 4)
+        at6 = R.available_positions(6)
+        self.assertEqual(at6["zhonglang"], 2)
+        self.assertEqual(at6["jijiu"], 2)
+        at8 = R.available_positions(8)
+        self.assertIn("taishou", at8)
+        self.assertEqual(at8["taishou"], 8)  # 每据点 1 名
+        at9 = R.available_positions(9)
+        self.assertEqual(at9["taishou"], 9)
+
+    def test_wanderer_auction_pricing(self):
+        acfg = {
+            "start_price": {"epic": 20000, "legend": 60000},
+            "quality_floor": {"epic": 300, "legend": 360},
+            "quality_step": {"epic": 250, "legend": 400},
+            "trait_bonus": 2000,
+            "buyout_mult": 2.5,
+            "min_increment_abs": 200,
+            "min_increment_pct": 0.05,
+        }
+        epic = {"rarity": "epic",
+                "stats": {k: 55 for k in R.STAT_KEYS}, "traits": []}  # 六维 330
+        self.assertEqual(R.wanderer_auction_price(epic, acfg),
+                         20000 + (330 - 300) * 250)
+        epic["traits"] = ["骁勇"]
+        self.assertEqual(R.wanderer_auction_price(epic, acfg),
+                         20000 + (330 - 300) * 250 + 2000)
+        self.assertEqual(R.wanderer_min_bid(27500, 0, False, acfg), 27500)
+        self.assertEqual(R.wanderer_min_bid(27500, 27500, True, acfg), 28875)
+        self.assertEqual(R.wanderer_buyout_price(10000, acfg), 25000)
+        # 低稀有度流亡角色按低档兜底，不被按极品底价起拍
+        common = {"rarity": "common",
+                  "stats": {k: 25 for k in R.STAT_KEYS}, "traits": []}
+        self.assertLessEqual(R.wanderer_auction_price(common, acfg), 2000)
+
     def test_overstaffed(self):
         leader = {"stats": {"leadership": 50}}  # 50×20 = 1000
         self.assertFalse(R.is_overstaffed(leader, 1000))

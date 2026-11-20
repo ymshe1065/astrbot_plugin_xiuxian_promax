@@ -72,6 +72,52 @@ POSITION_NAMES = {
     "zhonglang": "中郎将", "taishou": "太守", "": "无官职",
 }
 
+#: 角色可任免官职（主公/副主是玩家治理身份，不在角色官职内）
+APPOINTABLE_POSITIONS = ("zhonglang", "jijiu", "situ", "taiwei", "taishou")
+
+#: 官职开放档位：势力（含联盟）据点数量达到 nodes 后开放/扩编对应官职。
+#: 名额为 -1 表示“每据点 1 名”，按当前据点数量动态计算。
+POSITION_UNLOCKS = (
+    (1, {"zhonglang": 1}),
+    (2, {"jijiu": 1}),
+    (3, {"situ": 1}),
+    (4, {"taiwei": 1}),
+    (6, {"zhonglang": 2, "jijiu": 2}),
+    (8, {"taishou": -1}),
+)
+
+#: 官职效果说明（前端展示 / 帮助文案）
+POSITION_EFFECT_TEXT = {
+    "taiwei": "全军攻击 +3%",
+    "situ": "本势力据点产出 +5%",
+    "jijiu": "计略成功率 +10%，托管 AI 智谋 +5",
+    "zhonglang": "招募高品质概率 +10%",
+    "taishou": "所辖据点城防 +10%、民心恢复 ×2",
+}
+
+
+def position_unlock_nodes(position: str) -> int:
+    """返回某官职首次开放所需据点数量；0 表示不可任免。"""
+    for need, caps in POSITION_UNLOCKS:
+        if position in caps:
+            return int(need)
+    return 0
+
+
+def available_positions(node_count: int) -> dict[str, int]:
+    """按势力据点数量返回当前可任免官职与名额。"""
+    count = max(0, int(node_count or 0))
+    out: dict[str, int] = {}
+    for need, caps in POSITION_UNLOCKS:
+        if count < int(need):
+            continue
+        for pos, cap in caps.items():
+            if int(cap) < 0:
+                out[pos] = max(1, count)
+            else:
+                out[pos] = max(int(out.get(pos, 0)), int(cap))
+    return out
+
 #: 特技词条（§4.4，极品+ 随机 1~2 条）
 TRAIT_POOL = (
     "fire_master", "siege_expert", "farming", "doctor",
@@ -577,9 +623,11 @@ def attack_power(army: dict, flank_mult: float = 1.0, night: bool = False) -> fl
     apt = aptitude_bonus(army.get("leader"), army.get("troop_type", ""))
     _, vet_bonus, _ = veteran_tier(army.get("veteran", 0))
     terrain_mult = float(army.get("atk_terrain_mult", 1.0))
+    position_mult = float(army.get("pos_atk_mult", 1.0))
     return (
         troop["atk"] * (troops ** 0.8) * (1 + valor / 150)
-        * morale_mult * prof_mult * apt * (1 + vet_bonus) * terrain_mult * flank_mult
+        * morale_mult * prof_mult * apt * (1 + vet_bonus) * terrain_mult
+        * position_mult * flank_mult
     )
 
 
@@ -1580,3 +1628,49 @@ def achievement_unlocked(progress: dict, key: str, need: Any) -> bool:
     if need is None:
         return bool(cur)
     return int(cur or 0) >= int(need)
+
+
+# ---------------------------------------------------------------------------
+# 坊市流将竞拍（§11「天降流将」：极品/传世流亡角色，限时竞价）
+# ---------------------------------------------------------------------------
+
+def wanderer_auction_price(char: dict, acfg: dict) -> int:
+    """流将起拍价：稀有度底价 + 超出保底六维的成长 + 特技附加。"""
+    rarity = str((char or {}).get("rarity") or "epic")
+    start = acfg.get("start_price") or {}
+    floors = acfg.get("quality_floor") or {}
+    steps = acfg.get("quality_step") or {}
+    # 天降流将只出极品/传世；离间与俘虏流亡可能带低稀有度，按低档兜底定价，
+    # 避免凡品/良品被按 2 万起拍而流拍。
+    fallback = {
+        "common": (1000, 180, 100),
+        "fine": (2000, 240, 150),
+        "rare": (4000, 300, 200),
+        "epic": (20000, 300, 250),
+        "legend": (60000, 360, 400),
+    }
+    fb_base, fb_floor, fb_step = fallback.get(rarity, fallback["epic"])
+    base = int(start.get(rarity, fb_base))
+    floor = int(floors.get(rarity, fb_floor))
+    step = int(steps.get(rarity, fb_step))
+    total = sum(int(v or 0) for v in ((char or {}).get("stats") or {}).values())
+    price = base + max(0, total - floor) * step
+    price += len((char or {}).get("traits") or []) * int(acfg.get("trait_bonus", 2000))
+    return max(1000, int(price))
+
+
+def wanderer_buyout_price(start_price: int, acfg: dict) -> int:
+    """一口价：起拍价的固定倍数，向上取整到百位。"""
+    mult = float(acfg.get("buyout_mult", 2.5))
+    return max(1000, int(math.ceil(int(start_price) * mult / 100.0) * 100))
+
+
+def wanderer_min_bid(start_price: int, current_price: int, has_bidder: bool,
+                     acfg: dict) -> int:
+    """下一次有效出价：无出价时=起拍价；有出价时=当前价+最小加价。"""
+    if not has_bidder:
+        return max(1, int(start_price))
+    cur = max(0, int(current_price))
+    inc = max(int(acfg.get("min_increment_abs", 200)),
+              int(cur * float(acfg.get("min_increment_pct", 0.05))))
+    return cur + max(1, inc)
