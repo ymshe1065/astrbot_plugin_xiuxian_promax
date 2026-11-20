@@ -106,6 +106,7 @@ class _DemoAdapter:
         req_id: str | None = None,
         private: bool = False,
         want_card: bool = False,
+        **kwargs,
     ) -> None:
         room_server = _import("webchat_room.room_server")
 

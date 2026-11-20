@@ -219,6 +219,212 @@ html[data-theme="fish"] {
   --kai: "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", system-ui, sans-serif;
 }
 
+/* ================= 主题三 · 豆包（中国红） =================
+ * 正红壁纸（#C8102E → #690716）+ 金线徽章 + 宣纸白玻璃。
+ * 壁纸是深色，顶栏 / 聊天区 / 看板全部用暖白玻璃压住保证可读，
+ * 红色只从边缘、按钮和自己的气泡里透出来；金色只做描边和点缀。
+ */
+html[data-theme="doubao"] {
+  --bg: #fdf5ee;
+  --paper: #fff8f2;
+  --paper-2: #fbeade;
+  --panel: #fffdfa;
+  --ink: #2d1815;
+  --ink-2: #6b453a;
+  --dim: #9c7767;
+  --line: #f0d3c6;
+  --line-soft: #f9e8de;
+  --accent: #c8102e;
+  --accent-2: #e02440;
+  --accent-soft: #fde7ea;
+
+  /* 中国红 / 鎏金 */
+  --cinnabar: #c8102e;
+  --cinnabar-soft: #fde7ea;
+  --jade: #a67c2e;
+  --jade-soft: #fbf1da;
+  --gold: #b8892f;
+  --gold-soft: #fbf1da;
+  --ok: #3f7a4a;
+  --ok-bg: #eaf4e8;
+  --bad: #b3242f;
+  --bad-bg: #fde8e6;
+  --sys: #a08477;
+
+  --edge-rgb: 176, 96, 74;
+  --accent-rgb: 200, 16, 46;
+  --accent-deep-rgb: 145, 8, 28;
+  --jade-rgb: 184, 137, 47;
+  --gold-rgb: 212, 168, 84;
+  --sheen-rgb: 255, 255, 255;
+  --shade-rgb: 92, 28, 26;
+  --veil-rgb: 46, 12, 14;
+  --void-rgb: 26, 7, 9;
+
+  --card-bg: linear-gradient(168deg, #fffdfa 0%, #fdf1e8 100%);
+  --card-ink: #3a2420;
+  --card-dim: #8c6a5b;
+  --card-line: rgba(var(--accent-rgb), .14);
+  --card-title: #4a211b;
+  --card-text: #46302a;
+  --card-mute: #8a6555;
+  --mk-up: #c8102e;
+  --mk-down: #1d7a5c;
+  --link-ink: #b01029;
+  --chip-ink: #7a4a34;
+  --bot-ink: #a67c2e;
+  --title-ink: #3f1f18;
+
+  --field: #fffdfa;
+  --field-focus: #ffffff;
+  --code-bg: #fbeee4;
+  --btn-bg: #fff7f1;
+  --btn-grad: linear-gradient(180deg, #dd1f3c, #b00c27);
+  --btn-line-hover: #ecc3b4;
+  --gold-grad: linear-gradient(180deg, #fdf2dd, #f8e6c8);
+  --accent-soft-2: #fbdcd2;
+  --seg-bg: #fbeee6;
+  --ghost-hover: #fbf0e9;
+  --tabs-grad: linear-gradient(180deg, #fffaf5, #fdf0e7);
+  --quick-grad: linear-gradient(180deg, #fffaf4, #fbeade);
+  --banner-grad: linear-gradient(90deg, #fdeee6, #fbdccf);
+  --banner-line: #f0c9b4;
+  --banner-ink: #7a2c1c;
+  --banner-dim: #a5715a;
+  --scroll: #e3c3b5;
+  --prog-grad: linear-gradient(90deg, #d4a854, #c8102e);
+
+  --self-bg: linear-gradient(160deg, #dd1f3c 0%, #b00c27 100%);
+  --self-line: transparent;
+  --bot-avatar-grad: linear-gradient(160deg, #fdeee2, #f8dcc9);
+
+  --glass-1: rgba(255, 251, 246, .55);
+  --glass-2: rgba(255, 251, 246, .72);
+  --glass-3: rgba(255, 251, 246, .82);
+  --glass-4: rgba(255, 251, 246, .5);
+  --bar-bg: rgba(255, 249, 243, .9);
+  --bar-bg-2: rgba(255, 249, 243, .94);
+  --nav-bg: rgba(255, 249, 243, .96);
+  --toast-ink: #fff2e8;
+  --bad-line: #f0c2ba;
+  --login-card-a: #fffdfa;
+  --login-card-b: #fdf0e6;
+
+  /* 中国红壁纸铺满整屏，登录页直接在壁纸上 */
+  --body-bg-image: url("/static/img/doubao_wallpaper_desktop.jpg");
+  --screen-bg: transparent;
+
+  --radius: 13px;
+  --shadow: 0 2px 12px rgba(var(--shade-rgb), .1);
+  --shadow-lg: 0 18px 44px rgba(var(--shade-rgb), .22);
+  --kai: "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+}
+html[data-theme="doubao"] body {
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+@media (orientation: portrait) {
+  html[data-theme="doubao"] body {
+    background-image: url("/static/img/doubao_wallpaper_mobile.jpg");
+  }
+}
+
+/* —— 形象：豆包（圆形徽章，金线描边）—— */
+html[data-theme="doubao"] .login-mark {
+  display: block; width: 116px; height: 116px; margin: -4px auto 12px;
+  font-size: 0; line-height: 0; color: transparent; opacity: 1;
+  border-radius: 50%;
+  background: url("/static/img/doubao_avatar.png") center / 100% no-repeat;
+  box-shadow:
+    0 0 0 3px rgba(255, 250, 244, .95),
+    0 0 0 5px rgba(var(--gold-rgb), .8),
+    0 14px 30px rgba(80, 4, 12, .35);
+}
+html[data-theme="doubao"] .brand-mark {
+  width: 26px; height: 26px; font-size: 0; color: transparent; opacity: 1;
+  border-radius: 50%;
+  background: url("/static/img/doubao_avatar.png") center / contain no-repeat;
+  box-shadow: 0 0 0 1.5px rgba(var(--gold-rgb), .7);
+}
+html[data-theme="doubao"] .bot-avatar {
+  font-size: 0; color: transparent;
+  background: url("/static/img/doubao_avatar.png") center / 100% no-repeat;
+  border: 1px solid rgba(var(--gold-rgb), .55);
+}
+/* 顶栏切换键预览下一个皮肤：fish → 豆包对应头像，豆包 → 宣纸用 ☯（JS 文案） */
+html[data-theme="fish"] #btnTheme { font-size: 0; }
+html[data-theme="fish"] #btnTheme::after {
+  content: ""; display: block; width: 20px; height: 20px; margin: 0 auto;
+  border-radius: 50%;
+  background: url("/static/img/doubao_avatar.png") center / 100% no-repeat;
+}
+
+/* 登录：桌面端把卡片让到左边，右边留给壁纸里的人物 */
+html[data-theme="doubao"] .screen { background: transparent; }
+@media (min-width: 900px) {
+  html[data-theme="doubao"] .screen {
+    justify-content: flex-start;
+    padding-left: clamp(48px, 8vw, 140px);
+  }
+}
+html[data-theme="doubao"] .login-card {
+  background: linear-gradient(170deg, rgba(255, 253, 250, .97) 0%, rgba(253, 240, 230, .94) 100%);
+  border-color: rgba(var(--gold-rgb), .5);
+  backdrop-filter: blur(14px);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, .7),
+    0 24px 60px rgba(70, 6, 12, .35);
+}
+html[data-theme="doubao"] .login-card::after {
+  content: "豆"; font-family: var(--ui-font); border-radius: 50%;
+  border-color: rgba(var(--accent-rgb), .45);
+  color: rgba(var(--accent-rgb), .82);
+}
+html[data-theme="doubao"] .login-card h1 { letter-spacing: 5px; text-indent: 5px; }
+
+/* 顶栏：暖白玻璃 + 下沿一道金红线 */
+html[data-theme="doubao"] .topbar {
+  background: rgba(255, 249, 243, .9);
+  border-bottom-color: rgba(var(--gold-rgb), .32);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .75);
+}
+html[data-theme="doubao"] .topbar::after {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(var(--accent-rgb), .34), rgba(var(--gold-rgb), .44), transparent);
+}
+
+/* 聊天区 / 看板：半透暖白玻璃，让红色壁纸隐约透上来 */
+html[data-theme="doubao"] .chat-pane {
+  background: linear-gradient(180deg, rgba(255, 249, 244, .88), rgba(255, 246, 239, .84));
+  backdrop-filter: blur(16px);
+}
+html[data-theme="doubao"] .panel-pane {
+  background: rgba(255, 250, 245, .94);
+  backdrop-filter: blur(16px);
+  border-left-color: rgba(var(--gold-rgb), .35);
+}
+
+/* 气泡：自己的消息走中国红，金字高亮 */
+html[data-theme="doubao"] .bubble {
+  border-radius: 15px; border-top-left-radius: 5px;
+  box-shadow: 0 2px 8px rgba(var(--shade-rgb), .08);
+}
+html[data-theme="doubao"] .msg-row.right .bubble {
+  border-top-left-radius: 15px; border-top-right-radius: 5px;
+  color: #fff;
+  box-shadow: 0 4px 16px rgba(var(--accent-deep-rgb), .3);
+}
+html[data-theme="doubao"] .msg-row.right .bubble b { color: #ffe6b0; }
+html[data-theme="doubao"] .msg-row.right .who { color: var(--ink-2); }
+
+/* 一点金红：进度条 / 发送键 / 当前页签 */
+html[data-theme="doubao"] .prog-bar { background: rgba(var(--accent-rgb), .1); }
+html[data-theme="doubao"] .prog-bar i { box-shadow: 0 0 8px rgba(var(--gold-rgb), .4); }
+html[data-theme="doubao"] .composer-btn.send { box-shadow: 0 3px 12px rgba(var(--accent-deep-rgb), .34); }
+html[data-theme="doubao"] .panel-tab.active { text-shadow: none; }
+html[data-theme="doubao"] .qopt { box-shadow: 0 2px 8px rgba(var(--shade-rgb), .08); }
+
 /* —— 形象：民间大肥鱼（蓝发 / 呆毛 / 白蕾丝头饰 / 女仆装）—— */
 /* 圆形头像：白描边 + 外圈淡蓝光环，像一枚浮在水里的徽章 */
 html[data-theme="fish"] .login-mark {
@@ -2232,6 +2438,7 @@ button.chan-main { cursor: pointer; }
 /* 缩略图各自代表本主题，不跟随当前变量 */
 .sw-xian { background: linear-gradient(140deg, #fdfaf2 0 55%, #a33b2a 55% 100%); }
 .sw-fish { background: linear-gradient(140deg, #dce8ff 0 55%, #4d6bfe 55% 100%); }
+.sw-doubao { background: linear-gradient(140deg, #fff4ea 0 55%, #c8102e 55% 100%); }
 .btn-ghost {
   width: 100%; margin-top: 10px; padding: 10px;
   border: 1px solid var(--line); border-radius: 9px;
