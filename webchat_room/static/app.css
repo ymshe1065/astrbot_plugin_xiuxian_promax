@@ -545,11 +545,16 @@ input:focus, textarea:focus { outline: none; }
 /* ================= 登录 ================= */
 .screen {
   height: 100dvh;
-  display: flex; align-items: center; justify-content: center;
+  display: flex; align-items: flex-start; justify-content: center;
   padding: 20px;
   background: var(--screen-bg);
+  /* 矮屏（iPhone SE / 横屏）登录卡片比视口高时，允许整页滚动，避免顶部被裁掉 */
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .login-card {
+  /* 可视区域足够时自动上下居中；内容超高时自动贴顶并跟随 .screen 滚动 */
+  margin: auto;
   width: min(400px, 92vw);
   background: linear-gradient(170deg, var(--login-card-a) 0%, var(--login-card-b) 100%);
   border: 1px solid rgba(var(--edge-rgb), .26);
@@ -697,14 +702,31 @@ input:focus, textarea:focus { outline: none; }
 .conn { font-size: 11.5px; color: var(--dim); }
 .conn.on { color: var(--ok); }
 .icon-btn {
-  width: 30px; height: 30px; border-radius: 8px;
-  color: var(--dim); font-size: 15px;
+  display: inline-flex; align-items: center; justify-content: center;
+  flex: 0 0 auto;
+  width: 30px; height: 30px; border-radius: 8px; padding: 0;
+  color: var(--dim); font-size: 15px; line-height: 1;
+  text-decoration: none;
 }
 .icon-btn:hover { background: var(--line-soft); }
 a.icon-btn {
   display: inline-flex; align-items: center; justify-content: center;
   text-decoration: none; flex: 0 0 auto;
 }
+.strategy-btn {
+  width: auto; padding: 0 8px; gap: 4px;
+  font-size: 12.5px; font-weight: 600; letter-spacing: .3px;
+  color: var(--accent);
+  background: rgba(var(--accent-rgb), .06);
+  border: 1px solid rgba(var(--accent-rgb), .18);
+}
+.strategy-btn:hover {
+  color: var(--accent);
+  background: rgba(var(--accent-rgb), .13);
+  border-color: rgba(var(--accent-rgb), .34);
+}
+.strategy-label { white-space: nowrap; }
+.strategy-ico { font-size: 14px; line-height: 1; }
 
 /* 顶栏当前账号 */
 .me-btn {
@@ -2145,6 +2167,8 @@ button.chan-main { cursor: pointer; }
   border-radius: 16px;
   padding: 18px;
   max-width: 400px;
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
   animation: updIn .2s ease-out;
 }
 @keyframes updIn {
@@ -2493,25 +2517,49 @@ button.chan-main { cursor: pointer; }
   font-size: 13px; padding: 9px 18px; border-radius: 20px;
   z-index: 90; animation: fadeUp .16s;
   max-width: 80vw; text-align: center;
+  word-break: break-word;
 }
 
 /* ================= 响应式：移动端 ================= */
 @media (max-width: 900px) {
   .main { grid-template-columns: 1fr; }
   .main.panel-hidden { grid-template-columns: 1fr; }
-  .topbar { padding: 9px 13px; gap: 7px; }
+  /* 移动端顶栏寸土寸金：单行紧凑排列，任何控件都不许被挤变形 */
+  .topbar { padding: 6px 8px; gap: 4px; }
   /* 移动端顶栏寸土寸金：连接状态让位给主题/账号按钮 */
   .conn { display: none; }
-  /* 顶栏左侧优先给仙界入口，品牌只留印记 */
-  .brand-text { display: none; }
-  .channel-btn { max-width: 122px; padding: 4px 7px; font-size: 12px; gap: 4px; }
+  /* 品牌印记也隐藏，把左侧空间留给仙界入口与在线人数 */
+  .brand { display: none; }
+  .channel-btn {
+    max-width: 96px; min-width: 0; padding: 4px 7px;
+    font-size: 12px; gap: 4px;
+  }
   .channel-btn-ico { display: none; }
+  .topbar-right { flex: 0 0 auto; gap: 3px; min-width: 0; }
   .channel-drawer { width: 100vw; max-width: 100vw; border-radius: 0; }
   .only-desktop { display: none; }
   /* 移动端顶栏窄：账号只留头像圆，点开再改昵称 */
-  .me-btn { padding: 2px; background: none; max-width: none; }
+  .me-btn {
+    flex: 0 0 auto; width: 32px; height: 32px;
+    justify-content: center; padding: 0; background: none; max-width: none;
+  }
+  .me-dot { width: 26px; height: 26px; }
   .me-nick { display: none; }
-  .room-tag { font-size: 11px; padding: 2px 8px; }
+  .room-tag {
+    flex: 0 0 auto; display: inline-flex; align-items: center;
+    height: 26px; padding: 0 7px;
+    font-size: 11px; white-space: nowrap;
+  }
+  .icon-btn { width: 32px; height: 32px; }
+  /* 主题切换在「账号设置」里也有，顶栏让位给争霸入口 */
+  #btnTheme { display: none; }
+  .strategy-btn { width: auto; padding: 0 7px; gap: 3px; font-size: 12px; }
+  .strategy-ico { font-size: 13px; }
+  .fold-all-btn {
+    flex: 0 0 auto; width: 32px; height: 32px; padding: 0;
+    justify-content: center; white-space: nowrap;
+    font-size: 11.5px; letter-spacing: 0;
+  }
   /* 移动端由底部导航切换，隐藏看板内重复的 Tab 条，避免两套切换器并存 */
   .panel-tabs { display: none; }
   .msgs { padding: 12px 13px 6px; gap: 9px; }
@@ -2587,6 +2635,13 @@ button.chan-main { cursor: pointer; }
   .panel-pane { height: 92vh; }
 }
 
+/* 320px 级窄屏：争霸入口收成图标，把空间还给仙界名称（账号设置里仍有带文字入口） */
+@media (max-width: 340px) {
+  .strategy-label { display: none; }
+  .strategy-btn { width: 32px; padding: 0; }
+  .channel-btn { max-width: 88px; }
+}
+
 /* 大屏时输入框居中，避免超宽 */
 @media (min-width: 1400px) {
   .msgs { padding-left: 8%; padding-right: 8%; }
@@ -2628,6 +2683,13 @@ button.chan-main { cursor: pointer; }
   border: 1px dashed rgba(var(--edge-rgb), .2);
 }
 .acc-tip { margin-top: 7px; font-size: 12px; color: var(--dim); line-height: 1.6; }
+.acc-strategy-link {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  text-decoration: none; letter-spacing: .5px;
+  color: var(--accent); border-color: rgba(var(--accent-rgb), .24);
+  background: rgba(var(--accent-rgb), .06);
+}
+.acc-strategy-link:hover { color: var(--accent); background: rgba(var(--accent-rgb), .13); }
 
 /* 个人消息收件箱 */
 .inbox-sheet { max-height: min(78vh, 660px); overflow-y: auto; }
@@ -3382,12 +3444,16 @@ button.chan-main { cursor: pointer; }
   text-align: left;
 }
 .dm-msg-meta { font-size: 10.5px; color: var(--dim); margin-top: 2px; }
-.dm-input-row { flex: 0 0 auto; display: flex; gap: 8px; padding-top: 10px; }
+.dm-input-row { flex: 0 0 auto; display: flex; align-items: stretch; gap: 8px; padding-top: 10px; }
 .dm-input-row input {
-  flex: 1 1 auto; padding: 10px 12px; font-size: 14px;
+  flex: 1 1 auto; min-width: 0; padding: 10px 12px; font-size: 14px;
   border: 1px solid var(--line); border-radius: 9px; background: var(--field); color: var(--ink);
 }
-.dm-send { flex: 0 0 auto; padding: 0 16px; border-radius: 9px; }
+/* .btn-primary 默认 width:100%，在私聊输入行里会把发送键撑满整行并压住输入框 */
+.dm-send {
+  flex: 0 0 auto; width: auto; min-width: 72px; margin-top: 0;
+  padding: 0 16px; border-radius: 9px; letter-spacing: 1px;
+}
 .online-dm {
   flex: 0 0 auto; background: none; border: none; font-size: 15px;
   cursor: pointer; opacity: .5; padding: 4px;
@@ -3395,4 +3461,9 @@ button.chan-main { cursor: pointer; }
 .online-dm:hover { opacity: 1; }
 @media (max-width: 900px) {
   .dm-drawer { width: 100vw; max-width: 100vw; border-radius: 0; }
+  .dm-tab { min-height: 40px; }
+  .dm-back, .dm-block-btn { min-width: 36px; min-height: 36px; }
+  .dm-drawer .sheet-close { min-width: 36px; min-height: 36px; font-size: 22px; }
+  /* 16px 防 iOS 聚焦私聊输入框时自动放大页面 */
+  .dm-input-row input { font-size: 16px; }
 }

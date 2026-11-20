@@ -250,7 +250,7 @@ HELP_SECTIONS: List[Dict[str, Any]] = [
         "icon": "⚔️",
         "divider_before": True,
         "lines": [
-            "前往网页聊天室游玩：顶栏 ⚔️ 按钮打开争霸面板（/static/strategy/index.html）",
+            "前往网页聊天室游玩：顶栏「⚔️ 争霸」按钮打开争霸面板（/static/strategy/index.html），账号设置内也有入口",
             "招贤纳士、编军出征、行军攻城、占领据点，与 NPC 势力逐鹿仙域",
             "势力：3 人会签立派 / 申请入盟 / 官职任命与禅让 / 国库捐献 / 三线科技研究",
             "外交：宣战·停战·结盟·和谈（赔款）；计略：离间·造谣·纵火·劝降·策应·营救",

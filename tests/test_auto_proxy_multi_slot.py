@@ -119,11 +119,13 @@ class TestAutoProxyMultiSlot(unittest.IsolatedAsyncioTestCase):
             self.db, self.UserStatus, self.avatar_rules
         )
         self.notices = []
+        self.settles = []
 
         async def notifier(origin, msg, user_id=""):
             self.notices.append(msg)
 
         async def settler(player):
+            self.settles.append(player.user_id)
             await self.db.ext.release_activity(player.user_id, self.UserStatus.CULTIVATING)
             return True, "🌟 出关成功"
 
@@ -242,6 +244,87 @@ class TestAutoProxyMultiSlot(unittest.IsolatedAsyncioTestCase):
         self.assertIn("没有空闲分身", msg)
         fresh = await self.db.get_player_by_id("u1")
         self.assertEqual(fresh.state, before, "闭关没抢到槽，不应该把玩家状态改成修炼中")
+
+    async def test_manual_cultivation_not_hijacked_by_seclusion(self):
+        """玩家手动闭关时，历练代理不能把这次闭关改成自己的、更不能重置计时。"""
+        await self._new_player(avatars=1)  # 2 槽
+        started, _slot, why = await self.db.ext.start_activity(
+            "u1", self.UserStatus.CULTIVATING, 0, max_slots=2
+        )
+        self.assertTrue(started, why)
+        player = await self.db.get_player_by_id("u1")
+        started_at = int(time.time()) - 3600
+        player.cultivation_start_time = started_at
+        player.state = "修炼中"
+        await self.db.update_player(player)
+        await self.db.ext.set_system_config(
+            "adv_cd_u1_scout", str(int(time.time()) + 600)
+        )
+
+        ok, msg = await self.manager.enable("u1", "umo://g", "历练 巡山问道")
+        self.assertTrue(ok, msg)
+        self.assertIn("手动闭关", msg)
+
+        fresh = await self.db.get_player_by_id("u1")
+        self.assertEqual(
+            fresh.cultivation_start_time, started_at,
+            "代理不能重置玩家的闭关起始时间",
+        )
+        row = await self.db.ext.get_auto_proxy("u1")
+        config = self.manager._load_config(row)
+        self.assertTrue(config["adventure"]["enabled"])
+        self.assertEqual(config["adventure"]["close_until"], 0)
+        self.assertEqual(config["adventure"]["note"], "manual_cultivation")
+        self.assertEqual(self.settles, [])
+
+        cult = await self.db.ext.get_active_cd("u1", self.UserStatus.CULTIVATING)
+        self.assertIsNotNone(cult)
+        self.assertFalse(self.manager._is_adv_seclusion(cult))
+
+        # 玩家出关后，路线仍在休整：代理这时才该自己闭关等待
+        await self.db.ext.release_activity("u1", self.UserStatus.CULTIVATING)
+        await self.manager.process_due()
+        cult = await self.db.ext.get_active_cd("u1", self.UserStatus.CULTIVATING)
+        self.assertIsNotNone(cult)
+        self.assertTrue(self.manager._is_adv_seclusion(cult))
+        row = await self.db.ext.get_auto_proxy("u1")
+        config = self.manager._load_config(row)
+        self.assertGreater(config["adventure"]["close_until"], 0)
+
+    async def test_stale_close_until_does_not_settle_manual_cultivation(self):
+        """close_until 残留时，后台扫描也不能替玩家结算手动闭关。"""
+        await self._new_player(avatars=1)
+        started, _slot, why = await self.db.ext.start_activity(
+            "u1", self.UserStatus.CULTIVATING, 0, max_slots=2
+        )
+        self.assertTrue(started, why)
+        player = await self.db.get_player_by_id("u1")
+        started_at = int(time.time()) - 1800
+        player.cultivation_start_time = started_at
+        player.state = "修炼中"
+        await self.db.update_player(player)
+
+        config = self.manager._load_config({})
+        config["adventure"]["enabled"] = True
+        config["adventure"]["route"] = "scout"
+        config["adventure"]["close_until"] = int(time.time()) + 600
+        await self.manager._write_state("u1", True, "", "umo://g", "", config)
+        await self.db.ext.set_system_config(
+            "adv_cd_u1_scout", str(int(time.time()) + 600)
+        )
+
+        await self.manager.process_due()
+
+        self.assertEqual(self.settles, [], "手动闭关不应该被代理结算")
+        cult = await self.db.ext.get_active_cd("u1", self.UserStatus.CULTIVATING)
+        self.assertIsNotNone(cult)
+        self.assertFalse(self.manager._is_adv_seclusion(cult))
+        fresh = await self.db.get_player_by_id("u1")
+        self.assertEqual(fresh.cultivation_start_time, started_at)
+        row = await self.db.ext.get_auto_proxy("u1")
+        config = self.manager._load_config(row)
+        self.assertEqual(config["adventure"]["close_until"], 0)
+        self.assertTrue(config["adventure"]["enabled"])
 
 
 if __name__ == "__main__":

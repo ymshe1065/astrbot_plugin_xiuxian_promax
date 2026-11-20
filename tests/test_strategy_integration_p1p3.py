@@ -62,9 +62,9 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
         self.m.main_cfg()["tick_minutes"] = 1
         self.world = await self.m.ensure_world()
         self.wid = self.world["id"]
-        self.p1 = await self.m.enter_game("u1", "甲")
-        self.p2 = await self.m.enter_game("u2", "乙")
-        self.p3 = await self.m.enter_game("u3", "丙")
+        self.p1 = await self._enter("u1", "甲")
+        self.p2 = await self._enter("u2", "乙")
+        self.p3 = await self._enter("u3", "丙")
         for uid in ("u1", "u2", "u3"):
             await self._give(uid, coin=500_000, grain=50_000, iron=5_000)
 
@@ -82,6 +82,19 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
         await self.m.save_player(p)
         await self.m._commit()
         return p
+
+    async def _free_node(self) -> int:
+        nodes = [n for n in await self.m.get_nodes(self.wid)
+                 if int(n["owner_faction"]) == 0 and n["type"] != "ruin"]
+        nodes.sort(key=lambda n: (n["type"] not in ("city", "pass", "branch"),
+                                  -int(n.get("level", 1)), int(n["id"])))
+        self.assertTrue(nodes, "没有可选起始据点")
+        return int(nodes[0]["id"])
+
+    async def _enter(self, user_id: str = "u1", nickname: str = "甲",
+                     referral: str = "") -> dict:
+        return await self.m.enter_game(user_id, nickname, referral=referral,
+                                       node_id=await self._free_node())
 
     async def _char_of(self, uid: str, role: str = "general"):
         for c in await self.m.get_chars(owner_user_id=uid, world_id=self.wid):
@@ -139,6 +152,8 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
     # P1：势力
     # ------------------------------------------------------------------
     async def test_faction_create_cosign_apply_quit(self):
+        # 本用例需容纳第 4 个势力验证申请/审批/退盟链路
+        self.m.main_cfg().setdefault("alliance", {})["max_factions"] = 4
         fid = await self._create_multi_faction()
         f = await self.m.get_faction(fid)
         self.assertEqual(f["name"], "凌云盟")
@@ -150,21 +165,55 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(pos["u1"], "leader")
         for uid in ("u1", "u2", "u3"):
             p = await self.m.get_player(uid, self.wid)
-            self.assertEqual(int(p["faction_id"]), fid)
-        # u4 申请入盟 → u1 审批
-        await self.m.enter_game("u4", "丁")
+            if uid == "u1":
+                self.assertEqual(int(p["faction_id"]), fid)
+            else:
+                self.assertNotEqual(int(p["faction_id"]), fid)
+            mf = await self.m.get_faction(int(p["faction_id"]))
+            self.assertEqual(int(mf["alliance_id"]), fid)
+        # 联盟语义：会签后各势力保留自身势力与据点，只把治理权交给盟主
+        host = await self.m.get_faction(fid)
+        self.assertEqual(host["name"], "凌云盟")
+        self.assertEqual(int(host["alliance_id"]), fid)
+        self.assertGreater(int(host.get("capital_node_id") or 0), 0)
+        for uid in ("u2", "u3"):
+            p = await self.m.get_player(uid, self.wid)
+            self.assertNotEqual(int(p["faction_id"]), fid)
+            mf = await self.m.get_faction(int(p["faction_id"]))
+            self.assertEqual(mf["kind"], "player")
+            self.assertEqual(int(mf["alliance_id"]), fid)
+            # 保留自己的起始据点，不归还无主
+            home = await self.m.get_node(self.wid, int(mf["capital_node_id"]))
+            self.assertEqual(int(home["owner_faction"]), int(mf["id"]))
+            self.assertTrue((p.get("tutorial") or {}).get("home_granted"))
+        pos = {m["user_id"]: m.get("position", "") for m in members}
+        self.assertEqual(pos["u2"], "deputy")
+        self.assertEqual(pos["u3"], "deputy")
+        # u4 申请结盟 → u1 审批：保留自身势力与据点
+        await self._enter("u4", "丁")
+        p4 = await self.m.get_player("u4", self.wid)
+        u4_fid = int(p4["faction_id"])
+        self.assertTrue((p4.get("tutorial") or {}).get("home_granted"))
         await self.m.faction_apply("u4", fid)
         await self.m.faction_approve("u1", "u4")
         p4 = await self.m.get_player("u4", self.wid)
-        self.assertEqual(int(p4["faction_id"]), fid)
+        self.assertEqual(int(p4["faction_id"]), u4_fid)
+        f4 = await self.m.get_faction(u4_fid)
+        self.assertEqual(int(f4["alliance_id"]), fid)
         self.assertEqual(len(await self.m.get_members(fid)), 4)
-        # u4 退盟 → 回到个人势力壳
+        self.assertTrue((p4.get("tutorial") or {}).get("home_granted"))
+        # u4 退出联盟：势力与据点全部保留，不重建空壳
         await self.m.faction_quit("u4")
         p4 = await self.m.get_player("u4", self.wid)
-        self.assertNotEqual(int(p4["faction_id"]), fid)
-        f4 = await self.m.get_faction(p4["faction_id"])
-        self.assertEqual(f4["kind"], "player")
-        self.assertEqual(len(await self.m.get_members(p4["faction_id"])), 1)
+        self.assertEqual(int(p4["faction_id"]), u4_fid)
+        f4 = await self.m.get_faction(u4_fid)
+        self.assertEqual(int(f4["alliance_id"]), 0)
+        self.assertEqual(len(await self.m.get_members(u4_fid)), 1)
+        self.assertTrue((p4.get("tutorial") or {}).get("home_granted"))
+        self.assertGreater(int(f4.get("capital_node_id") or 0), 0)
+        home = await self.m.get_node(self.wid, int(f4["capital_node_id"]))
+        self.assertEqual(int(home["owner_faction"]), u4_fid)
+        self.assertEqual(len(await self.m.get_members(fid)), 3)
 
     async def test_treasury_deposit_withdraw_and_position(self):
         fid = await self._create_multi_faction()
@@ -172,21 +221,106 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
         await self.m.treasury_deposit("u1", "coin", 20_000)
         f = await self.m.get_faction(fid)
         self.assertEqual(int(f["treasury"]["coin"]), 30_000)  # 10000 会签 + 20000
-        # 非领袖不能支取
+        # 共同国库：成员势力主为副主，单次提取上限为国库 30%
         with self.assertRaises(self.StrategyError):
-            await self.m.treasury_withdraw("u2", "coin", 100)
-        await self.m.treasury_withdraw("u1", "coin", 5_000)
+            await self.m.treasury_withdraw("u2", "coin", 20_000)
+        await self.m.treasury_withdraw("u2", "coin", 5_000)
         f = await self.m.get_faction(fid)
         self.assertEqual(int(f["treasury"]["coin"]), 25_000)
-        # 官职任免
-        await self.m.faction_set_position("u1", "u2", "deputy")
+        # 官职任免（联盟名册）
+        await self.m.faction_set_position("u1", "u2", "situ")
         members = {m["user_id"]: m.get("position", "")
                    for m in await self.m.get_members(fid)}
-        self.assertEqual(members["u2"], "deputy")
-        # 转让盟主
-        await self.m.transfer_leader("u1", "u2")
+        self.assertEqual(members["u2"], "situ")
+        # 盟主之位只能在自身势力内移交，联盟成员势力需各自移交
+        with self.assertRaises(self.StrategyError):
+            await self.m.transfer_leader("u1", "u2")
         f = await self.m.get_faction(fid)
-        self.assertEqual(f["leader_id"], "u2")
+        self.assertEqual(f["leader_id"], "u1")
+
+    async def test_alliance_transfer_node_and_quit_split(self):
+        """联盟内据点可交接；退盟保留据点，并按据点占比分割盟主国库。"""
+        fid = await self._create_multi_faction()
+        host = await self.m.get_faction(fid)
+        host["treasury"] = {"coin": 9000}
+        await self.m.save_faction(host)
+        await self.m._commit()
+        p2 = await self.m.get_player("u2", self.wid)
+        u2_fid = int(p2["faction_id"])
+        # 给 u1 增派一座据点，交接后仍保留主城
+        extra = next(n for n in await self.m.get_nodes(self.wid)
+                     if int(n["owner_faction"]) == 0 and n["type"] != "ruin")
+        await self._own("u1", extra)
+        await self.m._commit()
+        u1_node = next(n for n in await self.m.get_nodes(self.wid)
+                       if int(n["owner_faction"]) == fid and
+                       int(n["id"]) != int(host["capital_node_id"]))
+        r = await self.m.transfer_node("u1", int(u1_node["id"]), u2_fid)
+        self.assertTrue(r["ok"])
+        moved = await self.m.get_node(self.wid, int(u1_node["id"]))
+        self.assertEqual(int(moved["owner_faction"]), u2_fid)
+        # 不能把据点交接给联盟外势力
+        npc = await self._fetchall(
+            "SELECT id FROM strategy_factions WHERE world_id=? AND kind='npc' "
+            "AND alive=1 LIMIT 1", (self.wid,))
+        with self.assertRaises(self.StrategyError):
+            await self.m.transfer_node("u1", int(u1_node["id"]), int(npc[0]["id"]))
+        # u2 退盟：据点保留，按据点占比拿回盟主国库份额
+        counts = {}
+        for n in await self.m.get_nodes(self.wid):
+            counts[int(n["owner_faction"])] = counts.get(int(n["owner_faction"]), 0) + 1
+        total = sum(counts[x] for x in (fid, u2_fid, int(self.p3["faction_id"])))
+        expect = int(9000 * counts[u2_fid] / total)
+        u2_nodes_before = counts[u2_fid]
+        await self.m.faction_quit("u2")
+        p2 = await self.m.get_player("u2", self.wid)
+        self.assertEqual(int(p2["faction_id"]), u2_fid)
+        f2 = await self.m.get_faction(u2_fid)
+        self.assertEqual(int(f2["alliance_id"]), 0)
+        self.assertEqual(int(f2["treasury"]["coin"]), expect)
+        host = await self.m.get_faction(fid)
+        self.assertEqual(int(host["treasury"]["coin"]), 9000 - expect)
+        still = [n for n in await self.m.get_nodes(self.wid)
+                 if int(n["owner_faction"]) == u2_fid]
+        self.assertEqual(len(still), u2_nodes_before)
+        roster = {m["user_id"] for m in await self.m.get_members(fid)}
+        self.assertNotIn("u2", roster)
+
+    async def test_alliance_invite_respond_and_capacity(self):
+        """邀请结盟：仅势力主可发/可应；受联盟势力数上限约束。"""
+        self.m.main_cfg().setdefault("alliance", {})["max_factions"] = 2
+        u1_fid = int(self.p1["faction_id"])
+        u2_fid = int(self.p2["faction_id"])
+        u3_fid = int(self.p3["faction_id"])
+        # 非势力主不能发出邀请（u2 势力只有 u2 一人 → 先让 u1 势力多一人不行，改用 u1 邀请自己）
+        with self.assertRaises(self.StrategyError):
+            await self.m.faction_invite("u1", "u1")
+        # u1 邀请 u2 → u2 接受
+        r = await self.m.faction_invite("u1", "u2")
+        self.assertTrue(r["ok"])
+        world = await self.m.get_world()
+        self.assertIn("u2", (world.get("data") or {}).get("join_invites") or {})
+        # 非势力主不能接受（u3 无邀请）
+        with self.assertRaises(self.StrategyError):
+            await self.m.faction_respond_invite("u3", True)
+        r = await self.m.faction_respond_invite("u2", True)
+        self.assertTrue(r["ok"])
+        f1 = await self.m.get_faction(u1_fid)
+        f2 = await self.m.get_faction(u2_fid)
+        self.assertEqual(int(f1["alliance_id"]), u1_fid)
+        self.assertEqual(int(f2["alliance_id"]), u1_fid)
+        self.assertEqual(len(await self.m.get_members(u1_fid)), 2)
+        # 邀请时已满（2 个势力）→ 直接拒绝邀请
+        with self.assertRaises(self.StrategyError):
+            await self.m.faction_invite("u1", "u3")
+        # 先放宽上限发出邀请，再收紧后接受 → 接受时按容量拒绝
+        self.m.main_cfg()["alliance"]["max_factions"] = 3
+        await self.m.faction_invite("u1", "u3")
+        self.m.main_cfg()["alliance"]["max_factions"] = 2
+        with self.assertRaises(self.StrategyError):
+            await self.m.faction_respond_invite("u3", True)
+        f3 = await self.m.get_faction(u3_fid)
+        self.assertEqual(int(f3["alliance_id"]), 0)
 
     async def test_diplomacy_war_truce_violation(self):
         fid = await self._create_multi_faction()
@@ -523,7 +657,16 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
             "SELECT kind FROM strategy_battles WHERE world_id=? AND kind='bandit'",
             (self.wid,))
         self.assertGreaterEqual(len(rows), 1)
-        # 相邻无匪寨 → 拒绝
+        # 相邻无匪寨 → 拒绝（先清掉该据点周围其余匪寨，避免随机生成干扰）
+        world = await self.m.get_world()
+        data = world.get("data") or {}
+        bands = data.get("bandits") or {}
+        for nid in adj.get("adj") or []:
+            bands.pop(str(nid), None)
+        data["bandits"] = bands
+        world["data"] = data
+        await self.m.save_world(world)
+        await self.m._commit()
         with self.assertRaises(self.StrategyError):
             await self.m.raid_bandit("u1", army["id"], adj["id"])
 
@@ -596,9 +739,10 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(int(new_world["season_no"]), 2)
         self.assertEqual(new_world["state"], "active")
         # 结转：u1 在新世界入场后领取
-        await self.m.enter_game("u1", "甲")
         nw_nodes = await self.m.get_nodes(new_world["id"])
-        home2 = next(n for n in nw_nodes if n["owner_faction"] == 0)
+        home2 = next(n for n in nw_nodes
+                     if n["owner_faction"] == 0 and n["type"] != "ruin")
+        await self.m.enter_game("u1", "甲", node_id=int(home2["id"]))
         p1 = await self.m.get_player("u1", new_world["id"])
         home2["owner_faction"] = int(p1["faction_id"])
         await self.m.save_node(home2)
@@ -635,7 +779,7 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
         world["started_at"] = _now() - 10 * 86400
         await self.m.save_world(world)
         await self.m._commit()
-        await self.m.enter_game("u4", "丁", referral="u1")
+        await self._enter("u4", "丁", referral="u1")
         merit0 = int((await self.m.get_player("u1", self.wid))["merit"])
         p4 = await self.m.get_player("u4", self.wid)
         coin0 = int(p4["coin"])

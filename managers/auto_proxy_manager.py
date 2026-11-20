@@ -71,6 +71,12 @@ ADV_MIN_RETREAT_SECONDS = 90
 ADV_MODE_CONTINUE = "continue"
 ADV_MODE_ALTERNATE = "alternate"
 
+# 标记「这次闭关是历练代理为了等路线休整而开的」，写进 user_cd.extra_data。
+# 必须和玩家手动 /闭关 区分开：多分身之后，玩家可能正用本体闭关、分身去历练，
+# 若只按 CULTIVATING 判断，代理会把玩家的闭关当成自己的，重置闭关计时并在
+# close_until 到点时替玩家结算。
+ADV_SECLUSION_MARK = "adventure_seclusion"
+
 # 只含「可作为 /自动代理 <名称> 主任务」的活动（押镖 / 宗门任务），从活动目录派生。
 # 历练与秘境是 PROXY_CONFIG，靠 config_json 的开关驱动，**不能**进这张表：
 # _active_primary / STATUS_TASK 会遍历它去查槽位，多出这两项就会把历练、秘境
@@ -363,14 +369,28 @@ class AutoProxyManager:
             json.dumps(config, ensure_ascii=False),
         )
 
+    @staticmethod
+    def _is_adv_seclusion(cd: Any) -> bool:
+        """这个闭关槽是不是历练代理为了等路线休整而开的。"""
+        if cd is None:
+            return False
+        try:
+            if hasattr(cd, "get_extra_data"):
+                extra = cd.get_extra_data() or {}
+            else:
+                extra = json.loads(getattr(cd, "extra_data", "{}") or "{}")
+        except Exception:
+            return False
+        return isinstance(extra, dict) and extra.get("auto_proxy") == ADV_SECLUSION_MARK
+
     async def _settle_auto_seclusion_if_any(self, user_id: str, adv: dict) -> str:
         """关闭历练代理前，若当前闭关是代理触发的就先结算，避免被动挂在闭关里。"""
         if not int(adv.get("close_until") or 0):
             return ""
         try:
-            # 只认代理自己起的那次闭关；本体/别的分身可能正在做别的事
+            # 只认代理自己起的那次闭关；玩家手动开的闭关绝不代结算
             cd = await self.db.ext.get_active_cd(user_id, UserStatus.CULTIVATING)
-            if cd is None:
+            if not self._is_adv_seclusion(cd):
                 return ""
             player = await self.db.get_player_by_id(user_id)
             if not player or not self._cultivation_settler:
@@ -1563,7 +1583,11 @@ class AutoProxyManager:
 
         if adv_cd is not None:
             return True, header + "\n\n♻️ 已接管当前历练，走完后自动结算并继续。\n💡 /关闭代理 历练 可停止。"
-        if cult_cd is not None and int(adv.get("close_until") or 0):
+        if (
+            cult_cd is not None
+            and self._is_adv_seclusion(cult_cd)
+            and int(adv.get("close_until") or 0)
+        ):
             return True, header + "\n\n♻️ 已接管当前闭关，休整结束后继续历练。"
 
         changed, msg, dirty = await self._run_adventure_cycle(user_id, player, config, origin)
@@ -1654,12 +1678,39 @@ class AutoProxyManager:
         fresh = await self.db.get_player_by_id(user_id) or player
         from ..core.avatar_rules import total_slots
 
+        # 玩家可能正在用本体手动闭关：那不是代理开的闭关，不能接管。
+        # 旧实现把 already_running 当成功，随后把 cultivation_start_time 改成
+        # 现在，等于抹掉玩家已经修了多久；close_until 到点还会替玩家出关。
+        existed = await self.db.ext.get_active_cd(user_id, UserStatus.CULTIVATING)
+        if existed is not None:
+            if self._is_adv_seclusion(existed):
+                return True, "🧘 历练路线仍在休整，代理的自动闭关继续中。"
+            return False, (
+                "🧘 你正在手动闭关，历练代理不会接管这次闭关。\n"
+                "💡 出关后如果路线仍在休整，代理会自动闭关等待；"
+                "休整已结束则直接出发。"
+            )
+
         # 先抢槽位再改玩家状态：槽位满了还写「修炼中」会留下脏状态，
         # 之后 /出关 之类的指令会以为人真的在闭关。
         started, _slot, why = await self.db.ext.start_activity(
-            user_id, UserStatus.CULTIVATING, 0, max_slots=total_slots(fresh)
+            user_id,
+            UserStatus.CULTIVATING,
+            0,
+            extra_data={"auto_proxy": ADV_SECLUSION_MARK},
+            max_slots=total_slots(fresh),
         )
-        if not started and why != "already_running":
+        if not started:
+            if why == "already_running":
+                existed = await self.db.ext.get_active_cd(
+                    user_id, UserStatus.CULTIVATING
+                )
+                if self._is_adv_seclusion(existed):
+                    return True, "🧘 历练路线仍在休整，代理的自动闭关继续中。"
+                return False, (
+                    "🧘 你正在手动闭关，历练代理不会接管这次闭关。\n"
+                    "💡 出关后如果路线仍在休整，代理会自动闭关等待。"
+                )
             return False, (
                 "⚠️ 没有空闲分身可以闭关，历练代理会等路线休整结束再出发。\n"
                 + ("💡 结束一项活动腾个槽位即可。\n" if why == "no_free_slot" else "")
@@ -1676,6 +1727,10 @@ class AutoProxyManager:
 
     async def _settle_adv_seclusion(self, user_id: str) -> Tuple[bool, str]:
         if not self._cultivation_settler:
+            return False, ""
+        # 只结算代理自己起的那次闭关，别把玩家的手动闭关顺手出了
+        cd = await self.db.ext.get_active_cd(user_id, UserStatus.CULTIVATING)
+        if not self._is_adv_seclusion(cd):
             return False, ""
         player = await self.db.get_player_by_id(user_id)
         if not player:
@@ -1801,9 +1856,11 @@ class AutoProxyManager:
                 cult_cd = await self.db.ext.get_active_cd(user_id, UserStatus.CULTIVATING)
             except Exception:
                 cult_cd = None
-            if cult_cd is not None and now < close_until:
-                return enc_changed, "\n".join(messages), dirty
-            if cult_cd is not None:
+            # 只有带代理标记的闭关才是「自己的」。玩家手动闭关时既不能等它的
+            # close_until，也不能在到点后替他结算。
+            if cult_cd is not None and self._is_adv_seclusion(cult_cd):
+                if now < close_until:
+                    return enc_changed, "\n".join(messages), dirty
                 _ok, cult_msg = await self._settle_adv_seclusion(user_id)
                 prefix = cult_msg
             # 闭关已被玩家手动结束、或当初就没闭上：清掉标记继续出发
@@ -1825,6 +1882,15 @@ class AutoProxyManager:
                 return True, message, True
 
             if adv.get("retreat", True) and remain >= ADV_MIN_RETREAT_SECONDS:
+                try:
+                    running_cd = await self.db.ext.get_active_cd(
+                        user_id, UserStatus.CULTIVATING
+                    )
+                except Exception:
+                    running_cd = None
+                manual_cultivation = running_cd is not None and not self._is_adv_seclusion(
+                    running_cd
+                )
                 started, seclusion_msg = await self._start_adv_seclusion(
                     user_id, player, wait_until, adv.get("close_route") or adv.get("route")
                 )
@@ -1838,8 +1904,9 @@ class AutoProxyManager:
                     if messages:
                         message = "\n".join(messages) + "\n\n" + message
                     return True, message, True
-                if adv.get("note") != "cultivate_failed":
-                    adv["note"] = "cultivate_failed"
+                note = "manual_cultivation" if manual_cultivation else "cultivate_failed"
+                if adv.get("note") != note:
+                    adv["note"] = note
                     message = seclusion_msg
                     if prefix:
                         message = f"{prefix}\n\n{message}"
@@ -2219,7 +2286,7 @@ class AutoProxyManager:
                     text = f"当前状态：历练中「{label}」（历练代理未开启）"
             elif cd_type == UserStatus.CULTIVATING and adv_on:
                 close_until = int(adv_cfg.get("close_until") or 0)
-                if close_until:
+                if close_until and self._is_adv_seclusion(active_cd):
                     wait = max(0, close_until - now_ts)
                     route_label = self._adv_route_label(adv_cfg.get("route"))
                     text = (
@@ -2261,6 +2328,8 @@ class AutoProxyManager:
             lines.append("⚠️ 身受重伤，历练代理等待恢复后继续")
         elif adv_on and adv_cfg.get("note") == "wait_cd":
             lines.append("⏳ 历练路线休整中，等待结束后继续")
+        elif adv_on and adv_cfg.get("note") == "manual_cultivation":
+            lines.append("🧘 你正在手动闭关，历练代理等出关后继续")
         elif adv_on and adv_cfg.get("note") == "wait_slot":
             lines.append("⏳ 分身都在忙，历练代理等待槽位空出")
         lines.append(

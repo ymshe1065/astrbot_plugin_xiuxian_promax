@@ -81,6 +81,7 @@ async function load() {
     const r = await api("/api/strategy/state");
     S = r.state;
     document.getElementById("joinOverlay").hidden = !!S.joined;
+    if (!S.joined) renderJoinCandidates();
     renderAll();
     checkManualBattles();
   } catch (e) { /* toast 已弹 */ }
@@ -293,11 +294,75 @@ canvas.addEventListener("click", (ev) => {
 // 图例
 // ---------------------------------------------------------------------------
 function renderLegend() {
-  const el = document.getElementById("mapLegend");
+  const el = document.getElementById("legendList");
+  const cnt = document.getElementById("legendCount");
+  if (!el) return;
   const rows = (S.factions || []).filter((f) => f.node_count > 0 || f.id === myFactionId());
   el.innerHTML = rows.map((f) =>
     '<div class="lg-item"><span class="lg-dot" style="background:' + f.color + '"></span>' +
     esc(f.name) + "（" + f.node_count + "）</div>").join("");
+  if (cnt) cnt.textContent = "(" + rows.length + ")";
+}
+
+// ---------------------------------------------------------------------------
+// 图例：可收起 + 可拖动（手机端默认收起，避免遮挡地图）
+// ---------------------------------------------------------------------------
+const LEGEND_KEY = "xiuxian_strategy_legend_collapsed_v1";
+
+function applyLegendCollapsed(collapsed) {
+  const el = document.getElementById("mapLegend");
+  const btn = document.getElementById("legendToggle");
+  if (!el) return;
+  el.classList.toggle("collapsed", !!collapsed);
+  if (btn) btn.textContent = collapsed ? "展开" : "收起";
+}
+
+function initLegend() {
+  const el = document.getElementById("mapLegend");
+  const head = document.getElementById("legendHead");
+  const btn = document.getElementById("legendToggle");
+  if (!el || !head) return;
+  let saved = null;
+  try { saved = localStorage.getItem(LEGEND_KEY); } catch (e) { /* ignore */ }
+  applyLegendCollapsed(saved === null ? window.innerWidth <= 860 : saved === "1");
+  if (btn) {
+    btn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const collapsed = !el.classList.contains("collapsed");
+      applyLegendCollapsed(collapsed);
+      try { localStorage.setItem(LEGEND_KEY, collapsed ? "1" : "0"); } catch (e) { /* ignore */ }
+    });
+  }
+  let drag = null;
+  head.addEventListener("pointerdown", (ev) => {
+    if (ev.target.closest("button")) return;
+    const rect = el.getBoundingClientRect();
+    drag = { dx: ev.clientX - rect.left, dy: ev.clientY - rect.top };
+    el.classList.add("dragging");
+    try { head.setPointerCapture(ev.pointerId); } catch (e) { /* ignore */ }
+  });
+  head.addEventListener("pointermove", (ev) => {
+    if (!drag) return;
+    const pane = el.parentElement.getBoundingClientRect();
+    const rect = el.getBoundingClientRect();
+    const x = Math.min(Math.max(4, ev.clientX - drag.dx - pane.left), pane.width - rect.width - 4);
+    const y = Math.min(Math.max(4, ev.clientY - drag.dy - pane.top), pane.height - rect.height - 4);
+    el.style.left = x + "px";
+    el.style.top = y + "px";
+    el.style.right = "auto";
+  });
+  const end = () => { drag = null; el.classList.remove("dragging"); };
+  head.addEventListener("pointerup", end);
+  head.addEventListener("pointercancel", end);
+  window.addEventListener("resize", () => {
+    if (!el.style.left) return;
+    const pane = el.parentElement.getBoundingClientRect();
+    const rect = el.getBoundingClientRect();
+    el.style.left = Math.min(parseFloat(el.style.left) || 4,
+      Math.max(4, pane.width - rect.width - 4)) + "px";
+    el.style.top = Math.min(parseFloat(el.style.top) || 4,
+      Math.max(4, pane.height - rect.height - 4)) + "px";
+  });
 }
 
 function esc(s) {
@@ -427,8 +492,50 @@ function renderTab() {
   bindTabEvents();
 }
 
+function guideSteps() {
+  const p = S.player || {};
+  const f = p.faction || {};
+  const nodes = myNodes();
+  return [
+    { title: "① 认领主城", done: nodes.length > 0,
+      desc: nodes.length
+        ? "已获得起始据点。点地图上的己方据点，抽屉里可查看详情、编军和派遣任务。"
+        : "当前地图暂无空位：先在「势力」页申请加入玩家势力，或发起会签与道友共立门户。" },
+    { title: "② 编成首支军团", done: (p.armies || []).length > 0,
+      desc: "点击己方据点 →「在此编军」→ 选武将、剑盾兵 500，破城槌可选（攻城墙更有效）。" },
+    { title: "③ 出征占地", done: nodes.length > 1,
+      desc: "军团页点「选择目标出征」，再点地图上相邻的无主据点；守军约 800，建议兵力≥800。" },
+    { title: "④ 派遣内政官", done: (p.tasks || []).length > 0,
+      desc: "在己方据点抽屉底部，选内政官执行屯田/布政/挖矿，离线也会持续产出。" },
+    { title: "⑤ 招贤纳士", done: (p.chars || []).length > 2,
+      desc: "酒馆普通招募 800 铜钱；募将令高级招募 40 抽保底极品。更多武将才能多线出征。" },
+    { title: "⑥ 势力与官职", done: (f.members || []).length > 1,
+      desc: "你已是个人势力主公（带兵上限 3000）。势力页可申请加入玩家势力，或会签立派。" },
+  ];
+}
+
+function guideCard() {
+  const tut = (S.player || {}).tutorial || {};
+  if (tut.guide_hidden) {
+    return '<div class="guide-reopen"><button class="btn small" data-act="guide-show">📖 显示新手指引</button></div>';
+  }
+  const steps = guideSteps();
+  const done = steps.filter((s) => s.done).length;
+  let h = '<div class="card guide-card"><div class="guide-head"><h3>📖 新手指引</h3>' +
+    '<span class="guide-progress">进度 ' + done + " / " + steps.length + "</span></div>" +
+    '<div class="sub" style="margin:4px 0 6px">按顺序经营即可起步；随时可收起，设置页可重新开启。</div>';
+  for (const s of steps) {
+    h += '<div class="guide-step' + (s.done ? " done" : "") + '">' +
+      '<span class="gs-mark">' + (s.done ? "✅" : "○") + "</span><span>" +
+      '<span class="gs-title">' + s.title + '</span><br><span class="gs-desc">' + s.desc + "</span></span></div>";
+  }
+  h += '<div class="drawer-actions"><button class="btn small" data-act="guide-hide">暂时收起引导</button></div></div>';
+  return h;
+}
+
 function tabOverview() {
-  let h = '<div class="card"><h3>🌏 世界局势</h3>';
+  let h = guideCard();
+  h += '<div class="card"><h3>🌏 世界局势</h3>';
   h += '<table class="tbl"><tr><th>势力</th><th>类型</th><th>据点</th><th>声望</th></tr>';
   for (const f of S.factions || []) {
     if (f.node_count <= 0 && f.id !== myFactionId()) continue;
@@ -635,32 +742,95 @@ function tabFaction() {
   const f = p.faction;
   if (!f) return factionNoHome(p);
   let h = "";
+  const inAlliance = !!f.alliance_id;
+  const myAllianceName = f.alliance_name || f.name;
+  // 官员可参与联盟/势力共同治理
+  const canGovern = ["leader", "deputy", "situ", "taiwei", "jijiu"].includes(f.my_position);
+  const canAppoint = ["leader", "deputy"].includes(f.my_position);
+  const isLeader = f.my_position === "leader";
   // --- 概况 ---
   h += '<div class="card"><h3><span class="lg-dot" style="display:inline-block;background:' +
     ((S.factions || []).find((x) => x.id === f.id) || {}).color + '"></span> ' + esc(f.name) +
-    ' <span class="tag">' + (f.kind === "player" ? "玩家势力" : f.kind) + "</span></h3>" +
+    ' <span class="tag">' + (f.kind === "player" ? "玩家势力" : f.kind) + "</span>" +
+    (inAlliance ? ' <span class="tag">联盟：' + esc(myAllianceName) + "</span>" : "") + "</h3>" +
     '<div class="sub">等级 ' + f.level + " · 声望 " + f.reputation + " · 我的官职 " +
     positionName(f.my_position) + "（带兵上限 " +
     (((S.meta.positions || {})[f.my_position || "none"] || {}).cap || 1500) + "）</div>" +
-    kv("国库", "🪙 " + fmtNum(f.treasury.coin || 0) + " · 🌾 " + fmtNum(f.treasury.grain || 0) +
+    kv((inAlliance ? "联盟国库" : "国库"), "🪙 " + fmtNum(f.treasury.coin || 0) + " · 🌾 " + fmtNum(f.treasury.grain || 0) +
       " · ⛏️ " + fmtNum(f.treasury.iron || 0) + " · 💎 " + fmtNum(f.treasury.gold || 0)) +
-    kv("成员", f.members.length + " / " + f.member_cap) +
+    kv("成员", f.members.length + " / " + f.member_cap + (inAlliance ? "（联盟共同名册）" : "")) +
+    kv("本势力据点", (f.node_count || 0) + " 座") +
     kv("主城", esc((nodeById(f.capital_node_id) || {}).name || "已陷落")) + "</div>";
-  // --- 治理（领袖/太尉可见操作） ---
-  const canGovern = ["leader", "taiwei"].includes(f.my_position);
+  // --- 联盟概况与据点交接 ---
+  if (inAlliance) {
+    const allied = f.allied_factions || [];
+    const allyIds = new Set(allied.map((x) => x.id));
+    h += '<div class="card"><h3>🤝 联盟「' + esc(myAllianceName) + '」</h3>' +
+      '<div class="sub">结盟后各势力保留自身据点，政治 / 国库 / 科技 / 外交由联盟共同治理；盟主：' +
+      esc((allied.find((x) => x.is_host) || {}).name || "?") + "</div>";
+    h += '<div class="tbl-wrap"><table class="tbl"><tr><th>势力</th><th>据点</th><th>主城</th><th>身份</th></tr>';
+    for (const a of allied) {
+      h += "<tr><td>" + esc(a.name) + (a.id === f.id ? "（我）" : "") + "</td><td>" +
+        a.node_count + "</td><td>" + esc((nodeById(a.capital_node_id) || {}).name || "-") +
+        "</td><td>" + (a.is_host ? "盟主" : "成员") + "</td></tr>";
+    }
+    h += "</table></div>";
+    if (canGovern && allied.length > 1) {
+      const allyNodes = (S.nodes || []).filter((n) => n.owner && allyIds.has(n.owner.id) && n.type !== "ruin");
+      h += '<div class="sub" style="margin-top:8px">据点交接：把本联盟内某座据点改归另一成员势力（守军与建筑保留）</div>' +
+        '<div class="form-row alliance-transfer"><select id="transferNode" style="max-width:170px">' +
+        allyNodes.map((n) => '<option value="' + n.id + '">' + esc(n.name) + "（" + esc((n.owner || {}).name || "?") + "）</option>").join("") +
+        '</select><select id="transferTarget" style="max-width:140px">' +
+        allied.map((a) => '<option value="' + a.id + '">' + esc(a.name) + "</option>").join("") +
+        '</select><button class="btn small primary" data-act="transfer-node">🔁 交接据点</button></div>';
+    }
+    h += "</div>";
+  }
+  // --- 结盟（未结盟时） ---
+  if (!inAlliance) {
+    if (p.faction_invite) {
+      h += '<div class="card live"><h3>💌 结盟邀请</h3><div class="sub">势力 #' +
+        p.faction_invite.fid + ' 邀请你的势力结盟</div><div class="form-row">' +
+        '<button class="btn small primary" data-act="invite-respond" data-accept="1">接受</button>' +
+        '<button class="btn small" data-act="invite-respond" data-accept="0">婉拒</button></div></div>';
+    }
+    const others = (S.factions || []).filter(
+      (x) => x.kind === "player" && x.alive && x.id !== f.id && !x.alliance_id);
+    h += '<div class="card"><h3>🤝 结盟</h3>' +
+      '<div class="sub">结盟后双方保留各自势力与据点，政治 / 国库 / 科技 / 外交共同治理</div>';
+    if (isLeader && others.length) {
+      for (const x of others) {
+        h += '<div class="form-row"><span class="lg-dot" style="display:inline-block;background:' +
+          x.color + '"></span> ' + esc(x.name) + "（声望 " + x.reputation +
+          " · 据点 " + x.node_count + "）" +
+          '<button class="btn small" data-act="faction-apply" data-id="' + x.id +
+          '">申请结盟</button></div>';
+      }
+    } else if (!others.length) {
+      h += '<div class="sub">（暂无可结盟的其他玩家势力）</div>';
+    } else {
+      h += '<div class="sub">（仅势力主可发起结盟申请）</div>';
+    }
+    if (canGovern) {
+      h += '<div class="form-row"><input id="inviteUser" placeholder="对方玩家 ID" style="max-width:160px">' +
+        '<button class="btn small primary" data-act="faction-invite">💌 邀请结盟</button></div>';
+    }
+    h += "</div>";
+  }
+  // --- 治理（官员可操作） ---
   if (canGovern && (f.applications || []).length) {
-    h += '<div class="card"><h3>📥 入盟申请</h3>' + f.applications.map((u) =>
+    h += '<div class="card"><h3>📥 结盟申请</h3>' + f.applications.map((u) =>
       '<div class="form-row"><span class="sub">' + esc(u) + "</span>" +
-      '<button class="btn small primary" data-act="approve" data-u="' + esc(u) + '">批准</button>' +
+      '<button class="btn small primary" data-act="approve" data-u="' + esc(u) + '">批准结盟</button>' +
       '<button class="btn small" data-act="reject" data-u="' + esc(u) + '">拒绝</button></div>').join("") + "</div>";
   }
   // --- 成员贡献榜 ---
   h += '<div class="card"><h3>👥 成员贡献榜</h3><table class="tbl"><tr><th>成员</th><th>官职</th><th>贡献</th>' +
-    (f.my_position === "leader" ? "<th>任命</th>" : "") + "</tr>";
+    (canAppoint ? "<th>任命</th>" : "") + "</tr>";
   for (const m of [...f.members].sort((a, b) => b.contribution - a.contribution)) {
     h += "<tr><td>" + esc(m.user_id) + (m.user_id === p.user_id ? "（我）" : "") +
       "</td><td>" + positionName(m.position) + "</td><td>" + fmtNum(m.contribution) + "</td>";
-    if (f.my_position === "leader") {
+    if (canAppoint) {
       h += '<td><select id="pos_' + m.user_id.replace(/[^a-zA-Z0-9_-]/g, "_") + '" style="max-width:90px">' +
         Object.entries(S.meta.positions || {}).map(([k, v]) =>
           '<option value="' + (k === "none" ? "" : k) + '"' + ((m.position || "") === (k === "none" ? "" : k) ? " selected" : "") + ">" + v.name + "</option>").join("") +
@@ -670,10 +840,15 @@ function tabFaction() {
   }
   h += "</table>";
   if (f.my_position === "leader" && f.members.length > 1) {
-    h += '<div class="form-row"><select id="transferSel" style="max-width:150px">' +
-      f.members.filter((m) => m.user_id !== p.user_id).map((m) =>
-        '<option value="' + esc(m.user_id) + '">' + esc(m.user_id) + "</option>").join("") +
-      '</select><button class="btn small danger" data-act="transfer-leader">👑 禅让势力主</button></div>';
+    const ownMembers = f.members.filter((m) => m.user_id !== p.user_id &&
+      m.faction_id === (f.governance_id || f.id));
+    if (ownMembers.length) {
+      h += '<div class="form-row"><select id="transferSel" style="max-width:150px">' +
+        ownMembers.map((m) =>
+          '<option value="' + esc(m.user_id) + '">' + esc(m.user_id) + "</option>").join("") +
+        '</select><button class="btn small danger" data-act="transfer-leader">👑 ' +
+        (inAlliance ? "移交盟主" : "禅让势力主") + "</button></div>";
+    }
   }
   h += '<div class="form-row"><select id="depositRes" style="max-width:80px">' +
     '<option value="coin">铜钱</option><option value="grain">粮草</option><option value="iron">精铁</option></select>' +
@@ -704,7 +879,7 @@ function tabFaction() {
       '<option value="peace">和谈（赔款）</option><option value="war">宣战</option></select>' +
       '<input id="dipIndemnity" type="number" min="0" placeholder="赔款(和谈)" style="max-width:100px">' +
       '<button class="btn small primary" data-act="dip-propose">发起</button></div>';
-  } else h += '<div class="sub">（仅势力主/太尉可发起外交）</div>';
+  } else h += '<div class="sub">（仅势力主/副主/司徒/太尉/祭酒可发起外交）</div>';
   h += "</div>";
   // --- 科技树 ---
   h += '<div class="card"><h3>🔬 势力科技</h3><table class="tbl"><tr><th>科技线</th><th>等级</th><th></th></tr>';
@@ -770,20 +945,26 @@ function tabFaction() {
       '</select><button class="btn small" data-act="buy-shield">🛡️ 购买保护罩</button></div>';
   }
   if (!f.capital_node_id) {
-    const free = (S.nodes || []).filter((n) => !n.owner && n.type !== "ruin");
-    h += '<div class="form-row"><select id="rebuildNode" style="max-width:150px">' +
-      free.map((n) => '<option value="' + n.id + '">' + esc(n.name) + "</option>").join("") +
-      '</select><button class="btn small danger" data-act="rebuild-capital">🔥 重建主城（花灵石）</button></div>';
+    const free = (S.nodes || []).filter((n) => !n.owner && ["city", "pass", "branch"].includes(n.type));
+    if (free.length) {
+      h += '<div class="form-row"><select id="rebuildNode" style="max-width:150px">' +
+        free.map((n) => '<option value="' + n.id + '">' + esc(n.name) + "</option>").join("") +
+        '</select><button class="btn small danger" data-act="rebuild-capital">🔥 重建主城（花灵石，残军散尽）</button></div>';
+    } else {
+      h += '<div class="sub">（已无无主城池/关隘/分舵可供重建；可申请加入其他玩家势力）</div>';
+    }
   }
-  h += '<div class="form-row"><button class="btn small danger" data-act="faction-quit">🚪 退出势力</button></div></div>';
+  h += '<div class="form-row"><button class="btn small danger" data-act="faction-quit">' +
+    (inAlliance ? (f.is_alliance_host ? "💔 解散联盟" : "🚪 退出联盟") : "🚪 退出势力") +
+    "</button></div></div>";
   return h;
 }
 
 function factionNoHome(p) {
-  let h = '<div class="card"><h3>🏳️ 你还未加入势力</h3><div class="sub">散修可独自经营，也可会签立派或申请加入玩家势力</div></div>';
+  let h = '<div class="card"><h3>🏳️ 你还没有势力</h3><div class="sub">散修可独自经营，也可会签立派或与其他势力结盟</div></div>';
   if (p.faction_invite) {
-    h += '<div class="card live"><h3>💌 入盟邀请</h3><div class="sub">势力 #' + p.faction_invite.fid +
-      " 邀请你加入</div><div class=\"form-row\">" +
+    h += '<div class="card live"><h3>💌 结盟邀请</h3><div class="sub">势力 #' + p.faction_invite.fid +
+      " 邀请你结盟</div><div class=\"form-row\">" +
       '<button class="btn small primary" data-act="invite-respond" data-accept="1">接受</button>' +
       '<button class="btn small" data-act="invite-respond" data-accept="0">婉拒</button></div></div>';
   }
@@ -808,7 +989,7 @@ function factionNoHome(p) {
     for (const x of playerFs) {
       h += '<div class="form-row"><span class="lg-dot" style="display:inline-block;background:' + x.color + '"></span> ' +
         esc(x.name) + "（声望 " + x.reputation + " · 据点 " + x.node_count + "）" +
-        '<button class="btn small" data-act="faction-apply" data-id="' + x.id + '">申请加入</button></div>';
+        '<button class="btn small" data-act="faction-apply" data-id="' + x.id + '">申请结盟</button></div>';
     }
     h += "</div>";
   }
@@ -978,12 +1159,19 @@ function tabSettings() {
   const p = S.player || {};
   const pref = p.notify_pref || {};
   const level = Number(pref.level !== undefined ? pref.level : 1);
+  const hidden = !!((p.tutorial || {}).guide_hidden);
+  let h = '<div class="card"><h3>📖 新手指引</h3><div class="sub">当前状态：' +
+    (hidden ? "已收起" : "已开启") +
+    '。收起后总览页只保留一个小按钮，不会打扰日常操作。</div>' +
+    '<div class="drawer-actions"><button class="btn small ' + (hidden ? "primary" : "") +
+    '" data-act="' + (hidden ? "guide-show" : "guide-hide") + '">' +
+    (hidden ? "开启新手指引" : "收起新手指引") + "</button></div></div>";
   const opts = [
     [0, "仅手操窗口", "手操战役/单挑邀请（强烈建议保留）"],
     [1, "手操 + 己方被攻", "围城警报等（默认）"],
     [2, "全部事件", "含世界事件播报"],
   ];
-  let h = '<div class="card"><h3>🔔 通知档位</h3><div class="sub">控制服务端 WS 推送与聊天室横幅的通知密度</div><div class="form-col">';
+  h += '<div class="card"><h3>🔔 通知档位</h3><div class="sub">控制服务端 WS 推送与聊天室横幅的通知密度</div><div class="form-col">';
   for (const [v, name, desc] of opts) {
     h += '<label class="radio-item"><input type="radio" name="notifyLevel" value="' + v + '"' +
       (level === v ? " checked" : "") + "> " + name + ' <span class="sub">' + desc + "</span></label>";
@@ -1094,7 +1282,20 @@ function bindTabEvents() {
           doAction("rebuild_capital", { node_id: nid });
         }
       } else if (act === "faction-quit") {
-        if (confirm("退出势力将有冷却期，确认？")) doAction("faction_quit", {});
+        const fac = (S.player || {}).faction || {};
+        const msg = fac.alliance_id
+          ? (fac.is_alliance_host
+            ? "解散联盟后各成员势力保留现有据点，确认？"
+            : "退出联盟后你的势力与全部据点保留，确认？")
+          : "退出势力将有冷却期，确认？";
+        if (confirm(msg)) doAction("faction_quit", {});
+      } else if (act === "transfer-node") {
+        const nid = Number((document.getElementById("transferNode") || {}).value || 0);
+        const tfid = Number((document.getElementById("transferTarget") || {}).value || 0);
+        if (!nid || !tfid) { toast("请选择据点与目标势力", "err"); return; }
+        if (confirm("确认在本联盟内交接该据点归属？")) {
+          doAction("transfer_node", { node_id: nid, target_faction_id: tfid });
+        }
       } else if (act === "invite-respond") {
         doAction("faction_invite_respond", { accept: btn.dataset.accept === "1" });
       } else if (act === "cosign") doAction("faction_cosign", { petition_id: btn.dataset.id });
@@ -1104,6 +1305,11 @@ function bindTabEvents() {
         if (!name) { toast("请输入势力名", "err"); return; }
         doAction("faction_create", { name, color });
       } else if (act === "faction-apply") doAction("faction_apply", { faction_id: id });
+      else if (act === "faction-invite") {
+        const u = ((document.getElementById("inviteUser") || {}).value || "").trim();
+        if (!u) { toast("请输入对方玩家 ID", "err"); return; }
+        doAction("faction_invite", { target_user: u });
+      }
       // --- P3 坊市 ---
       else if (act === "market-buy") {
         const amt = prompt("买入数量（≤" + btn.dataset.max + "）：", btn.dataset.max);
@@ -1134,7 +1340,9 @@ function bindTabEvents() {
       } else if (act === "save-notify") {
         const checked = document.querySelector('input[name="notifyLevel"]:checked');
         doAction("set_notify_pref", { level: Number(checked ? checked.value : 1) });
-      } else if (act === "notify-perm") requestNotifyPermission();
+      } else if (act === "guide-hide") doAction("set_guide", { visible: false });
+      else if (act === "guide-show") doAction("set_guide", { visible: true });
+      else if (act === "notify-perm") requestNotifyPermission();
     });
   });
   const rf = document.getElementById("btnTavernRefresh");
@@ -1196,8 +1404,33 @@ document.getElementById("armyConfirm").addEventListener("click", () => {
 // ---------------------------------------------------------------------------
 // 入场 / 刷新 / 启动
 // ---------------------------------------------------------------------------
+function renderJoinCandidates() {
+  const sel = document.getElementById("joinNode");
+  const btn = document.getElementById("btnJoin");
+  if (!sel) return;
+  const list = (S && S.start_candidates) || [];
+  if (!list.length) {
+    sel.innerHTML = '<option value="">暂无可选据点（可能均已被占据）</option>';
+    if (btn) btn.disabled = true;
+    return;
+  }
+  const prev = sel.value;
+  const typeNames = ((S.meta || {}).node_types) || {};
+  sel.innerHTML = list.map((n) => {
+    const tn = typeNames[n.type] || n.type;
+    return '<option value="' + n.id + '">' + esc(n.name) + "（" + esc(tn) +
+      " · Lv" + n.level + "）</option>";
+  }).join("");
+  if (prev && list.some((n) => String(n.id) === prev)) sel.value = prev;
+  if (btn) btn.disabled = false;
+}
+
 document.getElementById("btnJoin").addEventListener("click", async () => {
-  await doAction("enter", {});
+  const nodeId = Number((document.getElementById("joinNode") || {}).value || 0);
+  if (!nodeId) { toast("请先选择起始据点", "err"); return; }
+  const btn = document.getElementById("btnJoin");
+  if (btn) btn.disabled = true;
+  await doAction("enter", { node_id: nodeId });
 });
 document.getElementById("btnRefresh").addEventListener("click", load);
 window.addEventListener("resize", resizeCanvas);
@@ -1211,6 +1444,7 @@ function renderAll() {
 }
 
 (async function init() {
+  initLegend();
   resizeCanvas();
   await load();
   setInterval(tickCountdown, 1000);

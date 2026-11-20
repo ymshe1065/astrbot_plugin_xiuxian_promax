@@ -1,0 +1,95 @@
+// 网页聊天室手机端回归：顶栏挤压、私聊发送键、折叠开关、争霸入口与战略页 hidden 兜底。
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const root = path.join(__dirname, '../webchat_room/static');
+const css = fs.readFileSync(path.join(root, 'app.css'), 'utf8');
+const js = fs.readFileSync(path.join(root, 'app.js'), 'utf8');
+const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+const strategyCss = fs.readFileSync(path.join(root, 'strategy/strategy.css'), 'utf8');
+
+test('移动端顶栏控件不会被 flex 压缩或换行', () => {
+  assert.ok(
+    css.includes('.topbar-right { flex: 0 0 auto; gap: 3px; min-width: 0; }'),
+    '顶栏右侧必须固定宽度，否则 320/360px 下会把账号按钮挤出屏幕'
+  );
+  assert.match(css, /\.room-tag\s*\{[^}]*white-space:\s*nowrap/s, '在线人数标签必须禁止换行');
+  assert.match(css, /\.icon-btn\s*\{[^}]*flex:\s*0 0 auto/s, '图标按钮必须禁止 flex 压缩');
+  assert.match(css, /\.fold-all-btn\s*\{[^}]*white-space:\s*nowrap/s, '折叠按钮文字不能竖排');
+  assert.match(css, /#btnTheme\s*\{\s*display:\s*none/, '移动端主题按钮应让位给争霸入口');
+});
+
+test('私聊发送键不会被 .btn-primary 的 width:100% 撑满输入行', () => {
+  assert.match(css, /\.dm-send\s*\{[^}]*width:\s*auto/s, '私聊发送键必须覆盖 .btn-primary 的 width:100%');
+  assert.match(css, /\.dm-input-row input\s*\{[^}]*min-width:\s*0/s, '私聊输入框必须允许收缩');
+  assert.match(css, /\.dm-input-row input\s*\{\s*font-size:\s*16px/s, '移动端私聊输入框用 16px 防 iOS 聚焦缩放');
+});
+
+test('折叠开关同时作用于气泡与卡片消息', () => {
+  assert.ok(
+    js.includes('box.querySelectorAll(".card.card-foldable")'),
+    '全局折叠/展开不能只处理气泡，战报与自动代理详情卡片也要同步'
+  );
+});
+
+test('移动端底部导航再次点击同一项可以收起看板', () => {
+  assert.ok(
+    js.includes('if (wasActive && $("panelPane").classList.contains("open"))'),
+    '底部导航需要支持二次点击收起，而不是只能点遮罩'
+  );
+});
+
+test('仙域争霸入口带文字标签，移动端可当前页打开', () => {
+  assert.match(html, /id="btnStrategy"[\s\S]*?class="strategy-label">争霸<\/span>/, '顶栏入口必须显示「争霸」文字');
+  assert.match(html, /id="accStrategy"/, '账号设置里需要第二个带文字的争霸入口');
+  assert.ok(js.includes('const openStrategy = (e) =>'), '移动端 WebView 忽略 target=_blank 时需要回退为当前页跳转');
+});
+
+test('战略页面必须用 [hidden] 兜底 display:flex 的弹层', () => {
+  assert.match(
+    strategyCss,
+    /\[hidden\]\s*\{\s*display:\s*none\s*!important;?\s*\}/,
+    '缺少 hidden 兜底时战报回放/入场遮罩会全部叠在屏幕上'
+  );
+  assert.match(strategyCss, /\.btn\s*\{[^}]*white-space:\s*nowrap/s, '战略页按钮文字不能竖排');
+});
+
+test('矮屏登录页可以滚动，卡片顶部不会被裁掉', () => {
+  assert.match(css, /\.screen\s*\{[^}]*overflow-y:\s*auto/s, 'iPhone SE / 横屏下登录卡片高于视口，必须允许滚动');
+  assert.match(css, /\.login-card\s*\{[^}]*margin:\s*auto/s, '滚动容器内用 margin:auto 居中，超高时才会贴顶而不是被裁');
+});
+
+test('战略页横屏时地图 / 战役画布不会撑破侧栏', () => {
+  assert.match(strategyCss, /\.map-pane\s*\{[^}]*min-height:\s*0/s, 'canvas 固有比例会把 46vh 的地图区撑高，必须允许 flex 收缩');
+  assert.match(strategyCss, /\.battle-board\s*\{[^}]*min-height:\s*0/s, '战役画布同样需要 min-height:0，否则横屏下把右侧操作区挤出屏幕');
+});
+
+test('战略页据点抽屉与弹层不会超出视口', () => {
+  assert.match(
+    strategyCss,
+    /\.node-drawer\s*\{[^}]*max-height:\s*min\(70vh,\s*calc\(100%\s*-\s*20px\)\)/s,
+    '据点抽屉必须限制在地图区域内，长内容不能把顶部顶出屏幕'
+  );
+  assert.match(
+    strategyCss,
+    /\.overlay-card\s*\{[^}]*max-height:\s*calc\(100dvh\s*-\s*24px\)[^}]*overflow-y:\s*auto/s,
+    '横屏 / 矮屏下入场、编军、回放弹窗需要自身滚动，按钮不能被裁出视口'
+  );
+});
+
+test('窄屏下的 Toast 与 App 更新弹窗不会超出视口', () => {
+  assert.match(
+    strategyCss,
+    /\.toast-wrap\s*\{[^}]*max-width:\s*min\(360px,\s*calc\(100vw\s*-\s*32px\)\)/s,
+    '战略页 Toast 固定 360px 会在 320px 屏幕顶出左侧'
+  );
+  assert.match(strategyCss, /\.toast\s*\{[^}]*word-break:\s*break-word/s, '长错误文本需要断行');
+  assert.match(
+    css,
+    /\.upd-sheet\s*\{[^}]*max-height:\s*calc\(100dvh\s*-\s*24px\)[^}]*overflow-y:\s*auto/s,
+    '横屏下更新弹窗内容需要内部滚动'
+  );
+  assert.match(css, /\.toast\s*\{[^}]*word-break:\s*break-word/s, '聊天室 Toast 也需要为长文本断行');
+});

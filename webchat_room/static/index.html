@@ -84,8 +84,11 @@
         <span class="msg-ico">✉</span>
         <span class="msg-badge" id="msgBadge" hidden>0</span>
       </button>
-      <a class="icon-btn" id="btnStrategy" href="/static/strategy/index.html" target="_blank"
-         rel="noopener" title="仙域争霸 · 战略大地图">⚔️</a>
+      <a class="icon-btn strategy-btn" id="btnStrategy" href="/static/strategy/index.html" target="_blank"
+         rel="noopener" title="仙域争霸 · 战略大地图" aria-label="仙域争霸 · 战略大地图">
+        <span class="strategy-ico" aria-hidden="true">⚔️</span>
+        <span class="strategy-label">争霸</span>
+      </a>
       <button class="icon-btn" id="btnTheme" title="切换主题" aria-label="切换主题">🐋</button>
       <button class="me-btn" id="btnMe" title="账号设置">
         <span class="me-dot" id="meDot">我</span>
@@ -274,6 +277,12 @@
         <i class="sw sw-doubao"></i><span>豆包红</span>
       </button>
     </div>
+
+    <div class="acc-divider"></div>
+    <label>网页玩法</label>
+    <a class="btn-ghost acc-strategy-link" id="accStrategy" href="/static/strategy/index.html"
+       target="_blank" rel="noopener">⚔️ 仙域争霸 · 战略大地图</a>
+    <div class="acc-tip">招贤纳士、编军攻城、势力外交与手操战役；与聊天室共用同一份存档。</div>
 
     <div class="acc-divider"></div>
     <label>消息隐私</label>

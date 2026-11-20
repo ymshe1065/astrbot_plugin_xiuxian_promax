@@ -106,6 +106,187 @@ class StrategyFactionMixin:
         return pos
 
     # ------------------------------------------------------------------
+    # 联盟（v72）：保留各势力据点，政治/国库/科技/外交共同治理
+    # ------------------------------------------------------------------
+    async def _alliance_host(self, f: Optional[dict]) -> Optional[dict]:
+        """返回联盟盟主势力；未结盟时返回自身。"""
+        if not f:
+            return f
+        aid = int(f.get("alliance_id") or 0)
+        if not aid or aid == int(f["id"]):
+            return f
+        host = await self.get_faction(aid)
+        if host and int(host.get("alive", 0)):
+            return host
+        return f
+
+    async def _alliance_factions(self, world_id: int, f: dict) -> list[dict]:
+        """联盟内所有存续势力（盟主在首位）。"""
+        host = await self._alliance_host(f)
+        if not host:
+            return []
+        rows = await self._fetchall(
+            "SELECT * FROM strategy_factions WHERE world_id=? AND alive=1 "
+            "AND (id=? OR alliance_id=?)",
+            (int(world_id), int(host["id"]), int(host["id"])))
+        fs = self._decode_all("strategy_factions", rows)
+        fs.sort(key=lambda x: (int(x["id"]) != int(host["id"]), int(x["id"])))
+        return fs
+
+    async def _alliance_ids(self, world_id: int, f: dict) -> set[int]:
+        return {int(x["id"]) for x in await self._alliance_factions(world_id, f)}
+
+    async def _governance_faction(self, p: dict) -> Optional[dict]:
+        """玩家参与共同治理的势力：结盟后为盟主势力，否则为自身势力。"""
+        f = await self.get_faction(int(p.get("faction_id") or 0))
+        return await self._alliance_host(f) if f else None
+
+    async def _sync_alliance_meta(self, host: dict):
+        """把盟主的科技/外交同步给成员势力，保持共同对外口径。"""
+        if not host:
+            return
+        for m in await self._alliance_factions(int(host["world_id"]), host):
+            if int(m["id"]) == int(host["id"]):
+                continue
+            # 研究进度只保留在盟主势力，成员只同步已完成等级
+            m["tech"] = {k: v for k, v in (host.get("tech") or {}).items()
+                         if k != "pending"}
+            m["diplomacy"] = dict(host.get("diplomacy") or {})
+            await self.save_faction(m)
+
+    async def _alliance_node_counts(self, world_id: int,
+                                    ids: set[int]) -> dict[int, int]:
+        if not ids:
+            return {}
+        marks = ",".join("?" for _ in ids)
+        rows = await self._fetchall(
+            f"SELECT owner_faction, COUNT(*) AS n FROM strategy_nodes "
+            f"WHERE world_id=? AND owner_faction IN ({marks}) GROUP BY owner_faction",
+            (int(world_id), *[int(x) for x in ids]))
+        return {int(r["owner_faction"]): int(r["n"]) for r in rows}
+
+    async def _move_treasury_share(self, host: dict, target: dict, share: float):
+        """按据点占比把盟主国库的一部分划给退出联盟的势力。"""
+        share = max(0.0, min(1.0, float(share)))
+        if share <= 0:
+            return
+        ht = dict(host.get("treasury") or {})
+        tt = dict(target.get("treasury") or {})
+        for k, v in list(ht.items()):
+            amount = int(int(v) * share)
+            if amount <= 0:
+                continue
+            tt[k] = int(tt.get(k, 0)) + amount
+            ht[k] = int(v) - amount
+        host["treasury"] = ht
+        target["treasury"] = tt
+        await self.save_faction(host)
+        await self.save_faction(target)
+
+    async def _add_faction_to_alliance(self, world: dict, member: dict,
+                                       host: dict, leader_position: str = "deputy"):
+        """把成员势力并入联盟：保留其据点，合并国库/科技/外交并登记盟主名册。"""
+        if not member or not host:
+            raise StrategyError("势力不存在")
+        member = await self.get_faction(int(member["id"])) or member
+        host = await self.get_faction(int(host["id"])) or host
+        if int(member["id"]) == int(host["id"]):
+            host["alliance_id"] = int(host["id"])
+            await self.save_faction(host)
+            return
+        if member.get("kind") != "player" or host.get("kind") != "player":
+            raise StrategyError("仅玩家势力之间可以结盟")
+        cur_aid = int(member.get("alliance_id") or 0)
+        if cur_aid and cur_aid != int(host["id"]):
+            raise StrategyError(f"「{member['name']}」已在其他联盟中")
+        # 合并国库与科技（据点归属保持原样）
+        ht = dict(host.get("treasury") or {})
+        mt = dict(member.get("treasury") or {})
+        for k, v in mt.items():
+            ht[k] = int(ht.get(k, 0)) + int(v)
+        host["treasury"] = ht
+        member["treasury"] = {}
+        htech = dict(host.get("tech") or {})
+        for line, lv in (member.get("tech") or {}).items():
+            if line == "pending":
+                if not htech.get("pending"):
+                    htech["pending"] = lv
+                continue
+            htech[line] = max(int(htech.get(line, 0) or 0), int(lv or 0))
+        host["tech"] = htech
+        host["alliance_id"] = int(host["id"])
+        member["alliance_id"] = int(host["id"])
+        member["tech"] = dict(htech)
+        member["diplomacy"] = dict(host.get("diplomacy") or {})
+        await self.save_faction(host)
+        await self.save_faction(member)
+        # 盟主名册 = 联盟共同治理名册；保留成员原势力名册不变
+        rows = await self._fetchall(
+            "SELECT user_id FROM strategy_players WHERE world_id=? AND faction_id=?",
+            (world["id"], int(member["id"])))
+        for row in rows:
+            uid = str(row["user_id"])
+            if await self.get_member(int(host["id"]), uid):
+                continue
+            pos = leader_position if uid == str(member.get("leader_id") or "") else ""
+            await self.upsert_member(int(host["id"]), uid, position=pos)
+        await self._sync_alliance_meta(host)
+        logger.info(f"[strategy] 势力#{member['id']}「{member['name']}」并入"
+                    f"联盟#{host['id']}「{host['name']}」")
+
+    async def _remove_faction_from_alliance(self, world: dict, member: dict) -> dict:
+        """退出联盟：按当前据点分割国库，成员势力保留自己的全部据点。"""
+        member = await self.get_faction(int(member["id"])) or member
+        if not int(member.get("alliance_id") or 0):
+            raise StrategyError("当前不在联盟中")
+        host = await self._alliance_host(member)
+        factions = await self._alliance_factions(world["id"], host)
+        ids = {int(x["id"]) for x in factions}
+        if int(member["id"]) == int(host["id"]):
+            await self._dissolve_alliance(world, host, factions, ids)
+            return {"ok": True, "msg": f"联盟「{host['name']}」已解散，各势力保留现有据点"}
+        counts = await self._alliance_node_counts(world["id"], ids)
+        total = sum(counts.values())
+        share = (counts.get(int(member["id"]), 0) / total) if total else 0.0
+        await self._move_treasury_share(host, member, share)
+        rows = await self._fetchall(
+            "SELECT user_id FROM strategy_players WHERE world_id=? AND faction_id=?",
+            (world["id"], int(member["id"])))
+        for row in rows:
+            await self.delete_member(int(host["id"]), str(row["user_id"]))
+        member["alliance_id"] = 0
+        member["diplomacy"] = {}
+        await self.save_faction(member)
+        rest = [x for x in factions if int(x["id"]) != int(member["id"])]
+        if len(rest) <= 1:
+            host["alliance_id"] = 0
+            await self.save_faction(host)
+        logger.info(f"[strategy] 势力#{member['id']}「{member['name']}」退出联盟"
+                    f"「{host['name']}」，保留据点 {counts.get(int(member['id']), 0)}")
+        return {"ok": True,
+                "msg": f"已退出联盟「{host['name']}」，现有据点与主城全部保留"}
+
+    async def _dissolve_alliance(self, world: dict, host: dict,
+                                 factions: list[dict], ids: set[int]):
+        counts = await self._alliance_node_counts(world["id"], ids)
+        total = sum(counts.values())
+        for f in factions:
+            if int(f["id"]) == int(host["id"]):
+                continue
+            share = (counts.get(int(f["id"]), 0) / total) if total else 0.0
+            await self._move_treasury_share(host, f, share)
+            rows = await self._fetchall(
+                "SELECT user_id FROM strategy_players WHERE world_id=? AND faction_id=?",
+                (world["id"], int(f["id"])))
+            for row in rows:
+                await self.delete_member(int(host["id"]), str(row["user_id"]))
+            f["alliance_id"] = 0
+            f["diplomacy"] = {}
+            await self.save_faction(f)
+        host["alliance_id"] = 0
+        await self.save_faction(host)
+
+    # ------------------------------------------------------------------
     # 势力等级 / 成员上限
     # ------------------------------------------------------------------
     def _faction_level(self, node_count: int) -> int:
@@ -136,6 +317,10 @@ class StrategyFactionMixin:
         members = await self.get_members(p["faction_id"])
         if f and f.get("kind") != "player" or len(members) > 1:
             raise StrategyError("已在多人势力中，无法另立门户（请先退盟）")
+        if f and int(f.get("alliance_id") or 0):
+            raise StrategyError("已在联盟中，请先退出联盟")
+        if self._position_of(members, user_id) != "leader":
+            raise StrategyError("仅势力主可发起会签立派")
         # 重名检查
         dup = await self._fetchone(
             "SELECT id FROM strategy_factions WHERE world_id=? AND name=? AND alive=1",
@@ -185,6 +370,11 @@ class StrategyFactionMixin:
         members = await self.get_members(p["faction_id"])
         if len(members) > 1:
             raise StrategyError("已在多人势力中，无法联署")
+        mf = await self.get_faction(p["faction_id"])
+        if mf and int(mf.get("alliance_id") or 0):
+            raise StrategyError("已在联盟中，无法联署")
+        if self._position_of(members, user_id) != "leader":
+            raise StrategyError("仅势力主可联署立派")
         need = int(fcfg.get("cosign_required", 3))
         pet.setdefault("cosigners", []).append(user_id)
         if 1 + len(pet["cosigners"]) >= need:
@@ -207,62 +397,42 @@ class StrategyFactionMixin:
                 "msg": f"联署成功：「{pet['name']}」还差 {need - 1 - len(pet['cosigners'])} 人"}
 
     async def _do_create_faction(self, world: dict, pet: dict) -> int:
-        """会签达成：建势力行 + 迁入发起人与联署人。"""
-        fid = await self._execute("""
-            INSERT INTO strategy_factions (world_id, name, color, kind, leader_id,
-                personality_json, treasury_json, reputation, level, member_cap,
-                capital_node_id, faction_state, alive)
-            VALUES (?,?,?,'player',?,'{}','{}',0,1,?,0,'normal',1)
-        """, (world["id"], pet["name"], pet.get("color") or "#888888",
-              pet["creator"],
-              int((self.main_cfg().get("faction") or {}).get("member_cap_base", 10))))
-        await self._commit()
-        new_f = await self.get_faction(fid)
+        """会签达成：以发起人的个人势力为盟主，联署人势力作为联盟成员并入。"""
+        creator = await self.get_player(pet["creator"], world["id"])
+        if not creator:
+            raise StrategyError("发起人已离开世界")
+        host = await self.get_faction(int(creator["faction_id"]))
+        if not host or host.get("kind") != "player":
+            raise StrategyError("发起人没有可用的个人势力")
+        host["name"] = pet["name"]
+        host["color"] = pet.get("color") or "#888888"
+        host["leader_id"] = pet["creator"]
+        host["alliance_id"] = int(host["id"])
+        host["faction_state"] = "normal"
+        host["alive"] = 1
         escrow = int(pet.get("escrow", 0))
-        if new_f and escrow > 0:
-            treasury = new_f.get("treasury") or {}
+        if escrow > 0:
+            treasury = host.get("treasury") or {}
             treasury["coin"] = int(treasury.get("coin", 0)) + escrow
-            new_f["treasury"] = treasury
-            await self.save_faction(new_f)
-        for uid in [pet["creator"]] + list(pet.get("cosigners") or []):
+            host["treasury"] = treasury
+        await self.save_faction(host)
+        for uid in list(pet.get("cosigners") or []):
             p = await self.get_player(uid, world["id"])
-            if p:
-                await self._join_faction(world, p, fid,
-                                         position="leader" if uid == pet["creator"] else "")
-        await self.upsert_member(fid, pet["creator"], position="leader")
+            if not p:
+                continue
+            mf = await self.get_faction(int(p["faction_id"]))
+            if not mf or int(mf["id"]) == int(host["id"]):
+                continue
+            await self._add_faction_to_alliance(world, mf, host)
+        await self.upsert_member(int(host["id"]), pet["creator"], position="leader")
+        await self._sync_alliance_meta(host)
         await self._commit()
-        logger.info(f"[strategy] 势力#{fid}「{pet['name']}」经会签建立")
-        return fid
+        logger.info(f"[strategy] 联盟#{host['id']}「{pet['name']}」经会签建立")
+        return int(host["id"])
 
     # ------------------------------------------------------------------
-    # 入盟 / 退盟
+    # 联盟加入 / 退出（保留势力据点）
     # ------------------------------------------------------------------
-    async def _join_faction(self, world: dict, p: dict, fid: int, position: str = ""):
-        """把玩家（及其角色/军团）迁入目标势力；旧个人势力若无成员则封存。"""
-        old_fid = int(p.get("faction_id", 0))
-        if old_fid == fid:
-            return
-        await self._execute(
-            "UPDATE strategy_characters SET faction_id=? WHERE world_id=? AND owner_user_id=?",
-            (fid, world["id"], p["user_id"]))
-        await self._execute(
-            "UPDATE strategy_armies SET faction_id=? WHERE world_id=? AND owner_user_id=?",
-            (fid, world["id"], p["user_id"]))
-        p["faction_id"] = fid
-        await self.save_player(p)
-        await self.upsert_member(fid, p["user_id"], position=position,
-                                 joined_at=_now())
-        if old_fid and old_fid != fid:
-            await self.delete_member(old_fid, p["user_id"])
-            old = await self.get_faction(old_fid)
-            if old and old.get("kind") == "player":
-                rest = await self.get_members(old_fid)
-                if not rest:
-                    old["alive"] = 0
-                    old["faction_state"] = "merged"
-                    await self.save_faction(old)
-        await self._commit()
-
     async def _ensure_personal_faction(self, world: dict, p: dict,
                                        nickname: str = "") -> int:
         """为玩家（重）建个人势力（P0 语义：散修也持有个人势力壳）。"""
@@ -277,56 +447,85 @@ class StrategyFactionMixin:
         await self._commit()
         return fid
 
+    async def _move_player_to_faction(self, world: dict, p: dict, fid: int):
+        """把玩家角色/军团迁入指定势力，并登记为该势力主公。"""
+        await self._execute(
+            "UPDATE strategy_characters SET faction_id=? WHERE world_id=? AND owner_user_id=?",
+            (int(fid), world["id"], p["user_id"]))
+        await self._execute(
+            "UPDATE strategy_armies SET faction_id=? WHERE world_id=? AND owner_user_id=?",
+            (int(fid), world["id"], p["user_id"]))
+        p["faction_id"] = int(fid)
+        await self.save_player(p)
+        await self.upsert_member(int(fid), p["user_id"], position="leader")
+
     async def faction_apply(self, user_id: str, faction_id: int) -> dict:
-        """申请入盟（存入 world.data.join_apps，等待领袖/副主审批）。"""
+        """以势力主身份申请结盟（保留自身据点，等待对方盟主/副主审批）。"""
         world, p = await self._require_player(user_id)
-        fid = int(faction_id)
-        f = await self.get_faction(fid)
-        if not f or not int(f.get("alive", 0)) or f.get("kind") == "npc":
-            raise StrategyError("目标势力不存在或不可加入")
-        members = await self.get_members(fid)
-        if len(members) >= self._member_cap(f):
-            raise StrategyError(f"「{f['name']}」成员已满（{self._member_cap(f)}）")
-        my_members = await self.get_members(p["faction_id"])
-        if len(my_members) > 1:
-            raise StrategyError("已在多人势力中，请先退盟")
+        my_f = await self.get_faction(int(p["faction_id"]))
+        my_members = await self.get_members(int(p["faction_id"]))
+        if not my_f or my_f.get("kind") != "player":
+            raise StrategyError("当前没有可结盟的玩家势力")
+        if self._position_of(my_members, user_id) != "leader":
+            raise StrategyError("仅势力主可申请结盟")
+        if int(my_f.get("alliance_id") or 0):
+            raise StrategyError("当前势力已在联盟中，请先退出联盟")
+        target = await self.get_faction(int(faction_id))
+        if not target or not int(target.get("alive", 0)) or target.get("kind") != "player":
+            raise StrategyError("目标势力不存在或不可结盟")
+        host = await self._alliance_host(target)
+        if int(host["id"]) == int(my_f["id"]):
+            raise StrategyError("不能与自己结盟")
+        if int(host.get("alliance_id") or 0) and \
+                int(host["alliance_id"]) != int(host["id"]):
+            host = await self._alliance_host(host)
+        cap = int((self.main_cfg().get("alliance") or {}).get("max_factions", 3))
+        if len(await self._alliance_factions(world["id"], host)) >= cap:
+            raise StrategyError(f"「{host['name']}」联盟势力数已满（{cap}）")
         data = world.get("data") or {}
         quit_cd = int((data.get("quit_cd") or {}).get(user_id, 0))
         if quit_cd > _now():
             hours = (quit_cd - _now() + 3599) // 3600
             raise StrategyError(f"退盟冷却中（还剩 {hours} 小时）")
-        apps = data.setdefault("join_apps", {}).setdefault(str(fid), {})
+        apps = data.setdefault("join_apps", {}).setdefault(str(host["id"]), {})
         if user_id in apps:
             raise StrategyError("已递交过申请，请等待审批")
         apps[user_id] = _now()
         world["data"] = data
         await self.save_world(world)
         await self._commit()
-        return {"ok": True, "msg": f"已向「{f['name']}」递交入盟申请"}
+        return {"ok": True, "msg": f"已向「{host['name']}」递交结盟申请"}
 
     async def faction_invite(self, user_id: str, target_user: str) -> dict:
-        """领袖/副主邀请玩家入盟。"""
+        """盟主/副主邀请其他势力主结盟。"""
         world, p = await self._require_player(user_id)
-        f = await self.get_faction(p["faction_id"])
+        f = await self._governance_faction(p)
         if not f or f.get("kind") == "npc":
             raise StrategyError("当前不在玩家势力中")
         await self._require_position(f, user_id, ("leader", "deputy"))
         target = await self.get_player(str(target_user), world["id"])
         if not target:
             raise StrategyError("对方尚未入场")
-        t_members = await self.get_members(target["faction_id"])
-        if len(t_members) > 1:
-            raise StrategyError("对方已在多人势力中")
-        members = await self.get_members(f["id"])
-        if len(members) >= self._member_cap(f):
-            raise StrategyError("势力成员已满")
+        tf = await self.get_faction(int(target["faction_id"]))
+        t_members = await self.get_members(int(target["faction_id"]))
+        if not tf or tf.get("kind") != "player":
+            raise StrategyError("对方没有可结盟的玩家势力")
+        if self._position_of(t_members, str(target_user)) != "leader":
+            raise StrategyError("对方不是势力主，无法代表势力结盟")
+        if int(tf.get("alliance_id") or 0):
+            raise StrategyError("对方势力已在联盟中")
+        if int(tf["id"]) == int(f["id"]):
+            raise StrategyError("不能邀请自己")
+        cap = int((self.main_cfg().get("alliance") or {}).get("max_factions", 3))
+        if len(await self._alliance_factions(world["id"], f)) >= cap:
+            raise StrategyError(f"联盟势力数已满（{cap}）")
         data = world.get("data") or {}
         invites = data.setdefault("join_invites", {})
         invites[str(target_user)] = {"fid": int(f["id"]), "by": user_id, "at": _now()}
         world["data"] = data
         await self.save_world(world)
         await self._commit()
-        return {"ok": True, "msg": f"已邀请 {target_user} 加入「{f['name']}」"}
+        return {"ok": True, "msg": f"已邀请 {target_user} 的势力加入联盟「{f['name']}」"}
 
     async def faction_respond_invite(self, user_id: str, accept: bool) -> dict:
         world, p = await self._require_player(user_id)
@@ -340,22 +539,31 @@ class StrategyFactionMixin:
             await self.save_world(world)
             await self._commit()
             return {"ok": True, "msg": "已拒绝邀请"}
-        f = await self.get_faction(int(inv["fid"]))
-        if not f or not int(f.get("alive", 0)):
+        host = await self.get_faction(int(inv["fid"]))
+        if not host or not int(host.get("alive", 0)):
             raise StrategyError("邀请方势力已不存在")
-        members = await self.get_members(f["id"])
-        if len(members) >= self._member_cap(f):
-            raise StrategyError("对方势力成员已满")
+        host = await self._alliance_host(host)
+        my_f = await self.get_faction(int(p["faction_id"]))
+        my_members = await self.get_members(int(p["faction_id"]))
+        if not my_f or my_f.get("kind") != "player":
+            raise StrategyError("当前没有可结盟的玩家势力")
+        if self._position_of(my_members, user_id) != "leader":
+            raise StrategyError("仅势力主可接受结盟邀请")
+        if int(my_f.get("alliance_id") or 0):
+            raise StrategyError("当前势力已在联盟中")
+        cap = int((self.main_cfg().get("alliance") or {}).get("max_factions", 3))
+        if len(await self._alliance_factions(world["id"], host)) >= cap:
+            raise StrategyError("对方联盟势力数已满")
         data["join_invites"].pop(user_id, None)
         world["data"] = data
         await self.save_world(world)
-        await self._join_faction(world, p, int(f["id"]))
+        await self._add_faction_to_alliance(world, my_f, host)
         await self._commit()
-        return {"ok": True, "msg": f"已加入「{f['name']}」"}
+        return {"ok": True, "msg": f"已加入联盟「{host['name']}」，自身据点保持不变"}
 
     async def faction_approve(self, user_id: str, applicant_user: str) -> dict:
         world, p = await self._require_player(user_id)
-        f = await self.get_faction(p["faction_id"])
+        f = await self._governance_faction(p)
         if not f or f.get("kind") == "npc":
             raise StrategyError("当前不在玩家势力中")
         await self._require_position(f, user_id, ("leader", "deputy"))
@@ -366,20 +574,28 @@ class StrategyFactionMixin:
         target = await self.get_player(str(applicant_user), world["id"])
         if not target:
             raise StrategyError("申请人不存在")
-        members = await self.get_members(f["id"])
-        if len(members) >= self._member_cap(f):
-            raise StrategyError("势力成员已满")
+        my_f = await self.get_faction(int(target["faction_id"]))
+        my_members = await self.get_members(int(target["faction_id"]))
+        if not my_f or my_f.get("kind") != "player":
+            raise StrategyError("申请人没有可结盟的玩家势力")
+        if self._position_of(my_members, str(applicant_user)) != "leader":
+            raise StrategyError("申请人已不是势力主")
+        if int(my_f.get("alliance_id") or 0):
+            raise StrategyError("申请人势力已在联盟中")
+        cap = int((self.main_cfg().get("alliance") or {}).get("max_factions", 3))
+        if len(await self._alliance_factions(world["id"], f)) >= cap:
+            raise StrategyError(f"联盟势力数已满（{cap}）")
         apps.pop(applicant_user, None)
         data["join_apps"][str(f["id"])] = apps
         world["data"] = data
         await self.save_world(world)
-        await self._join_faction(world, target, int(f["id"]))
+        await self._add_faction_to_alliance(world, my_f, f)
         await self._commit()
-        return {"ok": True, "msg": f"已批准 {applicant_user} 入盟"}
+        return {"ok": True, "msg": f"已批准「{my_f['name']}」加入联盟"}
 
     async def faction_reject(self, user_id: str, applicant_user: str) -> dict:
         world, p = await self._require_player(user_id)
-        f = await self.get_faction(p["faction_id"])
+        f = await self._governance_faction(p)
         if not f:
             raise StrategyError("当前不在势力中")
         await self._require_position(f, user_id, ("leader", "deputy"))
@@ -395,39 +611,64 @@ class StrategyFactionMixin:
         return {"ok": True, "msg": f"已拒绝 {applicant_user} 的申请"}
 
     async def faction_quit(self, user_id: str) -> dict:
-        """退盟：回归个人势力（散修），24h 内不可再入盟。"""
+        """退出联盟：势力保留自己当前全部据点；未结盟的多人势力仍按旧逻辑散伙。"""
         world, p = await self._require_player(user_id)
         fcfg = self.main_cfg().get("faction") or {}
         fid = int(p["faction_id"])
         f = await self.get_faction(fid)
         members = await self.get_members(fid)
-        if not f or len(members) <= 1:
-            raise StrategyError("当前不在多人势力中")
+        if not f:
+            raise StrategyError("当前不在势力中")
+        data = world.get("data") or {}
+        cd_hours = int(fcfg.get("quit_cooldown_hours", 24))
+
+        def _mark_cd():
+            data.setdefault("quit_cd", {})[user_id] = _now() + cd_hours * 3600
+            world["data"] = data
+            return self.save_world(world)
+
+        aid = int(f.get("alliance_id") or 0)
+        if aid:
+            if self._position_of(members, user_id) != "leader":
+                raise StrategyError("仅势力主可代表势力退出联盟")
+            await _mark_cd()
+            if aid == int(f["id"]):
+                factions = await self._alliance_factions(world["id"], f)
+                ids = {int(x["id"]) for x in factions}
+                await self._dissolve_alliance(world, f, factions, ids)
+                await self._commit()
+                return {"ok": True,
+                        "msg": f"联盟「{f['name']}」已解散，各势力保留现有据点"}
+            await self._remove_faction_from_alliance(world, f)
+            await self._commit()
+            return {"ok": True,
+                    "msg": f"已退出联盟，势力「{f['name']}」现有据点全部保留"
+                           f"（{cd_hours}h 内不可再结盟）"}
+        # 旧版多人势力（非联盟）：个人退伙后重建个人势力
+        if len(members) <= 1:
+            raise StrategyError("当前不在多人势力或联盟中")
         pos = self._position_of(members, user_id)
-        if pos == "leader" and len(members) > 1:
+        if pos == "leader":
             succ = R.successor_of(members, user_id)
             if not succ:
                 raise StrategyError("请先移交主公之位")
             await self.upsert_member(fid, succ["user_id"], position="leader")
             f["leader_id"] = succ["user_id"]
             await self.save_faction(f)
-        data = world.get("data") or {}
-        cd_hours = int(fcfg.get("quit_cooldown_hours", 24))
-        data.setdefault("quit_cd", {})[user_id] = _now() + cd_hours * 3600
-        world["data"] = data
-        await self.save_world(world)
+        await _mark_cd()
         personal = await self._ensure_personal_faction(world, p)
-        await self._join_faction(world, p, personal, position="leader")
-        await self.upsert_member(personal, user_id, position="leader")
+        await self._move_player_to_faction(world, p, personal)
+        await self.delete_member(fid, user_id)
         await self._commit()
         return {"ok": True,
-                "msg": f"已退出「{f['name']}」，成为散修（{cd_hours}h 内不可再入盟）"}
+                "msg": f"已退出「{f['name']}」，重建个人势力"
+                       f"（{cd_hours}h 内不可再结盟）"}
 
     async def faction_set_position(self, user_id: str, target_user: str,
                                    position: str) -> dict:
-        """官职任免（§4.5）：主公/副主操作；名额按配置。"""
+        """官职任免（§4.5）：联盟盟主/副主可任免联盟名册成员。"""
         world, p = await self._require_player(user_id)
-        f = await self.get_faction(p["faction_id"])
+        f = await self._governance_faction(p)
         if not f or f.get("kind") == "npc":
             raise StrategyError("当前不在玩家势力中")
         await self._require_position(f, user_id, ("leader", "deputy"))
@@ -439,7 +680,7 @@ class StrategyFactionMixin:
         members = await self.get_members(f["id"])
         target = next((m for m in members if m["user_id"] == str(target_user)), None)
         if not target:
-            raise StrategyError("目标不是本势力成员")
+            raise StrategyError("目标不是本势力/联盟成员")
         holders = [m for m in members if (m.get("position") or "") == position
                    and m["user_id"] != str(target_user)]
         if len(holders) >= int(caps.get(position, 1)):
@@ -456,7 +697,8 @@ class StrategyFactionMixin:
 
     async def transfer_leader(self, user_id: str, target_user: str) -> dict:
         world, p = await self._require_player(user_id)
-        f = await self.get_faction(p["faction_id"])
+        # 只移交玩家自身势力的主公（联盟盟主势力移交即联盟盟主移交）
+        f = await self.get_faction(int(p["faction_id"]))
         if not f or f.get("kind") == "npc":
             raise StrategyError("当前不在玩家势力中")
         await self._require_position(f, user_id, ("leader",))
@@ -464,12 +706,58 @@ class StrategyFactionMixin:
         target = next((m for m in members if m["user_id"] == str(target_user)), None)
         if not target:
             raise StrategyError("目标不是本势力成员")
+        tp = await self.get_player(str(target_user), world["id"])
+        if not tp or int(tp.get("faction_id") or 0) != int(f["id"]):
+            raise StrategyError("仅可在自身势力内部移交主公（联盟成员势力请各自移交）")
         await self.upsert_member(f["id"], str(target_user), position="leader")
         await self.upsert_member(f["id"], user_id, position="deputy")
         f["leader_id"] = str(target_user)
         await self.save_faction(f)
         await self._commit()
-        return {"ok": True, "msg": f"主公之位已移交 {target_user}，你转任副主"}
+        is_host = int(f.get("alliance_id") or 0) == int(f["id"])
+        title = "联盟盟主" if is_host else "主公"
+        return {"ok": True, "msg": f"{title}之位已移交 {target_user}，你转任副主"}
+
+    async def transfer_node(self, user_id: str, node_id: int,
+                            target_faction_id: int) -> dict:
+        """联盟内部交接据点归属（保留守军/建筑，仅换所属势力）。"""
+        world, p = await self._require_player(user_id)
+        f = await self._governance_faction(p)
+        if not f or f.get("kind") == "npc":
+            raise StrategyError("当前不在玩家势力中")
+        await self._require_position(f, user_id, ("leader", "deputy"))
+        ids = await self._alliance_ids(world["id"], f)
+        node = await self.get_node(world["id"], int(node_id))
+        if not node:
+            raise StrategyError("据点不存在")
+        old_owner_id = int(node.get("owner_faction", 0))
+        target = await self.get_faction(int(target_faction_id))
+        if not target or int(target.get("alive", 0)) != 1:
+            raise StrategyError("目标势力不存在")
+        if old_owner_id not in ids or int(target["id"]) not in ids:
+            raise StrategyError("只能在本联盟势力之间交接据点")
+        if old_owner_id == int(target["id"]):
+            raise StrategyError("该据点已属于目标势力")
+        if node.get("type") == "ruin":
+            raise StrategyError("遗迹不可交接")
+        old_owner = await self.get_faction(old_owner_id)
+        node["owner_faction"] = int(target["id"])
+        node["siege_state"] = {}
+        await self.save_node(node)
+        if old_owner and int(old_owner.get("capital_node_id") or 0) == int(node["id"]):
+            left = await self._fetchone(
+                "SELECT id FROM strategy_nodes WHERE world_id=? AND owner_faction=? "
+                "AND id<>? AND type<>'ruin' ORDER BY (type IN ('city','pass','branch')) DESC, id LIMIT 1",
+                (world["id"], old_owner_id, int(node["id"])))
+            old_owner["capital_node_id"] = int((left or {}).get("id", 0) or 0)
+            await self.save_faction(old_owner)
+        if not int(target.get("capital_node_id") or 0):
+            target["capital_node_id"] = int(node["id"])
+            await self.save_faction(target)
+        await self._commit()
+        return {"ok": True,
+                "msg": f"「{node['name']}」已由「{(old_owner or {}).get('name', '?')}」"
+                       f"交接给「{target['name']}」"}
 
     # ------------------------------------------------------------------
     # 国库（§8.4）
@@ -482,7 +770,7 @@ class StrategyFactionMixin:
             raise StrategyError("仅支持存入 coin/grain/iron 且数量为正")
         if int(p.get(resource, 0)) < amount:
             raise StrategyError(f"{resource} 不足")
-        f = await self.get_faction(p["faction_id"])
+        f = await self._governance_faction(p)
         if not f:
             raise StrategyError("势力不存在")
         p[resource] -= amount
@@ -493,7 +781,8 @@ class StrategyFactionMixin:
         await self.save_player(p)
         await self.add_contribution(f["id"], user_id, max(1, amount // 10))
         await self._commit()
-        return {"ok": True, "msg": f"存入国库 {resource} ×{amount}"}
+        label = "联盟国库" if int(f.get("alliance_id") or 0) else "国库"
+        return {"ok": True, "msg": f"存入{label} {resource} ×{amount}"}
 
     async def treasury_withdraw(self, user_id: str, resource: str, amount: int) -> dict:
         world, p = await self._require_player(user_id)
@@ -501,7 +790,7 @@ class StrategyFactionMixin:
         amount = int(amount)
         if resource not in ("coin", "grain", "iron") or amount <= 0:
             raise StrategyError("仅支持提取 coin/grain/iron 且数量为正")
-        f = await self.get_faction(p["faction_id"])
+        f = await self._governance_faction(p)
         if not f or f.get("kind") == "npc":
             raise StrategyError("当前不在玩家势力中")
         pos = await self._require_position(f, user_id, ("leader", "deputy"))
@@ -521,7 +810,8 @@ class StrategyFactionMixin:
         await self.save_faction(f)
         await self.save_player(p)
         await self._commit()
-        return {"ok": True, "msg": f"从国库提取 {resource} ×{amount}"}
+        label = "联盟国库" if int(f.get("alliance_id") or 0) else "国库"
+        return {"ok": True, "msg": f"从{label}提取 {resource} ×{amount}"}
 
     # ------------------------------------------------------------------
     # 势力科技（§8.4）
@@ -532,7 +822,7 @@ class StrategyFactionMixin:
         line = str(line)
         if line not in (tcfg.get("lines") or list(R.TECH_LINES)):
             raise StrategyError("科技线无效（military/agri/stratagem）")
-        f = await self.get_faction(p["faction_id"])
+        f = await self._governance_faction(p)
         if not f or f.get("kind") == "npc":
             raise StrategyError("当前不在玩家势力中")
         await self._require_position(f, user_id, OFFICER_POSITIONS)
@@ -552,7 +842,7 @@ class StrategyFactionMixin:
             raise StrategyError(f"国库不足：研究 L{lvl + 1} 需铜钱 {cost_coin} / 精铁 {cost_iron}")
         # 耗时：基础小时 × 主属性加速（取本势力在任文官最高智谋/政务）
         base_hours = float((tcfg.get("base_hours_per_level") or [8, 16, 24, 32, 40])[lvl])
-        stat = await self._best_research_stat(f["id"], world["id"])
+        stat = await self._best_research_stat(f, world["id"])
         hours = R.tech_research_hours(base_hours, stat,
                                       float(tcfg.get("stat_speed_divisor", 10)),
                                       float(tcfg.get("stat_speed_pct", 0.05)))
@@ -566,22 +856,28 @@ class StrategyFactionMixin:
         await self._commit()
         return {"ok": True,
                 "msg": f"开始研究 {line} L{lvl + 1}（{hours:.1f}h，"
-                       f"扣国库铜钱 {cost_coin}/精铁 {cost_iron}）"}
+                       f"扣{'联盟' if int(f.get('alliance_id') or 0) else ''}"
+                       f"国库铜钱 {cost_coin}/精铁 {cost_iron}）"}
 
-    async def _best_research_stat(self, faction_id: int, world_id: int) -> int:
+    async def _best_research_stat(self, f: dict, world_id: int) -> int:
         best = 50
-        for c in await self.get_chars(faction_id=faction_id, world_id=world_id):
-            st = c.get("stats") or {}
-            best = max(best, int(st.get("wisdom", 0)), int(st.get("admin", 0)))
+        ids = await self._alliance_ids(world_id, f)
+        for fid in ids or {int(f["id"])}:
+            for c in await self.get_chars(faction_id=int(fid), world_id=world_id):
+                st = c.get("stats") or {}
+                best = max(best, int(st.get("wisdom", 0)), int(st.get("admin", 0)))
         return best
 
     async def _step_tech(self, world: dict):
-        """tick：到期的科技研究完成（等级 +1）。"""
+        """tick：到期的科技研究完成（等级 +1，并同步给联盟成员）。"""
         rows = await self._fetchall(
             "SELECT * FROM strategy_factions WHERE world_id=? AND alive=1", (world["id"],))
         changed = False
         for row in rows:
             f = self._decode("strategy_factions", row)
+            aid = int(f.get("alliance_id") or 0)
+            if aid and aid != int(f["id"]):
+                continue  # 联盟研究只在盟主势力推进
             tech = f.get("tech") or {}
             pend = tech.get("pending") or {}
             if pend and int(pend.get("finish_at", 0)) <= _now():
@@ -591,6 +887,7 @@ class StrategyFactionMixin:
                     tech.pop("pending", None)
                     f["tech"] = tech
                     await self.save_faction(f)
+                    await self._sync_alliance_meta(f)
                     changed = True
                     logger.info(f"[strategy] 势力#{f['id']} 科技 {line} → L{tech[line]}")
         if changed:
@@ -632,11 +929,14 @@ class StrategyFactionMixin:
         kind = str(kind)
         if kind not in ("war", "truce", "ally", "peace"):
             raise StrategyError("外交类型无效（war/truce/ally/peace）")
-        f = await self.get_faction(p["faction_id"])
+        f = await self._governance_faction(p)
         tf = await self.get_faction(int(target_fid))
         if not f or f.get("kind") == "npc":
             raise StrategyError("当前不在玩家势力中")
-        if not tf or not int(tf.get("alive", 0)) or int(tf["id"]) == int(f["id"]):
+        if not tf or not int(tf.get("alive", 0)):
+            raise StrategyError("目标势力无效")
+        tf = await self._alliance_host(tf)
+        if int(tf["id"]) == int(f["id"]):
             raise StrategyError("目标势力无效")
         now = _now()
         f_dip = f.get("diplomacy") or {}
@@ -660,6 +960,8 @@ class StrategyFactionMixin:
             tf["diplomacy"] = t_dip
             await self.save_faction(f)
             await self.save_faction(tf)
+            await self._sync_alliance_meta(f)
+            await self._sync_alliance_meta(tf)
             await self._commit()
             return {"ok": True,
                     "msg": f"⚔️ 已向「{tf['name']}」宣战！备战期 {prep // 3600} 小时后全面开战"}
@@ -699,6 +1001,8 @@ class StrategyFactionMixin:
         tf["diplomacy"] = t_dip
         await self.save_faction(f)
         await self.save_faction(tf)
+        await self._sync_alliance_meta(f)
+        await self._sync_alliance_meta(tf)
         await self._commit()
         return {"ok": True,
                 "msg": f"{self._kind_cn(kind)}提案已发往「{tf['name']}」（48h 内有效）"}
@@ -752,6 +1056,8 @@ class StrategyFactionMixin:
         tf["diplomacy"] = t_dip
         await self.save_faction(f)
         await self.save_faction(tf)
+        await self._sync_alliance_meta(f)
+        await self._sync_alliance_meta(tf)
         await self._commit()
         if kind == "ally":
             for uid in (f.get("leader_id"), tf.get("leader_id")):
@@ -762,7 +1068,7 @@ class StrategyFactionMixin:
                                 accept: bool) -> dict:
         world, p = await self._require_player(user_id)
         dcfg = self.main_cfg().get("diplomacy") or {}
-        f = await self.get_faction(p["faction_id"])
+        f = await self._governance_faction(p)
         if not f or f.get("kind") == "npc":
             raise StrategyError("当前不在玩家势力中")
         await self._require_position(f, user_id, OFFICER_POSITIONS)
@@ -777,11 +1083,14 @@ class StrategyFactionMixin:
         tf = await self.get_faction(int(from_fid))
         if not tf or not int(tf.get("alive", 0)):
             raise StrategyError("提案方势力已消亡")
+        tf = await self._alliance_host(tf)
         kind = rel[len("propose_"):]
         if not accept:
             self._clear_proposals(f, tf)
             await self.save_faction(f)
             await self.save_faction(tf)
+            await self._sync_alliance_meta(f)
+            await self._sync_alliance_meta(tf)
             await self._commit()
             return {"ok": True, "msg": f"已拒绝「{tf['name']}」的{self._kind_cn(kind)}提案"}
         if kind == "ally":
@@ -812,6 +1121,11 @@ class StrategyFactionMixin:
         tf = await self.get_faction(dfn_fid)
         if not f or not tf:
             return False
+        f = await self._alliance_host(f)
+        tf = await self._alliance_host(tf)
+        if int(f["id"]) == int(tf["id"]):
+            return False
+        atk_fid, dfn_fid = int(f["id"]), int(tf["id"])
         now = _now()
         rel = R.relation_of(f.get("diplomacy") or {}, dfn_fid, now)
         dcfg = self.main_cfg().get("diplomacy") or {}
@@ -828,6 +1142,8 @@ class StrategyFactionMixin:
         self._set_relation(tf_dip, atk_fid, R.REL_WAR, war_at=now)
         await self.save_faction(f)
         await self.save_faction(tf)
+        await self._sync_alliance_meta(f)
+        await self._sync_alliance_meta(tf)
         await self._commit()
         logger.info(f"[strategy] 势力#{atk_fid} 撕毁条约进攻 #{dfn_fid}，转入战争")
         return True
@@ -952,11 +1268,16 @@ class StrategyFactionMixin:
         f["faction_state"] = "collapsed"
         f["treasury"] = {}
         await self.save_faction(f)
+        if int(f.get("alliance_id") or 0):
+            try:
+                await self._remove_faction_from_alliance(world, f)
+            except StrategyError:
+                pass
         for m in members:
             p = await self.get_player(m["user_id"], world["id"])
             if p:
                 personal = await self._ensure_personal_faction(world, p)
-                await self._join_faction(world, p, personal, position="leader")
+                await self._move_player_to_faction(world, p, personal)
             await self.delete_member(fid, m["user_id"])
         data["bandits"] = bandits
         world["data"] = data
@@ -984,21 +1305,40 @@ class StrategyFactionMixin:
         return True
 
     async def rebuild_capital(self, user_id: str, node_id: int) -> dict:
-        """主城重建：主玩法灵石付费（300 万 ×1.5^n），新首都 7 天保护。"""
+        """主城重建：主玩法灵石付费（300 万 ×1.5^n），新首都 7 天保护。
+
+        流亡势力（capital_node_id=0）可选任意无主城池/关隘/分舵直接重建；
+        尚有主城时只允许迁都到己方据点。
+        """
         world, p = await self._require_player(user_id)
         rcfg = self.main_cfg().get("rebuild") or {}
         f = await self.get_faction(p["faction_id"])
         if not f or f.get("kind") == "npc":
             raise StrategyError("当前不在玩家势力中")
         await self._require_position(f, user_id, ("leader",))
-        node = await self._owned_node(p, node_id)
+        node = await self.get_node(world["id"], int(node_id))
+        if not node:
+            raise StrategyError("据点不存在")
         if node["type"] not in ("city", "pass", "branch"):
             raise StrategyError("新主城须为城池/关隘/分舵")
+        owned = int(node.get("owner_faction", 0)) == int(f["id"])
+        if not owned:
+            if int(f.get("capital_node_id") or 0):
+                raise StrategyError("迁都只能选择我方据点；流亡后才可在无主节点重建")
+            if int(node.get("owner_faction", 0)) != 0:
+                raise StrategyError("目标据点不属于无主势力")
         cost = R.rebuild_gold_cost(int(rcfg.get("base_gold_cost", 3_000_000)),
                                    int(f.get("rebuild_count", 0)),
                                    float(rcfg.get("cost_growth", 0.5)))
         if not await self._deduct_main_gold(user_id, cost):
             raise StrategyError(f"主玩法灵石不足：重建需 {cost:,}")
+        if not owned:
+            # 流亡重建：无主残军自动散尽，据点归入本势力后再设为主城
+            node["owner_faction"] = int(f["id"])
+            node["npc_garrison"] = {"troops": 0, "morale": 80}
+            node["siege_state"] = {}
+            if node["type"] in ("city", "pass", "branch"):
+                node["defense"] = R.city_defense_max(max(1, int(node.get("level", 1))))
         f["capital_node_id"] = int(node["id"])
         f["rebuild_count"] = int(f.get("rebuild_count", 0)) + 1
         await self.save_faction(f)

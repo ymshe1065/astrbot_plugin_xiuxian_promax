@@ -54,6 +54,20 @@ class TestStrategyManager(unittest.IsolatedAsyncioTestCase):
         self.world = await self.m.ensure_world()
         self.wid = self.world["id"]
 
+    async def _free_node(self) -> int:
+        """选一座无主可入场据点（优先城池/关隘/分舵）。"""
+        nodes = [n for n in await self.m.get_nodes(self.wid)
+                 if int(n["owner_faction"]) == 0 and n["type"] != "ruin"]
+        nodes.sort(key=lambda n: (n["type"] not in ("city", "pass", "branch"),
+                                  -int(n.get("level", 1)), int(n["id"])))
+        self.assertTrue(nodes, "没有可选起始据点")
+        return int(nodes[0]["id"])
+
+    async def _enter(self, user_id: str = "u1", nickname: str = "测试道人",
+                     referral: str = "") -> dict:
+        return await self.m.enter_game(user_id, nickname, referral=referral,
+                                       node_id=await self._free_node())
+
     async def asyncTearDown(self):
         await self.db.close()
         os.remove(self.db_path)
@@ -97,23 +111,111 @@ class TestStrategyManager(unittest.IsolatedAsyncioTestCase):
             return [dict(zip(keys, r)) for r in rows]
 
     async def test_enter_game_starter_pack(self):
-        p = await self.m.enter_game("u1", "测试道人")
+        p = await self._enter()
         self.assertEqual(p["coin"], 5000)
         self.assertEqual(p["grain"], 2000)
         self.assertEqual(p["recruit_token"], 2)
         f = await self.m.get_faction(p["faction_id"])
         self.assertEqual(f["kind"], "player")
+        # 入场即成为个人势力主公（成员名册必须有 leader 行）
+        members = await self.m.get_members(p["faction_id"])
+        self.assertEqual(len(members), 1)
+        self.assertEqual(members[0]["user_id"], "u1")
+        self.assertEqual(members[0]["position"], "leader")
+        # 新手的起始据点会同步设为主城，避免无据点→无法编军/派遣的死锁
+        home = await self.m.get_node(self.wid, int(f["capital_node_id"]))
+        self.assertIsNotNone(home)
+        self.assertEqual(int(home["owner_faction"]), int(p["faction_id"]))
+        self.assertGreater(int(home.get("protect_until", 0)), 0)
         chars = await self.m.get_chars(owner_user_id="u1", world_id=self.wid)
         roles = sorted(c["role"] for c in chars)
         self.assertEqual(roles, ["general", "official"])
         self.assertTrue(all(c["rarity"] == "common" for c in chars))
         # 幂等：二次入场不重复发放
-        await self.m.enter_game("u1", "测试道人")
+        await self._enter()
         chars2 = await self.m.get_chars(owner_user_id="u1", world_id=self.wid)
         self.assertEqual(len(chars2), 2)
+        nodes = [n for n in await self.m.get_nodes(self.wid)
+                 if int(n["owner_faction"]) == int(p["faction_id"])]
+        self.assertEqual(len(nodes), 1)
+
+    async def test_enter_requires_chosen_free_node(self):
+        """入场必须由玩家自选无主据点，不再自动分配。"""
+        nodes = [n for n in await self.m.get_nodes(self.wid)
+                 if int(n["owner_faction"]) == 0 and n["type"] != "ruin"]
+        target = nodes[0]
+        with self.assertRaises(self.StrategyError):
+            await self.m.enter_game("u1", "测试道人")
+        p = await self.m.enter_game("u1", "测试道人", node_id=int(target["id"]))
+        f = await self.m.get_faction(p["faction_id"])
+        self.assertEqual(int(f["capital_node_id"]), int(target["id"]))
+        got = await self.m.get_node(self.wid, int(target["id"]))
+        self.assertEqual(int(got["owner_faction"]), int(p["faction_id"]))
+        # 已被占据的据点不可再选；遗迹不可作为起始据点
+        await self.db.create_player(self.Player(
+            user_id="u2", gold=1000, user_name="测试乙"))
+        with self.assertRaises(self.StrategyError):
+            await self.m.enter_game("u2", "测试乙", node_id=int(target["id"]))
+        ruin = next((n for n in await self.m.get_nodes(self.wid)
+                     if n["type"] == "ruin"), None)
+        if ruin:
+            with self.assertRaises(self.StrategyError):
+                await self.m.enter_game("u2", "测试乙", node_id=int(ruin["id"]))
+
+    async def test_legacy_player_repair_and_rebuild(self):
+        """旧存档自愈：补主公成员行 / 补起始据点；流亡后可在无主节点重建。"""
+        p = await self._enter()
+        f = await self.m.get_faction(p["faction_id"])
+        home = await self.m.get_node(self.wid, int(f["capital_node_id"]))
+        # 模拟修复前的旧存档：没有成员行、没有据点、没有主城
+        await self.m.delete_member(int(p["faction_id"]), "u1")
+        home["owner_faction"] = 0
+        home["npc_garrison"] = {"troops": 800, "morale": 80}
+        home["protect_until"] = 0
+        await self.m.save_node(home)
+        f["capital_node_id"] = 0
+        await self.m.save_faction(f)
+        p = await self.m.get_player("u1", self.wid)
+        p["tutorial"] = {}
+        await self.m.save_player(p)
+        await self.m._commit()
+        p = await self._enter()
+        members = await self.m.get_members(p["faction_id"])
+        self.assertEqual([m["position"] for m in members], ["leader"])
+        f2 = await self.m.get_faction(p["faction_id"])
+        self.assertGreater(int(f2["capital_node_id"]), 0)
+        home2 = await self.m.get_node(self.wid, int(f2["capital_node_id"]))
+        self.assertEqual(int(home2["owner_faction"]), int(p["faction_id"]))
+        # 流亡重建：选另一个无主城池/关隘/分舵，付灵石后归入本势力
+        main_player = await self.db.get_player_by_id("u1")
+        main_player.gold = 3_000_000
+        await self.db.update_player(main_player)
+        f2["capital_node_id"] = 0
+        await self.m.save_faction(f2)
+        home2["owner_faction"] = 0
+        await self.m.save_node(home2)
+        await self.m._commit()
+        target = next(n for n in await self.m.get_nodes(self.wid)
+                      if int(n["owner_faction"]) == 0 and n["type"] in ("city", "pass", "branch"))
+        r = await self.m.rebuild_capital("u1", int(target["id"]))
+        self.assertTrue(r["ok"])
+        f3 = await self.m.get_faction(p["faction_id"])
+        self.assertEqual(int(f3["capital_node_id"]), int(target["id"]))
+        t3 = await self.m.get_node(self.wid, int(target["id"]))
+        self.assertEqual(int(t3["owner_faction"]), int(p["faction_id"]))
+
+    async def test_guide_toggle_persists(self):
+        await self._enter()
+        r = await self.m.handle_action("u1", "set_guide", {"visible": False})
+        self.assertTrue(r["ok"])
+        p = await self.m.get_player("u1", self.wid)
+        self.assertTrue((p.get("tutorial") or {}).get("guide_hidden"))
+        await self.m.handle_action("u1", "set_guide", {"visible": True})
+        p = await self.m.get_player("u1", self.wid)
+        self.assertFalse((p.get("tutorial") or {}).get("guide_hidden"))
 
     async def test_tavern_and_recruit(self):
-        p = await self.m.enter_game("u1", "测试道人")
+        p = await self._enter()
         tavern = await self.m.refresh_tavern(p, self.wid)
         self.assertEqual(len(tavern["candidates"]), 5)
         # 手动刷新扣 300 币，日上限 3
@@ -141,7 +243,7 @@ class TestStrategyManager(unittest.IsolatedAsyncioTestCase):
     async def test_premium_recruit_pity(self):
         # 45 抽会超默认角色上限 10：调高上限避免干扰保底验证
         self.m.main_cfg()["recruit"]["character_cap_base"] = 200
-        p = await self.m.enter_game("u1", "测试道人")
+        p = await self._enter()
         await self.m.refresh_tavern(p, self.wid)
         p = await self.m.get_player("u1", self.wid)
         p["recruit_token"] = 50
@@ -158,7 +260,7 @@ class TestStrategyManager(unittest.IsolatedAsyncioTestCase):
         self.assertGreaterEqual(got_epic_plus, 1)  # 40 抽保底必触发
 
     async def test_dispatch_and_recall_task(self):
-        p = await self.m.enter_game("u1", "测试道人")
+        p = await self._enter()
         gen = next(c for c in await self.m.get_chars(
             owner_user_id="u1", world_id=self.wid) if c["role"] == "general")
         node = next(n for n in await self.m.get_nodes(self.wid)
@@ -184,7 +286,7 @@ class TestStrategyManager(unittest.IsolatedAsyncioTestCase):
             await self.m.dispatch_task("u1", gen["id"], enemy["id"], "farm", 1)
 
     async def test_create_army_limits_and_costs(self):
-        p = await self.m.enter_game("u1", "测试道人")
+        p = await self._enter()
         chars = await self.m.get_chars(owner_user_id="u1", world_id=self.wid)
         gen = next(c for c in chars if c["role"] == "general")
         off = next(c for c in chars if c["role"] == "official")
@@ -199,10 +301,10 @@ class TestStrategyManager(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(self.StrategyError):
             await self.m.create_army("u1", off["id"], [], node["id"],
                                      "sword_shield", 500)
-        # 超带兵上限（无官职 1500）
+        # 超带兵上限（个人势力主公 3000）
         with self.assertRaises(self.StrategyError):
             await self.m.create_army("u1", gen["id"], [], node["id"],
-                                     "sword_shield", 1600)
+                                     "sword_shield", 3100)
         # 正常编成：500 剑盾 = 500×50/10=2500 币 + 500×20/10=1000 粮
         coin0 = (await self.m.get_player("u1", self.wid))["coin"]
         r = await self.m.create_army("u1", gen["id"], [], node["id"],
@@ -238,7 +340,7 @@ class TestStrategyManager(unittest.IsolatedAsyncioTestCase):
             await self.m.create_army("u1", c3["id"], [], node["id"], "beast_horde", 200)
 
     async def test_march_and_capture(self):
-        p = await self.m.enter_game("u1", "测试道人")
+        p = await self._enter()
         gen = next(c for c in await self.m.get_chars(
             owner_user_id="u1", world_id=self.wid) if c["role"] == "general")
         nodes = {n["id"]: n for n in await self.m.get_nodes(self.wid)}
@@ -275,7 +377,7 @@ class TestStrategyManager(unittest.IsolatedAsyncioTestCase):
         self.assertIn("会战", battles[0]["report_text"])
 
     async def test_gold_injection_daily_cap(self):
-        await self.m.enter_game("u1", "测试道人")
+        await self._enter()
         # A3 新契约：_inject_gold(p, amount) 接收调用方 player dict 就地更新，
         # 由调用方 save_player 落库（防内部重读日志被旧快照覆盖、日限额失效）
         p = await self.m.get_player("u1", self.wid)
@@ -297,7 +399,7 @@ class TestStrategyManager(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(p2["daily_output_log"][today], 5_000_000)
 
     async def test_tick_catchup_marks_output_only(self):
-        await self.m.enter_game("u1", "测试道人")
+        await self._enter()
         w = await self.m.get_world()
         w["last_tick_at"] = _now_minus(60 * 20)  # 欠 20 tick > 上限 8
         await self.m.save_world(w)
@@ -312,7 +414,7 @@ class TestStrategyManager(unittest.IsolatedAsyncioTestCase):
         self.assertGreaterEqual(w2["tick_no"], 20)
 
     async def test_snapshot_fog(self):
-        p = await self.m.enter_game("u1", "测试道人")
+        p = await self._enter()
         st = await self.m.get_state("u1")
         self.assertTrue(st["joined"])
         self.assertEqual(len(st["nodes"]), 36)
@@ -330,7 +432,7 @@ class TestStrategyManager(unittest.IsolatedAsyncioTestCase):
         self.assertIn("troop_types", st["meta"])
 
     async def test_busy_lock_blocks_actions(self):
-        await self.m.enter_game("u1", "测试道人")
+        await self._enter()
         await self.m._world_lock.acquire()
         try:
             with self.assertRaises(self.StrategyBusyError):
@@ -339,7 +441,7 @@ class TestStrategyManager(unittest.IsolatedAsyncioTestCase):
             self.m._world_lock.release()
 
     async def test_build_and_upgrade(self):
-        p = await self.m.enter_game("u1", "测试道人")
+        p = await self._enter()
         # 模板 4 座城池全部会成为 NPC 都城（level=2）：改用非都城的关隘（level=1）测试
         city = next(n for n in await self.m.get_nodes(self.wid)
                     if n["type"] == "pass" and n["level"] == 1)

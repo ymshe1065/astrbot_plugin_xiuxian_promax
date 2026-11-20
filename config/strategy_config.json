@@ -12,7 +12,9 @@
     "characters": [
       {"role": "general", "rarity": "common"},
       {"role": "official", "rarity": "common"}
-    ]
+    ],
+    "home_node_types": ["branch", "market", "grain", "mine"],
+    "home_garrison": 300
   },
 
   "node_output_per_tick": {
@@ -249,6 +251,9 @@
     "positions": {"leader": 1, "deputy": 1, "situ": 1, "taiwei": 1, "jijiu": 2, "zhonglangjiang": 2},
     "capital_relocate_cd_days": 7,
     "salary_from_treasury": true
+  },
+  "alliance": {
+    "max_factions": 3
   },
 
   "diplomacy": {

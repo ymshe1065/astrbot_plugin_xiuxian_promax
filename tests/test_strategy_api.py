@@ -156,6 +156,18 @@ class _ManagerBase(unittest.IsolatedAsyncioTestCase):
         await self.m.save_node(node)
         return node
 
+    async def _free_node(self) -> int:
+        nodes = [n for n in await self.m.get_nodes(self.wid)
+                 if int(n["owner_faction"]) == 0 and n["type"] != "ruin"]
+        nodes.sort(key=lambda n: (n["type"] not in ("city", "pass", "branch"),
+                                  -int(n.get("level", 1)), int(n["id"])))
+        self.assertTrue(nodes, "没有可选起始据点")
+        return int(nodes[0]["id"])
+
+    async def _enter(self, user_id: str, nickname: str = "") -> dict:
+        return await self.m.enter_game(user_id, nickname,
+                                       node_id=await self._free_node())
+
 
 class _AccountsBase(unittest.TestCase):
     """webroom 账号库临时化（同 test_webroom_dm）。"""
@@ -214,9 +226,12 @@ class StrategyRestApiTest(_AccountsBase, _ManagerBase):
         return {"Authorization": "Bearer " + self.tokens[name]}
 
     async def _action(self, name, action, params=None):
+        params = dict(params or {})
+        if action == "enter" and not params.get("node_id"):
+            params["node_id"] = await self._free_node()
         return await (await self.cli.post(
             "/api/strategy/action", headers=self._h(name),
-            json={"action": action, "params": params or {}})).json()
+            json={"action": action, "params": params})).json()
 
     async def test_unauthorized(self):
         resp = await self.cli.get("/api/strategy/state")
@@ -252,6 +267,26 @@ class StrategyRestApiTest(_AccountsBase, _ManagerBase):
         self.assertEqual(resp.status, 400)
         body = await resp.json()
         self.assertIn("action", body["error"])
+
+    async def test_enter_requires_manual_node_selection(self):
+        resp = await self.cli.get("/api/strategy/state", headers=self._h("alice"))
+        st = (await resp.json())["state"]
+        self.assertFalse(st["joined"])
+        self.assertTrue(st["start_candidates"])
+        # 未选据点直接入场 → 400
+        bad = await self.cli.post(
+            "/api/strategy/action", headers=self._h("alice"),
+            json={"action": "enter", "params": {}})
+        self.assertEqual(bad.status, 400)
+        self.assertIn("据点", (await bad.json())["error"])
+        # 选定候选据点后入场，主城即所选据点
+        nid = int(st["start_candidates"][0]["id"])
+        r = await self._action("alice", "enter", {"node_id": nid})
+        self.assertTrue(r["ok"], r)
+        resp = await self.cli.get("/api/strategy/state", headers=self._h("alice"))
+        st2 = (await resp.json())["state"]
+        self.assertTrue(st2["joined"])
+        self.assertEqual(int(st2["player"]["faction"]["capital_node_id"]), nid)
 
     async def test_enter_autofills_nickname_then_state(self):
         # enter 不带 nickname → strategy_action 用网页昵称补齐
@@ -315,7 +350,7 @@ class StrategyNotifyTest(_AccountsBase, _ManagerBase):
             self.pushed.append((uid, kind, payload))
 
         self.m.set_notifier(_collect)
-        await self.m.enter_game("web_alice", "阿狸")
+        await self._enter("web_alice", "阿狸")
 
     async def asyncTearDown(self):
         await self._teardown_manager()
@@ -382,8 +417,8 @@ class StrategyServerAuthorityTest(_ManagerBase):
 
     async def asyncSetUp(self):
         await self._setup_manager()
-        await self.m.enter_game("web_alice", "甲")
-        await self.m.enter_game("web_bob", "乙")
+        await self._enter("web_alice", "甲")
+        await self._enter("web_bob", "乙")
 
     async def asyncTearDown(self):
         await self._teardown_manager()
@@ -461,7 +496,7 @@ class StrategyGmTest(_ManagerBase):
 
     async def asyncSetUp(self):
         await self._setup_manager(users=("web_alice",))
-        await self.m.enter_game("web_alice", "甲")
+        await self._enter("web_alice", "甲")
 
     async def asyncTearDown(self):
         await self._teardown_manager()

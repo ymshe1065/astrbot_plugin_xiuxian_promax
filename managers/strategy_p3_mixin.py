@@ -438,8 +438,14 @@ class StrategyP3Mixin:
             key = (min(a, b), max(a, b))
             if key not in cache:
                 fa = factions.get(a)
-                rel = R.relation_of((fa or {}).get("diplomacy") or {}, b, _now())
-                cache[key] = rel == R.REL_ALLY
+                fb = factions.get(b)
+                aid_a = int((fa or {}).get("alliance_id") or 0)
+                aid_b = int((fb or {}).get("alliance_id") or 0)
+                if aid_a and aid_a == aid_b:
+                    cache[key] = True
+                else:
+                    rel = R.relation_of((fa or {}).get("diplomacy") or {}, b, _now())
+                    cache[key] = rel == R.REL_ALLY
             return cache[key]
         return fn
 

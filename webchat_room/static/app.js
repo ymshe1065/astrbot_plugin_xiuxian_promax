@@ -2495,6 +2495,13 @@
       b.classList.toggle("open", !on);
       setFoldLabel(b);
     });
+    // 卡片消息（战报 / 自动代理详情）也带独立折叠按钮，全局开关要一起生效
+    box.querySelectorAll(".card.card-foldable").forEach((card) => {
+      if (card.classList.contains("folded") !== on) {
+        const cardBtn = card.querySelector(".card-fold-btn");
+        if (cardBtn) cardBtn.click();
+      }
+    });
     const btn = $("btnFold");
     btn.classList.toggle("on", on);
     btn.querySelector(".ft").textContent = on ? "展开" : "折叠";
@@ -6942,6 +6949,16 @@
     $("inboxRead").addEventListener("click", () => sendNotices("notices_read", { all: true }));
     $("inboxClear").addEventListener("click", () => sendNotices("notices_clear"));
 
+    // 仙域争霸入口：手机 App 的 WebView 经常忽略 target=_blank，改为当前页跳转
+    const openStrategy = (e) => {
+      if (!isMobile()) return;
+      e.preventDefault();
+      const href = e.currentTarget.getAttribute("href");
+      if (href) location.href = href;
+    };
+    $("btnStrategy").addEventListener("click", openStrategy);
+    if ($("accStrategy")) $("accStrategy").addEventListener("click", openStrategy);
+
     // 私聊 DM（§12.7）
     $("btnDm").addEventListener("click", openDm);
     $("dmClose").addEventListener("click", closeDm);
@@ -7401,12 +7418,21 @@
     document.querySelectorAll(".mnav").forEach((btn) => {
       btn.addEventListener("click", () => {
         const nav = btn.dataset.nav;
+        const wasActive = btn.classList.contains("active");
         document.querySelectorAll(".mnav").forEach((b) => b.classList.toggle("active", b === btn));
         if (nav === "chat") {
           closeDrawer();
           return;
         }
         if (isMobile()) {
+          // 已打开同一看板时再点一次 = 收起，避免只能点遮罩关闭
+          if (wasActive && $("panelPane").classList.contains("open")) {
+            closeDrawer();
+            btn.classList.remove("active");
+            const chatBtn = document.querySelector('.mnav[data-nav="chat"]');
+            if (chatBtn) chatBtn.classList.add("active");
+            return;
+          }
           switchPanelTab(nav);
           openDrawer();
         } else {
