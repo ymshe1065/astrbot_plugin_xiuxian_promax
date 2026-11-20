@@ -2,6 +2,7 @@
   "enabled": true,
   "tick_minutes": 15,
   "max_catchup_ticks": 8,
+  "max_catchup_output_ticks": 192,
   "world_template": "standard36",
   "season_days": 75,
 

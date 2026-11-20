@@ -35,6 +35,7 @@ let S = null;            // 世界快照
 let selectedNode = null; // 选中据点 id
 let marchArmyId = null;  // 出征目标选择模式
 let activeTab = "overview";
+let lastRenderedTab = null;
 let pollTimer = null;
 
 // ---------------------------------------------------------------------------
@@ -64,7 +65,7 @@ async function api(path, opts) {
   if (resp.status === 401) { location.href = "../index.html"; throw new Error("登录已过期"); }
   if (resp.status === 423) { toast("⏳ 世界推进中，请稍后再试", "err"); throw new Error("busy"); }
   if (!resp.ok || (data && data.ok === false)) {
-    const msg = (data && data.error) || ("HTTP " + resp.status);
+    const msg = (data && (data.error || data.msg)) || ("HTTP " + resp.status);
     toast("❌ " + msg, "err");
     throw new Error(msg);
   }
@@ -82,9 +83,13 @@ async function doAction(action, params) {
   } catch (e) { return null; }
 }
 
+let loadSeq = 0;   // 请求序号：20s 轮询与动作后的 load() 可能乱序返回
 async function load() {
+  const seq = ++loadSeq;
   try {
     const r = await api("/api/strategy/state");
+    // 旧请求晚到：丢弃，避免把新状态覆盖回旧快照（界面回滚/重复操作）
+    if (seq !== loadSeq) return;
     S = r.state;
     document.getElementById("joinOverlay").hidden = !!S.joined;
     if (!S.joined) renderJoinCandidates();
@@ -240,7 +245,7 @@ function drawMap() {
   for (const n of S.nodes) {
     const [x, y] = toScreen(n.pos[0], n.pos[1]);
     const r = (n.type === "city" ? 15 : n.type === "pass" ? 12 : 10) * Math.max(0.8, view.scale);
-    const color = (n.owner && n.owner.color) || "#9e9e9e";
+    const color = safeColor(n.owner && n.owner.color);
     if (selectedNode === n.id) {
       ctx.strokeStyle = "#e3b341"; ctx.lineWidth = 2.5;
       ctx.beginPath(); ctx.arc(x, y, r + 5, 0, Math.PI * 2); ctx.stroke();
@@ -319,7 +324,7 @@ function renderLegend() {
   if (!el) return;
   const rows = (S.factions || []).filter((f) => f.node_count > 0 || f.id === myFactionId());
   el.innerHTML = rows.map((f) =>
-    '<div class="lg-item"><span class="lg-dot" style="background:' + f.color + '"></span>' +
+    '<div class="lg-item"><span class="lg-dot" style="background:' + safeColor(f.color) + '"></span>' +
     esc(f.name) + "（" + f.node_count + "）</div>").join("");
   if (cnt) cnt.textContent = "(" + rows.length + ")";
 }
@@ -391,9 +396,38 @@ function esc(s) {
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
+// 势力颜色只允许 #RGB/#RRGGBB：服务端已归一化，此处再做一次白名单，
+// 防止旧数据库/其它写入路径把任意字符串拼进 style 属性。
+function safeColor(c) {
+  const v = String(c === null || c === undefined ? "" : c).trim();
+  return /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(v) ? v : "#9e9e9e";
+}
+
 // ---------------------------------------------------------------------------
 // 据点抽屉
 // ---------------------------------------------------------------------------
+// 20 秒轮询会整块重绘 tabBody / drawerBody：先快照输入值，重绘后回填，
+// 避免玩家正在填写的编军/建设/搜索表单被清空（含光标丢失）。
+function captureFormState(root) {
+  const st = {};
+  if (!root || !root.querySelectorAll) return st;
+  root.querySelectorAll("input,select,textarea").forEach((el) => {
+    if (!el.id) return;
+    st[el.id] = (el.type === "checkbox" || el.type === "radio") ? !!el.checked : el.value;
+  });
+  return st;
+}
+
+function restoreFormState(root, st) {
+  if (!root || !st) return;
+  Object.keys(st).forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (el.type === "checkbox" || el.type === "radio") el.checked = !!st[id];
+    else el.value = st[id];
+  });
+}
+
 function renderDrawer() {
   const drawer = document.getElementById("nodeDrawer");
   const n = nodeById(selectedNode);
@@ -406,7 +440,7 @@ function renderDrawer() {
   const p = S.player || {};
   let html = "";
   html += kv("类型", (TYPE_NAME[n.type] || n.type) + " · " + (TERRAIN_NAME[n.terrain] || n.terrain) + " · Lv" + n.level);
-  html += kv("归属", '<span style="color:' + (n.owner ? n.owner.color : "#999") + '">' + esc(n.owner ? n.owner.name : "无主") + "</span>");
+  html += kv("归属", '<span style="color:' + (n.owner ? safeColor(n.owner.color) : "#999") + '">' + esc(n.owner ? n.owner.name : "无主") + "</span>");
   html += moraleBarHtml(n, mine);
   if (n.defense_max > 0) {
     const pct = Math.round(n.defense / n.defense_max * 100);
@@ -453,7 +487,9 @@ function renderDrawer() {
     if (!idleArmies.length) html += '<span class="sub">（无可出征军团，先在己方据点编军）</span>';
   }
   html += "</div>";
+  const st = captureFormState(body);
   body.innerHTML = html;
+  restoreFormState(body, st);
 }
 
 function kv(k, v) { return '<div class="kv"><span class="k">' + k + "</span><span>" + v + "</span></div>"; }
@@ -621,7 +657,12 @@ function renderTab() {
     battles: tabBattles, shop: tabShop, honor: tabHonor, settings: tabSettings,
     guide: (window.tabGuide || (() => "")),
   }[activeTab];
+  // 仅在同一标签页内重绘时回填输入值；切换标签不复用上一页的旧值
+  const sameTab = lastRenderedTab === activeTab;
+  const st = sameTab ? captureFormState(el) : null;
   el.innerHTML = fn ? fn() : "";
+  if (sameTab) restoreFormState(el, st);
+  lastRenderedTab = activeTab;
   bindTabEvents();
   // 指引页：事件全部委托在 #tabBody 上，重复调用不会重复绑定；
   // 搜索词保存在 guide.js 的 state 中，20s 轮询重绘后仍会回填。
@@ -735,7 +776,7 @@ function tabOverview() {
   h += '<table class="tbl"><tr><th>势力</th><th>类型</th><th>据点</th><th>声望</th></tr>';
   for (const f of S.factions || []) {
     if (f.node_count <= 0 && f.id !== myFactionId()) continue;
-    h += "<tr><td><span class='lg-dot' style='display:inline-block;background:" + f.color + "'></span> " + esc(f.name) +
+    h += "<tr><td><span class='lg-dot' style='display:inline-block;background:" + safeColor(f.color) + "'></span> " + esc(f.name) +
       (f.id === myFactionId() ? "（我）" : "") + "</td><td>" +
       ({ npc: "NPC", player: "玩家", demon: "魔潮", none: "无主" }[f.kind] || f.kind) +
       "</td><td>" + f.node_count + "</td><td>" + f.reputation + "</td></tr>";
@@ -1108,7 +1149,7 @@ function tabFaction() {
   const isLeader = f.my_position === "leader";
   // --- 概况 ---
   h += '<div class="card"><h3><span class="lg-dot" style="display:inline-block;background:' +
-    ((S.factions || []).find((x) => x.id === f.id) || {}).color + '"></span> ' + esc(f.name) +
+    safeColor(((S.factions || []).find((x) => x.id === f.id) || {}).color) + '"></span> ' + esc(f.name) +
     ' <span class="tag">' + (f.kind === "player" ? "玩家势力" : f.kind) + "</span>" +
     (inAlliance ? ' <span class="tag">联盟：' + esc(myAllianceName) + "</span>" : "") + "</h3>" +
     '<div class="sub">等级 ' + f.level + " · 声望 " + f.reputation + " · 我的治理身份 " +
@@ -1158,7 +1199,7 @@ function tabFaction() {
     if (isLeader && others.length) {
       for (const x of others) {
         h += '<div class="form-row"><span class="lg-dot" style="display:inline-block;background:' +
-          x.color + '"></span> ' + esc(x.name) + "（声望 " + x.reputation +
+          safeColor(x.color) + '"></span> ' + esc(x.name) + "（声望 " + x.reputation +
           " · 据点 " + x.node_count + "）" +
           '<button class="btn small" data-act="faction-apply" data-id="' + x.id +
           '">申请结盟</button></div>';
@@ -1369,7 +1410,7 @@ function factionNoHome(p) {
     h += '<div class="card"><h3>✍️ 进行中的会签</h3>';
     for (const pet of pets) {
       const left = Math.max(0, pet.expire_at - Math.floor(Date.now() / 1000));
-      h += '<div class="form-row"><span class="lg-dot" style="display:inline-block;background:' + pet.color + '"></span> ' +
+      h += '<div class="form-row"><span class="lg-dot" style="display:inline-block;background:' + safeColor(pet.color) + '"></span> ' +
         esc(pet.name) + "（" + pet.cosigners + "/3 签 · 剩 " + Math.round(left / 3600) + "h）" +
         '<button class="btn small primary" data-act="cosign" data-id="' + esc(pet.id) + '">会签（垫付会费）</button></div>';
     }
@@ -1383,7 +1424,7 @@ function factionNoHome(p) {
   if (playerFs.length) {
     h += '<div class="card"><h3>🏰 玩家势力</h3>';
     for (const x of playerFs) {
-      h += '<div class="form-row"><span class="lg-dot" style="display:inline-block;background:' + x.color + '"></span> ' +
+      h += '<div class="form-row"><span class="lg-dot" style="display:inline-block;background:' + safeColor(x.color) + '"></span> ' +
         esc(x.name) + "（声望 " + x.reputation + " · 据点 " + x.node_count + "）" +
         '<button class="btn small" data-act="faction-apply" data-id="' + x.id + '">申请结盟</button></div>';
     }
@@ -2032,7 +2073,13 @@ document.getElementById("btnJoin").addEventListener("click", async () => {
   if (!nodeId) { toast("请先选择起始据点", "err"); return; }
   const btn = document.getElementById("btnJoin");
   if (btn) btn.disabled = true;
-  await doAction("enter", { node_id: nodeId });
+  try {
+    await doAction("enter", { node_id: nodeId });
+  } finally {
+    // 失败（如灵石不足/据点被抢）后必须恢复按钮，否则最长等到下一次
+    // 轮询重建 DOM 前都无法重试。
+    if (btn) btn.disabled = false;
+  }
 });
 document.getElementById("btnRefresh").addEventListener("click", load);
 window.addEventListener("resize", resizeCanvas);

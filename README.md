@@ -27,7 +27,7 @@
 
 ---
 
-> **插件版本:** v4.1.2 · **游戏版本:** v8.0.1 · **数据库:** v77 · **分支:** `feat/web-chatroom`
+> **插件版本:** v4.2.2 · **游戏版本:** v8.0.1 · **数据库:** v78 · **分支:** `feat/web-chatroom`
 >
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497) · [lan](https://github.com/lanxue0)
 
@@ -48,7 +48,191 @@
 <sub>点击展开对应版本查看详细变更；v3.44.3 之前的版本按游戏版本系列汇总在下方。</sub>
 
 <details open>
-<summary><b>本次更新 · 插件 v4.1.2（仙域争霸第二轮冲突与 BUG 修复）</b></summary>
+<summary><b>本次更新 · 插件 v4.2.2（仙域争霸第五轮全局冲突修复）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| tick 事务（P0） | `_inject_gold` 在 tick 内改用 `update_player(commit=not _in_tick_task())`：此前它直接提交，把整段 tick 事务提前落地，时钟已写库而后续步骤回滚失效。新增 `_in_tick_task()`，`_commit` 与注入灵石统一口径 |
+| 外交提案覆盖关系（高） | 提案原先把 `rel` 直接改写为 `propose_*`，48 小时内停战/同盟/备战状态与好感 `score` 全部不可见（等于提案即撕约）。现 `_set_relation` 把既有条目快照进 `prev`，`core/strategy_rules.relation_of` 透视 `prev` 判定真实关系，`_clear_proposals` 与过期清理改为还原快照（保留窗口期新增好感）。同时禁止已有待决提案时重复提案，`diplomacy_propose` 补 `OFFICER_POSITIONS` 官职校验 |
+| 巷战破城顺序（高） | `_siege_breach` 巷战攻方胜改为先 `_capture_node`（解放旧囚、腾出关押位）再 `roll_captures`，与手操终局一致；此前先掷擒获会按旧囚数误判满员，把守将「驱逐」到即将易主的城，并在战报补获释名单 |
+| 追击擒获关押点（高） | `_auto_retreat` 追击擒获前校验关押点归属，非追击方据点则改用 `_nearest_own_node`，无合法据点则跳过擒获；此前直接关进战场节点（通常是敌城） |
+| 俘虏与官职（高） | `_capture_char` 成功关押即清 `appointed_position/appointed_node_id`；`_return_captive_home` 复位 `location.node_id` 到己方最近据点并清押运字段/官职；`_step_recovery` 与 `_attack_node` 的太守加成增加状态与节点归属过滤（被俘太守不再给原城、更不会给敌方新城加成） |
+| 押运/入盟串味（高） | `_step_loyalty_defect`、`_faction_event_effect` 的成员查询排除 `transfer`；`_move_player_to_faction` 跳过 `captive/transfer` 及 `captor_faction>0` 的角色，避免入盟/崩溃改写俘虏归属 |
+| 任务结算重试（高） | `_step_settle_tasks` 在 tick 内用 SAVEPOINT 包裹单任务：失败回滚并保留 `active` 供下 tick 重试；`wander/transfer` 角色身上的任务置 `cancelled` 且不发奖（此前吞异常仍置 `done`+`idle`，奖励永久丢失） |
+| 联盟资产（高） | 副主提取国库由「单次 30%」改为「每日累计 30%」（原规则可连续提取抽干国库）；`rebuild_capital` 的合力/国库改用 `_governance_faction` 账本（与捐款一致）；入盟时备份成员科技并在退盟/解散还原（防止反复横跳白嫖联盟科技），重复入盟不覆盖首次快照 |
+| 断粮计数持久化（中高） | 农政 L5「断粮抵抗」依赖 `starve_ticks` 跨 tick 累计，但 `save_army` 未落库导致每 tick 归零。现写入 `save_army`，建表语句补列并新增 **DB v78** 迁移 |
+| 经济与市场（中） | `pay_ransom` 校验收款势力存活（灭亡时不扣款直接放归）；`_step_market_maker` 计数补 `world_id`；`_market_items()` 统一按 `market.items` 配置校验挂售/回购/撤单 |
+| 入口与健壮性（中） | `_handle_action` 增加 `(ValueError, TypeError)` 归一（JSON `null` 参数不再 500）；`enabled()` 关闭时 REST/面板/动作统一拦截；`tech_research` 费用与时长数组越界安全回退；`faction_set_position` 支持 `position=""` 卸任；`claim_catchup` 引荐奖励校验玩家存在并走 `_settle_merit` 门禁；`run_tick_catchup` 增加 `max_catchup_output_ticks`（默认 192）硬上限，避免长期停机持锁数千次；`notify_strategy_battle` 对无回合数据的调用不再推空事件；`_api_strategy_state` 的 delta 补 `world_id`；`battle.js` 加载失败不启动轮询 |
+| 本轮复核·不改 | 网页账号可绑定任意已存在 QQ 存档属账号归属校验的系统性设计问题（需验证码/绑定确认流程），不在本轮 BUG 面内；`tick(repeat)` 的 `summary` 累积仅为报表口径；`insert_char` 以外的流将落点路径已逐条核对 |
+| 版本与数据库 | 插件 **v4.2.2** / 游戏及帮助保持 **v8.0.1**（无新指令，帮助页无变化）/ 数据库升级至 **v78**（`strategy_armies.starve_ticks`，含迁移） |
+| 回归 | 新增 `tests/test_strategy_round5_fixes.py` **15 项**定向回归；`tests/test_strategy_*.py` + `test_webroom_dm.py` 共 **448 项通过**，全量 **2448 项 + 125 subtests 通过**；`compileall`、`pyflakes`、`node --check` 通过 |
+
+</details>
+
+<details>
+<summary><b>插件 v4.2.1（仙域争霸 hex 战斗第十二轮一致性修复）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 溃军追击判定（中高） | `_apply_battle_aftermath` 在军团循环前按战果行（`troops_after` / `routed`）统一预标记 `_destroyed` / `_routed`。此前主循环按「攻方 → 守方」顺序处理，结算攻方溃军时守方的溃逃标记尚未写入，`_pursuit_context` 会把同样溃逃的守军当成有效追击方，可由溃军截获敌将 |
+| 前端 ZOC 配色（中） | `battle.js` 的 `mySide()` 优先取本方（`mine`）单位的阵营，无本方单位时再回退当前行动方。此前对手回合 `current_actor` 为敌方，`enemyZocTiles()` 会把我方 ZOC 画成红色敌方 ZOC |
+| 本轮复核·不改 | `roll_captures` 对 `wipeout` 不叠加 +40 伤势为既有定向测试锁定的口径（覆没善后已统一结算，溃军伤势走 `_auto_retreat`），不改；`_loot_node` 库存不足时走象征性掠夺属低影响边缘路径，不改 |
+| 版本与数据库 | 插件 **v4.2.1** / 游戏及帮助保持 **v8.0.1**（无新指令，帮助页无变化）/ 数据库保持 **v77**（无表结构变更，无需迁移） |
+| 回归 | 新增 1 项定向回归（溃逃守方不得追击，同时校验健康守方仍可正常追击）；5 个战斗核心测试文件 **366 项通过**，`tests/test_strategy_*.py` 共 **418 项通过**；`node --check`、`py_compile` 通过 |
+
+</details>
+
+<details>
+<summary><b>插件 v4.2.0（仙域争霸第四轮全局冲突修复）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 会战移动（P0） | 前端寻路 `pathTo` 回溯出的路径包含起点格，而服务端 `check_move_path` 要求首格与当前站位相邻，导致网页端手动移动必然报「第1步不相邻」。`pathTo` 现剔除起点；`core/strategy_hex.py` 新增 `_strip_path_start`，`check_move_path` / `do_move` 同时兼容带起点路径，旧客户端与回放数据不受影响 |
+| 围城悬挂（高） | `_siege_breach` 巷战「守方获胜」分支补 `save_node`：调用方返回后会重新读取节点覆盖内存对象，未落库会让城防与围城状态回滚，出现城防归零却不再破城、城防也不自修的永久围城 |
+| 离间越狱（高） | `_settle_plot_task` 的 `alienate` 在生效前复核目标 `status` 与 `faction_id`：被俘/押运/已转投的目标计略落空，不再把俘虏忠诚清零并清掉囚禁标记，等于免费越狱 |
+| 和谈赔款方向（高） | `diplomacy_respond` 改调 `_apply_diplomacy_deal(提案方, 接受方)`：此前参数颠倒，会从接受方国库扣钱付给提案方 |
+| 据点交接越权（高） | `transfer_node` 区分权限：盟主/副主可调度全联盟据点，成员势力主/副主只能交出本势力据点，不能再把盟友据点划给自己 |
+| 联盟名册混用（高） | 治理与崩溃改用 `_own_faction_members`（按 `strategy_players.faction_id` 过滤）：联盟共同治理名册里的盟友不再被当成本势力成员，盟主不会因盟友活跃而免于僵尸化，崩溃也不会把盟友迁出 |
+| 攻城误判突袭（高） | `_attack_node` 的 `rel_before` 改用防守方盟主 `foe_fid` 查询外交：成员势力据点归属方是自身 `faction_id`，而盟主外交字典的键是盟主 id，原写法导致结盟/停战状态下每次攻城都被判成突袭 |
+| 联盟外交快照（中高） | 结盟时把成员原外交备份到 `world.data.alliance_dip_backup`，并合并成员既有的停战/战争/好感；退盟或联盟解散时恢复快照，同时保留联盟存续期间新增的战争/停战，避免「退盟即脱战/免费撕约」 |
+| 入盟冷却绕过（中高） | `faction_respond_invite` / `faction_approve` 补齐退盟 24h 冷却校验，退盟后不能立刻借邀请或审批另投他盟 |
+| 重建与崩溃资产（中） | `rebuild_capital` 支持用国库 `treasury.gold` 抵扣重建费用（此前只能进不能出）；`_collapse_faction` 的 `gold` 份额改走 `_inject_gold` 发放，遵守日限额并超额转战功 |
+| 名将堂隐私（中） | `get_memorials` 不再下发存档主键 `user_id`；REST 与前端保持只展示名称/稀有度/势力/赛季/战功/成就 |
+| 计略暴露关押（中） | `_expose_executor` 改用目标势力最近据点关押，不再把执行者关进自己城（同势力可零成本营救、关押位也记错节点） |
+| 纵火与粮队（中） | `_burn_owner_grain` 遍历该势力全部玩家，不再只烧第一个；`_step_convoys` 先落盘离队/损失再发粮与战利品，抵达时复查目的地归属（失守则折返或失散），并逐格巡检中间节点，修复农政提速后「跳格」不被劫 |
+| 互市并发（中） | `_market_cancel` / `_step_market` 改为条件 UPDATE 成功后再退款，移除 autocommit 下无效的 `rollback`，避免「货已退回 + 订单仍成交」双得 |
+| 流将暗标与匪寨（中） | 流将暗标 `settling` 支持重试续做，补挂池排除 `open/settling`；匪寨到期清理与周刷新均清除 `lair` 的 `bandit/source/last_raid_tick`，避免重刷当 tick 立即劫掠 |
+| tick 整段事务（中高） | `_tick_locked` 用 `BEGIN IMMEDIATE` 包住整段 tick，`_commit` 在 tick 任务内只暂存，成功统一提交、异常统一回滚；不再出现「时钟已推进 + 前半段落库 + 后半段永久跳过」的半提交，catchup 会以同一 `tick_no` 完整重跑 |
+| 赛季结算幂等（中高） | 先写 `strategy_season_results` 占位行（`data_json.state="settling"`），荣誉按 `honor.last_season.season_no` 逐人幂等，战报先删后插，结束时条件 UPDATE 守卫行；中断重试不会重复发荣誉 |
+| 前端请求竞态（中） | `api()` 错误信息读取 `data.error || data.msg`；`load()` / `battle.js refresh()` 增加请求序号，旧响应不再覆盖新快照；入场按钮用 `try/finally` 恢复 `disabled` |
+| 其它一致性 | 巷战溃败军团若已在撤退途中（`march`+`path`）预置 `_rout_penalized`，避免 `reorganize_ticks=0` 时二次折损；联盟科技合并保留双方研究，被覆盖的一方主研角色释放回 `idle` |
+| 本轮复核·不改 | `defect_loyalty=80` 与设计口径不一致、GM 数据看板顺延、WS 推送前端未接入（以 REST 轮询为准）、`taishou.node_defense` 未单独接线：均为已知保留差异，本轮不扩大改动面 |
+| 版本与数据库 | 插件 **v4.2.0** / 游戏及帮助保持 **v8.0.1**（无新指令，帮助页无变化）/ 数据库保持 **v77**（无表结构变更，无需迁移） |
+| 回归 | 新增 `tests/test_strategy_round4_fixes.py` 11 项定向回归；`tests/test_strategy_*.py` + `tests/test_webroom_dm.py` 共 **432 项通过**；`compileall`、`pyflakes`、`node --check` 全部通过 |
+
+</details>
+
+<details>
+<summary><b>插件 v4.1.9（仙域争霸 hex 战斗第十一轮一致性修复）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 剑阵冲锋时长 | `_troop_special` 的 `charge` 计数由 3 改为 4：施放当回合单位已用掉行动权，且每回合开始 `_tick_statuses` 会先 -1，原值实际只能享受 2 个回合的机动 +2。现与技能文案「3 回合机动 +2」一致；`move_points` 与前端可达域判定口径不变 |
+| 剑修 ZOC 突破入口 | `battle_state` 新增 `can_zoc_break`（仅本方、剑修、存活且未用过时下发）；`battle.js` 行动栏新增「🗡 突破 ZOC（每场 1 次）」按钮，突破移动时向服务端传 `break: true`。此前后端已支持一次性突破，但网页端没有任何触发入口 |
+| 召唤物显示 | `leader_name` 对 `temp` 单位返回「兽群」，`battle_state` 同步下发 `temp` 标识并采用该名称。此前兽群因负 `army_id` 被显示成「守军」，行动提示/战报误标 |
+| 部署选中同步 | 部署阶段自动挑中下一支未落位军团时同步 `selectedUid`，避免左侧高亮仍是已部署单位、实际落位的却是另一支军团的静默改选 |
+| 本轮复核·不改 | `replay()` 保留为 seed + 指令流校验/测试入口（运行期无调用方，但属于公开引擎能力）；剑阵冲锋的「首次进入敌 ZOC 不停止」与盾墙持续、搬山免疫击退同属设计文档简化口径，本轮不扩展机制 |
+| 版本与数据库 | 插件 **v4.1.9** / 游戏及帮助保持 **v8.0.1**（无新指令，帮助页无变化）/ 数据库保持 **v77**（无表结构变更） |
+| 回归 | 新增 2 项定向回归（`battle_state` 突破标记仅本方可见且用后消失、召唤物名称）并扩展剑阵冲锋时长断言；5 个战斗核心测试文件 **365 项通过**，`tests/test_strategy_*.py` 共 **406 项通过** |
+
+</details>
+
+<details>
+<summary><b>插件 v4.1.8（仙域争霸 hex 战斗第十轮参数校验修复）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 攻击参数校验 | `battle_action` 的 `attack` 分支原先在挑衅校验中直接 `int(params["target"])`，且该语句位于 `try/except` 之外：客户端传入非数字目标（`"abc"`、对象、数组）会抛未捕获的 `ValueError`/`TypeError`，REST 返回 500「操作失败：invalid literal…」并刷异常日志。现改为**先**在 `try` 内解析 `target`（失败统一 `StrategyError("攻击目标无效")` → 400），**再**做挑衅者比对；挑衅生效时改打其他单位的拒绝逻辑保持不变 |
+| 本轮复核·不改 | ① `check_end` 双方同时跌破 30% 时按 side 顺序先判攻方失败（守方胜），视为攻城/会战的平局口径（§7.3「打满回合守方守住」），保留；② 战后士气写回 `min(100, …)` 与全库军团士气域 0~100 一致（hex 内 120 为战场临时上限），保留；③ 范围技能落在空目标仍算成功并扣灵力/行动权（空放属玩家决策），保留；④ `battle.js` 首次 `refresh()` 失败后仍继续轮询（网络恢复可自愈），保留 |
+| 版本与数据库 | 插件 **v4.1.8** / 游戏及帮助保持 **v8.0.1**（无新指令，帮助页无变化）/ 数据库保持 **v77**（无表结构变更） |
+| 回归 | 新增 1 项定向回归（挑衅生效时非法 `target` 返回 `StrategyError` 而非裸异常；改打非挑衅者仍被拒绝）；5 个战斗核心测试文件 **363 项通过**，`tests/test_strategy_*.py` 共 **404 项通过** |
+
+</details>
+
+<details>
+<summary><b>插件 v4.1.7（仙域争霸 hex 战斗第九轮一致性修复）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 范围技能越界 | `_skill_flood` / `_skill_barrage` 增加 `in_bounds` 校验：目标格在地图外但仍在射程内时直接失败，不再「成功施放但 0 格生效」却照扣灵力与行动权 |
+| 挑衅时机 | `_skill_taunt` 写入 `taunt_by_from`（原误写 `taunt_from`）：挑衅改为目标**下回合**才生效，不再在施放当回合强迫稍后行动的目标 |
+| 会战反击 | `simulate_battle` 把反击结算移到溃逃判定之后并加 `not routed`：本击直接打崩士气而溃逃的目标不再反击，与 hex 引擎 `_apply_damage → routed → _resolve_attack` 同口径（该块不掷骰，随机序列不变） |
+| 伏兵保密 | `battle_state` 对未揭晓的敌方伏兵即使轮到其行动也整支不下发，并遮蔽 `current_actor`，不再泄露「林中伏兵主将/兵力」；其主人 `is_mine` 视图不受影响 |
+| 前端文案 | `battle.js` 主动撤离按钮由「🏳️ 溃退」改为「🏳️ 撤退」，与 `do_retreat`（保留 80% 兵力）语义一致，避免与士气崩溃的「溃逃」混淆 |
+| 版本与数据库 | 插件 **v4.1.7** / 游戏及帮助保持 **v8.0.1**（无新指令，帮助页无变化）/ 数据库保持 **v77**（无表结构变更） |
+| 回归 | 新增 5 项定向回归（水淹/落石越界、挑衅下回合生效、溃逃目标不反击、当前行动伏兵不下发）；`tests/test_strategy_*.py` 共 **403 项通过** |
+
+</details>
+
+<details>
+<summary><b>插件 v4.1.6（仙域争霸新增玩法第三轮 BUG/冲突修复）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 势力颜色 XSS | 新增 `R.norm_color`（仅接受 `#RGB`/`#RRGGBB`）：会签发起、势力写库、`get_state` 下发与前端 `safeColor()` 四层归一化，堵住 `color` 拼进 `style`/`fillStyle` 的存储型 XSS |
+| 流亡重建 | `rebuild_capital` 改用 `faction_state=exiled` 判定（旧档无据点时自愈），主城已陷但仍持有其他据点只能迁都；围城/保护期节点不可重建；成功写 `last_capital_move_at`；流亡重建放开给任一成员发起 |
+| 交接流亡 | `transfer_node` 交出最后一座据点时同步置 `exiled`，避免旧势力以 `capital=0, state=normal` 绕过流亡校验远程重建 |
+| 联盟战功门禁 | `_add_faction_to_alliance` 登记盟主名册时继承成员真实 `joined_at`，普通成员不再因重新结盟被 72h 观察期把战功 ×0 |
+| 势力任务 | 生成任务改为打乱后不重复取类型，并排除进行中的同类型，避免单次进度同时填满多条同类任务 |
+| 溃军幂等 | `_capture_node` 对 `reorganize_until_tick` 仍在重整期的溃军预置 `_rout_penalized`，只撤离不再二次扣 30% 兵力/伤势/擒获判定 |
+| 匪寨残留 | 据点被占领/重建时清除 `world.data.bandits` 与 `lair` 标记；粮队劫掠校验匪寨仍无主且未过期，新主的城不再被当作匪寨 |
+| 赎金悬挂 | `pay_ransom` 校验赎金收款方与当前 `captor_faction` 一致，转押/被重新擒获后旧赎金自动失效并退款保护 |
+| 官职清理 | 劝降归顺、离间出走时清空 `appointed_position`/`appointed_node_id`；离间禁止 targeting 俘虏/押运角色（堵住免费劫囚） |
+| 灵石兑换 | 兑换灵石前校验主玩法角色存在，`_inject_gold` 落库失败不再扣战功/写日限额 |
+| 行军粮耗 | `_step_march` 叠加农政科技 `grain_cost_mult`（与编军/补员同口径），断粮抵抗复用同一次势力读取 |
+| NPC 任务收益 | NPC 势力任务收益改由 `_flush_task_wallet` 转入国库，修复 `save_player(user_id="")` 导致 coin/grain/iron 全部丢失 |
+| 赛季殿堂/积分 | 名将堂/英烈祠跨赛季读取（新世界不再恒空）；赛季历史补 `score` 兼容字段，前端不再恒显示 0 |
+| 轮询表单 | 20s 轮询重绘前快照并回填 `tabBody`/`drawerBody` 输入值，正在填写的编军/建设表单不再被清空 |
+| 版本与数据库 | 插件 **v4.1.6** / 游戏及帮助保持 **v8.0.1**（无新指令，帮助页无变化）/ 数据库保持 **v77**（无表结构变更） |
+| 回归 | 新增 8 项定向回归（颜色 XSS、联盟 joined_at、任务类型去重、流亡重建/匪寨清理、溃军幂等、赎金失效、离间官职清理、行军粮耗科技）；5 个策略测试文件 **413 项通过** |
+
+</details>
+
+<details>
+<summary><b>插件 v4.1.5（仙域争霸 hex 战斗规则一致性修复）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 水淹 ZOC | `_projects_zoc` / `zoc_tiles_of_side` / `enemy_zoc_map` 统一改用 `eff_terrain`：河流被水淹临时变为沼泽后不再被视为「河流格 ZOC 取消」，与 `passable`、移动消耗及前端 `terrainAt` 同口径 |
+| 主动撤退 | `do_retreat` 标记 `voluntary_retreat` 并随 `finish` 结果下发；`_apply_battle_aftermath` 据此预置 `_rout_penalized`，主动撤退只保留 80% 兵力，不再被溃败善后二次扣 30%、追加主将负伤与追击截获 |
+| 追击资格 | `_pursuit_context` 跳过 `_routed` / `_destroyed` 的己方军团，溃军不能再追击并截获敌将 |
+| 单挑终局 | `battle_action` 的 `duel_respond` 接受分支结算后立即 `check_end`，终局当场 `finish` 并落库，不再等下一次 tick/行动（避免终局期间军团卡 battle 态与围城管线暂停） |
+| 体修守城 | `defense_power` 自动采纳 `army["defending_node"]` 字段：hex `_sim_view` 的攻城守方体修正确获得 ×1.3（原仅 ×1.1），`wall_mult` / 守城特技口径一并统一 |
+| 挑衅 AI | `_ai_move_toward` 新增 `forced` 参数：托管单位被挑衅且移动后仍够不到挑衅者时原地防御，不再改打其他敌人（与手操端「只能攻击挑衅者」一致） |
+| 治疗夹取 | `_skill_heal` 的 `headroom` 增加 `max(0.0, …)`：兵力高于开战值时治疗不再反向增加伤兵池 |
+| 版本与数据库 | 插件 **v4.1.5** / 游戏及帮助保持 **v8.0.1**（无新指令，帮助页无变化）/ 数据库保持 **v77**（无表结构变更） |
+| 回归 | 新增 9 项定向回归（水淹 ZOC 投射与覆盖、主动撤退标记与结果、治疗夹取、体修守城 ×1.3、挑衅 AI 不改目标、主动撤退善后不二次扣兵、溃败仍扣兵、追击跳过溃军）；5 个策略测试文件 **357 项通过**；顺带修复 `test_legacy_player_repair_and_rebuild` 因随机节点保护期导致的偶发失败 |
+
+</details>
+
+<details>
+<summary><b>插件 v4.1.4（仙域争霸会战结算与围城善后修复）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 会战治疗 | `simulate_battle` 的佛修治疗移出「单次攻击」循环，改为每回合末对己方佛修军团结算一次兵力 2%（上限为开战兵力），修正佛修一方每回合被治疗 N 次（N=出手数）的问题 |
+| 夹击判定 | 每回合开始重置 `_focus`，夹击/合围只统计本回合内攻击同一目标的友军，避免继承上回合目标虚增 `flank_factor` 与士气打击 |
+| 盟友守军 | `_attack_node` 守方过滤与 `intervene_siege` 统一：攻方同盟/同联盟的驻军不再被视为守方拉入自动会战，也不会误发 `battle_open` |
+| 手操围城 | `_apply_battle_aftermath` 新增 `hold_atkers`：手操围城介入失败时，幸存攻方残部留在城下恢复围城，不再被无条件自动撤离导致围城线断裂、`siege_state` 悬挂 |
+| 受降守军 | `_siege_breach` 受降不再预先缩放守军，改由 `_capture_node` 按 `surrender_troops_keep` 单次结算，修正此前保留比例被连续砍半（实际仅 keep×50%） |
+| 守军残留 | `_capture_node` 去掉 `max(200, 残军×0.5)` 的凭空增兵，保留兵力不超过原守军；`npc_garrison` 为 `None` 时不再抛错 |
+| 手操前端 | `battle.js` 射程计算补上 `statuses.range_buff`（咒唱 +1），与服务端 `attack_range` 同口径 |
+| 驱逐落点 | 关押位满就地驱逐时，角色落点改为原势力最近据点，不再指向擒获方节点（城破后等于被释放进敌营） |
+| 版本与数据库 | 插件 **v4.1.4** / 游戏及帮助保持 **v8.0.1**（无新指令，帮助页无变化）/ 数据库保持 **v77**（无表结构变更） |
+| 回归 | 新增 7 项定向回归（佛修治疗频次、夹击重置、盟友守军排除、围城残部留守、受降单次比例、守军空值/保底、驱逐落点）；5 个策略测试文件 **348 项通过** |
+
+</details>
+
+<details>
+<summary><b>插件 v4.1.3（仙域争霸围城归属与俘虏处置修复）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 围城归属 | `_step_sieges` 只推进 `siege_state.attacker_faction` 对应势力的军团，其余势力的旧围城军自动撤围；归属缺失或归属方已无围城军时以现存围城军首个势力重新起算，杜绝多势力混算与「列表第一支残军决定破城归属」 |
+| 围城外交门禁 | 新增 `_siege_relation_block`：停战、同盟（含同一联盟）、开战备战期均强制撤围，无法再靠先签停战/同盟让既有围城继续破城绕过撕约惩罚 |
+| 破城口径 | `_siege_breach` 统一以 `ss.attacker_faction` 判定受降/巷战/占城归属，守军过滤、战报落库、俘虏掷点同口径；`set_siege_choice` 仅允许当前围城归属势力设置策略 |
+| 手操介入 | `intervene_siege` 校验围城归属、节点保护期与外交关系；`sortie` 增加外交门禁，停战/同盟期间不再要求或被允许出击 |
+| 据点易主 | `_capture_node` 易主时同时疏散 `idle` 与 `siege` 状态的敌对军团，新主城池不会被旧围城军继续围困 |
+| 斗法被擒 | 单挑被擒按擒获方最近的己方据点关押（不再塞进敌方本城）；关押位已满时战报改写为「敌营已满，被就地驱逐」，不再误报「被擒」 |
+| 计略暴露 | `_expose_executor` 返回关押结果，营救/计略暴露文案按「成功关押 / 关押位满就地驱逐」分别表述 |
+| 战报落库 | `update_battle_session` 统一走 `_clip_battle_result` 截断并 `default=str` 序列化，`state=done` 时清零 `deadline_at`，避免超大结果写库失败与超时误判 |
+| 版本与数据库 | 插件 **v4.1.3** / 游戏及帮助保持 **v8.0.1**（无新指令，帮助页无变化）/ 数据库保持 **v77**（无表结构变更） |
+| 回归 | 新增 6 项定向回归（围城归属过滤、停战撤围、手操介入门禁、易主清旧围城军、俘虏关押节点、战报截断）；5 个策略测试文件 **341 项通过** |
+
+</details>
+
+<details>
+<summary><b>插件 v4.1.2（仙域争霸第二轮冲突与 BUG 修复）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |

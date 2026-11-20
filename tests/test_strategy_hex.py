@@ -1282,8 +1282,16 @@ class TestGapFixHex(unittest.TestCase):
         res = H.do_skill(s, u["uid"], "troop_special", random.Random(3),
                          target_uid=foe["uid"])
         self.assertTrue(res["ok"])
-        self.assertEqual(s["statuses"][str(u["uid"])]["charge"], 3)
+        # 施放当回合已用掉行动权，状态写 4 才能让后续 3 个回合都享受 +2：
+        # 每次 begin_round 先 -1，3 次后仍剩 1，第 4 次才归零。
+        self.assertEqual(s["statuses"][str(u["uid"])]["charge"], 4)
         self.assertEqual(H.move_points(u, s), 7.0)
+        rng = random.Random(3)
+        for _ in range(3):
+            H.begin_round(s, rng)
+            self.assertEqual(H.move_points(u, s), 7.0)
+        H.begin_round(s, rng)
+        self.assertEqual(H.move_points(u, s), 5.0)
 
     def test_bashan_boosts_intercept_damage(self):
         def intercept_loss(with_bashan):
@@ -1620,6 +1628,163 @@ class TestReviewRound5Regressions(unittest.TestCase):
         log = s.get("spectator_log") or []
         self.assertTrue(log)
         self.assertEqual(log[-1]["wall_hp"], 777)
+
+
+class TestReviewRound8Regressions(unittest.TestCase):
+    """第八轮审查修复：水淹 ZOC / 主动撤退标记 / 治疗夹取 / 体修守城 / 挑衅 AI。"""
+
+    def setUp(self):
+        self.rng = random.Random(8203)
+
+    def _battle_session(self):
+        s = plain_session()
+        s["phase"] = "battle"
+        s["round"] = 1
+        return s
+
+    def test_flooded_river_restores_zoc(self):
+        """水淹把河流格变临时沼泽后，该格恢复 ZOC 投射与邻格覆盖。"""
+        s = self._battle_session()
+        a = H.add_unit(s, mk_army(1, 1), "a")
+        b = H.add_unit(s, mk_army(2, 2), "b")
+        b["pos"] = [6, 4]
+        s["terrain"]["6,4"] = H.T_RIVER
+        # 河流格 ZOC 取消：既不投射，也不作为敌方 ZOC 覆盖格
+        self.assertEqual(H.zoc_tiles_of_side(s, "b"), set())
+        self.assertEqual(H.enemy_zoc_map(s, a), {})
+        # 水淹成沼泽后恢复（与服务端 passable / 前端 terrainAt 同口径）
+        s["temp_terrain"] = {"6,4": s["round"] + 2}
+        self.assertIn((5, 4), H.zoc_tiles_of_side(s, "b"))
+        self.assertIn((5, 4), H.enemy_zoc_map(s, a))
+
+    def test_flooded_river_neighbor_is_covered(self):
+        """水淹把邻格河流变沼泽后，该邻格不再豁免 ZOC 覆盖。"""
+        s = self._battle_session()
+        a = H.add_unit(s, mk_army(1, 1), "a")
+        a["pos"] = [2, 4]
+        b = H.add_unit(s, mk_army(2, 2), "b")
+        b["pos"] = [6, 4]
+        s["terrain"]["7,4"] = H.T_RIVER
+        self.assertNotIn((7, 4), H.enemy_zoc_map(s, a))
+        s["temp_terrain"] = {"7,4": s["round"] + 2}
+        self.assertIn((7, 4), H.enemy_zoc_map(s, a))
+
+    def test_voluntary_retreat_flag_and_result(self):
+        """主动撤退置 voluntary_retreat，并随 finish 结果下发供善后区分。"""
+        s = self._battle_session()
+        u = H.add_unit(s, mk_army(1, 1), "a")
+        u["pos"] = [2, 4]
+        self.assertFalse(u["voluntary_retreat"])
+        res = H.do_retreat(s, u["uid"], self.rng)
+        self.assertTrue(res["ok"])
+        self.assertTrue(u["routed"])
+        self.assertTrue(u["voluntary_retreat"])
+        s["winner"] = "defender"
+        out = H.finish(s)
+        row = next(r for r in out["attackers"] if r["id"] == u["army_id"])
+        self.assertTrue(row["routed"])
+        self.assertTrue(row["voluntary_retreat"])
+
+    def test_heal_headroom_never_negative(self):
+        """兵力高于开战值时治疗不反向增加伤兵池。"""
+        s = self._battle_session()
+        u = H.add_unit(s, mk_army(1, 1, prof="buddha"), "a")
+        u["pos"] = [2, 4]
+        u["injury_pool"] = 100
+        u["troops"] = u["start_troops"] + 50
+        res = H._skill_heal(s, u, H.SKILLS["heal"], self.rng, u["uid"], None)
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["healed"], 0)
+        self.assertEqual(u["troops"], u["start_troops"] + 50)
+        self.assertAlmostEqual(u["injury_pool"], 100.0)
+
+    def test_body_defender_gets_node_mult_in_view(self):
+        """hex 视图的 defending_node 字段让体修守城吃到 ×1.3。"""
+        leader = {"id": 7, "name": "体修", "profession": "body",
+                  "stats": {"leadership": 60, "valor": 60, "wisdom": 50},
+                  "traits": []}
+        army = {"troop_type": "sword_shield", "troops": 1000, "leader": leader}
+        field = R.defense_power(army)
+        node = R.defense_power(dict(army, defending_node=True))
+        self.assertAlmostEqual(node / field, 1.3 / 1.1, places=6)
+
+    def test_taunted_ai_does_not_attack_other_foe(self):
+        """被挑衅的 AI 移动后若仍够不到挑衅者，应防御而非改打其他敌人。"""
+        s = self._battle_session()
+        u = H.add_unit(s, mk_army(1, 1, tt="spell_corps", prof="spirit"), "a")
+        u["pos"] = [2, 4]
+        u["mana"] = 0
+        taunter = H.add_unit(s, mk_army(2, 2), "b")
+        taunter["pos"] = [12, 4]
+        other = H.add_unit(s, mk_army(3, 2), "b")
+        other["pos"] = [4, 4]
+        s["statuses"][str(u["uid"])] = {
+            "taunt_by": taunter["uid"], "taunt_by_from": 0}
+        before = other["troops"]
+        res = H.ai_decide(s, u["uid"], self.rng)
+        self.assertTrue(res.get("ok"))
+        self.assertEqual(other["troops"], before)
+        self.assertTrue(u.get("defending"))
+        self.assertTrue(u["acted"])
+
+
+class TestReviewRound9Regressions(unittest.TestCase):
+    """第九轮审查修复：范围技能越界 / 自动会战溃逃目标反击。"""
+
+    def setUp(self):
+        self.rng = random.Random(9203)
+
+    def _battle_session(self):
+        s = plain_session()
+        s["phase"] = "battle"
+        s["round"] = 1
+        return s
+
+    def test_flood_rejects_out_of_bounds_target(self):
+        """水淹目标格在地图外（但在射程内）必须失败，不能空放扣灵力。"""
+        s = self._battle_session()
+        u = H.add_unit(s, mk_army(1, 1, prof="spirit", role="strategist"), "a")
+        u["pos"] = [0, 0]
+        u["mana"] = 100
+        s["terrain"]["1,0"] = H.T_RIVER  # 满足 need_river
+        self.assertIn("flood", H.unit_skills(s, u))
+        res = H.do_skill(s, u["uid"], "flood", self.rng, target_hex=[-1, 0])
+        self.assertFalse(res["ok"])
+        self.assertEqual(u["mana"], 100)
+        self.assertFalse(u["acted"])
+        self.assertEqual(s.get("temp_terrain") or {}, {})
+
+    def test_barrage_rejects_out_of_bounds_target(self):
+        """落石/箭雨目标格越界时不得「成功」但 0 命中。"""
+        s = self._battle_session()
+        u = H.add_unit(s, mk_army(1, 1), "a")
+        u["pos"] = [0, 8]
+        u["mana"] = 100
+        s["terrain"]["0,8"] = H.T_HIGHLAND  # 满足 need_highland
+        self.assertIn("barrage", H.unit_skills(s, u))
+        res = H.do_skill(s, u["uid"], "barrage", self.rng, target_hex=[-1, 8])
+        self.assertFalse(res["ok"])
+        self.assertEqual(u["mana"], 100)
+        self.assertFalse(u["acted"])
+        self.assertEqual(s.get("statuses") or {}, {})
+
+    def test_taunt_takes_effect_next_round_only(self):
+        """挑衅写入 taunt_by_from，施放当回合不生效，目标下回合才被锁定。"""
+        s = self._battle_session()  # round=1
+        u = H.add_unit(s, mk_army(1, 1, prof="sword"), "a")
+        u["pos"] = [2, 4]
+        u["mana"] = 100
+        b = H.add_unit(s, mk_army(2, 2), "b")
+        b["pos"] = [4, 4]
+        self.assertIn("taunt", H.unit_skills(s, u))
+        res = H.do_skill(s, u["uid"], "taunt", self.rng, target_uid=b["uid"])
+        self.assertTrue(res["ok"])
+        st = s["statuses"][str(b["uid"])]
+        self.assertNotIn("taunt_from", st)
+        self.assertIn("taunt_by_from", st)
+        self.assertIsNone(H.active_taunter(s, b))  # 当回合不生效
+        H.begin_round(s, self.rng)                 # → round=2
+        self.assertEqual(H.active_taunter(s, b), u["uid"])
 
 
 if __name__ == "__main__":

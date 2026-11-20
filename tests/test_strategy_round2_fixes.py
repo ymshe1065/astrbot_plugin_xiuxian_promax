@@ -201,15 +201,40 @@ class TestStrategyRound2Fixes(unittest.IsolatedAsyncioTestCase):
     # ------------------------------------------------------------------
     async def test_bandit_raids_non_ruin_node(self):
         mine = await self._owned_node("u1")
+        nodes = await self.m.get_nodes(self.wid)
+        by_id = {int(n["id"]): n for n in nodes}
+        lair = next((by_id[int(a)] for a in (mine.get("adj") or [])
+                     if int(a) in by_id
+                     and int(by_id[int(a)]["owner_faction"]) == 0), None)
+        if lair is None:
+            # 起始据点可能被随机模板放在没有无主邻居的位置：另找一组
+            # 「己方据点 + 相邻无主据点」，避免测试因世界布局偶发失败。
+            pid = int(self.p1["faction_id"])
+            for n in nodes:
+                if int(n["owner_faction"]) != pid:
+                    continue
+                cand = next((by_id[int(a)] for a in (n.get("adj") or [])
+                             if int(a) in by_id
+                             and int(by_id[int(a)]["owner_faction"]) == 0), None)
+                if cand is not None:
+                    mine, lair = n, cand
+                    break
+        if lair is None:
+            # 仍找不到（36 节点小图里己方据点的邻居可能全被 NPC 占据）：
+            # 直接把一个相邻节点改成无主匪寨，构造劫掠前提。
+            mine = await self._owned_node("u1")
+            for a in (mine.get("adj") or []):
+                if int(a) in by_id:
+                    lair = by_id[int(a)]
+                    lair["owner_faction"] = 0
+                    lair["npc_garrison"] = {"troops": 500, "morale": 80}
+                    break
+        self.assertIsNotNone(lair, "没有可用于匪寨劫掠的相邻据点")
         mine["stock"] = {"coin": 1000, "grain": 1000, "iron": 1000}
         mine["morale"] = 80
         await self.m.save_node(mine)
         await self.m._commit()
 
-        nodes = await self.m.get_nodes(self.wid)
-        lair = next(n for n in nodes
-                    if int(n["id"]) in [int(x) for x in (mine.get("adj") or [])]
-                    and int(n["owner_faction"]) == 0)
         # 强制改成城市类型，验证不再依赖 type=="ruin"
         lair["type"] = "city"
         interval = int((self.m.main_cfg().get("bandit") or {})

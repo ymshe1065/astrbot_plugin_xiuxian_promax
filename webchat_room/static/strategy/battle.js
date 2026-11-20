@@ -44,6 +44,7 @@
   const FORMATION_NAMES = Object.fromEntries(FORMATIONS);
 
   let bs = null;              // battle_state 快照
+  let refreshSeq = 0;         // 轮询请求序号：旧响应不得覆盖新快照
   let battleId = 0;
   let pollTimer = null;
   let tickTimer = null;
@@ -189,13 +190,22 @@
   function pathTo(cells, q, r) {
     const path = [];
     let cur = cells.get(q + "," + r);
+    // cells 的根节点是寻路起点（prev=null），不属于移动步骤。
+    // 服务端 check_move_path 要求 path[0] 与单位当前站位相邻，
+    // 带上起点会被判成「第1步不相邻」导致移动必然失败。
     while (cur) { path.unshift([cur.q, cur.r]); cur = cur.prev; }
+    if (path.length) path.shift();
     return path;
   }
 
   // 当前操作/选中单位的阵营（用于区分敌我，不能只看 u.mine：
   // 同势力其他玩家的军团 mine=false 但并非敌军）
   function mySide() {
+    // 优先取本方（mine）单位的阵营：对手回合 current_actor 是敌方，
+    // 若直接取它会把本方 ZOC 当成红色敌方 ZOC 绘出。观战视图没有
+    // mine 单位时仍回退到当前行动方，保持原有只读展示。
+    const own = (bs.units || []).find((u) => u.mine && u.side);
+    if (own) return own.side;
     const cur = (bs.units || []).find((u) => u.uid === bs.current_actor);
     if (cur) return cur.side;
     const sel = (bs.units || []).find((u) => u.uid === selectedUid);
@@ -227,6 +237,9 @@
     const meta = (typeof S !== "undefined" && S && S.meta) || {};
     const troop = (meta.troop_types || {})[unit.troop_type] || {};
     let r = Number(troop.range || 0);
+    // 咒唱：3 回合全军射程 +1（与服务端 attack_range 的 range_buff 同口径）
+    const st = unit.statuses || {};
+    if (r > 0 && Number(st.range_buff || 0) > 0) r += 1;
     if (r > 0 && unit.pos) {
       const t = terrainAt(unit.pos[0], unit.pos[1]);
       if (t === "highland" || t === "wall" || t === "gate") r += 1;
@@ -513,11 +526,14 @@
       h += '<div class="ba-btns">';
       if (!cur.moved && !cur.acted) {
         h += '<button class="btn small primary" id="btnMove">👣 移动</button>';
+        if (cur.can_zoc_break) {
+          h += '<button class="btn small" id="btnMoveBreak">🗡 突破 ZOC（每场 1 次）</button>';
+        }
       }
       if (!cur.acted) {
         h += '<button class="btn small danger" id="btnAttack">⚔️ 攻击</button>';
         h += '<button class="btn small" id="btnDefend">🛡️ 坚守</button>';
-        h += '<button class="btn small" id="btnRetreat">🏳️ 溃退</button>';
+        h += '<button class="btn small" id="btnRetreat">🏳️ 撤退</button>';
         h += '<button class="btn small" id="btnDuel">🎯 单挑</button>';
         for (const sid of cur.skills || []) {
           const info = SKILL_INFO[sid] || { name: sid, mana: 0 };
@@ -542,6 +558,14 @@
       movePlan = { uid: cur.uid, cells: computeReachable(cur) };
       mode = "move";
       setHint("绿色为可达格；点击落点移动（进入敌 ZOC 会被截停）");
+      draw();
+    });
+    const bmb = document.getElementById("btnMoveBreak");
+    if (bmb) bmb.addEventListener("click", () => {
+      const cur = (bs.units || []).find((u) => u.uid === bs.current_actor);
+      movePlan = { uid: cur.uid, cells: computeReachable(cur), zocBreak: true };
+      mode = "move";
+      setHint("突破移动：首次进入敌 ZOC 不再截停（每场 1 次）；点击落点");
       draw();
     });
     const ba = document.getElementById("btnAttack");
@@ -627,12 +651,15 @@
   }
 
   async function refresh() {
+    const seq = ++refreshSeq;
     try {
       const r = await api("/api/strategy/action", {
         method: "POST",
         body: JSON.stringify({ action: "battle_state",
                                params: { battle_id: battleId } }),
       });
+      // 轮询/操作触发的多次刷新可能乱序返回，旧快照会覆盖新状态
+      if (seq !== refreshSeq) return true;
       bs = r;
       // 观战：URL/入口指定，或后端判定为同势力旁观（my_uids 为空）
       if (r && r.spectator) spectator = true;
@@ -647,7 +674,8 @@
       renderTop(); renderUnits(); renderActions(); renderLog(); draw();
       checkDuel();
       if (bs.state === "done") { showReport(); stopPoll(false); }
-    } catch (e) { /* api 已弹 toast */ }
+      return true;
+    } catch (e) { /* api 已弹 toast */ return false; }
   }
 
   function checkDuel() {
@@ -804,6 +832,9 @@
       if (unplaced.length) {
         const uid = selectedUid && unplaced.some((u) => u.uid === selectedUid)
           ? selectedUid : unplaced[0].uid;
+        // 自动挑中下一支未部署军团时同步高亮，避免左侧仍选中已部署单位、
+        // 实际落位的却是另一支军团（静默改选）。
+        selectedUid = uid;
         act("battle_deploy", { placements: [{ uid, q, r }] });
       }
       return;
@@ -814,8 +845,9 @@
       const path = pathTo(movePlan.cells, q, r);
       if (!path.length) { toast("该格不可达", "err"); return; }
       const uid = movePlan.uid;
+      const zocBreak = !!movePlan.zocBreak;
       movePlan = null; mode = "select"; setHint("");
-      act2("move", { path });
+      act2("move", zocBreak ? { path, break: true } : { path });
       return;
     }
     const my = mySide();
@@ -1173,9 +1205,15 @@
     const so = document.getElementById("shareOverlay");
     if (so) so.hidden = true;
     setHint(spectator ? "加载观战视图…" : "加载战场…");
-    await refresh();
+    const ok = await refresh();
     resize();
     stopPoll(false);
+    if (!ok) {
+      // 战场加载失败（战役不存在/无权限/球队列断开）：不要启动轮询，
+      // 否则会每 3 秒重复报错刷 toast。
+      setHint("战场加载失败，请关闭后重试");
+      return;
+    }
     pollTimer = setInterval(refresh, POLL_MS);
     tickTimer = setInterval(updateTimer, 1000);
     updateTimer();

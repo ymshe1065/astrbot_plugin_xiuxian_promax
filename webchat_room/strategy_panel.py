@@ -42,6 +42,9 @@ def _manager(plugin: "XiuXianPlugin"):
     mgr = getattr(plugin, "strategy_mgr", None)
     if mgr is None:
         raise StrategyError("争霸玩法未启用（插件未加载 StrategyManager）")
+    fn = getattr(mgr, "enabled", None)
+    if callable(fn) and not fn():
+        raise StrategyError("仙域争霸未开启")
     return mgr
 
 

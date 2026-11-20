@@ -954,6 +954,10 @@ async def notify_strategy_battle(battle_id: int, result: dict | None = None,
     if bid <= 0:
         return 0
     res = result if isinstance(result, dict) else {}
+    # 非回合推进类动作（auto_deploy/delegate/set_ambush/set_formation/start）
+    # 没有 round/events/result：不推空事件，否则前端战场视图会被清屏。
+    if res.get("round") is None and not res.get("events") and not res.get("result"):
+        return 0
     ids = list(user_ids) if user_ids else await _strategy_battle_owners(bid)
     payload = {
         "type": "strategy.battle.event",
@@ -1474,6 +1478,21 @@ async def _api_fate_shop_exchange(request: web.Request) -> web.Response:
     return web.json_response(data)
 
 
+def _strategy_enabled() -> bool:
+    """仙域争霸总开关：关闭后 REST/WS 入口统一拒绝（此前仅 tick 停摆）。"""
+    plugin = _plugin
+    mgr = getattr(plugin, "strategy_mgr", None) if plugin is not None else None
+    if mgr is None:
+        return False
+    fn = getattr(mgr, "enabled", None)
+    if not callable(fn):
+        return True
+    try:
+        return bool(fn())
+    except Exception:  # noqa: BLE001
+        return True
+
+
 async def _api_strategy_state(request: web.Request) -> web.Response:
     """仙域争霸：世界快照（大地图 + 玩家面板，含战争迷雾过滤）。"""
     user = _token_user(request)
@@ -1481,6 +1500,8 @@ async def _api_strategy_state(request: web.Request) -> web.Response:
         return web.json_response({"ok": False, "error": "登录已过期"}, status=401)
     if _plugin is None:
         return web.json_response({"ok": False, "error": "插件尚未就绪"}, status=503)
+    if not _strategy_enabled():
+        return web.json_response({"ok": False, "error": "仙域争霸未开启"}, status=400)
 
     user_id = accounts_store.player_key_of(user)
     try:
@@ -1495,9 +1516,10 @@ async def _api_strategy_state(request: web.Request) -> web.Response:
         return web.json_response({"ok": False, "error": f"读取失败：{exc}"}, status=500)
     # 策略面板活跃订阅 + 顺手对账 tick（轮询也能拿到 delta）
     subscribe_strategy(str(user.get("username") or ""))
+    world = (data or {}).get("world") or {}
     try:
         await _maybe_strategy_delta(
-            int(((data or {}).get("world") or {}).get("tick_no") or 0))
+            int(world.get("tick_no") or 0), int(world.get("id") or 0))
     except Exception:
         logger.debug("[webroom] strategy.delta 对账失败", exc_info=True)
     return web.json_response({"ok": True, "state": data})
@@ -1510,6 +1532,8 @@ async def _api_strategy_action(request: web.Request) -> web.Response:
         return web.json_response({"ok": False, "error": "登录已过期"}, status=401)
     if _plugin is None:
         return web.json_response({"ok": False, "error": "插件尚未就绪"}, status=503)
+    if not _strategy_enabled():
+        return web.json_response({"ok": False, "error": "仙域争霸未开启"}, status=400)
 
     body = await _read_json(request)
     if not body:
@@ -1697,6 +1721,8 @@ async def _api_strategy_memorial(request: web.Request) -> web.Response:
     if mgr is None:
         return web.json_response({"ok": False, "error": "争霸玩法未启用"},
                                  status=503)
+    if not _strategy_enabled():
+        return web.json_response({"ok": False, "error": "仙域争霸未开启"}, status=400)
 
     empty = {"ok": True, "hall": [], "shrine": [], "season_no": 0}
     user_id = accounts_store.player_key_of(user)

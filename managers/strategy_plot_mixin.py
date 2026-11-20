@@ -64,6 +64,10 @@ class StrategyPlotMixin:
             tc = await self.get_char(target_id)
             if not tc or int(tc.get("faction_id", 0)) == int(p["faction_id"]):
                 raise StrategyError("离间目标须为敌方角色")
+            if tc.get("status") in ("dead", "captive", "transfer"):
+                # 俘虏/押运中角色不能走离间：否则可免费把人从敌方牢里
+                # “劝”成流浪角色（跳过营救费用与关押位限制）。
+                raise StrategyError("离间目标须为敌方在野/在职角色（俘虏请用营救）")
             target_fid = int(tc.get("faction_id", 0))
             cost_coin = int(pcfg.get("alienate_coin_cost", 500))
             if p["coin"] < cost_coin:
@@ -205,8 +209,10 @@ class StrategyPlotMixin:
                         rng, expose_chance,
                         float(R.tech_effects(tech).get("expose_reduction", 0.0))):
                     out["exposed"] = True
-                    await self._expose_executor(world, c, f, target_fid)
-                    out["texts"].append(f"营救失败且行迹败露，{c['name']} 被擒！")
+                    got = await self._expose_executor(world, c, f, target_fid)
+                    out["texts"].append(
+                        f"营救失败且行迹败露，{c['name']} 被擒！" if got else
+                        f"营救失败且行迹败露，{c['name']} 因敌营已满被就地驱逐")
                 else:
                     out["texts"].append("营救失败，所幸未暴露行迹")
             return out
@@ -221,41 +227,56 @@ class StrategyPlotMixin:
                     rng, float(pcfg.get("expose_chance", 0.4)),
                     float(R.tech_effects(tech).get("expose_reduction", 0.0))):
                 out["exposed"] = True
-                await self._expose_executor(world, c, f, target_fid)
-                out["texts"].append(f"「{R.PLOT_NAMES.get(plot)}」失败，"
-                                    f"{c['name']} 身份暴露被擒（声望 -5）")
+                got = await self._expose_executor(world, c, f, target_fid)
+                out["texts"].append(
+                    (f"「{R.PLOT_NAMES.get(plot)}」失败，"
+                     f"{c['name']} 身份暴露被擒（声望 -5）") if got else
+                    (f"「{R.PLOT_NAMES.get(plot)}」失败，{c['name']} 身份暴露，"
+                     f"但敌营已满被就地驱逐（声望 -5）"))
             else:
                 out["texts"].append(f"「{R.PLOT_NAMES.get(plot)}」失败，无功而返")
             return out
         # --- 成功效果 ---
         if plot == "alienate":
             tc = await self.get_char(target)
-            if tc and tc.get("status") not in ("dead",):
-                lo, hi = pcfg.get("alienate_loyalty") or [-40, -20]
-                drop = rng.randint(int(lo), int(hi))
-                tc["loyalty"] = max(0, int(tc.get("loyalty", 70)) + drop)
-                if tc["loyalty"] < 30:
-                    await self._detach_from_armies(tc)
-                    tc["status"] = "wander"
-                    tc["faction_id"] = 0
-                    tc["owner_user_id"] = ""
-                    tc["auction_cooldown_until"] = 0
-                    # 离心出走：清除囚禁标记（角色此前可能处于被俘状态），
-                    # 防 captor_faction/imprisoned_node_id 悬挂导致重复解放/迁移
-                    tc["captor_faction"] = 0
-                    tc["imprisoned_node_id"] = 0
-                    out["texts"].append(
-                        f"离间大成！{tc['name']} 忠诚崩至 {tc['loyalty']}，挂印出走")
-                else:
-                    out["texts"].append(
-                        f"离间生效：{tc['name']} 忠诚 -{-drop}（现 {tc['loyalty']}）")
-                await self.save_char(tc)
-                await self._audit(str(c.get("owner_user_id", "") or ""),
-                                  "plot_alienate", {
-                                      "char_id": int(tc["id"]),
-                                      "loyalty": int(tc["loyalty"]),
-                                      "drop": drop,
-                                      "fled": tc["loyalty"] < 30})
+            # 复核目标状态：计略生效有 2 tick 延迟，期间目标可能已被俘、
+            # 押运、陨落或已离间出走。旧逻辑只排除 dead，会把 captive /
+            # transfer 的忠诚清零并“净化”囚禁标记，等于免费越狱。
+            if not tc or tc.get("status") not in ("idle", "march", "battle",
+                                                  "siege", "wander"):
+                out["texts"].append("离间目标已不在原势力任职，计略落空")
+                return out
+            if int(tc.get("faction_id") or 0) != target_fid:
+                out["texts"].append("离间目标已转投他处，计略落空")
+                return out
+            lo, hi = pcfg.get("alienate_loyalty") or [-40, -20]
+            drop = rng.randint(int(lo), int(hi))
+            tc["loyalty"] = max(0, int(tc.get("loyalty", 70)) + drop)
+            if tc["loyalty"] < 30:
+                await self._detach_from_armies(tc)
+                tc["status"] = "wander"
+                tc["faction_id"] = 0
+                tc["owner_user_id"] = ""
+                tc["auction_cooldown_until"] = 0
+                # 离心出走：清除囚禁标记（角色此前可能处于被俘状态），
+                # 防 captor_faction/imprisoned_node_id 悬挂导致重复解放/迁移
+                tc["captor_faction"] = 0
+                tc["imprisoned_node_id"] = 0
+                # 官职随出走一并解除（否则 taishou/都督仍在旧势力名册中）
+                tc["appointed_position"] = ""
+                tc["appointed_node_id"] = 0
+                out["texts"].append(
+                    f"离间大成！{tc['name']} 忠诚崩至 {tc['loyalty']}，挂印出走")
+            else:
+                out["texts"].append(
+                    f"离间生效：{tc['name']} 忠诚 -{-drop}（现 {tc['loyalty']}）")
+            await self.save_char(tc)
+            await self._audit(str(c.get("owner_user_id", "") or ""),
+                              "plot_alienate", {
+                                  "char_id": int(tc["id"]),
+                                  "loyalty": int(tc["loyalty"]),
+                                  "drop": drop,
+                                  "fled": tc["loyalty"] < 30})
         elif plot == "rumor":
             node = await self.get_node(world["id"], target)
             if node:
@@ -377,15 +398,27 @@ class StrategyPlotMixin:
         return best
 
     async def _expose_executor(self, world: dict, c: dict, f: Optional[dict],
-                               target_fid: int):
-        """计略暴露：执行者被目标势力擒获 + 本方声望 -5。"""
+                               target_fid: int) -> bool:
+        """计略暴露：执行者被目标势力擒获 + 本方声望 -5。
+
+        返回 True 表示成功关押；False 表示关押位已满、执行者被就地驱逐
+        （调用方据此改写战报，不能一律写「被擒」）。
+        """
         if f:
             await self.add_reputation(
                 f, int((self.main_cfg().get("plot") or {}).get("expose_rep_cost", -5)))
         if target_fid and target_fid > 0 and int(c.get("faction_id", 0)) != target_fid:
             node_id = int((c.get("location") or {}).get("node_id", 0) or 0)
+            # 俘虏必须关进「擒获方」的据点：此前直接用执行者当前所在地
+            # （通常是其己方据点），会出现“被关在自己城里”，同势力成员
+            # 可零成本营救，关押位统计也记在错误的节点上。
+            jail = await self._nearest_own_node(
+                world, {"faction_id": target_fid}, node_id) if node_id else None
+            if not jail:
+                return False
             c["status"] = "idle"  # 先脱离任务态再入囚
-            await self._capture_char(c, target_fid, node_id)
+            return await self._capture_char(c, target_fid, int(jail))
+        return False
 
     async def _burn_owner_grain(self, world: dict, node: dict, pct: float) -> int:
         owner = int(node.get("owner_faction", 0))
@@ -401,15 +434,16 @@ class StrategyPlotMixin:
             f["treasury"] = treasury
             await self.save_faction(f)
             return loss
-        row = await self._fetchone(
+        rows = await self._fetchall(
             "SELECT user_id FROM strategy_players WHERE world_id=? AND faction_id=?",
             (world["id"], owner))
-        if not row:
-            return 0
-        p = await self.get_player(row["user_id"], world["id"])
-        if not p:
-            return 0
-        loss = int(int(p.get("grain", 0)) * pct)
-        p["grain"] = int(p.get("grain", 0)) - loss
-        await self.save_player(p)
-        return loss
+        total = 0
+        for row in rows:
+            p = await self.get_player(row["user_id"], world["id"])
+            if not p:
+                continue
+            loss = int(int(p.get("grain", 0)) * pct)
+            p["grain"] = int(p.get("grain", 0)) - loss
+            await self.save_player(p)
+            total += loss
+        return total

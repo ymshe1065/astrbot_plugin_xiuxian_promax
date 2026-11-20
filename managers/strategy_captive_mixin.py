@@ -131,12 +131,22 @@ class StrategyCaptiveMixin:
                 (wid, int(node_id)))
             used = int((row or {}).get("n", 0) or 0)
         loc = c.get("location") or {}
+        prev_node = int(loc.get("node_id", 0) or 0)
         loc.pop("transfer_to", None)
         loc.update({"node_id": int(node_id),
                     "home_faction": int(c.get("faction_id", 0) or 0),
                     "home_owner": c.get("owner_user_id", "")})
         c["location"] = loc
         if slots > 0 and used >= slots:
+            # 就地驱逐回原势力：落点须为己方据点。此前沿用擒获方节点，
+            # 城破后该节点已是敌方城，角色等于被“释放”进敌营。
+            home_fid = int(c.get("faction_id", 0) or 0)
+            dest = 0
+            if home_fid > 0 and wid:
+                dest = await self._nearest_own_node(
+                    {"id": wid}, {"faction_id": home_fid}, int(node_id)) or 0
+            loc["node_id"] = dest if dest > 0 else prev_node
+            c["location"] = loc
             c["status"] = "idle"
             c["captor_faction"] = 0
             c["imprisoned_node_id"] = 0
@@ -148,6 +158,9 @@ class StrategyCaptiveMixin:
         c["status"] = "captive"
         c["captor_faction"] = int(captor_fid)
         c["imprisoned_node_id"] = int(node_id)
+        # 被俘即失去官职：否则被俘太守仍在原城享受任命加成（治理/守城）
+        c["appointed_position"] = ""
+        c["appointed_node_id"] = 0
         await self.save_char(c)
         logger.debug(f"[strategy] {c['name']} 被关押于节点 {node_id}（{used + 1}/{slots}）")
         return True
@@ -248,6 +261,9 @@ class StrategyCaptiveMixin:
         c["loyalty"] = 40
         c["captor_faction"] = 0
         c["imprisoned_node_id"] = 0
+        # 归顺/离心后原官职失效，否则 taishou 等任命仍指向旧势力据点
+        c["appointed_position"] = ""
+        c["appointed_node_id"] = 0
         loc = c.get("location") or {}
         loc.pop("transfer_to", None)
         c["location"] = {"node_id": int(loc.get("node_id", 0) or 0)}
@@ -333,14 +349,26 @@ class StrategyCaptiveMixin:
         c["status"] = "idle"
         c["captor_faction"] = 0
         c["imprisoned_node_id"] = 0
+        # 释放后必须脱离敌营：此前 location.node_id 仍指向关押节点，
+        # 角色虽已"回家"却站在别人城里，且官职残留继续吃加成。
+        c["appointed_position"] = ""
+        c["appointed_node_id"] = 0
         if home_faction and int(home_faction.get("alive", 1)):
             c["faction_id"] = home_f
             c["owner_user_id"] = home_owner
+            cur = int(loc.get("node_id", 0) or 0)
+            dest = await self._nearest_own_node(
+                {"id": int(c.get("world_id", 0) or 0)},
+                {"faction_id": home_f}, cur)
+            if dest:
+                loc["node_id"] = int(dest)
         else:
             c["faction_id"] = 0
             c["owner_user_id"] = ""
             c["status"] = "wander"
             c["auction_cooldown_until"] = 0
+            loc["node_id"] = 0
+        c["location"] = loc
         c["loyalty"] = max(int(c.get("loyalty", 70)), 60)
         await self.save_char(c)
 
@@ -379,23 +407,37 @@ class StrategyCaptiveMixin:
         if not r:
             raise StrategyError("对方未设定赎金（可等待劝降冷却或武力解放）")
         amount = int(r.get("amount", 0))
+        if int(r.get("captor_fid", 0)) != int(c.get("captor_faction", 0)) or \
+                int(c.get("captor_faction", 0)) <= 0:
+            # 俘虏已被转押/解放/被第三方重新擒获，旧赎金条目的收款方
+            # 已失效；继续支付会把铜钱打给错误势力。
+            (data.get("ransoms") or {}).pop(str(c["id"]), None)
+            world["data"] = data
+            await self.save_world(world)
+            await self._commit()
+            raise StrategyError("赎金信息已失效（俘虏已转押或被重新擒获），"
+                                "请等待对方重新设定")
         if int(p.get("coin", 0)) < amount:
             raise StrategyError(f"铜钱不足：赎金 {amount}")
         p["coin"] -= amount
         captor_fid = int(r.get("captor_fid", 0))
         cf = await self.get_faction(captor_fid)
-        if cf:
-            if cf.get("kind") == "npc":
-                treasury = cf.get("treasury") or {}
-                treasury["coin"] = int(treasury.get("coin", 0)) + amount
-                cf["treasury"] = treasury
-                await self.save_faction(cf)
-            else:
-                # 玩家势力：入国库
-                treasury = cf.get("treasury") or {}
-                treasury["coin"] = int(treasury.get("coin", 0)) + amount
-                cf["treasury"] = treasury
-                await self.save_faction(cf)
+        if not cf or not int(cf.get("alive", 0)):
+            # 关押势力已消亡：没人能接收赎金。直接让俘虏脱身，避免
+            # 玩家付了钱却打进已覆灭势力的国库（永久卡死）。
+            data.get("ransoms", {}).pop(str(c["id"]), None)
+            world["data"] = data
+            p["coin"] += amount  # 未实际支付
+            await self.save_world(world)
+            await self._return_captive_home(c)
+            await self.save_player(p)
+            await self._commit()
+            return {"ok": True,
+                    "msg": f"关押势力已消亡，{c['name']} 自行脱身归来（未扣赎金）"}
+        treasury = cf.get("treasury") or {}
+        treasury["coin"] = int(treasury.get("coin", 0)) + amount
+        cf["treasury"] = treasury
+        await self.save_faction(cf)
         data["ransoms"].pop(str(c["id"]), None)
         world["data"] = data
         await self.save_world(world)

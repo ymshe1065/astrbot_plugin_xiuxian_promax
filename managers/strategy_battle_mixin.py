@@ -43,13 +43,15 @@ class StrategyBattleMixin:
 
     async def update_battle_session(self, battle: dict):
         sess = battle.get("session") or {}
+        done = str(battle.get("state") or "") == "done"
         await self._execute(
             "UPDATE strategy_battles SET state=?, round_no=?, deadline_at=?, "
             "session_json=?, result_json=?, report_text=? WHERE id=?",
             (battle.get("state", "deploy"), int(sess.get("round", 0)),
-             int(battle.get("deadline_at", 0)),
+             0 if done else int(battle.get("deadline_at", 0)),
              json.dumps(sess, ensure_ascii=False, default=str),
-             json.dumps(battle.get("result") or {}, ensure_ascii=False),
+             json.dumps(self._clip_battle_result(battle.get("result") or {}),
+                        ensure_ascii=False, default=str),
              battle.get("report_text", "")[:8000], int(battle["id"])))
 
     def _battle_rng(self, battle: dict) -> random.Random:
@@ -129,6 +131,15 @@ class StrategyBattleMixin:
             raise StrategyError("据点不存在")
         if await self._active_manual_battle(world["id"], node["id"]):
             raise StrategyError("该据点已有手操战役进行中")
+        ss = node.get("siege_state") or {}
+        if int(ss.get("attacker_faction") or 0) != int(p["faction_id"]):
+            raise StrategyError("当前围城归属不是你方，无法介入")
+        if int(node.get("protect_until", 0) or 0) > _now():
+            raise StrategyError("该据点处于保护期，无法手操攻城")
+        block = await self._siege_relation_block(
+            int(p["faction_id"]), int(node.get("owner_faction", 0) or 0))
+        if block:
+            raise StrategyError(f"与守方处于「{block}」，无法攻城")
         my_siege = [a for a in await self.get_armies(
             world["id"], faction_id=p["faction_id"], node_id=node["id"],
             states=("siege",))
@@ -183,6 +194,11 @@ class StrategyBattleMixin:
         ss = node.get("siege_state") or {}
         if not ss:
             raise StrategyError("据点未被围困，无需出击")
+        block = await self._siege_relation_block(
+            int(ss.get("attacker_faction") or 0),
+            int(node.get("owner_faction", 0) or 0))
+        if block:
+            raise StrategyError(f"与围城方处于「{block}」，无需出击")
         # 只拉「当前围城归属势力」的军团：此前把所有势力的 siege 军团合并，
         # 围城易手后旧势力残军会被拉进战斗，攻方胜时还会按列表第一支误判
         # 占城/战利品归属（§7.2 围城唯一攻方）。
@@ -321,6 +337,7 @@ class StrategyBattleMixin:
         cur = H.current_actor(sess) if sess.get("phase") == "battle" else None
         cur_uid = int((cur or {}).get("uid", 0) or 0)
         units = []
+        cur_hidden_enemy = False
         for u in sess.get("units") or []:
             is_mine = str(u["uid"]) in owners and \
                 owners[str(u["uid"])].get("owner") == user_id
@@ -329,28 +346,38 @@ class StrategyBattleMixin:
                 for amb in (sess.get("ambushes") or []))
             # 未触发的敌方伏兵整支不下发：否则即使隐藏坐标，也能从
             # 单位数量/兵力/状态推断出林中有伏兵（§15 设伏保密）。
-            # 轮到该伏兵行动时仍下发，避免前端 current_actor 找不到单位。
-            if ambush_hidden and not is_mine and int(u["uid"]) != cur_uid:
-                continue
-            pos = u.get("pos")
+            # 轮到该伏兵行动时同样不下发（其主人 is_mine 仍可见，前端
+            # 不会丢失行动单位）；仅对对手隐藏，并把 current_actor 一并遮蔽。
             if ambush_hidden and not is_mine:
-                pos = None
+                if int(u["uid"]) == cur_uid:
+                    cur_hidden_enemy = True
+                continue
             units.append({
                 "uid": u["uid"], "side": u["side"], "mine": is_mine,
                 "army_id": u.get("army_id", 0),
-                "leader": ((u.get("leader") or {}).get("name") or
-                           ("守军" if u.get("army_id", 0) < 0 else "无将")),
+                "leader": ("兽群" if u.get("temp") else
+                           ((u.get("leader") or {}).get("name") or
+                            ("守军" if u.get("army_id", 0) < 0 else "无将"))),
                 "leader_id": (u.get("leader") or {}).get("id"),
                 "troop_type": u.get("troop_type"), "troops": u.get("troops"),
                 "start_troops": u.get("start_troops"), "morale": u.get("morale"),
                 # 灵力/技能属于对手不可见信息：只下发自己的军团
-                "mana": u.get("mana") if is_mine else None, "pos": pos,
+                "mana": u.get("mana") if is_mine else None, "pos": u.get("pos"),
                 "moved": u.get("moved"), "acted": u.get("acted"),
                 "routed": u.get("routed"), "defending": u.get("defending"),
                 "formation": u.get("formation"),
                 "siege_engine": u.get("siege_engine"),
+                "temp": bool(u.get("temp")),
+                # 剑修「突破 ZOC」每场 1 次；前端据此显示突破移动按钮，
+                # 避免后端已支持但玩家无从触发。
+                "can_zoc_break": bool(
+                    is_mine and not u.get("zoc_break_used")
+                    and ((u.get("leader") or {}).get("profession") == "sword")
+                    and int(u.get("troops", 0) or 0) > 0
+                    and not u.get("routed")),
                 "statuses": (sess.get("statuses") or {}).get(str(u["uid"]), {}),
-                "skills": (H.unit_skills(sess, u) if pos else []) if is_mine else [],
+                "skills": (H.unit_skills(sess, u) if u.get("pos") else [])
+                          if is_mine else [],
                 "delegate": bool((sess.get("delegate") or {}).get(str(u["uid"]))),
             })
         # §12.6 观战模式：非参战同势力玩家只读且**延迟 1 回合**（防报点）。
@@ -375,7 +402,7 @@ class StrategyBattleMixin:
             "deploy_zones": sess.get("deploy_zones"),
             "units": units, "my_uids": my_uids,
             "spectator": spectator, "spectator_round": snap_round,
-            "current_actor": (cur or {}).get("uid"),
+            "current_actor": None if cur_hidden_enemy else (cur or {}).get("uid"),
             "turn_deadline": 0 if spectator else sess.get("turn_deadline", 0),
             # 战斗阶段观战者不得看到当前行动方的实时剩余时间：部署阶段
             # 的 deadline_at 是公开的布阵截止时间，可保留。
@@ -610,11 +637,21 @@ class StrategyBattleMixin:
             if params.get("accept"):
                 out = H.resolve_duel(sess, rng, duel_cfg)
                 await self._handle_duel_outcome(world, battle, sess, out)
+                # 斩将/擒将会把败方军团置为溃败，可能直接打空一方。必须
+                # 当场判终局并落库，否则要等下一次 tick 才结束（期间军团
+                # 卡在 battle 态、围城管线继续暂停）。
+                winner = H.check_end(sess)
+                if winner:
+                    sess["winner"] = winner
+                    battle["_finished"] = H.finish(sess)
             else:
                 out = H.refuse_duel(sess)
             self._save_rng(battle, rng)
-            await self.update_battle_session(battle)
-            await self._commit()
+            if battle.get("_finished"):
+                await self._persist_battle_action(world, battle)
+            else:
+                await self.update_battle_session(battle)
+                await self._commit()
             # 15s 窗口内对象已溃/亡时 resolve_duel 会中止（ok=False）。此时
             # 单挑已清空且挑战次数已消耗，必须明确告知玩家，不能静默成功。
             if params.get("accept") and not out.get("ok"):
@@ -664,16 +701,19 @@ class StrategyBattleMixin:
                 # 惑敌：敌我不分，由引擎按确定性伪随机选目标（与 AI 同规则）
                 atk = H.do_confused_attack(sess, uid, rng)
             else:
-                taunt_by = H.active_taunter(sess, cur)
-                if taunt_by:
-                    tu = H.get_unit(sess, int(taunt_by))
-                    if tu and tu["troops"] > 0 and not tu["routed"] and \
-                            int(params.get("target", 0) or 0) != int(taunt_by):
-                        raise StrategyError("已被挑衅：只能攻击挑衅者")
+                # 先解析目标再校验挑衅：此前挑衅分支里直接 int(params["target"])，
+                # 客户端传非数字（"abc"/对象/数组）会抛未捕获的 ValueError/
+                # TypeError → REST 500「操作失败」，而不是 400 指令错误。
                 try:
                     target = int(params.get("target", 0) or 0)
                 except (TypeError, ValueError):
                     raise StrategyError("攻击目标无效")
+                taunt_by = H.active_taunter(sess, cur)
+                if taunt_by:
+                    tu = H.get_unit(sess, int(taunt_by))
+                    if tu and tu["troops"] > 0 and not tu["routed"] and \
+                            target != int(taunt_by):
+                        raise StrategyError("已被挑衅：只能攻击挑衅者")
                 atk = H.do_attack(sess, uid, target, rng)
             if not atk.get("ok"):
                 raise StrategyError(f"攻击失败：{atk.get('reason')}")
@@ -1148,11 +1188,14 @@ class StrategyBattleMixin:
         for a in atk_armies + dfn_armies:
             if a.get("state") == "battle":
                 a["state"] = "idle"
+        kind = battle.get("kind", "field")
+        # 手操围城介入失败时，幸存攻方残部留在城下由下方 siege 分支恢复围城；
+        # 若此处按自动野战口径撤离，恢复分支将永远找不到驻扎军团。
         await self._apply_battle_aftermath(
-            world, node, atk_armies, dfn_armies, result)
+            world, node, atk_armies, dfn_armies, result,
+            hold_atkers=(kind == "siege"))
         winner = result.get("winner")
         atk_fid = int(battle.get("attacker_faction", 0))
-        kind = battle.get("kind", "field")
         texts = [report]
         if result.get("highlights"):
             texts.insert(0, "  ".join(result["highlights"]))
@@ -1276,7 +1319,17 @@ class StrategyBattleMixin:
         for pc in sess.get("_pending_captures") or []:
             c = await self.get_char(pc["char_id"])
             if c and c.get("status") not in ("captive", "dead"):
-                got = await self._capture_char(c, pc["captor_fid"], node["id"])
+                captor_fid = int(pc.get("captor_fid") or 0)
+                # 关押节点必须属于擒获方：field 出击攻方胜时战场节点仍归
+                # 守方，若直接关在本节点会把俘虏塞进敌方自己的城。
+                jail_id = int(node["id"])
+                if captor_fid > 0 and \
+                        int(node.get("owner_faction", 0) or 0) != captor_fid:
+                    home = await self._nearest_own_node(
+                        world, {"faction_id": captor_fid}, int(node["id"]))
+                    if home:
+                        jail_id = int(home)
+                got = await self._capture_char(c, captor_fid, jail_id)
                 texts.append(f"⛓ 斗法被擒：{c['name']}" if got
                              else f"⛓ {c['name']} 斗法落败，但敌营已满，被就地驱逐")
         sess.pop("_pending_captures", None)

@@ -51,6 +51,21 @@ class StrategyFactionMixin:
             "SELECT * FROM strategy_members WHERE faction_id=?", (int(faction_id),))
         return [dict(r) for r in rows]
 
+    async def _own_faction_members(self, world_id: int,
+                                   faction_id: int) -> list[dict]:
+        """本势力真实成员（排除联盟共同治理名册里的盟友）。
+
+        ``strategy_members`` 对盟主势力还保存着盟友玩家（position=deputy），
+        直接拿它做「领袖缺席 / 僵尸势力」判定会把整个联盟当成一个势力：
+        盟主永远不会僵尸化，崩溃时还会把盟友玩家迁出本势力。
+        """
+        rows = await self._fetchall(
+            "SELECT m.* FROM strategy_members m "
+            "JOIN strategy_players p ON p.world_id=? AND p.user_id=m.user_id "
+            "WHERE m.faction_id=? AND p.faction_id=?",
+            (int(world_id), int(faction_id), int(faction_id)))
+        return [dict(r) for r in rows]
+
     async def get_member(self, faction_id: int, user_id: str) -> Optional[dict]:
         row = await self._fetchone(
             "SELECT * FROM strategy_members WHERE faction_id=? AND user_id=?",
@@ -211,6 +226,32 @@ class StrategyFactionMixin:
         await self.save_faction(host)
         await self.save_faction(target)
 
+    async def _restore_alliance_diplomacy(self, world: dict, member: dict,
+                                          host: dict) -> dict:
+        """退盟时恢复成员入盟前的外交字典。
+
+        恢复快照后，再补上联盟存续期间新增的战争/停战关系，避免成员
+        通过退盟单方面脱离联盟战争（免费撕约）。快照存于 ``world.data``，
+        不随 ``save_faction`` 的固定列落库。
+        """
+        data = world.get("data") or {}
+        backup = data.get("alliance_dip_backup")
+        if not isinstance(backup, dict):
+            backup = {}
+        snap = backup.pop(str(int(member["id"])), None)
+        data["alliance_dip_backup"] = backup
+        world["data"] = data
+        restored: dict = {}
+        if isinstance(snap, dict) and isinstance(snap.get("dip"), dict):
+            for k, v in snap["dip"].items():
+                restored[str(k)] = dict(v) if isinstance(v, dict) else v
+        for k, v in (host.get("diplomacy") or {}).items():
+            rel = str((v or {}).get("rel") or "")
+            if rel in (R.REL_WAR, R.REL_TRUCE) and str(k) not in restored:
+                restored[str(k)] = dict(v) if isinstance(v, dict) else v
+        await self.save_world(world)
+        return restored
+
     async def _add_faction_to_alliance(self, world: dict, member: dict,
                                        host: dict, leader_position: str = "deputy"):
         """把成员势力并入联盟：保留其据点，合并国库/科技/外交并登记盟主名册。"""
@@ -227,6 +268,37 @@ class StrategyFactionMixin:
         cur_aid = int(member.get("alliance_id") or 0)
         if cur_aid and cur_aid != int(host["id"]):
             raise StrategyError(f"「{member['name']}」已在其他联盟中")
+        # 入盟前备份成员原有外交关系：退盟/联盟解散时恢复，避免
+        # 「结盟覆盖、退盟清空」导致成员此前签下的停战/好感凭空消失
+        # （等于免费撕约，且 NPC 好感日限记录一并丢失）。
+        data = world.get("data") or {}
+        backup = data.get("alliance_dip_backup")
+        if not isinstance(backup, dict):
+            backup = {}
+        backup[str(int(member["id"]))] = {
+            "dip": dict(member.get("diplomacy") or {}), "at": _now()}
+        data["alliance_dip_backup"] = backup
+        # 入盟前备份成员自身科技：联盟科技以盟主为准，退盟/解散时还原，
+        # 否则成员可以「加盟抄满级、退盟永久保留」，反复横跳免费吸科技；
+        # 同时清掉成员侧残留的 pending，避免退盟后重复结算同一研究。
+        m_tech = member.get("tech") or {}
+        m_pending = m_tech.get("pending") if isinstance(
+            m_tech.get("pending"), dict) else None
+        tech_backup = data.get("alliance_tech_backup")
+        if not isinstance(tech_backup, dict):
+            tech_backup = {}
+        # 重复入盟（如只补名册）时保留最初快照，避免把已同步的盟主科技
+        # 当成"入盟前科技"记下来，退盟后照样白嫖。
+        if not isinstance(tech_backup.get(str(int(member["id"]))), dict):
+            tech_backup[str(int(member["id"]))] = {
+                "levels": {k: int(v or 0) for k, v in m_tech.items()
+                           if k != "pending" and isinstance(v, (int, float))},
+                "pending": dict(m_pending) if m_pending else None,
+                "at": _now(),
+            }
+        data["alliance_tech_backup"] = tech_backup
+        world["data"] = data
+        await self.save_world(world)
         # 合并国库与科技（据点归属保持原样）
         ht = dict(host.get("treasury") or {})
         mt = dict(member.get("treasury") or {})
@@ -239,13 +311,37 @@ class StrategyFactionMixin:
             if line == "pending":
                 if not htech.get("pending"):
                     htech["pending"] = lv
+                    # 该研究已被联盟接管：退盟时不再还原，避免双方重复结算
+                    tent = tech_backup.get(str(int(member["id"])))
+                    if isinstance(tent, dict):
+                        tent["pending_moved_to_host"] = True
+                else:
+                    # 双方都在研究：联盟只保留盟主的在研项目，成员项目
+                    # 被覆盖。必须释放成员的主研角色，否则其 status 永久
+                    # 卡在 research（盟主 tech 里没有这条 pending 可结算）。
+                    pcid = int((lv or {}).get("char_id", 0) or 0)
+                    keep_cid = int((htech.get("pending") or {}).get(
+                        "char_id", 0) or 0)
+                    if pcid and pcid != keep_cid:
+                        c = await self.get_char(pcid)
+                        if c and c.get("status") == "research":
+                            c["status"] = "idle"
+                            await self.save_char(c)
                 continue
             htech[line] = max(int(htech.get(line, 0) or 0), int(lv or 0))
         host["tech"] = htech
         host["alliance_id"] = int(host["id"])
         member["alliance_id"] = int(host["id"])
         member["tech"] = dict(htech)
-        member["diplomacy"] = dict(host.get("diplomacy") or {})
+        # 联盟共同外交：以盟主政策为主，但成员已有的双边记录（尤其
+        # 停战/战争/好感）并入盟主字典，避免结盟即抹除既有条约。
+        h_dip = dict(host.get("diplomacy") or {})
+        for k, v in (member.get("diplomacy") or {}).items():
+            h_dip.setdefault(k, v)
+        host["diplomacy"] = h_dip
+        member["diplomacy"] = dict(h_dip)
+        world["data"] = data
+        await self.save_world(world)
         await self.save_faction(host)
         await self.save_faction(member)
         # 盟主名册 = 联盟共同治理名册；保留成员原势力名册不变
@@ -257,10 +353,39 @@ class StrategyFactionMixin:
             if await self.get_member(int(host["id"]), uid):
                 continue
             pos = leader_position if uid == str(member.get("leader_id") or "") else ""
-            await self.upsert_member(int(host["id"]), uid, position=pos)
+            # 联盟名册的 joined_at 必须继承玩家在成员势力中的真实入盟时间，
+            # 否则每次结盟都重置为 now，§18.4 的 72h 战功观察期会把联盟
+            # 成员的战功全部 ×0（盟主/官员除外，普通成员必中）。
+            own = await self.get_member(int(member["id"]), uid) or {}
+            joined = int(own.get("joined_at", 0) or 0) or None
+            await self.upsert_member(int(host["id"]), uid, position=pos,
+                                     joined_at=joined)
         await self._sync_alliance_meta(host)
         logger.info(f"[strategy] 势力#{member['id']}「{member['name']}」并入"
                     f"联盟#{host['id']}「{host['name']}」")
+
+    async def _restore_alliance_tech(self, world: dict, member: dict) -> dict:
+        """退盟/解散时还原成员入盟前的科技（防止「加盟抄科技」）。
+
+        无快照的旧存档：仅清除从盟主复制来的 ``pending``，等级保留（无法
+        追溯入盟前数值），至少避免退盟后重复结算同一项研究。
+        """
+        data = world.get("data") or {}
+        backup = data.get("alliance_tech_backup")
+        if not isinstance(backup, dict):
+            backup = {}
+        snap = backup.pop(str(int(member["id"])), None)
+        data["alliance_tech_backup"] = backup
+        world["data"] = data
+        if isinstance(snap, dict):
+            tech = {k: int(v or 0) for k, v in (snap.get("levels") or {}).items()}
+            if snap.get("pending") and not snap.get("pending_moved_to_host"):
+                tech["pending"] = dict(snap["pending"])
+        else:
+            tech = {k: v for k, v in (member.get("tech") or {}).items()}
+            tech.pop("pending", None)
+        await self.save_world(world)
+        return tech
 
     async def _remove_faction_from_alliance(self, world: dict, member: dict) -> dict:
         """退出联盟：按当前据点分割国库，成员势力保留自己的全部据点。"""
@@ -283,7 +408,11 @@ class StrategyFactionMixin:
         for row in rows:
             await self.delete_member(int(host["id"]), str(row["user_id"]))
         member["alliance_id"] = 0
-        member["diplomacy"] = {}
+        # 恢复入盟前的外交关系，并保留联盟存续期间新增的战争/停战，
+        # 防止「退盟即脱战/免费撕约」。
+        member["diplomacy"] = await self._restore_alliance_diplomacy(
+            world, member, host)
+        member["tech"] = await self._restore_alliance_tech(world, member)
         await self.save_faction(member)
         rest = [x for x in factions if int(x["id"]) != int(member["id"])]
         if len(rest) <= 1:
@@ -309,7 +438,8 @@ class StrategyFactionMixin:
             for row in rows:
                 await self.delete_member(int(host["id"]), str(row["user_id"]))
             f["alliance_id"] = 0
-            f["diplomacy"] = {}
+            f["diplomacy"] = await self._restore_alliance_diplomacy(world, f, host)
+            f["tech"] = await self._restore_alliance_tech(world, f)
             await self.save_faction(f)
         host["alliance_id"] = 0
         await self.save_faction(host)
@@ -365,9 +495,12 @@ class StrategyFactionMixin:
             raise StrategyError(f"铜钱不足：发起会签需垫付 {cost}")
         p["coin"] -= cost
         pid = f"pet{_now()}_{user_id[-6:]}"
+        fallback_color = "#%06x" % random.Random(pid).randint(0x333333, 0xFFFFFF)
         pets[pid] = {
             "id": pid, "name": name,
-            "color": color or "#%06x" % random.Random(pid).randint(0x333333, 0xFFFFFF),
+            # 颜色只接受 #RGB/#RRGGBB：任意字符串会被前端拼进 style，
+            # 形成存储型 XSS（如 "red\"></span><img onerror=...>"）。
+            "color": R.norm_color(color, fallback_color),
             "creator": user_id, "created_at": _now(), "state": "open",
             "expire_at": _now() + int(fcfg.get("cosign_expire_hours", 72)) * 3600,
             "cosigners": [], "escrow": cost,
@@ -433,7 +566,7 @@ class StrategyFactionMixin:
         if not host or host.get("kind") != "player":
             raise StrategyError("发起人没有可用的个人势力")
         host["name"] = pet["name"]
-        host["color"] = pet.get("color") or "#888888"
+        host["color"] = R.norm_color(pet.get("color"), "#888888")
         host["leader_id"] = pet["creator"]
         host["alliance_id"] = int(host["id"])
         host["faction_state"] = "normal"
@@ -477,9 +610,12 @@ class StrategyFactionMixin:
 
     async def _move_player_to_faction(self, world: dict, p: dict, fid: int):
         """把玩家角色/军团迁入指定势力，并登记为该势力主公。"""
+        # 被俘/押运中的角色不得被入盟/崩溃等流程改写阵营：其 faction_id
+        # 仍代表原势力，改写会让俘虏归属错乱（甚至直接脱离关押）。
         await self._execute(
             "UPDATE strategy_characters SET faction_id=?, appointed_position='', "
-            "appointed_node_id=0 WHERE world_id=? AND owner_user_id=?",
+            "appointed_node_id=0 WHERE world_id=? AND owner_user_id=? "
+            "AND status NOT IN ('captive','transfer') AND captor_faction<=0",
             (int(fid), world["id"], p["user_id"]))
         await self._execute(
             "UPDATE strategy_armies SET faction_id=? WHERE world_id=? AND owner_user_id=?",
@@ -583,6 +719,12 @@ class StrategyFactionMixin:
         cap = int((self.main_cfg().get("alliance") or {}).get("max_factions", 3))
         if len(await self._alliance_factions(world["id"], host)) >= cap:
             raise StrategyError("对方联盟势力数已满")
+        # 与申请/退盟同口径的冷却校验：此前接受邀请可绕过 24h 退盟冷却，
+        # 退盟后立刻借邀请重新入盟。
+        quit_cd = int((data.get("quit_cd") or {}).get(user_id, 0))
+        if quit_cd > _now():
+            hours = (quit_cd - _now() + 3599) // 3600
+            raise StrategyError(f"退盟冷却中（还剩 {hours} 小时）")
         data["join_invites"].pop(user_id, None)
         world["data"] = data
         await self.save_world(world)
@@ -614,6 +756,11 @@ class StrategyFactionMixin:
         cap = int((self.main_cfg().get("alliance") or {}).get("max_factions", 3))
         if len(await self._alliance_factions(world["id"], f)) >= cap:
             raise StrategyError(f"联盟势力数已满（{cap}）")
+        # 审批路径同样受退盟冷却约束（申请人退盟后立即另投他盟）
+        quit_cd = int((data.get("quit_cd") or {}).get(str(applicant_user), 0))
+        if quit_cd > _now():
+            hours = (quit_cd - _now() + 3599) // 3600
+            raise StrategyError(f"申请人退盟冷却中（还剩 {hours} 小时）")
         apps.pop(applicant_user, None)
         data["join_apps"][str(f["id"])] = apps
         world["data"] = data
@@ -704,7 +851,8 @@ class StrategyFactionMixin:
         caps = dict(POSITION_CAPS_DEFAULT)
         caps.update((self.main_cfg().get("faction") or {}).get("positions") or {})
         position = str(position or "").strip()
-        if position not in caps or position == "leader":
+        # 空字符串 = 卸任（返回白身）；此前直接判为无效，官职只能改任不能卸
+        if position and (position not in caps or position == "leader"):
             raise StrategyError("官职无效（主公之位请走移交）")
         members = await self.get_members(f["id"])
         target = next((m for m in members if m["user_id"] == str(target_user)), None)
@@ -823,13 +971,19 @@ class StrategyFactionMixin:
 
     async def transfer_node(self, user_id: str, node_id: int,
                             target_faction_id: int) -> dict:
-        """联盟内部交接据点归属（保留守军/建筑，仅换所属势力）。"""
+        """联盟内部交接据点归属（保留守军/建筑，仅换所属势力）。
+
+        权限：盟主/副主可调度全联盟据点；成员势力主/副主只能把
+        **本势力自己的据点**交给盟友，不能反向把盟友据点划给自己。
+        此前统一按盟主名册校验，任何成员国主（默认副主）都能随意
+        鲸吞盟友领土。
+        """
         world, p = await self._require_player(user_id)
-        f = await self._governance_faction(p)
-        if not f or f.get("kind") == "npc":
+        own = await self.get_faction(int(p.get("faction_id") or 0))
+        if not own or own.get("kind") == "npc":
             raise StrategyError("当前不在玩家势力中")
-        await self._require_position(f, user_id, ("leader", "deputy"))
-        ids = await self._alliance_ids(world["id"], f)
+        host = await self._alliance_host(own)
+        ids = await self._alliance_ids(world["id"], own)
         node = await self.get_node(world["id"], int(node_id))
         if not node:
             raise StrategyError("据点不存在")
@@ -843,6 +997,16 @@ class StrategyFactionMixin:
             raise StrategyError("该据点已属于目标势力")
         if node.get("type") == "ruin":
             raise StrategyError("遗迹不可交接")
+        f = host or own
+        if int(f["id"]) == int(own["id"]):
+            # 盟主势力：可调度联盟内任意据点
+            await self._require_position(f, user_id, ("leader", "deputy"))
+        else:
+            # 成员势力：仅可交出本势力据点，且目标不能是自己以外的
+            # “反向接收”（统一禁止，避免变相吞并）
+            await self._require_position(own, user_id, ("leader", "deputy"))
+            if old_owner_id != int(own["id"]):
+                raise StrategyError("仅联盟盟主可跨势力交接据点")
         old_owner = await self.get_faction(old_owner_id)
         node["owner_faction"] = int(target["id"])
         node["siege_state"] = {}
@@ -852,7 +1016,15 @@ class StrategyFactionMixin:
                 "SELECT id FROM strategy_nodes WHERE world_id=? AND owner_faction=? "
                 "AND id<>? AND type<>'ruin' ORDER BY (type IN ('city','pass','branch')) DESC, id LIMIT 1",
                 (world["id"], old_owner_id, int(node["id"])))
-            old_owner["capital_node_id"] = int((left or {}).get("id", 0) or 0)
+            new_cap = int((left or {}).get("id", 0) or 0)
+            old_owner["capital_node_id"] = new_cap
+            if new_cap <= 0:
+                # 交出最后一座据点：必须与城破同口径进入流亡，否则旧势力
+                # 会停留在 normal 且 capital=0，可绕过流亡校验在地图任意
+                # 无主节点“重建主城”。
+                old_owner["faction_state"] = "exiled"
+            elif str(old_owner.get("faction_state") or "") == "exiled":
+                old_owner["faction_state"] = "normal"
             await self.save_faction(old_owner)
         if not int(target.get("capital_node_id") or 0):
             target["capital_node_id"] = int(node["id"])
@@ -906,9 +1078,25 @@ class StrategyFactionMixin:
         if pos == "deputy":
             pct = float((self.main_cfg().get("faction") or {}).get(
                 "treasury_deputy_pct", 0.3))
-            if amount > int(have * pct):
-                raise StrategyError(f"副主单次提取上限为国库的 {int(pct * 100)}%"
-                                    f"（{int(have * pct)}）")
+            # 「单次上限 30%」若不限次数等于没有上限：副主可以连续提取
+            # 30%/21%/15%…把国库抽干。这里按「每日累计」计算额度。
+            day = _now() // 86400
+            data = world.get("data") or {}
+            draws = data.get("treasury_draw")
+            if not isinstance(draws, dict):
+                draws = {}
+            rec = draws.get(str(int(f["id"]))) or {}
+            used = int(rec.get("used", 0) or 0) if int(rec.get("day", 0) or 0) == day else 0
+            base = have + used
+            cap_total = int(base * pct)
+            if amount + used > cap_total:
+                raise StrategyError(
+                    f"副主今日累计提取上限为国库的 {int(pct * 100)}%"
+                    f"（本日剩余 {max(0, cap_total - used)}）")
+            draws[str(int(f["id"]))] = {"day": day, "used": used + amount}
+            data["treasury_draw"] = draws
+            world["data"] = data
+            await self.save_world(world)
         treasury[resource] = have - amount
         f["treasury"] = treasury
         p[resource] = int(p.get(resource, 0)) + amount
@@ -941,8 +1129,14 @@ class StrategyFactionMixin:
         max_lvl = int(tcfg.get("levels", 5))
         if lvl >= max_lvl:
             raise StrategyError(f"{line} 已满级（L{max_lvl}）")
-        cost_coin = int((tcfg.get("cost_coin") or [500] * 5)[lvl])
-        cost_iron = int((tcfg.get("cost_iron") or [500] * 5)[lvl])
+        # 配置数组可能短于 levels：越界时回退到最后一个档位，避免 IndexError
+        def _level_cost(key: str, default: list) -> int:
+            arr = list(tcfg.get(key) or default)
+            if not arr:
+                arr = default
+            return int(arr[min(lvl, len(arr) - 1)])
+        cost_coin = _level_cost("cost_coin", [500] * 5)
+        cost_iron = _level_cost("cost_iron", [500] * 5)
         treasury = f.get("treasury") or {}
         if int(treasury.get("coin", 0)) < cost_coin or int(treasury.get("iron", 0)) < cost_iron:
             raise StrategyError(f"国库不足：研究 L{lvl + 1} 需铜钱 {cost_coin} / 精铁 {cost_iron}")
@@ -951,7 +1145,8 @@ class StrategyFactionMixin:
         stat = max(int((c.get("stats") or {}).get("wisdom", 0)),
                    int((c.get("stats") or {}).get("admin", 0)))
         # 耗时：基础小时 × 主属性加速（以主研角色的智谋/政务计算）
-        base_hours = float((tcfg.get("base_hours_per_level") or [8, 16, 24, 32, 40])[lvl])
+        base_arr = list(tcfg.get("base_hours_per_level") or [8, 16, 24, 32, 40])
+        base_hours = float(base_arr[min(lvl, len(base_arr) - 1)] if base_arr else 8)
         hours = R.tech_research_hours(base_hours, stat,
                                       float(tcfg.get("stat_speed_divisor", 10)),
                                       float(tcfg.get("stat_speed_pct", 0.05)))
@@ -1073,10 +1268,34 @@ class StrategyFactionMixin:
 
     def _set_relation(self, f_dip: dict, other_id: int, rel: str,
                       until: int = 0, war_at: int = 0) -> dict:
-        entry = f_dip.setdefault(str(int(other_id)), {})
+        key = str(int(other_id))
+        entry = f_dip.setdefault(key, {})
+        if rel.startswith("propose_"):
+            # 提案只是临时视图：先把既有关系（含 score/war_at/until）完整
+            # 备份到 prev，接受/拒绝/过期时再还原，不能直接覆盖或 pop。
+            if not isinstance(entry.get("prev"), dict):
+                entry["prev"] = {k: v for k, v in entry.items() if k != "prev"}
+        else:
+            entry.pop("prev", None)
         entry.update({"rel": rel, "until": int(until or 0),
                       "war_at": int(war_at or 0)})
         return f_dip
+
+    @staticmethod
+    def _restore_proposal(entry: dict) -> Optional[dict]:
+        """把提案条目还原为提案前快照；返回 None 表示应删除该条目。
+
+        窗口期内产生的好感/赠礼计数要保留（它们写入的是当前条目），
+        否则玩家在 48h 内送礼提升的好感会随提案结束一起消失。
+        """
+        prev = entry.get("prev") if isinstance(entry, dict) else None
+        if not isinstance(prev, dict):
+            return None
+        restored = dict(prev)
+        for k in ("score", "gift_day", "gift_gain", "trade_day", "trade_gain"):
+            if k in entry:
+                restored[k] = entry[k]
+        return restored
 
     async def _alive_faction_ids(self, world: dict) -> set:
         """C-M2：当前存续势力 id 集合（字符串键，与 diplomacy dict 对齐）。"""
@@ -1341,6 +1560,9 @@ class StrategyFactionMixin:
         tf = await self._alliance_host(tf)
         if int(tf["id"]) == int(f["id"]):
             raise StrategyError("目标势力无效")
+        # 外交代表权属于官职（主公/副主/司徒/太尉/祭酒），普通成员不得
+        # 代表势力宣战或提案（此前完全无职位校验）。
+        await self._require_position(f, user_id, OFFICER_POSITIONS)
         now = _now()
         f_dip = f.get("diplomacy") or {}
         t_dip = tf.get("diplomacy") or {}
@@ -1409,6 +1631,11 @@ class StrategyFactionMixin:
                 await self._apply_diplomacy_deal(f, tf, kind, indemnity, dcfg)
                 return {"ok": True, "msg": f"「{tf['name']}」接受了{self._kind_cn(kind)}"}
             return {"ok": True, "msg": f"「{tf['name']}」拒绝了{self._kind_cn(kind)}"}
+        # 已有待决提案时不再覆盖：否则会叠加 prev 快照并丢失原关系
+        for dip, other in ((f_dip, tf["id"]), (t_dip, f["id"])):
+            if str((dip.get(str(int(other))) or {}).get("rel", "")).startswith(
+                    "propose_"):
+                raise StrategyError("已有待回应的外交提案，请等待对方答复或过期")
         expire = now + 48 * 3600
         self._set_relation(t_dip, f["id"], f"propose_{kind}", until=expire)
         t_dip[str(f["id"])]["from"] = int(f["id"])
@@ -1622,18 +1849,28 @@ class StrategyFactionMixin:
                     not R.can_ally_count(tf.get("diplomacy") or {}, _now(), cap_ally):
                 raise StrategyError("任一方同盟数已达上限")
         self._clear_proposals(f, tf)
+        # _apply_diplomacy_deal(f=付款方, tf=收款方)：提案方是赔款支付方，
+        # 应答方是收款方。此前参数颠倒，会从接受方国库扣钱给提案方。
         await self._apply_diplomacy_deal(
-            f, tf, kind, int(entry.get("indemnity", 0)), dcfg)
+            tf, f, kind, int(entry.get("indemnity", 0)), dcfg)
         return {"ok": True,
                 "msg": f"已接受「{tf['name']}」的{self._kind_cn(kind)}提案"}
 
     def _clear_proposals(self, f: dict, tf: dict):
-        f_dip = f.get("diplomacy") or {}
-        t_dip = tf.get("diplomacy") or {}
-        f_dip.pop(str(tf["id"]), None)
-        t_dip.pop(str(f["id"]), None)
-        f["diplomacy"] = f_dip
-        tf["diplomacy"] = t_dip
+        # 结束后还原提案前的关系快照（而非整条 pop），否则停战/同盟与
+        # 好感 score 会在提案期间或应答后凭空消失。
+        for holder, other_id in ((f, tf["id"]), (tf, f["id"])):
+            dip = holder.get("diplomacy") or {}
+            key = str(int(other_id))
+            entry = dip.get(key)
+            if not isinstance(entry, dict):
+                continue
+            restored = self._restore_proposal(entry)
+            if restored:
+                dip[key] = restored
+            else:
+                dip.pop(key, None)
+            holder["diplomacy"] = dip
 
     async def check_truce_violation(self, world: dict, atk_fid: int,
                                     dfn_fid: int) -> bool:
@@ -1691,10 +1928,16 @@ class StrategyFactionMixin:
             dip = fx.get("diplomacy") or {}
             changed = False
             for k, v in list(dip.items()):
-                rel = str((v or {}).get("rel", ""))
-                until = int((v or {}).get("until", 0) or 0)
+                if not isinstance(v, dict):
+                    continue
+                rel = str(v.get("rel", ""))
+                until = int(v.get("until", 0) or 0)
                 if rel.startswith("propose_") and until and now > until:
-                    dip.pop(k, None)
+                    restored = self._restore_proposal(v)
+                    if restored:
+                        dip[k] = restored
+                    else:
+                        dip.pop(k, None)
                     changed = True
             if changed:
                 fx["diplomacy"] = dip
@@ -1731,7 +1974,7 @@ class StrategyFactionMixin:
             f = await self.get_faction(fid)
             if not f:
                 continue
-            members = await self.get_members(fid)
+            members = await self._own_faction_members(world["id"], fid)
             # 势力等级/上限刷新
             lvl = self._faction_level(node_count.get(fid, 0))
             cap = self._member_cap({**f, "level": lvl})
@@ -1773,6 +2016,11 @@ class StrategyFactionMixin:
             if p:
                 for k in ("coin", "grain", "iron"):
                     p[k] = int(p.get(k, 0)) + int(share.get(k, 0))
+                # 国库灵石按贡献分配回主玩法钱包（走日限额/超额转战功），
+                # 否则崩溃时 treasury.gold 会随 f["treasury"]={} 直接蒸发。
+                gold_share = int(share.get("gold", 0) or 0)
+                if gold_share > 0:
+                    await self._inject_gold(p, gold_share)
                 await self.save_player(p)
         owned = [n for n in nodes if n["owner_faction"] == fid]
         rng = self._rng("collapse", fid, world["tick_no"])
@@ -1834,69 +2082,117 @@ class StrategyFactionMixin:
     async def rebuild_capital(self, user_id: str, node_id: int) -> dict:
         """主城重建：主玩法灵石付费（300 万 ×1.5^n），新首都 7 天保护。
 
-        流亡势力（capital_node_id=0）可选任意无主城池/关隘/分舵直接重建；
-        尚有主城时只允许迁都到己方据点。
+        流亡势力（faction_state=exiled）可选任意无主城池/关隘/分舵直接重建，
+        且任一成员均可发起；尚有主城时只允许势力主迁都到己方据点。
         """
         world, p = await self._require_player(user_id)
         rcfg = self.main_cfg().get("rebuild") or {}
         f = await self.get_faction(p["faction_id"])
         if not f or f.get("kind") == "npc":
             raise StrategyError("当前不在玩家势力中")
-        await self._require_position(f, user_id, ("leader",))
         node = await self.get_node(world["id"], int(node_id))
         if not node:
             raise StrategyError("据点不存在")
         if node["type"] not in ("city", "pass", "branch"):
             raise StrategyError("新主城须为城池/关隘/分舵")
         owned = int(node.get("owner_faction", 0)) == int(f["id"])
+        # 流亡态是重建的唯一合法入口：faction_state 由城破/据点清零统一写入，
+        # 仅凭 capital_node_id==0 判定会把「主城已陷但仍持有其他据点」的势力
+        # 也当成流亡，使其可在任意无主节点远程重建（绕过迁都）。
+        exiled = str(f.get("faction_state") or "") == "exiled"
+        if not exiled and int(f.get("capital_node_id") or 0) <= 0:
+            # 旧存档自愈：无主城且名下已无任何据点，等价于流亡（新逻辑
+            # 会在城破时写入 exiled；旧档可能停留在 normal）。
+            rest = await self._fetchone(
+                "SELECT COUNT(*) AS n FROM strategy_nodes "
+                "WHERE world_id=? AND owner_faction=? AND type<>'ruin'",
+                (int(world["id"]), int(f["id"])))
+            if int((rest or {}).get("n", 0) or 0) <= 0:
+                exiled = True
+                f["faction_state"] = "exiled"
+                await self.save_faction(f)
+        if owned:
+            # 迁都仅势力主可发起
+            await self._require_position(f, user_id, ("leader",))
+        else:
+            if not exiled:
+                raise StrategyError(
+                    "只有流亡势力（已失去全部据点）才可在无主节点重建主城；"
+                    "迁都请使用迁都指令")
+            # §8.7：流亡势力任一成员均可发起重建
+            members = await self.get_members(int(f["id"]))
+            if not any(str(m.get("user_id")) == str(user_id) for m in members):
+                raise StrategyError("仅本势力成员可发起重建")
         if not owned:
-            if int(f.get("capital_node_id") or 0):
-                raise StrategyError("迁都只能选择我方据点；流亡后才可在无主节点重建")
             if int(node.get("owner_faction", 0)) != 0:
                 raise StrategyError("目标据点不属于无主势力")
+            # 保护期/围城中的节点不可作为重建点：否则可用 300 万灵石
+            # 强插一个 7 天免战新城，直接中止敌方正在推进的围城。
+            if int(node.get("protect_until", 0) or 0) > _now():
+                raise StrategyError("目标据点处于保护期，无法在此重建主城")
+            if node.get("siege_state"):
+                raise StrategyError("目标据点正在被围困，无法在此重建主城")
         cost = R.rebuild_gold_cost(int(rcfg.get("base_gold_cost", 3_000_000)),
                                    int(f.get("rebuild_count", 0)),
                                    float(rcfg.get("cost_growth", 0.5)))
         # §8.7 重建合力：先扣 rebuild_fund（以灵石计价），国库铜钱按
         # ``rebuild.coin_per_gold`` 折算抵充，不足部分由发起人补主玩法灵石；
         # 成功后合力资金清零。
-        treasury = dict(f.get("treasury") or {})
-        fund = max(0, int(f.get("rebuild_fund") or 0))
+        # 出力账号与 rebuild_donate 保持一致：结盟后用盟主势力的合力/国库
+        # （此前捐款进盟主、重建却读自身势力，盟友凑的钱永远抵不了账）。
+        gf = await self._governance_faction(p) or f
+        treasury = dict(gf.get("treasury") or {})
+        fund = max(0, int(gf.get("rebuild_fund") or 0))
         # 国库铜钱按 rebuild.coin_per_gold 折算灵石（默认 1000:1）
         coin_per_gold = max(1, int(rcfg.get("coin_per_gold", 1000) or 1000))
+        # 国库里沉淀的灵石（据点产出的 treasury_share）同样是重建资金，
+        # 否则这部分灵石只进不出，成为永久黑洞。
+        treasury_gold = max(0, int(treasury.get("gold", 0) or 0))
         coin_gold = max(0, int(treasury.get("coin", 0) or 0)) // coin_per_gold
-        covered = min(int(cost), fund + coin_gold)
+        covered = min(int(cost), fund + treasury_gold + coin_gold)
         gold_need = int(cost) - covered
         use_fund = min(fund, covered)
-        use_coin = (covered - use_fund) * coin_per_gold
+        rest = covered - use_fund
+        use_tgold = min(treasury_gold, rest)
+        use_coin = (rest - use_tgold) * coin_per_gold
         if gold_need > 0 and not await self._deduct_main_gold(user_id, gold_need):
             raise StrategyError(
                 f"重建资金不足：还需灵石 {gold_need:,}"
                 f"（国库+合力已抵 {covered:,}/{int(cost):,}）")
+        if use_tgold > 0:
+            treasury["gold"] = treasury_gold - int(use_tgold)
+            gf["treasury"] = treasury
         if use_coin > 0:
             treasury["coin"] = int(treasury.get("coin", 0)) - int(use_coin)
-            f["treasury"] = treasury
-        f["rebuild_fund"] = 0
+            gf["treasury"] = treasury
+        gf["rebuild_fund"] = 0
+        if int(gf["id"]) != int(f["id"]):
+            await self.save_faction(gf)
         if not owned:
             # 流亡重建：无主残军自动散尽，据点归入本势力后再设为主城
             node["owner_faction"] = int(f["id"])
             node["npc_garrison"] = {"troops": 0, "morale": 80}
             node["siege_state"] = {}
+            await self._clear_bandit_marker(world, node)
             if node["type"] in ("city", "pass", "branch"):
                 node["defense"] = R.city_defense_max(max(1, int(node.get("level", 1))))
         f["capital_node_id"] = int(node["id"])
         f["rebuild_count"] = int(f.get("rebuild_count", 0)) + 1
         f["faction_state"] = "normal"
         await self.save_faction(f)
+        # 重建同样占用迁都 CD：避免重建后立刻再迁都绕过 7 天限制
         await self._execute(
-            "UPDATE strategy_factions SET rebuild_fund=0 WHERE id=?", (int(f["id"]),))
+            "UPDATE strategy_factions SET rebuild_fund=0, last_capital_move_at=? "
+            "WHERE id=?", (_now(), int(gf["id"])))
         node["protect_until"] = _now() + int(rcfg.get("protect_days", 7)) * 86400
         node["level"] = max(int(node.get("level", 1)),
                             int(rcfg.get("new_capital_level", 1)))
         await self.save_node(node)
         log = p.get("rebuild_pay_log") or []
         log.append({"at": _now(), "cost": int(cost), "node_id": int(node["id"]),
-                    "from_fund": int(use_fund), "from_treasury": int(use_coin),
+                    "from_fund": int(use_fund),
+                    "from_treasury_gold": int(use_tgold),
+                    "from_treasury": int(use_coin),
                     "from_gold": int(gold_need)})
         p["rebuild_pay_log"] = log[-20:]
         await self.save_player(p)
@@ -1904,11 +2200,14 @@ class StrategyFactionMixin:
         await self._audit(user_id, "rebuild_capital",
                           {"faction_id": int(f["id"]), "node_id": int(node["id"]),
                            "cost": int(cost), "from_fund": int(use_fund),
+                           "from_treasury_gold": int(use_tgold),
                            "from_treasury": int(use_coin),
                            "from_gold": int(gold_need)})
         parts = []
         if use_fund:
             parts.append(f"合力 -{use_fund:,}")
+        if use_tgold:
+            parts.append(f"国库灵石 -{int(use_tgold):,}")
         if use_coin:
             parts.append(f"国库 -{use_coin:,}")
         if gold_need:
@@ -1992,8 +2291,13 @@ class StrategyFactionMixin:
             return {}
 
     async def _generate_faction_tasks(self, world: dict, f: dict,
-                                      count: Optional[int] = None) -> list[dict]:
-        """按 slots 随机生成势力任务（status=open，end_at=now+duration_hours）。"""
+                                      count: Optional[int] = None,
+                                      exclude: Optional[set] = None) -> list[dict]:
+        """按 slots 随机生成势力任务（status=open，end_at=now+duration_hours）。
+
+        ``exclude``：已在进行中的任务类型，生成时优先跳过，避免同一势力
+        同时出现两条同类型任务、一次进度回填把多条一起填满。
+        """
         tcfg = self._faction_task_cfg()
         types = tcfg.get("types") or {}
         if not types:
@@ -2006,9 +2310,14 @@ class StrategyFactionMixin:
         rng = self._rng("faction_task", int(f["id"]),
                         int(world.get("tick_no", 0)), now)
         keys = list(types.keys())
+        skip = {str(x) for x in (exclude or set())}
+        fresh = [k for k in keys if k not in skip]
+        pool = fresh or keys
+        rng.shuffle(pool)
         out: list[dict] = []
-        for _ in range(slots):
-            key = rng.choice(keys)
+        for i in range(slots):
+            # 先轮一遍不重复的类型；任务槽位多于类型数时才允许重复
+            key = pool[i % len(pool)]
             spec = types.get(key) or {}
             title = str(spec.get("name") or key)
             target = max(1, int(spec.get("target", 1) or 1))
@@ -2047,7 +2356,8 @@ class StrategyFactionMixin:
             raise StrategyError(
                 f"当前已有 {len(open_tasks)} 条进行中的势力任务，请先完成再刷新")
         tasks = await self._generate_faction_tasks(
-            world, f, slots - len(open_tasks))
+            world, f, slots - len(open_tasks),
+            exclude={t.get("task_type") for t in open_tasks})
         cd[str(f["id"])] = now
         data["faction_task_refresh"] = cd
         world["data"] = data
@@ -2172,7 +2482,10 @@ class StrategyFactionMixin:
             last = int(cd.get(str(f["id"]), 0) or 0)
             if hours > 0 and last and now - last < hours * 3600:
                 continue
-            await self._generate_faction_tasks(world, f, slots - open_n)
+            open_rows = await self.get_faction_tasks(int(f["id"]), "open")
+            await self._generate_faction_tasks(
+                world, f, slots - open_n,
+                exclude={t.get("task_type") for t in open_rows})
             cd[str(f["id"])] = now
         data["faction_task_refresh"] = cd
         world["data"] = data
@@ -2320,7 +2633,7 @@ class StrategyFactionMixin:
         nodes = [n for n in await self.get_nodes(wid)
                  if int(n.get("owner_faction", 0)) == fid]
         chars = [c for c in await self.get_chars(faction_id=fid, world_id=wid)
-                 if c.get("status") not in ("dead", "captive", "wander")]
+                 if c.get("status") not in ("dead", "captive", "wander", "transfer")]
         if etype == "char_leave":
             below = int(eff.get("loyalty_below", 30) or 30)
             cands = [c for c in chars if int(c.get("loyalty", 70)) < below]
@@ -2473,7 +2786,8 @@ class StrategyFactionMixin:
             return
         rows = await self._fetchall(
             "SELECT * FROM strategy_characters WHERE world_id=? AND faction_id>0 "
-            "AND status NOT IN ('dead','captive','wander')", (int(world["id"]),))
+            "AND status NOT IN ('dead','captive','wander','transfer')",
+            (int(world["id"]),))
         changed = False
         for row in rows:
             c = self._decode("strategy_characters", row)

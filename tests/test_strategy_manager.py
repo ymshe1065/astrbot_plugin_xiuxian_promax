@@ -198,6 +198,10 @@ class TestStrategyManager(unittest.IsolatedAsyncioTestCase):
         await self.m._commit()
         target = next(n for n in await self.m.get_nodes(self.wid)
                       if int(n["owner_faction"]) == 0 and n["type"] in ("city", "pass", "branch"))
+        # 随机世界可能给无主节点带上保护期；本用例验证「流亡重建」而非免战，
+        # 清零避免随机失败（rebuild_capital 会拒绝保护期节点）。
+        target["protect_until"] = 0
+        await self.m.save_node(target)
         r = await self.m.rebuild_capital("u1", int(target["id"]))
         self.assertTrue(r["ok"])
         f3 = await self.m.get_faction(p["faction_id"])
@@ -1402,6 +1406,117 @@ class TestStrategyManager(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(int(res.get("tax_refund", 0)), 20)
         p2 = await self.m.get_player("u1", self.wid)
         self.assertEqual(int(p2["coin"]), 10_000 - 1000 + 20)
+
+    async def test_apply_aftermath_voluntary_retreat_no_double_penalty(self):
+        """主动撤退已按 80% 结算，善后不得再套溃败 30% 扣兵/主将负伤。"""
+        _p, gen, _off, home, _target = await self._army_fixture()
+        r = await self.m.create_army("u1", gen["id"], [], home["id"],
+                                     "sword_shield", 1000)
+        aid = int(r["army_id"])
+
+        def _result(voluntary: bool) -> dict:
+            return {
+                "winner": "defender",
+                "attackers": [{
+                    "id": aid, "troops_after": 800, "morale": 0,
+                    "routed": True, "voluntary_retreat": voluntary}],
+                "defenders": [], "atk_losses": 200, "dfn_losses": 0,
+                "peril_events": [],
+            }
+
+        army = await self.m.get_army(aid)
+        await self.m._apply_battle_aftermath(
+            self.world, home, [army], [], _result(True))
+        kept = await self.m.get_army(aid)
+        self.assertIsNotNone(kept)
+        self.assertEqual(int(kept["troops"]), 800)
+        leader = await self.m.get_char(gen["id"])
+        self.assertEqual(int(leader.get("injury", 0)), 0)
+
+    async def test_apply_aftermath_rout_still_penalizes(self):
+        """非主动撤退（溃败）仍按 rout_troops_pct 扣兵，回归防线。"""
+        _p, gen, _off, home, _target = await self._army_fixture()
+        r = await self.m.create_army("u1", gen["id"], [], home["id"],
+                                     "sword_shield", 1000)
+        aid = int(r["army_id"])
+        result = {
+            "winner": "defender",
+            "attackers": [{
+                "id": aid, "troops_after": 800, "morale": 0,
+                "routed": True, "voluntary_retreat": False}],
+            "defenders": [], "atk_losses": 200, "dfn_losses": 0,
+            "peril_events": [],
+        }
+        army = await self.m.get_army(aid)
+        await self.m._apply_battle_aftermath(self.world, home, [army], [], result)
+        kept = await self.m.get_army(aid)
+        pct = float((self.m.main_cfg().get("battle") or {}).get(
+            "rout_troops_pct", 0.3) or 0.0)
+        expected = int(800 * (1 - min(0.95, pct)))
+        self.assertEqual(int(kept["troops"]), expected)
+        self.assertLess(expected, 800)
+
+    async def test_pursuit_context_skips_routed_pursuer(self):
+        """已溃逃/覆没的己方军团不能再追击并截获敌将。"""
+        fleeing = {"id": 3, "faction_id": 11, "troops": 100, "characters": []}
+        routed_pursuer = {"id": 1, "faction_id": 33, "troops": 500,
+                          "_routed": True, "characters": []}
+        destroyed = {"id": 4, "faction_id": 44, "troops": 500,
+                     "_destroyed": True, "characters": []}
+        healthy = {"id": 2, "faction_id": 22, "troops": 500, "characters": []}
+        fid, traits, cav = await self.m._pursuit_context(
+            fleeing, [fleeing], [routed_pursuer, destroyed, healthy])
+        self.assertEqual(fid, 22)
+        self.assertEqual(traits, [])
+        self.assertFalse(cav)
+        fid2, _t2, _c2 = await self.m._pursuit_context(
+            fleeing, [fleeing], [routed_pursuer, destroyed])
+        self.assertEqual(fid2, 0)
+
+    async def test_aftermath_premarks_routed_defender_before_pursuit(self):
+        """攻方溃逃时，同样溃逃的守方不得被当作追击方。
+
+        主循环按「攻方 → 守方」顺序处理，若不在善后前按战果行预标记
+        ``_routed``，结算攻方溃军时守方的溃逃标记还未写入，会被
+        ``_pursuit_context`` 当成有效追击方（可截获敌将）。
+        """
+        def _army(aid: int, fid: int) -> dict:
+            return {"id": aid, "faction_id": fid, "world_id": self.wid,
+                    "troops": 100, "morale": 40, "veteran": 0,
+                    "characters": [], "troop_type": "sword_shield",
+                    "owner_user_id": "", "node_id": 0, "state": "battle"}
+
+        def _result(dfn_routed: bool) -> dict:
+            return {
+                "winner": "defender",
+                "attackers": [{"id": 9101, "troops_after": 50, "morale": 20,
+                               "routed": True, "voluntary_retreat": False}],
+                "defenders": [{"id": 9102, "troops_after": 50 if dfn_routed else 80,
+                               "morale": 20, "routed": dfn_routed,
+                               "voluntary_retreat": False}],
+                "atk_losses": 50, "dfn_losses": 50, "peril_events": [],
+            }
+
+        async def _run(dfn_routed: bool) -> list:
+            seen = []
+
+            async def _fake_retreat(army, pursuer_faction=0,
+                                    pursuer_traits=None, pursuer_cavalry=False):
+                seen.append((int(army["id"]), int(pursuer_faction or 0)))
+
+            with mock.patch.object(self.m, "_auto_retreat",
+                                   side_effect=_fake_retreat):
+                await self.m._apply_battle_aftermath(
+                    self.world, {"id": 999999},
+                    [_army(9101, 11)], [_army(9102, 22)], _result(dfn_routed))
+            return seen
+
+        # 双方都溃逃：各自撤退，均不得成为对方的追击方
+        routed_seen = await _run(True)
+        self.assertEqual({aid for aid, _f in routed_seen}, {9101, 9102})
+        self.assertTrue(all(f == 0 for _aid, f in routed_seen), routed_seen)
+        # 守方仍有效：正常追击（预标记不能误伤健康追兵）
+        self.assertEqual(await _run(False), [(9101, 22)])
 
     async def test_battle_highlights(self):
         """§12.6 高光：单挑 / 夜袭 / 以少胜多。"""

@@ -95,6 +95,11 @@ class StrategyP3Mixin:
     #: 坊市可挂售品类（market.items 缺省时兜底）
     _MARKET_ITEMS = ("grain", "iron", "recruit_token", "intel")
 
+    def _market_items(self) -> list[str]:
+        """当前配置允许挂售的品类（与 market_list 校验口径一致）。"""
+        mcfg = self.main_cfg().get("market") or {}
+        return [str(x) for x in (mcfg.get("items") or self._MARKET_ITEMS)]
+
     @staticmethod
     def _market_item_qty(p: dict, item: str) -> int:
         """玩家持有量：情报存于 tavern.intel，其余为钱包字段。"""
@@ -128,7 +133,7 @@ class StrategyP3Mixin:
         mcfg = self.main_cfg().get("market") or {}
         item_type = str(item_type)
         amount, unit_price = int(amount), int(unit_price)
-        items = [str(x) for x in (mcfg.get("items") or self._MARKET_ITEMS)]
+        items = self._market_items()
         if item_type not in items:
             raise StrategyError(f"仅可挂售 {'/'.join(items)}")
         base_prices = mcfg.get("base_prices") or {}
@@ -298,17 +303,17 @@ class StrategyP3Mixin:
         if not row or row["status"] != "open":
             raise StrategyError("订单不存在或已结束")
         item = row["item_type"]
-        if item in self._MARKET_ITEMS:
-            self._market_item_add(p, item, int(row["amount"]))
-            await self.save_player(p)
         n = await self._exec_count(
             "UPDATE strategy_market_orders SET status='cancelled', amount=0 "
             "WHERE id=? AND status='open' AND amount=?",
             (int(order_id), int(row["amount"])))
         if n != 1:
-            # 已被并发买入成交：回滚退货，防「货款双得」
-            await self.db.conn.rollback()
+            # 已被并发买入成交：不能退货（autocommit 下 rollback 无效，
+            # 必须先做条件更新再退款，避免「货已退回 + 订单仍成交」双得）。
             raise StrategyError("订单已被并发修改，无法撤单")
+        if item in self._market_items():
+            self._market_item_add(p, item, int(row["amount"]))
+            await self.save_player(p)
         await self._commit()
         return {"ok": True, "msg": f"已撤单，退回 {item} ×{int(row['amount'])}"}
 
@@ -340,14 +345,19 @@ class StrategyP3Mixin:
             "SELECT * FROM strategy_market_orders WHERE world_id=? AND status='open' "
             "AND expires_at<?", (world["id"], _now()))
         for r in rows:
-            if r["seller_user"] and r["item_type"] in self._MARKET_ITEMS:
+            # 先条件下架，再退货：与撤单/买入并发时，只有真正抢到
+            # open→expired 的一方能退款，避免货被退回后订单又成交。
+            n = await self._exec_count(
+                "UPDATE strategy_market_orders SET status='expired', amount=0 "
+                "WHERE id=? AND status='open' AND amount=?",
+                (int(r["id"]), int(r["amount"])))
+            if n != 1:
+                continue
+            if r["seller_user"] and r["item_type"] in self._market_items():
                 sp = await self.get_player(r["seller_user"], world["id"])
                 if sp:
                     self._market_item_add(sp, r["item_type"], int(r["amount"]))
                     await self.save_player(sp)
-            await self._execute(
-                "UPDATE strategy_market_orders SET status='expired', amount=0 WHERE id=?",
-                (int(r["id"]),))
         if rows:
             await self._commit()
 
@@ -367,8 +377,9 @@ class StrategyP3Mixin:
         made = 0
         for node in nodes:
             cnt = await self._fetchone(
-                "SELECT COUNT(*) AS n FROM strategy_market_orders WHERE node_id=? "
-                "AND status='open' AND seller_user=''", (node["id"],))
+                "SELECT COUNT(*) AS n FROM strategy_market_orders WHERE world_id=? "
+                "AND node_id=? AND status='open' AND seller_user=''",
+                (world["id"], node["id"]))
             if int((cnt or {}).get("n", 0)) >= 6:
                 continue
             item = rng.choice(list(base_prices.keys()) or ["grain"])
@@ -405,6 +416,13 @@ class StrategyP3Mixin:
             if node and int(node["owner_faction"]) == 0:
                 node["npc_garrison"] = {
                     "troops": int(ownerless.get(node["type"], 800)), "morale": 80}
+                # 清理 lair 缓存：只删 data.bandits 会让 last_raid_tick 残留，
+                # 同节点周刷新匪寨后当 tick 就会被判定“已到劫掠间隔”立刻劫掠。
+                lair = dict(node.get("lair") or {})
+                if lair.get("bandit") or str(lair.get("source") or "") == "bandit_data":
+                    for k in ("bandit", "source", "last_raid_tick"):
+                        lair.pop(k, None)
+                    node["lair"] = lair
                 await self.save_node(node)
             dirty = True
         # 每周生成 2~4 处（无主据点）
@@ -421,6 +439,11 @@ class StrategyP3Mixin:
             for node in cands[:rng.randint(int(lo), int(hi))]:
                 troops = rng.randint(int(tlo), int(thi))
                 node["npc_garrison"] = {"troops": troops, "morale": 90}
+                # 新匪寨从当前 tick 重新起算劫掠间隔（清理旧的 lair 缓存）
+                lair = dict(node.get("lair") or {})
+                for k in ("bandit", "source", "last_raid_tick"):
+                    lair.pop(k, None)
+                node["lair"] = lair
                 await self.save_node(node)
                 bandits[str(node["id"])] = {
                     "spawned_at": _now(), "origin": "weekly", "troops": troops,
@@ -811,7 +834,7 @@ class StrategyP3Mixin:
         nodes = {n["id"]: n for n in await self.get_nodes(world["id"])}
         fn = await self._ally_or_self_fn(world)
         effects_cache: dict[int, dict] = {}
-        for cv in convoys:
+        for i, cv in enumerate(convoys):
             fid = int(cv.get("faction", 0))
             if fid not in effects_cache:
                 faction = await self.get_faction(fid) if fid > 0 else None
@@ -820,24 +843,105 @@ class StrategyP3Mixin:
             eff = effects_cache[fid]
             # 农政科技 L4：运粮队机动 +1（§8.4）
             speed = max(1, speed_cfg + int(eff.get("convoy_move_bonus", 0)))
-            cv["idx"] = int(cv.get("idx", 0)) + speed
             path = cv.get("path") or []
-            arrived = cv["idx"] >= len(path) - 1
+            cur_idx = int(cv.get("idx", 0))
+            target_idx = min(cur_idx + speed, max(0, len(path) - 1))
+            arrived = target_idx >= len(path) - 1
+            # 逐格巡检：机动 >1 时必须检查所有经过的中间节点，否则农政
+            # 提速后可以“跳过”敌境节点直达目的地而不被劫。
+            wiped_out = False
+            for step_i in range(cur_idx + 1, target_idx + 1):
+                cell_id = int(path[step_i])
+                if int(cv.get("raided_at", -1)) == cell_id:
+                    continue
+                raider = await self._find_convoy_raider(
+                    world, cell_id, int(cv["faction"]), fn)
+                if not raider:
+                    continue
+                rng = self._rng("convoy", cv["id"], cell_id)
+                defense = base_troops + int(cv.get("escort_troops", 0))
+                if not R.convoy_raid_success(rng, defense, int(raider["troops"])):
+                    continue
+                # 农政科技 L4：被劫损失 -50%
+                take = int(int(cv["grain"]) * raid_pct *
+                           float(eff.get("convoy_loss_mult", 1.0)))
+                take = min(int(cv["grain"]), max(1, take))
+                cv["grain"] = int(cv["grain"]) - take
+                cv["raided_at"] = int(cell_id)
+                # 先落盘损失，再发劫粮收益：否则 tick 在发放后异常退出
+                # 会按未扣减的旧粮量重复被劫（战利品凭空翻倍）。
+                data["convoys"] = remaining + [cv] + convoys[i + 1:]
+                world["data"] = data
+                await self.save_world(world)
+                await self._commit()
+                await self._give_raid_spoils(world, raider, take)
+                await self._notify(
+                    world, [cv.get("owner")], "convoy_raided",
+                    {"convoy_id": cv["id"], "node_id": int(cell_id),
+                     "text": f"运粮队「{(nodes.get(int(cv['from'])) or {}).get('name', '?')}"
+                             f" → {(nodes.get(int(cv['to'])) or {}).get('name', '?')}」"
+                             f"在「{(nodes.get(int(cell_id)) or {}).get('name', '?')}」"
+                             f"被劫，损失粮草 {take}（剩余 {int(cv['grain'])}）"})
+                if cv["grain"] <= 0:
+                    # 粮尽被截：护送军退回出发地，队伍从队列移除
+                    cv["idx"] = step_i
+                    wiped_out = True
+                    break
+            if wiped_out:
+                await self._release_convoy_escort(cv, int(cv.get("from", 0)))
+                data["convoys"] = remaining + convoys[i + 1:]
+                world["data"] = data
+                await self.save_world(world)
+                await self._commit()
+                continue
+            cv["idx"] = target_idx
             if arrived:
                 dst = nodes.get(int(cv["to"]))
-                if dst:
+                dst_owner = int((dst or {}).get("owner_faction", 0) or 0)
+                # 抵达时复查归属：途中目的地可能已被敌方夺取/清零，粮草
+                # 不能直接充入敌方库存（并顺带把护送军丢进敌城）。
+                deliver = bool(dst) and (
+                    dst_owner == fid or
+                    (dst_owner > 0 and fn(fid, dst_owner)))
+                # 先落盘「粮队离队」，再入库粮食：tick 若在入库后异常退出，
+                # 不会在下一 tick 按原进度重复发粮。
+                data["convoys"] = remaining + convoys[i + 1:]
+                world["data"] = data
+                await self.save_world(world)
+                await self._commit()
+                if deliver:
                     stock = dst.get("stock") or {}
                     stock["grain"] = int(stock.get("grain", 0)) + int(cv["grain"])
                     dst["stock"] = stock
                     await self.save_node(dst)
-                await self._release_convoy_escort(cv, int(cv["to"]))
-                await self._notify(
-                    world, [cv.get("owner")], "convoy_arrived",
-                    {"convoy_id": cv["id"], "node_id": int(cv["to"]),
-                     "text": f"运粮队抵达「{(dst or {}).get('name', '?')}」，"
-                             f"入库粮草 {int(cv['grain'])}"})
+                    await self._release_convoy_escort(cv, int(cv["to"]))
+                    await self._notify(
+                        world, [cv.get("owner")], "convoy_arrived",
+                        {"convoy_id": cv["id"], "node_id": int(cv["to"]),
+                         "text": f"运粮队抵达「{dst.get('name', '?')}」，"
+                                 f"入库粮草 {int(cv['grain'])}"})
+                else:
+                    back = nodes.get(int(cv.get("from", 0)))
+                    back_owner = int((back or {}).get("owner_faction", 0) or 0)
+                    back_ok = bool(back) and (
+                        back_owner == fid or
+                        (back_owner > 0 and fn(fid, back_owner)))
+                    land = int(back["id"]) if back_ok else 0
+                    if back_ok:
+                        stock = back.get("stock") or {}
+                        stock["grain"] = int(stock.get("grain", 0)) + int(cv["grain"])
+                        back["stock"] = stock
+                        await self.save_node(back)
+                    await self._release_convoy_escort(cv, land)
+                    await self._notify(
+                        world, [cv.get("owner")], "convoy_lost",
+                        {"convoy_id": cv["id"], "node_id": land,
+                         "text": f"运粮队目的地「{(dst or {}).get('name', '?')}」"
+                                 f"已失守，" + (f"粮草折返「{back.get('name', '?')}」"
+                                                if back_ok else
+                                                f"粮草 {int(cv['grain'])} 失散")})
                 continue
-            cur_id = path[min(cv["idx"], len(path) - 1)]
+            cur_id = path[target_idx]
             # 护送军随粮队行进（仍在 escort 状态，不可另行出征）
             if int(cv.get("escort_army_id") or 0):
                 army = await self.get_army(int(cv["escort_army_id"]))
@@ -845,33 +949,6 @@ class StrategyP3Mixin:
                         int(army.get("node_id", 0)) != int(cur_id):
                     army["node_id"] = int(cur_id)
                     await self.save_army(army)
-            if int(cv.get("raided_at", -1)) == int(cur_id):
-                remaining.append(cv)
-                continue
-            # 劫粮判定：当前节点上的敌对军团/匪寨
-            raider = await self._find_convoy_raider(world, cur_id, int(cv["faction"]), fn)
-            if raider:
-                rng = self._rng("convoy", cv["id"], cur_id)
-                defense = base_troops + int(cv.get("escort_troops", 0))
-                if R.convoy_raid_success(rng, defense, int(raider["troops"])):
-                    # 农政科技 L4：被劫损失 -50%
-                    take = int(int(cv["grain"]) * raid_pct *
-                               float(eff.get("convoy_loss_mult", 1.0)))
-                    take = min(int(cv["grain"]), max(1, take))
-                    cv["grain"] = int(cv["grain"]) - take
-                    await self._give_raid_spoils(world, raider, take)
-                    cv["raided_at"] = int(cur_id)
-                    await self._notify(
-                        world, [cv.get("owner")], "convoy_raided",
-                        {"convoy_id": cv["id"], "node_id": int(cur_id),
-                         "text": f"运粮队「{(nodes.get(int(cv['from'])) or {}).get('name', '?')}"
-                                 f" → {(nodes.get(int(cv['to'])) or {}).get('name', '?')}」"
-                                 f"在「{(nodes.get(int(cur_id)) or {}).get('name', '?')}」"
-                                 f"被劫，损失粮草 {take}（剩余 {int(cv['grain'])}）"})
-                    if cv["grain"] <= 0:
-                        # 粮尽被截：护送军退回出发地
-                        await self._release_convoy_escort(cv, int(cv.get("from", 0)))
-                        continue
             remaining.append(cv)
         # idx 每 tick 都在推进，必须落盘（否则进度丢失）
         data["convoys"] = remaining
@@ -886,9 +963,17 @@ class StrategyP3Mixin:
         if not node:
             return None
         bandits = ((world.get("data") or {}).get("bandits") or {})
-        if str(node_id) in bandits:
-            return {"kind": "bandit", "troops": int((node.get("npc_garrison") or {}).get(
-                "troops", 0)), "faction": 0, "owner": "", "node_id": int(node_id)}
+        info = bandits.get(str(node_id))
+        if info is not None:
+            # 与 _step_bandit_raids 同口径：只有「仍无主且未过期」的匪寨
+            # 才能劫粮；城池被玩家攻占后 data.bandits 可能残留，不能继续
+            # 把新主的城当匪寨。
+            until = int((info or {}).get("until", 0) or 0)
+            if int(node.get("owner_faction", 0) or 0) <= 0 and \
+                    (until <= 0 or _now() <= until):
+                return {"kind": "bandit", "troops": int(
+                    (node.get("npc_garrison") or {}).get("troops", 0)),
+                    "faction": 0, "owner": "", "node_id": int(node_id)}
         best = None
         for a in await self.get_armies(world["id"], node_id=int(node_id),
                                        states=("idle", "siege")):
@@ -1111,10 +1196,14 @@ class StrategyP3Mixin:
                        f"（报名费 {fee}，奖励 ×{reward_mult:g}）"}
 
     async def get_memorials(self, world_id: int) -> dict:
-        """名将堂 / 英烈祠（§11）：按赛季倒序，最多各 20 条。"""
+        """名将堂 / 英烈祠（§11）：按赛季倒序，最多各 20 条。
+
+        赛季结算会创建新世界（新 world_id），历史殿堂若按当前 world_id
+        过滤会在每个新赛季恒为空，因此这里跨世界读取全部赛季记录。
+        """
         rows = await self._fetchall(
-            "SELECT * FROM strategy_memorials WHERE world_id=? "
-            "ORDER BY season_no DESC, id DESC", (int(world_id),))
+            "SELECT * FROM strategy_memorials "
+            "ORDER BY season_no DESC, id DESC LIMIT 120")
         hall: list[dict] = []
         shrine: list[dict] = []
         season_no = 0
@@ -1137,8 +1226,7 @@ class StrategyP3Mixin:
                     "season": season,
                     "merit": int(snap.get("merit_season", snap.get("merit", 0)) or 0),
                     "achievements": snap.get("achievements") or [],
-                    "kind": kind,
-                    "user_id": r.get("user_id", "")}
+                    "kind": kind}
             if kind == "fame":
                 # 阵亡/名将陈列 → 英烈祠
                 shrine.append(item)
@@ -1227,13 +1315,28 @@ class StrategyP3Mixin:
         """赛季结算：霸权排名 / 荣誉发放 / 英烈祠名将堂 / 老兵结转 / 开新世界。"""
         scfg = self.main_cfg().get("season") or {}
         season_no = int(world.get("season_no", 1))
-        # C3：结算幂等守卫——本赛季已有存档即已结算过，拒绝重复触发
-        # （防 GM 重置赛季与到期自动结算竞态导致荣誉双发/新世界双开）
+        # C3：结算幂等守卫——先占位写入本赛季存档行，再执行发奖。
+        # 此前是「先逐人发荣誉、最后才写守卫行」：中途异常重试会把荣誉
+        # 再发一遍；且 autocommit 下无法整笔回滚。现在以
+        # data_json.state == "settling" 标记进行中，重试时续做并靠
+        # honor.last_season + 先清后插战报实现逐项幂等。
         done = await self._fetchone(
-            "SELECT id FROM strategy_season_results WHERE world_id=? AND season_no=?",
+            "SELECT * FROM strategy_season_results WHERE world_id=? AND season_no=?",
             (int(world["id"]), season_no))
         if done:
-            raise StrategyError(f"赛季 S{season_no} 已结算过，请勿重复触发")
+            try:
+                prev = json.loads(done.get("data_json") or "{}")
+            except (TypeError, ValueError):
+                prev = {}
+            if not isinstance(prev, dict) or prev.get("state") != "settling":
+                raise StrategyError(f"赛季 S{season_no} 已结算过，请勿重复触发")
+        else:
+            await self._execute("""
+                INSERT INTO strategy_season_results (world_id, season_no, ended_at,
+                    faction_scores_json, top_players_json, data_json)
+                VALUES (?,?,?, '[]', '[]', ?)
+            """, (int(world["id"]), season_no, _now(),
+                  json.dumps({"state": "settling"}, ensure_ascii=False)))
         nodes = await self.get_nodes(world["id"])
         types_by_fid: dict[int, list[str]] = {}
         for n in nodes:
@@ -1273,6 +1376,10 @@ class StrategyP3Mixin:
                 continue
             gained = R.honor_from_merit(int(pp.get("merit_season", 0)), rate)
             honor = pp.get("honor") or {}
+            # 续做保护：同一赛季已发过荣誉的玩家直接跳过（逐人幂等）
+            last = honor.get("last_season") or {}
+            if int((last or {}).get("season_no", 0) or 0) == season_no:
+                continue
             honor["total"] = int(honor.get("total", 0)) + gained
             honor["last_season"] = {"season_no": season_no, "gained": gained}
             honor.setdefault("spent", {})
@@ -1292,7 +1399,10 @@ class StrategyP3Mixin:
             if not old or keep > int(old.get("veteran", 0)):
                 carryover[owner] = {"veteran": keep,
                                     "army_name": a.get("name", "")}
-        # 英烈祠 / 名将堂
+        # 英烈祠 / 名将堂（续做时先清本赛季旧记录，避免重复陈列）
+        await self._execute(
+            "DELETE FROM strategy_memorials WHERE world_id=? AND season_no=?",
+            (int(world["id"]), season_no))
         champion = scores[0]["name"] if scores else "无"
         await self._execute("""
             INSERT INTO strategy_memorials (season_no, world_id, kind, char_name,
@@ -1320,17 +1430,25 @@ class StrategyP3Mixin:
                       (factions.get(int(c.get("faction_id", 0))) or {}).get("name", ""),
                       json.dumps({"rarity": c.get("rarity"), "level": c.get("level")},
                                  ensure_ascii=False), _now()))
-        # 赛季存档
-        await self._execute("""
-            INSERT INTO strategy_season_results (world_id, season_no, ended_at,
-                faction_scores_json, top_players_json, data_json)
-            VALUES (?,?,?,?,?,?)
-        """, (int(world["id"]), season_no, _now(),
-              json.dumps(scores, ensure_ascii=False),
-              json.dumps(top_players, ensure_ascii=False),
-              json.dumps({"carryover": carryover,
-                          "coalition": (world.get("data") or {}).get("coalition")},
-                         ensure_ascii=False)))
+        # 赛季存档：更新先前占位的守卫行（不再重复 INSERT）
+        final_data = json.dumps({"carryover": carryover,
+                                 "coalition": (world.get("data") or {}).get("coalition")},
+                                ensure_ascii=False)
+        upd = await self._exec_count("""
+            UPDATE strategy_season_results
+            SET ended_at=?, faction_scores_json=?, top_players_json=?, data_json=?
+            WHERE world_id=? AND season_no=?
+        """, (_now(), json.dumps(scores, ensure_ascii=False),
+              json.dumps(top_players, ensure_ascii=False), final_data,
+              int(world["id"]), season_no))
+        if upd != 1:
+            await self._execute("""
+                INSERT INTO strategy_season_results (world_id, season_no, ended_at,
+                    faction_scores_json, top_players_json, data_json)
+                VALUES (?,?,?,?,?,?)
+            """, (int(world["id"]), season_no, _now(),
+                  json.dumps(scores, ensure_ascii=False),
+                  json.dumps(top_players, ensure_ascii=False), final_data))
         world["state"] = "ended"
         await self.save_world(world)
         await self._commit()
@@ -1341,13 +1459,30 @@ class StrategyP3Mixin:
                 "scores": scores[:5], "top_players": top_players,
                 "new_world_id": new_world["id"]}
 
+    @staticmethod
+    def _season_scores_view(raw) -> list[dict]:
+        """赛季历史积分兼容：存档字段是 hegemony_pct，前端旧版读 score。"""
+        try:
+            scores = json.loads(raw or "[]") if isinstance(raw, str) else (raw or [])
+        except (TypeError, ValueError):
+            scores = []
+        out: list[dict] = []
+        for s in (scores or [])[:3]:
+            if not isinstance(s, dict):
+                continue
+            item = dict(s)
+            if "score" not in item:
+                item["score"] = item.get("hegemony_pct", 0)
+            out.append(item)
+        return out
+
     async def get_season_view(self, world: dict) -> dict:
         data = world.get("data") or {}
         rows = await self._fetchall(
             "SELECT season_no, faction_scores_json, top_players_json, ended_at "
             "FROM strategy_season_results ORDER BY season_no DESC LIMIT 3")
         history = [{"season_no": r["season_no"], "ended_at": r["ended_at"],
-                    "scores": json.loads(r["faction_scores_json"] or "[]")[:3],
+                    "scores": self._season_scores_view(r.get("faction_scores_json")),
                     "top": json.loads(r["top_players_json"] or "[]")[:3]}
                    for r in rows]
         return {"season_no": int(world.get("season_no", 1)),
@@ -1411,15 +1546,18 @@ class StrategyP3Mixin:
         newcomer["catchup_boost_until"] = _now() + int(ccfg.get("output_days", 14)) * 86400
         p["newcomer"] = newcomer
         await self.save_player(p)
-        # 引荐奖励
+        # 引荐奖励：引荐人必须真实存在，且发放走 _settle_merit 的
+        # 观察期/多开嫌疑门禁（此前直接加 merit，可被小号刷战功）。
         ref = str(newcomer.get("referred_by") or "")
         if ref and ref != user_id:
             rp = await self.get_player(ref, world["id"])
             if rp:
                 bonus = int(ccfg.get("referral_merit", 200))
-                rp["merit"] = int(rp.get("merit", 0)) + bonus
-                rp["merit_season"] = int(rp.get("merit_season", 0)) + bonus
-                await self.save_player(rp)
+                gain = await self._settle_merit(ref, bonus, "referral")
+                if gain > 0:
+                    rp["merit"] = int(rp.get("merit", 0)) + gain
+                    rp["merit_season"] = int(rp.get("merit_season", 0)) + gain
+                    await self.save_player(rp)
         await self._commit()
         return {"ok": True,
                 "msg": f"📦 追赶礼包已发放（×{mult:.2f}）："
@@ -1918,14 +2056,21 @@ class StrategyP3Mixin:
             "bidder_user='', current_price=0 WHERE id=?",
             (str(status), now, int(row["id"])))
 
-    async def _settle_wanderer_auction(self, world: dict, row: dict) -> bool:
-        """到期开标：最高暗标成交；名额/名册不足则顺延给下一位。"""
+    async def _settle_wanderer_auction(self, world: dict, row: dict,
+                                       resume: bool = False) -> bool:
+        """到期开标：最高暗标成交；名额/名册不足则顺延给下一位。
+
+        ``resume=True`` 用于续做上次异常中断、停留在 ``settling`` 的拍卖：
+        跳过 open→settling 的 CAS，直接按现有暗标重新结算（结算本身
+        幂等：成交/退款/状态更新均按条件写入）。
+        """
         now = _now()
-        n = await self._exec_count(
-            "UPDATE strategy_char_auctions SET status='settling' "
-            "WHERE id=? AND status='open'", (int(row["id"]),))
-        if n != 1:
-            return False
+        if not resume:
+            n = await self._exec_count(
+                "UPDATE strategy_char_auctions SET status='settling' "
+                "WHERE id=? AND status='open'", (int(row["id"]),))
+            if n != 1:
+                return False
         acfg = self._auction_cfg()
         c = await self.get_char(int(row["char_id"]))
         bids = await self._fetchall(
@@ -1993,9 +2138,11 @@ class StrategyP3Mixin:
         now = _now()
         rows = await self._fetchall(
             "SELECT * FROM strategy_char_auctions WHERE world_id=? "
-            "AND status='open' AND expire_at<=?", (world["id"], now))
+            "AND (status='settling' OR (status='open' AND expire_at<=?))",
+            (world["id"], now))
         for r in rows:
-            await self._settle_wanderer_auction(world, r)
+            await self._settle_wanderer_auction(
+                world, r, resume=(str(r["status"]) == "settling"))
         # 旧版本遗留流将、离间/俘虏流亡角色统一补挂（每 tick 补到上限）
         cnt = await self._fetchone(
             "SELECT COUNT(*) AS n FROM strategy_char_auctions "
@@ -2008,7 +2155,8 @@ class StrategyP3Mixin:
                 WHERE c.world_id=? AND c.status='wander' AND c.owner_user_id=''
                   AND COALESCE(c.auction_cooldown_until, 0)<=?
                   AND NOT EXISTS (SELECT 1 FROM strategy_char_auctions a
-                                  WHERE a.char_id=c.id AND a.status='open')
+                                  WHERE a.char_id=c.id
+                                    AND a.status IN ('open','settling'))
                 ORDER BY c.id ASC LIMIT ?
             """, (world["id"], now, cap - open_n))
             cands = await self._auction_nodes(world)

@@ -430,6 +430,7 @@ def make_unit(army_sim: dict, side: str, uid: int | None = None,
         "moved": False,
         "acted": False,
         "routed": False,
+        "voluntary_retreat": False,  # 主动撤退（非溃败）：善后不得二次扣减
         "temp": False,               # 兽群突袭召唤物
         "temp_expire": 0,
         "defending": False,
@@ -737,7 +738,9 @@ def _projects_zoc(session: dict, unit: dict) -> bool:
     """单位是否投射 ZOC：存活、未溃逃；站在河流格 ZOC 取消（§7.4）。"""
     if unit["troops"] <= 0 or unit["routed"] or not unit["pos"]:
         return False
-    if terrain_at(session, unit["pos"][0], unit["pos"][1]) == T_RIVER:
+    # 用 eff_terrain：水淹会把河流临时变为沼泽，此时该格不再属于「河流
+    # 格 ZOC 取消」，须与 passable/移动消耗及前端 terrainAt 同口径。
+    if eff_terrain(session, unit["pos"][0], unit["pos"][1]) == T_RIVER:
         return False
     return True
 
@@ -755,8 +758,8 @@ def zoc_tiles_of_side(session: dict, side: str) -> set[tuple[int, int]]:
         for nq, nr in R.hex_neighbors(u["pos"][0], u["pos"][1]):
             if not in_bounds(session, nq, nr):
                 continue
-            if terrain_at(session, nq, nr) == T_RIVER:
-                continue  # 河流格 ZOC 取消
+            if eff_terrain(session, nq, nr) == T_RIVER:
+                continue  # 河流格 ZOC 取消（水淹成沼泽后不再取消）
             if (nq, nr) in friendly_pos:
                 continue  # 己方军团所在格取消（友军通道）
             tiles.add((nq, nr))
@@ -773,8 +776,8 @@ def enemy_zoc_map(session: dict, unit: dict) -> dict[tuple[int, int], list[dict]
         for nq, nr in R.hex_neighbors(u["pos"][0], u["pos"][1]):
             if not in_bounds(session, nq, nr):
                 continue
-            if terrain_at(session, nq, nr) == T_RIVER:
-                continue
+            if eff_terrain(session, nq, nr) == T_RIVER:
+                continue  # 水淹临时沼泽不再视为河流
             out.setdefault((nq, nr), []).append(u)
     return out
 
@@ -795,6 +798,20 @@ def is_fully_encircled(session: dict, unit: dict) -> bool:
         if (nq, nr) not in zmap and not occupant:
             return False
     return True
+
+
+def _strip_path_start(path: list[list[int]],
+                      cur: tuple[int, int]) -> list[list[int]]:
+    """剔除路径开头的当前站位。
+
+    前端寻路回溯出的 path 常包含起点格；服务端只接受「移动步骤」，
+    若首格就是当前站位，``hex_dist(cur, path[0]) == 0`` 会被误判为
+    “第1步不相邻”。这里统一在入口兼容两种传参。
+    """
+    steps = [[int(s[0]), int(s[1])] for s in path]
+    if steps and (steps[0][0], steps[0][1]) == cur:
+        steps = steps[1:]
+    return steps
 
 
 def check_move_path(session: dict, uid: int, path: list[list[int]],
@@ -833,6 +850,8 @@ def check_move_path(session: dict, uid: int, path: list[list[int]],
     can_break = (not unit["zoc_break_used"] and use_zoc_break
                  and (unit.get("leader") or {}).get("profession") == "sword")
     cur = (unit["pos"][0], unit["pos"][1])
+    # 兼容带起点格的路径（前端/旧客户端）：统一剥离后再做相邻校验
+    path = _strip_path_start(path, cur)
     spent = 0.0
     end = 0
     intercepts: list[int] = []
@@ -903,6 +922,10 @@ def do_move(session: dict, uid: int, path: list[list[int]], rng: random.Random,
     if not check["ok"] and check["reason"] != "机动力不足" and check["end"] == 0:
         return check
     unit = get_unit(session, uid)
+    # 与 check_move_path 同口径地剥离起点，保证 steps 切片的索引一致
+    if unit and unit.get("pos"):
+        path = _strip_path_start(
+            path, (int(unit["pos"][0]), int(unit["pos"][1])))
     # 统一按校验结果截断执行：ZOC 突破路径同样受机动力上限约束（end 为
     # 校验通过的最后一步；机动力不足时为截断点，全部通过时 = len(path)）
     steps = [list(s) for s in path[:check["end"]]]
@@ -976,6 +999,10 @@ def _sim_view(session: dict, unit: dict) -> dict:
 
 
 def leader_name(unit: dict) -> str:
+    # 召唤物没有主将，但 army_id 为负（与 NPC 守军同域），不能笼统显示
+    # 「无主军团」，否则战报/行动提示会把己方兽群误标成守军。
+    if unit.get("temp"):
+        return "兽群"
     return (unit.get("leader") or {}).get("name") or "无主军团"
 
 
@@ -1254,7 +1281,7 @@ def _skill_flood(session, unit, sk, rng, target_uid, target_hex):
     if not target_hex:
         return {"ok": False, "reason": "需指定目标格"}
     q, r = int(target_hex[0]), int(target_hex[1])
-    if not _in_skill_range(session, unit, sk, q, r):
+    if not in_bounds(session, q, r) or not _in_skill_range(session, unit, sk, q, r):
         return {"ok": False, "reason": "超出施放范围"}
     flooded = []
     cq, cr = q, r
@@ -1299,7 +1326,10 @@ def _skill_taunt(session, unit, sk, rng, target_uid, target_hex):
     st = session["statuses"].setdefault(str(target["uid"]), {})
     st["taunt_by"] = unit["uid"]
     st["taunt_ttl"] = 2  # 覆盖目标的下一个行动回合
-    st["taunt_from"] = int(session.get("round", 0))  # 下一回合起生效
+    # 键名必须是 taunt_by_from：_status_active(unit, "taunt_by") 读取的是
+    # key + "_from"。此前写成 taunt_from，导致挑衅在施放当回合立即生效
+    # （甚至可强迫本回合稍后行动的目标），与「下一回合起生效」不符。
+    st["taunt_by_from"] = int(session.get("round", 0))
     _log(session, f"🗡 {leader_name(unit)} 阵前挑衅，{leader_name(target)} 怒不可遏", "skill")
     return {"ok": True, "skill": "taunt"}
 
@@ -1322,8 +1352,8 @@ def _skill_heal(session, unit, sk, rng, target_uid, target_hex):
         return {"ok": False, "reason": "目标已失去战斗力"}
     if not _unit_in_range(session, unit, target, sk, allow_self=True):
         return {"ok": False, "reason": "超出施放范围"}
-    headroom = min(float(target.get("injury_pool", 0)),
-                   target["start_troops"] - target["troops"])
+    headroom = max(0.0, min(float(target.get("injury_pool", 0)),
+                            target["start_troops"] - target["troops"]))
     heal = min(int(target["troops"] * sk["heal_pct"]), int(headroom))
     target["troops"] += max(0, heal)
     target["injury_pool"] = max(0.0, float(target.get("injury_pool", 0)) - heal)
@@ -1367,7 +1397,7 @@ def _skill_barrage(session, unit, sk, rng, target_uid, target_hex):
     if not target_hex:
         return {"ok": False, "reason": "需指定目标格"}
     q, r = int(target_hex[0]), int(target_hex[1])
-    if not _in_skill_range(session, unit, sk, q, r):
+    if not in_bounds(session, q, r) or not _in_skill_range(session, unit, sk, q, r):
         return {"ok": False, "reason": "超出施放范围"}
     hits = []
     for hq, hr in [(q, r)] + R.hex_neighbors(q, r):
@@ -1496,7 +1526,9 @@ def _troop_special(session, unit, rng, target_uid):
         _log(session, f"🎵 {leader_name(unit)} 咒唱助阵（全军射程 +1，3 回合）", "skill")
         return {"ok": True, "skill": "troop_special", "effect": "chant"}
     if tt == "flying_sword":      # 剑阵冲锋：3 回合机动 +2 + 对最近敌军 ×1.5 一击
-        session["statuses"].setdefault(str(unit["uid"]), {})["charge"] = 3
+        # 施放当回合单位已用掉行动权，无法再移动；每回合开始 _tick_statuses
+        # 会先 -1，因此写 4 才能让「下一回合起」实际享受 3 个完整回合。
+        session["statuses"].setdefault(str(unit["uid"]), {})["charge"] = 4
         result = _resolve_attack(session, unit, target, rng, damage_mult=1.5, kind="charge")
         _log(session, f"🗡 {leader_name(unit)} 剑阵冲锋！（机动 +2，3 回合）", "skill")
         return result
@@ -1554,6 +1586,7 @@ def do_retreat(session: dict, uid: int, rng: random.Random) -> dict[str, Any]:
                     R.defense_power(_sim_view(session, unit)), unit["troops"])
                 _apply_damage(session, unit, dmg, rng, source=controller, kind="intercept")
     unit["routed"] = True
+    unit["voluntary_retreat"] = True
     unit["troops"] = int(unit["troops"] * 0.8)
     unit["morale"] = 0
     unit["acted"] = True
@@ -1958,6 +1991,7 @@ def finish(session: dict) -> dict[str, Any]:
                 "troops_before": u["start_troops"], "troops_after": int(u["troops"]),
                 "morale": int(u["morale"]),
                 "routed": bool(u["routed"]),
+                "voluntary_retreat": bool(u.get("voluntary_retreat")),
                 "leader_id": (u.get("leader") or {}).get("id"),
                 "leader_name": (u.get("leader") or {}).get("name"),
                 "troop_type": u["troop_type"], "veteran": int(u["veteran"]),
@@ -2056,7 +2090,8 @@ def ai_decide(session: dict, uid: int, rng: random.Random,
         if taunter and taunter["troops"] > 0 and not taunter["routed"]:
             if can_attack(session, unit, taunter)[0]:
                 return do_attack(session, uid, taunter["uid"], rng)
-            return _ai_move_toward(session, unit, rng, taunter, tier)
+            return _ai_move_toward(session, unit, rng, taunter, tier,
+                                   forced=taunter)
     foes = foes_of(session, unit)
     if not foes:
         return do_defend(session, uid)
@@ -2196,8 +2231,13 @@ def _ai_try_skill(session: dict, unit: dict, rng: random.Random, tier: str,
 
 
 def _ai_move_toward(session: dict, unit: dict, rng: random.Random,
-                    target: Optional[dict], tier: str) -> dict[str, Any]:
-    """贪心逐步移动逼近目标（ZOC 感知：进入即停可接受）。"""
+                    target: Optional[dict], tier: str,
+                    forced: Optional[dict] = None) -> dict[str, Any]:
+    """贪心逐步移动逼近目标（ZOC 感知：进入即停可接受）。
+
+    ``forced``：被挑衅时必须攻击的挑衅者；移动后若仍不可攻击，宁可防御
+    也不得改打其他敌人（与手操端的「只能攻击挑衅者」同口径）。
+    """
     if not target or not target["pos"] or not unit["pos"]:
         return do_defend(session, unit["uid"])
     goal = (target["pos"][0], target["pos"][1])
@@ -2244,6 +2284,11 @@ def _ai_move_toward(session: dict, unit: dict, rng: random.Random,
     # 移动后若进入射程 → 顺手攻击
     in_range = [f for f in foes_of(session, unit) if can_attack(session, unit, f)[0]]
     if in_range and not unit["acted"]:
+        if forced is not None:
+            if can_attack(session, unit, forced)[0]:
+                return do_attack(session, unit["uid"], forced["uid"], rng)
+            # 被挑衅：不得转移目标，原地防御结束本回合
+            return do_defend(session, unit["uid"])
         tgt = min(in_range, key=lambda f: f["troops"])
         return do_attack(session, unit["uid"], tgt["uid"], rng)
     if not unit["acted"]:

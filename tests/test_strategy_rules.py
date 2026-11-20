@@ -5,6 +5,7 @@ import random
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT.parent))
@@ -759,6 +760,65 @@ class TestGapFixRules(unittest.TestCase):
         self.assertEqual(R.doctor_aftermath(doc, 1000, 5), {"recovered": 80, "injury": 4})
         self.assertEqual(R.doctor_aftermath(plain, 1000, 5), {"recovered": 0, "injury": 5})
         self.assertEqual(R.doctor_aftermath({}, 0, 0), {"recovered": 0, "injury": 0})
+
+
+class TestSimulateBattleRoundRules(unittest.TestCase):
+    """第七轮：佛修治疗频次 / 夹击系数跨回合残留。"""
+
+    def test_buddha_heals_once_per_round(self):
+        atk = [
+            _mk_army(1, troops=1000, leader_stats={}, profession="buddha"),
+            _mk_army(2, troops=1000),
+            _mk_army(3, troops=1000),
+        ]
+        dfn = [_mk_army(99, troops=1000)]
+        init = {1: 50, 2: 40, 3: 30, 99: 100}
+        with mock.patch.object(R, "damage_curve", return_value=200), \
+                mock.patch.object(
+                    R, "battle_initiative",
+                    side_effect=lambda a, rng, night=False: init[a["id"]]):
+            res = R.simulate_battle(atk, dfn, random.Random(1), max_rounds=1)
+        buddha = next(a for a in res["attackers"] if a["id"] == 1)
+        # 佛修本回合受 400 伤（800→600），回合末仅治疗一次 2%（12）
+        self.assertEqual(int(buddha["troops_after"]), 612)
+
+    def test_flank_focus_resets_each_round(self):
+        atk = [_mk_army(1), _mk_army(2)]
+        dfn = [_mk_army(99)]
+        init = {1: 30, 2: 20, 99: 10}
+        seen = []
+        real_flank = R.flank_factor
+
+        def _spy(n):
+            seen.append(n)
+            return real_flank(n)
+
+        with mock.patch.object(R, "damage_curve", return_value=0), \
+                mock.patch.object(
+                    R, "battle_initiative",
+                    side_effect=lambda a, rng, night=False: init[a["id"]]), \
+                mock.patch.object(R, "flank_factor", side_effect=_spy):
+            R.simulate_battle(atk, dfn, random.Random(1), max_rounds=2)
+        # 每回合 3 次攻击：a1(1) / a2(2，夹击) / d(1)。
+        # 第二回合 a1 不得继承上回合 a2 的 _focus（旧实现为 2）。
+        self.assertEqual(seen[:6], [1, 2, 1, 1, 2, 1])
+
+    def test_routed_target_does_not_counterattack(self):
+        """本击直接打崩士气并溃逃的目标不再反击（与 hex 引擎口径一致）。"""
+        atk = [_mk_army(1, troops=1000)]
+        dfn = [_mk_army(99, troops=1000, morale=29)]
+        rng = mock.Mock()
+        rng.random.return_value = 0.0  # 溃逃判定必中
+        with mock.patch.object(R, "damage_curve", return_value=500), \
+                mock.patch.object(
+                    R, "battle_initiative",
+                    side_effect=lambda a, rng, night=False:
+                    100 if a["id"] == 1 else 0):
+            res = R.simulate_battle(atk, dfn, rng, max_rounds=3)
+        self.assertEqual(res["winner"], "attacker")
+        self.assertTrue(res["defenders"][0]["routed"])
+        # 旧实现溃逃目标仍反击，攻方会被反伤至 500
+        self.assertEqual(res["attackers"][0]["troops_after"], 1000)
 
 
 if __name__ == "__main__":

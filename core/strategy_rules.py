@@ -11,7 +11,21 @@ from __future__ import annotations
 
 import math
 import random
+import re
 from typing import Any, Iterable, Optional
+
+#: 势力颜色白名单：只接受 #RGB / #RRGGBB，避免任意字符串被写进前端
+#: ``style`` / canvas ``fillStyle`` 造成存储型 XSS。
+COLOR_RE = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
+
+
+def norm_color(value: Any, fallback: str = "#888888") -> str:
+    """归一化势力颜色：非法值回退 ``fallback``（不抛错）。"""
+    v = str(value or "").strip()
+    if COLOR_RE.match(v):
+        return v
+    fb = str(fallback or "#888888").strip()
+    return fb if COLOR_RE.match(fb) else "#888888"
 
 # ---------------------------------------------------------------------------
 # 基础常量（§4 角色系统）
@@ -882,15 +896,18 @@ def defense_power(army: dict, defending_node: bool = False) -> float:
     troops = max(1.0, float(army.get("troops", 0)))
     leadership = _leader_stat(army, "leadership")
     leader = army.get("leader") or {}
+    # hex 视图（_sim_view）用 defending_node 字段标记「当前处于守城/守墙」，
+    # 与自动会战的显式参数同口径；否则体修在攻城战里只吃到 ×1.1 而非 ×1.3。
+    is_defending_node = bool(defending_node or army.get("defending_node"))
     apt = aptitude_bonus(leader, army.get("troop_type", ""))
     _, vet_bonus, _ = veteran_tier(army.get("veteran", 0))
     terrain_mult = float(army.get("def_terrain_mult", 1.0))
     prof_mult = 1.0
     if leader.get("profession") == "body":
-        prof_mult = 1.3 if defending_node else 1.1  # 体修守城/阵地 ×1.3（§4.3）
-    wall_mult = float(army.get("wall_mult", 1.0)) if defending_node else 1.0
+        prof_mult = 1.3 if is_defending_node else 1.1  # 体修守城/阵地 ×1.3（§4.3）
+    wall_mult = float(army.get("wall_mult", 1.0)) if is_defending_node else 1.0
     # 特技守城加成（§4.4）：以「是否处于守方/守城」为准，避免误加进攻方
-    is_garrison = bool(defending_node or army.get("defending_node"))
+    is_garrison = bool(is_defending_node or army.get("defending_node"))
     trait_mult = float(trait_army_mods(leader.get("traits") or [])["defense_mult"]) \
         if is_garrison else 1.0
     return (
@@ -966,6 +983,10 @@ def simulate_battle(
                 a["morale"] = max(0, int(a.get("morale", 100)) - 5)
 
     for round_no in range(1, max_rounds + 1):
+        # 夹击/合围只在「同一回合内」有效：每回合开始清空上回合集火目标，
+        # 否则上回合残留的 _focus 会让本回合首个攻击者凭空获得夹击系数。
+        for _a in atk + dfn:
+            _a.pop("_focus", None)
         order = sorted(atk + dfn, key=lambda a: -battle_initiative(a, rng, night))
         round_log: list[str] = []
         for army in order:
@@ -1000,23 +1021,6 @@ def simulate_battle(
                 target["morale"] = max(0, target["morale"] - 5)  # 合围士气 -5
             elif f_mult >= FLANK_FACTOR:
                 target["morale"] = max(0, target["morale"] - 2)  # 夹击士气 -2
-            # 反击伤害（守方对攻城方按城防反击在 siege 里另算）
-            if target.get("troops", 0) > 0:
-                back = damage_curve(
-                    attack_power(target, 1.0, night) * 0.5,
-                    defense_power(army),
-                    army.get("troops", 0),
-                )
-                army["troops"] = max(0, int(army.get("troops", 0)) - back)
-                army["morale"] = max(0, int(army.get("morale", 100)) - 2)
-            # 佛修治疗：每回合治疗兵力 2%（§4.3）
-            for side_army in (atk if is_attacker else dfn):
-                if (side_army.get("leader") or {}).get("profession") == "buddha" \
-                        and side_army.get("troops", 0) > 0:
-                    cap = int((atk_start if is_attacker else dfn_start).get(side_army["id"], side_army["troops"]))
-                    heal = min(int(side_army["troops"] * 0.02), cap - side_army["troops"])
-                    if heal > 0:
-                        side_army["troops"] += heal
             # 主将险情：兵力 <20% 被集火 10% 伤势 +15（§7.6，掷骰记录，落库在 manager）
             if target.get("troops", 0) > 0:
                 start = (dfn_start if target in dfn else atk_start).get(target["id"], 1)
@@ -1037,6 +1041,33 @@ def simulate_battle(
                     f"重创 {(target.get('leader') or {}).get('name', '敌军')}"
                     f"（-{dmg} 兵）"
                 )
+            # 反击伤害（守方对攻城方按城防反击在 siege 里另算）。
+            # 必须在溃逃判定之后结算：本击直接打崩士气而溃逃的目标不再反击，
+            # 与 hex 引擎 _apply_damage → routed → _resolve_attack 口径一致。
+            # 该块不掷骰，移到溃逃判定后不改变随机数消耗顺序。
+            if target.get("troops", 0) > 0 and not target.get("routed"):
+                back = damage_curve(
+                    attack_power(target, 1.0, night) * 0.5,
+                    defense_power(army),
+                    army.get("troops", 0),
+                )
+                army["troops"] = max(0, int(army.get("troops", 0)) - back)
+                army["morale"] = max(0, int(army.get("morale", 100)) - 2)
+
+        # 佛修治疗：每回合为己方全体治疗兵力 2%（§4.3）。
+        # 必须放在回合内所有攻击结算之后，且每军团每回合只结算一次；
+        # 此前写在「单次攻击」循环内，佛修一方每回合会被治疗 N 次（N=出手数）。
+        for side_armies, side_start in ((atk, atk_start), (dfn, dfn_start)):
+            for side_army in side_armies:
+                if (side_army.get("leader") or {}).get("profession") != "buddha":
+                    continue
+                if side_army.get("troops", 0) <= 0 or side_army.get("routed"):
+                    continue
+                cap = int(side_start.get(side_army["id"], side_army["troops"]))
+                heal = min(int(side_army["troops"] * 0.02),
+                           cap - side_army["troops"])
+                if heal > 0:
+                    side_army["troops"] += heal
 
         rounds.append({"round": round_no, "log": round_log[:8]})
 
@@ -1452,9 +1483,19 @@ REL_WAR = "war"
 
 
 def relation_of(diplomacy: dict | None, other_id: int, now: int = 0) -> str:
-    """取当前关系（过期的停战/备战自动回落）。"""
+    """取当前关系（过期的停战/备战自动回落）。
+
+    外交提案在 ``diplomacy`` 里以 ``rel="propose_*"`` 表示，属于**临时展示
+    视图**：真实关系保存在条目的 ``prev`` 快照中。这里透视 ``prev``，
+    避免"提个案就把战争/停战/同盟状态抹掉"（例如停战期提案即可绕过门禁）。
+    """
     entry = (diplomacy or {}).get(str(int(other_id))) or {}
     rel = str(entry.get("rel", REL_NEUTRAL))
+    if rel.startswith("propose_"):
+        prev = entry.get("prev")
+        if isinstance(prev, dict):
+            return relation_of({str(int(other_id)): prev}, other_id, now)
+        return REL_NEUTRAL
     until = int(entry.get("until", 0) or 0)
     if rel == REL_TRUCE and until and now and now >= until:
         return REL_NEUTRAL

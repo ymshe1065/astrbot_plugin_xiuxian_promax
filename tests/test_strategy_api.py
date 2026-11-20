@@ -391,8 +391,10 @@ class StrategyRestApiTest(_AccountsBase, _ManagerBase):
         self.assertGreaterEqual(int(body["season_no"]), 1)
         top = body["hall"][0]
         for key in ("name", "rarity", "faction", "season", "merit",
-                    "achievements", "kind", "user_id"):
+                    "achievements", "kind"):
             self.assertIn(key, top)
+        # 名将堂对任何登录玩家可见，不能下发全服存档主键 user_id
+        self.assertNotIn("user_id", top)
         self.assertEqual(top["name"], "关羽")
         self.assertEqual(top["merit"], 3200)
         self.assertEqual(body["shrine"][0]["kind"], "fame")
@@ -744,6 +746,96 @@ class StrategyServerAuthorityTest(_ManagerBase):
         await self.m.update_battle_session(b)
         st3 = await self.m.battle_state("web_alice", bid)
         self.assertIn(own_uid, [u["uid"] for u in st3["units"]])
+
+    async def test_battle_state_masks_current_hidden_ambush(self):
+        """轮到敌方伏兵行动时也不下发该单位，并遮蔽 current_actor。"""
+        world, target, army, battle = await self._setup_manual_battle()
+        bid = battle["id"]
+        b = await self.m.get_battle(bid)
+        sess = b["session"]
+        g_uid = next(int(u["uid"]) for u in sess["units"]
+                     if int(u.get("army_id", 0) or 0) < 0)
+        sess["phase"] = "battle"
+        sess["order"] = [g_uid]
+        sess["acted"] = []
+        sess["ambushes"].append(
+            {"uid": g_uid, "q": 0, "r": 0, "revealed": False})
+        await self.m.update_battle_session(b)
+        st = await self.m.battle_state("web_alice", bid)
+        self.assertFalse([u for u in st["units"] if u["uid"] == g_uid])
+        self.assertIsNone(st["current_actor"])
+
+    async def test_battle_state_exposes_sword_zoc_break_once(self):
+        world, target, army, battle = await self._setup_manual_battle()
+        bid = battle["id"]
+        b = await self.m.get_battle(bid)
+        sess = b["session"]
+        mine = next(u for u in sess["units"] if u["side"] == "a")
+        mine.setdefault("leader", {})["profession"] = "sword"
+        mine["zoc_break_used"] = False
+        await self.m.update_battle_session(b)
+        st = await self.m.battle_state("web_alice", bid)
+        row = next(u for u in st["units"] if u["uid"] == mine["uid"])
+        self.assertTrue(row["can_zoc_break"])
+        # 突破按钮只下发给本方：敌方不应拿到可用标记
+        self.assertFalse(any(u["can_zoc_break"] for u in st["units"]
+                             if not u["mine"]))
+        mine["zoc_break_used"] = True
+        await self.m.update_battle_session(b)
+        st2 = await self.m.battle_state("web_alice", bid)
+        row2 = next(u for u in st2["units"] if u["uid"] == mine["uid"])
+        self.assertFalse(row2["can_zoc_break"])
+
+    async def test_battle_state_labels_summon_as_beast(self):
+        world, target, army, battle = await self._setup_manual_battle()
+        bid = battle["id"]
+        b = await self.m.get_battle(bid)
+        sess = b["session"]
+        summon = {
+            "uid": 9001, "side": "a", "army_id": -9001, "leader": None,
+            "faction_id": 0, "troop_type": "beast_horde", "troops": 500,
+            "start_troops": 500, "morale": 100, "veteran": 0, "mana": 0,
+            "pos": [0, 0], "moved": False, "acted": False, "routed": False,
+            "defending": False, "formation": "", "siege_engine": False,
+            "temp": True, "temp_expire": 3,
+        }
+        sess["units"].append(summon)
+        await self.m.update_battle_session(b)
+        st = await self.m.battle_state("web_alice", bid)
+        row = next(u for u in st["units"] if u["uid"] == 9001)
+        self.assertEqual(row["leader"], "兽群")
+        self.assertTrue(row["temp"])
+        self.assertFalse(row["can_zoc_break"])
+
+    async def test_attack_target_parsed_before_taunt_check(self):
+        """攻击指令须先解析 target 再做挑衅校验（否则非法 target → 500）。"""
+        world, target, army, battle = await self._setup_manual_battle()
+        bid = battle["id"]
+        b = await self.m.get_battle(bid)
+        sess = b["session"]
+        mine = next(u for u in sess["units"] if u["side"] == "a")
+        foe = next(u for u in sess["units"] if u["side"] == "b")
+        sess["phase"] = "battle"
+        b["state"] = "battle"
+        sess["round"] = max(1, int(sess.get("round", 0) or 0))
+        sess["order"] = [mine["uid"]]
+        sess["acted"] = []
+        sess["turn_deadline"] = _now() + 30
+        sess["statuses"][str(mine["uid"])] = {
+            "taunt_by": int(foe["uid"]), "taunt_ttl": 2,
+            "taunt_by_from": 0,  # 挑衅自下一回合起生效
+        }
+        await self.m.update_battle_session(b)
+        # 非数字 target：必须抛 StrategyError（REST 400），而不是 ValueError（500）
+        with self.assertRaises(StrategyError) as ctx:
+            await self.m.battle_action("web_alice", bid, "attack",
+                                       {"target": "not-a-number"})
+        self.assertIn("攻击目标无效", str(ctx.exception))
+        # 挑衅生效时改打其他目标 → 明确拒绝（同样不得因解析顺序漏判）
+        with self.assertRaises(StrategyError) as ctx2:
+            await self.m.battle_action("web_alice", bid, "attack",
+                                       {"target": int(foe["uid"]) + 1})
+        self.assertIn("挑衅", str(ctx2.exception))
 
     async def test_state_fog_on_enemy_armies(self):
         # bob 占一个无主据点；alice 占其相邻据点并建军 →

@@ -2004,6 +2004,304 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
         self.assertIn("中止", r["msg"])
 
     # ------------------------------------------------------------------
+    # 第六轮审查修复项回归
+    # ------------------------------------------------------------------
+    async def _two_siege_armies(self):
+        """构造 u1 守城、u2/u3 同时围城的场景。"""
+        nodes = {n["id"]: n for n in await self.m.get_nodes(self.wid)}
+        target = next(n for n in nodes.values()
+                      if n["type"] in ("city", "pass", "branch"))
+        await self._own("u1", target)
+        target["defense"] = 5000
+        target["npc_garrison"] = {"troops": 0, "morale": 60}
+        target["siege_state"] = {}
+        target["protect_until"] = 0
+        await self.m.save_node(target)
+        free = [n for n in nodes.values()
+                if int(n["owner_faction"]) == 0 and n["type"] != "ruin"
+                and n["id"] != target["id"]]
+        self.assertGreaterEqual(len(free), 2)
+        await self._own("u2", free[0])
+        await self._own("u3", free[1])
+        a2 = await self._mk_army("u2", free[0]["id"], 500)
+        a3 = await self._mk_army("u3", free[1]["id"], 500)
+        for a in (a2, a3):
+            a["node_id"] = int(target["id"])
+            a["state"] = "siege"
+            a["path"] = []
+            await self.m.save_army(a)
+        world = await self.m.get_world()
+        fid2 = int((await self.m.get_player("u2", self.wid))["faction_id"])
+        fid3 = int((await self.m.get_player("u3", self.wid))["faction_id"])
+        return world, target, a2, a3, fid2, fid3
+
+    async def test_step_sieges_only_current_attacker_faction(self):
+        """多势力围城只推进当前归属势力，旧势力残军撤围。"""
+        world, target, a2, a3, fid2, fid3 = await self._two_siege_armies()
+        target["siege_state"] = {"attacker_faction": fid2, "ticks": 0,
+                                 "choice": "auto", "since": _now()}
+        await self.m.save_node(target)
+        reports = await self.m._step_sieges(world)
+        a2 = await self.m.get_army(a2["id"])
+        a3 = await self.m.get_army(a3["id"])
+        self.assertEqual(a2["state"], "siege")
+        self.assertTrue(a3 is None or a3["state"] != "siege")
+        node = await self.m.get_node(self.wid, target["id"])
+        self.assertEqual(
+            int(node["siege_state"]["attacker_faction"]), fid2)
+        self.assertEqual(int(node["siege_state"]["ticks"]), 1)
+        self.assertTrue(any("旧围城军" in r for r in reports))
+        self.assertNotEqual(fid2, fid3)
+
+    async def test_step_sieges_lifts_on_truce(self):
+        """停战后既有围城必须撤围，不能继续破城绕过撕约惩罚。"""
+        world, target, a2, a3, fid2, fid3 = await self._two_siege_armies()
+        target["siege_state"] = {"attacker_faction": fid2, "ticks": 3,
+                                 "choice": "auto", "since": _now()}
+        await self.m.save_node(target)
+        p1 = await self.m.get_player("u1", self.wid)
+        fid1 = int(p1["faction_id"])
+        f2 = await self.m.get_faction(fid2)
+        f1 = await self.m.get_faction(fid1)
+        until = _now() + 3600
+        f2["diplomacy"] = {str(fid1): {"rel": self.R.REL_TRUCE,
+                                       "until": until}}
+        f1["diplomacy"] = {str(fid2): {"rel": self.R.REL_TRUCE,
+                                       "until": until}}
+        await self.m.save_faction(f2)
+        await self.m.save_faction(f1)
+        reports = await self.m._step_sieges(world)
+        a2 = await self.m.get_army(a2["id"])
+        self.assertTrue(a2 is None or a2["state"] != "siege")
+        node = await self.m.get_node(self.wid, target["id"])
+        self.assertEqual(node.get("siege_state"), {})
+        self.assertTrue(any("停战" in r for r in reports))
+
+    async def test_intervene_siege_requires_owner_and_protection(self):
+        """手操介入必须校验围城归属与保护期。"""
+        _world, target, _a2, _a3, fid2, fid3 = await self._two_siege_armies()
+        target["siege_state"] = {"attacker_faction": fid2, "ticks": 1}
+        await self.m.save_node(target)
+        with self.assertRaises(self.StrategyError):
+            await self.m.intervene_siege("u3", target["id"])
+        target["protect_until"] = _now() + 3600
+        await self.m.save_node(target)
+        with self.assertRaises(self.StrategyError):
+            await self.m.intervene_siege("u2", target["id"])
+        self.assertNotEqual(fid2, fid3)
+
+    async def test_capture_node_retreats_stale_siege_armies(self):
+        """据点易主时旧围城军也必须撤围，不能继续围住新主。"""
+        world, target, a2, a3, _fid2, _fid3 = await self._two_siege_armies()
+        fid1 = int((await self.m.get_player("u1", self.wid))["faction_id"])
+        await self.m._capture_node(world, target, fid1)
+        a2 = await self.m.get_army(a2["id"])
+        a3 = await self.m.get_army(a3["id"])
+        self.assertTrue(a2 is None or a2["state"] != "siege")
+        self.assertTrue(a3 is None or a3["state"] != "siege")
+        left = await self.m.get_armies(
+            self.wid, node_id=int(target["id"]), states=("siege",))
+        self.assertEqual(left, [])
+
+    async def test_finalize_pending_capture_uses_captor_jail(self):
+        """斗法被擒关押到擒获方据点；关押位满时战报不得写“被擒”。"""
+        world, node, _army, battle = await self._setup_manual_battle()
+        c = await self._char_of("u1")
+        captor = int((await self.m.get_player("u2", self.wid))["faction_id"])
+        sess = battle.get("session") or {}
+        sess["phase"] = "done"
+        sess["_pending_captures"] = [
+            {"char_id": int(c["id"]), "captor_fid": captor}]
+        battle["session"] = sess
+        battle["kind"] = "siege"
+        battle["attacker_faction"] = int(
+            (await self.m.get_player("u1", self.wid))["faction_id"])
+        battle["_finished"] = {"winner": "attacker", "rounds": 1,
+                               "attackers": [], "defenders": []}
+        expected = await self.m._nearest_own_node(
+            world, {"faction_id": captor}, int(node["id"]))
+        self.assertIsNotNone(expected)
+        with mock.patch.object(self.m, "_apply_battle_aftermath",
+                               new=mock.AsyncMock()), \
+                mock.patch.object(self.m, "_capture_node",
+                                  new=mock.AsyncMock(return_value=[])), \
+                mock.patch.object(self.m, "_loot_node",
+                                  new=mock.AsyncMock(return_value={})), \
+                mock.patch.object(self.m, "_capture_char",
+                                  new=mock.AsyncMock(return_value=False)) as cap:
+            await self.m._finalize_manual_battle_inner(world, battle, node)
+        cap.assert_awaited_once()
+        self.assertEqual(int(cap.await_args.args[2]), int(expected))
+        b = await self.m.get_battle(int(battle["id"]))
+        text = b.get("report_text") or ""
+        self.assertIn("敌营已满", text)
+        self.assertNotIn("斗法被擒", text)
+
+    async def test_update_battle_session_clips_result(self):
+        """update_battle_session 也必须走体积截断，且 done 时清零 deadline。"""
+        _world, _node, _army, battle = await self._setup_manual_battle()
+        battle["state"] = "done"
+        battle["deadline_at"] = _now() + 999
+        battle["result"] = {"winner": "attacker",
+                            "payload": {"x": "x" * 60000}}
+        await self.m.update_battle_session(battle)
+        await self.m._commit()
+        rows = await self._fetchall(
+            "SELECT result_json, deadline_at FROM strategy_battles WHERE id=?",
+            (int(battle["id"]),))
+        data = json.loads(rows[0]["result_json"])
+        self.assertTrue(data.get("truncated"))
+        self.assertLess(len(rows[0]["result_json"]), 60000)
+        self.assertEqual(int(rows[0]["deadline_at"]), 0)
+
+    # ------------------------------------------------------------------
+    # 第七轮审查修复项回归
+    # ------------------------------------------------------------------
+    async def test_capture_node_garrison_ratio_and_none(self):
+        """守军保留按比例单次结算，不再 max(200) 凭空增兵；None 不崩。"""
+        world = await self.m.get_world()
+        nodes = await self.m.get_nodes(self.wid)
+        target = next(n for n in nodes
+                      if n["type"] in ("city", "pass", "branch"))
+        await self._own("u1", target)
+        target["npc_garrison"] = {"troops": 100, "morale": 70}
+        await self.m.save_node(target)
+        fid2 = int((await self.m.get_player("u2", self.wid))["faction_id"])
+        await self.m._capture_node(world, target, fid2)
+        node = await self.m.get_node(self.wid, target["id"])
+        self.assertEqual(int(node["npc_garrison"]["troops"]), 50)
+        # 空值健壮性：旧实现 node.get("npc_garrison", {}).get(...) 对 None 抛错
+        node["npc_garrison"] = None
+        await self.m.save_node(node)
+        await self.m._capture_node(world, node, fid2)
+        node = await self.m.get_node(self.wid, target["id"])
+        self.assertEqual(int(node["npc_garrison"]["troops"]), 0)
+
+    async def test_siege_breach_surrender_keeps_single_ratio(self):
+        """受降守军只按 keep 结算一次，不再出现 keep×50% 的双重减半。"""
+        world, target, a2, _a3, fid2, _fid3 = await self._two_siege_armies()
+        target["npc_garrison"] = {"troops": 1000, "morale": 60}
+        target["siege_state"] = {"attacker_faction": fid2, "ticks": 5,
+                                 "choice": "surrender", "since": _now()}
+        await self.m.save_node(target)
+        report = await self.m._siege_breach(world, target, [a2])
+        node = await self.m.get_node(self.wid, target["id"])
+        self.assertEqual(int(node["npc_garrison"]["troops"]), 500)
+        self.assertIn("受降", report)
+
+    async def test_apply_aftermath_hold_atkers_keeps_siege_survivors(self):
+        """手操围城介入失败时，幸存攻方残部留在城下供恢复围城。"""
+        world, node, army, _battle = await self._setup_manual_battle()
+        aid = int(army["id"])
+        army["node_id"] = int(node["id"])
+        army["state"] = "idle"
+        army["path"] = []
+        await self.m.save_army(army)
+        result = {
+            "winner": "defender", "rounds": 1, "round_log": [],
+            "attackers": [{
+                "id": aid, "faction_id": army["faction_id"],
+                "troops_before": int(army["troops"]),
+                "troops_after": int(army["troops"]), "morale": 80,
+                "routed": False, "leader_id": None, "leader_name": None,
+                "troop_type": army["troop_type"], "veteran": 0}],
+            "defenders": [], "peril_events": [],
+        }
+        with mock.patch.object(self.m, "_auto_retreat",
+                               new=mock.AsyncMock()) as retreat:
+            await self.m._apply_battle_aftermath(
+                world, node, [army], [], result)
+            retreat.assert_awaited()
+        army = await self.m.get_army(aid)
+        with mock.patch.object(self.m, "_auto_retreat",
+                               new=mock.AsyncMock()) as retreat:
+            await self.m._apply_battle_aftermath(
+                world, node, [army], [], result, hold_atkers=True)
+            retreat.assert_not_awaited()
+        kept = await self.m.get_army(aid)
+        self.assertIsNotNone(kept)
+        self.assertEqual(int(kept["node_id"]), int(node["id"]))
+        self.assertEqual(kept["state"], "idle")
+
+    async def test_attack_node_excludes_ally_garrison(self):
+        """攻方同盟驻军不视为守方（与 intervene_siege 同口径）。"""
+        nodes = {n["id"]: n for n in await self.m.get_nodes(self.wid)}
+        target = next(n for n in nodes.values()
+                      if n["type"] in ("city", "pass", "branch"))
+        await self._own("u3", target)
+        target["defense"] = 2000
+        target["protect_until"] = 0
+        target["npc_garrison"] = {"troops": 0, "morale": 60}
+        await self.m.save_node(target)
+        p1 = await self.m.get_player("u1", self.wid)
+        p2 = await self.m.get_player("u2", self.wid)
+        p3 = await self.m.get_player("u3", self.wid)
+        # u2 与 u1 结盟（u1 为盟主）：_alliance_host(u2) → u1 势力
+        f2 = await self.m.get_faction(int(p2["faction_id"]))
+        f2["alliance_id"] = int(p1["faction_id"])
+        await self.m.save_faction(f2)
+        u1_node = next(n for n in nodes.values()
+                       if int(n["owner_faction"]) == int(p1["faction_id"]))
+        u2_node = next(n for n in nodes.values()
+                       if int(n["owner_faction"]) == int(p2["faction_id"]))
+        a1 = await self._mk_army("u1", int(u1_node["id"]), 800)
+        a2 = await self._mk_army("u2", int(u2_node["id"]), 800)
+        a3 = await self._mk_army("u3", int(target["id"]), 800)
+        for a in (a1, a2, a3):
+            a["node_id"] = int(target["id"])
+            a["state"] = "idle"
+            a["path"] = []
+            await self.m.save_army(a)
+        world = await self.m.get_world()
+        seen = {}
+
+        def fake_sim(atk_sim, dfn_sim, rng, **kw):
+            seen["defenders"] = [int(s["id"]) for s in dfn_sim]
+
+            def _rows(sims):
+                return [{
+                    "id": int(s["id"]), "faction_id": s.get("faction_id"),
+                    "troops_before": int(s["troops"]),
+                    "troops_after": int(s["troops"]),
+                    "morale": int(s.get("morale", 100)), "routed": False,
+                    "leader_id": None, "leader_name": None,
+                    "troop_type": s.get("troop_type"),
+                    "veteran": int(s.get("veteran", 0))} for s in sims]
+
+            return {"winner": "defender", "rounds": 1, "round_log": [],
+                    "attackers": _rows(atk_sim), "defenders": _rows(dfn_sim),
+                    "routed_attacker_ids": [], "routed_defender_ids": [],
+                    "atk_losses": 0, "dfn_losses": 0}
+
+        with mock.patch.object(self.R, "simulate_battle",
+                               side_effect=fake_sim):
+            await self.m._attack_node(world, target, [a1])
+        self.assertIn(int(a3["id"]), seen["defenders"])
+        self.assertNotIn(int(a2["id"]), seen["defenders"])
+
+    async def test_capture_char_eviction_returns_to_own_node(self):
+        """关押位满被驱逐时不沿用擒获方节点，落点回到原势力据点。"""
+        nodes = {n["id"]: n for n in await self.m.get_nodes(self.wid)}
+        target = next(n for n in nodes.values()
+                      if n["type"] in ("city", "pass", "branch"))
+        await self._own("u3", target)
+        p3 = await self.m.get_player("u3", self.wid)
+        self.m.main_cfg().setdefault("captive", {})["jail_slots_per_node"] = 1
+        c1 = await self._char_of("u1")
+        c2 = await self._char_of("u2")
+        got1 = await self.m._capture_char(c1, int(p3["faction_id"]),
+                                          int(target["id"]))
+        got2 = await self.m._capture_char(c2, int(p3["faction_id"]),
+                                          int(target["id"]))
+        self.assertTrue(got1)
+        self.assertFalse(got2)
+        c2 = await self.m.get_char(int(c2["id"]))
+        self.assertEqual(c2["status"], "idle")
+        self.assertNotEqual(
+            int((c2.get("location") or {}).get("node_id", 0) or 0),
+            int(target["id"]))
+
+    # ------------------------------------------------------------------
     async def _fetchall(self, sql: str, params: tuple = ()):
         async with self.conn.execute(sql, params) as cur:
             rows = await cur.fetchall()
