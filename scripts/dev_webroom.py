@@ -84,11 +84,34 @@ def _install_astrbot_stubs() -> None:
     core.utils = utils
     astrbot.core = core
 
+    # 命令层：main.py 需要 filter / GreedyStr / EventMessageType 才能导入。
+    # 这里只给空壳，真正的 @filter.command 元数据绑定由 _manual_*.py 自己的
+    # _Filter 桩接管；EventMessageType 只需有成员能被引用即可。
+    star = types.ModuleType("astrbot.core.star")
+    star.__path__ = []
+    filt = types.ModuleType("astrbot.core.star.filter")
+    filt.__path__ = []
+
+    class _EventMessageType:
+        ALL = "all"
+        PRIVATE_MESSAGE = "private_message"
+        GROUP_MESSAGE = "group_message"
+        OTHER_MESSAGE = "other_message"
+
+    emt = types.ModuleType("astrbot.core.star.filter.event_message_type")
+    emt.EventMessageType = _EventMessageType
+    filt.event_message_type = emt
+    star.filter = filt
+    core.star = star
+
     sys.modules.setdefault("astrbot", astrbot)
     sys.modules.setdefault("astrbot.api", api)
     sys.modules.setdefault("astrbot.core", core)
     sys.modules.setdefault("astrbot.core.utils", utils)
     sys.modules.setdefault("astrbot.core.utils.astrbot_path", astrbot_path)
+    sys.modules.setdefault("astrbot.core.star", star)
+    sys.modules.setdefault("astrbot.core.star.filter", filt)
+    sys.modules.setdefault("astrbot.core.star.filter.event_message_type", emt)
 
 
 class _DemoAdapter:

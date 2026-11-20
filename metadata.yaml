@@ -1,6 +1,6 @@
 name: astrbot_plugin_xiuxian_promax # 插件唯一标识 (推荐与仓库名/文件夹名一致)
 display_name: 模拟修仙 # 插件展示名
 desc: 一款为 AstrBot 设计的放置类修仙游戏插件：QQ 群与内置网页聊天室双端同源，278 条指令、五行克制、炼丹符箓、灵田洞天、灵兽宗门、押镖历练、秘境团本、仙市拍卖、珠宝镶嵌、高风险赌局、仙缘祭祀、飞升仙缘、AI 向导问答与网页端「仙域争霸」SLG 战略玩法。
-version: v4.0.2
+version: v4.0.3
 author: xiaojuwa (原作) / 云兮 (三改) / ymshe1065, lsq3497, lan (四改)
 repo: https://github.com/ymshe1065/astrbot_plugin_xiuxian_promax
