@@ -611,7 +611,7 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
         res = await self.m.claim_carryover("u1", new_army["id"])
         self.assertTrue(res["ok"])
         a = await self.m.get_army(new_army["id"])
-        self.assertEqual(int(a["veteran"]), 100)  # min(100, 400×50%)
+        self.assertEqual(int(a["veteran"]), 200)  # min(VETERAN_MAX=999, 400×50%)
         # 重复领取被拒
         with self.assertRaises(self.StrategyError):
             await self.m.claim_carryover("u1", new_army["id"])
@@ -809,6 +809,159 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
         dip = f.get("diplomacy") or {}
         self.assertNotIn("99999", dip)  # 已过期 → 清理
         self.assertIn("88888", dip)     # 未过期 → 保留
+
+    # ------------------------------------------------------------------
+    # 审查修复回归（A1/A2/A4/A-M12/B1/B16/C2/C3）
+    # ------------------------------------------------------------------
+    async def test_battle_rng_state_roundtrip(self):
+        """B1：_rng_state 经 JSON 序列化往返后仍能精确恢复随机流。
+
+        此前 st[2]（gauss_next=None）被 float(None) 炸掉 → 状态恢复静默
+        回退到种子重来，托管/回放/续跑三方掷骰序列错位。
+        """
+        battle = {"id": 77, "map_seed": "seed-abc", "session": {}}
+        rng = self.m._battle_rng(battle)
+        _ = [rng.random() for _ in range(3)]  # 先推进随机流（保存态 ≠ 种子新态）
+        self.m._save_rng(battle, rng)
+        expected = [rng.random() for _ in range(5)]
+        # 模拟 DB JSON 序列化往返（tuple→list、None→null）
+        sess = json.loads(json.dumps(battle["session"]))
+        battle2 = {"id": 77, "map_seed": "seed-abc", "session": sess}
+        rng2 = self.m._battle_rng(battle2)
+        self.assertEqual([rng2.random() for _ in range(5)], expected)
+        # 对照：从种子重来的序列必须不同（证明确实走了状态恢复）
+        fresh = random.Random("seed-abc")
+        self.assertNotEqual([fresh.random() for _ in range(5)], expected)
+
+    async def test_market_buyout_rebuy_cancel_guards(self):
+        """C2：挂单买断后 status=filled，再买/撤单均被拒且货物不重复退回。"""
+        nodes = await self.m.get_nodes(self.wid)
+        mkt = next(n for n in nodes if n["type"] in ("market", "city"))
+        await self._give("u1", grain=10_000, coin=100_000)
+        await self._give("u2", coin=100_000)
+        r = await self.m.market_list("u1", mkt["id"], "grain", 500, 2)
+        oid = int(r["order_id"])
+        grain2_before = int((await self.m.get_player("u2", self.wid))["grain"])
+        res = await self.m.market_buy("u2", oid)  # amount=0 → 全量买入
+        self.assertTrue(res["ok"])
+        grain2_after = int((await self.m.get_player("u2", self.wid))["grain"])
+        self.assertEqual(grain2_after - grain2_before, 500)
+        row = await self.m._fetchone(
+            "SELECT status, amount FROM strategy_market_orders WHERE id=?", (oid,))
+        self.assertEqual(row["status"], "filled")
+        self.assertEqual(int(row["amount"]), 0)
+        # 买断后重复买入被拒
+        with self.assertRaises(self.StrategyError):
+            await self.m.market_buy("u2", oid)
+        # 买断后卖家撤单被拒（防货款双得）
+        with self.assertRaises(self.StrategyError):
+            await self.m.market_cancel("u1", oid)
+
+    async def test_settle_season_idempotent_guard(self):
+        """C3：同一 (world_id, season_no) 重复结算被幂等守卫拒绝。"""
+        world = await self.m.get_world()
+        season_no = int(world.get("season_no", 1))
+        await self.m._settle_season(world)  # 首次：正常存档并开新世界
+        with self.assertRaises(self.StrategyError) as cm:
+            await self.m._settle_season(world)
+        self.assertIn("已结算", str(cm.exception))
+        rows = await self._fetchall(
+            "SELECT COUNT(*) AS n FROM strategy_season_results "
+            "WHERE world_id=? AND season_no=?", (self.wid, season_no))
+        self.assertEqual(int(rows[0]["n"]), 1)  # 无双份存档
+
+    async def test_siege_wipeout_aftermath(self):
+        """A1：围城被城防反击全歼 → 军团删除、角色归还、siege_state 清空。
+
+        此前仅从内存列表过滤，DB 残留 troops=0/state=siege 的僵尸军团。
+        """
+        fid = int(self.p1["faction_id"])
+        nodes = {n["id"]: n for n in await self.m.get_nodes(self.wid)}
+        home = next(n for n in nodes.values() if n["owner_faction"] == 0)
+        await self._own("u1", home)
+        target = nodes[int(home["adj"][0])]
+        target["owner_faction"] = 0  # 无主：跳过被俘判定，保证断言确定性
+        target["npc_garrison"] = {"troops": 100_000, "morale": 90}
+        target["siege_state"] = {"ticks": 0, "attacker_faction": fid,
+                                 "choice": "auto", "since": _now()}
+        await self.m.save_node(target)
+        army = await self._mk_army("u1", home["id"], 100)
+        cid = int((army.get("characters") or [0])[0])
+        army["state"] = "siege"
+        army["node_id"] = target["id"]
+        army["path"] = []
+        await self.m.save_army(army)
+        world = await self.m.get_world()
+        await self.m._step_sieges(world)
+        # 军团已删除（不再残留僵尸行）
+        self.assertIsNone(await self.m.get_army(army["id"]))
+        left = await self.m.get_armies(self.wid, node_id=target["id"],
+                                       states=("siege",))
+        self.assertEqual(left, [])
+        # 角色归还（非 army 态；伤势 +40 可能陨落）
+        c = await self.m.get_char(cid)
+        self.assertIn(c["status"], ("idle", "dead"))
+        # siege_state 清空（不再悬挂）
+        node = await self.m.get_node(self.wid, target["id"])
+        self.assertEqual(node.get("siege_state") or {}, {})
+
+    async def test_siege_breach_surrender_attackers_garrison(self):
+        """A2：破城受降后节点易主，同势力围城军转入驻守（不再围攻己方城）。"""
+        fid = int(self.p1["faction_id"])
+        nodes = {n["id"]: n for n in await self.m.get_nodes(self.wid)}
+        home = next(n for n in nodes.values() if n["owner_faction"] == 0)
+        await self._own("u1", home)
+        target = nodes[int(home["adj"][0])]
+        target["owner_faction"] = 0
+        target["defense"] = 0
+        target["npc_garrison"] = {"troops": 0, "morale": 50}
+        target["siege_state"] = {"ticks": 3, "attacker_faction": fid,
+                                 "choice": "surrender", "since": _now()}
+        await self.m.save_node(target)
+        army = await self._mk_army("u1", home["id"], 1500)
+        army["state"] = "siege"
+        army["node_id"] = target["id"]
+        army["path"] = []
+        await self.m.save_army(army)
+        world = await self.m.get_world()
+        reports = await self.m._step_sieges(world)
+        self.assertTrue(any("受降" in r for r in reports))
+        node = await self.m.get_node(self.wid, target["id"])
+        self.assertEqual(int(node["owner_faction"]), fid)
+        self.assertEqual(node.get("siege_state") or {}, {})
+        a = await self.m.get_army(army["id"])
+        self.assertEqual(a["state"], "idle")  # 围城军已转驻守
+
+    async def test_march_newbie_protection(self):
+        """A4：进攻刚入场玩家节点触发新手保护期（created_at 缺列致其永远跳过）。"""
+        fid2 = int(self.p2["faction_id"])
+        nodes = {n["id"]: n for n in await self.m.get_nodes(self.wid)}
+        home = next(n for n in nodes.values() if n["owner_faction"] == 0)
+        await self._own("u1", home)
+        target = nodes[int(home["adj"][0])]
+        target["owner_faction"] = fid2
+        target["protect_until"] = 0  # 绕开节点保护期分支，专测新手保护
+        await self.m.save_node(target)
+        army = await self._mk_army("u1", home["id"], 800)
+        with self.assertRaises(self.StrategyError) as cm:
+            await self.m.march("u1", army["id"], target["id"])
+        self.assertIn("新手保护期", str(cm.exception))
+
+    async def test_manual_battle_replay_and_report_permission(self):
+        """B16 赛中回放拒绝 + A-M12 非参战方战报越权拒绝。"""
+        _world, _target, _army, battle = await self._setup_manual_battle()
+        bid = int(battle["id"])
+        # B16：未终局取回放被拒（防泄露 map_seed/伏兵/指令流）
+        with self.assertRaises(self.StrategyError) as cm:
+            await self.m.get_battle_replay("u1", bid)
+        self.assertIn("战役结束后才能获取回放", str(cm.exception))
+        # A-M12：非参战方（u2）无权查看战报
+        with self.assertRaises(self.StrategyError) as cm2:
+            await self.m.get_battle_report("u2", bid)
+        self.assertIn("无权查看", str(cm2.exception))
+        # 参战方（u1 攻方）可查
+        rep = await self.m.get_battle_report("u1", bid)
+        self.assertEqual(int(rep["id"]), bid)
 
     # ------------------------------------------------------------------
     async def _fetchall(self, sql: str, params: tuple = ()):

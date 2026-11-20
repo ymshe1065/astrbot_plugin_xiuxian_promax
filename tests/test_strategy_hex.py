@@ -775,5 +775,96 @@ class TestRulesExt(unittest.TestCase):
         self.assertTrue(R.achievement_unlocked({"y": True}, "y", None))
 
 
+# ---------------------------------------------------------------------------
+# 审查修复回归（B2/B4/B12/B13 及 move→attack 同回合语义）
+# ---------------------------------------------------------------------------
+
+class TestBfixRegression(unittest.TestCase):
+    def setUp(self):
+        self.s = plain_session()
+        self.a1 = H.add_unit(self.s, mk_army(1, 1, troops=2000), "a")
+        self.b1 = H.add_unit(self.s, mk_army(2, 2, troops=2000), "b")
+        self.rng = random.Random(7)
+        self.a1["pos"] = [3, 4]
+        self.b1["pos"] = [9, 4]
+        self.s["phase"] = "battle"
+        H.begin_round(self.s, self.rng)
+
+    def test_move_then_attack_same_round(self):
+        # §7.3：移动不消耗行动权（moved=True / acted=False），同回合可再攻击
+        self.b1["pos"] = [6, 4]
+        mv = H.do_move(self.s, self.a1["uid"], [[4, 4], [5, 4]], self.rng)
+        self.assertNotEqual(mv.get("ok"), False)
+        self.assertTrue(self.a1["moved"])
+        self.assertFalse(self.a1["acted"])
+        atk = H.do_attack(self.s, self.a1["uid"], self.b1["uid"], self.rng)
+        self.assertTrue(atk["ok"])
+        self.assertTrue(self.a1["acted"])
+
+    def test_summon_does_not_block_round_complete(self):
+        # B2：回合中途入场的召唤物不在先手序 order 中，不得阻塞回合结束判定
+        summon = H.make_unit(
+            {"id": -999, "faction_id": 1, "troop_type": "beast_horde",
+             "troops": 500, "morale": 100, "veteran": 0,
+             "leader": None, "siege_engine": False}, "a", self.s["next_uid"])
+        self.s["next_uid"] += 1
+        summon["pos"] = [4, 4]
+        summon["temp"] = True
+        summon["temp_expire"] = self.s["round"] + 3
+        self.s["units"].append(summon)
+        for uid in list(self.s["order"]):
+            H.end_actor_turn(self.s, uid)
+        self.assertIsNone(H.current_actor(self.s))
+        self.assertTrue(H.round_complete(self.s))
+
+    def test_confused_attack_deterministic_and_recorded(self):
+        # B13/惑敌对人：确定性伪随机选目标 + 指令入回放流 + 消耗行动权
+        self.b1["pos"] = [4, 4]  # 与 a1 相邻
+        self.s["statuses"][str(self.a1["uid"])] = {"confuse": 2}
+        n_cmd = len(self.s["commands"])
+        res = H.do_confused_attack(self.s, self.a1["uid"], self.rng)
+        self.assertTrue(res["ok"])
+        self.assertTrue(self.a1["acted"])
+        types = [c["type"] for c in self.s["commands"][n_cmd:]]
+        self.assertIn("confused_attack", types)
+        # 同一 round/uid/战场 → 目标选择确定（回放对齐）
+        idx = (self.s["round"] * 7 + self.a1["uid"] * 13) % 1
+        self.assertEqual(idx, 0)
+
+    def test_shieldwall_halves_damage(self):
+        # B12：剑盾专属「盾墙」状态实际减伤 50%
+        self.b1["pos"] = [4, 4]
+        st = self.s["statuses"].setdefault(str(self.a1["uid"]), {})
+        st["shieldwall"] = 1
+        before = self.a1["troops"]
+        H._apply_damage(self.s, self.a1, 100, self.rng, source=self.b1, kind="test")
+        lost = before - self.a1["troops"]
+        self.assertEqual(lost, 50)
+
+    def test_zoc_break_one_shot(self):
+        # B19：剑修 ZOC 突破为一次性——同一条路径的第二个刚性 ZOC 仍截停
+        # 布局：sword [2,6] → e1[4,5] 控制 [4,6]，e2[5,7] 控制 [5,6]（mp=3 恰好）
+        sword = H.add_unit(self.s, mk_army(3, 1, troops=2000, prof="sword"), "a")
+        sword["pos"] = [2, 6]
+        e1 = H.add_unit(self.s, mk_army(4, 2, troops=2000), "b")
+        e1["pos"] = [4, 5]
+        e2 = H.add_unit(self.s, mk_army(5, 2, troops=2000), "b")
+        e2["pos"] = [5, 7]
+        path = [[3, 6], [4, 6], [5, 6]]
+        # 不使用突破：第一个刚性 ZOC（[4,6]）即截停
+        plain = H.check_move_path(self.s, sword["uid"], path)
+        self.assertTrue(plain["ok"])
+        self.assertEqual(plain["reason"], "zoc_stop")
+        self.assertEqual(plain["end"], 2)
+        self.assertFalse(plain["need_break"])
+        # 使用突破：穿过第一个 ZOC，被第二个（[5,6]）截停，且触发 e1 拦截
+        check = H.check_move_path(self.s, sword["uid"], path, use_zoc_break=True)
+        self.assertTrue(check["ok"])
+        self.assertEqual(check["reason"], "zoc_stop")
+        self.assertTrue(check["need_break"])
+        self.assertEqual(check["end"], 3)
+        self.assertIn(e1["uid"], check["intercepts"])
+
+
 if __name__ == "__main__":
     unittest.main()

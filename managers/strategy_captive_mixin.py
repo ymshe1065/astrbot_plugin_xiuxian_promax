@@ -81,6 +81,15 @@ class StrategyCaptiveMixin:
         c["captor_faction"] = int(captor_fid)
         c["imprisoned_node_id"] = int(node_id)
         await self.save_char(c)
+        # C-M4：从原军团名册移除（被俘者不能再随军作战/担任主将；
+        # 此前俘虏滞留在 armies.characters 中，_army_sim 仍以被俘者领队）
+        cid = int(c["id"])
+        for a in await self.get_armies(int(c.get("world_id", 0) or 0)):
+            cids = [int(x) for x in (a.get("characters") or [])]
+            if cid in cids:
+                cids.remove(cid)
+                a["characters"] = cids
+                await self.save_army(a)
 
     # ------------------------------------------------------------------
     # 劝降 / 释放 / 赎金 / 解放
@@ -303,18 +312,17 @@ class StrategyCaptiveMixin:
             if int(c.get("captor_faction", 0)) == int(liberator_fid):
                 continue  # 自己关的自己带走（迁往新关押地：保持 captive，随势力）
             merit = int(ccfg.get("liberate_merit", 50))
-            home_owner = (c.get("location") or {}).get("home_owner", "")
-            if home_owner:
-                hp = await self.get_player(home_owner, world["id"])
-                if hp:
-                    hp["merit"] = int(hp.get("merit", 0)) + merit
-                    hp["merit_season"] = int(hp.get("merit_season", 0)) + merit
-                    await self.save_player(hp)
-            # 解放方参战玩家奖励
+            # C-M5：战功归解放方（§7.9「解放者获战功 +50/人」），发给解放
+            # 势力全体玩家；此前误发给被俘者原主（home_owner）
             rows = await self._fetchall(
                 "SELECT user_id FROM strategy_players WHERE world_id=? AND faction_id=?",
                 (world["id"], int(liberator_fid)))
             for row in rows:
+                lp = await self.get_player(row["user_id"], world["id"])
+                if lp:
+                    lp["merit"] = int(lp.get("merit", 0)) + merit
+                    lp["merit_season"] = int(lp.get("merit_season", 0)) + merit
+                    await self.save_player(lp)
                 await self._award_achievement(row["user_id"], "social_liberate")
             await self._return_captive_home(c)
             freed.append(c["name"])

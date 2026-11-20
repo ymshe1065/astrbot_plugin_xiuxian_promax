@@ -276,18 +276,25 @@ class TestStrategyManager(unittest.IsolatedAsyncioTestCase):
 
     async def test_gold_injection_daily_cap(self):
         await self.m.enter_game("u1", "测试道人")
-        got, merit = await self.m._inject_gold("u1", 3_000_000)
+        # A3 新契约：_inject_gold(p, amount) 接收调用方 player dict 就地更新，
+        # 由调用方 save_player 落库（防内部重读日志被旧快照覆盖、日限额失效）
+        p = await self.m.get_player("u1", self.wid)
+        got, merit = await self.m._inject_gold(p, 3_000_000)
+        await self.m.save_player(p)
+        await self.m._commit()
         self.assertEqual(got, 3_000_000)
         self.assertEqual(merit, 0)
-        got2, merit2 = await self.m._inject_gold("u1", 4_000_000)
+        got2, merit2 = await self.m._inject_gold(p, 4_000_000)
+        await self.m.save_player(p)
+        await self.m._commit()
         self.assertEqual(got2, 2_000_000)          # 5M 日限额只剩 2M
         self.assertEqual(merit2, int(2_000_000 * 0.00002))  # 超额转战功 40
         player = await self.db.get_player_by_id("u1")
         self.assertEqual(player.gold, 1000 + 5_000_000)
-        p = await self.m.get_player("u1", self.wid)
-        self.assertEqual(p["merit"], merit2)
+        p2 = await self.m.get_player("u1", self.wid)
+        self.assertEqual(p2["merit"], merit2)
         today = time.strftime("%Y%m%d")
-        self.assertEqual(p["daily_output_log"][today], 5_000_000)
+        self.assertEqual(p2["daily_output_log"][today], 5_000_000)
 
     async def test_tick_catchup_marks_output_only(self):
         await self.m.enter_game("u1", "测试道人")

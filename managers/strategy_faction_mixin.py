@@ -612,6 +612,18 @@ class StrategyFactionMixin:
                       "war_at": int(war_at or 0)})
         return f_dip
 
+    async def _alive_faction_ids(self, world: dict) -> set:
+        """C-M2：当前存续势力 id 集合（字符串键，与 diplomacy dict 对齐）。"""
+        rows = await self._fetchall(
+            "SELECT id FROM strategy_factions WHERE world_id=? AND alive=1",
+            (world["id"],))
+        return {str(int(r["id"])) for r in rows}
+
+    @staticmethod
+    def _filter_dip(dip: dict, alive_ids: set) -> dict:
+        """剔除已覆灭势力的外交记录（结盟计数等仅看存续势力）。"""
+        return {k: v for k, v in (dip or {}).items() if str(k) in alive_ids}
+
     async def diplomacy_propose(self, user_id: str, target_fid: int, kind: str,
                                 indemnity: int = 0) -> dict:
         """外交提案：war（宣战，立即进入备战）/ truce / ally / peace（和谈赔款）。"""
@@ -661,8 +673,10 @@ class StrategyFactionMixin:
                 raise StrategyError(f"赔款上限为国库铜钱的 20%（{cap}）")
         if kind == "ally":
             cap_ally = int(dcfg.get("ally_max", 3))
-            if not R.can_ally_count(f_dip, now, cap_ally) or \
-                    not R.can_ally_count(t_dip, now, cap_ally):
+            # C-M2：仅统计存续势力的同盟位（已覆灭势力的 ally 记录不再占坑）
+            alive_ids = await self._alive_faction_ids(world)
+            if not R.can_ally_count(self._filter_dip(f_dip, alive_ids), now, cap_ally) or \
+                    not R.can_ally_count(self._filter_dip(t_dip, alive_ids), now, cap_ally):
                 raise StrategyError(f"任一方同盟数已达上限（{cap_ally}）")
             if cur == "war" or cur == "war_pending":
                 raise StrategyError("交战中无法结盟（请先和谈）")

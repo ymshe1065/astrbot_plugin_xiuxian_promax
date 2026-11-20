@@ -606,6 +606,9 @@ class XiuXianPlugin(Star):
         self.encounter_expire_task = asyncio.create_task(self._schedule_encounter_expire())
         # v7.14.0 仙域争霸世界 tick
         self.strategy_tick_task = asyncio.create_task(self._schedule_strategy_tick())
+        # 仙域争霸：手操战役秒级轮询（部署/单挑/回合超时托管，B5）
+        self.strategy_battle_poll_task = asyncio.create_task(
+            self._schedule_strategy_battle_poll())
         
         logger.info("【修仙插件】已加载。")
 
@@ -626,7 +629,8 @@ class XiuXianPlugin(Star):
                      getattr(self, "adventure_finish_task", None),
                      getattr(self, "rift_tick_task", None),
                      getattr(self, "encounter_expire_task", None),
-                     getattr(self, "strategy_tick_task", None)):
+                     getattr(self, "strategy_tick_task", None),
+                     getattr(self, "strategy_battle_poll_task", None)):
             if task:
                 task.cancel()
                 tasks.append(task)
@@ -910,6 +914,28 @@ class XiuXianPlugin(Star):
                 logger.error(f"【仙域争霸】tick 调度异常: {e}")
                 await asyncio.sleep(retry_delay)
                 retry_delay = min(retry_delay * 2, 1800)
+
+    async def _schedule_strategy_battle_poll(self):
+        """仙域争霸：每 10s 轮询推进手操战役（B5）。
+
+        回合超时托管（round_seconds=30）、部署超时、单挑 15s 应答均为秒级
+        节奏，仅挂 15 分钟世界 tick 会把托管/超时拖延至多一个 tick；
+        manager 侧忙（动作/tick 持锁）时本轮跳过，不排队积压。
+        """
+        retry_delay = 30
+        while True:
+            try:
+                await self.db.ensure_connection()
+                if self.strategy_mgr.enabled():
+                    await self.strategy_mgr.poll_manual_battles()
+                retry_delay = 30
+                await asyncio.sleep(10)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"【仙域争霸】手操战役轮询异常: {e}")
+                await asyncio.sleep(retry_delay)
+                retry_delay = min(retry_delay * 2, 600)
 
     async def _schedule_rift_ticks(self):
         """秘境分段结算：每 5 分钟一段，到期自动推送小结，走完发大结算。"""

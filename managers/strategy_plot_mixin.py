@@ -229,6 +229,10 @@ class StrategyPlotMixin:
                     tc["status"] = "wander"
                     tc["faction_id"] = 0
                     tc["owner_user_id"] = ""
+                    # 离心出走：清除囚禁标记（角色此前可能处于被俘状态），
+                    # 防 captor_faction/imprisoned_node_id 悬挂导致重复解放/迁移
+                    tc["captor_faction"] = 0
+                    tc["imprisoned_node_id"] = 0
                     out["texts"].append(
                         f"离间大成！{tc['name']} 忠诚崩至 {tc['loyalty']}，挂印出走")
                 else:

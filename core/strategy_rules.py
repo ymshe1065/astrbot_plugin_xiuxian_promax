@@ -151,6 +151,10 @@ def has_aptitude_skill(char: dict | None, troop_type: str) -> bool:
     return str((char.get("aptitude") or {}).get(troop_type, "B")) == "S"
 
 
+#: 精锐值上限（§7.5 三阶：普通 <100 ≤ 精锐 <300 ≤ 御林；999 为硬上限）
+VETERAN_MAX = 999
+
+
 #: 老兵精锐三阶（§7.5）
 def veteran_tier(veteran: int) -> tuple[str, float, int]:
     """返回 (阶位名, 攻防加成, 士气上限)。"""
@@ -1216,7 +1220,7 @@ def tech_effects(tech_json: dict | None) -> dict[str, float]:
 def tech_research_hours(base_hours: int, stat: int, divisor: float = 10.0,
                         pct: float = 0.05) -> float:
     """研究耗时：每 10 点主属性（智谋/政务取高）-5%。"""
-    steps = int(stat) // int(divisor)
+    steps = int(stat) // max(1, int(divisor))  # 防除零
     return max(1.0, float(base_hours) * (1 - steps * pct))
 
 

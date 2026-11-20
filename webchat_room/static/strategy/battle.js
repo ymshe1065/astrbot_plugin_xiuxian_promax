@@ -33,9 +33,8 @@
     barrage: { name: "落石/箭雨", mana: 35, target: "hex", range: 3 },
     ram: { name: "破城槌撞击", mana: 0, target: "wall", range: 0 },
     combo: { name: "合击技", mana: 60, target: "unit", range: 2 },
-    troop_special: { name: "兵种专属", mana: 30, target: "auto", range: 0 },
+    troop_special: { name: "兵种专属", mana: 0, target: "auto", range: 0 },
   };
-  const TROOP_RANGE = { bow: 2, siege: 1 };  // 远程兵种攻击距离（其余 1）
 
   let bs = null;              // battle_state 快照
   let battleId = 0;
@@ -102,7 +101,11 @@
   // -------------------------------------------------------------------------
   function terrainAt(q, r) {
     if (!bs || !bs.terrain) return "plain";
-    return bs.terrain[q + "," + r] || "plain";
+    // B17：水淹临时沼泽（temp_terrain: {"q,r": 到期回合}，与服务端 eff_terrain 一致）
+    const tt = bs.temp_terrain || {};
+    const k = q + "," + r;
+    if (k in tt && Number(tt[k]) >= Number(bs.round || 0)) return "swamp";
+    return bs.terrain[k] || "plain";
   }
 
   function inBounds(q, r) {
@@ -110,7 +113,8 @@
   }
 
   function unitAt(q, r) {
-    return (bs.units || []).find((u) => u.pos && u.pos.q === q && u.pos.r === r
+    // B6：服务端 pos 契约为 [q, r] 数组（非 {q, r} 对象）
+    return (bs.units || []).find((u) => u.pos && u.pos[0] === q && u.pos[1] === r
       && u.troops > 0 && !u.routed);
   }
 
@@ -130,11 +134,13 @@
   function computeReachable(unit) {
     const meta = (typeof S !== "undefined" && S && S.meta) || {};
     const troop = (meta.troop_types || {})[unit.troop_type] || {};
-    const mp = Number(troop.move || 3);
-    const start = unit.pos;
+    let mp = Number(troop.move || 3);
+    if ((unit.statuses || {}).suppress) mp *= 0.5;  // 落石/箭雨压制：机动减半
+    const start = unit.pos;   // B6：pos 为 [q, r] 数组
+    const sq = start[0], sr = start[1];
     const cells = new Map();
-    cells.set(start.q + "," + start.r, { q: start.q, r: start.r, cost: 0, prev: null });
-    const queue = [cells.get(start.q + "," + start.r)];
+    cells.set(sq + "," + sr, { q: sq, r: sr, cost: 0, prev: null });
+    const queue = [cells.get(sq + "," + sr)];
     while (queue.length) {
       queue.sort((a, b) => a.cost - b.cost);
       const cur = queue.shift();
@@ -142,8 +148,15 @@
         const key = nq + "," + nr;
         if (!passable(nq, nr, unit.troop_type)) continue;
         if (unitAt(nq, nr)) continue;  // 占位格不可通行
-        const cost = cur.cost + (MOVE_COST[terrainAt(nq, nr)] || 1);
-        if (cost > mp) continue;
+        // B17：与服务端 check_move_path 同口径的兵种地形消耗
+        const t = terrainAt(nq, nr);
+        let step = MOVE_COST[t] || 1;
+        if (unit.troop_type === "beast_horde" && t === "forest") step = 1;
+        if (unit.troop_type === "flying_sword" && t === "plain") {
+          step = Math.max(0.5, step - 0.5);
+        }
+        const cost = cur.cost + step;
+        if (cost > mp + 1e-6) continue;
         const old = cells.get(key);
         if (old && old.cost <= cost) continue;
         const cell = { q: nq, r: nr, cost, prev: cur };
@@ -151,7 +164,7 @@
         queue.push(cell);
       }
     }
-    cells.delete(start.q + "," + start.r);
+    cells.delete(sq + "," + sr);
     return cells;
   }
 
@@ -167,8 +180,8 @@
     const tiles = new Set();
     for (const u of bs.units || []) {
       if (u.mine || !u.pos || u.troops <= 0 || u.routed) continue;
-      if (terrainAt(u.pos.q, u.pos.r) === "river") continue;
-      for (const [q, r] of neighbors(u.pos.q, u.pos.r)) {
+      if (terrainAt(u.pos[0], u.pos[1]) === "river") continue;
+      for (const [q, r] of neighbors(u.pos[0], u.pos[1])) {
         if (!inBounds(q, r)) continue;
         if (terrainAt(q, r) === "river") continue;
         const occ = unitAt(q, r);
@@ -180,7 +193,16 @@
   }
 
   function attackRangeOf(unit) {
-    return TROOP_RANGE[unit.troop_type] || 1;
+    // B17：射程取自 meta.troop_types.range（法修营 3、高地 +1；近战为 1）。
+    // 旧 TROOP_RANGE={bow,siege} 是永远匹配不上的死键。
+    const meta = (typeof S !== "undefined" && S && S.meta) || {};
+    const troop = (meta.troop_types || {})[unit.troop_type] || {};
+    let r = Number(troop.range || 0);
+    if (r > 0 && unit.pos) {
+      const t = terrainAt(unit.pos[0], unit.pos[1]);
+      if (t === "highland" || t === "wall" || t === "gate") r += 1;
+    }
+    return Math.max(1, r);
   }
 
   // -------------------------------------------------------------------------
@@ -258,7 +280,7 @@
     // 单位
     for (const u of bs.units || []) {
       if (!u.pos || u.troops <= 0) continue;
-      const [cx, cy] = hexToPixel(u.pos.q, u.pos.r);
+      const [cx, cy] = hexToPixel(u.pos[0], u.pos[1]);
       const color = u.side === "a" ? "#58a6ff" : "#f85149";
       const radius = view.size * 0.55;
       ctx.beginPath(); ctx.arc(cx, cy, radius, 0, Math.PI * 2);
@@ -276,7 +298,7 @@
       ctx.font = (radius * 0.8) + "px serif";
       ctx.fillStyle = "#fff";
       const icon = { sword_shield: "🗡️", heavy_armor: "🛡️", flying_sword: "⚔️",
-                     bow: "🏹", siege: "🪨", beast: "🐺" }[u.troop_type] || "⚔️";
+                     spell_corps: "🔮", beast_horde: "🐺" }[u.troop_type] || "⚔️";
       ctx.fillText(u.routed ? "💨" : icon, cx, cy - 1);
       ctx.font = "9px sans-serif";
       ctx.fillStyle = color;

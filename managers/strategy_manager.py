@@ -25,7 +25,7 @@ import time
 from typing import Any, Optional
 
 from ..core import strategy_rules as R
-from ..data.migration import _ensure_strategy_v70
+from ..data.migration import _ensure_strategy_v70, _ensure_strategy_v71
 from .strategy_errors import StrategyBusyError, StrategyError
 from .strategy_faction_mixin import StrategyFactionMixin
 from .strategy_captive_mixin import StrategyCaptiveMixin
@@ -56,13 +56,30 @@ def _loads(text: Any, default: Any) -> Any:
     try:
         v = json.loads(text) if text else default
         return v if v is not None else default
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[strategy] JSON 列解析失败，回退默认值（数据可能损坏）: {e}")
         return default
 
 
 def _row_to_dict(cursor, row) -> dict:
     keys = [d[0] for d in cursor.description]
     return dict(zip(keys, row))
+
+
+#: 主玩法钱包兜底锁：handlers.utils.get_player_lock 导入失败时使用。
+#: 必须是模块级共享（每次新建 asyncio.Lock() 会让互斥完全无效）。
+_FALLBACK_PLAYER_LOCKS: dict[str, asyncio.Lock] = {}
+
+
+def _main_wallet_lock(user_id: str) -> asyncio.Lock:
+    try:
+        from ..handlers.utils import get_player_lock
+        return get_player_lock(user_id)
+    except Exception:  # noqa: BLE001
+        lock = _FALLBACK_PLAYER_LOCKS.get(user_id)
+        if lock is None:
+            lock = _FALLBACK_PLAYER_LOCKS[user_id] = asyncio.Lock()
+        return lock
 
 
 # ---------------------------------------------------------------------------
@@ -81,6 +98,12 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         self.db = db
         self.config_manager = config_manager
         self._world_lock = asyncio.Lock()
+        # 玩家动作串行锁：handle_action 全程持有，防动作间/动作与 tick 并发丢更新。
+        # 死锁防护：锁序恒为 _action_lock → _world_lock（tick/poll 同序）；
+        # 只持 _action_lock 的路径对 _world_lock 仅做 locked() 非阻塞检查。
+        self._action_lock = asyncio.Lock()
+        # 互市挂单撮合互斥（防 TOCTOU 双花：并发双买/买撤并发）
+        self._market_lock = asyncio.Lock()
         self._cfg_cache: dict[str, Any] = {}
         self._cfg_mtime: float = 0.0
         # 懒加载主玩法玩家锁
@@ -235,8 +258,14 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                     "msg": f"⚖️ 已调整「{f['name']}」国库：铜钱 {coin:+}、粮草 {grain:+}"
                            f"（现 {treasury['coin']} / {treasury['grain']}）"}
         if op in ("重置赛季", "reset_season"):
-            world = await self.ensure_world()
-            res = await self._settle_season(world)
+            # C3：全程持 _world_lock 防与 tick/动作交错产生双结算；
+            # 绝不取 _action_lock（保持恒定锁序、防死锁），也不经
+            # ensure_world（其内部会再取 _world_lock 造成自锁）
+            async with self._world_lock:
+                world = await self.get_world()
+                if not world:
+                    world = await self._create_world()
+                res = await self._settle_season(world)
             return {"ok": True,
                     "msg": f"🔁 赛季 S{res['season_no']} 已强制结算"
                            f"（霸主：{res['champion']}），新世界 #{res['new_world_id']} 开启"}
@@ -299,6 +328,11 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         cursor = await self.db.conn.execute(sql, params)
         return cursor.lastrowid or 0
 
+    async def _exec_count(self, sql: str, params: tuple = ()) -> int:
+        """执行 UPDATE/DELETE 并返回受影响行数（条件更新/乐观锁校验用）。"""
+        cursor = await self.db.conn.execute(sql, params)
+        return cursor.rowcount if cursor.rowcount is not None else 0
+
     async def _commit(self):
         await self.db.conn.commit()
 
@@ -307,6 +341,7 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         if getattr(self, "_tables_ready", False):
             return
         await _ensure_strategy_v70(self.db.conn)
+        await _ensure_strategy_v71(self.db.conn)
         await self._commit()
         self._tables_ready = True
 
@@ -426,7 +461,7 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                     "rebuild_pay_log_json", "tavern_json", "faction_id", "last_seen_at")
 
     async def save_player(self, p: dict):
-        await self.db.conn.execute(f"""
+        await self.db.conn.execute("""
             UPDATE strategy_players SET coin=?, grain=?, iron=?, recruit_token=?, merit=?,
                 merit_season=?, honor_json=?, auto_delegate=?, daily_output_log_json=?,
                 notify_pref_json=?, tutorial_json=?, achievements_json=?, newcomer_json=?,
@@ -648,7 +683,7 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 return world
             return await self._create_world()
 
-    async def _create_world(self, season_no: int = 1, template_id: str = "") -> dict:
+    async def _create_world(self, season_no: int = 0, template_id: str = "") -> dict:
         cfg = self.main_cfg()
         template_id = str(template_id or "").strip() or \
             cfg.get("world_template", "standard36")
@@ -659,6 +694,12 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         if not tpl:
             raise StrategyError("世界模板缺失：config/strategy_world.json")
         now = _now()
+        if int(season_no) <= 0:
+            # C-M9：默认赛季号 = 历史最大 + 1（防世界重建后 season_no 撞号，
+            # 导致赛季存档/英烈祠记录互相覆盖）
+            row = await self._fetchone(
+                "SELECT COALESCE(MAX(season_no), 0) + 1 AS n FROM strategy_worlds")
+            season_no = int((row or {}).get("n", 1) or 1)
         season_days = int(cfg.get("season_days", 75))
         wid = await self._execute("""
             INSERT INTO strategy_worlds (season_no, template_id, started_at, ends_at,
@@ -864,9 +905,11 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         return tavern
 
     def _roll_tavern(self, user_id: str, world_id: int, old: dict, cfg: dict,
-                     now: int) -> dict:
+                     now: int, salt: int = 0) -> dict:
+        # salt=0：自动刷新按小时粒度稳定候选；手动刷新传精确时间戳，
+        # 保证同小时内多次付费刷新得到不同候选
         rng = random.Random(int(hashlib.md5(
-            f"{user_id}|{world_id}|{now // 3600}".encode("utf-8")).hexdigest()[:8], 16))
+            f"{user_id}|{world_id}|{now // 3600}|{salt}".encode("utf-8")).hexdigest()[:8], 16))
         n = int(cfg.get("candidates", 5))
         role_keys = list((cfg.get("role_weights") or {}).keys()) or list(R.ROLES)
         role_w = [int((cfg.get("role_weights") or {}).get(k, 1)) for k in role_keys]
@@ -900,7 +943,8 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             if player["coin"] < cost:
                 raise StrategyError(f"铜钱不足：手动刷新需 {cost}")
             player["coin"] -= cost
-            tavern = self._roll_tavern(player["user_id"], world_id, tavern, cfg, _now())
+            tavern = self._roll_tavern(player["user_id"], world_id, tavern, cfg,
+                                       _now(), salt=_now())
             tavern["daily_refresh_used"] = used + 1
             tavern["refresh_at"] = _now() + int(cfg.get("refresh_hours", 4)) * 3600
             player["tavern"] = tavern
@@ -963,38 +1007,35 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
     # ------------------------------------------------------------------
     # 主玩法灵石注入（§10.4：日限额 + 超额转战功）
     # ------------------------------------------------------------------
-    async def _inject_gold(self, user_id: str, amount: int) -> tuple[int, int]:
-        """给主玩法钱包加灵石；超日限额部分按比率转战功。返回 (实发gold, 转merit)。"""
-        if amount <= 0:
+    async def _inject_gold(self, p: dict, amount: int) -> tuple[int, int]:
+        """给主玩法钱包加灵石；超日限额部分按比率转战功。返回 (实发gold, 转merit)。
+
+        接收调用方的 strategy_players dict 并就地更新（daily_output_log/merit/
+        merit_season），由调用方统一 save_player(p) 落库——避免函数内部重读的
+        新日志被调用方手里的旧快照覆盖，导致灵石日限额彻底失效。
+        """
+        if amount <= 0 or not p:
             return 0, 0
         gcfg = self.main_cfg().get("gold_output") or {}
         daily_cap = int(gcfg.get("daily_gold_cap", 5_000_000))
         hard_cap = int(gcfg.get("max_daily_gold_cap", 20_000_000))
         rate = float(gcfg.get("overcap_to_merit_rate", 0.00002))
-        world = await self.get_world()
-        p = await self.get_player(user_id, world["id"])
-        if not p:
-            return 0, 0
+        user_id = p["user_id"]
         today = time.strftime("%Y%m%d")
         log = p.get("daily_output_log") or {}
         today_sent = int(log.get(today, 0))
         if today_sent >= hard_cap:
             extra_merit = int(amount * rate)
-            p["merit"] += extra_merit
-            await self.save_player(p)
-            await self._commit()
+            if extra_merit > 0:
+                p["merit"] = int(p.get("merit", 0)) + extra_merit
+                p["merit_season"] = int(p.get("merit_season", 0)) + extra_merit
             return 0, extra_merit
         allow = min(amount, max(0, daily_cap - today_sent))
         overflow = amount - allow
         merit_gain = int(overflow * rate)
         if allow > 0:
-            # 主玩法钱包：懒加载玩家锁，防并发写
-            try:
-                from ..handlers.utils import get_player_lock
-                lock = get_player_lock(user_id)
-            except Exception:  # noqa: BLE001
-                lock = asyncio.Lock()
-            async with lock:
+            # 主玩法钱包：玩家锁防并发写
+            async with _main_wallet_lock(user_id):
                 player = await self.db.get_player_by_id(user_id)
                 if player is not None:
                     player.gold = int(player.gold or 0) + allow
@@ -1002,10 +1043,8 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             log[today] = today_sent + allow
             p["daily_output_log"] = log
         if merit_gain > 0:
-            p["merit"] += merit_gain
-            p["merit_season"] += merit_gain
-        await self.save_player(p)
-        await self._commit()
+            p["merit"] = int(p.get("merit", 0)) + merit_gain
+            p["merit_season"] = int(p.get("merit_season", 0)) + merit_gain
         return allow, merit_gain
 
     # ------------------------------------------------------------------
@@ -1247,7 +1286,7 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         n = 0
         for a in await self.get_armies(p["world_id"], owner_user_id=p["user_id"],
                                        node_id=node_id, states=("idle",)):
-            a["veteran"] = min(100, a["veteran"] + max(1, amount // 200))
+            a["veteran"] = min(R.VETERAN_MAX, a["veteran"] + max(1, amount // 200))
             await self.save_army(a)
             n += 1
         return n
@@ -1279,9 +1318,12 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         if R.injury_state(leader["injury"]) in ("dying", "dead"):
             raise StrategyError(f"{leader['name']} 伤势过重")
         members = [leader]
+        seen = {int(leader["id"])}
         for mid in member_ids or []:
-            if int(mid) == leader["id"]:
+            # 低危：member_ids 去重（重复 id 会让同一角色两次入军/双重羁绊掷点）
+            if int(mid) in seen:
                 continue
+            seen.add(int(mid))
             mc = await self._own_char(p, mid)
             if mc["status"] != "idle":
                 raise StrategyError(f"{mc['name']} 无法出征（{mc['status']}）")
@@ -1332,7 +1374,7 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
     async def disband_army(self, user_id: str, army_id: int) -> dict:
         world, p = await self._require_player(user_id)
         a = await self._own_army(p, army_id)
-        if a["state"] not in ("idle", "retreat"):
+        if a["state"] != "idle":
             raise StrategyError("军团行动期间无法解散（请先撤退）")
         node = await self.get_node(world["id"], a["node_id"])
         if not node or node["owner_faction"] != p["faction_id"]:
@@ -1340,7 +1382,8 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         p["grain"] += int(a.get("grain", 0))
         for cid in a.get("characters") or []:
             c = await self.get_char(cid)
-            if c:
+            if c and c.get("status") not in ("dead", "captive"):
+                # A-M9：已陨落/被俘角色不得重置为 idle（保持死亡与囚禁状态）
                 c["status"] = "idle"
                 await self.save_char(c)
         await self.delete_army(a["id"])
@@ -1380,17 +1423,17 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         return {"ok": True, "msg": f"补员 {troops} 兵（现 {a['troops']}）"}
 
     async def drill_army(self, user_id: str, army_id: int) -> dict:
-        """操练：铜钱 500 → 精锐值 +5（上限 100）。"""
+        """操练：铜钱 500 → 精锐值 +5（上限 R.VETERAN_MAX）。"""
         world, p = await self._require_player(user_id)
         a = await self._own_army(p, army_id)
         if a["state"] != "idle":
             raise StrategyError("军团行动中，无法操练")
-        if a["veteran"] >= 100:
+        if a["veteran"] >= R.VETERAN_MAX:
             raise StrategyError("精锐值已满")
         if p["coin"] < 500:
             raise StrategyError("铜钱不足：操练需 500")
         p["coin"] -= 500
-        a["veteran"] = min(100, a["veteran"] + 5)
+        a["veteran"] = min(R.VETERAN_MAX, a["veteran"] + 5)
         await self.save_army(a)
         await self.save_player(p)
         await self._commit()
@@ -1413,10 +1456,21 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         if target["owner_faction"] not in (0, p["faction_id"]):
             if target.get("protect_until", 0) > now:
                 raise StrategyError("目标处于保护期")
+            # C-M3：同盟/停战/开战备战期禁止进攻（§6.3 宣战门禁）
+            pf = await self.get_faction(p["faction_id"])
+            rel = R.relation_of((pf or {}).get("diplomacy"),
+                                int(target["owner_faction"]), now)
+            if rel in (R.REL_ALLY, R.REL_TRUCE, "war_pending"):
+                rel_name = {R.REL_ALLY: "同盟", R.REL_TRUCE: "停战",
+                            "war_pending": "开战备战期"}.get(rel, rel)
+                raise StrategyError(
+                    f"与目标势力处于「{rel_name}」，不可进攻（须先解除关系）")
             tf = await self.get_faction(target["owner_faction"])
             if tf and tf.get("kind") == "player":
+                # A4：created_at 此前未在 SELECT 列中，新手保护判定永远跳过
                 np = await self._fetchone(
-                    "SELECT newcomer_json FROM strategy_players WHERE world_id=? AND faction_id=?",
+                    "SELECT newcomer_json, created_at FROM strategy_players "
+                    "WHERE world_id=? AND faction_id=?",
                     (world["id"], target["owner_faction"]))
                 newcom = _loads((np or {}).get("newcomer_json"), {})
                 days = int((self.main_cfg().get("protection") or {}).get("newbie_days", 7))
@@ -1435,28 +1489,62 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                        f"（{len(path) - 1} 段路程，{'敌对' if hostile else '和平'}目标）"}
 
     async def retreat_army(self, user_id: str, army_id: int) -> dict:
+        """撤退（A-M5 重写）：撤往最近己方据点；无路可退则就地解散。
+
+        修复：不再产生无人消费的 "retreat" 死状态；已在己方据点驻守时
+        直接返回；围城军撤走后清理孤儿 siege_state（A-M11）。
+        """
         world, p = await self._require_player(user_id)
         a = await self._own_army(p, army_id)
         if a["state"] not in ("march", "siege", "idle"):
             raise StrategyError("当前状态无法撤退")
+        was_siege = a["state"] == "siege"
         home = await self._nearest_own_node(world, p, a["node_id"])
-        if home is None or home == a["node_id"] and a["state"] == "idle":
-            a["state"] = "retreat"
-            a["path"] = []
-            await self.save_army(a)
+        if home is None:
+            # 无任何己方据点：与战败溃散同口径（_auto_retreat 就地解散归还角色）
+            await self._auto_retreat(a)
+            if was_siege:
+                await self._clear_orphan_siege(
+                    world, await self.get_node(world["id"], a["node_id"]))
             await self._commit()
-            return {"ok": True, "msg": "军团就地待命"}
-        path = await self.find_path(world["id"], a["node_id"], home)
-        if not path:
-            raise StrategyError("撤退路线不通（无己方据点可达）")
-        a["state"] = "march"
-        a["path"] = path[1:] if len(path) > 1 else []
-        a["edge_pos"] = 0.0
-        if not a["path"]:
+            return {"ok": True, "msg": "无己方据点可退，军团已就地解散（角色归还）"}
+        if home == a["node_id"] and a["state"] == "idle":
+            return {"ok": True, "msg": "军团已驻守己方据点，无需撤退"}
+        if home == a["node_id"]:
             a["state"] = "idle"
-        await self.save_army(a)
+            a["path"] = []
+            a["edge_pos"] = 0.0
+            await self.save_army(a)
+            msg = f"「{a['name']}」已就地转入驻守"
+        else:
+            path = await self.find_path(world["id"], a["node_id"], home)
+            if not path:
+                raise StrategyError("撤退路线不通（无己方据点可达）")
+            a["state"] = "march"
+            a["path"] = path[1:] if len(path) > 1 else []
+            a["edge_pos"] = 0.0
+            if not a["path"]:
+                a["state"] = "idle"
+            await self.save_army(a)
+            msg = f"「{a['name']}」撤退中（{len(a['path'])} 段）"
+        if was_siege:
+            await self._clear_orphan_siege(
+                world, await self.get_node(world["id"], a["node_id"]))
         await self._commit()
-        return {"ok": True, "msg": f"「{a['name']}」撤退中（{len(a['path'])} 段）"}
+        return {"ok": True, "msg": msg}
+
+    async def _clear_orphan_siege(self, world: dict, node: Optional[dict]):
+        """A-M11：节点已无围城军团时清除悬挂的 siege_state。
+
+        （否则 siege_state.ticks 悬挂：城防自修被阻、面板长期显示被围。）
+        """
+        if not node or not (node.get("siege_state") or {}):
+            return
+        left = await self.get_armies(world["id"], node_id=node["id"],
+                                     states=("siege",))
+        if not left:
+            node["siege_state"] = {}
+            await self.save_node(node)
 
     async def _nearest_own_node(self, world: dict, p: dict, node_id: int) -> Optional[int]:
         mine = await self._fetchall(
@@ -1481,6 +1569,8 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         if a["state"] != "siege":
             raise StrategyError("军团未处于围城状态")
         node = await self.get_node(world["id"], a["node_id"])
+        if not node:
+            raise StrategyError("围城据点不存在")
         ss = node.get("siege_state") or {}
         ss["choice"] = choice
         node["siege_state"] = ss
@@ -1568,7 +1658,7 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             shop_week["used"] += 1
             honor["merit_shop_week"] = shop_week
             p["honor"] = honor
-            got, _ = await self._inject_gold(p["user_id"], int(spec["gold"]))
+            got, _ = await self._inject_gold(p, int(spec["gold"]))
             await self.save_player(p)
             await self._commit()
             return {"ok": True, "msg": f"兑换成功：灵石 +{got}（本周第 {shop_week['used']} 次）"}
@@ -1609,7 +1699,7 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             return []
         await self.ensure_tables()
         world = await self.ensure_world()
-        interval = self.tick_seconds()
+        interval = max(1, self.tick_seconds())  # 防除零
         now = _now()
         last = int(world.get("last_tick_at") or 0)
         if last <= 0:
@@ -1624,23 +1714,33 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         full = min(due, max_catch)
         skipped = due - full
         results = []
-        if skipped > 0:
-            # 超出补跑上限：只结算产出（跳过 NPC/战斗），防滚雪球
-            res = await self.tick(output_only=True, repeat=skipped)
-            results.append(res)
-        for _ in range(full):
-            results.append(await self.tick())
+        try:
+            if skipped > 0:
+                # 超出补跑上限：只结算产出（跳过 NPC/战斗），防滚雪球
+                res = await self.tick(output_only=True, repeat=skipped)
+                results.append(res)
+            for _ in range(full):
+                results.append(await self.tick())
+        except StrategyBusyError as e:
+            # 玩家动作持锁中：本轮跳过，下周期按 last_tick_at 自动补跑
+            logger.info(f"[strategy] tick 繁忙跳过：{e}")
         return results
 
     async def tick(self, output_only: bool = False, repeat: int = 1) -> dict:
-        """推进一个世界 tick（九步管线，§10.2）。世界锁保证串行。"""
+        """推进一个世界 tick（九步管线，§10.2）。
+
+        A-M7：与玩家动作互斥——先取 _action_lock 再取 _world_lock（恒定锁序）；
+        任一锁忙则直接 Busy 拒绝（本轮跳过，run_tick_catchup 下周期按
+        last_tick_at 补跑），避免排队导致的双 tick 叠跑。
+        """
         summary: dict = {"ok": True, "tick_no": 0, "battles": [], "events": [],
                          "gold_injected": 0, "output_only": output_only}
-        if self._world_lock.locked():
+        if self._action_lock.locked() or self._world_lock.locked():
             raise StrategyBusyError("世界推进中，请稍后再试")
-        async with self._world_lock:
-            for _ in range(max(1, int(repeat))):
-                summary = await self._tick_locked(output_only, summary)
+        async with self._action_lock:
+            async with self._world_lock:
+                for _ in range(max(1, int(repeat))):
+                    summary = await self._tick_locked(output_only, summary)
         return summary
 
     async def _tick_locked(self, output_only: bool, prev: dict) -> dict:
@@ -1651,6 +1751,11 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         tick_no = world["tick_no"]
         summary = {"ok": True, "tick_no": tick_no, "battles": [], "events": [],
                    "gold_injected": 0, "output_only": output_only}
+        # A-M6 时钟先落盘：管线中途崩溃时 catchup 按 last_tick_at 判定，
+        # 本 tick 产出宁可丢一拍，也不会以同一 tick_no 重入导致双份产出
+        world["last_tick_at"] = _now()
+        await self.save_world(world)
+        await self._commit()
         try:
             # 1. 任务结算（到期任务入账，角色转 idle）
             if not output_only:
@@ -1837,10 +1942,10 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                     mult *= diminish_factor
                 gross = int(gold_per_type.get(node["type"], 0) * mult)
                 personal = int(gross * float(gcfg.get("personal_share", 0.7)))
-                if output_only:
-                    personal = personal  # 补产出照发（仍受日限额）
                 if personal > 0:
-                    got, _m = await self._inject_gold(p["user_id"], personal)
+                    # 补产出（output_only）照发，仍受日限额；p 就地更新，
+                    # 循环尾统一 save_player 落库
+                    got, _m = await self._inject_gold(p, personal)
                     gold_total += got
                 # 势力国库份额（审计）
                 f = await self.get_faction(p["faction_id"])
@@ -1900,9 +2005,10 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             shares = R.siege_counter_damage(garrison_troops, towers, len(attackers))
             for a, dmg in zip(attackers, shares):
                 a["troops"] = max(0, a["troops"] - int(dmg))
-                a["veteran"] = min(100, a["veteran"] + R.veteran_gain(False, siege=True) // 5)
+                a["veteran"] = min(R.VETERAN_MAX,
+                                   a["veteran"] + R.veteran_gain(False, siege=True) // 5)
             # 主将轮换伤势（每 3 tick +5）
-            if ss["ticks"] % int(cfg.get("injury_every_ticks", 3)) == 0:
+            if ss["ticks"] % max(1, int(cfg.get("injury_every_ticks", 3))) == 0:
                 for a in attackers:
                     cids = a.get("characters") or []
                     if cids:
@@ -1916,6 +2022,25 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             dmg = R.siege_tick_damage([s for s in sim_attackers if s])
             node["defense"] = max(0, node["defense"] - dmg)
             node["morale"] = max(20, node["morale"] - 2)
+            destroyed = [a for a in attackers if a["troops"] <= 0]
+            if destroyed:
+                # A1：反击全歼的覆没善后（镜像 _apply_battle_aftermath 覆没分支）：
+                # 角色伤势 +40（可能陨落）、军团删除、节点所有者被俘判定。
+                # 此前仅从内存列表过滤，DB 残留 troops=0/state=siege 的僵尸军团。
+                for a in destroyed:
+                    a["_destroyed"] = True
+                    for cid in a.get("characters") or []:
+                        c = await self.get_char(int(cid))
+                        if not c:
+                            continue
+                        dead = R.apply_injury(c, 40)
+                        c["status"] = "dead" if dead else "idle"
+                        c["location"] = {"node_id": node["id"]}
+                        await self.save_char(c)
+                    await self.delete_army(a["id"])
+                if int(node.get("owner_faction", 0)) > 0:
+                    await self.roll_captures(world, node, destroyed, "wipeout",
+                                             int(node.get("owner_faction", 0)))
             attackers = [a for a in attackers if a["troops"] > 0]
             if not attackers:
                 node["siege_state"] = {}
@@ -1927,6 +2052,13 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                     reports.append(report)
                 node = await self.get_node(world["id"], nid) or node
                 ss = node.get("siege_state") or {}
+                # A2：破城易主（受降/巷战获胜）后，同势力围城军转入驻守；
+                # 否则滞留 siege 态继续「围攻己方城」且 siege_state 悬挂
+                for a in attackers:
+                    if a["state"] == "siege" and not a.get("_destroyed") and \
+                            int(a["faction_id"]) == int(node.get("owner_faction", 0)):
+                        a["state"] = "idle"
+                        a["path"] = []
             elif ss["ticks"] >= max_ticks:
                 # 超时：攻方自动撤退
                 ss = {}
@@ -2004,9 +2136,7 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         else:
             node["defense"] = int(R.city_defense_max(node["level"]) * 0.2)
             node["siege_state"] = {}
-            for a in attackers:
-                if a.get("troops", 0) > 0 and not a.get("_routed"):
-                    await self._auto_retreat(a)
+            # A-M10：战败幸存攻方的自动撤退已统一在 _apply_battle_aftermath 处理
         return report
 
     async def _capture_node(self, world: dict, node: dict, faction_id: int):
@@ -2292,11 +2422,13 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         if int(army.get("troops", 0)) <= 0:
             return None
         leader = None
-        cids = army.get("characters") or []
-        if cids:
-            leader = await self.get_char(int(cids[0]))
-            if leader and R.injury_state(leader.get("injury", 0)) in ("dying", "dead"):
-                leader = None
+        for cid in army.get("characters") or []:
+            c = await self.get_char(int(cid))
+            if not c or c.get("status") in ("captive", "dead") or \
+                    R.injury_state(c.get("injury", 0)) in ("dying", "dead"):
+                continue  # C-M4：被俘/陨落者不领队，顺延下一位军中角色
+            leader = c
+            break
         return {
             "id": int(army["id"]), "faction_id": int(army.get("faction_id", 0)),
             "troop_type": army.get("troop_type", "sword_shield"),
@@ -2360,7 +2492,8 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             is_attacker = id(army) in atk_ids
             army["troops"] = int(row["troops_after"])
             army["morale"] = int(row["morale"])
-            army["veteran"] = min(100, int(army.get("veteran", 0)) + R.veteran_gain(
+            army["veteran"] = min(R.VETERAN_MAX, int(army.get("veteran", 0))
+                                  + R.veteran_gain(
                 winner == ("attacker" if is_attacker else "defender")))
             # 主将阅历
             cids = army.get("characters") or []
@@ -2402,6 +2535,11 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 await self._auto_retreat(army)
             else:
                 await self.save_army(army)
+                if is_attacker and winner == "defender":
+                    # A-M10：战败且未溃逃的幸存攻方自动撤退；否则滞留敌方
+                    # 节点（march+空 path），下 tick _step_arrivals 再触发会战
+                    # → 无限攻打循环
+                    await self._auto_retreat(army)
         # 主将险情（兵力 <20% 被集火）
         for ev in result.get("peril_events") or []:
             for army in all_armies:
@@ -2460,8 +2598,6 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 own_power += troops / 100
                 await self.save_node(node)
             # 出征决策：每 tick 每势力最多 2 路
-            active_armies = await self.get_armies(world["id"], faction_id=fid,
-                                                  states=("march", "siege"))
             sorties = 0
             for node in owned:
                 if sorties >= 2:
@@ -3028,6 +3164,11 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         b = self._decode("strategy_battles", row)
         if not b:
             raise StrategyError("战报不存在")
+        # A-M12：仅参战阵营可查详情（与 _battle_list 的 faction 过滤同口径，
+        # 防越权遍历 battle_id 读取他方战损细节）
+        if int(b.get("attacker_faction", 0)) != int(p["faction_id"]) and \
+                int(b.get("defender_faction", 0)) != int(p["faction_id"]):
+            raise StrategyError("无权查看该战报（仅参战方可见）")
         return {"id": b["id"], "node_id": b["node_id"], "kind": b["kind"],
                 "winner": (b.get("result") or {}).get("winner"),
                 "report_text": b["report_text"], "result": b.get("result"),
@@ -3082,9 +3223,23 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
     # ------------------------------------------------------------------
     async def handle_action(self, user_id: str, action: str,
                             params: Optional[dict] = None) -> dict:
-        params = params or {}
+        """动作统一入口（REST 漏斗）。
+
+        A-M7：全程持 _action_lock 串行化玩家动作，防并发「读-改-写」互相
+        覆盖丢更新（钱包/军团/互市等）；锁序恒为 _action_lock → _world_lock
+        （tick/poll 同序，GM 重置赛季只拿 _world_lock，无死锁）。
+        tick 持 _world_lock 期间照旧 Busy 拒绝（保持 REST 423 语义）。
+        """
         if self._world_lock.locked():
             raise StrategyBusyError("世界推进中，请稍后再试")
+        async with self._action_lock:
+            if self._world_lock.locked():
+                raise StrategyBusyError("世界推进中，请稍后再试")
+            return await self._handle_action(user_id, action, params)
+
+    async def _handle_action(self, user_id: str, action: str,
+                             params: Optional[dict] = None) -> dict:
+        params = params or {}
         try:
             if action == "enter":
                 await self.enter_game(user_id, params.get("nickname", ""),

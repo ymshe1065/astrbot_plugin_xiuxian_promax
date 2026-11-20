@@ -131,7 +131,7 @@ def in_bounds(session: dict, q: int, r: int) -> bool:
 def passable(session: dict, q: int, r: int, troop_type: str = "") -> bool:
     if not in_bounds(session, q, r):
         return False
-    t = terrain_at(session, q, r)
+    t = eff_terrain(session, q, r)  # 含水淹临时沼泽（重甲禁入一切沼泽，§7.5）
     if t == T_WALL:
         return False
     if t == T_SWAMP and troop_type == "heavy_armor":
@@ -139,21 +139,14 @@ def passable(session: dict, q: int, r: int, troop_type: str = "") -> bool:
     return True
 
 
-def move_cost(session: dict, q: int, r: int, troop_type: str = "") -> int:
-    t = terrain_at(session, q, r)
-    cost = TERRAIN_MOVE_COST.get(t, 1)
-    if t == T_PLAIN and troop_type == "flying_sword":
-        cost = max(1, cost - 0)  # 飞剑平原机动在 move_points 里 +1 体现
-    return cost
-
-
 def move_points(unit: dict, session: dict) -> float:
-    """机动点 = 兵种 move（+飞剑平原适性由路径消耗体现；御兽/森林山地不减）。"""
+    """机动点 = 兵种 move（飞剑平原适性由路径消耗 -0.5 体现；兽群森林不减）。"""
     troop = R.TROOP_TYPES.get(unit.get("troop_type", "sword_shield"),
                               R.TROOP_TYPES["sword_shield"])
     mp = float(troop.get("move", 3))
-    if unit.get("status_suppress"):
-        mp *= 0.5  # 落石/箭雨压制
+    st = (session.get("statuses") or {}).get(str(unit.get("uid"))) or {}
+    if st.get("suppress"):
+        mp *= 0.5  # 落石/箭雨压制（状态存于 session["statuses"][uid]）
     return mp
 
 
@@ -463,14 +456,17 @@ def set_formation(session: dict, uid: int, formation: str) -> None:
         _record(session, {"type": "formation", "uid": uid, "formation": formation})
 
 
-def auto_deploy(session: dict, rng: random.Random) -> None:
+def auto_deploy(session: dict, rng: random.Random,
+                uids: Optional[set] = None) -> None:
     """托管部署：按军师智谋自动摆位 + 选阵型（§7.3）。
 
     智谋 ≥80：前排肉盾（重甲/剑盾）+ 后排远程错落 + 针对性阵型；
     智谋 ≥50：两列横排；其余：一列站满。
+    uids 非 None 时仅部署指定 uid 的单位（玩家自助托管不越权代摆敌方）。
     """
     for side in ("a", "b"):
-        units = [u for u in session["units"] if u["side"] == side and not u["pos"]]
+        units = [u for u in session["units"] if u["side"] == side and not u["pos"]
+                 and (uids is None or u["uid"] in uids)]
         if not units:
             continue
         wisdom = max((int(((u.get("leader") or {}).get("stats") or {}).get("wisdom", 40))
@@ -520,7 +516,8 @@ def auto_deploy(session: dict, rng: random.Random) -> None:
                     u["formation"] = "heyi"
             elif wisdom >= 50:
                 u["formation"] = "fengshi" if u["troop_type"] == "flying_sword" else ""
-    _record(session, {"type": "auto_deploy"})
+    _record(session, {"type": "auto_deploy",
+                      "uids": sorted(uids) if uids is not None else None})
 
 
 def all_deployed(session: dict) -> bool:
@@ -670,7 +667,6 @@ def check_move_path(session: dict, uid: int, path: list[list[int]],
         return res
     zmap = enemy_zoc_map(session, unit)
     mp = move_points(unit, session)
-    troop = R.TROOP_TYPES.get(unit["troop_type"], {})
     is_forest_free = unit["troop_type"] == "beast_horde"  # 兽群森林不减机动
     is_flying = unit["troop_type"] == "flying_sword"
     can_break = (not unit["zoc_break_used"] and use_zoc_break
@@ -724,6 +720,7 @@ def check_move_path(session: dict, uid: int, path: list[list[int]],
                 # 刚性：进入即停
                 if can_break:
                     res["need_break"] = True
+                    can_break = False  # 一次性突破：后续刚性 ZOC 仍进入即停
                 else:
                     spent += cost
                     end = i + 1
@@ -745,21 +742,20 @@ def do_move(session: dict, uid: int, path: list[list[int]], rng: random.Random,
     if not check["ok"] and check["reason"] != "机动力不足" and check["end"] == 0:
         return check
     unit = get_unit(session, uid)
+    # 统一按校验结果截断执行：ZOC 突破路径同样受机动力上限约束（end 为
+    # 校验通过的最后一步；机动力不足时为截断点，全部通过时 = len(path)）
     steps = [list(s) for s in path[:check["end"]]]
     if check.get("need_break") and use_zoc_break:
         unit["zoc_break_used"] = True
-        steps = [list(s) for s in path]  # 剑修突破：无视进入即停
         check["reason"] = "zoc_break"
     if not steps:
         return check
     _record(session, {"type": "move", "uid": uid, "path": steps,
                       "break": bool(check.get("need_break") and use_zoc_break)})
     ambush_events: list[dict] = []
-    cur = (unit["pos"][0], unit["pos"][1])
     for s in steps:
         unit["pos"] = [int(s[0]), int(s[1])]
         ambush_events.extend(check_ambush_trigger(session, unit, int(s[0]), int(s[1]), rng))
-        cur = (int(s[0]), int(s[1]))
     unit["moved"] = True
     # 拦截攻击（体修锁定型 ×1.5）
     for icp_uid in check.get("intercepts") or []:
@@ -921,6 +917,11 @@ def _apply_damage(session: dict, unit: dict, dmg: int, rng: random.Random,
     dmg = max(0, int(dmg))
     if dmg <= 0:
         return
+    st = (session.get("statuses") or {}).get(str(unit["uid"])) or {}
+    if st.get("shieldwall"):
+        dmg = int(dmg * 0.5)  # 盾墙列阵：本回合受伤 -50%（§7.5 剑盾专属）
+        if dmg <= 0:
+            return
     before = unit["troops"]
     unit["troops"] = max(0, unit["troops"] - dmg)
     unit["injury_pool"] = float(unit.get("injury_pool", 0)) + dmg * 0.5
@@ -1011,11 +1012,6 @@ def do_skill(session: dict, uid: int, skill_id: str, rng: random.Random,
                    for nq, nr in R.hex_neighbors(unit["pos"][0], unit["pos"][1]))
         if not near:
             return {"ok": False, "reason": "需邻接河流"}
-    _record(session, {"type": "skill", "uid": uid, "skill": skill_id,
-                      "target_uid": target_uid, "target_hex": target_hex})
-    unit["mana"] = int(unit.get("mana", 0)) - mana_cost
-    unit["acted"] = True
-    unit["moved"] = True
     handler = {
         "fire": _skill_fire, "flood": _skill_flood, "confuse": _skill_confuse,
         "taunt": _skill_taunt, "bulwark": _skill_bulwark, "heal": _skill_heal,
@@ -1024,7 +1020,16 @@ def do_skill(session: dict, uid: int, skill_id: str, rng: random.Random,
     }.get(skill_id)
     if not handler:
         return {"ok": False, "reason": "技能未实现"}
-    return handler(session, unit, sk, rng, target_uid, target_hex)
+    res = handler(session, unit, sk, rng, target_uid, target_hex)
+    if not res.get("ok"):
+        # 施放失败：不扣灵力、不消耗行动、不进指令流（回放不含无效动作）
+        return res
+    _record(session, {"type": "skill", "uid": uid, "skill": skill_id,
+                      "target_uid": target_uid, "target_hex": target_hex})
+    unit["mana"] = int(unit.get("mana", 0)) - mana_cost
+    unit["acted"] = True
+    unit["moved"] = True
+    return res
 
 
 def _in_skill_range(session: dict, unit: dict, sk: dict, q: int, r: int) -> bool:
@@ -1231,8 +1236,26 @@ def _troop_special(session, unit, rng, target_uid):
     if unit.get("special_used"):
         return {"ok": False, "reason": "本场已使用过兵种专属技能"}
     tt = unit["troop_type"]
+    if tt not in ("sword_shield", "heavy_armor", "spell_corps",
+                  "flying_sword", "beast_horde"):
+        return {"ok": False, "reason": "该兵种无专属技能"}
+    target = None
+    if tt == "flying_sword":
+        # 剑阵冲锋预选目标：无有效目标直接失败，不消耗本场一次机会
+        target = get_unit(session, target_uid) if target_uid else None
+        if target and (target["side"] == unit["side"] or target["troops"] <= 0
+                       or target["routed"]):
+            target = None
+        if not target and unit["pos"]:
+            cands = [f for f in foes_of(session, unit) if f["pos"]]
+            target = min(cands, key=lambda x: hex_dist(
+                (unit["pos"][0], unit["pos"][1]),
+                (x["pos"][0], x["pos"][1]))) if cands else None
+        if not target:
+            return {"ok": False, "reason": "无可冲锋目标"}
     unit["special_used"] = True
-    _record(session, {"type": "skill", "uid": unit["uid"], "skill": "troop_special"})
+    _record(session, {"type": "skill", "uid": unit["uid"],
+                      "skill": "troop_special", "target_uid": target_uid})
     unit["acted"] = True
     unit["moved"] = True
     if tt == "sword_shield":      # 盾墙：本回合受伤 -50%
@@ -1249,28 +1272,20 @@ def _troop_special(session, unit, rng, target_uid):
         _log(session, f"🎵 {leader_name(unit)} 咒唱撼敌（全体敌军士气 -5）", "skill")
         return {"ok": True, "skill": "troop_special", "effect": "chant"}
     if tt == "flying_sword":      # 剑阵冲锋：对最近敌军 ×1.5 伤害一击
-        target = get_unit(session, target_uid) if target_uid else None
-        if not target or target["side"] == unit["side"]:
-            cands = foes_of(session, unit)
-            target = min(cands, key=lambda x: hex_dist(
-                (unit["pos"][0], unit["pos"][1]), (x["pos"][0], x["pos"][1]))) if cands else None
-        if not target:
-            return {"ok": False, "reason": "无可冲锋目标"}
         result = _resolve_attack(session, unit, target, rng, damage_mult=1.5, kind="charge")
         _log(session, f"🗡 {leader_name(unit)} 剑阵冲锋！", "skill")
         return result
-    if tt == "beast_horde":       # 兽潮：所有邻格敌军士气 -8 + 小额伤害
-        hits = []
-        for foe in foes_of(session, unit):
-            if foe["pos"] and unit["pos"] and hex_dist(
-                    (unit["pos"][0], unit["pos"][1]), (foe["pos"][0], foe["pos"][1])) <= 1:
-                dmg = int(foe["troops"] * 0.02) + rng.randint(0, 20)
-                _apply_damage(session, foe, dmg, rng, source=unit, kind="horde")
-                foe["morale"] = max(0, foe["morale"] - 8)
-                hits.append({"uid": foe["uid"], "damage": dmg})
-        _log(session, f"🐾 {leader_name(unit)} 兽潮席卷（{len(hits)} 支敌军受创）", "skill")
-        return {"ok": True, "skill": "troop_special", "hits": hits}
-    return {"ok": False, "reason": "该兵种无专属技能"}
+    # beast_horde 兽潮：所有邻格敌军士气 -8 + 小额伤害
+    hits = []
+    for foe in foes_of(session, unit):
+        if foe["pos"] and unit["pos"] and hex_dist(
+                (unit["pos"][0], unit["pos"][1]), (foe["pos"][0], foe["pos"][1])) <= 1:
+            dmg = int(foe["troops"] * 0.02) + rng.randint(0, 20)
+            _apply_damage(session, foe, dmg, rng, source=unit, kind="horde")
+            foe["morale"] = max(0, foe["morale"] - 8)
+            hits.append({"uid": foe["uid"], "damage": dmg})
+    _log(session, f"🐾 {leader_name(unit)} 兽潮席卷（{len(hits)} 支敌军受创）", "skill")
+    return {"ok": True, "skill": "troop_special", "hits": hits}
 
 
 def _unit_in_range(session, unit, target, sk, allow_self=False) -> bool:
@@ -1377,6 +1392,7 @@ def refuse_duel(session: dict) -> dict[str, Any]:
     target = get_unit(session, duel["target_uid"])
     if target:
         target["morale"] = max(0, target["morale"] + R_SKILL_REFUSE_MORALE)  # -5
+    _record(session, {"type": "duel_refuse"})
     _log(session, f"{leader_name(target)} 拒不出战，军心微挫（士气 -5）", "duel")
     session["duel"] = None
     return {"ok": True, "refused_by": duel["target_uid"]}
@@ -1448,7 +1464,8 @@ def resolve_duel(session: dict, rng: random.Random,
     session["duel_log"].extend(texts)
     session["duel"] = None
     _record(session, {"type": "duel_resolve", "outcome": out.get("outcome"),
-                      "rounds": result.get("rounds")})
+                      "rounds": result.get("rounds"),
+                      "duel_cfg": duel_cfg or None})
     return out
 
 
@@ -1466,7 +1483,8 @@ def start_battle(session: dict, rng: random.Random, wall_hp: int = 0,
         u["mana"] = 0
         u["moved"] = False
         u["acted"] = False
-    _record(session, {"type": "start", "wall_hp": int(wall_hp)})
+    _record(session, {"type": "start", "wall_hp": int(wall_hp),
+                      "night": bool(session.get("night"))})
     if begin:
         begin_round(session, rng)
 
@@ -1508,7 +1526,7 @@ def begin_round(session: dict, rng: random.Random) -> None:
         if u.get("temp") and int(u.get("temp_expire", 0)) < session["round"]:
             u["routed"] = True
             u["troops"] = 0
-            _log(session, f"🐺 召唤兽群消散", "summon")
+            _log(session, "🐺 召唤兽群消散", "summon")
     _record(session, {"type": "round", "round": session["round"], "order": order})
 
 
@@ -1551,8 +1569,9 @@ def end_actor_turn(session: dict, uid: int) -> None:
 
 
 def round_complete(session: dict) -> bool:
-    return all(u["acted"] or u["troops"] <= 0 or u["routed"]
-               for u in alive_units(session))
+    # 仅按本回合先手序（order）判定：召唤物等回合中途入场单位不在 order 内，
+    # 若按 alive_units 全集判定会导致召唤后本回合永远无法结束（死锁）。
+    return current_actor(session) is None
 
 
 def check_end(session: dict) -> Optional[str]:
@@ -1629,6 +1648,29 @@ def ai_tier(unit: dict, tech_wisdom_bonus: int = 0) -> str:
     return "brave"
 
 
+def do_confused_attack(session: dict, uid: int, rng: random.Random) -> dict[str, Any]:
+    """惑敌状态下攻击：敌我不分，按 round/uid 派生确定性伪随机选目标。
+
+    与 ai_decide 的惑敌分支共用（AI 层不消耗 rng，回放对齐）；
+    人类玩家被惑敌时经 battle_action 走同一入口，规则一致。
+    """
+    unit = get_unit(session, uid)
+    if not unit or unit["acted"] or unit["troops"] <= 0 or unit["routed"]:
+        return {"ok": False, "reason": "军团无法行动"}
+    if not unit["pos"]:
+        return {"ok": False, "reason": "惑敌：单位未部署"}
+    targets = [u for u in alive_units(session) if u is not unit and u["pos"]]
+    if not targets:
+        return {"ok": False, "reason": "惑敌：无可攻击目标"}
+    idx = (session["round"] * 7 + uid * 13) % len(targets)
+    victim = targets[idx]
+    if hex_dist((unit["pos"][0], unit["pos"][1]),
+                (victim["pos"][0], victim["pos"][1])) > max(1, attack_range(unit, session)):
+        return {"ok": False, "reason": "惑敌：所选目标不在射程内（可先移动）"}
+    _record(session, {"type": "confused_attack", "uid": uid, "target": victim["uid"]})
+    return _resolve_attack(session, unit, victim, rng, kind="confused")
+
+
 def ai_decide(session: dict, uid: int, rng: random.Random,
               tech_wisdom_bonus: int = 0) -> dict[str, Any]:
     """为单个单位生成一条 AI 指令并执行（托管）。
@@ -1646,15 +1688,9 @@ def ai_decide(session: dict, uid: int, rng: random.Random,
     # 惑敌：随机行动（可打友军）。AI 决策层不消耗 rng（回放对齐），
     # 用 round/uid 派生的确定性伪随机选择目标；伤害掷骰走已记录的指令。
     if st.get("confuse"):
-        targets = [u for u in alive_units(session) if u is not unit and u["pos"] and unit["pos"]]
-        if targets:
-            idx = (session["round"] * 7 + uid * 13) % len(targets)
-            victim = targets[idx]
-            if hex_dist((unit["pos"][0], unit["pos"][1]),
-                        (victim["pos"][0], victim["pos"][1])) <= max(1, attack_range(unit, session)):
-                _record(session, {"type": "confused_attack", "uid": uid,
-                                  "target": victim["uid"]})
-                return _resolve_attack(session, unit, victim, rng, kind="confused")
+        cres = do_confused_attack(session, uid, rng)
+        if cres.get("ok"):
+            return cres
         return _ai_move_toward(session, unit, rng, _nearest_foe(session, unit), tier)
     # 挑衅：强制攻击挑衅者
     if st.get("taunt_by"):
@@ -1827,6 +1863,8 @@ def _ai_move_toward(session: dict, unit: dict, rng: random.Random,
             cost = TERRAIN_MOVE_COST.get(t, 1)
             if unit["troop_type"] == "beast_horde" and t == T_FOREST:
                 cost = 1
+            if unit["troop_type"] == "flying_sword" and t == T_PLAIN:
+                cost = max(0.5, cost - 0.5)  # 与 check_move_path 一致：飞剑平原 -0.5
             if spent + cost > mp + 1e-6:
                 continue
             # 精明档规避高地敌射程（粗略：不走进距敌 2 格内的开阔地）
@@ -1927,9 +1965,13 @@ def replay(seed: str, mode: str, units_a: list[dict], units_b: list[dict],
         elif t == "ambush":
             set_ambush(session, cmd["uid"], cmd["q"], cmd["r"])
         elif t == "auto_deploy":
-            auto_deploy(session, rng)
+            _uids = cmd.get("uids")
+            auto_deploy(session, rng,
+                        uids=set(_uids) if _uids is not None else None)
         elif t == "start":
             start_battle(session, rng, cmd.get("wall_hp", wall_hp), begin=False)
+            if cmd.get("night") is not None:
+                session["night"] = bool(cmd.get("night"))  # 夜战先手/攻击加成对齐
         elif t == "move":
             do_move(session, cmd["uid"], cmd["path"], rng, cmd.get("break", False))
         elif t == "attack":
@@ -1948,8 +1990,10 @@ def replay(seed: str, mode: str, units_a: list[dict], units_b: list[dict],
             do_retreat(session, cmd["uid"], rng)
         elif t == "duel_challenge":
             challenge_duel(session, cmd["uid"], cmd["target"])
+        elif t == "duel_refuse":
+            refuse_duel(session)
         elif t == "duel_resolve":
-            resolve_duel(session, rng)
+            resolve_duel(session, rng, cmd.get("duel_cfg"))
         elif t == "round":
             begin_round(session, rng)
         elif t == "finish":

@@ -127,6 +127,12 @@ class StrategyP3Mixin:
                        f"（单价 {unit_price}，48h 有效）"}
 
     async def market_buy(self, user_id: str, order_id: int, amount: int = 0) -> dict:
+        # C2：互市撮合全程互斥（防并发双买/买撤并发 TOCTOU 双花）；
+        # 落库改用条件 UPDATE + 行数校验，双保险
+        async with self._market_lock:
+            return await self._market_buy(user_id, order_id, amount)
+
+    async def _market_buy(self, user_id: str, order_id: int, amount: int = 0) -> dict:
         world, p = await self._require_player(user_id)
         mcfg = self.main_cfg().get("market") or {}
         row = await self._fetchone(
@@ -174,18 +180,28 @@ class StrategyP3Mixin:
                 await self.save_faction(sf)
         rest = avail - want
         if rest <= 0:
-            await self._execute(
+            n = await self._exec_count(
                 "UPDATE strategy_market_orders SET status='filled', amount=0, "
-                "buyer_user=? WHERE id=?", (user_id, int(order_id)))
+                "buyer_user=? WHERE id=? AND status='open' AND amount=?",
+                (user_id, int(order_id), avail))
         else:
-            await self._execute(
-                "UPDATE strategy_market_orders SET amount=? WHERE id=?",
-                (rest, int(order_id)))
+            n = await self._exec_count(
+                "UPDATE strategy_market_orders SET amount=? WHERE id=? "
+                "AND status='open' AND amount=?", (rest, int(order_id), avail))
+        if n != 1:
+            # 订单已被并发修改（撤单/他人买入）：整笔回滚，买卖双方不损
+            await self.db.conn.rollback()
+            raise StrategyError("订单已被并发修改，请重试")
         await self._commit()
         return {"ok": True,
                 "msg": f"购入 {item} ×{want}，花费 {cost} 铜钱（含税 {tax}）"}
 
     async def market_cancel(self, user_id: str, order_id: int) -> dict:
+        # C2：与买入同锁，撤单退货与撮合互斥
+        async with self._market_lock:
+            return await self._market_cancel(user_id, order_id)
+
+    async def _market_cancel(self, user_id: str, order_id: int) -> dict:
         world, p = await self._require_player(user_id)
         row = await self._fetchone(
             "SELECT * FROM strategy_market_orders WHERE id=? AND world_id=? "
@@ -196,9 +212,14 @@ class StrategyP3Mixin:
         if item in ("grain", "iron", "recruit_token"):
             p[item] = int(p.get(item, 0)) + int(row["amount"])
             await self.save_player(p)
-        await self._execute(
-            "UPDATE strategy_market_orders SET status='cancelled', amount=0 WHERE id=?",
-            (int(order_id),))
+        n = await self._exec_count(
+            "UPDATE strategy_market_orders SET status='cancelled', amount=0 "
+            "WHERE id=? AND status='open' AND amount=?",
+            (int(order_id), int(row["amount"])))
+        if n != 1:
+            # 已被并发买入成交：回滚退货，防「货款双得」
+            await self.db.conn.rollback()
+            raise StrategyError("订单已被并发修改，无法撤单")
         await self._commit()
         return {"ok": True, "msg": f"已撤单，退回 {item} ×{int(row['amount'])}"}
 
@@ -605,7 +626,7 @@ class StrategyP3Mixin:
         bandits = ((world.get("data") or {}).get("bandits") or {})
         if str(node_id) in bandits:
             return {"kind": "bandit", "troops": int((node.get("npc_garrison") or {}).get(
-                "troops", 0)), "faction": 0, "owner": ""}
+                "troops", 0)), "faction": 0, "owner": "", "node_id": int(node_id)}
         best = None
         for a in await self.get_armies(world["id"], node_id=int(node_id),
                                        states=("idle", "siege")):
@@ -616,7 +637,8 @@ class StrategyP3Mixin:
                 continue  # 盟友不劫粮
             if not best or int(a["troops"]) > int(best["troops"]):
                 best = {"kind": "army", "troops": int(a["troops"]),
-                        "faction": afid, "owner": a.get("owner_user_id", "")}
+                        "faction": afid, "owner": a.get("owner_user_id", ""),
+                        "node_id": int(node_id)}
         return best
 
     async def _give_raid_spoils(self, world: dict, raider: dict, grain: int):
@@ -634,6 +656,15 @@ class StrategyP3Mixin:
                 treasury["grain"] = int(treasury.get("grain", 0)) + grain
                 f["treasury"] = treasury
                 await self.save_faction(f)
+        elif raider.get("kind") == "bandit":
+            # 劫粮归劫方：匪寨截得的粮草入库节点 stock（讨伐/占领后可回收），
+            # 此前该分支缺失，被匪截的粮凭空蒸发
+            node = await self.get_node(world["id"], int(raider.get("node_id", 0)))
+            if node:
+                stock = node.get("stock") or {}
+                stock["grain"] = int(stock.get("grain", 0)) + grain
+                node["stock"] = stock
+                await self.save_node(node)
 
     async def get_convoys_view(self, user_id: str) -> list[dict]:
         world, p = await self._require_player(user_id)
@@ -726,6 +757,13 @@ class StrategyP3Mixin:
         """赛季结算：霸权排名 / 荣誉发放 / 英烈祠名将堂 / 老兵结转 / 开新世界。"""
         scfg = self.main_cfg().get("season") or {}
         season_no = int(world.get("season_no", 1))
+        # C3：结算幂等守卫——本赛季已有存档即已结算过，拒绝重复触发
+        # （防 GM 重置赛季与到期自动结算竞态导致荣誉双发/新世界双开）
+        done = await self._fetchone(
+            "SELECT id FROM strategy_season_results WHERE world_id=? AND season_no=?",
+            (int(world["id"]), season_no))
+        if done:
+            raise StrategyError(f"赛季 S{season_no} 已结算过，请勿重复触发")
         nodes = await self.get_nodes(world["id"])
         types_by_fid: dict[int, list[str]] = {}
         for n in nodes:
@@ -867,7 +905,8 @@ class StrategyP3Mixin:
         if user_id in claimed:
             raise StrategyError("本赛季已领取过结转")
         army = await self._own_army(p, army_id)
-        army["veteran"] = min(100, int(army.get("veteran", 0)) + int(carry["veteran"]))
+        army["veteran"] = min(R.VETERAN_MAX,
+                              int(army.get("veteran", 0)) + int(carry["veteran"]))
         await self.save_army(army)
         claimed.append(user_id)
         data["carryover_claimed"] = claimed
@@ -991,12 +1030,16 @@ class StrategyP3Mixin:
             return False
         wins = data.setdefault("tournament_wins", {})
         wins[user_id] = int(wins.get(user_id, 0)) + 1
+        champion = int(wins[user_id]) >= 5
+        if champion:
+            # C-M7：连胜清零须在落盘之前（否则重启后计数仍 ≥5，
+            # 下一次获胜重复触发夺魁成就）
+            wins[user_id] = 0
         data["tournament_wins"] = wins
         world["data"] = data
         await self.save_world(world)
         await self._commit()
-        if int(wins[user_id]) >= 5:
-            wins[user_id] = 0
+        if champion:
             await self._award_achievement(user_id, "legend_duel_champion")
             return True
         return False
@@ -1007,6 +1050,13 @@ class StrategyP3Mixin:
         c = await self.get_char(int(char_id))
         if not c or c.get("status") != "wander":
             raise StrategyError("对方不是在野流将")
+        # C-M6：与酒馆招募同口径的角色数量上限（此前流将可无限突破 roster cap）
+        rcfg = self.main_cfg().get("recruit") or {}
+        cap = int(rcfg.get("character_cap_base", 10)) + \
+            int(rcfg.get("character_cap_per_level", 3)) * 0  # P0：势力等级恒 1
+        owned = await self.get_chars(owner_user_id=user_id, world_id=world["id"])
+        if len(owned) >= cap:
+            raise StrategyError(f"角色数量已达上限（{cap}）")
         price = int(WANDERER_PRICE.get(c.get("rarity", "common"), 2000))
         if int(p.get("coin", 0)) < price:
             raise StrategyError(f"铜钱不足：招募 {c['name']} 需 {price}")
