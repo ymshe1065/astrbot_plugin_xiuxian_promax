@@ -43,6 +43,7 @@ class StrategyCaptiveMixin:
                         captor_fid, *[a["id"] for a in loser_armies])
         captured: list[str] = []
         evicted: list[str] = []
+        evicted_home_owners: set[str] = set()
         all_chars = await self.get_chars(world_id=world["id"])
         for army in loser_armies:
             # 覆没军团的角色已在 _apply_battle_aftermath 统一 +40 伤势：
@@ -67,6 +68,11 @@ class StrategyCaptiveMixin:
                         captured.append(c["name"])
                     else:
                         evicted.append(c["name"])
+                        ho = str((c.get("owner_user_id") or
+                                  ((c.get("location") or {}).get("home_owner")
+                                   or "")))
+                        if ho:
+                            evicted_home_owners.add(ho)
                 else:
                     # 覆没分支（_apply_battle_aftermath / 围城反击）已统一给
                     # 全军团角色 +40 伤势；此处对 wipeout / 覆没的 city_fall
@@ -98,6 +104,14 @@ class StrategyCaptiveMixin:
                 {"node_id": int(node["id"]),
                  "text": f"「{node.get('name')}」关押位已满，"
                          f"{'、'.join(evicted)} 被就地驱逐（返回原势力，忠诚 -5）"})
+            # v4.3.0：同步通知原主——此前只通知关押方，角色驱逐归来时原主无感知。
+            home_owners = evicted_home_owners - {r["user_id"] for r in rows}
+            if home_owners:
+                await self._notify(
+                    world, list(home_owners), "captive_evicted_home",
+                    {"node_id": int(node["id"]),
+                     "text": f"「{node.get('name')}」关押位已满，"
+                             f"{'、'.join(evicted)} 就地驱逐归来（忠诚 -5）"})
         return captured
 
     async def _detach_from_armies(self, c: dict) -> None:
@@ -119,6 +133,14 @@ class StrategyCaptiveMixin:
         返回 True 表示成功关押为俘虏；False 表示关押位满、角色被就地
         驱逐回原势力（status=idle、忠诚 -5），不视为被俘。
         """
+        # v4.3.0：无合法擒获方/关押点时拒绝入狱——captor_faction=0 的
+        # 孤儿俘虏无法被任何势力劝降/收赎/解放，只会永久占用名册与牢位
+        captor_fid = int(captor_fid or 0)
+        node_id = int(node_id or 0)
+        if captor_fid <= 0 or node_id <= 0:
+            logger.info(f"[strategy] 拒绝无效关押 {c.get('name')}"
+                        f"（captor={captor_fid} node={node_id}）")
+            return False
         ccfg = self.main_cfg().get("captive") or {}
         slots = max(0, int(ccfg.get("jail_slots_per_node", 5)))
         wid = int(c.get("world_id", 0) or 0)
@@ -226,14 +248,22 @@ class StrategyCaptiveMixin:
         if int(daily.get(today, 0)) >= limit:
             raise StrategyError(f"今日劝降次数已用完（{limit} 次/日）")
         f = await self.get_faction(fid)
+        rep = int((f or {}).get("reputation", 0))
+        # §7.9：恶名（声誉 ≤ -60）不可对离心俘虏劝降
+        if defect and rep <= -60:
+            raise StrategyError("恶名昭彰，离心者亦不愿归顺（声望须高于 -60）")
         if defect:
             rate = 0.80
         else:
             bonus = await self._faction_plot_bonus(f)
-            rate = R.persuade_rate(loyalty, persuader,
-                                   int((f or {}).get("reputation", 0)),
+            rate = R.persuade_rate(loyalty, persuader, rep,
                                    disloyal=loyalty <= 0) + bonus
-            rate = max(0.05, min(0.95, rate))
+            # v4.3.0：与配置 persuade_clamp / 规则层统一为 5%~90%
+            # （此前加成后再钳 0.95，可突破设计 90% 上限）
+            lo_hi = ccfg.get("persuade_clamp") or [5, 90]
+            lo = float(lo_hi[0]) / 100.0 if len(lo_hi) >= 1 else 0.05
+            hi = float(lo_hi[1]) / 100.0 if len(lo_hi) >= 2 else 0.90
+            rate = max(lo, min(hi, rate))
         rng = self._rng("persuade", c["id"], user_id, _now() // 60)
         success = rng.random() < rate
         # CD 与日限：无论成败都消耗
@@ -253,12 +283,14 @@ class StrategyCaptiveMixin:
                 "result": "fail", "rate": round(rate, 3)})
             return {"ok": True, "result": "fail",
                     "msg": f"{c['name']} 不为所动（成功率 {rate * 100:.0f}%），忠诚微降"}
-        # 成功入仕
+        # 成功入仕：迁往己方最近据点（不可继续站在敌营关押点）
         home_f = int((c.get("location") or {}).get("home_faction", 0) or 0)
+        jail_node = int(c.get("imprisoned_node_id", 0)
+                        or ((c.get("location") or {}).get("node_id", 0) or 0))
+        dest = await self._nearest_own_node(world, p, jail_node) or 0
         c["status"] = "idle"
         c["faction_id"] = fid
         c["owner_user_id"] = user_id
-        c["loyalty"] = 40
         c["captor_faction"] = 0
         c["imprisoned_node_id"] = 0
         # 归顺/离心后原官职失效，否则 taishou 等任命仍指向旧势力据点
@@ -266,7 +298,14 @@ class StrategyCaptiveMixin:
         c["appointed_node_id"] = 0
         loc = c.get("location") or {}
         loc.pop("transfer_to", None)
-        c["location"] = {"node_id": int(loc.get("node_id", 0) or 0)}
+        c["location"] = {"node_id": int(dest) if dest else 0}
+        # §4.5 知遇：先结羁绊（form_zhiyu 会 +10 忠诚），再强制重置为 40
+        # ——设计口径「归顺忠诚 40」优先于知遇加成。
+        if persuader and int(persuader.get("id", 0)) != int(c["id"]):
+            c["recruited_by"] = int(persuader["id"])
+            R.form_zhiyu(persuader, c)
+            await self.save_char(persuader)
+        c["loyalty"] = 40
         await self.save_char(c)
         rep_cost = 0
         if defect:
@@ -303,7 +342,10 @@ class StrategyCaptiveMixin:
         return float(bonus.get("plot_bonus", 0.0))
 
     async def release_captive(self, user_id: str, char_id: int) -> dict:
-        """无条件释放：声望 +3、与原势力外交 +5。"""
+        """无条件释放：声望 +3、与原势力外交 +5。
+
+        v4.3.0：仅势力主/副主可释放——此前任意成员可刷声望与外交分。
+        """
         world, p = await self._require_player(user_id)
         ccfg = self.main_cfg().get("captive") or {}
         c = await self.get_char(int(char_id))
@@ -312,8 +354,10 @@ class StrategyCaptiveMixin:
         if int(c.get("captor_faction", 0)) != int(p["faction_id"]):
             raise StrategyError("该俘虏不在我方关押之下")
         f = await self.get_faction(p["faction_id"])
-        if f:
-            await self.add_reputation(f, int(ccfg.get("release_rep_gain", 3)))
+        if not f:
+            raise StrategyError("势力不存在")
+        await self._require_position(f, user_id, ("leader", "deputy", "host"))
+        await self.add_reputation(f, int(ccfg.get("release_rep_gain", 3)))
         home_f = int((c.get("location") or {}).get("home_faction", 0) or 0)
         if home_f and home_f != int(p["faction_id"]):
             await self._diplomacy_score_add(p["faction_id"], home_f,
@@ -345,6 +389,16 @@ class StrategyCaptiveMixin:
         loc.pop("transfer_to", None)
         home_f = int(loc.get("home_faction", 0) or 0)
         home_owner = loc.get("home_owner", "") or ""
+        # v4.3.0：优先查原主当前所属势力——快照 home_faction 可能已过时
+        # （原主已退盟/入他盟/势力崩溃），按旧快照会把人送回错误阵营。
+        wid = int(c.get("world_id", 0) or 0)
+        if home_owner and wid:
+            owner_p = await self.get_player(home_owner, wid)
+            if owner_p and int(owner_p.get("faction_id", 0) or 0) > 0:
+                cur_fid = int(owner_p["faction_id"])
+                cur_f = await self.get_faction(cur_fid)
+                if cur_f and int(cur_f.get("alive", 1)):
+                    home_f = cur_fid
         home_faction = await self.get_faction(home_f) if home_f else None
         c["status"] = "idle"
         c["captor_faction"] = 0
@@ -358,7 +412,7 @@ class StrategyCaptiveMixin:
             c["owner_user_id"] = home_owner
             cur = int(loc.get("node_id", 0) or 0)
             dest = await self._nearest_own_node(
-                {"id": int(c.get("world_id", 0) or 0)},
+                {"id": wid},
                 {"faction_id": home_f}, cur)
             if dest:
                 loc["node_id"] = int(dest)
@@ -534,7 +588,9 @@ class StrategyCaptiveMixin:
                         world.get("tick_no", 0))
         ticks = max(1, rng.randint(int(lo), int(hi)))
         now = _now()
-        arrive_at = now + ticks * 3600
+        # v4.3.0：用 tick_seconds() 而非硬编码 3600——加速/调试世界下
+        # 押运会与真实 tick 漂移，计略营救同用 tick_seconds。
+        arrive_at = now + ticks * self.tick_seconds()
         tid = await self._execute("""
             INSERT INTO strategy_captive_transfers (world_id, char_id, faction_id,
                 from_node, to_node, depart_at, arrive_at, status)
@@ -554,7 +610,7 @@ class StrategyCaptiveMixin:
             "to_node": int(to_node["id"]), "ticks": ticks})
         return {"ok": True, "transfer_id": tid, "arrive_at": arrive_at,
                 "msg": f"🔒 {c['name']} 已押运前往「{to_node['name']}」"
-                       f"（约 {ticks}h 抵达，途中可被劫囚）"}
+                       f"（约 {ticks} tick 抵达，途中可被劫囚）"}
 
     async def _step_captive_transfers(self, world: dict) -> int:
         """tick：推进押运队列；抵达入新关押地，目标易主则自动释放。"""

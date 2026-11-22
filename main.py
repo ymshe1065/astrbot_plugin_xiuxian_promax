@@ -2955,6 +2955,65 @@ class XiuXianPlugin(Star):
             logger.warning(f"【仙域争霸】GM 操作失败({parts[0]}): {e}")
             yield event.plain_result(f"❌ GM 操作失败：{e}")
 
+    # ===== v4.3.0 网页 QQ 绑定审批（堵住瞬间接管存档漏洞） =====
+    @filter.command("绑定审批", "超管审批网页账号绑定 QQ 申请（列表/批准/拒绝）")
+    async def handle_bind_approve(self, event: AstrMessageEvent, args: GreedyStr):
+        if not self._check_boss_admin(event):
+            yield event.plain_result("❌ 仅超级管理员可审批绑定申请")
+            return
+        from .webchat_room import accounts as accounts_store
+        parts = str(args or "").strip().split()
+        op = (parts[0] if parts else "列表").strip()
+        if op in ("列表", "list", "ls", ""):
+            rows = accounts_store.list_pending_bind_requests(30)
+            if not rows:
+                yield event.plain_result("📭 当前没有待批绑定申请")
+                return
+            lines = ["📋 待批绑定申请："]
+            for r in rows:
+                lines.append(
+                    f"#{r['id']} 网页账号「{r['username']}」→ QQ {r['qq']}")
+            lines.append("用法：/绑定审批 批准 <编号>  或  /绑定审批 拒绝 <编号>")
+            yield event.plain_result("\n".join(lines))
+            return
+        if op in ("批准", "同意", "approve", "ok") and len(parts) >= 2:
+            try:
+                rid = int(parts[1])
+            except ValueError:
+                yield event.plain_result("❌ 编号须为整数")
+                return
+            # 批准前先读申请行，便于成功后同步在线 WS
+            pre = accounts_store._db().execute(
+                "SELECT username, qq FROM bind_requests WHERE id=?",
+                (rid,)).fetchone()
+            ok, msg = accounts_store.approve_bind_request(
+                rid, resolver=str(event.get_sender_id()))
+            if ok and pre:
+                try:
+                    from .webchat_room import room_server as rs
+                    rs._sync_player_key(str(pre["username"]), str(pre["qq"]))
+                except Exception:
+                    logger.debug("绑定批准后同步 WS player_key 失败",
+                                 exc_info=True)
+            yield event.plain_result(("✅ " if ok else "❌ ") + msg)
+            return
+        if op in ("拒绝", "驳回", "reject", "no") and len(parts) >= 2:
+            try:
+                rid = int(parts[1])
+            except ValueError:
+                yield event.plain_result("❌ 编号须为整数")
+                return
+            note = " ".join(parts[2:]) if len(parts) > 2 else ""
+            ok, msg = accounts_store.reject_bind_request(
+                rid, resolver=str(event.get_sender_id()), note=note)
+            yield event.plain_result(("✅ " if ok else "❌ ") + msg)
+            return
+        yield event.plain_result(
+            "📖 用法：\n"
+            "· /绑定审批 列表\n"
+            "· /绑定审批 批准 <编号>\n"
+            "· /绑定审批 拒绝 <编号> [备注]")
+
     # ===== v6.34 江湖战斗小事件 =====
     async def _run_battle_event_attack(self, event: AstrMessageEvent):
         user_id = event.get_sender_id()

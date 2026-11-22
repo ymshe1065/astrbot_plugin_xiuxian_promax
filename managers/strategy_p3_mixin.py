@@ -756,14 +756,18 @@ class StrategyP3Mixin:
                     int(escort_army["node_id"]) != int(src["id"]):
                 raise StrategyError("护卫军团须空闲且驻扎在出发地")
             escort_troops = int(escort_army.get("troops", 0))
-        p["grain"] -= grain
-        await self.save_player(p)
         data = world.get("data") or {}
         convoys = data.setdefault("convoys", [])
-        # 上限 40：溢出时释放被挤出粮队的护送军，避免军团永久卡在 escort
-        for old in convoys[:-39]:
-            await self._release_convoy_escort(old)
-        convoys = convoys[-39:]
+        # v4.3.0：队列满则拒绝新发货——此前挤出旧队会吞掉护送军/粮草
+        # （旧队被切片丢弃后护送军靠孤儿清扫才释放，粮已蒸发）。
+        max_convoys = int((self.main_cfg().get("convoy") or {}).get(
+            "max_active", 40))
+        if len(convoys) >= max_convoys:
+            raise StrategyError(
+                f"粮队队列已满（{len(convoys)}/{max_convoys}），"
+                f"请等待在途粮队抵达后再发货")
+        p["grain"] -= grain
+        await self.save_player(p)
         cid = f"cv{_now()}_{time.time_ns() % 100000000:08d}"
         convoys.append({"id": cid, "owner": user_id,
                         "faction": int(p["faction_id"]),
@@ -2073,6 +2077,53 @@ class StrategyP3Mixin:
                 return False
         acfg = self._auction_cfg()
         c = await self.get_char(int(row["char_id"]))
+        # v4.3.0 resume 防双得利：角色已交割给赢家（或 bid 已 won）时，
+        # 只补完拍卖行状态，绝不再把赢家暗标当 invalid 退款。
+        if resume:
+            won = await self._fetchone(
+                "SELECT * FROM strategy_auction_bids WHERE auction_id=? "
+                "AND status='won' LIMIT 1", (int(row["id"]),))
+            if won:
+                uid = str(won.get("user_id", "") or "")
+                price = int(won.get("amount", 0) or 0)
+                await self._execute(
+                    "UPDATE strategy_char_auctions SET status='settled', "
+                    "settled_at=?, settled_user=?, settled_price=?, "
+                    "current_price=?, bidder_user=? WHERE id=? AND status='settling'",
+                    (now, uid, price, price, uid, int(row["id"])))
+                others = await self._fetchall(
+                    "SELECT * FROM strategy_auction_bids WHERE auction_id=? "
+                    "AND status='active'", (int(row["id"]),))
+                for other in others:
+                    await self._refund_auction_bid(world, other, "lost")
+                return True
+            if c and c.get("owner_user_id") and c.get("status") != "wander":
+                owner = str(c.get("owner_user_id") or "")
+                owner_bid = await self._fetchone(
+                    "SELECT * FROM strategy_auction_bids WHERE auction_id=? "
+                    "AND user_id=? AND status IN ('active','won') "
+                    "ORDER BY CASE status WHEN 'won' THEN 0 ELSE 1 END, "
+                    "amount DESC LIMIT 1",
+                    (int(row["id"]), owner))
+                if owner_bid:
+                    price = int(owner_bid.get("amount", 0) or 0)
+                    if owner_bid.get("status") != "won":
+                        await self._execute(
+                            "UPDATE strategy_auction_bids SET status='won', "
+                            "updated_at=? WHERE id=?",
+                            (now, int(owner_bid["id"])))
+                    await self._execute(
+                        "UPDATE strategy_char_auctions SET status='settled', "
+                        "settled_at=?, settled_user=?, settled_price=?, "
+                        "current_price=?, bidder_user=? "
+                        "WHERE id=? AND status='settling'",
+                        (now, owner, price, price, owner, int(row["id"])))
+                    others = await self._fetchall(
+                        "SELECT * FROM strategy_auction_bids WHERE auction_id=? "
+                        "AND status='active'", (int(row["id"]),))
+                    for other in others:
+                        await self._refund_auction_bid(world, other, "lost")
+                    return True
         bids = await self._fetchall(
             "SELECT * FROM strategy_auction_bids WHERE auction_id=? "
             "AND status='active' ORDER BY amount DESC, created_at ASC, id ASC",

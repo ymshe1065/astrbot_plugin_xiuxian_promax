@@ -566,6 +566,7 @@
     const input = $("bindQq");
     const bindBtn = $("btnBind");
     const unbindBtn = $("btnUnbind");
+    let cancelBtn = $("btnBindCancel");
     try {
       const r = await fetch("/api/bind/status", {
         headers: { Authorization: "Bearer " + S.token },
@@ -582,11 +583,34 @@
         input.disabled = true;
         bindBtn.hidden = true;
         unbindBtn.hidden = false;
+        if (cancelBtn) cancelBtn.hidden = true;
         const base = d.save
           ? "已找到旧存档：境界 " + d.save.level_index + " · " +
             (d.save.cultivation_type || "修士") + "。现在发消息即使用这份存档。"
           : "该 QQ 号暂无存档数据。";
         tip.textContent = base + (d.web_save ? " 网页原存档已保留，解绑即可回到它。" : "");
+      } else if (d.pending && d.pending.qq) {
+        state.textContent = "待审批 · 申请 #" + d.pending.id;
+        state.classList.remove("on");
+        input.value = d.pending.qq;
+        input.disabled = true;
+        bindBtn.hidden = true;
+        unbindBtn.hidden = true;
+        if (!cancelBtn && bindBtn && bindBtn.parentNode) {
+          cancelBtn = document.createElement("button");
+          cancelBtn.id = "btnBindCancel";
+          cancelBtn.className = bindBtn.className || "btn";
+          cancelBtn.textContent = "取消申请";
+          cancelBtn.addEventListener("click", cancelBindRequest);
+          bindBtn.parentNode.insertBefore(cancelBtn, unbindBtn);
+        }
+        if (cancelBtn) cancelBtn.hidden = false;
+        const base = d.save
+          ? "目标存档：境界 " + d.save.level_index + " · " +
+            (d.save.cultivation_type || "修士") + "。"
+          : "";
+        tip.textContent = base +
+          "申请已提交，请等待超管在群内用 /绑定审批 批准或拒绝。";
       } else {
         state.textContent = "未绑定 · 使用网页独立存档";
         state.classList.remove("on");
@@ -594,12 +618,13 @@
         input.disabled = false;
         bindBtn.hidden = false;
         unbindBtn.hidden = true;
+        if (cancelBtn) cancelBtn.hidden = true;
         const mine = d.web_save
           ? "当前网页存档：境界 " + d.web_save.level_index + " · " +
             (d.web_save.cultivation_type || "修士") + "。"
           : "";
         tip.textContent = mine +
-          "填旧机器人的 QQ 号即可接着玩；网页当前存档会保留，解绑可回到它。";
+          "填旧机器人的 QQ 号提交申请；超管批准后才会切换存档，网页原存档会保留。";
       }
     } catch {
       state.textContent = "网络异常，稍后再试";
@@ -613,15 +638,25 @@
       return;
     }
     $("btnBind").disabled = true;
-    $("bindTip").textContent = "正在查找旧存档…";
+    $("bindTip").textContent = "正在提交绑定申请…";
     const d = await apiBind("/api/bind", { qq });
     $("btnBind").disabled = false;
     if (!d.ok) {
-      $("bindTip").textContent = d.error || "绑定失败";
+      $("bindTip").textContent = d.error || "申请失败";
       return;
     }
     await loadBindStatus();
-    toast(d.web_save ? "已切到 QQ 存档，网页原存档已保留" : "已绑定旧存档");
+    toast(d.message || "已提交绑定申请，等待管理员审批");
+  }
+
+  async function cancelBindRequest() {
+    const d = await apiBind("/api/bind/cancel", {});
+    if (!d.ok) {
+      $("bindTip").textContent = d.error || "取消失败";
+      return;
+    }
+    await loadBindStatus();
+    toast(d.message || "已取消申请");
   }
 
   /* ================= 消息隐私与个人消息 ================= */

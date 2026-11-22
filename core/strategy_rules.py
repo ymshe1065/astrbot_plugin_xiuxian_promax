@@ -922,13 +922,17 @@ def damage_curve(atk: float, dfn: float, defender_troops: int) -> int:
 
     f(R)=2R/(1+R)（R=atk/def）单调有界：均势时 1.0、碾压时趋近 2.0，
     等价于减伤不低于 ~33%、不高于 60% 的软上限曲线。
+
+    v4.3.0：只要攻击有效且守方仍有兵，伤亡保底 1——此前 int() 截断会让
+    ≤18 兵的小队对普攻/反击/拦截完全免疫（近战永生，30 回合耗尽判守方胜）。
     """
     if atk <= 0 or defender_troops <= 0:
         return 0
     ratio = atk / max(1.0, dfn)
     f = 2 * ratio / (1 + ratio)
     casualties = defender_troops * BASE_LETHALITY * f
-    return int(min(casualties, defender_troops * MAX_ROUND_CASUALTY_PCT))
+    dmg = int(min(casualties, defender_troops * MAX_ROUND_CASUALTY_PCT))
+    return max(1, dmg)
 
 
 def battle_initiative(army: dict, rng: random.Random, night: bool = False) -> float:
@@ -1289,9 +1293,9 @@ def persuade_rate(captive_loyalty: int, persuader: dict | None, reputation: int 
         rate += (int(stats.get("charm", 0)) + int(stats.get("wisdom", 0))) / 4 / 100
     if reputation >= 60:
         rate += 0.10
-    elif reputation <= -60:
-        rate -= 0.10
     elif reputation <= -21:
+        # 贪婪（-59~-21）与恶名（≤-60）同档 -10%（v4.3.0 合并冗余分支，
+        # 原 <=-60 与 <=-21 返回值相同，前者为死代码）
         rate -= 0.10
     return max(0.05, min(0.90, rate))
 
@@ -1645,15 +1649,22 @@ def npc_seed_relation(rng: random.Random, pers_a: dict | None,
 TECH_LINES = ("military", "agri", "stratagem")
 
 
-def tech_level(tech_json: dict | None, line: str) -> int:
-    return max(0, min(5, int((tech_json or {}).get(line, 0) or 0)))
+def tech_level(tech_json: dict | None, line: str, max_lvl: int = 5) -> int:
+    """科技等级（钳制到 [0, max_lvl]）。
+
+    v4.3.0：上限改为参数化——此前硬编码 min(5,…)，而入口满级判定读配置
+    ``tech.levels``；一旦管理员配置 levels>5，等级永远到不了上限，
+    势力可无限重复研究（照扣国库、无新增效果）。调用方须把配置上限传入。
+    """
+    cap = max(1, int(max_lvl or 5))
+    return max(0, min(cap, int((tech_json or {}).get(line, 0) or 0)))
 
 
-def tech_effects(tech_json: dict | None) -> dict[str, float]:
+def tech_effects(tech_json: dict | None, max_lvl: int = 5) -> dict[str, float]:
     """把三线等级折算成数值效果字典（调用方按需取键）。"""
-    mil = tech_level(tech_json, "military")
-    agri = tech_level(tech_json, "agri")
-    strat = tech_level(tech_json, "stratagem")
+    mil = tech_level(tech_json, "military", max_lvl)
+    agri = tech_level(tech_json, "agri", max_lvl)
+    strat = tech_level(tech_json, "stratagem", max_lvl)
     return {
         # 兵学：L1 攻+2% L3 累计+6%；L2 破城槌造价-30%；L4 拦截+25%；L5 包抄+5%
         "atk_bonus": 0.02 if mil == 1 else (0.06 if mil >= 3 else 0.04 if mil == 2 else 0.0),

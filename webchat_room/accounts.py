@@ -180,6 +180,29 @@ def init() -> None:
             "CREATE INDEX IF NOT EXISTS idx_feedback_status_time "
             "ON webroom_feedback(status, id DESC)"
         )
+        # v4.3.0：QQ 绑定须管理员审批——申请表独立于主库（accounts.db）
+        _conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS bind_requests (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                username    TEXT NOT NULL,
+                qq          TEXT NOT NULL,
+                status      TEXT NOT NULL DEFAULT 'pending',
+                created     INTEGER NOT NULL,
+                resolved_at INTEGER NOT NULL DEFAULT 0,
+                resolver    TEXT NOT NULL DEFAULT '',
+                note        TEXT NOT NULL DEFAULT ''
+            )
+            """
+        )
+        _conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_bind_req_user_status "
+            "ON bind_requests(username, status)"
+        )
+        _conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_bind_req_status_time "
+            "ON bind_requests(status, created DESC)"
+        )
         _conn.commit()
 
 
@@ -408,7 +431,11 @@ def player_key_of(user: dict[str, Any]) -> str:
 
 
 def bind_qq(username: str, qq: str) -> tuple[bool, str]:
-    """把网页账号的存档指针指向某个 QQ 号。不搬数据、不覆盖任何存档。"""
+    """把网页账号的存档指针指向某个 QQ 号。不搬数据、不覆盖任何存档。
+
+    生产路径应走 submit_bind_request → approve_bind_request；本函数仅在
+    管理员批准后由审批流调用（或测试）。
+    """
     qq = (qq or "").strip()
     if not QQ_RE.match(qq):
         return False, "QQ 号格式不对，请填 5-12 位数字"
@@ -430,6 +457,162 @@ def bind_qq(username: str, qq: str) -> tuple[bool, str]:
     return True, "绑定成功"
 
 
+def submit_bind_request(username: str, qq: str) -> tuple[bool, str, int]:
+    """提交 QQ 绑定申请（不立刻改 player_key）。返回 (ok, msg, request_id)。"""
+    qq = (qq or "").strip()
+    if not QQ_RE.match(qq):
+        return False, "QQ 号格式不对，请填 5-12 位数字", 0
+    username = _norm(username)
+    with _lock:
+        db = _db()
+        row = db.execute(
+            "SELECT qq FROM users WHERE username = ?", (username,)
+        ).fetchone()
+        if row is None:
+            return False, "账号不存在", 0
+        if str(row["qq"] or ""):
+            return False, "已绑定 QQ，请先解绑再申请", 0
+        taken = db.execute(
+            "SELECT username FROM users WHERE qq = ? AND username <> ?",
+            (qq, username),
+        ).fetchone()
+        if taken is not None:
+            return False, f"该 QQ 号已被「{taken['username']}」绑定", 0
+        pending = db.execute(
+            "SELECT id, qq FROM bind_requests WHERE username = ? AND status='pending'",
+            (username,),
+        ).fetchone()
+        if pending is not None:
+            if str(pending["qq"]) == qq:
+                return True, f"申请已在审批中（#{pending['id']}）", int(pending["id"])
+            return False, f"已有待批申请 #{pending['id']}（QQ {pending['qq']}），请等待或取消", 0
+        qq_pending = db.execute(
+            "SELECT id, username FROM bind_requests WHERE qq = ? AND status='pending'",
+            (qq,),
+        ).fetchone()
+        if qq_pending is not None:
+            return False, f"该 QQ 号已有待批申请 #{qq_pending['id']}", 0
+        now = int(time.time())
+        cur = db.execute(
+            "INSERT INTO bind_requests (username, qq, status, created) VALUES (?,?,?,?)",
+            (username, qq, "pending", now),
+        )
+        db.commit()
+        rid = int(cur.lastrowid or 0)
+    return True, f"已提交绑定申请 #{rid}，等待管理员审批", rid
+
+
+def pending_bind_request(username: str) -> dict[str, Any] | None:
+    """当前账号的待批绑定申请（至多一条）。"""
+    username = _norm(username)
+    row = _db().execute(
+        "SELECT id, username, qq, status, created FROM bind_requests "
+        "WHERE username = ? AND status='pending' ORDER BY id DESC LIMIT 1",
+        (username,),
+    ).fetchone()
+    if row is None:
+        return None
+    return dict(row)
+
+
+def list_pending_bind_requests(limit: int = 20) -> list[dict[str, Any]]:
+    """管理员：列出待批绑定申请。"""
+    limit = max(1, min(100, int(limit or 20)))
+    rows = _db().execute(
+        "SELECT id, username, qq, status, created FROM bind_requests "
+        "WHERE status='pending' ORDER BY id ASC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def cancel_bind_request(username: str, request_id: int = 0) -> tuple[bool, str]:
+    """用户取消自己的待批申请。"""
+    username = _norm(username)
+    with _lock:
+        db = _db()
+        if request_id:
+            row = db.execute(
+                "SELECT id FROM bind_requests WHERE id=? AND username=? "
+                "AND status='pending'",
+                (int(request_id), username),
+            ).fetchone()
+        else:
+            row = db.execute(
+                "SELECT id FROM bind_requests WHERE username=? AND status='pending' "
+                "ORDER BY id DESC LIMIT 1",
+                (username,),
+            ).fetchone()
+        if row is None:
+            return False, "没有待批申请"
+        db.execute(
+            "UPDATE bind_requests SET status='cancelled', resolved_at=?, "
+            "resolver=?, note=? WHERE id=?",
+            (int(time.time()), username, "user_cancel", int(row["id"])),
+        )
+        db.commit()
+    return True, "已取消绑定申请"
+
+
+def approve_bind_request(request_id: int, resolver: str = "") -> tuple[bool, str]:
+    """管理员批准：执行 bind_qq 并关闭申请。"""
+    resolver = _norm(resolver) or "admin"
+    with _lock:
+        db = _db()
+        row = db.execute(
+            "SELECT id, username, qq, status FROM bind_requests WHERE id=?",
+            (int(request_id),),
+        ).fetchone()
+        if row is None:
+            return False, f"申请 #{request_id} 不存在"
+        if str(row["status"]) != "pending":
+            return False, f"申请 #{request_id} 状态为 {row['status']}，无法批准"
+        username = str(row["username"])
+        qq = str(row["qq"])
+    ok, msg = bind_qq(username, qq)
+    if not ok:
+        return False, msg
+    with _lock:
+        db = _db()
+        db.execute(
+            "UPDATE bind_requests SET status='approved', resolved_at=?, "
+            "resolver=?, note=? WHERE id=? AND status='pending'",
+            (int(time.time()), resolver, "approved", int(request_id)),
+        )
+        # 同 QQ / 同用户其它 pending 一并作废
+        db.execute(
+            "UPDATE bind_requests SET status='cancelled', resolved_at=?, "
+            "resolver=?, note=? WHERE status='pending' AND (username=? OR qq=?)",
+            (int(time.time()), resolver, "superseded", username, qq),
+        )
+        db.commit()
+    return True, f"已批准 #{request_id}：{username} → QQ {qq}"
+
+
+def reject_bind_request(request_id: int, resolver: str = "",
+                        note: str = "") -> tuple[bool, str]:
+    """管理员拒绝绑定申请。"""
+    resolver = _norm(resolver) or "admin"
+    with _lock:
+        db = _db()
+        row = db.execute(
+            "SELECT id, username, qq, status FROM bind_requests WHERE id=?",
+            (int(request_id),),
+        ).fetchone()
+        if row is None:
+            return False, f"申请 #{request_id} 不存在"
+        if str(row["status"]) != "pending":
+            return False, f"申请 #{request_id} 状态为 {row['status']}，无法拒绝"
+        db.execute(
+            "UPDATE bind_requests SET status='rejected', resolved_at=?, "
+            "resolver=?, note=? WHERE id=? AND status='pending'",
+            (int(time.time()), resolver, str(note or "rejected")[:200],
+             int(request_id)),
+        )
+        db.commit()
+    return True, f"已拒绝 #{request_id}（{row['username']} → QQ {row['qq']}）"
+
+
 def unbind_qq(username: str) -> tuple[bool, str]:
     """解除绑定：回到 web_<账号名> 那份独立存档，QQ 存档原样保留。"""
     username = _norm(username)
@@ -437,6 +620,12 @@ def unbind_qq(username: str) -> tuple[bool, str]:
         db = _db()
         cur = db.execute(
             "UPDATE users SET qq = '', player_key = '' WHERE username = ?", (username,)
+        )
+        # 解绑时作废待批申请，避免随后批准覆盖
+        db.execute(
+            "UPDATE bind_requests SET status='cancelled', resolved_at=?, "
+            "resolver=?, note=? WHERE username=? AND status='pending'",
+            (int(time.time()), username, "unbind", username),
         )
         db.commit()
         if cur.rowcount == 0:

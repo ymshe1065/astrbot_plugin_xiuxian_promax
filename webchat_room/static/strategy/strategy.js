@@ -1259,7 +1259,71 @@ function tabFaction() {
   h += '<div class="form-row"><select id="depositRes" style="max-width:80px">' +
     '<option value="coin">铜钱</option><option value="grain">粮草</option><option value="iron">精铁</option></select>' +
     '<input id="depositAmt" type="number" min="1" placeholder="数量" style="max-width:90px">' +
-    '<button class="btn small" data-act="deposit">📥 捐入国库</button></div></div>';
+    '<button class="btn small" data-act="deposit">📥 捐入国库</button>';
+  if (canAppoint) {
+    h += '<select id="withdrawRes" style="max-width:80px">' +
+      '<option value="coin">铜钱</option><option value="grain">粮草</option><option value="iron">精铁</option></select>' +
+      '<input id="withdrawAmt" type="number" min="1" placeholder="支取" style="max-width:90px">' +
+      '<button class="btn small" data-act="withdraw">📤 国库支取</button>';
+  }
+  h += "</div></div>";
+  // --- 势力任务 / 动员令（S.faction_ext）---
+  const ext = S.faction_ext || {};
+  h += '<div class="card"><h3>📜 势力任务</h3>' +
+    '<div class="sub">每 12 小时刷 3 条，24 小时内完成；成员共同推进后可领取战功</div>';
+  const tasks = ext.tasks;
+  if (!Array.isArray(tasks)) {
+    h += '<div class="sub">（势力任务数据暂未下发）</div>';
+  } else if (!tasks.length) {
+    h += '<div class="sub">（暂无进行中的势力任务）</div>';
+  } else {
+    const nowSec = Math.floor(Date.now() / 1000);
+    h += '<table class="tbl"><tr><th>任务</th><th>进度</th><th>奖励</th><th>剩余</th><th></th></tr>';
+    for (const t of tasks) {
+      const done = Number(t.progress || 0) >= Number(t.target || 1);
+      const left = Math.max(0, Number(t.end_at || 0) - nowSec);
+      const merit = Number((t.reward || {}).merit || 0);
+      h += "<tr><td>" + esc(t.title || t.task_type || "?") + "</td><td>" +
+        Number(t.progress || 0) + " / " + Number(t.target || 1) + "</td><td>+" +
+        merit + " 战功</td><td>" + (left ? fmtRemain(left) : "已到期") + "</td><td>" +
+        (done
+          ? '<button class="btn small primary" data-act="task-claim" data-id="' + t.id + '">领取</button>'
+          : '<span class="sub">推进中</span>') + "</td></tr>";
+    }
+    h += "</table>";
+  }
+  if (["leader", "deputy", "jijiu"].includes(f.my_position)) {
+    h += '<div class="form-row"><button class="btn small" data-act="task-refresh">🔄 刷新势力任务</button>' +
+      '<span class="sub">主公 / 副主 / 祭酒 · 冷却 12 小时</span></div>';
+  } else {
+    h += '<div class="sub">（仅主公 / 副主 / 祭酒可手动刷新）</div>';
+  }
+  h += "</div>";
+  h += '<div class="card"><h3>📣 动员令</h3>' +
+    '<div class="sub">消耗 60 战功，持续 12 小时，冷却 24 小时；四选一全军 buff</div>';
+  const mob = ext.mobilization;
+  if (mob === undefined) {
+    h += '<div class="sub">（动员令状态暂未下发）</div>';
+  } else if (mob) {
+    const mobLeft = Math.max(0, Number(mob.ends_at || 0) - Math.floor(Date.now() / 1000));
+    h += '<div class="sub">当前生效：' + esc(mob.name || mob.kind || "?") +
+      "（剩余 " + (mobLeft ? fmtRemain(mobLeft) : "即将结束") + "）</div>";
+  } else {
+    h += '<div class="sub">（当前无生效动员令）</div>';
+  }
+  if (["leader", "deputy", "jijiu"].includes(f.my_position)) {
+    const MOB_KINDS = [
+      ["recruit", "征兵动员"], ["march", "行军动员"],
+      ["defend", "守土动员"], ["attack", "征伐动员"],
+    ];
+    h += '<div class="form-row"><select id="mobKind" style="max-width:130px">' +
+      MOB_KINDS.map(([k, n]) => '<option value="' + k + '">' + n + "</option>").join("") +
+      '</select><button class="btn small primary" data-act="mob-issue">发布动员令</button>' +
+      '<span class="sub">我的战功 ' + fmtNum(p.merit || 0) + "</span></div>";
+  } else {
+    h += '<div class="sub">（仅主公 / 副主 / 祭酒可发布）</div>';
+  }
+  h += "</div>";
   // --- 外交矩阵 ---
   h += '<div class="card"><h3>🤝 外交</h3>';
   const favorCfg = ((S.meta || {}).favor_cfg) || {};
@@ -1350,18 +1414,38 @@ function tabFaction() {
   h += "</div>";
   // --- 俘虏 ---
   const cap = p.captives || { holding: [], held: [] };
+  const myJailNodes = myNodes().filter((n) => ["city", "pass", "branch"].includes(n.type));
   h += '<div class="card"><h3>⛓️ 俘虏</h3>';
   if (cap.holding.length) {
     h += '<div class="sub">我方关押：</div><table class="tbl"><tr><th>俘虏</th><th>忠诚</th><th>操作</th></tr>';
     for (const c of cap.holding) {
+      const destOpts = myJailNodes.filter((n) => n.id !== Number(c.node_id || 0));
       h += "<tr><td>" + esc(c.name) + ' <span class="tag ' + c.rarity + '">' +
-        ((S.meta.rarity_names || {})[c.rarity] || c.rarity) + "</span></td><td>" +
+        ((S.meta.rarity_names || {})[c.rarity] || c.rarity) + "</span>" +
+        (c.node_id ? ' <span class="sub">@' + esc((nodeById(c.node_id) || {}).name || ("#" + c.node_id)) + "</span>" : "") +
+        "</td><td>" +
         (c.disloyal ? '<span style="color:#f85149">离心!</span> ' : "") + c.loyalty + "</td><td>" +
         '<button class="btn small primary" data-act="persuade" data-id="' + c.id + '">劝降</button> ' +
         '<button class="btn small" data-act="ransom-set" data-id="' + c.id + '">定价赎回</button> ' +
-        '<button class="btn small" data-act="release" data-id="' + c.id + '">释放</button></td></tr>';
+        '<button class="btn small" data-act="release" data-id="' + c.id + '">释放</button>';
+      if (destOpts.length) {
+        h += ' <select id="xfer_' + c.id + '" style="max-width:100px">' +
+          destOpts.map((n) => '<option value="' + n.id + '">' + esc(n.name) + "</option>").join("") +
+          '</select><button class="btn small" data-act="transfer-captive" data-id="' + c.id +
+          '">🔒 押运</button>';
+      }
+      h += "</td></tr>";
     }
     h += "</table>";
+  }
+  const transfers = S.transfers;
+  if (Array.isArray(transfers) && transfers.length) {
+    h += '<div class="sub" style="margin-top:6px">押运途中：</div>' + transfers.map((t) =>
+      '<div class="sub">🔒 ' + esc(t.name || ("#" + t.char_id)) + " → " +
+      esc((nodeById(t.to_node) || {}).name || ("#" + t.to_node)) +
+      "（约 " + (t.hours_left != null ? t.hours_left + "h" : "?") + "）</div>").join("");
+  } else if (transfers === undefined && cap.holding.length) {
+    h += '<div class="sub">（押运队列数据暂未下发）</div>';
   }
   if (cap.held.length) {
     const freeGen = (p.chars || []).filter((c) => c.role === "general" && c.status === "idle");
@@ -1381,8 +1465,33 @@ function tabFaction() {
       cities.map((n) => '<option value="' + n.id + '">' + esc(n.name) + (n.protected ? "（已护盾）" : "") + "</option>").join("") +
       '</select><button class="btn small" data-act="buy-shield">🛡️ 购买保护罩</button></div>';
   }
+  if (f.capital_node_id) {
+    const relocateNodes = myNodes().filter((n) =>
+      ["city", "pass", "branch"].includes(n.type) && n.id !== f.capital_node_id);
+    const cdUntil = Number(ext.relocate_cd_until || 0);
+    const cdLeft = Math.max(0, cdUntil - Math.floor(Date.now() / 1000));
+    if (isLeader && relocateNodes.length) {
+      h += '<div class="form-row"><select id="relocateNode" style="max-width:150px">' +
+        relocateNodes.map((n) => '<option value="' + n.id + '">' + esc(n.name) + "</option>").join("") +
+        '</select><button class="btn small" data-act="capital-relocate"' +
+        (cdLeft > 0 ? " disabled" : "") + ">🏯 迁都</button>" +
+        (cdLeft > 0
+          ? '<span class="sub">冷却中 ' + fmtRemain(cdLeft) + "</span>"
+          : '<span class="sub">扣国库铜钱 · 仅主公</span>') + "</div>";
+    } else if (isLeader && !relocateNodes.length) {
+      h += '<div class="sub">（无可迁都目标：需另有城池 / 关隘 / 分舵）</div>';
+    } else if (!isLeader) {
+      h += '<div class="sub">（仅主公可迁都）</div>';
+    }
+  }
   if (!f.capital_node_id) {
     const free = (S.nodes || []).filter((n) => !n.owner && ["city", "pass", "branch"].includes(n.type));
+    const fund = ext.rebuild_fund;
+    if (fund !== undefined) {
+      h += '<div class="sub">重建合力：' + fmtNum(fund) + " 灵石</div>";
+    } else {
+      h += '<div class="sub">（重建合力数据暂未下发）</div>';
+    }
     if (free.length) {
       h += '<div class="form-row"><select id="rebuildNode" style="max-width:150px">' +
         free.map((n) => '<option value="' + n.id + '">' + esc(n.name) + "</option>").join("") +
@@ -1390,6 +1499,9 @@ function tabFaction() {
     } else {
       h += '<div class="sub">（已无无主城池/关隘/分舵可供重建；可申请加入其他玩家势力）</div>';
     }
+    h += '<div class="form-row"><input id="rebuildDonateAmt" type="number" min="1" placeholder="灵石数量" style="max-width:110px">' +
+      '<button class="btn small" data-act="rebuild-donate">💰 重建捐献</button>' +
+      '<span class="sub">成员可共同凑款</span></div>';
   }
   h += '<div class="form-row"><button class="btn small danger" data-act="faction-quit">' +
     (inAlliance ? (f.is_alliance_host ? "💔 解散联盟" : "🚪 退出联盟") : "🚪 退出势力") +
@@ -1681,6 +1793,19 @@ function tabHonor() {
     }
   } else h += '<div class="sub">（当前无人摆擂；在府邸页武将卡片可摆擂）</div>';
   h += "</div>";
+  // --- 仙盟会武（按战功分档报名）---
+  const merit = Number(p.merit || 0);
+  const myBracket = merit < 500 ? "novice" : (merit < 2000 ? "veteran" : "master");
+  const BRACKET_NAMES = { novice: "新手", veteran: "老将", master: "大师" };
+  const arenaFee = Number(((S.meta || {}).duel_cfg || {}).arena_stake_min || 100);
+  h += '<div class="card"><h3>🥁 仙盟会武</h3>' +
+    '<div class="sub">按战功分档：新手（&lt;500）/ 老将（500~1999）/ 大师（≥2000）；不可跨档</div>' +
+    kv("我的档位", (BRACKET_NAMES[myBracket] || myBracket) + "（战功 " + fmtNum(merit) + "）") +
+    '<div class="form-row"><select id="arenaBracket" style="max-width:120px">' +
+    Object.entries(BRACKET_NAMES).map(([k, n]) =>
+      '<option value="' + k + '"' + (k === myBracket ? " selected" : "") + ">" + n + "</option>").join("") +
+    '</select><button class="btn small primary" data-act="arena-register">报名会武</button>' +
+    '<span class="sub">报名费 ' + fmtNum(arenaFee) + " 铜钱</span></div></div>";
   // --- 名将堂 / 英烈祠（§11 赛季陈列，最多各 20 条）---
   const mem = memorialData();
   h += memorialCard("🏛️ 名将堂", mem.hall, true);
@@ -1859,6 +1984,21 @@ function bindTabEvents() {
         const res = (document.getElementById("depositRes") || {}).value || "coin";
         if (amt > 0) doAction("treasury_deposit", { resource: res, amount: amt });
         else toast("请输入数量", "err");
+      } else if (act === "withdraw") {
+        const amt = Number((document.getElementById("withdrawAmt") || {}).value || 0);
+        const res = (document.getElementById("withdrawRes") || {}).value || "coin";
+        if (amt > 0) doAction("treasury_withdraw", { resource: res, amount: amt });
+        else toast("请输入支取数量", "err");
+      } else if (act === "task-refresh") {
+        doAction("faction_task_refresh", {});
+      } else if (act === "task-claim") {
+        doAction("faction_task_claim", { task_id: id });
+      } else if (act === "mob-issue") {
+        const kind = (document.getElementById("mobKind") || {}).value || "";
+        if (!kind) { toast("请选择动员令类型", "err"); return; }
+        if (confirm("发布动员令将消耗 60 战功，确认？")) {
+          doAction("mobilization_issue", { kind });
+        }
       } else if (act === "dip-respond") {
         doAction("diplomacy_respond", { from_fid: id, accept: btn.dataset.accept === "1" });
       } else if (act === "dip-propose") {
@@ -1904,15 +2044,36 @@ function bindTabEvents() {
       } else if (act === "ransom-pay") doAction("ransom_pay", { char_id: id });
       else if (act === "release") {
         if (confirm("无条件释放该俘虏？")) doAction("release", { char_id: id });
+      } else if (act === "transfer-captive") {
+        const sel = document.getElementById("xfer_" + id);
+        const toNode = Number(sel ? sel.value : 0);
+        if (!toNode) { toast("请选择押运目标据点", "err"); return; }
+        if (confirm("押运途中可被截获，确认押送？")) {
+          doAction("transfer_captive", { char_id: id, to_node_id: toNode });
+        }
       }
       // --- 主城/退盟/立派 ---
       else if (act === "buy-shield") {
         doAction("buy_shield", { node_id: Number((document.getElementById("shieldNode") || {}).value || 0) });
+      } else if (act === "capital-relocate") {
+        const nid = Number((document.getElementById("relocateNode") || {}).value || 0);
+        if (!nid) { toast("请选择新主城", "err"); return; }
+        if (confirm("迁都将扣国库铜钱并进入冷却，确认？")) {
+          doAction("capital_relocate", { node_id: nid });
+        }
       } else if (act === "rebuild-capital") {
         const nid = Number((document.getElementById("rebuildNode") || {}).value || 0);
         if (confirm("重建主城将消耗灵石（主玩法钱包扣费），确认选定该无主节点？")) {
           doAction("rebuild_capital", { node_id: nid });
         }
+      } else if (act === "rebuild-donate") {
+        const amt = Number((document.getElementById("rebuildDonateAmt") || {}).value || 0);
+        if (amt > 0) doAction("rebuild_donate", { amount: amt });
+        else toast("请输入捐献灵石数量", "err");
+      } else if (act === "arena-register") {
+        const bracket = (document.getElementById("arenaBracket") || {}).value || "";
+        if (!bracket) { toast("请选择会武档位", "err"); return; }
+        doAction("arena_register", { bracket });
       } else if (act === "faction-quit") {
         const fac = (S.player || {}).faction || {};
         const msg = fac.alliance_id

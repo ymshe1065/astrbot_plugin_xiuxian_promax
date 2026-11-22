@@ -786,7 +786,7 @@ window.STRATEGY_GUIDE = {
       cat: "俘虏",
       keywords: ["劝降", "离心", "忠诚", "80%", "24 小时", "每日 3 次", "知遇", "声望"],
       summary: "劝降成功率看俘虏当前忠诚，钳制 5~90%、CD 24 小时；忠诚归零进入离心，任意势力 80% 可劝。",
-      body: "<p>劝降成功率 = <strong>（100 − 当前忠诚）% × 0.9 +（发起者魅力 + 智谋）/ 4 %</strong>，钳制 <strong>5%~90%</strong>，关押方声望档位再 ±10%。对同一俘虏失败后 <strong>24 小时</strong>内不可再试，每势力每日劝降 ≤ <strong>3 次</strong>。成功后角色入仕关押方：忠诚重置 <strong>40</strong>，与发起者结成「知遇」羁绊，原势力声望 -3。</p><p><strong>离心</strong>：关押期间忠诚持续衰减，降到 <strong>80 以下</strong>（<code>captive.defect_loyalty</code>）后进入离心状态，<strong>任何势力</strong>（恶名 < -60 者除外）均可劝降，成功率固定 <strong>80%</strong>，消耗声望 3 点。忠诚越低越好劝，长期关押本身就是一种攻势。</p>",
+      body: "<p>劝降成功率 = <strong>（100 − 当前忠诚）% × 0.9 +（发起者魅力 + 智谋）/ 4 %</strong>，钳制 <strong>5%~90%</strong>，关押方声望档位再 ±10%。对同一俘虏失败后 <strong>24 小时</strong>内不可再试，每势力每日劝降 ≤ <strong>3 次</strong>。成功后角色入仕关押方：忠诚重置 <strong>40</strong>，迁往己方最近据点，与发起者结成「知遇」羁绊，原势力声望 -3。</p><p><strong>离心</strong>：关押期间忠诚持续衰减，降到 <strong>0</strong>（<code>captive.defect_loyalty</code>）后进入离心状态，<strong>任何势力</strong>（恶名 ≤ -60 者除外）均可劝降，成功率固定 <strong>80%</strong>，消耗声望 3 点。忠诚越低越好劝，长期关押本身就是一种攻势。</p>",
       steps: [
         "「俘虏」列表选目标 →「劝降」",
         "派魅力 + 智谋最高的角色发起，成功率更高",

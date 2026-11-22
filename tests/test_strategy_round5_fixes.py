@@ -138,12 +138,12 @@ class TestStrategyRound5Fixes(unittest.IsolatedAsyncioTestCase):
             calls.append(bool(commit))
             return await real(player, commit=commit)
 
-        self.m._tick_task = asyncio.current_task()
+        self.m._tx_task = asyncio.current_task()
         try:
             with mock.patch.object(self.db, "update_player", side_effect=spy):
                 gold, _merit = await self.m._inject_gold(self.p1, 1000)
         finally:
-            self.m._tick_task = None
+            self.m._tx_task = None
         self.assertEqual(gold, 1000)
         self.assertEqual(calls, [False], "tick 事务内提前 commit 会破坏整段回滚")
 

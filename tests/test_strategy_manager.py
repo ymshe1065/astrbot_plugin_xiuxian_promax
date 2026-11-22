@@ -310,6 +310,13 @@ class TestStrategyManager(unittest.IsolatedAsyncioTestCase):
         got_epic_plus = 0
         for i in range(45):
             if not (p.get("tavern") or {}).get("candidates"):
+                # v4.3.0：自动刷新仅按到期触发（已删「抽空重掷」防无限供货），
+                # 测试将 refresh_at 拨回过去模拟到期；roll_seq 盐保证同时间桶
+                # 内每次重掷候选不同
+                tav = dict(p.get("tavern") or {})
+                tav["refresh_at"] = 0
+                p["tavern"] = tav
+                await self.m.save_player(p)
                 await self.m.refresh_tavern(p, self.wid)
                 p = await self.m.get_player("u1", self.wid)
             c = await self.m.recruit(p, self.wid, 0, premium=True)

@@ -27,7 +27,7 @@
 
 ---
 
-> **插件版本:** v4.2.2 · **游戏版本:** v8.0.1 · **数据库:** v78 · **分支:** `feat/web-chatroom`
+> **插件版本:** v4.3.0 · **游戏版本:** v8.0.2 · **数据库:** v78 · **分支:** `feat/web-chatroom`
 >
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497) · [lan](https://github.com/lanxue0)
 
@@ -48,7 +48,26 @@
 <sub>点击展开对应版本查看详细变更；v3.44.3 之前的版本按游戏版本系列汇总在下方。</sub>
 
 <details open>
-<summary><b>本次更新 · 插件 v4.2.2（仙域争霸第五轮全局冲突修复）</b></summary>
+<summary><b>本次更新 · 插件 v4.3.0（仙域争霸全量审计修复 + QQ 绑定审批）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 事务回滚（P0） | `handle_action` 包 `BEGIN IMMEDIATE`；`_tick_task` 泛化为 `_tx_task`（tick/poll/action 共用）；测试环境 BEGIN 失败重试须 `commit` 残留而非 `rollback`（与数据层 `_begin` 同语义） |
+| 伏兵 / 单挑 / 水淹 | 攻击·技能·移动·受伤即揭示；未揭示不投射 ZOC、不计合围；`can_attack` 对敌统一「目标不存在」；单挑超时拒战不扣士气 + 每目标全场挑战上限；水淹 off-by-one 修复 |
+| 会战 / 手操 | `expected_uid` 校验；敌方 statuses/delegate 遮罩；孤儿军团清扫；loot 余量公平分；胜战功门禁；sortie 严格按势力；poll 事务包装；WS `current_actor` 按 viewer 遮罩伏兵 |
+| 世界密钥 / 酒馆 | `_rng` 混入世界私密密钥；酒馆仅到期刷新 + `roll_seq` 盐；手动刷新按日校验 |
+| 俘虏 / 劝降 | `defect_loyalty` 改 0；恶名 ≤-60 除外；成功率统一钳 5%~90%；成功迁己方最近据点 + 知遇；释放仅主/副；押运用 `tick_seconds`；归还查原主现势力；驱逐通知原主 |
+| 计略 / 粮队 / 拍卖 | 停战同拦计略；删 sabotage 死标记；粮队满拒绝发货；拍卖 resume 防「拿人又退款」 |
+| 其它玩法 | 编军最多 3 人；敌军 path 遮罩；GM 开世界持锁 + 事件约束；scout/heal/recovery/honor_shop 等已落地项收口；前端 7 动作接线 |
+| QQ 绑定审批（P0） | 网页提交申请 → 超管 `/绑定审批` 批准/拒绝；堵住瞬间接管 QQ 存档链路；表在 `accounts.db`（无需主库迁移） |
+| API 安全 | 500 脱敏；action 长度上限 |
+| 版本与数据库 | 插件 **v4.3.0** / 游戏及帮助 **v8.0.2**（新增 `/绑定审批`）/ 主库保持 **v78**（绑定申请在 webroom accounts.db） |
+| 回归 | `tests/test_strategy_*.py` 全绿；定向补测见本轮新增用例 |
+
+</details>
+
+<details>
+<summary><b>插件 v4.2.2（仙域争霸第五轮全局冲突修复）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |

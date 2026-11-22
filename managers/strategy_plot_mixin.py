@@ -103,11 +103,12 @@ class StrategyPlotMixin:
                 if p["iron"] < cost_iron:
                     raise StrategyError(f"精铁不足：纵火需 {cost_iron}")
                 p["iron"] -= cost_iron
-        # 盟友不可算计
+        # 盟友/停战不可算计（与出征 _check_attack_target 同口径）
         if target_fid and f:
             rel = R.relation_of(f.get("diplomacy") or {}, target_fid, _now())
-            if rel == R.REL_ALLY:
-                raise StrategyError("不能对盟友施展计略")
+            if rel in (R.REL_ALLY, R.REL_TRUCE):
+                rel_name = "同盟" if rel == R.REL_ALLY else "停战"
+                raise StrategyError(f"不能对{rel_name}势力施展计略")
         # 目标冷却：6 tick（谋略 L4 -2，最少 2）
         data = world.get("data") or {}
         cd_map = data.setdefault("plot_cd", {})
@@ -338,14 +339,10 @@ class StrategyPlotMixin:
                                     int(pcfg.get("sabotage_morale", -10)))
                 node["npc_garrison"] = gar
                 await self.save_node(node)
-                data = world.get("data") or {}
-                sab = data.setdefault("sabotage", {})
-                sab[str(node["id"])] = {"by": fid,
-                                        "until_tick": int(world.get("tick_no", 0)) + 4}
-                world["data"] = data
-                await self.save_world(world)
+                # v4.3.0：删除无读取方的 data.sabotage 死标记（此前文案
+                # 「城门暗开 4 tick」暗示有后续效果，实际永不兑现）。
                 out["texts"].append(
-                    f"策应就绪：「{node['name']}」城防 -20%、守军士气挫败，城门暗开 4 tick")
+                    f"策应就绪：「{node['name']}」城防 -20%、守军士气挫败")
         # 成功 → 24h 后风声走漏（记录，供面板叙事）
         if out["success"]:
             data = world.get("data") or {}
@@ -394,6 +391,11 @@ class StrategyPlotMixin:
             return 50
         best = 50
         for c in await self.get_chars(faction_id=faction_id, world_id=world_id):
+            # v4.3.0：死者/濒死不参与谋略对抗——否则阵亡军师仍抬高防御
+            if c.get("status") == "dead":
+                continue
+            if R.injury_state(c.get("injury", 0)) in ("dying", "dead"):
+                continue
             best = max(best, int((c.get("stats") or {}).get("wisdom", 0)))
         return best
 

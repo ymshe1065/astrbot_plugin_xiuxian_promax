@@ -390,6 +390,7 @@ def new_session(map_info: dict[str, Any], mode: str, seed: str,
         "ambush_max": int(hex_cfg.get("ambush_max", 2)),  # 每方设伏上限
         "duel": None,                # {challenger_uid, target_uid, state, deadline}
         "duel_counts": {},           # uid(str) → 本回合已发起单挑次数
+        "duel_target_counts": {},    # uid(str) → 本场累计被挑战次数（v4.3.0）
         "duel_log": [],
         "commands": [],              # 回放指令流
         "events": [],                # 战斗叙事（round, text, kind）
@@ -679,6 +680,39 @@ def hidden_ambush_uids(session: dict) -> set[int]:
     return out
 
 
+def is_hidden_ambush(session: dict, unit: dict) -> bool:
+    """单位是否为未揭示的伏兵（v4.3.0：对敌方完全不可见、不投射 ZOC）。"""
+    if not unit:
+        return False
+    uid = int(unit.get("uid", -1))
+    for amb in session.get("ambushes") or []:
+        if not amb.get("revealed") and int(amb.get("uid", -2)) == uid:
+            return True
+    return False
+
+
+def reveal_ambush(session: dict, uid: int, reason: str = "") -> bool:
+    """主动揭示伏兵（攻击/技能/移动/受伤即暴露，§15）。
+
+    v4.3.0：此前全库唯一揭示点是 check_ambush_trigger（敌军移动进 1 格内），
+    伏兵自己攻击/放技能/移动/挨打都保持隐身 → 敌军 can_attack 收到
+    「目标不存在」却永远找不到它，30 回合耗尽判守方胜（伏兵永生僵局）。
+    """
+    uid = int(uid)
+    out = False
+    for amb in session.get("ambushes") or []:
+        if int(amb.get("uid", -1)) == uid and not amb.get("revealed"):
+            amb["revealed"] = True
+            out = True
+    if out:
+        u = get_unit(session, uid)
+        text = f"👁 {leader_name(u) if u else '伏兵'} 的埋伏暴露了"
+        if reason:
+            text += f"（{reason}）"
+        _log(session, text, "ambush")
+    return out
+
+
 def set_ambush(session: dict, uid: int, q: int, r: int) -> tuple[bool, str]:
     unit = get_unit(session, uid)
     if not unit:
@@ -737,6 +771,10 @@ def hex_dist(a: tuple[int, int], b: tuple[int, int]) -> int:
 def _projects_zoc(session: dict, unit: dict) -> bool:
     """单位是否投射 ZOC：存活、未溃逃；站在河流格 ZOC 取消（§7.4）。"""
     if unit["troops"] <= 0 or unit["routed"] or not unit["pos"]:
+        return False
+    # v4.3.0：未揭示伏兵不投射 ZOC——否则敌方可通过「移动被 ZOC 截停/拦截
+    # 战报出现伏兵将领姓名」反推伏击位置，隐身形同虚设。
+    if is_hidden_ambush(session, unit):
         return False
     # 用 eff_terrain：水淹会把河流临时变为沼泽，此时该格不再属于「河流
     # 格 ZOC 取消」，须与 passable/移动消耗及前端 terrainAt 同口径。
@@ -940,6 +978,9 @@ def do_move(session: dict, uid: int, path: list[list[int]], rng: random.Random,
     for s in steps:
         unit["pos"] = [int(s[0]), int(s[1])]
         ambush_events.extend(check_ambush_trigger(session, unit, int(s[0]), int(s[1]), rng))
+    # v4.3.0：伏兵自己移动即暴露（此前唯一揭示点是敌军靠近触发，
+    # 伏兵可全程隐身游走，敌方无法反击）
+    reveal_ambush(session, uid, reason="移动")
     unit["moved"] = True
     # 拦截攻击（体修锁定型 ×1.5）
     for icp_uid in check.get("intercepts") or []:
@@ -1020,11 +1061,17 @@ def attack_range(unit: dict, session: dict) -> int:
 
 
 def adjacent_enemy_count(session: dict, target: dict) -> int:
-    """受击时邻格敌军数（夹击/合围判定，§7.4）。"""
+    """受击时邻格敌军数（夹击/合围判定，§7.4）。
+
+    v4.3.0：未揭示伏兵不计入——隐身单位若贡献夹击加成，受击方会从
+    异常高的伤害反推出「邻格藏有伏兵」，构成信息泄露。
+    """
     if not target["pos"]:
         return 0
     n = 0
     for u in foes_of(session, target):
+        if is_hidden_ambush(session, u):
+            continue
         if u["pos"] and hex_dist((u["pos"][0], u["pos"][1]),
                                  (target["pos"][0], target["pos"][1])) == 1:
             n += 1
@@ -1032,6 +1079,7 @@ def adjacent_enemy_count(session: dict, target: dict) -> int:
     for u in session["units"]:
         if u["side"] != target["side"] and u is not target \
                 and u["troops"] > 0 and not u["routed"] \
+                and not is_hidden_ambush(session, u) \
                 and u.get("formation") == "heyi" and u["pos"] and target["pos"] \
                 and hex_dist((u["pos"][0], u["pos"][1]),
                              (target["pos"][0], target["pos"][1])) <= 2:
@@ -1051,6 +1099,11 @@ def can_attack(session: dict, attacker: dict, target: dict) -> tuple[bool, str]:
         return False, "军团无法行动"
     if not attacker["pos"] or not target["pos"]:
         return False, "未完成部署"
+    # v4.3.0：敌方未揭示伏兵统一报「单位不存在」——此前不同错误文案
+    # （友军/失去战斗力/超出攻击距离 d>r）构成 uid oracle，可逐格探测
+    # 伏兵位置甚至精确距离。
+    if target["side"] != attacker["side"] and is_hidden_ambush(session, target):
+        return False, "目标不存在"
     if target["side"] == attacker["side"]:
         return False, "不能攻击友军"
     if target["troops"] <= 0 or target["routed"]:
@@ -1072,6 +1125,8 @@ def do_attack(session: dict, atk_uid: int, dfn_uid: int, rng: random.Random) -> 
     ok, reason = can_attack(session, attacker, target)
     if not ok:
         return {"ok": False, "reason": reason}
+    # v4.3.0：伏兵出手即暴露（攻击是最强的揭示行为）
+    reveal_ambush(session, atk_uid, reason="主动出击")
     _record(session, {"type": "attack", "uid": atk_uid, "target": dfn_uid})
     return _resolve_attack(session, attacker, target, rng)
 
@@ -1129,6 +1184,9 @@ def _apply_damage(session: dict, unit: dict, dmg: int, rng: random.Random,
         dmg = int(dmg * 0.5)  # 盾墙列阵：本回合受伤 -50%（§7.5 剑盾专属）
         if dmg <= 0:
             return
+    # v4.3.0：隐藏伏兵受伤即暴露（AoE/火攻战报本就含其姓名，不揭示反而
+    # 造成「看不见却挨打」的矛盾状态）
+    reveal_ambush(session, int(unit.get("uid", 0)), reason="中箭受创")
     before = unit["troops"]
     unit["troops"] = max(0, unit["troops"] - dmg)
     unit["injury_pool"] = float(unit.get("injury_pool", 0)) + dmg * 0.5
@@ -1234,6 +1292,8 @@ def do_skill(session: dict, uid: int, skill_id: str, rng: random.Random,
     if not res.get("ok"):
         # 施放失败：不扣灵力、不消耗行动、不进指令流（回放不含无效动作）
         return res
+    # v4.3.0：伏兵施法即暴露
+    reveal_ambush(session, uid, reason="施展法术")
     _record(session, {"type": "skill", "uid": uid, "skill": skill_id,
                       "target_uid": target_uid, "target_hex": target_hex})
     unit["mana"] = int(unit.get("mana", 0)) - mana_cost
@@ -1288,7 +1348,9 @@ def _skill_flood(session, unit, sk, rng, target_uid, target_hex):
     for _ in range(3):  # 向地图下方（下游）蔓延
         k = _key(cq, cr)
         if in_bounds(session, cq, cr) and terrain_at(session, cq, cr) not in (T_WALL, T_GATE):
-            session["temp_terrain"][k] = session["round"] + int(sk["swamp_rounds"])
+            # v4.3.0：eff_terrain 判定为 expire >= round（含施放当回合），
+            # 此前 +swamp_rounds 使 3 回合沼泽实际持续 4 回合（R..R+3）
+            session["temp_terrain"][k] = session["round"] + int(sk["swamp_rounds"]) - 1
             flooded.append([cq, cr])
         cr += 1
     _log(session, f"🌊 {leader_name(unit)} 水淹七军！{len(flooded)} 格化为沼泽", "skill")
@@ -1609,7 +1671,7 @@ def can_challenge(session: dict, uid: int, target_uid: int,
                   duel_cfg: dict | None = None) -> tuple[bool, str]:
     """战场单挑资格：第 1~3 回合窗口；武将职责武勇 ≥75；轻伤不可。"""
     duel_cfg = duel_cfg or {}
-    lo, hi = duel_cfg.get("duel_rounds") or [1, 3]
+    lo, hi = duel_cfg.get("rounds") or duel_cfg.get("duel_rounds") or [1, 3]
     if not (int(lo) <= session["round"] <= int(hi)):
         return False, f"单挑窗口为第 {lo}~{hi} 回合"
     if session.get("duel"):
@@ -1617,6 +1679,11 @@ def can_challenge(session: dict, uid: int, target_uid: int,
     limit = max(1, int(duel_cfg.get("challenges_per_round", 1)))
     if int((session.get("duel_counts") or {}).get(str(uid), 0)) >= limit:
         return False, "本回合发起单挑次数已用完"
+    # v4.3.0：每目标全场被挑战上限（duel_counts 每回合清零，仅靠它
+    # 挑战方可在 1~3 回合窗口逐回合骚扰同一目标）
+    t_limit = max(1, int(duel_cfg.get("challenges_per_target", 2)))
+    if int((session.get("duel_target_counts") or {}).get(str(target_uid), 0)) >= t_limit:
+        return False, "对方本场已多次拒战，不再接受挑战"
     unit = get_unit(session, uid)
     target = get_unit(session, target_uid) if target_uid else None
     if not unit or not target:
@@ -1651,6 +1718,9 @@ def challenge_duel(session: dict, uid: int, target_uid: int,
                        "state": "pending", "deadline": deadline_at}
     _counts = session.setdefault("duel_counts", {})
     _counts[str(uid)] = int(_counts.get(str(uid), 0)) + 1
+    # 全场维度：同一目标累计被挑战次数（不随回合清零）
+    _t_counts = session.setdefault("duel_target_counts", {})
+    _t_counts[str(target_uid)] = int(_t_counts.get(str(target_uid), 0)) + 1
     _record(session, {"type": "duel_challenge", "uid": uid, "target": target_uid})
     _log(session, f"⚔️ {leader_name(get_unit(session, uid))} 向 "
                   f"{leader_name(get_unit(session, target_uid))} 发起阵前斗法！", "duel")
@@ -1660,18 +1730,26 @@ def challenge_duel(session: dict, uid: int, target_uid: int,
 R_SKILL_REFUSE_MORALE = -5
 
 
-def refuse_duel(session: dict) -> dict[str, Any]:
-    """拒绝单挑：拒绝方士气 -5。"""
+def refuse_duel(session: dict, penalty: bool = True) -> dict[str, Any]:
+    """拒绝单挑：拒绝方士气 -5。
+
+    v4.3.0：penalty=False 用于超时自动拒绝——托管/掉线玩家没有主动拒战，
+    不应吃士气惩罚（此前挑战方可反复挑战挂机对手，靠超时白嫖 -5 士气
+    零战损压溃对方）。
+    """
     duel = session.get("duel")
     if not duel or duel["state"] != "pending":
         return {"ok": False, "reason": "无待决单挑"}
     target = get_unit(session, duel["target_uid"])
-    if target:
+    if penalty and target:
         target["morale"] = max(0, target["morale"] + R_SKILL_REFUSE_MORALE)  # -5
-    _record(session, {"type": "duel_refuse"})
-    _log(session, f"{leader_name(target)} 拒不出战，军心微挫（士气 -5）", "duel")
+    _record(session, {"type": "duel_refuse", "penalty": bool(penalty)})
+    if penalty:
+        _log(session, f"{leader_name(target)} 拒不出战，军心微挫（士气 -5）", "duel")
+    else:
+        _log(session, f"{leader_name(target)} 未在时限内应答，单挑作罢", "duel")
     session["duel"] = None
-    return {"ok": True, "refused_by": duel["target_uid"]}
+    return {"ok": True, "refused_by": duel["target_uid"], "penalty": bool(penalty)}
 
 
 def resolve_duel(session: dict, rng: random.Random,
@@ -2413,7 +2491,8 @@ def replay(seed: str, mode: str, units_a: list[dict], units_b: list[dict],
         elif t == "duel_challenge":
             challenge_duel(session, cmd["uid"], cmd["target"])
         elif t == "duel_refuse":
-            refuse_duel(session)
+            # v4.3.0：回放须还原是否扣士气（超时自动拒绝不罚）
+            refuse_duel(session, penalty=bool(cmd.get("penalty", True)))
         elif t == "duel_resolve":
             resolve_duel(session, rng, cmd.get("duel_cfg"), cmd.get("apply"))
         elif t == "round":

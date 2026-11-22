@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import random
+import secrets
 import time
 from typing import Any, Optional
 
@@ -130,9 +131,15 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         self._get_player_lock = None
         # WS 通知推送回调（main.py 注入 → room_server.notify_strategy）
         self._notifier = None
-        # 当前正在执行整段 tick 事务的任务：该任务内的 _commit 只暂存，
-        # 由 _tick_locked 统一提交/回滚，避免半提交与“伪回滚”。
-        self._tick_task = None
+        # 当前处于「延迟提交事务」内的任务（v4.3.0 由 _tick_task 泛化）：
+        # tick 大事务 / poll 轮询事务 / handle_action 动作事务共用此标记，
+        # 任务内的 _commit() 只暂存，由包装层统一提交/回滚，避免
+        # autocommit 下半提交与“伪回滚”。
+        self._tx_task = None
+        # v4.3.0：世界私密种子盐（world.data.secret，建世/首次加载时生成），
+        # 混入所有 _rng 种子——此前种子全部由公开可算输入构成
+        # （user_id/world_id/tick/时间桶），可离线复现酒馆候选与劫掠掷点。
+        self._world_secret = ""
 
     # ------------------------------------------------------------------
     # 通知分级推送（§12.5：strategy.notify，三档 notify_pref）
@@ -217,18 +224,22 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             ids = [str(t.get("template_id", "")) for t in templates]
             if template and template not in ids:
                 raise StrategyError(f"模板不存在：{template}（可用：{'、'.join(ids)}）")
-            world = await self.get_world()
-            season_no = 1
-            if world:
-                world["state"] = "ended"
-                await self.save_world(world)
-                await self._commit()
-                season_no = int(world.get("season_no", 1)) + 1
-            new_world = await self._create_world(
-                season_no=season_no, template_id=template)
+            # v4.3.0：全程持 _world_lock——此前与 tick/玩家动作并发时，旧世界
+            # 可能在 ended 后仍被在途 tick 推进（读写已归档世界）；两个 GM
+            # 并发开世界还会产生双 active。season_no 交由 _create_world 的
+            # MAX+1 口径（C-M9），不再依赖 get_world 的陈旧读（跳号/撞号）。
+            async with self._world_lock:
+                world = await self.get_world()
+                if world:
+                    world["state"] = "ended"
+                    await self.save_world(world)
+                    await self._commit()
+                new_world = await self._create_world(
+                    season_no=0, template_id=template)
             return {"ok": True,
                     "msg": f"🌏 已开新世界 #{new_world['id']}"
-                           f"（模板 {new_world['template_id']}，赛季 S{season_no}）"}
+                           f"（模板 {new_world['template_id']}，"
+                           f"赛季 S{new_world.get('season_no', '?')}）"}
         if op in ("tick", "推进"):
             try:
                 n = int(args[0]) if args else 1
@@ -247,21 +258,45 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             if not ev:
                 raise StrategyError(f"事件不存在：{eid or '(空)'}")
             world = await self.ensure_world()
+            tick_no = int(world["tick_no"])
+            # v4.3.0 三项约束（与自然事件路径 _step_events 同口径）：
+            # 1) 同事件去重：仍在进行中不得重复注入（效果叠加可放大到离谱）
+            dup = await self._fetchone(
+                "SELECT id FROM strategy_events WHERE world_id=? AND event_id=? "
+                "AND end_tick>? LIMIT 1", (world["id"], ev["id"], tick_no))
+            if dup:
+                raise StrategyError(
+                    f"事件「{ev.get('name', eid)}」仍在进行中（#{dup['id']}），"
+                    f"到期后方可再次注入")
             target: dict = {}
             if ev.get("scope") == "region":
+                # 2) node_types/node_terrain 过滤：此前固定 nodes[0]/只查 id，
+                #    可把「洪涝」注到矿脉等不适用类型上错误生效
+                trigger = ev.get("trigger") or {}
                 nodes = await self.get_nodes(world["id"])
+                cands = nodes
+                if trigger.get("node_types"):
+                    cands = [n for n in cands
+                             if n["type"] in trigger["node_types"]]
+                if trigger.get("node_terrain"):
+                    cands = [n for n in cands
+                             if n["terrain"] in trigger["node_terrain"]]
                 node = None
                 if len(args) > 1 and str(args[1]).lstrip("-").isdigit():
                     node = next((n for n in nodes
                                  if n["id"] == int(args[1])), None)
                     if not node:
                         raise StrategyError(f"据点不存在：{args[1]}")
-                elif nodes:
-                    node = nodes[0]
-                if node:
-                    target = {"node_ids": [node["id"]], "node_name": node["name"]}
+                    if node not in cands:
+                        raise StrategyError(
+                            f"「{node['name']}」的类型/地形不适用该事件")
+                elif cands:
+                    # 3) 默认目标随机选取（rng 已混世界密钥），不再恒为 nodes[0]
+                    node = self._rng("gm", world["id"], tick_no).choice(cands)
+                if not node:
+                    raise StrategyError(f"没有适用「{ev.get('name', eid)}」的据点")
+                target = {"node_ids": [node["id"]], "node_name": node["name"]}
             duration = int(ev.get("duration_ticks", 8))
-            tick_no = int(world["tick_no"])
             await self._execute("""
                 INSERT INTO strategy_events (world_id, event_id, scope, target_json,
                     start_at, end_at, start_tick, end_tick, data_json)
@@ -275,6 +310,13 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                               "gm": True}, ensure_ascii=False)))
             await self._apply_event_onset(
                 world, ev, target, self._rng("gm", world["id"], tick_no))
+            # 与自然路径同式写入冷却：GM 注入后自然掷点不会立刻叠一发同款
+            data = world.get("data") or {}
+            cd = data.get("event_cd") or {}
+            cd[ev["id"]] = tick_no + duration + int(ev.get("cooldown_ticks", 32))
+            data["event_cd"] = cd
+            world["data"] = data
+            await self.save_world(world)
             await self._commit()
             return {"ok": True,
                     "msg": f"🎲 已注入事件「{ev.get('name', eid)}」"
@@ -349,8 +391,13 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         return int(self.main_cfg().get("tick_minutes", 15)) * 60
 
     def _rng(self, *seeds) -> random.Random:
-        """确定性随机：同 seed 同结果（§7.3 可复现）。"""
-        h = hashlib.md5("|".join(str(s) for s in seeds).encode("utf-8")).hexdigest()
+        """确定性随机：同 seed 同结果（§7.3 可复现）。
+
+        v4.3.0：混入世界服务端密钥（world.data.secret）——此前种子全部
+        由公开值构成，玩家可离线重放掷点序列精确预判结果。
+        """
+        payload = "|".join(str(s) for s in (self._world_secret,) + seeds)
+        h = hashlib.md5(payload.encode("utf-8")).hexdigest()
         return random.Random(int(h[:8], 16))
 
     # ------------------------------------------------------------------
@@ -378,8 +425,9 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         return cursor.rowcount if cursor.rowcount is not None else 0
 
     def _in_tick_task(self) -> bool:
-        """当前协程是否运行在 tick 事务内（口径与 :meth:`_commit` 一致）。"""
-        return self._tick_task is not None and self._tick_task is asyncio.current_task()
+        """当前协程是否处于延迟提交事务内（tick/poll/handle_action 共用；
+        口径与 :meth:`_commit` 一致）。"""
+        return self._tx_task is not None and self._tx_task is asyncio.current_task()
 
     async def _commit(self):
         # tick 事务内不提前提交：所有步骤共用一笔事务，成功统一 commit，
@@ -563,7 +611,26 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
     async def get_world(self) -> Optional[dict]:
         row = await self._fetchone(
             "SELECT * FROM strategy_worlds WHERE state='active' ORDER BY id DESC LIMIT 1")
-        return self._decode("strategy_worlds", row)
+        world = self._decode("strategy_worlds", row)
+        if world is not None:
+            await self._ensure_world_secret(world)
+        return world
+
+    async def _ensure_world_secret(self, world: dict) -> None:
+        """加载/回填世界私密种子盐（v4.3.0，rng 防预测）。
+
+        旧世界缺 secret 时补生成并落库（一次性迁移）；同时把值缓存到
+        self._world_secret 供 _rng 混入。
+        """
+        data = world.get("data") or {}
+        sec = str(data.get("secret") or "")
+        if not sec:
+            sec = secrets.token_hex(16)
+            data["secret"] = sec
+            world["data"] = data
+            await self.save_world(world)
+            await self._commit()
+        self._world_secret = sec
 
     async def get_node(self, world_id: int, node_id: int) -> Optional[dict]:
         row = await self._fetchone(
@@ -887,6 +954,44 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             json.dumps(w.get("data") or {}, ensure_ascii=False), int(w["id"]),
         ))
 
+    def _gc_world_data(self, data: dict, tick_no: int) -> None:
+        """清理 world.data 过期临时键，避免 JSON 无限膨胀。
+
+        v4.3.0：plot_cd（按 tick）、persuade_cd/ransoms（按时间）、
+        已无读取方的 sabotage 死标记、过期 winds。
+        """
+        if not isinstance(data, dict):
+            return
+        now = _now()
+        plot_cd = data.get("plot_cd")
+        if isinstance(plot_cd, dict):
+            data["plot_cd"] = {k: int(v) for k, v in plot_cd.items()
+                               if int(v or 0) > int(tick_no)}
+        pcd = data.get("persuade_cd")
+        if isinstance(pcd, dict):
+            data["persuade_cd"] = {k: int(v) for k, v in pcd.items()
+                                   if int(v or 0) > now}
+        # sabotage 死标记：计略结算已不再写入，残留条目直接清空
+        data.pop("sabotage", None)
+        winds = data.get("winds")
+        if isinstance(winds, list):
+            data["winds"] = [w for w in winds
+                             if isinstance(w, dict)
+                             and int(w.get("visible_at", 0) or 0) + 7 * 86400 > now][-30:]
+        # 过期日限桶：只保留今天
+        today = time.strftime("%Y%m%d", time.localtime(now))
+        pdaily = data.get("persuade_daily")
+        if isinstance(pdaily, dict):
+            for fid, bucket in list(pdaily.items()):
+                if not isinstance(bucket, dict):
+                    pdaily.pop(fid, None)
+                    continue
+                keep = {k: v for k, v in bucket.items() if str(k) == today}
+                if keep:
+                    pdaily[fid] = keep
+                else:
+                    pdaily.pop(fid, None)
+
     # ------------------------------------------------------------------
     # 世界生命周期（§10：建世界 / 幂等）
     # ------------------------------------------------------------------
@@ -919,12 +1024,16 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 "SELECT COALESCE(MAX(season_no), 0) + 1 AS n FROM strategy_worlds")
             season_no = int((row or {}).get("n", 1) or 1)
         season_days = int(cfg.get("season_days", 75))
+        # v4.3.0：建世即生成私密种子盐（rng 防离线预测），随 data_json 落库
+        world_secret = secrets.token_hex(16)
+        self._world_secret = world_secret
         wid = await self._execute("""
             INSERT INTO strategy_worlds (season_no, template_id, started_at, ends_at,
                 state, last_tick_at, tick_no, data_json)
-            VALUES (?,?,?,?, 'active',?,0,'{}')
+            VALUES (?,?,?,?, 'active',?,0,?)
         """, (int(season_no), tpl.get("template_id", template_id), now,
-              now + season_days * 86400, now))
+              now + season_days * 86400, now,
+              json.dumps({"secret": world_secret}, ensure_ascii=False)))
         await self._commit()
 
         # --- 节点 ---
@@ -1117,12 +1226,14 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             f"{user_id}|{wid}".encode("utf-8")).hexdigest()[:8], 16))
         # 个人势力（P0 简化：kind='player'，多人势力 P1）
         color = "#%06x" % rng.randint(0x333333, 0xFFFFFF)
+        # v4.3.0：昵称截断——过长昵称会撑爆势力名/面板
+        nick = str(nickname or user_id).strip()[:16] or str(user_id)[:16]
         fid = await self._execute("""
             INSERT INTO strategy_factions (world_id, name, color, kind, leader_id,
                 personality_json, treasury_json, reputation, level, member_cap,
                 capital_node_id, faction_state, alive, diplomacy_json)
             VALUES (?,?,?,'player',?,'{}','{}',0,1,10,0,'normal',1,'{}')
-        """, (wid, f"{nickname or user_id}的个人势力", color, user_id))
+        """, (wid, f"{nick}的个人势力", color, user_id))
         await self._commit()
         now = _now()
         newcomer = json.dumps({"referred_by": str(referral or "")},
@@ -1334,15 +1445,21 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         return float(bonus.get("recruit_quality", 0.0)) + 0.03 * min(5, best)
 
     async def _tavern(self, player: dict, world_id: int) -> dict:
-        """取/刷新酒馆候选（4 小时一刷，手刷 300 币 ×3/日）。"""
+        """取/刷新酒馆候选（4 小时一刷，手刷 300 币 ×3/日）。
+
+        v4.3.0：仅到期刷新，删除「候选抽空自动重掷」——同一小时内种子
+        相同，抽空重掷会原样复刻同一批候选，可反复招募相同角色无限供货。
+        另以 roll_seq 递增作盐：即使到期刷新落在同一时间桶，候选也不同批。
+        """
         cfg = (self.main_cfg().get("recruit") or {})
         tavern = player.get("tavern") or {}
         now = _now()
         refresh_sec = int(cfg.get("refresh_hours", 4)) * 3600
-        if not tavern.get("candidates") or now >= int(tavern.get("refresh_at", 0)):
+        if now >= int(tavern.get("refresh_at", 0)):
             qb = await self._recruit_quality_bonus(int(player.get("faction_id") or 0))
+            seq = int(tavern.get("roll_seq", 0) or 0) + 1
             tavern = self._roll_tavern(player["user_id"], world_id, tavern, cfg, now,
-                                       quality_bonus=qb)
+                                       salt=seq, quality_bonus=qb)
             tavern["refresh_at"] = now + refresh_sec
             player["tavern"] = tavern
             await self.save_player(player)
@@ -1353,9 +1470,11 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                      now: int, salt: int = 0, quality_bonus: float = 0.0,
                      role_force: str = "") -> dict:
         # salt=0：自动刷新按小时粒度稳定候选；手动刷新传精确时间戳，
-        # 保证同小时内多次付费刷新得到不同候选
+        # 保证同小时内多次付费刷新得到不同候选。
+        # v4.3.0：种子混入世界私密密钥——此前种子全为公开可算输入
+        # （user_id/world_id/时间桶/salt），可离线复现候选序列定向刷传说将。
         rng = random.Random(int(hashlib.md5(
-            f"{user_id}|{world_id}|{now // 3600}|{salt}".encode("utf-8")).hexdigest()[:8], 16))
+            f"{self._world_secret}|{user_id}|{world_id}|{now // 3600}|{salt}".encode("utf-8")).hexdigest()[:8], 16))
         n = int(cfg.get("candidates", 5))
         role_keys = list((cfg.get("role_weights") or {}).keys()) or list(R.ROLES)
         role_w = [int((cfg.get("role_weights") or {}).get(k, 1)) for k in role_keys]
@@ -1382,13 +1501,20 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         else:
             daily = 0
         return {"candidates": cands, "refreshed_at": now, "daily_refresh_date":
-                time.strftime("%Y%m%d", time.localtime(now)), "daily_refresh_used": daily}
+                time.strftime("%Y%m%d", time.localtime(now)), "daily_refresh_used": daily,
+                # 刷新序号单调递增（自动刷新的去重盐，跨路径保留）
+                "roll_seq": int(old.get("roll_seq", 0) or 0) + 1}
 
     async def refresh_tavern(self, player: dict, world_id: int, manual: bool = False) -> dict:
         cfg = self.main_cfg().get("recruit") or {}
         tavern = player.get("tavern") or {}
         if manual:
-            used = int(tavern.get("daily_refresh_used", 0))
+            # v4.3.0：每日计数先按日期校验——此前直接读残留计数，昨日
+            # used>=limit 会把今日首刷也拦下（日期重置只发生在 _roll_tavern
+            # 内部，而校验在其之前）；且跨日首刷后 used 会跳成旧值+1。
+            today = time.strftime("%Y%m%d", time.localtime(_now()))
+            used = int(tavern.get("daily_refresh_used", 0)) \
+                if tavern.get("daily_refresh_date") == today else 0
             limit = int(cfg.get("manual_refresh_daily", 3))
             if used >= limit:
                 raise StrategyError(f"今日手动刷新次数已用完（{limit}次/日）")
@@ -1568,11 +1694,18 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         c = await self.get_char(int(char_id))
         if not c or c.get("owner_user_id") != p["user_id"]:
             raise StrategyError("角色不存在或不属于你")
+        # v4.3.0：world_id 校验——此前旧赛季角色可被新世界派遣/编军
+        # （跨赛季走私满级 legend，且不占新世界名册额度）
+        if int(c.get("world_id", 0) or 0) != int(p["world_id"]):
+            raise StrategyError("角色不存在或不属于你")
         return c
 
     async def _own_army(self, p: dict, army_id: int) -> dict:
         a = await self.get_army(int(army_id))
         if not a or a.get("owner_user_id") != p["user_id"]:
+            raise StrategyError("军团不存在或不属于你")
+        # v4.3.0：world_id 校验（与 _own_char 同理，堵跨赛季军团走私）
+        if int(a.get("world_id", 0) or 0) != int(p["world_id"]):
             raise StrategyError("军团不存在或不属于你")
         return a
 
@@ -1739,8 +1872,11 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             raise StrategyError(f"{c['name']} 状态为「{c['status']}」，无法派遣")
         if R.injury_state(c["injury"]) in ("dying", "dead"):
             raise StrategyError(f"{c['name']} 伤势过重")
-        if scfg.get("enabled", True) and c["stamina"] < int(scfg.get("task_cost", 20)):
-            raise StrategyError(f"{c['name']} 体力不足（需 {scfg.get('task_cost', 20)}）")
+        # v4.3.0：体力口径统一到 R.STAMINA_COST（此前预检读配置
+        # stamina.task_cost、实扣用硬编码，配置改动会导致二者背离）
+        task_cost = int(R.STAMINA_COST.get("task", 20))
+        if scfg.get("enabled", True) and c["stamina"] < task_cost:
+            raise StrategyError(f"{c['name']} 体力不足（需 {task_cost}）")
         # 双人协作（§6.1：协作任务 2 人 +15%）：两人都占用 status='task'
         partner = None
         if int(partner_char_id or 0):
@@ -1752,10 +1888,9 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                     f"{partner['name']} 状态为「{partner['status']}」，无法协作")
             if R.injury_state(partner["injury"]) in ("dying", "dead"):
                 raise StrategyError(f"{partner['name']} 伤势过重")
-            if scfg.get("enabled", True) and \
-                    partner["stamina"] < int(scfg.get("task_cost", 20)):
+            if scfg.get("enabled", True) and partner["stamina"] < task_cost:
                 raise StrategyError(
-                    f"{partner['name']} 体力不足（需 {scfg.get('task_cost', 20)}）")
+                    f"{partner['name']} 体力不足（需 {task_cost}）")
         ticks = max(1, int(hours) * int(tcfg.get("ticks_per_hour", 4)))
         target_id = int(target_node_id or node_id)
         supplied = 0
@@ -1768,13 +1903,21 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             if task_type == "raid":
                 if int(node.get("owner_faction") or 0) == int(p["faction_id"]):
                     raise StrategyError("不能劫掠己方据点")
+                # v4.3.0：复用 march 的全套目标校验（同盟/保护期/停战/
+                # 新手保护）——此前 raid 绕过全部宣战门禁，可劫掠受护山盾、
+                # 新手保护期甚至同盟势力的据点
+                await self._check_attack_target(world, p, node, _now())
                 f = await self.get_faction(int(p["faction_id"]))
                 ids = await self._alliance_ids(int(world["id"]), f) if f else set()
                 ids.add(int(p["faction_id"]))
-                home = await self.get_nodes(world["id"])
+                all_nodes = await self.get_nodes(world["id"])
+                # v4.3.0：邻接校验修正——此前用节点 id 比对势力 id 集合
+                # （int(n["id"]) in ids），真正毗邻的目标被误拒，而与
+                # 「id 恰好等于某势力 id 的节点」相邻的目标被误放行
                 adj_ok = any(
-                    int(n["id"]) in ids and int(node["id"]) in (n.get("adj") or [])
-                    for n in home)
+                    int(n.get("owner_faction") or 0) in ids
+                    and int(node["id"]) in (n.get("adj") or [])
+                    for n in all_nodes)
                 if not adj_ok:
                     raise StrategyError("劫掠目标须与己方/盟友据点相邻")
         elif task_type == "supply":
@@ -1800,13 +1943,16 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             await self.save_army(army)
         else:
             node = await self._owned_node(p, node_id)
-        if R.spend_stamina(c, "task", bool(scfg.get("enabled", True))):
-            pass
+        # v4.3.0：检查实扣返回值——此前 `if ...: pass` 吞掉 False（未扣成功），
+        # 体力不足时任务照跑（整个动作在 handle_action 事务内，失败整体回滚）
+        if not R.spend_stamina(c, "task", bool(scfg.get("enabled", True))):
+            raise StrategyError(f"{c['name']} 体力不足（需 {task_cost}）")
         c["status"] = "task"
         c["location"] = {"node_id": node["id"]}
         await self.save_char(c)
         if partner is not None:
-            R.spend_stamina(partner, "task", bool(scfg.get("enabled", True)))
+            if not R.spend_stamina(partner, "task", bool(scfg.get("enabled", True))):
+                raise StrategyError(f"{partner['name']} 体力不足（需 {task_cost}）")
             partner["status"] = "task"
             partner["location"] = {"node_id": node["id"]}
             await self.save_char(partner)
@@ -1852,8 +1998,12 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         task["status"] = "recalled"
         await self.db.conn.execute(
             "UPDATE strategy_tasks SET status='recalled' WHERE id=?", (task_id,))
-        c["status"] = "idle"
-        await self.save_char(c)
+        # v4.3.0：结算期间（_pay_task raid 反杀）角色可能已被俘/阵亡，
+        # 不得强改 idle——否则俘虏「越狱」回可用池，且 DB 残留
+        # idle+captor_faction>0 的脏数据（与 _step_settle_tasks 同守卫）
+        if c.get("status") not in ("captive", "dead"):
+            c["status"] = "idle"
+            await self.save_char(c)
         # 双人协作：召回时同步释放搭档，避免永久占用
         partner_id = int((task.get("payout") or {}).get("partner_char_id") or 0)
         if partner_id:
@@ -2021,9 +2171,12 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 out["reputation"] = rep_cost
         # 反杀：执行者受伤或被俘（task.raid_counterkill_chance）
         if rng.random() < float(tcfg.get("raid_counterkill_chance", 0.15)):
-            if rng.random() < 0.4:
+            captor = int(node.get("owner_faction") or 0)
+            # v4.3.0：无主据点（captor=0）无人可关押俘虏——此前会造出
+            # captor_faction=0 的孤儿俘虏（无法劝降/收赎金，只能等关押位
+            # 满被驱逐），此类反杀降级为受伤
+            if captor > 0 and rng.random() < 0.4:
                 # 统一走关押入口：校验营位、移出军团名册；位满则就地驱逐
-                captor = int(node.get("owner_faction") or 0)
                 got = await self._capture_char(c, captor, int(node["id"]))
                 out["counterkill"] = "captured" if got else "evicted"
             else:
@@ -2041,6 +2194,13 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
 
         选择：转为**我方俘虏**（status='captive'，captor_faction=我方），
         保留后续劝降玩法，不直接招募。
+
+        v4.3.0：两项修正——
+        1) 位置过滤：只擒「人在被侦察据点」的 idle 流将（此前从敌方全图
+           idle 角色随机抓人，与 §6.2「据点流将」语义不符），在军团编制内
+           的角色除外（否则等于隔空从敌军军团抽人）；
+        2) 关押落点改为擒获方最近的己方据点（此前用被侦察的敌方节点，
+           等于把俘虏关进对方自己的牢里，可被即刻解放）。
         """
         tcfg = self.main_cfg().get("task") or {}
         chance = float(tcfg.get("scout_capture_chance", 0.08) or 0)
@@ -2050,17 +2210,37 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         if not node:
             return ""
         owner = int(node.get("owner_faction") or 0)
-        if owner <= 0 or owner == int(task.get("faction_id") or 0):
+        my_fid = int(task.get("faction_id") or 0)
+        if owner <= 0 or owner == my_fid or my_fid <= 0:
             return ""
         rows = await self._fetchall(
             "SELECT * FROM strategy_characters WHERE world_id=? AND faction_id=? "
-            "AND status='idle' ORDER BY RANDOM() LIMIT 1",
-            (int(world["id"]), owner))
-        if not rows:
+            "AND status='idle'", (int(world["id"]), owner))
+        # 在军团名册内的角色不是「流将」，不可被侦察擒获
+        in_army: set[int] = set()
+        for a in await self.get_armies(world["id"]):
+            for cid in a.get("characters") or []:
+                try:
+                    in_army.add(int(cid))
+                except (TypeError, ValueError):
+                    continue
+        cands = []
+        for r in rows:
+            cc = self._decode("strategy_characters", r)
+            if int(cc["id"]) in in_army:
+                continue
+            loc_node = int((cc.get("location") or {}).get("node_id", 0) or 0)
+            if loc_node == int(node["id"]):
+                cands.append(cc)
+        if not cands:
             return ""
-        victim = self._decode("strategy_characters", rows[0])
-        if not await self._capture_char(
-                victim, int(task.get("faction_id") or 0), int(node["id"])):
+        # 用任务结算 rng（种子链可复现），不用 SQL 的 ORDER BY RANDOM()
+        victim = rng.choice(cands)
+        jail = await self._nearest_own_node(
+            world, {"faction_id": my_fid}, int(node["id"]))
+        if not jail:
+            return ""
+        if not await self._capture_char(victim, my_fid, int(jail)):
             return ""
         await self._notify(world, [p.get("user_id")], "event",
                            {"text": f"🕵 {c['name']} 侦察时擒获「{victim['name']}」"})
@@ -2127,11 +2307,21 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         return mult
 
     async def _heal_chars_at_node(self, p: dict, node_id: int, amount: int) -> int:
+        """疗伤任务：只治疗「人在任务据点」的角色（v4.3.0 node-scoped）。
+
+        此前条件为 `status=='idle' or location==node_id`——全图任意 idle
+        角色都被治疗，任务据点形同虚设（可远程隔空疗伤）；且死亡/被俘
+        角色也会被治疗。无 location 的 idle 角色视为主城所在（新招募角色
+        默认在主城），主城即任务据点时照常治疗。
+        """
         healed = 0
+        f = await self.get_faction(int(p.get("faction_id", 0) or 0))
+        capital = int((f or {}).get("capital_node_id", 0) or 0)
         for c in await self.get_chars(owner_user_id=p["user_id"], world_id=p["world_id"]):
-            if c["injury"] > 0 and (
-                    c["status"] == "idle" or
-                    (c.get("location") or {}).get("node_id") == node_id):
+            if c["injury"] <= 0 or c["status"] in ("dead", "captive", "transfer"):
+                continue
+            loc = int((c.get("location") or {}).get("node_id", 0) or 0) or capital
+            if loc == int(node_id):
                 c["injury"] = max(0, c["injury"] - max(1, amount // 40))
                 await self.save_char(c)
                 healed += 1
@@ -2181,10 +2371,15 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             raise StrategyError(f"{leader['name']} 伤势过重，无法出征")
         members = [leader]
         seen = {int(leader["id"])}
+        # §5.5：1 主将 + 副将 0~2（含主将共最多 3 人）
+        max_chars = max(1, int(acfg.get("max_chars", 3)))
         for mid in member_ids or []:
             # 低危：member_ids 去重（重复 id 会让同一角色两次入军/双重羁绊掷点）
             if int(mid) in seen:
                 continue
+            if len(members) >= max_chars:
+                raise StrategyError(
+                    f"军团最多 {max_chars} 人（主将 1 + 副将 {max_chars - 1}）")
             seen.add(int(mid))
             mc = await self._own_char(p, mid)
             if mc["status"] != "idle":
@@ -2327,28 +2522,14 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         await self._commit()
         return {"ok": True, "msg": f"操练完成，精锐值 {a['veteran']}"}
 
-    async def march(self, user_id: str, army_id: int, target_node_id: int) -> dict:
-        world, p = await self._require_player(user_id)
-        a = await self._own_army(p, army_id)
-        if self._is_reorganizing(a, world):
-            raise StrategyError(self._reorg_msg(a, world))
-        if a["state"] == "escort":
-            raise StrategyError("护送运粮队期间无法出征（抵达或被截后自动归队）")
-        if a["state"] not in ("idle",):
-            raise StrategyError(f"军团状态「{a['state']}」无法出征")
-        if int(a.get("troops", 0)) <= 0:
-            raise StrategyError("军团已无兵力，请解散后重新编军")
-        if not await self._army_leader(a):
-            raise StrategyError("军团已无可用主将，请解散后重新编军")
-        target = await self.get_node(world["id"], int(target_node_id))
-        if not target:
-            raise StrategyError("目标据点不存在")
-        path = await self.find_path(world["id"], a["node_id"], target["id"])
-        if not path:
-            raise StrategyError("目标不连通（须沿通路行军）")
-        if len(path) < 2:
-            raise StrategyError("军团已在目标据点")
-        now = _now()
+    async def _check_attack_target(self, world: dict, p: dict, target: dict,
+                                   now: int) -> None:
+        """进攻性目标共用前置校验（march/raid 共用，v4.3.0 抽取）。
+
+        校验项：同盟势力不可攻、保护期、同盟/停战/开战备战期（§6.3 宣战
+        门禁）、目标玩家新手保护期。无主目标（owner_faction=0）仅同盟校验
+        可能命中（target_host 为 None 自然跳过），其余按敌方势力才生效。
+        """
         my_f = await self.get_faction(int(p["faction_id"]))
         my_host = await self._alliance_host(my_f) if my_f else None
         target_f = await self.get_faction(int(target["owner_faction"])) \
@@ -2358,7 +2539,7 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 target_host and int(my_host["id"]) == int(target_host["id"]):
             raise StrategyError("目标属于同盟势力，不可进攻")
         if target["owner_faction"] not in (0, p["faction_id"]):
-            if target.get("protect_until", 0) > now:
+            if int(target.get("protect_until", 0) or 0) > now:
                 raise StrategyError("目标处于保护期")
             # C-M3：同盟/停战/开战备战期禁止进攻（§6.3 宣战门禁）
             rel = R.relation_of((my_host or {}).get("diplomacy"),
@@ -2381,6 +2562,32 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 joined = int((np or {}).get("created_at", 0) or 0)
                 if joined and now - joined < days * 86400 and not newcom.get("opt_out"):
                     raise StrategyError(f"目标玩家处于新手保护期（{days}天）")
+
+    async def march(self, user_id: str, army_id: int, target_node_id: int) -> dict:
+        world, p = await self._require_player(user_id)
+        a = await self._own_army(p, army_id)
+        if self._is_reorganizing(a, world):
+            raise StrategyError(self._reorg_msg(a, world))
+        if a["state"] == "escort":
+            raise StrategyError("护送运粮队期间无法出征（抵达或被截后自动归队）")
+        if a["state"] not in ("idle",):
+            raise StrategyError(f"军团状态「{a['state']}」无法出征")
+        if int(a.get("troops", 0)) <= 0:
+            raise StrategyError("军团已无兵力，请解散后重新编军")
+        if not await self._army_leader(a):
+            raise StrategyError("军团已无可用主将，请解散后重新编军")
+        target = await self.get_node(world["id"], int(target_node_id))
+        if not target:
+            raise StrategyError("目标据点不存在")
+        path = await self.find_path(world["id"], a["node_id"], target["id"])
+        if not path:
+            raise StrategyError("目标不连通（须沿通路行军）")
+        if len(path) < 2:
+            raise StrategyError("军团已在目标据点")
+        now = _now()
+        # v4.3.0：抽出 _check_attack_target 共用助手（raid 同口径复用），
+        # 校验项不变：同盟不可攻 / 保护期 / 同盟·停战·开战备战 / 新手保护
+        await self._check_attack_target(world, p, target, now)
         a["state"] = "march"
         a["path"] = path[1:]
         a["edge_pos"] = 0.0
@@ -3011,6 +3218,9 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             tavern = self._roll_tavern(
                 p["user_id"], int(world["id"]), p.get("tavern") or {}, cfg,
                 _now(), salt=_now(), role_force=role)
+            # v4.3.0：补写 refresh_at——此前返回的 tavern 缺该键，下一次
+            # _tavern() 视同已到期立即重掷，定向候选瞬间被冲掉（200 战功白花）
+            tavern["refresh_at"] = _now() + int(cfg.get("refresh_hours", 4)) * 3600
             p["tavern"] = tavern
             await self.save_player(p)
             await self._commit()
@@ -3075,6 +3285,10 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
 
         if item == "gold_pack":
             amount = int(spec.get("gold", 100000))
+            # v4.3.0：与战功商店 gold_pack 同口径——主玩法角色不存在时
+            # _inject_gold 无法落库，但下方仍会照扣荣誉点，须扣点前拦截
+            if await self.db.get_player_by_id(user_id) is None:
+                raise StrategyError("主玩法角色不存在，请先进入修仙后再兑换灵石")
             room, cap, sent = self._gold_inject_room(p)
             if room < amount:
                 raise StrategyError(
@@ -3216,7 +3430,7 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         except Exception:  # noqa: BLE001
             await self.db.conn.rollback()
             await self.db.conn.execute("BEGIN IMMEDIATE")
-        self._tick_task = asyncio.current_task()
+        self._tx_task = asyncio.current_task()
         try:
             world["last_tick_at"] = _now()
             await self.save_world(world)
@@ -3274,7 +3488,7 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 await self._step_cleanup_battles(world)
                 # 8g. 擂台过期清理（退还赌注，无交互也会回收）
                 await self._sweep_duel_arena(world)
-            # 9. 落盘世界时钟
+            # 9. 落盘世界时钟 + 临时键 GC
             world["last_tick_at"] = _now()
             data = world.get("data") or {}
             recent = data.get("recent_ticks") or []
@@ -3284,13 +3498,14 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                            "gold": summary["gold_injected"],
                            "output_only": output_only})
             data["recent_ticks"] = recent[-12:]
+            self._gc_world_data(data, tick_no)
             world["data"] = data
             await self.save_world(world)
             # 整段 tick 成功：恢复真实提交并一次性落盘
-            self._tick_task = None
+            self._tx_task = None
             await self._commit()
         except Exception as e:  # noqa: BLE001
-            self._tick_task = None
+            self._tx_task = None
             logger.exception(f"[strategy] tick#{tick_no} 异常: {e}")
             summary["ok"] = False
             summary["error"] = str(e)
@@ -4157,6 +4372,10 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                     5 * (int(infirmary_nodes[loc_node]) - 1)
             if c["status"] == "idle":
                 R.recover_injury(c, per)
+            elif c["status"] == "captive":
+                # v4.3.0：俘虏伤势半速恢复——此前 status='captive' 零恢复，
+                # 长期关押的俘虏永远带伤（劝降/赎金价值受损，获释即废人）
+                R.recover_injury(c, max(1, per // 2))
             R.recover_stamina(c, int(scfg.get("recover_per_tick", 10))
                               if scfg.get("enabled", True) else 0)
             await self.save_char(c)
@@ -5077,22 +5296,10 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                     node = await self.get_node(world["id"], int(nid))
                     if not node or node["owner_faction"] <= 0:
                         continue
-                    f = await self.get_faction(node["owner_faction"])
-                    if f and f.get("kind") == "npc":
-                        treasury = f.get("treasury") or {}
-                        loss = int(treasury.get("grain", 0) * pct)
-                        treasury["grain"] = int(treasury.get("grain", 0)) - loss
-                        f["treasury"] = treasury
-                        await self.save_faction(f)
-                    elif f and f.get("kind") == "player":
-                        row = await self._fetchone(
-                            "SELECT user_id FROM strategy_players WHERE world_id=? AND faction_id=?",
-                            (world["id"], node["owner_faction"]))
-                        if row:
-                            p = await self.get_player(row["user_id"], world["id"])
-                            loss = int(p["grain"] * pct)
-                            p["grain"] -= loss
-                            await self.save_player(p)
+                    # v4.3.0：复用计略「焚粮」的 _burn_owner_grain——此前
+                    # 玩家势力只 fetchone 烧「第一家」成员的粮，多人势力
+                    # 的其他成员毫发无损（事件伤害取决于 DB 行序）
+                    await self._burn_owner_grain(world, node, pct)
             elif eff.get("type") == "spawn_demon_armies":
                 lo, hi = eff.get("count") or [2, 4]
                 count = rng.randint(int(lo), int(hi))
@@ -5234,11 +5441,14 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             if not is_mine and a["state"] == "march" and not node_visible:
                 continue
             fm = f_meta.get(a["faction_id"], {"name": "?", "color": "#888"})
+            # v4.3.0：敌军行军 path 只对自己可见——否则迷雾外/邻接敌军
+            # 的完整路线可被前端直接读出，绕开战争迷雾。
             out_armies.append({
                 "id": a["id"], "name": a["name"], "faction": fm["name"],
                 "faction_color": fm["color"], "mine": is_mine,
                 "node_id": a["node_id"], "state": a["state"],
-                "path": a["path"], "troops": a["troops"] if is_mine or
+                "path": a["path"] if is_mine else [],
+                "troops": a["troops"] if is_mine or
                 node_visible else None,
                 "troop_type": a["troop_type"], "morale": a["morale"] if is_mine else None,
                 "veteran": a["veteran"] if is_mine else None,
@@ -5723,6 +5933,11 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         "mobilization_issue", "transfer_captive", "transfer_node",
         "govern_relief", "upgrade_building", "create_army", "raid_bandit",
         "dispatch_plot", "market_list", "market_buy", "persuade",
+        # v4.3.0 补全：此前 11 个敏感动作落库无审计
+        "faction_task_claim", "faction_task_refresh", "rebuild_donate",
+        "arena_register", "diplomacy_propose", "diplomacy_respond",
+        "release", "ransom_set", "ransom_pay", "market_cancel",
+        "faction_invite",
     }
 
     async def handle_action(self, user_id: str, action: str,
@@ -5744,16 +5959,30 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             audit = action in self._AUDIT_ACTIONS
             detail = {k: v for k, v in (params or {}).items()
                       if k not in ("password", "token")}
+            # v4.3.0：整个动作用 BEGIN IMMEDIATE 包住——autocommit 下每条
+            # 语句即刻落盘，此前异常路径的 rollback() 是空操作，半更新会被
+            # 后续任意提交「顺带」落库（如 recruit 先得角色后扣币，扣币失败
+            # 角色却保留）。事务内所有 _commit() 经 _tx_task 标记延迟，
+            # 成功统一提交、异常整体回滚；与 tick 同用数据层事务状态机，
+            # 嵌套时自动降级 SAVEPOINT。
+            try:
+                await self.db.conn.execute("BEGIN IMMEDIATE")
+            except Exception:  # noqa: BLE001
+                # 与数据层 _begin 同语义：残留事务先提交结束（而非回滚，
+                # 否则会吞掉调用方此前未提交的合法写入），再开新事务
+                await self.db.conn.commit()
+                await self.db.conn.execute("BEGIN IMMEDIATE")
+            prev_tx = self._tx_task
+            self._tx_task = asyncio.current_task()
             try:
                 result = await self._handle_action(user_id, action, params)
             except Exception as exc:  # noqa: BLE001 - 失败也留痕后原样抛出
-                # 动作中途抛错时共享连接里可能残留半更新（先 save_* 后校验
-                # 失败）；必须显式回滚，否则会被下一次任意 _commit() 顺带
-                # 提交，造成资源凭空增减。审计单独提交，避免被回滚吃掉。
+                self._tx_task = prev_tx
                 try:
                     await self.db.conn.rollback()
                 except Exception:  # noqa: BLE001
                     pass
+                # 审计在回滚后单独写入（autocommit 立即落盘），不被回滚吃掉
                 if audit:
                     await self._audit(user_id, action,
                                       {**detail, "ok": False, "error": str(exc)})
@@ -5762,6 +5991,16 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                     except Exception:  # noqa: BLE001
                         pass
                 raise
+            self._tx_task = prev_tx
+            try:
+                await self.db.conn.commit()
+            except Exception:  # noqa: BLE001
+                # 提交失败视同动作未生效：回滚残留并报错，绝不返回「成功」
+                try:
+                    await self.db.conn.rollback()
+                except Exception:  # noqa: BLE001
+                    pass
+                raise StrategyError("操作落库失败，请重试")
             if audit:
                 await self._audit(user_id, action,
                                   {**detail, "ok": bool(result.get("ok", True))})

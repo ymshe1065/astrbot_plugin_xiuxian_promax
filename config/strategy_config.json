@@ -110,6 +110,7 @@
 
   "army": {
     "min_troops": 100,
+    "max_chars": 3,
     "concurrent_base": 2,
     "concurrent_per_faction_levels": 2,
     "grain_per_100_per_tick": 0.5,
@@ -186,8 +187,6 @@
     "mana_max": 100,
     "mana_per_round": 15,
     "mana_on_hit": 5,
-    "duel_rounds": [1, 3],
-    "duel_respond_seconds": 15,
     "ambush_max": 2,
     "max_manual_rounds": 30
   },
@@ -208,6 +207,8 @@
     "valor_min": 75,
     "rounds_to_win": 2,
     "max_rounds": 3,
+    "rounds": [1, 3],
+    "respond_seconds": 15,
     "win_morale": 15,
     "lose_morale": 10,
     "refuse_morale": -5,
@@ -219,6 +220,7 @@
     "arena_stake_min": 100,
     "arena_stake_max": 100000,
     "challenges_per_round": 1,
+    "challenges_per_target": 2,
     "drum_tower_mult": 2.0
   },
 
@@ -235,7 +237,7 @@
     "persuade_stat_divisor": 4,
     "persuade_clamp": [5, 90],
     "persuade_rep_bonus": 10,
-    "defect_loyalty": 80,
+    "defect_loyalty": 0,
     "defect_rep_cost": -3,
     "liberate_merit": 50,
     "ransom_enable": true,

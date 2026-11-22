@@ -12,6 +12,7 @@ core.strategy_hex 会话）；部署/开局/指令/托管/超时 AI 接管；
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import random
@@ -202,11 +203,14 @@ class StrategyBattleMixin:
         # 只拉「当前围城归属势力」的军团：此前把所有势力的 siege 军团合并，
         # 围城易手后旧势力残军会被拉进战斗，攻方胜时还会按列表第一支误判
         # 占城/战利品归属（§7.2 围城唯一攻方）。
+        # v4.3.0：攻方阵营硬校验——attacker_faction 缺失/为 0 时不再放行
+        # 「任意势力围城军团」，直接拒绝出击（数据异常宁可不出战）。
         atk_fid = int(ss.get("attacker_faction") or 0)
+        if atk_fid <= 0:
+            raise StrategyError("围城数据异常（缺攻方势力），无法出击")
         atk_armies = [a for a in await self.get_armies(
             world["id"], node_id=node["id"], states=("siege",))
-            if a["troops"] > 0
-            and (not atk_fid or int(a["faction_id"]) == atk_fid)]
+            if a["troops"] > 0 and int(a["faction_id"]) == atk_fid]
         if not atk_armies:
             raise StrategyError("围城军团已不存在")
         my_def = [a for a in await self.get_armies(
@@ -375,10 +379,15 @@ class StrategyBattleMixin:
                     and ((u.get("leader") or {}).get("profession") == "sword")
                     and int(u.get("troops", 0) or 0) > 0
                     and not u.get("routed")),
-                "statuses": (sess.get("statuses") or {}).get(str(u["uid"]), {}),
+                # v4.3.0：statuses/delegate 只下发己方——敌方惑敌/挑衅/
+                # 压制等内部状态与「是否托管」属于战争迷雾，泄露后可被
+                # 针对性利用（如专挑托管单位反复单挑）。
+                "statuses": ((sess.get("statuses") or {}).get(str(u["uid"]), {})
+                             if is_mine else {}),
                 "skills": (H.unit_skills(sess, u) if u.get("pos") else [])
                           if is_mine else [],
-                "delegate": bool((sess.get("delegate") or {}).get(str(u["uid"]))),
+                "delegate": bool((sess.get("delegate") or {}).get(str(u["uid"])))
+                            if is_mine else False,
             })
         # §12.6 观战模式：非参战同势力玩家只读且**延迟 1 回合**（防报点）。
         spectator = not my_uids
@@ -668,6 +677,17 @@ class StrategyBattleMixin:
             raise StrategyError("当前不是你的单位行动")
         if (sess.get("delegate") or {}).get(str(uid)):
             raise StrategyError("该单位已托管（先关闭托管再手操）")
+        # v4.3.0：expected_uid 校验——网络延迟下回合可能已切换（超时托管/
+        # 敌方完成行动），迟到的旧指令不得误消耗己方下一单位的行动权。
+        # 客户端未传时保持旧行为（向后兼容）。
+        exp = params.get("expected_uid")
+        if exp not in (None, "", 0, "0"):
+            try:
+                exp_int = int(exp)
+            except (TypeError, ValueError):
+                raise StrategyError("expected_uid 无效")
+            if exp_int != uid:
+                raise StrategyError("回合已切换，请刷新后重新操作")
 
         res: dict[str, Any] = {"ok": True, "action": action}
         if action == "move":
@@ -976,13 +996,63 @@ class StrategyBattleMixin:
         rows = await self._fetchall(
             "SELECT * FROM strategy_battles WHERE world_id=? AND mode='manual' "
             "AND state IN ('deploy','battle')", (world["id"],))
+        # v4.3.0：先收集活跃战役的参战军团，推进后清扫「孤儿 battle 态军团」
+        active_army_ids: set[int] = set()
         for row in rows:
             battle = self._decode("strategy_battles", row)
+            for v in ((battle.get("session") or {}).get("owners") or {}).values():
+                try:
+                    aid = int(v.get("army_id", 0) or 0)
+                except (TypeError, ValueError):
+                    continue
+                if aid > 0:
+                    active_army_ids.add(aid)
+        for row in rows:
+            battle = self._decode("strategy_battles", row)
+            # v4.3.0：延迟提交事务内每场战役套 SAVEPOINT（数据层自动降级），
+            # 单场推进异常的半更新就地回滚，不污染同事务内其他战役
+            use_sp = self._in_tick_task()
+            if use_sp:
+                await self.db.conn.execute("BEGIN")
             try:
                 await self._advance_manual_battle(world, battle)
+                if use_sp:
+                    await self.db.conn.execute("COMMIT")
             except Exception as e:  # noqa: BLE001
+                if use_sp:
+                    try:
+                        await self.db.conn.execute("ROLLBACK")
+                    except Exception:  # noqa: BLE001
+                        pass
                 logger.exception(f"[strategy] 手操战役#{battle['id']} 推进异常: {e}")
+        await self._sweep_orphan_battle_armies(world, active_army_ids)
         await self._commit()
+
+    async def _sweep_orphan_battle_armies(self, world: dict,
+                                          active_army_ids: set[int]) -> int:
+        """释放孤儿军团：state='battle' 但已不属于任何活跃手操战役。
+
+        finalize 幂等闸门把战役行原子推进到 done 并 commit 之后、善后完成
+        之前若进程崩溃，恢复扫描（只查 deploy/battle）永远不会再推进该战役，
+        参战军团将永久卡在 battle 态（既不围城也不受指令驱动）。
+        """
+        rows = await self._fetchall(
+            "SELECT id FROM strategy_armies WHERE world_id=? AND state='battle'",
+            (int(world["id"]),))
+        released = 0
+        for r in rows:
+            aid = int(r["id"])
+            if aid in active_army_ids:
+                continue
+            a = await self.get_army(aid)
+            if a and a.get("state") == "battle":
+                a["state"] = "idle"
+                await self.save_army(a)
+                released += 1
+        if released:
+            logger.warning(f"[strategy] 释放 {released} 支孤儿 battle 态军团"
+                           f"（战役已终局但善后中断的残留）")
+        return released
 
     async def poll_manual_battles(self):
         """秒级轮询推进手操战役（独立于 15 分钟世界 tick）。
@@ -999,8 +1069,33 @@ class StrategyBattleMixin:
                 return
             async with self._world_lock:
                 world = await self.get_world()
-                if world:
+                if not world:
+                    return
+                # v4.3.0：poll 推进同样包成延迟提交事务（与 tick 共用
+                # _tx_task 标记）——此前 autocommit 下 _step_manual_battles
+                # 内部每次 _commit 立即落库，中途异常会留下半提交状态。
+                # tick 路径已在大事务内，直接透传。
+                if self._in_tick_task():
                     await self._step_manual_battles(world)
+                    return
+                try:
+                    await self.db.conn.execute("BEGIN IMMEDIATE")
+                except Exception:  # noqa: BLE001
+                    # 残留事务先提交结束（与数据层 _begin 同语义），再开新事务
+                    await self.db.conn.commit()
+                    await self.db.conn.execute("BEGIN IMMEDIATE")
+                self._tx_task = asyncio.current_task()
+                try:
+                    await self._step_manual_battles(world)
+                    self._tx_task = None
+                    await self.db.conn.commit()
+                except Exception:  # noqa: BLE001
+                    self._tx_task = None
+                    try:
+                        await self.db.conn.rollback()
+                    except Exception:  # noqa: BLE001
+                        pass
+                    logger.exception("[strategy] 手操战役轮询推进异常，事务已回滚")
 
     async def _advance_manual_battle(self, world: dict, battle: dict):
         sess = battle.get("session") or {}
@@ -1012,11 +1107,12 @@ class StrategyBattleMixin:
             await self._release_battle_armies(world, battle)
             await self.update_battle_session(battle)
             return
-        # 单挑超时 → 自动拒绝
+        # 单挑超时 → 自动拒绝（v4.3.0：托管/掉线者非主动拒战，不扣士气，
+        # 否则挑战方可反复点名挂机对手零战损压溃其士气）
         duel = sess.get("duel")
         if duel and duel.get("state") == "pending" and \
                 now > int(duel.get("deadline", 0)):
-            H.refuse_duel(sess)
+            H.refuse_duel(sess, penalty=False)
         if battle["state"] == "deploy":
             if now < int(battle.get("deadline_at", 0)):
                 return
@@ -1215,9 +1311,15 @@ class StrategyBattleMixin:
                 if a.get("owner_user_id") and a.get("troops", 0) > 0:
                     pp = await self.get_player(a["owner_user_id"], world["id"])
                     if pp:
-                        pp["merit"] += extra
-                        pp["merit_season"] += extra
-                        await self.save_player(pp)
+                        # v4.3.0：走 _settle_merit 门禁（入盟观察期/多开嫌疑
+                        # ×0 判定 + 审计留痕），此前直接 += 绕过反作弊体系
+                        granted = await self._settle_merit(
+                            a["owner_user_id"], extra,
+                            reason="manual_win_bonus")
+                        if granted > 0:
+                            pp["merit"] += granted
+                            pp["merit_season"] += granted
+                            await self.save_player(pp)
                     await self._award_achievement(a["owner_user_id"],
                                                   "conquest_first_manual")
         if kind == "siege" and winner == "attacker":
@@ -1382,12 +1484,15 @@ class StrategyBattleMixin:
                     "SELECT user_id FROM strategy_players WHERE world_id=? AND faction_id=?",
                     (world["id"], atk_fid))
                 n = max(1, len(rows))
-                for row in rows:
+                # v4.3.0：整除余量按顺序分给前几名玩家，不再蒸发
+                for idx, row in enumerate(rows):
                     pp = await self.get_player(row["user_id"], world["id"])
                     if pp:
                         for k, v in loot.items():
                             if k in ("coin", "grain", "iron"):
-                                pp[k] = int(pp.get(k, 0)) + int(v) // n
+                                iv = int(v)
+                                share = iv // n + (1 if idx < iv % n else 0)
+                                pp[k] = int(pp.get(k, 0)) + share
                         await self.save_player(pp)
         await self._commit()
         return loot

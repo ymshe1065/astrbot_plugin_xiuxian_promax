@@ -647,7 +647,15 @@
   // battle_action 族：action 名放 params.act（后端 params["act"] 分发）
   async function act2(battleAct, params) {
     mode = "select"; movePlan = null; setHint("");
-    return act("battle_action", { act: battleAct, params: params || {} });
+    params = params || {};
+    // v4.3.0：回合类指令附带渲染时的 current_actor，服务端校验回合未切换；
+    // 防止网络延迟下旧指令误吞己方下一单位的行动权（超时托管后尤其危险）
+    const turnActs = ["move", "attack", "skill", "defend", "retreat",
+                      "end_turn", "duel_challenge"];
+    if (turnActs.indexOf(battleAct) >= 0 && bs && bs.current_actor) {
+      params.expected_uid = bs.current_actor;
+    }
+    return act("battle_action", { act: battleAct, params: params });
   }
 
   async function refresh() {

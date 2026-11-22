@@ -313,6 +313,7 @@ async def start(host: str, port: int) -> None:
     app.router.add_post("/api/avatar", _api_avatar)
     app.router.add_get("/api/bind/status", _api_bind_status)
     app.router.add_post("/api/bind", _api_bind)
+    app.router.add_post("/api/bind/cancel", _api_bind_cancel)
     app.router.add_post("/api/bind/unbind", _api_bind_unbind)
     app.router.add_get("/api/channels", _api_channels)
     app.router.add_post("/api/channels/create", _api_channels_create)
@@ -940,6 +941,35 @@ async def _strategy_battle_owners(battle_id: int) -> list[str]:
     return out
 
 
+async def _mask_battle_current_actor(battle_id: int, viewer_uid: str,
+                                     current_actor) -> Any:
+    """按 viewer 遮罩 current_actor：敌方未揭示伏兵不得通过 WS 泄露 uid。"""
+    if current_actor is None:
+        return None
+    plugin = _plugin
+    mgr = getattr(plugin, "strategy_mgr", None) if plugin is not None else None
+    if mgr is None:
+        return current_actor
+    try:
+        battle = await mgr.get_battle(int(battle_id))
+    except Exception:
+        return None
+    sess = (battle or {}).get("session") or {}
+    owners = sess.get("owners") or {}
+    try:
+        cur_uid = int(current_actor)
+    except (TypeError, ValueError):
+        return current_actor
+    own = (owners.get(str(cur_uid)) or {}).get("owner", "")
+    if own == viewer_uid:
+        return cur_uid
+    # 与 battle_state 同口径：未揭示敌方伏兵对对手隐藏 current_actor
+    for amb in (sess.get("ambushes") or []):
+        if int(amb.get("uid", 0) or 0) == cur_uid and not amb.get("revealed"):
+            return None
+    return cur_uid
+
+
 async def notify_strategy_battle(battle_id: int, result: dict | None = None,
                                  user_ids: list[str] | None = None) -> int:
     """手操回合推进广播（strategy.battle.event）。
@@ -959,21 +989,23 @@ async def notify_strategy_battle(battle_id: int, result: dict | None = None,
     if res.get("round") is None and not res.get("events") and not res.get("result"):
         return 0
     ids = list(user_ids) if user_ids else await _strategy_battle_owners(bid)
-    payload = {
-        "type": "strategy.battle.event",
-        "battle_id": bid,
-        "round": res.get("round"),
-        "log": list(res.get("events") or [])[-8:],
-        "act": str(res.get("action") or ""),
-        "current_actor": res.get("current_actor"),
-        "finished": bool(res.get("result")),
-        "ts": int(time.time()),
-    }
+    raw_actor = res.get("current_actor")
     sent = 0
     for uid in ids:
         username = accounts_store.username_of_player_key(uid)
         if not username:
             continue
+        actor = await _mask_battle_current_actor(bid, uid, raw_actor)
+        payload = {
+            "type": "strategy.battle.event",
+            "battle_id": bid,
+            "round": res.get("round"),
+            "log": list(res.get("events") or [])[-8:],
+            "act": str(res.get("action") or ""),
+            "current_actor": actor,
+            "finished": bool(res.get("result")),
+            "ts": int(time.time()),
+        }
         sent += await push_to_username("", username, payload)
     return sent
 
@@ -1048,10 +1080,10 @@ async def _handle_strategy_ws(room_id: str, ws: web.WebSocketResponse,
         await send_to_ws(ws, {"type": "strategy.error", "req": req,
                               "msg": str(exc)})
         return
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         logger.exception(f"[webroom] 争霸 WS 指令 {action} 失败")
         await send_to_ws(ws, {"type": "strategy.error", "req": req,
-                              "msg": f"操作失败：{exc}"})
+                              "msg": "操作失败，请稍后重试"})
         return
 
     if not isinstance(result, dict):
@@ -1511,9 +1543,10 @@ async def _api_strategy_state(request: web.Request) -> web.Response:
                                  status=423)
     except StrategyError as exc:
         return web.json_response({"ok": False, "error": str(exc)}, status=400)
-    except Exception as exc:
+    except Exception:
         logger.exception("[webroom] 读取争霸快照失败")
-        return web.json_response({"ok": False, "error": f"读取失败：{exc}"}, status=500)
+        return web.json_response({"ok": False, "error": "读取失败，请稍后重试"},
+                                 status=500)
     # 策略面板活跃订阅 + 顺手对账 tick（轮询也能拿到 delta）
     subscribe_strategy(str(user.get("username") or ""))
     world = (data or {}).get("world") or {}
@@ -1541,6 +1574,9 @@ async def _api_strategy_action(request: web.Request) -> web.Response:
     action = str(body.get("action") or "").strip()
     if not action:
         return web.json_response({"ok": False, "error": "缺少 action"}, status=400)
+    # v4.3.0：action 长度上限——防异常超长字符串打日志/审计膨胀
+    if len(action) > 64:
+        return web.json_response({"ok": False, "error": "action 无效"}, status=400)
     params = body.get("params") if isinstance(body.get("params"), dict) else {}
 
     user_id = accounts_store.player_key_of(user)
@@ -1553,9 +1589,10 @@ async def _api_strategy_action(request: web.Request) -> web.Response:
                                  status=423)
     except StrategyError as exc:
         return web.json_response({"ok": False, "error": str(exc)}, status=400)
-    except Exception as exc:
+    except Exception:
         logger.exception(f"[webroom] 争霸动作 {action} 失败")
-        return web.json_response({"ok": False, "error": f"操作失败：{exc}"}, status=500)
+        return web.json_response({"ok": False, "error": "操作失败，请稍后重试"},
+                                 status=500)
     if not isinstance(result, dict):
         result = {"ok": True}
     result.setdefault("ok", True)
@@ -2628,6 +2665,7 @@ async def _api_bind_status(request: web.Request) -> web.Response:
         asyncio.to_thread(_player_save_of, key),
         asyncio.to_thread(_player_save_of, f"web_{user['username']}"),
     )
+    pending = accounts_store.pending_bind_request(user["username"])
     return web.json_response(
         {
             "ok": True,
@@ -2636,11 +2674,17 @@ async def _api_bind_status(request: web.Request) -> web.Response:
             "save": save,
             # 网页独立存档：解绑后回到的那份，让用户知道绑过去会“看不见”它
             "web_save": web_save,
+            "pending": pending,
         }
     )
 
 
 async def _api_bind(request: web.Request) -> web.Response:
+    """提交 QQ 绑定申请（须超管在群内批准后才改 player_key）。
+
+    v4.3.0：堵住「注册网页号 → POST /api/bind → 立刻接管受害者 QQ 存档
+    → WS strategy_admin 过 _check_boss_admin」的接管链。
+    """
     user = _token_user(request)
     if user is None:
         return web.json_response({"ok": False, "error": "登录已过期"}, status=401)
@@ -2660,21 +2704,36 @@ async def _api_bind(request: web.Request) -> web.Response:
         return web.json_response(
             {"ok": False, "error": "没有找到这个 QQ 号的旧存档，请确认号码"}, status=400
         )
-    ok, msg = accounts_store.bind_qq(user["username"], qq)
+    ok, msg, rid = accounts_store.submit_bind_request(user["username"], qq)
     if not ok:
         return web.json_response({"ok": False, "error": msg}, status=400)
-    key = accounts_store.player_key_of({"username": user["username"], "player_key": qq})
-    _sync_player_key(user["username"], key)
+    logger.info(
+        f"[webroom] 绑定申请 #{rid}：{user['username']} → QQ {qq}"
+    )
     return web.json_response(
         {
             "ok": True,
+            "pending": True,
+            "request_id": rid,
             "qq": qq,
-            "player_key": key,
             "save": save,
             "web_save": web_save,
             "message": msg,
         }
     )
+
+
+async def _api_bind_cancel(request: web.Request) -> web.Response:
+    """用户取消自己的待批绑定申请。"""
+    user = _token_user(request)
+    if user is None:
+        return web.json_response({"ok": False, "error": "登录已过期"}, status=401)
+    data = await _read_json(request) or {}
+    rid = int(data.get("request_id") or 0)
+    ok, msg = accounts_store.cancel_bind_request(user["username"], rid)
+    if not ok:
+        return web.json_response({"ok": False, "error": msg}, status=400)
+    return web.json_response({"ok": True, "message": msg})
 
 
 async def _api_bind_unbind(request: web.Request) -> web.Response:

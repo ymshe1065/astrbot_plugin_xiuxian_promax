@@ -75,7 +75,8 @@ class StrategyFactionMixin:
     async def upsert_member(self, faction_id: int, user_id: str,
                             position: Optional[str] = None,
                             contribution: Optional[int] = None,
-                            joined_at: Optional[int] = None):
+                            joined_at: Optional[int] = None,
+                            record_join: bool = True):
         m = await self.get_member(faction_id, user_id)
         if m:
             sets, params = [], []
@@ -96,8 +97,11 @@ class StrategyFactionMixin:
             "contribution, joined_at) VALUES (?,?,?,?,?)",
             (int(faction_id), user_id, position or "",
              int(contribution or 0), int(joined_at or _now())))
-        # §18.4 入盟留痕：供 _settle_merit 判定「24h 内转投」的多开嫌疑
-        await self._record_faction_join(faction_id, user_id)
+        # §18.4 入盟留痕：供 _settle_merit 判定「24h 内转投」的多开嫌疑。
+        # record_join=False 用于崩溃/被动迁移等非自愿入盟（v4.3.0），
+        # 否则成员会在毫不知情的情况下背上 24h 双势力记录、战功被清零。
+        if record_join:
+            await self._record_faction_join(faction_id, user_id)
         return await self.get_member(faction_id, user_id)
 
     async def _record_faction_join(self, faction_id: int, user_id: str) -> None:
@@ -622,7 +626,10 @@ class StrategyFactionMixin:
             (int(fid), world["id"], p["user_id"]))
         p["faction_id"] = int(fid)
         await self.save_player(p)
-        await self.upsert_member(int(fid), p["user_id"], position="leader")
+        # 强制迁移（势力崩溃→个人势力）不留入盟痕迹：这不是玩家主动转投，
+        # 记入 faction_join 会让 _settle_merit 的多开检测误判（24h 内双势力）
+        await self.upsert_member(int(fid), p["user_id"], position="leader",
+                                 record_join=False)
 
     async def faction_apply(self, user_id: str, faction_id: int) -> dict:
         """以势力主身份申请结盟（保留自身据点，等待对方盟主/副主审批）。"""
@@ -1125,8 +1132,10 @@ class StrategyFactionMixin:
             pend = tech["pending"]
             raise StrategyError(f"已有研究进行中（{pend.get('line')}，"
                                 f"剩余 {(int(pend.get('finish_at', 0)) - _now() + 59) // 60} 分钟）")
-        lvl = R.tech_level(tech, line)
         max_lvl = int(tcfg.get("levels", 5))
+        # v4.3.0：等级钳制与满级判定统一用配置上限（此前 R.tech_level 硬编码
+        # 钳 5，配置 levels>5 时满级判定永不成立 → 无限重复研究白扣国库）
+        lvl = R.tech_level(tech, line, max_lvl)
         if lvl >= max_lvl:
             raise StrategyError(f"{line} 已满级（L{max_lvl}）")
         # 配置数组可能短于 levels：越界时回退到最后一个档位，避免 IndexError
@@ -1220,6 +1229,8 @@ class StrategyFactionMixin:
         """tick：到期的科技研究完成（等级 +1，并同步给联盟成员）。"""
         rows = await self._fetchall(
             "SELECT * FROM strategy_factions WHERE world_id=? AND alive=1", (world["id"],))
+        # v4.3.0：结算与入口同口径钳制到配置上限（防 levels>5 时无限研究）
+        max_lvl = int(((self.main_cfg().get("tech") or {}).get("levels", 5)) or 5)
         changed = False
         for row in rows:
             f = self._decode("strategy_factions", row)
@@ -1231,7 +1242,7 @@ class StrategyFactionMixin:
             if pend and int(pend.get("finish_at", 0)) <= _now():
                 line = str(pend.get("line", ""))
                 if line in R.TECH_LINES:
-                    tech[line] = R.tech_level(tech, line) + 1
+                    tech[line] = R.tech_level(tech, line, max_lvl) + 1
                     tech.pop("pending", None)
                     f["tech"] = tech
                     await self.save_faction(f)
@@ -2562,7 +2573,11 @@ class StrategyFactionMixin:
     # 势力事件（§10.3：角色出走 / 民心沸腾 / 哗变 / 细作 / 秘藏 / 名将迟暮）
     # ------------------------------------------------------------------
     async def _step_faction_events(self, world: dict) -> list[str]:
-        """tick：按权重掷点触发一个 scope=faction 事件并即时结算。"""
+        """tick：掷点 roll_per_tick 次，触发 0~N 个 scope=faction 事件并即时结算。
+
+        v4.3.0：此前掷点结果只作「是否触发」用（<=0 跳过，否则恒触发 1 个），
+        配置 [0,2] 的"2"永远无法兑现；现按掷点值循环触发，冷却天然防同 tick 重复。
+        """
         ecfg = self.cfg.get("events") or {}
         events = [e for e in (ecfg.get("events") or [])
                   if str(e.get("scope") or "") == "faction"]
@@ -2571,36 +2586,43 @@ class StrategyFactionMixin:
         tick_no = int(world.get("tick_no", 0))
         rng = self._rng("faction_events", int(world["id"]), tick_no)
         lo, hi = (ecfg.get("roll_per_tick") or [0, 2])
-        if rng.randint(int(lo), int(hi)) <= 0:
-            return []
+        n = rng.randint(int(lo), int(hi))
+        fired: list[str] = []
+        if n <= 0:
+            return fired
         data = world.get("data") or {}
         # 独立 cooldown 键：避免与主类 _step_events 的全 scope 掷点互相抢占
         cd = data.get("faction_event_cd") or {}
-        eligible = [e for e in events if tick_no >= int(cd.get(e["id"], 0) or 0)]
-        if not eligible:
-            return []
-        weights = [max(1, int(e.get("weight", 1) or 1)) for e in eligible]
-        ev = rng.choices(eligible, weights=weights)[0]
-        rows = await self._fetchall(
-            "SELECT id FROM strategy_factions WHERE world_id=? AND kind='player' "
-            "AND alive=1", (int(world["id"]),))
-        cands = [int(r["id"]) for r in rows]
-        if not cands:
+        touched = False
+        for _ in range(n):
+            eligible = [e for e in events
+                        if tick_no >= int(cd.get(e["id"], 0) or 0)]
+            if not eligible:
+                break
+            weights = [max(1, int(e.get("weight", 1) or 1)) for e in eligible]
+            ev = rng.choices(eligible, weights=weights)[0]
+            rows = await self._fetchall(
+                "SELECT id FROM strategy_factions WHERE world_id=? AND kind='player' "
+                "AND alive=1", (int(world["id"]),))
+            cands = [int(r["id"]) for r in rows]
+            if not cands:
+                cd[ev["id"]] = tick_no + int(ev.get("cooldown_ticks", 96) or 0)
+                touched = True
+                continue
+            fid = rng.choice(cands)
+            f = await self.get_faction(fid)
+            if not f:
+                continue
+            await self._apply_faction_event(world, f, ev, rng)
             cd[ev["id"]] = tick_no + int(ev.get("cooldown_ticks", 96) or 0)
+            touched = True
+            fired.append(str(ev.get("name") or ev["id"]))
+        if touched:
             data["faction_event_cd"] = cd
             world["data"] = data
-            return []
-        fid = rng.choice(cands)
-        f = await self.get_faction(fid)
-        if not f:
-            return []
-        await self._apply_faction_event(world, f, ev, rng)
-        cd[ev["id"]] = tick_no + int(ev.get("cooldown_ticks", 96) or 0)
-        data["faction_event_cd"] = cd
-        world["data"] = data
-        await self.save_world(world)
-        await self._commit()
-        return [str(ev.get("name") or ev["id"])]
+            await self.save_world(world)
+            await self._commit()
+        return fired
 
     async def _apply_faction_event(self, world: dict, f: dict, ev: dict,
                                    rng: random.Random) -> dict:
