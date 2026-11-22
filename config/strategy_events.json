@@ -236,5 +236,15 @@
       "announce": "faction"
     }
   ],
+  "demon_tide": {
+    "peace_ticks": 96,
+    "peace_weight_mult": 2.0,
+    "weekly_guarantee_ticks": 672,
+    "main_event_weight_mult": 2.0,
+    "main_event_extra": 1,
+    "max_armies": 8,
+    "hunter_interval_ticks": 8,
+    "hunter_count": 1
+  },
   "roll_per_tick": [0, 2]
 }

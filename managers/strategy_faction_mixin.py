@@ -1049,9 +1049,10 @@ class StrategyFactionMixin:
         resource = str(resource)
         amount = int(amount)
         if resource not in ("coin", "grain", "iron") or amount <= 0:
-            raise StrategyError("仅支持存入 coin/grain/iron 且数量为正")
+            raise StrategyError("仅支持存入铜钱/粮草/精铁且数量为正")
         if int(p.get(resource, 0)) < amount:
-            raise StrategyError(f"{resource} 不足")
+            raise StrategyError(
+                f"{R.RESOURCE_NAMES.get(resource, resource)} 不足")
         f = await self._governance_faction(p)
         if not f:
             raise StrategyError("势力不存在")
@@ -1066,14 +1067,16 @@ class StrategyFactionMixin:
         await self._faction_task_progress(f["id"], "donate", amount)
         await self._commit()
         label = "联盟国库" if int(f.get("alliance_id") or 0) else "国库"
-        return {"ok": True, "msg": f"存入{label} {resource} ×{amount}"}
+        return {"ok": True,
+                "msg": f"存入{label} {R.RESOURCE_NAMES.get(resource, resource)}"
+                       f" ×{amount}"}
 
     async def treasury_withdraw(self, user_id: str, resource: str, amount: int) -> dict:
         world, p = await self._require_player(user_id)
         resource = str(resource)
         amount = int(amount)
         if resource not in ("coin", "grain", "iron") or amount <= 0:
-            raise StrategyError("仅支持提取 coin/grain/iron 且数量为正")
+            raise StrategyError("仅支持提取铜钱/粮草/精铁且数量为正")
         f = await self._governance_faction(p)
         if not f or f.get("kind") == "npc":
             raise StrategyError("当前不在玩家势力中")
@@ -1081,7 +1084,9 @@ class StrategyFactionMixin:
         treasury = f.get("treasury") or {}
         have = int(treasury.get(resource, 0))
         if have < amount:
-            raise StrategyError(f"国库 {resource} 不足（现有 {have}）")
+            raise StrategyError(
+                f"国库 {R.RESOURCE_NAMES.get(resource, resource)} "
+                f"不足（现有 {have}）")
         if pos == "deputy":
             pct = float((self.main_cfg().get("faction") or {}).get(
                 "treasury_deputy_pct", 0.3))
@@ -1111,7 +1116,9 @@ class StrategyFactionMixin:
         await self.save_player(p)
         await self._commit()
         label = "联盟国库" if int(f.get("alliance_id") or 0) else "国库"
-        return {"ok": True, "msg": f"从{label}提取 {resource} ×{amount}"}
+        return {"ok": True,
+                "msg": f"从{label}提取 {R.RESOURCE_NAMES.get(resource, resource)}"
+                       f" ×{amount}"}
 
     # ------------------------------------------------------------------
     # 势力科技（§8.4）
@@ -1122,7 +1129,9 @@ class StrategyFactionMixin:
         tcfg = self.main_cfg().get("tech") or {}
         line = str(line)
         if line not in (tcfg.get("lines") or list(R.TECH_LINES)):
-            raise StrategyError("科技线无效（military/agri/stratagem）")
+            raise StrategyError(
+                "科技线无效（" + "/".join(R.TECH_NAMES.get(x, x)
+                                          for x in R.TECH_LINES) + "）")
         f = await self._governance_faction(p)
         if not f or f.get("kind") == "npc":
             raise StrategyError("当前不在玩家势力中")
@@ -1130,14 +1139,16 @@ class StrategyFactionMixin:
         tech = f.get("tech") or {}
         if tech.get("pending"):
             pend = tech["pending"]
-            raise StrategyError(f"已有研究进行中（{pend.get('line')}，"
-                                f"剩余 {(int(pend.get('finish_at', 0)) - _now() + 59) // 60} 分钟）")
+            raise StrategyError(
+                f"已有研究进行中（{R.TECH_NAMES.get(pend.get('line'), pend.get('line'))}，"
+                f"剩余 {(int(pend.get('finish_at', 0)) - _now() + 59) // 60} 分钟）")
         max_lvl = int(tcfg.get("levels", 5))
         # v4.3.0：等级钳制与满级判定统一用配置上限（此前 R.tech_level 硬编码
         # 钳 5，配置 levels>5 时满级判定永不成立 → 无限重复研究白扣国库）
         lvl = R.tech_level(tech, line, max_lvl)
         if lvl >= max_lvl:
-            raise StrategyError(f"{line} 已满级（L{max_lvl}）")
+            raise StrategyError(
+                f"{R.TECH_NAMES.get(line, line)} 已满级（L{max_lvl}）")
         # 配置数组可能短于 levels：越界时回退到最后一个档位，避免 IndexError
         def _level_cost(key: str, default: list) -> int:
             arr = list(tcfg.get(key) or default)
@@ -1182,7 +1193,8 @@ class StrategyFactionMixin:
                           {"faction_id": int(f["id"]), "line": line,
                            "char_id": int(c["id"]), "hours": round(hours, 2)})
         return {"ok": True,
-                "msg": f"开始研究 {line} L{lvl + 1}（{hours:.1f}h，主研 {c['name']}，"
+                "msg": f"开始研究 {R.TECH_NAMES.get(line, line)} L{lvl + 1}"
+                       f"（{hours:.1f}h，主研 {c['name']}，"
                        f"扣{'联盟' if int(f.get('alliance_id') or 0) else ''}"
                        f"国库铜钱 {cost_coin}/精铁 {cost_iron}"
                        + (f"，科技点抵扣 {cut_min} 分钟" if cut_min > 0 else "")
@@ -1198,7 +1210,9 @@ class StrategyFactionMixin:
                 raise StrategyError("只能指派本势力/联盟内的角色研究")
             if c.get("status") in ("dead", "captive", "army", "task", "wander") or \
                     R.injury_state(c.get("injury", 0)) == "dead":
-                raise StrategyError(f"{c['name']} 当前无法研究（{c.get('status')}）")
+                raise StrategyError(
+                    f"{c['name']} 当前无法研究（"
+                    f"{R.CHAR_STATUS_NAMES.get(c.get('status'), c.get('status'))}）")
             if c.get("status") not in ("idle", "research"):
                 raise StrategyError(f"{c['name']} 正在执行其他任务，无法研究")
             return c
@@ -1261,7 +1275,8 @@ class StrategyFactionMixin:
                     await self._notify_faction_event(
                         world, int(f["id"]),
                         {"event": "tech_done", "line": line,
-                         "text": f"科技 {line} 研究完成（L{tech[line]}）"
+                         "text": f"科技 {R.TECH_NAMES.get(line, line)} "
+                                 f"研究完成（L{tech[line]}）"
                                  + (f"，{pend.get('char_name', '')} 归队"
                                     if pend.get("char_name") else "")})
                     logger.info(f"[strategy] 势力#{f['id']} 科技 {line} → L{tech[line]}")
@@ -1755,11 +1770,13 @@ class StrategyFactionMixin:
         resource = str(resource)
         amount = int(amount)
         if resource not in ("coin", "grain", "iron"):
-            raise StrategyError("仅可赠送 coin/grain/iron")
+            raise StrategyError("仅可赠送铜钱/粮草/精铁")
         if amount <= 0:
             raise StrategyError("赠礼数量须为正")
         if int(p.get(resource, 0)) < amount:
-            raise StrategyError(f"{resource} 不足（现有 {int(p.get(resource, 0))}）")
+            raise StrategyError(
+                f"{R.RESOURCE_NAMES.get(resource, resource)} "
+                f"不足（现有 {int(p.get(resource, 0))}）")
         values = fcfg.get("gift_resource_value") or {}
         value = amount * float(values.get(resource, 1))
         points = R.favor_gift_points(value, fcfg)
@@ -1789,7 +1806,8 @@ class StrategyFactionMixin:
         await self._commit()
         return {"ok": True,
                 "favor": int(score), "favor_name": R.favor_name(score),
-                "msg": f"🎁 向「{tf['name']}」赠送 {resource} ×{amount}，"
+                "msg": f"🎁 向「{tf['name']}」赠送 "
+                       f"{R.RESOURCE_NAMES.get(resource, resource)} ×{amount}，"
                        f"好感 +{points}（现为 {score}·{R.favor_name(score)}）"}
 
     async def add_trade_favor(self, fid: int, seller_fid: int) -> int:
@@ -2724,7 +2742,7 @@ class StrategyFactionMixin:
                 if cut <= 0:
                     continue
                 stock[k] = have - cut
-                stolen.append(f"{k}-{cut}")
+                stolen.append(f"{R.RESOURCE_NAMES.get(k, k)}-{cut}")
             if stolen:
                 n["stock"] = stock
             await self._bump_morale(n, int(eff.get("morale_delta", 5) or 0), "riot")
@@ -2767,7 +2785,7 @@ class StrategyFactionMixin:
                 if amount <= 0:
                     continue
                 treasury[k] = int(treasury.get(k, 0) or 0) + amount
-                got.append(f"{k}+{amount}")
+                got.append(f"{R.RESOURCE_NAMES.get(k, k)}+{amount}")
             if not got:
                 return ""
             f["treasury"] = treasury
@@ -2793,7 +2811,8 @@ class StrategyFactionMixin:
             if pack > 0:
                 c["exp"] = int(c.get("exp", 0) or 0) + pack
             await self.save_char(c)
-            return (f"名将迟暮：「{c['name']}」{key} -{drop}"
+            return (f"名将迟暮：「{c['name']}」"
+                    f"{R.STAT_NAMES.get(key, key)} -{drop}"
                     f"（忠诚 {c['loyalty']}）")
         return ""
 

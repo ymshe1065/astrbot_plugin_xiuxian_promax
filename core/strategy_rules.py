@@ -38,6 +38,26 @@ STAT_NAMES = {
     "admin": "政务", "charm": "魅力", "luck": "气运",
 }
 
+#: 角色状态 / 军团状态中文名（提示与战报展示，避免直接暴露英文键）
+CHAR_STATUS_NAMES = {
+    "idle": "空闲", "task": "执行任务", "army": "随军",
+    "captive": "被俘", "wander": "在野", "dead": "陨落",
+}
+ARMY_STATE_NAMES = {
+    "idle": "驻守", "march": "行军", "siege": "围城",
+    "retreat": "撤退", "escort": "护送粮队",
+}
+
+#: 资源 / 产出中文名（钱包、国库、坊市、任务产出、事件奖励共用）。
+#: 注意钱包字段是 ``recruit_token``，任务产出键是 ``token``，两者都映射募将令。
+RESOURCE_NAMES = {
+    "coin": "铜钱", "grain": "粮草", "iron": "精铁",
+    "recruit_token": "募将令", "token": "募将令", "intel": "情报",
+    "merit": "战功", "merit_season": "赛季战功", "gold": "灵石",
+    "build": "城防", "train": "精锐", "heal": "疗伤", "tech": "科技点",
+    "grain_move": "粮草", "loot": "掠夺库存", "plot": "计略",
+}
+
 #: 三职责（§4.1）
 ROLE_GENERAL = "general"      # 武将
 ROLE_STRATEGIST = "strategist"  # 军师
@@ -289,6 +309,9 @@ def arena_bracket(merit: int) -> str:
         return "veteran"
     return "master"
 
+#: 会武档位中文名（前后端与提示语统一口径）
+ARENA_BRACKET_NAMES = {"novice": "新秀", "veteran": "宿将", "master": "宗师"}
+
 # ---------------------------------------------------------------------------
 # 兵种（§7.5）
 # ---------------------------------------------------------------------------
@@ -370,6 +393,16 @@ def veteran_tier(veteran: int) -> tuple[str, float, int]:
     if v >= 100:
         return ("精锐", 0.05, 110)
     return ("普通", 0.0, 100)
+
+
+def army_morale_cap(army: dict) -> int:
+    """军团士气上限（随老兵阶位：普通 100 / 精锐 110 / 御林 120）。
+
+    v4.3.2：``veteran_tier`` 一直返回士气上限，但驻守恢复/补员/战后写回
+    都写死 100，导致精锐阶位的上限从未生效；战略层统一由本函数取值。
+    战场（hex）临时士气增益仍允许到 120，以便「晨钟」等临时 buff 生效。
+    """
+    return veteran_tier(int((army or {}).get("veteran", 0) or 0))[2]
 
 
 # ---------------------------------------------------------------------------
@@ -1647,6 +1680,7 @@ def npc_seed_relation(rng: random.Random, pers_a: dict | None,
 # ---------------------------------------------------------------------------
 
 TECH_LINES = ("military", "agri", "stratagem")
+TECH_NAMES = {"military": "军事", "agri": "农耕", "stratagem": "谋略"}
 
 
 def tech_level(tech_json: dict | None, line: str, max_lvl: int = 5) -> int:

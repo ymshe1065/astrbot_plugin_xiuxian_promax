@@ -11,6 +11,13 @@ const TYPE_ICON = { city: "🏯", pass: "⛰️", mine: "⛏️", grain: "🌾",
 const TYPE_NAME = { city: "仙城", pass: "关隘", mine: "灵脉矿", grain: "灵谷田", market: "坊市", branch: "分舵", ruin: "遗迹" };
 const TERRAIN_NAME = { plain: "平原", forest: "森林", mountain: "山地", river: "河流", swamp: "沼泽" };
 const STATE_NAME = { idle: "驻守", march: "行军", siege: "围城", retreat: "撤退", escort: "护送粮队" };
+
+function vetTierName(v) {
+  const n = Number(v) || 0;
+  if (n >= 300) return "御林";
+  if (n >= 100) return "精锐";
+  return "普通";
+}
 // 任务产出图标（后端 task_meta.output_kind / 进行中任务 output_kind）
 const OUTPUT_ICON = {
   coin: "💰", grain: "🌾", iron: "⛏️", token: "🎟️", merit: "🎖️",
@@ -286,6 +293,12 @@ function drawMap() {
     ctx.beginPath();
     ctx.moveTo(x + 12, y + 8); ctx.lineTo(x + 20, y + 8); ctx.lineTo(x + 16, y + 15);
     ctx.closePath(); ctx.fill();
+    if (Number(a.veteran) >= 300) {
+      ctx.strokeStyle = "#e3b341"; ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.moveTo(x + 12, y + 8); ctx.lineTo(x + 20, y + 8); ctx.lineTo(x + 16, y + 15);
+      ctx.closePath(); ctx.stroke();
+    }
     if (a.troops !== null && a.troops !== undefined) {
       ctx.font = "10px sans-serif"; ctx.textAlign = "left";
       ctx.fillText(String(a.troops), x + 22, y + 14);
@@ -892,8 +905,8 @@ function tabArmies() {
   for (const a of armies) {
     h += '<div class="card"><h3>' + esc(a.name) + ' <span class="tag">' + a.troop_name + "</span>" +
       (a.siege_engine ? ' <span class="tag epic">破城槌</span>' : "") + "</h3>" +
-      '<div class="sub">兵力 ' + fmtNum(a.troops) + " · 士气 " + a.morale + " · 精锐 " + a.veteran +
-      " · 携粮 " + fmtNum(a.grain) + "</div>" +
+      '<div class="sub">兵力 ' + fmtNum(a.troops) + " · 士气 " + a.morale + " · 精锐 " +
+      a.veteran + "（" + vetTierName(a.veteran) + "） · 携粮 " + fmtNum(a.grain) + "</div>" +
       '<div class="sub">主将/随行：' + a.characters.map(esc).join("、") + "</div>" +
       '<div class="sub">状态：' + (STATE_NAME[a.state] || a.state) + " @ " + esc(a.node_name) +
       (a.path && a.path.length ? " → " + a.path.map(esc).join(" → ") : "") + "</div>" +
@@ -907,19 +920,62 @@ function armyButtons(a) {
   if (a.state === "idle") {
     b += '<button class="btn small primary" data-act="march-pick" data-id="' + a.id + '">⚔️ 选择目标出征</button>';
     b += '<button class="btn small" onclick="refillPrompt(' + a.id + ')">➕ 补员</button>';
+    b += '<button class="btn small" onclick="openSupplyModal(' + a.id + ')">🚚 补粮</button>';
     b += '<button class="btn small" onclick="doAction(\'drill_army\',{army_id:' + a.id + '})">🎯 操练(500币)</button>';
     b += '<button class="btn small danger" onclick="doAction(\'disband_army\',{army_id:' + a.id + '})">解散</button>';
   } else if (a.state === "siege") {
+    b += '<button class="btn small" onclick="openSupplyModal(' + a.id + ')">🚚 补粮</button>';
     b += '<button class="btn small" onclick="doAction(\'siege_choice\',{army_id:' + a.id + ",choice:'street_fight'})" + '">巷战</button>';
     b += '<button class="btn small" onclick="doAction(\'siege_choice\',{army_id:' + a.id + ",choice:'surrender'})" + '">受降(需3倍兵力)</button>';
     b += '<button class="btn small danger" onclick="doAction(\'retreat\',{army_id:' + a.id + '})">撤围</button>';
   } else if (a.state === "escort") {
     b += '<span class="sub">护送运粮队中，抵达或被截后自动归队</span>';
   } else {
+    b += '<button class="btn small" onclick="openSupplyModal(' + a.id + ')">🚚 补粮</button>';
     b += '<button class="btn small danger" onclick="doAction(\'retreat\',{army_id:' + a.id + '})">🏳️ 撤退</button>';
   }
   return b;
 }
+
+let supplyArmyId = 0;
+
+function openSupplyModal(armyId) {
+  const p = S.player || {};
+  const army = (p.armies || []).find((a) => a.id === armyId);
+  if (!army) return;
+  const idle = (p.chars || []).filter((c) => c.status === "idle" &&
+    c.injury_state !== "dying" && c.injury_state !== "dead");
+  if (!idle.length) { toast("没有空闲角色可押运", "err"); return; }
+  supplyArmyId = armyId;
+  document.getElementById("supplyArmyHint").textContent =
+    "目标：" + army.name + "（" + (STATE_NAME[army.state] || army.state) + " · " +
+    army.node_name + " · 携粮 " + fmtNum(army.grain) + "）" +
+    (army.state === "idle" ? "，驻扎中，交付立即完成"
+      : "，补粮队速度高于普通行军，追上后交付（角色占用至交付或超时）");
+  document.getElementById("supplyChar").innerHTML = idle.map((c) =>
+    '<option value="' + c.id + '">' + esc(c.name) + "（" + c.role_name + "）</option>").join("");
+  const hours = (S.meta.task_hours || [1, 2, 4, 8]);
+  document.getElementById("supplyHours").innerHTML = hours.map((h) =>
+    '<option value="' + h + '">' + h + "小时</option>").join("");
+  document.getElementById("supplyCost").textContent =
+    "运粮量 = 军团单 tick 粮耗 × 所选时长对应 tick（受携粮上限：统率×50，粮仓 +10%/级）；" +
+    "「折算时长」只决定运粮量，行军/围城军团由补粮队追上即交付，不代表角色占用时长。";
+  document.getElementById("supplyOverlay").hidden = false;
+}
+
+document.getElementById("supplyCancel").addEventListener("click", () => {
+  document.getElementById("supplyOverlay").hidden = true;
+});
+document.getElementById("supplyConfirm").addEventListener("click", () => {
+  const army = (S.player.armies || []).find((a) => a.id === supplyArmyId);
+  doAction("dispatch_task", {
+    char_id: Number(document.getElementById("supplyChar").value),
+    node_id: army ? army.node_id : 0,
+    task_type: "supply",
+    hours: Number(document.getElementById("supplyHours").value),
+    army_id: supplyArmyId,
+  }).then(() => { document.getElementById("supplyOverlay").hidden = true; });
+});
 
 function refillPrompt(armyId) {
   const n = prompt("补员数量（100 的倍数，需己方据点）：", "100");
@@ -1548,7 +1604,7 @@ function factionNoHome(p) {
 // ---------------------------------------------------------------------------
 // 坊市（P3 §5.5：互市/商路/粮队/匪寨/流将）
 // ---------------------------------------------------------------------------
-const ITEM_NAMES = { grain: "粮草", iron: "精铁", recruit_token: "募将令" };
+const ITEM_NAMES = { grain: "粮草", iron: "精铁", recruit_token: "募将令", intel: "情报" };
 
 function tabMarket() {
   const p = S.player || {};
@@ -1608,7 +1664,8 @@ function tabMarket() {
     for (const o of orders) {
       const mineOrder = o.seller_faction === myFactionId();
       h += "<tr><td>" + esc((nodeById(o.node_id) || {}).name || "#" + o.node_id) +
-        "</td><td>" + (ITEM_NAMES[o.item_type] || o.item_type) + "</td><td>" + fmtNum(o.amount) +
+        "</td><td>" + (o.item_name || ((S.meta || {}).resource_names || {})[o.item_type] ||
+          ITEM_NAMES[o.item_type] || o.item_type) + "</td><td>" + fmtNum(o.amount) +
         "</td><td>" + fmtNum(o.unit_price) + "</td><td>" +
         (mineOrder ? "我方" : "势力#" + o.seller_faction) + "</td><td>" +
         (mineOrder
@@ -1619,11 +1676,13 @@ function tabMarket() {
     h += "</table>";
   } else h += '<div class="sub">（当前无挂单）</div>';
   const mkNodes = myNodes().filter((n) => ["market", "city"].includes(n.type));
+  const mkItems = ((S.meta || {}).market_cfg || {}).items || Object.keys(ITEM_NAMES);
   if (mkNodes.length) {
     h += '<div class="form-row"><select id="mkNode" style="max-width:110px">' +
       mkNodes.map((n) => '<option value="' + n.id + '">' + esc(n.name) + "</option>").join("") +
       '</select><select id="mkItem" style="max-width:90px">' +
-      Object.entries(ITEM_NAMES).map(([k, v]) => '<option value="' + k + '">' + v + "</option>").join("") +
+      mkItems.map((k) => '<option value="' + k + '">' +
+        (((S.meta || {}).resource_names || {})[k] || ITEM_NAMES[k] || k) + "</option>").join("") +
       '</select><input id="mkAmount" type="number" min="1" placeholder="数量" style="max-width:80px">' +
       '<input id="mkPrice" type="number" min="1" placeholder="单价(币)" style="max-width:90px">' +
       '<button class="btn small primary" data-act="market-list">挂售</button></div>';
@@ -1654,10 +1713,17 @@ function tabMarket() {
     " 兵，可另派空闲军团护送（护送期间军团随队移动、不可出征/解散）。</div>";
   const convoys = p.convoys || [];
   if (convoys.length) {
-    h += convoys.map((c) => '<div class="sub">🌾 ' + fmtNum(c.grain) + " 粮 · 护送 " +
-      fmtNum(c.escort_troops || 0) + " 兵 · " + esc(c.from || "?") + " → " +
-      esc(c.to || "?") + "（现于 " + esc(c.cur_node || "?") + " · 进度 " +
-      esc(c.progress || "?") + "）</div>").join("");
+    h += convoys.map((c) => {
+      if (c.kind === "army_supply") {
+        return '<div class="sub">🚚 补粮队 · ' + fmtNum(c.grain) + " 粮 · 追击 " +
+          esc(c.to || "?") + "（现于 " + esc(c.cur_node || "?") + " · " +
+          esc(c.progress || "追击中") + "）</div>";
+      }
+      return '<div class="sub">🌾 ' + fmtNum(c.grain) + " 粮 · 护送 " +
+        fmtNum(c.escort_troops || 0) + " 兵 · " + esc(c.from || "?") + " → " +
+        esc(c.to || "?") + "（现于 " + esc(c.cur_node || "?") + " · 进度 " +
+        esc(c.progress || "?") + "）</div>";
+    }).join("");
   } else h += '<div class="sub">（无在途粮队；粮队沿本方/盟友通路自动行进，可能被匪寨/敌军劫掠）</div>';
   const srcs = myNodes();
   const dests = friendlyNodes();
@@ -1796,10 +1862,10 @@ function tabHonor() {
   // --- 仙盟会武（按战功分档报名）---
   const merit = Number(p.merit || 0);
   const myBracket = merit < 500 ? "novice" : (merit < 2000 ? "veteran" : "master");
-  const BRACKET_NAMES = { novice: "新手", veteran: "老将", master: "大师" };
+  const BRACKET_NAMES = { novice: "新秀", veteran: "宿将", master: "宗师" };
   const arenaFee = Number(((S.meta || {}).duel_cfg || {}).arena_stake_min || 100);
   h += '<div class="card"><h3>🥁 仙盟会武</h3>' +
-    '<div class="sub">按战功分档：新手（&lt;500）/ 老将（500~1999）/ 大师（≥2000）；不可跨档</div>' +
+    '<div class="sub">按战功分档：新秀（&lt;500）/ 宿将（500~1999）/ 宗师（≥2000）；不可跨档</div>' +
     kv("我的档位", (BRACKET_NAMES[myBracket] || myBracket) + "（战功 " + fmtNum(merit) + "）") +
     '<div class="form-row"><select id="arenaBracket" style="max-width:120px">' +
     Object.entries(BRACKET_NAMES).map(([k, n]) =>

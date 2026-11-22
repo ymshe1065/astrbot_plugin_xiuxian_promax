@@ -216,7 +216,9 @@ class StrategyCaptiveMixin:
             persuader = await self._own_char(p, persuader_char_id)
             if persuader.get("status") != "idle":
                 raise StrategyError(
-                    f"{persuader['name']} 状态为「{persuader['status']}」，无法劝降")
+                    f"{persuader['name']} 状态为「"
+                    f"{R.CHAR_STATUS_NAMES.get(persuader['status'], persuader['status'])}」，"
+                    f"无法劝降")
         else:
             best = -1
             for mine in await self.get_chars(owner_user_id=user_id,

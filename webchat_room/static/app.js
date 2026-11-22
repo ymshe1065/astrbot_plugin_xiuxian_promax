@@ -2068,6 +2068,17 @@
       case "strategy.notify":
         onStrategyNotify(m);
         break;
+      case "strategy.delta":
+        // 战略页与聊天室同源；把 tick 推进转发给已打开的战略页标签
+        // （战略页不再单独建 WS，避免同账号第二条连接把聊天室顶下线）。
+        try {
+          if (typeof BroadcastChannel !== "undefined") {
+            const bc = new BroadcastChannel("xiuxian_strategy");
+            bc.postMessage(m);
+            bc.close();
+          }
+        } catch (_) { /* 不支持时战略页仍靠轮询兜底 */ }
+        break;
       case "sys":
         addSys(m.text);
         refreshOnline();

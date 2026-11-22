@@ -135,7 +135,8 @@ class StrategyP3Mixin:
         amount, unit_price = int(amount), int(unit_price)
         items = self._market_items()
         if item_type not in items:
-            raise StrategyError(f"仅可挂售 {'/'.join(items)}")
+            raise StrategyError(
+                "仅可挂售 " + "/".join(R.RESOURCE_NAMES.get(x, x) for x in items))
         base_prices = mcfg.get("base_prices") or {}
         if unit_price <= 0:
             # 未定价 → 取配置基准价（情报 market.base_prices.intel）
@@ -144,7 +145,8 @@ class StrategyP3Mixin:
             raise StrategyError("数量与单价须为正")
         held = self._market_item_qty(p, item_type)
         if held < amount:
-            raise StrategyError(f"{item_type} 不足（现有 {held}）")
+            raise StrategyError(
+                f"{R.RESOURCE_NAMES.get(item_type, item_type)} 不足（现有 {held}）")
         node = await self.get_node(world["id"], int(node_id))
         if not node or node["type"] not in ("city", "market"):
             raise StrategyError("只能在仙城/坊市挂单")
@@ -172,7 +174,8 @@ class StrategyP3Mixin:
             _now(), _now() + int(mcfg.get("order_expire_hours", 48)) * 3600))
         await self._commit()
         return {"ok": True, "order_id": oid,
-                "msg": f"已在「{node['name']}」挂售 {item_type} ×{amount}"
+                "msg": f"已在「{node['name']}」挂售 "
+                       f"{R.RESOURCE_NAMES.get(item_type, item_type)} ×{amount}"
                        f"（单价 {unit_price}，48h 有效）"}
 
     async def market_buy(self, user_id: str, order_id: int, amount: int = 0) -> dict:
@@ -255,7 +258,8 @@ class StrategyP3Mixin:
                 logger.warning(f"[strategy] 通商好感结算失败：{e}")
         extra = f"，商队折扣 {discount * 100:.0f}%" if discount > 0 else ""
         return {"ok": True,
-                "msg": f"购入 {item} ×{want}，花费 {cost} 铜钱"
+                "msg": f"购入 {R.RESOURCE_NAMES.get(item, item)} ×{want}，"
+                       f"花费 {cost} 铜钱"
                        f"（含税 {tax}{extra}）",
                 "discount": discount, "amount": want,
                 "unit_price": int(row["unit_price"]),
@@ -315,7 +319,9 @@ class StrategyP3Mixin:
             self._market_item_add(p, item, int(row["amount"]))
             await self.save_player(p)
         await self._commit()
-        return {"ok": True, "msg": f"已撤单，退回 {item} ×{int(row['amount'])}"}
+        return {"ok": True,
+                "msg": f"已撤单，退回 {R.RESOURCE_NAMES.get(item, item)} "
+                       f"×{int(row['amount'])}"}
 
     async def market_orders(self, user_id: str, node_id: int = 0) -> list[dict]:
         world, p = await self._require_player(user_id)
@@ -330,7 +336,10 @@ class StrategyP3Mixin:
         out = []
         for r in rows:
             out.append({"order_id": r["id"], "node_id": r["node_id"],
-                        "item_type": r["item_type"], "amount": r["amount"],
+                        "item_type": r["item_type"],
+                        "item_name": R.RESOURCE_NAMES.get(r["item_type"],
+                                                          r["item_type"]),
+                        "amount": r["amount"],
                         "unit_price": r["unit_price"],
                         "seller_faction": r["seller_faction"],
                         "seller_user": r["seller_user"],
@@ -1038,6 +1047,24 @@ class StrategyP3Mixin:
                         "from_id": int(cv["from"]), "to_id": int(cv["to"]),
                         "cur_node_id": cur_id,
                         "progress": f"{idx}/{max(1, len(path) - 1)}"})
+        for sp in (world.get("data") or {}).get("army_supplies") or []:
+            if sp.get("owner") != user_id and int(sp.get("faction", 0)) != int(p["faction_id"]):
+                continue
+            army = await self.get_army(int(sp.get("army_id", 0) or 0))
+            out.append({"id": sp.get("id"), "kind": "army_supply",
+                        "grain": int(sp.get("grain", 0) or 0),
+                        "escort_troops": int((self.main_cfg().get("convoy") or {}).get(
+                            "troops", 100)) * 2,
+                        "escort_army_id": 0,
+                        "from": (nodes.get(int(sp.get("node_id", 0) or 0)) or {}).get(
+                            "name", "?"),
+                        "to": (army or {}).get("name", "?"),
+                        "cur_node": (nodes.get(int(sp.get("node_id", 0) or 0)) or {}).get(
+                            "name", "?"),
+                        "from_id": int(sp.get("node_id", 0) or 0),
+                        "to_id": int((army or {}).get("node_id", 0) or 0),
+                        "cur_node_id": int(sp.get("node_id", 0) or 0),
+                        "progress": "追击中"})
         return out
 
     # ------------------------------------------------------------------
@@ -1122,7 +1149,9 @@ class StrategyP3Mixin:
                 rows = await self._fetchall(
                     "SELECT user_id FROM strategy_players WHERE world_id=? AND faction_id=?",
                     (world["id"], fid))
-                loss_txt = "、".join(f"{k}×{v}" for k, v in lost.items()) or "无"
+                loss_txt = "、".join(
+                    f"{R.RESOURCE_NAMES.get(k, k)}×{v}"
+                    for k, v in lost.items()) or "无"
                 await self._notify(
                     world, [r["user_id"] for r in rows], "bandit_raid",
                     {"node_id": int(t["id"]),
@@ -1155,11 +1184,13 @@ class StrategyP3Mixin:
         my_bracket = R.arena_bracket(int(p.get("merit", 0) or 0))
         bracket = str(bracket or "").strip() or my_bracket
         if bracket not in ("novice", "veteran", "master"):
-            raise StrategyError("会武档位无效（novice/veteran/master）")
-        if bracket != my_bracket:
-            names = {"novice": "新秀", "veteran": "宿将", "master": "宗师"}
             raise StrategyError(
-                f"档位不符：你当前为「{names[my_bracket]}」档，不可跨档报名")
+                "会武档位无效（"
+                + "/".join(R.ARENA_BRACKET_NAMES.values()) + "）")
+        if bracket != my_bracket:
+            raise StrategyError(
+                f"档位不符：你当前为「{R.ARENA_BRACKET_NAMES.get(my_bracket, my_bracket)}」"
+                f"档，不可跨档报名")
         fee = int(dcfg.get("arena_stake_min", 100))
         if int(p.get("coin", 0)) < fee:
             raise StrategyError(f"铜钱不足：报名费 {fee}")
@@ -1193,11 +1224,10 @@ class StrategyP3Mixin:
         await self._commit()
         await self._audit(user_id, "arena_register", {
             "bracket": bracket, "fee": fee, "reward_mult": reward_mult})
-        names = {"novice": "新秀", "veteran": "宿将", "master": "宗师"}
         return {"ok": True, "bracket": bracket, "fee": fee,
                 "reward_mult": reward_mult, "signup_id": key,
-                "msg": f"🥁 已报名「{names[bracket]}」档会武"
-                       f"（报名费 {fee}，奖励 ×{reward_mult:g}）"}
+                "msg": f"🥁 已报名「{R.ARENA_BRACKET_NAMES.get(bracket, bracket)}」"
+                       f"档会武（报名费 {fee}，奖励 ×{reward_mult:g}）"}
 
     async def get_memorials(self, world_id: int) -> dict:
         """名将堂 / 英烈祠（§11）：按赛季倒序，最多各 20 条。
@@ -1565,9 +1595,11 @@ class StrategyP3Mixin:
         await self._commit()
         return {"ok": True,
                 "msg": f"📦 追赶礼包已发放（×{mult:.2f}）："
-                       + "、".join(f"{k}+{v}" for k, v in pack.items()
-                                   if k in ("coin", "grain", "iron", "recruit_token")
-                                   and int(v) > 0)
+                       + "、".join(
+                           f"{R.RESOURCE_NAMES.get(k, k)}+{v}"
+                           for k, v in pack.items()
+                           if k in ("coin", "grain", "iron", "recruit_token")
+                           and int(v) > 0)
                        + f"；产出 ×{float(ccfg.get('output_mult', 1.5))} "
                          f"持续 {int(ccfg.get('output_days', 14))} 天"}
 

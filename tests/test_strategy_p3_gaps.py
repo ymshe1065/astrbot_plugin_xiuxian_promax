@@ -200,6 +200,22 @@ class TestStrategyP3Gaps(unittest.IsolatedAsyncioTestCase):
         p2 = await self.m.get_player("u2", self.wid)
         self.assertEqual(int((p2["tavern"] or {}).get("intel", 0)), 2)
 
+    async def test_market_messages_use_chinese_names(self):
+        """坊市提示/订单展示统一中文品类名（不暴露 intel/grain 等英文键）。"""
+        node = await self._market_node()
+        with self.assertRaises(self.StrategyError) as cm:
+            await self.m.market_list("u1", node["id"], "intel", 1, 0)
+        self.assertIn("情报 不足", str(cm.exception))
+        with self.assertRaises(self.StrategyError) as cm:
+            await self.m.market_list("u1", node["id"], "gem", 1, 1)
+        self.assertIn("粮草/精铁/募将令/情报", str(cm.exception))
+        await self._give("u1", grain=100)
+        r = await self.m.market_list("u1", node["id"], "grain", 10, 2)
+        self.assertIn("粮草", r["msg"])
+        orders = await self.m.market_orders("u2")
+        mine = next(o for o in orders if o["order_id"] == int(r["order_id"]))
+        self.assertEqual(mine["item_name"], "粮草")
+
     async def test_market_war_blocks_trade(self):
         """交战势力之间不可互市（成交侧校验）。"""
         node = await self._market_node()

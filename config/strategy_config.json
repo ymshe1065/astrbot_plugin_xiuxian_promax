@@ -482,7 +482,10 @@
     "speed_edges": 1,
     "raid_take_pct": 0.5,
     "guard_vision": true,
-    "discount_pct": 30
+    "discount_pct": 30,
+    "army_supply_speed_edges": 4,
+    "army_supply_max_active": 20,
+    "army_supply_timeout_ticks": 672
   },
 
   "bandit": {

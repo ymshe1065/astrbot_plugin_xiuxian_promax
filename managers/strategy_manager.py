@@ -44,10 +44,9 @@ _CONFIG_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 
 #: 任务产出资源展示名（面板「进行中任务」与派遣下拉共用）
 TASK_OUTPUT_TEXT = {
-    "coin": "铜钱", "grain": "粮草", "iron": "精铁", "token": "募将令",
-    "intel": "情报", "build": "城防", "train": "精锐", "merit": "战功",
-    "heal": "疗伤", "tech": "科技点", "grain_move": "粮草",
-    "loot": "掠夺库存", "plot": "计略",
+    k: R.RESOURCE_NAMES[k] for k in (
+        "coin", "grain", "iron", "token", "intel", "build", "train",
+        "merit", "heal", "tech", "grain_move", "loot", "plot")
 }
 
 
@@ -152,6 +151,9 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         "trade_route_cut": 1,
         "convoy_arrived": 1,
         "convoy_raided": 1,
+        "supply_arrived": 1,
+        "supply_lost": 1,
+        "supply_raided": 1,
         "wanderer_auction": 1,
         "bandit_raid": 1,
         "captive_transfer": 1,
@@ -1857,19 +1859,22 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
     async def dispatch_task(self, user_id: str, char_id: int, node_id: int,
                             task_type: str, hours: int,
                             target_node_id: int = 0,
-                            partner_char_id: int = 0) -> dict:
+                            partner_char_id: int = 0,
+                            target_army_id: int = 0) -> dict:
         world, p = await self._require_player(user_id)
         tcfg = self.main_cfg().get("task") or {}
         scfg = self.main_cfg().get("stamina") or {}
         if task_type == "quest":
             task_type = "seek"
         if task_type not in R.TASK_TYPES:
-            raise StrategyError(f"暂不支持该任务：{task_type}")
+            raise StrategyError(
+                f"暂不支持该任务：{R.TASK_NAMES.get(task_type, task_type)}")
         if int(hours) not in [int(h) for h in tcfg.get("hours_options", [1, 2, 4, 8])]:
             raise StrategyError("时长须为 1/2/4/8 小时")
         c = await self._own_char(p, char_id)
         if c["status"] != "idle":
-            raise StrategyError(f"{c['name']} 状态为「{c['status']}」，无法派遣")
+            raise StrategyError(
+                f"{c['name']} 状态为「{R.CHAR_STATUS_NAMES.get(c['status'], c['status'])}」，无法派遣")
         if R.injury_state(c["injury"]) in ("dying", "dead"):
             raise StrategyError(f"{c['name']} 伤势过重")
         # v4.3.0：体力口径统一到 R.STAMINA_COST（此前预检读配置
@@ -1885,7 +1890,9 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             partner = await self._own_char(p, int(partner_char_id))
             if partner["status"] != "idle":
                 raise StrategyError(
-                    f"{partner['name']} 状态为「{partner['status']}」，无法协作")
+                    f"{partner['name']} 状态为「"
+                    f"{R.CHAR_STATUS_NAMES.get(partner['status'], partner['status'])}」，"
+                    f"无法协作")
             if R.injury_state(partner["injury"]) in ("dying", "dead"):
                 raise StrategyError(f"{partner['name']} 伤势过重")
             if scfg.get("enabled", True) and partner["stamina"] < task_cost:
@@ -1895,6 +1902,9 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         target_id = int(target_node_id or node_id)
         supplied = 0
         army = None
+        supply_instant = False
+        supply_msg = ""
+        pending_supply: Optional[dict] = None
         if task_type in ("raid", "scout"):
             # 劫掠/侦察：可指向敌方/无主据点（§6.2）
             node = await self.get_node(world["id"], target_id)
@@ -1921,26 +1931,63 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 if not adj_ok:
                     raise StrategyError("劫掠目标须与己方/盟友据点相邻")
         elif task_type == "supply":
-            # 运粮：从玩家粮草扣，等量补给我方军团（§6.2）
-            node = await self.get_node(world["id"], target_id)
-            if not node:
-                raise StrategyError("目标据点不存在")
-            armies = [a for a in await self.get_armies(
-                world["id"], faction_id=int(p["faction_id"]), node_id=int(node["id"]))
-                if int(a.get("troops", 0)) > 0]
-            if not armies:
-                raise StrategyError("目标据点没有我方军团可补给")
-            army = armies[0]
-            far = bool(army.get("path")) and len(army.get("path") or []) > int(
-                (self.main_cfg().get("army") or {}).get("far_supply_steps", 2))
-            need = max(1, R.grain_upkeep(army, node.get("terrain", "plain"), far)) * ticks
+            # 运粮：从玩家粮草扣，交付给指定军团（§6.2）
+            # v4.3.2：支持指定军团；驻扎军团立即到账；行军军团由补粮队
+            # 以高于普通行军的速度从后方追击，追上即交付。
+            army = await self._resolve_supply_army(
+                p, world, node_id, target_army_id)
+            origin = await self.get_node(world["id"], int(army["node_id"]))
+            if origin and int(origin.get("owner_faction", 0) or 0) == \
+                    int(p["faction_id"]):
+                node = origin
+            else:
+                src_id = await self._nearest_own_node(
+                    world, p, int(army["node_id"]))
+                if src_id is None:
+                    raise StrategyError("没有可用的己方据点作为运粮起点")
+                node = await self.get_node(world["id"], int(src_id))
+                if not node:
+                    raise StrategyError("运粮起点不存在")
+            cap = await self._army_grain_cap(army, node)
+            room = max(0, cap - int(army.get("grain", 0) or 0))
+            if room <= 0:
+                raise StrategyError(
+                    f"「{army['name']}」携粮已满（{int(army.get('grain', 0))}/{cap}）")
+            per_tick = await self._army_upkeep_amount(
+                army, str(node.get("terrain") or "plain"),
+                army.get("state") != "idle")
+            need = min(max(1, per_tick) * ticks, room)
             if int(p["grain"]) < need:
                 raise StrategyError(f"粮草不足：运粮需 {need}，现有 {int(p['grain'])}")
+            ccfg = self.main_cfg().get("convoy") or {}
+            if army.get("state") != "idle" or \
+                    int(army.get("node_id", 0) or 0) != int(node["id"]):
+                max_active = int(ccfg.get("army_supply_max_active", 20))
+                active = len((world.get("data") or {}).get("army_supplies") or [])
+                if active >= max_active:
+                    raise StrategyError(
+                        f"补粮队队列已满（{active}/{max_active}），请等待送达")
             p["grain"] -= need
-            army["grain"] = int(army.get("grain", 0)) + need
             supplied = need
+            if army.get("state") == "idle" and \
+                    int(army.get("node_id", 0) or 0) == int(node["id"]):
+                army["grain"] = int(army.get("grain", 0) or 0) + need
+                await self.save_army(army)
+                supply_instant = True
+                supply_msg = (f"🚚 已将粮草 {need} 送入「{army['name']}」"
+                              f"（现 {int(army['grain'])}/{cap}）")
+            else:
+                pending_supply = {
+                    "id": f"as{_now()}_{time.time_ns() % 100000000:08d}",
+                    "owner": p["user_id"], "faction": int(p["faction_id"]),
+                    "army_id": int(army["id"]), "task_id": 0,
+                    "node_id": int(node["id"]), "grain": need,
+                    "cap": cap, "created_tick": int(world.get("tick_no", 0) or 0),
+                    "wait_ticks": 0,
+                }
+                supply_msg = (f"🚚 补粮队已出发，追赶「{army['name']}」"
+                              f"（粮草 {need}，速度 {int(ccfg.get('army_supply_speed_edges', 4))} 段/tick）")
             await self.save_player(p)
-            await self.save_army(army)
         else:
             node = await self._owned_node(p, node_id)
         # v4.3.0：检查实扣返回值——此前 `if ...: pass` 吞掉 False（未扣成功），
@@ -1957,17 +2004,32 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             partner["location"] = {"node_id": node["id"]}
             await self.save_char(partner)
         now = _now()
+        end_at = now if supply_instant else now + int(hours) * 3600
         tid = await self._execute("""
             INSERT INTO strategy_tasks (world_id, faction_id, character_id, node_id,
                 task_type, start_at, end_at, payout_json, status)
             VALUES (?,?,?,?,?,?,?,?, 'active')
         """, (world["id"], p["faction_id"], c["id"], node["id"], task_type,
-              now, now + int(hours) * 3600,
+              now, end_at,
               json.dumps({"ticks": ticks,
+                          "exp_ticks": 1 if supply_instant else ticks,
                           "partner_char_id": int(partner["id"]) if partner else 0,
                           "supplied": supplied,
-                          "target_node_id": int(node["id"])})))
+                          "target_node_id": int(node["id"]),
+                          "army_id": int(army["id"]) if army else 0,
+                          "runner": 1 if pending_supply else 0,
+                          "delivered": 0})))
+        if pending_supply:
+            pending_supply["task_id"] = int(tid)
+            data = world.get("data") or {}
+            supplies = data.get("army_supplies") or []
+            supplies.append(pending_supply)
+            data["army_supplies"] = supplies
+            world["data"] = data
+            await self.save_world(world)
         await self._commit()
+        if task_type == "supply" and supply_msg:
+            return {"ok": True, "msg": supply_msg, "task_id": tid}
         extra = f"，与 {partner['name']} 协作" if partner is not None else ""
         return {"ok": True,
                 "msg": f"{c['name']} 开始在「{node['name']}」执行"
@@ -1985,6 +2047,19 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         c = await self.get_char(task["character_id"])
         if not c or c.get("owner_user_id") != p["user_id"]:
             raise StrategyError("无权操作该任务")
+        payout_meta = task.get("payout") or {}
+        if task["task_type"] == "supply" and int(payout_meta.get("runner") or 0) \
+                and not int(payout_meta.get("delivered") or 0):
+            refunded = await self._cancel_army_supply(world, task_id, refund=True)
+            await self.db.conn.execute(
+                "UPDATE strategy_tasks SET status='recalled' WHERE id=?", (task_id,))
+            if c.get("status") not in ("captive", "dead"):
+                c["status"] = "idle"
+                await self.save_char(c)
+            await self._commit()
+            return {"ok": True,
+                    "msg": f"已召回补粮队，未送达粮草 {refunded} 退回",
+                    "payout": {"kind": "none", "amount": 0}}
         tcfg = self.main_cfg().get("task") or {}
         elapsed = max(0, _now() - task["start_at"])
         total = max(1, task["end_at"] - task["start_at"])
@@ -2126,8 +2201,11 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             out["morale_gain"] = morale_gain
             out["morale"] = int(node.get("morale", 0))
         # 角色阅历：任务执行时间越长成长越多（可突破稀有度生成上限）
+        # 立即补粮（驻扎军团，任务下一 tick 即结束）实际占用约 0 tick，
+        # 按 exp_ticks（默认 1）结算，避免反复「8 小时补粮」刷经验。
         exp_per_tick = int(tcfg.get("exp_per_tick", 5))
-        logs = R.gain_exp(c, ticks * exp_per_tick,
+        exp_ticks = max(0, int(payout_meta.get("exp_ticks", ticks) or 0))
+        logs = R.gain_exp(c, exp_ticks * exp_per_tick,
                           self._growth_cap_bonus())
         c["location"] = {"node_id": task["node_id"]}
         await self.save_char(c)
@@ -2364,7 +2442,9 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             raise StrategyError(f"军团数已达上限（{concurrent} 支）")
         leader = await self._own_char(p, leader_char_id)
         if leader["status"] != "idle":
-            raise StrategyError(f"{leader['name']} 无法出征（{leader['status']}）")
+            raise StrategyError(
+                f"{leader['name']} 无法出征（"
+                f"{R.CHAR_STATUS_NAMES.get(leader['status'], leader['status'])}）")
         if leader["role"] == R.ROLE_OFFICIAL:
             raise StrategyError("内政官不能担任主将")
         if not R.can_act(leader):
@@ -2383,7 +2463,9 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             seen.add(int(mid))
             mc = await self._own_char(p, mid)
             if mc["status"] != "idle":
-                raise StrategyError(f"{mc['name']} 无法出征（{mc['status']}）")
+                raise StrategyError(
+                    f"{mc['name']} 无法出征（"
+                    f"{R.CHAR_STATUS_NAMES.get(mc['status'], mc['status'])}）")
             if not R.can_act(mc):
                 raise StrategyError(f"{mc['name']} 伤势过重，无法随军")
             members.append(mc)
@@ -2415,6 +2497,13 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             carry_cap = int(carry_cap * (1 + 0.1 * granary))
         carry = min(p["grain"], carry_cap)
         p["grain"] -= carry
+        # 上一条军团全灭留下的老兵值（50%）在新编军时继承
+        data = world.get("data") or {}
+        ashes = data.get("veteran_ashes") or {}
+        carry_vet = int(ashes.pop(str(p["user_id"]), 0) or 0)
+        if carry_vet:
+            data["veteran_ashes"] = ashes
+            world["data"] = data
         for mc in members:
             mc["status"] = "army"
             mc["location"] = {"node_id": node["id"]}
@@ -2424,8 +2513,8 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             "owner_user_id": p["user_id"],
             "name": f"{leader['name']}军", "node_id": node["id"],
             "characters": [mc["id"] for mc in members],
-            "troop_type": troop_type, "veteran": 0, "troops": troops,
-            "grain": carry, "morale": 100, "state": "idle",
+            "troop_type": troop_type, "veteran": carry_vet,
+            "troops": troops, "grain": carry, "morale": 100, "state": "idle",
             "siege_engine": 1 if siege_engine else 0,
         }
         # 同道羁绊掷点（§4.5）
@@ -2437,8 +2526,11 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 await self.save_char(members[j])
         await self.insert_army(army)
         await self.save_player(p)
+        if carry_vet:
+            await self.save_world(world)
         await self._commit()
-        return {"ok": True, "msg": f"编成「{army['name']}」（{tt['name']}×{troops}，携粮 {carry}）",
+        return {"ok": True, "msg": f"编成「{army['name']}」（{tt['name']}×{troops}，携粮 {carry}"
+                                   + (f"，继承老兵 {carry_vet}" if carry_vet else "") + "）",
                 "army_id": army["id"]}
 
     async def disband_army(self, user_id: str, army_id: int) -> dict:
@@ -2495,7 +2587,7 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         p["coin"] -= coin_cost
         p["grain"] -= grain_cost
         a["troops"] += troops
-        a["morale"] = min(100, a["morale"] + 5)
+        a["morale"] = min(R.army_morale_cap(a), a["morale"] + 5)
         await self.save_army(a)
         await self.save_player(p)
         await self._commit()
@@ -2539,7 +2631,10 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 target_host and int(my_host["id"]) == int(target_host["id"]):
             raise StrategyError("目标属于同盟势力，不可进攻")
         if target["owner_faction"] not in (0, p["faction_id"]):
-            if int(target.get("protect_until", 0) or 0) > now:
+            # v4.3.2：保护期只属于正数势力。魔潮（-1）等 NPC 占位不应
+            # 继承 168h 新城保护，否则玩家会被“魔潮城”卡 7 天无法收复。
+            if int(target["owner_faction"]) > 0 and \
+                    int(target.get("protect_until", 0) or 0) > now:
                 raise StrategyError("目标处于保护期")
             # C-M3：同盟/停战/开战备战期禁止进攻（§6.3 宣战门禁）
             rel = R.relation_of((my_host or {}).get("diplomacy"),
@@ -2571,7 +2666,8 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         if a["state"] == "escort":
             raise StrategyError("护送运粮队期间无法出征（抵达或被截后自动归队）")
         if a["state"] not in ("idle",):
-            raise StrategyError(f"军团状态「{a['state']}」无法出征")
+            raise StrategyError(
+                f"军团状态「{R.ARMY_STATE_NAMES.get(a['state'], a['state'])}」无法出征")
         if int(a.get("troops", 0)) <= 0:
             raise StrategyError("军团已无兵力，请解散后重新编军")
         if not await self._army_leader(a):
@@ -3178,7 +3274,7 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             await self.save_player(p)
             await self._commit()
             detail = "、".join(
-                f"{ {'coin':'铜钱','grain':'粮草','iron':'精铁'}[k] } +{v}"
+                f"{R.RESOURCE_NAMES.get(k, k)} +{v}"
                 for k, v in gains.items() if v > 0)
             return {"ok": True,
                     "msg": f"物资包兑换成功：{detail}"
@@ -3328,7 +3424,7 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             for k, v in gains.items():
                 p[k] = int(p.get(k, 0) or 0) + v
             detail = "、".join(
-                f"{ {'coin':'铜钱','grain':'粮草','iron':'精铁'}[k] } +{v}"
+                f"{R.RESOURCE_NAMES.get(k, k)} +{v}"
                 for k, v in gains.items() if v > 0) or "资源"
             msg = f"荣誉兑换成功：{detail}"
         elif item == "avatar_frame":
@@ -3455,6 +3551,8 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 summary["battles"].extend(battles)
                 # 6. NPC AI（驻军恢复 / 扩张出征 / 魔潮）
                 await self._step_npc_ai(world)
+                # 6b. 魔潮事件收尾：事件结束/无主残留清理，回收 -1 占位
+                await self._step_demon_tide(world)
                 # 7. 事件掷点（0~2 个/tick）
                 ev_names = await self._step_events(world)
                 summary["events"].extend(ev_names)
@@ -3482,6 +3580,8 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 await self._step_bandit_raids(world)
                 await self._step_trade_routes(world)
                 await self._step_convoys(world)
+                # 8d-2. 军团补粮队追击（速度高于普通行军，追上即交付）
+                await self._step_army_supplies(world)
                 # 8e. 赛季推进（阶段/霸权/合纵/结算，须放最后）
                 await self._step_season(world)
                 # 8f. 战报归档清理（§18.4 result_keep_days）
@@ -3540,6 +3640,24 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             if not c:
                 await self.db.conn.execute(
                     "UPDATE strategy_tasks SET status='orphan' WHERE id=?", (task["id"],))
+                continue
+            payout = task.get("payout") or {}
+            if task["task_type"] == "supply" and int(payout.get("runner") or 0) \
+                    and not int(payout.get("delivered") or 0):
+                # 补粮队在途：任务时长只用于计算运粮量，实际以追上交付为
+                # 结束条件；跑满 end_at 也不能提前释放押运角色。
+                exists = any(int(sp.get("task_id", 0) or 0) == int(task["id"])
+                             for sp in (world.get("data") or {}).get(
+                                 "army_supplies") or [])
+                if exists:
+                    continue
+                # 队列里已无对应补粮队（异常丢失）：关闭任务，避免角色卡死
+                await self.db.conn.execute(
+                    "UPDATE strategy_tasks SET status='cancelled' WHERE id=?",
+                    (task["id"],))
+                if c.get("status") == "task":
+                    c["status"] = "idle"
+                    await self.save_char(c)
                 continue
             # 角色在任务期间已出走/被押运：任务作废，不发奖，也不要把状态
             # 强改回 idle（否则 wander 被覆盖、收益还会进原势力国库）。
@@ -3852,6 +3970,30 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                       "choice": "auto", "since": _now()}
             ss["attacker_faction"] = atk_fid
             ss["ticks"] = int(ss.get("ticks", 0)) + 1
+            # §7.2：围城期间双方粮耗照常。守军（据点的 idle 军团）与攻方
+            # 都按自身携粮结算；断粮军团当 tick 撤离，避免零粮无限围城。
+            terrain = str(node.get("terrain") or "plain")
+            defender_armies = [a for a in await self.get_armies(
+                world["id"], node_id=nid, states=("idle",))
+                if int(a["faction_id"]) != atk_fid]
+            for d in defender_armies:
+                # 守军驻守本方/盟友据点，按“不远离己方”结算（far=False）；
+                # 此前与攻方一样硬编码 far=True，守城方被多收 1.5 倍粮耗。
+                if await self._consume_army_upkeep(world, d, terrain, False):
+                    await self._auto_retreat(d)
+                else:
+                    await self.save_army(d)
+            still_attackers = []
+            for a in attackers:
+                if await self._consume_army_upkeep(world, a, terrain, True):
+                    await self._auto_retreat(a)
+                else:
+                    still_attackers.append(a)
+            attackers = still_attackers
+            if not attackers:
+                node["siege_state"] = {}
+                await self.save_node(node)
+                continue
             # 攻方掉兵：城防反击（箭塔+守军）
             towers = min(5, self._building_level(node, "tower"))
             garrison_troops = int((node.get("npc_garrison") or {}).get("troops", 0))
@@ -3882,6 +4024,9 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 # 此前仅从内存列表过滤，DB 残留 troops=0/state=siege 的僵尸军团。
                 for a in destroyed:
                     a["_destroyed"] = True
+                    self._remember_veteran_ashes(
+                        world, a.get("owner_user_id", ""),
+                        int(a.get("veteran", 0) or 0))
                     for cid in a.get("characters") or []:
                         c = await self.get_char(int(cid))
                         if not c:
@@ -4080,7 +4225,12 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         # 新占节点保护期（§17：168h 免战，防滚雪球）
         pcfg = self.main_cfg().get("protection") or {}
         if prev_owner != int(faction_id):
-            node["protect_until"] = _now() + int(pcfg.get("new_node_hours", 168)) * 3600
+            if int(faction_id) > 0:
+                node["protect_until"] = _now() + int(
+                    pcfg.get("new_node_hours", 168)) * 3600
+            else:
+                # 魔潮（-1）与归还无主（0）不继承旧保护期：夺下即开放反攻
+                node["protect_until"] = 0
         # 驻守/围城的敌方军团溃散处理：城破后不能留下仍处 siege 的
         # 旧围城军（否则会把新主的城继续围住，甚至绕过新主保护期）
         for a in await self.get_armies(world["id"], node_id=node["id"],
@@ -4119,7 +4269,8 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                     notes.append(f"🏛 {old_f['name']} 主城陷落，需尽快迁都")
                 await self.save_faction(old_f)
         # §6.2 秘境首占：首次占领 ruin → 30% 掉装备/图纸（写战报 + 通知）
-        if node["type"] == "ruin" and prev_owner != int(faction_id):
+        if node["type"] == "ruin" and prev_owner != int(faction_id) and \
+                int(faction_id) > 0:
             out = node.get("output") or {}
             if not int(out.get("first_captured", 0) or 0):
                 out["first_captured"] = 1
@@ -4166,6 +4317,25 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                                {"text": f"💎 首占秘境「{node['name']}」获得图纸残卷"
                                         f"（精铁 +300）"})
         return "💎 首占秘境获得图纸残卷（精铁 +300）"
+
+    def _remember_veteran_ashes(self, world: dict, owner_user_id: str,
+                                veteran: int) -> int:
+        """军团全灭后保留一半老兵值（§7.5「全灭减半」）。
+
+        旧实现直接删除军团，``veteran`` 随行丢失，与前端指引「全灭减半」
+        不符。这里按 owner 记在 ``world.data.veteran_ashes``，下次编军时
+        继承；解散/主动重编仍然清零。
+        """
+        keep = int(int(veteran or 0) // 2)
+        if not owner_user_id or keep <= 0:
+            return 0
+        data = world.get("data") or {}
+        ashes = data.get("veteran_ashes") or {}
+        if keep > int(ashes.get(str(owner_user_id), 0) or 0):
+            ashes[str(owner_user_id)] = keep
+        data["veteran_ashes"] = ashes
+        world["data"] = data
+        return keep
 
     async def _release_army_chars(self, army: dict):
         """军团解散时归还角色：保留陨落/被俘状态，其余恢复空闲。"""
@@ -4275,6 +4445,291 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             army["edge_pos"] = 0.0
         await self.save_army(army)
 
+    # --- 军团补粮 / 运粮队（§6.2）-------------------------------------------
+    async def _army_grain_cap(self, army: dict,
+                              node: Optional[dict] = None) -> int:
+        """军团携粮上限 = 主将统率×50，粮仓每级 +10%（与编军同口径）。"""
+        leader = await self._army_leader(army)
+        cap = R.carry_grain_cap(leader)
+        if node is not None:
+            lvl = min(5, self._building_level(node, "granary"))
+            if lvl:
+                cap = int(cap * (1 + 0.1 * lvl))
+        return max(1, cap)
+
+    async def _resolve_supply_army(self, p: dict, world: dict,
+                                   node_id: int, army_id: int) -> dict:
+        """运粮目标军团：显式 army_id 优先；未指定时仅允许该据点唯一军团。"""
+        if int(army_id or 0):
+            army = await self._own_army(p, int(army_id))
+            if int(army.get("troops", 0) or 0) <= 0:
+                raise StrategyError("目标军团已无兵力")
+            return army
+        armies = [a for a in await self.get_armies(
+            world["id"], faction_id=int(p["faction_id"]),
+            node_id=int(node_id)) if int(a.get("troops", 0) or 0) > 0]
+        if not armies:
+            raise StrategyError("目标据点没有我方军团可补给")
+        if len(armies) > 1:
+            names = "、".join(f"{a['name']}(#{a['id']})" for a in armies)
+            raise StrategyError(
+                f"该据点有多支军团，请指定要补给的军团：{names}")
+        return armies[0]
+
+    async def _finish_supply_task(self, world: dict, task_id: int,
+                                  status: str = "done") -> None:
+        """结束运粮任务并释放执行角色（供追上/失败/召回共用）。"""
+        if int(task_id or 0) <= 0:
+            return
+        row = await self._fetchone(
+            "SELECT * FROM strategy_tasks WHERE id=? AND world_id=?",
+            (int(task_id), world["id"]))
+        task = self._decode("strategy_tasks", row)
+        if not task or task.get("status") != "active":
+            return
+        # 送达（done）时回写 delivered=1：任务展示的「补粮队在途/已注入」
+        # 与召回判定都依赖该字段，此前只改 status，delivered 永远为 0。
+        if status == "done":
+            payout = task.get("payout") or {}
+            payout["delivered"] = 1
+            await self.db.conn.execute(
+                "UPDATE strategy_tasks SET status=?, payout_json=? WHERE id=?",
+                (status, json.dumps(payout, ensure_ascii=False), int(task_id)))
+        else:
+            await self.db.conn.execute(
+                "UPDATE strategy_tasks SET status=? WHERE id=?", (status, int(task_id)))
+        c = await self.get_char(int(task["character_id"]))
+        if c and c.get("status") == "task":
+            R.gain_exp(c, max(1, int((task.get("payout") or {}).get("ticks", 4)) * 2),
+                       self._growth_cap_bonus())
+            c["status"] = "idle"
+            await self.save_char(c)
+        partner_id = int((task.get("payout") or {}).get("partner_char_id") or 0)
+        if partner_id:
+            partner = await self.get_char(partner_id)
+            if partner and partner.get("status") == "task":
+                partner["status"] = "idle"
+                await self.save_char(partner)
+
+    async def _refund_supply_grain(self, world: dict, sp: dict,
+                                   amount: int) -> int:
+        amount = max(0, int(amount or 0))
+        if amount <= 0:
+            return 0
+        owner = str(sp.get("owner") or "")
+        if not owner:
+            return 0
+        pp = await self.get_player(owner, world["id"])
+        if not pp:
+            return 0
+        pp["grain"] = int(pp.get("grain", 0) or 0) + amount
+        await self.save_player(pp)
+        return amount
+
+    async def _cancel_army_supply(self, world: dict, task_id: int,
+                                  refund: bool = True) -> int:
+        """取消某任务对应的补粮队；返回退还给玩家的粮草。"""
+        data = world.get("data") or {}
+        supplies = data.get("army_supplies") or []
+        kept, refunded = [], 0
+        for sp in supplies:
+            if int(sp.get("task_id", 0) or 0) == int(task_id):
+                if refund:
+                    refunded += await self._refund_supply_grain(
+                        world, sp, int(sp.get("grain", 0) or 0))
+                continue
+            kept.append(sp)
+        if len(kept) != len(supplies):
+            data["army_supplies"] = kept
+            world["data"] = data
+            await self.save_world(world)
+        return refunded
+
+    async def _deliver_army_supply(self, world: dict, sp: dict,
+                                   army: dict) -> int:
+        """把补粮队粮草送入军团（受携粮上限约束，多余退还玩家）。"""
+        grain = int(sp.get("grain", 0) or 0)
+        cap = int(sp.get("cap", 0) or 0) or await self._army_grain_cap(army)
+        room = max(0, cap - int(army.get("grain", 0) or 0))
+        moved = min(grain, room)
+        if moved > 0:
+            army["grain"] = int(army.get("grain", 0) or 0) + moved
+            await self.save_army(army)
+        if grain > moved:
+            await self._refund_supply_grain(world, sp, grain - moved)
+        await self._finish_supply_task(world, int(sp.get("task_id", 0) or 0), "done")
+        owner = str(sp.get("owner") or "")
+        if owner:
+            await self._notify(
+                world, [owner], "supply_arrived",
+                {"army_id": int(army["id"]), "node_id": int(army["node_id"]),
+                 "text": f"🚚 补粮队追上「{army['name']}」，交付粮草 {moved}"
+                         + (f"（携粮已满，退还 {grain - moved}）"
+                            if grain > moved else "")})
+        return moved
+
+    async def _step_army_supplies(self, world: dict):
+        """补粮队追击行军军团（§6.2）。
+
+        补粮队速度高于最快速行军军团（默认 4 段/tick，普通军团最高约
+        3.07），从后方出发也能追上；抵达目标所在节点即交付。目标解散/
+        覆没时剩余粮草退还玩家。途中可被匪寨/敌军劫掠（与运粮队同口径）。
+        """
+        data = world.get("data") or {}
+        supplies = data.get("army_supplies") or []
+        if not supplies:
+            return
+        ccfg = self.main_cfg().get("convoy") or {}
+        speed = max(1, int(ccfg.get("army_supply_speed_edges", 4)))
+        raid_pct = float(ccfg.get("raid_take_pct", 0.5))
+        timeout = int(ccfg.get("army_supply_timeout_ticks", 672))
+        tick_no = int(world.get("tick_no", 0) or 0)
+        fn = await self._ally_or_self_fn(world)
+        remaining = []
+        for sp in supplies:
+            army = await self.get_army(int(sp.get("army_id", 0) or 0))
+            task_id = int(sp.get("task_id", 0) or 0)
+            if not army or int(army.get("faction_id", 0) or 0) != int(
+                    sp.get("faction", 0) or 0) or int(
+                    army.get("troops", 0) or 0) <= 0:
+                refunded = await self._refund_supply_grain(
+                    world, sp, int(sp.get("grain", 0) or 0))
+                await self._finish_supply_task(world, task_id, "cancelled")
+                if sp.get("owner"):
+                    await self._notify(
+                        world, [sp["owner"]], "supply_lost",
+                        {"text": f"🚚 补粮目标已不存在，粮草 {refunded} 已退回"})
+                continue
+            # 总时限兜底：即使路线可达，也避免玩家反复改道导致角色永久占用
+            if tick_no - int(sp.get("created_tick", tick_no) or tick_no) > timeout:
+                refunded = await self._refund_supply_grain(
+                    world, sp, int(sp.get("grain", 0) or 0))
+                await self._finish_supply_task(world, task_id, "cancelled")
+                if sp.get("owner"):
+                    await self._notify(
+                        world, [sp["owner"]], "supply_lost",
+                        {"text": f"🚚 补粮队超时未送达，粮草 {refunded} 已退回"})
+                continue
+            # 目标：行军军团追其终点；驻守/围城则追当前节点
+            dest = int(army.get("node_id", 0) or 0)
+            if army.get("state") == "march" and army.get("path"):
+                dest = int(army["path"][-1])
+            cur = int(sp.get("node_id", 0) or 0)
+            # 已与军团同节点（且军团不在半格行军中）→ 交付
+            at_army = cur == int(army.get("node_id", 0) or 0) and (
+                army.get("state") != "march" or
+                float(army.get("edge_pos", 0) or 0) <= 0)
+            if at_army:
+                await self._deliver_army_supply(world, sp, army)
+                continue
+            path = await self.find_path(world["id"], cur, dest)
+            if not path or len(path) < 2:
+                sp["wait_ticks"] = int(sp.get("wait_ticks", 0) or 0) + 1
+                if sp["wait_ticks"] > timeout:
+                    refunded = await self._refund_supply_grain(
+                        world, sp, int(sp.get("grain", 0) or 0))
+                    await self._finish_supply_task(world, task_id, "cancelled")
+                    continue
+                remaining.append(sp)
+                continue
+            step = min(speed, len(path) - 1)
+            wiped = False
+            for cell in path[1:step + 1]:
+                raider = await self._find_convoy_raider(
+                    world, int(cell), int(sp.get("faction", 0) or 0), fn)
+                if not raider:
+                    continue
+                rng = self._rng("supply", sp["id"], cell)
+                if not R.convoy_raid_success(
+                        rng, int(ccfg.get("troops", 100)) * 2,
+                        int(raider.get("troops", 0) or 0)):
+                    continue
+                take = min(int(sp.get("grain", 0) or 0),
+                           max(1, int(int(sp.get("grain", 0) or 0) * raid_pct)))
+                sp["grain"] = int(sp.get("grain", 0) or 0) - take
+                await self._give_raid_spoils(world, raider, take)
+                if sp.get("owner"):
+                    await self._notify(
+                        world, [sp["owner"]], "supply_raided",
+                        {"text": f"🚚 补粮队遭劫，损失粮草 {take}"
+                                 f"（剩余 {int(sp.get('grain', 0))}）"})
+                if int(sp.get("grain", 0) or 0) <= 0:
+                    await self._finish_supply_task(world, task_id, "cancelled")
+                    wiped = True
+                    break
+            if wiped:
+                continue
+            # 本 tick 跨多段时若正好经过军团所在节点，立即视为追上
+            step_nodes = [int(x) for x in path[1:step + 1]]
+            if int(army.get("node_id", 0) or 0) in step_nodes and (
+                    army.get("state") != "march" or
+                    float(army.get("edge_pos", 0) or 0) <= 0):
+                sp["node_id"] = int(army["node_id"])
+                await self._deliver_army_supply(world, sp, army)
+                continue
+            sp["node_id"] = int(path[step])
+            sp["wait_ticks"] = 0
+            remaining.append(sp)
+        data["army_supplies"] = remaining
+        world["data"] = data
+        await self.save_world(world)
+        await self._commit()
+
+    # --- 粮耗 / 断粮（§5.6，行军与围城共用）-------------------------------
+    async def _army_upkeep_amount(self, army: dict, terrain: str,
+                                  far: bool) -> int:
+        """军团单 tick 粮耗：兵种基础 × 地形 × 距离 × 特技 × 科技 × 动员令。"""
+        faction = await self.get_faction(int(army.get("faction_id") or 0))
+        leader = None
+        cids = army.get("characters") or []
+        if cids:
+            leader = await self.get_char(int(cids[0]))
+        mods = R.trait_army_mods((leader or {}).get("traits"))
+        tech = R.tech_effects((faction or {}).get("tech") or {})
+        upkeep = R.grain_upkeep(army, terrain, far) * \
+            float(mods.get("grain_mult", 1.0)) * \
+            float(tech.get("grain_cost_mult", 1.0)) * \
+            await self._faction_buff(int(army.get("faction_id") or 0),
+                                     "grain_cost_mult")
+        return max(0, int(round(upkeep)))
+
+    async def _consume_army_upkeep(self, world: dict, army: dict,
+                                   terrain: str, far: bool) -> bool:
+        """结算军团本 tick 粮耗；断粮返回 True（调用方负责撤退/清理）。
+
+        同一 tick 只结算一次：围城断粮后 ``_auto_retreat`` 会把军团改成
+        行军态，随后 ``_step_march`` 不应再次扣粮/重复逃散。
+        """
+        tick_no = int(world.get("tick_no", 0) or 0)
+        if int(army.get("_upkeep_tick", -1)) == tick_no:
+            return False
+        army["_upkeep_tick"] = tick_no
+        upkeep = await self._army_upkeep_amount(army, terrain, far)
+        acfg = self.main_cfg().get("army") or {}
+        if int(army.get("grain", 0) or 0) >= upkeep:
+            army["grain"] = int(army.get("grain", 0) or 0) - upkeep
+            army["starve_ticks"] = 0
+            return False
+        army["grain"] = 0
+        faction = await self.get_faction(int(army.get("faction_id") or 0))
+        # 农政科技 L5「屯粮」：断粮抵抗 tick 数（期间只扣士气、不逃兵）
+        resist = int(R.tech_effects(
+            (faction or {}).get("tech") or {}).get("starve_resist_ticks", 0))
+        starve_n = int(army.get("starve_ticks", 0) or 0) + 1
+        army["starve_ticks"] = starve_n
+        army["morale"] = max(
+            0, int(army.get("morale", 100) or 0) -
+            int(acfg.get("starve_morale_per_tick", 20)))
+        desert = 0 if starve_n <= resist else int(
+            int(army.get("troops", 0) or 0) *
+            float(acfg.get("starve_desert_pct", 0.05)))
+        army["troops"] = max(0, int(army.get("troops", 0) or 0) - desert)
+        if int(army.get("morale", 0) or 0) <= 0 or \
+                int(army.get("troops", 0) or 0) <= 0:
+            army["starve_ticks"] = 0
+            return True
+        return False
+
     # --- 步骤 4：行军推进 + 粮耗（§5.6）------------------------------------
     async def _step_march(self, world: dict):
         marching = await self.get_armies(world["id"], states=("march",))
@@ -4306,34 +4761,13 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 a["node_id"] = nxt_id
                 a["path"] = a["path"][1:]
             # 粮耗（行军中每 tick；疾行 -10% / 动员令 / 农政科技 grain_cost_mult）
-            faction = await self.get_faction(int(a["faction_id"]))
-            tech_grain = float(R.tech_effects(
-                (faction or {}).get("tech") or {}).get("grain_cost_mult", 1.0))
             far = len(a["path"]) > int((self.main_cfg().get("army") or {}).get(
                 "far_supply_steps", 2))
-            upkeep = R.grain_upkeep(a, terrain, far) * \
-                float(mods.get("grain_mult", 1.0)) * tech_grain * \
-                await self._faction_buff(int(a["faction_id"]), "grain_cost_mult")
-            upkeep = max(0, int(round(upkeep)))
-            acfg = self.main_cfg().get("army") or {}
-            if a["grain"] < upkeep:
-                a["grain"] = 0
-                # 农政科技 L5「屯粮」：断粮抵抗 tick 数（期间只扣士气、不逃兵）
-                resist = int(R.tech_effects(
-                    (faction or {}).get("tech") or {}).get("starve_resist_ticks", 0))
-                starve_n = int(a.get("starve_ticks", 0) or 0) + 1
-                a["starve_ticks"] = starve_n
-                a["morale"] = max(0, a["morale"] - int(acfg.get("starve_morale_per_tick", 20)))
-                desert = 0 if starve_n <= resist else int(
-                    a["troops"] * float(acfg.get("starve_desert_pct", 0.05)))
-                a["troops"] = max(0, a["troops"] - desert)
-                if a["morale"] <= 0 or a["troops"] <= 0:
-                    a["starve_ticks"] = 0
-                    await self._auto_retreat(a)
-                    continue
-            else:
-                a["grain"] -= upkeep
-                a["starve_ticks"] = 0
+            starved = await self._consume_army_upkeep(
+                world, a, terrain, far)
+            if starved:
+                await self._auto_retreat(a)
+                continue
             await self.save_army(a)
         await self._commit()
 
@@ -4428,7 +4862,7 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         for a in await self.get_armies(world["id"], states=("idle",)):
             node = nodes.get(a["node_id"])
             if node and node["owner_faction"] == a["faction_id"]:
-                a["morale"] = min(100, a["morale"] + 10)
+                a["morale"] = min(R.army_morale_cap(a), a["morale"] + 10)
             # §7.5 超编：兵力 > 统率×20 时每 tick 扣士气（与驻守恢复独立）
             leader = None
             cids = a.get("characters") or []
@@ -4621,9 +5055,22 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             night=R.is_night(time.localtime().tm_hour),
             defending_node=True, city_defense=node["defense"])
         report = R.render_battle_report(result, title=f"{node['name']}会战")
+        # 先写战果再归档战报：斩魔声望文案须在 _persist_battle 之前拼入，
+        # 否则只会出现在即时返回串、归档战报缺失该行。_apply_battle_aftermath
+        # 不改变据点归属，故先结算善后不影响 dfn_fid 与攻守快照。
+        await self._apply_battle_aftermath(world, node, attackers, defenders, result)
+        if result["winner"] == "attacker" and atk_fid > 0:
+            # §6.3 斩魔声望：击败魔潮军团按势力声望配置加值
+            slain = sum(1 for d in defenders if d and
+                        int(d.get("faction_id", 0)) == -1 and
+                        (d.get("_destroyed") or d.get("_routed")))
+            if slain:
+                gain = int((cfg.get("reputation") or {}).get(
+                    "demon_slay_gain", 10)) * slain
+                await self.add_reputation(atk_f, gain)
+                report += f"\n🌑 击退魔潮军团 ×{slain}，声望 +{gain}"
         await self._persist_battle(world, node, atk_fid, node["owner_faction"],
                                    "field", result, report, atk_sim, dfn_sim)
-        await self._apply_battle_aftermath(world, node, attackers, defenders, result)
         if result["winner"] == "attacker":
             survivors = [a for a in attackers
                          if a.get("troops", 0) > 0 and not a.get("_routed")
@@ -4750,6 +5197,9 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                     for s in dfn_sim]
         slim = {k: v for k, v in result.items() if k != "round_log"}
         slim["round_log"] = round_log[-10:]
+        data = world.get("data") or {}
+        data["last_battle_tick"] = int(world.get("tick_no", 0) or 0)
+        world["data"] = data
         await self.insert_battle({
             "world_id": world["id"], "node_id": node["id"],
             "attacker_faction": atk_fid, "defender_faction": dfn_fid,
@@ -4857,10 +5307,11 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             # §4.5 羁绊士气：同道/义交/师徒给整队补士气（最高 +20）
             mates_bonus = R.bond_army_morale_bonus(
                 [c for c in (await self._army_members(army))])
-            army["morale"] = min(100, int(row["morale"]) + mates_bonus)
             army["veteran"] = min(R.VETERAN_MAX, int(army.get("veteran", 0))
                                   + R.veteran_gain(
                 winner == ("attacker" if is_attacker else "defender")))
+            army["morale"] = min(R.army_morale_cap(army),
+                                 int(row["morale"]) + mates_bonus)
             # 全军团角色阅历：主将全额，随行角色按比例成长（可突破生成上限）
             cids = [int(x) for x in (army.get("characters") or [])]
             won = winner == ("attacker" if is_attacker else "defender")
@@ -4905,6 +5356,9 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             if army["troops"] <= 0:
                 # 覆没：主将伤势 +40，军团解散（被俘 P1）
                 army["_destroyed"] = True
+                self._remember_veteran_ashes(
+                    world, army.get("owner_user_id", ""),
+                    int(army.get("veteran", 0) or 0))
                 for cid in cids:
                     c = await self.get_char(int(cid))
                     if not c:
@@ -5046,7 +5500,8 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                     target = nodes.get(int(adj_id))
                     if not target or target["owner_faction"] == fid:
                         continue
-                    if target.get("protect_until", 0) > _now():
+                    if int(target.get("owner_faction", 0) or 0) > 0 and \
+                            int(target.get("protect_until", 0) or 0) > _now():
                         continue
                     # 同盟国不征伐（§6.3）
                     tf_owner = int(target["owner_faction"])
@@ -5097,9 +5552,29 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 if int(a.get("troops", 0) or 0) < 300 or \
                         int(a.get("morale", 100) or 0) < 20:
                     await self._auto_retreat(a)
-        # 魔潮军团（faction -1）：扑向最近的有人据点
+        # 魔潮军团（faction -1）：普通军团扑最近节点；猎潮军优先扑最强势力的据点
+        data = world.get("data") or {}
+        hunters = data.get("demon_hunters") or {}
         for a in await self.get_armies(world["id"], faction_id=-1, states=("idle",)):
-            target = await self._nearest_enemy_node(world, a["node_id"], exclude=-1)
+            hunter = hunters.get(str(a["id"])) or {}
+            target_fid = int(hunter.get("target_faction") or 0)
+            target = None
+            if target_fid > 0:
+                target = await self._nearest_faction_node(
+                    world, int(a["node_id"]), target_fid)
+                if target is None:
+                    # 目标势力已被灭/已无据点：下次生成前改追当前最强
+                    new_fid, _pct = await self._strongest_faction(world)
+                    if new_fid > 0:
+                        hunter["target_faction"] = int(new_fid)
+                        hunters[str(a["id"])] = hunter
+                        data["demon_hunters"] = hunters
+                        world["data"] = data
+                        target = await self._nearest_faction_node(
+                            world, int(a["node_id"]), int(new_fid))
+            if target is None:
+                target = await self._nearest_enemy_node(
+                    world, a["node_id"], exclude=-1)
             if target:
                 path = await self.find_path(world["id"], a["node_id"], target)
                 if path and len(path) > 1:
@@ -5108,6 +5583,236 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                     a["grain"] = max(a["grain"], 9999)  # 魔潮就食于野
                     await self.save_army(a)
         await self._commit()
+
+    async def _strongest_faction(self, world: dict) -> tuple[int, float]:
+        """当前世界最强势力的 (faction_id, 霸权占比)；无玩家/NPC 势力时返回 (0, 0)。"""
+        scfg = self.main_cfg().get("season") or {}
+        types_by_fid: dict[int, list[str]] = {}
+        for n in await self.get_nodes(world["id"]):
+            fid = int(n.get("owner_faction", 0) or 0)
+            if fid > 0:
+                types_by_fid.setdefault(fid, []).append(n["type"])
+        shares = R.hegemony_share(types_by_fid, scfg.get("node_score"))
+        if not shares:
+            return 0, 0.0
+        fid, pct = max(shares.items(), key=lambda kv: (kv[1], kv[0]))
+        return int(fid), float(pct)
+
+    async def _nearest_faction_node(self, world: dict, src: int,
+                                    faction_id: int) -> Optional[int]:
+        """BFS 找距 src 最近的指定势力据点（不含 src 自身）。"""
+        from collections import deque
+        nodes = {n["id"]: n for n in await self.get_nodes(world["id"])}
+        if int(nodes.get(src, {}).get("owner_faction", 0) or 0) == int(faction_id):
+            return int(src)
+        q = deque([int(src)])
+        seen = {int(src)}
+        while q:
+            cur = q.popleft()
+            for nxt in nodes.get(cur, {}).get("adj") or []:
+                nxt = int(nxt)
+                if nxt in seen or nxt not in nodes:
+                    continue
+                seen.add(nxt)
+                if int(nodes[nxt].get("owner_faction", 0) or 0) == int(faction_id):
+                    return nxt
+                q.append(nxt)
+        return None
+
+    async def _spawn_demon_army(self, world: dict, node: dict, rng,
+                                target_fid: int = 0) -> dict:
+        """生成一支魔潮军团；``target_fid`` >0 时登记为猎潮军。"""
+        demon = R.generate_character(
+            rng, rarity="rare", role=R.ROLE_GENERAL, profession="demon",
+            name_pools=self.cfg.get("names") or {})
+        demon.update({"world_id": world["id"], "faction_id": -1,
+                      "owner_user_id": "", "loyalty": 100,
+                      "status": "army"})
+        await self.insert_char(demon)
+        troops = rng.randint(800, 1500)
+        prefix = "魔潮猎潮" if int(target_fid) > 0 else "魔潮"
+        army = {
+            "world_id": world["id"], "faction_id": -1, "owner_user_id": "",
+            "name": f"{prefix}·{demon['name']}", "node_id": node["id"],
+            "characters": [demon["id"]], "troop_type": "beast_horde",
+            "veteran": rng.randint(10, 40), "troops": troops,
+            "grain": 9999, "morale": 100, "state": "idle",
+        }
+        await self.insert_army(army)
+        if int(target_fid) > 0:
+            data = world.get("data") or {}
+            hunters = data.get("demon_hunters") or {}
+            hunters[str(army["id"])] = {
+                "target_faction": int(target_fid),
+                "spawn_tick": int(world.get("tick_no", 0) or 0)}
+            data["demon_hunters"] = hunters
+            world["data"] = data
+        return army
+
+    async def _pick_demon_hunter_node(self, world: dict, target_fid: int,
+                                      occupied: set[int], rng) -> Optional[dict]:
+        """为猎潮军选一个靠近目标势力的无主/魔潮节点作为出生点。"""
+        from collections import deque
+        nodes_list = await self.get_nodes(world["id"])
+        nodes = {n["id"]: n for n in nodes_list}
+        cands = [n for n in nodes_list
+                 if int(n.get("owner_faction", 0) or 0) in (0, -1)
+                 and int(n["id"]) not in occupied]
+        if not cands:
+            # 全图已被瓜分时，退而求其次在第三方势力边境生成，保证反寡头
+            # 机制在中后期仍能启动；若地图只剩目标一家则本次不生成。
+            cands = [n for n in nodes_list
+                     if int(n.get("owner_faction", 0) or 0) > 0
+                     and int(n.get("owner_faction", 0) or 0) != int(target_fid)
+                     and int(n["id"]) not in occupied]
+        if not cands:
+            return None
+        targets = [n["id"] for n in nodes_list
+                   if int(n.get("owner_faction", 0) or 0) == int(target_fid)]
+        if not targets:
+            return rng.choice(cands)
+        # 多源 BFS：从目标势力所有据点同时扩散，取距目标最近的出生点
+        dist = {int(t): 0 for t in targets}
+        q = deque(int(t) for t in targets)
+        while q:
+            cur = q.popleft()
+            for nxt in nodes.get(cur, {}).get("adj") or []:
+                nxt = int(nxt)
+                if nxt in dist or nxt not in nodes:
+                    continue
+                dist[nxt] = dist[cur] + 1
+                q.append(nxt)
+        reachable = [n for n in cands if int(n["id"]) in dist]
+        pool = reachable or cands
+        best = min((dist.get(int(n["id"]), 9999) for n in pool), default=0)
+        nearest = [n for n in pool if dist.get(int(n["id"]), 9999) == best]
+        # 优先遗迹/矿点，保持「边缘生成」观感
+        typed = [n for n in nearest if n.get("type") in ("ruin", "mine")]
+        return rng.choice(typed or nearest)
+
+    async def _spawn_demon_hunter(self, world: dict, rng,
+                                  target_fid: int,
+                                  occupied: set[int]) -> Optional[dict]:
+        node = await self._pick_demon_hunter_node(
+            world, target_fid, occupied, rng)
+        if not node:
+            return None
+        return await self._spawn_demon_army(
+            world, node, rng, target_fid=int(target_fid))
+
+    async def _maybe_spawn_demon_hunters(self, world: dict, tick_no: int,
+                                         data: dict, rules: dict):
+        """魔潮持续期间每隔 ``hunter_interval_ticks`` 额外生成猎潮军。"""
+        interval = max(1, int(rules.get("hunter_interval_ticks", 8)))
+        nxt = int(data.get("demon_next_hunter_tick", 0) or 0)
+        if nxt <= 0:
+            data["demon_next_hunter_tick"] = tick_no + interval
+            world["data"] = data
+            return
+        if tick_no < nxt:
+            return
+        data["demon_next_hunter_tick"] = tick_no + interval
+        armies = await self.get_armies(world["id"], faction_id=-1)
+        cap = int(rules.get("max_armies", 8))
+        if len(armies) >= cap:
+            world["data"] = data
+            return
+        target_fid, _pct = await self._strongest_faction(world)
+        if target_fid <= 0:
+            world["data"] = data
+            return
+        rng = self._rng("demon_hunter", world["id"], tick_no)
+        occupied = {int(a.get("node_id", 0)) for a in armies}
+        count = min(max(1, int(rules.get("hunter_count", 1))),
+                    cap - len(armies))
+        for _ in range(count):
+            army = await self._spawn_demon_hunter(
+                world, rng, int(target_fid), occupied)
+            if not army:
+                break
+            occupied.add(int(army["node_id"]))
+        data["demon_hunters"] = data.get("demon_hunters") or {}
+        world["data"] = data
+
+    async def _step_demon_tide(self, world: dict):
+        """魔潮收尾与保护期清理。
+
+        - 魔潮打下据点后会正常占点（``owner_faction=-1``），但**不享受**
+          新城/护山盾保护期：这里每 tick 清掉 -1 据点上的 ``protect_until``，
+          玩家可以立即组织反攻；
+        - 事件持续期间按 ``hunter_interval_ticks`` 额外生成猎潮军，目标为
+          当前霸权最高的势力（反寡头机制）；
+        - 事件到期后删除未阵亡的魔潮军团与临时魔修，防止跨事件堆积；
+          已占领据点保留为魔潮领地，直到被玩家/NPC 夺回。
+        """
+        tick_no = int(world.get("tick_no", 0) or 0)
+        data = world.get("data") or {}
+        all_nodes = await self.get_nodes(world["id"])
+        nodes = [n for n in all_nodes
+                 if int(n.get("owner_faction", 0) or 0) == -1]
+        cleared = 0
+        for n in nodes:
+            if int(n.get("protect_until", 0) or 0) != 0:
+                n["protect_until"] = 0
+                await self.save_node(n)
+                cleared += 1
+        active = any(str(ev.get("event_id") or "") == "demon_tide"
+                     for ev in await self.get_active_events(world["id"], tick_no))
+        armies = await self.get_armies(world["id"], faction_id=-1)
+        # 清理已被消灭的猎潮军目标登记，防止 world.data 膨胀
+        hunters = data.get("demon_hunters") or {}
+        alive = {str(a["id"]) for a in armies}
+        pruned = {k: v for k, v in hunters.items() if k in alive}
+        if pruned != hunters:
+            data["demon_hunters"] = pruned
+            world["data"] = data
+        if active:
+            data["demon_tide_active"] = True
+            world["data"] = data
+            rules = (self.cfg.get("events") or {}).get("demon_tide") or {}
+            await self._maybe_spawn_demon_hunters(
+                world, tick_no, data, rules)
+            if cleared:
+                logger.info(f"[strategy] 魔潮：清除 {cleared} 个 -1 据点保护期")
+            return
+        # 无事件期间清理魔潮围城留下的悬挂状态（攻方军团可能已被删除，
+        # 否则城池会一直显示「被围」且城防无法自修）
+        for n in all_nodes:
+            ss = n.get("siege_state") or {}
+            if int(ss.get("attacker_faction", 0) or 0) == -1:
+                if await self._active_manual_battle(world["id"], int(n["id"])):
+                    continue
+                n["siege_state"] = {}
+                await self.save_node(n)
+        if not armies:
+            if data.get("demon_tide_active"):
+                data["demon_tide_active"] = False
+                world["data"] = data
+                await self.save_world(world)
+            return
+        # 手操战役中的魔潮军团不能直接删除（否则 battle 会话引用悬空，
+        # 玩家打一半单位消失）；等战斗结束后再回收。
+        battle_hunters = {}
+        deleted = 0
+        for a in armies:
+            if a.get("state") == "battle":
+                hid = str(a["id"])
+                if hid in hunters:
+                    battle_hunters[hid] = hunters[hid]
+                continue
+            for cid in a.get("characters") or []:
+                await self._execute(
+                    "DELETE FROM strategy_characters WHERE id=? AND faction_id=-1 "
+                    "AND status NOT IN ('captive','transfer')",
+                    (int(cid),))
+            await self.delete_army(a["id"])
+            deleted += 1
+        data["demon_tide_active"] = False
+        data["demon_hunters"] = battle_hunters
+        world["data"] = data
+        await self.save_world(world)
+        logger.info(f"[strategy] 魔潮收尾：清理 {deleted} 支军团；"
+                    f"保留 {len(nodes)} 个魔潮据点")
 
     async def _nearest_enemy_node(self, world: dict, src: int, exclude: int) -> Optional[int]:
         from collections import deque
@@ -5167,6 +5872,28 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
     # ------------------------------------------------------------------
     # 步骤 7：事件掷点（§11.1：0~2 个/tick）
     # ------------------------------------------------------------------
+    def _event_weight(self, ev: dict, tick_no: int, data: dict,
+                      ecfg: dict, main_demon: bool) -> int:
+        """事件权重：魔潮接入和平期加成、每周保底与主玩法联动（§10.1）。"""
+        weight = max(1, int(ev.get("weight", 1)))
+        if str(ev.get("id") or "") != "demon_tide":
+            return weight
+        rules = ecfg.get("demon_tide") or {}
+        last_battle = int(data.get("last_battle_tick", 0) or 0)
+        peace_ticks = int(rules.get("peace_ticks", 96))
+        if not last_battle or tick_no - last_battle >= peace_ticks:
+            weight = int(weight * float(rules.get("peace_weight_mult", 2.0)))
+        guarantee = int(rules.get("weekly_guarantee_ticks", 672))
+        last_tide = int(data.get("demon_tide_last_tick", 0) or 0)
+        overdue = (tick_no >= guarantee) if last_tide <= 0 else \
+            (tick_no - last_tide >= guarantee)
+        if overdue:
+            weight *= 1000  # 每周保底：权重压制其余事件，避免一直抽不到
+        if main_demon:
+            weight = int(weight * float(
+                rules.get("main_event_weight_mult", 2.0)))
+        return max(1, weight)
+
     async def _step_events(self, world: dict) -> list[str]:
         ecfg = self.cfg.get("events") or {}
         # 势力事件（scope=faction）由 strategy_faction_mixin._step_faction_events
@@ -5183,11 +5910,18 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         tick_no = int(world["tick_no"])
         names: list[str] = []
         nodes = await self.get_nodes(world["id"])
+        main_demon = False
+        try:
+            main_demon = str(await self.db.ext.get_system_config(
+                "demon_invasion_active") or "") == "1"
+        except Exception:  # noqa: BLE001 - 主玩法未初始化时按未开启处理
+            main_demon = False
         for _ in range(rolls):
             eligible = [e for e in events if tick_no >= int(cd.get(e["id"], 0))]
             if not eligible:
                 break
-            weights = [max(1, int(e.get("weight", 1))) for e in eligible]
+            weights = [self._event_weight(e, tick_no, data, ecfg, main_demon)
+                       for e in eligible]
             ev = rng.choices(eligible, weights=weights)[0]
             trigger = ev.get("trigger") or {}
             target: dict[str, Any] = {}
@@ -5301,28 +6035,35 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                     # 的其他成员毫发无损（事件伤害取决于 DB 行序）
                     await self._burn_owner_grain(world, node, pct)
             elif eff.get("type") == "spawn_demon_armies":
+                ecfg = self.cfg.get("events") or {}
+                rules = ecfg.get("demon_tide") or {}
+                existing = len(await self.get_armies(
+                    world["id"], faction_id=-1))
+                cap = int(rules.get("max_armies", 8))
                 lo, hi = eff.get("count") or [2, 4]
-                count = rng.randint(int(lo), int(hi))
+                count = min(rng.randint(int(lo), int(hi)), max(0, cap - existing))
+                try:
+                    if str(await self.db.ext.get_system_config(
+                            "demon_invasion_active") or "") == "1":
+                        count = min(cap - existing,
+                                    count + int(rules.get("main_event_extra", 1)))
+                except Exception:  # noqa: BLE001
+                    pass
+                occupied = {int(a.get("node_id", 0)) for a in
+                            await self.get_armies(world["id"], faction_id=-1)}
                 cands = [n for n in await self.get_nodes(world["id"])
-                         if n["owner_faction"] == 0 and n["type"] in ("ruin", "mine")]
+                         if n["owner_faction"] == 0 and n["type"] in ("ruin", "mine")
+                         and int(n["id"]) not in occupied]
                 rng.shuffle(cands)
-                for node in cands[:count]:
-                    demon = R.generate_character(
-                        rng, rarity="rare", role=R.ROLE_GENERAL, profession="demon",
-                        name_pools=self.cfg.get("names") or {})
-                    demon.update({"world_id": world["id"], "faction_id": -1,
-                                  "owner_user_id": "", "loyalty": 100,
-                                  "status": "army"})
-                    await self.insert_char(demon)
-                    troops = rng.randint(800, 1500)
-                    army = {
-                        "world_id": world["id"], "faction_id": -1, "owner_user_id": "",
-                        "name": f"魔潮·{demon['name']}", "node_id": node["id"],
-                        "characters": [demon["id"]], "troop_type": "beast_horde",
-                        "veteran": rng.randint(10, 40), "troops": troops,
-                        "grain": 9999, "morale": 100, "state": "idle",
-                    }
-                    await self.insert_army(army)
+                for node in cands[:max(0, count)]:
+                    await self._spawn_demon_army(world, node, rng)
+                data = world.get("data") or {}
+                data["demon_tide_active"] = True
+                data["demon_tide_last_tick"] = int(world.get("tick_no", 0) or 0)
+                data["demon_next_hunter_tick"] = int(
+                    world.get("tick_no", 0) or 0) + max(
+                        1, int(rules.get("hunter_interval_ticks", 8)))
+                world["data"] = data
         # P3 事件效果（流将/劫掠/会武，§11.1）
         await self._p3_event_onset(world, ev, target, rng)
         await self._commit()
@@ -5425,7 +6166,8 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 "garrison_bucket": None if visible else self._garrison_bucket(gar),
                 "scouted_until": scouted.get(n["id"], 0)
                 if n["id"] not in visible_nodes else 0,
-                "protected": n.get("protect_until", 0) > now_ts,
+                "protected": int(n.get("owner_faction", 0) or 0) > 0 and
+                int(n.get("protect_until", 0) or 0) > now_ts,
             })
         # 军团（迷雾：非可见据点上的敌军不展示）
         out_armies = []
@@ -5522,7 +6264,9 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             return out
         if tt == "supply":
             out["estimate"] = int(payload.get("supplied") or 0)
-            out["note"] = "已注入军团"
+            out["note"] = ("补粮队在途" if int(payload.get("runner") or 0)
+                           and not int(payload.get("delivered") or 0)
+                           else "已注入军团")
             return out
         tcfg = self.main_cfg().get("task") or {}
         base_map = dict(tcfg.get("base_per_tick") or {})
@@ -5879,6 +6623,11 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             "role_names": dict(R.ROLE_NAMES),
             "profession_names": dict(R.PROFESSION_NAMES),
             "stat_names": dict(R.STAT_NAMES),
+            "resource_names": dict(R.RESOURCE_NAMES),
+            "tech_names": dict(R.TECH_NAMES),
+            "char_status_names": dict(R.CHAR_STATUS_NAMES),
+            "army_state_names": dict(R.ARMY_STATE_NAMES),
+            "arena_bracket_names": dict(R.ARENA_BRACKET_NAMES),
             "injury_names": dict(R.INJURY_STATE_NAMES),
             "node_output": cfg.get("node_output_per_tick") or {},
             "gold_output": {k: v for k, v in (cfg.get("gold_output") or {}).items()},
@@ -6038,7 +6787,8 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                     user_id, int(params["char_id"]), int(params["node_id"]),
                     str(params.get("task_type", "farm")), int(params.get("hours", 1)),
                     int(params.get("target_node_id", 0) or 0),
-                    int(params.get("partner_char_id", 0) or 0))
+                    int(params.get("partner_char_id", 0) or 0),
+                    int(params.get("army_id", 0) or 0))
             if action == "recall_task":
                 return await self.recall_task(user_id, int(params["task_id"]))
             if action == "create_army":

@@ -120,6 +120,25 @@
     </div>
   </div>
 
+  <!-- 军团补粮弹窗 -->
+  <div class="overlay" id="supplyOverlay" hidden>
+    <div class="overlay-card">
+      <h2>🚚 派遣补粮队</h2>
+      <div class="sub" id="supplyArmyHint" style="margin-bottom:8px"></div>
+      <div class="form-row">
+        <label>押运</label><select id="supplyChar"></select>
+      </div>
+      <div class="form-row">
+        <label>折算时长</label><select id="supplyHours"></select>
+      </div>
+      <div class="cost-line" id="supplyCost"></div>
+      <div class="form-actions">
+        <button class="btn" id="supplyCancel" type="button">取消</button>
+        <button class="btn primary" id="supplyConfirm" type="button">出发</button>
+      </div>
+    </div>
+  </div>
+
   <!-- 通知授权引导条（§12.5 F：首次进面板请求授权） -->
   <div class="notify-bar" id="notifyBar" hidden>
     <span>🔔 开启浏览器通知，手操战役/围城警报不错过</span>

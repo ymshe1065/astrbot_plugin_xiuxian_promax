@@ -1276,14 +1276,232 @@ class TestStrategyManager(unittest.IsolatedAsyncioTestCase):
         r = await self.m.create_army("u1", gen["id"], [], home["id"],
                                      "sword_shield", 500)
         army = await self.m.get_army(r["army_id"])
+        # 新编军团默认已携满粮（min(库存, 统率×50)），先消耗一部分再补
+        army["grain"] = 0
+        await self.m.save_army(army)
+        army = await self.m.get_army(r["army_id"])
         before_army = int(army["grain"])
         before_player = int((await self.m.get_player("u1", self.wid))["grain"])
-        res = await self.m.dispatch_task("u1", off["id"], home["id"], "supply", 1)
+        res = await self.m.dispatch_task("u1", off["id"], home["id"], "supply", 1,
+                                        target_army_id=int(army["id"]))
         self.assertTrue(res["ok"])
         army2 = await self.m.get_army(r["army_id"])
         p2 = await self.m.get_player("u1", self.wid)
         self.assertGreater(int(army2["grain"]), before_army)
         self.assertLess(int(p2["grain"]), before_player)
+
+    async def test_supply_task_targets_specific_army_and_instant_for_idle(self):
+        """v4.3.2：多军团必须指定 army_id；驻扎军团立即到账。"""
+        R = _imp("core.strategy_rules")
+        p, gen, off, home, _target = await self._army_fixture()
+        r1 = await self.m.create_army("u1", gen["id"], [], home["id"],
+                                      "sword_shield", 500)
+        rng = __import__("random").Random(7)
+        c2 = R.generate_character(rng, rarity="rare", role=R.ROLE_GENERAL,
+                                  name_pools={})
+        c2.update({"world_id": self.wid, "faction_id": p["faction_id"],
+                   "owner_user_id": "u1", "loyalty": 100, "status": "idle"})
+        await self.m.insert_char(c2)
+        r2 = await self.m.create_army("u1", c2["id"], [], home["id"],
+                                      "sword_shield", 500)
+        for aid in (r1["army_id"], r2["army_id"]):
+            a = await self.m.get_army(aid)
+            a["grain"] = 0
+            await self.m.save_army(a)
+        with self.assertRaises(self.StrategyError):
+            await self.m.dispatch_task("u1", off["id"], home["id"], "supply", 1)
+        res = await self.m.dispatch_task(
+            "u1", off["id"], home["id"], "supply", 1,
+            target_army_id=int(r2["army_id"]))
+        self.assertTrue(res["ok"])
+        a1 = await self.m.get_army(r1["army_id"])
+        a2 = await self.m.get_army(r2["army_id"])
+        self.assertEqual(int(a1["grain"]), 0)
+        self.assertGreater(int(a2["grain"]), 0)
+        task = (await self.m.get_tasks(self.wid, status="active"))[0]
+        self.assertEqual(int((task["payout"] or {}).get("army_id")),
+                         int(r2["army_id"]))
+        self.assertEqual(int((task["payout"] or {}).get("runner") or 0), 0)
+        # v4.3.3：立即补粮仅按 1 tick 折算经验，避免按所选时长刷经验
+        self.assertEqual(int((task["payout"] or {}).get("exp_ticks") or 0), 1)
+
+    async def test_instant_supply_does_not_grant_full_duration_exp(self):
+        """v4.3.3：驻扎军团立即补粮，角色只占用约 0 tick，不应按时长给满经验。"""
+        _p, gen, off, home, _target = await self._army_fixture()
+        r = await self.m.create_army("u1", gen["id"], [], home["id"],
+                                     "sword_shield", 500)
+        army = await self.m.get_army(r["army_id"])
+        army["grain"] = 0
+        await self.m.save_army(army)
+        exp_per_tick = int((self.m.main_cfg().get("task") or {}).get(
+            "exp_per_tick", 5))
+        before = int((await self.m.get_char(off["id"])).get("exp", 0))
+        res = await self.m.dispatch_task("u1", off["id"], home["id"], "supply", 8,
+                                        target_army_id=int(army["id"]))
+        self.assertTrue(res["ok"])
+        await self.m.tick()
+        after = int((await self.m.get_char(off["id"])).get("exp", 0))
+        # 8 小时=32 tick，旧逻辑会给 32×exp_per_tick；修复后只按 1 tick 结算
+        self.assertLessEqual(after - before, exp_per_tick)
+
+    async def test_supply_runner_chases_marching_army_and_delivers(self):
+        """v4.3.2：行军军团由补粮队追击，追上即交付并结束任务。"""
+        p, gen, off, home, target = await self._army_fixture()
+        tnode = await self.m.get_node(self.wid, target)
+        tnode["owner_faction"] = p["faction_id"]
+        tnode["protect_until"] = 0
+        await self.m.save_node(tnode)
+        r = await self.m.create_army("u1", gen["id"], [], home["id"],
+                                     "sword_shield", 500)
+        army = await self.m.get_army(r["army_id"])
+        army["grain"] = 0
+        await self.m.save_army(army)
+        await self.m.march("u1", int(army["id"]), int(target))
+        res = await self.m.dispatch_task(
+            "u1", off["id"], home["id"], "supply", 1,
+            target_army_id=int(army["id"]))
+        self.assertTrue(res["ok"])
+        world = await self.m.get_world()
+        self.assertEqual(len((world.get("data") or {}).get("army_supplies") or []), 1)
+        await self.m.tick()
+        await self.m.tick()
+        army2 = await self.m.get_army(r["army_id"])
+        world2 = await self.m.get_world()
+        self.assertGreater(int(army2["grain"]), 0)
+        self.assertEqual((world2.get("data") or {}).get("army_supplies") or [], [])
+        task = (await self.m.get_tasks(self.wid, status="done"))[-1]
+        self.assertEqual(task["task_type"], "supply")
+        # v4.3.3：送达后回写 delivered=1，任务展示与召回判定依赖该字段
+        self.assertEqual(int((task["payout"] or {}).get("delivered") or 0), 1)
+        off2 = await self.m.get_char(off["id"])
+        self.assertEqual(off2["status"], "idle")
+
+    async def test_supply_cap_rejects_full_army(self):
+        """携粮已满时运粮任务拒绝，避免无限囤粮。"""
+        _p, gen, off, home, _target = await self._army_fixture()
+        r = await self.m.create_army("u1", gen["id"], [], home["id"],
+                                     "sword_shield", 500)
+        with self.assertRaises(self.StrategyError):
+            await self.m.dispatch_task("u1", off["id"], home["id"], "supply", 1,
+                                       target_army_id=int(r["army_id"]))
+
+    async def test_demon_tide_captures_without_protection(self):
+        """v4.3.2：魔潮会占点，但据点不写新城保护期；事件结束保留领地。"""
+        p = await self._enter()
+        node = next(n for n in await self.m.get_nodes(self.wid)
+                    if int(n["owner_faction"]) == int(p["faction_id"]))
+        node["stock"] = {"coin": 1000, "grain": 1000, "iron": 1000}
+        node["morale"] = 80
+        node["defense"] = 1000
+        await self.m.save_node(node)
+        world = await self.m.get_world()
+        await self.m._capture_node(world, node, -1)
+        node2 = await self.m.get_node(self.wid, int(node["id"]))
+        self.assertEqual(int(node2["owner_faction"]), -1)
+        self.assertEqual(int(node2["protect_until"]), 0)
+        # 残留保护期会在下一 tick 被清掉；据点仍归魔潮
+        node2["protect_until"] = int(time.time()) + 3600
+        node2["owner_faction"] = -1
+        await self.m.save_node(node2)
+        await self.m._step_demon_tide(world)
+        node3 = await self.m.get_node(self.wid, int(node["id"]))
+        self.assertEqual(int(node3["owner_faction"]), -1)
+        self.assertEqual(int(node3["protect_until"]), 0)
+
+    async def test_demon_hunter_targets_strongest_faction(self):
+        """v4.3.2：猎潮军登记最强势力，出征目标为该势力据点。"""
+        await self._enter()
+        world = await self.m.get_world()
+        strongest, pct = await self.m._strongest_faction(world)
+        self.assertGreater(strongest, 0)
+        self.assertGreater(pct, 0)
+        rng = __import__("random").Random(3)
+        army = await self.m._spawn_demon_hunter(
+            world, rng, strongest, set())
+        self.assertIsNotNone(army)
+        await self.m.save_world(world)
+        await self.m._commit()
+        world = await self.m.get_world()
+        hunter = (world.get("data") or {}).get("demon_hunters", {}).get(
+            str(army["id"]))
+        self.assertIsNotNone(hunter)
+        self.assertEqual(int(hunter["target_faction"]), int(strongest))
+        await self.m._step_npc_ai(world)
+        army2 = await self.m.get_army(army["id"])
+        self.assertEqual(army2["state"], "march")
+        dest = int(army2["path"][-1])
+        dest_node = await self.m.get_node(self.wid, dest)
+        self.assertEqual(int(dest_node["owner_faction"]), int(strongest))
+
+    async def test_demon_tide_periodically_spawns_hunters(self):
+        """v4.3.2：魔潮持续期间每 hunter_interval_ticks 额外生成猎潮军。"""
+        await self._enter()
+        world = await self.m.get_world()
+        strongest, _pct = await self.m._strongest_faction(world)
+        self.assertGreater(strongest, 0)
+        data = world.get("data") or {}
+        tick_no = max(10, int(world.get("tick_no", 0) or 0))
+        data["demon_next_hunter_tick"] = tick_no
+        world["data"] = data
+        rules = {"max_armies": 8, "hunter_interval_ticks": 8,
+                 "hunter_count": 1}
+        await self.m._maybe_spawn_demon_hunters(world, tick_no, data, rules)
+        await self.m.save_world(world)
+        await self.m._commit()
+        armies = await self.m.get_armies(self.wid, faction_id=-1)
+        self.assertEqual(len(armies), 1)
+        world = await self.m.get_world()
+        hunter = (world.get("data") or {}).get("demon_hunters", {}).get(
+            str(armies[0]["id"]))
+        self.assertEqual(int(hunter["target_faction"]), int(strongest))
+        self.assertEqual(int((world.get("data") or {}).get(
+            "demon_next_hunter_tick")), tick_no + 8)
+
+    async def test_morale_cap_uses_veteran_tier_and_wipeout_ashes(self):
+        """v4.3.2：驻守恢复按精锐/御林上限；全灭保留一半老兵值。"""
+        _p, gen, _off, home, _target = await self._army_fixture()
+        r = await self.m.create_army("u1", gen["id"], [], home["id"],
+                                     "sword_shield", 500)
+        army = await self.m.get_army(r["army_id"])
+        army["veteran"] = 300
+        army["morale"] = 119
+        await self.m.save_army(army)
+        world = await self.m.get_world()
+        await self.m._step_recovery(world)
+        army = await self.m.get_army(r["army_id"])
+        self.assertEqual(int(army["morale"]), 120)
+        keep = self.m._remember_veteran_ashes(world, "u1", 300)
+        self.assertEqual(keep, 150)
+        await self.m.save_world(world)
+        # 新编军继承一半老兵值
+        R = _imp("core.strategy_rules")
+        rng = __import__("random").Random(11)
+        c2 = R.generate_character(rng, rarity="rare", role=R.ROLE_GENERAL,
+                                  name_pools={})
+        c2.update({"world_id": self.wid, "faction_id": army["faction_id"],
+                   "owner_user_id": "u1", "loyalty": 100, "status": "idle"})
+        await self.m.insert_char(c2)
+        r2 = await self.m.create_army("u1", c2["id"], [], home["id"],
+                                      "sword_shield", 500)
+        army2 = await self.m.get_army(r2["army_id"])
+        self.assertEqual(int(army2["veteran"]), 150)
+
+    async def test_siege_upkeep_consumes_grain_and_starves(self):
+        """§7.2：围城双方粮耗照常，断粮按行军同口径掉士气。"""
+        _p, gen, _off, home, target = await self._army_fixture()
+        r = await self.m.create_army("u1", gen["id"], [], home["id"],
+                                     "sword_shield", 500)
+        army = await self.m.get_army(r["army_id"])
+        army["grain"] = 0
+        army["morale"] = 100
+        army["starve_ticks"] = 0
+        world = await self.m.get_world()
+        starved = await self.m._consume_army_upkeep(
+            world, army, "plain", True)
+        self.assertFalse(starved)
+        self.assertEqual(int(army["grain"]), 0)
+        self.assertEqual(int(army["morale"]), 80)
+        self.assertEqual(int(army["starve_ticks"]), 1)
 
     async def test_partner_task_occupies_both_and_marks_payout(self):
         """§6.1 双人协作：两人同时占用，收益标记 ×1.15。"""

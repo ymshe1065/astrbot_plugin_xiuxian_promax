@@ -50,7 +50,9 @@ class StrategyPlotMixin:
         if c.get("role") != R.ROLE_STRATEGIST:
             raise StrategyError(f"{c['name']} 不是军师，无法施展计略")
         if c.get("status") != "idle":
-            raise StrategyError(f"{c['name']} 状态为「{c['status']}」，无法派遣")
+            raise StrategyError(
+                f"{c['name']} 状态为「"
+                f"{R.CHAR_STATUS_NAMES.get(c['status'], c['status'])}」，无法派遣")
         if R.injury_state(c.get("injury", 0)) in ("dying", "dead"):
             raise StrategyError(f"{c['name']} 伤势过重")
         if int(c.get("stamina", 0)) < PLOT_STAMINA_COST:
