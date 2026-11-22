@@ -473,14 +473,12 @@
       return;
     }
     if (bs.phase === "deploy") {
-      // 开战需本方（含盟友/同势力参战者）全部部署完毕：只看 u.mine 会让
-      // 盟友未部署时按钮仍可点，服务端 all_deployed 再拒绝
-      const mySides = new Set((bs.units || [])
-        .filter((u) => (bs.my_uids || []).includes(u.uid))
-        .map((u) => u.side));
+      // 只按「自己的军团」判断是否可开战：服务端 battle_start 会把所有
+      // 未落位单位（含未到场的盟友/敌方/守军）自动部署并托管，避免某位
+      // 参战者挂机导致所有人都点不动开战按钮、最后被部署超时 AI 打完。
       const left = (bs.units || []).filter(
-        (u) => (mySides.size ? mySides.has(u.side) : u.mine) && !u.pos && u.troops > 0);
-      let h = '<div class="sub">点击左侧未部署军团 → 点击蓝色部署区落位</div>';
+        (u) => u.mine && !u.pos && u.troops > 0);
+      let h = '<div class="sub">点击左侧未部署军团 → 点击蓝色部署区落位；未部署的盟友/守军开战时自动布置</div>';
       h += '<div class="ba-btns">';
       h += '<button class="btn small" id="btnAutoDeploy">⚡ 自动部署</button>';
       h += '<button class="btn small primary" id="btnStartBattle"' +
@@ -677,6 +675,15 @@
         // 否则旧路径会以"当前行动单位"名义发出 move，误移动其他军团
         mode = "select"; movePlan = null; skillId = "";
         lastActor = actorNow; setHint("");
+        // 战场页在后台标签时仍会 3s 轮询：轮到己方单位就发浏览器通知，
+        // 避免玩家切去聊天/地图后每回合 30 秒超时托管。
+        if (actorNow && (bs.my_uids || []).includes(actorNow) && document.hidden) {
+          if (typeof notifyLocal === "function") {
+            notifyLocal("⚔️ 轮到你行动",
+              "手操战役第 " + (bs.round || 0) + " 回合，30 秒内未操作将自动托管",
+              null, "battle-turn-" + battleId + "-" + (bs.round || 0));
+          }
+        }
       }
       delegated = (bs.units || []).some((u) => u.mine && u.delegate);
       renderTop(); renderUnits(); renderActions(); renderLog(); draw();

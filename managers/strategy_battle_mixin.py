@@ -165,12 +165,22 @@ class StrategyBattleMixin:
                 if int((af or {}).get("alliance_id") or 0) == my_alliance:
                     continue
             dfn_armies.append(a)
+        terr = await self._territory_bonus(
+            world, node, int(node.get("owner_faction", 0) or 0))
         for a in dfn_armies:
             s = await self._army_sim(a)
             if s:
+                s["wall_mult"] = float(s.get("wall_mult", 1.0)) * \
+                    float(terr["defense_mult"])
+                s["territory_atk_mult"] = float(terr["combat_mult"])
+                s["territory_def_mult"] = float(terr["combat_mult"])
                 dfn_sims.append(s)
         gar = self._garrison_sim(node)
         if gar:
+            gar["wall_mult"] = float(gar.get("wall_mult", 1.0)) * \
+                float(terr["defense_mult"])
+            gar["territory_atk_mult"] = float(terr["combat_mult"])
+            gar["territory_def_mult"] = float(terr["combat_mult"])
             dfn_sims.append(gar)
         if not dfn_sims:
             raise StrategyError("守方无兵可战（将按受降流程处理）")
@@ -208,9 +218,11 @@ class StrategyBattleMixin:
         atk_fid = int(ss.get("attacker_faction") or 0)
         if atk_fid <= 0:
             raise StrategyError("围城数据异常（缺攻方势力），无法出击")
+        atk_friendly = await self._friendly_ids(int(world["id"]), atk_fid)
         atk_armies = [a for a in await self.get_armies(
             world["id"], node_id=node["id"], states=("siege",))
-            if a["troops"] > 0 and int(a["faction_id"]) == atk_fid]
+            if a["troops"] > 0 and
+            int(a["faction_id"]) in atk_friendly]
         if not atk_armies:
             raise StrategyError("围城军团已不存在")
         my_def = [a for a in await self.get_armies(
@@ -224,12 +236,18 @@ class StrategyBattleMixin:
             s = await self._army_sim(a)
             if s:
                 atk_sims.append(s)
+        terr = await self._territory_bonus(
+            world, node, int(node.get("owner_faction", 0) or 0))
         for a in my_def:
             s = await self._army_sim(a)
             if s:
+                s["territory_atk_mult"] = float(terr["combat_mult"])
+                s["territory_def_mult"] = float(terr["combat_mult"])
                 dfn_sims.append(s)
         gar = self._garrison_sim(node)
         if gar:
+            gar["territory_atk_mult"] = float(terr["combat_mult"])
+            gar["territory_def_mult"] = float(terr["combat_mult"])
             dfn_sims.append(gar)
         battle = await self._create_manual_battle(
             world, node, atk_sims, dfn_sims, atk_armies, my_def,
@@ -295,6 +313,17 @@ class StrategyBattleMixin:
         session["delegate"] = {}       # uid(str) → bool
         session["turn_deadline"] = 0
         session["initiator"] = initiator
+        # v4.3.13：缓存参战势力的科技效果，供 strategy_hex._sim_view 按逐格地形结算
+        tcfg = self.main_cfg().get("tech") or {}
+        tech_map: dict[str, dict] = {}
+        for s in list(atk_sims) + list(dfn_sims):
+            fid = int(s.get("faction_id") or 0)
+            if fid <= 0 or str(fid) in tech_map:
+                continue
+            f = await self.get_faction(fid)
+            tech_map[str(fid)] = R.tech_effects(
+                (f or {}).get("tech") or {}, tcfg=tcfg)
+        session["tech_effects"] = tech_map
         # 参战军团转入 battle 态（脱离围城/驻守管线）
         for a in list(atk_armies) + list(dfn_armies):
             a["_prev_state"] = a.get("state", "idle")
@@ -322,13 +351,72 @@ class StrategyBattleMixin:
         await self._commit()
         logger.info(f"[strategy] 手操战役#{bid} 建立：{node['name']} {mode} "
                     f"（{len(atk_sims)}v{len(dfn_sims)}）")
-        # 手操窗口通知（§12.5 battle_open，低档即推）：所有有人军团的拥有者
-        humans = [v.get("owner") for v in owners.values() if v.get("owner")]
+        # 手操窗口通知（§12.5 battle_open，低档即推）：所有有人军团的拥有者。
+        # 发起人也必须收到——他可能不是参战军团的 owner（势力成员代为介入），
+        # 此前只推 owner 会让发起人自己在网页端收不到任何提示。
+        humans = [initiator] + [v.get("owner") for v in owners.values()
+                                if v.get("owner")]
         await self._notify(world, humans, "battle_open",
                            {"battle_id": bid, "node_id": int(node["id"]),
                             "node_name": node["name"], "mode": mode,
                             "deadline_at": battle["deadline_at"]})
         return battle
+
+    @staticmethod
+    def _battle_humans(sess: dict) -> list[str]:
+        """战役中所有有人操控的 owner（含发起人），去重保序。"""
+        out: list[str] = []
+        initiator = str(sess.get("initiator") or "")
+        if initiator:
+            out.append(initiator)
+        for v in ((sess.get("owners") or {}).values()):
+            owner = str(v.get("owner") or "")
+            if owner and owner not in out:
+                out.append(owner)
+        return out
+
+    async def _notify_battle_turn(self, world: dict, battle: dict,
+                                  sess: dict) -> None:
+        """轮到人类单位行动时推送一次（§12.5 battle_turn）。
+
+        回合推进可能在玩家不在战场页时发生（看地图/聊天），没有这条通知
+        玩家只能等 30 秒超时托管，连续几回合后战役就被 AI 自动打完。
+        用 round+uid 去重：同一行动单位只提醒一次，避免 10 秒轮询刷屏。
+        """
+        if sess.get("phase") != "battle":
+            return
+        if str(battle.get("state") or "") == "done":
+            return
+        cur = H.current_actor(sess)
+        if not cur:
+            return
+        try:
+            uid = int(cur.get("uid", 0) or 0)
+        except (TypeError, ValueError):
+            return
+        owner = str(((sess.get("owners") or {}).get(str(uid)) or {})
+                    .get("owner") or "")
+        if not owner:
+            return
+        if (sess.get("delegate") or {}).get(str(uid)):
+            return
+        key = f"{int(sess.get('round', 0) or 0)}:{uid}"
+        if sess.get("_turn_notified") == key:
+            return
+        sess["_turn_notified"] = key
+        # 去重标记随 session 落库：否则下一次 10s 轮询从 DB 读回旧 session
+        # 会再次推送同一行动单位的提醒。
+        await self.update_battle_session(battle)
+        await self._commit()
+        node = await self.get_node(world["id"], int(battle["node_id"]))
+        await self._notify(world, [owner], "battle_turn", {
+            "battle_id": int(battle["id"]),
+            "node_id": int(battle["node_id"]),
+            "node_name": str((node or {}).get("name") or ""),
+            "uid": uid,
+            "round": int(sess.get("round", 0) or 0),
+            "deadline_at": int(sess.get("turn_deadline", 0) or 0),
+        })
 
     # ------------------------------------------------------------------
     # 视图
@@ -391,6 +479,15 @@ class StrategyBattleMixin:
             })
         # §12.6 观战模式：非参战同势力玩家只读且**延迟 1 回合**（防报点）。
         spectator = not my_uids
+        # 记录「参战方已查看战场」：部署超时兜底只对从未查看过战场的
+        # 战役补一次宽限，避免通知未送达/玩家没来得及点开就被 AI 自动打完。
+        # 发起人可能没有自己的军团（代势力介入），同样算已查看方。
+        if my_uids or str(sess.get("initiator") or "") == user_id:
+            viewed = sess.setdefault("viewed", {})
+            if user_id not in viewed:
+                viewed[user_id] = _now()
+                await self.update_battle_session(battle)
+                await self._commit()
         snap_round = 0
         wall_hp = sess.get("wall_hp", 0)
         if spectator:
@@ -577,14 +674,23 @@ class StrategyBattleMixin:
         if sess.get("phase") != "deploy":
             raise StrategyError("战役已开始")
         rng = self._battle_rng(battle)
-        # NPC 守军等无主单位没有手操 owner，开战时由系统代为部署
+        # 开战即自动补齐所有未落位单位（含盟友/敌方/NPC）。此前只代部署
+        # 无主 NPC 单位，任何一名参战者没点部署都会让 all_deployed 失败，
+        # 开战按钮永远点不动，最后只能等部署超时被 AI 自动打完。
         owners = sess.get("owners") or {}
-        npc_missing = [u for u in sess.get("units") or [] if not u.get("pos")
-                       and not (owners.get(str(u["uid"])) or {}).get("owner")]
-        if npc_missing:
-            H.auto_deploy(sess, rng, uids={int(u["uid"]) for u in npc_missing})
+        missing = [u for u in sess.get("units") or [] if not u.get("pos")]
+        if missing:
+            H.auto_deploy(sess, rng, uids={int(u["uid"]) for u in missing})
+            # 从未打开过战场的 owner（离线/没收到通知）一并托管，避免开战后
+            # 每回合空等 30 秒超时；已查看但尚未落位的玩家保留手操权。
+            viewed = sess.get("viewed") or {}
+            dele = sess.setdefault("delegate", {})
+            for u in missing:
+                owner = str((owners.get(str(u["uid"])) or {}).get("owner") or "")
+                if owner and owner not in viewed:
+                    dele[str(u["uid"])] = True
         if not H.all_deployed(sess):
-            raise StrategyError("尚有军团未部署（可调用自动部署）")
+            raise StrategyError("自动部署失败：可用部署格不足，请手动调整")
         H.start_battle(sess, rng, wall_hp=int(sess.get("wall_hp", 0)))
         sess["turn_deadline"] = _now() + int(sess.get("round_seconds", 30))
         battle["state"] = "battle"
@@ -592,6 +698,8 @@ class StrategyBattleMixin:
         self._save_rng(battle, rng)
         await self.update_battle_session(battle)
         await self._commit()
+        # 开战后先手可能是人类单位：立刻提醒（否则要等下一次轮询）。
+        await self._notify_battle_turn(world, battle, sess)
         return {"ok": True, "msg": f"🥁 第 1 回合开始！先手：单位 "
                                    f"{(H.current_actor(sess) or {}).get('uid')}"}
 
@@ -661,6 +769,7 @@ class StrategyBattleMixin:
             else:
                 await self.update_battle_session(battle)
                 await self._commit()
+                await self._notify_battle_turn(world, battle, sess)
             # 15s 窗口内对象已溃/亡时 resolve_duel 会中止（ok=False）。此时
             # 单挑已清空且挑战次数已消耗，必须明确告知玩家，不能静默成功。
             if params.get("accept") and not out.get("ok"):
@@ -856,6 +965,8 @@ class StrategyBattleMixin:
             await self._release_battle_armies(world, battle)
         await self.update_battle_session(battle)
         await self._commit()
+        # 行动权已交接：若下一位是人类，立刻推送回合通知。
+        await self._notify_battle_turn(world, battle, battle.get("session") or {})
 
     @staticmethod
     def _action_tail(battle: dict, sess: dict, res: dict) -> dict:
@@ -1116,6 +1227,31 @@ class StrategyBattleMixin:
         if battle["state"] == "deploy":
             if now < int(battle.get("deadline_at", 0)):
                 return
+            # 部署超时兜底：若仍有参战方从未打开过战场（通知没送达/正在
+            # 赶来的路上），先补一次宽限并重发手操窗口，别直接 AI 打完。
+            # 每场只宽限一次，避免双方都挂机时无限拖住军团。
+            humans = self._battle_humans(sess)
+            viewed = sess.get("viewed") or {}
+            grace = int((self.main_cfg().get("hex") or {}).get(
+                "deploy_grace_seconds", 60) or 0)
+            if grace > 0 and not sess.get("deploy_extended") and \
+                    any(h not in viewed for h in humans):
+                sess["deploy_extended"] = True
+                battle["deadline_at"] = now + grace
+                await self.update_battle_session(battle)
+                node_name = str((node or {}).get("name") or "")
+                await self._notify(world, humans, "battle_open", {
+                    "battle_id": int(battle["id"]),
+                    "node_id": int(battle["node_id"]),
+                    "node_name": node_name,
+                    "mode": str(battle.get("kind") or ""),
+                    "deadline_at": battle["deadline_at"],
+                    "extended": True,
+                })
+                logger.info(
+                    f"[strategy] 手操战役#{battle['id']} 无人查看，"
+                    f"部署窗口延长 {grace}s 并重发通知")
+                return
             # 部署超时：全托管瞬时模拟
             rng = self._battle_rng(battle)
             tech_bonus = await self._tech_wisdom_bonus(world, battle)
@@ -1182,6 +1318,8 @@ class StrategyBattleMixin:
             await self._finalize_manual_battle(world, battle, node)
         else:
             await self.update_battle_session(battle)
+            # 轮询停在人类单位行动权上时提醒一次（10s 轮询靠 session 去重）。
+            await self._notify_battle_turn(world, battle, sess)
 
     async def _tech_wisdom_bonus(self, world: dict, battle: dict) -> dict:
         out = {}
@@ -1383,6 +1521,47 @@ class StrategyBattleMixin:
                         texts.append(f"⛓ 攻将被擒：{'、'.join(got)}")
             texts.append(f"🛡「{node['name']}」守住了这轮猛攻"
                          + (f"（{restored} 支残部继续围城）" if restored else ""))
+        elif kind == "field_encounter":
+            # §7.1 野战遭遇：普通行军抵达触发的会战。与「守方出击」不同，
+            # 守方胜不应清除围城（围城可能是第三方发起的）；攻方胜则按
+            # 自动野战同口径：无主/无城防直接占领，有城防转入围城。
+            if winner == "defender":
+                lost_atk = [a for a in atk_armies
+                            if a.get("_destroyed") or a.get("_routed")]
+                if lost_atk:
+                    dfn_fid = int(battle.get("defender_faction", 0)
+                                  or node.get("owner_faction", 0) or 0)
+                    if dfn_fid > 0:
+                        got = await self.roll_captures(
+                            world, node, lost_atk, "wipeout", dfn_fid,
+                            skip_ids=pending_ids)
+                        if got:
+                            texts.append(f"⛓ 攻将被擒：{'、'.join(got)}")
+                texts.append(f"🛡「{node['name']}」野战守住了")
+            else:
+                survivors = [a for a in atk_armies
+                             if int(a.get("troops", 0) or 0) > 0
+                             and not a.get("_routed")
+                             and not a.get("_destroyed")]
+                if not survivors:
+                    texts.append(f"🏳「{node['name']}」攻方全军溃败")
+                elif int(node.get("owner_faction") or 0) == 0:
+                    await self._capture_node(world, node, atk_fid)
+                    texts.append(f"🚩「{node['name']}」被 "
+                                 f"{await self._faction_name(atk_fid)} 占领！")
+                    if node.get("_capture_note"):
+                        texts.append(str(node["_capture_note"]))
+                elif int(node.get("defense", 0) or 0) > 0:
+                    for s in survivors:
+                        await self._begin_siege(world, node, s, atk_fid)
+                    texts.append(f"⛺ 攻方获胜，「{node['name']}」城防 "
+                                 f"{node['defense']}，转入围城")
+                else:
+                    await self._capture_node(world, node, atk_fid)
+                    texts.append(f"🚩「{node['name']}」被 "
+                                 f"{await self._faction_name(atk_fid)} 占领！")
+                    if node.get("_capture_note"):
+                        texts.append(str(node["_capture_note"]))
         else:
             # 出击（field）：守方胜 → 围城瓦解
             if winner == "defender":
@@ -1448,6 +1627,15 @@ class StrategyBattleMixin:
              json.dumps(sess, ensure_ascii=False, default=str),
              int(battle["id"])))
         await self._commit()
+        # 终局通知：玩家可能没盯着战场页，至少要知道这场战役已经结束。
+        await self._notify(world, self._battle_humans(sess), "battle_result", {
+            "battle_id": int(battle["id"]),
+            "node_id": int(node["id"]),
+            "node_name": node["name"],
+            "winner": winner,
+            "rounds": int(result.get("rounds", 0) or 0),
+            "report_text": str(battle["report_text"] or "")[:600],
+        })
         logger.info(f"[strategy] 手操战役#{battle['id']} 结束：{winner} 胜 "
                     f"（{node['name']} {kind}）")
 
@@ -1536,6 +1724,16 @@ class StrategyBattleMixin:
             raise StrategyError(f"{c['name']} 并非空闲")
         if not R.can_challenge_duel(c):
             raise StrategyError("需健康且武勇 ≥75 的武将方可摆擂")
+        # §8：摆擂者须位于建有擂将台（arena）的据点
+        f = await self.get_faction(int(p["faction_id"]))
+        ids = await self._alliance_ids(int(world["id"]), f) if f else set()
+        ids.add(int(p["faction_id"]))
+        arena_node = await self.get_node(world["id"], R.char_node_id(c))
+        if not arena_node or int(arena_node.get("owner_faction") or 0) not in ids:
+            raise StrategyError("找不到擂台据点：请先传送到己方/盟友的擂将台据点")
+        if self._building_level(arena_node, "arena") <= 0:
+            raise StrategyError(
+                f"「{arena_node['name']}」尚未建造擂将台，无法摆擂")
         stake = int(stake)
         lo = int(dcfg.get("arena_stake_min", 100))
         hi = int(dcfg.get("arena_stake_max", 100000))
@@ -1558,6 +1756,8 @@ class StrategyBattleMixin:
             cid = f"{base_cid}_{seq}"
         arena[cid] = {"challenger": user_id, "char_id": int(c["id"]),
                       "char_name": c["name"], "stake": stake, "state": "open",
+                      # §8：记录擂台所在据点，应战者须同在此据点
+                      "node_id": int(arena_node["id"]),
                       "created_at": now, "expire_at": now + 3600}
         data["duel_arena"] = arena
         world["data"] = data
@@ -1601,6 +1801,14 @@ class StrategyBattleMixin:
             await self.save_world(world)
             await self._commit()
             raise StrategyError("擂主已无法应战，擂台已关闭并退还赌注")
+        # §8：应战者须位于该擂台所在据点
+        arena_node_id = int(d.get("node_id") or 0) or R.char_node_id(challenger_char)
+        arena_node = await self.get_node(world["id"], arena_node_id) \
+            if arena_node_id else None
+        if not arena_node:
+            raise StrategyError("擂台据点不存在，擂台已失效")
+        if R.char_node_id(c) != arena_node_id:
+            raise StrategyError(f"需先传送到擂台据点「{arena_node['name']}」再应战")
         p["coin"] -= stake
         d["state"] = "done"
         d["acceptor"] = user_id
@@ -1652,6 +1860,8 @@ class StrategyBattleMixin:
             out.append({"duel_id": k, "challenger": v["challenger"],
                         "char_name": v.get("char_name", ""),
                         "stake": v.get("stake", 0),
+                        # §8：擂台所在据点（应战者须先传送到此）
+                        "node_id": int(v.get("node_id") or 0),
                         "expire_at": v.get("expire_at", 0),
                         "mine": v["challenger"] == user_id})
         return out

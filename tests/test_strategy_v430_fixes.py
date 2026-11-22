@@ -58,6 +58,8 @@ class TestStrategyV430Fixes(unittest.IsolatedAsyncioTestCase):
                 user_id=uid, gold=10_000_000, user_name=f"测试{uid}"))
 
         self.m = self.StrategyManager(self.db)
+        # 野战遭遇默认改为手操窗口；常规数值回归按自动结算口径跑
+        self.m.main_cfg().setdefault("hex", {})["field_encounter_mode"] = "auto"
         self.m.main_cfg()["tick_minutes"] = 1
         self.world = await self.m.ensure_world()
         self.wid = self.world["id"]

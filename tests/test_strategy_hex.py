@@ -721,12 +721,30 @@ class TestRulesExt(unittest.TestCase):
         ow = {1: 7, 2: 7, 3: 7, 4: 9}
         routes = R.find_trade_routes(adj, nt, ow, lambda a, b: a == b)
         self.assertTrue(any(r["a"] == 1 and r["b"] == 3 for r in routes))
+        self.assertTrue(all(r.get("owner") == 7 for r in routes))
         # 中间节点被第三方切断 → 商路不通
         ow2 = dict(ow)
         ow2[2] = 9
         ow2[3] = 9
         routes2 = R.find_trade_routes(adj, nt, ow2, lambda a, b: a == b)
         self.assertEqual(routes2, [])
+
+    def test_trade_route_bonus_scales_with_count_and_length(self):
+        short = [{"path": [1, 2]}]
+        long_many = [{"path": [1, 2, 3, 4]}, {"path": [1, 5, 6, 7]}]
+        b0 = R.trade_route_task_bonus(short, base=0.3, per_route=0.05,
+                                      per_edge=0.02, max_bonus=1.0)
+        b1 = R.trade_route_task_bonus(long_many, base=0.3, per_route=0.05,
+                                      per_edge=0.02, max_bonus=1.0)
+        self.assertGreater(b1, b0)
+        self.assertLessEqual(b1, 1.0)
+        out0 = R.trade_route_output_bonus(short, per_route=0.02,
+                                          per_edge=0.01, max_bonus=0.4)
+        out1 = R.trade_route_output_bonus(long_many, per_route=0.02,
+                                          per_edge=0.01, max_bonus=0.4)
+        self.assertGreater(out1[1], out0[1])
+        self.assertLessEqual(out1[1], 0.4)
+        self.assertEqual(R.trade_route_task_bonus([]), 0.0)
 
     def test_node_encircled(self):
         adj = {1: [2, 3], 2: [1, 3], 3: [1, 2, 4], 4: [3]}

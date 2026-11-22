@@ -41,6 +41,12 @@ class StrategyCaptiveMixin:
         """
         rng = self._rng("capture", world["id"], node["id"], world.get("tick_no", 0),
                         captor_fid, *[a["id"] for a in loser_armies])
+        # v4.3.14 军事 L6/谋略「俘获」：俘获方被俘率加成；「血路/强运」：己方不被俘
+        captor_f = await self.get_faction(int(captor_fid))
+        capture_bonus = float(R.tech_effects((captor_f or {}).get("tech") or {},
+                              tcfg=self.main_cfg().get("tech") or {}
+                              ).get("capture_bonus", 0.0) or 0.0)
+        vt_cache: dict[int, dict] = {}
         captured: list[str] = []
         evicted: list[str] = []
         evicted_home_owners: set[str] = set()
@@ -62,7 +68,17 @@ class StrategyCaptiveMixin:
                 # 否则关押位满时会把刚俘的角色改回 idle（凭空释放）。
                 if not c or c.get("status") in ("dead", "captive"):
                     continue
-                if R.capture_check(kind, rng, street_fight=street):
+                # 军事 L7 无双「血路/强运」：己方角色不会被俘（仍走下方负伤分支）
+                vfid = int(c.get("faction_id") or 0)
+                vtech = vt_cache.get(vfid)
+                if vtech is None:
+                    vf = await self.get_faction(vfid) if vfid > 0 else None
+                    vtech = R.tech_effects((vf or {}).get("tech") or {},
+                                           tcfg=self.main_cfg().get("tech") or {})
+                    vt_cache[vfid] = vtech
+                no_cap = bool(vtech.get("no_capture", False))
+                if not no_cap and R.capture_check(
+                        kind, rng, street_fight=street, bonus=capture_bonus):
                     # §7.9：关押位满员 → 就地驱逐（不计入被俘名单）
                     if await self._capture_char(c, captor_fid, node["id"]):
                         captured.append(c["name"])
@@ -89,6 +105,55 @@ class StrategyCaptiveMixin:
                         if legacy.get("heir"):
                             await self.save_char(legacy["heir"])
                     await self.save_char(c)
+        # §7.1：城陷时抓捕池 = “城内的所有人”（守军军团已在上方覆盖）。
+        # 追加 location 指向本城且处于 idle/task 的角色（含驻守太守），
+        # 严格按 location 判定，绝不抓其他据点的空闲角色。
+        if kind == "city_fall":
+            handled: set[int] = set()
+            for army in loser_armies:
+                for cid in army.get("characters") or []:
+                    try:
+                        handled.add(int(cid))
+                    except (TypeError, ValueError):
+                        pass
+            if skip_ids:
+                for x in skip_ids:
+                    try:
+                        handled.add(int(x))
+                    except (TypeError, ValueError):
+                        pass
+            captor_f = await self.get_faction(int(captor_fid))
+            captor_ids = await self._alliance_ids(int(world["id"]), captor_f) \
+                if captor_f else {int(captor_fid)}
+            captor_ids.add(int(captor_fid))
+            for cc in all_chars:
+                cid = int(cc["id"])
+                if cid in handled:
+                    continue
+                if str(cc.get("status") or "") not in ("idle", "task"):
+                    continue
+                if R.char_node_id(cc) != int(node["id"]):
+                    continue
+                if int(cc.get("faction_id") or 0) in captor_ids:
+                    continue  # 攻方/盟友自己人不得误抓
+                vfid2 = int(cc.get("faction_id") or 0)
+                vtech2 = vt_cache.get(vfid2)
+                if vtech2 is None:
+                    vf2 = await self.get_faction(vfid2) if vfid2 > 0 else None
+                    vtech2 = R.tech_effects((vf2 or {}).get("tech") or {},
+                                            tcfg=self.main_cfg().get("tech") or {})
+                    vt_cache[vfid2] = vtech2
+                if not vtech2.get("no_capture", False) and R.capture_check(
+                        kind, rng, street_fight=street, bonus=capture_bonus):
+                    if await self._capture_char(cc, captor_fid, node["id"]):
+                        captured.append(cc["name"])
+                    else:
+                        evicted.append(cc["name"])
+                        ho = str((cc.get("owner_user_id") or
+                                  ((cc.get("location") or {}).get("home_owner")
+                                   or "")))
+                        if ho:
+                            evicted_home_owners.add(ho)
         await self._commit()
         if captured:
             logger.info(f"[strategy] 「{node.get('name')}」被俘 {len(captured)} 人："
@@ -145,6 +210,13 @@ class StrategyCaptiveMixin:
         slots = max(0, int(ccfg.get("jail_slots_per_node", 5)))
         wid = int(c.get("world_id", 0) or 0)
         await self._detach_from_armies(c)
+        # §7.1：被俘者同时从进行中的任务摘除（否则俘虏仍挂着 status='task'
+        # 的任务行，持续任务会反复结算/卡住名册名额）
+        if wid:
+            await self.db.conn.execute(
+                "UPDATE strategy_tasks SET status='cancelled' "
+                "WHERE world_id=? AND character_id=? AND status='active'",
+                (wid, int(c["id"])))
         used = 0
         if slots > 0:
             row = await self._fetchone(
@@ -180,9 +252,10 @@ class StrategyCaptiveMixin:
         c["status"] = "captive"
         c["captor_faction"] = int(captor_fid)
         c["imprisoned_node_id"] = int(node_id)
-        # 被俘即失去官职：否则被俘太守仍在原城享受任命加成（治理/守城）
+        # 被俘即失去官职与据点太守：否则被俘太守仍在原城享受任命加成。
         c["appointed_position"] = ""
         c["appointed_node_id"] = 0
+        await self._clear_char_governors(wid, c["id"])
         await self.save_char(c)
         logger.debug(f"[strategy] {c['name']} 被关押于节点 {node_id}（{used + 1}/{slots}）")
         return True
@@ -284,7 +357,8 @@ class StrategyCaptiveMixin:
                 "mode": "defect" if defect else "normal",
                 "result": "fail", "rate": round(rate, 3)})
             return {"ok": True, "result": "fail",
-                    "msg": f"{c['name']} 不为所动（成功率 {rate * 100:.0f}%），忠诚微降"}
+                    "msg": f"{c['name']} 不为所动（成功率 {rate * 100:.0f}%），忠诚微降"
+                           f"（也可用「招募俘虏」直接入册，需空闲名册槽位）"}
         # 成功入仕：迁往己方最近据点（不可继续站在敌营关押点）
         home_f = int((c.get("location") or {}).get("home_faction", 0) or 0)
         jail_node = int(c.get("imprisoned_node_id", 0)
@@ -295,9 +369,10 @@ class StrategyCaptiveMixin:
         c["owner_user_id"] = user_id
         c["captor_faction"] = 0
         c["imprisoned_node_id"] = 0
-        # 归顺/离心后原官职失效，否则 taishou 等任命仍指向旧势力据点
+        # 归顺/离心后原官职与据点太守失效，否则会继续吃旧势力加成。
         c["appointed_position"] = ""
         c["appointed_node_id"] = 0
+        await self._clear_char_governors(int(world["id"]), c["id"])
         loc = c.get("location") or {}
         loc.pop("transfer_to", None)
         c["location"] = {"node_id": int(dest) if dest else 0}
@@ -334,6 +409,84 @@ class StrategyCaptiveMixin:
                            f"我方声望 {rep_cost}）"}
         return {"ok": True, "result": "success",
                 "msg": f"🎉 {c['name']} 归顺！（忠诚 40，原势力声望 -3）"}
+
+    async def recruit_captive(self, user_id: str, char_id: int,
+                              node_id: int = 0) -> dict:
+        """大牢正式招募（§7.3）：占用空闲名册槽位，把俘虏转为己方角色。
+
+        与 ``persuade_captive``（降忠诚/建羁绊，成功后仍按旧交互直接归顺）
+        分开：本动作不看劝降成功率，但严格要求**有空闲名册槽位**。
+        可招降口径沿用劝降：我方关押的俘虏，或已离心（忠诚 ≤
+        defect_loyalty）的任意俘虏。
+        """
+        world, p = await self._require_player(user_id)
+        ccfg = self.main_cfg().get("captive") or {}
+        c = await self.get_char(int(char_id))
+        if not c or c.get("status") != "captive":
+            raise StrategyError("目标不是俘虏")
+        if R.injury_state(c.get("injury", 0)) in ("dying", "dead"):
+            raise StrategyError(f"{c['name']} 伤势濒死，须先救治方可招募")
+        fid = int(p["faction_id"])
+        captor_fid = int(c.get("captor_faction", 0))
+        defect_threshold = int(ccfg.get("defect_loyalty", 0))
+        defect = (captor_fid != fid
+                  and int(c.get("loyalty", 70)) <= defect_threshold)
+        if captor_fid != fid and not defect:
+            raise StrategyError("该俘虏不在我方关押之下（尚未离心，无法招募）")
+        # 名册槽位（大牢容量与名册容量相互独立，入册才占名额）
+        cap_info = await self._char_cap_info(world["id"], p)
+        if await self._roster_count(user_id, world["id"]) >= int(cap_info["cap"]):
+            raise StrategyError("名册已满，请先扩建据点或遣散角色")
+        # 落点：指定己方据点，否则由关押点/主城就近取己方据点
+        f = await self.get_faction(fid)
+        jail_node = int(c.get("imprisoned_node_id", 0)
+                        or ((c.get("location") or {}).get("node_id", 0) or 0))
+        dest = 0
+        if int(node_id or 0):
+            dest_node = await self.get_node(world["id"], int(node_id))
+            if not dest_node:
+                raise StrategyError("目标据点不存在")
+            if int(dest_node.get("owner_faction") or 0) != fid:
+                raise StrategyError(f"「{dest_node['name']}」不是我方据点")
+            dest = int(dest_node["id"])
+        if not dest:
+            dest = await self._nearest_own_node(
+                world, {"faction_id": fid}, jail_node) or 0
+        if not dest:
+            capital = int((f or {}).get("capital_node_id", 0) or 0)
+            dest = await self._nearest_own_node(
+                world, {"faction_id": fid}, capital) or 0
+        if not dest:
+            raise StrategyError("我方尚无可用据点，无法安置新角色")
+        home_f = int((c.get("location") or {}).get("home_faction", 0) or 0)
+        c["status"] = "idle"
+        c["faction_id"] = fid
+        c["owner_user_id"] = user_id
+        c["captor_faction"] = 0
+        c["imprisoned_node_id"] = 0
+        # 归顺后原官职/太守失效，否则会继续吃旧势力加成
+        c["appointed_position"] = ""
+        c["appointed_node_id"] = 0
+        await self._clear_char_governors(int(world["id"]), c["id"])
+        # location 只保留落点，清空 home_faction/home_owner/transfer_to
+        c["location"] = {"node_id": int(dest)}
+        # 忠诚口径与劝降归顺一致（40）
+        c["loyalty"] = 40
+        if defect and f:
+            await self.add_reputation(f, int(ccfg.get("defect_rep_cost", -3)))
+        elif home_f and home_f != fid:
+            of = await self.get_faction(home_f)
+            if of:
+                await self.add_reputation(of, int(ccfg.get("defect_rep_cost", -3)))
+        await self.save_char(c)
+        await self._commit()
+        dest_node = await self.get_node(world["id"], int(dest))
+        dest_name = (dest_node or {}).get("name") or f"#{int(dest)}"
+        logger.info(f"[strategy] {user_id} 从大牢招募 {c['name']}"
+                    f"（node={dest}）")
+        return {"ok": True, "char_id": int(c["id"]),
+                "msg": f"📜 {c['name']} 已入我方名册（忠诚 40，驻地"
+                       f"「{dest_name}」）"}
 
     async def _faction_plot_bonus(self, f: Optional[dict]) -> float:
         """势力角色官职（祭酒）对计略/劝降的加成合计。"""
@@ -406,9 +559,10 @@ class StrategyCaptiveMixin:
         c["captor_faction"] = 0
         c["imprisoned_node_id"] = 0
         # 释放后必须脱离敌营：此前 location.node_id 仍指向关押节点，
-        # 角色虽已"回家"却站在别人城里，且官职残留继续吃加成。
+        # 角色虽已"回家"却站在别人城里，且官职/太守残留继续吃加成。
         c["appointed_position"] = ""
         c["appointed_node_id"] = 0
+        await self._clear_char_governors(wid, c["id"])
         if home_faction and int(home_faction.get("alive", 1)):
             c["faction_id"] = home_f
             c["owner_user_id"] = home_owner
@@ -706,16 +860,27 @@ class StrategyCaptiveMixin:
 
     async def get_captives_view(self, world_id: int, faction_id: int) -> dict:
         """面板：我方关押的俘虏 + 我方被俘的角色。"""
-        holding, held = [], []
+        ccfg = self.main_cfg().get("captive") or {}
+        jail_slots = max(0, int(ccfg.get("jail_slots_per_node", 5)))
+        defect_threshold = int(ccfg.get("defect_loyalty", 0))
+        holding, held, recruitable = [], [], []
         for c in await self.get_chars(world_id=world_id, status="captive"):
+            disloyal = int(c.get("loyalty", 0)) <= defect_threshold
+            is_ours = int(c.get("captor_faction", 0)) == int(faction_id)
             item = {"id": c["id"], "name": c["name"], "rarity": c["rarity"],
                     "role": c["role"], "loyalty": c["loyalty"],
                     "node_id": c.get("imprisoned_node_id", 0),
                     "home_owner": (c.get("location") or {}).get("home_owner", ""),
-                    "disloyal": int(c.get("loyalty", 0)) <= 0}
-            if int(c.get("captor_faction", 0)) == int(faction_id):
+                    "disloyal": disloyal,
+                    # 我方关押或已离心：可用「招募俘虏」入册（需空闲槽位）
+                    "can_recruit": bool(is_ours or disloyal)}
+            if is_ours:
                 holding.append(item)
             elif int((c.get("location") or {}).get("home_faction", 0) or 0) \
                     == int(faction_id):
                 held.append(item)
-        return {"holding": holding, "held": held}
+            elif disloyal:
+                # §7.3 离心俘虏：任意势力均可招降，单独列出避免与“我方被俘”混淆
+                recruitable.append(item)
+        return {"holding": holding, "held": held,
+                "recruitable": recruitable, "jail_slots": jail_slots}

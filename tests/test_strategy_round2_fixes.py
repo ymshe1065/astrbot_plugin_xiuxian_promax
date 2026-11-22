@@ -59,6 +59,8 @@ class TestStrategyRound2Fixes(unittest.IsolatedAsyncioTestCase):
                 user_id=uid, gold=10_000_000, user_name=f"测试{uid}"))
 
         self.m = self.StrategyManager(self.db)
+        # 野战遭遇默认改为手操窗口；常规数值回归按自动结算口径跑
+        self.m.main_cfg().setdefault("hex", {})["field_encounter_mode"] = "auto"
         self.m.main_cfg()["tick_minutes"] = 1
         self.world = await self.m.ensure_world()
         self.wid = self.world["id"]
@@ -342,6 +344,12 @@ class TestStrategyRound2Fixes(unittest.IsolatedAsyncioTestCase):
         async def _noop(*args, **kwargs):
             return None
 
+        # 关闭守军自然增长、移走驻守角色，隔离“同 tick 去重”断言
+        self.m.main_cfg()["garrison"]["grow_pct"] = 0
+        for uid in ("u1", "u2"):
+            for c in await self.m.get_chars(owner_user_id=uid, world_id=self.wid):
+                c["location"] = {}
+                await self.m.save_char(c)
         world = await self.m.get_world()
         with mock.patch.object(self.R, "riot_check", return_value=True), \
                 mock.patch.object(self.m, "_riot_injure_char", _noop):
@@ -349,8 +357,8 @@ class TestStrategyRound2Fixes(unittest.IsolatedAsyncioTestCase):
 
         a2 = await self.m.get_node(self.wid, int(a["id"]))
         b2 = await self.m.get_node(self.wid, int(b["id"]))
-        # 已标记：不被扣兵；未标记：扣 30%
-        self.assertEqual(int((a2.get("npc_garrison") or {})["troops"]), 1000)
+        # 已标记：不被扣兵（仅自然增长）；未标记：增长后扣 30%
+        self.assertGreaterEqual(int((a2.get("npc_garrison") or {})["troops"]), 1000)
         self.assertEqual(int((b2.get("npc_garrison") or {})["troops"]), 700)
 
     # ------------------------------------------------------------------

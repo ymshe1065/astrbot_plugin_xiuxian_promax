@@ -1,10 +1,15 @@
 {
   "personalities": {
-    "expansive": {"name": "霸刀门", "aggression": 85, "econ_weight": 0.6, "troop_pref": "flying_sword"},
-    "developer": {"name": "守成谷", "aggression": 30, "econ_weight": 1.4, "troop_pref": "sword_shield"},
-    "trader": {"name": "坊商会", "aggression": 20, "econ_weight": 1.2, "troop_pref": "sword_shield"},
-    "hermit": {"name": "山门", "aggression": 10, "econ_weight": 1.5, "troop_pref": "heavy_armor"},
-    "demonic": {"name": "血祭教", "aggression": 95, "econ_weight": 0.5, "troop_pref": "beast_horde"}
+    "expansive": {"name": "霸刀门", "aggression": 85, "econ_weight": 0.6, "troop_pref": "flying_sword",
+                  "mobil_reserve_mult": 0.6, "develop_bias": 1.0, "trade_bias": 0.8, "relief_bias": 0.8},
+    "developer": {"name": "守成谷", "aggression": 30, "econ_weight": 1.4, "troop_pref": "sword_shield",
+                  "mobil_reserve_mult": 0.8, "develop_bias": 1.5, "trade_bias": 1.0, "relief_bias": 1.2},
+    "trader": {"name": "坊商会", "aggression": 20, "econ_weight": 1.2, "troop_pref": "sword_shield",
+               "mobil_reserve_mult": 1.0, "develop_bias": 1.0, "trade_bias": 2.0, "relief_bias": 1.0},
+    "hermit": {"name": "山门", "aggression": 10, "econ_weight": 1.5, "troop_pref": "heavy_armor",
+               "mobil_reserve_mult": 1.5, "develop_bias": 0.5, "trade_bias": 0.5, "relief_bias": 1.5},
+    "demonic": {"name": "血祭教", "aggression": 95, "econ_weight": 0.5, "troop_pref": "beast_horde",
+                "mobil_reserve_mult": 0.5, "develop_bias": 0.8, "trade_bias": 0.3, "relief_bias": 0.5}
   },
   "faction_names": {
     "expansive": ["霸刀门", "裂天刀宗", "狂沙战殿", "破军堡", "斩蛟堂"],

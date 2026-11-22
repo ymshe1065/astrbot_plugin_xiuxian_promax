@@ -45,8 +45,42 @@
     "output_bonus": 1.2,
     "aggression_threshold": 10,
     "garrison_home_reserve": 0.3,
-    "respawn_hours": [48, 96],
-    "respawn_hatred": true
+    "develop": {
+      "stabilize_hours": [0, 8, 18, 32, 50],
+      "build_ticks": [0, 4, 6, 8, 10],
+      "interval_hours": 6,
+      "max_building": 1
+    },
+    "economy": {
+      "mobil_coin_per_100": 500,
+      "mobil_grain_per_100": 100,
+      "carry_grain_per_100": 100,
+      "mobilization_cost_mult": 1.0,
+      "treasury_reserve": {"coin": 5000, "grain": 2000, "iron": 500},
+      "mobil_morale_per_100": 2,
+      "mobilize_morale_min": 40,
+      "surplus_sell_pct": 0.5,
+      "offer_reserve_pct": 0.3,
+      "relief_enabled": true,
+      "npc_sell_items": ["grain", "iron"],
+      "npc_offer_items": ["grain", "iron"]
+    }
+  },
+
+  "garrison": {
+    "grow_pct": 0.02,
+    "char_grow_pct": 0.01,
+    "general_bonus_pct": 0.005,
+    "leadership_bonus_pct": 0.01,
+    "cap_pct": 0.05
+  },
+
+  "city": {
+    "upgrade_base_coin": 5000,
+    "upgrade_base_iron": 500,
+    "upgrade_cost_exp": 2,
+    "build_ticks_base": 2,
+    "build_open_types": ["city", "pass", "branch", "market", "mine", "grain"]
   },
 
   "ownerless_garrison": {
@@ -79,7 +113,9 @@
     "hours_options": [1, 2, 4, 8],
     "ticks_per_hour": 4,
     "base_per_tick": {"govern": 80, "farm": 100, "mining": 20, "trade": 70, "scout": 0, "build": 60, "train": 60, "hunt": 50, "heal": 40, "research": 50, "quest": 60, "seek": 40, "convoy": 50, "raid": 0},
-    "recall_loss": 0.5,
+    "sustained_types": ["govern", "farm", "mining", "trade", "build", "train", "heal", "seek", "quest", "research", "hunt"],
+    "fixed_hours_types": ["scout", "raid"],
+    "recall_loss": 0.0,
     "exp_per_tick": 5,
     "mini_event_chance": 0.1,
     "scout_capture_chance": 0.08,
@@ -92,12 +128,13 @@
     "candidates": 5,
     "manual_refresh_coin": 300,
     "manual_refresh_daily": 3,
-    "normal_cost_coin": 800,
-    "premium_cost_token": 1,
-    "premium_pity": 40,
+    "coin_cost_by_rarity": {"common": 400, "fine": 800, "rare": 1600},
+    "token_cost_by_rarity": {"epic": 6, "legend": 25},
+    "token_only_rarities": ["epic", "legend"],
     "role_weights": {"general": 4, "strategist": 3, "official": 3},
-    "rarity_weights_normal": {"common": 55, "fine": 33, "rare": 10, "epic": 2, "legend": 0},
-    "rarity_weights_premium": {"common": 0, "fine": 30, "rare": 45, "epic": 20, "legend": 5},
+    "rarity_weights_normal": {"common": 55, "fine": 33, "rare": 10, "epic": 2, "legend": 0.1},
+    "neg_chance_by_rarity": {"common": 40, "fine": 30, "rare": 15, "epic": 8, "legend": 5},
+    "positive_traits_by_rarity": {"common": [0, 1], "fine": [0, 1], "rare": [1, 1], "epic": [1, 2], "legend": [2, 2]},
     "character_cap_base": 4,
     "character_cap_per_node": 2,
     "character_cap_max": 30,
@@ -184,6 +221,10 @@
     "round_seconds": 30,
     "field_prep_seconds": 300,
     "siege_prep_seconds": 90,
+    "deploy_grace_seconds": 60,
+    "field_encounter_mode": "human",
+    "field_encounter_prep_seconds": 120,
+    "field_encounter_active_window": 1800,
     "mana_max": 100,
     "mana_per_round": 15,
     "mana_on_hit": 5,
@@ -253,7 +294,7 @@
     "cosign_required": 3,
     "cosign_expire_hours": 72,
     "quit_cooldown_hours": 24,
-    "create_protection_days": 7,
+    "create_protection_days": 4,
     "level_nodes": [0, 2, 4, 6, 9, 12, 15, 19, 23, 28],
     "level_merit": 2000,
     "member_cap_base": 10,
@@ -262,10 +303,32 @@
     "treasury_deputy_pct": 0.3,
     "positions": {"leader": 1, "deputy": 1, "situ": 1, "taiwei": 1, "jijiu": 2, "zhonglangjiang": 2},
     "capital_relocate_cd_days": 7,
-    "salary_from_treasury": true
+    "salary_from_treasury": true,
+    "salary": {
+      "enabled": true,
+      "per_tick": {
+        "taishou": 10,
+        "zhonglang": 15,
+        "jijiu": 25,
+        "situ": 35,
+        "taiwei": 50
+      },
+      "priority": ["taiwei", "situ", "jijiu", "zhonglang", "taishou"]
+    }
   },
   "alliance": {
-    "max_factions": 3
+    "max_factions": 3,
+    "march_speed_bonus": 0.10,
+    "ally_route_free_upkeep": true
+  },
+
+  "territory": {
+    "road_speed_mult": 1.5,
+    "road_free_upkeep": true,
+    "defense_bonus_per_adjacent": 0.04,
+    "defense_bonus_cap": 0.20,
+    "home_combat_bonus_per_adjacent": 0.03,
+    "home_combat_bonus_cap": 0.15
   },
 
   "diplomacy": {
@@ -335,16 +398,47 @@
 
   "tech": {
     "lines": ["military", "agri", "stratagem"],
-    "levels": 5,
-    "cost_iron": [500, 1000, 2000, 3500, 6000],
-    "cost_coin": [500, 1000, 2000, 3500, 6000],
-    "base_hours_per_level": [8, 16, 24, 32, 40],
+    "levels": 7,
+    "cost_iron": [500, 1000, 2000, 3500, 6000, 8000, 10000],
+    "cost_coin": [500, 1000, 2000, 3500, 6000, 8000, 10000],
+    "base_hours_per_level": [8, 16, 24, 32, 40, 48, 56],
     "stat_speed_divisor": 10,
     "stat_speed_pct": 0.05,
+    "big_army_threshold": 2000,
+    "small_army_threshold": 800,
     "effects": {
-      "military":  ["全兵种攻击 +2%", "破城槌造价 -30%", "全兵种攻击 +4%（累计 6%）", "ZOC 拦截伤害 +25%", "包抄系数 +5%（夹击 1.20/合围 1.35）"],
-      "agri":      ["全据点产出 +4%", "军团粮耗 -10%", "全据点产出 +8%（累计）", "运粮队机动 +1、被劫损失 -50%", "断粮抵抗（合围断粮延长 2 tick）"],
-      "stratagem": ["计略成功率 +4%", "侦察精度提升（显示敌将职责与适性）", "托管 AI 智谋等效 +5", "计略冷却 -2 tick、暴露率 -15%", "解锁反间（30% 概率反弹针对本势力的计略）"]
+      "military":  ["全兵种攻击 +2%；平原攻防 +3%", "破城槌造价 -30%；城墙伤害 +10%；带兵 ≥2000 攻城槌效率 +5%", "全兵种攻击累计 +6%；高地攻 +8%、森林防 +10%、涉水减免", "ZOC 拦截 +25%；城墙/关隘守军防御 +10%；带兵 ≤800 机动 +1、先手 +5", "包抄 +5%；全地形攻 +3%；带兵 ≥3000 攻 +5%", "全军士气下降 -20%（受击/断粮更耐打）；击破敌军时我军士气 +10", "无视 ZOC、免疫包围；单挑获胜士气 +5、致伤 +10%；俘获 +30%、己方不被俘"],
+      "agri":      ["全据点产出 +4%；谷田粮草 +10%", "军团粮耗 -10%；全势力粮草 +10%", "全据点产出累计 +8%；矿脉精铁 +15%", "运粮机动 +1、被劫 -50%；坊市铜钱 +10%", "断粮抵抗 +2 tick；灵石 +5%、全资源再 +2%", "募兵铜钱粮耗 -15%；练兵/操练效率 +20%；驻守守军增长 +0.5%/tick", "伤兵恢复 +30%；角色俸禄 -20%；驻守据点民心恢复 +1/tick"],
+      "stratagem": ["计略成功率 +4%", "侦察精度提升；侦察范围 +1（更多地形情报）", "托管 AI 智谋 +5；对带兵 ≥2000 目标计略 +3%", "计略冷却 -2 tick、暴露率 -15%", "解锁反间（30%）；己方被反间概率 -15%", "火攻灵技威力 +30%；己方受火伤 -30%", "己方计略负面时长 +20%；敌军针对本势力的计略成功率 -10%"]
+    },
+    "effects_values": {
+      "military": {
+        "1": {"atk_bonus": 0.02, "terrain_atk_mult": {"plain": 0.03}, "terrain_def_mult": {"plain": 0.03}},
+        "2": {"atk_bonus": 0.04, "ram_cost_mult": 0.7, "big_army_siege_bonus": 0.05},
+        "3": {"atk_bonus": 0.06, "terrain_atk_mult": {"highland": 0.08}, "terrain_def_mult": {"forest": 0.10, "river": 0.10, "swamp": 0.10}},
+        "4": {"intercept_bonus": 0.25, "terrain_def_mult": {"wall": 0.10, "gate": 0.10}, "small_army_move_bonus": 1, "small_army_init_bonus": 5.0},
+        "5": {"flank_bonus": 0.05, "terrain_atk_mult": {"plain": 0.03, "forest": 0.03, "highland": 0.03, "river": 0.03, "swamp": 0.03}, "big_army_atk_bonus": 0.05},
+        "6": {"morale_loss_mult": 0.8, "kill_morale_bonus": 10},
+        "7": {"ignore_zoc": true, "immune_surround": true, "duel_win_morale_bonus": 5, "duel_injury_bonus": 0.10, "capture_bonus": 0.30, "no_capture": true}
+      },
+      "agri": {
+        "1": {"output_bonus": 0.04, "node_type_output_mult": {"grain": {"grain": 1.10}}},
+        "2": {"grain_cost_mult": 0.9, "resource_output_mult": {"grain": 1.10}},
+        "3": {"output_bonus": 0.08, "node_type_output_mult": {"mine": {"iron": 1.15}}},
+        "4": {"convoy_move_bonus": 1, "convoy_loss_mult": 0.5, "node_type_output_mult": {"market": {"coin": 1.10}}},
+        "5": {"starve_resist_ticks": 2, "resource_output_mult": {"gold": 1.05, "coin": 1.02, "grain": 1.02, "iron": 1.02}},
+        "6": {"recruit_cost_mult": 0.85, "train_mult": 1.20, "garrison_grow_bonus": 0.005},
+        "7": {"heal_mult": 1.30, "salary_mult": 0.80, "morale_recover_bonus": 1.0}
+      },
+      "stratagem": {
+        "1": {"plot_bonus": 0.04},
+        "2": {"scout_precision": true, "scout_terrain_reveal": true},
+        "3": {"ai_wisdom_bonus": 5, "plot_bonus_vs_big_army": 0.03},
+        "4": {"plot_cd_reduce": 2, "expose_reduction": 0.15},
+        "5": {"counter_spy": 0.30, "counter_spy_defense": 0.15},
+        "6": {"fire_damage_mult": 1.30, "fire_def_mult": 0.70},
+        "7": {"plot_duration_mult": 1.20, "enemy_plot_rate_mult": 0.90}
+      }
     }
   },
 
@@ -391,7 +485,7 @@
   "rebuild": {
     "base_gold_cost": 3000000,
     "cost_growth": 0.5,
-    "protect_days": 7,
+    "protect_days": 4,
     "new_capital_level": 1,
     "audit_log": true,
     "coin_per_gold": 1000
@@ -441,10 +535,19 @@
     "tax_pct": 0.05,
     "max_orders_per_user": 20,
     "order_expire_hours": 48,
+    "npc_order_expire_hours": 12,
     "items": ["grain", "iron", "recruit_token", "intel"],
     "base_prices": {"grain": 2, "iron": 4, "recruit_token": 800, "intel": 300},
+    "player_price_band_pct": 0.5,
     "npc_maker_interval_ticks": 8,
     "npc_maker_spread_pct": 0.15,
+    "npc_offer_interval_ticks": 8,
+    "npc_offer_chance": 0.6,
+    "npc_offer_spread_pct": 0.15,
+    "npc_offer_min_pct": 0.3,
+    "npc_offer_max_pct": 1.0,
+    "npc_offer_expire_hours": 12,
+    "npc_offer_cooldown_hours": 2,
     "cross_faction_market_only": true
   },
 
@@ -474,7 +577,14 @@
 
   "trade_route": {
     "coin_per_tick": 20,
-    "trade_task_bonus": 0.3
+    "trade_task_bonus": 0.3,
+    "task_bonus_per_route": 0.05,
+    "task_bonus_per_edge": 0.02,
+    "task_bonus_max": 1.0,
+    "node_output_bonus_base": 0.0,
+    "node_output_bonus_per_route": 0.02,
+    "node_output_bonus_per_edge": 0.01,
+    "node_output_bonus_max": 0.4
   },
 
   "convoy": {
@@ -483,6 +593,8 @@
     "raid_take_pct": 0.5,
     "guard_vision": true,
     "discount_pct": 30,
+    "escort_troop_type": "sword_shield",
+    "escort_min_troops": 100,
     "army_supply_speed_edges": 4,
     "army_supply_max_active": 20,
     "army_supply_timeout_ticks": 672
@@ -555,7 +667,7 @@
   },
 
   "protection": {
-    "new_node_hours": 168,
-    "newbie_days": 7
+    "new_node_hours": 24,
+    "newbie_days": 4
   }
 }

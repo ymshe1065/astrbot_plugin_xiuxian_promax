@@ -78,6 +78,8 @@ class TestStrategyP3Gaps(unittest.IsolatedAsyncioTestCase):
                 user_id=uid, gold=10_000_000, user_name=f"测试{uid}"))
 
         self.m = self.StrategyManager(self.db)
+        # 野战遭遇默认改为手操窗口；常规数值回归按自动结算口径跑
+        self.m.main_cfg().setdefault("hex", {})["field_encounter_mode"] = "auto"
         self.m.main_cfg()["tick_minutes"] = 1
         self.world = await self.m.ensure_world()
         self.wid = self.world["id"]
@@ -176,6 +178,22 @@ class TestStrategyP3Gaps(unittest.IsolatedAsyncioTestCase):
         nodes = await self.m.get_nodes(self.wid)
         return next(n for n in nodes if n["type"] in ("city", "market"))
 
+    async def _fund_npc_treasuries(self, coin: int = 100_000) -> list[int]:
+        """把各 NPC 国库补足，保证坊市收购报价一定生成。"""
+        rows = await self._fetchall(
+            "SELECT id FROM strategy_factions WHERE world_id=? AND kind='npc'",
+            (self.wid,))
+        fids = []
+        for row in rows:
+            fid = int(row["id"])
+            f = await self.m.get_faction(fid)
+            f["treasury"] = {"coin": int(coin), "grain": 0, "iron": 0,
+                             "reserved_coin": 0}
+            await self.m.save_faction(f)
+            fids.append(fid)
+        await self.m._commit()
+        return fids
+
     # ------------------------------------------------------------------
     # §5.5 互市
     # ------------------------------------------------------------------
@@ -245,6 +263,143 @@ class TestStrategyP3Gaps(unittest.IsolatedAsyncioTestCase):
         await self._give("u1", grain=1_000)
         with self.assertRaises(self.StrategyError):
             await self.m.market_list("u1", ruin["id"], "grain", 10, 2)
+
+    async def test_market_player_price_band(self):
+        """玩家挂单价须落在市场价 ±band 内（默认 ±50%）。"""
+        node = await self._market_node()
+        await self._give("u1", grain=1_000, iron=1_000)
+        mcfg = self.m.main_cfg()["market"]
+        base = int(mcfg["base_prices"]["iron"])
+        band = float(mcfg.get("player_price_band_pct", 0.5))
+        lo, hi, _ = self.R.market_price_band(base, band)
+        self.assertGreater(lo, 1, "iron 的下界应大于 1，便于验证低价拒绝")
+        # 区间外：拒绝
+        with self.assertRaises(self.StrategyError) as cm:
+            await self.m.market_list("u1", node["id"], "iron", 10, hi + 1)
+        self.assertIn("定价须在市场价", str(cm.exception))
+        with self.assertRaises(self.StrategyError) as cm:
+            await self.m.market_list("u1", node["id"], "iron", 10, lo - 1)
+        self.assertIn("定价须在市场价", str(cm.exception))
+        # 区间边界：允许
+        r1 = await self.m.market_list("u1", node["id"], "iron", 10, lo)
+        r2 = await self.m.market_list("u1", node["id"], "iron", 10, hi)
+        self.assertTrue(r1["ok"] and r2["ok"])
+        rows = await self._fetchall(
+            "SELECT unit_price FROM strategy_market_orders WHERE id IN (?,?)",
+            (int(r1["order_id"]), int(r2["order_id"])))
+        self.assertEqual(sorted(int(x["unit_price"]) for x in rows), [lo, hi])
+        # 未传价（0）→ 自动取基准价
+        r3 = await self.m.market_list("u1", node["id"], "grain", 10, 0)
+        row = await self.m._fetchone(
+            "SELECT unit_price FROM strategy_market_orders WHERE id=?",
+            (int(r3["order_id"]),))
+        self.assertEqual(int(row["unit_price"]),
+                         int(mcfg["base_prices"]["grain"]))
+
+    async def test_market_buy_updates_remaining_amount(self):
+        """部分买入后挂单可购买量立即扣减，买完转 filled。"""
+        node = await self._market_node()
+        await self._give("u1", grain=1_000)
+        await self._give("u2", coin=100_000)
+        r = await self.m.market_list("u1", node["id"], "grain", 500, 2)
+        oid = int(r["order_id"])
+        await self.m.market_buy("u2", oid, 200)
+        order = await self.m._fetchone(
+            "SELECT amount, status FROM strategy_market_orders WHERE id=?", (oid,))
+        self.assertEqual(int(order["amount"]), 300)
+        self.assertEqual(order["status"], "open")
+        await self.m.market_buy("u2", oid, 300)
+        order = await self.m._fetchone(
+            "SELECT amount, status FROM strategy_market_orders WHERE id=?", (oid,))
+        self.assertEqual(int(order["amount"]), 0)
+        self.assertEqual(order["status"], "filled")
+
+    async def test_market_npc_offer_accept_and_expire(self):
+        """NPC 收购报价：接受后扣减挂单量并按税后入账；过期报价自动失效。"""
+        node = await self._market_node()
+        await self._give("u1", grain=1_000)
+        p = await self.m.get_player("u1", self.wid)
+        coin0 = int(p["coin"])
+        r = await self.m.market_list("u1", node["id"], "grain", 500, 3)
+        oid = int(r["order_id"])
+        mcfg = self.m.main_cfg()["market"]
+        mcfg["npc_offer_interval_ticks"] = 1
+        mcfg["npc_offer_chance"] = 1.0
+        mcfg["npc_offer_cooldown_hours"] = 0
+        await self._fund_npc_treasuries()
+        world = await self.m.get_world()
+        world["tick_no"] = 1
+        await self.m.save_world(world)
+        await self.m._commit()
+        await self.m._step_market_offers(world)
+        offers = await self.m.market_offers("u1")
+        self.assertEqual(len(offers), 1)
+        offer = offers[0]
+        self.assertEqual(int(offer["order_id"]), oid)
+        self.assertGreaterEqual(int(offer["unit_price"]), 1)
+        self.assertGreaterEqual(int(offer["payout"]), 0)
+        res = await self.m.market_offer_accept("u1", int(offer["offer_id"]))
+        self.assertTrue(res["ok"])
+        p2 = await self.m.get_player("u1", self.wid)
+        self.assertEqual(int(p2["coin"]), coin0 + int(res["payout"]))
+        order = await self.m._fetchone(
+            "SELECT amount, status FROM strategy_market_orders WHERE id=?", (oid,))
+        self.assertEqual(int(order["amount"]), 500 - int(res["amount"]))
+        self.assertEqual(order["status"], "filled" if res["amount"] == 500 else "open")
+        self.assertFalse(await self.m.market_offers("u1"))
+        # 再挂一单，制造报价后让挂单过期 → 报价与挂单一起失效
+        await self._give("u1", grain=100)
+        r2 = await self.m.market_list("u1", node["id"], "grain", 100, 2)
+        oid2 = int(r2["order_id"])
+        world["tick_no"] = 2
+        await self.m.save_world(world)
+        await self.m._commit()
+        await self.m._step_market_offers(world)
+        offers2 = await self.m.market_offers("u1")
+        self.assertTrue(any(int(f["order_id"]) == oid2 for f in offers2))
+        await self.m._execute(
+            "UPDATE strategy_market_orders SET expires_at=? WHERE id=?",
+            (_now() - 1, oid2))
+        await self.m._commit()
+        await self.m._step_market(world)
+        await self.m._step_market_offers(world)
+        self.assertFalse(any(int(f["order_id"]) == oid2
+                             for f in await self.m.market_offers("u1")))
+        row = await self.m._fetchone(
+            "SELECT status FROM strategy_market_offers WHERE order_id=? "
+            "ORDER BY id DESC LIMIT 1", (oid2,))
+        self.assertEqual(row["status"], "expired")
+        # 过期挂单已退货
+        p3 = await self.m.get_player("u1", self.wid)
+        self.assertGreaterEqual(int(p3["grain"]), 100)
+
+    async def test_market_offer_decline_keeps_order(self):
+        """拒绝报价后挂单保留，报价不会再次生效。"""
+        node = await self._market_node()
+        await self._give("u1", grain=100)
+        r = await self.m.market_list("u1", node["id"], "grain", 100, 2)
+        mcfg = self.m.main_cfg()["market"]
+        mcfg["npc_offer_interval_ticks"] = 1
+        mcfg["npc_offer_chance"] = 1.0
+        mcfg["npc_offer_cooldown_hours"] = 0
+        await self._fund_npc_treasuries()
+        world = await self.m.get_world()
+        world["tick_no"] = 1
+        await self.m.save_world(world)
+        await self.m._commit()
+        await self.m._step_market_offers(world)
+        offer = (await self.m.market_offers("u1"))[0]
+        res = await self.m.handle_action(
+            "u1", "market_offer_decline", {"offer_id": int(offer["offer_id"])})
+        self.assertTrue(res["ok"])
+        self.assertFalse(await self.m.market_offers("u1"))
+        order = await self.m._fetchone(
+            "SELECT amount, status FROM strategy_market_orders WHERE id=?",
+            (int(r["order_id"]),))
+        self.assertEqual(order["status"], "open")
+        self.assertEqual(int(order["amount"]), 100)
+        with self.assertRaises(self.StrategyError):
+            await self.m.market_offer_accept("u1", int(offer["offer_id"]))
 
     # ------------------------------------------------------------------
     # §7.9 俘虏

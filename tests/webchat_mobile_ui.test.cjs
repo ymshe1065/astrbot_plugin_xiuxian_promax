@@ -9,6 +9,8 @@ const css = fs.readFileSync(path.join(root, 'app.css'), 'utf8');
 const js = fs.readFileSync(path.join(root, 'app.js'), 'utf8');
 const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 const strategyCss = fs.readFileSync(path.join(root, 'strategy/strategy.css'), 'utf8');
+const strategyJs = fs.readFileSync(path.join(root, 'strategy/strategy.js'), 'utf8');
+const strategyHtml = fs.readFileSync(path.join(root, 'strategy/index.html'), 'utf8');
 
 test('移动端顶栏控件不会被 flex 压缩或换行', () => {
   assert.ok(
@@ -79,6 +81,23 @@ test('战略页据点抽屉与弹层不会超出视口', () => {
   );
 });
 
+test('切换非总览页签不会撑破侧栏并导致地图据点点击偏移', () => {
+  assert.match(
+    strategyCss,
+    /\.side-pane\s*\{[^}]*min-width:\s*0/s,
+    '侧栏必须允许收缩，否则势力页宽表格会压缩地图，canvas 命中坐标随之偏移'
+  );
+  assert.match(
+    strategyCss,
+    /\.tab-body\s*\{[^}]*overflow-x:\s*auto[^}]*min-width:\s*0/s,
+    '页签内容应在自身区域内横向滚动，不能把侧栏撑宽'
+  );
+  assert.ok(
+    strategyJs.includes('new ResizeObserver(() => resizeCanvas())'),
+    '地图容器尺寸变化后必须重算 canvas view，否则切页后点击据点会落到错误坐标'
+  );
+});
+
 test('窄屏下的 Toast 与 App 更新弹窗不会超出视口', () => {
   assert.match(
     strategyCss,
@@ -92,4 +111,95 @@ test('窄屏下的 Toast 与 App 更新弹窗不会超出视口', () => {
     '横屏下更新弹窗内容需要内部滚动'
   );
   assert.match(css, /\.toast\s*\{[^}]*word-break:\s*break-word/s, '聊天室 Toast 也需要为长文本断行');
+});
+
+test('坊市界面具备资源上架、NPC 收购报价与到期提示', () => {
+  assert.ok(
+    strategyJs.includes('id="mkNode"') && strategyJs.includes('id="mkPrice"'),
+    '坊市必须提供资源上架入口（据点/资源/数量/单价）'
+  );
+  assert.ok(
+    strategyJs.includes('market_offer_accept') &&
+      strategyJs.includes('market_offer_decline'),
+    'NPC 收购报价需要接受/拒绝操作'
+  );
+  assert.ok(
+    strategyJs.includes('player_price_band_pct') && strategyJs.includes('mkRange'),
+    '上架单价必须展示并校验市场价波动区间'
+  );
+  assert.ok(
+    strategyJs.includes('data-expire="') && strategyJs.includes('aucLeft'),
+    '挂单与报价需要展示剩余有效期'
+  );
+});
+
+test('人员页承载官职/俘虏，科技与计略迁入总览', () => {
+  assert.ok(
+    strategyHtml.includes('data-tab="chars" type="button">人员'),
+    '「府邸」页签需更名为「人员」'
+  );
+  assert.ok(
+    strategyJs.includes('function tabChars()') &&
+      strategyJs.includes('appointmentCard(p.faction)') &&
+      strategyJs.includes('captivesCard(p)'),
+    '人员页需包含角色名册、官职任免与俘虏事务'
+  );
+  assert.ok(
+    strategyJs.includes('function tabOverview()') &&
+      strategyJs.includes('techCard(p.faction)') &&
+      strategyJs.includes('plotCard(p)'),
+    '科技与计略入口需迁入总览页'
+  );
+});
+
+test('商路加成与运粮队额外护军具备前端入口', () => {
+  assert.ok(
+    strategyJs.includes('tradeRouteBonusSummary') &&
+      strategyJs.includes('node_output_bonus_per_route'),
+    '商路面板需按路线数量/长度展示贸易与据点产出加成'
+  );
+  assert.ok(
+    strategyJs.includes('id="cvEscortTroops"') &&
+      strategyJs.includes('id="cvEscortType"') &&
+      strategyJs.includes('updateConvoyEscortCost'),
+    '运粮队需支持指定额外护送人数/兵种并预览花费'
+  );
+});
+
+test('手操战役提示不会被独立战略页漏掉', () => {
+  assert.ok(
+    js.includes('postStrategyBroadcast(m)') && js.includes('strategy.battle.event'),
+    '聊天室收到 WS 后必须把争霸通知/回合事件转发给独立战略页标签'
+  );
+  assert.ok(
+    strategyJs.includes('BroadcastChannel("xiuxian_strategy")'),
+    '战略页需要监听聊天室转发的 strategy.notify / battle.event'
+  );
+  assert.ok(
+    strategyJs.includes('function onStrategyNotice(') &&
+      strategyJs.includes('battle_turn') && strategyJs.includes('battle_result'),
+    '战略页必须处理手操开启/轮到行动/终局三类提示'
+  );
+  assert.match(
+    strategyCss,
+    /\.battle-alert\s*\{[^}]*display:\s*flex/s,
+    '进行中手操战役需要常驻顶部横幅，不能只靠一闪而过的 toast'
+  );
+  assert.ok(
+    strategyHtml.includes('id="battleAlert"'),
+    '战略页 DOM 需要手操战役常驻横幅容器'
+  );
+  assert.ok(
+    strategyJs.includes('function schedulePoll()') &&
+      strategyJs.includes('liveCount ? 5000 : POLL_MS'),
+    '存在手操战役时轮询需缩短到 5s，20s 间隔会错过 90s 部署/30s 回合窗口'
+  );
+  assert.ok(
+    strategyJs.includes('if (x.live !== y.live) return x.live ? -1 : 1;'),
+    '战报页高光排序不得把进行中的手操战役压到已结束战报下面'
+  );
+  assert.ok(
+    strategyJs.includes('field_encounter: "野战"'),
+    '普通行军抵达触发的野战需要在战报页显示为「野战」'
+  );
 });

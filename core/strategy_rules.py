@@ -101,7 +101,8 @@ ROLE_STAT_WEIGHTS = {
     ROLE_OFFICIAL: {"leadership": 1, "valor": 1, "wisdom": 1, "admin": 3, "charm": 3, "luck": 1},
 }
 
-#: 官职 → 带兵上限（§4.5，v5 定案：带兵上限由主将官职决定）
+#: 角色官职 → 带兵上限（§4.5，v5 定案：带兵上限由主将官职决定）
+#: ``taishou`` 仅为兼容旧存档保留；太守现在是据点级职务，不再进角色官职表。
 POSITION_TROOP_CAP = {
     "leader": 3000, "taiwei": 3000, "situ": 2500, "jijiu": 2500,
     "zhonglang": 2000, "taishou": 2000, "": 1500,
@@ -111,8 +112,13 @@ POSITION_NAMES = {
     "zhonglang": "中郎将", "taishou": "太守", "": "无官职",
 }
 
-#: 角色可任免官职（主公/副主是玩家治理身份，不在角色官职内）
-APPOINTABLE_POSITIONS = ("zhonglang", "jijiu", "situ", "taiwei", "taishou")
+#: 据点级太守：可与其他角色官职并存，每个据点最多 1 名。
+TAISHOU_NAME = "太守"
+TAISHOU_TROOP_CAP = 2000
+
+#: 角色可任免官职（主公/副主是玩家治理身份，不在角色官职内）。
+#: 太守是据点级职务，走据点抽屉单独任免，不在此列表。
+APPOINTABLE_POSITIONS = ("zhonglang", "jijiu", "situ", "taiwei")
 
 #: 官职开放档位：势力（含联盟）据点数量达到 nodes 后开放/扩编对应官职。
 #: 名额为 -1 表示“每据点 1 名”，按当前据点数量动态计算。
@@ -122,16 +128,14 @@ POSITION_UNLOCKS = (
     (3, {"situ": 1}),
     (4, {"taiwei": 1}),
     (6, {"zhonglang": 2, "jijiu": 2}),
-    (8, {"taishou": -1}),
 )
 
-#: 官职效果说明（前端展示 / 帮助文案）
+#: 角色官职效果说明（前端展示 / 帮助文案）；太守效果见据点抽屉。
 POSITION_EFFECT_TEXT = {
     "taiwei": "全军攻击 +3%",
     "situ": "本势力据点产出 +5%",
     "jijiu": "计略成功率 +10%，托管 AI 智谋 +5",
     "zhonglang": "招募高品质概率 +10%",
-    "taishou": "所辖据点城防 +10%、民心恢复 ×2",
 }
 
 
@@ -157,15 +161,19 @@ def available_positions(node_count: int) -> dict[str, int]:
                 out[pos] = max(int(out.get(pos, 0)), int(cap))
     return out
 
-#: 特技词条（§4.4，极品+ 随机 1~2 条）
+#: 特技词条（§4.4，按稀有度随机；v4.9 扩充正面特性池至 14 条，统一 2 字命名）
 TRAIT_POOL = (
     "fire_master", "siege_expert", "farming", "doctor",
     "swift", "intimidate", "moneybag", "ironwall",
+    "frugal", "still_water", "composed", "iron_body",
+    "accumulate", "good_karma",
 )
 TRAIT_NAMES = {
-    "fire_master": "火攻大师", "siege_expert": "守城专精", "farming": "屯垦劝农",
+    "fire_master": "火攻", "siege_expert": "守城", "farming": "屯田",
     "doctor": "名医", "swift": "疾行", "intimidate": "威压",
     "moneybag": "敛财", "ironwall": "铁壁",
+    "frugal": "节俭", "still_water": "止水", "composed": "泰然",
+    "iron_body": "铁骨", "accumulate": "厚积", "good_karma": "善缘",
 }
 
 
@@ -186,6 +194,7 @@ def trait_army_mods(traits: list[str] | None) -> dict[str, float | int]:
         "grain_mult": 1.0, "speed_mult": 1.0,
         "defense_mult": 1.0, "attack_mult": 1.0,
         "fire_mult": 1.0, "recover_pct": 0.0, "injury_reduce": 0,
+        "exp_mult": 1.0, "recruit_quality_bonus": 0.0,
     }
     if "swift" in owned:              # 疾行：机动 +15%、粮耗 -10%、追击捕获 +10%
         mods["speed_mult"] = 1.15
@@ -199,7 +208,205 @@ def trait_army_mods(traits: list[str] | None) -> dict[str, float | int]:
     if "doctor" in owned:             # 名医：战后伤兵回收 8%、伤势额外 -1
         mods["recover_pct"] = 0.08
         mods["injury_reduce"] = 1
+    if "frugal" in owned:             # 节俭：行军粮耗 -10%
+        mods["grain_mult"] = float(mods["grain_mult"]) * 0.9
+    if "iron_body" in owned:          # 铁骨：战后伤势 -1
+        mods["injury_reduce"] = int(mods["injury_reduce"]) + 1
+    if "accumulate" in owned:         # 厚积：阅历获取 +10%
+        mods["exp_mult"] = 1.1
+    if "good_karma" in owned:         # 善缘：招募高品质 +5%
+        mods["recruit_quality_bonus"] = 0.05
     return mods
+
+
+# ---------------------------------------------------------------------------
+# 个性（personality，§4.9）：顶级金 / 负面红，与特技 traits 并列
+# ---------------------------------------------------------------------------
+
+#: 顶级个性池（传世专属，固定 1 个）
+TOP_PERSONALITIES = (
+    "purple_qi", "domineer", "battle_will",
+    "calculating", "clear_heart", "shrink_earth",
+)
+TOP_PERSONALITY_NAMES = {
+    "purple_qi": "紫气", "domineer": "睥睨", "battle_will": "战意",
+    "calculating": "神算", "clear_heart": "道心", "shrink_earth": "缩地",
+}
+TOP_PERSONALITY_DESC = {
+    "purple_qi": "自势力军团攻击 +5%、防御 +5%",
+    "domineer": "敌方军团攻击 -4%、防御 -4%",
+    "battle_will": "自部队攻击 +10%、防御 +10%",
+    "calculating": "计略成功率 +15%、异常持续时间 -50%",
+    "clear_heart": "免疫全部异常状态",
+    "shrink_earth": "机动 +1 hex、无视合围",
+}
+
+#: 负面个性池（任何角色最多 1 条，均为可接受惩罚）
+NEGATIVE_PERSONALITIES = (
+    "squander", "greedy", "arrogant", "timid", "drunkard",
+    "paranoid", "reckless", "dejected", "frail",
+)
+NEGATIVE_PERSONALITY_NAMES = {
+    "squander": "挥金", "greedy": "贪财", "arrogant": "倨傲",
+    "timid": "畏怯", "drunkard": "嗜酒", "paranoid": "多疑",
+    "reckless": "轻敌", "dejected": "消沉", "frail": "体弱",
+}
+NEGATIVE_PERSONALITY_DESC = {
+    "squander": "行军粮耗 +10%",
+    "greedy": "任务币产出 -10%",
+    "arrogant": "兵力 <30% 时攻击/防御 -8%",
+    "timid": "撤退/溃逃时额外损失兵力 +10%",
+    "drunkard": "断粮时士气额外 -10",
+    "paranoid": "陷入异常状态时间 +1 回合",
+    "reckless": "被伏击时士气额外 -10",
+    "dejected": "友军溃败时自身士气 -5",
+    "frail": "战后伤势 +1",
+}
+
+#: 个性 id → 中文名 / 说明（顶级 + 负面合并）
+PERSONALITY_NAMES = {**TOP_PERSONALITY_NAMES, **NEGATIVE_PERSONALITY_NAMES}
+PERSONALITY_DESC = {**TOP_PERSONALITY_DESC, **NEGATIVE_PERSONALITY_DESC}
+
+#: 稀有度 → 负面个性出现概率（%）；可被 config.recruit.neg_chance_by_rarity 覆盖
+NEG_CHANCE_BY_RARITY = {
+    "common": 40, "fine": 30, "rare": 15, "epic": 8, "legend": 5,
+}
+#: 稀有度 → 正面特性数量区间（min, max）
+POSITIVE_TRAITS_BY_RARITY = {
+    "common": (0, 1), "fine": (0, 1), "rare": (1, 1),
+    "epic": (1, 2), "legend": (2, 2),
+}
+
+
+def roll_traits_for_rarity(rng: random.Random, rarity: str,
+                           cfg: dict | None = None) -> list[str]:
+    """按稀有度随机正面特性（凡品 0~1 → 传世固定 2）。"""
+    table = POSITIVE_TRAITS_BY_RARITY.get(str(rarity or "common"), (0, 1))
+    if isinstance(cfg, dict):
+        custom = cfg.get("positive_traits_by_rarity") or {}
+        if isinstance(custom.get(rarity), (list, tuple)) and len(custom[rarity]) == 2:
+            table = tuple(custom[rarity])
+    lo, hi = int(table[0]), int(table[1])
+    n = rng.randint(lo, hi) if hi > lo else lo
+    if n <= 0:
+        return []
+    return rng.sample(list(TRAIT_POOL), min(n, len(TRAIT_POOL)))
+
+
+def roll_personality(rng: random.Random, rarity: str,
+                     cfg: dict | None = None) -> dict:
+    """按稀有度生成个性 ``{top, negative}``（可为空串）。
+
+    - 传世固定 1 个顶级个性；
+    - 负面最多 1 条，出现概率随稀有度递减（40%→5%）。
+    """
+    rarity = str(rarity or "common")
+    top = rng.choice(TOP_PERSONALITIES) if rarity == "legend" else ""
+    neg_chance = float(NEG_CHANCE_BY_RARITY.get(rarity, 40))
+    if isinstance(cfg, dict):
+        table = cfg.get("neg_chance_by_rarity") or {}
+        if rarity in table:
+            neg_chance = float(table.get(rarity, neg_chance))
+    negative = ""
+    if rng.random() * 100 < neg_chance:
+        negative = rng.choice(NEGATIVE_PERSONALITIES)
+    return {"top": top, "negative": negative}
+
+
+def personality_mods(personality: dict | None) -> dict:
+    """个性 → 数值修正（§4.9）。未拥有项返回中性值。"""
+    p = personality or {}
+    top = str(p.get("top") or "")
+    neg = str(p.get("negative") or "")
+    mods: dict = {
+        "attack_mult": 1.0, "defense_mult": 1.0,
+        "grain_mult": 1.0, "task_coin_mult": 1.0,
+        "exp_mult": 1.0, "injury_delta": 0,
+        "move_bonus": 0, "ignore_encircle": False,
+        "scheme_rate_bonus": 0.0,
+        "status_round_bonus": 0, "status_round_mult": 1.0,
+        "understrength_attack_mult": 1.0, "understrength_defense_mult": 1.0,
+        "ambush_morale_extra": 0, "ally_rout_morale": 0,
+        "retreat_loss_mult": 1.0, "starve_morale_extra": 0,
+        "salary_mult": 1.0,
+    }
+    # 顶级个性
+    if top == "purple_qi":          # 紫气：自势力攻防 +5%
+        mods["attack_mult"] *= 1.05
+        mods["defense_mult"] *= 1.05
+    elif top == "domineer":         # 睥睨：敌方攻防 -4%（以自身攻防 +4% 比值等价）
+        mods["attack_mult"] *= 1.04
+        mods["defense_mult"] *= 1.04
+    elif top == "battle_will":      # 战意：自部队攻防 +10%
+        mods["attack_mult"] *= 1.10
+        mods["defense_mult"] *= 1.10
+    elif top == "calculating":      # 神算：计略 +15%、异常时长 -50%
+        mods["scheme_rate_bonus"] += 15.0
+        mods["status_round_mult"] *= 0.5
+    elif top == "shrink_earth":     # 缩地：机动 +1、无视合围
+        mods["move_bonus"] += 1
+        mods["ignore_encircle"] = True
+    # 负面个性
+    if neg == "squander":           # 挥金：粮耗 +10%
+        mods["grain_mult"] *= 1.10
+    elif neg == "greedy":           # 贪财：任务币 -10%、俸禄 +20%（对标三国志14 贪婪/强欲）
+        mods["task_coin_mult"] *= 0.90
+        mods["salary_mult"] *= 1.20
+    elif neg == "arrogant":         # 倨傲：兵力 <30% 攻防 -8%
+        mods["understrength_attack_mult"] *= 0.92
+        mods["understrength_defense_mult"] *= 0.92
+    elif neg == "timid":            # 畏怯：撤退额外损失兵力 +10%
+        mods["retreat_loss_mult"] *= 1.10
+    elif neg == "drunkard":         # 嗜酒：断粮士气额外 -10
+        mods["starve_morale_extra"] = 10
+    elif neg == "paranoid":         # 多疑：异常时长 +1 回合
+        mods["status_round_bonus"] += 1
+    elif neg == "reckless":         # 轻敌：被伏击士气额外 -10
+        mods["ambush_morale_extra"] = 10
+    elif neg == "dejected":         # 消沉：友军溃败自身士气 -5
+        mods["ally_rout_morale"] = -5
+    elif neg == "frail":            # 体弱：战后伤势 +1
+        mods["injury_delta"] += 1
+    return mods
+
+
+def char_salary_mult(char: dict | None) -> float:
+    """角色个性 / 特技 → 俸禄乘区。
+
+    - 贪财（``greedy``，负面个性）：俸禄 ×1.20（对标三国志14 强欲）；
+    - 节俭（``frugal``，正面特技）：俸禄 ×0.85（对标三国志14 寡欲）。
+    势力科技「仁政」的 ``salary_mult`` 另行在发薪时叠乘，两者互不替代。
+    """
+    char = char or {}
+    mult = float(personality_mods(char.get("personality"))
+                 .get("salary_mult", 1.0) or 1.0)
+    if "frugal" in set(char.get("traits") or []):
+        mult *= 0.85
+    return max(0.0, mult)
+
+
+def status_immunity(leader: dict | None) -> set[str]:
+    """角色（特技 + 个性）免疫的异常状态集合。"""
+    leader = leader or {}
+    traits = set(leader.get("traits") or [])
+    top = str((leader.get("personality") or {}).get("top") or "")
+    out: set[str] = set()
+    if "still_water" in traits:       # 止水：免疫混乱
+        out.add("confuse")
+    if "composed" in traits:          # 泰然：免疫挑衅
+        out.add("taunt")
+    if top == "clear_heart":          # 道心：免疫全部异常
+        out.update({"confuse", "taunt", "suppress", "burn"})
+    return out
+
+
+def personality_recruit_bonus(chars: Iterable[dict] | None) -> float:
+    """善缘角色在册时提供的招募高品质加成（每名 +5%，封顶 +15%）。"""
+    n = 0
+    for c in (chars or []):
+        if "good_karma" in ((c or {}).get("traits") or []):
+            n += 1
+    return min(0.15, 0.05 * n)
 
 
 def _cfg_value(cfg: dict | None, section: str, key: str, default: Any) -> Any:
@@ -472,6 +679,8 @@ def generate_character(
     name: str | None = None,
     name_pools: dict | None = None,
     traits: list[str] | None = None,
+    personality: dict | None = None,
+    cfg: dict | None = None,
 ) -> dict[str, Any]:
     """生成一名角色（未落库的 dict，字段与 strategy_characters 对齐）。"""
     rarity = rarity or rng.choice(["common", "common", "fine", "fine", "rare"])
@@ -482,9 +691,9 @@ def generate_character(
     if name is None:
         name = roll_name(rng, name_pools or {})
     if traits is None:
-        traits = []
-        if rarity in ("epic", "legend"):
-            traits = rng.sample(TRAIT_POOL, rng.randint(1, 2))
+        traits = roll_traits_for_rarity(rng, rarity, cfg)
+    if personality is None:
+        personality = roll_personality(rng, rarity, cfg)
     return {
         "name": name,
         "role": role,
@@ -492,6 +701,7 @@ def generate_character(
         "profession": profession,
         "stats": roll_stats(rng, rarity, role),
         "traits": traits,
+        "personality": personality,
         "aptitude": roll_aptitude(rng, profession, rarity),
         "exp": 0,
         "level": 1,
@@ -581,6 +791,8 @@ def gain_exp(char: dict, amount: int, rarity_cap_bonus: int = 0,
     达到 ``max_level`` 后阅历封顶，不再无限升级。
     """
     logs: list[str] = []
+    tmods = trait_army_mods(char.get("traits") or [])
+    amount = int(round(max(0, int(amount)) * float(tmods.get("exp_mult", 1.0) or 1.0)))
     char["exp"] = int(char.get("exp") or 0) + max(0, int(amount))
     level = max(1, int(char.get("level") or 1))
     max_level = max(1, int(max_level))
@@ -692,9 +904,12 @@ def recover_stamina(char: dict, per_tick: int = STAMINA_RECOVER) -> None:
 # ---------------------------------------------------------------------------
 
 def troop_cap(position: str = "", is_taishou_outside: bool = False) -> int:
-    """主将官职决定带兵上限；太守辖外 1500。"""
-    if position == "taishou" and is_taishou_outside:
-        return 1500
+    """主将角色官职对应的基础带兵上限。
+
+    太守已改为据点级职务：是否在辖内由 ``StrategyManager._leader_cap``
+    叠加 ``TAISHOU_TROOP_CAP``，不再通过这里把官职降为 1500。
+    ``is_taishou_outside`` 仅为旧调用方兼容保留，实际不生效。
+    """
     return POSITION_TROOP_CAP.get(position or "", 1500)
 
 
@@ -787,6 +1002,8 @@ def task_yield_multiplier(
     if task_type in ("govern", "trade") and "moneybag" in traits:
         trait_mult += 0.15
     morale_mult = 0.5 + max(0, min(100, node_morale)) / 100 * 0.5
+    pmods = personality_mods(char.get("personality"))
+    coin_mult = float(pmods["task_coin_mult"]) if task_type in ("govern", "trade") else 1.0
     return (
         (1 + stat_val / 200)
         * role_fit_mult(char, task_type)
@@ -794,6 +1011,7 @@ def task_yield_multiplier(
         * task_node_mult(task_type, node_type)
         * morale_mult
         * event_mult
+        * coin_mult
     )
 
 
@@ -916,10 +1134,17 @@ def attack_power(army: dict, flank_mult: float = 1.0, night: bool = False) -> fl
     _, vet_bonus, _ = veteran_tier(army.get("veteran", 0))
     terrain_mult = float(army.get("atk_terrain_mult", 1.0))
     position_mult = float(army.get("pos_atk_mult", 1.0))
+    # 本土作战：在相邻友方据点构成的本势力/联盟领土内作战时加成
+    territory_mult = float(army.get("territory_atk_mult", 1.0))
+    pmods = personality_mods((army.get("leader") or {}).get("personality"))
+    p_attack = float(pmods.get("attack_mult", 1.0) or 1.0)
+    start_troops = int(army.get("start_troops", 0) or 0)
+    if start_troops > 0 and troops < start_troops * 0.3:
+        p_attack *= float(pmods.get("understrength_attack_mult", 1.0) or 1.0)
     return (
         troop["atk"] * (troops ** 0.8) * (1 + valor / 150)
         * morale_mult * prof_mult * apt * (1 + vet_bonus) * terrain_mult
-        * position_mult * flank_mult
+        * position_mult * flank_mult * territory_mult * p_attack
     )
 
 
@@ -943,10 +1168,17 @@ def defense_power(army: dict, defending_node: bool = False) -> float:
     is_garrison = bool(is_defending_node or army.get("defending_node"))
     trait_mult = float(trait_army_mods(leader.get("traits") or [])["defense_mult"]) \
         if is_garrison else 1.0
+    # 本土作战：友方领土内防守时的额外防御加成
+    territory_mult = float(army.get("territory_def_mult", 1.0))
+    pmods = personality_mods((leader or {}).get("personality"))
+    p_def = float(pmods.get("defense_mult", 1.0) or 1.0)
+    start_troops = int(army.get("start_troops", 0) or 0)
+    if start_troops > 0 and troops < start_troops * 0.3:
+        p_def *= float(pmods.get("understrength_defense_mult", 1.0) or 1.0)
     return (
         troop["def"] * math.sqrt(troops) * (1 + leadership / 150)
         * apt * (1 + vet_bonus) * terrain_mult * prof_mult * wall_mult
-        * trait_mult
+        * trait_mult * territory_mult * p_def
     )
 
 
@@ -977,7 +1209,8 @@ def battle_initiative(army: dict, rng: random.Random, night: bool = False) -> fl
         bonus += 20
     if leader.get("profession") in ("beast", "ghost"):
         bonus += 5
-    return valor + bonus + rng.uniform(0, 10)
+    # v4.3.13：军事 L4「精锐小队」先手 +5（调用方按带兵阈值写入 init_bonus）
+    return valor + bonus + float(army.get("init_bonus", 0) or 0) + rng.uniform(0, 10)
 
 
 def simulate_battle(
@@ -1003,6 +1236,9 @@ def simulate_battle(
     dfn = [dict(a) for a in defenders if a.get("troops", 0) > 0]
     atk_start = {a["id"]: a["troops"] for a in atk}
     dfn_start = {a["id"]: a["troops"] for a in dfn}
+    # 倨傲（兵力 <30%）等个性需要起始兵力基准
+    for _a in atk + dfn:
+        _a.setdefault("start_troops", int(_a.get("troops", 0) or 0))
     atk_total0 = sum(atk_start.values()) or 1
     dfn_total0 = sum(dfn_start.values()) or 1
 
@@ -1226,7 +1462,8 @@ def march_speed(army: dict, terrain: str) -> float:
     cost = TERRAIN_MARCH_COST.get(terrain, 1.0)
     swift_mult = float(trait_army_mods(
         ((army.get("leader") or {}).get("traits")) or [])["speed_mult"])
-    return base / cost * swift_mult
+    # v4.3.13：军事 L4「精锐小队」机动 +1 边当量（调用方按带兵阈值写入 move_bonus）
+    return base / cost * swift_mult + float(army.get("move_bonus", 0) or 0)
 
 
 def grain_upkeep(army: dict, terrain: str, far_from_home: bool) -> int:
@@ -1248,6 +1485,63 @@ def carry_grain_cap(leader: dict | None) -> int:
     """携粮 = min(库存, 统率×50)（§5.6）。"""
     leadership = int(((leader or {}).get("stats") or {}).get("leadership", 0))
     return leadership * 50
+
+
+# ---------------------------------------------------------------------------
+# 友方道路 / 相邻领土加成（v4.3.4）
+# ---------------------------------------------------------------------------
+
+def friendly_owner(faction_id: int, friendly_ids: Iterable[int]) -> bool:
+    """据点归属是否属于本势力/同联盟友方（无主 0 与魔潮 -1 不算）。"""
+    try:
+        fid = int(faction_id or 0)
+    except (TypeError, ValueError):
+        return False
+    return fid > 0 and fid in {int(x) for x in friendly_ids}
+
+
+def is_friendly_road(from_node: dict | None, to_node: dict | None,
+                     friendly_ids: Iterable[int]) -> bool:
+    """道路：相邻两个据点都归本势力/同联盟友方所有。"""
+    return bool(from_node and to_node and
+                friendly_owner(int(from_node.get("owner_faction") or 0),
+                               friendly_ids) and
+                friendly_owner(int(to_node.get("owner_faction") or 0),
+                               friendly_ids))
+
+
+def adjacent_friendly_count(node: dict | None, nodes: dict[int, dict],
+                            friendly_ids: Iterable[int]) -> int:
+    """某据点相邻的友方据点数量（不含自身）。"""
+    if not node:
+        return 0
+    ids = {int(x) for x in friendly_ids}
+    count = 0
+    for nid in (node.get("adj") or []):
+        nxt = nodes.get(int(nid))
+        if nxt and int(nxt.get("owner_faction") or 0) in ids:
+            count += 1
+    return count
+
+
+def territory_bonuses(adjacent_count: int, cfg: dict | None = None) -> dict:
+    """相邻友方领土加成：小幅度城防 + 本土作战攻防。"""
+    cfg = cfg or {}
+    n = max(0, int(adjacent_count or 0))
+    per_def = max(0.0, float(cfg.get("defense_bonus_per_adjacent", 0.04) or 0))
+    cap_def = max(0.0, float(cfg.get("defense_bonus_cap", 0.20) or 0))
+    per_combat = max(0.0, float(
+        cfg.get("home_combat_bonus_per_adjacent", 0.03) or 0))
+    cap_combat = max(0.0, float(cfg.get("home_combat_bonus_cap", 0.15) or 0))
+    defense_pct = min(cap_def, per_def * n)
+    combat_pct = min(cap_combat, per_combat * n)
+    return {
+        "adjacent": n,
+        "defense_pct": defense_pct,
+        "combat_pct": combat_pct,
+        "defense_mult": 1.0 + defense_pct,
+        "combat_mult": 1.0 + combat_pct,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1305,11 +1599,16 @@ def npc_utility(
 CAPTURE_CHANCE = {"duel": 0.60, "city_fall": 0.40, "wipeout": 0.20}
 
 
-def capture_check(kind: str, rng: random.Random, street_fight: bool = False) -> bool:
-    """被俘判定：单挑 60% ＞ 城陷 40% ＞ 覆没 20%；巷战 +10%（§7.9）。"""
+def capture_check(kind: str, rng: random.Random, street_fight: bool = False,
+                  bonus: float = 0.0) -> bool:
+    """被俘判定：单挑 60% ＞ 城陷 40% ＞ 覆没 20%；巷战 +10%（§7.9）。
+
+    ``bonus``：俘获方科技「俘获」加成（军事/谋略线，默认 0）。
+    """
     chance = CAPTURE_CHANCE.get(kind, 0.2)
     if kind == "city_fall" and street_fight:
         chance += 0.10
+    chance += float(bonus)
     return rng.random() < chance
 
 
@@ -1680,7 +1979,60 @@ def npc_seed_relation(rng: random.Random, pers_a: dict | None,
 # ---------------------------------------------------------------------------
 
 TECH_LINES = ("military", "agri", "stratagem")
-TECH_NAMES = {"military": "军事", "agri": "农耕", "stratagem": "谋略"}
+TECH_NAMES = {"military": "军事", "agri": "经营", "stratagem": "谋略"}
+
+#: 科技默认效果补丁表：line → level → patch（逐级累计）。
+#: 语义：标量键「覆盖」（后级覆盖前级，用于累计值）；
+#:       ``terrain_*_mult`` 为「加成增量」，逐级相加（L5 全地形 +3% 叠加在 L1/L3 之上）；
+#:       ``resource_output_mult`` / ``node_type_output_mult`` 为「乘区」，逐级相乘。
+#: 管理员可在 config ``tech.effects_values`` 按 (line, level) 覆盖本表；缺省用这里。
+TECH_EFFECT_PATCHES: dict[str, dict[int, dict[str, Any]]] = {
+    "military": {
+        1: {"atk_bonus": 0.02, "terrain_atk_mult": {"plain": 0.03},
+            "terrain_def_mult": {"plain": 0.03}},
+        2: {"atk_bonus": 0.04, "ram_cost_mult": 0.7,
+            "big_army_siege_bonus": 0.05},
+        3: {"atk_bonus": 0.06, "terrain_atk_mult": {"highland": 0.08},
+            "terrain_def_mult": {"forest": 0.10, "river": 0.10, "swamp": 0.10}},
+        4: {"intercept_bonus": 0.25,
+            "terrain_def_mult": {"wall": 0.10, "gate": 0.10},
+            "small_army_move_bonus": 1, "small_army_init_bonus": 5.0},
+        5: {"flank_bonus": 0.05,
+            "terrain_atk_mult": {t: 0.03 for t in
+                                 ("plain", "forest", "highland", "river", "swamp")},
+            "big_army_atk_bonus": 0.05},
+        6: {"morale_loss_mult": 0.8, "kill_morale_bonus": 10},
+        7: {"ignore_zoc": True, "immune_surround": True,
+            "duel_win_morale_bonus": 5, "duel_injury_bonus": 0.10,
+            "capture_bonus": 0.30, "no_capture": True},
+    },
+    "agri": {
+        1: {"output_bonus": 0.04,
+            "node_type_output_mult": {"grain": {"grain": 1.10}}},
+        2: {"grain_cost_mult": 0.9,
+            "resource_output_mult": {"grain": 1.10}},
+        3: {"output_bonus": 0.08,
+            "node_type_output_mult": {"mine": {"iron": 1.15}}},
+        4: {"convoy_move_bonus": 1, "convoy_loss_mult": 0.5,
+            "node_type_output_mult": {"market": {"coin": 1.10}}},
+        5: {"starve_resist_ticks": 2,
+            "resource_output_mult": {"gold": 1.05, "coin": 1.02,
+                                     "grain": 1.02, "iron": 1.02}},
+        6: {"recruit_cost_mult": 0.85, "train_mult": 1.20,
+            "garrison_grow_bonus": 0.005},
+        7: {"heal_mult": 1.30, "salary_mult": 0.80,
+            "morale_recover_bonus": 1.0},
+    },
+    "stratagem": {
+        1: {"plot_bonus": 0.04},
+        2: {"scout_precision": True, "scout_terrain_reveal": True},
+        3: {"ai_wisdom_bonus": 5, "plot_bonus_vs_big_army": 0.03},
+        4: {"plot_cd_reduce": 2, "expose_reduction": 0.15},
+        5: {"counter_spy": 0.30, "counter_spy_defense": 0.15},
+        6: {"fire_damage_mult": 1.30, "fire_def_mult": 0.70},
+        7: {"plot_duration_mult": 1.20, "enemy_plot_rate_mult": 0.90},
+    },
+}
 
 
 def tech_level(tech_json: dict | None, line: str, max_lvl: int = 5) -> int:
@@ -1694,31 +2046,89 @@ def tech_level(tech_json: dict | None, line: str, max_lvl: int = 5) -> int:
     return max(0, min(cap, int((tech_json or {}).get(line, 0) or 0)))
 
 
-def tech_effects(tech_json: dict | None, max_lvl: int = 5) -> dict[str, float]:
-    """把三线等级折算成数值效果字典（调用方按需取键）。"""
+def _apply_tech_patch(out: dict, patch: dict | None) -> None:
+    """把单级补丁并入效果字典（地形相加 / 资源相乘 / 标量覆盖）。"""
+    for key, val in (patch or {}).items():
+        if key in ("terrain_atk_mult", "terrain_def_mult"):
+            dst = out.setdefault(key, {})
+            for t, v in (val or {}).items():
+                dst[t] = float(dst.get(t, 0.0)) + float(v)
+        elif key in ("resource_output_mult", "node_type_output_mult"):
+            dst = out.setdefault(key, {})
+            for k, v in (val or {}).items():
+                if isinstance(v, dict):
+                    sub = dst.setdefault(k, {})
+                    for r, mv in v.items():
+                        sub[r] = float(sub.get(r, 1.0)) * float(mv)
+                else:
+                    dst[k] = float(dst.get(k, 1.0)) * float(v)
+        else:
+            out[key] = val
+
+
+def tech_effects(tech_json: dict | None, max_lvl: int = 5,
+                 tcfg: dict | None = None) -> dict[str, Any]:
+    """把三线等级折算成数值效果字典（调用方按需取键）。
+
+    返回键只增不改，向后兼容旧调用方。新增地形/带兵/资源三类效果：
+    - ``terrain_atk_mult`` / ``terrain_def_mult``：按 hex 地形加成的增量（相加）。
+    - ``big_army_*`` / ``small_army_*``：按带兵阈值触发（阈值见返回值）。
+    - ``resource_output_mult`` / ``node_type_output_mult``：产出乘区（相乘）。
+    ``tcfg`` 为 config ``tech`` 配置块，可选；缺省用内置 ``TECH_EFFECT_PATCHES``。
+    """
+    if isinstance(tcfg, dict) and tcfg.get("levels"):
+        max_lvl = max(1, int(tcfg.get("levels") or max_lvl))
     mil = tech_level(tech_json, "military", max_lvl)
     agri = tech_level(tech_json, "agri", max_lvl)
     strat = tech_level(tech_json, "stratagem", max_lvl)
-    return {
-        # 兵学：L1 攻+2% L3 累计+6%；L2 破城槌造价-30%；L4 拦截+25%；L5 包抄+5%
-        "atk_bonus": 0.02 if mil == 1 else (0.06 if mil >= 3 else 0.04 if mil == 2 else 0.0),
-        "ram_cost_mult": 0.7 if mil >= 2 else 1.0,
-        "intercept_bonus": 0.25 if mil >= 4 else 0.0,
-        "flank_bonus": 0.05 if mil >= 5 else 0.0,
-        # 农政：L1 产出+4% L3 累计+8%（取高档）；L2 粮耗-10%；L4 运粮+1/被劫-50%；L5 断粮抵抗+2tick
-        "output_bonus": 0.08 if agri >= 3 else (0.04 if agri >= 1 else 0.0),
-        "grain_cost_mult": 0.9 if agri >= 2 else 1.0,
-        "convoy_move_bonus": 1 if agri >= 4 else 0,
-        "convoy_loss_mult": 0.5 if agri >= 4 else 1.0,
-        "starve_resist_ticks": 2 if agri >= 5 else 0,
-        # 谋略：L1 计略+4%；L2 侦察精度+；L3 托管智谋+5；L4 冷却-2tick/暴露-15%；L5 反间30%
-        "plot_bonus": 0.04 if strat >= 1 else 0.0,
-        "scout_precision": strat >= 2,
-        "ai_wisdom_bonus": 5 if strat >= 3 else 0,
-        "plot_cd_reduce": 2 if strat >= 4 else 0,
-        "expose_reduction": 0.15 if strat >= 4 else 0.0,
-        "counter_spy": 0.30 if strat >= 5 else 0.0,
+    tcfg = tcfg if isinstance(tcfg, dict) else {}
+    out: dict[str, Any] = {
+        # —— 既有键（保持默认值，旧调用方无感）——
+        "atk_bonus": 0.0, "ram_cost_mult": 1.0,
+        "intercept_bonus": 0.0, "flank_bonus": 0.0,
+        "output_bonus": 0.0, "grain_cost_mult": 1.0,
+        "convoy_move_bonus": 0, "convoy_loss_mult": 1.0,
+        "starve_resist_ticks": 0,
+        "plot_bonus": 0.0, "scout_precision": False, "ai_wisdom_bonus": 0,
+        "plot_cd_reduce": 0, "expose_reduction": 0.0, "counter_spy": 0.0,
+        # —— 新增：地形轴 ——
+        "terrain_atk_mult": {}, "terrain_def_mult": {},
+        # —— 新增：带兵轴 ——
+        "big_army_atk_bonus": 0.0, "big_army_siege_bonus": 0.0,
+        "small_army_move_bonus": 0, "small_army_init_bonus": 0.0,
+        "small_army_grain_mult": 1.0,
+        # —— 新增：资源轴 ——
+        "resource_output_mult": {}, "node_type_output_mult": {},
+        # —— 新增：谋略联动 ——
+        "scout_terrain_reveal": False, "plot_bonus_vs_big_army": 0.0,
+        "counter_spy_defense": 0.0,
+        # —— 新增（v4.3.14，三国志个性转化）：士气 / 无双 / 征募 / 医养 / 火攻 / 诡道 ——
+        "morale_loss_mult": 1.0, "kill_morale_bonus": 0,
+        "ignore_zoc": False, "immune_surround": False,
+        "duel_win_morale_bonus": 0, "duel_injury_bonus": 0.0,
+        "capture_bonus": 0.0, "no_capture": False,
+        "recruit_cost_mult": 1.0, "train_mult": 1.0,
+        "heal_mult": 1.0, "salary_mult": 1.0,
+        "garrison_grow_bonus": 0.0, "morale_recover_bonus": 0.0,
+        "fire_damage_mult": 1.0, "fire_def_mult": 1.0,
+        "plot_duration_mult": 1.0, "enemy_plot_rate_mult": 1.0,
     }
+    overrides = tcfg.get("effects_values") or {}
+    for line, lvl in (("military", mil), ("agri", agri),
+                      ("stratagem", strat)):
+        default = TECH_EFFECT_PATCHES.get(line) or {}
+        cfg_line = overrides.get(line) if isinstance(overrides, dict) else None
+        for level in range(1, int(lvl) + 1):
+            patch = dict(default.get(level) or {})
+            if isinstance(cfg_line, dict):
+                cfg_patch = cfg_line.get(str(level))
+                if isinstance(cfg_patch, dict):
+                    patch.update(cfg_patch)  # 配置按级覆盖默认补丁
+            _apply_tech_patch(out, patch)
+    # 带兵阈值配置（非补丁，单独读取）
+    out["big_army_threshold"] = int(tcfg.get("big_army_threshold", 2000) or 2000)
+    out["small_army_threshold"] = int(tcfg.get("small_army_threshold", 800) or 800)
+    return out
 
 
 def tech_research_hours(base_hours: int, stat: int, divisor: float = 10.0,
@@ -1922,9 +2332,11 @@ def doctor_aftermath(leader: dict | None, lost_troops: int,
                      injury: int = 0) -> dict[str, int]:
     """名医特技战后结算（§4.4）：伤兵回收 8%、角色伤势额外 -1。"""
     mods = trait_army_mods(((leader or {}).get("traits")) or [])
+    pmods = personality_mods((leader or {}).get("personality"))
     lost = max(0, int(lost_troops or 0))
     recovered = int(lost * float(mods["recover_pct"]))
-    new_injury = max(0, int(injury or 0) - int(mods["injury_reduce"]))
+    new_injury = max(0, int(injury or 0) - int(mods["injury_reduce"])
+                     + int(pmods["injury_delta"]))
     return {"recovered": recovered, "injury": new_injury}
 
 
@@ -1981,7 +2393,6 @@ POSITION_EFFECTS = {
     "situ": {"node_output": 0.05},
     "jijiu": {"plot_bonus": 0.10, "ai_wisdom": 5},
     "zhonglang": {"recruit_quality": 0.10},
-    "taishou": {"node_defense": 0.10, "morale_recover_mult": 2.0},
 }
 
 
@@ -2076,6 +2487,30 @@ def npc_maker_price(base_price: float, rng: random.Random,
     return max(1, int(base_price * factor))
 
 
+def market_price_band(base_price: float, band_pct: float = 0.5,
+                      min_price: int = 1) -> tuple[int, int, int]:
+    """玩家挂单价允许区间：市场基准价 ±band_pct。
+
+    返回 ``(最低价, 最高价, 基准价)``。低于 1 的价格没有意义，统一抬到
+    ``min_price``；基准价缺失（<=0）时返回 ``(min_price, 0, 0)`` 表示不限制。
+    """
+    base = int(round(float(base_price or 0)))
+    if base <= 0:
+        return max(1, int(min_price)), 0, 0
+    band = max(0.0, min(1.0, float(band_pct)))
+    lo = max(max(1, int(min_price)), int(base * (1.0 - band)))
+    hi = max(lo, int(base * (1.0 + band)))
+    return lo, hi, base
+
+
+def npc_offer_price(list_price: float, rng: random.Random,
+                    spread_pct: float = 0.15) -> int:
+    """NPC 收购报价：在玩家挂单价基础上上下浮动（默认 ±15%）。"""
+    spread = max(0.0, float(spread_pct))
+    factor = 1.0 + rng.uniform(-spread, spread)
+    return max(1, int(round(float(list_price) * factor)))
+
+
 # ---------------------------------------------------------------------------
 # 商路（§5.5）与合围断粮（§5.6）
 # ---------------------------------------------------------------------------
@@ -2111,9 +2546,53 @@ def find_trade_routes(adjacency: dict[int, list[int]], node_type: dict[int, str]
                     pair = (min(start, nxt), max(start, nxt))
                     if pair not in seen:
                         seen.add(pair)
-                        found.append({"a": pair[0], "b": pair[1], "path": new_path})
+                        found.append({"a": pair[0], "b": pair[1],
+                                      "path": new_path,
+                                      "owner": base_owner})
                 queue.append((nxt, new_path))
     return found
+
+
+def trade_route_task_bonus(routes: list[dict], base: float = 0.3,
+                           per_route: float = 0.05, per_edge: float = 0.02,
+                           max_bonus: float = 1.0) -> float:
+    """商路网络对贸易任务的加成。
+
+    商路数量越多、总长度（边数）越大，加成越高，并受 ``max_bonus`` 封顶。
+    无商路时返回 0（调用方只在节点位于商路时使用）。
+    """
+    if not routes:
+        return 0.0
+    count = len(routes)
+    edges = sum(max(0, len(r.get("path") or []) - 1) for r in routes)
+    bonus = float(base) + float(per_route) * count + float(per_edge) * edges
+    return max(0.0, min(float(max_bonus), bonus))
+
+
+def trade_route_output_bonus(routes: list[dict], base: float = 0.0,
+                             per_route: float = 0.02, per_edge: float = 0.01,
+                             max_bonus: float = 0.4) -> dict[int, float]:
+    """商路途经据点的自然产出加成。
+
+    同一节点被越多商路经过、且这些商路越长，加成越高（单节点封顶
+    ``max_bonus``）。返回 ``{node_id: bonus_ratio}``。
+    """
+    route_count: dict[int, int] = {}
+    route_edges: dict[int, int] = {}
+    for r in routes:
+        path = [int(x) for x in (r.get("path") or [])]
+        if not path:
+            continue
+        edges = max(0, len(path) - 1)
+        for nid in path:
+            route_count[nid] = route_count.get(nid, 0) + 1
+            route_edges[nid] = route_edges.get(nid, 0) + edges
+    return {
+        nid: max(0.0, min(float(max_bonus),
+                          float(base) + float(per_route) * count +
+                          float(per_edge) * route_edges.get(nid, 0)))
+        for nid, count in route_count.items()
+    }
 
 
 def is_node_encircled(node_id: int, adjacency: dict[int, list[int]],
@@ -2273,3 +2752,160 @@ def wanderer_quota_limit(acfg: dict, rarity: str) -> int:
         return int(quota.get(rarity, 3))
     except (TypeError, ValueError):
         return 3
+
+
+# ---------------------------------------------------------------------------
+# 所在地 / 城镇等级 / 守军 / 民心（v4.3.5 所在地机制）
+# ---------------------------------------------------------------------------
+
+#: 据点潜力默认映射：地图生成时按类型写入，模板可用 potential 覆盖。
+NODE_POTENTIAL_BY_TYPE = {
+    "city": 5, "branch": 5, "pass": 4, "market": 3,
+    "mine": 2, "grain": 2, "ruin": 1,
+}
+
+#: 可被人物驻守/管理/抓捕的据点类型（遗迹不可作落点）。
+CHAR_DWELL_NODE_TYPES = ("city", "pass", "branch", "market", "mine", "grain")
+
+#: 不可传送的角色状态（仅 idle 可移动）。
+MOVE_BLOCK_STATUSES = ("task", "army", "captive", "transfer", "wander", "dead")
+
+#: 本地任务：角色必须已位于目标据点。
+TASK_LOCAL_TYPES = ("govern", "farm", "mining", "trade", "build", "train",
+                    "heal", "seek", "quest", "research", "hunt")
+
+#: 远征任务：落点记出发地，目标只存在任务 payload。
+TASK_EXPEDITION_TYPES = ("scout", "raid", "supply")
+
+#: 视为“驻守”的角色状态（空闲 / 本地任务）。
+RESIDENT_STATUSES = ("idle", "task")
+
+#: 非驻守角色状态（出征、被俘、押运、出走、陨落）。
+NON_RESIDENT_STATUSES = ("army", "captive", "transfer", "wander", "dead")
+
+
+def node_potential(node: dict | None) -> int:
+    """据点潜力（1~5）：显式 potential 优先，否则按类型映射。"""
+    node = node or {}
+    try:
+        val = int(node.get("potential") or 0)
+    except (TypeError, ValueError):
+        val = 0
+    if val <= 0:
+        val = NODE_POTENTIAL_BY_TYPE.get(str(node.get("type") or ""), 3)
+    return max(1, min(5, val))
+
+
+def node_upgrade_cost(level: int) -> tuple[int, int]:
+    """据点升级费用（阶梯递增）：(铜钱, 精铁) = (5000×L², 500×L²)。"""
+    lv = max(1, int(level or 1))
+    return 5000 * lv * lv, 500 * lv * lv
+
+
+def node_upgrade_ticks(level: int) -> int:
+    """据点升级建造时间（tick）：2×(当前等级+1) → 4/6/8/10。"""
+    return 2 * (max(1, int(level or 1)) + 1)
+
+
+def garrison_cap(level: int) -> int:
+    """守军上限 = 2000 × 城镇等级（玩家/NPC 统一口径）。"""
+    return 2000 * max(1, int(level or 1))
+
+
+def garrison_grow(cap: int, pct: float) -> int:
+    """守军单 tick 增长量：至少 1，且不超过上限；``pct<=0`` 表示关闭增长。"""
+    cap = max(0, int(cap or 0))
+    pct = max(0.0, float(pct or 0.0))
+    if cap <= 0 or pct <= 0:
+        return 0
+    return max(1, int(cap * pct))
+
+
+def garrison_char_growth_pct(chars: Iterable[dict],
+                             cfg: dict | None = None) -> float:
+    """玩家驻守角色带来的守军恢复加成（占上限比例，单城封顶 5%）。
+
+    每名驻守角色 +``garrison.char_grow_pct``（默认 1%）；武将额外
+    +``general_bonus_pct``，统率 ≥ 80 的武将再 +``leadership_bonus_pct``
+    （默认武将最高 +2%/人）；单城封顶 ``garrison.cap_pct``。
+    调用方需自行过滤“驻守在本据点”的角色。
+    """
+    cfg = cfg or {}
+    per = max(0.0, float(cfg.get("char_grow_pct", 0.01) or 0.0))
+    general = max(0.0, float(cfg.get("general_bonus_pct", 0.005) or 0.0))
+    leadership_bonus = max(0.0, float(
+        cfg.get("leadership_bonus_pct", 0.01) or 0.0))
+    cap = float(cfg.get("cap_pct", 0.05) or 0.0)
+    total = 0.0
+    for c in chars or []:
+        total += per
+        if str((c or {}).get("role") or "") == ROLE_GENERAL:
+            total += general
+            try:
+                leadership = int(((c or {}).get("stats") or {}).get(
+                    "leadership", 0) or 0)
+            except (TypeError, ValueError):
+                leadership = 0
+            if leadership >= 80:
+                total += leadership_bonus
+    if cap > 0:
+        total = min(cap, total)
+    return total
+
+
+def npc_output_morale_mult(morale: int) -> float:
+    """NPC 据點产出民心乘数：0.5 + 民心/100 × 0.5（0→50%，100→100%）。"""
+    m = max(0, min(100, int(morale or 0)))
+    return 0.5 + m / 100.0 * 0.5
+
+
+def morale_garrison_bonus(chars: Iterable[dict], per_cap: int = 4,
+                          total_cap: int = 6) -> int:
+    """魅力驻守加成：每名驻守角色 floor(魅力/25)，单角色封顶 4，单城封顶 6。
+
+    调用方需自行过滤“驻守在本据点”的角色。
+    """
+    total = 0
+    for c in chars or []:
+        try:
+            charm = int(((c or {}).get("stats") or {}).get("charm", 0) or 0)
+        except (TypeError, ValueError):
+            charm = 0
+        total += min(max(1, int(per_cap)), max(0, charm // 25))
+    return min(max(0, int(total_cap)), total)
+
+
+def is_resident_char(char: dict | None) -> bool:
+    """角色是否处于“驻守”状态（空闲 / 本地任务）。"""
+    return str((char or {}).get("status") or "") in RESIDENT_STATUSES
+
+
+def char_node_id(char: dict | None) -> int:
+    """角色所在地据点 id（0 表示无落点）。"""
+    try:
+        return int((((char or {}).get("location") or {}).get("node_id", 0)) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def is_governor_resident(node: dict | None, char: dict | None) -> bool:
+    """太守是否驻守本城：任命匹配 + 状态非出征/被俘 + 所在地为本城。"""
+    node = node or {}
+    char = char or {}
+    if int(char.get("id") or 0) <= 0 or \
+            int(node.get("governor_char_id") or 0) != int(char.get("id") or 0):
+        return False
+    status = str(char.get("status") or "")
+    if status in NON_RESIDENT_STATUSES:
+        return False
+    return char_node_id(char) == int(node.get("id") or 0)
+
+
+def task_is_expedition(task_type: str) -> bool:
+    """是否远征类任务（侦察/劫掠/运粮：落点记出发地）。"""
+    return str(task_type or "") in TASK_EXPEDITION_TYPES
+
+
+def can_move_char(char: dict | None) -> bool:
+    """是否允许传送（仅 idle 且未陨落/被俘）。"""
+    return str((char or {}).get("status") or "") == "idle"

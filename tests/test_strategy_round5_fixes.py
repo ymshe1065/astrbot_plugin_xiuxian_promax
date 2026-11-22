@@ -62,6 +62,8 @@ class TestStrategyRound5Fixes(unittest.IsolatedAsyncioTestCase):
                 user_id=uid, gold=10_000_000, user_name=f"测试{uid}"))
 
         self.m = self.StrategyManager(self.db)
+        # 野战遭遇默认改为手操窗口；常规数值回归按自动结算口径跑
+        self.m.main_cfg().setdefault("hex", {})["field_encounter_mode"] = "auto"
         self.m.main_cfg()["tick_minutes"] = 1
         self.world = await self.m.ensure_world()
         self.wid = self.world["id"]
@@ -317,9 +319,9 @@ class TestStrategyRound5Fixes(unittest.IsolatedAsyncioTestCase):
                 "from_node": None, "to_node": 1, "grain": 10})
 
     # ------------------------------------------------------------------
-    # 12. 退盟回收联盟科技
+    # 12. 联盟科技不共享：各势力保留自己的研究等级
     # ------------------------------------------------------------------
-    async def test_alliance_tech_restored_on_quit(self):
+    async def test_alliance_tech_not_shared(self):
         host_fid = await self._create_multi_faction()
         own2 = int((await self.m.get_player("u2", self.wid))["faction_id"])
         host = await self.m.get_faction(host_fid)
@@ -328,25 +330,35 @@ class TestStrategyRound5Fixes(unittest.IsolatedAsyncioTestCase):
         await self.m._sync_alliance_meta(host)
         await self.m._commit()
         member = await self.m.get_faction(own2)
-        self.assertEqual(R.tech_level(member.get("tech") or {}, "military"), 3)
+        self.assertEqual(R.tech_level(member.get("tech") or {}, "military"), 0,
+                         "联盟不应把盟主科技同步给成员")
 
+        member["tech"] = {"military": 2, "agri": 0, "stratagem": 0}
+        await self.m.save_faction(member)
+        await self.m._commit()
         await self.m.faction_quit("u2")
         member = await self.m.get_faction(own2)
-        self.assertLess(R.tech_level(member.get("tech") or {}, "military"), 3,
-                        "退盟后仍保留盟主科技（可反复横跳白嫖）")
+        self.assertEqual(R.tech_level(member.get("tech") or {}, "military"), 2,
+                         "退盟后应保留自身科技")
 
     # ------------------------------------------------------------------
-    # 13. 副主提取国库：每日累计上限
+    # 13. 副主提取本势力国库：每日累计上限
     # ------------------------------------------------------------------
     async def test_deputy_withdraw_daily_cap(self):
-        host_fid = await self._create_multi_faction()
-        f = await self.m.get_faction(host_fid)
+        await self._create_multi_faction()
+        own2 = int((await self.m.get_player("u2", self.wid))["faction_id"])
+        # 把 u3 编入 u2 势力并设为副主，验证本势力国库的副主日限
+        p3 = await self.m.get_player("u3", self.wid)
+        p3["faction_id"] = own2
+        await self.m.save_player(p3)
+        await self.m.upsert_member(own2, "u3", position="deputy")
+        f = await self.m.get_faction(own2)
         f["treasury"] = {"coin": 30_000}
         await self.m.save_faction(f)
         await self.m._commit()
-        await self.m.treasury_withdraw("u2", "coin", 9_000)
+        await self.m.treasury_withdraw("u3", "coin", 9_000)
         with self.assertRaises(self.StrategyError):
-            await self.m.treasury_withdraw("u2", "coin", 9_000)
+            await self.m.treasury_withdraw("u3", "coin", 9_000)
 
     # ------------------------------------------------------------------
     # 14. 总开关关闭时动作被拦截

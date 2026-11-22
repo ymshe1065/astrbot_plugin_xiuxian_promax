@@ -128,8 +128,9 @@ class TestCharacterSystem(unittest.TestCase):
         self.assertEqual(R.troop_cap("taiwei"), 3000)
         self.assertEqual(R.troop_cap("situ"), 2500)
         self.assertEqual(R.troop_cap("zhonglang"), 2000)
+        # 太守已改为据点级：旧官职值仅保留兼容，不再因“辖外”降为 1500。
         self.assertEqual(R.troop_cap("taishou"), 2000)
-        self.assertEqual(R.troop_cap("taishou", is_taishou_outside=True), 1500)
+        self.assertEqual(R.troop_cap("taishou", is_taishou_outside=True), 2000)
         self.assertEqual(R.troop_cap(""), 1500)
 
     def test_position_unlock_by_node_count(self):
@@ -143,11 +144,11 @@ class TestCharacterSystem(unittest.TestCase):
         at6 = R.available_positions(6)
         self.assertEqual(at6["zhonglang"], 2)
         self.assertEqual(at6["jijiu"], 2)
+        # 太守是据点级职务，不再随据点数量解锁，也不占角色官职名额。
         at8 = R.available_positions(8)
-        self.assertIn("taishou", at8)
-        self.assertEqual(at8["taishou"], 8)  # 每据点 1 名
-        at9 = R.available_positions(9)
-        self.assertEqual(at9["taishou"], 9)
+        self.assertNotIn("taishou", at8)
+        self.assertNotIn("taishou", R.APPOINTABLE_POSITIONS)
+        self.assertEqual(R.position_unlock_nodes("taishou"), 0)
 
     def test_wanderer_auction_pricing(self):
         acfg = {
@@ -819,6 +820,177 @@ class TestSimulateBattleRoundRules(unittest.TestCase):
         self.assertTrue(res["defenders"][0]["routed"])
         # 旧实现溃逃目标仍反击，攻方会被反伤至 500
         self.assertEqual(res["attackers"][0]["troops_after"], 1000)
+
+
+class TestRoadAndTerritory(unittest.TestCase):
+    def test_friendly_road_requires_both_ends(self):
+        friendly = {1, 2}
+        own = {"owner_faction": 1}
+        ally = {"owner_faction": 2}
+        enemy = {"owner_faction": 3}
+        none = {"owner_faction": 0}
+        self.assertTrue(R.is_friendly_road(own, ally, friendly))
+        self.assertTrue(R.is_friendly_road(own, own, friendly))
+        self.assertFalse(R.is_friendly_road(own, enemy, friendly))
+        self.assertFalse(R.is_friendly_road(own, none, friendly))
+        self.assertFalse(R.is_friendly_road(None, ally, friendly))
+
+    def test_adjacent_friendly_count_and_bonus_cap(self):
+        nodes = {
+            1: {"id": 1, "owner_faction": 1, "adj": [2, 3, 4]},
+            2: {"id": 2, "owner_faction": 1},
+            3: {"id": 3, "owner_faction": 2},
+            4: {"id": 4, "owner_faction": 3},
+        }
+        self.assertEqual(
+            R.adjacent_friendly_count(nodes[1], nodes, {1, 2}), 2)
+        cfg = {"defense_bonus_per_adjacent": 0.04,
+               "defense_bonus_cap": 0.10,
+               "home_combat_bonus_per_adjacent": 0.03,
+               "home_combat_bonus_cap": 0.05}
+        tb = R.territory_bonuses(4, cfg)
+        self.assertAlmostEqual(tb["defense_pct"], 0.10)
+        self.assertAlmostEqual(tb["combat_pct"], 0.05)
+        self.assertAlmostEqual(tb["defense_mult"], 1.10)
+        self.assertAlmostEqual(tb["combat_mult"], 1.05)
+
+    def test_territory_multipliers_apply_to_attack_and_defense(self):
+        base = _mk_army(1, troops=1000, leader_stats={"valor": 50,
+                                                     "leadership": 50})
+        boosted = dict(base, territory_atk_mult=1.06,
+                       territory_def_mult=1.06)
+        self.assertAlmostEqual(
+            R.attack_power(boosted) / R.attack_power(base), 1.06, places=6)
+        self.assertAlmostEqual(
+            R.defense_power(boosted) / R.defense_power(base), 1.06, places=6)
+
+
+class PersonalityTests(unittest.TestCase):
+    """§4.9 个性系统：生成分布与数值接线。"""
+
+    def test_legend_has_top_personality_and_two_traits(self):
+        rng = random.Random(42)
+        for _ in range(20):
+            c = R.generate_character(rng, rarity="legend")
+            self.assertIn(c["personality"]["top"], R.TOP_PERSONALITIES)
+            self.assertEqual(len(c["traits"]), 2)
+            self.assertIn(c["personality"]["negative"],
+                          ("",) + R.NEGATIVE_PERSONALITIES)
+
+    def test_common_has_no_top_personality(self):
+        rng = random.Random(7)
+        for _ in range(30):
+            c = R.generate_character(rng, rarity="common")
+            self.assertEqual(c["personality"]["top"], "")
+            self.assertLessEqual(len(c["traits"]), 1)
+
+    def test_roll_personality_negative_at_most_one(self):
+        rng = random.Random(1)
+        for rarity in R.RARITIES:
+            for _ in range(50):
+                p = R.roll_personality(rng, rarity)
+                self.assertTrue(p["negative"] == ""
+                                or p["negative"] in R.NEGATIVE_PERSONALITIES)
+
+    def test_personality_mods_top(self):
+        mods = R.personality_mods({"top": "purple_qi"})
+        self.assertAlmostEqual(mods["attack_mult"], 1.05)
+        self.assertAlmostEqual(mods["defense_mult"], 1.05)
+        self.assertAlmostEqual(
+            R.personality_mods({"top": "battle_will"})["attack_mult"], 1.10)
+        calc = R.personality_mods({"top": "calculating"})
+        self.assertAlmostEqual(calc["scheme_rate_bonus"], 15.0)
+        self.assertAlmostEqual(calc["status_round_mult"], 0.5)
+        shrink = R.personality_mods({"top": "shrink_earth"})
+        self.assertEqual(shrink["move_bonus"], 1)
+        self.assertTrue(shrink["ignore_encircle"])
+
+    def test_personality_mods_negative(self):
+        self.assertAlmostEqual(
+            R.personality_mods({"negative": "squander"})["grain_mult"], 1.10)
+        self.assertAlmostEqual(
+            R.personality_mods({"negative": "greedy"})["task_coin_mult"], 0.90)
+        # 贪财：俸禄 +20%（对标三国志14 强欲）
+        self.assertAlmostEqual(
+            R.personality_mods({"negative": "greedy"})["salary_mult"], 1.20)
+        self.assertEqual(
+            R.personality_mods({"negative": "drunkard"})["starve_morale_extra"], 10)
+        self.assertEqual(
+            R.personality_mods({"negative": "paranoid"})["status_round_bonus"], 1)
+        self.assertEqual(
+            R.personality_mods({"negative": "reckless"})["ambush_morale_extra"], 10)
+        self.assertEqual(
+            R.personality_mods({"negative": "dejected"})["ally_rout_morale"], -5)
+        self.assertEqual(
+            R.personality_mods({"negative": "frail"})["injury_delta"], 1)
+        self.assertAlmostEqual(
+            R.personality_mods({"negative": "timid"})["retreat_loss_mult"], 1.10)
+
+    def test_attack_power_battle_will(self):
+        base = _mk_army(leader_stats={"valor": 50, "leadership": 50})
+        base["leader"]["personality"] = {}
+        boosted = _mk_army(leader_stats={"valor": 50, "leadership": 50})
+        boosted["leader"]["personality"] = {"top": "battle_will"}
+        self.assertAlmostEqual(
+            R.attack_power(boosted) / R.attack_power(base), 1.10, places=6)
+
+    def test_attack_power_understrength_arrogant(self):
+        weak = _mk_army(troops=200, leader_stats={"valor": 50, "leadership": 50})
+        weak["leader"]["personality"] = {"negative": "arrogant"}
+        weak["start_troops"] = 1000
+        plain = dict(weak, leader=dict(weak["leader"], personality={}))
+        self.assertAlmostEqual(
+            R.attack_power(weak) / R.attack_power(plain), 0.92, places=6)
+
+    def test_task_coin_greedy(self):
+        c = {"role": R.ROLE_OFFICIAL, "stats": {"admin": 100},
+             "traits": [], "personality": {"negative": "greedy"}}
+        base = dict(c, personality={})
+        y1 = R.task_yield_multiplier("govern", c, "city", 100)
+        y0 = R.task_yield_multiplier("govern", base, "city", 100)
+        self.assertAlmostEqual(y1 / y0, 0.90, places=6)
+
+    def test_char_salary_mult(self):
+        """贪财（个性）俸禄 +20%、节俭（特技）俸禄 -15%，可叠乘。"""
+        self.assertAlmostEqual(
+            R.char_salary_mult({"personality": {"negative": "greedy"}}), 1.20)
+        self.assertAlmostEqual(
+            R.char_salary_mult({"traits": ["frugal"], "personality": {}}), 0.85)
+        self.assertAlmostEqual(
+            R.char_salary_mult({"traits": ["frugal"],
+                                "personality": {"negative": "greedy"}}),
+            1.20 * 0.85)
+        self.assertAlmostEqual(R.char_salary_mult(None), 1.0)
+        self.assertAlmostEqual(
+            R.char_salary_mult({"personality": {"top": "purple_qi"}}), 1.0)
+
+    def test_gain_exp_accumulate(self):
+        c = {"name": "x", "exp": 0, "level": 1, "stats": {},
+             "role": R.ROLE_GENERAL, "traits": ["accumulate"], "personality": {}}
+        R.gain_exp(c, 100)
+        self.assertEqual(c["exp"], 110)
+        c0 = {"name": "y", "exp": 0, "level": 1, "stats": {},
+              "role": R.ROLE_GENERAL, "traits": [], "personality": {}}
+        R.gain_exp(c0, 100)
+        self.assertEqual(c0["exp"], 100)
+
+    def test_status_immunity(self):
+        self.assertIn("confuse", R.status_immunity({"traits": ["still_water"]}))
+        self.assertIn("taunt", R.status_immunity({"traits": ["composed"]}))
+        imm = R.status_immunity({"personality": {"top": "clear_heart"}})
+        self.assertTrue({"confuse", "taunt", "suppress", "burn"} <= imm)
+
+    def test_doctor_aftermath_frail(self):
+        leader = {"traits": [], "personality": {"negative": "frail"}}
+        out = R.doctor_aftermath(leader, 100, injury=10)
+        self.assertEqual(out["injury"], 11)  # 体弱 +1
+
+    def test_personality_recruit_bonus(self):
+        chars = [{"traits": ["good_karma"]}, {"traits": ["good_karma"]},
+                 {"traits": []}]
+        self.assertAlmostEqual(R.personality_recruit_bonus(chars), 0.10)
+        many = [{"traits": ["good_karma"]}] * 10
+        self.assertAlmostEqual(R.personality_recruit_bonus(many), 0.15)  # 封顶
 
 
 if __name__ == "__main__":

@@ -185,6 +185,9 @@ def move_points(unit: dict, session: dict) -> float:
     st = (session.get("statuses") or {}).get(str(unit.get("uid"))) or {}
     if int(st.get("charge", 0) or 0) > 0:
         mp += 2  # 剑阵冲锋：3 回合机动 +2（§7.5）
+    # 缩地：机动 +1（§4.9）
+    pmods = R.personality_mods((unit.get("leader") or {}).get("personality"))
+    mp += int(pmods.get("move_bonus", 0) or 0)
     return mp
 
 
@@ -751,11 +754,14 @@ def check_ambush_trigger(session: dict, mover: dict, to_q: int, to_r: int,
             continue
         if hex_dist((to_q, to_r), (amb["q"], amb["r"])) <= 1:
             amb["revealed"] = True
-            mover["morale"] = max(0, mover["morale"] - 10)
+            extra = int(R.personality_mods(
+                (mover.get("leader") or {}).get("personality")).get("ambush_morale_extra", 0) or 0)
+            lost = 10 + extra
+            mover["morale"] = max(0, mover["morale"] - lost)
             session.setdefault("ambush_initiative", []).append(ambu["uid"])
             triggered.append({"ambush_uid": ambu["uid"], "victim_uid": mover["uid"],
                               "text": f"⚠️ {leader_name(ambu)} 的伏兵杀出！"
-                                      f"{leader_name(mover)} 所部士气 -10"})
+                                      f"{leader_name(mover)} 所部士气 -{lost}"})
             _log(session, f"伏击触发：{leader_name(ambu)} ⚔ {leader_name(mover)}", "ambush")
     return triggered
 
@@ -882,6 +888,8 @@ def check_move_path(session: dict, uid: int, path: list[list[int]],
         res["reason"] = "本回合已移动"
         return res
     zmap = enemy_zoc_map(session, unit)
+    if unit_tech(session, unit).get("ignore_zoc"):
+        zmap = {}  # v4.3.14 军事 L7 无双：无视敌军控制区
     mp = move_points(unit, session)
     is_forest_free = unit["troop_type"] == "beast_horde"  # 兽群森林不减机动
     is_flying = unit["troop_type"] == "flying_sword"
@@ -1005,6 +1013,14 @@ def do_move(session: dict, uid: int, path: list[list[int]], rng: random.Random,
 # 攻击结算（hex 版，§7.4/§7.6）
 # ---------------------------------------------------------------------------
 
+def unit_tech(session: dict, unit: dict) -> dict:
+    """读取单位所属势力的科技效果（由 _create_manual_battle 写入 session）。
+
+    旧战役/回放缺省为空 → 返回 {}，不加成。
+    """
+    return ((session.get("tech_effects") or {}).get(str(unit.get("faction_id"))) or {})
+
+
 def _sim_view(session: dict, unit: dict) -> dict:
     """hex 单位 → strategy_rules 的 army dict 视图（含地形/阵型系数）。"""
     q, r = unit["pos"] if unit["pos"] else (0, 0)
@@ -1021,6 +1037,15 @@ def _sim_view(session: dict, unit: dict) -> dict:
     if t in (T_WALL, T_GATE):
         unit_wall = 2.5 if t == T_WALL else 1.8
         def_m = max(def_m, unit_wall)  # 城墙守军
+    # v4.3.13：势力科技地形加成（按当前格地形）；精锐小队先手 +N。
+    # tech_effects 由 _create_manual_battle 写入 session，旧战役/回放缺省为空 → 不加成。
+    teff = ((session.get("tech_effects") or {}).get(str(unit.get("faction_id"))) or {})
+    atk_m *= 1.0 + float((teff.get("terrain_atk_mult") or {}).get(t, 0.0))
+    def_m *= 1.0 + float((teff.get("terrain_def_mult") or {}).get(t, 0.0))
+    init_bonus = 0.0
+    _small_thr = int(teff.get("small_army_threshold", 800) or 800)
+    if int(unit.get("troops", 0) or 0) <= _small_thr:
+        init_bonus = float(teff.get("small_army_init_bonus", 0.0) or 0.0)
     formation = unit.get("formation", "")
     return {
         "id": unit["army_id"], "uid": unit["uid"], "faction_id": unit["faction_id"],
@@ -1028,6 +1053,7 @@ def _sim_view(session: dict, unit: dict) -> dict:
         "morale": unit["morale"], "veteran": unit["veteran"],
         "leader": unit.get("leader"), "siege_engine": unit.get("siege_engine"),
         "pos_atk_mult": float(unit.get("pos_atk_mult", 1.0)),
+        "init_bonus": init_bonus,
         "atk_terrain_mult": atk_m * FORMATION_ATK.get(formation, 1.0),
         "def_terrain_mult": def_m * FORMATION_DEF.get(formation, 1.0),
         "wall_mult": 1.0,
@@ -1067,6 +1093,9 @@ def adjacent_enemy_count(session: dict, target: dict) -> int:
     异常高的伤害反推出「邻格藏有伏兵」，构成信息泄露。
     """
     if not target["pos"]:
+        return 0
+    # v4.3.14 军事 L7 无双：免疫包围/夹击
+    if unit_tech(session, target).get("immune_surround"):
         return 0
     n = 0
     for u in foes_of(session, target):
@@ -1137,6 +1166,10 @@ def _resolve_attack(session: dict, attacker: dict, target: dict,
     """通用伤害管线（普攻/合击/拦截复用）。"""
     flank_n = adjacent_enemy_count(session, target)
     f_mult = R.flank_factor(flank_n)
+    # 缩地：无视合围（不受夹击/合围系数）（§4.9）
+    if R.personality_mods(
+            (target.get("leader") or {}).get("personality")).get("ignore_encircle"):
+        f_mult = 1.0
     atk_view = _sim_view(session, attacker)
     dfn_view = _sim_view(session, target)
     is_ranged = attack_range(attacker, session) > 1
@@ -1204,6 +1237,17 @@ def _apply_damage(session: dict, unit: dict, dmg: int, rng: random.Random,
         if rng.random() < (30 - unit["morale"]) / 30 * 0.5 + 0.25:
             unit["routed"] = True
             _log(session, f"🏳 {leader_name(unit)} 所部士气崩溃，溃逃！", "rout")
+            # 消沉：友军溃败时，拥有该个性的同阵营单位士气 -5（§4.9）
+            for ally in session.get("units", []):
+                if ally is unit or ally.get("side") != unit.get("side"):
+                    continue
+                if ally.get("troops", 0) <= 0 or ally.get("routed"):
+                    continue
+                delta = int(R.personality_mods(
+                    (ally.get("leader") or {}).get("personality")
+                ).get("ally_rout_morale", 0) or 0)
+                if delta:
+                    ally["morale"] = max(0, int(ally["morale"]) + delta)
 
 
 # ---------------------------------------------------------------------------
@@ -1325,12 +1369,16 @@ def _skill_fire(session, unit, sk, rng, target_uid, target_hex):
         mult = sk["forest_mult"] if eff_terrain(session, hq, hr) == T_FOREST else 1.0
         fire_mult = float(R.trait_army_mods(
             ((unit.get("leader") or {}).get("traits")) or [])["fire_mult"])
+        # v4.3.14 谋略 L6 火攻：施法方火攻威力 / 受击方火防
+        fire_mult *= float(unit_tech(session, unit).get("fire_damage_mult", 1.0) or 1.0)
+        fire_mult *= float(unit_tech(session, victim).get("fire_def_mult", 1.0) or 1.0)
         dmg = int((victim["troops"] * 0.04 * mult + rng.randint(10, 40)) * fire_mult)
         if victim.get("siege_engine"):
             dmg = int(dmg * 1.5)  # 烧器械
             victim["siege_engine"] = False
         _apply_damage(session, victim, dmg, rng, source=unit, kind="fire")
-        session["statuses"].setdefault(str(victim["uid"]), {})["burn"] = int(sk["burn_rounds"])
+        if "burn" not in R.status_immunity(victim.get("leader")):
+            session["statuses"].setdefault(str(victim["uid"]), {})["burn"] = int(sk["burn_rounds"])
         burned.append({"uid": victim["uid"], "damage": dmg})
     _log(session, f"🔥 {leader_name(unit)} 火攻覆盖 ({q},{r})，{len(burned)} 支敌军被点燃", "skill")
     return {"ok": True, "skill": "fire", "burned": burned}
@@ -1369,8 +1417,14 @@ def _skill_confuse(session, unit, sk, rng, target_uid, target_hex):
     if (target.get("leader") or {}).get("profession") == sk.get("immune_profession", "beast"):
         _log(session, f"👻 惑敌被 {leader_name(target)} 的兽群直觉识破！", "skill")
         return {"ok": True, "skill": "confuse", "immune": True}
+    if "confuse" in R.status_immunity(target.get("leader")):
+        _log(session, f"🛡 {leader_name(target)} 道心澄明，惑敌无效", "skill")
+        return {"ok": True, "skill": "confuse", "immune": True}
     st = session["statuses"].setdefault(str(target["uid"]), {})
-    st["confuse"] = 2
+    tp = R.personality_mods((target.get("leader") or {}).get("personality"))
+    rounds = max(1, int(round(2 * float(tp.get("status_round_mult", 1.0) or 1.0)))
+                 + int(tp.get("status_round_bonus", 0) or 0))
+    st["confuse"] = rounds
     st["confuse_from"] = int(session.get("round", 0))  # 下一回合起生效
     _log(session, f"👻 {leader_name(unit)} 惑敌成功，{leader_name(target)} 下回合敌我不分", "skill")
     return {"ok": True, "skill": "confuse"}
@@ -1385,9 +1439,14 @@ def _skill_taunt(session, unit, sk, rng, target_uid, target_hex):
         return {"ok": False, "reason": "目标已失去战斗力"}
     if not _unit_in_range(session, unit, target, sk):
         return {"ok": False, "reason": "超出施放范围"}
+    if "taunt" in R.status_immunity(target.get("leader")):
+        _log(session, f"🛡 {leader_name(target)} 泰然自若，挑衅无效", "skill")
+        return {"ok": True, "skill": "taunt", "immune": True}
     st = session["statuses"].setdefault(str(target["uid"]), {})
     st["taunt_by"] = unit["uid"]
-    st["taunt_ttl"] = 2  # 覆盖目标的下一个行动回合
+    tp = R.personality_mods((target.get("leader") or {}).get("personality"))
+    st["taunt_ttl"] = max(1, int(round(2 * float(tp.get("status_round_mult", 1.0) or 1.0)))
+                          + int(tp.get("status_round_bonus", 0) or 0))  # 覆盖目标的下一个行动回合
     # 键名必须是 taunt_by_from：_status_active(unit, "taunt_by") 读取的是
     # key + "_from"。此前写成 taunt_from，导致挑衅在施放当回合立即生效
     # （甚至可强迫本回合稍后行动的目标），与「下一回合起生效」不符。
@@ -1470,9 +1529,10 @@ def _skill_barrage(session, unit, sk, rng, target_uid, target_hex):
             continue
         dmg = int(victim["troops"] * 0.03) + rng.randint(5, 30)
         _apply_damage(session, victim, dmg, rng, source=unit, kind="barrage")
-        vst = session["statuses"].setdefault(str(victim["uid"]), {})
-        vst["suppress"] = 2
-        vst["suppress_from"] = int(session.get("round", 0))  # 下一回合起生效
+        if "suppress" not in R.status_immunity(victim.get("leader")):
+            vst = session["statuses"].setdefault(str(victim["uid"]), {})
+            vst["suppress"] = 2
+            vst["suppress_from"] = int(session.get("round", 0))  # 下一回合起生效
         hits.append({"uid": victim["uid"], "damage": dmg})
     _log(session, f"🪨 {leader_name(unit)} 落石箭雨覆盖 ({q},{r})，{len(hits)} 支敌军被压制", "skill")
     return {"ok": True, "skill": "barrage", "hits": hits}
@@ -1649,7 +1709,11 @@ def do_retreat(session: dict, uid: int, rng: random.Random) -> dict[str, Any]:
                 _apply_damage(session, unit, dmg, rng, source=controller, kind="intercept")
     unit["routed"] = True
     unit["voluntary_retreat"] = True
-    unit["troops"] = int(unit["troops"] * 0.8)
+    # 畏怯：撤退/溃逃时额外损失兵力（§4.9）
+    keep = 0.8 / float(R.personality_mods(
+        (unit.get("leader") or {}).get("personality")
+    ).get("retreat_loss_mult", 1.0) or 1.0)
+    unit["troops"] = int(unit["troops"] * keep)
     unit["morale"] = 0
     unit["acted"] = True
     _log(session, f"🏃 {leader_name(unit)} 撤出战场（保留 {unit['troops']} 兵）", "retreat")
@@ -1800,15 +1864,20 @@ def resolve_duel(session: dict, rng: random.Random,
         winner_is_challenger = result["winner"] == ca.get("id")
         wunit, lunit = (challenger, target) if winner_is_challenger else (target, challenger)
         wlead, llead = (ca, cb) if winner_is_challenger else (cb, ca)
+        # v4.3.14 军事 L7 无双：单挑获胜士气 +N、败将伤势加重
+        wtech = unit_tech(session, wunit)
+        win_bonus = int(wtech.get("duel_win_morale_bonus", 0) or 0)
+        injury_mult = 1.0 + float(wtech.get("duel_injury_bonus", 0.0) or 0.0)
         for u in (wunit,):
-            u["morale"] = min(120, u["morale"] + win_morale)
+            u["morale"] = min(120, u["morale"] + win_morale + win_bonus)
         lunit["morale"] = max(0, lunit["morale"] - lose_morale)
         out["outcome"] = "challenger_win" if winner_is_challenger else "target_win"
         out["winner_uid"] = wunit["uid"]
         out["loser_uid"] = lunit["uid"]
-        out["loser_injury"] = loser_injury
+        out["loser_injury"] = int(loser_injury * injury_mult)
         texts.append(f"{llead.get('name', '败将')} 不敌 {wlead.get('name', '胜者')}，"
-                     f"败阵而回！（胜方士气 +{win_morale}，败方 -{lose_morale}）")
+                     f"败阵而回！（胜方士气 +{win_morale + win_bonus}，"
+                     f"败方 -{lose_morale}）")
         # 20% 伤势 +20
         if rng.random() < float(duel_cfg.get("winner_execute_chance", 0.2)):
             out["extra_injury"] = True

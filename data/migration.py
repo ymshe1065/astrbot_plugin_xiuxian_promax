@@ -11,7 +11,7 @@ from astrbot.api import logger
 if TYPE_CHECKING:
     from ..config_manager import ConfigManager
 
-LATEST_DB_VERSION = 78  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求；v49: 统一物品品阶名称；v50: 仙市投资系统（基金/股票）；v51: 符箓熟练度与符图习得；v52: 仙市 v6（16 盘 + 赌场级波动 + 不对称日熔断）；v53: 拍卖会未开拍拍品按固定品阶曲线重建（并兼容分叉旧库补授符图）；v54: 灵田肥力上限按等级分级（旧值按百分比换算）；v55: 生活职业更换费用峰值与时间衰减；v56: 误存进储物戒/溢出仓库的丹药迁回丹药背包；v57: 旧50/50装备改名迁移到混合倾向新装备；v58: 周常 Boss（周本）周期/队伍/成员/领奖/周榜/次数表；v59: 仙市分红/风声唯一索引（结算幂等，先去重再建索引）；v60: 功德机制重做，清空全服既有功德（业力）；v61: 秘境难度分级（rift_key/product/difficulty/duration）；v62: 活动状态位按槽位多行（本体 + 身外化身）；v63: 珠宝体系（珠囊字段 jewel_inventory）；v64: 通缉令改为每日悬赏榜（每日挑战次数表 bounty_daily）；v65: 高风险玩法（锦囊/暗标/藏宝图/矿脉/古方/盘口/杠杆）与灵田永久解锁；v66: 仙市投资代理人（委托/持仓/日志表）；v67: 代理人等级（经验表 / 委托经验字段）；v68: 风声可信度与新闻冲击成本；v69: 藏宝图肉鸽奇遇（临时效果 / 待处理事件字段）；v70: 仙域争霸战略玩法（strategy_* 11 表）；v71: 仙域争霸 P1~P3（势力外交 / hex 战役会话 / 英烈祠名将堂 / 赛季结算）；v72: 仙域争霸联盟体系（势力 alliance_id / 共同治理与据点交接）；v73: 矿脉到期自动结算消息通道（mine_veins/mine_partners.origin）；v74: 仙域争霸角色官职（strategy_characters.appointed_position / appointed_node_id）；v75: 仙域争霸流将限时竞拍（strategy_char_auctions）；v76: 流将战功暗标（暗标表/赛季名额/坊市地缘/属性上限 90）；v77: 仙域争霸补全（势力任务/动员令/审计/俘虏押运/匪寨与NPC重生状态位/主城迁都）；v78: 仙域争霸军团断粮计数（strategy_armies.starve_ticks，供农政 L5 断粮抵抗跨 tick 生效）
+LATEST_DB_VERSION = 83  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求；v49: 统一物品品阶名称；v50: 仙市投资系统（基金/股票）；v51: 符箓熟练度与符图习得；v52: 仙市 v6（16 盘 + 赌场级波动 + 不对称日熔断）；v53: 拍卖会未开拍拍品按固定品阶曲线重建（并兼容分叉旧库补授符图）；v54: 灵田肥力上限按等级分级（旧值按百分比换算）；v55: 生活职业更换费用峰值与时间衰减；v56: 误存进储物戒/溢出仓库的丹药迁回丹药背包；v57: 旧50/50装备改名迁移到混合倾向新装备；v58: 周常 Boss（周本）周期/队伍/成员/领奖/周榜/次数表；v59: 仙市分红/风声唯一索引（结算幂等，先去重再建索引）；v60: 功德机制重做，清空全服既有功德（业力）；v61: 秘境难度分级（rift_key/product/difficulty/duration）；v62: 活动状态位按槽位多行（本体 + 身外化身）；v63: 珠宝体系（珠囊字段 jewel_inventory）；v64: 通缉令改为每日悬赏榜（每日挑战次数表 bounty_daily）；v65: 高风险玩法（锦囊/暗标/藏宝图/矿脉/古方/盘口/杠杆）与灵田永久解锁；v66: 仙市投资代理人（委托/持仓/日志表）；v67: 代理人等级（经验表 / 委托经验字段）；v68: 风声可信度与新闻冲击成本；v69: 藏宝图肉鸽奇遇（临时效果 / 待处理事件字段）；v70: 仙域争霸战略玩法（strategy_* 11 表）；v71: 仙域争霸 P1~P3（势力外交 / hex 战役会话 / 英烈祠名将堂 / 赛季结算）；v72: 仙域争霸联盟体系（势力 alliance_id / 共同治理与据点交接）；v73: 矿脉到期自动结算消息通道（mine_veins/mine_partners.origin）；v74: 仙域争霸角色官职（strategy_characters.appointed_position / appointed_node_id）；v75: 仙域争霸流将限时竞拍（strategy_char_auctions）；v76: 流将战功暗标（暗标表/赛季名额/坊市地缘/属性上限 90）；v77: 仙域争霸补全（势力任务/动员令/审计/俘虏押运/匪寨与NPC重生状态位/主城迁都）；v78: 仙域争霸军团断粮计数（strategy_armies.starve_ticks，供农政 L5 断粮抵抗跨 tick 生效）；v79: 太守改为据点级职务（strategy_nodes.governor_char_id，可与角色官职并存）；v80: 仙域争霸坊市 NPC 收购报价（strategy_market_offers）；v81: 仙域争霸所在地机制（strategy_nodes.construction_json / develop_ready_at / potential）；v82: 仙域争霸俸禄结算（strategy_factions.salary_json）；v83: 仙域争霸角色个性（strategy_characters.personality_json）
 
 MIGRATION_TASKS: Dict[int, Callable[[aiosqlite.Connection, ConfigManager], Awaitable[None]]] = {}
 
@@ -707,6 +707,46 @@ async def _ensure_strategy_v74(conn: aiosqlite.Connection):
         "INTEGER NOT NULL DEFAULT 0")
 
 
+async def _ensure_strategy_v79(conn: aiosqlite.Connection):
+    """v79：太守改为据点级职务。
+
+    - ``strategy_nodes.governor_char_id``：每个据点最多 1 名太守；
+    - 角色官职与太守相互独立，可同时担任；
+    - 旧存档中 ``appointed_position='taishou'`` 迁移到节点字段，并清空角色官职。
+    """
+    await _add_column_if_missing(
+        conn, "strategy_nodes", "governor_char_id",
+        "INTEGER NOT NULL DEFAULT 0")
+    # 旧存档：把已有的角色级太守落到对应据点；一个据点只取一名有效角色。
+    await conn.execute("""
+        UPDATE strategy_nodes
+           SET governor_char_id = COALESCE((
+                   SELECT c.id FROM strategy_characters c
+                    WHERE c.world_id = strategy_nodes.world_id
+                      AND c.appointed_position = 'taishou'
+                      AND c.appointed_node_id = strategy_nodes.id
+                      AND c.faction_id = strategy_nodes.owner_faction
+                      AND c.status NOT IN ('dead', 'captive', 'transfer', 'wander')
+                    ORDER BY c.id
+                    LIMIT 1
+               ), 0)
+         WHERE governor_char_id = 0
+           AND EXISTS (
+                   SELECT 1 FROM strategy_characters c2
+                    WHERE c2.world_id = strategy_nodes.world_id
+                      AND c2.appointed_position = 'taishou'
+                      AND c2.appointed_node_id = strategy_nodes.id
+                      AND c2.faction_id = strategy_nodes.owner_faction
+                      AND c2.status NOT IN ('dead', 'captive', 'transfer', 'wander')
+               )
+    """)
+    await conn.execute("""
+        UPDATE strategy_characters
+           SET appointed_position = '', appointed_node_id = 0
+         WHERE appointed_position = 'taishou'
+    """)
+
+
 async def _ensure_strategy_v75(conn: aiosqlite.Connection):
     """v75：仙域争霸流将限时竞拍（坊市「天降流将」竞价）。"""
     await conn.execute("""
@@ -854,6 +894,16 @@ async def _ensure_latest_columns(conn: aiosqlite.Connection):
     await _ensure_strategy_v76(conn)
     # v77：仙域争霸补全（势力任务 / 动员令 / 审计 / 俘虏押运 / NPC 重生 / 主城迁都）
     await _ensure_strategy_v77(conn)
+    # v79：太守改为据点级职务（节点 governor_char_id）
+    await _ensure_strategy_v79(conn)
+    # v80：仙域争霸坊市 NPC 收购报价
+    await _ensure_strategy_v80(conn)
+    # v81：仙域争霸所在地机制（节点潜力 / 建造中 / NPC 发展节奏）
+    await _ensure_strategy_v81(conn)
+    # v82：仙域争霸俸禄结算状态
+    await _ensure_strategy_v82(conn)
+    # v83：仙域争霸角色个性（personality_json）
+    await _ensure_strategy_v83(conn)
     await conn.commit()
 
 class MigrationManager:
@@ -3239,6 +3289,7 @@ async def _ensure_strategy_v70(conn: aiosqlite.Connection):
             terrain TEXT NOT NULL DEFAULT 'plain',
             level INTEGER NOT NULL DEFAULT 1,
             owner_faction INTEGER NOT NULL DEFAULT 0,
+            governor_char_id INTEGER NOT NULL DEFAULT 0,
             buildings_json TEXT NOT NULL DEFAULT '[]',
             defense INTEGER NOT NULL DEFAULT 1000,
             morale INTEGER NOT NULL DEFAULT 80,
@@ -3272,7 +3323,8 @@ async def _ensure_strategy_v70(conn: aiosqlite.Connection):
             capital_node_id INTEGER NOT NULL DEFAULT 0,
             faction_state TEXT NOT NULL DEFAULT 'normal',
             rebuild_count INTEGER NOT NULL DEFAULT 0,
-            alive INTEGER NOT NULL DEFAULT 1
+            alive INTEGER NOT NULL DEFAULT 1,
+            salary_json TEXT NOT NULL DEFAULT '{}'
         )
     """)
     await conn.execute("CREATE INDEX IF NOT EXISTS idx_strategy_factions_world ON strategy_factions(world_id, kind)")
@@ -3336,7 +3388,8 @@ async def _ensure_strategy_v70(conn: aiosqlite.Connection):
             bonds_json TEXT NOT NULL DEFAULT '{}',
             location_json TEXT NOT NULL DEFAULT '{}',
             appointed_position TEXT NOT NULL DEFAULT '',
-            appointed_node_id INTEGER NOT NULL DEFAULT 0
+            appointed_node_id INTEGER NOT NULL DEFAULT 0,
+            personality_json TEXT NOT NULL DEFAULT '{}'
         )
     """)
     await conn.execute("CREATE INDEX IF NOT EXISTS idx_strategy_chars_faction ON strategy_characters(faction_id)")
@@ -3715,3 +3768,131 @@ async def _migrate_to_v78(conn: aiosqlite.Connection, config_manager: ConfigMana
                                  "INTEGER NOT NULL DEFAULT 0")
     await conn.commit()
     logger.info("v78迁移完成：strategy_armies.starve_ticks 已就绪")
+
+
+@migration(79)
+async def _migrate_to_v79(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """v79：太守改为据点级职务，可与角色官职并存。"""
+    logger.info("开始迁移到 v79：太守改为据点级职务")
+    await _ensure_strategy_v79(conn)
+    await conn.commit()
+    logger.info("v79迁移完成：strategy_nodes.governor_char_id 已就绪")
+
+
+async def _ensure_strategy_v80(conn: aiosqlite.Connection):
+    """v80：仙域争霸坊市 NPC 收购报价（§5.5）。
+
+    玩家挂单后，NPC 行商按间隔 tick 发来带波动的收购报价；玩家可接受
+    或拒绝，报价到期/挂单结束自动失效。表结构与 ``strategy_market_orders``
+    分离，避免把报价状态混进挂单状态机。
+    """
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS strategy_market_offers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            world_id INTEGER NOT NULL DEFAULT 0,
+            order_id INTEGER NOT NULL DEFAULT 0,
+            node_id INTEGER NOT NULL DEFAULT 0,
+            seller_user TEXT NOT NULL DEFAULT '',
+            buyer_faction INTEGER NOT NULL DEFAULT 0,
+            item_type TEXT NOT NULL DEFAULT 'grain',
+            amount INTEGER NOT NULL DEFAULT 0,
+            unit_price INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at INTEGER NOT NULL DEFAULT 0,
+            expires_at INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_strategy_market_offers_seller "
+        "ON strategy_market_offers(world_id, seller_user, status)")
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_strategy_market_offers_order "
+        "ON strategy_market_offers(order_id, status)")
+
+
+@migration(80)
+async def _migrate_to_v80(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """v80：仙域争霸坊市 NPC 收购报价表。"""
+    logger.info("开始迁移到 v80：仙域争霸坊市 NPC 收购报价")
+    await _ensure_strategy_v80(conn)
+    await conn.commit()
+    logger.info("v80迁移完成：strategy_market_offers 已就绪")
+
+
+async def _ensure_strategy_v81(conn: aiosqlite.Connection):
+    """v81：仙域争霸所在地机制（城镇等级 / 建造中 / NPC 发展节奏）。
+
+    - ``strategy_nodes.potential``：据点潜力（1~5），地图生成时按类型写入，
+      玩家与 NPC 的升级上限共用；
+    - ``strategy_nodes.construction_json``：升级建造中状态
+      ``{to_level, end_tick, started_at, by}``；
+    - ``strategy_nodes.develop_ready_at``：NPC 下次可启动升级的时间戳
+      （合成“稳定期 + 节奏间隔”）。
+    """
+    await _add_column_if_missing(
+        conn, "strategy_nodes", "potential", "INTEGER NOT NULL DEFAULT 3")
+    await _add_column_if_missing(
+        conn, "strategy_nodes", "construction_json", "TEXT NOT NULL DEFAULT '{}'")
+    await _add_column_if_missing(
+        conn, "strategy_nodes", "develop_ready_at", "INTEGER NOT NULL DEFAULT 0")
+    # 旧存档按类型回填潜力（已是合法值的行保持不动）
+    await conn.execute("""
+        UPDATE strategy_nodes
+           SET potential = CASE type
+                   WHEN 'city' THEN 5
+                   WHEN 'branch' THEN 5
+                   WHEN 'pass' THEN 4
+                   WHEN 'market' THEN 3
+                   WHEN 'mine' THEN 2
+                   WHEN 'grain' THEN 2
+                   ELSE 1 END
+         WHERE potential IS NULL OR potential <= 0
+    """)
+
+
+@migration(81)
+async def _migrate_to_v81(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """v81：仙域争霸所在地机制字段。"""
+    logger.info("开始迁移到 v81：仙域争霸所在地机制")
+    await _ensure_strategy_v81(conn)
+    await conn.commit()
+    logger.info("v81迁移完成：strategy_nodes 潜力/建造中/发展节奏 已就绪")
+
+
+async def _ensure_strategy_v82(conn: aiosqlite.Connection):
+    """v82：仙域争霸俸禄结算状态（按势力保存最近一次发薪结果）。
+
+    - ``strategy_factions.salary_json``：``{tick, due, paid, short,
+      unpaid_role_char_ids, unpaid_governor_node_ids, items...}``；
+      面板展示、增益过滤与下 tick 对比告警共用，无需再查角色/据点。
+    """
+    await _add_column_if_missing(
+        conn, "strategy_factions", "salary_json", "TEXT NOT NULL DEFAULT '{}'")
+
+
+@migration(82)
+async def _migrate_to_v82(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """v82：仙域争霸俸禄结算字段。"""
+    logger.info("开始迁移到 v82：仙域争霸俸禄结算")
+    await _ensure_strategy_v82(conn)
+    await conn.commit()
+    logger.info("v82迁移完成：strategy_factions.salary_json 已就绪")
+
+
+async def _ensure_strategy_v83(conn: aiosqlite.Connection):
+    """v83：仙域争霸角色个性（§4.9）。
+
+    - ``strategy_characters.personality_json``：``{"top": 顶级个性id,
+      "negative": 负面个性id}``；旧角色默认 ``{}``（无个性），兼容。
+    """
+    await _add_column_if_missing(
+        conn, "strategy_characters", "personality_json", "TEXT NOT NULL DEFAULT '{}'")
+
+
+@migration(83)
+async def _migrate_to_v83(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """v83：仙域争霸角色个性字段。"""
+    logger.info("开始迁移到 v83：仙域争霸角色个性")
+    await _ensure_strategy_v83(conn)
+    await conn.commit()
+    logger.info("v83迁移完成：strategy_characters.personality_json 已就绪")

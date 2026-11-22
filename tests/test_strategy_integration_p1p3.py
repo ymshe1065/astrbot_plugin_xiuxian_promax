@@ -60,6 +60,8 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
                 user_id=uid, gold=10_000_000, user_name=f"测试{uid}"))
 
         self.m = self.StrategyManager(self.db)
+        # 野战遭遇默认改为手操窗口；常规数值回归按自动结算口径跑
+        self.m.main_cfg().setdefault("hex", {})["field_encounter_mode"] = "auto"
         self.m.main_cfg()["tick_minutes"] = 1
         self.world = await self.m.ensure_world()
         self.wid = self.world["id"]
@@ -131,9 +133,23 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
                        role: str = "general"):
         await self._give(uid, coin=5_000_000, grain=5_000_000)
         c = await self._char_of(uid, role)
+        # §4 所在地机制：编军要求主将已在该据点
+        await self._place(c, node_id)
         r = await self.m.create_army(uid, c["id"], [], node_id,
                                      "sword_shield", troops)
         return await self.m.get_army(r["army_id"])
+
+    async def _place(self, char, node_id: int, *, status: str = "idle"):
+        """把角色显式放到某据点（所在地机制夹具）。"""
+        c = await self.m.get_char(int(char["id"]))
+        c["location"] = {"node_id": int(node_id)}
+        if status is not None:
+            c["status"] = status
+        await self.m.save_char(c)
+        char["location"] = dict(c["location"])
+        if status is not None:
+            char["status"] = status
+        return c
 
     async def _own(self, uid: str, node: dict) -> dict:
         p = await self.m.get_player(uid, self.wid)
@@ -222,13 +238,19 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
         await self.m.treasury_deposit("u1", "coin", 20_000)
         f = await self.m.get_faction(fid)
         self.assertEqual(int(f["treasury"]["coin"]), 30_000)  # 10000 会签 + 20000
-        # 共同国库：成员势力主为副主，单次提取上限为国库 30%
+        # 国库各势力独立：u2 不能提取盟主国库
         with self.assertRaises(self.StrategyError):
             await self.m.treasury_withdraw("u2", "coin", 20_000)
+        # u2 往自己势力国库存入并提取，不影响 u1 势力国库
+        await self._give("u2", coin=20_000)
+        await self.m.treasury_deposit("u2", "coin", 10_000)
         await self.m.treasury_withdraw("u2", "coin", 5_000)
+        u2_fid = int((await self.m.get_player("u2", self.wid))["faction_id"])
+        f2 = await self.m.get_faction(u2_fid)
+        self.assertEqual(int(f2["treasury"]["coin"]), 5_000)
         f = await self.m.get_faction(fid)
-        self.assertEqual(int(f["treasury"]["coin"]), 25_000)
-        # 官职任免（联盟名册）
+        self.assertEqual(int(f["treasury"]["coin"]), 30_000)
+        # 官职任免（联盟名册仍共同治理）
         await self.m.faction_set_position("u1", "u2", "situ")
         members = {m["user_id"]: m.get("position", "")
                    for m in await self.m.get_members(fid)}
@@ -239,8 +261,8 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
         f = await self.m.get_faction(fid)
         self.assertEqual(f["leader_id"], "u1")
 
-    async def test_alliance_transfer_node_and_quit_split(self):
-        """联盟内据点可交接；退盟保留据点，并按据点占比分割盟主国库。"""
+    async def test_alliance_transfer_node_and_quit_keeps_economy(self):
+        """联盟内据点可交接；退盟保留据点、国库与科技，不做资产分割。"""
         fid = await self._create_multi_faction()
         host = await self.m.get_faction(fid)
         host["treasury"] = {"coin": 9000}
@@ -248,6 +270,11 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
         await self.m._commit()
         p2 = await self.m.get_player("u2", self.wid)
         u2_fid = int(p2["faction_id"])
+        f2 = await self.m.get_faction(u2_fid)
+        f2["treasury"] = {"coin": 4000}
+        f2["tech"] = {"military": 2}
+        await self.m.save_faction(f2)
+        await self.m._commit()
         # 给 u1 增派一座据点，交接后仍保留主城
         extra = next(n for n in await self.m.get_nodes(self.wid)
                      if int(n["owner_faction"]) == 0 and n["type"] != "ruin")
@@ -266,21 +293,20 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
             "AND alive=1 LIMIT 1", (self.wid,))
         with self.assertRaises(self.StrategyError):
             await self.m.transfer_node("u1", int(u1_node["id"]), int(npc[0]["id"]))
-        # u2 退盟：据点保留，按据点占比拿回盟主国库份额
+        # u2 退盟：据点、国库、科技全部保留
         counts = {}
         for n in await self.m.get_nodes(self.wid):
             counts[int(n["owner_faction"])] = counts.get(int(n["owner_faction"]), 0) + 1
-        total = sum(counts[x] for x in (fid, u2_fid, int(self.p3["faction_id"])))
-        expect = int(9000 * counts[u2_fid] / total)
         u2_nodes_before = counts[u2_fid]
         await self.m.faction_quit("u2")
         p2 = await self.m.get_player("u2", self.wid)
         self.assertEqual(int(p2["faction_id"]), u2_fid)
         f2 = await self.m.get_faction(u2_fid)
         self.assertEqual(int(f2["alliance_id"]), 0)
-        self.assertEqual(int(f2["treasury"]["coin"]), expect)
+        self.assertEqual(int(f2["treasury"]["coin"]), 4000)
+        self.assertEqual(int((f2.get("tech") or {}).get("military", 0)), 2)
         host = await self.m.get_faction(fid)
-        self.assertEqual(int(host["treasury"]["coin"]), 9000 - expect)
+        self.assertEqual(int(host["treasury"]["coin"]), 9000)
         still = [n for n in await self.m.get_nodes(self.wid)
                  if int(n["owner_faction"]) == u2_fid]
         self.assertEqual(len(still), u2_nodes_before)
@@ -516,8 +542,18 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
     async def test_manual_battle_deploy_timeout_auto(self):
         world, node, army, battle = await self._setup_manual_battle()
         bid = battle["id"]
-        # 部署超时：deadline 置过去 → 全托管瞬时模拟
+        # 部署超时：若没有任何参战方打开过战场，先补一次 60s 宽限并重发通知
         b = await self.m.get_battle(bid)
+        b["deadline_at"] = _now() - 10
+        await self.m.update_battle_session(b)
+        await self.m._commit()
+        world = await self.m.get_world()
+        await self.m._step_manual_battles(world)
+        b = await self.m.get_battle(bid)
+        self.assertEqual(b["state"], "deploy")
+        self.assertTrue((b["session"] or {}).get("deploy_extended"))
+        self.assertGreater(int(b["deadline_at"]), _now())
+        # 宽限用完 → 全托管瞬时模拟
         b["deadline_at"] = _now() - 10
         await self.m.update_battle_session(b)
         await self.m._commit()
@@ -530,6 +566,98 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
         # 回放可用
         rep = await self.m.get_battle_replay("u1", bid)
         self.assertTrue(rep)
+
+    async def test_manual_battle_viewed_skips_deploy_grace(self):
+        """参战方打开过战场（battle_state）后再超时，直接 AI 结算。"""
+        world, node, army, battle = await self._setup_manual_battle()
+        bid = battle["id"]
+        await self.m.battle_state("u1", bid)
+        b = await self.m.get_battle(bid)
+        self.assertIn("u1", (b["session"] or {}).get("viewed") or {})
+        b["deadline_at"] = _now() - 10
+        await self.m.update_battle_session(b)
+        await self.m._commit()
+        world = await self.m.get_world()
+        await self.m._step_manual_battles(world)
+        b = await self.m.get_battle(bid)
+        self.assertEqual(b["state"], "done")
+        self.assertFalse((b["session"] or {}).get("deploy_extended"))
+
+    async def test_battle_start_autodeploys_missing_units(self):
+        """开战不再要求所有参战者都点过部署：未落位单位自动布置/托管。"""
+        world, node, army, battle = await self._setup_manual_battle()
+        bid = battle["id"]
+        r = await self.m.battle_start("u1", bid)  # 不先 auto_deploy
+        self.assertTrue(r["ok"])
+        b = await self.m.get_battle(bid)
+        self.assertEqual(b["state"], "battle")
+        sess = b["session"]
+        self.assertTrue(all(u.get("pos") for u in sess["units"]))
+        # 从未查看过战场的 owner（u1）应被自动托管
+        self.assertTrue((sess.get("delegate") or {}).get("1"))
+
+    async def test_battle_list_keeps_live_manual_battle(self):
+        """进行中的手操战役不能被大量新自动战报挤出列表上限。"""
+        world, node, army, battle = await self._setup_manual_battle()
+        fid = int(self.p1["faction_id"])
+        for _ in range(30):
+            await self.m.insert_battle({
+                "world_id": self.wid, "node_id": node["id"],
+                "attacker_faction": fid, "defender_faction": -9,
+                "kind": "field", "mode": "auto", "state": "done",
+                "round_no": 1, "map_seed": "x", "armies_snapshot": [],
+                "result": {"winner": "attacker"}, "report_text": "x",
+                "created_at": _now(),
+            })
+        await self.m._commit()
+        battles = await self.m._battle_list(
+            self.wid, fid, limit=5, user_id="u1")
+        self.assertEqual(battles[0]["id"], battle["id"])
+        self.assertEqual(battles[0]["state"], "deploy")
+        self.assertIn("my_turn", battles[0])
+        self.assertLessEqual(len(battles), 6)
+
+    async def test_battle_open_notifies_initiator_without_army(self):
+        """发起人可能不拥有参战军团（代势力介入），也必须收到 battle_open。"""
+        world, node, army, battle = await self._setup_manual_battle()
+        seen = []
+
+        async def _cap(uid, kind, payload):
+            seen.append((uid, kind, payload))
+
+        self.m.set_notifier(_cap)
+        atk_sim = await self.m._army_sim(army)
+        await self.m._create_manual_battle(
+            world, node, [atk_sim], [], [army], [],
+            "field", "field", 60, 0, "u2")
+        opens = [x for x in seen if x[1] == "battle_open"]
+        self.assertTrue(opens)
+        self.assertTrue(any(x[0] == "u2" for x in opens))
+        self.assertTrue(any(x[0] == "u1" for x in opens))
+
+    async def test_battle_turn_notify_dedup(self):
+        """轮到人类单位时推送 battle_turn，同一回合单位只推一次。"""
+        world, node, army, battle = await self._setup_manual_battle()
+        bid = battle["id"]
+        seen = []
+
+        async def _cap(uid, kind, payload):
+            seen.append((uid, kind, payload))
+
+        self.m.set_notifier(_cap)
+        b = await self.m.get_battle(bid)
+        sess = b["session"]
+        sess["phase"] = "battle"
+        sess["round"] = 2
+        sess["order"] = [1]
+        sess["acted"] = []
+        sess["turn_deadline"] = _now() + 30
+        await self.m._notify_battle_turn(world, b, sess)
+        await self.m._notify_battle_turn(world, b, sess)
+        turns = [x for x in seen if x[1] == "battle_turn"]
+        self.assertEqual(len(turns), 1)
+        self.assertEqual(turns[0][0], "u1")
+        self.assertEqual(int(turns[0][2]["battle_id"]), int(bid))
 
     async def test_manual_battle_set_formation(self):
         world, node, army, battle = await self._setup_manual_battle()
@@ -621,10 +749,78 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
         r = await self.m.battle_start("u1", bid)
         self.assertTrue(r["ok"])
 
+    async def test_field_encounter_opens_manual_on_arrival(self):
+        """普通行军抵达的野战也要开手操窗口，而不是 tick 内直接模拟。"""
+        self.m.main_cfg()["hex"]["field_encounter_mode"] = "human"
+        nodes = {n["id"]: n for n in await self.m.get_nodes(self.wid)}
+        home, adj_id = next((n, x) for n in nodes.values() for x in n["adj"])
+        await self._own("u1", home)
+        npc = await self.m._fetchone(
+            "SELECT id FROM strategy_factions"
+            " WHERE world_id=? AND kind='npc' LIMIT 1", (self.wid,))
+        target = nodes[adj_id]
+        target["owner_faction"] = int(npc["id"])
+        target["npc_garrison"] = {"troops": 50, "morale": 40}
+        await self.m.save_node(target)
+        army = await self._mk_army("u1", home["id"], 1500)
+        army["state"] = "march"
+        army["path"] = []
+        army["node_id"] = target["id"]
+        await self.m.save_army(army)
+        self.m._recent_players["u1"] = _now()
+        world = await self.m.get_world()
+        reports = await self.m._step_arrivals(world)
+        self.assertTrue(any("野战遭遇" in r for r in reports), reports)
+        row = await self.m._fetchone(
+            "SELECT * FROM strategy_battles WHERE world_id=? AND mode='manual' "
+            "AND kind='field_encounter' ORDER BY id DESC LIMIT 1", (self.wid,))
+        self.assertIsNotNone(row)
+        battle = await self.m.get_battle(int(row["id"]))
+        self.assertEqual(battle["state"], "deploy")
+        a = await self.m.get_army(army["id"])
+        self.assertEqual(a["state"], "battle")
+        # 打开过战场后超时不再宽限：全托管模拟并释放军团
+        await self.m.battle_state("u1", int(battle["id"]))
+        battle = await self.m.get_battle(int(row["id"]))
+        battle["deadline_at"] = _now() - 10
+        await self.m.update_battle_session(battle)
+        await self.m._commit()
+        await self.m._step_manual_battles(world)
+        battle = await self.m.get_battle(int(row["id"]))
+        self.assertEqual(battle["state"], "done")
+        a = await self.m.get_army(army["id"])
+        self.assertNotEqual(a["state"], "battle")
+
+    async def test_field_encounter_mode_auto_keeps_old_behavior(self):
+        """field_encounter_mode=auto 时保持旧行为：tick 内直接自动结算。"""
+        self.m.main_cfg()["hex"]["field_encounter_mode"] = "auto"
+        nodes = {n["id"]: n for n in await self.m.get_nodes(self.wid)}
+        home, adj_id = next((n, x) for n in nodes.values() for x in n["adj"])
+        await self._own("u1", home)
+        npc = await self.m._fetchone(
+            "SELECT id FROM strategy_factions"
+            " WHERE world_id=? AND kind='npc' LIMIT 1", (self.wid,))
+        target = nodes[adj_id]
+        target["owner_faction"] = int(npc["id"])
+        target["npc_garrison"] = {"troops": 50, "morale": 40}
+        await self.m.save_node(target)
+        army = await self._mk_army("u1", home["id"], 1500)
+        army["state"] = "march"
+        army["path"] = []
+        army["node_id"] = target["id"]
+        await self.m.save_army(army)
+        world = await self.m.get_world()
+        await self.m._step_arrivals(world)
+        manual = await self.m._fetchone(
+            "SELECT id FROM strategy_battles WHERE world_id=? AND mode='manual' "
+            "AND kind='field_encounter'", (self.wid,))
+        self.assertIsNone(manual)
+
     async def test_arrivals_hold_when_manual_battle_active(self):
         world, node, army, battle = await self._setup_manual_battle(troops=600)
         c2 = await self._recruit_role("u1", "general")
         await self._give("u1", coin=1_000_000, grain=1_000_000)
+        await self._place(c2, army["node_id"])
         r2 = await self.m.create_army("u1", int(c2["id"]), [],
                                       army["node_id"], "sword_shield", 500)
         a2 = await self.m.get_army(r2["army_id"])
@@ -654,6 +850,17 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
             await self.m.save_char(g)
         await self._give("u1", coin=10_000)
         await self._give("u2", coin=10_000)
+        # §8 擂台须在建有擂将台的据点；两人都置于 u1 主城擂台
+        p1 = await self.m.get_player("u1", self.wid)
+        f1 = await self.m.get_faction(int(p1["faction_id"]))
+        arena_node = await self.m.get_node(self.wid, int(f1["capital_node_id"]))
+        buildings = [b for b in (arena_node.get("buildings") or [])
+                     if (b.get("id") if isinstance(b, dict) else b) != "arena"]
+        buildings.append({"id": "arena", "level": 1})
+        arena_node["buildings"] = buildings
+        await self.m.save_node(arena_node)
+        await self._place(gen1, arena_node["id"])
+        await self._place(gen2, arena_node["id"])
         r = await self.m.duel_arena_open("u1", gen1["id"], 500)
         duel_id = r["duel_id"]
         duels = await self.m.duel_arena_list("u2")
@@ -822,6 +1029,42 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
         view = await self.m.get_convoys_view("u1")
         self.assertEqual(view, [])
 
+    async def test_convoy_extra_escort_troops_cost(self):
+        """发粮队可额外指定护送兵力，按编军机制扣铜钱/粮草。"""
+        nodes = {n["id"]: n for n in await self.m.get_nodes(self.wid)}
+        p1 = await self.m.get_player("u1", self.wid)
+        fid = int(p1["faction_id"])
+        markets = [n for n in nodes.values() if n["type"] == "market"]
+        a, b = markets[0], markets[1]
+        path = await self.m.find_path(self.wid, a["id"], b["id"])
+        self.assertIsNotNone(path)
+        for nid in path:
+            await self._own("u1", nodes[nid])
+        await self._give("u1", coin=50_000, grain=50_000)
+        p0 = await self.m.get_player("u1", self.wid)
+        coin0, grain0 = int(p0["coin"]), int(p0["grain"])
+        expect_coin, expect_grain, _tt = await self.m._recruit_troop_cost(
+            p0, "sword_shield", 200)
+        r = await self.m.send_convoy(
+            "u1", a["id"], b["id"], 800, 0, 200, "sword_shield")
+        self.assertTrue(r["ok"])
+        self.assertEqual(r["escort_troops"], 200)
+        self.assertEqual(r["escort_cost"], {"coin": expect_coin,
+                                            "grain": expect_grain})
+        p1 = await self.m.get_player("u1", self.wid)
+        self.assertEqual(int(p1["coin"]), coin0 - expect_coin)
+        self.assertEqual(int(p1["grain"]), grain0 - 800 - expect_grain)
+        view = await self.m.get_convoys_view("u1")
+        self.assertEqual(len(view), 1)
+        self.assertEqual(view[0]["escort_troops"], 200)
+        self.assertEqual(view[0]["escort_paid_troops"], 200)
+        # 路径走完，粮草入库
+        for _ in range(len(path) + 2):
+            world = await self.m.get_world()
+            await self.m._step_convoys(world)
+        dst = await self.m.get_node(self.wid, b["id"])
+        self.assertGreaterEqual(int((dst.get("stock") or {}).get("grain", 0)), 800)
+
     async def test_convoy_escort_locked_and_view(self):
         """护送军团随队占用、面板字段可读，抵达后自动归队。"""
         nodes = {n["id"]: n for n in await self.m.get_nodes(self.wid)}
@@ -973,6 +1216,7 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
         await self._give_world("u1", new_world["id"], coin=5_000_000,
                                grain=5_000_000)
         c = await self._char_of_world("u1", new_world["id"])
+        await self._place(c, home2["id"])
         r = await self.m.create_army("u1", c["id"], [], home2["id"],
                                      "sword_shield", 500)
         new_army = await self.m.get_army(r["army_id"])
@@ -1233,8 +1477,8 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
         for key in ("season", "bandits", "trade_routes", "meta"):
             self.assertIn(key, state)
         pv = state["player"]
-        for key in ("faction", "captives", "market_orders", "convoys",
-                    "duels", "achievements", "intel"):
+        for key in ("faction", "captives", "market_orders", "market_offers",
+                    "convoys", "duels", "achievements", "intel"):
             self.assertIn(key, pv)
         meta = state["meta"]
         for key in ("plot_types", "tech_lines", "achievements", "hex_cfg",
@@ -1506,18 +1750,20 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
         self.assertTrue((f.get("tech") or {}).get("pending"))
         self.assertEqual(int((f.get("tech") or {}).get("points", 0)), 360)
 
-    async def test_char_appointment_unlock_and_troop_cap(self):
-        """角色官职：绑角色、按据点解锁、主将带兵上限随角色官职。"""
+    async def test_char_appointment_and_node_taishou_overlap(self):
+        """角色官职与据点太守相互独立：可并存、每据点 1 名、数量随据点对齐。"""
         p1 = await self.m.get_player("u1", self.wid)
         fid = int(p1["faction_id"])
         f = await self.m.get_faction(fid)
         home = int(f["capital_node_id"])
         general = await self._char_of("u1", "general")
-        # 1 据点：仅中郎将
+        official = await self._char_of("u1", "official")
+        # 1 据点：角色官职只开放中郎将；太守不占角色官职档位。
         f = await self.m.get_faction(fid)
         avail = self.R.available_positions(
             await self.m._governance_node_count(self.wid, f))
         self.assertEqual(avail, {"zhonglang": 1})
+        self.assertNotIn("taishou", avail)
         await self.m.faction_appoint_char("u1", general["id"], "zhonglang")
         c = await self.m.get_char(general["id"])
         self.assertEqual(c["appointed_position"], "zhonglang")
@@ -1526,7 +1772,29 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(self.StrategyError) as cm:
             await self.m.faction_appoint_char("u1", general["id"], "taiwei")
         self.assertIn("据点不足", str(cm.exception))
-        # 扩到 8 据点：太尉/太守解锁
+        # 太守从第 1 座据点就可任免，且可与中郎将官职并存。
+        await self.m.appoint_taishou("u1", home, general["id"])
+        node = await self.m.get_node(self.wid, home)
+        self.assertEqual(int(node["governor_char_id"]), int(general["id"]))
+        c = await self.m.get_char(general["id"])
+        self.assertEqual(c["appointed_position"], "zhonglang")
+        self.assertEqual(await self.m._leader_cap(c, f, home), 2000)
+        # 没有角色官职的内政官任太守：辖内 2000，辖外 1500；上任会替换原太守。
+        await self.m.appoint_taishou("u1", home, official["id"])
+        node = await self.m.get_node(self.wid, home)
+        self.assertEqual(int(node["governor_char_id"]), int(official["id"]))
+        c = await self.m.get_char(official["id"])
+        self.assertEqual(await self.m._leader_cap(c, f, home), 2000)
+        self.assertEqual(await self.m._leader_cap(c, f, 0), 1500)
+        # 面板数据：据点抽屉需要 governor，官职卡需要角色现任据点信息。
+        state = await self.m.get_state("u1")
+        node_view = next(n for n in state["nodes"] if int(n["id"]) == home)
+        self.assertEqual(int(node_view["governor"]["char_id"]), int(official["id"]))
+        self.assertTrue(node_view["governor"]["valid"])
+        self.assertTrue(any(
+            int(c0.get("governor_node_id") or 0) == home
+            for c0 in state["player"]["faction"]["appoint_chars"]))
+        # 扩到 8 据点：太尉解锁，但太守仍不在角色官职表内。
         extra = [n for n in await self.m.get_nodes(self.wid)
                  if int(n["owner_faction"]) == 0 and n["type"] != "ruin"][:7]
         self.assertGreaterEqual(len(extra), 7)
@@ -1538,27 +1806,41 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(node_count, 8)
         avail = self.R.available_positions(node_count)
         self.assertIn("taiwei", avail)
-        self.assertEqual(avail["taishou"], 8)
+        self.assertNotIn("taishou", avail)
         strategist = await self._recruit_role("u1", self.R.ROLE_STRATEGIST)
         await self.m.faction_appoint_char("u1", strategist["id"], "taiwei")
         c2 = await self.m.get_char(strategist["id"])
         self.assertEqual(c2["appointed_position"], "taiwei")
         self.assertEqual(await self.m._leader_cap(c2, f, home), 3000)
-        # 太守须绑据点：辖内 2000，辖外 1500
-        await self.m.faction_appoint_char("u1", general["id"], "taishou", home)
-        c = await self.m.get_char(general["id"])
-        self.assertEqual(c["appointed_position"], "taishou")
-        self.assertEqual(int(c["appointed_node_id"]), home)
-        self.assertEqual(await self.m._leader_cap(c, f, home), 2000)
+        # 调任：同一角色只能辖 1 个据点，旧据点自动空出。
         other = int(extra[0]["id"])
-        self.assertEqual(await self.m._leader_cap(c, f, other), 1500)
-        # 同一据点不可有两个太守
-        with self.assertRaises(self.StrategyError):
-            await self.m.faction_appoint_char("u1", strategist["id"], "taishou", home)
-        # 卸任
-        await self.m.faction_appoint_char("u1", general["id"], "")
-        c = await self.m.get_char(general["id"])
+        await self.m.appoint_taishou("u1", other, official["id"])
+        self.assertEqual(int((await self.m.get_node(
+            self.wid, home))["governor_char_id"]), 0)
+        self.assertEqual(int((await self.m.get_node(
+            self.wid, other))["governor_char_id"]), int(official["id"]))
+        self.assertEqual(await self.m._leader_cap(c, f, other), 2000)
+        # 旧接口不再接受角色级太守。
+        with self.assertRaises(self.StrategyError) as cm:
+            await self.m.faction_appoint_char("u1", general["id"], "taishou", home)
+        self.assertIn("据点级", str(cm.exception))
+        # 卸任太守不影响角色官职。
+        await self.m.dismiss_taishou("u1", other)
+        self.assertEqual(int((await self.m.get_node(
+            self.wid, other))["governor_char_id"]), 0)
+        c = await self.m.get_char(official["id"])
         self.assertEqual(c["appointed_position"], "")
+        c = await self.m.get_char(general["id"])
+        self.assertEqual(c["appointed_position"], "zhonglang")
+        # REST 动作名与前端 data-act 对齐（据点抽屉调用）。
+        res = await self.m.handle_action(
+            "u1", "appoint_taishou", {"node_id": home, "char_id": official["id"]})
+        self.assertTrue(res.get("ok"))
+        self.assertEqual(int((await self.m.get_node(
+            self.wid, home))["governor_char_id"]), int(official["id"]))
+        res = await self.m.handle_action(
+            "u1", "dismiss_taishou", {"node_id": home})
+        self.assertTrue(res.get("ok"))
 
     async def test_scout_task_reveals_extra_ring(self):
         """侦察任务点亮 2 跳范围，且情报按势力隔离。"""
@@ -1844,6 +2126,14 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
         c1["stats"]["valor"] = 90
         await self.m.save_char(c1)
         await self._give("u1", coin=1_000_000)
+        # §8 摆擂须在己方擂将台据点
+        home = await self.m.get_node(self.wid, self.R.char_node_id(c1))
+        buildings = [b for b in (home.get("buildings") or [])
+                     if (b.get("id") if isinstance(b, dict) else b) != "arena"]
+        buildings.append({"id": "arena", "level": 1})
+        home["buildings"] = buildings
+        await self.m.save_node(home)
+        await self._place(c1, home["id"])
         stake = int(self.m.main_cfg().get("duel", {}).get(
             "arena_stake_min", 100))
         r = await self.m.duel_arena_open("u1", int(c1["id"]), stake)
@@ -2300,6 +2590,72 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
         self.assertNotEqual(
             int((c2.get("location") or {}).get("node_id", 0) or 0),
             int(target["id"]))
+
+    # ------------------------------------------------------------------
+    # v4.3.4：友方道路 / 领土 / 协战
+    # ------------------------------------------------------------------
+    async def test_friendly_road_free_upkeep_and_territory(self):
+        p1 = await self.m.get_player("u1", self.wid)
+        fid = int(p1["faction_id"])
+        nodes = await self.m.get_nodes(self.wid)
+        node_map = {n["id"]: n for n in nodes}
+        pair = None
+        for n in nodes:
+            for adj in n.get("adj") or []:
+                m = node_map.get(int(adj))
+                if m and n["type"] != "ruin" and m["type"] != "ruin":
+                    pair = (n, m)
+                    break
+            if pair:
+                break
+        self.assertIsNotNone(pair, "地图缺少可测试的相邻据点")
+        a, b = pair
+        for n in (a, b):
+            n["owner_faction"] = fid
+            n["terrain"] = "plain"
+            await self.m.save_node(n)
+        await self.m._commit()
+        army = await self._mk_army("u1", int(a["id"]), 800)
+        army["grain"] = 1000
+        await self.m.save_army(army)
+        await self.m._commit()
+        r = await self.m.march("u1", int(army["id"]), int(b["id"]))
+        self.assertTrue(r["ok"])
+        await self.m._step_march(await self.m.get_world())
+        army = await self.m.get_army(int(army["id"]))
+        self.assertEqual(int(army["node_id"]), int(b["id"]))
+        self.assertEqual(int(army["grain"]), 1000, "友方道路应免粮")
+        tb = await self.m._territory_bonus(
+            await self.m.get_world(), b, fid)
+        self.assertGreaterEqual(int(tb["adjacent"]), 1)
+        self.assertGreater(float(tb["defense_mult"]), 1.0)
+        self.assertGreater(float(tb["combat_mult"]), 1.0)
+
+    async def test_allied_arrivals_coordinate_capture_by_largest(self):
+        await self._create_multi_faction()
+        p1 = await self.m.get_player("u1", self.wid)
+        p2 = await self.m.get_player("u2", self.wid)
+        u2_fid = int(p2["faction_id"])
+        f1 = await self.m.get_faction(int(p1["faction_id"]))
+        f2 = await self.m.get_faction(u2_fid)
+        target = await self.m.get_node(self.wid, await self._free_node())
+        target["owner_faction"] = 0
+        target["npc_garrison"] = {"troops": 0, "morale": 0}
+        await self.m.save_node(target)
+        await self.m._commit()
+        a1 = await self._mk_army("u1", int(f1["capital_node_id"]), 300)
+        a2 = await self._mk_army("u2", int(f2["capital_node_id"]), 900)
+        for a in (a1, a2):
+            a["node_id"] = int(target["id"])
+            a["state"] = "march"
+            a["path"] = []
+            a["edge_pos"] = 0.0
+            await self.m.save_army(a)
+        await self.m._commit()
+        await self.m._step_arrivals(await self.m.get_world())
+        target = await self.m.get_node(self.wid, int(target["id"]))
+        self.assertEqual(int(target["owner_faction"]), u2_fid,
+                         "协战应归参战兵力最多的一方")
 
     # ------------------------------------------------------------------
     async def _fetchall(self, sql: str, params: tuple = ()):

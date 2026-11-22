@@ -57,6 +57,8 @@ class TestStrategyFactionGaps(unittest.IsolatedAsyncioTestCase):
                 user_id=uid, gold=10_000_000, user_name=f"测试{uid}"))
 
         self.m = self.StrategyManager(self.db)
+        # 野战遭遇默认改为手操窗口；常规数值回归按自动结算口径跑
+        self.m.main_cfg().setdefault("hex", {})["field_encounter_mode"] = "auto"
         self.m.main_cfg()["tick_minutes"] = 1
         self.world = await self.m.ensure_world()
         self.wid = self.world["id"]
@@ -335,6 +337,35 @@ class TestStrategyFactionGaps(unittest.IsolatedAsyncioTestCase):
         c = await self.m.get_char(int(c["id"]))
         self.assertEqual(c["status"], "idle")
         self.assertGreater(int(c.get("exp", 0)), exp_before)
+
+    async def test_tech_research_l2_exact_cost_and_insufficient_detail(self):
+        """L2 费用口径：国库刚好 1000/1000 必须可研究，不足时错误须带当前余额。"""
+        fid = int(self.p1["faction_id"])
+        f = await self.m.get_faction(fid)
+        f["tech"] = {"military": 1}
+        f["treasury"] = {"coin": 1000, "iron": 999, "grain": 0}
+        await self.m.save_faction(f)
+        await self.m._commit()
+        with self.assertRaises(self.StrategyError) as cm:
+            await self.m.tech_research("u1", "military")
+        msg = str(cm.exception)
+        self.assertIn("研究 L2", msg)
+        self.assertIn("需铜钱 1000 / 精铁 1000", msg)
+        self.assertIn("当前国库铜钱 1000 / 精铁 999", msg)
+        # 失败不扣费、不占用角色
+        f = await self.m.get_faction(fid)
+        self.assertEqual(int((f.get("treasury") or {}).get("coin", 0)), 1000)
+        self.assertEqual(int((f.get("treasury") or {}).get("iron", 0)), 999)
+        self.assertFalse((f.get("tech") or {}).get("pending"))
+        # 刚好够：成功并扣到 0
+        f["treasury"] = {"coin": 1000, "iron": 1000, "grain": 0}
+        await self.m.save_faction(f)
+        await self.m._commit()
+        r = await self.m.tech_research("u1", "military")
+        self.assertTrue(r["ok"])
+        f = await self.m.get_faction(fid)
+        self.assertEqual(int((f.get("treasury") or {}).get("coin", 0)), 0)
+        self.assertEqual(int((f.get("treasury") or {}).get("iron", 0)), 0)
 
     async def test_tech_research_requires_idle_char(self):
         fid = int(self.p1["faction_id"])

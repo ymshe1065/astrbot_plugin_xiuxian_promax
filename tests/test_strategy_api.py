@@ -139,6 +139,8 @@ class _ManagerBase(unittest.IsolatedAsyncioTestCase):
                 user_id=uid, gold=10_000_000, user_name=f"测试{uid}"))
 
         self.m = StrategyManager(self.db)
+        # 野战遭遇默认改为手操窗口；常规数值回归按自动结算口径跑
+        self.m.main_cfg().setdefault("hex", {})["field_encounter_mode"] = "auto"
         self.m.main_cfg()["tick_minutes"] = 1
         self.world = await self.m.ensure_world()
         self.wid = self.world["id"]
@@ -168,6 +170,10 @@ class _ManagerBase(unittest.IsolatedAsyncioTestCase):
     async def _mk_army(self, uid: str, node_id: int, troops: int = 800):
         await self._give(uid, coin=5_000_000, grain=5_000_000)
         c = await self._char_of(uid)
+        # §4 所在地机制：编军要求主将已在该据点
+        c["location"] = {"node_id": int(node_id)}
+        c["status"] = "idle"
+        await self.m.save_char(c)
         r = await self.m.create_army(uid, c["id"], [], node_id,
                                      "sword_shield", troops)
         return await self.m.get_army(r["army_id"])

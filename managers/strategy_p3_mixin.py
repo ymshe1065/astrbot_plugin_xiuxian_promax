@@ -100,6 +100,13 @@ class StrategyP3Mixin:
         mcfg = self.main_cfg().get("market") or {}
         return [str(x) for x in (mcfg.get("items") or self._MARKET_ITEMS)]
 
+    def _market_price_range(self, item: str) -> tuple[int, int, int]:
+        """玩家挂单允许的价格区间 (最低, 最高, 基准)；基准缺失时最高为 0。"""
+        mcfg = self.main_cfg().get("market") or {}
+        base = (mcfg.get("base_prices") or {}).get(item, 0)
+        return R.market_price_band(
+            base, float(mcfg.get("player_price_band_pct", 0.5) or 0))
+
     @staticmethod
     def _market_item_qty(p: dict, item: str) -> int:
         """玩家持有量：情报存于 tavern.intel，其余为钱包字段。"""
@@ -143,6 +150,12 @@ class StrategyP3Mixin:
             unit_price = int(base_prices.get(item_type, 0) or 0)
         if amount <= 0 or unit_price <= 0:
             raise StrategyError("数量与单价须为正")
+        lo, hi, base = self._market_price_range(item_type)
+        if hi and not (lo <= unit_price <= hi):
+            raise StrategyError(
+                f"{R.RESOURCE_NAMES.get(item_type, item_type)} 定价须在市场价 "
+                f"±{float(mcfg.get('player_price_band_pct', 0.5) or 0) * 100:.0f}% "
+                f"内（{lo}~{hi}，基准 {base}）")
         held = self._market_item_qty(p, item_type)
         if held < amount:
             raise StrategyError(
@@ -176,7 +189,8 @@ class StrategyP3Mixin:
         return {"ok": True, "order_id": oid,
                 "msg": f"已在「{node['name']}」挂售 "
                        f"{R.RESOURCE_NAMES.get(item_type, item_type)} ×{amount}"
-                       f"（单价 {unit_price}，48h 有效）"}
+                       f"（单价 {unit_price}，"
+                       f"{int(mcfg.get('order_expire_hours', 48))}h 有效）"}
 
     async def market_buy(self, user_id: str, order_id: int, amount: int = 0) -> dict:
         # C2：互市撮合全程互斥（防并发双买/买撤并发 TOCTOU 双花）；
@@ -228,12 +242,17 @@ class StrategyP3Mixin:
                 sp["coin"] = int(sp.get("coin", 0)) + payout
                 await self.save_player(sp)
         else:
-            sf = await self.get_faction(int(row["seller_faction"]))
+            sf = await self.get_faction(int(row["seller_faction"] or 0))
             if sf:
                 treasury = sf.get("treasury") or {}
                 treasury["coin"] = int(treasury.get("coin", 0)) + payout
                 sf["treasury"] = treasury
                 await self.save_faction(sf)
+            else:
+                # 无归属势力的 NPC 单不应存在；显式告警，避免货款静默蒸发
+                logger.warning(
+                    f"[strategy] NPC 卖单 #{int(order_id)} 缺少 seller_faction，"
+                    f"货款 {payout} 未入账")
         rest = avail - want
         if rest <= 0:
             n = await self._exec_count(
@@ -248,6 +267,9 @@ class StrategyP3Mixin:
             # 订单已被并发修改（撤单/他人买入）：整笔回滚，买卖双方不损
             await self.db.conn.rollback()
             raise StrategyError("订单已被并发修改，请重试")
+        if rest <= 0:
+            # 挂单售罄：同步作废仍在等待中的 NPC 收购报价
+            await self._close_market_offers(int(order_id))
         await self._commit()
         # 与 NPC 势力通商 → 好感小幅提升（每日上限，失败不影响成交）
         if not row["seller_user"]:
@@ -315,6 +337,7 @@ class StrategyP3Mixin:
             # 已被并发买入成交：不能退货（autocommit 下 rollback 无效，
             # 必须先做条件更新再退款，避免「货已退回 + 订单仍成交」双得）。
             raise StrategyError("订单已被并发修改，无法撤单")
+        await self._close_market_offers(int(order_id))
         if item in self._market_items():
             self._market_item_add(p, item, int(row["amount"]))
             await self.save_player(p)
@@ -348,8 +371,173 @@ class StrategyP3Mixin:
                         "expires_at": r["expires_at"]})
         return out
 
+    async def _close_market_offers(self, order_id: int) -> None:
+        """挂单成交/撤销后，作废仍处于待处理的收购报价并退回冻结铜钱。"""
+        rows = await self._fetchall(
+            "SELECT * FROM strategy_market_offers WHERE order_id=? "
+            "AND status='pending'", (int(order_id),))
+        for offer in rows:
+            n = await self._exec_count(
+                "UPDATE strategy_market_offers SET status='expired' "
+                "WHERE id=? AND status='pending'", (int(offer["id"]),))
+            if n == 1:
+                await self._release_offer_reserve(offer)
+
+    async def market_offers(self, user_id: str) -> list[dict]:
+        """当前玩家收到的 NPC 收购报价（仅本人可见，且挂单仍有效）。"""
+        world = await self.get_world()
+        if not world:
+            return []
+        now = _now()
+        rows = await self._fetchall("""
+            SELECT f.*, o.amount AS order_amount, o.expires_at AS order_expires_at
+            FROM strategy_market_offers f
+            JOIN strategy_market_orders o ON o.id=f.order_id
+            WHERE f.world_id=? AND f.seller_user=? AND f.status='pending'
+              AND f.expires_at>? AND o.status='open' AND o.expires_at>?
+            ORDER BY f.created_at ASC, f.id ASC
+        """, (world["id"], user_id, now, now))
+        mcfg = self.main_cfg().get("market") or {}
+        tax_pct = float(mcfg.get("tax_pct", 0.05))
+        names: dict[int, str] = {}
+        out = []
+        for r in rows:
+            amount = min(int(r["amount"]), int(r["order_amount"]))
+            if amount <= 0:
+                continue
+            price = int(r["unit_price"])
+            gross = amount * price
+            tax = R.market_tax(gross, tax_pct)
+            fid = int(r["buyer_faction"] or 0)
+            if fid and fid not in names:
+                f = await self.get_faction(fid)
+                names[fid] = str((f or {}).get("name") or "")
+            out.append({
+                "offer_id": r["id"], "order_id": r["order_id"],
+                "node_id": r["node_id"], "item_type": r["item_type"],
+                "item_name": R.RESOURCE_NAMES.get(r["item_type"], r["item_type"]),
+                "amount": amount, "unit_price": price,
+                "gross": gross, "tax": tax, "payout": gross - tax,
+                "buyer_faction": fid,
+                "buyer_name": names.get(fid) or "坊市行商",
+                "created_at": r["created_at"],
+                "expires_at": min(int(r["expires_at"]),
+                                  int(r["order_expires_at"])),
+            })
+        return out
+
+    async def market_offer_accept(self, user_id: str, offer_id: int) -> dict:
+        """接受 NPC 收购报价：即时成交，卖家扣除交易税后入账。"""
+        async with self._market_lock:
+            world, p = await self._require_player(user_id)
+            now = _now()
+            offer = await self._fetchone(
+                "SELECT * FROM strategy_market_offers WHERE id=? AND world_id=? "
+                "AND seller_user=? AND status='pending'",
+                (int(offer_id), world["id"], user_id))
+            if not offer:
+                raise StrategyError("报价不存在或已处理")
+            if int(offer["expires_at"]) <= now:
+                raise StrategyError("报价已过期")
+            order = await self._fetchone(
+                "SELECT * FROM strategy_market_orders WHERE id=? AND world_id=?",
+                (int(offer["order_id"]), world["id"]))
+            if not order or order["status"] != "open":
+                raise StrategyError("挂单已成交或已下架")
+            if int(order["expires_at"]) <= now:
+                raise StrategyError("挂单已过期")
+            mcfg = self.main_cfg().get("market") or {}
+            buyer_fid = int(offer["buyer_faction"] or 0)
+            # §5.5 交战势力不可互市（报价生成后若已开战，接受侧同样拦截）
+            if mcfg.get("cross_faction_market_only", True) and buyer_fid and \
+                    await self._market_at_war(int(p["faction_id"]), buyer_fid):
+                raise StrategyError("交战势力不可互市")
+            avail = int(order["amount"])
+            amount = min(int(offer["amount"]), avail)
+            if amount <= 0:
+                raise StrategyError("挂单可售数量不足")
+            price = int(offer["unit_price"])
+            gross = amount * price
+            tax = R.market_tax(gross, float(mcfg.get("tax_pct", 0.05)))
+            payout = gross - tax
+            rest = avail - amount
+            if rest <= 0:
+                n = await self._exec_count(
+                    "UPDATE strategy_market_orders SET status='filled', amount=0, "
+                    "buyer_user=? WHERE id=? AND status='open' AND amount=?",
+                    (f"npc:{buyer_fid}", int(order["id"]), avail))
+            else:
+                n = await self._exec_count(
+                    "UPDATE strategy_market_orders SET amount=? WHERE id=? "
+                    "AND status='open' AND amount=?", (rest, int(order["id"]), avail))
+            if n != 1:
+                await self.db.conn.rollback()
+                raise StrategyError("挂单已被并发修改，请重试")
+            n2 = await self._exec_count(
+                "UPDATE strategy_market_offers SET status='accepted' "
+                "WHERE id=? AND status='pending'", (int(offer_id),))
+            if n2 != 1:
+                await self.db.conn.rollback()
+                raise StrategyError("报价已被处理")
+            if rest <= 0:
+                await self._close_market_offers(int(order["id"]))
+            p["coin"] = int(p.get("coin", 0)) + payout
+            await self.save_player(p)
+            buyer = await self.get_faction(buyer_fid) if buyer_fid else None
+            if buyer:
+                # §10.7 成交：释放本报价冻结，扣国库铜钱，物品入买家国库
+                treasury = buyer.get("treasury") or {}
+                frozen = int(offer["amount"]) * price
+                treasury["reserved_coin"] = max(
+                    0, int(treasury.get("reserved_coin", 0) or 0) - frozen)
+                treasury["coin"] = max(
+                    0, int(treasury.get("coin", 0) or 0) - gross)
+                item_key = str(order["item_type"])
+                if item_key in ("grain", "iron"):
+                    treasury[item_key] = int(
+                        treasury.get(item_key, 0) or 0) + amount
+                buyer["treasury"] = treasury
+                await self.save_faction(buyer)
+            await self._commit()
+            buyer_name = str((buyer or {}).get("name") or "坊市行商")
+            if buyer and str(buyer.get("kind") or "") == "npc":
+                try:
+                    await self.add_trade_favor(int(p["faction_id"]), buyer_fid)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"[strategy] NPC 收购好感结算失败：{e}")
+            item = order["item_type"]
+            extra = "（挂单已全部售出）" if rest <= 0 else f"（挂单剩余 {rest}）"
+            return {"ok": True, "amount": amount, "gross": gross,
+                    "tax": tax, "payout": payout, "rest": rest,
+                    "msg": f"已向「{buyer_name}」售出 "
+                           f"{R.RESOURCE_NAMES.get(item, item)} ×{amount}，"
+                           f"成交 {gross} 铜钱（税 {tax}，实收 {payout}）{extra}"}
+
+    async def market_offer_decline(self, user_id: str, offer_id: int) -> dict:
+        """拒绝 NPC 收购报价，挂单继续保留等待其他买家（退回冻结铜钱）。"""
+        async with self._market_lock:
+            world, _p = await self._require_player(user_id)
+            offer = await self._fetchone(
+                "SELECT * FROM strategy_market_offers WHERE id=? AND world_id=? "
+                "AND seller_user=? AND status='pending'",
+                (int(offer_id), world["id"], user_id))
+            if not offer:
+                raise StrategyError("报价不存在或已处理")
+            n = await self._exec_count(
+                "UPDATE strategy_market_offers SET status='declined' "
+                "WHERE id=? AND world_id=? AND seller_user=? AND status='pending'",
+                (int(offer_id), world["id"], user_id))
+            if n != 1:
+                raise StrategyError("报价不存在或已处理")
+            await self._release_offer_reserve(offer)
+            await self._commit()
+            return {"ok": True, "msg": "已拒绝本次报价，挂单继续保留"}
+
     async def _step_market(self, world: dict):
-        """tick：过期订单下架并退货。"""
+        """tick：过期订单下架并退货，同时作废该订单的待处理报价。
+
+        NPC 做市单（``seller_user=''``）的剩余量退回所属势力国库（§10.7 真实库存）。
+        """
         rows = await self._fetchall(
             "SELECT * FROM strategy_market_orders WHERE world_id=? AND status='open' "
             "AND expires_at<?", (world["id"], _now()))
@@ -362,27 +550,64 @@ class StrategyP3Mixin:
                 (int(r["id"]), int(r["amount"])))
             if n != 1:
                 continue
+            await self._close_market_offers(int(r["id"]))
             if r["seller_user"] and r["item_type"] in self._market_items():
                 sp = await self.get_player(r["seller_user"], world["id"])
                 if sp:
                     self._market_item_add(sp, r["item_type"], int(r["amount"]))
                     await self.save_player(sp)
+            elif not r["seller_user"] and int(r["seller_faction"] or 0) > 0:
+                # NPC 卖单：把冻结在国库里的真实库存退回（仅 grain/iron）
+                await self._market_refund_npc_stock(
+                    int(r["seller_faction"]), str(r["item_type"]),
+                    int(r["amount"]))
         if rows:
             await self._commit()
 
+    async def _market_refund_npc_stock(self, faction_id: int, item: str,
+                                       amount: int) -> int:
+        """NPC 坊市库存退回国库（过期/撤单），返回实际退回量（§10.7）。"""
+        item = str(item or "")
+        amount = max(0, int(amount or 0))
+        if amount <= 0 or item not in ("grain", "iron"):
+            return 0
+        f = await self.get_faction(int(faction_id))
+        if not f:
+            return 0
+        self._treasury_add(f, **{item: amount})
+        await self.save_faction(f)
+        return amount
+
     async def _step_market_maker(self, world: dict):
-        """NPC 做市：每 npc_maker_interval_ticks 在坊市挂卖单（价格锚点）。"""
+        """NPC 做市（§10.7）：只挂国库真实持有的 grain/iron，挂单即冻结库存。
+
+        - NPC 自有坊市：由据点归属势力供货；
+        - 玩家/无主坊市：由“行商”（库存最充裕的 NPC 势力）调货供货，
+          保持坊市流动性，同时货源仍来自真实国库。
+        """
         mcfg = self.main_cfg().get("market") or {}
+        ecfg = self._npc_economy_cfg()
         interval = max(1, int(mcfg.get("npc_maker_interval_ticks", 8)))
-        if int(world.get("tick_no", 0)) % interval != 0:
+        tick_no = int(world.get("tick_no", 0))
+        # 性格 trade_bias 可把挂单间隔缩短到 1/4（取整至少 1 tick）
+        if tick_no % max(1, interval // 4) != 0:
             return
-        rng = self._rng("maker", world["id"], world["tick_no"])
+        rng = self._rng("maker", world["id"], tick_no)
         spread = float(mcfg.get("npc_maker_spread_pct", 0.15))
         base_prices = mcfg.get("base_prices") or {}
-        amount_range = {"grain": (500, 2000), "iron": (200, 800),
-                        "recruit_token": (1, 3), "intel": (1, 2)}
+        sell_items = [str(x) for x in (ecfg.get("npc_sell_items") or [])
+                      if str(x) in ("grain", "iron")]
+        surplus_pct = max(0.0, min(1.0, float(ecfg["surplus_sell_pct"])))
         nodes = [n for n in await self.get_nodes(world["id"])
-                 if n["type"] == "market" and int(n["owner_faction"]) > 0]
+                 if n["type"] == "market"]
+        npc_rows = await self._fetchall(
+            "SELECT id FROM strategy_factions WHERE world_id=? AND kind='npc' "
+            "AND alive=1", (world["id"],))
+        npc_ids = [int(x["id"]) for x in npc_rows]
+        if not nodes or not npc_ids:
+            return
+        npc_set = set(npc_ids)
+        faction_cache: dict[int, Optional[dict]] = {}
         made = 0
         for node in nodes:
             cnt = await self._fetchone(
@@ -391,22 +616,207 @@ class StrategyP3Mixin:
                 (world["id"], node["id"]))
             if int((cnt or {}).get("n", 0)) >= 6:
                 continue
-            item = rng.choice(list(base_prices.keys()) or ["grain"])
-            lo, hi = amount_range.get(item, (100, 500))
-            amount = rng.randint(lo, hi)
-            price = R.npc_maker_price(float(base_prices.get(item, 2)), rng,
-                                      spread, is_sell=True)
+            owner = int(node["owner_faction"] or 0)
+            sellers = [owner] if owner in npc_set else npc_ids
+            best: Optional[tuple[dict, str, int]] = None
+            for sid in sellers:
+                if sid not in faction_cache:
+                    faction_cache[sid] = await self.get_faction(sid)
+                f = faction_cache[sid]
+                if not f or str(f.get("kind") or "") == "player":
+                    continue
+                bias = self._npc_personality_mult(f, "trade_bias")
+                eff_interval = max(1, int(interval / max(0.1, bias)))
+                # 活跃性格可在更短间隔多挂一轮；基础间隔 tick 仍保底执行
+                if tick_no % eff_interval != 0 and tick_no % interval != 0:
+                    continue
+                reserve = self._npc_reserve(f)
+                treasury = self._npc_treasury(f)
+                # 供给 = 国库库存 − 守财底线×2；且须超过库存的 surplus_sell_pct
+                for item in sell_items:
+                    stock = int(treasury.get(item, 0) or 0)
+                    surplus = stock - int(reserve.get(item, 0)) * 2
+                    if surplus <= 0:
+                        continue
+                    if surplus < int(stock * surplus_pct):
+                        continue
+                    if best is None or surplus > best[2]:
+                        best = (f, item, surplus)
+            if not best:
+                continue
+            f, item, surplus = best
+            amount = max(1, min(surplus, int(surplus * rng.uniform(0.3, 0.6))))
+            base = float(base_prices.get(item, 2))
+            price = R.npc_maker_price(base, rng, spread, is_sell=True)
+            # 挂牌即从国库扣减（天然冻结），过期/撤单再退回
+            if not self._treasury_spend(f, **{item: amount}):
+                continue
             await self._execute("""
                 INSERT INTO strategy_market_orders (world_id, node_id, seller_faction,
                     seller_user, item_type, amount, unit_price, status, created_at,
                     expires_at)
                 VALUES (?,?,?,'',?,?,?,'open',?,?)
-            """, (world["id"], int(node["id"]), int(node["owner_faction"]),
+            """, (world["id"], int(node["id"]), int(f["id"]),
                   item, amount, price, _now(),
-                  _now() + int(mcfg.get("order_expire_hours", 48)) * 3600))
+                  _now() + int(mcfg.get(
+                      "npc_order_expire_hours",
+                      mcfg.get("order_expire_hours", 48))) * 3600))
+            await self.save_faction(f)
             made += 1
         if made:
             await self._commit()
+
+    async def _step_market_offers(self, world: dict):
+        """NPC 收购报价（§10.7）：需求驱动选品/选买家，出价前冻结国库铜钱。
+
+        冻结口径：``treasury.reserved_coin += amount × price``；成交时释放
+        冻结并把物品入买家国库；过期/拒绝/挂单结束则退回冻结。
+        """
+        mcfg = self.main_cfg().get("market") or {}
+        ecfg = self._npc_economy_cfg()
+        now = _now()
+        # 1) 作废已过期 / 挂单已成交或下架的报价，并退回对应冻结铜钱
+        stale = await self._fetchall("""
+            SELECT f.* FROM strategy_market_offers f
+            WHERE f.world_id=? AND f.status='pending' AND (
+                f.expires_at<=? OR NOT EXISTS (
+                    SELECT 1 FROM strategy_market_orders o
+                    WHERE o.id=f.order_id
+                      AND o.status='open' AND o.expires_at>?))
+        """, (world["id"], now, now))
+        expired = 0
+        for offer in stale:
+            n = await self._exec_count(
+                "UPDATE strategy_market_offers SET status='expired' "
+                "WHERE id=? AND status='pending'", (int(offer["id"]),))
+            if n != 1:
+                continue
+            expired += 1
+            await self._release_offer_reserve(offer)
+        # 2) 到报价间隔才生成新报价（default：每 8 tick ≈ 2h）
+        interval = max(1, int(mcfg.get("npc_offer_interval_ticks", 8)))
+        if int(world.get("tick_no", 0)) % interval != 0:
+            if expired:
+                await self._commit()
+            return
+        chance = max(0.0, min(1.0, float(mcfg.get("npc_offer_chance", 0.6))))
+        cooldown = max(0, int(mcfg.get("npc_offer_cooldown_hours", 2))) * 3600
+        rows = await self._fetchall("""
+            SELECT o.* FROM strategy_market_orders o
+            WHERE o.world_id=? AND o.status='open' AND o.seller_user<>''
+              AND o.expires_at>?
+              AND NOT EXISTS (SELECT 1 FROM strategy_market_offers f
+                              WHERE f.order_id=o.id AND f.status='pending')
+              AND NOT EXISTS (SELECT 1 FROM strategy_market_offers f2
+                              WHERE f2.order_id=o.id AND f2.created_at>?)
+            ORDER BY o.id ASC
+        """, (world["id"], now, now - cooldown))
+        npcs = await self._fetchall(
+            "SELECT id FROM strategy_factions WHERE world_id=? "
+            "AND kind='npc' AND alive=1", (world["id"],))
+        made = 0
+        # 仅 grain/iron 参与 NPC 收购（token/intel 无 NPC 产出源/国库口径）
+        offer_items = {str(x) for x in (ecfg.get("npc_offer_items") or [])
+                       if str(x) in ("grain", "iron")} or {"grain", "iron"}
+        if rows and npcs:
+            node_owner = {int(n["id"]): int(n["owner_faction"] or 0)
+                          for n in await self.get_nodes(world["id"])}
+            rng = self._rng("market_offers", world["id"], world["tick_no"])
+            expire_hours = max(1, int(mcfg.get("npc_offer_expire_hours", 12)))
+            min_pct = max(0.01, min(1.0, float(
+                mcfg.get("npc_offer_min_pct", 0.3))))
+            max_pct = max(min_pct, min(1.0, float(
+                mcfg.get("npc_offer_max_pct", 1.0))))
+            spread = float(mcfg.get("npc_offer_spread_pct", 0.15))
+            buyers: dict[int, dict] = {}
+            for x in npcs:
+                fid = int(x["id"])
+                bf = await self.get_faction(fid)
+                if bf:
+                    buyers[fid] = bf
+            # 坊市活跃度：trade_bias 越高，报价越勤（概率放大一次）
+            max_bias = max(
+                (self._npc_personality_mult(bf, "trade_bias")
+                 for bf in buyers.values()), default=1.0)
+            chance_eff = min(1.0, chance * max(0.2, max_bias))
+            for r in rows:
+                item = str(r["item_type"])
+                if item not in offer_items:
+                    continue
+                avail = int(r["amount"])
+                if avail <= 0:
+                    continue
+                if rng.random() >= chance_eff:
+                    continue
+                price = R.npc_offer_price(int(r["unit_price"]), rng, spread)
+                if price <= 0:
+                    continue
+                want = max(1, min(avail, int(round(
+                    avail * rng.uniform(min_pct, max_pct)))))
+                # 需求驱动选买家：国库缺口越大越优先，其次 node 归属势力
+                owner = node_owner.get(int(r["node_id"]), 0)
+                ranked: list[tuple[float, int]] = []
+                for bid, bf in buyers.items():
+                    score = self._npc_need_score(bf, item)
+                    if int(bid) == int(owner):
+                        score += 0.5
+                    ranked.append((score, int(bid)))
+                ranked.sort(key=lambda kv: (-kv[0], kv[1]))
+                for _score, bid in ranked:
+                    bf = buyers[bid]
+                    t = self._npc_treasury(bf)
+                    free_coin = max(0, int(t["coin"]) - int(t["reserved_coin"]))
+                    amount = min(want, free_coin // price)
+                    if amount <= 0:
+                        continue
+                    expires = min(now + expire_hours * 3600,
+                                  int(r["expires_at"]))
+                    if expires <= now:
+                        continue
+                    # 出价前冻结：reserved_coin 计入国库 JSON（无需迁移）
+                    gross = int(amount) * price
+                    self._treasury_add(bf, reserved_coin=gross)
+                    await self.save_faction(bf)
+                    await self._execute("""
+                        INSERT INTO strategy_market_offers (world_id, order_id,
+                            node_id, seller_user, buyer_faction, item_type, amount,
+                            unit_price, status, created_at, expires_at)
+                        VALUES (?,?,?,?,?,?,?,?,'pending',?,?)
+                    """, (world["id"], int(r["id"]), int(r["node_id"]),
+                          str(r["seller_user"]), int(bid), item,
+                          amount, price, now, expires))
+                    made += 1
+                    break
+        if made:
+            logger.info(f"[strategy] 坊市 NPC 收购报价新增 {made} 条")
+        if made or expired:
+            await self._commit()
+
+    def _npc_need_score(self, f: dict, item: str) -> float:
+        """国库缺口评分（0~1）：目标库存 = 守财底线×3，越缺越想要（§10.7）。"""
+        if item not in ("grain", "iron"):
+            return 0.0
+        reserve = self._npc_reserve(f)
+        stock = int(self._npc_treasury(f).get(item, 0) or 0)
+        target = max(1.0, float(reserve.get(item, 0)) * 3.0)
+        return max(0.0, min(1.0, (target - stock) / target))
+
+    async def _release_offer_reserve(self, offer: dict) -> int:
+        """退回某条报价冻结的铜钱（成交/过期/拒绝/挂单结束共用）。"""
+        fid = int(offer.get("buyer_faction") or 0)
+        gross = int(offer.get("amount", 0) or 0) * int(
+            offer.get("unit_price", 0) or 0)
+        if fid <= 0 or gross <= 0:
+            return 0
+        f = await self.get_faction(fid)
+        if not f:
+            return 0
+        t = dict(f.get("treasury") or {})
+        t["reserved_coin"] = max(
+            0, int(t.get("reserved_coin", 0) or 0) - gross)
+        f["treasury"] = t
+        await self.save_faction(f)
+        return gross
 
     # ------------------------------------------------------------------
     # 匪寨（§5.4）
@@ -586,6 +996,44 @@ class StrategyP3Mixin:
         fn = await self._ally_or_self_fn(world)
         return R.find_trade_routes(adjacency, node_type, owner, fn)
 
+    async def _routes_for_faction(self, world: dict,
+                                  faction_id: int) -> list[dict]:
+        """本方及盟友商路网络中的路线（长度/数量决定额外加成）。"""
+        fid = int(faction_id or 0)
+        if fid <= 0:
+            return []
+        routes = await self._compute_trade_routes(world)
+        if not routes:
+            return []
+        fn = await self._ally_or_self_fn(world)
+        return [rt for rt in routes
+                if fn(fid, int(rt.get("owner") or 0))]
+
+    async def _trade_route_task_bonus(self, world: dict,
+                                      faction_id: int) -> float:
+        """当前势力（含盟友）商路网络提供的贸易任务产出加成。"""
+        trcfg = self.main_cfg().get("trade_route") or {}
+        routes = await self._routes_for_faction(world, faction_id)
+        return R.trade_route_task_bonus(
+            routes,
+            base=float(trcfg.get("trade_task_bonus", 0.3)),
+            per_route=float(trcfg.get("task_bonus_per_route", 0.05)),
+            per_edge=float(trcfg.get("task_bonus_per_edge", 0.02)),
+            max_bonus=float(trcfg.get("task_bonus_max", 1.0)),
+        )
+
+    async def trade_route_output_bonus(self, world: dict) -> dict[int, float]:
+        """商路途经据点的自然产出加成（全势力共用一张商路网）。"""
+        trcfg = self.main_cfg().get("trade_route") or {}
+        routes = await self._compute_trade_routes(world)
+        return R.trade_route_output_bonus(
+            routes,
+            base=float(trcfg.get("node_output_bonus_base", 0.0)),
+            per_route=float(trcfg.get("node_output_bonus_per_route", 0.02)),
+            per_edge=float(trcfg.get("node_output_bonus_per_edge", 0.01)),
+            max_bonus=float(trcfg.get("node_output_bonus_max", 0.4)),
+        )
+
     async def _step_trade_routes(self, world: dict):
         trcfg = self.main_cfg().get("trade_route") or {}
         coin = int(trcfg.get("coin_per_tick", 20))
@@ -659,6 +1107,9 @@ class StrategyP3Mixin:
         await self._commit()
 
     async def _route_owner(self, world: dict, route: dict) -> int:
+        owner = int(route.get("owner") or 0)
+        if owner > 0:
+            return owner
         start = int((route.get("path") or [route["a"]])[0])
         node = await self.get_node(world["id"], start)
         return int((node or {}).get("owner_faction", 0))
@@ -693,12 +1144,15 @@ class StrategyP3Mixin:
         out = []
         for rt in await self._compute_trade_routes(world):
             a, b = nodes.get(rt["a"]), nodes.get(rt["b"])
+            path = rt["path"]
             out.append({"a": rt["a"], "b": rt["b"],
+                        "owner": int(rt.get("owner") or 0),
+                        "edge_count": max(0, len(path) - 1),
                         "a_name": (a or {}).get("name", "?"),
                         "b_name": (b or {}).get("name", "?"),
-                        "path": rt["path"],
+                        "path": path,
                         "path_names": [(nodes.get(int(nid)) or {}).get("name", "?")
-                                       for nid in rt["path"]]})
+                                       for nid in path]})
         return out
 
     # ------------------------------------------------------------------
@@ -737,8 +1191,24 @@ class StrategyP3Mixin:
                 queue.append(nxt)
         return None
 
+    async def _recruit_troop_cost(self, p: dict, troop_type: str,
+                                  troops: int) -> tuple[int, int, dict]:
+        """按编军机制计算兵力花费（铜钱/粮草，含动员与农政折扣）。"""
+        troops = max(0, int(troops))
+        tt = R.TROOP_TYPES.get(troop_type, R.TROOP_TYPES["sword_shield"])
+        troop_mult = await self._faction_buff(
+            int(p["faction_id"]), "troop_cost_mult")
+        coin = int(troops * tt["recruit_coin"] / 10 * troop_mult)
+        grain = int(troops * tt["recruit_grain"] / 10 * troop_mult)
+        faction = await self.get_faction(int(p["faction_id"]))
+        grain = int(grain * float(R.tech_effects(
+            (faction or {}).get("tech") or {}).get("grain_cost_mult", 1.0)))
+        return coin, grain, tt
+
     async def send_convoy(self, user_id: str, from_node: int, to_node: int,
-                          grain: int, escort_army_id: int = 0) -> dict:
+                          grain: int, escort_army_id: int = 0,
+                          escort_troops: int = 0,
+                          escort_troop_type: str = "") -> dict:
         world, p = await self._require_player(user_id)
         grain = int(grain)
         if grain <= 0:
@@ -757,6 +1227,8 @@ class StrategyP3Mixin:
             world, int(p["faction_id"]), int(src["id"]), int(dst["id"]))
         if not path or len(path) < 2:
             raise StrategyError("两地不通：运粮路线须全程经由本方/盟友据点")
+        ccfg = self.main_cfg().get("convoy") or {}
+        extra_troops = int(escort_troops or 0)
         escort_troops = 0
         escort_army = None
         if int(escort_army_id):
@@ -765,24 +1237,48 @@ class StrategyP3Mixin:
                     int(escort_army["node_id"]) != int(src["id"]):
                 raise StrategyError("护卫军团须空闲且驻扎在出发地")
             escort_troops = int(escort_army.get("troops", 0))
+        # 额外护送军队：与编军同价，按兵种招募价 + 势力动员/农政折扣计算
+        if extra_troops < 0:
+            raise StrategyError("护送军队兵力不能为负")
+        extra_type = str(escort_troop_type or "").strip() or str(
+            ccfg.get("escort_troop_type") or "sword_shield")
+        extra_coin = extra_grain = 0
+        extra_tt = R.TROOP_TYPES.get(extra_type)
+        if extra_troops > 0:
+            min_extra = max(1, int(ccfg.get("escort_min_troops", 100)))
+            if extra_troops < min_extra:
+                raise StrategyError(f"额外护送军队至少 {min_extra} 兵")
+            if not extra_tt:
+                raise StrategyError("护送军队兵种无效")
+            extra_coin, extra_grain, extra_tt = await self._recruit_troop_cost(
+                p, extra_type, extra_troops)
+            if p["coin"] < extra_coin or p["grain"] < grain + extra_grain:
+                raise StrategyError(
+                    f"资源不足：运粮 {grain} 粮 + 护送军需铜钱 "
+                    f"{extra_coin} / 粮草 {extra_grain}")
         data = world.get("data") or {}
         convoys = data.setdefault("convoys", [])
         # v4.3.0：队列满则拒绝新发货——此前挤出旧队会吞掉护送军/粮草
         # （旧队被切片丢弃后护送军靠孤儿清扫才释放，粮已蒸发）。
-        max_convoys = int((self.main_cfg().get("convoy") or {}).get(
-            "max_active", 40))
+        max_convoys = int(ccfg.get("max_active", 40))
         if len(convoys) >= max_convoys:
             raise StrategyError(
                 f"粮队队列已满（{len(convoys)}/{max_convoys}），"
                 f"请等待在途粮队抵达后再发货")
-        p["grain"] -= grain
+        # 额外护送军为一次性征召，抵达/被截后不返还；先付粮草再扣运粮
+        p["grain"] -= grain + extra_grain
+        if extra_coin:
+            p["coin"] -= extra_coin
         await self.save_player(p)
         cid = f"cv{_now()}_{time.time_ns() % 100000000:08d}"
         convoys.append({"id": cid, "owner": user_id,
                         "faction": int(p["faction_id"]),
                         "from": int(src["id"]), "to": int(dst["id"]),
                         "path": [int(x) for x in path], "idx": 0,
-                        "grain": grain, "escort_troops": escort_troops,
+                        "grain": grain,
+                        "escort_troops": escort_troops + extra_troops,
+                        "escort_paid_troops": extra_troops,
+                        "escort_troop_type": extra_type if extra_troops else "",
                         "escort_army_id": int(escort_army_id) if escort_army else 0,
                         "created_tick": int(world.get("tick_no", 0))})
         data["convoys"] = convoys
@@ -795,10 +1291,16 @@ class StrategyP3Mixin:
             await self.save_army(escort_army)
         await self.save_world(world)
         await self._commit()
+        extra_msg = ""
+        if extra_troops:
+            extra_msg = (f"，额外护军 {extra_troops}（{extra_tt.get('name', extra_type)}，"
+                         f"耗铜钱 {extra_coin}/粮草 {extra_grain}）")
         return {"ok": True, "convoy_id": cid,
+                "escort_troops": escort_troops + extra_troops,
+                "escort_cost": {"coin": extra_coin, "grain": extra_grain},
                 "msg": f"🚚 运粮队出发：{src['name']} → {dst['name']}"
-                       f"（粮 {grain}，护军 {escort_troops}，"
-                       f"{len(path) - 1} tick 后抵达）"}
+                       f"（粮 {grain}，护军 {escort_troops + extra_troops}"
+                       f"{extra_msg}，{len(path) - 1} tick 后抵达）"}
 
     async def _release_convoy_escort(self, cv: dict, node_id: int = 0) -> bool:
         """释放粮队护送军：恢复 idle 并落到指定据点（缺省保持原地）。"""
@@ -1039,6 +1541,8 @@ class StrategyP3Mixin:
             cur_id = int(path[idx]) if path else 0
             out.append({"id": cv["id"], "grain": cv["grain"],
                         "escort_troops": cv.get("escort_troops", 0),
+                        "escort_paid_troops": int(cv.get("escort_paid_troops") or 0),
+                        "escort_troop_type": cv.get("escort_troop_type") or "",
                         "escort_army_id": int(cv.get("escort_army_id") or 0),
                         "from": (nodes.get(int(cv["from"])) or {}).get("name", "?"),
                         "to": (nodes.get(int(cv["to"])) or {}).get("name", "?"),
@@ -1921,6 +2425,11 @@ class StrategyP3Mixin:
                 "traits": c.get("traits") or [],
                 "trait_names": [R.TRAIT_NAMES.get(t, t)
                                 for t in (c.get("traits") or [])],
+                "personality": c.get("personality") or {},
+                "personality_top_name": R.TOP_PERSONALITY_NAMES.get(
+                    str((c.get("personality") or {}).get("top") or ""), ""),
+                "personality_neg_name": R.NEGATIVE_PERSONALITY_NAMES.get(
+                    str((c.get("personality") or {}).get("negative") or ""), ""),
                 "node_id": int(r["node_id"]),
                 "node_name": node.get("name", ""),
                 "controller_faction": int(access.get("controller_faction", 0) or 0),

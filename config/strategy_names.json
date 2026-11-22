@@ -19,13 +19,19 @@
     "{surname}{given}子"
   ],
   "trait_pool": [
-    {"id": "fire_master", "name": "火攻大师", "desc": "火攻伤害 +30%"},
-    {"id": "siege_expert", "name": "守城专精", "desc": "城防战防御 +15%"},
-    {"id": "farming", "name": "屯垦劝农", "desc": "屯田产出 +25%"},
-    {"id": "doctor", "name": "名医", "desc": "治疗量 +50%"},
-    {"id": "swift", "name": "疾行", "desc": "军团机动 +1 hex"},
+    {"id": "fire_master", "name": "火攻", "desc": "火攻伤害 +20%"},
+    {"id": "siege_expert", "name": "守城", "desc": "城防战防御 +15%"},
+    {"id": "farming", "name": "屯田", "desc": "屯田产出 +25%"},
+    {"id": "doctor", "name": "名医", "desc": "战后伤兵回收 8%、伤势 -1"},
+    {"id": "swift", "name": "疾行", "desc": "行军速度 +15%、粮耗 -10%"},
     {"id": "intimidate", "name": "威压", "desc": "敌方士气初始 -5"},
     {"id": "moneybag", "name": "敛财", "desc": "任务币产出 +15%"},
-    {"id": "ironwall", "name": "铁壁", "desc": "被合围伤害减免 20%"}
+    {"id": "ironwall", "name": "铁壁", "desc": "守城防御 +20%"},
+    {"id": "frugal", "name": "节俭", "desc": "行军粮耗 -10%"},
+    {"id": "still_water", "name": "止水", "desc": "免疫「混乱」"},
+    {"id": "composed", "name": "泰然", "desc": "免疫「挑衅」"},
+    {"id": "iron_body", "name": "铁骨", "desc": "战后伤势 -1、不易伤病"},
+    {"id": "accumulate", "name": "厚积", "desc": "阅历获取 +10%"},
+    {"id": "good_karma", "name": "善缘", "desc": "招募高品质概率 +5%"}
   ]
 }

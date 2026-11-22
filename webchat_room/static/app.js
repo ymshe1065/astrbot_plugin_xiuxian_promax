@@ -1337,12 +1337,33 @@
   }
 
   /* ================= 仙域争霸 WS 通知（§12.5 strategy.notify） ================= */
+  // 战略页是独立标签且不建第二条 WS（同账号会被顶号），这里用 BroadcastChannel
+  // 把争霸通知/回合事件转给它；不支持时战略页仍靠轮询兜底。
+  function postStrategyBroadcast(m) {
+    try {
+      if (typeof BroadcastChannel !== "undefined") {
+        const bc = new BroadcastChannel("xiuxian_strategy");
+        bc.postMessage(m);
+        bc.close();
+      }
+    } catch (_) { /* 不支持时战略页仍靠轮询兜底 */ }
+  }
+
   function onStrategyNotify(m) {
     const kind = String(m.kind || "");
     const pl = m.payload || {};
     const nodeName = pl.node_name || (pl.node_id ? "据点#" + pl.node_id : "");
+    const battleId = Number(pl.battle_id || 0);
+    const openUrl = battleId
+      ? ("/static/strategy/index.html?battle=" + battleId)
+      : "/static/strategy/index.html";
+    const extend = pl.extended ? "（备战已延长，请尽快进入）" : "";
     const TEXTS = {
-      battle_open: "⚔️ 手操战役打响：" + nodeName + "！前往战略大地图「战报」页进入手操",
+      battle_open: "⚔️ 手操战役打响：" + nodeName + "！" + extend + "前往战略大地图「战报」页进入手操",
+      battle_turn: "⏳ 轮到你行动：" + nodeName +
+        (pl.round ? "（第 " + pl.round + " 回合）" : "") + "！30 秒内未操作将自动托管",
+      battle_result: "🏁 战役结束：" + nodeName + " · " +
+        (pl.winner === "attacker" ? "攻方胜" : pl.winner === "defender" ? "守方胜" : "未分胜负"),
       duel_invite: "🎯 有敌将向你发起阵前单挑！进入手操战役应战",
       siege_alert: "🔥 我方「" + nodeName + "」正被围城！",
       trade_route_cut: "🛤️ " + (pl.text || "商路已被切断"),
@@ -1354,7 +1375,13 @@
     showBanner(text);
     try {
       if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-        new Notification("仙域争霸", { body: text.replace(/^⚔️ |^🔥 |^🎯 |^🎲 |^🛤️ |^🚚 |^🏴 /, ""), tag: "strategy-" + kind });
+        const n = new Notification("仙域争霸", {
+          body: text.replace(/^⚔️ |^🔥 |^🎯 |^🎲 |^🛤️ |^🚚 |^🏴 |^⏳ |^🏁 /, ""),
+          tag: "strategy-" + kind + "-" + (battleId || pl.node_id || ""),
+        });
+        n.onclick = () => {
+          try { window.open(openUrl, "_blank"); } catch (_) { /* 移动端忽略 */ }
+        };
       }
     } catch (_) { /* 移动端忽略 */ }
   }
@@ -2067,17 +2094,16 @@
         break;
       case "strategy.notify":
         onStrategyNotify(m);
+        postStrategyBroadcast(m);
+        break;
+      case "strategy.battle.event":
+        // 手操回合/终局事件：战略页若正开着战场覆盖层就即时刷新。
+        postStrategyBroadcast(m);
         break;
       case "strategy.delta":
         // 战略页与聊天室同源；把 tick 推进转发给已打开的战略页标签
         // （战略页不再单独建 WS，避免同账号第二条连接把聊天室顶下线）。
-        try {
-          if (typeof BroadcastChannel !== "undefined") {
-            const bc = new BroadcastChannel("xiuxian_strategy");
-            bc.postMessage(m);
-            bc.close();
-          }
-        } catch (_) { /* 不支持时战略页仍靠轮询兜底 */ }
+        postStrategyBroadcast(m);
         break;
       case "sys":
         addSys(m.text);

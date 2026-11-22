@@ -120,7 +120,9 @@ class StrategyPlotMixin:
             raise StrategyError(f"该目标尚在计略冷却中"
                                 f"（还剩 {int(cd_map[cd_key]) - tick_no} tick）")
         cd_ticks = max(2, int(pcfg.get("cooldown_ticks", 6)) -
-                       int(R.tech_effects(tech).get("plot_cd_reduce", 0)))
+                       int(R.tech_effects(
+                           tech, tcfg=self.main_cfg().get("tech") or {}
+                       ).get("plot_cd_reduce", 0)))
         cd_map[cd_key] = tick_no + cd_ticks
         # --- 落任务行 ---
         if plot_type == "rescue":
@@ -162,12 +164,14 @@ class StrategyPlotMixin:
                                 p: Optional[dict]) -> dict:
         """计略任务到期结算。返回 {plot, success, exposed, texts}。"""
         pcfg = self.main_cfg().get("plot") or {}
+        tcfg = self.main_cfg().get("tech") or {}
         payload = task.get("payout") or {}
         plot = str(payload.get("plot") or task["task_type"][len("plot_"):])
         target = int(payload.get("target", 0))
         fid = int(task.get("faction_id", 0))
         f = await self.get_faction(fid)
         tech = (f or {}).get("tech") or {}
+        tech_eff = R.tech_effects(tech, tcfg=tcfg)
         target_fid = int(task.get("target_faction", 0))
         out: dict[str, Any] = {"plot": plot, "success": False, "exposed": False,
                                "texts": []}
@@ -175,13 +179,34 @@ class StrategyPlotMixin:
         stats = c.get("stats") or {}
         wisdom_self = int(stats.get("wisdom", 50))
         wisdom_target = await self._faction_best_wisdom(world["id"], target_fid)
-        bonus = float(R.tech_effects(tech).get("plot_bonus", 0.0)) + \
+        bonus = float(tech_eff.get("plot_bonus", 0.0)) + \
             await self._faction_plot_bonus(f)
+        # 神算：计略成功率 +15%（§4.9）
+        bonus += float(R.personality_mods(
+            c.get("personality")).get("scheme_rate_bonus", 0.0) or 0.0)
+        # 谋略 L3：对带兵 ≥ 阈值的目标成功率 +3%（仅据点目标，按守军+驻军计）
+        if str(PLOT_TARGET_KIND.get(plot) or "") == "node" and target > 0 and \
+                float(tech_eff.get("plot_bonus_vs_big_army", 0.0) or 0.0) > 0:
+            tnode = await self.get_node(world["id"], int(target))
+            if tnode:
+                tt = int(((tnode.get("npc_garrison") or {}).get("troops") or 0))
+                for a in await self.get_armies(world["id"], node_id=int(target),
+                                               states=("idle", "siege")):
+                    tt += max(0, int(a.get("troops", 0) or 0))
+                if tt >= int(tech_eff.get("big_army_threshold", 2000) or 2000):
+                    bonus += float(tech_eff.get("plot_bonus_vs_big_army", 0.0))
         tf = await self.get_faction(target_fid) if target_fid else None
-        # 反间（谋略 L5：30% 反弹）
+        # 谋略 L7 诡道：目标势力「凤雏」类效果——敌军计略成功率 -10%
+        enemy_rate_mult = 1.0
+        if tf:
+            enemy_rate_mult = float(R.tech_effects(
+                tf.get("tech") or {}, tcfg=tcfg).get("enemy_plot_rate_mult", 1.0) or 1.0)
+        # 反间（谋略 L5：30% 反弹）；己方谋略 L5「反间防御」可抵消部分被反间概率
         countered = False
         if tf:
-            cs = float(R.tech_effects(tf.get("tech") or {}).get("counter_spy", 0.0))
+            cs = float(R.tech_effects(
+                tf.get("tech") or {}, tcfg=tcfg).get("counter_spy", 0.0))
+            cs = max(0.0, cs - float(tech_eff.get("counter_spy_defense", 0.0)))
             if cs > 0 and rng.random() < cs:
                 countered = True
         if plot == "rescue":
@@ -191,7 +216,7 @@ class StrategyPlotMixin:
                 return out
             in_transit = tc.get("status") == "transfer"
             lead = int((tc.get("stats") or {}).get("leadership", 50))
-            rate = R.rescue_success_rate(wisdom_self, wisdom_target, lead, bonus)
+            rate = R.rescue_success_rate(wisdom_self, wisdom_target, lead, bonus) * enemy_rate_mult
             success = (not countered) and rng.random() * 100 < rate
             out["success"] = success
             if success:
@@ -210,7 +235,7 @@ class StrategyPlotMixin:
                     "rescue_expose_chance", 0.4))
                 if countered or R.plot_expose(
                         rng, expose_chance,
-                        float(R.tech_effects(tech).get("expose_reduction", 0.0))):
+                        float(tech_eff.get("expose_reduction", 0.0))):
                     out["exposed"] = True
                     got = await self._expose_executor(world, c, f, target_fid)
                     out["texts"].append(
@@ -220,7 +245,7 @@ class StrategyPlotMixin:
                     out["texts"].append("营救失败，所幸未暴露行迹")
             return out
         # --- 通用计略 ---
-        rate = R.plot_success_rate(wisdom_self, wisdom_target, bonus)
+        rate = R.plot_success_rate(wisdom_self, wisdom_target, bonus) * enemy_rate_mult
         success = (not countered) and rng.random() * 100 < rate
         out["success"] = success
         if countered:
@@ -228,7 +253,7 @@ class StrategyPlotMixin:
         if not success:
             if countered or R.plot_expose(
                     rng, float(pcfg.get("expose_chance", 0.4)),
-                    float(R.tech_effects(tech).get("expose_reduction", 0.0))):
+                    float(tech_eff.get("expose_reduction", 0.0))):
                 out["exposed"] = True
                 got = await self._expose_executor(world, c, f, target_fid)
                 out["texts"].append(
@@ -268,6 +293,7 @@ class StrategyPlotMixin:
                 # 官职随出走一并解除（否则 taishou/都督仍在旧势力名册中）
                 tc["appointed_position"] = ""
                 tc["appointed_node_id"] = 0
+                await self._clear_char_governors(world["id"], tc["id"])
                 out["texts"].append(
                     f"离间大成！{tc['name']} 忠诚崩至 {tc['loyalty']}，挂印出走")
             else:
@@ -285,7 +311,9 @@ class StrategyPlotMixin:
             if node:
                 node["morale"] = max(0, int(node.get("morale", 80)) +
                                      int(pcfg.get("rumor_morale", -15)))
-                ticks = int(pcfg.get("rumor_ticks", 3))
+                # 谋略 L7 诡道：负面效果时长 +20%（谣言持续更久）
+                ticks = int(int(pcfg.get("rumor_ticks", 3)) *
+                            float(tech_eff.get("plot_duration_mult", 1.0) or 1.0))
                 tick_no = int(world.get("tick_no", 0))
                 # §6.3：产出 -20% 只落节点 output_json（plot_output_mult 读取），
                 # 事件记录仅作展示。切勿再写 node_output 乘区，否则会与
@@ -327,7 +355,8 @@ class StrategyPlotMixin:
             node = await self.get_node(world["id"], target)
             ss = (node or {}).get("siege_state") or {}
             if node and int(ss.get("attacker_faction", 0)) == fid:
-                await self._capture_node(world, node, fid)
+                # §10.6：劝降属无血开城，等级保留（by_force=False）
+                await self._capture_node(world, node, fid, by_force=False)
                 out["texts"].append(f"🏳️ 围城中的「{node['name']}」守将开城投降！")
                 await self.liberate_captives_at_node(world, node, fid)
             else:

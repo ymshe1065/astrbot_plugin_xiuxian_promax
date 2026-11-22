@@ -184,51 +184,27 @@ class StrategyFactionMixin:
         return {int(x["id"]) for x in await self._alliance_factions(world_id, f)}
 
     async def _governance_faction(self, p: dict) -> Optional[dict]:
-        """玩家参与共同治理的势力：结盟后为盟主势力，否则为自身势力。"""
+        """玩家参与共同治理的势力：结盟后为盟主势力，否则为自身势力。
+
+        v4.3.4：联盟只共同治理外交 / 官职 / 名册；国库与科技改为
+        **各势力各自占有**，相关逻辑应使用 ``_own_faction``。
+        """
         f = await self.get_faction(int(p.get("faction_id") or 0))
         return await self._alliance_host(f) if f else None
 
+    async def _own_faction(self, p: dict) -> Optional[dict]:
+        """玩家自己的势力（联盟内仍为本势力，不替换为盟主）。"""
+        return await self.get_faction(int(p.get("faction_id") or 0))
+
     async def _sync_alliance_meta(self, host: dict):
-        """把盟主的科技/外交同步给成员势力，保持共同对外口径。"""
+        """把盟主的共同外交同步给成员势力；国库/科技各势力独立，不同步。"""
         if not host:
             return
         for m in await self._alliance_factions(int(host["world_id"]), host):
             if int(m["id"]) == int(host["id"]):
                 continue
-            # 研究进度/科技点只保留在盟主势力，成员只同步已完成等级
-            m["tech"] = {k: v for k, v in (host.get("tech") or {}).items()
-                         if k not in ("pending", "points")}
             m["diplomacy"] = dict(host.get("diplomacy") or {})
             await self.save_faction(m)
-
-    async def _alliance_node_counts(self, world_id: int,
-                                    ids: set[int]) -> dict[int, int]:
-        if not ids:
-            return {}
-        marks = ",".join("?" for _ in ids)
-        rows = await self._fetchall(
-            f"SELECT owner_faction, COUNT(*) AS n FROM strategy_nodes "
-            f"WHERE world_id=? AND owner_faction IN ({marks}) GROUP BY owner_faction",
-            (int(world_id), *[int(x) for x in ids]))
-        return {int(r["owner_faction"]): int(r["n"]) for r in rows}
-
-    async def _move_treasury_share(self, host: dict, target: dict, share: float):
-        """按据点占比把盟主国库的一部分划给退出联盟的势力。"""
-        share = max(0.0, min(1.0, float(share)))
-        if share <= 0:
-            return
-        ht = dict(host.get("treasury") or {})
-        tt = dict(target.get("treasury") or {})
-        for k, v in list(ht.items()):
-            amount = int(int(v) * share)
-            if amount <= 0:
-                continue
-            tt[k] = int(tt.get(k, 0)) + amount
-            ht[k] = int(v) - amount
-        host["treasury"] = ht
-        target["treasury"] = tt
-        await self.save_faction(host)
-        await self.save_faction(target)
 
     async def _restore_alliance_diplomacy(self, world: dict, member: dict,
                                           host: dict) -> dict:
@@ -258,7 +234,7 @@ class StrategyFactionMixin:
 
     async def _add_faction_to_alliance(self, world: dict, member: dict,
                                        host: dict, leader_position: str = "deputy"):
-        """把成员势力并入联盟：保留其据点，合并国库/科技/外交并登记盟主名册。"""
+        """把成员势力并入联盟：保留据点、国库与科技，仅合并外交并登记名册。"""
         if not member or not host:
             raise StrategyError("势力不存在")
         member = await self.get_faction(int(member["id"])) or member
@@ -282,61 +258,11 @@ class StrategyFactionMixin:
         backup[str(int(member["id"]))] = {
             "dip": dict(member.get("diplomacy") or {}), "at": _now()}
         data["alliance_dip_backup"] = backup
-        # 入盟前备份成员自身科技：联盟科技以盟主为准，退盟/解散时还原，
-        # 否则成员可以「加盟抄满级、退盟永久保留」，反复横跳免费吸科技；
-        # 同时清掉成员侧残留的 pending，避免退盟后重复结算同一研究。
-        m_tech = member.get("tech") or {}
-        m_pending = m_tech.get("pending") if isinstance(
-            m_tech.get("pending"), dict) else None
-        tech_backup = data.get("alliance_tech_backup")
-        if not isinstance(tech_backup, dict):
-            tech_backup = {}
-        # 重复入盟（如只补名册）时保留最初快照，避免把已同步的盟主科技
-        # 当成"入盟前科技"记下来，退盟后照样白嫖。
-        if not isinstance(tech_backup.get(str(int(member["id"]))), dict):
-            tech_backup[str(int(member["id"]))] = {
-                "levels": {k: int(v or 0) for k, v in m_tech.items()
-                           if k != "pending" and isinstance(v, (int, float))},
-                "pending": dict(m_pending) if m_pending else None,
-                "at": _now(),
-            }
-        data["alliance_tech_backup"] = tech_backup
         world["data"] = data
         await self.save_world(world)
-        # 合并国库与科技（据点归属保持原样）
-        ht = dict(host.get("treasury") or {})
-        mt = dict(member.get("treasury") or {})
-        for k, v in mt.items():
-            ht[k] = int(ht.get(k, 0)) + int(v)
-        host["treasury"] = ht
-        member["treasury"] = {}
-        htech = dict(host.get("tech") or {})
-        for line, lv in (member.get("tech") or {}).items():
-            if line == "pending":
-                if not htech.get("pending"):
-                    htech["pending"] = lv
-                    # 该研究已被联盟接管：退盟时不再还原，避免双方重复结算
-                    tent = tech_backup.get(str(int(member["id"])))
-                    if isinstance(tent, dict):
-                        tent["pending_moved_to_host"] = True
-                else:
-                    # 双方都在研究：联盟只保留盟主的在研项目，成员项目
-                    # 被覆盖。必须释放成员的主研角色，否则其 status 永久
-                    # 卡在 research（盟主 tech 里没有这条 pending 可结算）。
-                    pcid = int((lv or {}).get("char_id", 0) or 0)
-                    keep_cid = int((htech.get("pending") or {}).get(
-                        "char_id", 0) or 0)
-                    if pcid and pcid != keep_cid:
-                        c = await self.get_char(pcid)
-                        if c and c.get("status") == "research":
-                            c["status"] = "idle"
-                            await self.save_char(c)
-                continue
-            htech[line] = max(int(htech.get(line, 0) or 0), int(lv or 0))
-        host["tech"] = htech
+        # 国库与科技保持各势力独立：据点、资源、研究进度都不搬迁。
         host["alliance_id"] = int(host["id"])
         member["alliance_id"] = int(host["id"])
-        member["tech"] = dict(htech)
         # 联盟共同外交：以盟主政策为主，但成员已有的双边记录（尤其
         # 停战/战争/好感）并入盟主字典，避免结盟即抹除既有条约。
         h_dip = dict(host.get("diplomacy") or {})
@@ -368,31 +294,8 @@ class StrategyFactionMixin:
         logger.info(f"[strategy] 势力#{member['id']}「{member['name']}」并入"
                     f"联盟#{host['id']}「{host['name']}」")
 
-    async def _restore_alliance_tech(self, world: dict, member: dict) -> dict:
-        """退盟/解散时还原成员入盟前的科技（防止「加盟抄科技」）。
-
-        无快照的旧存档：仅清除从盟主复制来的 ``pending``，等级保留（无法
-        追溯入盟前数值），至少避免退盟后重复结算同一项研究。
-        """
-        data = world.get("data") or {}
-        backup = data.get("alliance_tech_backup")
-        if not isinstance(backup, dict):
-            backup = {}
-        snap = backup.pop(str(int(member["id"])), None)
-        data["alliance_tech_backup"] = backup
-        world["data"] = data
-        if isinstance(snap, dict):
-            tech = {k: int(v or 0) for k, v in (snap.get("levels") or {}).items()}
-            if snap.get("pending") and not snap.get("pending_moved_to_host"):
-                tech["pending"] = dict(snap["pending"])
-        else:
-            tech = {k: v for k, v in (member.get("tech") or {}).items()}
-            tech.pop("pending", None)
-        await self.save_world(world)
-        return tech
-
     async def _remove_faction_from_alliance(self, world: dict, member: dict) -> dict:
-        """退出联盟：按当前据点分割国库，成员势力保留自己的全部据点。"""
+        """退出联盟：保留自己的据点、国库与科技，仅恢复共同外交。"""
         member = await self.get_faction(int(member["id"])) or member
         if not int(member.get("alliance_id") or 0):
             raise StrategyError("当前不在联盟中")
@@ -402,10 +305,6 @@ class StrategyFactionMixin:
         if int(member["id"]) == int(host["id"]):
             await self._dissolve_alliance(world, host, factions, ids)
             return {"ok": True, "msg": f"联盟「{host['name']}」已解散，各势力保留现有据点"}
-        counts = await self._alliance_node_counts(world["id"], ids)
-        total = sum(counts.values())
-        share = (counts.get(int(member["id"]), 0) / total) if total else 0.0
-        await self._move_treasury_share(host, member, share)
         rows = await self._fetchall(
             "SELECT user_id FROM strategy_players WHERE world_id=? AND faction_id=?",
             (world["id"], int(member["id"])))
@@ -416,26 +315,21 @@ class StrategyFactionMixin:
         # 防止「退盟即脱战/免费撕约」。
         member["diplomacy"] = await self._restore_alliance_diplomacy(
             world, member, host)
-        member["tech"] = await self._restore_alliance_tech(world, member)
         await self.save_faction(member)
         rest = [x for x in factions if int(x["id"]) != int(member["id"])]
         if len(rest) <= 1:
             host["alliance_id"] = 0
             await self.save_faction(host)
         logger.info(f"[strategy] 势力#{member['id']}「{member['name']}」退出联盟"
-                    f"「{host['name']}」，保留据点 {counts.get(int(member['id']), 0)}")
+                    f"「{host['name']}」，保留据点与独立国库/科技")
         return {"ok": True,
-                "msg": f"已退出联盟「{host['name']}」，现有据点与主城全部保留"}
+                "msg": f"已退出联盟「{host['name']}」，现有据点、国库与科技全部保留"}
 
     async def _dissolve_alliance(self, world: dict, host: dict,
                                  factions: list[dict], ids: set[int]):
-        counts = await self._alliance_node_counts(world["id"], ids)
-        total = sum(counts.values())
         for f in factions:
             if int(f["id"]) == int(host["id"]):
                 continue
-            share = (counts.get(int(f["id"]), 0) / total) if total else 0.0
-            await self._move_treasury_share(host, f, share)
             rows = await self._fetchall(
                 "SELECT user_id FROM strategy_players WHERE world_id=? AND faction_id=?",
                 (world["id"], int(f["id"])))
@@ -443,7 +337,6 @@ class StrategyFactionMixin:
                 await self.delete_member(int(host["id"]), str(row["user_id"]))
             f["alliance_id"] = 0
             f["diplomacy"] = await self._restore_alliance_diplomacy(world, f, host)
-            f["tech"] = await self._restore_alliance_tech(world, f)
             await self.save_faction(f)
         host["alliance_id"] = 0
         await self.save_faction(host)
@@ -616,6 +509,13 @@ class StrategyFactionMixin:
         """把玩家角色/军团迁入指定势力，并登记为该势力主公。"""
         # 被俘/押运中的角色不得被入盟/崩溃等流程改写阵营：其 faction_id
         # 仍代表原势力，改写会让俘虏归属错乱（甚至直接脱离关押）。
+        # 太守是据点级职务，随角色换阵营一并卸任，避免跨势力残留。
+        await self._execute(
+            "UPDATE strategy_nodes SET governor_char_id=0 WHERE world_id=? "
+            "AND governor_char_id IN (SELECT id FROM strategy_characters "
+            "WHERE world_id=? AND owner_user_id=? AND status NOT IN "
+            "('captive','transfer') AND captor_faction<=0)",
+            (world["id"], world["id"], p["user_id"]))
         await self._execute(
             "UPDATE strategy_characters SET faction_id=?, appointed_position='', "
             "appointed_node_id=0 WHERE world_id=? AND owner_user_id=? "
@@ -887,7 +787,10 @@ class StrategyFactionMixin:
 
     async def faction_appoint_char(self, user_id: str, char_id: int,
                                    position: str = "", node_id: int = 0) -> dict:
-        """角色级官职任免（§4.5）：官职随角色，开放档位随势力据点数量。"""
+        """角色级官职任免（§4.5）：官职随角色，开放档位随势力据点数量。
+
+        太守已改为据点级职务，不再走角色官职接口；``node_id`` 仅为旧前端兼容。
+        """
         world, p = await self._require_player(user_id)
         f = await self._governance_faction(p)
         if not f or f.get("kind") == "npc":
@@ -909,6 +812,8 @@ class StrategyFactionMixin:
             raise StrategyError(f"该角色主人入盟不足 {hours} 小时，"
                                 "暂不可担任官职（观察期）")
         position = str(position or "").strip()
+        if position == "taishou":
+            raise StrategyError("太守已改为据点级职务，请在据点抽屉任免")
         if position and position not in R.APPOINTABLE_POSITIONS:
             raise StrategyError("官职无效（主公/副主是玩家治理身份，不属于角色官职）")
         node_count = await self._governance_node_count(int(world["id"]), f)
@@ -926,32 +831,16 @@ class StrategyFactionMixin:
             if len(holders) >= cap:
                 raise StrategyError(
                     f"{R.POSITION_NAMES.get(position, position)}名额已满（{cap}）")
-        if position == "taishou":
-            if int(node_id or 0) <= 0:
-                raise StrategyError("任命太守须指定所辖据点")
-            node = await self.get_node(int(world["id"]), int(node_id))
-            if not node or int(node.get("owner_faction") or 0) not in ids:
-                raise StrategyError("太守所辖据点须为本势力/联盟据点")
-            for x in await self._alliance_chars(int(world["id"]), f):
-                if int(x["id"]) != int(c["id"]) and \
-                        str(x.get("appointed_position") or "") == "taishou" and \
-                        int(x.get("appointed_node_id") or 0) == int(node_id):
-                    raise StrategyError("该据点已有太守")
-        else:
-            node_id = 0
+        # 角色官职与据点太守相互独立；历史字段 appointed_node_id 不再承载太守。
         c["appointed_position"] = position
-        c["appointed_node_id"] = int(node_id) if position == "taishou" else 0
+        c["appointed_node_id"] = 0
         await self.save_char(c)
         await self._commit()
         if not position:
             return {"ok": True, "msg": f"{c['name']} 已卸任官职"}
-        node_txt = ""
-        if position == "taishou":
-            node = await self.get_node(int(world["id"]), int(node_id))
-            node_txt = f"（辖「{(node or {}).get('name', node_id)}」）"
         return {"ok": True,
                 "msg": f"已任命 {c['name']} 为「"
-                       f"{R.POSITION_NAMES.get(position, position)}」{node_txt}"}
+                       f"{R.POSITION_NAMES.get(position, position)}」"}
 
     async def transfer_leader(self, user_id: str, target_user: str) -> dict:
         world, p = await self._require_player(user_id)
@@ -1016,6 +905,7 @@ class StrategyFactionMixin:
                 raise StrategyError("仅联盟盟主可跨势力交接据点")
         old_owner = await self.get_faction(old_owner_id)
         node["owner_faction"] = int(target["id"])
+        node["governor_char_id"] = 0  # 交接后由新归属势力重新任命太守
         node["siege_state"] = {}
         await self.save_node(node)
         if old_owner and int(old_owner.get("capital_node_id") or 0) == int(node["id"]):
@@ -1053,7 +943,8 @@ class StrategyFactionMixin:
         if int(p.get(resource, 0)) < amount:
             raise StrategyError(
                 f"{R.RESOURCE_NAMES.get(resource, resource)} 不足")
-        f = await self._governance_faction(p)
+        f = await self._own_faction(p)
+        gov = await self._governance_faction(p) or f
         if not f:
             raise StrategyError("势力不存在")
         p[resource] -= amount
@@ -1063,12 +954,11 @@ class StrategyFactionMixin:
         await self.save_faction(f)
         await self.save_player(p)
         await self.add_contribution(f["id"], user_id, max(1, amount // 10))
-        # §6.4 势力任务：共襄国库
-        await self._faction_task_progress(f["id"], "donate", amount)
+        # §6.4 势力任务：共襄国库（共同治理名册下的任务仍由盟主推进）
+        await self._faction_task_progress(gov["id"], "donate", amount)
         await self._commit()
-        label = "联盟国库" if int(f.get("alliance_id") or 0) else "国库"
         return {"ok": True,
-                "msg": f"存入{label} {R.RESOURCE_NAMES.get(resource, resource)}"
+                "msg": f"存入本势力国库 {R.RESOURCE_NAMES.get(resource, resource)}"
                        f" ×{amount}"}
 
     async def treasury_withdraw(self, user_id: str, resource: str, amount: int) -> dict:
@@ -1077,7 +967,7 @@ class StrategyFactionMixin:
         amount = int(amount)
         if resource not in ("coin", "grain", "iron") or amount <= 0:
             raise StrategyError("仅支持提取铜钱/粮草/精铁且数量为正")
-        f = await self._governance_faction(p)
+        f = await self._own_faction(p)
         if not f or f.get("kind") == "npc":
             raise StrategyError("当前不在玩家势力中")
         pos = await self._require_position(f, user_id, ("leader", "deputy"))
@@ -1115,9 +1005,8 @@ class StrategyFactionMixin:
         await self.save_faction(f)
         await self.save_player(p)
         await self._commit()
-        label = "联盟国库" if int(f.get("alliance_id") or 0) else "国库"
         return {"ok": True,
-                "msg": f"从{label}提取 {R.RESOURCE_NAMES.get(resource, resource)}"
+                "msg": f"从本势力国库提取 {R.RESOURCE_NAMES.get(resource, resource)}"
                        f" ×{amount}"}
 
     # ------------------------------------------------------------------
@@ -1132,10 +1021,12 @@ class StrategyFactionMixin:
             raise StrategyError(
                 "科技线无效（" + "/".join(R.TECH_NAMES.get(x, x)
                                           for x in R.TECH_LINES) + "）")
-        f = await self._governance_faction(p)
+        f = await self._own_faction(p)
+        gov = await self._governance_faction(p)
         if not f or f.get("kind") == "npc":
             raise StrategyError("当前不在玩家势力中")
-        await self._require_position(f, user_id, OFFICER_POSITIONS)
+        # 官职/名册仍按联盟共同治理校验；科技与国库费用只作用于本势力。
+        await self._require_position(gov, user_id, OFFICER_POSITIONS)
         tech = f.get("tech") or {}
         if tech.get("pending"):
             pend = tech["pending"]
@@ -1158,10 +1049,19 @@ class StrategyFactionMixin:
         cost_coin = _level_cost("cost_coin", [500] * 5)
         cost_iron = _level_cost("cost_iron", [500] * 5)
         treasury = f.get("treasury") or {}
-        if int(treasury.get("coin", 0)) < cost_coin or int(treasury.get("iron", 0)) < cost_iron:
-            raise StrategyError(f"国库不足：研究 L{lvl + 1} 需铜钱 {cost_coin} / 精铁 {cost_iron}")
+        have_coin = int(treasury.get("coin", 0) or 0)
+        have_iron = int(treasury.get("iron", 0) or 0)
+        if have_coin < cost_coin or have_iron < cost_iron:
+            # 研究固定从势力国库扣费（个人钱包不参与）；报错同时给出当前余额，
+            # 避免玩家把顶栏个人铜钱/精铁当成国库余额而误判为数值判断出错。
+            raise StrategyError(
+                f"国库不足：研究 L{lvl + 1} 需铜钱 {cost_coin} / 精铁 {cost_iron}，"
+                f"当前国库铜钱 {have_coin} / 精铁 {have_iron}"
+                "（研究从势力国库扣费，个人资源请先「捐入国库」）")
         # §8.4 指派 1 名角色「研究」：占用其时间，智谋/政务加速
-        c = await self._pick_research_char(world["id"], f, int(char_id or 0))
+        # 科技为本势力独立进度，只允许本势力角色主研。
+        c = await self._pick_research_char(world["id"], f, int(char_id or 0),
+                                           {int(f["id"])})
         stat = max(int((c.get("stats") or {}).get("wisdom", 0)),
                    int((c.get("stats") or {}).get("admin", 0)))
         # 耗时：基础小时 × 主属性加速（以主研角色的智谋/政务计算）
@@ -1195,15 +1095,15 @@ class StrategyFactionMixin:
         return {"ok": True,
                 "msg": f"开始研究 {R.TECH_NAMES.get(line, line)} L{lvl + 1}"
                        f"（{hours:.1f}h，主研 {c['name']}，"
-                       f"扣{'联盟' if int(f.get('alliance_id') or 0) else ''}"
-                       f"国库铜钱 {cost_coin}/精铁 {cost_iron}"
+                       f"扣本势力国库铜钱 {cost_coin}/精铁 {cost_iron}"
                        + (f"，科技点抵扣 {cut_min} 分钟" if cut_min > 0 else "")
                        + "）"}
 
     async def _pick_research_char(self, world_id: int, f: dict,
-                                  char_id: int = 0) -> dict:
+                                  char_id: int = 0,
+                                  faction_ids: Optional[set[int]] = None) -> dict:
         """§8.4 研究角色：显式指派优先，否则自动挑智谋最高且 idle 者。"""
-        ids = await self._alliance_ids(world_id, f) or {int(f["id"])}
+        ids = faction_ids or await self._alliance_ids(world_id, f) or {int(f["id"])}
         if int(char_id or 0) > 0:
             c = await self.get_char(int(char_id))
             if not c or int(c.get("faction_id") or 0) not in ids:
@@ -1248,9 +1148,7 @@ class StrategyFactionMixin:
         changed = False
         for row in rows:
             f = self._decode("strategy_factions", row)
-            aid = int(f.get("alliance_id") or 0)
-            if aid and aid != int(f["id"]):
-                continue  # 联盟研究只在盟主势力推进
+            # 科技为各势力独立进度：联盟成员也在此结算自己的研究。
             tech = f.get("tech") or {}
             pend = tech.get("pending") or {}
             if pend and int(pend.get("finish_at", 0)) <= _now():
@@ -1260,7 +1158,6 @@ class StrategyFactionMixin:
                     tech.pop("pending", None)
                     f["tech"] = tech
                     await self.save_faction(f)
-                    await self._sync_alliance_meta(f)
                     changed = True
                     # §8.4 研究完成：主研角色回到 idle 并结算经验
                     cid = int(pend.get("char_id", 0) or 0)
@@ -1941,6 +1838,159 @@ class StrategyFactionMixin:
         return True
 
     # ------------------------------------------------------------------
+    # 俸禄（角色官职 + 据点太守）：每 tick 从国库扣铜钱
+    # ------------------------------------------------------------------
+    async def _step_salary(self, world: dict):
+        """结算角色官职 / 据点太守俸禄；国库不足时停发对应增益。
+
+        - 联盟不共享国库：角色官职俸禄由**角色所属势力**国库发放；
+        - 据点太守俸禄由**据点归属势力**国库发放；
+        - 按 ``faction.salary.priority`` 依次支付，付不起的条目记入
+          ``salary.unpaid_*``，本 tick 对应官职/太守加成一并暂停；
+        - 研究科技「仁政」的 ``salary_mult`` 可降低本势力俸禄。
+        """
+        fcfg = self.main_cfg().get("faction") or {}
+        scfg = fcfg.get("salary") or {}
+        enabled = bool(scfg.get("enabled", fcfg.get("salary_from_treasury", True)))
+        # 默认值与 config/strategy_config.json 保持一致；旧配置缺字段时仍可运行。
+        per = {"taishou": 10, "zhonglang": 15, "jijiu": 25,
+               "situ": 35, "taiwei": 50}
+        for k, v in (scfg.get("per_tick") or {}).items():
+            per[str(k)] = max(0, int(v or 0))
+        rows = await self._fetchall(
+            "SELECT id FROM strategy_factions WHERE world_id=? "
+            "AND kind='player' AND alive=1", (world["id"],))
+        if not rows:
+            return
+        factions: dict[int, dict] = {}
+        for row in rows:
+            f = await self.get_faction(int(row["id"]))
+            if f:
+                factions[int(f["id"])] = f
+        if not enabled or not per:
+            # 关闭俸禄后清空历史停发状态，避免旧 unpaid 列表继续屏蔽加成。
+            for f in factions.values():
+                if f.get("salary"):
+                    f["salary"] = {}
+                    await self.save_faction(f)
+            await self._commit()
+            return
+        priority = [str(x) for x in
+                    (scfg.get("priority") or
+                     ("taiwei", "situ", "jijiu", "zhonglang", "taishou"))]
+        order = {pos: idx for idx, pos in enumerate(priority)}
+        tick_no = int(world.get("tick_no", 0) or 0)
+        tcfg = self.main_cfg().get("tech") or {}
+        # 角色官职俸禄：各势力只为本势力角色发薪（联盟官职共同治理，
+        # 但国库/科技等资源按势力独立，绝不从盟主国库代付）。
+        role_items: dict[int, list[dict]] = {}
+        for fid, f in factions.items():
+            for c in await self._alliance_chars(int(world["id"]), f):
+                if int(c.get("faction_id") or 0) != fid:
+                    continue
+                pos = str(c.get("appointed_position") or "")
+                amount = int(per.get(pos, 0))
+                if pos in R.APPOINTABLE_POSITIONS:
+                    role_items.setdefault(fid, []).append({
+                        "kind": "role", "position": pos,
+                        "char_id": int(c["id"]), "char_name": str(c.get("name") or ""),
+                        "node_id": 0, "node_name": "", "amount": amount,
+                        "char_salary_mult": R.char_salary_mult(c),
+                    })
+        # 据点太守俸禄：据点归属势力发。
+        gov_items: dict[int, list[dict]] = {}
+        ally_cache: dict[int, set[int]] = {}
+        for node in await self.get_nodes(int(world["id"])):
+            owner_fid = int(node.get("owner_faction") or 0)
+            if owner_fid <= 0 or owner_fid not in factions:
+                continue
+            gov = await self._valid_node_governor(node)
+            if not gov:
+                continue
+            if owner_fid not in ally_cache:
+                ally_cache[owner_fid] = await self._alliance_ids(
+                    int(world["id"]), factions[owner_fid])
+            if int(gov.get("faction_id") or 0) not in ally_cache[owner_fid]:
+                continue
+            amount = int(per.get("taishou", 0))
+            if amount <= 0:
+                continue
+            gov_items.setdefault(owner_fid, []).append({
+                "kind": "governor", "position": "taishou",
+                "char_id": int(gov["id"]), "char_name": str(gov.get("name") or ""),
+                "node_id": int(node["id"]), "node_name": str(node.get("name") or ""),
+                "amount": amount,
+                "char_salary_mult": R.char_salary_mult(gov),
+            })
+        for fid, f in factions.items():
+            old_state = f.get("salary") or {}
+            if not role_items.get(fid) and not gov_items.get(fid) and not old_state:
+                continue  # 无任官且无历史状态：不必每 tick 写库
+            tech = R.tech_effects(f.get("tech") or {}, tcfg=tcfg)
+            salary_mult = max(0.0, float(tech.get("salary_mult", 1.0) or 1.0))
+            items = list(role_items.get(fid, [])) + list(gov_items.get(fid, []))
+            for it in items:
+                # 势力科技「仁政」× 角色个性/特技（贪财↑ / 节俭↓）
+                it["amount"] = max(0, int(round(
+                    int(it["amount"]) * salary_mult *
+                    float(it.get("char_salary_mult", 1.0) or 1.0))))
+            items.sort(key=lambda it: (
+                order.get(str(it.get("position")), len(priority)),
+                int(it.get("char_id") or 0),
+                int(it.get("node_id") or 0)))
+            treasury = dict(f.get("treasury") or {})
+            balance = max(0, int(treasury.get("coin", 0) or 0))
+            paid_total = 0
+            due_total = 0
+            for it in items:
+                amount = int(it.get("amount", 0))
+                due_total += amount
+                if amount <= 0:
+                    it["paid"] = True
+                    continue
+                if balance >= amount:
+                    balance -= amount
+                    paid_total += amount
+                    it["paid"] = True
+                else:
+                    it["paid"] = False
+            treasury["coin"] = balance
+            f["treasury"] = treasury
+            unpaid = [it for it in items if not it.get("paid")]
+            state = {
+                "tick": tick_no,
+                "due": due_total,
+                "paid": paid_total,
+                "short": max(0, due_total - paid_total),
+                "enabled": True,
+                "items": items,
+                "unpaid_positions": sorted({str(it["position"]) for it in unpaid}),
+                "paid_role_char_ids": sorted({
+                    int(it["char_id"]) for it in items
+                    if it.get("kind") == "role" and it.get("paid")}),
+                "unpaid_role_char_ids": sorted({
+                    int(it["char_id"]) for it in unpaid
+                    if it.get("kind") == "role"}),
+                "unpaid_governor_node_ids": sorted({
+                    int(it["node_id"]) for it in unpaid
+                    if it.get("kind") == "governor"}),
+                "unpaid_governor_char_ids": sorted({
+                    int(it["char_id"]) for it in unpaid
+                    if it.get("kind") == "governor"}),
+            }
+            f["salary"] = state
+            await self.save_faction(f)
+            if state["short"] > 0 and not int(old_state.get("short", 0) or 0):
+                names = "、".join(
+                    R.POSITION_NAMES.get(it["position"], it["position"])
+                    + ("·" + it["node_name"] if it.get("node_name") else "")
+                    for it in unpaid)
+                logger.info(
+                    f"[strategy] 势力#{fid} 国库不足：应付俸禄 {due_total}，"
+                    f"已付 {paid_total}，停发 {names or '部分条目'}")
+        await self._commit()
+
+    # ------------------------------------------------------------------
     # 治理（§8.6）：继任 / 僵尸势力崩溃 / 过期会签退款
     # ------------------------------------------------------------------
     async def _step_governance(self, world: dict):
@@ -2058,6 +2108,7 @@ class StrategyFactionMixin:
         bandits = data.setdefault("bandits", {})
         for node in rng.sample(owned, min(n_bandit, len(owned))):
             node["owner_faction"] = 0
+            node["governor_char_id"] = 0
             gar = node.get("npc_garrison") or {}
             node["npc_garrison"] = {"troops": max(800, int(gar.get("troops", 0) * 1.5)),
                                     "morale": 90}
@@ -2067,6 +2118,7 @@ class StrategyFactionMixin:
         for node in owned:
             if node["owner_faction"] == fid:
                 node["owner_faction"] = 0
+                node["governor_char_id"] = 0
                 await self.save_node(node)
         f["alive"] = 0
         f["faction_state"] = "collapsed"
@@ -2109,7 +2161,7 @@ class StrategyFactionMixin:
         return True
 
     async def rebuild_capital(self, user_id: str, node_id: int) -> dict:
-        """主城重建：主玩法灵石付费（300 万 ×1.5^n），新首都 7 天保护。
+        """主城重建：主玩法灵石付费（300 万 ×1.5^n），新首都 4 天保护。
 
         流亡势力（faction_state=exiled）可选任意无主城池/关隘/分舵直接重建，
         且任一成员均可发起；尚有主城时只允许势力主迁都到己方据点。
@@ -2156,7 +2208,7 @@ class StrategyFactionMixin:
             if int(node.get("owner_faction", 0)) != 0:
                 raise StrategyError("目标据点不属于无主势力")
             # 保护期/围城中的节点不可作为重建点：否则可用 300 万灵石
-            # 强插一个 7 天免战新城，直接中止敌方正在推进的围城。
+            # 强插一个 4 天免战新城，直接中止敌方正在推进的围城。
             if int(node.get("protect_until", 0) or 0) > _now():
                 raise StrategyError("目标据点处于保护期，无法在此重建主城")
             if node.get("siege_state"):
@@ -2166,10 +2218,8 @@ class StrategyFactionMixin:
                                    float(rcfg.get("cost_growth", 0.5)))
         # §8.7 重建合力：先扣 rebuild_fund（以灵石计价），国库铜钱按
         # ``rebuild.coin_per_gold`` 折算抵充，不足部分由发起人补主玩法灵石；
-        # 成功后合力资金清零。
-        # 出力账号与 rebuild_donate 保持一致：结盟后用盟主势力的合力/国库
-        # （此前捐款进盟主、重建却读自身势力，盟友凑的钱永远抵不了账）。
-        gf = await self._governance_faction(p) or f
+        # 成功后合力资金清零。v4.3.4 起国库/合力均归本势力，不读取盟主账本。
+        gf = f
         treasury = dict(gf.get("treasury") or {})
         fund = max(0, int(gf.get("rebuild_fund") or 0))
         # 国库铜钱按 rebuild.coin_per_gold 折算灵石（默认 1000:1）
@@ -2213,7 +2263,7 @@ class StrategyFactionMixin:
         await self._execute(
             "UPDATE strategy_factions SET rebuild_fund=0, last_capital_move_at=? "
             "WHERE id=?", (_now(), int(gf["id"])))
-        node["protect_until"] = _now() + int(rcfg.get("protect_days", 7)) * 86400
+        node["protect_until"] = _now() + int(rcfg.get("protect_days", 4)) * 86400
         node["level"] = max(int(node.get("level", 1)),
                             int(rcfg.get("new_capital_level", 1)))
         await self.save_node(node)
@@ -2243,7 +2293,7 @@ class StrategyFactionMixin:
             parts.append(f"灵石 -{gold_need:,}")
         return {"ok": True,
                 "msg": f"🏯 主城迁至「{node['name']}」（{'、'.join(parts) or '无需付费'}，"
-                       f"{int(rcfg.get('protect_days', 7))} 天保护期）"}
+                       f"{int(rcfg.get('protect_days', 4))} 天保护期）"}
 
     async def buy_shield(self, user_id: str, node_id: int) -> dict:
         """护山盾：800 战功 → 据点 12h 免战；同据点 72h CD。"""
@@ -2695,6 +2745,7 @@ class StrategyFactionMixin:
             c["imprisoned_node_id"] = 0
             c["auction_cooldown_until"] = 0
             c["loyalty"] = max(40, int(c.get("loyalty", 40)))
+            await self._clear_char_governors(world["id"], c["id"])
             await self.save_char(c)
             if owner:
                 await self._notify(world, [owner], "event",
@@ -2849,6 +2900,7 @@ class StrategyFactionMixin:
             c["captor_faction"] = 0
             c["imprisoned_node_id"] = 0
             c["auction_cooldown_until"] = 0
+            await self._clear_char_governors(world["id"], c["id"])
             await self.save_char(c)
             changed = True
             payload = {"event": "char_defect",
@@ -2928,9 +2980,9 @@ class StrategyFactionMixin:
     # 重建合力（§8.7：多人凑款，成功后清零）
     # ------------------------------------------------------------------
     async def rebuild_donate(self, user_id: str, amount: int) -> dict:
-        """成员向势力 rebuild_fund 捐铜钱（用于主城重建，成功后清零）。"""
+        """成员向本势力 rebuild_fund 捐铜钱（用于主城重建，成功后清零）。"""
         world, p = await self._require_player(user_id)
-        f = await self._governance_faction(p)
+        f = await self._own_faction(p)
         if not f or f.get("kind") == "npc":
             raise StrategyError("当前不在玩家势力中")
         try:

@@ -28,6 +28,9 @@
     </div>
   </header>
 
+  <!-- 进行中手操战役常驻提醒（含倒计时与进入按钮） -->
+  <div class="battle-alert" id="battleAlert" hidden></div>
+
   <main class="layout">
     <!-- 左：大地图 -->
     <section class="map-pane">
@@ -55,7 +58,7 @@
       <nav class="tabs" id="tabs">
         <button class="tab active" data-tab="overview" type="button">总览</button>
         <button class="tab" data-tab="guide" type="button">指引</button>
-        <button class="tab" data-tab="chars" type="button">府邸</button>
+        <button class="tab" data-tab="chars" type="button">人员</button>
         <button class="tab" data-tab="armies" type="button">军团</button>
         <button class="tab" data-tab="faction" type="button">势力</button>
         <button class="tab" data-tab="tavern" type="button">酒馆</button>
@@ -78,7 +81,7 @@
         <li>个人势力（你自动成为势力主，带兵上限 3000）</li>
         <li>新手包：铜钱 5000 / 粮草 2000 / 募将令 ×2</li>
         <li>凡品武将 ×1、凡品内政官 ×1</li>
-        <li>自选一座无主据点作为主城（7 天新城保护）</li>
+        <li>自选一座无主据点作为主城（4 天新城保护）</li>
       </ul>
       <div class="form-row" style="align-items:flex-start;flex-wrap:wrap">
         <label style="min-width:64px">起始据点</label>
@@ -97,6 +100,7 @@
   <div class="overlay" id="armyOverlay" hidden>
     <div class="overlay-card">
       <h2>🛡️ 编成军团</h2>
+      <div class="sub" id="armyHint" style="margin-bottom:8px"></div>
       <div class="form-row">
         <label>主将</label><select id="armyLeader"></select>
       </div>
@@ -116,6 +120,22 @@
       <div class="form-actions">
         <button class="btn" id="armyCancel" type="button">取消</button>
         <button class="btn primary" id="armyConfirm" type="button">编成</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 角色传送弹窗（所在地机制 §3） -->
+  <div class="overlay" id="moveOverlay" hidden>
+    <div class="overlay-card">
+      <h2>🚶 传送角色</h2>
+      <div class="sub" id="moveCharHint" style="margin-bottom:8px"></div>
+      <div class="form-row">
+        <label>目标据点</label><select id="moveNodeSel"></select>
+      </div>
+      <div class="cost-line" id="moveCost">免费瞬移，仅可前往己方 / 盟友据点（遗迹、敌方、无主不可选）。</div>
+      <div class="form-actions">
+        <button class="btn" id="moveCancel" type="button">取消</button>
+        <button class="btn primary" id="moveConfirm" type="button">传送</button>
       </div>
     </div>
   </div>
