@@ -1811,6 +1811,33 @@ class TestStrategyV440Round6(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(int(self.R.NODE_POTENTIAL_BY_TYPE["ruin"]), 3)
         self.assertIn("ruin", self.R.CHAR_DWELL_NODE_TYPES)
 
+    async def test_char_loyalty_full_backfill_v85(self):
+        """v85 迁移：非俘虏武将忠诚置满，关押俘虏保留原忠诚。"""
+        c = await self.m.get_char(int((await self._char("u1"))["id"]))
+        c["loyalty"] = 35
+        c["status"] = "idle"
+        await self.m.save_char(c)
+        cap = await self.m.get_char(int((await self._char("u2"))["id"]))
+        cap["loyalty"] = 12
+        cap["status"] = "captive"
+        await self.m.save_char(cap)
+        await self.m._commit()
+
+        await self.migration._ensure_strategy_v85(self.conn)
+        await self.conn.commit()
+        self.assertEqual(
+            int((await self.m.get_char(int(c["id"])))["loyalty"]), 100)
+        self.assertEqual(
+            int((await self.m.get_char(int(cap["id"])))["loyalty"]), 12)
+
+        # 再执行一次结果一致（迁移本身可安全重放）
+        await self.migration._ensure_strategy_v85(self.conn)
+        await self.conn.commit()
+        self.assertEqual(
+            int((await self.m.get_char(int(c["id"])))["loyalty"]), 100)
+        self.assertEqual(
+            int((await self.m.get_char(int(cap["id"])))["loyalty"]), 12)
+
     async def test_city_fall_survivor_and_tick_sweep_relocate(self):
         """城陷未被俘的 idle 角色不得滞留敌城；tick 安全网同样自愈。"""
         node = await self._home("u2")

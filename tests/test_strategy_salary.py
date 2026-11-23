@@ -1,6 +1,6 @@
 # tests/test_strategy_salary.py
-# 仙域争霸俸禄机制回归：角色官职 / 据点太守按 tick 从国库扣铜钱，
-# 国库不足时停发对应增益（部分支付按优先级，未付条目单独暂停）。
+# 仙域争霸俸禄机制回归：v4.5.7 起角色官职 / 据点太守俸禄按 tick 从
+# **势力主钱包**扣铜钱；钱包不足时停发对应增益（部分支付按优先级）。
 import os
 import sys
 import tempfile
@@ -88,14 +88,20 @@ class TestStrategySalary(unittest.IsolatedAsyncioTestCase):
         await self.m.save_char(c)
         return c
 
-    async def _set_treasury(self, coin: int, fid: int = 0):
+    async def _set_wallet(self, coin: int, fid: int = 0):
+        """设置势力主钱包铜钱（俸禄由势力主钱包支付）。"""
         f = await self.m.get_faction(int(fid or self.f1["id"]))
-        t = dict(f.get("treasury") or {})
-        t["coin"] = int(coin)
-        f["treasury"] = t
-        await self.m.save_faction(f)
+        lp = await self.m._leader_player(self.wid, f)
+        self.assertIsNotNone(lp)
+        lp["coin"] = int(coin)
+        await self.m.save_player(lp)
         await self.m._commit()
         return f
+
+    async def _wallet_coin(self, fid: int = 0) -> int:
+        f = await self.m.get_faction(int(fid or self.f1["id"]))
+        lp = await self.m._leader_player(self.wid, f)
+        return int((lp or {}).get("coin", 0) or 0)
 
     async def _salary(self) -> dict:
         await self.m._step_salary(self.world)
@@ -110,12 +116,12 @@ class TestStrategySalary(unittest.IsolatedAsyncioTestCase):
         official = await self._no_salary_mods(await self._char("u1", "official"))
         await self.m.faction_appoint_char("u1", int(general["id"]), "zhonglang")
         await self.m.appoint_taishou("u1", int(self.home1["id"]), int(official["id"]))
-        await self._set_treasury(1000)
+        await self._set_wallet(1000)
 
         f = await self._salary()
         per = self.m.main_cfg()["faction"]["salary"]["per_tick"]
         expect = int(per["zhonglang"]) + int(per["taishou"])
-        self.assertEqual(int(f["treasury"]["coin"]), 1000 - expect)
+        self.assertEqual(await self._wallet_coin(), 1000 - expect)
         self.assertEqual(int(f["salary"]["due"]), expect)
         self.assertEqual(int(f["salary"]["paid"]), expect)
         self.assertEqual(int(f["salary"]["short"]), 0)
@@ -136,10 +142,10 @@ class TestStrategySalary(unittest.IsolatedAsyncioTestCase):
         await self.m.appoint_taishou("u1", int(self.home1["id"]), int(official["id"]))
         per = self.m.main_cfg()["faction"]["salary"]["per_tick"]
         # 够付中郎将，不够再付太守（优先级中郎将在太守之前）
-        await self._set_treasury(int(per["zhonglang"]) + 5)
+        await self._set_wallet(int(per["zhonglang"]) + 5)
 
         f = await self._salary()
-        self.assertEqual(int(f["treasury"]["coin"]), 5)
+        self.assertEqual(await self._wallet_coin(), 5)
         self.assertEqual(int(f["salary"]["short"]), int(per["taishou"]))
         self.assertEqual(f["salary"]["unpaid_role_char_ids"], [])
         self.assertEqual(f["salary"]["unpaid_governor_node_ids"],
@@ -154,7 +160,7 @@ class TestStrategySalary(unittest.IsolatedAsyncioTestCase):
     async def test_unpaid_role_bonus_and_troop_cap_disabled(self):
         general = await self._char("u1", "general")
         await self.m.faction_appoint_char("u1", int(general["id"]), "zhonglang")
-        await self._set_treasury(0)
+        await self._set_wallet(0)
 
         f = await self._salary()
         self.assertEqual(int(f["salary"]["paid"]), 0)
@@ -173,7 +179,7 @@ class TestStrategySalary(unittest.IsolatedAsyncioTestCase):
     async def test_unpaid_governor_troop_cap_disabled(self):
         official = await self._char("u1", "official")
         await self.m.appoint_taishou("u1", int(self.home1["id"]), int(official["id"]))
-        await self._set_treasury(0)
+        await self._set_wallet(0)
 
         f = await self._salary()
         self.assertIn(int(self.home1["id"]),
@@ -198,15 +204,15 @@ class TestStrategySalary(unittest.IsolatedAsyncioTestCase):
         c2 = await self._no_salary_mods(await self._char("u2", "general"))
         await self.m.faction_appoint_char("u1", int(c2["id"]), "zhonglang")
         per = self.m.main_cfg()["faction"]["salary"]["per_tick"]
-        await self._set_treasury(1000, int(f1["id"]))
-        await self._set_treasury(0, int(f2["id"]))
+        await self._set_wallet(1000, int(f1["id"]))
+        await self._set_wallet(0, int(f2["id"]))
 
-        # 盟主国库充足、成员国库为空：成员官职欠俸，盟主国库不得被扣
+        # 盟主钱包充足、成员势力主钱包为空：成员官职欠俸，盟主钱包不得被扣
         await self.m._step_salary(self.world)
         f1 = await self.m.get_faction(int(f1["id"]))
         f2 = await self.m.get_faction(int(f2["id"]))
-        self.assertEqual(int(f1["treasury"]["coin"]), 1000)
-        self.assertEqual(int(f2["treasury"]["coin"]), 0)
+        self.assertEqual(await self._wallet_coin(int(f1["id"])), 1000)
+        self.assertEqual(await self._wallet_coin(int(f2["id"])), 0)
         self.assertIn(int(c2["id"]), f2["salary"]["unpaid_role_char_ids"])
         # 联盟不共享经济：盟主看不到成员中郎将的招募加成
         bonus = await self.m._faction_position_bonus(
@@ -216,13 +222,13 @@ class TestStrategySalary(unittest.IsolatedAsyncioTestCase):
             f2, include_alliance=False)
         self.assertAlmostEqual(float(bonus["recruit_quality"]), 0.0)
 
-        # 成员自己补足国库：只扣成员国库，本势力官职加成恢复
-        await self._set_treasury(int(per["zhonglang"]), int(f2["id"]))
+        # 成员自己补足钱包：只扣成员势力主钱包，本势力官职加成恢复
+        await self._set_wallet(int(per["zhonglang"]), int(f2["id"]))
         await self.m._step_salary(self.world)
         f1 = await self.m.get_faction(int(f1["id"]))
         f2 = await self.m.get_faction(int(f2["id"]))
-        self.assertEqual(int(f1["treasury"]["coin"]), 1000)
-        self.assertEqual(int(f2["treasury"]["coin"]), 0)
+        self.assertEqual(await self._wallet_coin(int(f1["id"])), 1000)
+        self.assertEqual(await self._wallet_coin(int(f2["id"])), 0)
         bonus = await self.m._faction_position_bonus(
             f1, include_alliance=False)
         self.assertAlmostEqual(float(bonus["recruit_quality"]), 0.0)
@@ -231,9 +237,9 @@ class TestStrategySalary(unittest.IsolatedAsyncioTestCase):
         self.assertAlmostEqual(float(bonus["recruit_quality"]), 0.10)
 
     # ------------------------------------------------------------------
-    # 联盟独立资源：据点灵石入本势力国库，不使用盟主科技
+    # 联盟独立资源：据点灵石入产出玩家钱包，不使用盟主科技
     # ------------------------------------------------------------------
-    async def test_alliance_output_uses_own_treasury_and_tech(self):
+    async def test_alliance_output_uses_own_tech(self):
         f1 = await self.m.get_faction(int(self.f1["id"]))
         f2 = await self.m.get_faction(int(self.p2["faction_id"]))
         f1["alliance_id"] = int(f1["id"])
@@ -247,21 +253,24 @@ class TestStrategySalary(unittest.IsolatedAsyncioTestCase):
                 await self.m.save_node(n)
         await self.m._commit()
 
-        async def _gold(fid: int) -> int:
-            f = await self.m.get_faction(int(fid))
-            return int((f.get("treasury") or {}).get("gold", 0) or 0)
+        async def _gold(uid: str) -> int:
+            player = await self.db.get_player_by_id(uid)
+            return int((player.gold if player else 0) or 0)
 
-        # 第一轮：盟主科技 0，记录成员国库灵石增量
+        # 第一轮：盟主科技 0，记录成员玩家主玩法灵石增量
         f1 = await self.m.get_faction(int(f1["id"]))
         f2 = await self.m.get_faction(int(f2["id"]))
         f1["tech"] = {}
         f2["tech"] = {}
-        f2["treasury"] = {**dict(f2.get("treasury") or {}), "gold": 0}
         await self.m.save_faction(f1)
         await self.m.save_faction(f2)
+        p2 = await self.m.get_player("u2", self.wid)
+        p2["daily_output_log"] = {}
+        await self.m.save_player(p2)
+        await self.m._commit()
+        base_gold = await _gold("u2")
         await self.m._step_distribute_output(self.world, True)
-        self.assertEqual(await _gold(int(f1["id"])), 0)
-        base = await _gold(int(f2["id"]))
+        base = await _gold("u2") - base_gold
         self.assertGreater(base, 0)
 
         # 第二轮：只给盟主加满经营科技，成员产出不应被盟主科技放大
@@ -269,12 +278,12 @@ class TestStrategySalary(unittest.IsolatedAsyncioTestCase):
         f2 = await self.m.get_faction(int(f2["id"]))
         f1["tech"] = {"agri": 7}
         f2["tech"] = {}
-        f2["treasury"] = {**dict(f2.get("treasury") or {}), "gold": 0}
         await self.m.save_faction(f1)
         await self.m.save_faction(f2)
+        await self.m._commit()
+        before = await _gold("u2")
         await self.m._step_distribute_output(self.world, True)
-        self.assertEqual(await _gold(int(f1["id"])), 0)
-        self.assertEqual(await _gold(int(f2["id"])), base)
+        self.assertEqual(await _gold("u2") - before, base)
 
     # ------------------------------------------------------------------
     # 个性/特技俸禄联动：贪财 +20%、节俭 -15%；与科技「仁政」-20% 叠乘
@@ -300,7 +309,7 @@ class TestStrategySalary(unittest.IsolatedAsyncioTestCase):
         role_due = int(round(int(per["zhonglang"]) * 1.0 * 1.20))
         gov_due = int(round(int(per["taishou"]) * 1.0 * 0.85))
 
-        await self._set_treasury(100000)
+        await self._set_wallet(100000)
         f = await self._salary()
         self.assertEqual(int(f["salary"]["due"]), role_due + gov_due)
 
@@ -308,7 +317,7 @@ class TestStrategySalary(unittest.IsolatedAsyncioTestCase):
         f = await self.m.get_faction(int(self.f1["id"]))
         f["tech"] = {"agri": 7}
         await self.m.save_faction(f)
-        await self._set_treasury(100000)
+        await self._set_wallet(100000)
         f = await self._salary()
         role_due2 = int(round(int(per["zhonglang"]) * 0.8 * 1.20))
         gov_due2 = int(round(int(per["taishou"]) * 0.8 * 0.85))
@@ -320,7 +329,7 @@ class TestStrategySalary(unittest.IsolatedAsyncioTestCase):
     async def test_salary_disabled_clears_unpaid_state(self):
         general = await self._char("u1", "general")
         await self.m.faction_appoint_char("u1", int(general["id"]), "zhonglang")
-        await self._set_treasury(0)
+        await self._set_wallet(0)
         await self._salary()
         cfg = self.m.main_cfg()
         cfg.setdefault("faction", {}).setdefault("salary", {})["enabled"] = False

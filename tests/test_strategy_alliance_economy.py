@@ -143,86 +143,12 @@ class TestStrategyAllianceEconomy(unittest.IsolatedAsyncioTestCase):
         self.assertAlmostEqual(float(host_all["plot_bonus"]), 0.10)
         self.assertEqual(int(host_all["ai_wisdom"]), 5)
 
-    async def test_gm_legacy_alliance_treasury_dry_run_then_split(self):
-        """GM 联盟国库清算：默认只探测，带「执行」才人均平分。"""
+    async def test_gm_legacy_alliance_treasury_removed(self):
+        """v4.5.7：玩家势力无国库，GM「联盟国库清算」运维项已移除。"""
         await self._ally()
-        host = await self.m.get_faction(int(self.host["id"]))
-        host["treasury"] = {"coin": 1000, "grain": 800, "iron": 600,
-                            "gold": 1000, "reserved_coin": 77}
-        await self.m.save_faction(host)
-        await self.m._commit()
-        # 探测：不写库
-        res = await self.m.gm("联盟国库清算", [])
-        self.assertIn("探测", res["msg"])
-        host = await self.m.get_faction(int(self.host["id"]))
-        self.assertEqual(int(host["treasury"]["coin"]), 1000)
-        self.assertEqual(int(host["treasury"]["gold"]), 1000)
-        before = {}
-        for uid in ("u1", "u2"):
-            p = await self.m.get_player(uid, self.wid)
-            main = await self.db.get_player_by_id(uid)
-            before[uid] = (int(p["coin"]), int(p["grain"]), int(p["iron"]),
-                           int(main.gold))
-        # 执行：按 2 人人均，reserved_coin 不参与平分
-        res = await self.m.gm("联盟国库清算", ["执行"])
-        self.assertIn("已执行", res["msg"])
-        host = await self.m.get_faction(int(self.host["id"]))
-        self.assertEqual(int(host["treasury"].get("coin", 0)), 0)
-        self.assertEqual(int(host["treasury"].get("grain", 0)), 0)
-        self.assertEqual(int(host["treasury"].get("iron", 0)), 0)
-        self.assertEqual(int(host["treasury"].get("gold", 0)), 0)
-        self.assertEqual(int(host["treasury"].get("reserved_coin", 0)), 77)
-        for uid in ("u1", "u2"):
-            p = await self.m.get_player(uid, self.wid)
-            main = await self.db.get_player_by_id(uid)
-            bc, bg, bi, bgold = before[uid]
-            self.assertEqual(int(p["coin"]), bc + 500)
-            self.assertEqual(int(p["grain"]), bg + 400)
-            self.assertEqual(int(p["iron"]), bi + 300)
-            self.assertEqual(int(main.gold), bgold + 500)
-        # 重复执行默认跳过
-        res = await self.m.gm("联盟国库清算", ["执行"])
-        self.assertIn("已清算过", res["msg"])
-
-    async def test_recruit_quality_does_not_use_alliance_officers(self):
-        await self._ally()
-        chars = await self._chars("u2")
-        await self.m.faction_appoint_char(
-            "u1", int(chars[0]["id"]), "zhonglang")
-        # 盟主没有中郎将：招募品质不受成员中郎将影响
-        self.assertAlmostEqual(
-            await self.m._recruit_quality_bonus(int(self.host["id"])), 0.0)
-        self.assertGreaterEqual(
-            await self.m._recruit_quality_bonus(int(self.member["id"])),
-            0.10)
-
-    async def test_faction_ext_uses_own_capital_and_rebuild_fund(self):
-        """v4.5.5：联盟任务/动员令共享，但重建合力/主城/迁都 CD 归本势力。"""
-        await self._ally()
-        host = await self.m.get_faction(int(self.host["id"]))
-        member = await self.m.get_faction(int(self.member["id"]))
-        now = int(time.time())
-        host_last = now - 1000
-        member_last = now - 50
-        await self.m._execute(
-            "UPDATE strategy_factions SET rebuild_fund=?, last_capital_move_at=? "
-            "WHERE id=?", (111, host_last, int(host["id"])))
-        await self.m._execute(
-            "UPDATE strategy_factions SET rebuild_fund=?, last_capital_move_at=? "
-            "WHERE id=?", (222, member_last, int(member["id"])))
-        await self.m._commit()
-
-        state = await self.m.get_state("u2")
-        ext = state.get("faction_ext") or {}
-        self.assertEqual(int(ext.get("own_faction_id")), int(member["id"]))
-        self.assertEqual(int(ext.get("rebuild_fund")), 222)
-        self.assertEqual(int((ext.get("capital") or {}).get("node_id")),
-                         int(member["capital_node_id"]))
-        cd_days = int((self.m.main_cfg().get("faction") or {}).get(
-            "capital_relocate_cd_days", 7) or 0)
-        self.assertEqual(int(ext.get("relocate_cd_until")),
-                         member_last + cd_days * 86400)
-
+        with self.assertRaises(self.StrategyError) as cm:
+            await self.m.gm("联盟国库清算", [])
+        self.assertIn("未知", str(cm.exception))
 
 if __name__ == "__main__":
     unittest.main()

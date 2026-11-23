@@ -243,7 +243,13 @@ class StrategyP3Mixin:
                 await self.save_player(sp)
         else:
             sf = await self.get_faction(int(row["seller_faction"] or 0))
-            if sf:
+            if sf and str(sf.get("kind") or "") != "npc":
+                # v4.5.7：玩家势力无国库，货款进势力主钱包
+                lp = await self._leader_player(int(world["id"]), sf)
+                if lp:
+                    lp["coin"] = int(lp.get("coin", 0) or 0) + payout
+                    await self.save_player(lp)
+            elif sf:
                 treasury = sf.get("treasury") or {}
                 treasury["coin"] = int(treasury.get("coin", 0)) + payout
                 sf["treasury"] = treasury
@@ -1042,7 +1048,10 @@ class StrategyP3Mixin:
 
     async def _step_trade_routes(self, world: dict):
         trcfg = self.main_cfg().get("trade_route") or {}
-        coin = int(trcfg.get("coin_per_tick", 20))
+        # v4.5.8：收益按「途经据点数量」放大，单点基础价默认 20 币。
+        # 旧配置只有 coin_per_tick（按整条路计价）时回退使用，不再是一条通吃。
+        coin_per_node = int(trcfg.get(
+            "coin_per_node", trcfg.get("coin_per_tick", 20)))
         routes = await self._compute_trade_routes(world)
         nodes = {n["id"]: n for n in await self.get_nodes(world["id"])}
         data = world.get("data") or {}
@@ -1079,7 +1088,8 @@ class StrategyP3Mixin:
             current[key] = {"owner": owner_fid, "label": label}
             if owner_fid <= 0:
                 continue
-            await self._pay_route_income(world, owner_fid, coin)
+            await self._pay_route_income(
+                world, owner_fid, R.trade_route_income(rt, coin_per_node))
         fresh = set(current) - set(prev)
         broken = set(prev) - set(current)
         # 新商路 → 开路先锋成就（归属势力全员）
@@ -1121,21 +1131,32 @@ class StrategyP3Mixin:
         return int((node or {}).get("owner_faction", 0))
 
     async def _pay_route_income(self, world: dict, fid: int, coin: int):
+        """把某条商路本 tick 的收益入账到归属势力。
+
+        v4.5.8：传入的 ``coin`` 已按「途经据点数量 × 单点收益」放大；
+        玩家势力无国库，按成员人数均分进各自钱包，NPC 仍入内部国库。
+        """
         f = await self.get_faction(fid)
         if not f:
             return
         rows = await self._fetchall(
             "SELECT user_id FROM strategy_players WHERE world_id=? AND faction_id=?",
             (world["id"], fid))
-        if f.get("kind") == "npc" or len(rows) != 1:
+        if f.get("kind") == "npc":
+            # NPC 势力保留内部模拟国库
             treasury = f.get("treasury") or {}
             treasury["coin"] = int(treasury.get("coin", 0)) + coin
             f["treasury"] = treasury
             await self.save_faction(f)
-        else:
-            pp = await self.get_player(rows[0]["user_id"], world["id"])
-            if pp:
-                pp["coin"] = int(pp.get("coin", 0)) + coin
+        elif rows:
+            # v4.5.7：玩家势力无国库，商路收益按人数均分进成员钱包
+            n = len(rows)
+            base, extra = divmod(int(coin), n)
+            for idx, row in enumerate(rows):
+                pp = await self.get_player(row["user_id"], world["id"])
+                if not pp:
+                    continue
+                pp["coin"] = int(pp.get("coin", 0)) + base + (1 if idx < extra else 0)
                 await self.save_player(pp)
 
     async def _trade_route_node_ids(self, world: dict) -> set[int]:

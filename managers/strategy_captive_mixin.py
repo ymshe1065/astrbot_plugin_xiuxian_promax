@@ -575,6 +575,162 @@ class StrategyCaptiveMixin:
                 "msg": f"🕊 已释放 {c['name']}（声望 +{int(ccfg.get('release_rep_gain', 3))}，"
                        f"外交关系改善）"}
 
+    async def execute_captive(self, user_id: str, char_id: int) -> dict:
+        """处决俘虏：获得战功、威慑同牢俘虏，并与原势力交恶。
+
+        与「释放」（声望/外交收益）和「售卖」（铜钱收益）形成三选一：
+        - 处决：战功 + 同据点其他俘虏忠诚 -N（更容易离心）
+        - 释放：声望 +3、原势力外交 +5
+        - 售卖：铜钱收益，角色转为在野流将（可流入坊市竞拍）
+        """
+        world, p = await self._require_player(user_id)
+        ccfg = self.main_cfg().get("captive") or {}
+        c = await self.get_char(int(char_id))
+        if not c or c.get("status") != "captive":
+            raise StrategyError("目标不是俘虏")
+        fid = int(p["faction_id"])
+        if int(c.get("captor_faction", 0)) != fid:
+            raise StrategyError("该俘虏不在我方关押之下")
+        f = await self.get_faction(fid)
+        if not f:
+            raise StrategyError("势力不存在")
+        await self._require_position(f, user_id, ("leader", "deputy", "host"))
+        home = c.get("location") or {}
+        home_fid = int(home.get("home_faction", 0) or 0)
+        node_id = int(c.get("imprisoned_node_id", 0) or 0)
+
+        # 战功（走 _settle_merit 门禁：观察期/多开嫌疑为 0）
+        raw_merit = int(R.captive_execute_merit(c, ccfg))
+        merit = await self._settle_merit(user_id, raw_merit, "execute_captive")
+        if merit > 0:
+            p["merit"] = int(p.get("merit", 0) or 0) + merit
+            p["merit_season"] = int(p.get("merit_season", 0) or 0) + merit
+            await self.save_player(p)
+
+        # 威慑：同一大牢内其他俘虏忠诚下降，长期关押更易离心
+        deterrence = max(0, int(ccfg.get("execute_deterrence", 3) or 0))
+        deterred: list[str] = []
+        if deterrence > 0 and node_id > 0:
+            for other in await self.get_chars(
+                    world_id=world["id"], status="captive"):
+                if int(other["id"]) == int(c["id"]):
+                    continue
+                if int(other.get("captor_faction", 0)) != fid:
+                    continue
+                if int(other.get("imprisoned_node_id", 0) or 0) != node_id:
+                    continue
+                before = int(other.get("loyalty", 0) or 0)
+                after = max(0, before - deterrence)
+                if after != before:
+                    other["loyalty"] = after
+                    await self.save_char(other)
+                    deterred.append(str(other.get("name") or other["id"]))
+
+        # 与俘虏原势力交恶；同时承担恶名（声望下降）
+        if home_fid > 0 and home_fid != fid:
+            await self._diplomacy_score_add(
+                fid, home_fid,
+                int(ccfg.get("execute_diplomacy_penalty", -8) or 0))
+        rep_penalty = int(ccfg.get("execute_rep_penalty", -2) or 0)
+        if rep_penalty:
+            await self.add_reputation(f, rep_penalty)
+
+        await self._detach_from_armies(c)
+        await self._clear_char_governors(int(world["id"]), int(c["id"]))
+        c["status"] = "dead"
+        c["injury"] = 100
+        c["captor_faction"] = 0
+        c["imprisoned_node_id"] = 0
+        c["appointed_position"] = ""
+        c["appointed_node_id"] = 0
+        loc = c.get("location") or {}
+        loc.pop("transfer_to", None)
+        loc["node_id"] = 0
+        c["location"] = loc
+        all_chars = await self.get_chars(world_id=world["id"])
+        legacy = R.legacy_on_death(c, all_chars)
+        for av in (legacy.get("avengers") or []) + (
+                [legacy["heir"]] if legacy.get("heir") else []):
+            await self.save_char(av)
+        await self.save_char(c)
+        await self._clear_ransom(int(world["id"]), int(c["id"]))
+        await self._commit()
+        logger.info(f"[strategy] {user_id} 处决俘虏 {c['name']}"
+                    f"（战功 +{merit}，威慑 {len(deterred)} 人）")
+        extra = (f"，同牢 {len(deterred)} 名俘虏忠诚 -{deterrence}"
+                 if deterred else "")
+        return {"ok": True, "merit": int(merit),
+                "deterred": len(deterred),
+                "msg": f"🗡 已处决 {c['name']}（战功 +{merit}{extra}，"
+                       f"原势力外交 {int(ccfg.get('execute_diplomacy_penalty', -8) or 0)}）"}
+
+    async def sell_captive(self, user_id: str, char_id: int) -> dict:
+        """售卖俘虏：换取铜钱，角色转为在野流将（可进入坊市竞拍）。
+
+        收益随稀有度、六维总和与特技数提高；会小幅损害与原势力的外交。
+        """
+        world, p = await self._require_player(user_id)
+        ccfg = self.main_cfg().get("captive") or {}
+        if not ccfg.get("sell_enable", True):
+            raise StrategyError("俘虏售卖未开启")
+        c = await self.get_char(int(char_id))
+        if not c or c.get("status") != "captive":
+            raise StrategyError("目标不是俘虏")
+        fid = int(p["faction_id"])
+        if int(c.get("captor_faction", 0)) != fid:
+            raise StrategyError("该俘虏不在我方关押之下")
+        f = await self.get_faction(fid)
+        if not f:
+            raise StrategyError("势力不存在")
+        await self._require_position(f, user_id, ("leader", "deputy", "host"))
+        home = c.get("location") or {}
+        home_fid = int(home.get("home_faction", 0) or 0)
+        node_id = int(c.get("imprisoned_node_id", 0) or 0)
+        coin = int(R.captive_sell_value(c, ccfg))
+        if coin <= 0:
+            raise StrategyError("该俘虏暂时无人愿收")
+        p["coin"] = int(p.get("coin", 0) or 0) + coin
+        await self.save_player(p)
+
+        if home_fid > 0 and home_fid != fid:
+            await self._diplomacy_score_add(
+                fid, home_fid,
+                int(ccfg.get("sell_diplomacy_penalty", -4) or 0))
+        rep_penalty = int(ccfg.get("sell_rep_penalty", -1) or 0)
+        if rep_penalty:
+            await self.add_reputation(f, rep_penalty)
+
+        await self._detach_from_armies(c)
+        await self._clear_char_governors(int(world["id"]), int(c["id"]))
+        # 卖往坊市/仙城：优先非本方据点，避免流将站在自家大牢里
+        dest = 0
+        try:
+            cands = await self._auction_nodes(world)
+        except Exception:  # noqa: BLE001 - 无拍卖节点时退回关押点
+            cands = []
+        if cands:
+            others = [n for n in cands
+                      if int(n.get("owner_faction") or 0) != fid]
+            dest = int((others or cands)[0]["id"])
+        dest = dest or node_id
+        c["status"] = "wander"
+        c["faction_id"] = 0
+        c["owner_user_id"] = ""
+        c["captor_faction"] = 0
+        c["imprisoned_node_id"] = 0
+        c["appointed_position"] = ""
+        c["appointed_node_id"] = 0
+        c["auction_cooldown_until"] = 0
+        c["loyalty"] = max(40, int(c.get("loyalty", 40) or 40))
+        c["location"] = {"node_id": int(dest)} if int(dest) > 0 else {}
+        await self.save_char(c)
+        await self._clear_ransom(int(world["id"]), int(c["id"]))
+        await self._commit()
+        logger.info(f"[strategy] {user_id} 售卖俘虏 {c['name']}（铜钱 +{coin}）")
+        return {"ok": True, "coin": coin,
+                "msg": f"💰 已将 {c['name']} 卖往坊市（铜钱 +{coin}），"
+                       f"其将作为在野流将流入竞拍"}
+
     async def _diplomacy_score_add(self, fid_a: int, fid_b: int, score: int):
         fa = await self.get_faction(fid_a)
         fb = await self.get_faction(fid_b)
@@ -678,8 +834,10 @@ class StrategyCaptiveMixin:
             raise StrategyError("赎金须为 1~1000 万铜钱")
         data = world.get("data") or {}
         ransoms = data.setdefault("ransoms", {})
+        # v4.5.7：记录设价人，玩家势力收赎金时直接进其钱包（不再有国库）
         ransoms[str(c["id"])] = {"amount": amount,
-                                 "captor_fid": int(p["faction_id"]), "at": _now()}
+                                 "captor_fid": int(p["faction_id"]),
+                                 "captor_user": user_id, "at": _now()}
         world["data"] = data
         await self.save_world(world)
         await self._commit()
@@ -725,10 +883,28 @@ class StrategyCaptiveMixin:
             await self._commit()
             return {"ok": True,
                     "msg": f"关押势力已消亡，{c['name']} 自行脱身归来（未扣赎金）"}
-        treasury = cf.get("treasury") or {}
-        treasury["coin"] = int(treasury.get("coin", 0)) + amount
-        cf["treasury"] = treasury
-        await self.save_faction(cf)
+        if str(cf.get("kind") or "") == "npc":
+            # NPC 关押势力：赎金进内部模拟国库
+            treasury = cf.get("treasury") or {}
+            treasury["coin"] = int(treasury.get("coin", 0)) + amount
+            cf["treasury"] = treasury
+            await self.save_faction(cf)
+        else:
+            # 玩家势力：v4.5.7 无国库，赎金直接给设价人（缺失时给势力主）
+            captor_uid = str(r.get("captor_user") or "")
+            cp = await self.get_player(captor_uid, world["id"]) if captor_uid else None
+            if not cp:
+                cp = await self._leader_player(int(world["id"]), cf)
+            if not cp:
+                # 找不到收款人：退款，避免钱凭空消失
+                p["coin"] += amount
+                data.get("ransoms", {}).pop(str(c["id"]), None)
+                world["data"] = data
+                await self.save_player(p)
+                await self._commit()
+                raise StrategyError("关押方已无可入账的玩家，赎金未扣除")
+            cp["coin"] = int(cp.get("coin", 0) or 0) + amount
+            await self.save_player(cp)
         data["ransoms"].pop(str(c["id"]), None)
         world["data"] = data
         await self.save_world(world)
@@ -968,8 +1144,14 @@ class StrategyCaptiveMixin:
                         "hours_left": max(0, (int(r["arrive_at"]) - now + 3599) // 3600)})
         return out
 
-    async def get_captives_view(self, world_id: int, faction_id: int) -> dict:
-        """面板：我方关押的俘虏 + 我方被俘的角色。"""
+    async def get_captives_view(self, world_id: int, faction_id: int,
+                                user_id: str = "",
+                                world: Optional[dict] = None) -> dict:
+        """面板：我方关押的俘虏 + 我方被俘的角色（含详情快照）。
+
+        ``user_id`` 可选：传入时额外计算当前玩家是否有处置权限、劝降成功率、
+        赎金/劝降冷却等，供前端「俘虏详情」判断是否值得招募。
+        """
         ccfg = self.main_cfg().get("captive") or {}
         jail_slots = max(0, int(ccfg.get("jail_slots_per_node", 5)))
         defect_threshold = int(ccfg.get("defect_loyalty", 0))
@@ -982,18 +1164,127 @@ class StrategyCaptiveMixin:
                     "SELECT user_id FROM strategy_players WHERE world_id=? "
                     "AND faction_id=?", (int(world_id), int(faction_id))):
                 owner_ids.add(str(r["user_id"]))
+        # 世界临时态（赎金 / 劝降 CD）：get_state 已持有 world，避免重复查库。
+        if world is None or int((world or {}).get("id", 0) or 0) != int(world_id):
+            row = await self._fetchone(
+                "SELECT * FROM strategy_worlds WHERE id=?", (int(world_id),))
+            world = self._decode("strategy_worlds", row) if row else {}
+        wdata = (world or {}).get("data") or {}
+        ransoms = wdata.get("ransoms") if isinstance(wdata.get("ransoms"), dict) else {}
+        persuade_cd = wdata.get("persuade_cd") \
+            if isinstance(wdata.get("persuade_cd"), dict) else {}
+        now = _now()
+        # 权限：与 release/execute/sell 后端门禁保持一致（仅主/副可处置）
+        can_manage = False
+        f = None
+        if user_id and int(faction_id or 0) > 0:
+            f = await self.get_faction(int(faction_id))
+            if f:
+                try:
+                    members = await self.get_members(int(faction_id))
+                    can_manage = self._position_of(
+                        members, str(user_id)) in ("leader", "deputy", "host")
+                except Exception:  # noqa: BLE001 - 权限展示失败不影响俘虏列表
+                    can_manage = False
+        # 劝降成功率预估：取当前玩家魅力+智谋最高的空闲健康角色
+        best_persuader = None
+        rep = int((f or {}).get("reputation", 0) or 0)
+        if user_id:
+            best = -1
+            for mine in await self.get_chars(owner_user_id=str(user_id),
+                                             world_id=int(world_id), status="idle"):
+                st = mine.get("stats") or {}
+                score = int(st.get("charm", 0)) + int(st.get("wisdom", 0))
+                if score > best and R.injury_state(
+                        mine.get("injury", 0)) not in ("dying", "dead"):
+                    best, best_persuader = score, mine
+        plot_bonus = await self._faction_plot_bonus(f) if f else 0.0
+        clamp = ccfg.get("persuade_clamp") or [5, 90]
+        lo = float(clamp[0]) / 100.0 if len(clamp) >= 1 else 0.05
+        hi = float(clamp[1]) / 100.0 if len(clamp) >= 2 else 0.90
+        node_names = {int(n["id"]): n["name"]
+                      for n in await self.get_nodes(int(world_id))}
+        faction_names: dict[int, str] = {}
+        growth_cap_bonus = self._growth_cap_bonus()
+
+        async def _faction_name(fid: int) -> str:
+            fid = int(fid or 0)
+            if fid <= 0:
+                return ""
+            if fid not in faction_names:
+                hf = await self.get_faction(fid)
+                faction_names[fid] = str((hf or {}).get("name") or f"#{fid}")
+            return faction_names[fid]
+
         for c in await self.get_chars(world_id=world_id, status="captive"):
             disloyal = int(c.get("loyalty", 0)) <= defect_threshold
             is_ours = int(c.get("captor_faction", 0)) == int(faction_id)
             home = c.get("location") or {}
             home_owner = str(home.get("home_owner") or "")
-            item = {"id": c["id"], "name": c["name"], "rarity": c["rarity"],
-                    "role": c["role"], "loyalty": c["loyalty"],
-                    "node_id": c.get("imprisoned_node_id", 0),
-                    "home_owner": home_owner,
-                    "disloyal": disloyal,
-                    # 我方关押或已离心：可用「招募俘虏」入册（需空闲槽位）
-                    "can_recruit": bool(is_ours or disloyal)}
+            home_fid = int(home.get("home_faction", 0) or 0)
+            node_id = int(c.get("imprisoned_node_id", 0) or 0)
+            loyalty = int(c.get("loyalty", 0) or 0)
+            # 劝降率：离心的任意势力固定 80%；我方关押按公式 + 祭酒加成
+            rate = None
+            if is_ours or disloyal:
+                if disloyal:
+                    rate = 0.80
+                else:
+                    rate = R.persuade_rate(loyalty, best_persuader, rep) + plot_bonus
+                    rate = max(lo, min(hi, rate))
+            ransom_amt = 0
+            r = ransoms.get(str(c["id"]))
+            if isinstance(r, dict):
+                ransom_amt = int(r.get("amount", 0) or 0)
+            item = {
+                "id": c["id"], "name": c["name"], "rarity": c["rarity"],
+                "rarity_name": R.RARITY_NAMES.get(c["rarity"], c["rarity"]),
+                "role": c["role"],
+                "role_name": R.ROLE_NAMES.get(c["role"], c["role"]),
+                "profession": c.get("profession", ""),
+                "profession_name": R.PROFESSION_NAMES.get(
+                    str(c.get("profession") or ""), ""),
+                "level": int(c.get("level", 1) or 1),
+                "exp": int(c.get("exp", 0) or 0),
+                "exp_next": R.exp_to_next(int(c.get("level", 1) or 1)),
+                "stats": c.get("stats") or {},
+                "stat_total": R.stat_total(c),
+                "stat_cap": R.stat_growth_cap(c, growth_cap_bonus),
+                "traits": list(c.get("traits") or []),
+                "trait_names": [R.TRAIT_NAMES.get(t, t)
+                                for t in (c.get("traits") or [])],
+                "personality": c.get("personality") or {},
+                "personality_top_name": R.TOP_PERSONALITY_NAMES.get(
+                    str((c.get("personality") or {}).get("top") or ""), ""),
+                "personality_top_desc": R.TOP_PERSONALITY_DESC.get(
+                    str((c.get("personality") or {}).get("top") or ""), ""),
+                "personality_neg_name": R.NEGATIVE_PERSONALITY_NAMES.get(
+                    str((c.get("personality") or {}).get("negative") or ""), ""),
+                "personality_neg_desc": R.NEGATIVE_PERSONALITY_DESC.get(
+                    str((c.get("personality") or {}).get("negative") or ""), ""),
+                "aptitude": c.get("aptitude") or {},
+                "injury": int(c.get("injury", 0) or 0),
+                "injury_state": R.injury_state(int(c.get("injury", 0) or 0)),
+                "injury_name": R.INJURY_STATE_NAMES.get(
+                    R.injury_state(int(c.get("injury", 0) or 0)), ""),
+                "stamina": int(c.get("stamina", 0) or 0),
+                "loyalty": loyalty,
+                "node_id": node_id,
+                "node_name": node_names.get(node_id, f"#{node_id}"),
+                "home_owner": home_owner,
+                "home_faction": home_fid,
+                "home_faction_name": await _faction_name(home_fid),
+                "disloyal": disloyal,
+                # 我方关押或已离心：可用「招募俘虏」入册（需空闲槽位）
+                "can_recruit": bool(is_ours or disloyal),
+                "can_manage": bool(is_ours and can_manage),
+                "ransom": ransom_amt,
+                "persuade_cd_left": max(
+                    0, int(persuade_cd.get(str(c["id"]), 0) or 0) - now),
+                "persuade_rate": round(rate, 4) if rate is not None else None,
+                "execute_merit": R.captive_execute_merit(c, ccfg),
+                "sell_coin": R.captive_sell_value(c, ccfg),
+            }
             if is_ours:
                 holding.append(item)
             elif int(home.get("home_faction", 0) or 0) == int(faction_id) or \
@@ -1003,4 +1294,5 @@ class StrategyCaptiveMixin:
                 # §7.3 离心俘虏：任意势力均可招降，单独列出避免与“我方被俘”混淆
                 recruitable.append(item)
         return {"holding": holding, "held": held,
-                "recruitable": recruitable, "jail_slots": jail_slots}
+                "recruitable": recruitable, "jail_slots": jail_slots,
+                "can_manage": can_manage}

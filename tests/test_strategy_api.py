@@ -425,8 +425,8 @@ class StrategyRestApiTest(_AccountsBase, _ManagerBase):
         self.assertEqual(resp.status, 200)
         body = await resp.json()
         self.assertTrue(body["ok"], body)
-        self.assertEqual(body["total"], 58)
-        self.assertEqual(body["count"], 58)
+        self.assertEqual(body["total"], 60)
+        self.assertEqual(body["count"], 60)
         self.assertEqual(len(body["categories"]), 20)
         self.assertEqual(body["categories"], list(rs._STRATEGY_GUIDE_CATS))
         ids = {e["id"] for e in body["items"]}
@@ -454,7 +454,7 @@ class StrategyRestApiTest(_AccountsBase, _ManagerBase):
         self.assertEqual(body["count"], 0)
         self.assertEqual(body["items"], [])
         self.assertEqual(body["sections"], [])
-        self.assertEqual(body["total"], 58)
+        self.assertEqual(body["total"], 60)
 
 
 class StrategyNotifyTest(_AccountsBase, _ManagerBase):
@@ -920,18 +920,17 @@ class StrategyGmTest(_ManagerBase):
     async def test_gm_balance_faction(self):
         p = await self.m.get_player("web_alice", self.wid)
         fid = int(p["faction_id"])
-        f0 = await self.m.get_faction(fid)
-        coin0 = int((f0.get("treasury") or {}).get("coin", 0))
-        grain0 = int((f0.get("treasury") or {}).get("grain", 0))
+        coin0 = int(p.get("coin", 0) or 0)
+        grain0 = int(p.get("grain", 0) or 0)
         r = await self.m.gm("势力平衡", [str(fid), "1000", "500"])
         self.assertTrue(r["ok"])
-        f1 = await self.m.get_faction(fid)
-        self.assertEqual(int(f1["treasury"]["coin"]), coin0 + 1000)
-        self.assertEqual(int(f1["treasury"]["grain"]), grain0 + 500)
+        p1 = await self.m.get_player("web_alice", self.wid)
+        self.assertEqual(int(p1["coin"]), coin0 + 1000)
+        self.assertEqual(int(p1["grain"]), grain0 + 500)
         # 负调整不会低于 0
         await self.m.gm("balance", [str(fid), "-9999999", "0"])
-        f2 = await self.m.get_faction(fid)
-        self.assertEqual(int(f2["treasury"]["coin"]), 0)
+        p2 = await self.m.get_player("web_alice", self.wid)
+        self.assertEqual(int(p2["coin"]), 0)
         # 参数不足 / 势力不存在 / 非整数 → StrategyError
         with self.assertRaises(StrategyError):
             await self.m.gm("balance", [str(fid)])

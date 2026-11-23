@@ -173,6 +173,8 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .form-row select, .form-row input { flex: 1 1 auto; }
 .form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 .cost-line { font-size: 12.5px; color: var(--accent); min-height: 18px; }
+.cost-line .cost-warn { color: var(--bad); }
+.cost-line.warn { color: var(--text); }
 .empty { color: var(--dim); text-align: center; padding: 26px 0; font-size: 13px; }
 
 /* ---------- 联盟：据点交接 / 联盟表 ---------- */
@@ -511,3 +513,32 @@ input[type="color"] {
   .tech-branch-list { width: 100%; border-left: 0; padding-left: 0; }
   .tech-node.branch::before { display: none; }
 }
+
+/* ---------- 俘虏详情 ---------- */
+.captive-detail { text-align: left; }
+.captive-detail .kv {
+  display: flex; gap: 8px; margin: 3px 0; align-items: baseline;
+}
+.captive-detail .kv .k {
+  color: var(--dim); flex: 0 0 72px; font-size: 12.5px;
+}
+.captive-detail .stat-strip {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px 10px; margin: 6px 0 8px;
+}
+.captive-detail .stat-strip span {
+  background: var(--panel-2); border: 1px solid var(--line-soft);
+  border-radius: 6px; padding: 4px 7px; font-size: 12px;
+}
+.captive-detail .captive-head {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  margin-bottom: 8px;
+}
+.captive-detail .captive-head h3 { margin: 0; }
+.captive-detail .drawer-actions { margin-top: 10px; }
+.captive-link {
+  color: var(--accent); cursor: pointer; text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+.captive-link:hover { color: #ffe9b0; }
+

@@ -1026,6 +1026,48 @@ class TestStrategyManager(unittest.IsolatedAsyncioTestCase):
         iron1 = int((await self.m.get_player("u1", self.wid)).get("iron", 0))
         self.assertEqual(iron1, iron0, "编军/补员/操练/出征不应消耗精铁")
 
+    async def test_preview_army_cost_matches_create_army_spend(self):
+        """编军预算预览不改钱包，且与正式编成的铜钱/粮草扣除完全一致。"""
+        p, gen, _off, home, _target = await self._army_fixture()
+        coin0, grain0 = int(p["coin"]), int(p["grain"])
+        q = (await self.m.preview_army_cost(
+            "u1", gen["id"], home["id"], "sword_shield", 500,
+            siege_engine=True))["quote"]
+        # 只读：预览不得改动钱包与军团
+        p_now = await self.m.get_player("u1", self.wid)
+        self.assertEqual(int(p_now["coin"]), coin0)
+        self.assertEqual(int(p_now["grain"]), grain0)
+        self.assertFalse(await self.m.get_armies(self.wid, owner_user_id="u1"))
+        # 预算口径：征兵 2500 币/1000 粮 + 破城槌，另自动携粮受统率上限约束
+        self.assertEqual(q["recruit_coin"], 2500)
+        self.assertEqual(q["recruit_grain"], 1000)
+        self.assertGreater(q["ram_cost"], 0)
+        self.assertTrue(q["affordable"])
+        self.assertGreater(q["affordable_troops"], 0)
+        # 只读动作走 handle_action 也不开事务/不占限速额度
+        prev = await self.m.handle_action("u1", "army_cost_preview", {
+            "leader_char_id": gen["id"], "node_id": home["id"],
+            "troop_type": "sword_shield", "troops": 500,
+            "siege_engine": True})
+        self.assertTrue(prev["ok"])
+        self.assertEqual(prev["quote"]["coin_cost"], q["coin_cost"])
+        self.assertEqual(prev["quote"]["total_grain"], q["total_grain"])
+        r = await self.m.create_army(
+            "u1", gen["id"], [], home["id"], "sword_shield", 500,
+            siege_engine=True)
+        p_done = await self.m.get_player("u1", self.wid)
+        self.assertEqual(coin0 - int(p_done["coin"]), q["coin_cost"])
+        self.assertEqual(grain0 - int(p_done["grain"]), q["total_grain"])
+        # 资源不足时给出差额，而不是直接报错
+        p_done["coin"] = 1
+        await self.m.save_player(p_done)
+        poor = (await self.m.preview_army_cost(
+            "u1", gen["id"], home["id"], "sword_shield", 500))["quote"]
+        self.assertFalse(poor["affordable"])
+        self.assertGreater(poor["lacking_coin"], 0)
+        self.assertEqual(poor["affordable_troops"], 0)
+        await self.m.disband_army("u1", r["army_id"])
+
     async def test_army_members_can_take_local_tasks_while_stationed(self):
         """驻守军团的主将/随行可在当前据点执行本地任务；远征任务拒绝。"""
         _p, gen, off, home, target_id = await self._army_fixture()

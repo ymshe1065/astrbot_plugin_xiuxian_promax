@@ -40,6 +40,7 @@ from .strategy_captive_mixin import StrategyCaptiveMixin
 from .strategy_plot_mixin import StrategyPlotMixin
 from .strategy_battle_mixin import StrategyBattleMixin
 from .strategy_p3_mixin import StrategyP3Mixin
+from .strategy_threat_mixin import StrategyThreatMixin
 
 logger = logging.getLogger("astrbot")
 
@@ -109,8 +110,9 @@ def _main_wallet_lock(user_id: str) -> asyncio.Lock:
 # 管理器
 # ---------------------------------------------------------------------------
 
-class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
-                      StrategyPlotMixin, StrategyBattleMixin, StrategyP3Mixin):
+class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
+                      StrategyCaptiveMixin, StrategyPlotMixin,
+                      StrategyBattleMixin, StrategyP3Mixin):
     """仙域争霸世界管理器（单例，挂在 AstrBotPlugin 上）。
 
     P1（势力联机/俘虏/外交/计略）、P2（hex 手操战役）、
@@ -172,6 +174,9 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         # 计略结果（含执行者败露被擒）是玩家亲自派出的行动，默认档也须可见；
         # 否则玩家只能靠猜民心/忠诚变化得知结果。
         "plot_result": 1,
+        # v4.6.1：NPC 自主宣战 / 求和提案，属于切身利害，默认档可见
+        "war_declared": 1,
+        "peace_offer": 1,
         "event": 2,
     }
 
@@ -347,6 +352,21 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             f = await self.get_faction(fid)
             if not f:
                 raise StrategyError(f"势力不存在：{fid}")
+            # v4.5.7：玩家势力无国库，补给直接进势力主钱包；NPC 仍入内部国库
+            if str(f.get("kind") or "") == "player":
+                world = await self.get_world()
+                lp = await self._leader_player(int((world or {}).get("id") or 0), f)
+                if not lp:
+                    raise StrategyError("该势力没有可入账的势力主玩家")
+                lp["coin"] = max(0, int(lp.get("coin", 0) or 0) + coin)
+                lp["grain"] = max(0, int(lp.get("grain", 0) or 0) + grain)
+                await self.save_player(lp)
+                await self._commit()
+                logger.info(f"[strategy][GM] 势力平衡：#{fid} 势力主铜钱{coin:+} 粮草{grain:+}")
+                return {"ok": True,
+                        "msg": f"⚖️ 已调整「{f['name']}」势力主钱包："
+                               f"铜钱 {coin:+}、粮草 {grain:+}"
+                               f"（现 {lp['coin']} / {lp['grain']}）"}
             treasury = f.get("treasury") or {}
             treasury["coin"] = max(0, int(treasury.get("coin", 0)) + coin)
             treasury["grain"] = max(0, int(treasury.get("grain", 0)) + grain)
@@ -355,12 +375,8 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             await self._commit()
             logger.info(f"[strategy][GM] 势力平衡：#{fid} 铜钱{coin:+} 粮草{grain:+}")
             return {"ok": True,
-                    "msg": f"⚖️ 已调整「{f['name']}」国库：铜钱 {coin:+}、粮草 {grain:+}"
+                    "msg": f"⚖️ 已调整「{f['name']}」内部国库：铜钱 {coin:+}、粮草 {grain:+}"
                            f"（现 {treasury['coin']} / {treasury['grain']}）"}
-        if op in ("联盟国库清算", "alliance_treasury", "联盟国库"):
-            # 联盟经济彻底独立后，旧存档可能仍把成员国库合并进了盟主势力。
-            # 默认只做日志探测；带「执行」才按人头把盟主国库平分给联盟玩家。
-            return await self._gm_settle_legacy_alliance_treasury(args)
         if op in ("重置赛季", "reset_season"):
             # C3：全程持 _world_lock 防与 tick/动作交错产生双结算；
             # 绝不取 _action_lock（保持恒定锁序、防死锁），也不经
@@ -376,156 +392,7 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         raise StrategyError(
             f"未知 GM 操作：{op or '(空)'}"
             "（可用：开世界 <模板> / tick <n> / 注入事件 <id> [据点id] / "
-            "势力平衡 <id> <币> [粮] / 联盟国库清算 [势力id] [执行] [强制] / 重置赛季）")
-
-    async def _gm_settle_legacy_alliance_treasury(self, args: list[str]) -> dict:
-        """GM：老存档「联盟国库」清算（默认只探测，不写库）。
-
-        背景：v4.0.9~v4.3.3 曾把成员国库合并进盟主势力；v4.3.4 起联盟
-        不再共享经济，但旧存档的盟主国库里仍可能沉淀着成员资源。本操作
-        按联盟玩家**人均平分**盟主国库（铜钱/粮草/精铁入个人钱包，灵石
-        经日限额注入主玩法钱包），并清理已废弃的联盟科技备份。
-
-        用法：
-        - ``联盟国库清算``：只输出各联盟盟主国库与成员数（日志探测）；
-        - ``联盟国库清算 执行``：清算全部联盟；
-        - ``联盟国库清算 <势力id> 执行``：只清算该盟主势力；
-        - 追加 ``强制`` 可重复清算已标记过的联盟。
-
-        v4.5.5：整次清算持 ``_world_lock`` 并包进 ``BEGIN IMMEDIATE``，
-        避免与 tick/玩家动作交错，也避免中途异常留下“部分发放但未写
-        清算标记”的状态导致重跑重复发钱。
-        """
-        try:
-            only_fid = int(args[0]) if args and str(args[0]).lstrip("-").isdigit() else 0
-        except (TypeError, ValueError):
-            only_fid = 0
-        flags = {str(a).lower() for a in (args or [])}
-        apply = bool(flags & {"执行", "apply", "split", "1", "true"})
-        force = bool(flags & {"强制", "force"})
-        async with self._world_lock:
-            world = await self.get_world()
-            if not world:
-                return {"ok": True, "msg": "当前没有活跃世界，无需清算"}
-            if only_fid:
-                target = await self.get_faction(int(only_fid))
-                if target:
-                    only_fid = int((await self._alliance_host(target) or target)["id"])
-            if self._in_tick_task():
-                return await self._gm_settle_legacy_alliance_treasury_locked(
-                    world, only_fid, apply, force)
-            try:
-                await self.db.conn.execute("BEGIN IMMEDIATE")
-            except Exception:  # noqa: BLE001 - 残留事务先结束，再开新事务
-                await self.db.conn.commit()
-                await self.db.conn.execute("BEGIN IMMEDIATE")
-            prev_tx = self._tx_task
-            self._tx_task = asyncio.current_task()
-            try:
-                res = await self._gm_settle_legacy_alliance_treasury_locked(
-                    world, only_fid, apply, force)
-                self._tx_task = prev_tx
-                await self.db.conn.commit()
-                return res
-            except Exception:
-                self._tx_task = prev_tx
-                await self.db.conn.rollback()
-                raise
-
-    async def _gm_settle_legacy_alliance_treasury_locked(
-            self, world: dict, only_fid: int, apply: bool,
-            force: bool) -> dict:
-        """``_gm_settle_legacy_alliance_treasury`` 的持锁/事务内实现。"""
-        rows = await self._fetchall(
-            "SELECT * FROM strategy_factions WHERE world_id=? AND kind='player' "
-            "AND alive=1 AND alliance_id=id ORDER BY id", (int(world["id"]),))
-        hosts = self._decode_all("strategy_factions", rows)
-        data = world.get("data") or {}
-        settled = data.get("legacy_alliance_treasury_settled")
-        if not isinstance(settled, dict):
-            settled = {}
-        lines: list[str] = []
-        total_split = {"coin": 0, "grain": 0, "iron": 0, "gold": 0}
-        for host in hosts:
-            if only_fid and int(host["id"]) != int(only_fid):
-                continue
-            allied = await self._alliance_factions(int(world["id"]), host)
-            if len(allied) <= 1:
-                continue
-            fids = {int(x["id"]) for x in allied}
-            marks = ",".join("?" for _ in fids)
-            prows = await self._fetchall(
-                f"SELECT user_id, faction_id FROM strategy_players "
-                f"WHERE world_id=? AND faction_id IN ({marks})",
-                (int(world["id"]), *sorted(fids)))
-            users = sorted({str(r["user_id"]) for r in prows})
-            treasury = dict(host.get("treasury") or {})
-            amounts = {k: max(0, int(treasury.get(k, 0) or 0))
-                       for k in ("coin", "grain", "iron", "gold")}
-            total = sum(amounts.values())
-            line = (f"#{host['id']}「{host['name']}」联盟 {len(allied)} 势力 / "
-                    f"{len(users)} 人，国库 🪙{amounts['coin']:,} "
-                    f"🌾{amounts['grain']:,} ⛏️{amounts['iron']:,} "
-                    f"💎{amounts['gold']:,}")
-            if apply and int(settled.get(str(int(host["id"])), 0) or 0) \
-                    and not force:
-                lines.append(line + "（已清算过，跳过；可加「强制」）")
-                continue
-            if not total or not users:
-                lines.append(line + "（无需清算）")
-                continue
-            if not apply:
-                lines.append(line + "（探测模式）")
-                logger.info(f"[strategy][GM] 联盟国库探测：{line}")
-                continue
-            n = len(users)
-            share = {k: amounts[k] // n for k in amounts}
-            left = {k: amounts[k] - share[k] * n for k in amounts}
-            # 铜钱/粮草/精铁入个人钱包；灵石按日限额注入主玩法钱包
-            for uid in users:
-                p = await self.get_player(uid, int(world["id"]))
-                if not p:
-                    continue
-                for k in ("coin", "grain", "iron"):
-                    if share[k] > 0:
-                        p[k] = int(p.get(k, 0) or 0) + int(share[k])
-                if share["gold"] > 0:
-                    await self._inject_gold(p, int(share["gold"]))
-                await self.save_player(p)
-            # 只清已分配的整份，余数留在盟主国库避免凭空蒸发
-            new_t = dict(treasury)
-            for k in ("coin", "grain", "iron", "gold"):
-                new_t[k] = int(left[k])
-            host["treasury"] = new_t
-            await self.save_faction(host)
-            # 旧联盟科技备份已无意义（科技按势力独立），一并清理
-            backup = data.get("alliance_tech_backup")
-            if isinstance(backup, dict):
-                for fid in fids:
-                    if int(fid) != int(host["id"]):
-                        backup.pop(str(int(fid)), None)
-                data["alliance_tech_backup"] = backup
-            for k in total_split:
-                total_split[k] += share[k] * n
-            settled[str(int(host["id"]))] = _now()
-            lines.append(line + f" → 已按 {n} 人人均分配")
-            logger.info(f"[strategy][GM] 联盟国库清算：{line} → {n} 人，"
-                        f"每人 🪙{share['coin']} 🌾{share['grain']} "
-                        f"⛏️{share['iron']} 💎{share['gold']}")
-        if apply:
-            data["legacy_alliance_treasury_settled"] = settled
-            world["data"] = data
-            await self.save_world(world)
-            await self._commit()
-        if not lines:
-            return {"ok": True, "msg": "没有需要清算的玩家联盟"}
-        head = "🧾 联盟国库清算（已执行）" if apply else "🔍 联盟国库探测（未写库）"
-        tail = ""
-        if apply:
-            tail = (f"\n合计分配：🪙{total_split['coin']:,} "
-                    f"🌾{total_split['grain']:,} ⛏️{total_split['iron']:,} "
-                    f"💎{total_split['gold']:,}")
-        return {"ok": True, "msg": head + "\n" + "\n".join(lines) + tail}
+            "势力平衡 <id> <币> [粮] / 重置赛季）")
 
     # ------------------------------------------------------------------
     # 配置
@@ -1158,9 +1025,14 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         data.pop("sabotage", None)
         winds = data.get("winds")
         if isinstance(winds, list):
+            try:
+                wind_keep = int(self._npc_wind_cfg().get("keep", 40))
+            except Exception:  # noqa: BLE001 - 配置异常时退回旧上限
+                wind_keep = 40
             data["winds"] = [w for w in winds
                              if isinstance(w, dict)
-                             and int(w.get("visible_at", 0) or 0) + 7 * 86400 > now][-30:]
+                             and int(w.get("visible_at", 0) or 0) + 7 * 86400 > now
+                             ][-max(1, wind_keep):]
         # 过期日限桶：只保留今天
         today = time.strftime("%Y%m%d", time.localtime(now))
         pdaily = data.get("persuade_daily")
@@ -1174,6 +1046,18 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                     pdaily[fid] = keep
                 else:
                     pdaily.pop(fid, None)
+        # 忠诚奖赏日限桶：只保留今天
+        lrdaily = data.get("loyalty_reward_daily")
+        if isinstance(lrdaily, dict):
+            for uid, bucket in list(lrdaily.items()):
+                if not isinstance(bucket, dict):
+                    lrdaily.pop(uid, None)
+                    continue
+                keep = {k: v for k, v in bucket.items() if str(k) == today}
+                if keep:
+                    lrdaily[uid] = keep
+                else:
+                    lrdaily.pop(uid, None)
 
     # ------------------------------------------------------------------
     # 世界生命周期（§10：建世界 / 幂等）
@@ -3171,6 +3055,113 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
     # ------------------------------------------------------------------
     # 军团（§5.5 编成 / §5.6 行军）
     # ------------------------------------------------------------------
+    async def _army_create_quote(self, p: dict, faction: Optional[dict],
+                                 node: dict, leader: dict, troop_type: str,
+                                 troops: int,
+                                 siege_engine: bool = False) -> dict:
+        """编军资源预算（``create_army`` / ``preview_army_cost`` 共用口径）。
+
+        只做计算不落库：征兵铜钱/粮草、破城槌、自动携粮上限与库存差额
+        都由这里统一给出，避免预览与正式结算两套公式漂移。
+        """
+        tt = R.TROOP_TYPES[troop_type]
+        troop_mult = await self._faction_buff(
+            int(p["faction_id"]), "troop_cost_mult")
+        teff = R.tech_effects((faction or {}).get("tech") or {},
+                              tcfg=self.main_cfg().get("tech") or {})
+        # 经营 L6 征募：募兵铜钱/粮耗 -15%；农政 L2：军团粮耗 -10%
+        recruit_mult = float(teff.get("recruit_cost_mult", 1.0) or 1.0)
+        unit_coin = float(tt["recruit_coin"]) / 10 * troop_mult * recruit_mult
+        unit_grain = (float(tt["recruit_grain"]) / 10 * troop_mult
+                      * recruit_mult * float(teff.get("grain_cost_mult", 1.0)))
+        # 与旧口径保持相同的乘法顺序与取整，避免预览/结算出现 1 点偏差
+        recruit_coin = int(troops * tt["recruit_coin"] / 10
+                           * troop_mult * recruit_mult)
+        # 与旧口径保持两步取整：先算征兵价，再叠农政粮耗折扣
+        recruit_grain = int(troops * tt["recruit_grain"] / 10
+                            * troop_mult * recruit_mult)
+        recruit_grain = int(
+            recruit_grain * float(teff.get("grain_cost_mult", 1.0)))
+        ram_cost = 0
+        if siege_engine:
+            # 兵学 L2：破城槌造价 -30%；带兵 ≥ 阈值时再叠加大军攻城槌效率
+            ram_mult = float(teff.get("ram_cost_mult", 1.0))
+            if troops >= int(teff.get("big_army_threshold", 2000) or 2000):
+                ram_mult *= max(0.0, 1.0 - float(
+                    teff.get("big_army_siege_bonus", 0.0) or 0.0))
+            ram_cost = int(3000 * ram_mult)
+        coin_cost = recruit_coin + ram_cost
+        # 携粮 = min(库存, 统率×50)；粮仓 +10%/级（§5.6 / §6.6）
+        carry_cap = R.carry_grain_cap(leader)
+        granary = min(5, self._building_level(node, "granary"))
+        if granary:
+            carry_cap = int(carry_cap * (1 + 0.1 * granary))
+        stock_coin = int(p["coin"])
+        stock_grain = int(p["grain"])
+        # 携粮按「扣除征兵粮后的库存」计算，与正式结算顺序一致
+        carry = max(0, min(stock_grain - recruit_grain, carry_cap))
+        return {
+            "troop_type": troop_type,
+            "troop_name": tt["name"],
+            "troops": int(troops),
+            "unit_coin": unit_coin,
+            "unit_grain": unit_grain,
+            "recruit_coin": recruit_coin,
+            "recruit_grain": recruit_grain,
+            "ram_cost": ram_cost,
+            "coin_cost": coin_cost,
+            "grain_cost": recruit_grain,
+            "carry": carry,
+            "carry_cap": carry_cap,
+            "carry_short": max(0, carry_cap - carry),
+            "total_coin": coin_cost,
+            "total_grain": recruit_grain + carry,
+            "stock_coin": stock_coin,
+            "stock_grain": stock_grain,
+            "granary_level": granary,
+            "affordable": stock_coin >= coin_cost and stock_grain >= recruit_grain,
+            "lacking_coin": max(0, coin_cost - stock_coin),
+            "lacking_grain": max(0, recruit_grain - stock_grain),
+        }
+
+    async def preview_army_cost(self, user_id: str, leader_char_id: int,
+                                node_id: int, troop_type: str, troops: int,
+                                siege_engine: bool = False) -> dict:
+        """编军预算预览（只读）：按主将/兵种/兵力返回可花费上限与预算明细。
+
+        前端在编军弹窗输入时调用，提前暴露征兵价、破城槌、自动携粮和
+        带兵上限，避免玩家按基础价估算后到结算才发现资源不足。
+        """
+        _world, p = await self._require_player(user_id)
+        if troop_type not in R.TROOP_TYPES:
+            raise StrategyError("兵种无效")
+        troops = max(0, int(troops))
+        node = await self._friendly_owned_node(p, node_id)
+        leader = await self._own_char(p, leader_char_id)
+        faction = await self.get_faction(p["faction_id"])
+        acfg = self.main_cfg().get("army") or {}
+        cap = await self._leader_cap(leader, faction, int(node["id"]))
+        quote = await self._army_create_quote(
+            p, faction, node, leader, troop_type, troops, siege_engine)
+        # 当前资源最多可编多少兵（扣除破城槌固定铜钱后按单价折算，取整到百）
+        budget_coin = max(0, quote["stock_coin"] - quote["ram_cost"])
+        by_coin = (int(budget_coin / quote["unit_coin"])
+                   if quote["unit_coin"] > 0 else cap)
+        by_grain = (int(quote["stock_grain"] / quote["unit_grain"])
+                    if quote["unit_grain"] > 0 else cap)
+        affordable = max(0, min(cap, by_coin, by_grain))
+        affordable = affordable // 100 * 100
+        quote.update({
+            "leader_name": leader.get("name", ""),
+            "cap": int(cap),
+            "min_troops": int(acfg.get("min_troops", 100)),
+            "overstaff_limit": int(
+                (leader.get("stats") or {}).get("leadership", 0)) * 20,
+            "overstaffed": bool(R.is_overstaffed(leader, troops)),
+            "affordable_troops": affordable,
+        })
+        return {"ok": True, "quote": quote}
+
     async def create_army(self, user_id: str, leader_char_id: int, member_ids: list,
                           node_id: int, troop_type: str, troops: int,
                           siege_engine: bool = False) -> dict:
@@ -3232,33 +3223,20 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         cap = await self._leader_cap(leader, faction, int(node["id"]))
         if troops > cap:
             raise StrategyError(f"超过主将带兵上限（{cap}）")
-        # 招募成本（§7.5 兵种价目）；征兵动员 troop_cost_mult 折扣
+        # 招募成本（§7.5 兵种价目）；与预览 `preview_army_cost` 共用同一口径
         tt = R.TROOP_TYPES[troop_type]
-        troop_mult = await self._faction_buff(
-            int(p["faction_id"]), "troop_cost_mult")
-        teff = R.tech_effects((faction or {}).get("tech") or {},
-                              tcfg=self.main_cfg().get("tech") or {})
-        # 经营 L6 征募：募兵铜钱/粮耗 -15%；农政 L2：军团粮耗 -10%
-        recruit_mult = float(teff.get("recruit_cost_mult", 1.0) or 1.0)
-        coin_cost = int(troops * tt["recruit_coin"] / 10 * troop_mult * recruit_mult)
-        grain_cost = int(troops * tt["recruit_grain"] / 10 * troop_mult * recruit_mult)
-        grain_cost = int(grain_cost * float(teff.get("grain_cost_mult", 1.0)))
-        if siege_engine:
-            # 兵学 L2：破城槌造价 -30%；带兵 ≥ 阈值时再叠加大军攻城槌效率（造价再降）
-            ram_mult = float(teff.get("ram_cost_mult", 1.0))
-            if troops >= int(teff.get("big_army_threshold", 2000) or 2000):
-                ram_mult *= max(0.0, 1.0 - float(
-                    teff.get("big_army_siege_bonus", 0.0) or 0.0))
-            coin_cost += int(3000 * ram_mult)
+        quote = await self._army_create_quote(
+            p, faction, node, leader, troop_type, troops, siege_engine)
+        coin_cost = int(quote["coin_cost"])
+        grain_cost = int(quote["recruit_grain"])
         if p["coin"] < coin_cost or p["grain"] < grain_cost:
-            raise StrategyError(f"资源不足：需铜钱 {coin_cost} / 粮草 {grain_cost}")
+            raise StrategyError(
+                f"资源不足：需铜钱 {coin_cost} / 粮草 {grain_cost}"
+                f"（现有铜钱 {int(p['coin'])} / 粮草 {int(p['grain'])}）")
         p["coin"] -= coin_cost
         p["grain"] -= grain_cost
         # 携粮 = min(库存, 统率×50)；粮仓 +10%/级（§5.6 / §6.6）
-        carry_cap = R.carry_grain_cap(leader)
-        granary = min(5, self._building_level(node, "granary"))
-        if granary:
-            carry_cap = int(carry_cap * (1 + 0.1 * granary))
+        carry_cap = int(quote["carry_cap"])
         carry = min(p["grain"], carry_cap)
         p["grain"] -= carry
         # 上一条军团全灭留下的老兵值（50%）在新编军时继承
@@ -4706,6 +4684,8 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         try:
             world["last_tick_at"] = _now()
             await self.save_world(world)
+            # 0. v4.5.7 一次性迁移：旧玩家势力国库余额退回成员钱包
+            await self._settle_legacy_player_treasuries(world)
             # 1. 任务结算（到期任务入账，角色转 idle）
             if not output_only:
                 await self._step_settle_tasks(world)
@@ -4729,6 +4709,9 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 # 5. 抵达触发会战 / 占领
                 battles = await self._step_arrivals(world)
                 summary["battles"].extend(battles)
+                # 5b. v4.6.1 战略外交层：威胁积累 / 档位 / 自主宣战 / 停战
+                await self._step_npc_diplomacy(world)
+                await self._step_npc_peace(world)
                 # 6. NPC AI（扩张出征 / 魔潮；守军恢复统一在 _step_recovery）
                 await self._step_npc_ai(world)
                 # 6a. NPC 城池发展（§10.6）与自动赈济（§10.8）
@@ -4750,6 +4733,8 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 await self._step_captive_transfers(world)
                 await self._step_tech(world)
                 await self._step_governance(world)
+                # 8b-1. 忠诚自然恢复（先回血，再做出走判定）
+                await self._step_loyalty_recovery(world)
                 # 8b-2. 势力任务 / 动员令 / 低忠诚出走（§6.4 §18.4）
                 await self._step_faction_tasks(world)
                 await self._step_mobilizations(world)
@@ -4768,6 +4753,8 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 await self._step_army_supplies(world)
                 # 8e. 赛季推进（阶段/霸权/合纵/结算，须放最后）
                 await self._step_season(world)
+                # 8e-2. v4.6.1 风声：事件开始 / 结束的传闻播报
+                await self._step_winds(world)
                 # 8f. 战报归档清理（§18.4 result_keep_days）
                 await self._step_cleanup_battles(world)
                 # 8g. 擂台过期清理（退还赌注，无交互也会回收）
@@ -5205,6 +5192,29 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             await self.save_faction(f)
 
     # --- 步骤 2：产出分配 -------------------------------------------------
+    async def _settle_legacy_player_treasuries(self, world: dict) -> int:
+        """v4.5.7 一次性迁移：旧玩家势力国库余额退回成员钱包。
+
+        玩家势力已不再设国库；旧存档（含 v4.0.9~v4.3.3 联盟合库遗留）里的
+        余额在此按势力人数均分到成员钱包（灵石走 ``_inject_gold`` 日限额），
+        随后清空 ``treasury_json``。NPC 势力的内部模拟国库不受影响。
+        """
+        data = world.get("data") or {}
+        if int(data.get("player_treasury_removed", 0) or 0) >= 456:
+            return 0
+        rows = await self._fetchall(
+            "SELECT * FROM strategy_factions WHERE world_id=? "
+            "AND kind='player' AND alive=1", (int(world["id"]),))
+        settled = 0
+        for f in self._decode_all("strategy_factions", rows):
+            settled += await self._settle_faction_treasury(world, f)
+        data["player_treasury_removed"] = 456
+        world["data"] = data
+        await self.save_world(world)
+        if settled:
+            logger.info(f"[strategy] v4.5.7 旧势力国库清算：{settled} 名玩家已入账")
+        return settled
+
     async def _step_distribute_output(self, world: dict, output_only: bool) -> int:
         cfg = self.main_cfg()
         per_tick = cfg.get("node_output_per_tick") or {}
@@ -5292,14 +5302,13 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                     # 循环尾统一 save_player 落库
                     got, _m = await self._inject_gold(p, personal)
                     gold_total += got
-                if f:
-                    treasury = f.get("treasury") or {}
-                    treasury["gold"] = int(treasury.get("gold", 0)) + int(
-                        gross * float(gcfg.get("treasury_share", 0.3)))
-                    f["treasury"] = treasury
+                # v4.5.7：玩家势力无国库，原本沉淀在国库的 30% 灵石份额
+                # 一并注入产出玩家钱包（仍受 _inject_gold 日限额约束）。
+                rest = gross - personal
+                if rest > 0:
+                    got, _m = await self._inject_gold(p, rest)
+                    gold_total += got
             await self.save_player(p)
-            if f:
-                await self.save_faction(f)
         # --- NPC 势力国库 ---
         npc_factions = await self._fetchall(
             "SELECT id FROM strategy_factions WHERE world_id=? AND kind='npc' AND alive=1",
@@ -5723,6 +5732,11 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         # 玩家占领后据点不再是匪寨：清除 data.bandits / lair 标记，防止
         # 新主的城继续劫掠商路粮队、继续被匪寨 tick 抽成。
         await self._clear_bandit_marker(world, node)
+        # v4.6.1：战果 / 龟缩统计 + 风声（据点易主）
+        if prev_owner > 0 and int(faction_id) > 0 and \
+                prev_owner != int(faction_id):
+            self._note_threat_capture(
+                world, prev_owner, int(faction_id), node.get("name", ""))
         node["morale"] = 50
         # 城防重置（§10.2：潜力放开后 mine/grain/market 也有城防，统一按
         # 类型判定；v4.5.2 遗迹同为可经营据点，按 20% 起步后靠自修/修筑成长）
@@ -7493,6 +7507,7 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         ecfg = self._npc_economy_cfg()
         morale_min = int(ecfg["mobilize_morale_min"])
         nodes = {n["id"]: n for n in await self.get_nodes(world["id"])}
+        state = self._npc_ai_state(world)
         factions = await self._fetchall(
             "SELECT id FROM strategy_factions WHERE world_id=? AND kind='npc' AND alive=1",
             (world["id"],))
@@ -7532,20 +7547,43 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             if int(treasury["coin"]) < int(floor["coin"]) or \
                     int(treasury["grain"]) < int(floor["grain"]):
                 continue
-            # 出征决策：每 tick 每势力最多 2 路
+            # v4.6.1 战争狂热 / 威胁守家（§7.7 / §16.4）
+            frenzy = self._npc_frenzy_state(world, fid)
+            war_cfg = self._npc_war_cfg()
+            threat_cfg = self._npc_threat_cfg()
+            pairs_self = state.get("pairs", {}).get(str(fid)) or {}
+            at_war = any(
+                isinstance(p, dict) and p.get("phase") in ("war", "hostile")
+                for p in pairs_self.values())
+            home = float(home_reserve) + (0.25 if at_war else 0.0)
+            if frenzy["active"]:
+                home = max(float(frenzy["home_reserve_min"]),
+                           home + float(frenzy["home_reserve_delta"]))
+            home = min(0.90, max(0.0, home))
+            send_mult = float(frenzy["send_mult"])
+            threshold_now = (float(frenzy["utility_threshold"])
+                             if frenzy["active"] and
+                             frenzy["utility_threshold"] is not None
+                             else float(threshold))
+            max_sorties = 2 + int(frenzy["sorties_bonus"])
+            tick_no = int(world.get("tick_no", 0) or 0)
+            node_morale_min = (int(frenzy["morale_min"])
+                               if frenzy["morale_min"] is not None
+                               else morale_min)
+            # 出征决策：平时最多 2 路，战争狂热最多 4 路
             sorties = 0
             for node in owned:
-                if sorties >= 2:
+                if sorties >= max_sorties:
                     break
                 gar = node.get("npc_garrison") or {}
                 troops = int(gar.get("troops", 0))
-                send = int(troops * (1 - home_reserve))
+                send = int(troops * (1 - home) * send_mult)
                 # §10.8 动员民心门槛：民心过低只允许小规模动员（≤ 守军上限 30%）
-                if int(node.get("morale", 100) or 0) < morale_min:
+                if int(node.get("morale", 100) or 0) < node_morale_min:
                     send = min(send, int(R.garrison_cap(int(node["level"])) * 0.3))
                 if send < 300:
                     continue
-                best_target, best_util = None, threshold
+                best_target, best_util = None, threshold_now
                 f_dip = f.get("diplomacy") or {}
                 for adj_id in node.get("adj") or []:
                     target = nodes.get(int(adj_id))
@@ -7556,7 +7594,12 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                         continue
                     # 同盟国不征伐（§6.3）
                     tf_owner = int(target["owner_faction"])
+                    # 停火窗口内不主动进攻（§8.7）
+                    if tf_owner > 0 and self._pair_ceasefire(
+                            world, fid, tf_owner):
+                        continue
                     rel = R.REL_NEUTRAL
+                    tfo = None
                     if tf_owner > 0:
                         tfo = await self.get_faction(tf_owner)
                         if tfo and int(tfo.get("alliance_id") or 0) and \
@@ -7572,32 +7615,101 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                             continue
                     garrison_power = int((target.get("npc_garrison") or {}).get(
                         "troops", 0)) / 100
+                    # §16.4 门口堆了多少兵：目标势力在本节点相邻处的守军
+                    nearby = 0
+                    for nb in target.get("adj") or []:
+                        nb_node = nodes.get(int(nb))
+                        if nb_node and int(nb_node.get(
+                                "owner_faction", 0) or 0) == tf_owner:
+                            nearby += int((nb_node.get("npc_garrison") or {})
+                                          .get("troops", 0) or 0)
+                    tgt_capital = int((tfo or {}).get(
+                        "capital_node_id", 0) or 0)
+                    adj_core = bool(
+                        tgt_capital and tgt_capital in
+                        [int(a) for a in target.get("adj") or []])
                     util = R.npc_utility(
                         target, f, int(own_power * 100), int(garrison_power * 100),
                         path_edges=1,
-                        adjacent_to_enemy_core=(target["id"] ==
-                                                int(f.get("capital_node_id", 0) or 0)))
-                    # 赛季侵略性：决战 +30% / 合纵讨霸 ×1.5（§11）
-                    util *= self.npc_aggression_mult(
-                        world, fid, int(target["owner_faction"]))
+                        threat_nearby_power=int(nearby),
+                        adjacent_to_enemy_core=adj_core)
+                    # 侵略倍率 = 赛季/合纵 × 威胁 × 狂热，硬上限 aggression_cap
+                    mult = self.npc_aggression_mult(world, fid, tf_owner)
+                    if tf_owner > 0:
+                        mult *= self._npc_threat_mult_for(world, fid, tf_owner)
+                    if frenzy["active"]:
+                        mult *= 1.0 + float(frenzy["aggression_bonus"])
+                    mult = max(0.0, min(
+                        mult, float(threat_cfg["aggression_cap"])))
+                    util *= mult
                     if tf_owner > 0:
                         if rel == R.REL_WAR:
                             util *= float(fcfg.get("war_target_bonus", 1.35))
+                            if frenzy["active"]:
+                                util *= float(frenzy["target_bonus"])
                         else:
                             util *= R.favor_aggression_mult(
                                 R.favor_of(f_dip, tf_owner), fcfg)
                     if util > best_util:
                         best_util, best_target = util, target
-                if not best_target:
-                    continue
-                army = await self._spawn_npc_army(world, f, node, best_target, send)
-                if army:
-                    # 实际出兵量可能因民心门槛/国库截断小于 send，按实际扣减
-                    used = min(troops, max(0, int(army.get("troops", send) or 0)))
-                    gar["troops"] = max(0, troops - used)
-                    node["npc_garrison"] = gar
-                    await self.save_node(node)
-                    sorties += 1
+                if best_target:
+                    army = await self._spawn_npc_army(
+                        world, f, node, best_target, send,
+                        cost_mult=float(frenzy["mobilization_cost_mult"]),
+                        grain_mult=float(frenzy["grain_mult"]),
+                        morale_min=(int(frenzy["morale_min"])
+                                    if frenzy["morale_min"] is not None
+                                    else None))
+                    if army:
+                        # 实际出兵量可能因民心门槛/国库截断小于 send，按实际扣减
+                        used = min(troops, max(0, int(
+                            army.get("troops", send) or 0)))
+                        gar["troops"] = max(0, troops - used)
+                        node["npc_garrison"] = gar
+                        await self.save_node(node)
+                        sorties += 1
+            # §7.8 非接壤霸主远征：仅 goal == hegemon，每 8 tick 至多一支
+            if sorties < max_sorties:
+                for tgt_key, wpair in pairs_self.items():
+                    if not isinstance(wpair, dict) or \
+                            wpair.get("phase") != "war" or \
+                            str(wpair.get("goal") or "") != "hegemon":
+                        continue
+                    # 停火窗口内同样暂停远征（§8.7）
+                    if self._pair_ceasefire(world, fid, int(tgt_key)):
+                        continue
+                    tgt_f = await self.get_faction(int(tgt_key))
+                    if not tgt_f:
+                        continue
+                    exp = await self._npc_expedition_target(
+                        world, {"nodes": nodes}, f, tgt_f)
+                    if not exp:
+                        continue
+                    from_node = nodes.get(int(exp.get("_from_node") or 0))
+                    if not from_node:
+                        continue
+                    egar = from_node.get("npc_garrison") or {}
+                    etroops = int(egar.get("troops", 0) or 0)
+                    esend = int(etroops * (1 - home) * send_mult)
+                    if esend < int(war_cfg["expedition"]["min_troops"]):
+                        continue
+                    army = await self._spawn_npc_army(
+                        world, f, from_node, exp, esend,
+                        cost_mult=float(frenzy["mobilization_cost_mult"]),
+                        grain_mult=float(
+                            war_cfg["expedition"]["grain_mult"]),
+                        morale_min=(int(frenzy["morale_min"])
+                                    if frenzy["morale_min"] is not None
+                                    else None))
+                    if army:
+                        used = min(etroops, max(0, int(
+                            army.get("troops", esend) or 0)))
+                        egar["troops"] = max(0, etroops - used)
+                        from_node["npc_garrison"] = egar
+                        await self.save_node(from_node)
+                        wpair["last_expedition_tick"] = tick_no
+                        sorties += 1
+                    break
         # 魔潮军团（faction -1）：普通军团扑最近节点；猎潮军优先扑最强势力的据点
         data = world.get("data") or {}
         hunters = data.get("demon_hunters") or {}
@@ -8069,11 +8181,17 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         return None
 
     async def _spawn_npc_army(self, world: dict, faction: dict, node: dict,
-                              target: dict, troops: int) -> Optional[dict]:
+                              target: dict, troops: int,
+                              cost_mult: float = 1.0,
+                              grain_mult: float = 1.0,
+                              morale_min: Optional[int] = None) -> Optional[dict]:
         """NPC 出征建军团（§10.7）：动员费 + 招募粮耗 + 携粮 + 扣民心。
 
         费用/携粮均从势力国库真实扣减，扣后不得低于守财底线；国库不足
         直接返回 None（不组建）。魔潮（faction=-1）无国库，不走本函数。
+
+        v4.6.1：``cost_mult`` / ``grain_mult`` / ``morale_min`` 供战争狂热
+        与霸主远征覆盖默认值，缺省时行为与旧版一致。
         """
         fid = int(faction["id"])
         pers = faction.get("personality") or {}
@@ -8082,7 +8200,9 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         # §10.8 动员民心门槛：民心过低只允许小规模（≤ 守军上限 30%）
         level = max(1, int(node.get("level", 1) or 1))
         troops = max(0, int(troops or 0))
-        if int(node.get("morale", 100) or 0) < int(ecfg["mobilize_morale_min"]):
+        gate_morale = int(ecfg["mobilize_morale_min"]) if morale_min is None \
+            else int(morale_min)
+        if int(node.get("morale", 100) or 0) < gate_morale:
             troops = min(troops, max(1, int(R.garrison_cap(level) * 0.3)))
         if troops <= 0:
             return None
@@ -8093,7 +8213,7 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         ratio = float(tt.get("recruit_coin", base_coin) or base_coin) / base_coin
         coin_cost = max(1, int(round(
             troops / 100.0 * float(ecfg["mobil_coin_per_100"]) * ratio *
-            float(ecfg["mobilization_cost_mult"]))))
+            float(ecfg["mobilization_cost_mult"]) * float(cost_mult))))
         grain_cost = max(1, int(round(
             troops / 100.0 * float(ecfg["mobil_grain_per_100"]))))
         floor = self._npc_reserve(faction)
@@ -8103,7 +8223,8 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         # 携粮从国库拨付（保留守财底线，避免把本金一次搬空）
         treasury = self._npc_treasury(faction)
         want_grain = max(1, int(round(
-            troops * float(ecfg["carry_grain_per_100"]) / 100.0)))
+            troops * float(ecfg["carry_grain_per_100"]) / 100.0 *
+            float(grain_mult))))
         carry = min(want_grain,
                     max(0, int(treasury["grain"]) - int(floor["grain"])))
         if carry > 0:
@@ -8422,7 +8543,12 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                                "kind": f["kind"], "alive": f["alive"],
                                "reputation": f["reputation"], "level": f["level"],
                                "alliance_id": int(f.get("alliance_id") or 0),
-                               "node_count": node_count.get(f["id"], 0)}
+                               "node_count": node_count.get(f["id"], 0),
+                               # v4.6.1：天下视图需要的关系 / 性格快照
+                               "diplomacy": f.get("diplomacy") or {},
+                               "personality": f.get("personality") or {},
+                               "capital_node_id": int(
+                                   f.get("capital_node_id", 0) or 0)}
         unpaid_gov_by_fid = {
             int(f["id"]): {int(x) for x in (((f.get("salary") or {}).get(
                 "unpaid_governor_node_ids")) or [])}
@@ -8565,7 +8691,10 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             })
         # 军团（迷雾：非可见据点上的敌军不展示）
         out_armies = []
-        for a in await self.get_armies(wid):
+        army_count_by_fid: dict[int, int] = {}
+        army_troops_by_fid: dict[int, int] = {}
+        all_armies = await self.get_armies(wid)
+        for a in all_armies:
             is_mine = a.get("owner_user_id") == user_id or \
                 a["faction_id"] in alliance_ids
             node_visible = a["node_id"] in visible_nodes or a["node_id"] in scouted
@@ -8574,6 +8703,11 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             if not is_mine and a["state"] == "march" and not node_visible:
                 continue
             fm = f_meta.get(a["faction_id"], {"name": "?", "color": "#888"})
+            if is_mine or node_visible:
+                afid = int(a["faction_id"])
+                army_count_by_fid[afid] = army_count_by_fid.get(afid, 0) + 1
+                army_troops_by_fid[afid] = army_troops_by_fid.get(afid, 0) + int(
+                    a.get("troops", 0) or 0)
             on_road = False
             if is_mine and a.get("state") == "march" and a.get("path"):
                 on_road = R.is_friendly_road(
@@ -8594,6 +8728,18 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 "grain": a["grain"] if is_mine else None,
                 "leader": char_names.get((a.get("characters") or [0])[0], ""),
             })
+        for fid, meta in f_meta.items():
+            if int(fid) > 0:
+                meta["armies"] = army_count_by_fid.get(int(fid), 0)
+                meta["troops"] = army_troops_by_fid.get(int(fid), 0)
+        # v4.6.1 天下视图：威胁榜 / 扩张倾向 / 对外关系 / 作战情况 / 风声
+        winds_raw = (world.get("data") or {}).get("winds") or []
+        npc_world = self._npc_world_view(world, f_meta, winds_raw)
+        # 对外关系 / 性格只用于 npc_world 聚合，不随 factions 明细外发
+        public_factions = [
+            {k: v for k, v in meta.items()
+             if k not in ("diplomacy", "personality")}
+            for meta in f_meta.values()]
         state: dict[str, Any] = {
             "joined": bool(p),
             "world": {"id": wid, "season_no": world["season_no"],
@@ -8602,7 +8748,7 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                       "next_tick_at": world["last_tick_at"] + self.tick_seconds(),
                       "ends_at": world["ends_at"]},
             "nodes": out_nodes,
-            "factions": sorted(f_meta.values(), key=lambda x: -x["node_count"]),
+            "factions": sorted(public_factions, key=lambda x: -x["node_count"]),
             "armies": out_armies,
             "events": [{"id": e["event_id"], "name": (e.get("data") or {}).get(
                 "name", e["event_id"]), "target": e.get("target"),
@@ -8625,9 +8771,8 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 for pet in ((world.get("data") or {}).get("faction_petitions") or {}).values()
                 if pet.get("state") == "open"
                 and _now() <= int(pet.get("expire_at", 0))],
-            "winds": [w.get("text", "") for w in
-                      ((world.get("data") or {}).get("winds") or [])
-                      if _now() >= int(w.get("visible_at", 0))][-10:],
+            "winds": npc_world.get("winds") or [],
+            "npc_world": npc_world,
             "start_candidates": (await self._starter_candidates(world)) if not p else [],
             "meta": self._frontend_meta(),
             "memorials": await self.get_memorials(wid),
@@ -8707,6 +8852,12 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         for c0 in await self.get_chars(world_id=world["id"]):
             char_names[c0["id"]] = c0["name"]
         growth_cap_bonus = self._growth_cap_bonus()
+        lcfg = self._loyalty_cfg()
+        reward_gain = max(1, int(lcfg.get("reward_gain", 5) or 5))
+        reward_cost = max(0, int(lcfg.get("reward_cost_coin", 100) or 0))
+        reward_cap = max(1, min(100, int(lcfg.get("reward_cap", 100) or 100)))
+        reward_limit = max(0, int(lcfg.get("reward_daily_limit", 20) or 20))
+        reward_used = self._loyalty_reward_used(world, p["user_id"])
         active_tasks = await self.get_tasks(world["id"])
         # 驻守口径（§5）：只有本地任务算驻守，远征/计略任务不算
         local_task_char_ids = {
@@ -8737,6 +8888,12 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 "stat_total": R.stat_total(c),
                 "stat_cap": R.stat_growth_cap(c, growth_cap_bonus),
                 "loyalty": c["loyalty"],
+                "can_reward": (
+                    str(c.get("status") or "") not in
+                    ("dead", "captive", "transfer", "wander")
+                    and int(c["loyalty"]) < reward_cap),
+                "reward_cost": reward_cost,
+                "reward_gain": reward_gain,
                 "injury": c["injury"],
                 "injury_state": R.injury_state(c["injury"]),
                 "injury_name": R.INJURY_STATE_NAMES.get(R.injury_state(c["injury"]), ""),
@@ -8948,8 +9105,7 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 "level": f["level"], "reputation": f["reputation"],
                 "capital_node_id": int(f.get("capital_node_id", 0) or 0),
                 "node_count": counts.get(int(f["id"]), 0),
-                # v4.3.4：国库/科技各势力独立；外交/名册/官职仍读取盟主。
-                "treasury": f.get("treasury") or {},
+                # v4.5.7：玩家势力无国库（开销统一走钱包）；科技仍各势力独立。
                 "tech": f.get("tech") or {},
                 # 联盟不共享国库：只展示本势力自身发薪结果。
                 "salary": own_salary,
@@ -8964,7 +9120,7 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                                     for k, v in salary_per.items()},
                 "salary_enabled": bool(salary_cfg.get(
                     "enabled", (self.main_cfg().get("faction") or {}).get(
-                        "salary_from_treasury", True))),
+                        "salary_enabled", True))),
                 "economy_shared": False,
                 "member_cap": int(f.get("member_cap", 10)),
                 "members": [{"user_id": m["user_id"],
@@ -8973,7 +9129,7 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                              "contribution": int(m.get("contribution", 0) or 0)}
                             for m in members],
                 "my_position": self._position_of(members, p["user_id"]),
-                # 本势力内的官职：科技/国库存取等「各势力独立」操作使用；
+                # 本势力内的官职：科技/经济等「各势力独立」操作使用；
                 # my_position 仍是联盟共同治理身份，两者不可混用。
                 "own_position": self._position_of(own_members, p["user_id"]),
                 # 联盟视图：自身势力 id 不变，治理/盟主另给 governance_id
@@ -9008,6 +9164,20 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             "char_cap_nodes": int(cap_info["nodes"]),
             "char_cap_per_node": int(cap_info["per_node"]),
             "growth_cap_bonus": int(growth_cap_bonus),
+            "loyalty_reward": {
+                "gain": reward_gain, "cost_coin": reward_cost,
+                "cap": reward_cap, "daily_limit": reward_limit,
+                "daily_used": reward_used,
+                "daily_left": (max(0, reward_limit - reward_used)
+                               if reward_limit > 0 else -1),
+                "natural_gain_per_tick": int(
+                    lcfg.get("natural_gain_per_tick", 1) or 0),
+                "natural_cap": int(lcfg.get("natural_cap", 80) or 80),
+                "appointed_bonus_per_tick": int(
+                    lcfg.get("appointed_bonus_per_tick", 1) or 0),
+                "appointed_natural_cap": int(
+                    lcfg.get("appointed_natural_cap", 90) or 90),
+            },
             "honor": self._honor_view(p),
             "notify_pref": p.get("notify_pref") or {"level": 1},
             "chars": chars, "armies": armies, "tasks": tasks,
@@ -9021,7 +9191,8 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             "faction": faction_view,
             "faction_invite": ((world.get("data") or {}).get("join_invites") or {})
             .get(p["user_id"]),
-            "captives": await self.get_captives_view(world["id"], p["faction_id"]),
+            "captives": await self.get_captives_view(
+                world["id"], p["faction_id"], p["user_id"], world=world),
             "market_orders": await self.market_orders(p["user_id"]),
             "market_offers": await self.market_offers(p["user_id"]),
             "convoys": await self.get_convoys_view(p["user_id"]),
@@ -9254,7 +9425,7 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
     #: 需要审计的关键动作（§18.4）
     _AUDIT_ACTIONS = {
         "enter", "faction_create", "faction_quit", "faction_set_position",
-        "treasury_withdraw", "rebuild_capital", "capital_relocate",
+        "rebuild_capital", "capital_relocate",
         "mobilization_issue", "transfer_captive", "transfer_node",
         "govern_relief", "appoint_taishou", "dismiss_taishou",
         "upgrade_building", "create_army", "raid_bandit",
@@ -9263,12 +9434,17 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         # v4.3.0 补全：此前 11 个敏感动作落库无审计
         "faction_task_claim", "faction_task_refresh", "rebuild_donate",
         "arena_register", "diplomacy_propose", "diplomacy_respond",
-        "release", "ransom_set", "ransom_pay", "market_cancel",
+        "release", "execute_captive", "sell_captive",
+        "ransom_set", "ransom_pay", "market_cancel",
         "market_offer_accept", "market_offer_decline",
         "faction_invite",
         # v81 所在地机制：显式传送 / 大牢正式招募
         "move_char", "recruit_captive",
+        # v4.5.8：忠诚奖赏
+        "reward_char", "reward_all",
     }
+    #: 只读预览动作：不占限速额度、不标活跃、不包事务（前端输入实时调用）
+    _READONLY_ACTIONS = {"army_cost_preview"}
 
     async def handle_action(self, user_id: str, action: str,
                             params: Optional[dict] = None) -> dict:
@@ -9279,6 +9455,11 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         （tick/poll 同序，GM 重置赛季只拿 _world_lock，无死锁）。
         tick 持 _world_lock 期间照旧 Busy 拒绝（保持 REST 423 语义）。
         """
+        # 只读预览：不占限速额度、不标活跃、不开事务
+        if action in self._READONLY_ACTIONS:
+            if self._world_lock.locked():
+                raise StrategyBusyError("世界推进中，请稍后再试")
+            return await self._handle_action(user_id, action, params)
         # §18.4 指令限速（滑动 60s 窗口，超限直接拒绝）
         self._check_action_rate(user_id)
         # 玩家正在操作：记录活跃时间，供野战遭遇判断是否开手操窗口。
@@ -9351,6 +9532,13 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                                       str(params.get("referral", "")),
                                       int(params.get("node_id", 0) or 0))
                 return {"ok": True, "msg": "入场成功，新手包已发放"}
+            if action == "army_cost_preview":
+                return await self.preview_army_cost(
+                    user_id, int(params.get("leader_char_id", 0) or 0),
+                    int(params.get("node_id", 0) or 0),
+                    str(params.get("troop_type", "sword_shield")),
+                    int(params.get("troops", 0) or 0),
+                    siege_engine=bool(params.get("siege_engine")))
             world, p = await self._require_player(user_id)
             wid = world["id"]
             if action == "refresh_tavern":
@@ -9368,6 +9556,10 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 return {"ok": True, "msg": msg, "char": char}
             if action == "dismiss_char":
                 return await self.dismiss_char(user_id, int(params["char_id"]))
+            if action == "reward_char":
+                return await self.reward_char(user_id, int(params["char_id"]))
+            if action == "reward_all":
+                return await self.reward_all_chars(user_id)
             if action == "move_char":
                 return await self.move_char(
                     user_id, int(params["char_id"]),
@@ -9475,12 +9667,6 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 return await self.transfer_node(
                     user_id, int(params.get("node_id", 0)),
                     int(params.get("target_faction_id", 0)))
-            if action == "treasury_deposit":
-                return await self.treasury_deposit(
-                    user_id, str(params["resource"]), int(params["amount"]))
-            if action == "treasury_withdraw":
-                return await self.treasury_withdraw(
-                    user_id, str(params["resource"]), int(params["amount"]))
             if action == "tech_research":
                 return await self.tech_research(
                     user_id, str(params["line"]),
@@ -9531,6 +9717,12 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                     int(params.get("persuader_char_id", 0)))
             if action == "release":
                 return await self.release_captive(user_id, int(params["char_id"]))
+            if action == "execute_captive":
+                return await self.execute_captive(
+                    user_id, int(params["char_id"]))
+            if action == "sell_captive":
+                return await self.sell_captive(
+                    user_id, int(params["char_id"]))
             if action == "ransom_set":
                 return await self.set_ransom(user_id, int(params["char_id"]),
                                              int(params["amount"]))

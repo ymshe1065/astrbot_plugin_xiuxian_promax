@@ -371,19 +371,15 @@ class TestStrategyRound4Fixes(unittest.IsolatedAsyncioTestCase):
         fid1 = int(self.p1["faction_id"])
         fid2 = int(self.p2["faction_id"])
         await self.m.diplomacy_propose("u1", fid2, "war")
-        f1 = await self.m.get_faction(fid1)
-        f2 = await self.m.get_faction(fid2)
-        f1["treasury"] = {"coin": 10_000}
-        f2["treasury"] = {"coin": 10_000}
-        await self.m.save_faction(f1)
-        await self.m.save_faction(f2)
-        await self.m._commit()
+        # v4.5.7：赔款从提案方势力主钱包扣，直接进接受方势力主钱包
+        await self._give("u1", coin=10_000)
+        await self._give("u2", coin=10_000)
         await self.m.diplomacy_propose("u1", fid2, "peace", indemnity=1000)
         await self.m.diplomacy_respond("u2", fid1, True)
-        f1 = await self.m.get_faction(fid1)
-        f2 = await self.m.get_faction(fid2)
-        self.assertEqual(int((f1.get("treasury") or {}).get("coin", 0)), 9_000)
-        self.assertEqual(int((f2.get("treasury") or {}).get("coin", 0)), 11_000)
+        p1 = await self.m.get_player("u1", self.wid)
+        p2 = await self.m.get_player("u2", self.wid)
+        self.assertEqual(int(p1.get("coin", 0) or 0), 9_000)
+        self.assertEqual(int(p2.get("coin", 0) or 0), 11_000)
 
     # ------------------------------------------------------------------
     # 11. 治理/崩溃只用本势力名册：盟主不再因盟友活跃而免于僵尸化

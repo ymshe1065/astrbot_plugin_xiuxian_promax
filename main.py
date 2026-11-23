@@ -2930,7 +2930,7 @@ class XiuXianPlugin(Star):
             await self._broadcast_world_boss_spawn(msg)
 
     # ===== v8.0.0 仙域争霸 GM 运维通道（设计方案 §19，仅超管） =====
-    @filter.command("strategy_admin", "仙域争霸 GM 运维（仅超管：开世界/tick/注入事件/势力平衡/联盟国库清算/重置赛季）")
+    @filter.command("strategy_admin", "仙域争霸 GM 运维（仅超管：开世界/tick/注入事件/势力平衡/重置赛季）")
     async def handle_strategy_admin(self, event: AstrMessageEvent, args: GreedyStr):
         if not self._check_boss_admin(event):
             yield event.plain_result("❌ 仅超级管理员可使用争霸运维通道")
@@ -2946,7 +2946,6 @@ class XiuXianPlugin(Star):
                 "· tick <n>（立即推进 n 个 tick，≤24）\n"
                 "· 注入事件 <事件ID> [据点ID]\n"
                 "· 势力平衡 <势力ID> <铜钱增量> [粮草增量]\n"
-                "· 联盟国库清算 [势力ID] [执行] [强制]（默认只探测；执行=按人头平分；强制=重复清算已标记联盟）\n"
                 "· 重置赛季（强制结算当前赛季）")
             return
         try:

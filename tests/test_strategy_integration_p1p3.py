@@ -175,7 +175,8 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
         f = await self.m.get_faction(fid)
         self.assertEqual(f["name"], "凌云盟")
         self.assertEqual(f["kind"], "player")
-        self.assertEqual(int((f.get("treasury") or {}).get("coin", 0)), 10000)
+        # v4.5.7：玩家势力无国库；会签垫付作为建盟费用，不再沉淀到势力账本
+        self.assertEqual(f.get("treasury") or {}, {})
         members = await self.m.get_members(fid)
         self.assertEqual(len(members), 3)
         pos = {m["user_id"]: m.get("position", "") for m in members}
@@ -232,24 +233,19 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(int(home["owner_faction"]), u4_fid)
         self.assertEqual(len(await self.m.get_members(fid)), 3)
 
-    async def test_treasury_deposit_withdraw_and_position(self):
+    async def test_wallet_is_personal_and_position(self):
         fid = await self._create_multi_faction()
+        # v4.5.7：国库存取接口已移除，每个玩家的钱包彼此独立
+        self.assertFalse(hasattr(self.m, "treasury_deposit"))
+        self.assertFalse(hasattr(self.m, "treasury_withdraw"))
         await self._give("u1", coin=50_000)
-        await self.m.treasury_deposit("u1", "coin", 20_000)
-        f = await self.m.get_faction(fid)
-        self.assertEqual(int(f["treasury"]["coin"]), 30_000)  # 10000 会签 + 20000
-        # 国库各势力独立：u2 不能提取盟主国库
-        with self.assertRaises(self.StrategyError):
-            await self.m.treasury_withdraw("u2", "coin", 20_000)
-        # u2 往自己势力国库存入并提取，不影响 u1 势力国库
         await self._give("u2", coin=20_000)
-        await self.m.treasury_deposit("u2", "coin", 10_000)
-        await self.m.treasury_withdraw("u2", "coin", 5_000)
-        u2_fid = int((await self.m.get_player("u2", self.wid))["faction_id"])
-        f2 = await self.m.get_faction(u2_fid)
-        self.assertEqual(int(f2["treasury"]["coin"]), 5_000)
+        p1 = await self.m.get_player("u1", self.wid)
+        p2 = await self.m.get_player("u2", self.wid)
+        self.assertEqual(int(p1["coin"]), 50_000)
+        self.assertEqual(int(p2["coin"]), 20_000)
         f = await self.m.get_faction(fid)
-        self.assertEqual(int(f["treasury"]["coin"]), 30_000)
+        self.assertEqual(f.get("treasury") or {}, {})
         # 官职任免（联盟名册仍共同治理）
         await self.m.faction_set_position("u1", "u2", "situ")
         members = {m["user_id"]: m.get("position", "")
@@ -262,16 +258,14 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(f["leader_id"], "u1")
 
     async def test_alliance_transfer_node_and_quit_keeps_economy(self):
-        """联盟内据点可交接；退盟保留据点、国库与科技，不做资产分割。"""
+        """联盟内据点可交接；退盟保留据点、钱包与科技，不做资产分割。"""
         fid = await self._create_multi_faction()
         host = await self.m.get_faction(fid)
-        host["treasury"] = {"coin": 9000}
-        await self.m.save_faction(host)
-        await self.m._commit()
+        await self._give("u1", coin=9000)
         p2 = await self.m.get_player("u2", self.wid)
         u2_fid = int(p2["faction_id"])
+        await self._give("u2", coin=4000)
         f2 = await self.m.get_faction(u2_fid)
-        f2["treasury"] = {"coin": 4000}
         f2["tech"] = {"military": 2}
         await self.m.save_faction(f2)
         await self.m._commit()
@@ -293,7 +287,7 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
             "AND alive=1 LIMIT 1", (self.wid,))
         with self.assertRaises(self.StrategyError):
             await self.m.transfer_node("u1", int(u1_node["id"]), int(npc[0]["id"]))
-        # u2 退盟：据点、国库、科技全部保留
+        # u2 退盟：据点、钱包、科技全部保留
         counts = {}
         for n in await self.m.get_nodes(self.wid):
             counts[int(n["owner_faction"])] = counts.get(int(n["owner_faction"]), 0) + 1
@@ -303,10 +297,11 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(int(p2["faction_id"]), u2_fid)
         f2 = await self.m.get_faction(u2_fid)
         self.assertEqual(int(f2["alliance_id"]), 0)
-        self.assertEqual(int(f2["treasury"]["coin"]), 4000)
+        later_p2 = await self.m.get_player("u2", self.wid)
+        self.assertEqual(int(later_p2["coin"]), 4000)
         self.assertEqual(int((f2.get("tech") or {}).get("military", 0)), 2)
-        host = await self.m.get_faction(fid)
-        self.assertEqual(int(host["treasury"]["coin"]), 9000)
+        later_p1 = await self.m.get_player("u1", self.wid)
+        self.assertEqual(int(later_p1["coin"]), 9000)
         still = [n for n in await self.m.get_nodes(self.wid)
                  if int(n["owner_faction"]) == u2_fid]
         self.assertEqual(len(still), u2_nodes_before)
@@ -403,9 +398,9 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
         self.assertIn(gen2["name"], [x["name"] for x in v1["holding"]])
         v2 = await self.m.get_captives_view(self.wid, int(self.p2["faction_id"]))
         self.assertIn(gen2["name"], [x["name"] for x in v2["held"]])
-        # 赎金：u1 定价 500 → u2 支付 → 人回家，赎金入 u1 势力国库
-        f1 = await self.m.get_faction(fid1)
-        treasury0 = int((f1.get("treasury") or {}).get("coin", 0))
+        # 赎金：u1 定价 500 → u2 支付 → 人回家，赎金直接进 u1 钱包
+        p1 = await self.m.get_player("u1", self.wid)
+        treasury0 = int(p1.get("coin", 0) or 0)
         await self.m.set_ransom("u1", gen2["id"], 500)
         await self._give("u2", coin=5_000)
         r = await self.m.pay_ransom("u2", gen2["id"])
@@ -413,8 +408,8 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
         c = await self.m.get_char(gen2["id"])
         self.assertEqual(c["status"], "idle")
         self.assertEqual(c["owner_user_id"], "u2")
-        f1 = await self.m.get_faction(fid1)
-        treasury1 = int((f1.get("treasury") or {}).get("coin", 0))
+        p1 = await self.m.get_player("u1", self.wid)
+        treasury1 = int(p1.get("coin", 0) or 0)
         self.assertEqual(treasury1 - treasury0, 500)
         # 再俘 → 无条件释放
         await self.m._capture_char(c, fid1, node["id"])
@@ -434,6 +429,61 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
             self.assertIn(gen2["name"], freed)
             c = await self.m.get_char(gen2["id"])
             self.assertNotEqual(c["status"], "captive")
+
+    async def test_captive_detail_execute_and_sell(self):
+        fid1 = int(self.p1["faction_id"])
+        nodes = await self.m.get_nodes(self.wid)
+        node = next(n for n in nodes
+                    if int(n["owner_faction"]) == fid1
+                    and str(n["type"]) in self.R.CHAR_DWELL_NODE_TYPES)
+        gen2 = await self._char_of("u2", "general")
+        off2 = await self._char_of("u2", "official")
+        await self.m._capture_char(gen2, fid1, node["id"])
+        await self.m._capture_char(off2, fid1, node["id"])
+
+        # 详情：六维/特技/收益/权限/劝降率随视图下发
+        v = await self.m.get_captives_view(self.wid, fid1, user_id="u1")
+        row = next(x for x in v["holding"] if int(x["id"]) == int(gen2["id"]))
+        self.assertTrue(v["can_manage"])
+        self.assertEqual(row["stats"]["valor"], gen2["stats"]["valor"])
+        self.assertIn("trait_names", row)
+        self.assertGreater(row["execute_merit"], 0)
+        self.assertGreater(row["sell_coin"], 0)
+        self.assertIsNotNone(row["persuade_rate"])
+        self.assertEqual(row["node_name"], node["name"])
+        # 非主副看不到处置权限
+        v2 = await self.m.get_captives_view(self.wid, fid1, user_id="u2")
+        self.assertFalse(v2["can_manage"])
+
+        # 处决：战功入账 + 同牢其他俘虏忠诚下降 + 目标陨落
+        off_before = int((await self.m.get_char(int(off2["id"])))["loyalty"])
+        p1 = await self.m.get_player("u1", self.wid)
+        merit0 = int(p1.get("merit", 0) or 0)
+        r = await self.m.execute_captive("u1", int(gen2["id"]))
+        self.assertTrue(r["ok"])
+        self.assertGreater(r["merit"], 0)
+        p1 = await self.m.get_player("u1", self.wid)
+        self.assertEqual(int(p1.get("merit", 0) or 0), merit0 + r["merit"])
+        c = await self.m.get_char(int(gen2["id"]))
+        self.assertEqual(c["status"], "dead")
+        off = await self.m.get_char(int(off2["id"]))
+        self.assertEqual(int(off["loyalty"]),
+                         max(0, off_before - int(
+                             (self.m.main_cfg().get("captive") or {})
+                             .get("execute_deterrence", 3))))
+
+        # 售卖：铜钱入账 + 角色转为在野流将并清空归属
+        p1 = await self.m.get_player("u1", self.wid)
+        coin0 = int(p1.get("coin", 0) or 0)
+        r = await self.m.sell_captive("u1", int(off2["id"]))
+        self.assertTrue(r["ok"])
+        self.assertGreater(r["coin"], 0)
+        p1 = await self.m.get_player("u1", self.wid)
+        self.assertEqual(int(p1.get("coin", 0) or 0), coin0 + r["coin"])
+        c = await self.m.get_char(int(off2["id"]))
+        self.assertEqual(c["status"], "wander")
+        self.assertEqual(c.get("owner_user_id"), "")
+        self.assertEqual(int(c.get("faction_id", 0) or 0), 0)
 
     # ------------------------------------------------------------------
     # P1：计略
@@ -1016,12 +1066,15 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
         my_routes = [rt for rt in routes
                      if await self.m._route_owner(world, rt) == fid]
         self.assertGreaterEqual(len(my_routes), 1)
-        # 商路收益：单人个人势力 → 玩家钱包
+        # 商路收益：单人个人势力 → 玩家钱包；按途经据点数量放大
         coin0 = int((await self.m.get_player("u1", self.wid))["coin"])
         await self.m._step_trade_routes(world)
         coin1 = int((await self.m.get_player("u1", self.wid))["coin"])
-        per = int((self.m.main_cfg().get("trade_route") or {}).get("coin_per_tick", 20))
-        self.assertEqual(coin1 - coin0, per * len(my_routes))
+        per_node = int((self.m.main_cfg().get("trade_route") or {}).get(
+            "coin_per_node", 20))
+        expected = sum(per_node * len(rt.get("path") or [])
+                       for rt in my_routes)
+        self.assertEqual(coin1 - coin0, expected)
         # 运粮：a → b
         await self._give("u1", grain=5_000)
         r = await self.m.send_convoy("u1", a["id"], b["id"], 800)

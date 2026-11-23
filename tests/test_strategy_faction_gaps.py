@@ -34,6 +34,7 @@ class TestStrategyFactionGaps(unittest.IsolatedAsyncioTestCase):
         import aiosqlite
 
         migration = _imp("data.migration")
+        self.migration = migration
         self.DataBase = _imp("data.data_manager").DataBase
         self.DatabaseExtended = _imp("data.database_extended").DatabaseExtended
         self.Player = _imp("models").Player
@@ -170,6 +171,39 @@ class TestStrategyFactionGaps(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(self.StrategyError):
             await self.m.faction_task_claim("u1", int(task["id"]))
 
+    async def test_faction_task_title_migration_v86(self):
+        """v86 迁移：「共襄国库」旧任务更名「共襄重建」，其他任务不受影响。"""
+        fid = await self._create_multi_faction()
+        now = _now()
+        old_id = await self.m._execute(
+            "INSERT INTO strategy_faction_tasks (world_id, faction_id, task_type, "
+            "title, progress, target, reward_json, status, start_at, end_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (self.wid, fid, "donate", "共襄国库", 2500, 20000,
+             '{"merit": 40}', "open", now, now + 86400))
+        other_id = await self.m._execute(
+            "INSERT INTO strategy_faction_tasks (world_id, faction_id, task_type, "
+            "title, progress, target, reward_json, status, start_at, end_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (self.wid, fid, "conquer", "开疆拓土", 0, 1,
+             '{"merit": 80}', "open", now, now + 86400))
+        await self.m._commit()
+
+        await self.migration._ensure_strategy_v86(self.conn)
+        await self.conn.commit()
+        tasks = {int(t["id"]): t for t in
+                 await self.m.get_faction_tasks(fid)}
+        self.assertEqual(tasks[int(old_id)]["title"], "共襄重建")
+        self.assertEqual(int(tasks[int(old_id)]["progress"]), 2500)
+        self.assertEqual(tasks[int(other_id)]["title"], "开疆拓土")
+
+        # 可重放：再次执行不会改动已更名或无关任务
+        await self.migration._ensure_strategy_v86(self.conn)
+        await self.conn.commit()
+        again = await self.m._fetchone(
+            "SELECT title FROM strategy_faction_tasks WHERE id=?", (int(old_id),))
+        self.assertEqual(again["title"], "共襄重建")
+
     async def test_faction_task_refresh_cooldown_and_auto_refill(self):
         fid = await self._create_multi_faction()
         await self.m.faction_task_refresh("u1")
@@ -237,21 +271,20 @@ class TestStrategyFactionGaps(unittest.IsolatedAsyncioTestCase):
             await self.m.mobilization_issue("u1", "nonsense")
 
     # ------------------------------------------------------------------
-    # 3. 迁都：扣国库 + 冷却
+    # 3. 迁都：扣势力主钱包 + 冷却
     # ------------------------------------------------------------------
     async def test_capital_relocate_cost_and_cooldown(self):
         fid = int(self.p1["faction_id"])
         f = await self.m.get_faction(fid)
         old_capital = int(f["capital_node_id"])
-        f["treasury"] = {"coin": 400_000}
-        await self.m.save_faction(f)
-        await self.m._commit()
+        await self._give("u1", coin=400_000)
         target = await self._add_owned_node(fid)
         r = await self.m.capital_relocate("u1", int(target["id"]))
         self.assertTrue(r["ok"])
         f = await self.m.get_faction(fid)
         self.assertEqual(int(f["capital_node_id"]), int(target["id"]))
-        self.assertEqual(int((f.get("treasury") or {})["coin"]), 100_000)
+        p1 = await self.m.get_player("u1", self.wid)
+        self.assertEqual(int(p1["coin"]), 100_000)
         self.assertGreater(int(r["cooldown_until"]), _now())
         # 冷却内再迁（回到旧都）被拒
         with self.assertRaises(self.StrategyError) as cm:
@@ -286,13 +319,8 @@ class TestStrategyFactionGaps(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(self.StrategyError):
             await self.m.rebuild_donate("u1", 100_000_000)
 
-        # 合力（灵石）+ 国库铜钱按 1000:1 折算 = 重建所需灵石 → 无需主玩法灵石
+        # 合力（灵石）抵掉大部分，剩余由发起人主玩法灵石补足（玩家势力无国库）
         await self.m.rebuild_donate("u1", 2_800_000)
-        f = await self.m.get_faction(fid)
-        # 100,000,000 铜钱 ÷ coin_per_gold(1000) = 100,000 灵石
-        f["treasury"] = {"coin": 100_000_000}
-        await self.m.save_faction(f)
-        await self.m._commit()
         target = await self._add_owned_node(fid)
         res = await self.m.rebuild_capital("u1", int(target["id"]))
         self.assertTrue(res["ok"])
@@ -309,9 +337,7 @@ class TestStrategyFactionGaps(unittest.IsolatedAsyncioTestCase):
     async def test_tech_research_assigns_and_releases_char(self):
         fid = int(self.p1["faction_id"])
         f = await self.m.get_faction(fid)
-        f["treasury"] = {"coin": 100_000, "iron": 100_000, "grain": 0}
-        await self.m.save_faction(f)
-        await self.m._commit()
+        await self._give("u1", coin=100_000, iron=100_000)
         c = await self._char_of("u1", "general")
         exp_before = int(c.get("exp", 0))
         r = await self.m.tech_research("u1", "military", char_id=int(c["id"]))
@@ -343,35 +369,33 @@ class TestStrategyFactionGaps(unittest.IsolatedAsyncioTestCase):
         fid = int(self.p1["faction_id"])
         f = await self.m.get_faction(fid)
         f["tech"] = {"military": 1}
-        f["treasury"] = {"coin": 1000, "iron": 999, "grain": 0}
         await self.m.save_faction(f)
         await self.m._commit()
+        await self._give("u1", coin=1000, iron=999)
         with self.assertRaises(self.StrategyError) as cm:
             await self.m.tech_research("u1", "military")
         msg = str(cm.exception)
         self.assertIn("研究 L2", msg)
         self.assertIn("需铜钱 1000 / 精铁 1000", msg)
-        self.assertIn("当前国库铜钱 1000 / 精铁 999", msg)
+        self.assertIn("当前铜钱 1000 / 精铁 999", msg)
         # 失败不扣费、不占用角色
+        p1 = await self.m.get_player("u1", self.wid)
+        self.assertEqual(int(p1["coin"]), 1000)
+        self.assertEqual(int(p1["iron"]), 999)
         f = await self.m.get_faction(fid)
-        self.assertEqual(int((f.get("treasury") or {}).get("coin", 0)), 1000)
-        self.assertEqual(int((f.get("treasury") or {}).get("iron", 0)), 999)
         self.assertFalse((f.get("tech") or {}).get("pending"))
         # 刚好够：成功并扣到 0
-        f["treasury"] = {"coin": 1000, "iron": 1000, "grain": 0}
-        await self.m.save_faction(f)
-        await self.m._commit()
+        await self._give("u1", coin=1000, iron=1000)
         r = await self.m.tech_research("u1", "military")
         self.assertTrue(r["ok"])
-        f = await self.m.get_faction(fid)
-        self.assertEqual(int((f.get("treasury") or {}).get("coin", 0)), 0)
-        self.assertEqual(int((f.get("treasury") or {}).get("iron", 0)), 0)
+        p1 = await self.m.get_player("u1", self.wid)
+        self.assertEqual(int(p1["coin"]), 0)
+        self.assertEqual(int(p1["iron"]), 0)
 
     async def test_tech_research_requires_idle_char(self):
         fid = int(self.p1["faction_id"])
         f = await self.m.get_faction(fid)
-        f["treasury"] = {"coin": 100_000, "iron": 100_000, "grain": 0}
-        await self.m.save_faction(f)
+        await self._give("u1", coin=100_000, iron=100_000)
         for c in await self.m.get_chars(faction_id=fid, world_id=self.wid):
             c["status"] = "task"
             await self.m.save_char(c)
@@ -465,7 +489,8 @@ class TestStrategyFactionGaps(unittest.IsolatedAsyncioTestCase):
         node = nodes[0]
         node["morale"] = 50
         await self.m.save_node(node)
-        coin_before = int((f.get("treasury") or {}).get("coin", 0))
+        p1 = await self.m.get_player("u1", self.wid)
+        coin_before = int(p1.get("coin", 0) or 0)
         ev = {"id": "test_faction_event", "name": "测试势力事件",
               "scope": "faction",
               "effects": [{"type": "morale", "delta": 8},
@@ -476,9 +501,8 @@ class TestStrategyFactionGaps(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(out["text"])
         node = await self.m.get_node(self.wid, int(node["id"]))
         self.assertEqual(int(node["morale"]), 58)
-        f = await self.m.get_faction(fid)
-        self.assertEqual(int((f.get("treasury") or {}).get("coin", 0)),
-                         coin_before + 1000)
+        p1 = await self.m.get_player("u1", self.wid)
+        self.assertEqual(int(p1.get("coin", 0) or 0), coin_before + 1000)
         row = await self.m._fetchone(
             "SELECT detail_json FROM strategy_audit WHERE action='faction_event' "
             "ORDER BY id DESC LIMIT 1")
@@ -580,9 +604,9 @@ class TestStrategyFactionGaps(unittest.IsolatedAsyncioTestCase):
         fid = int(self.p1["faction_id"])
         f = await self.m.get_faction(fid)
         f["tech"] = {"military": 3}
-        f["treasury"] = {"coin": 100_000, "iron": 100_000, "grain": 0}
         await self.m.save_faction(f)
         await self.m._commit()
+        await self._give("u1", coin=100_000, iron=100_000)
         r = await self.m.tech_research("u1", "military", node_id="mil_b_forest")
         self.assertTrue(r["ok"])
         self.assertIn("林地战法", r["msg"])
@@ -590,8 +614,9 @@ class TestStrategyFactionGaps(unittest.IsolatedAsyncioTestCase):
         pend = (f.get("tech") or {}).get("pending") or {}
         self.assertEqual(pend.get("node_id"), "mil_b_forest")
         self.assertEqual(pend.get("kind"), "branch")
-        self.assertEqual(int((f.get("treasury") or {}).get("coin", 0)), 99_600)
-        self.assertEqual(int((f.get("treasury") or {}).get("iron", 0)), 99_700)
+        p1 = await self.m.get_player("u1", self.wid)
+        self.assertEqual(int(p1["coin"]), 99_600)
+        self.assertEqual(int(p1["iron"]), 99_700)
 
         # 到期结算：支脉 +1，主脉等级不变
         tech = f.get("tech") or {}
@@ -610,9 +635,9 @@ class TestStrategyFactionGaps(unittest.IsolatedAsyncioTestCase):
         fid = int(self.p1["faction_id"])
         f = await self.m.get_faction(fid)
         f["tech"] = {"military": 1}
-        f["treasury"] = {"coin": 100_000, "iron": 100_000, "grain": 0}
         await self.m.save_faction(f)
         await self.m._commit()
+        await self._give("u1", coin=100_000, iron=100_000)
         with self.assertRaises(self.StrategyError) as cm:
             await self.m.tech_research("u1", "military", node_id="mil_b_forest")
         self.assertIn("需先完成 地利", str(cm.exception))

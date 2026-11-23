@@ -57,6 +57,7 @@
     <aside class="side-pane">
       <nav class="tabs" id="tabs">
         <button class="tab active" data-tab="overview" type="button">总览</button>
+        <button class="tab" data-tab="world" type="button">天下</button>
         <button class="tab" data-tab="guide" type="button">指引</button>
         <button class="tab" data-tab="chars" type="button">人员</button>
         <button class="tab" data-tab="armies" type="button">军团</button>
@@ -114,7 +115,7 @@
         <label>随行</label><select id="armyMembers" multiple size="3"></select>
       </div>
       <div class="form-row">
-        <label>器械</label><input id="armyEngine" type="checkbox"> 破城槌（+3000 铜钱，攻城 ×3）
+        <label>器械</label><input id="armyEngine" type="checkbox"> 破城槌（基础 3000 铜钱，攻城 ×3）
       </div>
       <div class="cost-line" id="armyCost"></div>
       <div class="form-actions">
@@ -174,6 +175,17 @@
       <div class="form-actions">
         <button class="btn" id="supplyCancel" type="button">取消</button>
         <button class="btn primary" id="supplyConfirm" type="button">出发</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 俘虏详情弹窗（详情 / 处决 / 售卖 / 释放） -->
+  <div class="overlay" id="captiveOverlay" hidden>
+    <div class="overlay-card">
+      <h2 id="captiveDetailTitle">⛓️ 俘虏详情</h2>
+      <div id="captiveDetailBody" class="captive-detail"></div>
+      <div class="form-actions">
+        <button class="btn" id="captiveDetailClose" type="button">关闭</button>
       </div>
     </div>
   </div>

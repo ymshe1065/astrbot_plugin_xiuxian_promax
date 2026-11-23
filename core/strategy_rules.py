@@ -1637,6 +1637,42 @@ def persuade_rate(captive_loyalty: int, persuader: dict | None, reputation: int 
     return max(0.05, min(0.90, rate))
 
 
+#: 俘虏处置默认值（可被 config.strategy_config.captive 覆盖）
+CAPTIVE_EXECUTE_MERIT = {
+    "common": 40, "fine": 70, "rare": 110, "epic": 170, "legend": 260,
+}
+CAPTIVE_SELL_COIN = {
+    "common": 900, "fine": 1800, "rare": 3600, "epic": 7200, "legend": 15000,
+}
+
+
+def captive_execute_merit(char: dict, ccfg: dict | None = None) -> int:
+    """处决俘虏获得的战功（按稀有度底价 + 特技数加成）。"""
+    cfg = ccfg or {}
+    rarity = str((char or {}).get("rarity") or "common")
+    table = cfg.get("execute_merit_by_rarity") or {}
+    base = int(table.get(rarity, CAPTIVE_EXECUTE_MERIT.get(
+        rarity, CAPTIVE_EXECUTE_MERIT["common"])) or 0)
+    traits = len((char or {}).get("traits") or [])
+    bonus = traits * int(cfg.get("execute_merit_per_trait", 15) or 0)
+    return max(0, base + bonus)
+
+
+def captive_sell_value(char: dict, ccfg: dict | None = None) -> int:
+    """售卖俘虏的铜钱收益（稀有度底价 + 六维总和 + 特技数）。"""
+    cfg = ccfg or {}
+    rarity = str((char or {}).get("rarity") or "common")
+    table = cfg.get("sell_coin_by_rarity") or {}
+    base = int(table.get(rarity, CAPTIVE_SELL_COIN.get(
+        rarity, CAPTIVE_SELL_COIN["common"])) or 0)
+    total = sum(int(v or 0) for v in ((char or {}).get("stats") or {}).values())
+    value = base + total * int(cfg.get("sell_coin_per_stat", 10) or 0)
+    value += len((char or {}).get("traits") or []) * int(
+        cfg.get("sell_coin_per_trait", 500) or 0)
+    floor = max(0, int(cfg.get("sell_min_coin", 100) or 0))
+    return int(math.ceil(max(floor, value) / 10.0) * 10)
+
+
 # ---------------------------------------------------------------------------
 # 单挑（斗法，§7.8）
 # ---------------------------------------------------------------------------
@@ -3051,6 +3087,21 @@ def find_trade_routes(adjacency: dict[int, list[int]], node_type: dict[int, str]
     return found
 
 
+def trade_route_income(route: dict, coin_per_node: int = 20) -> int:
+    """商路每 tick 收益：途经据点数量 × 单点收益。
+
+    ``path`` 含两端与全部中间节点；路径缺失（旧存档/异常）时按最小
+    2 个端点计，避免商路因字段缺失而零收益。
+    """
+    try:
+        count = len(route.get("path") or [])
+    except TypeError:
+        count = 0
+    if count <= 0:
+        count = 2
+    return max(0, int(coin_per_node)) * int(count)
+
+
 def trade_route_task_bonus(routes: list[dict], base: float = 0.3,
                            per_route: float = 0.05, per_edge: float = 0.02,
                            max_bonus: float = 1.0) -> float:
@@ -3164,7 +3215,7 @@ def successor_of(members: list[dict], leader_user: str) -> Optional[dict]:
 
 def treasury_split(treasury: dict[str, int],
                    contributions: dict[str, int]) -> dict[str, dict[str, int]]:
-    """势力崩溃清算：国库按贡献比例分给成员。"""
+    """旧档国库清算工具：按贡献比例分给成员（玩家势力已无国库，仅兼容）。"""
     total_c = sum(max(0, int(v)) for v in contributions.values())
     out: dict[str, dict[str, int]] = {}
     if total_c <= 0:
@@ -3411,3 +3462,325 @@ def task_is_expedition(task_type: str) -> bool:
 def can_move_char(char: dict | None) -> bool:
     """是否允许传送（仅 idle 且未陨落/被俘）。"""
     return str((char or {}).get("status") or "") == "idle"
+
+
+# ---------------------------------------------------------------------------
+# NPC 威胁值与战略外交（设计文档 §5~§8）
+#
+# 全部为纯函数：输入已算好的数值 / 快照，返回压力、档位、概率。
+# 时间一律用绝对 tick（默认 1 tick = 15 分钟），不读真实时钟。
+# ---------------------------------------------------------------------------
+
+def clamp01(value: float) -> float:
+    """钳到 [0, 1]。"""
+    return max(0.0, min(1.0, float(value or 0.0)))
+
+
+def threat_node_value(node: dict | None, node_score: dict | None,
+                      level_bonus: float = 0.10) -> float:
+    """据点权重 ``V(n) = node_score[type] × (1 + level_bonus × (level - 1))``。"""
+    n = node or {}
+    score = float((node_score or {}).get(str(n.get("type") or ""), 1) or 1)
+    level = max(1, int(n.get("level", 1) or 1))
+    return score * (1.0 + float(level_bonus) * (level - 1))
+
+
+def threat_share_by_faction(nodes: Iterable[dict] | None,
+                            node_score: dict | None,
+                            level_bonus: float = 0.10) -> dict[int, float]:
+    """体量占比 ``S_T``：目标占全图已占节点权重的比例（§5.3）。"""
+    total = 0.0
+    owned: dict[int, float] = {}
+    for n in nodes or []:
+        fid = int(n.get("owner_faction", 0) or 0)
+        if fid <= 0:
+            continue
+        value = threat_node_value(n, node_score, level_bonus)
+        total += value
+        owned[fid] = owned.get(fid, 0.0) + value
+    if total <= 0:
+        return {}
+    return {fid: val / total for fid, val in owned.items()}
+
+
+def threat_border_metrics(nodes_by_id: dict, obs_fid: int, tgt_fid: int,
+                          node_score: dict | None,
+                          level_bonus: float = 0.10,
+                          border_norm: float = 8.0) -> dict:
+    """接壤压力 ``B_OT`` 与边境暴露度 ``R_OT``（§5.4）。
+
+    返回 ``{"raw": B_OT, "norm": Bn_OT, "exposed": R_OT, "border": 0~1}``。
+    """
+    obs_fid, tgt_fid = int(obs_fid or 0), int(tgt_fid or 0)
+    raw = 0.0
+    if obs_fid and tgt_fid and obs_fid != tgt_fid:
+        for uid, u in nodes_by_id.items():
+            if int(u.get("owner_faction", 0) or 0) != tgt_fid:
+                continue
+            for vid in u.get("adj") or []:
+                v = nodes_by_id.get(int(vid))
+                if v and int(v.get("owner_faction", 0) or 0) == obs_fid:
+                    raw += threat_node_value(u, node_score, level_bonus)
+                    break
+    border_nodes = []
+    for vid, v in nodes_by_id.items():
+        if int(v.get("owner_faction", 0) or 0) != obs_fid:
+            continue
+        for uid in v.get("adj") or []:
+            u = nodes_by_id.get(int(uid))
+            if u and int(u.get("owner_faction", 0) or 0) != obs_fid:
+                border_nodes.append(int(vid))
+                break
+    exposed = 0
+    for vid in border_nodes:
+        v = nodes_by_id.get(vid) or {}
+        for uid in v.get("adj") or []:
+            u = nodes_by_id.get(int(uid))
+            if u and int(u.get("owner_faction", 0) or 0) == tgt_fid:
+                exposed += 1
+                break
+    norm = clamp01(raw / max(1.0, float(border_norm)))
+    exposed_ratio = exposed / max(1, len(border_nodes))
+    return {"raw": raw, "norm": norm, "exposed": exposed_ratio,
+            "border": clamp01(0.6 * norm + 0.4 * exposed_ratio)}
+
+
+def threat_growth(share_now: float, share_past: float,
+                  growth_norm: float = 0.10) -> float:
+    """扩张速度 ``G_T``（§5.5）。"""
+    delta = float(share_now or 0.0) - float(share_past or 0.0)
+    return clamp01(delta / max(1e-6, float(growth_norm)))
+
+
+def threat_force_ratio(near_troops: float, own_troops: float,
+                       force_norm: float = 2.0) -> float:
+    """边境军力 ``F_OT``（§5.6）。"""
+    ratio = float(near_troops or 0.0) / max(1.0, float(own_troops or 0.0))
+    return clamp01(ratio / max(1e-6, float(force_norm)))
+
+
+def threat_pressure(size: float, border: float, growth: float, force: float,
+                    weights: dict | None = None) -> float:
+    """即时压力 ``P_raw``（§5.7），返回 0~100。"""
+    w = weights or {}
+    return 100.0 * (
+        float(w.get("size", 0.30)) * clamp01(size)
+        + float(w.get("border", 0.40)) * clamp01(border)
+        + float(w.get("growth", 0.15)) * clamp01(growth)
+        + float(w.get("force", 0.15)) * clamp01(force)
+    )
+
+
+def threat_favor_damp(favor: int, floor: float = 0.5) -> float:
+    """好感衰减：0 → 1.0，100 → 0.5，下限 ``floor``（§5.8）。"""
+    return max(float(floor), min(1.0, 1.0 - max(0, int(favor or 0)) / 200.0))
+
+
+def threat_reputation_damp(reputation: int, righteous_penalty: float = 0.05) -> float:
+    """侠名修正：声望 ≥ 60 时威胁 ×(1 − penalty)；恶名交给既有机制。"""
+    if int(reputation or 0) >= 60:
+        return max(0.0, 1.0 - float(righteous_penalty))
+    return 1.0
+
+
+def threat_adjacency_factor(border_raw: float, hegemon: bool,
+                            nonadj_factor: float = 0.30,
+                            hegemon_nonadj_factor: float = 0.70) -> float:
+    """非接壤减益与霸主例外（§5.9）。"""
+    if float(border_raw or 0.0) > 0:
+        return 1.0
+    return float(hegemon_nonadj_factor if hegemon else nonadj_factor)
+
+
+def threat_public_floor(share: float, hegemon_threshold: float = 0.40,
+                        public_base: float = 60.0,
+                        public_span: float = 40.0) -> float:
+    """公敌地板原始值 ``floor_raw``（§5.9）。"""
+    span = max(1e-6, 1.0 - float(hegemon_threshold))
+    return float(public_base) + float(public_span) * clamp01(
+        (float(share or 0.0) - float(hegemon_threshold)) / span)
+
+
+def threat_alpha(p_eff: float, h: float, border_raw: float, hegemon: bool,
+                 alpha_up_adj: float = 0.020,
+                 alpha_up_nonadj: float = 0.005,
+                 alpha_up_hegemon_nonadj: float = 0.012,
+                 alpha_down: float = 0.015) -> float:
+    """累计敌意的收敛系数（§5.10）。"""
+    if float(p_eff) >= float(h):
+        if float(border_raw or 0) > 0:
+            return float(alpha_up_adj)
+        if hegemon:
+            return float(alpha_up_hegemon_nonadj)
+        return float(alpha_up_nonadj)
+    return float(alpha_down)
+
+
+def threat_accumulate(h: float, p_eff: float, alpha: float) -> float:
+    """``H += (P_eff − H) × alpha``，钳 0~100。"""
+    return max(0.0, min(100.0, float(h) + (float(p_eff) - float(h)) * float(alpha)))
+
+
+def threat_mult(h: float, aggression_gain: float = 0.80,
+                cap: float = 2.20) -> float:
+    """威胁侵略倍率 ``1 + gain × H/100``，硬上限 ``cap``（§6）。"""
+    return min(float(cap), 1.0 + float(aggression_gain) * clamp01(
+        float(h or 0.0) / 100.0))
+
+
+def threat_tier(h: float, tiers: dict | None = None) -> str:
+    """威胁档位：``calm / alert / prepare / hostile / coalition``（§6）。"""
+    t = tiers or {}
+    h = float(h or 0.0)
+    if h >= float(t.get("coalition", 80)):
+        return "coalition"
+    if h >= float(t.get("hostile", 60)):
+        return "hostile"
+    if h >= float(t.get("prepare", 40)):
+        return "prepare"
+    if h >= float(t.get("alert", 20)):
+        return "alert"
+    return "calm"
+
+
+def threat_is_turtle(stats: dict | None, border_avg_defense: float, share: float,
+                     is_player: bool, hegemon: bool,
+                     cfg: dict | None = None) -> bool:
+    """龟缩判定（§5.11）。全部满足才算龟缩。"""
+    c = cfg or {}
+    if not bool(c.get("enabled", True)):
+        return False
+    if not is_player or hegemon:
+        return False
+    st = stats or {}
+    if st.get("captures_7d") or st.get("attacks_7d"):
+        return False
+    if float(border_avg_defense or 0.0) < float(c.get("defense_threshold", 1500)):
+        return False
+    return float(share or 0.0) < float(c.get("hegemon_share_threshold", 0.40))
+
+
+def threat_priority(h: float, border_raw: float, hegemon: bool,
+                    revenge: bool = False, target_at_war: bool = False,
+                    power_ratio: float = 1.0, turtle: bool = False,
+                    active_wars: int = 0,
+                    turtle_penalty: float = 20.0) -> float:
+    """宣战目标优先级（§7.3）。"""
+    priority = float(h or 0.0)
+    if float(border_raw or 0) > 0:
+        priority += 15
+    if hegemon:
+        priority += 25
+    if revenge:
+        priority += 15
+    if target_at_war:
+        priority += 10
+    if float(power_ratio or 0.0) < 0.60:
+        priority += 10
+    if turtle:
+        priority -= float(turtle_penalty)
+    priority -= 10.0 * max(0, int(active_wars or 0) - 1)
+    return priority
+
+
+def threat_declare_chance(h: float, declare_gate: float = 60.0,
+                          declare_base_per_day: float = 0.06,
+                          declare_span_per_day: float = 0.34,
+                          max_p_day: float = 0.55,
+                          goal_mult: float = 1.0,
+                          personality_bias: float = 1.0,
+                          power_ratio: float = 1.0,
+                          min_power_ratio: float = 0.35,
+                          allow_suicide_declare: bool = True,
+                          suicide_declare_mult: float = 0.55,
+                          turtle: bool = False,
+                          turtle_declare_mult: float = 0.50) -> float:
+    """每日宣战概率 ``p_day``（§7.4）。"""
+    gate = float(declare_gate)
+    ratio = clamp01((float(h or 0.0) - gate) / max(1e-6, 100.0 - gate))
+    p_day = float(declare_base_per_day) + float(declare_span_per_day) * (
+        ratio ** 1.5)
+    p_day *= float(goal_mult) * float(personality_bias)
+    if float(power_ratio or 0.0) < float(min_power_ratio):
+        if not allow_suicide_declare:
+            return 0.0
+        p_day *= float(suicide_declare_mult)
+    if turtle:
+        p_day *= float(turtle_declare_mult)
+    return max(0.0, min(float(max_p_day), p_day))
+
+
+def per_day_to_per_tick(p_day: float, ticks_per_day: int = 96) -> float:
+    """把「每日概率」折算为「每 tick 概率」（§7.4 / §8.4）。"""
+    p = clamp01(p_day)
+    tpd = max(1, int(ticks_per_day or 96))
+    return 1.0 - (1.0 - p) ** (1.0 / tpd)
+
+
+def threat_war_score(captures_by_me: int, captures_by_target: int,
+                     capital_taken: bool = False) -> float:
+    """战争顺风度 ``war_score``（§8.2，V1 只统计据点占领）。"""
+    score = (50.0 + 10.0 * int(captures_by_me or 0)
+             - 10.0 * int(captures_by_target or 0)
+             + (20.0 if capital_taken else 0.0))
+    return max(0.0, min(100.0, score))
+
+
+def threat_exhaustion(troop_loss: float, treasury_stress: float,
+                      morale_stress: float, no_progress: float,
+                      third_party: float, lost_nodes: float,
+                      lost_capital: bool, war_score: float) -> float:
+    """战争疲劳 ``E``（§8.1），返回 0~100。"""
+    e = 100.0 * (
+        0.35 * clamp01(troop_loss)
+        + 0.15 * clamp01(treasury_stress)
+        + 0.10 * clamp01(morale_stress)
+        + 0.15 * clamp01(no_progress)
+        + 0.10 * clamp01(third_party)
+        + 0.15 * clamp01(lost_nodes)
+    ) + (25.0 if lost_capital else 0.0)
+    e -= 0.20 * max(0.0, float(war_score or 0.0) - 50.0)
+    return max(0.0, min(100.0, e))
+
+
+def threat_peace_chance(exhaustion: float, peace_gate: float = 60.0,
+                        peace_base_per_day: float = 0.08,
+                        peace_span_per_day: float = 0.42,
+                        max_peace_p_day: float = 0.60,
+                        personality_bias: float = 1.0,
+                        war_score: float = 50.0) -> float:
+    """每日求和概率 ``p_day``（§8.4）。"""
+    gate = float(peace_gate)
+    ratio = clamp01((float(exhaustion or 0.0) - gate) / max(1e-6, 100.0 - gate))
+    p_day = float(peace_base_per_day) + float(peace_span_per_day) * (
+        ratio ** 1.2)
+    p_day *= float(personality_bias)
+    if float(war_score or 0.0) >= 60:
+        p_day *= 0.50
+    return max(0.0, min(float(max_peace_p_day), p_day))
+
+
+def threat_peace_accept(target_exhaustion: float, favor: int = 0,
+                        attacker_war_score: float = 50.0,
+                        target_war_score: float = 50.0,
+                        accept_min: float = 0.05,
+                        accept_max: float = 0.95) -> float:
+    """受战方接受停战的概率（§8.5）。"""
+    accept = (0.15
+              + 0.55 * clamp01(float(target_exhaustion or 0.0) / 100.0)
+              + 0.15 * clamp01(max(0, int(favor or 0)) / 100.0)
+              - 0.25 * (float(attacker_war_score or 50.0) - 50.0) / 50.0
+              - 0.10 * (float(target_war_score or 50.0) - 50.0) / 50.0)
+    return max(float(accept_min), min(float(accept_max), accept))
+
+
+def threat_relation_key(rel: str) -> str:
+    """外交关系 → ``relation_damp`` 配置键（战争与中立同档）。"""
+    rel = str(rel or REL_NEUTRAL)
+    if rel == REL_ALLY:
+        return "ally"
+    if rel == REL_TRUCE:
+        return "truce"
+    if rel == REL_WAR:
+        return "war"
+    return "neutral"

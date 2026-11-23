@@ -30,8 +30,7 @@
 
   "gold_output": {
     "per_tick_by_type": {"city": 20000, "pass": 5000, "mine": 12000, "grain": 5000, "market": 5000, "branch": 5000, "ruin": 5000},
-    "personal_share": 0.7,
-    "treasury_share": 0.3,
+    "personal_share": 1.0,
     "daily_gold_cap": 5000000,
     "max_daily_gold_cap": 20000000,
     "overcap_to_merit_rate": 0.00002,
@@ -64,6 +63,109 @@
       "relief_enabled": true,
       "npc_sell_items": ["grain", "iron"],
       "npc_offer_items": ["grain", "iron"]
+    },
+    "threat": {
+      "enabled": true,
+      "eval_interval_ticks": 1,
+      "level_bonus": 0.1,
+      "weights": {"size": 0.3, "border": 0.4, "growth": 0.15, "force": 0.15},
+      "border_norm": 8,
+      "growth_window_ticks": 96,
+      "growth_norm": 0.1,
+      "force_hops": 2,
+      "force_norm": 2.0,
+      "sensitivity": {"expansive": 1.25, "developer": 0.85, "trader": 0.7, "hermit": 0.6, "demonic": 1.4},
+      "relation_damp": {"ally": 0.05, "truce": 0.25, "neutral": 1.0, "war": 1.0},
+      "favor_damp_floor": 0.5,
+      "reputation": {"righteous_penalty": 0.05},
+      "nonadj_factor": 0.3,
+      "hegemon_nonadj_factor": 0.7,
+      "hegemon_share_threshold": 0.4,
+      "public_base": 60,
+      "public_span": 40,
+      "public_floor_margin": 5,
+      "alpha_up_adj": 0.02,
+      "alpha_up_nonadj": 0.005,
+      "alpha_up_hegemon_nonadj": 0.012,
+      "alpha_down": 0.015,
+      "tiers": {"alert": 20, "prepare": 40, "hostile": 60, "coalition": 80},
+      "aggression_gain": 0.8,
+      "aggression_cap": 2.2,
+      "turtle": {
+        "enabled": true,
+        "defense_threshold": 1500,
+        "threat_damp": 0.6,
+        "declare_mult": 0.5,
+        "priority_penalty": 20,
+        "exclude_hegemon": true,
+        "window_ticks": 672
+      }
+    },
+    "war": {
+      "declare_gate": 60,
+      "hostile_hold_ticks": 8,
+      "declare_base_per_day": 0.06,
+      "declare_span_per_day": 0.34,
+      "max_p_day": 0.55,
+      "min_power_ratio": 0.35,
+      "allow_suicide_declare": true,
+      "suicide_declare_mult": 0.55,
+      "desperation_mult": 0.9,
+      "desperation_nodes": 2,
+      "max_active_wars_per_npc": 2,
+      "max_declarations_per_tick": 1,
+      "max_declarations_per_day": 4,
+      "declare_cooldown_ticks": 96,
+      "post_war_cooldown_ticks": 96,
+      "warning_cooldown_ticks": 48,
+      "personality_war_bias": {"expansive": 1.2, "developer": 0.7, "trader": 0.5, "hermit": 0.3, "demonic": 1.4},
+      "goal_mult": {"border": 1.0, "hegemon": 1.3, "revenge": 1.5, "opportunity": 0.8},
+      "frenzy": {
+        "hours": 12,
+        "sorties_bonus": 2,
+        "home_reserve_delta": -0.15,
+        "home_reserve_min": 0.1,
+        "send_mult": 1.15,
+        "utility_threshold": 4,
+        "target_bonus": 1.3,
+        "aggression_bonus": 0.3,
+        "morale_min": 25,
+        "mobilization_cost_mult": 0.9,
+        "grain_mult": 1.5,
+        "min_troops": 300,
+        "morale_break": 20
+      },
+      "expedition": {"max_edges": 10, "min_troops": 800, "grain_mult": 1.5, "cooldown_ticks": 8}
+    },
+    "peace": {
+      "min_war_ticks": 24,
+      "max_war_ticks": 672,
+      "peace_gate": 60,
+      "peace_base_per_day": 0.08,
+      "peace_span_per_day": 0.42,
+      "max_peace_p_day": 0.6,
+      "no_progress_norm": 96,
+      "ceasefire_hours": 24,
+      "offer_cooldown_ticks": 96,
+      "post_war_cooldown_ticks": 96,
+      "accept_min": 0.05,
+      "accept_max": 0.95,
+      "personality_peace_bias": {"expansive": 0.7, "developer": 1.1, "trader": 1.5, "hermit": 1.3, "demonic": 0.5}
+    },
+    "wind": {
+      "enabled": true,
+      "keep": 40,
+      "visible_hours": 72,
+      "panel_limit": 14,
+      "default_delay_hours": 0,
+      "kinds": {
+        "war": "战云",
+        "peace": "休兵",
+        "battle": "战报",
+        "event": "异象",
+        "season": "天时",
+        "plot": "流言"
+      }
     }
   },
 
@@ -284,9 +386,33 @@
     "ransom_enable": true,
     "release_rep_gain": 3,
     "release_diplomacy_gain": 5,
+    "execute_merit_by_rarity": {"common": 40, "fine": 70, "rare": 110, "epic": 170, "legend": 260},
+    "execute_merit_per_trait": 15,
+    "execute_deterrence": 3,
+    "execute_rep_penalty": -2,
+    "execute_diplomacy_penalty": -8,
+    "sell_enable": true,
+    "sell_coin_by_rarity": {"common": 900, "fine": 1800, "rare": 3600, "epic": 7200, "legend": 15000},
+    "sell_coin_per_stat": 10,
+    "sell_coin_per_trait": 500,
+    "sell_min_coin": 100,
+    "sell_rep_penalty": -1,
+    "sell_diplomacy_penalty": -4,
     "rescue_coin": 800,
     "rescue_ticks": [4, 8],
     "rescue_expose_chance": 0.4
+  },
+
+  "loyalty": {
+    "natural_gain_per_tick": 1,
+    "natural_cap": 80,
+    "natural_min_loyalty": 30,
+    "appointed_bonus_per_tick": 1,
+    "appointed_natural_cap": 90,
+    "reward_gain": 5,
+    "reward_cost_coin": 100,
+    "reward_daily_limit": 20,
+    "reward_cap": 100
   },
 
   "faction": {
@@ -300,10 +426,9 @@
     "member_cap_base": 10,
     "member_cap_per_level": 3,
     "concurrent_army_per_levels": 2,
-    "treasury_deputy_pct": 0.3,
     "positions": {"leader": 1, "deputy": 1, "situ": 1, "taiwei": 1, "jijiu": 2, "zhonglangjiang": 2},
     "capital_relocate_cd_days": 7,
-    "salary_from_treasury": true,
+    "salary_enabled": true,
     "salary": {
       "enabled": true,
       "per_tick": {
@@ -499,7 +624,7 @@
     "duration_hours": 24,
     "refresh_hours": 12,
     "types": {
-      "donate":  {"name": "共襄国库", "target": 20000, "reward_merit": 40},
+      "donate":  {"name": "共襄重建", "target": 20000, "reward_merit": 40},
       "conquer": {"name": "开疆拓土", "target": 1, "reward_merit": 80},
       "defend":  {"name": "守土安民", "target": 3, "reward_merit": 60},
       "develop": {"name": "兴业安邦", "target": 3, "reward_merit": 50},
@@ -580,7 +705,7 @@
   },
 
   "trade_route": {
-    "coin_per_tick": 20,
+    "coin_per_node": 20,
     "trade_task_bonus": 0.3,
     "task_bonus_per_route": 0.05,
     "task_bonus_per_edge": 0.02,

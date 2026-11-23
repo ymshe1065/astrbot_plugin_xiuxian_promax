@@ -342,23 +342,17 @@ class TestStrategyRound5Fixes(unittest.IsolatedAsyncioTestCase):
                          "退盟后应保留自身科技")
 
     # ------------------------------------------------------------------
-    # 13. 副主提取本势力国库：每日累计上限
+    # 13. v4.5.7：国库存取动作已移除，副主不能再抽走势力资源
     # ------------------------------------------------------------------
-    async def test_deputy_withdraw_daily_cap(self):
+    async def test_treasury_withdraw_action_removed(self):
         await self._create_multi_faction()
-        own2 = int((await self.m.get_player("u2", self.wid))["faction_id"])
-        # 把 u3 编入 u2 势力并设为副主，验证本势力国库的副主日限
-        p3 = await self.m.get_player("u3", self.wid)
-        p3["faction_id"] = own2
-        await self.m.save_player(p3)
-        await self.m.upsert_member(own2, "u3", position="deputy")
-        f = await self.m.get_faction(own2)
-        f["treasury"] = {"coin": 30_000}
-        await self.m.save_faction(f)
-        await self.m._commit()
-        await self.m.treasury_withdraw("u3", "coin", 9_000)
+        with self.assertRaises(self.StrategyError) as cm:
+            await self.m.handle_action(
+                "u3", "treasury_withdraw", {"resource": "coin", "amount": 1})
+        self.assertIn("未知动作", str(cm.exception))
         with self.assertRaises(self.StrategyError):
-            await self.m.treasury_withdraw("u3", "coin", 9_000)
+            await self.m.handle_action(
+                "u3", "treasury_deposit", {"resource": "coin", "amount": 1})
 
     # ------------------------------------------------------------------
     # 14. 总开关关闭时动作被拦截

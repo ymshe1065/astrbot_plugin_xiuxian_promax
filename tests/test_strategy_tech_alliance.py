@@ -1,8 +1,8 @@
 # tests/test_strategy_tech_alliance.py
-# v4.5.0 回归：联盟内科技研究必须使用「本势力」名册与国库
+# v4.5.7 回归：联盟内科技研究必须使用「本势力」名册与玩家钱包
 #   - 盟主调整联盟共同名册（把成员国主降为白身）后，成员国主仍可研究自家科技
-#   - 研究费用只扣本势力国库，绝不扣盟主国库
-#   - 主脉与支脉（node_id）两套入口同口径
+#   - 研究费用只扣发起研究的玩家钱包，绝不扣盟主钱包
+#   - 主脉与支脉（node_id）两套入口同口径；旧国库存取接口已移除
 import os
 import sys
 import tempfile
@@ -80,15 +80,19 @@ class TestStrategyTechAlliance(unittest.IsolatedAsyncioTestCase):
         await self.m.faction_approve("u1", "u2")
         self.member = await self.m.get_faction(int(self.member["id"]))
 
-    async def _set_treasury(self, fid: int, coin: int, iron: int):
+    async def _set_wallet(self, fid: int, coin: int, iron: int):
         f = await self.m.get_faction(int(fid))
-        f["treasury"] = {"coin": int(coin), "iron": int(iron), "grain": 0}
-        await self.m.save_faction(f)
+        lp = await self.m._leader_player(self.wid, f)
+        self.assertIsNotNone(lp)
+        lp["coin"] = int(coin)
+        lp["iron"] = int(iron)
+        await self.m.save_player(lp)
         await self.m._commit()
 
-    async def _treasury(self, fid: int) -> dict:
+    async def _wallet(self, fid: int) -> dict:
         f = await self.m.get_faction(int(fid))
-        return dict(f.get("treasury") or {})
+        lp = await self.m._leader_player(self.wid, f)
+        return dict(lp or {})
 
     async def test_member_research_after_alliance_roster_demotion(self):
         """联盟名册被降权后，成员国主仍用本势力国库研究主脉。"""
@@ -103,65 +107,59 @@ class TestStrategyTechAlliance(unittest.IsolatedAsyncioTestCase):
                        for m in await self.m.get_members(int(self.member["id"]))}
         self.assertEqual(own_members.get("u2"), "leader")
 
-        await self._set_treasury(int(self.host["id"]), 90_000, 90_000)
-        await self._set_treasury(int(self.member["id"]), 1000, 1000)
+        await self._set_wallet(int(self.host["id"]), 90_000, 90_000)
+        await self._set_wallet(int(self.member["id"]), 1000, 1000)
         r = await self.m.tech_research("u2", "military")
         self.assertTrue(r["ok"])
-        self.assertIn("本势力国库", r["msg"])
+        self.assertIn("个人铜钱", r["msg"])
 
-        member_t = await self._treasury(int(self.member["id"]))
-        host_t = await self._treasury(int(self.host["id"]))
-        self.assertEqual(int(member_t.get("coin", 0)), 500)
-        self.assertEqual(int(member_t.get("iron", 0)), 500)
-        self.assertEqual(int(host_t.get("coin", 0)), 90_000)
-        self.assertEqual(int(host_t.get("iron", 0)), 90_000)
+        member_w = await self._wallet(int(self.member["id"]))
+        host_w = await self._wallet(int(self.host["id"]))
+        self.assertEqual(int(member_w.get("coin", 0)), 500)
+        self.assertEqual(int(member_w.get("iron", 0)), 500)
+        self.assertEqual(int(host_w.get("coin", 0)), 90_000)
+        self.assertEqual(int(host_w.get("iron", 0)), 90_000)
 
-        # 前端科技卡按 own_position 判断可操作性
+        # 前端科技卡按 own_position 判断可操作性；势力视图不再下发国库
         state = await self.m.get_state("u2")
         view = (state.get("player") or {}).get("faction") or {}
         self.assertEqual(view.get("own_position"), "leader")
-        self.assertEqual(int((view.get("treasury") or {}).get("coin", 0)), 500)
+        self.assertNotIn("treasury", view)
+        self.assertEqual(int((state.get("player") or {}).get("coin", 0)), 500)
 
-    async def test_member_can_withdraw_own_treasury_after_roster_demotion(self):
-        """同一根因：联盟名册降权后，成员国主仍可支取自家国库。"""
-        await self._ally()
-        await self.m.faction_set_position("u1", "u2", "")
-        await self._set_treasury(int(self.member["id"]), 800, 0)
-        r = await self.m.treasury_withdraw("u2", "coin", 300)
-        self.assertTrue(r["ok"])
-        member_t = await self._treasury(int(self.member["id"]))
-        self.assertEqual(int(member_t.get("coin", 0)), 500)
-        p2 = await self.m.get_player("u2", self.wid)
-        self.assertGreaterEqual(int(p2.get("coin", 0)), 300)
+    async def test_treasury_actions_removed(self):
+        """v4.5.7：旧国库存取接口已彻底移除，玩家钱包即唯一账户。"""
+        self.assertFalse(hasattr(self.m, "treasury_deposit"))
+        self.assertFalse(hasattr(self.m, "treasury_withdraw"))
 
-    async def test_member_branch_research_uses_own_treasury(self):
-        """支脉（node_id）研究同样只扣本势力国库。"""
+    async def test_member_branch_research_uses_own_wallet(self):
+        """支脉（node_id）研究同样只扣发起研究的玩家钱包。"""
         await self._ally()
         await self.m.faction_set_position("u1", "u2", "")
         member = await self.m.get_faction(int(self.member["id"]))
         member["tech"] = {"military": 1}
         await self.m.save_faction(member)
-        await self._set_treasury(int(self.host["id"]), 90_000, 90_000)
-        await self._set_treasury(int(self.member["id"]), 1000, 1000)
+        await self._set_wallet(int(self.host["id"]), 90_000, 90_000)
+        await self._set_wallet(int(self.member["id"]), 1000, 1000)
 
         r = await self.m.tech_research("u2", "military",
                                        node_id="mil_b_plain")
         self.assertTrue(r["ok"])
         self.assertIn("平原战法", r["msg"])
-        member_t = await self._treasury(int(self.member["id"]))
-        host_t = await self._treasury(int(self.host["id"]))
+        member_w = await self._wallet(int(self.member["id"]))
+        host_w = await self._wallet(int(self.host["id"]))
         # 支脉 L1：铜钱 400 / 精铁 300
-        self.assertEqual(int(member_t.get("coin", 0)), 600)
-        self.assertEqual(int(member_t.get("iron", 0)), 700)
-        self.assertEqual(int(host_t.get("coin", 0)), 90_000)
-        self.assertEqual(int(host_t.get("iron", 0)), 90_000)
+        self.assertEqual(int(member_w.get("coin", 0)), 600)
+        self.assertEqual(int(member_w.get("iron", 0)), 700)
+        self.assertEqual(int(host_w.get("coin", 0)), 90_000)
+        self.assertEqual(int(host_w.get("iron", 0)), 90_000)
         pending = (await self.m.get_faction(
             int(self.member["id"])) or {}).get("tech", {}).get("pending") or {}
         self.assertEqual(pending.get("node_id"), "mil_b_plain")
         self.assertEqual(pending.get("kind"), "branch")
 
     async def test_governance_rank_does_not_grant_own_treasury_access(self):
-        """联盟名册里的官职不能越过本势力名册，去花本势力国库。"""
+        """联盟名册里的官职不能越过本势力名册去研究。"""
         await self._ally()
         # 给 u2 一个联盟共同治理官职（situ），但本势力名册降为白身
         await self.m.faction_set_position("u1", "u2", "situ")
@@ -169,7 +167,7 @@ class TestStrategyTechAlliance(unittest.IsolatedAsyncioTestCase):
             "UPDATE strategy_members SET position='' "
             "WHERE faction_id=? AND user_id=?", (int(self.member["id"]), "u2"))
         await self.m._commit()
-        await self._set_treasury(int(self.member["id"]), 1000, 1000)
+        await self._set_wallet(int(self.member["id"]), 1000, 1000)
         with self.assertRaises(self.StrategyError) as cm:
             await self.m.tech_research("u2", "military")
         self.assertIn("仅", str(cm.exception))

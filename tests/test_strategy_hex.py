@@ -746,6 +746,15 @@ class TestRulesExt(unittest.TestCase):
         self.assertLessEqual(out1[1], 0.4)
         self.assertEqual(R.trade_route_task_bonus([]), 0.0)
 
+    def test_trade_route_income_scales_with_nodes(self):
+        # v4.5.8：收益按途经据点数量放大（含两端与中间节点）
+        self.assertEqual(R.trade_route_income({"path": [1, 2]}, 20), 40)
+        self.assertEqual(R.trade_route_income({"path": [1, 2, 3, 4]}, 20), 80)
+        # 路径缺失（旧存档/异常）按最小 2 个端点计，不归零
+        self.assertEqual(R.trade_route_income({}, 20), 40)
+        self.assertEqual(R.trade_route_income({"path": []}, 20), 40)
+        self.assertEqual(R.trade_route_income({"path": [1, 2]}, 0), 0)
+
     def test_node_encircled(self):
         adj = {1: [2, 3], 2: [1, 3], 3: [1, 2, 4], 4: [3]}
         self.assertTrue(R.is_node_encircled(1, adj, {1: 7, 2: 8, 3: 8},

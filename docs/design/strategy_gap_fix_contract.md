@@ -188,8 +188,8 @@ def arena_bracket(merit: int) -> str                      # "novice"/"veteran"/"
 2. **动员令**：`mobilization_issue`，消耗 `mobilization.cost_merit`，冷却 `cooldown_hours`，写 `strategy_mobilizations`；`_faction_buff` 读取（若 B 已实现则改为委托）。
 3. **势力事件（§10.3）**：tick 中按 `strategy_events.json` 的 `scope=faction` 事件随机触发并结算六种效果；民心 <20 的哗变由 B 处理，此处只处理「民心沸腾/细作/秘藏/名将迟暮/角色出走」。
 4. **科技指派角色**：`tech_research` 支持 `char_id`，占用该角色 `status='research'` 至完成；未指派则自动挑智谋最高空闲角色；无可用角色报错。
-5. **迁都**：`capital_relocate`（同势力城池/关隘，`faction.capital_relocate_cd_days` 冷却，扣国库）。
-6. **重建合力**：`rebuild_donate` 向 `rebuild_fund` 捐资源；`rebuild_capital` 消耗 = 国库 + `rebuild_fund`。
+5. **迁都**：`capital_relocate`（同势力城池/关隘，`faction.capital_relocate_cd_days` 冷却，扣势力主钱包）。
+6. **重建合力**：`rebuild_donate` 向 `rebuild_fund` 捐资源；`rebuild_capital` 消耗 = `rebuild_fund` + 发起人灵石（v4.5.7 起玩家势力无国库）。
 7. **安全**：入盟 72h 内不得担任官职、战功结算 ×0（`security.min_join_hours_*`）；`appoint_position`/`_settle_merit` 接入。
 8. **治理**：低忠诚（<`governance.loyalty_defect`）角色出走（转 `wander`，通知）。
 9. 新增 `tests/test_strategy_faction_gaps.py` ≥8 条。
