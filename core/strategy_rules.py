@@ -117,11 +117,11 @@ POSITION_NAMES = {
 TAISHOU_NAME = "太守"
 TAISHOU_TROOP_CAP = 2000
 
-#: 角色可任免官职（主公/副主是玩家治理身份，不在角色官职内）。
+#: 角色可任免官职（势力主/副主是玩家治理身份，不在角色官职内）。
 #: 太守是据点级职务，走据点抽屉单独任免，不在此列表。
 APPOINTABLE_POSITIONS = ("zhonglang", "jijiu", "situ", "taiwei")
 
-#: 官职开放档位：势力（含联盟）据点数量达到 nodes 后开放/扩编对应官职。
+#: 官职开放档位：未结盟按本势力据点数量；结盟后按联盟成员势力合计据点数量。
 #: 名额为 -1 表示“每据点 1 名”，按当前据点数量动态计算。
 POSITION_UNLOCKS = (
     (1, {"zhonglang": 1}),
@@ -968,16 +968,20 @@ def role_fit_mult(char: dict, task_type: str) -> float:
 
 
 def task_node_mult(task_type: str, node_type: str) -> float:
-    """据点类型系数（§6.2：仙城布政 ×1.5、谷田屯田 ×2、灵脉矿采矿 ×2…）。"""
+    """据点类型系数（§6.2：仙城布政 ×1.5、谷田屯田 ×2、灵脉矿采矿 ×2…）。
+
+    v4.5.2：遗迹改为可经营据点后，用「采矿 ×1.5 + 讨伐 ×1.4」保留辨识度
+    （低于灵脉矿采矿 ×2.0，高于关隘采矿 ×1.3）。
+    """
     table = {
         ("govern", "city"): 1.5,
         ("farm", "grain"): 2.0,
         ("mining", "mine"): 2.0,
         ("mining", "pass"): 1.3,
-        ("mining", "ruin"): 1.3,
+        ("mining", "ruin"): 1.5,
         ("trade", "market"): 1.3,
         ("seek", "branch"): 1.4,
-        ("hunt", "ruin"): 1.3,
+        ("hunt", "ruin"): 1.4,
         ("build", "city"): 1.2,
     }
     return table.get((task_type, node_type), 1.0)
@@ -2036,6 +2040,187 @@ TECH_EFFECT_PATCHES: dict[str, dict[int, dict[str, Any]]] = {
 }
 
 
+#: 支脉默认参数（配置缺省时回退）；管理员可在 config ``tech`` 块覆盖。
+TECH_BRANCH_DEFAULTS: dict[str, Any] = {
+    "branch_max_level": 5,
+    "branch_cost_coin": [400, 800, 1600, 3200, 6400],
+    "branch_cost_iron": [300, 600, 1200, 2400, 4800],
+    "branch_base_hours_per_level": [4, 8, 12, 18, 24],
+}
+
+#: 三线科技树默认定义。
+#: - ``kind="spine"``：主脉节点，固定 1 级；数值仍由 ``TECH_EFFECT_PATCHES``
+#:   按 ``spine`` 序号提供（避免同一份数值维护两处）。
+#: - ``kind="branch"``：支脉节点，可升 ``max`` 级；``effects`` 为**每级增量**：
+#:   ``mode="add"`` 时标量/地形逐级相加，资源乘区按 ``(1+值)^级`` 叠乘；
+#:   ``mode="mul"`` 时标量/资源乘区按 ``值^级`` 叠乘。
+TECH_TREE: dict[str, list[dict[str, Any]]] = {
+    "military": [
+        {"id": "mil_s1", "name": "军制", "kind": "spine", "spine": 1, "parent": None,
+         "desc": "全兵种攻击 +2%；平原攻防 +3%"},
+        {"id": "mil_b_plain", "name": "平原战法", "kind": "branch", "parent": "mil_s1",
+         "max": 5, "mode": "add", "desc": "平原攻防", "per_level_text": "+2%",
+         "effects": {"terrain_atk_mult": {"plain": 0.02},
+                     "terrain_def_mult": {"plain": 0.02}}},
+        {"id": "mil_s2", "name": "攻城", "kind": "spine", "spine": 2, "parent": "mil_s1",
+         "desc": "破城槌造价 -30%；城墙伤害 +10%；带兵≥2000 攻城槌 +5%"},
+        {"id": "mil_b_siege", "name": "攻城术", "kind": "branch", "parent": "mil_s2",
+         "max": 5, "mode": "add", "desc": "城墙/城门伤害", "per_level_text": "+2%",
+         "effects": {"terrain_atk_mult": {"wall": 0.02, "gate": 0.02}}},
+        {"id": "mil_b_ram", "name": "器械术", "kind": "branch", "parent": "mil_s2",
+         "max": 3, "mode": "mul", "desc": "破城槌造价", "per_level_text": "-5%",
+         "effects": {"ram_cost_mult": 0.95}},
+        {"id": "mil_s3", "name": "地利", "kind": "spine", "spine": 3, "parent": "mil_s2",
+         "desc": "全兵种攻击累计 +6%；高地攻 +8%、森林防 +10%、涉水减免"},
+        {"id": "mil_b_forest", "name": "林地战法", "kind": "branch", "parent": "mil_s3",
+         "max": 5, "mode": "add", "desc": "林地防御", "per_level_text": "+5%",
+         "effects": {"terrain_def_mult": {"forest": 0.05}}},
+        {"id": "mil_b_highland", "name": "山地战法", "kind": "branch", "parent": "mil_s3",
+         "max": 5, "mode": "add", "desc": "高地攻击", "per_level_text": "+5%",
+         "effects": {"terrain_atk_mult": {"highland": 0.05}}},
+        {"id": "mil_b_wade", "name": "涉水适应", "kind": "branch", "parent": "mil_s3",
+         "max": 3, "mode": "add", "desc": "河/沼泽防御", "per_level_text": "+4%",
+         "effects": {"terrain_def_mult": {"river": 0.04, "swamp": 0.04}}},
+        {"id": "mil_s4", "name": "守备", "kind": "spine", "spine": 4, "parent": "mil_s3",
+         "desc": "ZOC 拦截 +25%；城墙/关隘守军防御 +10%；带兵≤800 机动 +1、先手 +5"},
+        {"id": "mil_b_wall", "name": "城墙守备", "kind": "branch", "parent": "mil_s4",
+         "max": 5, "mode": "add", "desc": "城墙防御", "per_level_text": "+3%",
+         "effects": {"terrain_def_mult": {"wall": 0.03}}},
+        {"id": "mil_b_gate", "name": "关隘守备", "kind": "branch", "parent": "mil_s4",
+         "max": 5, "mode": "add", "desc": "关隘防御", "per_level_text": "+3%",
+         "effects": {"terrain_def_mult": {"gate": 0.03}}},
+        {"id": "mil_s5", "name": "军势", "kind": "spine", "spine": 5, "parent": "mil_s4",
+         "desc": "包抄 +5%；全地形攻 +3%；带兵≥3000 攻 +5%"},
+        {"id": "mil_b_big", "name": "大军团", "kind": "branch", "parent": "mil_s5",
+         "max": 5, "mode": "add", "desc": "大军攻击", "per_level_text": "+1%",
+         "effects": {"big_army_atk_bonus": 0.01}},
+        {"id": "mil_b_flank", "name": "包抄战术", "kind": "branch", "parent": "mil_s5",
+         "max": 5, "mode": "add", "desc": "包抄系数", "per_level_text": "+1%",
+         "effects": {"flank_bonus": 0.01}},
+        {"id": "mil_s6", "name": "军心", "kind": "spine", "spine": 6, "parent": "mil_s5",
+         "desc": "全军士气下降 -20%；击破敌军士气 +10"},
+        {"id": "mil_b_morale", "name": "士气整训", "kind": "branch", "parent": "mil_s6",
+         "max": 5, "mode": "mul", "desc": "士气下降", "per_level_text": "-2%",
+         "effects": {"morale_loss_mult": 0.98}},
+        {"id": "mil_s7", "name": "无双", "kind": "spine", "spine": 7, "parent": "mil_s6",
+         "desc": "无视 ZOC、免疫包围；单挑获胜士气 +5、致伤 +10%；俘获 +30%、己方不被俘"},
+        {"id": "mil_b_duel", "name": "单挑精研", "kind": "branch", "parent": "mil_s7",
+         "max": 5, "mode": "add", "desc": "单挑致伤", "per_level_text": "+2%",
+         "effects": {"duel_injury_bonus": 0.02}},
+        {"id": "mil_b_capture", "name": "俘获精研", "kind": "branch", "parent": "mil_s7",
+         "max": 5, "mode": "add", "desc": "俘获率", "per_level_text": "+2%",
+         "effects": {"capture_bonus": 0.02}},
+    ],
+    "agri": [
+        {"id": "agr_s1", "name": "劝农", "kind": "spine", "spine": 1, "parent": None,
+         "desc": "全据点产出 +4%；谷田粮草 +10%"},
+        {"id": "agr_b_grain", "name": "谷田精耕", "kind": "branch", "parent": "agr_s1",
+         "max": 5, "mode": "mul", "desc": "谷田粮草", "per_level_text": "+4%",
+         "effects": {"node_type_output_mult": {"grain": {"grain": 1.04}}}},
+        {"id": "agr_b_reclaim", "name": "垦荒", "kind": "branch", "parent": "agr_s1",
+         "max": 5, "mode": "add", "desc": "全据点产出", "per_level_text": "+1%",
+         "effects": {"output_bonus": 0.01}},
+        {"id": "agr_s2", "name": "漕运", "kind": "spine", "spine": 2, "parent": "agr_s1",
+         "desc": "军团粮耗 -10%；全势力粮草 +10%"},
+        {"id": "agr_b_convoy", "name": "漕运精研", "kind": "branch", "parent": "agr_s2",
+         "max": 5, "mode": "mul", "desc": "军团粮耗", "per_level_text": "-3%",
+         "effects": {"grain_cost_mult": 0.97}},
+        {"id": "agr_s3", "name": "冶矿", "kind": "spine", "spine": 3, "parent": "agr_s2",
+         "desc": "全据点产出累计 +8%；矿脉精铁 +15%"},
+        {"id": "agr_b_mine", "name": "矿脉精炼", "kind": "branch", "parent": "agr_s3",
+         "max": 5, "mode": "mul", "desc": "矿脉精铁", "per_level_text": "+4%",
+         "effects": {"node_type_output_mult": {"mine": {"iron": 1.04}}}},
+        {"id": "agr_s4", "name": "商路", "kind": "spine", "spine": 4, "parent": "agr_s3",
+         "desc": "运粮机动 +1、被劫 -50%；坊市铜钱 +10%"},
+        {"id": "agr_b_market", "name": "坊市通商", "kind": "branch", "parent": "agr_s4",
+         "max": 5, "mode": "mul", "desc": "坊市铜钱", "per_level_text": "+4%",
+         "effects": {"node_type_output_mult": {"market": {"coin": 1.04}}}},
+        {"id": "agr_b_escort", "name": "商队护卫", "kind": "branch", "parent": "agr_s4",
+         "max": 3, "mode": "mul", "desc": "被劫损失", "per_level_text": "-10%",
+         "effects": {"convoy_loss_mult": 0.90}},
+        {"id": "agr_s5", "name": "屯田", "kind": "spine", "spine": 5, "parent": "agr_s4",
+         "desc": "断粮抵抗 +2 tick；灵石 +5%；全资源再 +2%"},
+        {"id": "agr_b_starve", "name": "屯田精研", "kind": "branch", "parent": "agr_s5",
+         "max": 3, "mode": "add", "desc": "断粮抵抗", "per_level_text": "+1 tick",
+         "effects": {"starve_resist_ticks": 1}},
+        {"id": "agr_b_gold", "name": "灵石采掘", "kind": "branch", "parent": "agr_s5",
+         "max": 5, "mode": "mul", "desc": "灵石产出", "per_level_text": "+2%",
+         "effects": {"resource_output_mult": {"gold": 1.02}}},
+        {"id": "agr_s6", "name": "征募", "kind": "spine", "spine": 6, "parent": "agr_s5",
+         "desc": "募兵铜钱粮耗 -15%；练兵效率 +20%；守军增长 +0.5%/tick"},
+        {"id": "agr_b_recruit", "name": "募兵精研", "kind": "branch", "parent": "agr_s6",
+         "max": 5, "mode": "mul", "desc": "募兵成本", "per_level_text": "-3%",
+         "effects": {"recruit_cost_mult": 0.97}},
+        {"id": "agr_b_train", "name": "练兵精研", "kind": "branch", "parent": "agr_s6",
+         "max": 5, "mode": "add", "desc": "练兵效率", "per_level_text": "+4%",
+         "effects": {"train_mult": 0.04}},
+        {"id": "agr_s7", "name": "仁政", "kind": "spine", "spine": 7, "parent": "agr_s6",
+         "desc": "伤兵恢复 +30%；角色俸禄 -20%；民心恢复 +1/tick"},
+        {"id": "agr_b_heal", "name": "医养", "kind": "branch", "parent": "agr_s7",
+         "max": 5, "mode": "add", "desc": "伤兵恢复", "per_level_text": "+4%",
+         "effects": {"heal_mult": 0.04}},
+        {"id": "agr_b_salary", "name": "廉政", "kind": "branch", "parent": "agr_s7",
+         "max": 3, "mode": "mul", "desc": "角色俸禄", "per_level_text": "-5%",
+         "effects": {"salary_mult": 0.95}},
+        {"id": "agr_b_morale", "name": "民心", "kind": "branch", "parent": "agr_s7",
+         "max": 5, "mode": "add", "desc": "民心恢复", "per_level_text": "+0.3/tick",
+         "effects": {"morale_recover_bonus": 0.3}},
+    ],
+    "stratagem": [
+        {"id": "str_s1", "name": "离间", "kind": "spine", "spine": 1, "parent": None,
+         "desc": "计略成功率 +4%"},
+        {"id": "str_b_plot", "name": "离间精研", "kind": "branch", "parent": "str_s1",
+         "max": 5, "mode": "add", "desc": "计略成功率", "per_level_text": "+1%",
+         "effects": {"plot_bonus": 0.01}},
+        {"id": "str_s2", "name": "耳目", "kind": "spine", "spine": 2, "parent": "str_s1",
+         "desc": "侦察精度提升；侦察范围 +1"},
+        {"id": "str_b_intel", "name": "情报网", "kind": "branch", "parent": "str_s2",
+         "max": 5, "mode": "add", "desc": "计略暴露率", "per_level_text": "-3%",
+         "effects": {"expose_reduction": 0.03}},
+        {"id": "str_s3", "name": "军略", "kind": "spine", "spine": 3, "parent": "str_s2",
+         "desc": "托管 AI 智谋 +5；对带兵≥2000 目标计略 +3%"},
+        {"id": "str_b_ai", "name": "军师团", "kind": "branch", "parent": "str_s3",
+         "max": 5, "mode": "add", "desc": "托管智谋", "per_level_text": "+1",
+         "effects": {"ai_wisdom_bonus": 1}},
+        {"id": "str_b_bigplot", "name": "大军计略", "kind": "branch", "parent": "str_s3",
+         "max": 5, "mode": "add", "desc": "对大军计略", "per_level_text": "+1%",
+         "effects": {"plot_bonus_vs_big_army": 0.01}},
+        {"id": "str_s4", "name": "鬼谋", "kind": "spine", "spine": 4, "parent": "str_s3",
+         "desc": "计略冷却 -2 tick；暴露率 -15%"},
+        {"id": "str_b_cd", "name": "疾谋", "kind": "branch", "parent": "str_s4",
+         "max": 3, "mode": "add", "desc": "计略冷却", "per_level_text": "-1 tick",
+         "effects": {"plot_cd_reduce": 1}},
+        {"id": "str_b_hide", "name": "隐匿", "kind": "branch", "parent": "str_s4",
+         "max": 5, "mode": "add", "desc": "计略暴露率", "per_level_text": "-3%",
+         "effects": {"expose_reduction": 0.03}},
+        {"id": "str_s5", "name": "反间", "kind": "spine", "spine": 5, "parent": "str_s4",
+         "desc": "解锁反间 30%；己方被反间概率 -15%"},
+        {"id": "str_b_counter", "name": "反间精研", "kind": "branch", "parent": "str_s5",
+         "max": 5, "mode": "add", "desc": "反间成功率", "per_level_text": "+3%",
+         "effects": {"counter_spy": 0.03}},
+        {"id": "str_b_defense", "name": "防谍", "kind": "branch", "parent": "str_s5",
+         "max": 5, "mode": "add", "desc": "被反间概率", "per_level_text": "-3%",
+         "effects": {"counter_spy_defense": 0.03}},
+        {"id": "str_s6", "name": "火攻", "kind": "spine", "spine": 6, "parent": "str_s5",
+         "desc": "火攻威力 +30%；己方受火伤 -30%"},
+        {"id": "str_b_fire", "name": "火攻精研", "kind": "branch", "parent": "str_s6",
+         "max": 5, "mode": "add", "desc": "火攻威力", "per_level_text": "+6%",
+         "effects": {"fire_damage_mult": 0.06}},
+        {"id": "str_b_firedef", "name": "火防", "kind": "branch", "parent": "str_s6",
+         "max": 5, "mode": "mul", "desc": "受火伤", "per_level_text": "-4%",
+         "effects": {"fire_def_mult": 0.96}},
+        {"id": "str_s7", "name": "诡道", "kind": "spine", "spine": 7, "parent": "str_s6",
+         "desc": "己方计略负面时长 +20%；敌军计略成功率 -10%"},
+        {"id": "str_b_duration", "name": "诡道精研", "kind": "branch", "parent": "str_s7",
+         "max": 5, "mode": "add", "desc": "计略负面时长", "per_level_text": "+4%",
+         "effects": {"plot_duration_mult": 0.04}},
+        {"id": "str_b_enemy", "name": "疑兵", "kind": "branch", "parent": "str_s7",
+         "max": 5, "mode": "mul", "desc": "敌军计略成功率", "per_level_text": "-2%",
+         "effects": {"enemy_plot_rate_mult": 0.98}},
+    ],
+}
+
+
 def tech_level(tech_json: dict | None, line: str, max_lvl: int = 5) -> int:
     """科技等级（钳制到 [0, max_lvl]）。
 
@@ -2045,6 +2230,304 @@ def tech_level(tech_json: dict | None, line: str, max_lvl: int = 5) -> int:
     """
     cap = max(1, int(max_lvl or 5))
     return max(0, min(cap, int((tech_json or {}).get(line, 0) or 0)))
+
+
+def _tech_cfg(tcfg: dict | None) -> dict:
+    return tcfg if isinstance(tcfg, dict) else {}
+
+
+def tech_line_max(tcfg: dict | None = None) -> int:
+    """主脉等级上限：优先 config ``levels``，否则取默认树主脉节数。"""
+    cfg = _tech_cfg(tcfg)
+    try:
+        lv = int(cfg.get("levels") or 0)
+    except (TypeError, ValueError):
+        lv = 0
+    if lv > 0:
+        return lv
+    return max((int(n.get("spine", 0) or 0) for n in TECH_TREE.get("military", [])),
+               default=7) or 7
+
+
+def tech_tree(tcfg: dict | None = None) -> dict[str, list[dict]]:
+    """三线节点树；config ``tech.tree`` 按**节点 id** 合并覆盖默认 ``TECH_TREE``。
+
+    v4.5.5：此前配置某条线会整线替换默认节点，管理员只改一个节点就会让
+    该线其它主脉/支脉消失。现在按 id 覆盖：同 id 的字段合并，未列出的默认
+    节点保留，新 id 追加到该线末尾；空列表表示不启用覆盖。
+    """
+    cfg = _tech_cfg(tcfg)
+    override = cfg.get("tree") if isinstance(cfg.get("tree"), dict) else {}
+    out: dict[str, list[dict]] = {}
+    for line in TECH_LINES:
+        defaults = [dict(n) for n in TECH_TREE.get(line, [])
+                    if isinstance(n, dict)]
+        nodes = override.get(line)
+        if not isinstance(nodes, list):
+            out[line] = defaults
+            continue
+        merged: dict[str, dict] = {}
+        order: list[str] = []
+        for n in defaults:
+            nid = str(n.get("id") or "")
+            if nid:
+                merged[nid] = n
+                order.append(nid)
+        extras: list[dict] = []
+        for n in nodes:
+            if not isinstance(n, dict):
+                continue
+            nid = str(n.get("id") or "")
+            if nid and nid in merged:
+                merged[nid].update(n)
+            elif nid:
+                merged[nid] = dict(n)
+                order.append(nid)
+            else:
+                extras.append(dict(n))
+        out[line] = [merged[i] for i in order if i in merged] + extras
+    return out
+
+
+def tech_node_map(tcfg: dict | None = None) -> dict[str, dict]:
+    """节点索引：node_id → 节点定义（自动补 ``line`` 字段）。"""
+    out: dict[str, dict] = {}
+    for line, nodes in tech_tree(tcfg).items():
+        for node in nodes:
+            n = dict(node)
+            n["line"] = line
+            nid = str(n.get("id") or "")
+            if nid:
+                out[nid] = n
+    return out
+
+
+def tech_nodes(tech_json: dict | None) -> dict[str, int]:
+    """规整 ``tech_json["nodes"]`` 支脉等级（只保留正整数）。"""
+    raw = (tech_json or {}).get("nodes")
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, int] = {}
+    for k, v in raw.items():
+        try:
+            lv = int(v or 0)
+        except (TypeError, ValueError):
+            lv = 0
+        if lv > 0:
+            out[str(k)] = lv
+    return out
+
+
+def tech_spine_nodes(line: str, tcfg: dict | None = None) -> list[dict]:
+    return [n for n in tech_tree(tcfg).get(str(line), [])
+            if str(n.get("kind") or "") == "spine"]
+
+
+def tech_node_level(tech_json: dict | None, node_id: str,
+                    tcfg: dict | None = None) -> int:
+    """单节点等级：主脉返回 0/1，支脉返回 0~max。"""
+    node = tech_node_map(tcfg).get(str(node_id))
+    if not node:
+        return 0
+    line = str(node.get("line") or "")
+    if str(node.get("kind") or "") == "spine":
+        idx = int(node.get("spine", 0) or 0)
+        return 1 if tech_level(tech_json, line, tech_line_max(tcfg)) >= idx else 0
+    lv = int(tech_nodes(tech_json).get(str(node_id), 0) or 0)
+    cap = int(node.get("max") or _tech_cfg(tcfg).get("branch_max_level") or 5)
+    return max(0, min(max(1, cap), lv))
+
+
+def tech_node_unlocked(tech_json: dict | None, node: dict,
+                       tcfg: dict | None = None) -> bool:
+    """节点前置是否满足：主脉需前一节；支脉需父节点已达 1 级/已完成。"""
+    parent_id = node.get("parent")
+    if not parent_id:
+        return True
+    parent = tech_node_map(tcfg).get(str(parent_id))
+    if not parent:
+        return True
+    if str(parent.get("kind") or "") == "spine":
+        idx = int(parent.get("spine", 0) or 0)
+        return tech_level(tech_json, str(parent.get("line") or ""),
+                          tech_line_max(tcfg)) >= idx
+    return tech_node_level(tech_json, str(parent.get("id") or ""), tcfg) >= 1
+
+
+def tech_node_state(tech_json: dict | None, node_id: str,
+                    tcfg: dict | None = None) -> dict | None:
+    """节点状态（供研究入口与前端展示）。"""
+    node = tech_node_map(tcfg).get(str(node_id))
+    if not node:
+        return None
+    loop_id = str(node.get("id") or "")
+    kind = str(node.get("kind") or "spine")
+    level = tech_node_level(tech_json, loop_id, tcfg)
+    max_level = 1 if kind == "spine" else int(
+        node.get("max") or _tech_cfg(tcfg).get("branch_max_level") or 5)
+    unlocked = tech_node_unlocked(tech_json, node, tcfg)
+    can_research = unlocked and level < max_level
+    reason = ""
+    if not unlocked:
+        parent = tech_node_map(tcfg).get(str(node.get("parent") or ""))
+        reason = f"需先完成 {parent.get('name')}" if parent else "前置未完成"
+    elif level >= max_level:
+        reason = "已满级" if kind == "branch" else "已研究"
+    return {
+        "id": loop_id, "name": str(node.get("name") or loop_id),
+        "kind": kind, "line": str(node.get("line") or ""),
+        "level": level, "max": max_level,
+        "unlocked": unlocked, "can_research": can_research, "reason": reason,
+        "parent": node.get("parent"), "spine": node.get("spine"),
+    }
+
+
+def _pick_curve(arr: Any, idx: int, default: list) -> int:
+    vals = list(arr) if isinstance(arr, (list, tuple)) and arr else list(default)
+    if not vals:
+        vals = list(default)
+    try:
+        pos = max(0, min(int(idx), len(vals) - 1))
+        return int(vals[pos])
+    except (TypeError, ValueError):
+        return int(default[0])
+
+
+def tech_research_target(tech_json: dict | None, line: str, node_id: str = "",
+                         tcfg: dict | None = None) -> dict:
+    """解析研究目标（主脉/支脉统一出口）。
+
+    返回 ``{"error": ...}`` 或目标节点、当前等级、费用与基础耗时。
+    """
+    cfg = _tech_cfg(tcfg)
+    line = str(line or "")
+    if line not in TECH_LINES:
+        return {"error": "科技线无效（" +
+                         "/".join(TECH_NAMES.get(x, x) for x in TECH_LINES) + "）"}
+    max_lvl = tech_line_max(tcfg)
+    spine_lv = tech_level(tech_json, line, max_lvl)
+    node_map = tech_node_map(tcfg)
+    if not node_id:
+        target = None
+        for n in tech_spine_nodes(line, tcfg):
+            if int(n.get("spine", 0) or 0) == spine_lv + 1:
+                target = n
+                break
+        if target is None:
+            return {"error": f"{TECH_NAMES.get(line, line)} 已满级（L{max_lvl}）"}
+    else:
+        target = node_map.get(str(node_id))
+        if not target or str(target.get("line") or "") != line:
+            return {"error": "科技节点无效"}
+
+    kind = str(target.get("kind") or "spine")
+    if kind == "spine":
+        idx = int(target.get("spine", 0) or 0)
+        if spine_lv >= idx:
+            return {"error": f"{target.get('name', idx)} 已研究"}
+        if spine_lv != idx - 1:
+            return {"error": f"需先完成 {TECH_NAMES.get(line, line)} 前置主脉"}
+        level = spine_lv
+        max_level = 1
+        coin_arr = cfg.get("cost_coin") or [500, 1000, 2000, 3500, 6000, 8000, 10000]
+        iron_arr = cfg.get("cost_iron") or coin_arr
+        hour_arr = cfg.get("base_hours_per_level") or [8, 16, 24, 32, 40, 48, 56]
+        coin_def, iron_def, hour_def = coin_arr, iron_arr, hour_arr
+    else:
+        if not tech_node_unlocked(tech_json, target, tcfg):
+            parent = node_map.get(str(target.get("parent") or ""))
+            return {"error": f"需先完成 {parent.get('name') if parent else '前置节点'}"}
+        level = tech_node_level(tech_json, str(target.get("id") or ""), tcfg)
+        max_level = int(target.get("max") or cfg.get("branch_max_level")
+                        or TECH_BRANCH_DEFAULTS["branch_max_level"])
+        if level >= max_level:
+            return {"error": f"{target.get('name', '')} 已满级（L{max_level}）"}
+        coin_def = cfg.get("branch_cost_coin") or TECH_BRANCH_DEFAULTS["branch_cost_coin"]
+        iron_def = cfg.get("branch_cost_iron") or TECH_BRANCH_DEFAULTS["branch_cost_iron"]
+        hour_def = (cfg.get("branch_base_hours_per_level")
+                    or TECH_BRANCH_DEFAULTS["branch_base_hours_per_level"])
+
+    return {
+        "node": target, "kind": kind, "line": line,
+        "level": level, "target_level": level + 1, "max_level": max_level,
+        "cost_coin": _pick_curve(coin_def, level, coin_def),
+        "cost_iron": _pick_curve(iron_def, level, iron_def),
+        "base_hours": _pick_curve(hour_def, level, hour_def),
+    }
+
+
+def tech_tree_view(tcfg: dict | None = None) -> dict[str, list[dict]]:
+    """前端节点树视图（可 JSON 序列化，含解锁子节点名称）。"""
+    out: dict[str, list[dict]] = {}
+    for line, nodes in tech_tree(tcfg).items():
+        unlocks: dict[str, list[str]] = {}
+        names: dict[str, str] = {}
+        for n in nodes:
+            nid = str(n.get("id") or "")
+            names[nid] = str(n.get("name") or nid)
+            if str(n.get("kind") or "") == "branch":
+                unlocks.setdefault(str(n.get("parent") or ""), []).append(
+                    str(n.get("name") or n.get("id") or ""))
+        view: list[dict] = []
+        for n in nodes:
+            kind = str(n.get("kind") or "spine")
+            nid = str(n.get("id") or "")
+            parent = str(n.get("parent") or "")
+            item = {
+                "id": nid, "name": str(n.get("name") or nid), "kind": kind,
+                "parent": n.get("parent"), "parent_name": names.get(parent, ""),
+                "spine": n.get("spine"),
+                "mode": str(n.get("mode") or "add"),
+                "desc": str(n.get("desc") or ""),
+                "per_level_text": str(n.get("per_level_text") or ""),
+                "max": 1 if kind == "spine" else int(n.get("max") or 5),
+                "unlocks": unlocks.get(nid, []) if kind == "spine" else [],
+            }
+            view.append(item)
+        out[line] = view
+    return out
+
+
+def _apply_branch_effect(out: dict, key: str, val: Any, lvl: int,
+                         mode: str = "add") -> None:
+    """把支脉「每级增量 × 等级」并入效果字典。"""
+    lvl = max(0, int(lvl or 0))
+    if lvl <= 0:
+        return
+    mode = str(mode or "add")
+    if key in ("terrain_atk_mult", "terrain_def_mult"):
+        dst = out.setdefault(key, {})
+        for t, v in (val or {}).items():
+            dst[t] = float(dst.get(t, 0.0)) + float(v) * lvl
+        return
+    if key in ("resource_output_mult", "node_type_output_mult"):
+        dst = out.setdefault(key, {})
+        for k, v in (val or {}).items():
+            if isinstance(v, dict):
+                sub = dst.setdefault(k, {})
+                for r, mv in v.items():
+                    factor = (float(mv) ** lvl) if mode == "mul" \
+                        else ((1.0 + float(mv)) ** lvl)
+                    sub[r] = float(sub.get(r, 1.0)) * factor
+            else:
+                factor = (float(v) ** lvl) if mode == "mul" \
+                    else ((1.0 + float(v)) ** lvl)
+                dst[k] = float(dst.get(k, 1.0)) * factor
+        return
+    if isinstance(val, bool):
+        if val:
+            out[key] = True
+        return
+    if isinstance(val, (int, float)):
+        if mode == "mul":
+            out[key] = float(out.get(key, 1.0)) * (float(val) ** lvl)
+        else:
+            cur = out.get(key, 0.0)
+            new = float(cur) + float(val) * lvl
+            out[key] = int(round(new)) if isinstance(cur, int) and \
+                float(val).is_integer() else new
+        return
+    out[key] = val
 
 
 def _apply_tech_patch(out: dict, patch: dict | None) -> None:
@@ -2126,6 +2609,20 @@ def tech_effects(tech_json: dict | None, max_lvl: int = 5,
                 if isinstance(cfg_patch, dict):
                     patch.update(cfg_patch)  # 配置按级覆盖默认补丁
             _apply_tech_patch(out, patch)
+    # 支脉：按节点等级叠加（每级增量；主脉前置未满足的支脉不生效，防改档）
+    node_map = tech_node_map(tcfg)
+    for node_id, raw_lv in tech_nodes(tech_json).items():
+        node = node_map.get(node_id)
+        if not node or str(node.get("kind") or "") != "branch":
+            continue
+        if not tech_node_unlocked(tech_json, node, tcfg):
+            continue
+        lvl = int(raw_lv)
+        cap = int(node.get("max") or tcfg.get("branch_max_level") or 5)
+        lvl = max(0, min(max(1, cap), lvl))
+        mode = str(node.get("mode") or "add")
+        for key, val in (node.get("effects") or {}).items():
+            _apply_branch_effect(out, str(key), val, lvl, mode)
     # 带兵阈值配置（非补丁，单独读取）
     out["big_army_threshold"] = int(tcfg.get("big_army_threshold", 2000) or 2000)
     out["small_army_threshold"] = int(tcfg.get("small_army_threshold", 800) or 800)
@@ -2760,13 +3257,17 @@ def wanderer_quota_limit(acfg: dict, rarity: str) -> int:
 # ---------------------------------------------------------------------------
 
 #: 据点潜力默认映射：地图生成时按类型写入，模板可用 potential 覆盖。
+#: v4.5.2：遗迹由「潜力 1 的纯事件点」改为「潜力 3 的可经营据点」，与
+#: 坊市同级、低于关隘/仙城，产出靠升级与城主府放大。
 NODE_POTENTIAL_BY_TYPE = {
     "city": 5, "branch": 5, "pass": 4, "market": 3,
-    "mine": 2, "grain": 2, "ruin": 1,
+    "mine": 2, "grain": 2, "ruin": 3,
 }
 
-#: 可被人物驻守/管理/抓捕的据点类型（遗迹不可作落点）。
-CHAR_DWELL_NODE_TYPES = ("city", "pass", "branch", "market", "mine", "grain")
+#: 可被人物驻守/管理/抓捕的据点类型。
+#: v4.5.2：遗迹转为常规据点，允许落点/驻防/编军/派遣/关押/太守。
+CHAR_DWELL_NODE_TYPES = ("city", "pass", "branch", "market", "mine", "grain",
+                         "ruin")
 
 #: 不可传送的角色状态（仅 idle 可移动）。
 MOVE_BLOCK_STATUSES = ("task", "army", "captive", "transfer", "wander", "dead")

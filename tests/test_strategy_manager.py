@@ -746,10 +746,11 @@ class TestStrategyManager(unittest.IsolatedAsyncioTestCase):
         p = await self.m.get_player("u1", self.wid)
         p["coin"], p["grain"] = 500_000, 500_000
         await self.m.save_player(p)
-        # 内政官不能当主将
-        with self.assertRaises(self.StrategyError):
-            await self.m.create_army("u1", off["id"], [], node["id"],
-                                     "sword_shield", 500)
+        # 内政官可担任主将（v4.5.1 起）
+        r_off = await self.m.create_army("u1", off["id"], [], node["id"],
+                                         "sword_shield", 500)
+        self.assertTrue(r_off["ok"])
+        await self.m.disband_army("u1", r_off["army_id"])
         # 超带兵上限（个人势力主公 3000）
         with self.assertRaises(self.StrategyError):
             await self.m.create_army("u1", gen["id"], [], node["id"],
@@ -765,7 +766,7 @@ class TestStrategyManager(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(army["troops"], 500)
         # 携粮 = 统率×50（上限）
         self.assertEqual(army["grain"], gen["stats"]["leadership"] * 50)
-        # 并发上限 2 支：再招两名非内政官角色编第二、三支
+        # 并发上限 2 支：再招两名其他角色编第二、三支
         async def _recruit_general():
             for _ in range(6):
                 pnow = await self.m.get_player("u1", self.wid)
@@ -790,6 +791,134 @@ class TestStrategyManager(unittest.IsolatedAsyncioTestCase):
         await self._place(c3, node["id"])
         with self.assertRaises(self.StrategyError):
             await self.m.create_army("u1", c3["id"], [], node["id"], "beast_horde", 200)
+
+    async def test_handover_army_swaps_leader_and_members(self):
+        """军团换将：空闲武将可替换主将/随行，兵力/粮草/老兵不变。"""
+        R = _imp("core.strategy_rules")
+        p, gen, off, home, _target = await self._army_fixture()
+        g2 = await self._add_general(p, home["id"], "新帅甲")
+        g3 = await self._add_general(p, home["id"], "副将乙")
+        r = await self.m.create_army("u1", gen["id"], [off["id"]], home["id"],
+                                     "sword_shield", 500)
+        aid = r["army_id"]
+        before = await self.m.get_army(aid)
+        res = await self.m.handover_army("u1", aid, g2["id"], [g3["id"]])
+        self.assertTrue(res["ok"])
+        a = await self.m.get_army(aid)
+        self.assertEqual(a["characters"], [g2["id"], g3["id"]])
+        self.assertEqual(a["name"], "新帅甲军")
+        self.assertEqual(a["troops"], before["troops"])
+        self.assertEqual(a["grain"], before["grain"])
+        self.assertEqual(a["veteran"], before["veteran"])
+        # 换下的主将/随行回归空闲并留在驻地
+        for old in (gen, off):
+            c = await self.m.get_char(old["id"])
+            self.assertEqual(c["status"], "idle")
+            self.assertEqual(R.char_node_id(c), home["id"])
+        # 新阵容进入随军状态
+        for new in (g2, g3):
+            c = await self.m.get_char(new["id"])
+            self.assertEqual(c["status"], "army")
+            self.assertEqual(R.char_node_id(c), home["id"])
+
+    async def test_handover_army_promotes_member_and_keeps_companions(self):
+        """现役成员可提拔为主将；省略 member_ids 时保留现有随行。"""
+        R = _imp("core.strategy_rules")
+        p, gen, off, home, _target = await self._army_fixture()
+        g2 = await self._add_general(p, home["id"], "副将丙")
+        r = await self.m.create_army("u1", gen["id"], [g2["id"], off["id"]],
+                                     home["id"], "sword_shield", 500)
+        aid = r["army_id"]
+        # 走统一动作分发，验证 REST 参数接线
+        res = await self.m.handle_action(
+            "u1", "handover_army",
+            {"army_id": aid, "leader_char_id": g2["id"]})
+        self.assertTrue(res["ok"])
+        a = await self.m.get_army(aid)
+        self.assertEqual(a["characters"], [g2["id"], off["id"]])
+        old = await self.m.get_char(gen["id"])
+        self.assertEqual(old["status"], "idle")
+        self.assertEqual(R.char_node_id(old), home["id"])
+
+    async def test_handover_army_allows_official_and_injured_leader(self):
+        """v4.5.1：新主将可为内政官或重伤角色（随行仍须能行动）。"""
+        R = _imp("core.strategy_rules")
+        p, gen, off, home, _target = await self._army_fixture()
+        r = await self.m.create_army("u1", gen["id"], [], home["id"],
+                                     "sword_shield", 500)
+        aid = r["army_id"]
+        # 内政官担任主将
+        res = await self.m.handover_army("u1", aid, off["id"], [])
+        self.assertTrue(res["ok"])
+        self.assertEqual((await self.m.get_army(aid))["characters"], [off["id"]])
+        # 重伤武将担任主将
+        g2 = await self._add_general(p, home["id"], "带伤主将庚")
+        g2["injury"] = R.INJURY_HEAVY
+        await self.m.save_char(g2)
+        res = await self.m.handover_army("u1", aid, g2["id"], [])
+        self.assertTrue(res["ok"])
+        self.assertEqual((await self.m.get_army(aid))["characters"], [g2["id"]])
+        # 带伤主将 + 健康内政官随行
+        res = await self.m.handover_army("u1", aid, g2["id"], [off["id"]])
+        self.assertTrue(res["ok"])
+        self.assertEqual((await self.m.get_army(aid))["characters"],
+                         [g2["id"], off["id"]])
+
+    async def test_handover_army_rejects_invalid_and_over_cap(self):
+        """异地/他军/行军中/超上限均拒绝换将。"""
+        p, gen, off, home, target_id = await self._army_fixture()
+        g2 = await self._add_general(p, home["id"], "新帅丁")
+        g3 = await self._add_general(p, home["id"], "别军戊")
+        r = await self.m.create_army("u1", gen["id"], [], home["id"],
+                                     "sword_shield", 500)
+        aid = r["army_id"]
+        # 异地空闲角色不能加入
+        g4 = await self._add_general(p, target_id, "远客己")
+        with self.assertRaises(self.StrategyError):
+            await self.m.handover_army("u1", aid, gen["id"], [g4["id"]])
+        # 已在其他军团的角色不能加入
+        await self._place(g3, home["id"])
+        await self.m.create_army("u1", g3["id"], [], home["id"],
+                                 "sword_shield", 200)
+        with self.assertRaises(self.StrategyError):
+            await self.m.handover_army("u1", aid, gen["id"], [g3["id"]])
+        # 行军途中不可换将
+        a = await self.m.get_army(aid)
+        a["state"] = "march"
+        await self.m.save_army(a)
+        with self.assertRaises(self.StrategyError):
+            await self.m.handover_army("u1", aid, g2["id"], [])
+        a = await self.m.get_army(aid)
+        a["state"] = "idle"
+        a["troops"] = 2000  # 无官职主将上限 1500，超出必须拒绝
+        await self.m.save_army(a)
+        with self.assertRaises(self.StrategyError):
+            await self.m.handover_army("u1", aid, g2["id"], [])
+        # 拒绝后阵容不得发生改动
+        unchanged = await self.m.get_army(aid)
+        self.assertEqual(unchanged["characters"], [gen["id"]])
+        self.assertEqual(unchanged["troops"], 2000)
+        # 兵力回落到上限内（正好 1500）才允许交接
+        unchanged["troops"] = 1500
+        await self.m.save_army(unchanged)
+        res = await self.m.handover_army("u1", aid, g2["id"], [])
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["troop_cap"], 1500)
+        final = await self.m.get_army(aid)
+        self.assertEqual(final["troops"], 1500)
+        self.assertEqual(final["characters"], [g2["id"]])
+
+    async def _add_general(self, p, node_id: int, name: str) -> dict:
+        """测试辅助：在指定据点直接落库一名空闲武将。"""
+        R = _imp("core.strategy_rules")
+        rng = __import__("random").Random(abs(hash(name)) % (2 ** 32))
+        c = R.generate_character(rng, rarity="rare", role=R.ROLE_GENERAL,
+                                 name=name, name_pools={})
+        c.update({"world_id": self.wid, "faction_id": p["faction_id"],
+                  "owner_user_id": "u1", "loyalty": 100, "status": "idle",
+                  "location": {"node_id": int(node_id)}})
+        await self.m.insert_char(c)
+        return c
 
     async def test_march_and_capture(self):
         p = await self._enter()
@@ -861,19 +990,25 @@ class TestStrategyManager(unittest.IsolatedAsyncioTestCase):
         await self._place(off, home["id"])
         return p, gen, off, home, target_id
 
-    async def test_create_army_rejects_injured_chars_and_never_spends_iron(self):
-        """编军/补员/操练/出征均不消耗精铁；重伤角色不得入军。"""
+    async def test_create_army_leader_conditions_and_never_spends_iron(self):
+        """v4.5.1：主将可为内政官/带伤角色；随行仍须能行动；编军等不耗精铁。"""
         R = _imp("core.strategy_rules")
         p, gen, off, home, target_id = await self._army_fixture()
-        # 重伤主将
+        # 重伤主将允许上任
         gen["injury"] = R.INJURY_HEAVY
         await self.m.save_char(gen)
-        with self.assertRaises(self.StrategyError):
-            await self.m.create_army("u1", gen["id"], [], home["id"],
+        r = await self.m.create_army("u1", gen["id"], [], home["id"],
                                      "sword_shield", 500)
-        # 重伤随行角色
+        self.assertTrue(r["ok"])
+        await self.m.disband_army("u1", r["army_id"])
         gen["injury"] = 0
         await self.m.save_char(gen)
+        # 内政官允许担任主将
+        r_off = await self.m.create_army("u1", off["id"], [], home["id"],
+                                         "sword_shield", 500)
+        self.assertTrue(r_off["ok"])
+        await self.m.disband_army("u1", r_off["army_id"])
+        # 重伤随行角色仍拒绝
         off["injury"] = R.INJURY_HEAVY
         await self.m.save_char(off)
         with self.assertRaises(self.StrategyError):
@@ -890,6 +1025,135 @@ class TestStrategyManager(unittest.IsolatedAsyncioTestCase):
         await self.m.march("u1", aid, target_id)
         iron1 = int((await self.m.get_player("u1", self.wid)).get("iron", 0))
         self.assertEqual(iron1, iron0, "编军/补员/操练/出征不应消耗精铁")
+
+    async def test_army_members_can_take_local_tasks_while_stationed(self):
+        """驻守军团的主将/随行可在当前据点执行本地任务；远征任务拒绝。"""
+        _p, gen, off, home, target_id = await self._army_fixture()
+        r = await self.m.create_army("u1", gen["id"], [off["id"]], home["id"],
+                                     "sword_shield", 500)
+        aid = r["army_id"]
+        res = await self.m.dispatch_task("u1", gen["id"], home["id"], "farm", 1)
+        self.assertTrue(res["ok"])
+        c = await self.m.get_char(gen["id"])
+        self.assertEqual(c["status"], "task")
+        a = await self.m.get_army(aid)
+        self.assertEqual(a["state"], "idle")
+        self.assertIn(gen["id"], a["characters"])
+        # 随军成员不能执行侦察/劫掠等远征任务
+        with self.assertRaises(self.StrategyError):
+            await self.m.dispatch_task(
+                "u1", off["id"], home["id"], "scout", 1,
+                target_node_id=target_id)
+
+    async def test_march_interrupts_army_tasks(self):
+        """出军自动中断全军团在途任务，并恢复随军状态。"""
+        _p, gen, off, home, target_id = await self._army_fixture()
+        r = await self.m.create_army("u1", gen["id"], [off["id"]], home["id"],
+                                     "sword_shield", 500)
+        aid = r["army_id"]
+        t1 = await self.m.dispatch_task("u1", gen["id"], home["id"], "farm", 1)
+        t2 = await self.m.dispatch_task("u1", off["id"], home["id"], "mining", 1)
+        res = await self.m.march("u1", aid, target_id)
+        self.assertTrue(res["ok"])
+        self.assertIn("已中断 2 个随军任务", res["msg"])
+        for cid in (gen["id"], off["id"]):
+            c = await self.m.get_char(cid)
+            self.assertEqual(c["status"], "army")
+        for tid in (t1["task_id"], t2["task_id"]):
+            row = await self.m._fetchone(
+                "SELECT status FROM strategy_tasks WHERE id=?", (tid,))
+            self.assertEqual(row["status"], "recalled")
+        self.assertEqual((await self.m.get_army(aid))["state"], "march")
+
+    async def test_army_member_task_completion_restores_army_status(self):
+        """任务自然结束后仍在军团的角色应恢复 status=army，而不是 idle。"""
+        _p, gen, _off, home, _target = await self._army_fixture()
+        r = await self.m.create_army("u1", gen["id"], [], home["id"],
+                                     "sword_shield", 500)
+        aid = r["army_id"]
+        res = await self.m.dispatch_task("u1", gen["id"], home["id"], "farm", 1)
+        tid = int(res["task_id"])
+        row = await self.m._fetchone(
+            "SELECT * FROM strategy_tasks WHERE id=?", (tid,))
+        task = self.m._decode("strategy_tasks", row)
+        payout = dict(task.get("payout") or {})
+        payout["sustained"] = 0
+        payout["ticks"] = 1
+        await self.m._execute(
+            "UPDATE strategy_tasks SET end_at=?, payout_json=? WHERE id=?",
+            (int(time.time()) - 1,
+             json.dumps(payout, ensure_ascii=False), tid))
+        await self.m._step_settle_tasks(await self.m.get_world())
+        c = await self.m.get_char(gen["id"])
+        self.assertEqual(c["status"], "army")
+        self.assertEqual(c["location"].get("node_id"), home["id"])
+        row = await self.m._fetchone(
+            "SELECT status FROM strategy_tasks WHERE id=?", (tid,))
+        self.assertEqual(row["status"], "done")
+        self.assertEqual((await self.m.get_army(aid))["state"], "idle")
+
+    async def test_disband_keeps_recall_payout(self):
+        """v4.5.5：解散军团不得用旧玩家快照覆盖随军任务召回收益。"""
+        _p, gen, _off, home, _target = await self._army_fixture()
+        r = await self.m.create_army("u1", gen["id"], [], home["id"],
+                                     "sword_shield", 300)
+        aid = r["army_id"]
+        res = await self.m.dispatch_task("u1", gen["id"], home["id"], "farm", 1)
+        tid = int(res["task_id"])
+        row = await self.m._fetchone(
+            "SELECT * FROM strategy_tasks WHERE id=?", (tid,))
+        task = self.m._decode("strategy_tasks", row)
+        payout = dict(task.get("payout") or {})
+        # 让下一次召回按满 4 tick 结算（farm 产出粮草）
+        payout["next_settle_at"] = int(time.time()) - 1800
+        await self.m._execute(
+            "UPDATE strategy_tasks SET payout_json=? WHERE id=?",
+            (json.dumps(payout, ensure_ascii=False), tid))
+        await self.m._commit()
+
+        before = await self.m.get_player("u1", self.wid)
+        grain_before = int(before["grain"])
+        army = await self.m.get_army(aid)
+        await self.m.disband_army("u1", aid)
+        after = await self.m.get_player("u1", self.wid)
+        # 召回产出 > 0：粮草增量必须严格大于军团携粮返还
+        self.assertGreater(int(after["grain"]) - grain_before,
+                           int(army["grain"]))
+
+    async def test_heavy_leader_refill_uses_nominal_cap(self):
+        """v4.5.5：重伤名义主将的带兵上限不再被健康随行的上限顶掉。"""
+        R = _imp("core.strategy_rules")
+        _p, gen, off, home, _target = await self._army_fixture()
+        gen["injury"] = R.INJURY_HEAVY
+        await self.m.save_char(gen)
+        # 重伤主将任中郎将（上限 2000）+ 无官职内政官随行（行动主将上限 1500）
+        await self.m.faction_appoint_char("u1", int(gen["id"]), "zhonglang")
+        r = await self.m.create_army("u1", gen["id"], [off["id"]], home["id"],
+                                     "sword_shield", 1500)
+        aid = r["army_id"]
+        a = await self.m.get_army(aid)
+        self.assertEqual(int((await self.m._army_nominal_leader(a))["id"]),
+                         int(gen["id"]))
+        self.assertEqual(int((await self.m._army_leader(a))["id"]),
+                         int(off["id"]))
+        # 旧口径会按随行 1500 上限拒绝；新口径按名义主将 2000 放行
+        res = await self.m.refill_army("u1", aid, 100)
+        self.assertTrue(res["ok"])
+        self.assertEqual(int((await self.m.get_army(aid))["troops"]), 1600)
+
+    async def test_dying_leader_rejected_by_create_and_handover(self):
+        """v4.5.5：濒死角色不可担任主将（重伤可以）。"""
+        R = _imp("core.strategy_rules")
+        _p, gen, off, home, _target = await self._army_fixture()
+        gen["injury"] = R.INJURY_DYING
+        await self.m.save_char(gen)
+        with self.assertRaises(self.StrategyError):
+            await self.m.create_army("u1", gen["id"], [], home["id"],
+                                     "sword_shield", 100)
+        r = await self.m.create_army("u1", off["id"], [], home["id"],
+                                     "sword_shield", 100)
+        with self.assertRaises(self.StrategyError):
+            await self.m.handover_army("u1", r["army_id"], gen["id"], [])
 
     async def test_army_commands_reject_empty_or_leaderless_army(self):
         """0 兵力 / 无可用主将的僵尸军团不能补员、操练、出征。"""
@@ -1306,9 +1570,33 @@ class TestStrategyManager(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(int(f2["capital_node_id"]), 0)
         self.assertNotEqual(f2["faction_state"], "exiled")
 
-    async def test_ruin_first_capture_reward_and_idempotent(self):
-        """§6.2 秘境首占 30% 掉落，只触发一次。"""
+    async def test_ruin_first_capture_sealed_by_default(self):
+        """v4.5.1 封存：默认不回赠装备/图纸，也不写 first_captured。"""
         p = await self._enter()
+        before = int(p.get("iron", 0) or 0)
+        ruin = next(n for n in await self.m.get_nodes(self.wid)
+                    if n["type"] == "ruin")
+        ruin["owner_faction"] = 0
+        ruin["output"] = {}
+        await self.m.save_node(ruin)
+
+        class _Rng:
+            def random(self):
+                return 0.0
+
+        with mock.patch.object(self.m, "_rng", return_value=_Rng()):
+            await self.m._capture_node(await self.m.get_world(), ruin,
+                                       p["faction_id"])
+        node = await self.m.get_node(self.wid, ruin["id"])
+        self.assertFalse((node.get("output") or {}).get("first_captured"))
+        self.assertNotIn("秘境", ruin.get("_capture_note", ""))
+        p2 = await self.m.get_player("u1", self.wid)
+        self.assertEqual(int(p2.get("iron", 0) or 0), before)
+
+    async def test_ruin_first_capture_reward_when_reenabled(self):
+        """开关打开时保留旧口径（掉落只触发一次），便于后续版本复活。"""
+        p = await self._enter()
+        self.m.main_cfg()["ruin_first_capture"] = {"enabled": True, "chance": 0.3}
         ruin = next(n for n in await self.m.get_nodes(self.wid)
                     if n["type"] == "ruin")
         ruin["owner_faction"] = 0

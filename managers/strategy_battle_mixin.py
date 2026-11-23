@@ -326,6 +326,9 @@ class StrategyBattleMixin:
         session["tech_effects"] = tech_map
         # 参战军团转入 battle 态（脱离围城/驻守管线）
         for a in list(atk_armies) + list(dfn_armies):
+            if str(a.get("state") or "") == "idle":
+                # 驻守军团被拉入战斗同样视为出军：中断随军任务
+                await self._interrupt_army_tasks(world, a)
             a["_prev_state"] = a.get("state", "idle")
             a["state"] = "battle"
             await self.save_army(a)
@@ -1336,7 +1339,8 @@ class StrategyBattleMixin:
             if fid <= 0 or fid in out:
                 continue
             f = await self.get_faction(fid)
-            tech = int(R.tech_effects((f or {}).get("tech") or {}).get(
+            tech = int(R.tech_effects((f or {}).get("tech") or {},
+                                      tcfg=self.main_cfg().get("tech") or {}).get(
                 "ai_wisdom_bonus", 0))
             # 祭酒（角色官职）托管智谋 +5，与科技叠加
             pos = await self._faction_position_bonus(f) if f else {}

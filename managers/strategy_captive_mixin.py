@@ -215,8 +215,8 @@ class StrategyCaptiveMixin:
                         f"（captor={captor_fid} node={node_id}）")
             return False
         wid = int(c.get("world_id", 0) or 0)
-        # §3：遗迹不可作为关押/落点；攻守战场在遗迹时改关到擒获方最近的
-        # 可用据点，避免俘虏被塞进遗迹（后续招募/押运都会被拒）。
+        # §3：关押点须为可停留据点；不可停留的点位改关到擒获方最近的
+        # 可用据点，避免俘虏被塞进无效点位（后续招募/押运都会被拒）。
         jail_node = await self.get_node(wid, node_id) if wid else None
         if not jail_node or str(jail_node.get("type") or "") \
                 not in R.CHAR_DWELL_NODE_TYPES:
@@ -277,7 +277,7 @@ class StrategyCaptiveMixin:
                     dnode = await self.get_node(wid, int(dest))
                     if not dnode or str(dnode.get("type") or "") \
                             not in R.CHAR_DWELL_NODE_TYPES:
-                        # 遗迹等不可作为人物落点（§3）：改取最近可用己方据点
+                        # 不可停留据点（§3）：改取最近可用己方据点
                         dest = int(await self._nearest_own_node(
                             {"id": wid}, {"faction_id": home_fid},
                             int(prev_node), dwell_only=True) or 0)
@@ -497,7 +497,7 @@ class StrategyCaptiveMixin:
             if int(dest_node.get("owner_faction") or 0) != fid:
                 raise StrategyError(f"「{dest_node['name']}」不是我方据点")
             if str(dest_node.get("type") or "") not in R.CHAR_DWELL_NODE_TYPES:
-                raise StrategyError("遗迹不可作为人物落点")
+                raise StrategyError("该据点不可作为人物落点")
             dest = int(dest_node["id"])
         if not dest:
             dest = await self._nearest_own_node(
@@ -648,9 +648,8 @@ class StrategyCaptiveMixin:
             c["faction_id"] = home_f
             c["owner_user_id"] = home_owner
             cur = int(loc.get("node_id", 0) or 0)
-            # §3/§4.4：落点须为己方/联盟可用据点；原势力已只剩遗迹时
-            # 不能再把释放者丢回遗迹/敌营，确实无处可去则清空落点
-            # （之后由进场自愈或传送重新定位）。
+            # §3/§4.4：落点须为己方/联盟可用据点，不能把释放者丢回
+            # 敌营；确实无处可去则清空落点（之后由进场自愈或传送重新定位）。
             dest = await self._char_fallback_location(
                 wid, {"faction_id": home_f}, cur)
             loc["node_id"] = int(dest) if dest > 0 else 0
@@ -834,7 +833,7 @@ class StrategyCaptiveMixin:
         if int(to_node["owner_faction"]) != int(p["faction_id"]):
             raise StrategyError(f"「{to_node['name']}」不是我方据点，无法押运")
         if str(to_node.get("type") or "") not in R.CHAR_DWELL_NODE_TYPES:
-            raise StrategyError("遗迹不可作为关押据点")
+            raise StrategyError("该据点不可作为关押据点")
         from_node = int(c.get("imprisoned_node_id", 0) or 0)
         if from_node and from_node == int(to_node["id"]):
             raise StrategyError("该俘虏已关押在目标据点")

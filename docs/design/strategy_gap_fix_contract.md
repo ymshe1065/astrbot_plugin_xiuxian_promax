@@ -179,7 +179,7 @@ def arena_bracket(merit: int) -> str                      # "novice"/"veteran"/"
 6. **军团**：`create_army` 并发 = `concurrent_base + level // concurrent_per_faction_levels`（封顶 5）；`R.overstaff_penalty` 每 tick 扣士气。
 7. **安全**：`handle_action` 入口限速（`security.action_rate_per_min`，内存滑动窗口）；关键动作 `_audit`；`result_json` 落库前 >`security.result_max_bytes` 截断；`security.result_keep_days` 归档清理。
 8. **势力 buff 钩子**：`_faction_buff` 实现并接到行军粮耗/城防/攻击。
-9. **秘境首占**：占领 `ruin` 首次 → 30% 掉装备/图纸（写入战报 + 通知）。
+9. **秘境首占**：占领 `ruin` 首次 → 30% 掉装备/图纸（写入战报 + 通知）。⚠️ **v4.5.2 起整体封存**：`ruin_first_capture.enabled` 默认 false，遗迹改为常规可经营据点持续产出；恢复前须先补齐真正的装备图纸物品（原「图纸残卷」仅为精铁兜底文案）。
 10. 更新 `tests/test_strategy_manager.py`，新增 ≥12 条用例；原有断言如需调整请说明理由。
 
 ### Agent C — 势力（`managers/strategy_faction_mixin.py`）

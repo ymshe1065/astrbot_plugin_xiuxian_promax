@@ -120,11 +120,15 @@ class QqBindTest(unittest.IsolatedAsyncioTestCase):
             "/api/bind", headers=self.h, json={"qq": "1610049038"}
         )).json()
         self.assertTrue(d["ok"])
-        self.assertEqual(d["player_key"], "1610049038")
-        self.assertEqual(d["save"]["level_index"], 23)
+        self.assertTrue(d.get("pending"))
+        own, msg = acc.approve_bind_request(int(d["request_id"]), resolver="test")
+        self.assertTrue(own, msg)
+        rs._sync_player_key("阿猫", "1610049038")
 
         d = await self._status()
         self.assertEqual(d["qq"], "1610049038")
+        self.assertEqual(d["player_key"], "1610049038")
+        self.assertEqual(d["save"]["level_index"], 23)
         self.assertEqual(d["save"]["cultivation_type"], "御兽")
 
         d = await (await self.cli.post("/api/bind/unbind", headers=self.h)).json()
@@ -146,7 +150,7 @@ class QqBindTest(unittest.IsolatedAsyncioTestCase):
             json={"qq": "1610049038"},
         )
         self.assertEqual(r.status, 400)
-        self.assertIn("已被", (await r.json())["error"])
+        self.assertIn("待批", (await r.json())["error"])
 
     async def test_handshake_switches_key_live(self):
         def key_of(username):
@@ -167,7 +171,13 @@ class QqBindTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(hello["username"], "阿猫")
             self.assertEqual(key_of("阿猫"), "web_阿猫")
 
-            await self.cli.post("/api/bind", headers=self.h, json={"qq": "1610049038"})
+            d = await (await self.cli.post(
+                "/api/bind", headers=self.h, json={"qq": "1610049038"}
+            )).json()
+            own, msg = acc.approve_bind_request(
+                int(d["request_id"]), resolver="test")
+            self.assertTrue(own, msg)
+            rs._sync_player_key("阿猫", "1610049038")
             self.assertEqual(key_of("阿猫"), "1610049038")
 
             await self.cli.post("/api/bind/unbind", headers=self.h)

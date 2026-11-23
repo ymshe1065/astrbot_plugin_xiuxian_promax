@@ -917,6 +917,8 @@ class StrategyP3Mixin:
             raise StrategyError("相邻据点没有匪寨")
         target_id = int(node_id) if int(node_id) in adj_bandits else adj_bandits[0]
         node = nodes[target_id]
+        # 出军讨伐前中断随军任务，避免任务角色被拉入野战
+        await self._interrupt_army_tasks(world, army)
         atk_sim = await self._army_sim(army)
         dfn_sim = self._garrison_sim(node)
         if not atk_sim or not dfn_sim:
@@ -1206,7 +1208,9 @@ class StrategyP3Mixin:
         grain = int(troops * tt["recruit_grain"] / 10 * troop_mult)
         faction = await self.get_faction(int(p["faction_id"]))
         grain = int(grain * float(R.tech_effects(
-            (faction or {}).get("tech") or {}).get("grain_cost_mult", 1.0)))
+            (faction or {}).get("tech") or {},
+            tcfg=self.main_cfg().get("tech") or {}
+        ).get("grain_cost_mult", 1.0)))
         return coin, grain, tt
 
     async def send_convoy(self, user_id: str, from_node: int, to_node: int,
@@ -1289,6 +1293,8 @@ class StrategyP3Mixin:
         world["data"] = data
         if escort_army:
             # 护送期间军团被占用：随粮队移动，抵达/被截后释放（§5.6）
+            # 出军护送前中断随军任务
+            await self._interrupt_army_tasks(world, escort_army)
             escort_army["state"] = "escort"
             escort_army["path"] = []
             escort_army["edge_pos"] = 0.0
@@ -1373,7 +1379,8 @@ class StrategyP3Mixin:
             if fid not in effects_cache:
                 faction = await self.get_faction(fid) if fid > 0 else None
                 effects_cache[fid] = R.tech_effects(
-                    (faction or {}).get("tech") or {})
+                    (faction or {}).get("tech") or {},
+                    tcfg=self.main_cfg().get("tech") or {})
             eff = effects_cache[fid]
             # 农政科技 L4：运粮队机动 +1（§8.4）
             speed = max(1, speed_cfg + int(eff.get("convoy_move_bonus", 0)))

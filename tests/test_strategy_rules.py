@@ -252,10 +252,12 @@ class TestTaskSettle(unittest.TestCase):
         self.assertEqual(R.task_node_mult("govern", "city"), 1.5)
         self.assertEqual(R.task_node_mult("farm", "grain"), 2.0)
         self.assertEqual(R.task_node_mult("farm", "city"), 1.0)
-        # 采矿：灵脉矿 ×2.0，关隘/遗迹 ×1.3，其他 ×1.0
+        # 采矿：灵脉矿 ×2.0，遗迹 ×1.5（v4.5.2 常规据化后保留辨识度），
+        # 关隘 ×1.3，其他 ×1.0；遗迹讨伐 ×1.4
         self.assertEqual(R.task_node_mult("mining", "mine"), 2.0)
         self.assertEqual(R.task_node_mult("mining", "pass"), 1.3)
-        self.assertEqual(R.task_node_mult("mining", "ruin"), 1.3)
+        self.assertEqual(R.task_node_mult("mining", "ruin"), 1.5)
+        self.assertEqual(R.task_node_mult("hunt", "ruin"), 1.4)
         self.assertEqual(R.task_node_mult("mining", "city"), 1.0)
 
     def test_mining_task_settle(self):

@@ -209,7 +209,8 @@ class TestStrategyLocation(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.R.char_node_id(
             await self.m.get_char(int(gen["id"]))), int(ally_node["id"]))
 
-    async def test_move_char_rejects_ownerless_enemy_ruin(self):
+    async def test_move_char_rejects_ownerless_enemy_but_allows_owned_ruin(self):
+        """v4.5.2：遗迹转为常规据点——己方遗迹可传送，无主/敌方仍拒绝。"""
         gen = await self._char_of("u1")
         nodes = await self.m.get_nodes(self.wid)
         ownerless = next(n for n in nodes if int(n["owner_faction"]) == 0
@@ -217,10 +218,16 @@ class TestStrategyLocation(unittest.IsolatedAsyncioTestCase):
         enemy = next(n for n in nodes
                      if int(n["owner_faction"]) > 0
                      and int(n["owner_faction"]) != int(self.p1["faction_id"]))
-        ruin = next(n for n in nodes if n["type"] == "ruin")
-        for bad in (ownerless, enemy, ruin):
+        for bad in (ownerless, enemy):
             with self.assertRaises(self.StrategyError):
                 await self.m.move_char("u1", int(gen["id"]), int(bad["id"]))
+        ruin = next(n for n in nodes if n["type"] == "ruin")
+        ruin["owner_faction"] = int(self.p1["faction_id"])
+        await self.m.save_node(ruin)
+        r = await self.m.move_char("u1", int(gen["id"]), int(ruin["id"]))
+        self.assertTrue(r["ok"])
+        self.assertEqual(self.R.char_node_id(
+            await self.m.get_char(int(gen["id"]))), int(ruin["id"]))
 
     async def test_move_char_requires_idle(self):
         gen = await self._char_of("u1")
@@ -688,7 +695,6 @@ class TestStrategyLocation(unittest.IsolatedAsyncioTestCase):
             await self.m.save_node(node)
             r = await self.m.build("u1", int(node["id"]), "tower")
             self.assertTrue(r["ok"], ntype)
-            # 遗迹仍不可建设
             self.assertTrue((await self.m.upgrade_node(
                 "u1", int(node["id"])))["ok"], ntype)
             done = await self._finish_construction(int(node["id"]))
@@ -696,10 +702,18 @@ class TestStrategyLocation(unittest.IsolatedAsyncioTestCase):
             if potential <= 2:
                 with self.assertRaises(self.StrategyError):
                     await self.m.upgrade_node("u1", int(node["id"]))
+        # v4.5.2：遗迹同为可经营据点（潜力 3），建造与升级均放行
         ruin = next(n for n in await self.m.get_nodes(self.wid)
                     if n["type"] == "ruin")
-        with self.assertRaises(self.StrategyError):
-            await self.m.build("u1", int(ruin["id"]), "tower")
+        ruin["owner_faction"] = int(self.p1["faction_id"])
+        ruin["level"] = 1
+        ruin["potential"] = 3
+        await self.m.save_node(ruin)
+        self.assertTrue((await self.m.build("u1", int(ruin["id"]), "tower"))["ok"])
+        self.assertEqual(3, int(self.R.node_potential(ruin)))
+        self.assertTrue((await self.m.upgrade_node("u1", int(ruin["id"])))["ok"])
+        done = await self._finish_construction(int(ruin["id"]))
+        self.assertEqual(int(done["level"]), 2)
 
     async def test_node_upgrade_tier_cost_and_async_construction(self):
         self.assertEqual(self.R.node_upgrade_cost(1), (5000, 500))
@@ -1413,26 +1427,36 @@ class TestStrategyV440Round5(unittest.IsolatedAsyncioTestCase):
                 got = {r[1] for r in await cur.fetchall()}
             self.assertTrue(cols <= got, (table, cols - got))
 
-    # --- 2. 遗迹不能派遣/编军/建造/升级 -------------------------------
-    async def test_ruin_rejects_dispatch_army_build_upgrade(self):
+    # --- 2. 遗迹可派遣/编军/建造/升级（v4.5.2 常规据化） ---------------
+    async def test_ruin_allows_dispatch_army_build_upgrade(self):
         node = next(n for n in await self.m.get_nodes(self.wid)
                     if n["type"] == "ruin")
         node["owner_faction"] = int(self.p1["faction_id"])
+        node["level"] = 1
+        node["potential"] = 3
+        node["construction"] = {}
         await self.m.save_node(node)
-        c = await self._char("u1")
-        c = await self.m.get_char(int(c["id"]))
-        c["location"] = {"node_id": int(node["id"])}
-        await self.m.save_char(c)
-        with self.assertRaises(self.StrategyError):
-            await self.m.dispatch_task("u1", int(c["id"]), int(node["id"]),
-                                       "farm", 1)
-        with self.assertRaises(self.StrategyError):
-            await self.m.create_army("u1", int(c["id"]), [], int(node["id"]),
-                                     "sword_shield", 100)
-        with self.assertRaises(self.StrategyError):
-            await self.m.build("u1", int(node["id"]), "manor")
-        with self.assertRaises(self.StrategyError):
-            await self.m.upgrade_node("u1", int(node["id"]))
+        chars = await self.m.get_chars(owner_user_id="u1", world_id=self.wid)
+        gen = next(c for c in chars if c["role"] == "general")
+        other = next(c for c in chars if c["role"] != "general")
+        for c0 in (gen, other):
+            c0 = await self.m.get_char(int(c0["id"]))
+            c0["location"] = {"node_id": int(node["id"])}
+            c0["status"] = "idle"
+            await self.m.save_char(c0)
+        p = await self.m.get_player("u1", self.wid)
+        p["coin"] = p["iron"] = 10 ** 6
+        p["grain"] = 10 ** 6
+        await self.m.save_player(p)
+        # 遗迹可派遣本地任务（矿工加成 ×1.5）
+        self.assertTrue((await self.m.dispatch_task(
+            "u1", int(other["id"]), int(node["id"]), "mining", 1))["ok"])
+        # 遗迹可编军（主将须 idle；内政官/带伤角色也可上任）
+        self.assertTrue((await self.m.create_army(
+            "u1", int(gen["id"]), [], int(node["id"]),
+            "sword_shield", 100))["ok"])
+        self.assertTrue((await self.m.build("u1", int(node["id"]), "manor"))["ok"])
+        self.assertTrue((await self.m.upgrade_node("u1", int(node["id"])))["ok"])
 
     # --- 3. 旧存档 idle 落点自愈 --------------------------------------
     async def test_repair_relocates_invalid_idle_location(self):
@@ -1673,8 +1697,8 @@ class TestStrategyV440Round6(unittest.IsolatedAsyncioTestCase):
                 return c
         self.fail(f"{uid} 缺少 {role} 角色")
 
-    async def test_disband_on_owned_ruin_relocates_members(self):
-        """解散驻留遗迹的军团：角色不得以 idle 状态留在遗迹（§3）。"""
+    async def test_disband_on_owned_ruin_keeps_members(self):
+        """v4.5.2：遗迹为常规据点，解散后角色可留在原地（不再强制搬走）。"""
         p = await self.m.get_player("u1", self.wid)
         fid = int(p["faction_id"])
         ruin = next(n for n in await self.m.get_nodes(self.wid)
@@ -1696,14 +1720,13 @@ class TestStrategyV440Round6(unittest.IsolatedAsyncioTestCase):
         await self.m.disband_army("u1", int(a["id"]))
         c2 = await self.m.get_char(int(c["id"]))
         nid = self.R.char_node_id(c2)
-        node = await self.m.get_node(self.wid, nid) if nid else None
-        self.assertNotEqual(nid, int(ruin["id"]))
-        self.assertTrue(nid == 0 or (
-            node and node["type"] in self.R.CHAR_DWELL_NODE_TYPES
-            and int(node["owner_faction"]) == fid))
+        self.assertEqual(nid, int(ruin["id"]))
+        node = await self.m.get_node(self.wid, nid)
+        self.assertIn(node["type"], self.R.CHAR_DWELL_NODE_TYPES)
+        self.assertEqual(int(node["owner_faction"]), fid)
 
-    async def test_retreat_does_not_land_on_owned_ruin(self):
-        """只剩遗迹时撤退不得把军团/角色停在遗迹（§3/§4.4）。"""
+    async def test_retreat_lands_on_owned_ruin(self):
+        """v4.5.2：只剩遗迹时撤退可以退回遗迹（常规据点）。"""
         p = await self.m.get_player("u1", self.wid)
         fid = int(p["faction_id"])
         nodes = await self.m.get_nodes(self.wid)
@@ -1730,9 +1753,63 @@ class TestStrategyV440Round6(unittest.IsolatedAsyncioTestCase):
         a = (await self.m.get_armies(self.wid, owner_user_id="u1"))[0]
         await self.m.retreat_army("u1", int(a["id"]))
         a2 = await self.m.get_army(int(a["id"]))
-        self.assertTrue(a2 is None or int(a2.get("node_id") or 0) != int(ruin["id"]))
-        c2 = await self.m.get_char(int(c["id"]))
-        self.assertNotEqual(self.R.char_node_id(c2), int(ruin["id"]))
+        self.assertIsNotNone(a2)
+        # 撤退目标必须是遗迹：path 已剥离起点，末位即目的地
+        self.assertTrue(a2["state"] == "march" and a2["path"])
+        self.assertEqual(int(a2["path"][-1]), int(ruin["id"]))
+
+    async def test_ruin_produces_output_and_accepts_taishou(self):
+        """v4.5.2：遗迹按常规据点持续产出，并可任命太守。"""
+        fid = int(self.p1["faction_id"])
+        nodes = await self.m.get_nodes(self.wid)
+        ruin = next(n for n in nodes if n["type"] == "ruin")
+        for n in nodes:
+            if int(n.get("owner_faction") or 0) == fid:
+                n["owner_faction"] = 0
+                await self.m.save_node(n)
+        ruin["owner_faction"] = fid
+        ruin["level"] = 1
+        ruin["potential"] = 3
+        ruin["morale"] = 80
+        await self.m.save_node(ruin)
+        p = await self.m.get_player("u1", self.wid)
+        p["coin"], p["iron"] = 0, 0
+        await self.m.save_player(p)
+        await self.m._commit()
+
+        await self.m._step_distribute_output(await self.m.get_world(), False)
+        p2 = await self.m.get_player("u1", self.wid)
+        self.assertGreater(int(p2["coin"]), 0)
+        self.assertGreater(int(p2["iron"]), 0)
+
+        c = await self._char("u1")
+        r = await self.m.appoint_taishou("u1", int(ruin["id"]), int(c["id"]))
+        self.assertTrue(r["ok"])
+        nd = await self.m.get_node(self.wid, int(ruin["id"]))
+        self.assertEqual(int(nd["governor_char_id"]), int(c["id"]))
+
+    async def test_ruin_potential_backfill_v84(self):
+        """v84 迁移：旧档遗迹潜力 1 → 3；显式 2 以上保留（v4.5.5）。"""
+        nodes = [n for n in await self.m.get_nodes(self.wid)
+                 if n["type"] == "ruin"]
+        node = nodes[0]
+        node["potential"] = 1
+        await self.m.save_node(node)
+        kept = next((n for n in nodes[1:] if int(n["id"]) != int(node["id"])),
+                    None)
+        if kept:
+            kept["potential"] = 2
+            await self.m.save_node(kept)
+        await self.m._commit()
+        await self.migration._ensure_strategy_v84(self.conn)
+        await self.conn.commit()
+        nd = await self.m.get_node(self.wid, int(node["id"]))
+        self.assertEqual(int(nd["potential"]), 3)
+        if kept:
+            nd2 = await self.m.get_node(self.wid, int(kept["id"]))
+            self.assertEqual(int(nd2["potential"]), 2)
+        self.assertEqual(int(self.R.NODE_POTENTIAL_BY_TYPE["ruin"]), 3)
+        self.assertIn("ruin", self.R.CHAR_DWELL_NODE_TYPES)
 
     async def test_city_fall_survivor_and_tick_sweep_relocate(self):
         """城陷未被俘的 idle 角色不得滞留敌城；tick 安全网同样自愈。"""

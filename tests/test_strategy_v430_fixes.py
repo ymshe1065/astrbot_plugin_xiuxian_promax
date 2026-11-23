@@ -247,7 +247,7 @@ class TestStrategyV430Fixes(unittest.IsolatedAsyncioTestCase):
         await self.m._commit()
         with self.assertRaises(self.StrategyError) as ctx:
             await self.m.release_captive("u2", int(cap["id"]))
-        self.assertIn("主公", str(ctx.exception))
+        self.assertIn("势力主", str(ctx.exception))
 
 
 if __name__ == "__main__":

@@ -141,7 +141,13 @@ class StrategyPlotMixin:
             target_host = await self._alliance_host(target_f) if target_f else None
             if target_host and my_host and \
                     int(my_host["id"]) == int(target_host["id"]):
-                raise StrategyError("不能对同盟势力施展计略")
+                same_alliance = bool(f and target_f and
+                                     int(f.get("alliance_id") or 0) and
+                                     int(f.get("alliance_id") or 0) ==
+                                     int(target_f.get("alliance_id") or 0))
+                raise StrategyError(
+                    "不能对同联盟成员势力施展计略" if same_alliance
+                    else "不能对同盟势力施展计略")
             rel = R.relation_of(
                 (my_host or {}).get("diplomacy") or {},
                 int((target_host or {}).get("id") or target_fid), _now())

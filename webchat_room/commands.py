@@ -385,6 +385,7 @@ CATEGORIES: list[dict[str, Any]] = [
             {"cmd": "/修仙诊断", "label": "修仙诊断", "panel": True},
             {"cmd": "/仙界管理", "label": "仙界管理", "arg": "子命令"},
             {"cmd": "/strategy_admin", "label": "争霸GM", "arg": "操作"},
+            {"cmd": "/绑定审批", "label": "绑定审批", "arg": "列表/批准/拒绝"},
             {"cmd": "/生成世界Boss", "label": "生成世界Boss"},
             {"cmd": "/开启团本", "label": "开启团本"},
             {"cmd": "/结束团本", "label": "结束团本"},
@@ -556,7 +557,8 @@ ARG_SPEC: dict[str, dict[str, Any]] = {
     "周本备战": {"hint": "推荐 / 清空 / 分阶段丹药清单（如 战前 狂暴丹*2 战中 回春散·天*3）", "example": "推荐", "min": 1},
     "重置周本CD": {"hint": "玩家ID或道号", "example": "云无月", "min": 1},
     "仙界管理": {"hint": "子命令（查玩家/发灵石/重置/公告）", "example": "公告 仙界维护", "min": 1},
-    "strategy_admin": {"hint": "开世界 <模板> / tick <n> / 注入事件 <id> [据点id] / 势力平衡 <id> <币> [粮] / 重置赛季", "example": "tick 1", "min": 0},
+    "strategy_admin": {"hint": "开世界 <模板> / tick <n> / 注入事件 <id> [据点id] / 势力平衡 <id> <币> [粮] / 联盟国库清算 [势力id] [执行] [强制] / 重置赛季", "example": "tick 1", "min": 0},
+    "绑定审批": {"hint": "列表 / 批准 <编号> / 拒绝 <编号> [备注]", "example": "列表", "min": 0},
     # 高风险玩法（v7.10.3）
     "黑市": {"hint": "商店 / 原石 / 锦囊 / 验囊 编号 / 拆囊 编号 / 切原石 / 开窗 / 购买 [编号]", "example": "锦囊", "min": 1},
     "拍卖会": {"hint": "留空看拍卖状态，或 暗标 / 暗标出价 编号 金额 / 暗标鉴定 编号", "example": "暗标", "min": 0},

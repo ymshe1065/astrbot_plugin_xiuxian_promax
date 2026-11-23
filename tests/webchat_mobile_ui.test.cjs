@@ -166,6 +166,29 @@ test('商路加成与运粮队额外护军具备前端入口', () => {
   );
 });
 
+test('军团换将交接具备前端入口与弹窗', () => {
+  assert.match(strategyHtml, /id="handoverOverlay"[\s\S]*?id="handoverLeader"/,
+    '换将弹窗需要主将选择与确认入口');
+  assert.ok(
+    strategyJs.includes('function openHandoverModal') &&
+      strategyJs.includes('handover_army') &&
+      strategyJs.includes('onclick="openHandoverModal('),
+    '驻守军团卡片需提供「换将」按钮并提交 handover_army 动作'
+  );
+});
+
+test('驻守军团成员可执行本地任务且出军自动中断', () => {
+  assert.ok(
+    strategyJs.includes('localArmyTaskCharsAtNode') &&
+      strategyJs.includes('data-army="1"'),
+    '任务下拉需列出驻守军团成员并标记「随军」'
+  );
+  assert.ok(
+    strategyJs.includes('随军角色只能执行当前据点的本地任务'),
+    '远征任务需拦截随军角色'
+  );
+});
+
 test('手操战役提示不会被独立战略页漏掉', () => {
   assert.ok(
     js.includes('postStrategyBroadcast(m)') && js.includes('strategy.battle.event'),

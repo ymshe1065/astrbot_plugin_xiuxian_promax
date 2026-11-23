@@ -60,7 +60,7 @@
         <button class="tab" data-tab="guide" type="button">指引</button>
         <button class="tab" data-tab="chars" type="button">人员</button>
         <button class="tab" data-tab="armies" type="button">军团</button>
-        <button class="tab" data-tab="faction" type="button">势力</button>
+        <button class="tab" data-tab="faction" type="button">势力/联盟</button>
         <button class="tab" data-tab="tavern" type="button">酒馆</button>
         <button class="tab" data-tab="market" type="button">坊市</button>
         <button class="tab" data-tab="battles" type="button">战报</button>
@@ -120,6 +120,25 @@
       <div class="form-actions">
         <button class="btn" id="armyCancel" type="button">取消</button>
         <button class="btn primary" id="armyConfirm" type="button">编成</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 军团换将弹窗 -->
+  <div class="overlay" id="handoverOverlay" hidden>
+    <div class="overlay-card">
+      <h2>🔄 军团换将交接</h2>
+      <div class="sub" id="handoverHint" style="margin-bottom:8px"></div>
+      <div class="form-row">
+        <label>新主将</label><select id="handoverLeader"></select>
+      </div>
+      <div class="form-row">
+        <label>随行</label><select id="handoverMembers" multiple size="3"></select>
+      </div>
+      <div class="cost-line" id="handoverCost"></div>
+      <div class="form-actions">
+        <button class="btn" id="handoverCancel" type="button">取消</button>
+        <button class="btn primary" id="handoverConfirm" type="button">确认交接</button>
       </div>
     </div>
   </div>

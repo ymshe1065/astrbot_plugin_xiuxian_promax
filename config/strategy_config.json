@@ -80,7 +80,7 @@
     "upgrade_base_iron": 500,
     "upgrade_cost_exp": 2,
     "build_ticks_base": 2,
-    "build_open_types": ["city", "pass", "branch", "market", "mine", "grain"]
+    "build_open_types": ["city", "pass", "branch", "market", "mine", "grain", "ruin"]
   },
 
   "ownerless_garrison": {
@@ -402,6 +402,10 @@
     "cost_iron": [500, 1000, 2000, 3500, 6000, 8000, 10000],
     "cost_coin": [500, 1000, 2000, 3500, 6000, 8000, 10000],
     "base_hours_per_level": [8, 16, 24, 32, 40, 48, 56],
+    "branch_max_level": 5,
+    "branch_cost_coin": [400, 800, 1600, 3200, 6400],
+    "branch_cost_iron": [300, 600, 1200, 2400, 4800],
+    "branch_base_hours_per_level": [4, 8, 12, 18, 24],
     "stat_speed_divisor": 10,
     "stat_speed_pct": 0.05,
     "big_army_threshold": 2000,
@@ -669,5 +673,10 @@
   "protection": {
     "new_node_hours": 24,
     "newbie_days": 4
+  },
+  "ruin_first_capture": {
+    "enabled": false,
+    "chance": 0.3,
+    "note": "v4.5.2 封存：遗迹首占的装备/图纸掉落默认关闭，改为常规据点持续产出；恢复时置 enabled=true"
   }
 }

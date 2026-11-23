@@ -208,17 +208,26 @@ class TestStrategySalary(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(int(f1["treasury"]["coin"]), 1000)
         self.assertEqual(int(f2["treasury"]["coin"]), 0)
         self.assertIn(int(c2["id"]), f2["salary"]["unpaid_role_char_ids"])
-        bonus = await self.m._faction_position_bonus(f1)
+        # 联盟不共享经济：盟主看不到成员中郎将的招募加成
+        bonus = await self.m._faction_position_bonus(
+            f1, include_alliance=False)
+        self.assertAlmostEqual(float(bonus["recruit_quality"]), 0.0)
+        bonus = await self.m._faction_position_bonus(
+            f2, include_alliance=False)
         self.assertAlmostEqual(float(bonus["recruit_quality"]), 0.0)
 
-        # 成员自己补足国库：只扣成员国库，联盟官职加成恢复
+        # 成员自己补足国库：只扣成员国库，本势力官职加成恢复
         await self._set_treasury(int(per["zhonglang"]), int(f2["id"]))
         await self.m._step_salary(self.world)
         f1 = await self.m.get_faction(int(f1["id"]))
         f2 = await self.m.get_faction(int(f2["id"]))
         self.assertEqual(int(f1["treasury"]["coin"]), 1000)
         self.assertEqual(int(f2["treasury"]["coin"]), 0)
-        bonus = await self.m._faction_position_bonus(f1)
+        bonus = await self.m._faction_position_bonus(
+            f1, include_alliance=False)
+        self.assertAlmostEqual(float(bonus["recruit_quality"]), 0.0)
+        bonus = await self.m._faction_position_bonus(
+            f2, include_alliance=False)
         self.assertAlmostEqual(float(bonus["recruit_quality"]), 0.10)
 
     # ------------------------------------------------------------------

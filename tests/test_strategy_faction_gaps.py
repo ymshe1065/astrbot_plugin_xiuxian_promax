@@ -539,5 +539,93 @@ class TestStrategyFactionGaps(unittest.IsolatedAsyncioTestCase):
         self.assertGreater(float(ext["capital"]["bonus_pct"]), 0)
 
 
+    # ------------------------------------------------------------------
+    # 10. 科技树（主脉 + 支脉）
+    # ------------------------------------------------------------------
+    def test_tech_tree_branch_stack_and_lock(self):
+        R = self.R
+        # 支脉每级 +5%：L3 = 主脉 L3 的森林防 +10% + 支脉 +15%
+        eff = R.tech_effects({"military": 3, "nodes": {"mil_b_forest": 3}})
+        self.assertAlmostEqual(eff["terrain_def_mult"]["forest"], 0.25, places=3)
+        # 未点主脉「地利」时，支脉不生效（防改档）
+        locked = R.tech_effects({"military": 2, "nodes": {"mil_b_forest": 5}})
+        self.assertNotIn("forest", locked["terrain_def_mult"])
+        # 乘区支脉：谷田精耕 L5 与主脉 L1 的 ×1.10 相乘
+        agri = R.tech_effects({"agri": 3, "nodes": {"agr_b_grain": 5}})
+        self.assertAlmostEqual(
+            agri["node_type_output_mult"]["grain"]["grain"],
+            1.10 * (1.04 ** 5), places=4)
+        # 树视图包含主脉/支脉与解锁关系
+        view = R.tech_tree_view({})
+        names = {n["id"]: n for n in view["military"]}
+        self.assertEqual(names["mil_b_forest"]["parent"], "mil_s3")
+        self.assertIn("林地战法", names["mil_s3"]["unlocks"])
+
+    def test_tech_tree_config_merges_by_node_id(self):
+        """v4.5.5：tech.tree 只覆盖指定节点，不再整线替换默认树。"""
+        R = self.R
+        tree = R.tech_tree({"tree": {"military": [
+            {"id": "mil_s1", "name": "自定义军制"},
+            {"id": "mil_b_new", "name": "新支脉", "kind": "branch",
+             "parent": "mil_s1", "max": 5},
+        ]}})
+        nodes = {n["id"]: n for n in tree["military"]}
+        self.assertIn("mil_s2", nodes)          # 未列出的默认主脉保留
+        self.assertIn("mil_b_forest", nodes)    # 未列出的默认支脉保留
+        self.assertEqual(nodes["mil_s1"]["name"], "自定义军制")
+        self.assertEqual(nodes["mil_b_new"]["kind"], "branch")
+        self.assertEqual(len(tree["military"]), len(R.TECH_TREE["military"]) + 1)
+
+    async def test_tech_tree_branch_research_and_settle(self):
+        fid = int(self.p1["faction_id"])
+        f = await self.m.get_faction(fid)
+        f["tech"] = {"military": 3}
+        f["treasury"] = {"coin": 100_000, "iron": 100_000, "grain": 0}
+        await self.m.save_faction(f)
+        await self.m._commit()
+        r = await self.m.tech_research("u1", "military", node_id="mil_b_forest")
+        self.assertTrue(r["ok"])
+        self.assertIn("林地战法", r["msg"])
+        f = await self.m.get_faction(fid)
+        pend = (f.get("tech") or {}).get("pending") or {}
+        self.assertEqual(pend.get("node_id"), "mil_b_forest")
+        self.assertEqual(pend.get("kind"), "branch")
+        self.assertEqual(int((f.get("treasury") or {}).get("coin", 0)), 99_600)
+        self.assertEqual(int((f.get("treasury") or {}).get("iron", 0)), 99_700)
+
+        # 到期结算：支脉 +1，主脉等级不变
+        tech = f.get("tech") or {}
+        tech["pending"]["finish_at"] = _now() - 1
+        f["tech"] = tech
+        await self.m.save_faction(f)
+        await self.m._commit()
+        await self.m._step_tech(await self._world())
+        f = await self.m.get_faction(fid)
+        tech = f.get("tech") or {}
+        self.assertEqual(int((tech.get("nodes") or {}).get("mil_b_forest", 0)), 1)
+        self.assertEqual(int(tech.get("military", 0)), 3)
+        self.assertFalse(tech.get("pending"))
+
+    async def test_tech_tree_branch_requires_parent_and_cap(self):
+        fid = int(self.p1["faction_id"])
+        f = await self.m.get_faction(fid)
+        f["tech"] = {"military": 1}
+        f["treasury"] = {"coin": 100_000, "iron": 100_000, "grain": 0}
+        await self.m.save_faction(f)
+        await self.m._commit()
+        with self.assertRaises(self.StrategyError) as cm:
+            await self.m.tech_research("u1", "military", node_id="mil_b_forest")
+        self.assertIn("需先完成 地利", str(cm.exception))
+
+        # 支脉满级后拒绝
+        f = await self.m.get_faction(fid)
+        f["tech"] = {"military": 3, "nodes": {"mil_b_forest": 5}}
+        await self.m.save_faction(f)
+        await self.m._commit()
+        with self.assertRaises(self.StrategyError) as cm:
+            await self.m.tech_research("u1", "military", node_id="mil_b_forest")
+        self.assertIn("已满级", str(cm.exception))
+
+
 if __name__ == "__main__":
     unittest.main()
