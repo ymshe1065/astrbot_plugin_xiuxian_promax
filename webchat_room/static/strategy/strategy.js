@@ -64,9 +64,18 @@ function toast(msg, kind) {
 async function api(path, opts) {
   const a = auth();
   if (!a || !a.token) { location.href = "../index.html"; throw new Error("未登录"); }
-  const resp = await fetch(path, Object.assign({
-    headers: { "Authorization": "Bearer " + a.token, "Content-Type": "application/json" },
-  }, opts || {}));
+  let resp;
+  try {
+    resp = await fetch(path, Object.assign({
+      headers: { "Authorization": "Bearer " + a.token, "Content-Type": "application/json" },
+    }, opts || {}));
+  } catch (e) {
+    // 断网/服务器不可达：fetch 直接 reject，此前 doAction 静默吞掉，
+    // 玩家只看到界面没反应。标记 network 供动作层提示（轮询保持安静）。
+    const err = new Error("网络异常");
+    err.network = true;
+    throw err;
+  }
   let data = null;
   try { data = await resp.json(); } catch (e) { /* ignore */ }
   if (resp.status === 401) { location.href = "../index.html"; throw new Error("登录已过期"); }
@@ -87,7 +96,10 @@ async function doAction(action, params) {
     if (r && r.msg) toast(r.msg, r.ok === false ? "err" : "ok");
     await load();
     return r;
-  } catch (e) { return null; }
+  } catch (e) {
+    if (e && e.network) toast("🌐 网络异常，请检查连接后重试", "err");
+    return null;
+  }
 }
 
 let loadSeq = 0;   // 请求序号：20s 轮询与动作后的 load() 可能乱序返回
@@ -362,6 +374,12 @@ function tickSec() {
   return Math.max(1, Number((((S || {}).meta || {}).tick_seconds) || 900));
 }
 
+// 据点是否处于围城：后端只要存在 siege_state 就暂停建造/禁止离开，
+// 首 tick 的 ticks 可能为 0，不能再用 ticks>0 判断（会漏掉 15 分钟）。
+function nodeSieged(n) {
+  return !!(n && n.siege);
+}
+
 function tickDurationText(ticks) {
   const t = Math.max(0, Number(ticks) || 0);
   return t + " tick（约 " + fmtRemain(t * tickSec()) + "）";
@@ -448,7 +466,7 @@ function constructionKvHtml(n) {
   const leftTicks = Math.max(0, Number(c.end_tick || 0) - tickNo);
   const endAt = Number(c.end_at || 0);
   const leftSec = Math.max(0, endAt - Math.floor(Date.now() / 1000));
-  const paused = !!(n.siege && n.siege.ticks > 0);
+  const paused = nodeSieged(n);
   return kv("建造", "🚧 建造中：升至 " + Number(c.to_level || 0) + " 级 · 剩余 " +
     leftTicks + " tick" +
     (paused ? ' <span class="warn-text">围城中，建造暂停</span>' :
@@ -459,7 +477,7 @@ function upgradeBoxHtml(n, mine) {
   if (!mine || n.type === "ruin") return "";
   const lv = Math.max(1, Number(n.level) || 1);
   const pot = potentialOf(n);
-  const siege = !!(n.siege && n.siege.ticks > 0);
+  const siege = nodeSieged(n);
   let h = '<div class="upgrade-box">';
   if (n.construction) {
     h += '<div class="sub">🚧 建造中，完成后可继续升级。</div>' +
@@ -484,25 +502,19 @@ function upgradeBoxHtml(n, mine) {
 function residentSectionHtml(n, p, canGovern) {
   const list = n.residents || [];
   if (!canGovern && !list.length) return "";
-  const charsById = {};
-  for (const c of ((p || {}).chars || [])) charsById[String(c.id)] = c;
   let h = '<div class="resident-box"><div class="sub">🛡️ 驻守人物（' + list.length + "）</div>";
   if (!list.length) {
     h += '<div class="sub">暂无角色驻守；可从「人员」页把空闲角色传送至此。</div>';
   } else {
     h += '<div class="resident-list">';
     for (const r of list) {
-      const mineChar = charsById[String(r.id)];
-      const canTeleport = !!(canGovern && mineChar && mineChar.can_move &&
-        !charAtNode(mineChar, n.id));
+      // 驻守列表里的角色本就在本据点，「传送到此」永远不会成立
+      // （旧分支因 charAtNode 恒真而成为死代码），统一由下方下拉提供传送。
       h += '<div class="resident-row"><span class="rs-name">' + esc(r.name) + "</span>" +
         '<span class="tag">' + esc(r.role_name || "角色") + "</span>" +
         '<span class="sub">' + esc(r.status_name || "") + "</span>" +
         (r.is_governor ? '<span class="tag epic">本城太守</span>' : "") +
-        (canTeleport
-          ? '<button class="btn small" data-act="move-char" data-id="' + r.id +
-            '" data-node="' + n.id + '">🚶 传送到此</button>'
-          : "") + "</div>";
+        "</div>";
     }
     h += "</div>";
   }
@@ -632,7 +644,7 @@ function drawMap() {
       ctx.fillStyle = "#8b98a9"; ctx.font = "10px sans-serif";
       ctx.fillText("⚔" + gar, x, y - r - 7);
     }
-    if (n.siege && n.siege.ticks > 0) {
+    if (nodeSieged(n)) {
       ctx.fillStyle = "#f85149"; ctx.font = "12px sans-serif";
       ctx.fillText("🔥", x + r + 5, y - r);
     }
@@ -785,7 +797,7 @@ const NODE_FEATURE = {
   grain: "粮草主产地，屯田任务 ×2.0",
   market: "坊市互市与商路端点，贸易任务 ×1.3",
   branch: "寻访任务 ×1.4；可建酒馆分号提升本地招募品质",
-  ruin: "首占有机会掉落装备/图纸，讨伐任务 ×1.3",
+  ruin: "首占有机会掉落装备/图纸",
 };
 
 function nodeFeatureText(n) {
@@ -876,11 +888,22 @@ function renderDrawer() {
   }
   const gar = n.garrison !== null && n.garrison !== undefined ? n.garrison + " 兵" : (n.garrison_bucket ? "约 " + n.garrison_bucket : "无");
   html += kv("守军", gar);
-  html += upgradeBoxHtml(n, mine);
+  html += upgradeBoxHtml(n, canGovern);
   html += governorSectionHtml(n, canGovern, !!myF.can_appoint);
-  html += residentSectionHtml(n, p, canGovern);
-  html += buildingSectionHtml(n, mine);
-  if (n.siege && n.siege.ticks > 0) html += kv("围城", "已围 " + n.siege.ticks + " tick" + (n.siege.attacker_faction === myFactionId() ? "（我方发起）" : ""));
+  const canDwell = canGovern && n.type !== "ruin";
+  html += residentSectionHtml(n, p, canDwell);
+  // 大牢关押数量（§14：据点抽屉显示；容量与名册独立）
+  const capView = p.captives || {};
+  const jailSlots = Math.max(0, Number(capView.jail_slots ||
+    ((S.meta || {}).captive_cfg || {}).jail_slots_per_node || 5));
+  const jailCount = (capView.holding || []).filter(
+    (c) => Number(c.node_id || 0) === Number(n.id)).length;
+  if (n.type !== "ruin" && (mine || jailCount)) {
+    html += kv("大牢", "⛓️ " + jailCount + " / " + jailSlots +
+      ' <span class="sub">（独立于名册）</span>');
+  }
+  html += buildingSectionHtml(n, canGovern);
+  if (nodeSieged(n)) html += kv("围城", "已围 " + Math.max(0, Number(n.siege.ticks || 0)) + " tick" + (n.siege.attacker_faction === myFactionId() ? "（我方发起）" : ""));
   if (n.protected) html += kv("保护", "🛡 保护期中");
   if (n.scouted_until) {
     const left = Math.max(0, n.scouted_until - Math.floor(Date.now() / 1000));
@@ -894,7 +917,7 @@ function renderDrawer() {
   }
   html += '<div class="drawer-actions">';
   // 围城中的手操介入（§7.2）
-  if (n.siege && n.siege.ticks > 0) {
+  if (nodeSieged(n)) {
     if (n.siege.attacker_faction === myFactionId()) {
       html += '<button class="btn small primary" onclick="doAction(\'intervene_siege\',{node_id:' + n.id + '})">🎮 手操介入（发起攻城战）</button>';
     }
@@ -902,9 +925,12 @@ function renderDrawer() {
       html += '<button class="btn small danger" onclick="doAction(\'sortie\',{node_id:' + n.id + '})">⚔️ 出击（决战解围）</button>';
     }
   }
-  if (mine) {
+  if (canDwell) {
     html += '<button class="btn small" onclick="openArmyModal(' + n.id + ')">🛡️ 在此编军</button>';
     html += taskFormHtml(n, p);
+    if (!mine) {
+      html += '<span class="sub">（盟友据点：可在此编军/派遣/建造/升级，据点归属与产出仍归盟友）</span>';
+    }
   } else if (!canGovern) {
     const idleArmies = (p.armies || []).filter((a) => a.state === "idle");
     for (const a of idleArmies) {
@@ -912,7 +938,7 @@ function renderDrawer() {
     }
     if (!idleArmies.length) html += '<span class="sub">（无可出征军团，先在己方据点编军）</span>';
   } else {
-    html += '<span class="sub">（盟友据点，不可在此编军/出征）</span>';
+    html += '<span class="sub">（遗迹不可驻扎/编军/派遣）</span>';
   }
   html += "</div>";
   const st = captureFormState(body);
@@ -1186,7 +1212,10 @@ function taskPayoutText(t) {
   if (t.estimate !== null && t.estimate !== undefined) {
     s += " ≈" + fmtNum(t.estimate) + (t.sustained ? ' <span class="sub">/ 小时</span>' : "");
   }
-  if (t.note) s += ' <span class="sub">（' + esc(t.note) + "）</span>";
+  // 劫掠的 output_name 与 note 都是「掠夺库存」，不再重复括注
+  if (t.note && t.note !== t.output_name) {
+    s += ' <span class="sub">（' + esc(t.note) + "）</span>";
+  }
   if (t.morale_gain) s += ' <span class="sub">· 民心 +' + t.morale_gain + "</span>";
   if (t.partner_name) s += ' <span class="sub">· 与 ' + esc(t.partner_name) + " 协作</span>";
   return s;
@@ -1369,7 +1398,7 @@ function tabOverview() {
       tasks.map((t) => {
         const where = t.expedition
           ? esc(t.node_name || ("#" + t.node_id)) +
-            (t.origin_node_name
+            (t.task_type !== "supply" && t.origin_node_name
               ? ' <span class="sub">（自 ' + esc(t.origin_node_name) + " 出发）</span>"
               : "")
           : esc(t.node_name || ("#" + t.node_id));
@@ -1386,19 +1415,25 @@ function tabOverview() {
             '<span class="aucLeft" data-expire="' + next + '">' + fmtRemain(left) + "</span>";
         } else if (t.expedition) {
           progress = "剩余 " + fmtRemain(t.remain_sec) +
-            ' <span class="sub">· 中途停止无收益</span>';
+            (t.task_type === "supply"
+              ? ' <span class="sub">· 召回时未送达粮草退回</span>'
+              : ' <span class="sub">· 中途停止无收益</span>');
         } else {
           progress = "剩余 " + fmtRemain(t.remain_sec);
         }
-        const label = t.sustained ? "停止任务" : (t.expedition ? "停止（无收益）" : "召回");
-        const kind = t.sustained ? "sustained" : (t.expedition ? "expedition" : "normal");
+        // 运粮队走 recall_task 会退回未送达粮草，不能按「无收益」提示
+        const supply = t.task_type === "supply";
+        const label = t.sustained ? "停止任务"
+          : (supply ? "召回补粮队" : (t.expedition ? "停止（无收益）" : "召回"));
+        const kind = t.sustained ? "sustained"
+          : (supply ? "supply" : (t.expedition ? "expedition" : "normal"));
         return "<tr><td>" + esc(t.char_name) + "</td><td>" + esc(t.task_name) +
           "</td><td>" + taskPayoutText(t) + "</td><td>" + where +
           "</td><td>" + progress + '</td><td><button class="btn small" data-act="recall-task" data-id="' +
           t.id + '" data-kind="' + kind + '" data-name="' + esc(t.char_name) + '">' +
           label + "</button></td></tr>";
       }).join("") +
-      '</table></div><div class="sub">持续任务每小时整点结算，可随时停止（未满 1 小时按比例结算）；侦察/劫掠须到期才结算，中途停止无收益；远征任务落点始终是出发地。</div>';
+      '</table></div><div class="sub">持续任务每小时整点结算，可随时停止（未满 1 小时按比例结算）；侦察/劫掠须到期才结算，中途停止无收益；运粮队召回退回未送达粮草；远征任务落点始终是出发地。</div>';
   } else {
     h += '<span class="sub">暂无进行中的任务（在己方据点抽屉底部派遣）</span>';
   }
@@ -1431,6 +1466,8 @@ function charCard(c) {
   }).join("、");
   const atArena = charAtArena(c);
   const canDuel = duelEligible(c);
+  const locNode = nodeById(Number(c.location_node_id || 0));
+  const trapped = nodeSieged(locNode);
   return '<div class="card"><h3>' + esc(c.name) +
     ' <span class="tag ' + (["fine", "rare", "epic", "legend"].includes(c.rarity) ? c.rarity : "") + '">' + esc(c.rarity_name) + "</span>" +
     ' <span class="tag">' + esc(c.role_name) + "</span><span class='tag'>" + esc(c.profession_name) + "</span>" +
@@ -1447,7 +1484,9 @@ function charCard(c) {
     " · 状态 " + esc(charStatusText(c)) +
     (c.resident ? "（驻守）" : "") + "</div>" +
     '<div class="char-loc">📍 所在地：' + esc(charLocText(c)) +
-    (c.can_move ? ' <span class="tag">可传送</span>' : "") + "</div>" +
+    (c.can_move && !trapped ? ' <span class="tag">可传送</span>' : "") +
+    (trapped && c.status === "idle"
+      ? ' <span class="warn-text">围城中，无法传送离开</span>' : "") + "</div>" +
     (c.appointed_position
       ? '<div class="sub">🏛 官职：' + esc(c.appointed_name || positionName(c.appointed_position)) + "</div>"
       : "") +
@@ -1487,7 +1526,7 @@ function tabChars() {
   const dead = (p.chars || []).filter((c) => c.status === "dead");
   let h = '<div class="card"><h3>👥 名册 ' + (p.char_count || 0) + " / " + (p.char_cap || 0) + "</h3>" +
     '<div class="sub">按本势力据点数量提供名额：当前 ' + (p.char_cap_nodes || 0) +
-    " 座据点，每座 +" + (p.char_cap_per_node || 0) + " 名；被俘/陨落角色不占名额。角色的六维总和可通过任务与战斗历练，最高成长到稀有度上限 +" +
+    " 座据点，每座 +" + (p.char_cap_per_node || 0) + " 名；被俘/押运中/陨落角色不占名额。角色的六维总和可通过任务与战斗历练，最高成长到稀有度上限 +" +
     (p.growth_cap_bonus || 0) + "，满额后可遣散腾出名额。</div>" +
     '<div class="sub">📍 角色卡显示所在地；空闲角色可「传送到」己方/盟友据点。任务与编军只能使用位于该据点的角色。</div></div>';
   if (!chars.length && !dead.length) h += '<div class="empty">尚无角色，去酒馆招募吧</div>';
@@ -1518,7 +1557,7 @@ function tabArmies() {
   let h = '<div class="card"><h3>🛡️ 我的军团</h3><div class="sub">上限 ' +
     ((S.meta.positions || {})["none"] || {}).cap + " 兵/无官职主将 · 出征沿通路行军，粮尽则士气崩溃</div></div>";
   const armies = p.armies || [];
-  if (!armies.length) return h + '<div class="empty">尚无军团：在己方据点抽屉中「在此编军」</div>';
+  if (!armies.length) return h + '<div class="empty">尚无军团：在己方/盟友据点抽屉中「在此编军」</div>';
   for (const a of armies) {
     h += '<div class="card"><h3>' + esc(a.name) + ' <span class="tag">' + esc(a.troop_name) + "</span>" +
       (a.siege_engine ? ' <span class="tag epic">破城槌</span>' : "") + "</h3>" +
@@ -1538,10 +1577,18 @@ function armyButtons(a) {
   let b = "";
   if (a.state === "idle") {
     b += '<button class="btn small primary" data-act="march-pick" data-id="' + a.id + '">⚔️ 选择目标出征</button>';
-    b += '<button class="btn small" onclick="refillPrompt(' + a.id + ')">➕ 补员</button>';
+    const at = nodeById(a.node_id);
+    const atOwn = !!(at && at.owner && Number(at.owner.id) === myFactionId());
+    if (atOwn) {
+      b += '<button class="btn small" onclick="refillPrompt(' + a.id + ')">➕ 补员</button>';
+    }
     b += '<button class="btn small" onclick="openSupplyModal(' + a.id + ')">🚚 补粮</button>';
     b += '<button class="btn small" onclick="doAction(\'drill_army\',{army_id:' + a.id + '})">🎯 操练(500币)</button>';
-    b += '<button class="btn small danger" onclick="doAction(\'disband_army\',{army_id:' + a.id + '})">解散</button>';
+    if (atOwn) {
+      b += '<button class="btn small danger" onclick="doAction(\'disband_army\',{army_id:' + a.id + '})">解散</button>';
+    } else {
+      b += '<span class="sub">（驻扎盟友/外地据点：补员、解散需回到己方据点）</span>';
+    }
   } else if (a.state === "siege") {
     b += '<button class="btn small" onclick="openSupplyModal(' + a.id + ')">🚚 补粮</button>';
     b += '<button class="btn small" onclick="doAction(\'siege_choice\',{army_id:' + a.id + ",choice:'street_fight'})" + '">巷战</button>';
@@ -1556,6 +1603,36 @@ function armyButtons(a) {
   return b;
 }
 
+function nearestOwnNodeId(fromId) {
+  // 与后端 _nearest_own_node(dwell_only=True) 同口径：按据点 id 升序遍历，
+  // 取最短路径；遗迹不可作为运粮起点/人物落点，须排除。
+  const own = myNodes().filter((n) => n.type !== "ruin")
+    .slice().sort((a, b) => Number(a.id) - Number(b.id));
+  if (!own.length) return 0;
+  const start = Number(fromId || 0);
+  const dist = {};
+  if (start) {
+    dist[start] = 0;
+    const q = [start];
+    while (q.length) {
+      const cur = q.shift();
+      for (const nxt of ((nodeById(cur) || {}).adj || [])) {
+        const id = Number(nxt);
+        if (dist[id] !== undefined) continue;
+        dist[id] = dist[cur] + 1;
+        q.push(id);
+      }
+    }
+  }
+  // 与后端 _nearest_own_node 同口径：最短路径优先，同距离取据点 id 较小者
+  let best = 0, bestD = Infinity;
+  for (const n of own) {
+    const d = dist[n.id];
+    if (d !== undefined && d < bestD) { best = Number(n.id); bestD = d; }
+  }
+  return best || Number(own[0].id);
+}
+
 let supplyArmyId = 0;
 
 function openSupplyModal(armyId) {
@@ -1563,21 +1640,28 @@ function openSupplyModal(armyId) {
   const army = (p.armies || []).find((a) => a.id === armyId);
   if (!army) return;
   const at = nodeById(army.node_id);
-  const originOwn = !!(at && at.owner && Number(at.owner.id) === myFactionId());
-  const idle = originOwn ? charsAtNode(p, army.node_id) : idleHealthyChars(p);
+  const originOwn = !!(at && at.owner && Number(at.owner.id) === myFactionId() &&
+    at.type !== "ruin");
+  // 后端运粮起点：军团当前据点是己方就原地出发，否则取最近己方据点。
+  // 此处必须同口径计算，否则下拉会列出异地角色，提交后才报“需先传送”。
+  const originId = originOwn ? Number(army.node_id) : nearestOwnNodeId(army.node_id);
+  const originNode = nodeById(originId);
+  const idle = originId ? charsAtNode(p, originId) : [];
   if (!idle.length) {
-    toast(originOwn
-      ? ("补粮起点「" + (at ? at.name : "#" + army.node_id) + "」无空闲角色，请先传送")
-      : "没有空闲角色可押运", "err");
+    toast(originNode
+      ? "补粮起点「" + originNode.name + "」无空闲角色，请先传送"
+      : "没有可用己方据点作为补粮起点", "err");
     return;
   }
   supplyArmyId = armyId;
   document.getElementById("supplyArmyHint").textContent =
     "目标：" + army.name + "（" + (STATE_NAME[army.state] || army.state) + " · " +
     army.node_name + " · 携粮 " + fmtNum(army.grain) + "）" +
-    (army.state === "idle" ? "，驻扎中，交付立即完成"
+    (army.state === "idle" && originOwn
+      ? "，驻扎中，交付立即完成"
       : "，补粮队速度高于普通行军，追上后交付（角色占用至交付或超时）") +
-    "；出发地：" + (at ? at.name : "最近己方据点") + "，押运角色须位于出发地。";
+    "；出发地：" + (originNode ? originNode.name : "最近己方据点") +
+    "，押运角色须位于出发地。";
   document.getElementById("supplyChar").innerHTML = idle.map((c) =>
     '<option value="' + c.id + '">' + esc(c.name) + "（" + esc(c.role_name) + "·" +
     esc(charLocText(c)) + "）</option>").join("");
@@ -1623,13 +1707,15 @@ function openMoveModal(charId, charName) {
     return;
   }
   const cur = nodeById(Number(c.location_node_id || 0));
-  if (cur && cur.siege && cur.siege.ticks > 0) {
+  if (nodeSieged(cur)) {
     toast("所在据点正在被围城，无法传送离开；请派军团出击解围", "err");
     return;
   }
-  const targets = moveTargets();
+  // 排除当前所在地：选择「原地传送」没有意义，且易被误认为换防成功
+  const targets = moveTargets().filter(
+    (n) => Number(n.id) !== Number(c.location_node_id));
   if (!targets.length) {
-    toast("暂无可传送的己方/盟友据点", "err");
+    toast("暂无其他可传送的己方/盟友据点", "err");
     return;
   }
   moveCharId = Number(c.id);
@@ -1957,7 +2043,8 @@ function plotCard(p) {
     !["dying", "dead"].includes(c.injury_state));
   let h = '<div class="card"><h3>🕵️ 计略派遣</h3>';
   if (strategists.length) {
-    const enemyNodes = (S.nodes || []).filter((n) => !(n.owner && n.owner.id === myFactionId()));
+    const enemyNodes = (S.nodes || []).filter((n) =>
+      !(n.owner && factionIsFriendly(n.owner.id)));
     h += '<div class="form-row"><select id="plotChar" style="max-width:110px">' +
       strategists.map((c) => '<option value="' + c.id + '">' + esc(c.name) + "</option>").join("") +
       '</select><select id="plotType" style="max-width:110px">' +
@@ -2394,12 +2481,16 @@ function captivesCard(p) {
     h += '<div class="sub">（押运队列数据暂未下发）</div>';
   }
   if (cap.held.length) {
-    const freeGen = (p.chars || []).filter((c) => c.role === "general" && c.status === "idle");
+    // 营救必须由军师执行（不是武将）；筛掉重伤/濒死，具体人选交给
+    // 后端按智谋自动挑选，避免固定取列表第一个导致成功率被白白拉低。
+    const freeStrat = (p.chars || []).filter((c) =>
+      c.role === "strategist" && c.status === "idle" &&
+      !["dying", "dead"].includes(c.injury_state));
     h += '<div class="sub">我方被俘 / 可招募离心俘虏：</div>' + cap.held.map((c) => {
       let row = '<div class="form-row">🪖 ' + esc(c.name) + "（忠诚 " + c.loyalty + "，关押于 " +
         esc(nodeNameById(c.node_id) || ("据点#" + c.node_id)) + "）" +
         '<button class="btn small primary" data-act="ransom-pay" data-id="' + c.id + '">💰 支付赎金</button>' +
-        (freeGen.length ? '<button class="btn small" data-act="rescue-plot" data-id="' + c.id + '">🕵️ 细作营救</button>' : "");
+        (freeStrat.length ? '<button class="btn small" data-act="rescue-plot" data-id="' + c.id + '">🕵️ 细作营救</button>' : "");
       if (c.can_recruit) {
         if (recruitNodes.length) {
           row += '<select id="recruitNode_' + c.id + '" style="max-width:110px">' +
@@ -3080,9 +3171,11 @@ function bindTabEvents() {
         const kind = btn.dataset.kind || "normal";
         const msg = kind === "sustained"
           ? "停止 " + name + " 的持续任务？已满整小时的收益已结算，未满 1 小时部分按比例结算。"
-          : kind === "expedition"
-            ? "停止 " + name + " 的远征任务？中途停止不结算任何收益。"
-            : "召回 " + name + "？已进行部分按比例结算。";
+          : kind === "supply"
+            ? "召回 " + name + " 的补粮队？未送达的粮草将退回。"
+            : kind === "expedition"
+              ? "停止 " + name + " 的远征任务？中途停止不结算任何收益。"
+              : "召回 " + name + "？已进行部分按比例结算。";
         if (confirm(msg)) {
           doAction("recall_task", { task_id: Number(btn.dataset.id) });
         }
@@ -3160,15 +3253,18 @@ function bindTabEvents() {
           plot_type: "alienate", target_id: Number(cid),
         });
       } else if (act === "rescue-plot") {
-        const st = ((S.player || {}).chars || []).filter((c) => c.role === "strategist" && c.status === "idle");
-        if (!st.length) { toast("没有空闲军师执行营救", "err"); return; }
-        doAction("dispatch_plot", { char_id: st[0].id, plot_type: "rescue", target_id: id });
+        const st = ((S.player || {}).chars || []).filter((c) =>
+          c.role === "strategist" && c.status === "idle" &&
+          !["dying", "dead"].includes(c.injury_state));
+        if (!st.length) { toast("没有可用军师执行营救", "err"); return; }
+        // char_id=0：由后端自动选智谋最高的健康军师
+        doAction("dispatch_plot", { char_id: 0, plot_type: "rescue", target_id: id });
       }
       // --- 俘虏 ---
       else if (act === "persuade") {
-        const gens = ((S.player || {}).chars || []).filter((c) => c.role !== "official" && c.status === "idle");
-        const pid = gens.length ? gens[0].id : 0;
-        doAction("persuade", { char_id: id, persuader_char_id: pid });
+        // 不指定说服者：由后端自动选择魅力+智谋最高的空闲角色。
+        // 旧逻辑固定取列表第一个（可能重伤/低属性），会平白拉低成功率。
+        doAction("persuade", { char_id: id, persuader_char_id: 0 });
       } else if (act === "ransom-set") {
         const amt = prompt("设置赎金（铜钱，对方支付后放人）：", "5000");
         if (amt) doAction("ransom_set", { char_id: id, amount: Number(amt) });
@@ -3341,7 +3437,10 @@ function openArmyModal(nodeId) {
   const hint = document.getElementById("armyHint");
   if (hint) {
     hint.textContent = "仅列出位于「" + nodeName + "」的空闲角色；其他角色请先在「人员」页传送。" +
-      (allIdle.length > idle.length ? "（另有 " + (allIdle.length - idle.length) + " 名空闲角色不在本据点）" : "");
+      (allIdle.length > idle.length ? "（另有 " + (allIdle.length - idle.length) + " 名空闲角色不在本据点）" : "") +
+      "（主将 1 + 副将最多 2 人）" +
+      (n && n.owner && n.owner.id !== myFactionId()
+        ? "（盟友据点：编成后需回己方据点才能解散/补员）" : "");
   }
   document.getElementById("armyLeader").innerHTML = leaders.map((c) =>
     '<option value="' + c.id + '">' + esc(c.name) + "（" + esc(c.role_name) + " 武勇" + ((c.stats || {}).valor || 0) + "）</option>").join("");

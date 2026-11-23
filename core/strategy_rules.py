@@ -41,7 +41,8 @@ STAT_NAMES = {
 #: 角色状态 / 军团状态中文名（提示与战报展示，避免直接暴露英文键）
 CHAR_STATUS_NAMES = {
     "idle": "空闲", "task": "执行任务", "army": "随军",
-    "captive": "被俘", "wander": "在野", "dead": "陨落",
+    "research": "研究中",
+    "captive": "被俘", "transfer": "押运中", "wander": "在野", "dead": "陨落",
 }
 ARMY_STATE_NAMES = {
     "idle": "驻守", "march": "行军", "siege": "围城",

@@ -189,6 +189,10 @@ class TestStrategyP3Gaps(unittest.IsolatedAsyncioTestCase):
             f = await self.m.get_faction(fid)
             f["treasury"] = {"coin": int(coin), "grain": 0, "iron": 0,
                              "reserved_coin": 0}
+            # 性格 trade_bias 会乘进报价概率（可能 <1）；测试要求「一定生成」，
+            # 固定为 1 避免随机性格组合导致报价掷空。
+            f["personality"] = dict(f.get("personality") or {})
+            f["personality"]["trade_bias"] = 1.0
             await self.m.save_faction(f)
             fids.append(fid)
         await self.m._commit()

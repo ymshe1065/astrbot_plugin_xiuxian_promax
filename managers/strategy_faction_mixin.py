@@ -800,9 +800,9 @@ class StrategyFactionMixin:
         ids = await self._alliance_ids(int(world["id"]), f)
         if not c or int(c.get("faction_id") or 0) not in ids:
             raise StrategyError("只能任免本势力/联盟内的角色")
-        if c.get("status") in ("dead", "captive") or \
+        if c.get("status") in ("dead", "captive", "transfer") or \
                 R.injury_state(c.get("injury", 0)) == "dead":
-            raise StrategyError("该角色已陨落/被俘，无法任免")
+            raise StrategyError("该角色已陨落/被俘/押运中，无法任免")
         # §18.4 观察期：角色主人入盟不足 min_join_hours_for_position 不可任官
         hours = int((self.main_cfg().get("security") or {}).get(
             "min_join_hours_for_position", 0) or 0)
@@ -2129,12 +2129,38 @@ class StrategyFactionMixin:
                 await self._remove_faction_from_alliance(world, f)
             except StrategyError:
                 pass
+        # 崩溃势力的研究进度随 pending 一起作废：主研角色必须回到 idle，
+        # 否则 tech 已不会结算（alive=0 不在 _step_tech 扫描范围），角色
+        # 会永久卡在 status='research' 无法派遣/编军。
+        for c in await self.get_chars(world_id=world["id"], status="research"):
+            if int(c.get("faction_id") or 0) == fid:
+                c["status"] = "idle"
+                await self.save_char(c)
         for m in members:
             p = await self.get_player(m["user_id"], world["id"])
             if p:
                 personal = await self._ensure_personal_faction(world, p)
                 await self._move_player_to_faction(world, p, personal)
             await self.delete_member(fid, m["user_id"])
+        # 崩溃势力的大牢：据点已全部转为无主，俘虏不能继续留在原节点
+        # 或保持 captor_faction 指向已亡势力（无人能劝降/收赎/解放）。
+        # 统一释放归乡（含押运中），并清掉旧赎金报价。
+        ransoms = data.get("ransoms")
+        if not isinstance(ransoms, dict):
+            ransoms = {}
+        for c in await self.get_chars(world_id=world["id"]):
+            if int(c.get("captor_faction") or 0) != fid:
+                continue
+            if str(c.get("status") or "") not in ("captive", "transfer"):
+                continue
+            if str(c.get("status") or "") == "transfer":
+                await self._execute(
+                    "UPDATE strategy_captive_transfers SET status='released' "
+                    "WHERE world_id=? AND char_id=? AND status='marching'",
+                    (int(world["id"]), int(c["id"])))
+            ransoms.pop(str(int(c["id"])), None)
+            await self._return_captive_home(c)
+        data["ransoms"] = ransoms
         data["bandits"] = bandits
         world["data"] = data
         await self.save_world(world)

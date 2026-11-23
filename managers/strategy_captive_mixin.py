@@ -154,6 +154,14 @@ class StrategyCaptiveMixin:
                                    or "")))
                         if ho:
                             evicted_home_owners.add(ho)
+                else:
+                    # 未被俘的城内 idle/本地任务角色不能留在已沦陷的敌城：
+                    # 落点退回本人最近可用据点（原势力已无据点则清空），
+                    # 与 §3“人物永不落在敌方/无主/遗迹”一致。
+                    dest = await self._char_fallback_location(
+                        int(world["id"]), cc, int(node["id"]))
+                    cc["location"] = {"node_id": int(dest)} if dest else {}
+                    await self.save_char(cc)
         await self._commit()
         if captured:
             logger.info(f"[strategy] 「{node.get('name')}」被俘 {len(captured)} 人："
@@ -206,13 +214,38 @@ class StrategyCaptiveMixin:
             logger.info(f"[strategy] 拒绝无效关押 {c.get('name')}"
                         f"（captor={captor_fid} node={node_id}）")
             return False
+        wid = int(c.get("world_id", 0) or 0)
+        # §3：遗迹不可作为关押/落点；攻守战场在遗迹时改关到擒获方最近的
+        # 可用据点，避免俘虏被塞进遗迹（后续招募/押运都会被拒）。
+        jail_node = await self.get_node(wid, node_id) if wid else None
+        if not jail_node or str(jail_node.get("type") or "") \
+                not in R.CHAR_DWELL_NODE_TYPES:
+            alt = await self._nearest_own_node(
+                {"id": wid}, {"faction_id": captor_fid}, node_id,
+                dwell_only=True) if wid else None
+            if not alt:
+                logger.info(f"[strategy] 擒获方无可用关押据点，跳过关押 "
+                            f"{c.get('name')}")
+                return False
+            node_id = int(alt)
         ccfg = self.main_cfg().get("captive") or {}
         slots = max(0, int(ccfg.get("jail_slots_per_node", 5)))
         wid = int(c.get("world_id", 0) or 0)
+        # 重新被擒：上一次关押遗留的赎金报价已失效（收款方/关押点可能
+        # 已变），必须先清理，避免支付到错误势力或旧价复用。
+        await self._clear_ransom(wid, int(c["id"]))
         await self._detach_from_armies(c)
         # §7.1：被俘者同时从进行中的任务摘除（否则俘虏仍挂着 status='task'
         # 的任务行，持续任务会反复结算/卡住名册名额）
         if wid:
+            # 协作任务：执行者被俘时先把搭档释放回 idle，否则任务行作废后
+            # 搭档既无任务行可结算、又不能移动/派遣，永久卡在 task 态。
+            for trow in await self._fetchall(
+                    "SELECT * FROM strategy_tasks WHERE world_id=? "
+                    "AND character_id=? AND status='active'",
+                    (wid, int(c["id"]))):
+                await self._release_task_partner_fallback(
+                    wid, self._decode("strategy_tasks", trow))
             await self.db.conn.execute(
                 "UPDATE strategy_tasks SET status='cancelled' "
                 "WHERE world_id=? AND character_id=? AND status='active'",
@@ -232,14 +265,23 @@ class StrategyCaptiveMixin:
                     "home_owner": c.get("owner_user_id", "")})
         c["location"] = loc
         if slots > 0 and used >= slots:
-            # 就地驱逐回原势力：落点须为己方据点。此前沿用擒获方节点，
-            # 城破后该节点已是敌方城，角色等于被“释放”进敌营。
+            # 就地驱逐回原势力：落点须为己方/联盟据点。此前沿用擒获方节点，
+            # 城破后该节点已是敌方城，角色等于被“释放”进敌营；原势力已无
+            # 据点（流亡）时也不能停在敌城，改为无落点（回城/传送时再定位）。
             home_fid = int(c.get("faction_id", 0) or 0)
             dest = 0
             if home_fid > 0 and wid:
-                dest = await self._nearest_own_node(
-                    {"id": wid}, {"faction_id": home_fid}, int(node_id)) or 0
-            loc["node_id"] = dest if dest > 0 else prev_node
+                dest = int(await self._char_fallback_location(
+                    wid, {"faction_id": home_fid}, int(prev_node)) or 0)
+                if dest > 0:
+                    dnode = await self.get_node(wid, int(dest))
+                    if not dnode or str(dnode.get("type") or "") \
+                            not in R.CHAR_DWELL_NODE_TYPES:
+                        # 遗迹等不可作为人物落点（§3）：改取最近可用己方据点
+                        dest = int(await self._nearest_own_node(
+                            {"id": wid}, {"faction_id": home_fid},
+                            int(prev_node), dwell_only=True) or 0)
+            loc["node_id"] = dest
             c["location"] = loc
             c["status"] = "idle"
             c["captor_faction"] = 0
@@ -363,7 +405,8 @@ class StrategyCaptiveMixin:
         home_f = int((c.get("location") or {}).get("home_faction", 0) or 0)
         jail_node = int(c.get("imprisoned_node_id", 0)
                         or ((c.get("location") or {}).get("node_id", 0) or 0))
-        dest = await self._nearest_own_node(world, p, jail_node) or 0
+        dest = await self._nearest_own_node(
+            world, p, jail_node, dwell_only=True) or 0
         c["status"] = "idle"
         c["faction_id"] = fid
         c["owner_user_id"] = user_id
@@ -383,6 +426,8 @@ class StrategyCaptiveMixin:
             R.form_zhiyu(persuader, c)
             await self.save_char(persuader)
         c["loyalty"] = 40
+        # 归顺即不再是俘虏：旧赎金条目必须清掉，避免原关押方继续收款
+        await self._clear_ransom(int(world["id"]), int(c["id"]))
         await self.save_char(c)
         rep_cost = 0
         if defect:
@@ -439,6 +484,9 @@ class StrategyCaptiveMixin:
             raise StrategyError("名册已满，请先扩建据点或遣散角色")
         # 落点：指定己方据点，否则由关押点/主城就近取己方据点
         f = await self.get_faction(fid)
+        # 与 persuade_captive 同口径：恶名势力不能招揽离心俘虏
+        if defect and int((f or {}).get("reputation", 0)) <= -60:
+            raise StrategyError("恶名昭彰，离心者亦不愿归顺（声望须高于 -60）")
         jail_node = int(c.get("imprisoned_node_id", 0)
                         or ((c.get("location") or {}).get("node_id", 0) or 0))
         dest = 0
@@ -448,14 +496,16 @@ class StrategyCaptiveMixin:
                 raise StrategyError("目标据点不存在")
             if int(dest_node.get("owner_faction") or 0) != fid:
                 raise StrategyError(f"「{dest_node['name']}」不是我方据点")
+            if str(dest_node.get("type") or "") not in R.CHAR_DWELL_NODE_TYPES:
+                raise StrategyError("遗迹不可作为人物落点")
             dest = int(dest_node["id"])
         if not dest:
             dest = await self._nearest_own_node(
-                world, {"faction_id": fid}, jail_node) or 0
+                world, {"faction_id": fid}, jail_node, dwell_only=True) or 0
         if not dest:
             capital = int((f or {}).get("capital_node_id", 0) or 0)
             dest = await self._nearest_own_node(
-                world, {"faction_id": fid}, capital) or 0
+                world, {"faction_id": fid}, capital, dwell_only=True) or 0
         if not dest:
             raise StrategyError("我方尚无可用据点，无法安置新角色")
         home_f = int((c.get("location") or {}).get("home_faction", 0) or 0)
@@ -478,6 +528,8 @@ class StrategyCaptiveMixin:
             of = await self.get_faction(home_f)
             if of:
                 await self.add_reputation(of, int(ccfg.get("defect_rep_cost", -3)))
+        # 入册后不再是俘虏：清除旧赎金，避免原关押方继续“收取”已归顺者
+        await self._clear_ransom(int(world["id"]), int(c["id"]))
         await self.save_char(c)
         await self._commit()
         dest_node = await self.get_node(world["id"], int(dest))
@@ -539,6 +591,33 @@ class StrategyCaptiveMixin:
             fb["diplomacy"] = dip
             await self.save_faction(fb)
 
+    async def _clear_ransom(self, world_id: int, char_id: int) -> None:
+        """清除某角色的赎金条目。
+
+        释放 / 入册 / 转押 / 据点解放 / 势力崩溃后，旧报价的收款方与
+        关押方已失效；不清理会让同一角色下次被俘时复用旧赎金，并让
+        ``world.data.ransoms`` 随历史俘虏无限膨胀。
+        """
+        wid = int(world_id or 0)
+        cid = int(char_id or 0)
+        if wid <= 0 or cid <= 0:
+            return
+        w = await self.get_world()
+        if not w or int(w.get("id") or 0) != wid:
+            row = await self._fetchone(
+                "SELECT * FROM strategy_worlds WHERE id=?", (wid,))
+            w = self._decode("strategy_worlds", row)
+        if not w:
+            return
+        data = w.get("data") or {}
+        ransoms = data.get("ransoms")
+        if not isinstance(ransoms, dict) or str(cid) not in ransoms:
+            return
+        ransoms.pop(str(cid), None)
+        data["ransoms"] = ransoms
+        w["data"] = data
+        await self.save_world(w)
+
     async def _return_captive_home(self, c: dict):
         loc = c.get("location") or {}
         loc.pop("transfer_to", None)
@@ -547,6 +626,8 @@ class StrategyCaptiveMixin:
         # v4.3.0：优先查原主当前所属势力——快照 home_faction 可能已过时
         # （原主已退盟/入他盟/势力崩溃），按旧快照会把人送回错误阵营。
         wid = int(c.get("world_id", 0) or 0)
+        # 释放即失效赎金：旧报价不得在下次被俘时复用
+        await self._clear_ransom(wid, int(c["id"]))
         if home_owner and wid:
             owner_p = await self.get_player(home_owner, wid)
             if owner_p and int(owner_p.get("faction_id", 0) or 0) > 0:
@@ -567,11 +648,12 @@ class StrategyCaptiveMixin:
             c["faction_id"] = home_f
             c["owner_user_id"] = home_owner
             cur = int(loc.get("node_id", 0) or 0)
-            dest = await self._nearest_own_node(
-                {"id": wid},
-                {"faction_id": home_f}, cur)
-            if dest:
-                loc["node_id"] = int(dest)
+            # §3/§4.4：落点须为己方/联盟可用据点；原势力已只剩遗迹时
+            # 不能再把释放者丢回遗迹/敌营，确实无处可去则清空落点
+            # （之后由进场自愈或传送重新定位）。
+            dest = await self._char_fallback_location(
+                wid, {"faction_id": home_f}, cur)
+            loc["node_id"] = int(dest) if dest > 0 else 0
         else:
             c["faction_id"] = 0
             c["owner_user_id"] = ""
@@ -693,17 +775,44 @@ class StrategyCaptiveMixin:
     # tick：关押忠诚衰减（§7.9：-1/tick，归零离心）
     # ------------------------------------------------------------------
     async def _step_captives(self, world: dict):
+        changed = False
+        # 赎金条目 GC：只保留仍在押（captive/transfer）且有擒获方的角色。
+        # 释放/入册/据点解放/势力崩溃/角色陨落遗留的旧报价在这里统一清掉，
+        # 防止旧赎金被复用、world.data 随历史俘虏无限膨胀。
+        data = world.get("data") or {}
+        ransoms = data.get("ransoms")
+        if isinstance(ransoms, dict) and ransoms:
+            rows = await self._fetchall(
+                "SELECT id, captor_faction FROM strategy_characters WHERE world_id=? "
+                "AND status IN ('captive','transfer') AND captor_faction>0",
+                (world["id"],))
+            valid = {str(int(r["id"])): int(r["captor_faction"] or 0)
+                     for r in rows}
+            stale = []
+            for k, v in list(ransoms.items()):
+                fid = valid.get(str(k))
+                # 旧报价：角色已不在押，或关押方已变（转押/被第三方重新擒获）
+                # 时收款方失效，必须清掉，避免旧价复用或赎金打给错误势力。
+                if fid is None or not isinstance(v, dict) or \
+                        int(v.get("captor_fid") or 0) != fid:
+                    stale.append(k)
+            if stale:
+                for k in stale:
+                    ransoms.pop(k, None)
+                data["ransoms"] = ransoms
+                world["data"] = data
+                changed = True
         decay = int((self.main_cfg().get("captive") or {}).get(
             "loyalty_decay_per_tick", 1))
-        if decay <= 0:
-            return
-        changed = False
-        for c in await self.get_chars(world_id=world["id"], status="captive"):
-            if int(c.get("loyalty", 0)) > 0:
-                c["loyalty"] = max(0, int(c["loyalty"]) - decay)
-                await self.save_char(c)
-                changed = True
+        if decay > 0:
+            for c in await self.get_chars(world_id=world["id"], status="captive"):
+                if int(c.get("loyalty", 0)) > 0:
+                    c["loyalty"] = max(0, int(c["loyalty"]) - decay)
+                    await self.save_char(c)
+                    changed = True
         if changed:
+            if data.get("ransoms") is not None:
+                await self.save_world(world)
             await self._commit()
 
     # ------------------------------------------------------------------
@@ -724,6 +833,8 @@ class StrategyCaptiveMixin:
             raise StrategyError("目标据点不存在")
         if int(to_node["owner_faction"]) != int(p["faction_id"]):
             raise StrategyError(f"「{to_node['name']}」不是我方据点，无法押运")
+        if str(to_node.get("type") or "") not in R.CHAR_DWELL_NODE_TYPES:
+            raise StrategyError("遗迹不可作为关押据点")
         from_node = int(c.get("imprisoned_node_id", 0) or 0)
         if from_node and from_node == int(to_node["id"]):
             raise StrategyError("该俘虏已关押在目标据点")
@@ -864,20 +975,30 @@ class StrategyCaptiveMixin:
         jail_slots = max(0, int(ccfg.get("jail_slots_per_node", 5)))
         defect_threshold = int(ccfg.get("defect_loyalty", 0))
         holding, held, recruitable = [], [], []
+        owner_ids: set[str] = set()
+        if int(faction_id or 0) > 0:
+            # 「我方被俘」按角色原主判断：玩家转投/势力崩溃重建个人势力后，
+            # 角色的 home_faction 快照仍是旧势力，只按快照会让俘虏从面板消失。
+            for r in await self._fetchall(
+                    "SELECT user_id FROM strategy_players WHERE world_id=? "
+                    "AND faction_id=?", (int(world_id), int(faction_id))):
+                owner_ids.add(str(r["user_id"]))
         for c in await self.get_chars(world_id=world_id, status="captive"):
             disloyal = int(c.get("loyalty", 0)) <= defect_threshold
             is_ours = int(c.get("captor_faction", 0)) == int(faction_id)
+            home = c.get("location") or {}
+            home_owner = str(home.get("home_owner") or "")
             item = {"id": c["id"], "name": c["name"], "rarity": c["rarity"],
                     "role": c["role"], "loyalty": c["loyalty"],
                     "node_id": c.get("imprisoned_node_id", 0),
-                    "home_owner": (c.get("location") or {}).get("home_owner", ""),
+                    "home_owner": home_owner,
                     "disloyal": disloyal,
                     # 我方关押或已离心：可用「招募俘虏」入册（需空闲槽位）
                     "can_recruit": bool(is_ours or disloyal)}
             if is_ours:
                 holding.append(item)
-            elif int((c.get("location") or {}).get("home_faction", 0) or 0) \
-                    == int(faction_id):
+            elif int(home.get("home_faction", 0) or 0) == int(faction_id) or \
+                    (home_owner and home_owner in owner_ids):
                 held.append(item)
             elif disloyal:
                 # §7.3 离心俘虏：任意势力均可招降，单独列出避免与“我方被俘”混淆

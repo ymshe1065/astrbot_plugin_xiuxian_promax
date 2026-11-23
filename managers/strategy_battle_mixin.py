@@ -455,6 +455,10 @@ class StrategyBattleMixin:
                 "start_troops": u.get("start_troops"), "morale": u.get("morale"),
                 # 灵力/技能属于对手不可见信息：只下发自己的军团
                 "mana": u.get("mana") if is_mine else None, "pos": u.get("pos"),
+                # 机动点由服务端统一计算（含缩地/精锐小队机动 +1、压制减半、
+                # 剑阵冲锋 +2）：前端若自行按兵种基础值算，玩家永远点不到
+                # 多出来的那一格，加成形同虚设。仅下发己方。
+                "move_points": (H.move_points(u, sess) if is_mine else None),
                 "moved": u.get("moved"), "acted": u.get("acted"),
                 "routed": u.get("routed"), "defending": u.get("defending"),
                 "formation": u.get("formation"),
@@ -478,7 +482,11 @@ class StrategyBattleMixin:
                             if is_mine else False,
             })
         # §12.6 观战模式：非参战同势力玩家只读且**延迟 1 回合**（防报点）。
-        spectator = not my_uids
+        # 发起人即使没有自己的军团（代势力介入）也属于参战方：battle_start
+        # 已允许其开战，若这里按观战处理，网页端会隐藏开战按钮并只给空快照，
+        # 导致「部署阶段只能干等超时」。
+        spectator = not my_uids and \
+            str(sess.get("initiator") or "") != user_id
         # 记录「参战方已查看战场」：部署超时兜底只对从未查看过战场的
         # 战役补一次宽限，避免通知未送达/玩家没来得及点开就被 AI 自动打完。
         # 发起人可能没有自己的军团（代势力介入），同样算已查看方。
@@ -1607,7 +1615,8 @@ class StrategyBattleMixin:
                 if captor_fid > 0 and \
                         int(node.get("owner_faction", 0) or 0) != captor_fid:
                     home = await self._nearest_own_node(
-                        world, {"faction_id": captor_fid}, int(node["id"]))
+                        world, {"faction_id": captor_fid}, int(node["id"]),
+                        dwell_only=True)
                     if home:
                         jail_id = int(home)
                 got = await self._capture_char(c, captor_fid, jail_id)

@@ -3829,14 +3829,17 @@ async def _ensure_strategy_v81(conn: aiosqlite.Connection):
     - ``strategy_nodes.develop_ready_at``：NPC 下次可启动升级的时间戳
       （合成“稳定期 + 节奏间隔”）。
     """
+    # 列是本次新增还是旧库已有：ALTER 会给既有行填默认值 3，必须先判断，
+    # 否则旧存档的城市/灵脉会被统一锁死在潜力 3（5/2 的类型映射失效）。
+    had_potential = await _column_exists(conn, "strategy_nodes", "potential")
     await _add_column_if_missing(
         conn, "strategy_nodes", "potential", "INTEGER NOT NULL DEFAULT 3")
     await _add_column_if_missing(
         conn, "strategy_nodes", "construction_json", "TEXT NOT NULL DEFAULT '{}'")
     await _add_column_if_missing(
         conn, "strategy_nodes", "develop_ready_at", "INTEGER NOT NULL DEFAULT 0")
-    # 旧存档按类型回填潜力（已是合法值的行保持不动）
-    await conn.execute("""
+    # 旧存档按类型回填潜力；已是合法值的行保持不动（模板显式覆盖不被重置）
+    await conn.execute(f"""
         UPDATE strategy_nodes
            SET potential = CASE type
                    WHEN 'city' THEN 5
@@ -3846,7 +3849,8 @@ async def _ensure_strategy_v81(conn: aiosqlite.Connection):
                    WHEN 'mine' THEN 2
                    WHEN 'grain' THEN 2
                    ELSE 1 END
-         WHERE potential IS NULL OR potential <= 0
+         WHERE {'potential IS NULL OR potential <= 0' if had_potential
+                else '1=1'}
     """)
 
 

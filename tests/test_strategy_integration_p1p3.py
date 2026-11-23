@@ -477,7 +477,9 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
         # 强制布局：任取一对相邻节点，home 归 u1、target 强制由 NPC 接管，
         # 避免世界随机生成（种子含启动秒数）导致 next() 抛 StopIteration 的 flake。
         nodes = {n["id"]: n for n in await self.m.get_nodes(self.wid)}
-        home, adj_id = next((n, x) for n in nodes.values() for x in n["adj"])
+        home, adj_id = next(
+            (n, x) for n in nodes.values() if n["type"] != "ruin"
+            for x in n["adj"] if nodes[x]["type"] != "ruin")
         await self._own("u1", home)
         npc = await self.m._fetchone(
             "SELECT id FROM strategy_factions"
@@ -753,7 +755,9 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
         """普通行军抵达的野战也要开手操窗口，而不是 tick 内直接模拟。"""
         self.m.main_cfg()["hex"]["field_encounter_mode"] = "human"
         nodes = {n["id"]: n for n in await self.m.get_nodes(self.wid)}
-        home, adj_id = next((n, x) for n in nodes.values() for x in n["adj"])
+        home, adj_id = next(
+            (n, x) for n in nodes.values() if n["type"] != "ruin"
+            for x in n["adj"] if nodes[x]["type"] != "ruin")
         await self._own("u1", home)
         npc = await self.m._fetchone(
             "SELECT id FROM strategy_factions"
@@ -795,7 +799,9 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
         """field_encounter_mode=auto 时保持旧行为：tick 内直接自动结算。"""
         self.m.main_cfg()["hex"]["field_encounter_mode"] = "auto"
         nodes = {n["id"]: n for n in await self.m.get_nodes(self.wid)}
-        home, adj_id = next((n, x) for n in nodes.values() for x in n["adj"])
+        home, adj_id = next(
+            (n, x) for n in nodes.values() if n["type"] != "ruin"
+            for x in n["adj"] if nodes[x]["type"] != "ruin")
         await self._own("u1", home)
         npc = await self.m._fetchone(
             "SELECT id FROM strategy_factions"
@@ -956,7 +962,9 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
         nodes = {n["id"]: n for n in await self.m.get_nodes(self.wid)}
         b = view[0]
         bnode = nodes[b["node_id"]]
-        adj_id = next(x for x in bnode["adj"])
+        # 编军据点不可为遗迹（§3）：随机地图下相邻点可能是遗迹
+        adj_id = next(x for x in bnode["adj"]
+                      if nodes[x]["type"] != "ruin")
         adj = nodes[adj_id]
         await self._own("u1", adj)
         # 弱化匪军保证速胜
@@ -1184,7 +1192,8 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
     async def test_season_settle_carryover_and_new_world(self):
         fid = int(self.p1["faction_id"])
         nodes = await self.m.get_nodes(self.wid)
-        home = next(n for n in nodes if n["owner_faction"] == 0)
+        home = next(n for n in nodes
+                    if n["owner_faction"] == 0 and n["type"] != "ruin")
         await self._own("u1", home)
         army = await self._mk_army("u1", home["id"], 500)
         army["veteran"] = 400
@@ -1632,7 +1641,8 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
         """
         fid = int(self.p1["faction_id"])
         nodes = {n["id"]: n for n in await self.m.get_nodes(self.wid)}
-        home = next(n for n in nodes.values() if n["owner_faction"] == 0)
+        home = next(n for n in nodes.values()
+                    if n["owner_faction"] == 0 and n["type"] != "ruin")
         await self._own("u1", home)
         target = nodes[int(home["adj"][0])]
         target["owner_faction"] = 0  # 无主：跳过被俘判定，保证断言确定性
@@ -1664,7 +1674,8 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
         """A2：破城受降后节点易主，同势力围城军转入驻守（不再围攻己方城）。"""
         fid = int(self.p1["faction_id"])
         nodes = {n["id"]: n for n in await self.m.get_nodes(self.wid)}
-        home = next(n for n in nodes.values() if n["owner_faction"] == 0)
+        home = next(n for n in nodes.values()
+                    if n["owner_faction"] == 0 and n["type"] != "ruin")
         await self._own("u1", home)
         target = nodes[int(home["adj"][0])]
         target["owner_faction"] = 0
@@ -1691,7 +1702,8 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
         """A4：进攻刚入场玩家节点触发新手保护期（created_at 缺列致其永远跳过）。"""
         fid2 = int(self.p2["faction_id"])
         nodes = {n["id"]: n for n in await self.m.get_nodes(self.wid)}
-        home = next(n for n in nodes.values() if n["owner_faction"] == 0)
+        home = next(n for n in nodes.values()
+                    if n["owner_faction"] == 0 and n["type"] != "ruin")
         await self._own("u1", home)
         target = nodes[int(home["adj"][0])]
         target["owner_faction"] = fid2

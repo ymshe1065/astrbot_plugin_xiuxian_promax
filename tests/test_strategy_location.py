@@ -630,6 +630,53 @@ class TestStrategyLocation(unittest.IsolatedAsyncioTestCase):
         finally:
             cfg["events"] = old_events
 
+    async def test_plot_rumor_mitigated_by_resident_governor(self):
+        """真实谣言计略（非配置事件）也应吃驻守太守的减半/时长 -1。"""
+        node = await self._owned_node("u1", ntype="city")
+        node["morale"] = 90
+        node["governor_char_id"] = 0
+        await self.m.save_node(node)
+        gov = await self._char_of("u1")
+        node = await self.m.get_node(self.wid, int(node["id"]))
+        node["governor_char_id"] = int(gov["id"])
+        await self.m.save_node(node)
+        await self._place(gov, int(node["id"]))
+        actor = await self._char_of("u2")
+
+        async def _run(task_id: int) -> dict:
+            task = {"id": task_id, "world_id": self.wid,
+                    "character_id": int(actor["id"]),
+                    "faction_id": int(self.p2["faction_id"]),
+                    "task_type": "plot_rumor", "node_id": int(node["id"]),
+                    "target_faction": int(self.p1["faction_id"]),
+                    "payout": {"plot": "rumor", "target": int(node["id"])}}
+            with mock.patch.object(self.m, "_rng",
+                                   return_value=_FixedRng(int(node["id"]))):
+                return await self.m._settle_plot_task(
+                    await self.m.get_world(), task, actor, None)
+
+        res = await _run(9001)
+        self.assertTrue(res["success"])
+        n1 = await self.m.get_node(self.wid, int(node["id"]))
+        # 谣言 -15 → 太守驻守减半 → -7（int 截断）
+        self.assertEqual(int(n1["morale"]), 90 - 7)
+        row = await self.m._fetchone(
+            "SELECT * FROM strategy_events WHERE world_id=? AND event_id='rumor' "
+            "ORDER BY id DESC LIMIT 1", (self.wid,))
+        self.assertEqual(int(row["end_tick"]) - int(row["start_tick"]), 2)
+        # 太守离城：恢复全额 -15、3 tick
+        await self._place(gov, (await self._home("u1"))["id"])
+        n1["morale"] = 90
+        await self.m.save_node(n1)
+        res2 = await _run(9002)
+        self.assertTrue(res2["success"])
+        n2 = await self.m.get_node(self.wid, int(node["id"]))
+        self.assertEqual(int(n2["morale"]), 90 - 15)
+        row2 = await self.m._fetchone(
+            "SELECT * FROM strategy_events WHERE world_id=? AND event_id='rumor' "
+            "ORDER BY id DESC LIMIT 1", (self.wid,))
+        self.assertEqual(int(row2["end_tick"]) - int(row2["start_tick"]), 3)
+
     # ------------------------------------------------------------------
     # 城池：建设类型 / 潜力 / 阶梯费 / 异步建造（§10.1~10.3）
     # ------------------------------------------------------------------
@@ -890,6 +937,83 @@ class TestStrategyLocation(unittest.IsolatedAsyncioTestCase):
         n5 = await self.m.get_node(self.wid, int(node["id"]))
         self.assertFalse(n5["construction"])
 
+    async def test_npc_develop_skips_unaffordable_top_candidate(self):
+        """候选须先按“国库够”过滤：买不起的高价目标不能挡住买得起的低价目标。"""
+        fid, cheap = await self._npc_faction_node(level=1, potential=5)
+        others = [n for n in await self.m.get_nodes(self.wid)
+                  if int(n["owner_faction"]) == fid
+                  and int(n["id"]) != int(cheap["id"])]
+        if others:
+            expensive = others[0]
+        else:
+            # 该势力可能只剩一座据点（受前面用例影响）：借一座据点做测试
+            expensive = next(n for n in await self.m.get_nodes(self.wid)
+                             if int(n["owner_faction"]) != fid
+                             and int(n["id"]) != int(cheap["id"]))
+            expensive["owner_faction"] = fid
+        # 同类型/同产出/无相邻 → 排序只按 -level（L4 排在 L1 前面）
+        for n in (cheap, expensive):
+            n["type"] = "city"
+            n["potential"] = 5
+            n["adj"] = []
+            n["construction"] = {}
+            n["siege_state"] = {}
+            n["develop_ready_at"] = _now() - 1
+        cheap["level"] = 1
+        expensive["level"] = 4
+        await self.m.save_node(cheap)
+        await self.m.save_node(expensive)
+        f = await self.m.get_faction(fid)
+        floor = self.m._npc_reserve(f)
+        # 国库只够 L1→L2（5000/500），不够 L4→L5（80000/8000）
+        coin0 = int(floor["coin"]) + 5_000 + 100
+        iron0 = int(floor["iron"]) + 500 + 100
+        f["treasury"] = {"coin": coin0, "grain": 0, "iron": iron0,
+                         "reserved_coin": 0}
+        await self.m.save_faction(f)
+        world = await self.m.get_world()
+        data = world.get("data") or {}
+        data["npc_develop"] = {}
+        world["data"] = data
+        await self.m.save_world(world)
+        await self.m._step_npc_develop(world)
+        n_cheap = await self.m.get_node(self.wid, int(cheap["id"]))
+        n_exp = await self.m.get_node(self.wid, int(expensive["id"]))
+        self.assertTrue(n_cheap["construction"])
+        self.assertEqual(int(n_cheap["construction"]["to_level"]), 2)
+        self.assertFalse(n_exp["construction"])
+        f2 = await self.m.get_faction(fid)
+        self.assertEqual(int(f2["treasury"]["coin"]), coin0 - 5_000)
+        self.assertEqual(int(f2["treasury"]["iron"]), iron0 - 500)
+
+    async def test_npc_develop_stabilize_starts_while_busy(self):
+        """稳定期应在占领/完成后立即起算，不被“同时在建/间隔期”延后。"""
+        fid, target = await self._npc_faction_node(level=1, potential=5)
+        owned = [n for n in await self.m.get_nodes(self.wid)
+                 if int(n["owner_faction"]) == fid]
+        if len(owned) < 2:
+            extra = next(n for n in await self.m.get_nodes(self.wid)
+                         if int(n["owner_faction"]) != fid
+                         and int(n["id"]) != int(target["id"]))
+            extra["owner_faction"] = fid
+            await self.m.save_node(extra)
+            owned.append(extra)
+        busy = next(n for n in owned if int(n["id"]) != int(target["id"]))
+        busy["construction"] = {"to_level": 2, "end_at": _now() + 3600,
+                                "end_tick": 999999, "started_at": _now(),
+                                "by": "npc:test"}
+        await self.m.save_node(busy)
+        target["develop_ready_at"] = 0
+        await self.m.save_node(target)
+        world = await self.m.get_world()
+        data = world.get("data") or {}
+        data["npc_develop"] = {}
+        world["data"] = data
+        await self.m.save_world(world)
+        await self.m._step_npc_develop(world)
+        n = await self.m.get_node(self.wid, int(target["id"]))
+        self.assertGreater(int(n["develop_ready_at"]), _now())
+
     async def test_npc_spawn_army_costs_treasury_and_morale(self):
         # 选一个带相邻据点的 NPC 城
         row = await self.m._fetchone(
@@ -1060,6 +1184,49 @@ class TestStrategyLocation(unittest.IsolatedAsyncioTestCase):
         coin_seller1 = int((await self.m.get_player("u1", self.wid))["coin"])
         self.assertGreater(coin_seller1, coin_seller0)
 
+    async def test_npc_market_offer_respects_treasury_reserve(self):
+        """§10.7：国库低于守财底线不收购；出价后 coin - reserved ≥ reserve。"""
+        mcfg = self.m.main_cfg()["market"]
+        mcfg.update({"npc_offer_interval_ticks": 1, "npc_offer_chance": 1.0,
+                     "npc_offer_cooldown_hours": 0})
+        market = next(n for n in await self.m.get_nodes(self.wid)
+                      if n["type"] == "market")
+        await self._give("u1", grain=10_000)
+        await self.m.market_list("u1", int(market["id"]), "grain", 10_000, 2)
+        npc_rows = await self.m._fetchall(
+            "SELECT id FROM strategy_factions WHERE world_id=? AND kind='npc'",
+            (self.wid,))
+
+        async def _fund(coin: int):
+            for row in npc_rows:
+                f = await self.m.get_faction(int(row["id"]))
+                f["treasury"] = {"coin": coin, "grain": 0, "iron": 0,
+                                 "reserved_coin": 0}
+                # 性格 trade_bias 会乘进报价概率（可能 <1），这里固定为 1
+                # 避免「1.0 × 0.9 仍可能掷空」造成的偶发失败。
+                f["personality"] = {"trade_bias": 1.0}
+                await self.m.save_faction(f)
+
+        # 全员低于最低守财底线（5000×0.5=2500）→ 不出价
+        await _fund(1000)
+        world = await self.m.get_world()
+        world["tick_no"] = 1
+        await self.m.save_world(world)
+        await self.m._step_market_offers(world)
+        self.assertFalse(await self.m.market_offers("u1"))
+        # 国库 6000：出价冻结后仍须保留各势力守财底线
+        await _fund(6000)
+        world = await self.m.get_world()
+        world["tick_no"] = 2
+        await self.m.save_world(world)
+        await self.m._step_market_offers(world)
+        offers = await self.m.market_offers("u1")
+        self.assertTrue(offers)
+        for off in offers:
+            buyer = await self.m.get_faction(int(off["buyer_faction"]))
+            reserve = int(self.m._npc_reserve(buyer)["coin"])
+            self.assertLessEqual(int(off["gross"]), max(0, 6000 - reserve))
+
     # ------------------------------------------------------------------
     # 视图片段（§17）
     # ------------------------------------------------------------------
@@ -1097,9 +1264,576 @@ class TestStrategyLocation(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(int(task["origin_node_id"]), int(node["id"]))
 
 
+class TestStrategyV440Round5(unittest.IsolatedAsyncioTestCase):
+    """v4.4.0 第 5 轮：跨轮收口（哗变/遗迹/存档自愈/计略/赎金/体力）。"""
+
+    async def asyncSetUp(self):
+        import aiosqlite
+
+        migration = _imp("data.migration")
+        self.DataBase = _imp("data.data_manager").DataBase
+        self.DatabaseExtended = _imp("data.database_extended").DatabaseExtended
+        self.Player = _imp("models").Player
+        sm_mod = _imp("managers.strategy_manager")
+        self.StrategyManager = sm_mod.StrategyManager
+        self.StrategyError = sm_mod.StrategyError
+        self.R = _imp("core.strategy_rules")
+
+        fd, self.db_path = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        self.conn = await aiosqlite.connect(self.db_path)
+        self.conn.row_factory = aiosqlite.Row
+        await migration._create_all_tables_v2(self.conn)
+        await migration._ensure_latest_columns(self.conn)
+        self.db = self.DataBase(self.db_path)
+        self.db.conn = self.conn
+        self.db.ext = self.DatabaseExtended(self.conn)
+        for uid in ("u1", "u2"):
+            await self.db.create_player(self.Player(
+                user_id=uid, gold=10_000_000, user_name=f"测试{uid}"))
+        self.m = self.StrategyManager(self.db)
+        self.m.main_cfg().setdefault("hex", {})["field_encounter_mode"] = "auto"
+        self.m.main_cfg()["tick_minutes"] = 1
+        self.world = await self.m.ensure_world()
+        self.wid = self.world["id"]
+        self.p1 = await self.m.enter_game("u1", "甲", node_id=await self._free_node())
+        self.p2 = await self.m.enter_game("u2", "乙", node_id=await self._free_node())
+        for uid in ("u1", "u2"):
+            p = await self.m.get_player(uid, self.wid)
+            p.update({"coin": 2_000_000, "grain": 200_000, "iron": 100_000})
+            await self.m.save_player(p)
+        await self.m._commit()
+
+    async def asyncTearDown(self):
+        await self.db.close()
+        os.remove(self.db_path)
+
+    async def _free_node(self) -> int:
+        nodes = [n for n in await self.m.get_nodes(self.wid)
+                 if int(n["owner_faction"]) == 0 and n["type"] != "ruin"]
+        nodes.sort(key=lambda n: (n["type"] not in ("city", "pass", "branch"),
+                                  -int(n.get("level", 1)), int(n["id"])))
+        self.assertTrue(nodes)
+        return int(nodes[0]["id"])
+
+    async def _home(self, uid: str) -> dict:
+        p = await self.m.get_player(uid, self.wid)
+        f = await self.m.get_faction(int(p["faction_id"]))
+        return await self.m.get_node(self.wid, int(f["capital_node_id"]))
+
+    async def _own(self, uid: str) -> dict:
+        p = await self.m.get_player(uid, self.wid)
+        node = next(n for n in await self.m.get_nodes(self.wid)
+                    if int(n["owner_faction"]) == 0 and n["type"] != "ruin")
+        node["owner_faction"] = int(p["faction_id"])
+        node["protect_until"] = 0
+        node["siege_state"] = {}
+        await self.m.save_node(node)
+        return node
+
+    async def _char(self, uid: str, role: str = "general"):
+        for c in await self.m.get_chars(owner_user_id=uid, world_id=self.wid):
+            if c["role"] == role:
+                return c
+        return None
+
+    async def _place(self, char, node_id: int):
+        c = await self.m.get_char(int(char["id"]))
+        c["location"] = {"node_id": int(node_id)}
+        c["status"] = "idle"
+        await self.m.save_char(c)
+        return c
+
+    async def _new_char(self, uid: str, role: str, **kw) -> dict:
+        p = await self.m.get_player(uid, self.wid)
+        rng = random.Random(f"{uid}-{role}-{kw.get('salt', 0)}")
+        c = self.R.generate_character(rng, rarity="rare", role=role,
+                                      name_pools={})
+        c.update({"world_id": self.wid, "faction_id": int(p["faction_id"]),
+                  "owner_user_id": uid, "loyalty": 90, "status": "idle",
+                  "location": {}})
+        c.update(kw.get("extra") or {})
+        await self.m.insert_char(c)
+        return await self.m.get_char(int(c["id"]))
+
+    # --- 1. 哗变只伤本城驻守角色 -------------------------------------
+    async def test_riot_injures_only_residents_of_that_node(self):
+        home = await self._home("u1")
+        other = await self._own("u1")
+        a = await self._char("u1")
+        b = await self._new_char("u1", "official")
+        # 本城只留 a 一名驻守，其余 u1 角色全放到 other，断言才具确定性
+        for c0 in await self.m.get_chars(owner_user_id="u1", world_id=self.wid):
+            await self._place(c0, int(home["id"])
+                              if int(c0["id"]) == int(a["id"])
+                              else int(other["id"]))
+        self.assertEqual(
+            (await self.m.get_char(int(a["id"])))["status"], "idle")
+        await self._place(b, int(other["id"]))
+        await self.m._riot_injure_char(
+            await self.m.get_world(), home, _FixedRng(-1))
+        a2 = await self.m.get_char(int(a["id"]))
+        b2 = await self.m.get_char(int(b["id"]))
+        self.assertGreater(int(a2["injury"]), 0)
+        self.assertEqual(int(b2["injury"]), 0)
+
+    # --- 1b. v80→v83 迁移：潜力回填 + 新增列幂等 ---------------------
+    async def test_v80_upgrade_backfills_potential_and_adds_columns(self):
+        migration = _imp("data.migration")
+        home = await self._home("u1")
+        await self.conn.execute("ALTER TABLE strategy_nodes DROP COLUMN potential")
+        await self.conn.execute(
+            "ALTER TABLE strategy_nodes DROP COLUMN construction_json")
+        await self.conn.execute(
+            "ALTER TABLE strategy_nodes DROP COLUMN develop_ready_at")
+        await self.conn.execute(
+            "ALTER TABLE strategy_factions DROP COLUMN salary_json")
+        await self.conn.execute(
+            "ALTER TABLE strategy_characters DROP COLUMN personality_json")
+        await self.conn.commit()
+        await migration._ensure_latest_columns(self.conn)
+        n = await self.m.get_node(self.wid, int(home["id"]))
+        self.assertEqual(int(n["potential"]),
+                         int(self.R.NODE_POTENTIAL_BY_TYPE[n["type"]]))
+        # 重复执行幂等（不得因列已存在报错，也不得把显式潜力重置为 3）
+        n["potential"] = 4
+        await self.m.save_node(n)
+        await self.conn.commit()
+        await migration._ensure_latest_columns(self.conn)
+        n2 = await self.m.get_node(self.wid, int(home["id"]))
+        self.assertEqual(int(n2["potential"]), 4)
+        tables = {
+            "strategy_nodes": {"potential", "construction_json",
+                               "develop_ready_at"},
+            "strategy_factions": {"salary_json"},
+            "strategy_characters": {"personality_json"},
+        }
+        for table, cols in tables.items():
+            async with self.conn.execute(f"PRAGMA table_info({table})") as cur:
+                got = {r[1] for r in await cur.fetchall()}
+            self.assertTrue(cols <= got, (table, cols - got))
+
+    # --- 2. 遗迹不能派遣/编军/建造/升级 -------------------------------
+    async def test_ruin_rejects_dispatch_army_build_upgrade(self):
+        node = next(n for n in await self.m.get_nodes(self.wid)
+                    if n["type"] == "ruin")
+        node["owner_faction"] = int(self.p1["faction_id"])
+        await self.m.save_node(node)
+        c = await self._char("u1")
+        c = await self.m.get_char(int(c["id"]))
+        c["location"] = {"node_id": int(node["id"])}
+        await self.m.save_char(c)
+        with self.assertRaises(self.StrategyError):
+            await self.m.dispatch_task("u1", int(c["id"]), int(node["id"]),
+                                       "farm", 1)
+        with self.assertRaises(self.StrategyError):
+            await self.m.create_army("u1", int(c["id"]), [], int(node["id"]),
+                                     "sword_shield", 100)
+        with self.assertRaises(self.StrategyError):
+            await self.m.build("u1", int(node["id"]), "manor")
+        with self.assertRaises(self.StrategyError):
+            await self.m.upgrade_node("u1", int(node["id"]))
+
+    # --- 3. 旧存档 idle 落点自愈 --------------------------------------
+    async def test_repair_relocates_invalid_idle_location(self):
+        c = await self._char("u1")
+        c = await self.m.get_char(int(c["id"]))
+        c["location"] = {"node_id": 999_999}
+        await self.m.save_char(c)
+        p = await self.m.get_player("u1", self.wid)
+        await self.m._repair_player_state(await self.m.get_world(), p)
+        c2 = await self.m.get_char(int(c["id"]))
+        self.assertNotEqual(self.R.char_node_id(c2), 999_999)
+        dest = await self.m.get_node(self.wid, self.R.char_node_id(c2))
+        self.assertIsNotNone(dest)
+        self.assertEqual(int(dest["owner_faction"]), int(self.p1["faction_id"]))
+        # 敌方据点同样回退
+        enemy = await self._own("u2")
+        c3 = await self.m.get_char(int(c["id"]))
+        c3["location"] = {"node_id": int(enemy["id"])}
+        await self.m.save_char(c3)
+        await self.m._repair_player_state(await self.m.get_world(), p)
+        c4 = await self.m.get_char(int(c["id"]))
+        self.assertNotEqual(self.R.char_node_id(c4), int(enemy["id"]))
+        self.assertEqual(int((await self.m.get_node(
+            self.wid, self.R.char_node_id(c4)))["owner_faction"]),
+            int(self.p1["faction_id"]))
+
+    # --- 4. 计略任务召回不发通用产出 ---------------------------------
+    async def test_plot_recall_has_no_generic_payout(self):
+        strat = await self._new_char("u1", "strategist")
+        enemy = await self._own("u2")
+        # char_id=0：后端自动选军师（本用例仅一名）
+        r = await self.m.dispatch_plot(
+            "u1", 0, "rumor", int(enemy["id"]))
+        task = (await self.m.get_tasks(self.wid, status="active"))[0]
+        self.assertEqual(int(task["character_id"]), int(strat["id"]))
+        p0 = await self.m.get_player("u1", self.wid)
+        coin0, grain0 = int(p0["coin"]), int(p0["grain"])
+        out = await self.m.recall_task("u1", int(r["task_id"]))
+        self.assertTrue(out["ok"])
+        self.assertEqual(int(out["payout"].get("amount", 0)), 0)
+        p1 = await self.m.get_player("u1", self.wid)
+        self.assertEqual(int(p1["coin"]), coin0)
+        self.assertEqual(int(p1["grain"]), grain0)
+        c2 = await self.m.get_char(int(strat["id"]))
+        self.assertEqual(c2["status"], "idle")
+
+    # --- 5. 同联盟据点不可施展计略 -----------------------------------
+    async def test_plot_rejects_allied_node(self):
+        await self._new_char("u1", "strategist")
+        f1 = await self.m.get_faction(int(self.p1["faction_id"]))
+        f2 = await self.m.get_faction(int(self.p2["faction_id"]))
+        f1["alliance_id"] = int(f2["id"])
+        f2["alliance_id"] = int(f2["id"])
+        await self.m.save_faction(f1)
+        await self.m.save_faction(f2)
+        ally_node = await self._home("u2")
+        with self.assertRaises(self.StrategyError):
+            await self.m.dispatch_plot(
+                "u1", 0, "rumor", int(ally_node["id"]))
+
+    # --- 6. 势力崩溃释放大牢俘虏并清赎金 -----------------------------
+    async def test_collapse_releases_captives_and_clears_ransom(self):
+        jail = await self._home("u1")
+        cap = await self._new_char("u2", "general")
+        cap = await self.m.get_char(int(cap["id"]))
+        cap.update({"status": "captive", "captor_faction": int(self.p1["faction_id"]),
+                    "imprisoned_node_id": int(jail["id"])})
+        cap["location"] = {"node_id": int(jail["id"]),
+                           "home_faction": int(self.p2["faction_id"]),
+                           "home_owner": "u2"}
+        await self.m.save_char(cap)
+        await self.m.set_ransom("u1", int(cap["id"]), 5000)
+        # 崩溃势力的研究角色也要回到 idle，不能永久卡在 research
+        rc = await self._new_char("u1", "strategist")
+        rc = await self.m.get_char(int(rc["id"]))
+        rc["status"] = "research"
+        await self.m.save_char(rc)
+        f = await self.m.get_faction(int(self.p1["faction_id"]))
+        members = await self.m.get_members(int(f["id"]))
+        nodes = await self.m.get_nodes(self.wid)
+        await self.m._collapse_faction(await self.m.get_world(), f,
+                                       members, nodes, {})
+        c2 = await self.m.get_char(int(cap["id"]))
+        self.assertIn(c2["status"], ("idle", "wander"))
+        self.assertEqual(int(c2.get("captor_faction") or 0), 0)
+        rc2 = await self.m.get_char(int(rc["id"]))
+        self.assertEqual(rc2["status"], "idle")
+        world = await self.m.get_world()
+        self.assertNotIn(str(int(cap["id"])),
+                         (world.get("data") or {}).get("ransoms") or {})
+
+    # --- 7. 释放/入册清理赎金 ----------------------------------------
+    async def test_release_and_recruit_clear_ransom(self):
+        jail = await self._home("u1")
+        cap = await self._new_char("u2", "general")
+        cap = await self.m.get_char(int(cap["id"]))
+        cap.update({"status": "captive", "captor_faction": int(self.p1["faction_id"]),
+                    "imprisoned_node_id": int(jail["id"])})
+        cap["location"] = {"node_id": int(jail["id"]),
+                           "home_faction": int(self.p2["faction_id"]),
+                           "home_owner": "u2"}
+        await self.m.save_char(cap)
+        await self.m.set_ransom("u1", int(cap["id"]), 5000)
+        await self.m.release_captive("u1", int(cap["id"]))
+        world = await self.m.get_world()
+        self.assertNotIn(str(int(cap["id"])),
+                         (world.get("data") or {}).get("ransoms") or {})
+        # 入册路径
+        cap2 = await self._new_char("u2", "official")
+        cap2 = await self.m.get_char(int(cap2["id"]))
+        cap2.update({"status": "captive", "captor_faction": int(self.p1["faction_id"]),
+                     "imprisoned_node_id": int(jail["id"])})
+        cap2["location"] = {"node_id": int(jail["id"]),
+                            "home_faction": int(self.p2["faction_id"]),
+                            "home_owner": "u2"}
+        await self.m.save_char(cap2)
+        await self.m.set_ransom("u1", int(cap2["id"]), 5000)
+        await self.m.recruit_captive("u1", int(cap2["id"]))
+        world2 = await self.m.get_world()
+        self.assertNotIn(str(int(cap2["id"])),
+                         (world2.get("data") or {}).get("ransoms") or {})
+        # tick GC：历史遗留的孤儿赎金条目（角色已在野/陨落）自动清理
+        data = world2.get("data") or {}
+        data.setdefault("ransoms", {})["999999"] = {"amount": 1}
+        world2["data"] = data
+        await self.m.save_world(world2)
+        await self.m._step_captives(world2)
+        world3 = await self.m.get_world()
+        self.assertNotIn("999999", (world3.get("data") or {}).get("ransoms") or {})
+
+    # --- 8. 持续任务首小时体力不双扣 --------------------------------
+    async def test_sustained_task_first_hour_not_double_stamina(self):
+        node = await self._own("u1")
+        c = await self._char("u1")
+        await self._place(c, int(node["id"]))
+        r = await self.m.dispatch_task("u1", int(c["id"]), int(node["id"]),
+                                       "farm", 1)
+        c1 = await self.m.get_char(int(c["id"]))
+        self.assertEqual(int(c1["stamina"]), 80)  # 派遣已扣首小时
+        for expected in (80, 60):
+            task = (await self.m.get_tasks(self.wid, status="active"))[0]
+            payout = dict(task["payout"])
+            payout["next_settle_at"] = _now() - 10
+            await self.m._execute(
+                "UPDATE strategy_tasks SET payout_json=? WHERE id=?",
+                (json.dumps(payout, ensure_ascii=False), int(r["task_id"])))
+            await self.m._step_settle_tasks(await self.m.get_world())
+            c2 = await self.m.get_char(int(c["id"]))
+            self.assertEqual(int(c2["stamina"]), expected)
+
+
 def R_node_potential(node: dict) -> int:
     return _imp("core.strategy_rules").node_potential(node)
 
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class _NoCaptureRng:
+    """永不触发被俘判定（用于验证城陷存活者落点）。"""
+
+    def random(self):
+        return 0.999
+
+    def randint(self, a, b):
+        return int(a)
+
+    def choice(self, seq):
+        return seq[0]
+
+    def choices(self, seq, weights=None):
+        return [seq[0]]
+
+    def uniform(self, a, b):
+        return float(a)
+
+
+class TestStrategyV440Round6(unittest.IsolatedAsyncioTestCase):
+    """v4.4.0 第 6 轮：遗迹落点 / 城陷存活者 / 旧档升级冒烟。"""
+
+    async def asyncSetUp(self):
+        import aiosqlite
+
+        migration = _imp("data.migration")
+        self.migration = migration
+        self.DataBase = _imp("data.data_manager").DataBase
+        self.DatabaseExtended = _imp("data.database_extended").DatabaseExtended
+        self.Player = _imp("models").Player
+        sm_mod = _imp("managers.strategy_manager")
+        self.StrategyManager = sm_mod.StrategyManager
+        self.StrategyError = sm_mod.StrategyError
+        self.R = _imp("core.strategy_rules")
+
+        fd, self.db_path = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        self.conn = await aiosqlite.connect(self.db_path)
+        self.conn.row_factory = aiosqlite.Row
+        await migration._create_all_tables_v2(self.conn)
+        await migration._ensure_latest_columns(self.conn)
+        self.db = self.DataBase(self.db_path)
+        self.db.conn = self.conn
+        self.db.ext = self.DatabaseExtended(self.conn)
+        for uid in ("u1", "u2"):
+            await self.db.create_player(self.Player(
+                user_id=uid, gold=10_000_000, user_name=f"测试{uid}"))
+        self.m = self.StrategyManager(self.db)
+        self.m.main_cfg().setdefault("hex", {})["field_encounter_mode"] = "auto"
+        self.m.main_cfg()["tick_minutes"] = 1
+        self.world = await self.m.ensure_world()
+        self.wid = self.world["id"]
+        self.p1 = await self.m.enter_game("u1", "甲", node_id=await self._free())
+        self.p2 = await self.m.enter_game("u2", "乙", node_id=await self._free())
+        for uid in ("u1", "u2"):
+            p = await self.m.get_player(uid, self.wid)
+            p.update({"coin": 2_000_000, "grain": 200_000, "iron": 100_000})
+            await self.m.save_player(p)
+        await self.m._commit()
+
+    async def asyncTearDown(self):
+        await self.db.close()
+        os.remove(self.db_path)
+
+    async def _free(self) -> int:
+        nodes = [n for n in await self.m.get_nodes(self.wid)
+                 if int(n["owner_faction"]) == 0 and n["type"] != "ruin"]
+        self.assertTrue(nodes)
+        return int(nodes[0]["id"])
+
+    async def _home(self, uid: str) -> dict:
+        p = await self.m.get_player(uid, self.wid)
+        f = await self.m.get_faction(int(p["faction_id"]))
+        return await self.m.get_node(self.wid, int(f["capital_node_id"]))
+
+    async def _char(self, uid: str, role: str = "general") -> dict:
+        for c in await self.m.get_chars(owner_user_id=uid, world_id=self.wid):
+            if c["role"] == role:
+                return c
+        self.fail(f"{uid} 缺少 {role} 角色")
+
+    async def test_disband_on_owned_ruin_relocates_members(self):
+        """解散驻留遗迹的军团：角色不得以 idle 状态留在遗迹（§3）。"""
+        p = await self.m.get_player("u1", self.wid)
+        fid = int(p["faction_id"])
+        ruin = next(n for n in await self.m.get_nodes(self.wid)
+                    if n["type"] == "ruin")
+        ruin["owner_faction"] = fid
+        await self.m.save_node(ruin)
+        c = await self.m.get_char(int((await self._char("u1"))["id"]))
+        c["status"] = "army"
+        c["location"] = {"node_id": int(ruin["id"])}
+        await self.m.save_char(c)
+        army = {"world_id": self.wid, "faction_id": fid, "owner_user_id": "u1",
+                "name": "遗迹驻军", "node_id": int(ruin["id"]),
+                "characters": [int(c["id"])], "troops": 100, "grain": 10,
+                "state": "idle", "path": [], "edge_pos": 0.0,
+                "troop_type": "sword_shield", "veteran": 0, "morale": 80}
+        await self.m.insert_army(army)
+        await self.m._commit()
+        a = (await self.m.get_armies(self.wid, owner_user_id="u1"))[0]
+        await self.m.disband_army("u1", int(a["id"]))
+        c2 = await self.m.get_char(int(c["id"]))
+        nid = self.R.char_node_id(c2)
+        node = await self.m.get_node(self.wid, nid) if nid else None
+        self.assertNotEqual(nid, int(ruin["id"]))
+        self.assertTrue(nid == 0 or (
+            node and node["type"] in self.R.CHAR_DWELL_NODE_TYPES
+            and int(node["owner_faction"]) == fid))
+
+    async def test_retreat_does_not_land_on_owned_ruin(self):
+        """只剩遗迹时撤退不得把军团/角色停在遗迹（§3/§4.4）。"""
+        p = await self.m.get_player("u1", self.wid)
+        fid = int(p["faction_id"])
+        nodes = await self.m.get_nodes(self.wid)
+        ruin = next(n for n in nodes if n["type"] == "ruin")
+        for n in nodes:
+            if int(n["id"]) != int(ruin["id"]) and \
+                    int(n.get("owner_faction") or 0) == fid:
+                n["owner_faction"] = 0
+                await self.m.save_node(n)
+        ruin["owner_faction"] = fid
+        await self.m.save_node(ruin)
+        enemy = await self._home("u2")
+        c = await self.m.get_char(int((await self._char("u1"))["id"]))
+        c["status"] = "army"
+        c["location"] = {"node_id": int(enemy["id"])}
+        await self.m.save_char(c)
+        army = {"world_id": self.wid, "faction_id": fid, "owner_user_id": "u1",
+                "name": "残军", "node_id": int(enemy["id"]),
+                "characters": [int(c["id"])], "troops": 100, "grain": 10,
+                "state": "idle", "path": [], "edge_pos": 0.0,
+                "troop_type": "sword_shield", "veteran": 0, "morale": 80}
+        await self.m.insert_army(army)
+        await self.m._commit()
+        a = (await self.m.get_armies(self.wid, owner_user_id="u1"))[0]
+        await self.m.retreat_army("u1", int(a["id"]))
+        a2 = await self.m.get_army(int(a["id"]))
+        self.assertTrue(a2 is None or int(a2.get("node_id") or 0) != int(ruin["id"]))
+        c2 = await self.m.get_char(int(c["id"]))
+        self.assertNotEqual(self.R.char_node_id(c2), int(ruin["id"]))
+
+    async def test_city_fall_survivor_and_tick_sweep_relocate(self):
+        """城陷未被俘的 idle 角色不得滞留敌城；tick 安全网同样自愈。"""
+        node = await self._home("u2")
+        c = await self.m.get_char(int((await self._char("u2"))["id"]))
+        c["status"] = "idle"
+        c["location"] = {"node_id": int(node["id"])}
+        await self.m.save_char(c)
+        p1 = await self.m.get_player("u1", self.wid)
+        node = await self.m.get_node(self.wid, int(node["id"]))
+        node["owner_faction"] = int(p1["faction_id"])
+        await self.m.save_node(node)
+        await self.m._commit()
+        with mock.patch.object(self.m, "_rng", return_value=_NoCaptureRng()):
+            await self.m.roll_captures(
+                await self.m.get_world(), node, [], "city_fall",
+                int(p1["faction_id"]))
+        c2 = await self.m.get_char(int(c["id"]))
+        self.assertNotEqual(self.R.char_node_id(c2), int(node["id"]))
+        # 再制造一个“任务中滞留敌城”的旧档态，tick 的落点安全网须自愈
+        enemy = await self.m.get_node(self.wid, int(node["id"]))
+        c2 = await self.m.get_char(int(c["id"]))
+        c2["status"] = "task"
+        c2["location"] = {"node_id": int(enemy["id"])}
+        await self.m.save_char(c2)
+        res = await self.m.tick()
+        self.assertTrue(res.get("ok"), res)
+        c3 = await self.m.get_char(int(c["id"]))
+        nid = self.R.char_node_id(c3)
+        self.assertNotEqual(nid, int(enemy["id"]))
+
+    async def test_ransom_gc_drops_changed_captor(self):
+        """旧赎金条目在关押方变化后必须由 tick GC 清掉，避免旧价复用。"""
+        jail = await self._home("u1")
+        c = await self.m.get_char(int((await self._char("u2"))["id"]))
+        c.update({"status": "captive", "captor_faction": int(self.p1["faction_id"]),
+                  "imprisoned_node_id": int(jail["id"])})
+        c["location"] = {"node_id": int(jail["id"]),
+                         "home_faction": int(self.p2["faction_id"]),
+                         "home_owner": "u2"}
+        await self.m.save_char(c)
+        await self.m.set_ransom("u1", int(c["id"]), 5000)
+        # 模拟被第三方重新擒获：关押方变化，旧报价失效
+        c = await self.m.get_char(int(c["id"]))
+        c["captor_faction"] = int(self.p2["faction_id"])
+        await self.m.save_char(c)
+        world = await self.m.get_world()
+        await self.m._step_captives(world)
+        world2 = await self.m.get_world()
+        self.assertNotIn(str(int(c["id"])),
+                         (world2.get("data") or {}).get("ransoms") or {})
+
+    async def test_v80_world_upgrade_and_location_self_heal(self):
+        """v80 旧档：真实 MigrationManager 升级 + 进场自愈 + 首个 tick。"""
+        import aiosqlite
+        p2 = await self.m.get_player("u2", self.wid)
+        enemy = await self._home("u2")
+        ruin = next(n for n in await self.m.get_nodes(self.wid)
+                    if n["type"] == "ruin")
+        chars = await self.m.get_chars(owner_user_id="u1", world_id=self.wid)
+        locs = [{"node_id": int(enemy["id"])},
+                {"node_id": int(ruin["id"])}, {"node_id": 999_999}, {}]
+        for i, c in enumerate(chars):
+            c["location"] = locs[i % len(locs)]
+            c["status"] = "idle"
+            await self.m.save_char(c)
+        w = await self.m.get_world()
+        data = dict(w.get("data") or {})
+        for key in ("npc_develop", "ransoms", "secret"):
+            data.pop(key, None)
+        w["data"] = data
+        await self.m.save_world(w)
+        for table, col in (
+                ("strategy_nodes", "potential"),
+                ("strategy_nodes", "construction_json"),
+                ("strategy_nodes", "develop_ready_at"),
+                ("strategy_factions", "salary_json"),
+                ("strategy_characters", "personality_json")):
+            await self.conn.execute(f"ALTER TABLE {table} DROP COLUMN {col}")
+        await self.conn.execute("UPDATE db_info SET version=80")
+        await self.conn.commit()
+        await self.db.close()
+
+        conn = await aiosqlite.connect(self.db_path)
+        conn.row_factory = aiosqlite.Row
+        db = self.DataBase(self.db_path)
+        db.conn = conn
+        db.ext = self.DatabaseExtended(conn)
+        self.db, self.conn = db, conn
+        await self.migration.MigrationManager(conn, None).migrate()
+        m = self.StrategyManager(db)
+        p = await m.enter_game("u1", "甲")
+        self.assertIsNotNone(p)
+        nodes = await m.get_nodes(self.wid)
+        for n in nodes:
+            self.assertEqual(int(n["potential"]),
+                             int(self.R.NODE_POTENTIAL_BY_TYPE[n["type"]]))
+        for c in await m.get_chars(world_id=self.wid):
+            if c.get("status") == "idle" and self.R.char_node_id(c) > 0:
+                n = await m.get_node(self.wid, self.R.char_node_id(c))
+                self.assertIsNotNone(n)
+                self.assertIn(n["type"], self.R.CHAR_DWELL_NODE_TYPES)
+        res = await m.tick()
+        self.assertTrue(res.get("ok"), res)

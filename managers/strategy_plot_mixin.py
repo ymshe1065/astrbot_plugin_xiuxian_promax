@@ -46,6 +46,26 @@ class StrategyPlotMixin:
         plot_type = str(plot_type)
         if plot_type not in (pcfg.get("types") or list(R.PLOT_TYPES)):
             raise StrategyError(f"计略类型无效：{plot_type}（{R.PLOT_NAMES}）")
+        if int(char_id or 0) <= 0:
+            # 前端「细作营救」等快捷入口不指定军师：后端统一挑选智谋最高、
+            # 且空闲/健康/体力足够的军师，避免固定取列表第一个（可能重伤）。
+            best: Optional[dict] = None
+            best_score = -1
+            for mine in await self.get_chars(
+                    owner_user_id=user_id, world_id=world["id"], status="idle"):
+                if mine.get("role") != R.ROLE_STRATEGIST:
+                    continue
+                if R.injury_state(mine.get("injury", 0)) in ("dying", "dead"):
+                    continue
+                if int(mine.get("stamina", 0)) < PLOT_STAMINA_COST:
+                    continue
+                st = mine.get("stats") or {}
+                score = int(st.get("wisdom", 0)) * 100 + int(st.get("charm", 0))
+                if score > best_score:
+                    best_score, best = score, mine
+            if not best:
+                raise StrategyError("没有可用的军师（需空闲、非濒死且体力充足）")
+            char_id = int(best["id"])
         c = await self._own_char(p, char_id)
         if c.get("role") != R.ROLE_STRATEGIST:
             raise StrategyError(f"{c['name']} 不是军师，无法施展计略")
@@ -64,8 +84,12 @@ class StrategyPlotMixin:
         # --- 目标校验 + 费用 ---
         if plot_type == "alienate":
             tc = await self.get_char(target_id)
-            if not tc or int(tc.get("faction_id", 0)) == int(p["faction_id"]):
-                raise StrategyError("离间目标须为敌方角色")
+            # v4.4.1：目标必须属于当前世界且仍在职——旧赛季残留角色/已出走
+            # 角色 faction_id 为 0，派出去只会白扣铜钱并在结算时落空。
+            if not tc or int(tc.get("world_id", 0) or 0) != int(world["id"]) \
+                    or int(tc.get("faction_id", 0) or 0) <= 0 \
+                    or int(tc.get("faction_id", 0)) == int(p["faction_id"]):
+                raise StrategyError("离间目标须为敌方在职角色")
             if tc.get("status") in ("dead", "captive", "transfer"):
                 # 俘虏/押运中角色不能走离间：否则可免费把人从敌方牢里
                 # “劝”成流浪角色（跳过营救费用与关押位限制）。
@@ -77,8 +101,10 @@ class StrategyPlotMixin:
             p["coin"] -= cost_coin
         elif plot_type == "rescue":
             tc = await self.get_char(target_id)
-            # §7.9：关押中的俘虏 + 押运途中的俘虏都可劫走
-            if not tc or tc.get("status") not in ("captive", "transfer"):
+            # §7.9：关押中的俘虏 + 押运途中的俘虏都可劫走；
+            # 跨赛季残留俘虏不属于当前世界，不能成为营救目标。
+            if not tc or int(tc.get("world_id", 0) or 0) != int(world["id"]) \
+                    or tc.get("status") not in ("captive", "transfer"):
                 raise StrategyError("营救目标不是俘虏")
             if (tc.get("location") or {}).get("home_owner") != user_id and \
                     int((tc.get("location") or {}).get("home_faction", 0)) != \
@@ -105,9 +131,20 @@ class StrategyPlotMixin:
                 if p["iron"] < cost_iron:
                     raise StrategyError(f"精铁不足：纵火需 {cost_iron}")
                 p["iron"] -= cost_iron
-        # 盟友/停战不可算计（与出征 _check_attack_target 同口径）
+        # 盟友/停战不可算计（与出征 _check_attack_target 的 _alliance_host 同口径）：
+        # 只比 relation_of 会放过「已结盟但外交字典尚未写入 ALLY」的成员，
+        # 同联盟玩家仍可对盟友城池造谣/纵火。
         if target_fid and f:
-            rel = R.relation_of(f.get("diplomacy") or {}, target_fid, _now())
+            my_host = await self._alliance_host(f) or f
+            target_f = await self.get_faction(int(target_fid)) \
+                if int(target_fid) > 0 else None
+            target_host = await self._alliance_host(target_f) if target_f else None
+            if target_host and my_host and \
+                    int(my_host["id"]) == int(target_host["id"]):
+                raise StrategyError("不能对同盟势力施展计略")
+            rel = R.relation_of(
+                (my_host or {}).get("diplomacy") or {},
+                int((target_host or {}).get("id") or target_fid), _now())
             if rel in (R.REL_ALLY, R.REL_TRUCE):
                 rel_name = "同盟" if rel == R.REL_ALLY else "停战"
                 raise StrategyError(f"不能对{rel_name}势力施展计略")
@@ -175,6 +212,11 @@ class StrategyPlotMixin:
         target_fid = int(task.get("target_faction", 0))
         out: dict[str, Any] = {"plot": plot, "success": False, "exposed": False,
                                "texts": []}
+        # 换阵营保护：玩家带角色转投他势力后，旧势力的计略任务不应继续
+        # 生效（否则执行者已在新阵营，效果仍打在旧势力的目标上）。
+        if int(c.get("faction_id", 0) or 0) != fid:
+            out["texts"].append("执行者已改换阵营，计略中止")
+            return out
         rng = self._rng("plot", task["id"], plot, target)
         stats = c.get("stats") or {}
         wisdom_self = int(stats.get("wisdom", 50))
@@ -211,7 +253,8 @@ class StrategyPlotMixin:
                 countered = True
         if plot == "rescue":
             tc = await self.get_char(target)
-            if not tc or tc.get("status") not in ("captive", "transfer"):
+            if not tc or int(tc.get("world_id", 0) or 0) != int(world["id"]) \
+                    or tc.get("status") not in ("captive", "transfer"):
                 out["texts"].append("营救目标已不在关押/押运中，行动取消")
                 return out
             in_transit = tc.get("status") == "transfer"
@@ -265,13 +308,32 @@ class StrategyPlotMixin:
                 out["texts"].append(f"「{R.PLOT_NAMES.get(plot)}」失败，无功而返")
             return out
         # --- 成功效果 ---
+        # 计略生效有 2 tick 延迟：目标据点可能已被我方/盟友夺取。
+        # 此时再落谣言/纵火/策应会打到自己人（烧自家粮仓、降自家城防），
+        # 劝降也失去意义；统一在效果落点前复核归属。
+        if str(PLOT_TARGET_KIND.get(plot) or "") == "node":
+            tnode = await self.get_node(world["id"], int(target))
+            if not tnode:
+                out["success"] = False
+                out["texts"].append("目标据点已不存在，计略落空")
+                return out
+            if int(tnode.get("owner_faction") or 0) in await self._friendly_ids(
+                    int(world["id"]), fid):
+                out["success"] = False
+                out["texts"].append(
+                    f"「{tnode['name']}」已归我方/盟友，计略中止")
+                return out
         if plot == "alienate":
             tc = await self.get_char(target)
             # 复核目标状态：计略生效有 2 tick 延迟，期间目标可能已被俘、
             # 押运、陨落或已离间出走。旧逻辑只排除 dead，会把 captive /
             # transfer 的忠诚清零并“净化”囚禁标记，等于免费越狱。
-            if not tc or tc.get("status") not in ("idle", "march", "battle",
-                                                  "siege", "wander"):
+            # v4.4.1：角色状态是 idle/task/army/research（march/siege 是
+            # 军团状态），旧白名单只放过 idle，导致随军/任务/研究中的敌将
+            # 明明在职却被判“已不在原势力任职”，离间必然落空。
+            if not tc or int(tc.get("world_id", 0) or 0) != int(world["id"]) \
+                    or tc.get("status") not in ("idle", "task", "army",
+                                                "research"):
                 out["texts"].append("离间目标已不在原势力任职，计略落空")
                 return out
             if int(tc.get("faction_id") or 0) != target_fid:
@@ -309,11 +371,25 @@ class StrategyPlotMixin:
         elif plot == "rumor":
             node = await self.get_node(world["id"], target)
             if node:
-                node["morale"] = max(0, int(node.get("morale", 80)) +
-                                     int(pcfg.get("rumor_morale", -15)))
+                delta = int(pcfg.get("rumor_morale", -15))
                 # 谋略 L7 诡道：负面效果时长 +20%（谣言持续更久）
-                ticks = int(int(pcfg.get("rumor_ticks", 3)) *
-                            float(tech_eff.get("plot_duration_mult", 1.0) or 1.0))
+                ticks = max(1, int(int(pcfg.get("rumor_ticks", 3)) *
+                                   float(tech_eff.get("plot_duration_mult",
+                                                     1.0) or 1.0)))
+                # §9/§15：驻守本城的太守可坐镇辟谣——民心动摇减半、
+                # debuff 时长 -1 tick（与 _step_events 的谣言事件同口径）。
+                gov = await self._valid_node_governor(node)
+                owner_f = None
+                owner_fid = int(node.get("owner_faction") or 0)
+                if owner_fid > 0:
+                    owner_f = await self.get_faction(owner_fid)
+                mitigated = bool(
+                    gov and await self._governor_onsite(node, gov)
+                    and self._salary_governor_paid(owner_f, node["id"]))
+                if mitigated:
+                    delta = int(delta * 0.5)
+                    ticks = max(1, ticks - 1)
+                node["morale"] = max(0, int(node.get("morale", 80)) + delta)
                 tick_no = int(world.get("tick_no", 0))
                 # §6.3：产出 -20% 只落节点 output_json（plot_output_mult 读取），
                 # 事件记录仅作展示。切勿再写 node_output 乘区，否则会与
@@ -341,8 +417,9 @@ class StrategyPlotMixin:
                            "mult": 1 + pct}]},
                           ensure_ascii=False)))
                 out["texts"].append(
-                    f"谣言在「{node['name']}」蔓延：民心 -15，"
-                    f"产出 {pct * 100:+.0f}%（{ticks} tick）")
+                    f"谣言在「{node['name']}」蔓延：民心 {delta:+d}，"
+                    f"产出 {pct * 100:+.0f}%（{ticks} tick"
+                    + ("，太守坐镇影响减半" if mitigated else "") + "）")
         elif plot == "arson":
             node = await self.get_node(world["id"], target)
             if node:
@@ -354,7 +431,15 @@ class StrategyPlotMixin:
         elif plot == "persuade_plot":
             node = await self.get_node(world["id"], target)
             ss = (node or {}).get("siege_state") or {}
-            if node and int(ss.get("attacker_faction", 0)) == fid:
+            # 手操战役进行中：胜负未分，计略不得直接易主——否则战役还在打，
+            # 据点已归攻方，终局的城防/俘虏/守军写回会与投降结算互相覆盖。
+            if node and int(ss.get("attacker_faction", 0)) == fid and \
+                    await self._active_manual_battle(int(world["id"]),
+                                                     int(node["id"])):
+                out["texts"].append(
+                    f"🏳️「{node['name']}」守军仍在城头死战（手操战役进行中），"
+                    f"劝降未果")
+            elif node and int(ss.get("attacker_faction", 0)) == fid:
                 # §10.6：劝降属无血开城，等级保留（by_force=False）
                 await self._capture_node(world, node, fid, by_force=False)
                 out["texts"].append(f"🏳️ 围城中的「{node['name']}」守将开城投降！")
@@ -423,7 +508,8 @@ class StrategyPlotMixin:
         best = 50
         for c in await self.get_chars(faction_id=faction_id, world_id=world_id):
             # v4.3.0：死者/濒死不参与谋略对抗——否则阵亡军师仍抬高防御
-            if c.get("status") == "dead":
+            # §7.2：被俘/押运中的军师在敌营大牢，同样不能为己方出谋划策
+            if c.get("status") in ("dead", "captive", "transfer", "wander"):
                 continue
             if R.injury_state(c.get("injury", 0)) in ("dying", "dead"):
                 continue
@@ -446,7 +532,8 @@ class StrategyPlotMixin:
             # （通常是其己方据点），会出现“被关在自己城里”，同势力成员
             # 可零成本营救，关押位统计也记在错误的节点上。
             jail = await self._nearest_own_node(
-                world, {"faction_id": target_fid}, node_id) if node_id else None
+                world, {"faction_id": target_fid}, node_id,
+                dwell_only=True) if node_id else None
             if not jail:
                 return False
             c["status"] = "idle"  # 先脱离任务态再入囚

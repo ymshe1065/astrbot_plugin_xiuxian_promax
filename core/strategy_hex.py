@@ -188,6 +188,10 @@ def move_points(unit: dict, session: dict) -> float:
     # 缩地：机动 +1（§4.9）
     pmods = R.personality_mods((unit.get("leader") or {}).get("personality"))
     mp += int(pmods.get("move_bonus", 0) or 0)
+    # 军事 L4「精锐小队」机动 +1：make_unit 按开战时的带兵数写入
+    # move_bonus（与大地图 march_speed 同口径）。此前该键只写进 army_sim，
+    # 未带入 hex 单位，手操战役里这条科技完全不生效。
+    mp += float(unit.get("move_bonus", 0) or 0)
     return mp
 
 
@@ -427,6 +431,8 @@ def make_unit(army_sim: dict, side: str, uid: int | None = None,
         "leader": leader,
         "siege_engine": bool(army_sim.get("siege_engine")),
         "pos_atk_mult": float(army_sim.get("pos_atk_mult", 1.0)),
+        # 军事 L4「精锐小队」机动 +1（调用方按开战时的带兵阈值写入）
+        "move_bonus": int(army_sim.get("move_bonus", 0) or 0),
         "pos": None,                 # [q, r]
         "mana": 0,
         "formation": formation,
@@ -1054,6 +1060,10 @@ def _sim_view(session: dict, unit: dict) -> dict:
         "leader": unit.get("leader"), "siege_engine": unit.get("siege_engine"),
         "pos_atk_mult": float(unit.get("pos_atk_mult", 1.0)),
         "init_bonus": init_bonus,
+        # 倨傲（兵力 <30% 攻防 -8%）等个性按「当前/开战兵力」判定：
+        # attack_power/defense_power 读 start_troops，此前未透传 → 在 hex
+        # 战役中恒为 0，相关个性完全失效。
+        "start_troops": int(unit.get("start_troops", 0) or 0),
         "atk_terrain_mult": atk_m * FORMATION_ATK.get(formation, 1.0),
         "def_terrain_mult": def_m * FORMATION_DEF.get(formation, 1.0),
         "wall_mult": 1.0,

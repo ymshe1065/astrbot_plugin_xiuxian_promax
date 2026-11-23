@@ -149,12 +149,17 @@
   function computeReachable(unit) {
     const meta = (typeof S !== "undefined" && S && S.meta) || {};
     const troop = (meta.troop_types || {})[unit.troop_type] || {};
-    let mp = Number(troop.move || 3);
-    // 落石/箭雨压制：下一回合起生效（与服务端 _status_active 同口径）
-    const st = unit.statuses || {};
-    if (st.suppress && Number(st.suppress_from ?? -1) < Number(bs.round ?? 0)) mp *= 0.5;
-    // 剑阵冲锋：3 回合机动 +2（与服务端 move_points 同口径）
-    if (Number(st.charge || 0) > 0) mp += 2;
+    // 机动点优先取服务端 move_points（含缩地/精锐小队机动 +1、压制减半、
+    // 剑阵冲锋 +2）；缺失时回退到兵种基础值 + 本地状态推算（旧快照兼容）。
+    let mp = Number(unit.move_points);
+    if (!Number.isFinite(mp) || mp <= 0) {
+      mp = Number(troop.move || 3);
+      // 落石/箭雨压制：下一回合起生效（与服务端 _status_active 同口径）
+      const st = unit.statuses || {};
+      if (st.suppress && Number(st.suppress_from ?? -1) < Number(bs.round ?? 0)) mp *= 0.5;
+      // 剑阵冲锋：3 回合机动 +2（与服务端 move_points 同口径）
+      if (Number(st.charge || 0) > 0) mp += 2;
+    }
     const start = unit.pos;   // B6：pos 为 [q, r] 数组
     const sq = start[0], sr = start[1];
     const cells = new Map();

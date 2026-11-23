@@ -30,8 +30,8 @@ from ..core import strategy_hex as H
 from ..data.migration import (
     _ensure_strategy_v70, _ensure_strategy_v71, _ensure_strategy_v72,
     _ensure_strategy_v74, _ensure_strategy_v75, _ensure_strategy_v76,
-    _ensure_strategy_v77, _ensure_strategy_v79, _ensure_strategy_v81,
-    _ensure_strategy_v82, _ensure_strategy_v83,
+    _ensure_strategy_v77, _ensure_strategy_v79, _ensure_strategy_v80,
+    _ensure_strategy_v81, _ensure_strategy_v82, _ensure_strategy_v83,
 )
 from .strategy_errors import StrategyBusyError, StrategyError
 from .strategy_faction_mixin import StrategyFactionMixin
@@ -168,6 +168,9 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         "captive_evicted": 1,
         "faction_task": 1,
         "faction_event": 1,
+        # 计略结果（含执行者败露被擒）是玩家亲自派出的行动，默认档也须可见；
+        # 否则玩家只能靠猜民心/忠诚变化得知结果。
+        "plot_result": 1,
         "event": 2,
     }
 
@@ -573,6 +576,7 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         await _ensure_strategy_v76(self.db.conn)
         await _ensure_strategy_v77(self.db.conn)
         await _ensure_strategy_v79(self.db.conn)
+        await _ensure_strategy_v80(self.db.conn)
         await _ensure_strategy_v81(self.db.conn)
         await _ensure_strategy_v82(self.db.conn)
         await _ensure_strategy_v83(self.db.conn)
@@ -980,8 +984,9 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
     def _gc_world_data(self, data: dict, tick_no: int) -> None:
         """清理 world.data 过期临时键，避免 JSON 无限膨胀。
 
-        v4.3.0：plot_cd（按 tick）、persuade_cd/ransoms（按时间）、
-        已无读取方的 sabotage 死标记、过期 winds。
+        v4.3.0：plot_cd（按 tick）、persuade_cd（按时间）、已无读取方的
+        sabotage 死标记、过期 winds；ransoms 已改由 ``_step_captives``
+        按「仍在押 + 关押方一致」每 tick 回收。
         """
         if not isinstance(data, dict):
             return
@@ -1145,9 +1150,11 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         for fid, cap in zip(faction_ids, capitals):
             cap_node = node_by_id[int(cap["id"])]
             cap_node["owner_faction"] = fid
-            cap_node["level"] = 2
-            cap_node["defense"] = R.city_defense_max(2) if cap_node["type"] in (
-                "city", "pass", "branch") else 0
+            # 主城默认 2 级，但不得超过据点潜力（§10.2；遗迹潜力 1，
+            # 否则会出现“潜力 1 · 当前 2 级”且守军上限按 2 级计算）。
+            cap_node["level"] = min(2, R.node_potential(cap_node))
+            cap_node["defense"] = R.city_defense_max(cap_node["level"]) \
+                if cap_node["type"] in ("city", "pass", "branch") else 0
             owned_count += 1
             for adj in cap_node["adj"]:
                 frontier.append((adj, fid))
@@ -1412,63 +1419,85 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         return int(node["id"])
 
     async def _repair_player_state(self, world: dict, p: dict) -> bool:
-        """修复旧存档：补势力主成员行 + 给从未领过据点的新手补发起始据点。
+        """修复旧存档：补势力主成员行 + 给从未领过据点的新手补发起始据点，
+        并校正 idle 角色的非法所在地。
 
-        仅对「个人势力」（单成员）生效，且 home_granted 只会发放一次；
-        因此赛季中后期被推平的玩家不会反复白嫖新据点，仍须走灵石重建。
+        补发/成员修复仅对「个人势力」（单成员）生效，且 home_granted
+        只会发放一次；因此赛季中后期被推平的玩家不会反复白嫖新据点，
+        仍须走灵石重建。所在地自愈对所有玩家势力生效。
         """
         f = await self.get_faction(int(p.get("faction_id") or 0))
-        if not f or f.get("kind") != "player":
+        if not f:
             return False
         changed = False
-        members = await self.get_members(f["id"])
-        if str(f.get("leader_id") or "") == p["user_id"] and \
-                not any(m["user_id"] == p["user_id"] for m in members):
-            await self.upsert_member(f["id"], p["user_id"], position="leader",
-                                     joined_at=int(p.get("created_at") or _now()))
-            changed = True
+        # 补发起始据点只针对个人势力；多人势力玩家仍继续执行下方所在地
+        # 自愈（旧存档 idle 落在敌方/已删除/遗迹节点的问题与势力类型无关）。
+        if f.get("kind") == "player":
             members = await self.get_members(f["id"])
-        tut = p.get("tutorial") or {}
-        if not tut.get("home_granted"):
-            owned = await self._fetchone(
-                "SELECT COUNT(*) AS n FROM strategy_nodes "
-                "WHERE world_id=? AND owner_faction=?",
-                (world["id"], int(f["id"])))
-            if int((owned or {}).get("n", 0)) == 0 and \
-                    not int(f.get("capital_node_id") or 0):
-                if len(members) <= 1 and \
-                        await self._grant_starter_home(world, f, p, tut):
+            if str(f.get("leader_id") or "") == p["user_id"] and \
+                    not any(m["user_id"] == p["user_id"] for m in members):
+                await self.upsert_member(f["id"], p["user_id"],
+                                         position="leader",
+                                         joined_at=int(p.get("created_at") or _now()))
+                changed = True
+                members = await self.get_members(f["id"])
+            tut = p.get("tutorial") or {}
+            if not tut.get("home_granted"):
+                owned = await self._fetchone(
+                    "SELECT COUNT(*) AS n FROM strategy_nodes "
+                    "WHERE world_id=? AND owner_faction=?",
+                    (world["id"], int(f["id"])))
+                if int((owned or {}).get("n", 0)) == 0 and \
+                        not int(f.get("capital_node_id") or 0):
+                    if len(members) <= 1 and \
+                            await self._grant_starter_home(world, f, p, tut):
+                        changed = True
+                else:
+                    # 已有地盘/主城的老玩家只需打标，避免以后被推平时反复补发
+                    tut["home_granted"] = True
+                    tut["home_node_id"] = int(f.get("capital_node_id") or 0)
+                    p["tutorial"] = tut
+                    await self.save_player(p)
                     changed = True
-            else:
-                # 已有地盘/主城的老玩家只需打标，避免以后被推平时反复补发
-                tut["home_granted"] = True
-                tut["home_node_id"] = int(f.get("capital_node_id") or 0)
-                p["tutorial"] = tut
-                await self.save_player(p)
-                changed = True
-        if changed:
-            await self._commit()
-        # §3 老存档自愈：空闲角色没有所在地时落到主城/最近己方据点，
-        # 避免“地点校验”上线后旧角色既不能派遣也不能编军。
-        home = int(f.get("capital_node_id") or 0)
-        home_node = await self.get_node(world["id"], home) if home else None
-        if not home_node or int(home_node.get("owner_faction") or 0) != int(f["id"]):
-            home = await self._nearest_own_node(
-                world, {"faction_id": int(f["id"])}, home) or 0
-        if home:
-            rows = await self._fetchall(
-                "SELECT * FROM strategy_characters WHERE world_id=? "
-                "AND owner_user_id=? AND status='idle'",
-                (world["id"], p["user_id"]))
-            for row in rows:
-                c = self._decode("strategy_characters", row)
-                if R.char_node_id(c) > 0:
-                    continue
-                c["location"] = {"node_id": int(home)}
-                await self.save_char(c)
-                changed = True
             if changed:
                 await self._commit()
+        # §3 老存档自愈：空闲角色没有所在地、或所在地已删除/非法/敌方/遗迹
+        # 时，落到主城/最近己方（含联盟）可用据点，避免旧角色既不能派遣
+        # 也不能编军、或以 idle 状态滞留敌城。只处理 idle，绝不改写
+        # 军团/任务/俘虏/押运角色的状态与落点。
+        home = int(f.get("capital_node_id") or 0)
+        home_node = await self.get_node(world["id"], home) if home else None
+        if not home_node or int(home_node.get("owner_faction") or 0) != int(f["id"]) \
+                or str(home_node.get("type") or "") not in R.CHAR_DWELL_NODE_TYPES:
+            home = await self._nearest_own_node(
+                world, {"faction_id": int(f["id"])}, home, dwell_only=True) or 0
+        ids = await self._alliance_ids(int(world["id"]), f) or set()
+        ids.add(int(f["id"]))
+        rows = await self._fetchall(
+            "SELECT * FROM strategy_characters WHERE world_id=? "
+            "AND owner_user_id=? AND status='idle'",
+            (world["id"], p["user_id"]))
+        for row in rows:
+            c = self._decode("strategy_characters", row)
+            cur = R.char_node_id(c)
+            if cur > 0:
+                node = await self.get_node(world["id"], cur)
+                if node and int(node.get("owner_faction") or 0) in ids and \
+                        str(node.get("type") or "") in R.CHAR_DWELL_NODE_TYPES:
+                    continue
+                dest = await self._char_fallback_location(
+                    int(world["id"]), c, cur)
+                if dest <= 0:
+                    dest = home
+            else:
+                dest = home
+            if cur == dest:
+                continue
+            c["location"] = ({"node_id": int(dest)} if dest > 0 else {})
+            await self.save_char(c)
+            changed = True
+        if changed:
+            await self._commit()
         return changed
 
     async def get_player_faction(self, user_id: str) -> Optional[dict]:
@@ -1496,7 +1525,10 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             if int(node.get("owner_faction") or 0) == int(f["id"]):
                 best = max(best, self._building_level(node, "tavern_branch"))
         # 善缘（good_karma）角色在册：每名 +5%，封顶 +15%（§4.9）
-        chars = await self.get_chars(faction_id=int(f["id"]), world_id=int(f["world_id"]))
+        # 陨落/被俘/押运中的角色不在名册内，不再提供招募品质加成
+        chars = [c for c in await self.get_chars(
+            faction_id=int(f["id"]), world_id=int(f["world_id"]))
+            if c.get("status") not in ("dead", "captive", "transfer", "wander")]
         karma = R.personality_recruit_bonus(chars)
         return (float(bonus.get("recruit_quality", 0.0)) + 0.03 * min(5, best)
                 + karma)
@@ -1662,9 +1694,12 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         if f:
             home = int(f.get("capital_node_id") or 0)
         home_node = await self.get_node(world_id, home) if home else None
-        if not home_node or int(home_node.get("owner_faction") or 0) != fid:
+        if not home_node or int(home_node.get("owner_faction") or 0) != fid \
+                or str(home_node.get("type") or "") not in R.CHAR_DWELL_NODE_TYPES:
+            # §3：遗迹不可作为人物落点；主城失效/是遗迹时退最近可用己方据点
             home = await self._nearest_own_node(
-                {"id": world_id}, {"faction_id": fid}, home) or 0
+                {"id": world_id}, {"faction_id": fid}, home,
+                dwell_only=True) or 0
         char = {
             "name": cand["name"], "role": cand["role"], "rarity": cand["rarity"],
             "profession": cand["profession"], "stats": cand.get("stats") or {},
@@ -1802,6 +1837,10 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         node = await self.get_node(p["world_id"], int(node_id))
         if not node:
             raise StrategyError("据点不存在")
+        # §3：遗迹不可作为人物落点/驻防/建设——即使已被本势力占领，
+        # 也不能派遣、编军、建造或升级（入口统一拒绝，防绕过各动作分项校验）。
+        if str(node.get("type") or "") not in R.CHAR_DWELL_NODE_TYPES:
+            raise StrategyError("遗迹不可作为人物落点/驻防/建设")
         owner = int(node.get("owner_faction") or 0)
         if owner <= 0:
             raise StrategyError(f"「{node['name']}」是无主据点，不可操作")
@@ -1916,10 +1955,11 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 "per_node": per_node, "max": hard_max}
 
     async def _roster_count(self, user_id: str, world_id: int) -> int:
-        """当前占用名册名额的角色数（不含陨落与被俘）。"""
+        """当前占用名册名额的角色数（不含陨落/被俘/押运中的俘虏）。"""
         row = await self._fetchone(
             "SELECT COUNT(*) AS c FROM strategy_characters "
-            "WHERE world_id=? AND owner_user_id=? AND status NOT IN ('dead','captive')",
+            "WHERE world_id=? AND owner_user_id=? "
+            "AND status NOT IN ('dead','captive','transfer')",
             (int(world_id), user_id))
         return int((row or {}).get("c", 0) or 0)
 
@@ -1965,7 +2005,7 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         chars = await self.get_chars(world_id=int(world_id))
         return [c for c in chars
                 if int(c.get("faction_id") or 0) in ids and
-                c.get("status") not in ("dead", "captive")]
+                c.get("status") not in ("dead", "captive", "transfer")]
 
     async def _faction_position_bonus(self, f: Optional[dict]) -> dict:
         """角色级官职聚合出的势力加成（太尉攻/司徒产出/祭酒计略/中郎将招募）。
@@ -2176,11 +2216,12 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 p, world, node_id, target_army_id)
             origin = await self.get_node(world["id"], int(army["node_id"]))
             if origin and int(origin.get("owner_faction", 0) or 0) == \
-                    int(p["faction_id"]):
+                    int(p["faction_id"]) and \
+                    str(origin.get("type") or "") in R.CHAR_DWELL_NODE_TYPES:
                 node = origin
             else:
                 src_id = await self._nearest_own_node(
-                    world, p, int(army["node_id"]))
+                    world, p, int(army["node_id"]), dwell_only=True)
                 if src_id is None:
                     raise StrategyError("没有可用的己方据点作为运粮起点")
                 node = await self.get_node(world["id"], int(src_id))
@@ -2328,14 +2369,24 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 ids0 = await self._alliance_ids(int(world["id"]), f0) \
                     if f0 else {fid0}
                 onode = await self.get_node(world["id"], origin) if origin else None
-                if onode and int(onode.get("owner_faction") or 0) in ids0:
+                if onode and int(onode.get("owner_faction") or 0) in ids0 and \
+                        str(onode.get("type") or "") in R.CHAR_DWELL_NODE_TYPES:
                     dest = origin
                 if not dest:
-                    dest = await self._nearest_own_node(
-                        world, {"faction_id": fid0}, origin) or 0
-                if dest:
-                    c["location"] = {"node_id": int(dest)}
+                    dest = await self._char_fallback_location(
+                        int(world["id"]), {"faction_id": fid0}, origin)
+                c["location"] = {"node_id": int(dest)} if dest else {}
                 await self.save_char(c)
+                # 协作搭档同步释放，避免补粮队召回后永久卡在 task 态
+                partner_id = int(payout_meta.get("partner_char_id") or 0)
+                if partner_id:
+                    partner = await self.get_char(partner_id)
+                    if partner and partner.get("status") not in (
+                            "captive", "dead", "transfer", "wander"):
+                        partner["status"] = "idle"
+                        partner["location"] = ({"node_id": int(dest)}
+                                               if dest else {})
+                        await self.save_char(partner)
             await self._commit()
             return {"ok": True,
                     "msg": f"已召回补粮队，未送达粮草 {refunded} 退回",
@@ -2353,6 +2404,10 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             got_ticks = int(round(ticks_per_hour * partial / 3600.0 * (1 - loss)))
         elif task["task_type"] in ("scout", "raid"):
             # 侦察/劫掠：中途停止无收益（§4.5）
+            got_ticks = 0
+        elif str(task["task_type"]).startswith("plot_"):
+            # 计略任务（§6.4）：召回直接作废、不发通用任务产出，
+            # 已投入的铜钱/精铁/体力不退（成本规则不变）。
             got_ticks = 0
         else:
             elapsed = max(0, _now() - task["start_at"])
@@ -2379,15 +2434,23 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             ids0 = await self._alliance_ids(int(world["id"]), f0) \
                 if f0 else {fid0}
             onode = await self.get_node(world["id"], origin) if origin else None
-            if onode and int(onode.get("owner_faction") or 0) in ids0:
+            if onode and int(onode.get("owner_faction") or 0) in ids0 and \
+                    str(onode.get("type") or "") in R.CHAR_DWELL_NODE_TYPES:
                 dest = origin
             if not dest:
-                dest = await self._nearest_own_node(
-                    world, {"faction_id": fid0}, origin) or 0
+                dest = await self._char_fallback_location(
+                    int(world["id"]), {"faction_id": fid0}, origin)
+        elif str(task["task_type"]).startswith("plot_"):
+            # 计略任务的 node_id 是目标据点（可为敌城/0），执行者全程
+            # 未离开原所在地：召回不得按目标据点改写 location。
+            dest = R.char_node_id(c)
+        else:
+            # 本地任务：据点执行期间可能已易主，落点须校验己方归属
+            dest = await self._char_fallback_location(
+                int(world["id"]), c, dest)
         if c.get("status") not in ("captive", "dead", "transfer", "wander"):
             c["status"] = "idle"
-            if dest:
-                c["location"] = {"node_id": int(dest)}
+            c["location"] = {"node_id": int(dest)} if dest else {}
             await self.save_char(c)
         # 双人协作：召回时同步释放搭档，避免永久占用
         partner_id = int((task.get("payout") or {}).get("partner_char_id") or 0)
@@ -2396,10 +2459,13 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             if partner and partner.get("status") not in (
                     "captive", "dead", "transfer", "wander"):
                 partner["status"] = "idle"
-                if dest:
-                    partner["location"] = {"node_id": int(dest)}
+                partner["location"] = {"node_id": int(dest)} if dest else {}
                 await self.save_char(partner)
         await self._commit()
+        if str(task["task_type"]).startswith("plot_"):
+            return {"ok": True,
+                    "msg": "🕵️ 已终止计略（不结算任务产出，已投入成本不退）",
+                    "payout": payout}
         return {"ok": True, "msg": f"召回成功（折损后结算 {got_ticks} tick）",
                 "payout": payout}
 
@@ -2531,8 +2597,10 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         logs = R.gain_exp(c, exp_ticks * exp_per_tick,
                           self._growth_cap_bonus())
         # §4.4：远征任务落点记出发地，绝不写目标据点；本地任务留在任务据点。
+        # 计略任务的 node_id 是目标据点，执行者并未离开原所在地，不得改写。
         # 被俘/陨落/押运/出走者不得改写 location（否则俘虏被“传送”出狱）。
         if not R.task_is_expedition(str(task["task_type"])) and \
+                not str(task["task_type"]).startswith("plot_") and \
                 c.get("status") not in ("captive", "dead", "transfer", "wander"):
             c["location"] = {"node_id": task["node_id"]}
         await self.save_char(c)
@@ -2927,8 +2995,11 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             if c and c.get("status") not in ("dead", "captive"):
                 # A-M9：已陨落/被俘角色不得重置为 idle（保持死亡与囚禁状态）
                 c["status"] = "idle"
-                # §4.2：解散后留在最后停靠据点
-                c["location"] = {"node_id": int(a["node_id"])}
+                # §4.2/§4.4：解散后留在最后停靠据点；停靠点若已是
+                # 敌方/无主/遗迹（例如刚打下的遗迹），退回最近可用己方据点。
+                dest = await self._char_fallback_location(
+                    int(world["id"]), c, int(a.get("node_id") or 0))
+                c["location"] = {"node_id": int(dest)} if dest else {}
                 await self.save_char(c)
         await self.delete_army(a["id"])
         await self.save_player(p)
@@ -3090,7 +3161,10 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         if a["state"] not in ("march", "siege", "idle"):
             raise StrategyError("当前状态无法撤退")
         was_siege = a["state"] == "siege"
-        home = await self._nearest_own_node(world, p, a["node_id"])
+        # §3/§4.4：遗迹不可驻防，撤退落点只能在可用己方据点；
+        # 若只剩遗迹则走下方“无据点可退”分支就地解散（角色落点清空）。
+        home = await self._nearest_own_node(
+            world, p, a["node_id"], dwell_only=True)
         if home is None:
             # 无任何己方据点：与战败溃散同口径（_auto_retreat 就地解散归还角色）
             await self._auto_retreat(a)
@@ -3137,19 +3211,61 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             node["siege_state"] = {}
             await self.save_node(node)
 
-    async def _nearest_own_node(self, world: dict, p: dict, node_id: int) -> Optional[int]:
+    async def _nearest_own_node(self, world: dict, p: dict, node_id: int,
+                                dwell_only: bool = False) -> Optional[int]:
         mine = await self._fetchall(
-            "SELECT id FROM strategy_nodes WHERE world_id=? AND owner_faction=?",
+            "SELECT id, type FROM strategy_nodes WHERE world_id=? AND owner_faction=?",
             (world["id"], p["faction_id"]))
-        if not mine:
+        ids = [int(r["id"]) for r in mine
+               if not dwell_only or str(r.get("type") or "")
+               in R.CHAR_DWELL_NODE_TYPES]
+        if not ids:
             return None
-        ids = [int(r["id"]) for r in mine]
         best, best_len = ids[0], 10 ** 9
         for nid in ids:
             path = await self.find_path(world["id"], node_id, nid)
             if path and len(path) < best_len:
                 best, best_len = nid, len(path)
         return best
+
+    async def _char_fallback_location(self, world_id: int, char: dict,
+                                      from_node_id: int) -> int:
+        """角色落点回退（§4.4）：``from`` 仍是己方/联盟据点则原地不动，
+        否则退回最近己方据点；无己方据点返回 0（由调用方清空落点）。
+
+        用于远征任务结束/出发地易主、军团覆没等“任务作废”场景，避免
+        人物以 idle 状态滞留在敌方/无主据点。
+        """
+        fid = int((char or {}).get("faction_id") or 0)
+        node_id = int(from_node_id or 0)
+        if fid <= 0:
+            return 0
+        if node_id > 0:
+            node = await self.get_node(int(world_id), node_id)
+            ids = await self._friendly_ids(int(world_id), fid)
+            if node and int(node.get("owner_faction") or 0) in ids and \
+                    str(node.get("type") or "") in R.CHAR_DWELL_NODE_TYPES:
+                return node_id
+        return int(await self._nearest_own_node(
+            {"id": int(world_id)}, {"faction_id": fid}, node_id,
+            dwell_only=True) or 0)
+
+    async def _governor_onsite(self, node: Optional[dict],
+                               char: Optional[dict]) -> bool:
+        """太守是否真正“驻守本城”（§6）。
+
+        ``R.is_governor_resident`` 只按所在地/状态判定；远征任务（侦察/
+        劫掠/运粮）与计略任务的 location 记在出发地，必须再排除，否则
+        太守在外出勤仍吃城防 +10% / 民心 ×2 加成。
+        """
+        if not char or not R.is_governor_resident(node, char):
+            return False
+        if str(char.get("status") or "") != "task":
+            return True
+        row = await self._fetchone(
+            "SELECT task_type FROM strategy_tasks WHERE character_id=? "
+            "AND status='active' ORDER BY id DESC LIMIT 1", (int(char["id"]),))
+        return str((row or {}).get("task_type") or "") in R.TASK_LOCAL_TYPES
 
     async def set_siege_choice(self, user_id: str, army_id: int, choice: str) -> dict:
         """围城偏好：street_fight（巷战）/ surrender（受降，需 3 倍兵力威压）。"""
@@ -4211,8 +4327,12 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
 
     # --- 步骤 1：任务结算 -------------------------------------------------
     async def _release_task_partner(self, task: dict,
-                                    dest_node_id: int = 0) -> None:
-        """释放协作搭档（任务结束/中断时调用，避免永久占用 task 状态）。"""
+                                    dest_node_id: Optional[int] = None) -> None:
+        """释放协作搭档（任务结束/中断时调用，避免永久占用 task 状态）。
+
+        ``dest_node_id`` 为 None 时沿用任务据点；显式传 0 表示无可用的
+        己方据点，清空落点（避免搭档被留在敌方/无主据点）。
+        """
         pid = int((task.get("payout") or {}).get("partner_char_id") or 0)
         if pid <= 0:
             return
@@ -4221,10 +4341,20 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 "captive", "dead", "transfer", "wander"):
             return
         partner["status"] = "idle"
-        dest = int(dest_node_id or task.get("node_id") or 0)
-        if dest > 0:
-            partner["location"] = {"node_id": dest}
+        if dest_node_id is None:
+            dest = int(task.get("node_id") or 0)
+        else:
+            dest = int(dest_node_id or 0)
+        partner["location"] = {"node_id": dest} if dest > 0 else {}
         await self.save_char(partner)
+
+    async def _release_task_partner_fallback(self, world_id: int,
+                                             task: dict) -> None:
+        """任务异常作废时释放搭档，落点按 §4.4 回退到最近己方据点。"""
+        dest = await self._char_fallback_location(
+            int(world_id), {"faction_id": int(task.get("faction_id") or 0)},
+            int(task.get("node_id") or 0))
+        await self._release_task_partner(task, dest)
 
     async def _step_settle_tasks(self, world: dict):
         now = _now()
@@ -4239,12 +4369,16 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         stam_enabled = bool(scfg.get("enabled", True))
         ticks_per_hour = max(1, int(tcfg.get("ticks_per_hour", 4)))
         task_stamina = int(R.STAMINA_COST.get("task", 20))
+        nodes_by_id: Optional[dict[int, dict]] = None
+        friendly_cache: dict[int, set[int]] = {}
         for row in rows:
             task = self._decode("strategy_tasks", row)
             c = await self.get_char(task["character_id"])
             if not c:
                 await self.db.conn.execute(
                     "UPDATE strategy_tasks SET status='orphan' WHERE id=?", (task["id"],))
+                # 执行者记录已不存在：不能把协作搭档永久留在 task 态
+                await self._release_task_partner_fallback(int(world["id"]), task)
                 continue
             payout = task.get("payout") or {}
             if task["task_type"] == "supply" and int(payout.get("runner") or 0) \
@@ -4260,9 +4394,14 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 await self.db.conn.execute(
                     "UPDATE strategy_tasks SET status='cancelled' WHERE id=?",
                     (task["id"],))
+                dest = await self._char_fallback_location(
+                    int(world["id"]), c,
+                    int(payout.get("origin_node_id") or task["node_id"]))
                 if c.get("status") == "task":
                     c["status"] = "idle"
+                    c["location"] = {"node_id": int(dest)} if dest else {}
                     await self.save_char(c)
+                await self._release_task_partner(task, dest)
                 continue
             # 角色在任务期间已出走/被押运：任务作废，不发奖，也不要把状态
             # 强改回 idle（否则 wander 被覆盖、收益还会进原势力国库）。
@@ -4270,7 +4409,36 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 await self.db.conn.execute(
                     "UPDATE strategy_tasks SET status='cancelled' WHERE id=?",
                     (task["id"],))
+                # 执行者出走/被押运：同步释放协作搭档，避免其永久卡在 task 态
+                await self._release_task_partner_fallback(int(world["id"]), task)
                 continue
+            # §4.4 本地任务须始终在己方/联盟据点内执行：据点易主/消失后
+            # 任务作废并把角色退回最近己方据点——既不能让 idle 角色滞留
+            # 敌城，也不能继续用敌方据点结算产出/给敌方加民心。
+            tt = str(task["task_type"])
+            if not R.task_is_expedition(tt) and not tt.startswith("plot_"):
+                if nodes_by_id is None:
+                    nodes_by_id = {n["id"]: n for n in await self.get_nodes(world["id"])}
+                tnode = nodes_by_id.get(int(task.get("node_id") or 0))
+                fid0 = int(c.get("faction_id") or task.get("faction_id") or 0)
+                ids0 = await self._friendly_ids(
+                    int(world["id"]), fid0, friendly_cache)
+                # 遗迹不可作为人物落点/驻防：旧存档若仍有遗迹上的本地
+                # 任务（含 build 加城防），一律作废并退回可用据点。
+                if not tnode or int(tnode.get("owner_faction") or 0) not in ids0 \
+                        or str(tnode.get("type") or "") \
+                        not in R.CHAR_DWELL_NODE_TYPES:
+                    await self.db.conn.execute(
+                        "UPDATE strategy_tasks SET status='cancelled' WHERE id=?",
+                        (task["id"],))
+                    dest = await self._char_fallback_location(
+                        int(world["id"]), c, int(task.get("node_id") or 0))
+                    if str(c.get("status") or "") == "task":
+                        c["status"] = "idle"
+                        c["location"] = {"node_id": int(dest)} if dest else {}
+                        await self.save_char(c)
+                    await self._release_task_partner(task, dest)
+                    continue
             # --- 持续任务（§4.5 普通任务每满 1h 结算一次）----------------
             if bool(int(payout.get("sustained") or 0)) and \
                     not str(task["task_type"]).startswith("plot_"):
@@ -4284,7 +4452,13 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                         (task["id"],))
                     await self._release_task_partner(task)
                     continue
-                if stam_enabled and int(c.get("stamina", 0)) < task_stamina:
+                # §4.7：派遣时已扣「首小时」体力（20），首个整点结算只发
+                # 收益、不再重复扣；否则同一小时会被扣 40。首个整点若剩余
+                # 体力不足以支撑下一小时，仍先结算已付出的这 1 小时收益。
+                first_settle = int(payout.get("settled_hours") or 0) <= 0
+                low_stamina = stam_enabled and \
+                    int(c.get("stamina", 0)) < task_stamina
+                if low_stamina and not first_settle:
                     # 体力耗尽：自动停止任务并释放角色（§4.5）
                     await self.db.conn.execute(
                         "UPDATE strategy_tasks SET status='done' WHERE id=?",
@@ -4320,8 +4494,9 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                     continue
                 if use_sp:
                     await self.db.conn.execute(f"RELEASE {sp}")
-                # 本小时体力（预检已通过，实扣沿用 R.spend_stamina 口径）
-                R.spend_stamina(c, "task", stam_enabled)
+                # 本小时体力：首小时已由派遣费支付，后续每小时再扣
+                if not first_settle:
+                    R.spend_stamina(c, "task", stam_enabled)
                 payout["settled_hours"] = int(payout.get("settled_hours") or 0) + 1
                 payout["ticks"] = ticks_per_hour
                 payout["next_settle_at"] = \
@@ -4342,6 +4517,8 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                         "UPDATE strategy_tasks SET status='cancelled' WHERE id=?",
                         (task["id"],))
                     await self.save_char(c)
+                    await self._release_task_partner_fallback(
+                        int(world["id"]), task)
                     continue
                 # 持续任务保持 status='task'，不置 idle、不置 done
                 c["status"] = "task"
@@ -4356,6 +4533,22 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                         R.gain_exp(partner, max(1, ticks_per_hour * 2),
                                    self._growth_cap_bonus())
                         await self.save_char(partner)
+                if first_settle and low_stamina:
+                    # 首小时已结算，剩余体力不足下一小时：立即收工，
+                    # 不让角色以 task 状态空占名册再等一个整点。
+                    await self.db.conn.execute(
+                        "UPDATE strategy_tasks SET status='done' WHERE id=?",
+                        (task["id"],))
+                    c["status"] = "idle"
+                    await self.save_char(c)
+                    await self._release_task_partner(task)
+                    if c.get("owner_user_id"):
+                        tname = R.TASK_NAMES.get(
+                            task["task_type"], task["task_type"])
+                        await self._notify(
+                            world, [c["owner_user_id"]], "task",
+                            {"text": f"😵 {c['name']} 体力耗尽，"
+                                     f"{tname}任务已自动停止"})
                 continue
             p = None
             if c.get("owner_user_id"):
@@ -4372,11 +4565,13 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             sp = f"strategy_task_{int(task['id'])}"
             if use_sp:
                 await self.db.conn.execute(f"SAVEPOINT {sp}")
+            plot_ret = None
             try:
                 if str(task["task_type"]).startswith("plot_"):
                     # 计略任务（§6.4）：走独立结算，不走 _pay_task
-                    await self._settle_plot_task(world, task, c, p)
+                    plot_ret = await self._settle_plot_task(world, task, c, p)
                 else:
+                    plot_ret = None
                     await self._pay_task(world, p, task, c, ticks)
             except Exception as e:  # noqa: BLE001
                 logger.warning(f"[strategy] 任务#{task['id']}结算失败（保留待重试）: {e}")
@@ -4398,7 +4593,10 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 c["status"] = "idle"
                 # §4.4 落点：本地任务留任务据点；远征任务回出发地，
                 # 出发地已易主/消失则退到最近己方据点。
-                dest = int(task.get("node_id") or 0)
+                # 计略任务的 node_id 是目标据点（可为敌方/0），执行者
+                # 全程未离开原所在地，不得按目标据点改写 location。
+                dest = 0 if str(task["task_type"]).startswith("plot_") \
+                    else int(task.get("node_id") or 0)
                 if R.task_is_expedition(str(task["task_type"])):
                     origin = int((task.get("payout") or {}).get(
                         "origin_node_id") or 0)
@@ -4409,14 +4607,25 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                         if f0 else {fid0}
                     onode = await self.get_node(world["id"], origin) \
                         if origin else None
-                    if onode and int(onode.get("owner_faction") or 0) in ids0:
+                    if onode and int(onode.get("owner_faction") or 0) in ids0 and \
+                            str(onode.get("type") or "") in R.CHAR_DWELL_NODE_TYPES:
                         dest = origin
                     if not dest:
-                        dest = await self._nearest_own_node(
-                            world, {"faction_id": fid0}, origin) or 0
+                        dest = await self._char_fallback_location(
+                            int(world["id"]), {"faction_id": fid0}, origin)
                 if dest:
                     c["location"] = {"node_id": int(dest)}
             await self.save_char(c)
+            # 计略结算结果回推给执行者主人：成功/失败/败露被擒此前只写进
+            # ``_settle_plot_task`` 的返回值，调用方直接丢弃，玩家派出军师
+            # 后 2 tick 完全收不到任何结果（只能自己猜民心/忠诚变化）。
+            if plot_ret and plot_ret.get("texts"):
+                owner = str(c.get("owner_user_id") or "")
+                if owner:
+                    await self._notify(
+                        world, [owner], "plot_result",
+                        {"text": f"🎴 {c.get('name', '军师')}："
+                                 + "；".join(plot_ret["texts"])})
             # 双人协作：搭档同步结束占用（收益已在主执行者结算时 ×1.15）
             partner_id = int((task.get("payout") or {}).get("partner_char_id") or 0)
             if partner_id:
@@ -4432,6 +4641,9 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
 
     async def _roll_task_injury(self, world: dict, task: dict, c: dict):
         """task_injury 效果：任务结算时角色按概率受伤（瘟疫 5% 伤势 +10）。"""
+        # 计略任务的 node_id 是目标据点，执行者并不在该城，不参与当地瘟疫
+        if str(task.get("task_type") or "").startswith("plot_"):
+            return
         node_id = int(task.get("node_id", 0) or 0)
         if not node_id:
             return
@@ -4599,6 +4811,9 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 base = per_tick.get(node["type"]) or {}
                 mult = global_mult * npc_bonus * (1 + 0.2 * (node["level"] - 1))
                 mult *= self.season_output_mult(world) * self._node_output_mult(node, f)
+                # §9.6 谣言/破坏：计略产出减益（与玩家据点同口径；
+                # 此前 NPC 分支漏乘，谣言对 NPC 国库产出完全不生效）
+                mult *= self.plot_output_mult(node)
                 # §10.8 NPC 民心产出乘数：0.5 + 民心/100×0.5（0→50%，100→100%）
                 mult *= R.npc_output_morale_mult(int(node.get("morale", 80) or 0))
                 nm = node_mult.get(node["id"], {})
@@ -4788,8 +5003,14 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                             continue
                         dead = R.apply_injury(c, 40)
                         c["status"] = "dead" if dead else "idle"
-                        c["location"] = {"node_id": node["id"]}
+                        # §4.4：围城军被反杀覆没时退回最近己方据点
+                        dest = await self._char_fallback_location(
+                            int(world["id"]), c, int(node["id"]))
+                        c["location"] = {"node_id": int(dest)} if dest else {}
                         await self.save_char(c)
+                    # §10.7：NPC 围城军覆没时残粮退回国库（此前直接删行，
+                    # 残粮随军团蒸发；玩家军团/魔潮无国库，函数内部自动跳过）
+                    await self._refund_npc_army_grain(a)
                     await self.delete_army(a["id"])
                 if int(node.get("owner_faction", 0)) > 0:
                     await self.roll_captures(world, node, destroyed, "wipeout",
@@ -5134,6 +5355,24 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         world["data"] = data
         return keep
 
+    async def _sync_army_chars_location(self, army: dict) -> None:
+        """把随军角色所在地同步为军团 ``node_id``（§4.2）。
+
+        行军/护送等直接改写 ``army.node_id`` 的路径必须调用，否则成员
+        location 会与军团脱节（下车后仍停在旧据点，可异地派遣/编军）。
+        """
+        node_id = int(army.get("node_id") or 0)
+        if node_id <= 0:
+            return
+        for cid in army.get("characters") or []:
+            c = await self.get_char(int(cid))
+            if not c or c.get("status") != "army":
+                continue
+            if R.char_node_id(c) == node_id:
+                continue
+            c["location"] = {"node_id": node_id}
+            await self.save_char(c)
+
     async def _release_army_chars(self, army: dict):
         """军团解散时归还角色：保留陨落/被俘状态，其余恢复空闲。"""
         for cid in army.get("characters") or []:
@@ -5142,9 +5381,11 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 continue
             c["status"] = "dead" if R.injury_state(
                 c.get("injury", 0)) == "dead" else "idle"
-            # §4.2：成员 location 随军团，解散后留在最后停靠据点
-            if int(army.get("node_id") or 0) > 0:
-                c["location"] = {"node_id": int(army["node_id"])}
+            # §4.2：成员 location 随军团，解散后留在最后停靠据点；
+            # §4.4：若最后停靠点已是敌方/无主（覆没于敌城），退回最近己方据点。
+            dest = await self._char_fallback_location(
+                int(army.get("world_id") or 0), c, int(army.get("node_id") or 0))
+            c["location"] = {"node_id": int(dest)} if dest else {}
             await self.save_char(c)
 
     async def _refund_npc_army_grain(self, army: dict) -> int:
@@ -5222,7 +5463,9 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                         if not jail_node or int(jail_node.get("owner_faction", 0)) != pfid:
                             jail = await self._nearest_own_node(
                                 {"id": int(army["world_id"])},
-                                {"faction_id": pfid}, int(army.get("node_id", 0) or 0))
+                                {"faction_id": pfid},
+                                int(army.get("node_id", 0) or 0),
+                                dwell_only=True)
                         if not jail:
                             logger.info("[strategy] 追击方无己方据点可关押 %s，跳过擒获",
                                         leader.get("name"))
@@ -5247,7 +5490,8 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             await self.delete_army(army["id"])
             return
         home = await self._nearest_own_node(
-            {"id": army["world_id"]}, {"faction_id": army["faction_id"]}, army["node_id"])
+            {"id": army["world_id"]}, {"faction_id": army["faction_id"]},
+            army["node_id"], dwell_only=True)
         if home is None:
             await self._refund_npc_army_grain(army)
             await self._release_army_chars(army)
@@ -5319,16 +5563,27 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             await self.db.conn.execute(
                 "UPDATE strategy_tasks SET status=? WHERE id=?", (status, int(task_id)))
         c = await self.get_char(int(task["character_id"]))
+        payout = task.get("payout") or {}
+        # §4.4 远征任务结束回出发地；出发地易主/消失则退最近己方据点。
+        origin = int(payout.get("origin_node_id") or task.get("node_id") or 0)
+        dest = 0
+        if c:
+            dest = await self._char_fallback_location(
+                int(world["id"]), c, origin)
         if c and c.get("status") == "task":
             R.gain_exp(c, max(1, int((task.get("payout") or {}).get("ticks", 4)) * 2),
                        self._growth_cap_bonus())
             c["status"] = "idle"
+            c["location"] = {"node_id": int(dest)} if dest else {}
             await self.save_char(c)
         partner_id = int((task.get("payout") or {}).get("partner_char_id") or 0)
         if partner_id:
             partner = await self.get_char(partner_id)
             if partner and partner.get("status") == "task":
                 partner["status"] = "idle"
+                pdest = await self._char_fallback_location(
+                    int(world["id"]), partner, origin)
+                partner["location"] = {"node_id": int(pdest)} if pdest else {}
                 await self.save_char(partner)
 
     async def _refund_supply_grain(self, world: dict, sp: dict,
@@ -5669,9 +5924,30 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             "SELECT * FROM strategy_characters WHERE world_id=? AND status!='dead'",
             (world["id"],))
         char_by_id: dict[int, dict] = {}
+        # 落点安全网：城陷/易主后可能留下 idle/task/研究中的角色指向敌方、
+        # 无主或已删除据点（各占领路径未必都走 roll_captures 的清理）。
+        # 每 tick 校正一次，保证“人物永不落在敌方/无主/遗迹”的不变量，
+        # 也让旧存档无需等玩家打开面板即可自愈。
+        dwell_cache: dict[int, set[int]] = {}
         for row in rows:
             c = self._decode("strategy_characters", row)
             char_by_id[int(c["id"])] = c
+            status = str(c.get("status") or "")
+            loc_node = R.char_node_id(c)
+            if loc_node <= 0 or status not in ("idle", "task", "research"):
+                continue
+            node = nodes.get(loc_node)
+            fid = int(c.get("faction_id") or 0)
+            ids = await self._friendly_ids(
+                int(world["id"]), fid, dwell_cache) if fid > 0 else set()
+            if node and str(node.get("type") or "") in R.CHAR_DWELL_NODE_TYPES \
+                    and int(node.get("owner_faction") or 0) in ids:
+                continue
+            dest = await self._char_fallback_location(
+                int(world["id"]), c, loc_node)
+            c["location"] = {"node_id": int(dest)} if dest else {}
+            await self.save_char(c)
+        for c in char_by_id.values():
             per = int(icfg.get("recover_per_tick", 5))
             loc_node = int((c.get("location") or {}).get("node_id", 0) or 0)
             if loc_node in infirmary_nodes:
@@ -5687,9 +5963,25 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                               if scfg.get("enabled", True) else 0)
             await self.save_char(c)
         # 驻守角色按据点分组（民心魅力加成 / 守军驻守加成共用，避免重复查库）
+        # §5：只有「空闲 / 本地任务」算驻守；侦察/劫掠/运粮（location 记
+        # 出发地）与计略任务虽在同一据点，但人在外勤，不提供民心/守军/
+        # 瘟疫联动加成。
+        task_types: dict[int, str] = {}
+        for trow in await self._fetchall(
+                "SELECT character_id, task_type FROM strategy_tasks "
+                "WHERE world_id=? AND status='active'", (world["id"],)):
+            task_types[int(trow["character_id"])] = str(trow["task_type"])
+
+        def _is_resident(c: dict) -> bool:
+            if not R.is_resident_char(c):
+                return False
+            if str(c.get("status") or "") == "task":
+                return task_types.get(int(c["id"]), "") in R.TASK_LOCAL_TYPES
+            return True
+
         residents: dict[int, list[dict]] = {}
         for c in char_by_id.values():
-            if not R.is_resident_char(c):
+            if not _is_resident(c):
                 continue
             loc = R.char_node_id(c)
             if loc > 0:
@@ -5719,7 +6011,7 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 continue
             # §6：太守加成只在“驻守本城”时生效——出征/在外任务/被俘/押运
             # 期间暂停加成（不清除任命，回城后自动恢复）。
-            if not R.is_governor_resident(node, c):
+            if not (R.is_governor_resident(node, c) and _is_resident(c)):
                 continue
             taishou_nodes.add(nid)
         # 据点归属势力/联盟缓存（判断 NPC 与驻守角色归属，避免逐节点查库）
@@ -5821,7 +6113,15 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 for eff in (ev.get("data") or {}).get("effects") or []:
                     if eff.get("type") == "node_dot" and nid in (
                             (ev.get("target") or {}).get("node_ids") or []):
-                        guards = residents.get(nid, [])
+                        # 只认据点归属方/盟友的驻守角色：滞留敌城的外来
+                        # 角色不能替敌方提供瘟疫减伤/名医免疫。
+                        owner_fid_ev = int(node.get("owner_faction") or 0)
+                        if owner_fid_ev > 0:
+                            ally_ids_ev = ally_cache.get(owner_fid_ev) or {owner_fid_ev}
+                            guards = [gc for gc in residents.get(nid, [])
+                                      if int(gc.get("faction_id") or 0) in ally_ids_ev]
+                        else:
+                            guards = residents.get(nid, [])
                         # §9 瘟疫联动：doctor 驻守 → 完全免疫；其余驻守角色
                         # （≥1 人）→ 负向效果（掉兵/掉民心）减半
                         if any("doctor" in (gc.get("traits") or [])
@@ -5859,11 +6159,18 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
 
     async def _riot_injure_char(self, world: dict, node: dict,
                                 rng: random.Random):
-        """哗变时随机一名驻守角色受伤（§8.6）。"""
+        """哗变时随机一名本城驻守角色受伤（§8.6）。
+
+        此前只按 ``faction_id + status='idle'`` 抽人，会把同一势力但远在
+        其他据点（甚至出征在外）的角色也判伤；哗变只应影响本城驻守者。
+        """
         rows = await self._fetchall(
             "SELECT * FROM strategy_characters WHERE world_id=? AND faction_id=? "
-            "AND status='idle' LIMIT 50",
+            "AND status='idle'",
             (world["id"], int(node.get("owner_faction", 0) or 0)))
+        rows = [r for r in rows
+                if int((_loads(r.get("location_json"), {}) or {})
+                       .get("node_id", 0) or 0) == int(node["id"])]
         if not rows:
             return
         c = self._decode("strategy_characters", rng.choice(rows))
@@ -6039,7 +6346,7 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             # §6：城防 +10% 仅在太守“驻守本城”时生效（出征/在外任务/被俘
             # 期间暂停；_valid_node_governor 仍负责展示/清理口径）
             node_taishou = (int(gov.get("faction_id") or 0) in ally_ids
-                            and R.is_governor_resident(node, gov)
+                            and await self._governor_onsite(node, gov)
                             and self._salary_governor_paid(owner_f, node["id"]))
         for a in attackers:
             s = await self._army_sim(a)
@@ -6484,8 +6791,13 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                         continue
                     dead = R.apply_injury(c, 40)
                     c["status"] = "dead" if dead else "idle"
-                    c["location"] = {"node_id": node["id"]}
+                    # §4.4：覆没于敌方/无主据点时不得以 idle 状态留在原地
+                    dest = await self._char_fallback_location(
+                        int(world["id"]), c, int(node["id"]))
+                    c["location"] = {"node_id": int(dest)} if dest else {}
                     await self.save_char(c)
+                # §10.7：NPC 军团野战覆没时残粮退回国库（同围城覆没口径）
+                await self._refund_npc_army_grain(army)
                 await self.delete_army(army["id"])
             elif row.get("routed"):
                 army["_routed"] = True
@@ -6815,6 +7127,25 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             owned = [n for n in nodes if int(n.get("owner_faction", 0)) == fid]
             if not owned:
                 continue
+            bias = self._npc_personality_mult(f, "develop_bias")
+            # ① 稳定期懒初始化：必须放在节奏/在建门槛之前执行——否则势力
+            # 忙于建造或在间隔期内时，新占/刚完成据点的稳定期迟迟不起算，
+            # 实际升级节奏被额外拖慢一整个 interval_hours（§10.6 四条件）。
+            for node in owned:
+                level = max(1, int(node.get("level", 1) or 1))
+                if node.get("construction") or node.get("siege_state"):
+                    continue
+                if level >= R.node_potential(node):
+                    continue
+                if int(node.get("develop_ready_at", 0) or 0) > 0:
+                    continue
+                idx = level  # 目标等级 = level + 1，配置按目标等级索引
+                hours = float(stabilize[idx]) if 0 <= idx < len(stabilize) \
+                    else 8.0
+                node["develop_ready_at"] = now + max(
+                    0, int(hours * 3600 / max(0.1, bias)))
+                await self.save_node(node)
+                changed = True
             # ④ 节奏上限：两次启动间隔 ≥ interval_hours；同时在建 ≤ max_building
             rec = dict(progress.get(str(fid)) or {})
             last_start = int(rec.get("last_start_at", 0) or 0)
@@ -6827,9 +7158,7 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 int(world["id"]), fid, ally_cache) or {fid}
             floor = self._npc_reserve(f)
             treasury = self._npc_treasury(f)
-            bias = self._npc_personality_mult(f, "develop_bias")
             cands: list[tuple[int, int, int, int, dict]] = []
-            initialized: list[dict] = []
             for node in owned:
                 level = max(1, int(node.get("level", 1) or 1))
                 potential = R.node_potential(node)
@@ -6837,22 +7166,16 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                     continue
                 if level >= potential:
                     continue
-                target = level + 1
                 ready_at = int(node.get("develop_ready_at", 0) or 0)
-                if ready_at <= 0:
-                    # ① 稳定期懒初始化：连续占领 stabilize_hours[目标等级] 后才可升级
-                    idx = target - 1
-                    hours = float(stabilize[idx]) if 0 <= idx < len(stabilize) \
-                        else 8.0
-                    wait = max(0, int(hours * 3600 / max(0.1, bias)))
-                    node["develop_ready_at"] = now + wait
-                    initialized.append(node)
-                    continue
-                if ready_at > now:
+                if ready_at <= 0 or ready_at > now:
                     continue
                 cost_coin, cost_iron = R.node_upgrade_cost(level)
-                # ② 国库付费：扣后不得低于守财底线
-                if int(treasury["coin"]) - cost_coin < int(floor["coin"]):
+                # ② 国库付费：候选必须“国库够”才进入排序（§10.6）。若把
+                # 买不起的高价目标也留在候选里，排序后取第 1 个会直接 continue，
+                # 同势力明明买得起的低价目标就永远等不到机会。
+                free_coin = int(treasury["coin"]) - int(
+                    treasury.get("reserved_coin", 0) or 0)
+                if free_coin - cost_coin < int(floor["coin"]):
                     continue
                 if int(treasury["iron"]) - cost_iron < int(floor["iron"]):
                     continue
@@ -6869,10 +7192,6 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 cands.append((
                     potential, border,
                     int(R.NODE_OUTPUT_VALUE.get(node["type"], 40)), -level, node))
-            if initialized:
-                for node in initialized:
-                    await self.save_node(node)
-                changed = True
             if not cands:
                 continue
             # 选城优先级（确定性）：潜力 ↓、接壤 ↓、产出值 ↓、等级 ↑
@@ -7381,7 +7700,7 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                     gov = await self._valid_node_governor(rnode) if rnode else None
                     owner_f = await self.get_faction(
                         int((rnode or {}).get("owner_faction") or 0)) if rnode else None
-                    if rnode and gov and R.is_governor_resident(rnode, gov) \
+                    if rnode and gov and await self._governor_onsite(rnode, gov) \
                             and self._salary_governor_paid(owner_f, rnode["id"]):
                         duration = max(1, duration - 1)
                         for e in rumor_effects:
@@ -7612,10 +7931,19 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         salary_per = (((self.main_cfg().get("faction") or {}).get("salary")
                        or {}).get("per_tick") or {})
         out_nodes = []
-        # 驻守人物：所在地 == 据点 且状态为 idle/task（§所在地机制）
+        # 驻守人物：所在地 == 据点 且状态为 idle/本地任务（§所在地机制）；
+        # 远征（侦察/劫掠/运粮）与计略任务人在外勤，不算驻守。
+        active_task_types = {
+            int(r["character_id"]): str(r["task_type"])
+            for r in await self._fetchall(
+                "SELECT character_id, task_type FROM strategy_tasks "
+                "WHERE world_id=? AND status='active'", (wid,))}
         residents_by_node: dict[int, list[dict]] = {}
         for c0 in world_chars:
             if not R.is_resident_char(c0):
+                continue
+            if str(c0.get("status") or "") == "task" and \
+                    active_task_types.get(int(c0["id"])) not in R.TASK_LOCAL_TYPES:
                 continue
             nid0 = R.char_node_id(c0)
             if nid0 > 0:
@@ -7630,6 +7958,7 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 gov and gov.get("status") not in
                 ("dead", "captive", "transfer", "wander") and
                 R.injury_state(gov.get("injury", 0)) != "dead")
+            gov_resident = bool(gov and await self._governor_onsite(n, gov))
             out_nodes.append({
                 "id": n["id"], "name": n["name"], "type": n["type"],
                 "terrain": n["terrain"], "level": n["level"],
@@ -7669,7 +7998,7 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                     "owner_user_id": str((gov or {}).get("owner_user_id") or ""),
                     "status": str((gov or {}).get("status") or ""),
                     "valid": gov_valid,
-                    "resident": bool(gov and R.is_governor_resident(n, gov)),
+                    "resident": gov_resident,
                     "salary_paid": int(n["id"]) not in unpaid_gov_by_fid.get(
                         int(n.get("owner_faction") or 0), set()),
                     "salary_per_tick": int(salary_per.get("taishou", 0) or 0),
@@ -7843,6 +8172,11 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
         for c0 in await self.get_chars(world_id=world["id"]):
             char_names[c0["id"]] = c0["name"]
         growth_cap_bonus = self._growth_cap_bonus()
+        active_tasks = await self.get_tasks(world["id"])
+        # 驻守口径（§5）：只有本地任务算驻守，远征/计略任务不算
+        local_task_char_ids = {
+            int(t["character_id"]) for t in active_tasks
+            if str(t.get("task_type")) in R.TASK_LOCAL_TYPES}
         chars = []
         for c in await self.get_chars(owner_user_id=p["user_id"], world_id=world["id"]):
             chars.append({
@@ -7874,7 +8208,9 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 "stamina": c["stamina"], "status": c["status"],
                 "status_name": R.CHAR_STATUS_NAMES.get(
                     str(c.get("status") or ""), str(c.get("status") or "")),
-                "resident": R.is_resident_char(c),
+                "resident": R.is_resident_char(c) and (
+                    str(c.get("status") or "") != "task"
+                    or int(c["id"]) in local_task_char_ids),
                 "can_move": R.can_move_char(c),
                 "location_node_id": int(
                     (c.get("location") or {}).get("node_id", 0) or 0),
@@ -7908,7 +8244,7 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                 "character_ids": a.get("characters") or [],
             })
         tasks = []
-        for t in await self.get_tasks(world["id"]):
+        for t in active_tasks:
             c = next((x for x in chars if x["id"] == t["character_id"]), None)
             if not c:
                 continue
@@ -8016,7 +8352,7 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
                             if int(n["owner_faction"]) in gov_ids)
             gov_chars = [c for c in await self.get_chars(world_id=world["id"])
                          if int(c.get("faction_id") or 0) in gov_ids and
-                         c.get("status") not in ("dead", "captive")]
+                         c.get("status") not in ("dead", "captive", "transfer")]
             gov_node_by_char = {
                 int(n.get("governor_char_id") or 0): n
                 for n in nodes
@@ -8119,7 +8455,8 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             }
         cap_info = await self._char_cap_info(world["id"], p)
         roster_count = sum(
-            1 for c in chars if c.get("status") not in ("dead", "captive"))
+            1 for c in chars
+            if c.get("status") not in ("dead", "captive", "transfer"))
         return {
             "user_id": p["user_id"], "faction_id": p["faction_id"],
             "coin": p["coin"], "grain": p["grain"], "iron": p["iron"],
@@ -8252,12 +8589,12 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
     def _task_meta(self) -> dict:
         """任务选择提示：核心属性 / 最佳职责 / 产出 / 据点加成。"""
         node_bonus = {"govern": "仙城 ×1.5", "farm": "灵谷田 ×2.0",
-                      "mining": "灵脉矿 ×2.0 / 关隘·遗迹 ×1.3",
+                      "mining": "灵脉矿 ×2.0 / 关隘 ×1.3",
                       "trade": "坊市 ×1.3", "seek": "分舵 ×1.4",
-                      "hunt": "遗迹 ×1.3", "build": "仙城 ×1.2"}
+                      "build": "仙城 ×1.2"}
         meta = {}
         for k in ("govern", "farm", "mining", "trade", "seek", "scout", "build",
-                  "train", "hunt", "heal", "research"):
+                  "train", "hunt", "raid", "heal", "research"):
             best = R.TASK_BEST_ROLE.get(k)
             if best:
                 role = R.ROLE_NAMES.get(best, best)
@@ -8292,7 +8629,7 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             "buildings": {k: v for k, v in self.BUILDINGS.items()},
             "task_types": {k: R.TASK_NAMES.get(k, k) for k in
                            ("govern", "farm", "mining", "trade", "seek", "scout",
-                            "build", "train", "hunt", "heal", "research")},
+                            "build", "train", "hunt", "raid", "heal", "research")},
             "task_meta": self._task_meta(),
             "task_hours": (cfg.get("task") or {}).get("hours_options", [1, 2, 4, 8]),
             "rarity_names": dict(R.RARITY_NAMES),
@@ -8335,7 +8672,7 @@ class StrategyManager(StrategyFactionMixin, StrategyCaptiveMixin,
             "faction_cfg": cfg.get("faction") or {},
             "alliance_cfg": cfg.get("alliance") or {},
             "node_types": {"city": "仙城", "pass": "关隘", "branch": "分舵",
-                           "market": "坊市", "grain": "良田", "mine": "矿脉",
+                           "market": "坊市", "grain": "灵谷田", "mine": "灵脉矿",
                            "ruin": "遗迹"},
             "diplomacy_cfg": cfg.get("diplomacy") or {},
             "favor_cfg": (cfg.get("diplomacy") or {}).get("favor") or {},

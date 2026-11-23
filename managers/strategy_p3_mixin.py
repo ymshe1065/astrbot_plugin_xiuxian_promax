@@ -765,7 +765,11 @@ class StrategyP3Mixin:
                 for _score, bid in ranked:
                     bf = buyers[bid]
                     t = self._npc_treasury(bf)
-                    free_coin = max(0, int(t["coin"]) - int(t["reserved_coin"]))
+                    # §10.7 守财底线：出价后 coin - reserved_coin 不得低于
+                    # treasury_reserve（收购同样受底线约束，保住东山再起本金）。
+                    reserve_coin = int(self._npc_reserve(bf).get("coin", 0) or 0)
+                    free_coin = max(
+                        0, int(t["coin"]) - int(t["reserved_coin"]) - reserve_coin)
                     amount = min(want, free_coin // price)
                     if amount <= 0:
                         continue
@@ -1313,9 +1317,16 @@ class StrategyP3Mixin:
         army["state"] = "idle"
         army["path"] = []
         army["edge_pos"] = 0.0
-        if int(node_id) > 0:
-            army["node_id"] = int(node_id)
+        land = int(node_id or army.get("node_id") or 0)
+        # §4.4：护送沿途据点可能易主，落点须仍为己方/联盟，否则退回最近己方据点
+        land = await self._char_fallback_location(
+            int(army.get("world_id") or 0),
+            {"faction_id": int(army.get("faction_id") or 0)}, land)
+        if land > 0:
+            army["node_id"] = int(land)
         await self.save_army(army)
+        # 护送结束：成员所在地与军团落点同步（§4.2）
+        await self._sync_army_chars_location(army)
         return True
 
     async def _release_orphan_convoy_escorts(self, world: dict,
@@ -1330,7 +1341,15 @@ class StrategyP3Mixin:
             army["state"] = "idle"
             army["path"] = []
             army["edge_pos"] = 0.0
+            # 停靠点若已易主为敌方/无主，退回最近己方据点（§4.4）
+            land = await self._char_fallback_location(
+                int(world["id"]), {"faction_id": int(army.get("faction_id") or 0)},
+                int(army.get("node_id") or 0))
+            if land > 0:
+                army["node_id"] = int(land)
             await self.save_army(army)
+            # 孤儿护送军解除占用：成员所在地同步到军团停靠点
+            await self._sync_army_chars_location(army)
             released += 1
         return released
 
@@ -1464,6 +1483,8 @@ class StrategyP3Mixin:
                         int(army.get("node_id", 0)) != int(cur_id):
                     army["node_id"] = int(cur_id)
                     await self.save_army(army)
+                    # 护送军随粮队移动：成员 location 同步（§4.2）
+                    await self._sync_army_chars_location(army)
             remaining.append(cv)
         # idx 每 tick 都在推进，必须落盘（否则进度丢失）
         data["convoys"] = remaining
