@@ -11,6 +11,144 @@ const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 const strategyCss = fs.readFileSync(path.join(root, 'strategy/strategy.css'), 'utf8');
 const strategyJs = fs.readFileSync(path.join(root, 'strategy/strategy.js'), 'utf8');
 const strategyHtml = fs.readFileSync(path.join(root, 'strategy/index.html'), 'utf8');
+const vm = require('node:vm');
+
+// 从 strategy.js 截取顶层函数：按大括号配平（这些函数内没有对象解构嵌套
+// 到影响配平的程度；safeColor 含正则 {3} 之类不在此处截取）。
+function extractStrategyFn(name) {
+  const start = strategyJs.indexOf('function ' + name + '(');
+  assert.ok(start >= 0, 'strategy.js 缺少函数 ' + name);
+  const brace = strategyJs.indexOf('{', start);
+  let depth = 0;
+  for (let i = brace; i < strategyJs.length; i += 1) {
+    const ch = strategyJs[i];
+    if (ch === '{') depth += 1;
+    else if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) return strategyJs.slice(start, i + 1);
+    }
+  }
+  throw new Error('无法截取函数 ' + name);
+}
+
+function renderWorldTab(state) {
+  const ctx = {
+    S: state,
+    safeColor: (c) => (/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(String(c || ''))
+      ? String(c) : '#9e9e9e'),
+    myFactionId: () => Number(((state || {}).player || {}).faction_id || -999),
+  };
+  vm.createContext(ctx);
+  vm.runInContext(extractStrategyFn('esc') + '\n' +
+    extractStrategyFn('tabWorld') + '\nthis.__out = tabWorld();', ctx);
+  return ctx.__out;
+}
+
+test('天下页兼容旧风声字符串与缺失字段，且用户可控文本全部转义', () => {
+  // 旧快照的 winds 是字符串数组；字段缺失时不能渲染出 undefined/NaN。
+  const legacy = renderWorldTab({
+    joined: false,
+    winds: ['旧风声 <b>不应加粗</b>'],
+    npc_world: {
+      factions: [{
+        id: 2,
+        name: '<img src=x onerror=alert(1)>',
+        color: 'javascript:alert(1)',
+        public_threat: null,
+        share: undefined,
+        growth: null,
+        tier: null,
+        armies: undefined,
+        is_npc: true,
+        personality_name: '<b>侵略者</b>',
+        aggression: null,
+        threat_mult: undefined,
+        relations: [{ target_name: '<script>x</script>', relation: 'war', h: null }],
+        wars: [{ target_name: '<x>', goal_name: '<y>', war_score: undefined,
+          exhaustion: null, frenzy_remaining: null, ceasefire_remaining: 2 }],
+      }],
+    },
+  });
+  assert.ok(legacy.includes('旧风声 &lt;b&gt;'), '旧字符串风声必须转义后展示');
+  assert.ok(legacy.includes('&lt;img src=x onerror=alert(1)&gt;'), '势力名必须转义');
+  assert.ok(legacy.includes('&lt;script&gt;x&lt;/script&gt;'), '关系目标名必须转义');
+  assert.ok(legacy.includes('background:#9e9e9e'), '非法颜色必须回退灰点');
+  assert.ok(!legacy.includes('undefined'), '缺失数值不能渲染为 undefined');
+  assert.ok(!legacy.includes('NaN'), '缺失/非法数值不能渲染为 NaN');
+  assert.ok(legacy.includes('停火中'), '停火剩余 tick 应正常展示');
+  // relations/wars 是对象（旧结构）时按空列表处理，不能抛异常
+  const odd = renderWorldTab({
+    joined: false,
+    npc_world: {
+      winds: {},
+      factions: [{ id: 3, name: '异常势力', is_npc: true, relations: {}, wars: {} }],
+    },
+  });
+  assert.ok(odd.includes('异常势力'));
+  assert.ok(odd.includes('暂无战事'));
+});
+
+test('俘虏处置按钮与 sell_enable / ransom_enable / 主副权限一致', () => {
+  function renderButtons(state, c, cap, ctx) {
+    const context = { S: state, esc: (s) => String(s === null || s === undefined ? '' : s) };
+    vm.createContext(context);
+    vm.runInContext(extractStrategyFn('captiveActionButtons'), context);
+    context.__c = c;
+    context.__cap = cap;
+    context.__ctx = ctx;
+    vm.runInContext('this.__out = captiveActionButtons(__c, __cap, __ctx);', context);
+    return context.__out;
+  }
+  const c = { id: 7, ransom: 0 };
+  const all = renderButtons(
+    { meta: { captive_cfg: {} } }, c, { can_manage: true }, { kind: 'holding' });
+  assert.ok(all.includes('data-act="sell-captive"'), '默认开启时应显示售卖');
+  assert.ok(all.includes('data-act="ransom-set"'), '默认开启时应显示定价赎回');
+  assert.ok(all.includes('data-act="execute-captive"'), '主/副应显示处决');
+
+  const off = renderButtons(
+    { meta: { captive_cfg: { sell_enable: false, ransom_enable: false } } },
+    c, { can_manage: true }, { kind: 'holding' });
+  assert.ok(!off.includes('data-act="sell-captive"'), 'sell_enable=false 不应显示售卖');
+  assert.ok(!off.includes('data-act="ransom-set"'), 'ransom_enable=false 不应显示定价');
+  assert.ok(off.includes('data-act="execute-captive"'), '处决不受售卖开关影响');
+
+  const member = renderButtons(
+    { meta: { captive_cfg: {} } }, c, { can_manage: false }, { kind: 'holding' });
+  assert.ok(!member.includes('data-act="release"'), '非主/副不应显示释放');
+  assert.ok(!member.includes('data-act="execute-captive"'), '非主/副不应显示处决');
+  assert.ok(!member.includes('data-act="sell-captive"'), '非主/副不应显示售卖');
+  assert.ok(member.includes('data-act="persuade"'), '普通成员仍可劝降');
+  assert.match(strategyCss, /\.captive-detail \.kv\s*\{[^}]*flex-wrap:\s*wrap/s,
+    '俘虏详情长字段在窄屏需换行，不能顶出弹层');
+});
+
+test('「天下」页签已注册且未入场可打开', () => {
+  assert.match(strategyHtml, /data-tab="world"[^>]*>天下<\/button>/, '战略页需注册天下页签');
+  assert.ok(strategyJs.includes('const isWorld = activeTab === "world"'),
+    'renderTab 需识别天下页');
+  assert.ok(strategyJs.includes('!isGuide && !isWorld'),
+    '「天下」「指引」不依赖入场态，未入场也要能渲染');
+  // 仅有 renderTab 白名单不够：入场遮罩是全屏 overlay，会把页签一起挡住。
+  assert.match(strategyHtml, /id="btnJoinBrowse"/, '入场遮罩需提供「先看看」入口');
+  assert.match(strategyHtml, /id="btnJoinOpen"/, '收起遮罩后需保留顶栏「入场」入口');
+  assert.ok(strategyJs.includes('|| joinBrowse'), '轮询不能把用户已收起的遮罩反复弹回');
+  assert.ok(strategyJs.includes('activateTab("world")'),
+    '先看看应直接落到「天下」页');
+  // 外交表不能把内部关系码直接展示给玩家（NPC 求和会写 propose_truce_out）。
+  for (const rel of ['propose_truce_out', 'propose_ally_out', 'propose_war_out']) {
+    assert.ok(strategyJs.includes(rel + ':'), '外交关系码 ' + rel + ' 需要中文文案');
+  }
+  assert.ok(strategyJs.includes('!r.rel.endsWith("_out")'),
+    '已发出的提案不能显示「接受/拒绝」按钮（后端会拒绝）');
+});
+
+test('NPC 宣战 / 求和通知不会显示原始 kind', () => {
+  assert.ok(strategyJs.includes('kind === "war_declared"'), '宣战通知需要专用文案');
+  assert.ok(strategyJs.includes('kind === "peace_offer"'), '求和通知需要专用文案');
+  assert.ok(strategyJs.includes('pl.faction_name || "NPC 势力"'),
+    '通知文案应带势力名而不是 war_declared');
+});
 
 test('移动端顶栏控件不会被 flex 压缩或换行', () => {
   assert.ok(
@@ -47,6 +185,20 @@ test('仙域争霸入口带文字标签，移动端可当前页打开', () => {
   assert.match(html, /id="btnStrategy"[\s\S]*?class="strategy-label">争霸<\/span>/, '顶栏入口必须显示「争霸」文字');
   assert.match(html, /id="accStrategy"/, '账号设置里需要第二个带文字的争霸入口');
   assert.ok(js.includes('const openStrategy = (e) =>'), '移动端 WebView 忽略 target=_blank 时需要回退为当前页跳转');
+});
+
+test('遗迹可停留判定读取后端 meta.location_cfg.dwell_node_types', () => {
+  // 后端 _frontend_meta 把 dwell_node_types 下发在 meta.location_cfg 下；
+  // 前端若只读 meta.dwell_node_types 会退回“ruin 不可停留”的旧逻辑，
+  // 导致遗迹能任命太守却无法传送人物/编军/派遣。
+  assert.ok(
+    strategyJs.includes('(meta.location_cfg || {}).dwell_node_types'),
+    'dwellTypes 必须读取 meta.location_cfg.dwell_node_types'
+  );
+  assert.ok(
+    strategyJs.includes('meta.dwell_node_types'),
+    '同时保留顶层字段兼容旧后端'
+  );
 });
 
 test('战略页面必须用 [hidden] 兜底 display:flex 的弹层', () => {
@@ -184,8 +336,8 @@ test('驻守军团成员可执行本地任务且出军自动中断', () => {
     '任务下拉需列出驻守军团成员并标记「随军」'
   );
   assert.ok(
-    strategyJs.includes('随军角色只能执行当前据点的本地任务'),
-    '远征任务需拦截随军角色'
+    strategyJs.includes('军团角色（含主将/随军）只能执行当前据点的本地任务'),
+    '远征任务需拦截军团角色'
   );
 });
 

@@ -1458,6 +1458,24 @@ class TestStrategyV440Round5(unittest.IsolatedAsyncioTestCase):
         self.assertTrue((await self.m.build("u1", int(node["id"]), "manor"))["ok"])
         self.assertTrue((await self.m.upgrade_node("u1", int(node["id"])))["ok"])
 
+    async def test_ruin_allows_move_char_and_exposes_resident(self):
+        """遗迹常规据化：人物可传送进驻，快照驻守名册可见，meta 下发可停留类型。"""
+        node = next(n for n in await self.m.get_nodes(self.wid)
+                    if n["type"] == "ruin")
+        node["owner_faction"] = int(self.p1["faction_id"])
+        await self.m.save_node(node)
+        c = await self._char("u1")
+        r = await self.m.move_char("u1", int(c["id"]), int(node["id"]))
+        self.assertTrue(r["ok"], r)
+        c2 = await self.m.get_char(int(c["id"]))
+        self.assertEqual(self.R.char_node_id(c2), int(node["id"]))
+        state = await self.m.get_state("u1")
+        self.assertIn(
+            "ruin", state["meta"]["location_cfg"]["dwell_node_types"])
+        n_out = next(n for n in state["nodes"] if int(n["id"]) == int(node["id"]))
+        self.assertIn(int(c["id"]),
+                      [int(x["id"]) for x in n_out.get("residents") or []])
+
     # --- 3. 旧存档 idle 落点自愈 --------------------------------------
     async def test_repair_relocates_invalid_idle_location(self):
         c = await self._char("u1")
@@ -1812,7 +1830,7 @@ class TestStrategyV440Round6(unittest.IsolatedAsyncioTestCase):
         self.assertIn("ruin", self.R.CHAR_DWELL_NODE_TYPES)
 
     async def test_char_loyalty_full_backfill_v85(self):
-        """v85 迁移：非俘虏武将忠诚置满，关押俘虏保留原忠诚。"""
+        """v85：仅玩家势力非俘虏武将置满；押运/在野/NPC 保持原忠诚。"""
         c = await self.m.get_char(int((await self._char("u1"))["id"]))
         c["loyalty"] = 35
         c["status"] = "idle"
@@ -1821,22 +1839,52 @@ class TestStrategyV440Round6(unittest.IsolatedAsyncioTestCase):
         cap["loyalty"] = 12
         cap["status"] = "captive"
         await self.m.save_char(cap)
+        p1 = await self.m.get_player("u1", self.wid)
+        fid1 = int(p1["faction_id"])
+        npc_row = await self.m._fetchone(
+            "SELECT id FROM strategy_factions WHERE world_id=? AND kind='npc' "
+            "AND alive=1 LIMIT 1", (self.wid,))
+        self.assertIsNotNone(npc_row)
+
+        def _char_payload(name: str, loyalty: int, status: str,
+                          faction_id: int, owner: str) -> dict:
+            return {"world_id": self.wid, "faction_id": int(faction_id),
+                    "owner_user_id": owner, "name": name, "role": "general",
+                    "rarity": "common", "profession": "sword", "stats": {},
+                    "traits": [], "loyalty": int(loyalty),
+                    "status": status, "location": {}}
+
+        transfer = _char_payload("押运武将", 12, "transfer", fid1, "u1")
+        await self.m.insert_char(transfer)
+        wander = _char_payload("在野流将", 20, "wander", 0, "")
+        await self.m.insert_char(wander)
+        npc = _char_payload("NPC 武将", 35, "idle", int(npc_row["id"]), "")
+        await self.m.insert_char(npc)
+        dead = _char_payload("已陨落武将", 0, "dead", fid1, "u1")
+        await self.m.insert_char(dead)
         await self.m._commit()
+
+        async def _assert_loyalty() -> None:
+            self.assertEqual(
+                int((await self.m.get_char(int(c["id"])))["loyalty"]), 100)
+            self.assertEqual(
+                int((await self.m.get_char(int(cap["id"])))["loyalty"]), 12)
+            self.assertEqual(
+                int((await self.m.get_char(int(transfer["id"])))["loyalty"]), 12)
+            self.assertEqual(
+                int((await self.m.get_char(int(wander["id"])))["loyalty"]), 20)
+            self.assertEqual(
+                int((await self.m.get_char(int(npc["id"])))["loyalty"]), 35)
+            self.assertEqual(
+                int((await self.m.get_char(int(dead["id"])))["loyalty"]), 0)
 
         await self.migration._ensure_strategy_v85(self.conn)
         await self.conn.commit()
-        self.assertEqual(
-            int((await self.m.get_char(int(c["id"])))["loyalty"]), 100)
-        self.assertEqual(
-            int((await self.m.get_char(int(cap["id"])))["loyalty"]), 12)
-
+        await _assert_loyalty()
         # 再执行一次结果一致（迁移本身可安全重放）
         await self.migration._ensure_strategy_v85(self.conn)
         await self.conn.commit()
-        self.assertEqual(
-            int((await self.m.get_char(int(c["id"])))["loyalty"]), 100)
-        self.assertEqual(
-            int((await self.m.get_char(int(cap["id"])))["loyalty"]), 12)
+        await _assert_loyalty()
 
     async def test_city_fall_survivor_and_tick_sweep_relocate(self):
         """城陷未被俘的 idle 角色不得滞留敌城；tick 安全网同样自愈。"""

@@ -381,6 +381,53 @@ class TestStrategyRound4Fixes(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(int(p1.get("coin", 0) or 0), 9_000)
         self.assertEqual(int(p2.get("coin", 0) or 0), 11_000)
 
+    async def test_peace_indemnity_requires_full_payment(self):
+        """提案方余额在应答前被花掉时，和谈不得只支付一部分赔款。"""
+        fid1 = int(self.p1["faction_id"])
+        fid2 = int(self.p2["faction_id"])
+        await self.m.diplomacy_propose("u1", fid2, "war")
+        await self._give("u1", coin=10_000)
+        await self._give("u2", coin=10_000)
+        await self.m.diplomacy_propose("u1", fid2, "peace", indemnity=1000)
+        # 应答前把提案方势力主钱包压到不足
+        await self._give("u1", coin=500)
+        with self.assertRaises(self.StrategyError):
+            await self.m.diplomacy_respond("u2", fid1, True)
+        p1 = await self.m.get_player("u1", self.wid)
+        p2 = await self.m.get_player("u2", self.wid)
+        self.assertEqual(int(p1.get("coin", 0) or 0), 500)
+        self.assertEqual(int(p2.get("coin", 0) or 0), 10_000)
+
+    async def test_peace_indemnity_cap_uses_leader_wallet(self):
+        """v4.5.7：盟员/副主提案和谈时，赔款上限按盟主钱包而非操作者钱包。"""
+        fid1 = int(self.p1["faction_id"])
+        fid2 = int(self.p2["faction_id"])
+        await self.m.diplomacy_propose("u1", fid2, "war")
+        # u3 的势力并入 u1 的联盟，并给 u3 联盟副主官职
+        await self.m.faction_apply("u3", fid1)
+        await self.m.faction_approve("u1", "u3")
+        # 跳过 12h 任官观察期：把入盟时间回拨
+        await self.m._execute(
+            "UPDATE strategy_members SET joined_at=? "
+            "WHERE faction_id=? AND user_id=?",
+            (_now() - 13 * 3600, fid1, "u3"))
+        await self.m._commit()
+        await self.m.faction_set_position("u1", "u3", "deputy")
+        await self._give("u1", coin=10_000)
+        await self._give("u2", coin=10_000)
+        # 操作者钱包为 0：旧逻辑会以 0 计算上限而拒绝提案
+        await self._give("u3", coin=0)
+
+        r = await self.m.diplomacy_propose("u3", fid2, "peace", indemnity=1000)
+        self.assertTrue(r["ok"], r)
+        await self.m.diplomacy_respond("u2", fid1, True)
+        p1 = await self.m.get_player("u1", self.wid)
+        p3 = await self.m.get_player("u3", self.wid)
+        p2 = await self.m.get_player("u2", self.wid)
+        self.assertEqual(int(p1.get("coin", 0) or 0), 9_000)
+        self.assertEqual(int(p3.get("coin", 0) or 0), 0)
+        self.assertEqual(int(p2.get("coin", 0) or 0), 11_000)
+
     # ------------------------------------------------------------------
     # 11. 治理/崩溃只用本势力名册：盟主不再因盟友活跃而免于僵尸化
     # ------------------------------------------------------------------

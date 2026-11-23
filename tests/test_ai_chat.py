@@ -23,6 +23,7 @@ from importlib import import_module  # noqa: E402
 
 knowledge = import_module(f"{PKG}.utils.knowledge_retriever")
 newbie_guide = import_module(f"{PKG}.utils.newbie_guide")
+static_pages = import_module(f"{PKG}.utils.static_pages")
 ctx_mod = import_module(f"{PKG}.managers.channel_context_manager")
 chat_mod = import_module(f"{PKG}.managers.ai_chat_manager")
 handler_mod = import_module(f"{PKG}.handlers.ai_chat_handler")
@@ -251,10 +252,13 @@ class TestKnowledgeRetriever(unittest.TestCase):
         self.assertFalse(any(h.chunk.admin_only for h in player_hits))
 
     def test_version_report_flags_stale_docs(self):
-        stale = self.r.stale_docs("v8.0.3")
+        # 期望版本跟随 HELP_VERSION：文档随游戏版本升级时，测试不应写死旧版本
+        expected = static_pages.HELP_VERSION
+        stale = self.r.stale_docs(expected)
         self.assertIn("物品图鉴", stale, "物品图鉴仍标 v7.9.26，必须被告警出来")
-        report = dict((label, ver) for label, ver, _ in self.r.version_report("v8.0.3"))
-        self.assertEqual(report.get("新手引导"), "v8.0.3")
+        report = dict((label, ver) for label, ver, _ in
+                      self.r.version_report(expected))
+        self.assertEqual(report.get("新手引导"), expected)
 
     def test_multi_search_rewards_multi_query_hits(self):
         single = self.r.multi_search(["押镖"], top_k=5)

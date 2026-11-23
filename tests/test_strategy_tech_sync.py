@@ -192,6 +192,69 @@ class TestStrategyTechSync(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(int(tech.get("military", 0)), 1)
         self.assertEqual((tech.get("pending") or {}).get("line"), "agri")
 
+    async def test_research_rejects_dying_char(self):
+        """濒死武将不能主研：显式指派与自动挑选都必须跳过。"""
+        await self._set_resources(coin=9_000, iron=9_000)
+        c = await self._idle_char()
+        c["injury"] = 70
+        await self.m.save_char(c)
+        await self.m._commit()
+        with self.assertRaises(self.StrategyError) as cm:
+            await self.m.tech_research("u1", "military", char_id=int(c["id"]))
+        self.assertIn("伤势过重", str(cm.exception))
+        p = await self.m.get_player("u1", self.wid)
+        self.assertEqual(int(p["coin"]), 9_000)
+        self.assertEqual(int(p["iron"]), 9_000)
+        c = await self.m.get_char(int(c["id"]))
+        self.assertEqual(c["status"], "idle")
+        f = await self.m.get_faction(self.fid)
+        self.assertFalse((f.get("tech") or {}).get("pending"))
+        # 自动挑选同样跳过濒死：把所有空闲角色置为濒死后无法开研究
+        for x in await self.m.get_chars(
+                faction_id=self.fid, world_id=self.wid, status="idle"):
+            x["injury"] = 70
+            await self.m.save_char(x)
+        await self.m._commit()
+        with self.assertRaises(self.StrategyError):
+            await self.m.tech_research("u1", "military")
+        p = await self.m.get_player("u1", self.wid)
+        self.assertEqual(int(p["coin"]), 9_000)
+        self.assertEqual(int(p["iron"]), 9_000)
+
+    async def test_expired_research_keeps_moved_char_new_research(self):
+        """v4.5.7：角色转投他势力并开始新研究后，旧研究完成不得清其状态。"""
+        c = await self._idle_char()
+        f = await self.m.get_faction(self.fid)
+        f["tech"] = {
+            "points": 0, "military": 0,
+            "pending": {"line": "military", "by": "u1",
+                        "finish_at": _now() - 1, "char_id": int(c["id"]),
+                        "char_name": c["name"], "exp": 60},
+        }
+        await self.m.save_faction(f)
+        await self.m._commit()
+
+        await self.db.create_player(self.Player(
+            user_id="u2", gold=10_000_000, user_name="测试u2"))
+        free = [n for n in await self.m.get_nodes(self.wid)
+                if int(n.get("owner_faction", 0) or 0) == 0
+                and n.get("type") != "ruin"]
+        self.assertTrue(free)
+        await self.m.enter_game("u2", "乙", node_id=int(free[0]["id"]))
+        p2 = await self.m.get_player("u2", self.wid)
+        c["faction_id"] = int(p2["faction_id"])
+        c["owner_user_id"] = "u2"
+        c["status"] = "research"
+        await self.m.save_char(c)
+        await self.m._commit()
+
+        await self.m._step_tech(self.world)
+        c = await self.m.get_char(int(c["id"]))
+        self.assertEqual(c["status"], "research")
+        f = await self.m.get_faction(self.fid)
+        self.assertEqual(int((f.get("tech") or {}).get("military", 0)), 1)
+        self.assertNotIn("pending", f.get("tech") or {})
+
 
 if __name__ == "__main__":
     unittest.main()

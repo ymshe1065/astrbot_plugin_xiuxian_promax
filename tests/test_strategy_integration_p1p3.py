@@ -455,10 +455,22 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
         v2 = await self.m.get_captives_view(self.wid, fid1, user_id="u2")
         self.assertFalse(v2["can_manage"])
 
-        # 处决：战功入账 + 同牢其他俘虏忠诚下降 + 目标陨落
+        # 处决：战功入账 + 同牢其他俘虏忠诚下降 + 双方外交同步下降
         off_before = int((await self.m.get_char(int(off2["id"])))["loyalty"])
         p1 = await self.m.get_player("u1", self.wid)
         merit0 = int(p1.get("merit", 0) or 0)
+        fid2 = int(self.p2["faction_id"])
+
+        def _dip_score(f: dict, other: int) -> int:
+            return int(((f.get("diplomacy") or {}).get(str(int(other))) or {})
+                       .get("score", 0) or 0)
+
+        f1_before = await self.m.get_faction(fid1)
+        f2_before = await self.m.get_faction(fid2)
+        dip1_0 = _dip_score(f1_before, fid2)
+        dip2_0 = _dip_score(f2_before, fid1)
+        exec_pen = int((self.m.main_cfg().get("captive") or {})
+                       .get("execute_diplomacy_penalty", -8))
         r = await self.m.execute_captive("u1", int(gen2["id"]))
         self.assertTrue(r["ok"])
         self.assertGreater(r["merit"], 0)
@@ -471,10 +483,16 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
                          max(0, off_before - int(
                              (self.m.main_cfg().get("captive") or {})
                              .get("execute_deterrence", 3))))
+        f1_after = await self.m.get_faction(fid1)
+        f2_after = await self.m.get_faction(fid2)
+        self.assertEqual(_dip_score(f1_after, fid2), dip1_0 + exec_pen)
+        self.assertEqual(_dip_score(f2_after, fid1), dip2_0 + exec_pen)
 
-        # 售卖：铜钱入账 + 角色转为在野流将并清空归属
+        # 售卖：铜钱入账 + 角色转为在野流将并清空归属 + 外交再降
         p1 = await self.m.get_player("u1", self.wid)
         coin0 = int(p1.get("coin", 0) or 0)
+        sell_pen = int((self.m.main_cfg().get("captive") or {})
+                       .get("sell_diplomacy_penalty", -4))
         r = await self.m.sell_captive("u1", int(off2["id"]))
         self.assertTrue(r["ok"])
         self.assertGreater(r["coin"], 0)
@@ -484,6 +502,10 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(c["status"], "wander")
         self.assertEqual(c.get("owner_user_id"), "")
         self.assertEqual(int(c.get("faction_id", 0) or 0), 0)
+        f1_after2 = await self.m.get_faction(fid1)
+        f2_after2 = await self.m.get_faction(fid2)
+        self.assertEqual(_dip_score(f1_after2, fid2), dip1_0 + exec_pen + sell_pen)
+        self.assertEqual(_dip_score(f2_after2, fid1), dip2_0 + exec_pen + sell_pen)
 
     # ------------------------------------------------------------------
     # P1：计略

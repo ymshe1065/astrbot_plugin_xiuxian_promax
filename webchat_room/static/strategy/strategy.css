@@ -518,9 +518,13 @@ input[type="color"] {
 .captive-detail { text-align: left; }
 .captive-detail .kv {
   display: flex; gap: 8px; margin: 3px 0; align-items: baseline;
+  flex-wrap: wrap;
 }
 .captive-detail .kv .k {
   color: var(--dim); flex: 0 0 72px; font-size: 12.5px;
+}
+.captive-detail .kv > span:last-child {
+  min-width: 0; word-break: break-word;
 }
 .captive-detail .stat-strip {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));

@@ -10,6 +10,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT.parent))
@@ -187,6 +188,13 @@ class TestStrategyFactionGaps(unittest.IsolatedAsyncioTestCase):
             "VALUES (?,?,?,?,?,?,?,?,?,?)",
             (self.wid, fid, "conquer", "开疆拓土", 0, 1,
              '{"merit": 80}', "open", now, now + 86400))
+        # 历史行也同步：README 明确「进行中/历史任务行」统一改名
+        history_id = await self.m._execute(
+            "INSERT INTO strategy_faction_tasks (world_id, faction_id, task_type, "
+            "title, progress, target, reward_json, status, start_at, end_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (self.wid, fid, "donate", "共襄国库", 20000, 20000,
+             '{"merit": 40}', "claimed", now - 86400, now))
         await self.m._commit()
 
         await self.migration._ensure_strategy_v86(self.conn)
@@ -196,6 +204,7 @@ class TestStrategyFactionGaps(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(tasks[int(old_id)]["title"], "共襄重建")
         self.assertEqual(int(tasks[int(old_id)]["progress"]), 2500)
         self.assertEqual(tasks[int(other_id)]["title"], "开疆拓土")
+        self.assertEqual(tasks[int(history_id)]["title"], "共襄重建")
 
         # 可重放：再次执行不会改动已更名或无关任务
         await self.migration._ensure_strategy_v86(self.conn)
@@ -330,6 +339,22 @@ class TestStrategyFactionGaps(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(int(row["rebuild_fund"]), 0)
         f = await self.m.get_faction(fid)
         self.assertEqual(int(f["capital_node_id"]), int(target["id"]))
+
+    async def test_rebuild_donate_main_gold_rolls_back_on_failure(self):
+        """v4.5.7：捐款在中途失败时必须随动作事务退回主玩法灵石。"""
+        fid = int(self.p1["faction_id"])
+        main_p = await self.db.get_player_by_id("u1")
+        gold0 = int(main_p.gold)
+        with mock.patch.object(self.m, "_faction_task_progress",
+                               side_effect=RuntimeError("boom")):
+            with self.assertRaises(RuntimeError):
+                await self.m.handle_action(
+                    "u1", "rebuild_donate", {"amount": 100_000})
+        main_p = await self.db.get_player_by_id("u1")
+        self.assertEqual(int(main_p.gold), gold0)
+        row = await self.m._fetchone(
+            "SELECT rebuild_fund FROM strategy_factions WHERE id=?", (fid,))
+        self.assertEqual(int(row["rebuild_fund"]), 0)
 
     # ------------------------------------------------------------------
     # 5. 科技：指派角色占用 → 完成后归队给经验

@@ -13,6 +13,7 @@
 """
 from __future__ import annotations
 
+import json
 import time
 from typing import Optional
 
@@ -47,6 +48,54 @@ def _merge(defaults: dict, raw: dict | None) -> dict:
         else:
             out[key] = value
     return out
+
+
+def _num(value, default: float) -> float:
+    """取数值：``None`` / 非法值回退 ``default``。
+
+    不能写成 ``value or default``：战争顺风度为 0、平均民心为 0 都是合法
+    极端值（一方被打崩 / 民心归零），按 falsy 兜底会错误当成 50 / 100。
+    """
+    if value is None:
+        return float(default)
+    try:
+        return float(value)
+    except (TypeError, ValueError, OverflowError):
+        return float(default)
+
+
+def _safe_int(value, default: int = 0) -> int:
+    """旧档自愈：非法 / NaN / inf / 超大整数回退 ``default``。"""
+    try:
+        out = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return int(default)
+    if out != out or out in (float("inf"), float("-inf")):
+        return int(default)
+    return int(out)
+
+
+def _safe_float(value, default: float = 0.0) -> float:
+    """旧档自愈：非法 / NaN / inf / 超大整数回退 ``default``。"""
+    try:
+        out = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return float(default)
+    if out != out or out in (float("inf"), float("-inf")):
+        return float(default)
+    return out
+
+
+#: 势力对里应为整数的字段（损坏类型自愈时按 ``_default_pair`` 回退）
+_INT_PAIR_KEYS = (
+    "hostile_since_tick", "war_start_tick", "frenzy_until_tick",
+    "no_declare_until_tick", "truce_until_tick", "ceasefire_until_tick",
+    "last_offer_tick", "last_declare_tick", "last_capture_tick",
+    "last_warning_tick", "last_expedition_tick", "captures_by_me",
+    "captures_by_target", "war_start_troops", "war_start_nodes",
+)
+#: 势力对里应为 0~100 浮点的字段
+_FLOAT_PAIR_KEYS = ("war_score", "exhaustion")
 
 
 class StrategyThreatMixin:
@@ -206,30 +255,174 @@ class StrategyThreatMixin:
         state = data.get("npc_ai")
         if not isinstance(state, dict):
             state = {}
-        state.setdefault("accum", {})
-        state.setdefault("pairs", {})
-        state.setdefault("stats", {})
-        state.setdefault("declarations", {"day": 0, "count": 0})
+        for key, default in (("accum", {}), ("pairs", {}), ("stats", {}),
+                             ("declarations", {"day": 0, "count": 0})):
+            if not isinstance(state.get(key), type(default)):
+                state[key] = default
         data["npc_ai"] = state
+        return state
+
+    def _sanitize_npc_ai_state(self, world: dict) -> dict:
+        """旧档 / 损坏字段自愈（每 tick 威胁层入口调用一次）。
+
+        历史版本或人工改库可能留下 ``{"count": "NaN"}``、``truce_until_tick``
+        为字符串、``accum`` 值为 ``"abc"`` 等；这些字段会在 ``_step_npc_*``
+        里被 ``int()`` / ``float()`` 直接转换，一旦抛错整段 tick 回滚，且每
+        tick 都在同一处失败，世界永久卡死。这里统一清洗为合法类型：
+        - 非 dict 的 pair / accum / stats 行丢弃或重建；
+        - 数值字段非法回退默认值，``H``/``war_score``/``exhaustion`` 钳到 0~100；
+        - ``declarations.day/count`` 强制整数。
+        """
+        state = self._npc_ai_state(world)
+        defaults = self._default_pair()
+        # 每日宣战计数
+        dec = state.get("declarations")
+        if isinstance(dec, dict):
+            dec["day"] = _safe_int(dec.get("day"), 0)
+            dec["count"] = max(0, _safe_int(dec.get("count"), 0))
+        # 累计敌意
+        accum = state.get("accum")
+        if isinstance(accum, dict):
+            for okey in list(accum.keys()):
+                row = accum.get(okey)
+                if not isinstance(row, dict):
+                    accum.pop(okey, None)
+                    continue
+                for tkey in list(row.keys()):
+                    raw = row.get(tkey)
+                    if isinstance(raw, bool):
+                        row.pop(tkey, None)
+                        continue
+                    try:
+                        h = float(raw)
+                    except (TypeError, ValueError, OverflowError):
+                        row.pop(tkey, None)
+                        continue
+                    if h != h or h in (float("inf"), float("-inf")):
+                        row.pop(tkey, None)
+                        continue
+                    row[tkey] = max(0.0, min(100.0, h))
+        # 势力对状态
+        pairs = state.get("pairs")
+        if isinstance(pairs, dict):
+            for okey in list(pairs.keys()):
+                row = pairs.get(okey)
+                if not isinstance(row, dict):
+                    pairs.pop(okey, None)
+                    continue
+                for tkey in list(row.keys()):
+                    pair = row.get(tkey)
+                    if not isinstance(pair, dict):
+                        row[tkey] = dict(defaults)
+                        continue
+                    for key in _INT_PAIR_KEYS:
+                        pair[key] = _safe_int(pair.get(key), defaults[key])
+                    for key in _FLOAT_PAIR_KEYS:
+                        # 战况 / 疲劳是 0~100 的归一化值
+                        pair[key] = max(0.0, min(100.0, _safe_float(
+                            pair.get(key), defaults[key])))
+                    phase = str(pair.get("phase") or "")
+                    if phase not in PHASES:
+                        pair["phase"] = "calm"
+                    goal = pair.get("goal")
+                    if not isinstance(goal, str) or goal not in (
+                            "", "border", "hegemon", "revenge",
+                            "opportunity"):
+                        pair["goal"] = ""
+        # 龟缩统计 / 体量历史
+        stats = state.get("stats")
+        if isinstance(stats, dict):
+            for fkey in list(stats.keys()):
+                stat = stats.get(fkey)
+                if not isinstance(stat, dict):
+                    stats[fkey] = {}
+                    stat = stats[fkey]
+                for key in ("captures_7d", "attacks_7d"):
+                    vals = stat.get(key)
+                    if isinstance(vals, list):
+                        cleaned = []
+                        for value in vals:
+                            tick_value = _safe_int(value, -1)
+                            if tick_value >= 0:
+                                cleaned.append(tick_value)
+                        stat[key] = cleaned[-32:]
+                    elif vals is not None:
+                        stat[key] = []
+                history = stat.get("share_history")
+                if isinstance(history, list):
+                    stat["share_history"] = [
+                        {"tick": _safe_int(h.get("tick"), 0),
+                         "share": max(0.0, min(1.0, _safe_float(
+                             h.get("share"), 0.0)))}
+                        for h in history if isinstance(h, dict)][-8:]
+                elif history is not None:
+                    stat["share_history"] = []
         return state
 
     def _pair(self, state: dict, observer_id: int, target_id: int) -> dict:
         pairs = state.setdefault("pairs", {})
-        row = pairs.setdefault(str(int(observer_id)), {})
-        pair = row.setdefault(str(int(target_id)), self._default_pair())
-        for key, value in self._default_pair().items():
+        okey, tkey = str(int(observer_id)), str(int(target_id))
+        row = pairs.get(okey)
+        if not isinstance(row, dict):
+            row = pairs[okey] = {}
+        defaults = self._default_pair()
+        pair = row.get(tkey)
+        if not isinstance(pair, dict):
+            pair = row[tkey] = dict(defaults)
+        for key, value in defaults.items():
             pair.setdefault(key, value)
         return pair
 
     def _pair_of(self, world: dict, observer_id: int, target_id: int) -> dict:
         return self._pair(self._npc_ai_state(world), observer_id, target_id)
 
+    def _prune_npc_ai_faction(self, world: dict, faction_id: int) -> None:
+        """立即清掉某势力的 pair / accum / stats（灭亡当 tick 即生效）。
+
+        ``_step_npc_diplomacy`` 的清理发生在 ``_step_npc_ai`` 判定灭亡之前，
+        若不在这里补一次，灭亡当 tick 结束时 ``world.data`` 仍会残留该势力
+        的势力对与敌意，直到下一 tick 才自愈。
+        """
+        state = self._npc_ai_state(world)
+        fid_key = str(int(faction_id))
+        pairs = state.get("pairs")
+        if isinstance(pairs, dict):
+            pairs.pop(fid_key, None)
+            for row in pairs.values():
+                if isinstance(row, dict):
+                    row.pop(fid_key, None)
+        accum = state.get("accum")
+        if isinstance(accum, dict):
+            accum.pop(fid_key, None)
+            for row in accum.values():
+                if isinstance(row, dict):
+                    row.pop(fid_key, None)
+        stats = state.get("stats")
+        if isinstance(stats, dict):
+            stats.pop(fid_key, None)
+        # data.threat 是同一 tick 早些时候生成的派生快照：灭亡当 tick 也清掉，
+        # 避免 tick 结束落盘的 world.data 仍带死亡势力份额/威胁。
+        threat = (world.get("data") or {}).get("threat")
+        if isinstance(threat, dict):
+            for key in ("accum", "inst", "split", "tier"):
+                rows = threat.get(key)
+                if not isinstance(rows, dict):
+                    continue
+                rows.pop(fid_key, None)
+                for row in rows.values():
+                    if isinstance(row, dict):
+                        row.pop(fid_key, None)
+            for key in ("share", "public"):
+                rows = threat.get(key)
+                if isinstance(rows, dict):
+                    rows.pop(fid_key, None)
+
     def _npc_h(self, world: dict, observer_id: int, target_id: int) -> float:
         accum = self._npc_ai_state(world).get("accum") or {}
         try:
             return float((accum.get(str(int(observer_id))) or {})
                          .get(str(int(target_id)), 0.0) or 0.0)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return 0.0
 
     # ------------------------------------------------------------------
@@ -312,6 +505,14 @@ class StrategyThreatMixin:
             (world["id"],))
         factions = {int(f["id"]): f
                     for f in self._decode_all("strategy_factions", rows)}
+        # 外交主体：NPC + 玩家盟主。联盟成员的外交由盟主代表，
+        # 否则同一场战争会同时写在盟主与成员身上，造成 war_at / pair 不对称。
+        diplo_factions: dict[int, dict] = {}
+        for fid, f in factions.items():
+            aid = int(f.get("alliance_id") or 0)
+            if aid and aid != fid and aid in factions:
+                continue
+            diplo_factions[fid] = f
         node_score = (self.main_cfg().get("season") or {}).get("node_score") or {}
         level_bonus = float(cfg["level_bonus"])
         armies = await self.get_armies(world["id"])
@@ -355,7 +556,8 @@ class StrategyThreatMixin:
                 history = []
             history = [h for h in history
                        if isinstance(h, dict)
-                       and int(h.get("tick", 0) or 0) >= tick - 7 * tpd]
+                       and tick - 7 * tpd <= int(h.get("tick", 0) or 0)
+                       <= tick]
             past = float(share.get(fid, 0.0))
             for point in history:
                 if int(point.get("tick", 0) or 0) <= tick - window:
@@ -464,7 +666,8 @@ class StrategyThreatMixin:
                 node.get("defense", 0) or 0)
             border_def_cnt[owner] = border_def_cnt.get(owner, 0) + 1
         turtle: dict[int, bool] = {}
-        stat_window = 7 * tpd
+        stat_window = max(1, _safe_int(
+            (cfg.get("turtle") or {}).get("window_ticks"), 7 * tpd))
         for fid, faction in factions.items():
             avg_def = border_def_sum.get(fid, 0.0) / max(
                 1, border_def_cnt.get(fid, 1))
@@ -548,6 +751,7 @@ class StrategyThreatMixin:
             "tick": tick,
             "cfg": cfg,
             "factions": factions,
+            "diplo_factions": diplo_factions,
             "nodes": nodes,
             "share": share,
             "node_count": node_count,
@@ -575,10 +779,13 @@ class StrategyThreatMixin:
         cfg = snap["cfg"]
         state = self._npc_ai_state(world)
         accum = state.setdefault("accum", {})
+        for okey in list(accum.keys()):
+            if not isinstance(accum.get(okey), dict):
+                accum.pop(okey, None)
         for obs, row in snap["inst"].items():
             out = accum.setdefault(str(obs), {})
             for tgt, p_eff in row.items():
-                prev = float(out.get(str(tgt), 0.0) or 0.0)
+                prev = _safe_float(out.get(str(tgt)), 0.0)
                 alpha = R.threat_alpha(
                     p_eff, prev, snap["border_raw"][obs][tgt],
                     snap["hegemon"].get(tgt, False),
@@ -590,6 +797,38 @@ class StrategyThreatMixin:
                     R.threat_accumulate(prev, p_eff, alpha), 2)
                 snap["tier"][obs][tgt] = R.threat_tier(
                     out[str(tgt)], cfg["tiers"])
+        # 只保留存活势力的累计敌意：灭亡势力的 H 若残留，会污染
+        # third_party（战争疲劳）与天下视图的对外关系。
+        alive = set(snap["factions"])
+        # 灭亡势力的龟缩统计 / 体量历史同样清理（长赛季反复灭国时不残留）
+        stats = state.get("stats")
+        if isinstance(stats, dict):
+            for skey in list(stats.keys()):
+                try:
+                    sid = int(skey)
+                except (TypeError, ValueError):
+                    stats.pop(skey, None)
+                    continue
+                if sid not in alive:
+                    stats.pop(skey, None)
+        for okey in list(accum.keys()):
+            try:
+                oid = int(okey)
+            except (TypeError, ValueError):
+                accum.pop(okey, None)
+                continue
+            row = accum.get(okey)
+            if oid not in alive or not isinstance(row, dict):
+                accum.pop(okey, None)
+                continue
+            for tkey in list(row.keys()):
+                try:
+                    tid = int(tkey)
+                except (TypeError, ValueError):
+                    row.pop(tkey, None)
+                    continue
+                if tid not in alive or tid == oid:
+                    row.pop(tkey, None)
         snap["accum"] = {
             int(o): {int(k): float(v or 0.0) for k, v in (row or {}).items()}
             for o, row in accum.items()}
@@ -602,6 +841,8 @@ class StrategyThreatMixin:
         data = world.setdefault("data", {})
         data["threat"] = {
             "tick": int(tick),
+            "share": {str(fid): round(float(v), 4)
+                      for fid, v in (snap.get("share") or {}).items()},
             "inst": {str(o): {str(t): round(float(v), 2)
                               for t, v in row.items()}
                      for o, row in snap["inst"].items()},
@@ -622,9 +863,10 @@ class StrategyThreatMixin:
         state = self._npc_ai_state(world)
         tiers_cfg = snap["cfg"]["tiers"]
         factions = snap["factions"]
+        diplo = snap.get("diplo_factions") or factions
         war_cfg = self._npc_war_cfg()
-        for obs in factions:
-            for tgt in factions:
+        for obs in diplo:
+            for tgt in diplo:
                 if obs == tgt:
                     continue
                 pair = self._pair(state, obs, tgt)
@@ -638,7 +880,9 @@ class StrategyThreatMixin:
                 cur_idx = order.index(pair["phase"])
                 new_idx = order.index(target_phase)
                 if new_idx < cur_idx:
-                    entry = TIER_ENTRY.get(pair["phase"], 0)
+                    # 退出线跟随配置（默认 20/40/60），不要写死旧常量
+                    entry = float(tiers_cfg.get(
+                        pair["phase"], TIER_ENTRY.get(pair["phase"], 0)))
                     if h >= entry - TIER_HYSTERESIS:
                         continue
                 if target_phase == pair["phase"]:
@@ -672,10 +916,31 @@ class StrategyThreatMixin:
         """停战到期、冷却到期、狂热提前结束、关系与 pair 对齐。"""
         state = self._npc_ai_state(world)
         factions = snap["factions"]
+        diplo = snap.get("diplo_factions") or factions
         war_cfg = self._npc_war_cfg()
         now = _now()
-        for obs in factions:
-            for tgt in factions:
+
+        def enter_war(pair: dict) -> None:
+            """按正式战争初始化势力对状态（供外部写入 REL_WAR 时对齐）。"""
+            pair.update({
+                "phase": "war",
+                "war_start_tick": tick,
+                "last_capture_tick": tick,
+                "war_score": 50,
+                "exhaustion": 0.0,
+                "goal": "border",
+                "frenzy_until_tick": 0,
+                "last_offer_tick": 0,
+                "ceasefire_until_tick": 0,
+                "captures_by_me": 0,
+                "captures_by_target": 0,
+                "war_start_troops": int(snap["troops"].get(obs, 0) or 0),
+                "war_start_nodes": int(
+                    snap["node_count"].get(obs, 0) or 0),
+            })
+
+        for obs in diplo:
+            for tgt in diplo:
                 if obs == tgt:
                     continue
                 pair = self._pair(state, obs, tgt)
@@ -694,7 +959,7 @@ class StrategyThreatMixin:
                         treasury = self._npc_treasury(f)
                         reserve = self._npc_reserve(f)
                         troops = int(snap["troops"].get(obs, 0) or 0)
-                        morale = float(snap["avg_morale"].get(obs, 100) or 100)
+                        morale = _num(snap["avg_morale"].get(obs), 100)
                         if (int(treasury["coin"]) < int(reserve["coin"])
                                 or int(treasury["grain"]) < int(
                                     reserve["grain"])
@@ -702,6 +967,10 @@ class StrategyThreatMixin:
                                 or morale < float(frenzy["morale_break"])):
                             pair["frenzy_until_tick"] = tick
                 elif phase == "truce":
+                    if rel == R.REL_WAR:
+                        # 停战期被撕毁 / 玩家重新宣战：关系是权威，立即回到战争态
+                        enter_war(pair)
+                        continue
                     expire_tick = int(pair.get("truce_until_tick", 0) or 0)
                     if (expire_tick and tick >= expire_tick) or \
                             (not expire_tick and rel != R.REL_TRUCE):
@@ -710,25 +979,35 @@ class StrategyThreatMixin:
                             int(pair.get("no_declare_until_tick", 0) or 0),
                             tick + int(war_cfg["post_war_cooldown_ticks"]))
                 elif phase == "cooldown":
-                    if tick >= int(pair.get("no_declare_until_tick", 0) or 0):
+                    if rel == R.REL_WAR:
+                        # 冷却期内被玩家宣战（既有玩法允许撕约/直接宣战）
+                        enter_war(pair)
+                    elif tick >= int(
+                            pair.get("no_declare_until_tick", 0) or 0):
                         pair["phase"] = "calm"
                         pair["hostile_since_tick"] = 0
-                elif phase in TIER_PHASES and rel in (R.REL_WAR,
-                                                      "war_pending"):
-                    pair.update({
-                        "phase": "war",
-                        "war_start_tick": tick,
-                        "last_capture_tick": tick,
-                        "war_score": 50,
-                        "exhaustion": 0.0,
-                        "goal": pair.get("goal") or "border",
-                        "war_start_troops": int(snap["troops"].get(obs, 0) or 0),
-                        "war_start_nodes": int(
-                            snap["node_count"].get(obs, 0) or 0),
-                    })
+                elif phase in TIER_PHASES and rel == R.REL_WAR:
+                    # 备战期（war_pending）不建战争态：war_at 到期后关系才变 war
+                    enter_war(pair)
                 ceasefire = int(pair.get("ceasefire_until_tick", 0) or 0)
                 if ceasefire and tick >= ceasefire:
                     pair["ceasefire_until_tick"] = 0
+
+        # 只保留存活外交主体之间的 pair（成员势力 / 已灭亡势力清理）
+        alive_keys = {str(fid) for fid in diplo}
+        pairs = state.get("pairs")
+        if isinstance(pairs, dict):
+            for okey in list(pairs.keys()):
+                if str(okey) not in alive_keys:
+                    pairs.pop(okey, None)
+                    continue
+                row = pairs.get(okey)
+                if not isinstance(row, dict):
+                    pairs.pop(okey, None)
+                    continue
+                for tkey in list(row.keys()):
+                    if str(tkey) not in alive_keys or str(tkey) == str(okey):
+                        row.pop(tkey, None)
 
     # ------------------------------------------------------------------
     # 宣战
@@ -738,6 +1017,8 @@ class StrategyThreatMixin:
         cfg = self._npc_threat_cfg()
         if not cfg.get("enabled", True):
             return
+        # 旧档 / 损坏字段先自愈，避免 int()/float() 抛错导致 tick 永久回滚
+        self._sanitize_npc_ai_state(world)
         tick = int(world.get("tick_no", 0) or 0)
         snap = await self._threat_snapshot(world)
         self._update_threat_accum(world, snap, tick)
@@ -749,11 +1030,17 @@ class StrategyThreatMixin:
         tpd = self._ticks_per_day()
         day = tick // tpd
         declarations = state.get("declarations")
-        if not isinstance(declarations, dict) or \
-                int(declarations.get("day", -1) or -1) != day:
+        # 注意不能写 ``day or -1``：开局第 0 天是合法值，会被当成空值而
+        # 每 tick 重置，导致首日宣战上限（max_declarations_per_day）失效。
+        try:
+            stored_day = int(declarations.get("day", -1)) \
+                if isinstance(declarations, dict) else -1
+        except (TypeError, ValueError):
+            stored_day = -1
+        if stored_day != day:
             declarations = {"day": day, "count": 0}
         declared_this_tick = 0
-        factions = snap["factions"]
+        factions = snap.get("diplo_factions") or snap["factions"]
         npc_ids = [fid for fid, f in factions.items()
                    if str(f.get("kind") or "") == "npc"]
         gate = float(war_cfg["declare_gate"])
@@ -842,6 +1129,42 @@ class StrategyThreatMixin:
         await self.save_world(world)
         await self._commit()
 
+    async def _target_newbie_protected(self, world: dict, target: dict) -> bool:
+        """宣战目标是否处于新手保护期（§7.5 第 4 条 / §9）。
+
+        与 ``_check_attack_target`` 口径一致：以 ``strategy_players.created_at``
+        为准，``newcomer.opt_out`` 可主动放弃。玩家联盟按盟主 + 成员全体判断，
+        避免 NPC 绕过新手保护去打盟内新玩家。
+
+        节点保护期（``protect_until``）不阻止宣战，只阻止战术层选该节点。
+        """
+        if str(target.get("kind") or "") != "player":
+            return False
+        days = int((self.main_cfg().get("protection") or {}).get(
+            "newbie_days", 4) or 0)
+        if days <= 0:
+            return False
+        rows = await self._fetchall(
+            "SELECT p.created_at, p.newcomer_json FROM strategy_players p "
+            "JOIN strategy_factions f ON f.world_id=p.world_id "
+            "AND f.id=p.faction_id "
+            "WHERE p.world_id=? AND (f.id=? OR f.alliance_id=?)",
+            (int(world["id"]), int(target["id"]), int(target["id"])))
+        now = _now()
+        for row in rows or []:
+            joined = int(row.get("created_at", 0) or 0)
+            if not joined or now - joined >= days * 86400:
+                continue
+            try:
+                newcom = json.loads(row.get("newcomer_json") or "{}")
+            except (TypeError, ValueError):
+                newcom = {}
+            if not isinstance(newcom, dict):
+                newcom = {}
+            if not newcom.get("opt_out"):
+                return True
+        return False
+
     async def _can_declare(self, world: dict, snap: dict, observer: dict,
                            target: dict, pair: dict, tick: int) -> bool:
         """宣战前置校验（§7.5）。"""
@@ -857,10 +1180,7 @@ class StrategyThreatMixin:
         last = int(pair.get("last_declare_tick", 0) or 0)
         if last and tick - last < int(war_cfg["declare_cooldown_ticks"]):
             return False
-        owned = [n for n in snap["nodes"].values()
-                 if int(n.get("owner_faction", 0) or 0) == int(target["id"])]
-        if owned and all(int(n.get("protect_until", 0) or 0) > now
-                         for n in owned):
+        if await self._target_newbie_protected(world, target):
             return False
         border_raw = float(snap["border_raw"][observer["id"]][target["id"]])
         hegemon = bool(snap["hegemon"].get(target["id"]))
@@ -893,21 +1213,28 @@ class StrategyThreatMixin:
         for side, other in ((observer, target), (target, observer)):
             dip = side.setdefault("diplomacy", {})
             dip.setdefault(str(int(other["id"])), {})["war_at"] = 0
+        # 玩家联盟：上面的 war_at=0 只改了盟主字典，需再同步一次到成员，
+        # 否则盟友看到的是 24h 备战期，被打了却暂时无法反击。
+        await self._sync_alliance_meta(target)
         frenzy_ticks = int(float(war_cfg["frenzy"]["hours"]) * tph)
         state = self._npc_ai_state(world)
-        for obs_id, tgt_id, me in (
-                (observer["id"], target["id"], observer),
-                (target["id"], observer["id"], target)):
+        # 防守方不继承进攻方的 hegemon 目标，避免反方向误触发跨区远征
+        reverse_goal = "border" if float(
+            snap["border_raw"][target["id"]][observer["id"]]) > 0 else ""
+        for obs_id, tgt_id, me, row_goal in (
+                (observer["id"], target["id"], observer, goal),
+                (target["id"], observer["id"], target, reverse_goal)):
             row = self._pair(state, obs_id, tgt_id)
             row.update({
                 "phase": "war",
                 "war_start_tick": tick,
                 "last_declare_tick": tick,
                 "frenzy_until_tick": tick + frenzy_ticks,
-                "goal": goal,
+                "goal": row_goal,
                 "war_score": 50,
                 "exhaustion": 0.0,
                 "last_capture_tick": tick,
+                "last_offer_tick": 0,
                 "captures_by_me": 0,
                 "captures_by_target": 0,
                 "ceasefire_until_tick": 0,
@@ -923,10 +1250,13 @@ class StrategyThreatMixin:
             f"向「{target.get('name')}」宣战！",
             "war")
         if str(target.get("kind") or "") == "player":
+            # 玩家联盟：通知盟主与全体成员（成员玩家 faction_id 仍是成员势力）
             rows = await self._fetchall(
-                "SELECT user_id FROM strategy_players "
-                "WHERE world_id=? AND faction_id=?",
-                (world["id"], int(target["id"])))
+                "SELECT user_id FROM strategy_players WHERE world_id=? "
+                "AND faction_id IN (SELECT id FROM strategy_factions "
+                "WHERE world_id=? AND (id=? OR alliance_id=?))",
+                (world["id"], world["id"], int(target["id"]),
+                 int(target["id"])))
             await self._notify(
                 world, [r["user_id"] for r in rows], "war_declared",
                 {"faction_id": int(observer["id"]),
@@ -942,7 +1272,12 @@ class StrategyThreatMixin:
     async def _npc_expedition_target(self, world: dict, snap: dict,
                                      observer: dict,
                                      target: dict) -> Optional[dict]:
-        """非接壤霸主远征目标（§7.8）：返回可直达的目标节点。"""
+        """非接壤霸主远征目标（§7.8）：返回可直达的目标节点。
+
+        直接在 ``snap["nodes"]`` 上做一次有界 BFS（最近目标据点 = 最短路），
+        不再对每个己方据点重复 ``get_nodes`` + ``find_path``，避免每 tick
+        成倍的关系库查询。
+        """
         cfg = self._npc_war_cfg()["expedition"]
         tick = int(world.get("tick_no", 0) or 0)
         state = self._npc_ai_state(world)
@@ -950,7 +1285,11 @@ class StrategyThreatMixin:
         if tick - int(pair.get("last_expedition_tick", 0) or 0) < \
                 int(cfg["cooldown_ticks"]):
             return None
-        own_nodes = [n for n in snap["nodes"].values()
+        nodes = snap.get("nodes") or {}
+        target_id = int(target["id"])
+        max_edges = int(cfg["max_edges"])
+        now = _now()
+        own_nodes = [n for n in nodes.values()
                      if int(n.get("owner_faction", 0) or 0) ==
                      int(observer["id"])
                      and int((n.get("npc_garrison") or {})
@@ -958,21 +1297,37 @@ class StrategyThreatMixin:
                                  cfg["min_troops"])]
         if not own_nodes:
             return None
+        from collections import deque
         best: Optional[dict] = None
-        best_len = int(cfg["max_edges"]) + 1
+        best_len = max_edges + 1
         for node in own_nodes:
-            dest_id = await self._nearest_faction_node(
-                world, int(node["id"]), int(target["id"]))
-            if not dest_id:
-                continue
-            path = await self.find_path(world["id"], int(node["id"]), dest_id)
-            if not path or len(path) - 1 > int(cfg["max_edges"]):
-                continue
-            if len(path) - 1 < best_len:
-                best_len = len(path) - 1
-                best = dict(snap["nodes"].get(dest_id) or {})
-                best.setdefault("id", dest_id)
-                best["_from_node"] = int(node["id"])
+            src = int(node["id"])
+            q = deque([(src, 0)])
+            seen = {src}
+            found, found_len = 0, best_len
+            while q:
+                cur, dist = q.popleft()
+                if dist >= max_edges or dist + 1 >= found_len:
+                    continue
+                for nxt in nodes.get(cur, {}).get("adj") or []:
+                    nxt = int(nxt)
+                    if nxt in seen or nxt not in nodes:
+                        continue
+                    nxt_node = nodes[nxt]
+                    if int(nxt_node.get("owner_faction", 0) or 0) == \
+                            target_id and int(
+                                nxt_node.get("protect_until", 0) or 0) <= now:
+                        found, found_len = nxt, dist + 1
+                        break
+                    seen.add(nxt)
+                    q.append((nxt, dist + 1))
+                if found:
+                    break
+            if found and found_len < best_len:
+                best_len = found_len
+                best = dict(nodes.get(found) or {})
+                best.setdefault("id", found)
+                best["_from_node"] = src
         return best
 
     # ------------------------------------------------------------------
@@ -982,12 +1337,13 @@ class StrategyThreatMixin:
         """战争疲劳、NPC→NPC 停战、NPC→玩家求和（§8.8）。"""
         cfg = self._npc_peace_cfg()
         dcfg = self.main_cfg().get("diplomacy") or {}
+        self._sanitize_npc_ai_state(world)
         tick = int(world.get("tick_no", 0) or 0)
         tpd = self._ticks_per_day()
         tph = self._ticks_per_hour()
         snap = await self._threat_snapshot(world)
         state = self._npc_ai_state(world)
-        factions = snap["factions"]
+        factions = snap.get("diplo_factions") or snap["factions"]
         npc_ids = [fid for fid, f in factions.items()
                    if str(f.get("kind") or "") == "npc"]
         for observer_id in npc_ids:
@@ -1017,7 +1373,7 @@ class StrategyThreatMixin:
                     float(cfg["peace_span_per_day"]),
                     float(cfg["max_peace_p_day"]),
                     float((cfg["personality_peace_bias"] or {}).get(key, 1.0)),
-                    float(pair.get("war_score", 50) or 50))
+                    _num(pair.get("war_score"), 50))
                 p_tick = R.per_day_to_per_tick(p_day, tpd)
                 rng = self._rng("npc_peace", tick, observer_id, target_id)
                 if rng.random() >= p_tick:
@@ -1027,8 +1383,8 @@ class StrategyThreatMixin:
                     favor = R.favor_of(target.get("diplomacy"), observer_id)
                     accept = R.threat_peace_accept(
                         float(reverse.get("exhaustion", 0) or 0), favor,
-                        float(pair.get("war_score", 50) or 50),
-                        float(reverse.get("war_score", 50) or 50),
+                        _num(pair.get("war_score"), 50),
+                        _num(reverse.get("war_score"), 50),
                         float(cfg["accept_min"]),
                         float(cfg["accept_max"]))
                     if rng.random() < accept:
@@ -1061,8 +1417,10 @@ class StrategyThreatMixin:
                     else:
                         pair["last_offer_tick"] = tick
                 else:
-                    if tick - int(pair.get("last_offer_tick", 0) or 0) < \
-                            int(cfg["offer_cooldown_ticks"]):
+                    last_offer = int(pair.get("last_offer_tick", 0) or 0)
+                    # 0 表示本场战争还没提过和：不应被当成“tick 0 提过”
+                    if last_offer and tick - last_offer < int(
+                            cfg["offer_cooldown_ticks"]):
                         continue
                     await self._npc_send_truce_offer(
                         world, observer, target, pair)
@@ -1090,7 +1448,7 @@ class StrategyThreatMixin:
         treasury_stress = max(
             0.0, (float(reserve["coin"]) - float(treasury["coin"]))
             / max(1.0, float(reserve["coin"])))
-        morale = float(snap["avg_morale"].get(obs_id, 100) or 100)
+        morale = _num(snap["avg_morale"].get(obs_id), 100)
         morale_stress = max(0.0, (50.0 - morale) / 50.0)
         no_progress = min(1.0, (tick - int(
             pair.get("last_capture_tick", 0) or 0))
@@ -1148,9 +1506,11 @@ class StrategyThreatMixin:
             f"「{target.get('name')}」求和，愿休兵止戈。",
             "peace")
         rows = await self._fetchall(
-            "SELECT user_id FROM strategy_players "
-            "WHERE world_id=? AND faction_id=?",
-            (world["id"], int(target["id"])))
+            "SELECT user_id FROM strategy_players WHERE world_id=? "
+            "AND faction_id IN (SELECT id FROM strategy_factions "
+            "WHERE world_id=? AND (id=? OR alliance_id=?))",
+            (world["id"], world["id"], int(target["id"]),
+             int(target["id"])))
         await self._notify(
             world, [r["user_id"] for r in rows], "peace_offer",
             {"faction_id": int(observer["id"]),
@@ -1189,33 +1549,75 @@ class StrategyThreatMixin:
     # ------------------------------------------------------------------
     def _note_threat_capture(self, world: dict, prev_owner: int,
                              new_owner: int, node_name: str = "") -> None:
-        """据点易主：更新战争战果 / 龟缩统计，并写一条风声。"""
+        """据点易主：更新战争战果 / 龟缩统计，并写一条风声。
+
+        ``prev_owner == 0``（占无主/匪寨）也记入攻占方 ``captures_7d``，
+        否则玩家可以靠不断占空地规避龟缩判定。
+        """
         prev_owner, new_owner = int(prev_owner or 0), int(new_owner or 0)
-        if prev_owner <= 0 or new_owner <= 0 or prev_owner == new_owner:
+        if new_owner <= 0 or prev_owner == new_owner:
             return
         tick = int(world.get("tick_no", 0) or 0)
         state = self._npc_ai_state(world)
-        pair = self._pair(state, new_owner, prev_owner)
-        if pair.get("phase") == "war":
-            pair["captures_by_me"] = int(
-                pair.get("captures_by_me", 0) or 0) + 1
-            pair["last_capture_tick"] = tick
-        reverse = self._pair(state, prev_owner, new_owner)
-        if reverse.get("phase") == "war":
-            reverse["captures_by_target"] = int(
-                reverse.get("captures_by_target", 0) or 0) + 1
-        window = 7 * self._ticks_per_day()
-        for fid, key in ((new_owner, "captures_7d"),
-                         (prev_owner, "attacks_7d")):
-            stat = state["stats"].setdefault(str(fid), {})
-            items = [int(x) for x in (stat.get(key) or [])
-                     if int(x or 0) >= tick - window]
+        if prev_owner > 0:
+            pair = self._pair(state, new_owner, prev_owner)
+            if pair.get("phase") == "war":
+                pair["captures_by_me"] = _safe_int(
+                    pair.get("captures_by_me")) + 1
+                pair["captures_by_target"] = _safe_int(
+                    pair.get("captures_by_target"))
+                pair["last_capture_tick"] = tick
+            reverse = self._pair(state, prev_owner, new_owner)
+            if reverse.get("phase") == "war":
+                reverse["captures_by_target"] = _safe_int(
+                    reverse.get("captures_by_target")) + 1
+                reverse["captures_by_me"] = _safe_int(
+                    reverse.get("captures_by_me"))
+            # 战果即时反映到双方 war_score（NPC 方下一 tick 会再按首都修正）
+            for side in (pair, reverse):
+                if side.get("phase") == "war":
+                    side["war_score"] = round(R.threat_war_score(
+                        _safe_int(side.get("captures_by_me")),
+                        _safe_int(side.get("captures_by_target"))), 1)
+        window = max(1, _safe_int(
+            (self._npc_threat_cfg().get("turtle") or {}).get("window_ticks"),
+            7 * self._ticks_per_day()))
+        # 只给攻占方记「主动攻击」；被攻占方不是攻击者，不能因此失去龟缩资格
+        stats = state["stats"]
+        stat = stats.get(str(new_owner))
+        if not isinstance(stat, dict):
+            stat = stats[str(new_owner)] = {}
+        for key in ("captures_7d", "attacks_7d"):
+            raw_items = stat.get(key)
+            items = []
+            for x in (raw_items if isinstance(raw_items, list) else []):
+                value = _safe_int(x, -1)
+                if value >= 0 and value >= tick - window:
+                    items.append(value)
             items.append(tick)
             stat[key] = items[-32:]
-        self._add_wind(
-            world,
-            f"🏴「{node_name or '边镇'}」易主，归入新主旗下。",
-            "battle")
+        if prev_owner > 0:
+            self._add_wind(
+                world,
+                f"🏴「{node_name or '边镇'}」易主，归入新主旗下。",
+                "battle")
+
+    def _npc_tactical_new_war_allowed(self, relation: str,
+                                      active_wars: int) -> bool:
+        """战术层能否对非战争目标「不宣而战」（v4.6.1 槽位预留）。
+
+        威胁外交层启用时，``max_active_wars_per_npc`` 至少预留 1 个槽给
+        正式宣战；否则 NPC 开局用突袭占满所有槽位，威胁层永远走不到
+        ``hostile → war``，自主宣战不会发生。威胁层关闭时保持旧行为。
+        """
+        if str(relation or "") == R.REL_WAR:
+            return True
+        threat_cfg = self._npc_threat_cfg()
+        if not bool(threat_cfg.get("enabled", True)):
+            return True
+        war_cfg = self._npc_war_cfg()
+        cap = max(0, int(war_cfg["max_active_wars_per_npc"]) - 1)
+        return int(active_wars) < cap
 
     def _npc_frenzy_state(self, world: dict, faction_id: int) -> dict:
         """当前势力的狂热参数（取所有交战对中最长的狂热期）。"""
@@ -1277,56 +1679,93 @@ class StrategyThreatMixin:
         wind_cfg = self._npc_wind_cfg()
         tick = int(world.get("tick_no", 0) or 0)
         data = world.get("data") or {}
-        state = data.get("npc_ai") or {}
-        threat = data.get("threat") or {}
+        state = data.get("npc_ai")
+        if not isinstance(state, dict):
+            state = {}
+        threat = data.get("threat")
+        if not isinstance(threat, dict):
+            threat = {}
+        f_meta = f_meta or {}
         accum = threat.get("accum") or {}
         public = threat.get("public") or {}
+        share_now = threat.get("share") or {}
         rows = []
-        for fid, meta in (f_meta or {}).items():
+        for fid, meta in f_meta.items():
             fid = int(fid)
             if fid <= 0 or not isinstance(meta, dict):
                 continue
-            pair_row = state.get("pairs", {}).get(str(fid)) or {}
+            # 已灭亡势力不再出现在天下榜 / 作战列表
+            if int(meta.get("alive", 1) or 0) <= 0:
+                continue
+            aid = int(meta.get("alliance_id") or 0)
+            host_meta = f_meta.get(aid) or {}
+            is_member = bool(aid and aid != fid and int(
+                host_meta.get("alive", 0) or 0) > 0)
+            pair_row = {} if is_member else (
+                state.get("pairs", {}).get(str(fid)) or {})
+            if not isinstance(pair_row, dict):
+                pair_row = {}
             wars = []
             for tgt, pair in pair_row.items():
                 if not isinstance(pair, dict) or pair.get("phase") != "war":
                     continue
-                tgt = int(tgt)
+                try:
+                    tgt = int(tgt)
+                except (TypeError, ValueError):
+                    continue
+                tgt_meta = f_meta.get(tgt) or {}
+                if tgt not in f_meta or int(
+                        tgt_meta.get("alive", 1) or 0) <= 0:
+                    continue
                 wars.append({
                     "target": tgt,
-                    "target_name": (f_meta.get(tgt) or {}).get("name", "?"),
+                    "target_name": tgt_meta.get("name", "?"),
                     "goal": pair.get("goal") or "",
                     "goal_name": GOAL_CN.get(pair.get("goal") or "", "战争"),
-                    "war_score": round(float(
-                        pair.get("war_score", 50) or 50), 1),
-                    "exhaustion": round(float(
-                        pair.get("exhaustion", 0) or 0), 1),
-                    "frenzy_remaining": max(0, int(
-                        pair.get("frenzy_until_tick", 0) or 0) - tick),
-                    "ceasefire_remaining": max(0, int(
-                        pair.get("ceasefire_until_tick", 0) or 0) - tick),
-                    "weary": float(pair.get("exhaustion", 0) or 0) >= float(
+                    "war_score": round(_num(pair.get("war_score"), 50), 1),
+                    "exhaustion": round(_num(pair.get("exhaustion"), 0), 1),
+                    "frenzy_remaining": max(0, _safe_int(
+                        pair.get("frenzy_until_tick", 0)) - tick),
+                    "ceasefire_remaining": max(0, _safe_int(
+                        pair.get("ceasefire_until_tick", 0)) - tick),
+                    "weary": _num(pair.get("exhaustion"), 0) >= float(
                         peace_cfg["peace_gate"]),
                 })
             stats = state.get("stats", {}).get(str(fid)) or {}
-            history = stats.get("share_history") or []
-            share = float(history[-1].get("share", 0.0) or 0.0) \
-                if history else 0.0
+            if not isinstance(stats, dict):
+                stats = {}
+            history = [h for h in (stats.get("share_history") or [])
+                       if isinstance(h, dict)
+                       and _safe_int(h.get("tick", 0)) <= tick]
+            share = _num(share_now.get(str(fid)), 0) \
+                if str(fid) in share_now else (
+                    _num(history[-1].get("share"), 0) if history else 0.0)
             recent_growth = 0.0
             if len(history) >= 2:
-                recent_growth = float(history[-1].get("share", 0) or 0) - \
-                    float(history[-2].get("share", 0) or 0)
-            public_h = float(public.get(str(fid), 0.0) or 0.0)
-            threat_to = {int(t): round(float(v or 0), 1)
-                         for t, v in (accum.get(str(fid)) or {}).items()}
-            relations = []
-            for tgt, h in sorted(threat_to.items(),
-                                 key=lambda kv: -kv[1])[:6]:
-                if tgt == fid:
+                recent_growth = _num(history[-1].get("share"), 0) - \
+                    _num(history[-2].get("share"), 0)
+            public_h = _num(public.get(str(fid)), 0)
+            threat_to = {}
+            for t, v in (accum.get(str(fid)) or {}).items():
+                try:
+                    threat_to[int(t)] = round(_num(v, 0), 1)
+                except (TypeError, ValueError):
                     continue
+            own_h = max(threat_to.values() or [0])
+            relations = []
+            live_threat = []
+            for tgt, h in threat_to.items():
+                if tgt == fid or tgt not in f_meta:
+                    continue
+                tgt_meta = f_meta.get(tgt) or {}
+                if int(tgt_meta.get("alive", 1) or 0) <= 0:
+                    continue
+                live_threat.append((tgt, h))
+            for tgt, h in sorted(live_threat, key=lambda kv: -kv[1])[:6]:
+                tgt_meta = f_meta.get(tgt) or {}
                 relations.append({
                     "target": tgt,
-                    "target_name": (f_meta.get(tgt) or {}).get("name", "?"),
+                    "target_name": tgt_meta.get("name", "?"),
                     "relation": R.relation_of(
                         meta.get("diplomacy") or {}, tgt, _now()),
                     "h": h,
@@ -1348,7 +1787,7 @@ class StrategyThreatMixin:
                 "personality_name": personality.get("name") or key,
                 "aggression": int(personality.get("aggression", 50) or 50),
                 "threat_mult": round(R.threat_mult(
-                    public_h, float(cfg["aggression_gain"]),
+                    own_h, float(cfg["aggression_gain"]),
                     float(cfg["aggression_cap"])), 2),
                 "hegemon": bool(
                     share >= float(cfg["hegemon_share_threshold"])),
@@ -1362,21 +1801,23 @@ class StrategyThreatMixin:
         rows.sort(key=lambda item: -item["public_threat"])
         visible_at = _now()
         wind_rows = []
-        for wind in (winds if winds is not None
-                     else (data.get("winds") or [])):
+        raw_winds = winds if winds is not None else (data.get("winds") or [])
+        if not isinstance(raw_winds, list):
+            raw_winds = []
+        for wind in raw_winds:
             if not isinstance(wind, dict):
                 if str(wind or "").strip():
                     wind_rows.append({"text": str(wind), "kind": "plot",
                                       "kind_name": "流言", "tick": 0})
                 continue
-            if int(wind.get("visible_at", 0) or 0) > visible_at:
+            if _safe_int(wind.get("visible_at", 0)) > visible_at:
                 continue
             wind_rows.append({
                 "text": str(wind.get("text") or ""),
                 "kind": str(wind.get("kind") or "plot"),
                 "kind_name": (wind_cfg["kinds"] or {}).get(
                     str(wind.get("kind") or "plot"), "流言"),
-                "tick": int(wind.get("tick", 0) or 0),
+                "tick": _safe_int(wind.get("tick", 0)),
             })
         wind_rows = wind_rows[-max(1, int(wind_cfg["panel_limit"])):]
         return {

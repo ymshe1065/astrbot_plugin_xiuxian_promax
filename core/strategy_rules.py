@@ -3650,7 +3650,9 @@ def threat_is_turtle(stats: dict | None, border_avg_defense: float, share: float
     c = cfg or {}
     if not bool(c.get("enabled", True)):
         return False
-    if not is_player or hegemon:
+    if not is_player:
+        return False
+    if hegemon and bool(c.get("exclude_hegemon", True)):
         return False
     st = stats or {}
     if st.get("captures_7d") or st.get("attacks_7d"):

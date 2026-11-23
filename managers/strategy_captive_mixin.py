@@ -626,14 +626,16 @@ class StrategyCaptiveMixin:
                     await self.save_char(other)
                     deterred.append(str(other.get("name") or other["id"]))
 
-        # 与俘虏原势力交恶；同时承担恶名（声望下降）
+        # 先结算声望、再改外交：add_reputation 会用内存里的旧 f 整行保存，
+        # 若放在外交之后会把刚写入的 diplomacy_json 覆盖回旧值（单边丢惩罚）。
+        rep_penalty = int(ccfg.get("execute_rep_penalty", -2) or 0)
+        if rep_penalty:
+            await self.add_reputation(f, rep_penalty)
+        # 与俘虏原势力交恶
         if home_fid > 0 and home_fid != fid:
             await self._diplomacy_score_add(
                 fid, home_fid,
                 int(ccfg.get("execute_diplomacy_penalty", -8) or 0))
-        rep_penalty = int(ccfg.get("execute_rep_penalty", -2) or 0)
-        if rep_penalty:
-            await self.add_reputation(f, rep_penalty)
 
         await self._detach_from_armies(c)
         await self._clear_char_governors(int(world["id"]), int(c["id"]))
@@ -692,13 +694,14 @@ class StrategyCaptiveMixin:
         p["coin"] = int(p.get("coin", 0) or 0) + coin
         await self.save_player(p)
 
+        # 同处决：先写声望，再写外交，避免旧 f 覆盖 diplomacy_json。
+        rep_penalty = int(ccfg.get("sell_rep_penalty", -1) or 0)
+        if rep_penalty:
+            await self.add_reputation(f, rep_penalty)
         if home_fid > 0 and home_fid != fid:
             await self._diplomacy_score_add(
                 fid, home_fid,
                 int(ccfg.get("sell_diplomacy_penalty", -4) or 0))
-        rep_penalty = int(ccfg.get("sell_rep_penalty", -1) or 0)
-        if rep_penalty:
-            await self.add_reputation(f, rep_penalty)
 
         await self._detach_from_armies(c)
         await self._clear_char_governors(int(world["id"]), int(c["id"]))
@@ -1224,14 +1227,17 @@ class StrategyCaptiveMixin:
             home_fid = int(home.get("home_faction", 0) or 0)
             node_id = int(c.get("imprisoned_node_id", 0) or 0)
             loyalty = int(c.get("loyalty", 0) or 0)
-            # 劝降率：离心的任意势力固定 80%；我方关押按公式 + 祭酒加成
+            # 劝降率：只有「非关押方的离心俘虏」固定 80%；我方关押始终按
+            # persuade_captive 的公式结算（含忠诚归零固定 80% 与祭酒加成），
+            # 否则 defect_loyalty>0 时详情预览会显示 80%，实际却按公式掷点。
             rate = None
-            if is_ours or disloyal:
-                if disloyal:
-                    rate = 0.80
-                else:
-                    rate = R.persuade_rate(loyalty, best_persuader, rep) + plot_bonus
-                    rate = max(lo, min(hi, rate))
+            if is_ours:
+                rate = R.persuade_rate(
+                    loyalty, best_persuader, rep,
+                    disloyal=loyalty <= 0) + plot_bonus
+                rate = max(lo, min(hi, rate))
+            elif disloyal:
+                rate = 0.80
             ransom_amt = 0
             r = ransoms.get(str(c["id"]))
             if isinstance(r, dict):

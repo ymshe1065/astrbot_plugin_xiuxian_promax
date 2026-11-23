@@ -1110,11 +1110,14 @@ class StrategyFactionMixin:
             c = await self.get_char(int(char_id))
             if not c or int(c.get("faction_id") or 0) not in ids:
                 raise StrategyError("只能指派本势力/联盟内的角色研究")
+            injury_state = R.injury_state(c.get("injury", 0))
             if c.get("status") in ("dead", "captive", "army", "task", "wander") or \
-                    R.injury_state(c.get("injury", 0)) == "dead":
+                    injury_state in ("dying", "dead"):
                 raise StrategyError(
                     f"{c['name']} 当前无法研究（"
-                    f"{R.CHAR_STATUS_NAMES.get(c.get('status'), c.get('status'))}）")
+                    f"{R.CHAR_STATUS_NAMES.get(c.get('status'), c.get('status'))}"
+                    + ("，伤势过重" if injury_state in ("dying", "dead") else "")
+                    + "）")
             if c.get("status") not in ("idle", "research"):
                 raise StrategyError(f"{c['name']} 正在执行其他任务，无法研究")
             return c
@@ -1122,7 +1125,7 @@ class StrategyFactionMixin:
         for fid in ids:
             for c in await self.get_chars(faction_id=int(fid), world_id=world_id,
                                           status="idle"):
-                if R.injury_state(c.get("injury", 0)) == "dead":
+                if R.injury_state(c.get("injury", 0)) in ("dying", "dead"):
                     continue
                 st = c.get("stats") or {}
                 score = max(int(st.get("wisdom", 0)), int(st.get("admin", 0)))
@@ -1142,7 +1145,7 @@ class StrategyFactionMixin:
         return best
 
     async def _step_tech(self, world: dict):
-        """tick：到期的科技研究完成（主脉 +1 / 支脉 +1，并同步给联盟成员）。"""
+        """tick：到期的科技研究完成（主脉 +1 / 支脉 +1，各势力独立结算）。"""
         rows = await self._fetchall(
             "SELECT * FROM strategy_factions WHERE world_id=? AND alive=1", (world["id"],))
         # v4.3.0：结算与入口同口径钳制到配置上限（防 levels>5 时无限研究）
@@ -1186,7 +1189,12 @@ class StrategyFactionMixin:
                     if cid:
                         c = await self.get_char(cid)
                         if c:
-                            if c.get("status") == "research":
+                            # 角色可能在本势力研究期间因退盟/势力迁移转入
+                            # 新势力并立即开始新研究；旧 pending 完成时不能
+                            # 把新势力的「research」状态一并清掉，否则新研究
+                            # 仍在计时，角色却已可被派遣/编军。
+                            if c.get("status") == "research" and \
+                                    int(c.get("faction_id") or 0) == int(f["id"]):
                                 c["status"] = "idle"
                             c["exp"] = int(c.get("exp", 0) or 0) + \
                                 int(pend.get("exp", 0) or 0)
@@ -1443,6 +1451,21 @@ class StrategyFactionMixin:
                 dips[int(row["id"])] = json.loads(row["diplomacy_json"] or "{}")
             except (TypeError, ValueError):
                 dips[int(row["id"])] = {}
+        # v4.6.1：种子战争不能占满 `max_active_wars_per_npc`，否则威胁层
+        # 的“自主宣战”永远没有空槽（自然长局实测 600 tick 0 次宣战）。
+        # 每个 NPC 预留至少 1 个空槽给后续威胁宣战；威胁层关闭时保持原行为。
+        threat_cfg = (self.main_cfg().get("npc") or {}).get("threat") or {}
+        war_cfg = (self.main_cfg().get("npc") or {}).get("war") or {}
+        seed_war_cap = 10 ** 6
+        if bool(threat_cfg.get("enabled", True)):
+            seed_war_cap = max(0, int(war_cfg.get(
+                "max_active_wars_per_npc", 2) or 2) - 1)
+        war_count: dict[int, int] = {}
+        for fid, dip in dips.items():
+            war_count[fid] = sum(
+                1 for entry in (dip or {}).values()
+                if isinstance(entry, dict)
+                and str(entry.get("rel") or "") == R.REL_WAR)
         changed = False
         for i in range(len(factions)):
             for j in range(i + 1, len(factions)):
@@ -1454,9 +1477,19 @@ class StrategyFactionMixin:
                     continue
                 rel, favor = R.npc_seed_relation(
                     rng, a.get("personality"), b.get("personality"), cfg)
+                if rel == R.REL_WAR and (
+                        war_count.get(aid, 0) >= seed_war_cap
+                        or war_count.get(bid, 0) >= seed_war_cap):
+                    # 槽位已满：这对手动改判中立，避免开局即锁死自主宣战。
+                    lo, hi = (cfg.get("seed") or {}).get(
+                        "neutral_favor", [-15, 20])
+                    rel = R.REL_NEUTRAL
+                    favor = rng.randint(int(lo), int(hi))
                 entry = {"rel": rel, "score": int(favor)}
                 if rel == R.REL_WAR:
                     entry["war_at"] = 0  # NPC 之间直接进入战争
+                    war_count[aid] = war_count.get(aid, 0) + 1
+                    war_count[bid] = war_count.get(bid, 0) + 1
                 da[str(bid)] = dict(entry)
                 db[str(aid)] = dict(entry)
                 changed = True
@@ -1540,15 +1573,21 @@ class StrategyFactionMixin:
             await self._favor_third_party(world["id"], f, tf, "war", fcfg)
             return {"ok": True,
                     "msg": f"⚔️ 已向「{tf['name']}」宣战！备战期 {prep // 3600} 小时后全面开战"}
+        # v4.5.7：和谈赔款由提案方**势力主钱包**支付（联盟提案由盟主支付）。
+        # 因此赔款上限与 NPC 接受率都必须按同一付款人口径计算；此前按
+        # 操作者个人钱包估算，副主/盟员提案时会出现「上限过低无法提案」
+        # 或「接受后势力主余额不足只付出一部分」的错位。
+        payer_coin = 0
         if kind == "peace":
             if cur not in ("war", "war_pending"):
                 raise StrategyError("仅在战争状态下可提出和谈")
-            # v4.5.7：赔款直接由操作者（提案方）钱包支付
-            cap = int(int(p.get("coin", 0) or 0) *
+            lp = await self._leader_player(int(world["id"]), f)
+            payer_coin = int((lp or {}).get("coin", 0) or 0)
+            cap = int(payer_coin *
                       float(dcfg.get("peace_indemnity_cap_pct", 0.2)))
             indemnity = int(indemnity)
             if indemnity < 0 or indemnity > cap:
-                raise StrategyError(f"赔款上限为个人铜钱的 20%（{cap}）")
+                raise StrategyError(f"赔款上限为势力主钱包铜钱的 20%（{cap}）")
         if kind == "ally":
             cap_ally = int(dcfg.get("ally_max", 3))
             # C-M2：仅统计存续势力的同盟位（已覆灭势力的 ally 记录不再占坑）
@@ -1573,8 +1612,7 @@ class StrategyFactionMixin:
         # --- 提案（对方为玩家 → 等待回应；NPC → 立即掷点）---
         if tf.get("kind") == "npc":
             accepted = self._npc_diplomacy_roll(
-                world, f, tf, kind, indemnity, dcfg,
-                int(p.get("coin", 0) or 0))
+                world, f, tf, kind, indemnity, dcfg, payer_coin)
             if accepted:
                 await self._apply_diplomacy_deal(f, tf, kind, indemnity, dcfg)
                 # v4.6.1：立即接受停战/和谈时同步 NPC 势力对状态
@@ -1612,6 +1650,9 @@ class StrategyFactionMixin:
                             payer_coin: int = 0) -> bool:
         rng = self._rng("diplomacy", f["id"], tf["id"], kind, _now() // 3600)
         fcfg = dcfg.get("favor") or {}
+        # 旧档 pair 字段损坏时不要在玩家动作路径里抛错（tick 入口已自愈，
+        # 但玩家动作可能先于下一 tick 到达）。
+        self._sanitize_npc_ai_state(world)
         favor = R.favor_of(tf.get("diplomacy") or {}, f["id"])
         if kind == "truce":
             # v4.6.1：停战接受率纳入战争疲劳 E 与战况 war_score（§8.5）。
@@ -1623,8 +1664,10 @@ class StrategyFactionMixin:
             reverse = self._pair(state, int(f["id"]), int(tf["id"]))
             chance = R.threat_peace_accept(
                 float(pair.get("exhaustion", 0.0) or 0.0), favor,
-                float(reverse.get("war_score", 50) or 50),
-                float(pair.get("war_score", 50) or 50),
+                float(reverse.get("war_score") if reverse.get("war_score")
+                      is not None else 50),
+                float(pair.get("war_score") if pair.get("war_score")
+                      is not None else 50),
                 float(pcfg["accept_min"]), float(pcfg["accept_max"]))
             return rng.random() < max(0.20, min(0.95, chance))
         if kind == "ally":
@@ -1657,34 +1700,43 @@ class StrategyFactionMixin:
             if kind == "peace" and int(indemnity) > 0:
                 # v4.5.7：赔款从付款方势力主钱包扣，直接进收款方势力主钱包；
                 # NPC 没有玩家钱包，仍从其内部模拟国库扣/入账。
-                pay = 0
+                # 先在内存中解析双方账户并校验，再落库：玩家付款方余额不足
+                # 或收款方没有可入账玩家时整笔和谈失败，不能只付出部分赔款。
+                pay = int(indemnity)
+                payer = None
+                receiver = None
                 if str(f.get("kind") or "") == "npc":
                     tt_src = f.get("treasury") or {}
-                    pay = min(int(indemnity),
-                              int(tt_src.get("coin", 0) or 0))
-                    if pay > 0:
+                    pay = min(pay, int(tt_src.get("coin", 0) or 0))
+                else:
+                    payer = await self._leader_player(
+                        int(f.get("world_id") or 0), f)
+                    if not payer or int(payer.get("coin", 0) or 0) < pay:
+                        raise StrategyError(
+                            "提案方势力主铜钱不足，无法支付和谈赔款（和谈未生效）")
+                if str(tf.get("kind") or "") == "npc":
+                    receiver = None
+                else:
+                    receiver = await self._leader_player(
+                        int(tf.get("world_id") or 0), tf)
+                    if not receiver:
+                        raise StrategyError(
+                            "接受方势力没有可入账的势力主（和谈未生效）")
+                if pay > 0:
+                    if payer is not None:
+                        payer["coin"] = int(payer.get("coin", 0) or 0) - pay
+                        await self.save_player(payer)
+                    elif str(f.get("kind") or "") == "npc":
+                        tt_src = f.get("treasury") or {}
                         tt_src["coin"] = int(tt_src.get("coin", 0) or 0) - pay
                         f["treasury"] = tt_src
-                else:
-                    lp = await self._leader_player(
-                        int(f.get("world_id") or 0), f)
-                    if lp:
-                        pay = min(int(indemnity),
-                                  int(lp.get("coin", 0) or 0))
-                        if pay > 0:
-                            lp["coin"] = int(lp.get("coin", 0) or 0) - pay
-                            await self.save_player(lp)
-                if pay > 0:
-                    if str(tf.get("kind") or "") == "npc":
+                    if receiver is not None:
+                        receiver["coin"] = int(receiver.get("coin", 0) or 0) + pay
+                        await self.save_player(receiver)
+                    elif str(tf.get("kind") or "") == "npc":
                         tt = tf.get("treasury") or {}
                         tt["coin"] = int(tt.get("coin", 0) or 0) + pay
                         tf["treasury"] = tt
-                    else:
-                        rp = await self._leader_player(
-                            int(tf.get("world_id") or 0), tf)
-                        if rp:
-                            rp["coin"] = int(rp.get("coin", 0) or 0) + pay
-                            await self.save_player(rp)
         elif kind == "ally":
             self._set_relation(f_dip, tf["id"], R.REL_ALLY)
             self._set_relation(t_dip, f["id"], R.REL_ALLY)
@@ -1925,7 +1977,12 @@ class StrategyFactionMixin:
         """
         fcfg = self.main_cfg().get("faction") or {}
         scfg = fcfg.get("salary") or {}
-        enabled = bool(scfg.get("enabled", fcfg.get("salary_enabled", True)))
+        # 旧配置可能仍用 salary_from_treasury 表示「是否发俸禄」；玩家势力
+        # 无国库后该键已从默认配置移除，这里保留只读兼容，避免升级后
+        # 原本关闭俸禄的服务器静默恢复扣款。
+        enabled = bool(scfg.get(
+            "enabled",
+            fcfg.get("salary_enabled", fcfg.get("salary_from_treasury", True))))
         # 默认值与 config/strategy_config.json 保持一致；旧配置缺字段时仍可运行。
         per = {"taishou": 10, "zhonglang": 15, "jijiu": 25,
                "situ": 35, "taiwei": 50}
@@ -2189,6 +2246,8 @@ class StrategyFactionMixin:
         f["faction_state"] = "collapsed"
         f["treasury"] = {}
         await self.save_faction(f)
+        # 立即清掉威胁外交层里该势力的势力对 / 敌意，避免 tick 结束仍残留
+        self._prune_npc_ai_faction(world, fid)
         if int(f.get("alliance_id") or 0):
             try:
                 await self._remove_faction_from_alliance(world, f)
@@ -2237,7 +2296,12 @@ class StrategyFactionMixin:
     # 主城重建（§8.7）与护山盾（§8.5）
     # ------------------------------------------------------------------
     async def _deduct_main_gold(self, user_id: str, amount: int) -> bool:
-        """从主玩法钱包扣灵石（不足返回 False）。"""
+        """从主玩法钱包扣灵石（不足返回 False）。
+
+        action/tick 事务内必须延迟提交：否则 ``update_player`` 的默认
+        commit 会提前结束整笔事务，后续步骤失败时主玩法灵石无法随
+        rollback 退回（表现为「扣了钱但重建/捐款没生效」）。
+        """
         try:
             from ..handlers.utils import get_player_lock
             lock = get_player_lock(user_id)
@@ -2248,7 +2312,8 @@ class StrategyFactionMixin:
             if player is None or int(player.gold or 0) < int(amount):
                 return False
             player.gold = int(player.gold or 0) - int(amount)
-            await self.db.update_player(player)
+            await self.db.update_player(
+                player, commit=not self._in_tick_task())
         return True
 
     async def rebuild_capital(self, user_id: str, node_id: int) -> dict:

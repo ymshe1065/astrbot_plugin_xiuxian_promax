@@ -341,6 +341,28 @@ class TestStrategySalary(unittest.IsolatedAsyncioTestCase):
         finally:
             cfg["faction"]["salary"]["enabled"] = True
 
+    async def test_legacy_salary_from_treasury_false_still_disables(self):
+        """旧配置只保留 salary_from_treasury=false 时，升级后不得静默发俸禄。"""
+        general = await self._char("u1", "general")
+        await self.m.faction_appoint_char("u1", int(general["id"]), "zhonglang")
+        await self._set_wallet(1000)
+        cfg = self.m.main_cfg()
+        salary_cfg = cfg.setdefault("faction", {}).setdefault("salary", {})
+        old_enabled = salary_cfg.pop("enabled", None)
+        old_switch = cfg["faction"].get("salary_enabled")
+        cfg["faction"].pop("salary_enabled", None)
+        cfg["faction"]["salary_from_treasury"] = False
+        try:
+            f = await self._salary()
+            self.assertEqual(f.get("salary") or {}, {})
+            self.assertEqual(await self._wallet_coin(), 1000)
+        finally:
+            cfg["faction"].pop("salary_from_treasury", None)
+            if old_enabled is not None:
+                salary_cfg["enabled"] = old_enabled
+            if old_switch is not None:
+                cfg["faction"]["salary_enabled"] = old_switch
+
 
 if __name__ == "__main__":
     unittest.main()

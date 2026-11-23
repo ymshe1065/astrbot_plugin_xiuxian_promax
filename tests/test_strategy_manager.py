@@ -908,6 +908,107 @@ class TestStrategyManager(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(final["troops"], 1500)
         self.assertEqual(final["characters"], [g2["id"]])
 
+    async def test_handover_army_view_syncs_cap_and_army_roles(self):
+        """换将后军团实际上限与「主将/随军」标记按新主将实时刷新。"""
+        p, gen, off, home, _target = await self._army_fixture()
+        g2 = await self._add_general(p, home["id"], "太尉新帅")
+        g2["appointed_position"] = "taiwei"
+        await self.m.save_char(g2)
+        f = await self.m.get_faction(p["faction_id"])
+        f["salary"] = {"enabled": True, "paid_role_char_ids": [g2["id"]]}
+        await self.m.save_faction(f)
+        r = await self.m.create_army("u1", gen["id"], [off["id"]], home["id"],
+                                     "sword_shield", 500)
+        aid = r["army_id"]
+        pv = await self.m._player_view(
+            await self.m.get_player("u1", self.wid), self.world,
+            await self.m.get_nodes(self.wid))
+        before = next(a for a in pv["armies"] if a["id"] == aid)
+        self.assertEqual(before["troop_cap"], 1500)
+        self.assertEqual(before["leader_id"], gen["id"])
+        # 换将到太尉：上限立即变为 3000，主将/随军标记同步
+        res = await self.m.handover_army("u1", aid, g2["id"], [off["id"]])
+        self.assertEqual(res["troop_cap"], 3000)
+        self.assertEqual(res["leader_id"], g2["id"])
+        pv = await self.m._player_view(
+            await self.m.get_player("u1", self.wid), self.world,
+            await self.m.get_nodes(self.wid))
+        army = next(a for a in pv["armies"] if a["id"] == aid)
+        self.assertEqual(army["leader_id"], g2["id"])
+        self.assertEqual(army["leader_name"], "太尉新帅")
+        self.assertEqual(army["troop_cap"], 3000)
+        chars = {c["id"]: c for c in pv["chars"]}
+        self.assertEqual(chars[g2["id"]]["army_role"], "leader")
+        self.assertEqual(chars[g2["id"]]["status_name"], "主将")
+        self.assertEqual(chars[off["id"]]["army_role"], "member")
+        self.assertEqual(chars[off["id"]]["status_name"], "随军")
+        self.assertEqual(chars[gen["id"]]["status"], "idle")
+        # 官职撤销后上限同口径下调（双向对齐，不保留旧上限）
+        g2["appointed_position"] = ""
+        await self.m.save_char(g2)
+        pv = await self.m._player_view(
+            await self.m.get_player("u1", self.wid), self.world,
+            await self.m.get_nodes(self.wid))
+        army = next(a for a in pv["armies"] if a["id"] == aid)
+        self.assertEqual(army["troop_cap"], 1500)
+
+    async def test_army_cap_preview_uses_effective_cap(self):
+        """换将弹窗只读预览返回含官职/太守/兵营的实际上限。"""
+        p, gen, off, home, _target = await self._army_fixture()
+        g2 = await self._add_general(p, home["id"], "中郎将新帅")
+        g2["appointed_position"] = "zhonglang"
+        await self.m.save_char(g2)
+        f = await self.m.get_faction(p["faction_id"])
+        f["salary"] = {"enabled": True, "paid_role_char_ids": [g2["id"]]}
+        await self.m.save_faction(f)
+        r = await self.m.create_army("u1", gen["id"], [], home["id"],
+                                     "sword_shield", 500)
+        res = await self.m.handle_action(
+            "u1", "army_cap_preview",
+            {"army_id": r["army_id"], "leader_char_id": g2["id"]})
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["leader_id"], g2["id"])
+        self.assertEqual(res["base_cap"], 2000)
+        self.assertEqual(res["troop_cap"], 2000)
+        self.assertTrue(res["position_paid"])
+
+    async def test_handover_army_keeps_task_recall_payout(self):
+        """换将中断随军任务后，不得用旧角色快照覆盖召回阅历/体力结算。"""
+        _p, gen, off, home, _target = await self._army_fixture()
+        r = await self.m.create_army("u1", gen["id"], [off["id"]], home["id"],
+                                     "sword_shield", 500)
+        aid = r["army_id"]
+        t1 = await self.m.dispatch_task("u1", gen["id"], home["id"], "farm", 1)
+        t2 = await self.m.dispatch_task("u1", off["id"], home["id"], "mining", 1)
+        now = int(time.time())
+        for tid in (t1["task_id"], t2["task_id"]):
+            row = await self.m._fetchone(
+                "SELECT * FROM strategy_tasks WHERE id=?", (tid,))
+            task = self.m._decode("strategy_tasks", row)
+            payout = dict(task.get("payout") or {})
+            payout["sustained"] = 1
+            payout["next_settle_at"] = now
+            await self.m._execute(
+                "UPDATE strategy_tasks SET start_at=?, payout_json=? WHERE id=?",
+                (now - 7200, json.dumps(payout, ensure_ascii=False), int(tid)))
+        base = {}
+        for cid in (gen["id"], off["id"]):
+            c = await self.m.get_char(cid)
+            c["exp"] = int(c["exp"]) + 77
+            await self.m.save_char(c)
+            base[cid] = int(c["exp"])
+        g2 = await self._add_general(_p, home["id"], "接任新帅")
+        res = await self.m.handover_army("u1", aid, g2["id"], [off["id"]])
+        self.assertTrue(res["ok"])
+        for cid in (gen["id"], off["id"]):
+            c = await self.m.get_char(cid)
+            self.assertGreater(
+                int(c["exp"]), base[cid],
+                "换将保存旧快照覆盖了任务召回阅历")
+        # 换下的旧主将回归空闲，留任的随行恢复随军
+        self.assertEqual((await self.m.get_char(gen["id"]))["status"], "idle")
+        self.assertEqual((await self.m.get_char(off["id"]))["status"], "army")
+
     async def _add_general(self, p, node_id: int, name: str) -> dict:
         """测试辅助：在指定据点直接落库一名空闲武将。"""
         R = _imp("core.strategy_rules")

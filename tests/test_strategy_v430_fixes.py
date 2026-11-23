@@ -105,6 +105,50 @@ class TestStrategyV430Fixes(unittest.IsolatedAsyncioTestCase):
             int((self.m.main_cfg().get("captive") or {}).get("defect_loyalty", -1)),
             0)
 
+    async def test_captive_preview_rate_matches_defect_formula(self):
+        """G-03：defect_loyalty>0 时，我方关押的低忠诚俘虏预览须按公式，
+        不能固定显示 80%（persuade_captive 仅对「非关押方的离心俘虏」用 80%）。
+        """
+        ccfg = self.m.main_cfg().setdefault("captive", {})
+        old = ccfg.get("defect_loyalty")
+        ccfg["defect_loyalty"] = 10
+        try:
+            fid1 = int(self.p1["faction_id"])
+            nodes = await self.m.get_nodes(self.wid)
+            node = next(n for n in nodes
+                        if int(n.get("owner_faction", 0) or 0) == fid1
+                        and str(n.get("type")) in R.CHAR_DWELL_NODE_TYPES)
+            c = await self._idle_char("u2", loyalty=1)
+            self.assertTrue(await self.m._capture_char(c, fid1, int(node["id"])))
+            v = await self.m.get_captives_view(
+                self.wid, fid1, user_id="u1")
+            row = next(x for x in v["holding"] if int(x["id"]) == int(c["id"]))
+            # 复算 persuade_captive 的实际分支：我方关押 + 忠诚>0 → 公式 + 祭酒
+            best, persuader = -1, None
+            for mine in await self.m.get_chars(
+                    owner_user_id="u1", world_id=self.wid, status="idle"):
+                st = mine.get("stats") or {}
+                score = int(st.get("charm", 0)) + int(st.get("wisdom", 0))
+                if score > best and R.injury_state(
+                        mine.get("injury", 0)) not in ("dying", "dead"):
+                    best, persuader = score, mine
+            f = await self.m.get_faction(fid1)
+            bonus = await self.m._faction_plot_bonus(f)
+            lo_hi = ccfg.get("persuade_clamp") or [5, 90]
+            expect = R.persuade_rate(
+                1, persuader, int(f["reputation"])) + bonus
+            expect = max(float(lo_hi[0]) / 100.0,
+                         min(float(lo_hi[1]) / 100.0, expect))
+            self.assertAlmostEqual(row["persuade_rate"], round(expect, 4),
+                                   places=4)
+            self.assertGreater(row["persuade_rate"], 0.80,
+                               "低忠诚我方俘虏的预览不应被当成离心 80%")
+        finally:
+            if old is None:
+                ccfg.pop("defect_loyalty", None)
+            else:
+                ccfg["defect_loyalty"] = old
+
     async def test_persuade_rate_clamped_at_90(self):
         persuader = {"stats": {"charm": 90, "wisdom": 90}}
         rate = R.persuade_rate(1, persuader, reputation=100)

@@ -40,7 +40,7 @@ from .strategy_captive_mixin import StrategyCaptiveMixin
 from .strategy_plot_mixin import StrategyPlotMixin
 from .strategy_battle_mixin import StrategyBattleMixin
 from .strategy_p3_mixin import StrategyP3Mixin
-from .strategy_threat_mixin import StrategyThreatMixin
+from .strategy_threat_mixin import StrategyThreatMixin, _safe_int
 
 logger = logging.getLogger("astrbot")
 
@@ -1009,18 +1009,27 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
         v4.3.0：plot_cd（按 tick）、persuade_cd（按时间）、已无读取方的
         sabotage 死标记、过期 winds；ransoms 已改由 ``_step_captives``
         按「仍在押 + 关押方一致」每 tick 回收。
+
+        v4.6.1：同时自愈损坏的临时容器（非 dict 的 CD / 日限桶 / 赎金表、
+        非数值的日限计数），避免旧档或人工改库让玩家动作永久抛错。
         """
         if not isinstance(data, dict):
             return
         now = _now()
+        # 容器本身损坏（字符串/列表）时直接重置，否则后续 setdefault 后
+        # 按 key 写入会抛 AttributeError，玩家动作永久失败到下一次人工改库。
+        for key in ("plot_cd", "persuade_cd"):
+            raw = data.get(key)
+            if raw is not None and not isinstance(raw, dict):
+                data[key] = {}
         plot_cd = data.get("plot_cd")
         if isinstance(plot_cd, dict):
-            data["plot_cd"] = {k: int(v) for k, v in plot_cd.items()
-                               if int(v or 0) > int(tick_no)}
+            data["plot_cd"] = {k: _safe_int(v) for k, v in plot_cd.items()
+                               if _safe_int(v) > int(tick_no)}
         pcd = data.get("persuade_cd")
         if isinstance(pcd, dict):
-            data["persuade_cd"] = {k: int(v) for k, v in pcd.items()
-                                   if int(v or 0) > now}
+            data["persuade_cd"] = {k: _safe_int(v) for k, v in pcd.items()
+                                   if _safe_int(v) > now}
         # sabotage 死标记：计略结算已不再写入，残留条目直接清空
         data.pop("sabotage", None)
         winds = data.get("winds")
@@ -1031,33 +1040,34 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
                 wind_keep = 40
             data["winds"] = [w for w in winds
                              if isinstance(w, dict)
-                             and int(w.get("visible_at", 0) or 0) + 7 * 86400 > now
+                             and _safe_int(w.get("visible_at", 0)) + 7 * 86400 > now
                              ][-max(1, wind_keep):]
-        # 过期日限桶：只保留今天
+        elif winds is not None:
+            # 旧档 / 人工改库可能把 winds 写成字符串或对象；直接重置为列表
+            data["winds"] = []
+        # 过期日限桶：只保留今天；计数非法时按 0 计（不阻塞劝降/奖赏）
         today = time.strftime("%Y%m%d", time.localtime(now))
-        pdaily = data.get("persuade_daily")
-        if isinstance(pdaily, dict):
-            for fid, bucket in list(pdaily.items()):
+        for key in ("persuade_daily", "loyalty_reward_daily"):
+            daily = data.get(key)
+            if daily is not None and not isinstance(daily, dict):
+                data[key] = {}
+                continue
+            if not isinstance(daily, dict):
+                continue
+            for owner, bucket in list(daily.items()):
                 if not isinstance(bucket, dict):
-                    pdaily.pop(fid, None)
+                    daily.pop(owner, None)
                     continue
-                keep = {k: v for k, v in bucket.items() if str(k) == today}
+                keep = {k: _safe_int(v, 0) for k, v in bucket.items()
+                        if str(k) == today}
                 if keep:
-                    pdaily[fid] = keep
+                    daily[owner] = keep
                 else:
-                    pdaily.pop(fid, None)
-        # 忠诚奖赏日限桶：只保留今天
-        lrdaily = data.get("loyalty_reward_daily")
-        if isinstance(lrdaily, dict):
-            for uid, bucket in list(lrdaily.items()):
-                if not isinstance(bucket, dict):
-                    lrdaily.pop(uid, None)
-                    continue
-                keep = {k: v for k, v in bucket.items() if str(k) == today}
-                if keep:
-                    lrdaily[uid] = keep
-                else:
-                    lrdaily.pop(uid, None)
+                    daily.pop(owner, None)
+        # 赎金表：非 dict 的损坏值会在 set_ransom / pay_ransom 上抛错
+        ransoms = data.get("ransoms")
+        if ransoms is not None and not isinstance(ransoms, dict):
+            data["ransoms"] = {}
 
     # ------------------------------------------------------------------
     # 世界生命周期（§10：建世界 / 幂等）
@@ -1952,6 +1962,24 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
                 continue
             return c
         return None
+
+    async def _army_effective_cap(self, army: dict,
+                                  faction: Optional[dict] = None
+                                  ) -> tuple[Optional[dict], int]:
+        """军团名义主将与其实时带兵上限。
+
+        换将、官职任免/欠俸、太守变更或兵营升级后，回读时都会按当前
+        名义主将重新计算；不要把这个值缓存在军团行里，否则换将后会出现
+        “新主将 3000、军团仍按 1500 补员”的口径漂移。
+        """
+        leader = await self._army_nominal_leader(army)
+        if not leader:
+            return None, 0
+        if faction is None:
+            faction = await self.get_faction(int(army.get("faction_id") or 0))
+        cap = await self._leader_cap(
+            leader, faction, int(army.get("node_id") or 0))
+        return leader, int(cap)
 
     async def _army_for_char(self, world_id: int, char_id: int,
                              cache: Optional[dict] = None) -> Optional[dict]:
@@ -3162,6 +3190,41 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
         })
         return {"ok": True, "quote": quote}
 
+    async def preview_army_cap(self, user_id: str, army_id: int,
+                               leader_char_id: int = 0) -> dict:
+        """换将弹窗只读预览：按候选主将回读该军团的实际带兵上限。
+
+        与 ``handover_army`` 的硬校验同一口径（官职俸禄 / 据点太守 /
+        兵营），并区分「官职基础上限」与含太守/兵营的实际上限，避免
+        前端只按官职表估算后显示 1500 而误导玩家。
+        """
+        _world, p = await self._require_player(user_id)
+        a = await self._own_army(p, army_id)
+        faction = await self.get_faction(int(a.get("faction_id") or 0))
+        if int(leader_char_id or 0) > 0:
+            leader = await self._own_char(p, int(leader_char_id))
+        else:
+            leader = await self._army_nominal_leader(a)
+        if not leader:
+            raise StrategyError("军团已无可用主将")
+        cap = await self._leader_cap(leader, faction, int(a.get("node_id") or 0))
+        pos = str(leader.get("appointed_position") or "")
+        pos_paid = self._salary_role_paid(faction, int(leader["id"]))
+        troops = int(a.get("troops", 0) or 0)
+        return {
+            "ok": True, "army_id": int(a["id"]),
+            "leader_id": int(leader["id"]),
+            "leader_name": str(leader.get("name") or ""),
+            "position": pos,
+            "position_name": R.POSITION_NAMES.get(pos, "无官职"),
+            "position_paid": bool(pos_paid),
+            "base_cap": int(R.troop_cap(pos if pos_paid else "")),
+            "troop_cap": int(cap), "troops": troops,
+            "overstaff_limit": int(
+                (leader.get("stats") or {}).get("leadership", 0) or 0) * 20,
+            "overstaffed": bool(R.is_overstaffed(leader, troops)),
+        }
+
     async def create_army(self, user_id: str, leader_char_id: int, member_ids: list,
                           node_id: int, troop_type: str, troops: int,
                           siege_engine: bool = False) -> dict:
@@ -3361,6 +3424,8 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
 
         # 交接会改变军团编制：先中断在途任务，避免任务角色状态悬空
         await self._interrupt_army_tasks(world, a)
+        # 名义主将（若有主将已陨落/被俘，按名单顺延），用于提示与改名判定
+        old_leader = await self._army_nominal_leader(a)
 
         new_ids: list[int] = [new_leader_id]
         new_chars: list[dict] = [new_leader]
@@ -3391,10 +3456,22 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
                 new_ids.append(int(c["id"]))
                 new_chars.append(c)
 
+        # 任务召回会写回阅历 / 体力 / 伤势 / 落点；此后必须重读角色，
+        # 否则用换将前的旧快照 save_char 会把召回结算整体覆盖掉。
+        fresh_chars: dict[int, dict] = {}
+        for cid in {*old_ids, *new_ids}:
+            fc = await self.get_char(int(cid))
+            if fc:
+                fresh_chars[int(cid)] = fc
+        new_leader = fresh_chars.get(new_leader_id, new_leader)
+        new_chars = [fresh_chars[int(cid)] for cid in new_ids
+                     if int(cid) in fresh_chars]
+
         # 换下角色：保留陨落/被俘状态，其余恢复空闲并留在驻地
         outgoing = [c for c in old_chars if int(c["id"]) not in new_ids]
         released: list[dict] = []
         for c in outgoing:
+            c = fresh_chars.get(int(c["id"]), c)
             if c.get("status") in ("dead", "captive"):
                 continue
             c["status"] = "idle"
@@ -3410,7 +3487,6 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
             c["location"] = {"node_id": node_id}
             await self.save_char(c)
 
-        old_leader = old_chars[0] if old_chars else None
         a["characters"] = new_ids
         if not old_leader or int(old_leader["id"]) != new_leader_id:
             # 军团名默认跟随主将（与 create_army 的 "{主将名}军" 一致）
@@ -3434,7 +3510,15 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
             names = "、".join(str(c.get("name") or "?") for c in released)
             msg += f"；{names} 已回归空闲"
         return {"ok": True, "msg": msg, "army_id": int(a["id"]),
-                "characters": new_ids, "troop_cap": int(cap)}
+                "characters": new_ids,
+                "leader_id": new_leader_id,
+                "leader_name": str(new_leader.get("name") or ""),
+                "troop_cap": int(cap),
+                "troops": int(a.get("troops", 0) or 0),
+                "overstaff_limit": int(
+                    (new_leader.get("stats") or {}).get("leadership", 0) or 0) * 20,
+                "overstaffed": bool(R.is_overstaffed(
+                    new_leader, int(a.get("troops", 0) or 0)))}
 
     async def disband_army(self, user_id: str, army_id: int) -> dict:
         world, p = await self._require_player(user_id)
@@ -3486,7 +3570,8 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
         faction = await self.get_faction(a["faction_id"])
         cap = await self._leader_cap(leader, faction, int(a["node_id"]))
         if a["troops"] + troops > cap:
-            raise StrategyError(f"超过带兵上限（{cap}）")
+            raise StrategyError(
+                f"超过带兵上限（当前 {int(a['troops'])} / 上限 {cap}）")
         tt = R.TROOP_TYPES.get(a["troop_type"], R.TROOP_TYPES["sword_shield"])
         troop_mult = await self._faction_buff(
             int(p["faction_id"]), "troop_cost_mult")
@@ -3504,7 +3589,7 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
         await self.save_army(a)
         await self.save_player(p)
         await self._commit()
-        return {"ok": True, "msg": f"补员 {troops} 兵（现 {a['troops']}）"}
+        return {"ok": True, "msg": f"补员 {troops} 兵（现 {a['troops']} / 上限 {cap}）"}
 
     async def drill_army(self, user_id: str, army_id: int) -> dict:
         """操练：铜钱 500 → 精锐值 +5（上限 R.VETERAN_MAX）。"""
@@ -5717,6 +5802,17 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
         ``by_force``：易主方式（§10.6）。强攻破城 → 等级 -1（最低 1）；
         受降/劝降等无血开城 → 等级保留；两种方式都会作废在建工程。
         """
+        # 兜底：灭亡势力不得通过任何调用路径重新占城（否则会出现
+        # alive=0 却拥有节点的幽灵势力，NPC 轮转永不回收）。
+        capture_fid = int(faction_id or 0)
+        if capture_fid > 0:
+            capture_f = await self.get_faction(capture_fid)
+            if capture_f is not None and "alive" in capture_f and \
+                    int(capture_f.get("alive") or 0) <= 0:
+                logger.info(
+                    f"[strategy] 已灭亡势力#{capture_fid} 试图占领节点"
+                    f"{node.get('id')}，已拒绝")
+                return []
         prev_owner = int(node.get("owner_faction", 0))
         node["owner_faction"] = int(faction_id)
         node["governor_char_id"] = 0  # 易主后太守自动卸任，由新主重新任命
@@ -5733,10 +5829,25 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
         # 新主的城继续劫掠商路粮队、继续被匪寨 tick 抽成。
         await self._clear_bandit_marker(world, node)
         # v4.6.1：战果 / 龟缩统计 + 风声（据点易主）
-        if prev_owner > 0 and int(faction_id) > 0 and \
-                prev_owner != int(faction_id):
+        if int(faction_id) > 0 and prev_owner != int(faction_id):
+            # 玩家联盟按盟主统计战果，避免打盟员据点不推进对盟主战争的 war_score
+            prev_dip = prev_owner
+            new_dip = int(faction_id)
+            try:
+                if prev_owner > 0:
+                    pf = await self.get_faction(prev_owner)
+                    pf = await self._alliance_host(pf) if pf else None
+                    if pf:
+                        prev_dip = int(pf["id"])
+                nf = await self.get_faction(int(faction_id))
+                nf = await self._alliance_host(nf) if nf else None
+                if nf:
+                    new_dip = int(nf["id"])
+            except Exception:  # noqa: BLE001 - 战果统计失败不阻塞占城
+                logger.warning("[strategy] 易主战果统计归属解析失败",
+                               exc_info=True)
             self._note_threat_capture(
-                world, prev_owner, int(faction_id), node.get("name", ""))
+                world, prev_dip, new_dip, node.get("name", ""))
         node["morale"] = 50
         # 城防重置（§10.2：潜力放开后 mine/grain/market 也有城防，统一按
         # 类型判定；v4.5.2 遗迹同为可经营据点，按 20% 起步后靠自修/修筑成长）
@@ -5947,6 +6058,35 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
         await self.save_faction(f)
         army["grain"] = 0
         return grain
+
+    async def _merge_idle_npc_army(self, world: dict, army: dict,
+                                   node: dict) -> None:
+        """把停在己方据点的 NPC 闲置军团并入驻军并解散。
+
+        NPC 军团撤回本城后会长期以 ``idle`` 滞留：既不会归队也不会消失，
+        也不会被再次出征复用（``_spawn_npc_army`` 只从驻军抽兵）。
+        长局实测 1500 tick 可累积 60+ 支、3 万兵力的闲置军团，单 tick
+        的遍历 / 士气写库开销随军团数线性膨胀。这里统一并入驻军：
+        兵力按原地转入（不打折、不凭空增加），超过 ``garrison_cap`` 的
+        部分不再参与自然增长，但既有守军不会被裁掉。
+        """
+        fid = int(army.get("faction_id", 0) or 0)
+        if fid <= 0 or str(army.get("owner_user_id") or ""):
+            return
+        f = await self.get_faction(fid)
+        if not f or str(f.get("kind") or "") == "player":
+            return
+        await self._interrupt_army_tasks(world, army)
+        troops = max(0, int(army.get("troops", 0) or 0))
+        if troops > 0:
+            garrison = node.get("npc_garrison") or {}
+            garrison["troops"] = int(
+                garrison.get("troops", 0) or 0) + troops
+            node["npc_garrison"] = garrison
+            await self.save_node(node)
+        await self._refund_npc_army_grain(army)
+        await self._release_army_chars(army)
+        await self.delete_army(int(army["id"]))
 
     async def _auto_retreat(self, army: dict, pursuer_faction: int = 0,
                             pursuer_traits: Optional[list] = None,
@@ -6821,6 +6961,13 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
         atk_fids = {int(a.get("faction_id") or 0) for a in attackers}
         atk_f = await self.get_faction(int(atk_fid))
         dfn_f = await self.get_faction(int(node.get("owner_faction", 0)))
+        # 已灭亡势力（外交层/崩溃清理）的在途军团不得继续占城：否则会留下
+        # alive=0 的幽灵势力拥有节点，且永不进入后续 NPC 轮转。
+        if atk_f is not None and "alive" in atk_f and \
+                int(atk_f.get("alive") or 0) <= 0:
+            for a in attackers:
+                await self._auto_retreat(a)
+            return ""
         atk_host = await self._alliance_host(atk_f) if atk_f else None
         dfn_host = await self._alliance_host(dfn_f) if dfn_f else None
         if atk_host and dfn_host and int(atk_host["id"]) == int(dfn_host["id"]):
@@ -7502,12 +7649,18 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
         cfg = self.main_cfg().get("npc") or {}
         fcfg = self._favor_cfg()
         await self.ensure_npc_diplomacy(world)
+        # 旧档损坏的 pair/accum 字段先自愈（本方法可被单测单独调用）
+        self._sanitize_npc_ai_state(world)
         threshold = float(cfg.get("aggression_threshold", 10))
         home_reserve = float(cfg.get("garrison_home_reserve", 0.3))
         ecfg = self._npc_economy_cfg()
         morale_min = int(ecfg["mobilize_morale_min"])
         nodes = {n["id"]: n for n in await self.get_nodes(world["id"])}
         state = self._npc_ai_state(world)
+        # 同一 tick 内目标势力的外交 / 盟主不会变化：按势力缓存，避免每个
+        # 相邻节点重复 get_faction / _alliance_host（大图/多邻接时开销明显）。
+        target_cache: dict[int, Optional[dict]] = {}
+        host_cache: dict[int, Optional[dict]] = {}
         factions = await self._fetchall(
             "SELECT id FROM strategy_factions WHERE world_id=? AND kind='npc' AND alive=1",
             (world["id"],))
@@ -7521,6 +7674,27 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
                 f["alive"] = 0
                 f["faction_state"] = "destroyed"
                 await self.save_faction(f)
+                # 灭亡势力的在外军团必须同时清退：否则它可能在后续 tick
+                # 攻下无主/敌方据点，让 alive=0 的势力重新拥有节点（幽灵
+                # 势力），而 NPC 扫描只查 alive=1，永不复活——节点/霸权/
+                # 威胁统计都会长期失真。
+                siege_nodes: set[int] = set()
+                for a in await self.get_armies(
+                        world["id"], faction_id=fid):
+                    if a.get("state") == "siege":
+                        siege_nodes.add(int(a.get("node_id", 0) or 0))
+                    await self._interrupt_army_tasks(world, a)
+                    await self._refund_npc_army_grain(a)
+                    await self._release_army_chars(a)
+                    await self.delete_army(int(a["id"]))
+                # 清退围城军后节点上的 siege_state 会悬挂：_step_sieges 只遍历
+                # 现存围城军团，没有军团就永远轮不到该节点，城防自修 / 建造 /
+                # 人物传送会一直被“围城中”阻塞。
+                for nid in siege_nodes:
+                    if nid > 0:
+                        await self._clear_orphan_siege(
+                            world, await self.get_node(world["id"], nid))
+                self._prune_npc_ai_faction(world, fid)
                 continue
             # 守军自然恢复统一由 _step_recovery 结算（§10.4 方案 A）；
             # 此处只统计现有守军战力，并做仇恨记忆逐 tick 衰减（§9.1）。
@@ -7538,6 +7712,15 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
             for a in await self.get_armies(
                     world["id"], faction_id=fid,
                     states=("idle", "march", "siege")):
+                home_node = nodes.get(int(a.get("node_id", 0) or 0))
+                at_home = bool(
+                    home_node
+                    and int(home_node.get("owner_faction", 0) or 0) == fid)
+                if at_home and a.get("state") == "idle":
+                    # 已在己方据点的闲置军团并入驻军：不归队也不会再被
+                    # 出征复用，长局会无限堆积（见 _merge_idle_npc_army）。
+                    await self._merge_idle_npc_army(world, a, home_node)
+                    continue
                 if int(a.get("troops", 0) or 0) < 300 or \
                         int(a.get("morale", 100) or 0) < 20:
                     await self._auto_retreat(a)
@@ -7555,6 +7738,13 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
             at_war = any(
                 isinstance(p, dict) and p.get("phase") in ("war", "hostile")
                 for p in pairs_self.values())
+            active_wars = sum(
+                1 for p in pairs_self.values()
+                if isinstance(p, dict) and p.get("phase") == "war")
+            # v4.6.1：战术层「不宣而战」必须先给战略层预留 1 个战争槽。
+            # 否则 NPC 一开局就用突袭把 max_active_wars_per_npc 占满，
+            # 威胁层永远走不到 hostile→war，自主宣战变成死代码。
+            # 威胁层关闭时保持旧的突袭行为（见 _npc_tactical_new_war_allowed）。
             home = float(home_reserve) + (0.25 if at_war else 0.0)
             if frenzy["active"]:
                 home = max(float(frenzy["home_reserve_min"]),
@@ -7584,6 +7774,7 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
                 if send < 300:
                     continue
                 best_target, best_util = None, threshold_now
+                best_starts_war = False
                 f_dip = f.get("diplomacy") or {}
                 for adj_id in node.get("adj") or []:
                     target = nodes.get(int(adj_id))
@@ -7594,24 +7785,52 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
                         continue
                     # 同盟国不征伐（§6.3）
                     tf_owner = int(target["owner_faction"])
-                    # 停火窗口内不主动进攻（§8.7）
-                    if tf_owner > 0 and self._pair_ceasefire(
-                            world, fid, tf_owner):
-                        continue
                     rel = R.REL_NEUTRAL
                     tfo = None
+                    diplo_id = tf_owner
                     if tf_owner > 0:
-                        tfo = await self.get_faction(tf_owner)
+                        if tf_owner in target_cache:
+                            tfo = target_cache[tf_owner]
+                        else:
+                            tfo = await self.get_faction(tf_owner)
+                            target_cache[tf_owner] = tfo
                         if tfo and int(tfo.get("alliance_id") or 0) and \
                                 int(tfo.get("alliance_id")) == int(f.get("alliance_id") or 0):
                             continue
-                        rel = R.relation_of(f_dip, tf_owner, _now())
-                        if rel == R.REL_ALLY:
+                        # 玩家联盟的外交由盟主代表：关系 / 停火 / 威胁倍率都按盟主算，
+                        # 否则盟员外交副本与 NPC 字典各说各话（战和不同步）。
+                        if tf_owner in host_cache:
+                            host = host_cache[tf_owner]
+                        else:
+                            host = await self._alliance_host(tfo) if tfo else None
+                            host_cache[tf_owner] = host
+                        if host:
+                            diplo_id = int(host["id"])
+                    # 停火窗口内不主动进攻（§8.7）
+                    if diplo_id > 0 and self._pair_ceasefire(
+                            world, fid, diplo_id):
+                        continue
+                    # 停战状态机优先于外交真实时间：加速 tick / 补跑时
+                    # 真实时间可能先过期，但 pair 仍应保持停战到 tick 到期。
+                    tgt_pair = (state.get("pairs", {}).get(str(fid)) or {}
+                                ).get(str(diplo_id)) or {}
+                    if tgt_pair.get("phase") == "truce":
+                        continue
+                    if tf_owner > 0:
+                        rel = R.relation_of(f_dip, diplo_id, _now())
+                        # 同盟 / 停战 / 备战期都不主动进攻：停战刚签完
+                        # 不能同一 tick 又出兵（否则立刻触发撕约惩罚）。
+                        if rel in (R.REL_ALLY, R.REL_TRUCE, "war_pending"):
                             continue
                         # 好感足够高时 NPC 不愿主动开战（交易/赠礼的回报）
                         if rel != R.REL_WAR and \
                                 R.favor_aggression_mult(
-                                    R.favor_of(f_dip, tf_owner), fcfg) <= 0:
+                                    R.favor_of(f_dip, diplo_id), fcfg) <= 0:
+                            continue
+                        # 战略层预留槽位：非正式战争目标不得再靠突袭开新战
+                        if rel != R.REL_WAR and not \
+                                self._npc_tactical_new_war_allowed(
+                                    rel, active_wars):
                             continue
                     garrison_power = int((target.get("npc_garrison") or {}).get(
                         "troops", 0)) / 100
@@ -7634,9 +7853,9 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
                         threat_nearby_power=int(nearby),
                         adjacent_to_enemy_core=adj_core)
                     # 侵略倍率 = 赛季/合纵 × 威胁 × 狂热，硬上限 aggression_cap
-                    mult = self.npc_aggression_mult(world, fid, tf_owner)
+                    mult = self.npc_aggression_mult(world, fid, diplo_id)
                     if tf_owner > 0:
-                        mult *= self._npc_threat_mult_for(world, fid, tf_owner)
+                        mult *= self._npc_threat_mult_for(world, fid, diplo_id)
                     if frenzy["active"]:
                         mult *= 1.0 + float(frenzy["aggression_bonus"])
                     mult = max(0.0, min(
@@ -7649,9 +7868,11 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
                                 util *= float(frenzy["target_bonus"])
                         else:
                             util *= R.favor_aggression_mult(
-                                R.favor_of(f_dip, tf_owner), fcfg)
+                                R.favor_of(f_dip, diplo_id), fcfg)
                     if util > best_util:
                         best_util, best_target = util, target
+                        best_starts_war = bool(
+                            tf_owner > 0 and rel != R.REL_WAR)
                 if best_target:
                     army = await self._spawn_npc_army(
                         world, f, node, best_target, send,
@@ -7668,6 +7889,8 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
                         node["npc_garrison"] = gar
                         await self.save_node(node)
                         sorties += 1
+                        if best_starts_war:
+                            active_wars += 1
             # §7.8 非接壤霸主远征：仅 goal == hegemon，每 8 tick 至多一支
             if sorties < max_sorties:
                 for tgt_key, wpair in pairs_self.items():
@@ -8587,7 +8810,6 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
                     scouted[int(k)] = until
         world_chars = await self.get_chars(world_id=wid)
         char_by_id = {int(c["id"]): c for c in world_chars}
-        char_names = {int(c["id"]): c["name"] for c in world_chars}
         salary_per = (((self.main_cfg().get("faction") or {}).get("salary")
                        or {}).get("per_tick") or {})
         out_nodes = []
@@ -8715,6 +8937,16 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
                     node_map.get(int(a["path"][0])), alliance_ids)
             # v4.3.0：敌军行军 path 只对自己可见——否则迷雾外/邻接敌军
             # 的完整路线可被前端直接读出，绕开战争迷雾。
+            # 主将可能陨落/被俘：按名单顺延，不能盲取 characters[0]
+            leader_name = ""
+            for cid in a.get("characters") or []:
+                lc = char_by_id.get(int(cid))
+                if not lc or lc.get("status") in ("dead", "captive"):
+                    continue
+                if R.injury_state(lc.get("injury", 0)) in ("dying", "dead"):
+                    continue
+                leader_name = str(lc.get("name") or "")
+                break
             out_armies.append({
                 "id": a["id"], "name": a["name"], "faction": fm["name"],
                 "faction_color": fm["color"], "mine": is_mine,
@@ -8726,7 +8958,7 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
                 "troop_type": a["troop_type"], "morale": a["morale"] if is_mine else None,
                 "veteran": a["veteran"] if is_mine else None,
                 "grain": a["grain"] if is_mine else None,
-                "leader": char_names.get((a.get("characters") or [0])[0], ""),
+                "leader": leader_name,
             })
         for fid, meta in f_meta.items():
             if int(fid) > 0:
@@ -8919,9 +9151,20 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
                 "bonds": {str(k): v for k, v in (c.get("bonds") or {}).items()},
                 "location": node_names.get(
                     int((c.get("location") or {}).get("node_id", 0) or 0), ""),
+                # 军团角色标记由下方 armies 循环回填（主将 / 随军）
+                "army_role": "", "army_id": 0,
             })
         armies = []
+        army_faction_cache: dict[int, Optional[dict]] = {}
         for a in await self.get_armies(world["id"], owner_user_id=p["user_id"]):
+            afid = int(a.get("faction_id") or 0)
+            if afid not in army_faction_cache:
+                army_faction_cache[afid] = await self.get_faction(afid)
+            leader, troop_cap = await self._army_effective_cap(
+                a, army_faction_cache[afid])
+            leader_paid = bool(
+                leader and self._salary_role_paid(
+                    army_faction_cache[afid], int(leader["id"])))
             armies.append({
                 "id": a["id"], "name": a["name"], "node_id": a["node_id"],
                 "node_name": node_names.get(a["node_id"], ""),
@@ -8934,7 +9177,36 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
                 "characters": [char_names.get(cid, f"#{cid}")
                                for cid in (a.get("characters") or [])],
                 "character_ids": a.get("characters") or [],
+                # 换将后上限/主将状态随名义主将实时刷新（升/降都对齐）
+                "leader_id": int(leader["id"]) if leader else 0,
+                "leader_name": str(leader.get("name") or "") if leader else "",
+                "leader_position": str(
+                    leader.get("appointed_position") or "") if leader else "",
+                "leader_position_name": R.POSITION_NAMES.get(
+                    str(leader.get("appointed_position") or ""), "无官职")
+                if leader else "",
+                "leader_position_paid": leader_paid,
+                "troop_cap": int(troop_cap),
+                "overstaff_limit": int(
+                    (leader.get("stats") or {}).get("leadership", 0) or 0) * 20
+                if leader else 0,
+                "overstaffed": bool(R.is_overstaffed(
+                    leader, int(a.get("troops", 0) or 0))) if leader else False,
             })
+        # 角色卡与任务派遣列表共用：把军团主将标成「主将」，随行保持「随军」
+        char_army_role: dict[int, tuple[str, int]] = {}
+        for av in armies:
+            lid = int(av.get("leader_id") or 0)
+            for cid in av.get("character_ids") or []:
+                char_army_role[int(cid)] = (
+                    "leader" if int(cid) == lid else "member", int(av["id"]))
+        for cv in chars:
+            info = char_army_role.get(int(cv["id"]))
+            if not info:
+                continue
+            cv["army_role"], cv["army_id"] = info
+            if info[0] == "leader" and str(cv.get("status") or "") == "army":
+                cv["status_name"] = "主将"
         tasks = []
         for t in active_tasks:
             c = next((x for x in chars if x["id"] == t["character_id"]), None)
@@ -9444,7 +9716,7 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
         "reward_char", "reward_all",
     }
     #: 只读预览动作：不占限速额度、不标活跃、不包事务（前端输入实时调用）
-    _READONLY_ACTIONS = {"army_cost_preview"}
+    _READONLY_ACTIONS = {"army_cost_preview", "army_cap_preview"}
 
     async def handle_action(self, user_id: str, action: str,
                             params: Optional[dict] = None) -> dict:
@@ -9584,6 +9856,10 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
                     int(params["node_id"]), str(params.get("troop_type", "sword_shield")),
                     int(params.get("troops", 100)),
                     siege_engine=bool(params.get("siege_engine")))
+            if action == "army_cap_preview":
+                return await self.preview_army_cap(
+                    user_id, int(params["army_id"]),
+                    int(params.get("leader_char_id", 0) or 0))
             if action == "disband_army":
                 return await self.disband_army(user_id, int(params["army_id"]))
             if action == "handover_army":

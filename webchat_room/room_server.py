@@ -1808,9 +1808,9 @@ async def _api_strategy_memorial(request: web.Request) -> web.Response:
                     "season_no": season_no or 1, "joined": False,
                 })
         data = await mgr.get_memorials(wid)
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         logger.exception("[webroom] 读取名将堂失败")
-        return web.json_response({"ok": False, "error": f"读取失败：{exc}"},
+        return web.json_response({"ok": False, "error": "读取失败，请稍后重试"},
                                  status=500)
 
     data = data if isinstance(data, dict) else {}
@@ -1826,7 +1826,7 @@ async def _api_strategy_memorial(request: web.Request) -> web.Response:
 
 
 async def _api_strategy_guide(request: web.Request) -> web.Response:
-    """仙域争霸：指引目录索引（20 分类 / 58 条），支持 ?q= 过滤。
+    """仙域争霸：指引目录索引（20 分类 / 60 条），支持 ?q= 过滤。
 
     只回轻量索引 ``{id,title,cat,keywords}``，正文由前端 guide-data.js 渲染；
     索引是后端常量，进程内即可回答，不需要登录态以外的任何存档前提。

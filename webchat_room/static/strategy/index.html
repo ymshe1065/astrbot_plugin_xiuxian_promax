@@ -23,6 +23,7 @@
       <span id="tickCountdown" class="countdown">下次推进 --:--</span>
     </div>
     <div class="topbar-right">
+      <button id="btnJoinOpen" class="btn small primary" type="button" hidden>⚔️ 入场</button>
       <button id="btnRefresh" class="btn small" type="button" title="立即刷新">⟳ 刷新</button>
       <a class="btn small" href="../index.html" title="返回聊天室">💬 聊天室</a>
     </div>
@@ -93,7 +94,10 @@
       <div class="sub" id="joinNodeHint" style="margin:4px 0 10px">
         只能选择无主、非遗迹且未被匪寨占据的据点；选定后不可更改。
       </div>
-      <button class="btn primary big" id="btnJoin" type="button" disabled>入场争霸</button>
+      <div class="form-actions" style="justify-content:center;gap:8px;flex-wrap:wrap">
+        <button class="btn" id="btnJoinBrowse" type="button">先看看天下 / 指引</button>
+        <button class="btn primary big" id="btnJoin" type="button" disabled>入场争霸</button>
+      </div>
     </div>
   </div>
 

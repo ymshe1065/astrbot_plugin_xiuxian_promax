@@ -1370,14 +1370,19 @@
       convoy_arrived: "🚚 " + (pl.text || "运粮队已抵达"),
       convoy_raided: "🏴 " + (pl.text || "运粮队被劫掠"),
       event: "🎲 世界事件：" + (pl.name || pl.text || ""),
+      war_declared: "🔥「" + (pl.faction_name || "NPC 势力") +
+        "」向你宣战！前往「天下」页查看威胁与战况",
+      peace_offer: "🕊「" + (pl.faction_name || "NPC 势力") +
+        "」遣使求和，前往「势力」页外交回应",
     };
     const text = TEXTS[kind] || ("⚔️ 仙域争霸：" + (pl.text || kind));
     showBanner(text);
     try {
       if (typeof Notification !== "undefined" && Notification.permission === "granted") {
         const n = new Notification("仙域争霸", {
-          body: text.replace(/^⚔️ |^🔥 |^🎯 |^🎲 |^🛤️ |^🚚 |^🏴 |^⏳ |^🏁 /, ""),
-          tag: "strategy-" + kind + "-" + (battleId || pl.node_id || ""),
+          body: text.replace(/^⚔️ |^🔥 |^🎯 |^🎲 |^🛤️ |^🚚 |^🏴 |^⏳ |^🏁 |^🕊 /, ""),
+          tag: "strategy-" + kind + "-" + (battleId || pl.node_id ||
+            pl.faction_id || ""),
         });
         n.onclick = () => {
           try { window.open(openUrl, "_blank"); } catch (_) { /* 移动端忽略 */ }

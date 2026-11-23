@@ -11,7 +11,7 @@ from astrbot.api import logger
 if TYPE_CHECKING:
     from ..config_manager import ConfigManager
 
-LATEST_DB_VERSION = 86  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求；v49: 统一物品品阶名称；v50: 仙市投资系统（基金/股票）；v51: 符箓熟练度与符图习得；v52: 仙市 v6（16 盘 + 赌场级波动 + 不对称日熔断）；v53: 拍卖会未开拍拍品按固定品阶曲线重建（并兼容分叉旧库补授符图）；v54: 灵田肥力上限按等级分级（旧值按百分比换算）；v55: 生活职业更换费用峰值与时间衰减；v56: 误存进储物戒/溢出仓库的丹药迁回丹药背包；v57: 旧50/50装备改名迁移到混合倾向新装备；v58: 周常 Boss（周本）周期/队伍/成员/领奖/周榜/次数表；v59: 仙市分红/风声唯一索引（结算幂等，先去重再建索引）；v60: 功德机制重做，清空全服既有功德（业力）；v61: 秘境难度分级（rift_key/product/difficulty/duration）；v62: 活动状态位按槽位多行（本体 + 身外化身）；v63: 珠宝体系（珠囊字段 jewel_inventory）；v64: 通缉令改为每日悬赏榜（每日挑战次数表 bounty_daily）；v65: 高风险玩法（锦囊/暗标/藏宝图/矿脉/古方/盘口/杠杆）与灵田永久解锁；v66: 仙市投资代理人（委托/持仓/日志表）；v67: 代理人等级（经验表 / 委托经验字段）；v68: 风声可信度与新闻冲击成本；v69: 藏宝图肉鸽奇遇（临时效果 / 待处理事件字段）；v70: 仙域争霸战略玩法（strategy_* 11 表）；v71: 仙域争霸 P1~P3（势力外交 / hex 战役会话 / 英烈祠名将堂 / 赛季结算）；v72: 仙域争霸联盟体系（势力 alliance_id / 共同治理与据点交接）；v73: 矿脉到期自动结算消息通道（mine_veins/mine_partners.origin）；v74: 仙域争霸角色官职（strategy_characters.appointed_position / appointed_node_id）；v75: 仙域争霸流将限时竞拍（strategy_char_auctions）；v76: 流将战功暗标（暗标表/赛季名额/坊市地缘/属性上限 90）；v77: 仙域争霸补全（势力任务/动员令/审计/俘虏押运/匪寨与NPC重生状态位/主城迁都）；v78: 仙域争霸军团断粮计数（strategy_armies.starve_ticks，供农政 L5 断粮抵抗跨 tick 生效）；v79: 太守改为据点级职务（strategy_nodes.governor_char_id，可与角色官职并存）；v80: 仙域争霸坊市 NPC 收购报价（strategy_market_offers）；v81: 仙域争霸所在地机制（strategy_nodes.construction_json / develop_ready_at / potential）；v82: 仙域争霸俸禄结算（strategy_factions.salary_json）；v83: 仙域争霸角色个性（strategy_characters.personality_json）；v84: 仙域争霸遗迹转为常规可经营据点（潜力回填 3）；v85: 仙域争霸存量武将忠诚统一置满（俘虏除外）；v86: 势力任务「共襄国库」更名为「共襄重建」（旧档进行中任务同步改名）
+LATEST_DB_VERSION = 86  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求；v49: 统一物品品阶名称；v50: 仙市投资系统（基金/股票）；v51: 符箓熟练度与符图习得；v52: 仙市 v6（16 盘 + 赌场级波动 + 不对称日熔断）；v53: 拍卖会未开拍拍品按固定品阶曲线重建（并兼容分叉旧库补授符图）；v54: 灵田肥力上限按等级分级（旧值按百分比换算）；v55: 生活职业更换费用峰值与时间衰减；v56: 误存进储物戒/溢出仓库的丹药迁回丹药背包；v57: 旧50/50装备改名迁移到混合倾向新装备；v58: 周常 Boss（周本）周期/队伍/成员/领奖/周榜/次数表；v59: 仙市分红/风声唯一索引（结算幂等，先去重再建索引）；v60: 功德机制重做，清空全服既有功德（业力）；v61: 秘境难度分级（rift_key/product/difficulty/duration）；v62: 活动状态位按槽位多行（本体 + 身外化身）；v63: 珠宝体系（珠囊字段 jewel_inventory）；v64: 通缉令改为每日悬赏榜（每日挑战次数表 bounty_daily）；v65: 高风险玩法（锦囊/暗标/藏宝图/矿脉/古方/盘口/杠杆）与灵田永久解锁；v66: 仙市投资代理人（委托/持仓/日志表）；v67: 代理人等级（经验表 / 委托经验字段）；v68: 风声可信度与新闻冲击成本；v69: 藏宝图肉鸽奇遇（临时效果 / 待处理事件字段）；v70: 仙域争霸战略玩法（strategy_* 11 表）；v71: 仙域争霸 P1~P3（势力外交 / hex 战役会话 / 英烈祠名将堂 / 赛季结算）；v72: 仙域争霸联盟体系（势力 alliance_id / 共同治理与据点交接）；v73: 矿脉到期自动结算消息通道（mine_veins/mine_partners.origin）；v74: 仙域争霸角色官职（strategy_characters.appointed_position / appointed_node_id）；v75: 仙域争霸流将限时竞拍（strategy_char_auctions）；v76: 流将战功暗标（暗标表/赛季名额/坊市地缘/属性上限 90）；v77: 仙域争霸补全（势力任务/动员令/审计/俘虏押运/匪寨与NPC重生状态位/主城迁都）；v78: 仙域争霸军团断粮计数（strategy_armies.starve_ticks，供农政 L5 断粮抵抗跨 tick 生效）；v79: 太守改为据点级职务（strategy_nodes.governor_char_id，可与角色官职并存）；v80: 仙域争霸坊市 NPC 收购报价（strategy_market_offers）；v81: 仙域争霸所在地机制（strategy_nodes.construction_json / develop_ready_at / potential）；v82: 仙域争霸俸禄结算（strategy_factions.salary_json）；v83: 仙域争霸角色个性（strategy_characters.personality_json）；v84: 仙域争霸遗迹转为常规可经营据点（潜力回填 3）；v85: 仙域争霸玩家势力存量武将忠诚统一置满（俘虏/押运/在野/NPC 除外）；v86: 势力任务「共襄国库」更名为「共襄重建」（进行中/历史任务行同步改名）
 
 MIGRATION_TASKS: Dict[int, Callable[[aiosqlite.Connection, ConfigManager], Awaitable[None]]] = {}
 
@@ -3928,29 +3928,42 @@ async def _migrate_to_v84(conn: aiosqlite.Connection, config_manager: ConfigMana
 
 
 async def _ensure_strategy_v85(conn: aiosqlite.Connection):
-    """v85：仙域争霸存量武将忠诚统一置满（俘虏除外）。
+    """v85：仙域争霸玩家势力存量武将忠诚统一置满（俘虏除外）。
 
     新版本忠诚由「自然恢复 + 主动奖赏」长期维护；升级时把既有武将的
-    历史低忠诚一次性拉满，避免旧档里因低忠诚持续出走。关押中的俘虏
-    保持原忠诚，以免破坏「离心 / 劝降」链路。
+    历史低忠诚一次性拉满，避免旧档里因低忠诚持续出走。
+
+    仅处理**玩家势力**的非俘虏武将：NPC 势力角色不走玩家出走链路，
+    统一置满会削弱离间等玩法；押运中的 ``transfer`` 仍是被俘状态，
+    与 ``captive`` 一样必须保留原忠诚，否则会破坏「离心 / 劝降」链路。
+    死亡与在野流将不参与存量势力武将回填。
     """
     async with conn.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' "
             "AND name='strategy_characters'") as cur:
         if not await cur.fetchone():
             return
+    async with conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' "
+            "AND name='strategy_factions'") as cur:
+        if not await cur.fetchone():
+            return
     await conn.execute(
         "UPDATE strategy_characters SET loyalty=100 "
-        "WHERE status<>'captive' AND loyalty<100")
+        "WHERE status NOT IN ('captive','transfer','dead','wander') "
+        "AND COALESCE(captor_faction,0)<=0 "
+        "AND loyalty<100 "
+        "AND faction_id IN (SELECT id FROM strategy_factions "
+        "                   WHERE kind='player')")
 
 
 @migration(85)
 async def _migrate_to_v85(conn: aiosqlite.Connection, config_manager: ConfigManager):
-    """v85：存量武将忠诚置满（俘虏除外）。"""
+    """v85：玩家势力存量武将忠诚置满（俘虏 / 押运 / 在野 / NPC 除外）。"""
     logger.info("开始迁移到 v85：仙域争霸存量武将忠诚置满")
     await _ensure_strategy_v85(conn)
     await conn.commit()
-    logger.info("v85迁移完成：非俘虏武将忠诚已置为 100")
+    logger.info("v85迁移完成：玩家势力非俘虏武将忠诚已置为 100")
 
 
 async def _ensure_strategy_v86(conn: aiosqlite.Connection):
@@ -3958,8 +3971,9 @@ async def _ensure_strategy_v86(conn: aiosqlite.Connection):
 
     玩家势力自 v4.5.7 起不再设国库，原「共襄国库」任务已改由
     ``rebuild_donate``（重建合力捐款）推进。任务标题在生成时写入
-    ``strategy_faction_tasks.title``，旧档进行中的任务仍显示旧名，
-    此处统一同步为配置中的新名称。
+    ``strategy_faction_tasks.title``，旧档进行中与历史（已完成/已领取）
+    的任务行仍显示旧名，此处按 ``task_type='donate'`` 统一同步为配置中
+    的新名称；无条件重放也保持幂等。
     """
     async with conn.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' "
@@ -3977,4 +3991,4 @@ async def _migrate_to_v86(conn: aiosqlite.Connection, config_manager: ConfigMana
     logger.info("开始迁移到 v86：势力任务「共襄国库」更名为「共襄重建」")
     await _ensure_strategy_v86(conn)
     await conn.commit()
-    logger.info("v86迁移完成：进行中的共襄国库任务已更名")
+    logger.info("v86迁移完成：进行中与历史「共襄国库」任务已更名")
