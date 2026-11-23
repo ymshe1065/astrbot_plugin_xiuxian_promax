@@ -48,6 +48,13 @@ let lastRenderedTab = null;
 let pollTimer = null;
 let tickRefreshFor = 0;
 let busyRetries = 0;
+
+// 倒计时统一走服务端时间基准（v4.6.5）：设备时钟偏差不再让倒计时提前归零/停滞。
+// clock.js 未加载（老页面/缓存）时退化为本地时间，保证功能可用。
+function srvNowSec() {
+  return window.XiuXianClock ? XiuXianClock.nowSec()
+    : Math.floor(Date.now() / 1000);
+}
 // 未入场玩家选择「先看看」后，轮询不再反复弹出遮罩；页面刷新后恢复提示。
 let joinBrowse = false;
 
@@ -119,6 +126,8 @@ async function load() {
     // 旧请求晚到：丢弃，避免把新状态覆盖回旧快照（界面回滚/重复操作）
     if (seq !== loadSeq) return;
     S = r.state;
+    // 每次快照都顺手对齐服务端时间（20s 轮询即持续校准，无需额外请求）
+    if (window.XiuXianClock) XiuXianClock.syncFrom(S);
     busyRetries = 0;
     // 已入场 / 主动选择先看看时不遮罩；未入场默认弹出入场选择。
     document.getElementById("joinOverlay").hidden = !!S.joined || joinBrowse;
@@ -394,7 +403,7 @@ function updateBattleAlertLeft() {
   if (!el || !S) return;
   const b = earliestLiveBattle();
   if (!b) { el.textContent = ""; return; }
-  const left = Math.max(0, Number(b.deadline_at || 0) - Math.floor(Date.now() / 1000));
+  const left = Math.max(0, Number(b.deadline_at || 0) - srvNowSec());
   const prefix = b.my_turn ? "你的回合 · " : "";
   el.textContent = prefix + (b.state === "deploy" ? "部署剩余 " : "回合剩余 ") + left + "s";
 }
@@ -520,7 +529,7 @@ function constructionKvHtml(n) {
   const tickNo = Number((((S || {}).world || {}).tick_no) || 0);
   const leftTicks = Math.max(0, Number(c.end_tick || 0) - tickNo);
   const endAt = Number(c.end_at || 0);
-  const leftSec = Math.max(0, endAt - Math.floor(Date.now() / 1000));
+  const leftSec = Math.max(0, endAt - srvNowSec());
   const paused = nodeSieged(n);
   return kv("建造", "🚧 建造中：升至 " + Number(c.to_level || 0) + " 级 · 剩余 " +
     leftTicks + " tick" +
@@ -609,7 +618,7 @@ function renderTop() {
 function tickCountdown() {
   if (!S) return;
   const el = document.getElementById("tickCountdown");
-  const left = Math.max(0, S.world.next_tick_at - Math.floor(Date.now() / 1000));
+  const left = Math.max(0, S.world.next_tick_at - srvNowSec());
   const m = String(Math.floor(left / 60)).padStart(2, "0");
   const s = String(left % 60).padStart(2, "0");
   el.textContent = "下次推进 " + m + ":" + s;
@@ -622,7 +631,7 @@ function tickCountdown() {
   }
   document.querySelectorAll(".aucLeft").forEach((node) => {
     const exp = Number(node.dataset.expire || 0);
-    node.textContent = fmtRemain(exp - Math.floor(Date.now() / 1000));
+    node.textContent = fmtRemain(exp - srvNowSec());
   });
   updateBattleAlertLeft();
 }
@@ -971,7 +980,7 @@ function renderDrawer() {
   if (nodeSieged(n)) html += kv("围城", "已围 " + Math.max(0, Number(n.siege.ticks || 0)) + " tick" + (n.siege.attacker_faction === myFactionId() ? "（我方发起）" : ""));
   if (n.protected) html += kv("保护", "🛡 保护期中");
   if (n.scouted_until) {
-    const left = Math.max(0, n.scouted_until - Math.floor(Date.now() / 1000));
+    const left = Math.max(0, n.scouted_until - srvNowSec());
     html += kv("情报", "🕵️ 侦察情报有效（剩 " + fmtRemain(left) + "）");
   }
   // 驻扎军团（可见的）；换将只对“自己的”驻守军团开放（盟友军团仅展示）
@@ -1596,7 +1605,7 @@ function tabOverview() {
           : esc(t.node_name || ("#" + t.node_id));
         let progress;
         if (t.sustained) {
-          const now = Math.floor(Date.now() / 1000);
+          const now = srvNowSec();
           const next = Number(t.next_settle_at || 0);
           const left = Math.max(0, next - now);
           const startedAt = Number(t.started_at || 0);
@@ -1854,10 +1863,10 @@ function armyButtons(a) {
   return b;
 }
 
-function nearestOwnNodeId(fromId) {
-  // 与后端 _nearest_own_node(dwell_only=True) 同口径：按据点 id 升序遍历，
-  // 取最短路径；只保留可停留据点。
-  const own = myNodes().filter(canDwellAt)
+function nearestFriendlyNodeId(fromId) {
+  // 与后端 _nearest_friendly_node(dwell_only=True) 同口径：按据点 id 升序遍历，
+  // 取最短路径；己方与盟友据点均可作为补粮起点，只保留可停留据点。
+  const own = friendlyNodes().filter(canDwellAt)
     .slice().sort((a, b) => Number(a.id) - Number(b.id));
   if (!own.length) return 0;
   const start = Number(fromId || 0);
@@ -1875,7 +1884,7 @@ function nearestOwnNodeId(fromId) {
       }
     }
   }
-  // 与后端 _nearest_own_node 同口径：最短路径优先，同距离取据点 id 较小者
+  // 与后端 _nearest_friendly_node 同口径：最短路径优先，同距离取据点 id 较小者
   let best = 0, bestD = Infinity;
   for (const n of own) {
     const d = dist[n.id];
@@ -1891,27 +1900,27 @@ function openSupplyModal(armyId) {
   const army = (p.armies || []).find((a) => a.id === armyId);
   if (!army) return;
   const at = nodeById(army.node_id);
-  const originOwn = !!(at && at.owner && Number(at.owner.id) === myFactionId() &&
+  const originFriendly = !!(at && at.owner && factionIsFriendly(at.owner.id) &&
     canDwellAt(at));
-  // 后端运粮起点：军团当前据点是己方就原地出发，否则取最近己方据点。
+  // 后端运粮起点：军团当前据点是己方/盟友就原地出发，否则取最近友方据点。
   // 此处必须同口径计算，否则下拉会列出异地角色，提交后才报“需先传送”。
-  const originId = originOwn ? Number(army.node_id) : nearestOwnNodeId(army.node_id);
+  const originId = originFriendly ? Number(army.node_id) : nearestFriendlyNodeId(army.node_id);
   const originNode = nodeById(originId);
   const idle = originId ? charsAtNode(p, originId) : [];
   if (!idle.length) {
     toast(originNode
       ? "补粮起点「" + originNode.name + "」无空闲角色，请先传送"
-      : "没有可用己方据点作为补粮起点", "err");
+      : "没有可用己方/盟友据点作为补粮起点", "err");
     return;
   }
   supplyArmyId = armyId;
   document.getElementById("supplyArmyHint").textContent =
     "目标：" + army.name + "（" + (STATE_NAME[army.state] || army.state) + " · " +
     army.node_name + " · 携粮 " + fmtNum(army.grain) + "）" +
-    (army.state === "idle" && originOwn
-      ? "，驻扎中，交付立即完成"
+    (army.state === "idle" && originFriendly
+      ? "，驻扎在己方/盟友据点，交付立即完成"
       : "，补粮队速度高于普通行军，追上后交付（角色占用至交付或超时）") +
-    "；出发地：" + (originNode ? originNode.name : "最近己方据点") +
+    "；出发地：" + (originNode ? originNode.name : "最近友方据点") +
     "，押运角色须位于出发地。";
   document.getElementById("supplyChar").innerHTML = idle.map((c) =>
     '<option value="' + c.id + '">' + esc(c.name) + "（" + esc(c.role_name) + "·" +
@@ -2265,7 +2274,7 @@ function tabBattles() {
       ? '<div class="hl-line">⭐ ' + hl.map((t) => '<span class="hl-item">' + esc(t) + "</span>").join("") + "</div>"
       : "";
     if (manualLive) {
-      const left = Math.max(0, Number(b.deadline_at || 0) - Math.floor(Date.now() / 1000));
+      const left = Math.max(0, Number(b.deadline_at || 0) - srvNowSec());
       return '<div class="card live"><h3>🔴 ' +
         ({ field: "会战", field_encounter: "野战", street: "巷战", siege: "攻城战" }[b.kind] || "战役") +
         " · " + esc(node ? node.name : "据点#" + b.node_id) +
@@ -2521,7 +2530,7 @@ function techCard(f) {
     const pendName = techPend.node_name ||
       techNames[techPend.line] || techPend.line || "?";
     h += '<div class="sub tech-pending-line">⏳ 研究中：' + esc(pendName) + '，剩余 ' +
-      fmtRemain(Number(techPend.finish_at || 0) - Math.floor(Date.now() / 1000)) + '</div>';
+      fmtRemain(Number(techPend.finish_at || 0) - srvNowSec()) + '</div>';
   }
 
   for (const line of lines) {
@@ -2877,7 +2886,7 @@ function tabFaction() {
   } else if (!tasks.length) {
     h += '<div class="sub">（暂无进行中的' + taskLabel + "）</div>";
   } else {
-    const nowSec = Math.floor(Date.now() / 1000);
+    const nowSec = srvNowSec();
     h += '<table class="tbl"><tr><th>任务</th><th>进度</th><th>奖励</th><th>剩余</th><th></th></tr>';
     for (const t of tasks) {
       const done = Number(t.progress || 0) >= Number(t.target || 1);
@@ -2908,7 +2917,7 @@ function tabFaction() {
   if (mob === undefined) {
     h += '<div class="sub">（' + mobLabel + "状态暂未下发）</div>";
   } else if (mob) {
-    const mobLeft = Math.max(0, Number(mob.ends_at || 0) - Math.floor(Date.now() / 1000));
+    const mobLeft = Math.max(0, Number(mob.ends_at || 0) - srvNowSec());
     h += '<div class="sub">当前生效：' + esc(mob.name || mob.kind || "?") +
       "（剩余 " + (mobLeft ? fmtRemain(mobLeft) : "即将结束") + "）</div>";
   } else {
@@ -3007,7 +3016,7 @@ function tabFaction() {
     const relocateNodes = myNodes().filter((n) =>
       ["city", "pass", "branch"].includes(n.type) && n.id !== f.capital_node_id);
     const cdUntil = Number(ext.relocate_cd_until || 0);
-    const cdLeft = Math.max(0, cdUntil - Math.floor(Date.now() / 1000));
+    const cdLeft = Math.max(0, cdUntil - srvNowSec());
     if (isOwnLeader && relocateNodes.length) {
       h += '<div class="form-row"><select id="relocateNode" style="max-width:150px">' +
         relocateNodes.map((n) => '<option value="' + n.id + '">' + esc(n.name) + "</option>").join("") +
@@ -3347,7 +3356,7 @@ function factionNoHome(p) {
   if (pets.length) {
     h += '<div class="card"><h3>✍️ 进行中的联盟会签</h3>';
     for (const pet of pets) {
-      const left = Math.max(0, pet.expire_at - Math.floor(Date.now() / 1000));
+      const left = Math.max(0, pet.expire_at - srvNowSec());
       h += '<div class="form-row"><span class="lg-dot" style="display:inline-block;background:' + safeColor(pet.color) + '"></span> ' +
         esc(pet.name) + "（" + pet.cosigners + "/3 个势力 · 剩 " + Math.round(left / 3600) + "h）" +
         '<button class="btn small primary" data-act="cosign" data-id="' + esc(pet.id) + '">会签（垫付会费）</button></div>';
@@ -3456,7 +3465,7 @@ function tabMarket() {
         '<span class="tag">' + esc(a.role_name || "") + "</span></h3>" +
         '<div class="sub">' + statGrid(a.stats || {}) + " · 流落 " + esc(a.node_name || "?") +
         ' · 剩余 <span class="aucLeft" data-expire="' + a.expire_at + '">' +
-        fmtRemain(a.expire_at - Math.floor(Date.now() / 1000)) + "</span></div>" +
+        fmtRemain(a.expire_at - srvNowSec()) + "</span></div>" +
         ((a.trait_names || []).length
           ? '<div class="sub">特技：' + a.trait_names.map(esc).join("、") + "</div>" : "") +
         '<div class="sub">底价 ' + fmtNum(a.start_price) + " 战功 · 你的暗标 " +
@@ -3466,7 +3475,7 @@ function tabMarket() {
         esc(a.controller_name || "无主") +
         (a.access === "priority" && a.priority_until
           ? '（优先期剩余 <span class="aucLeft" data-expire="' + a.priority_until + '">' +
-            fmtRemain(a.priority_until - Math.floor(Date.now() / 1000)) + "</span>）"
+            fmtRemain(a.priority_until - srvNowSec()) + "</span>）"
           : "") + "</div>" +
         (a.block_reason
           ? '<div class="sub">🔒 ' + esc(a.block_reason) + "</div>"
@@ -3492,7 +3501,7 @@ function tabMarket() {
   const orders = p.market_orders || [];
   const myOrders = orders.filter((o) => o.mine);
   const offers = p.market_offers || [];
-  const nowSec = Math.floor(Date.now() / 1000);
+  const nowSec = srvNowSec();
   h += '<div class="card"><h3>📦 我的挂单与 NPC 报价</h3>';
   if (myOrders.length) {
     h += '<table class="tbl"><tr><th>据点</th><th>商品</th><th>数量</th><th>单价</th><th>剩余</th><th></th></tr>';
@@ -3723,9 +3732,9 @@ function tabHonor() {
         (reached || poor ? " disabled" : "") + ">" + (reached ? "本赛季已兑完" : poor ? "荣誉点不足" : "兑换") + "</button></div></div>";
     }
     const boost = honor.boost || {};
-    if (Number(boost.until || 0) > Math.floor(Date.now() / 1000)) {
+    if (Number(boost.until || 0) > srvNowSec()) {
       h += '<div class="sub">⚡ 当前开局加成：产出 ×' + (boost.mult || 1.2) + "，剩余 " +
-        fmtRemain(Number(boost.until) - Math.floor(Date.now() / 1000)) + "</div>";
+        fmtRemain(Number(boost.until) - srvNowSec()) + "</div>";
     }
     h += "</div>";
   }

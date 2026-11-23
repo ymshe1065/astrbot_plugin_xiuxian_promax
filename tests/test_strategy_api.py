@@ -15,6 +15,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 import types
 import unittest
 from pathlib import Path
@@ -234,6 +235,7 @@ class StrategyRestApiTest(_AccountsBase, _ManagerBase):
         app.router.add_post("/api/strategy/action", rs._api_strategy_action)
         app.router.add_get("/api/strategy/memorial", rs._api_strategy_memorial)
         app.router.add_get("/api/strategy/guide", rs._api_strategy_guide)
+        app.router.add_get("/api/server_time", rs._api_server_time)
         sel = TestServer(app)
         self.cli = TestClient(sel)
         await self.cli.start_server()
@@ -269,6 +271,26 @@ class StrategyRestApiTest(_AccountsBase, _ManagerBase):
         resp = await self.cli.post("/api/strategy/action",
                                    json={"action": "enter"})
         self.assertEqual(resp.status, 401)
+
+    async def test_server_time_endpoint(self):
+        """v4.6.5：前端时钟兜底接口，无需登录即返回服务端 epoch 秒。"""
+        resp = await self.cli.get("/api/server_time")
+        self.assertEqual(resp.status, 200)
+        data = await resp.json()
+        self.assertTrue(data["ok"])
+        self.assertIsInstance(data["now"], int)
+        self.assertLess(abs(data["now"] - int(time.time())), 60)
+
+    async def test_state_exposes_server_now(self):
+        """v4.6.5：战略快照携带服务端时间基准，前端据此校准倒计时。"""
+        resp = await self.cli.get("/api/strategy/state", headers=self._h("alice"))
+        self.assertEqual(resp.status, 200)
+        st = (await resp.json())["state"]
+        self.assertIsInstance(st.get("server_now"), int)
+        self.assertLess(abs(st["server_now"] - int(time.time())), 60)
+        # 与 world.next_tick_at 同一时间轴，剩余秒数可直接用于倒计时
+        remain = st["world"]["next_tick_at"] - st["server_now"]
+        self.assertTrue(-120 <= remain <= 900, remain)
 
     async def test_plugin_not_ready_503(self):
         rs.set_plugin(None)

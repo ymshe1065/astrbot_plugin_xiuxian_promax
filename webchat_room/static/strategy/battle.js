@@ -7,6 +7,13 @@
 (function () {
   const POLL_MS = 3000;
 
+  // 服务端时间基准（v4.6.5）：与 strategy.js 同口径，避免设备时钟偏差导致
+  // 部署/回合倒计时提前归零或停滞。
+  function srvNowSec() {
+    return window.XiuXianClock ? XiuXianClock.nowSec()
+      : Math.floor(Date.now() / 1000);
+  }
+
   // 地形配色（与 strategy_hex.TERRAIN_* 对应）
   const TERRAIN_COLOR = {
     plain: "#1c2733", forest: "#17351f", highland: "#3a3320",
@@ -727,7 +734,7 @@
       return;
     }
     const dl = bs.phase === "deploy" ? bs.deadline_at : bs.turn_deadline;
-    const left = Math.max(0, Number(dl || 0) - Math.floor(Date.now() / 1000));
+    const left = Math.max(0, Number(dl || 0) - srvNowSec());
     el.textContent = (bs.phase === "deploy" ? "部署剩余 " : "回合剩余 ") + left + "s";
     el.classList.toggle("urgent", left <= 10);
   }

@@ -1914,6 +1914,39 @@ class TestStrategyManager(unittest.IsolatedAsyncioTestCase):
         # 8 小时=32 tick，旧逻辑会给 32×exp_per_tick；修复后只按 1 tick 结算
         self.assertLessEqual(after - before, exp_per_tick)
 
+    async def test_supply_at_allied_node_is_instant(self):
+        """v4.6.5：军团驻扎在盟友据点时，可从该据点直接补粮（无需补粮队）。"""
+        R = _imp("core.strategy_rules")
+        p, gen, off, _home, _target = await self._army_fixture()
+        p2 = await self._enter("u2", "盟友道人")
+        f1 = await self.m.get_faction(int(p["faction_id"]))
+        f2 = await self.m.get_faction(int(p2["faction_id"]))
+        f2["alliance_id"] = int(f1["id"])
+        await self.m.save_faction(f2)
+        nodes = await self.m.get_nodes(self.wid)
+        ally = next(n for n in nodes
+                    if int(n["owner_faction"]) == 0
+                    and str(n["type"]) in R.CHAR_DWELL_NODE_TYPES)
+        ally["owner_faction"] = int(f2["id"])
+        await self.m.save_node(ally)
+        await self.m._commit()
+        await self._place(gen, ally["id"])
+        await self._place(off, ally["id"])
+        r = await self.m.create_army("u1", gen["id"], [], ally["id"],
+                                     "sword_shield", 500)
+        army = await self.m.get_army(r["army_id"])
+        army["grain"] = 0
+        await self.m.save_army(army)
+        res = await self.m.dispatch_task(
+            "u1", off["id"], ally["id"], "supply", 1,
+            target_army_id=int(army["id"]))
+        self.assertTrue(res["ok"])
+        # 立即到账，且任务不产生补粮队（runner=0）
+        self.assertGreater(int((await self.m.get_army(r["army_id"]))["grain"]), 0)
+        task = (await self.m.get_tasks(self.wid, status="active"))[0]
+        self.assertEqual(int((task["payout"] or {}).get("runner") or 0), 0)
+        self.assertEqual(int((task["payout"] or {}).get("exp_ticks") or 0), 1)
+
     async def test_supply_runner_chases_marching_army_and_delivers(self):
         """v4.3.2：行军军团由补粮队追击，追上即交付并结束任务。"""
         p, gen, off, home, target = await self._army_fixture()

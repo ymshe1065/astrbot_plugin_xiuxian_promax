@@ -2428,16 +2428,20 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
             # 以高于普通行军的速度从后方追击，追上即交付。
             army = await self._resolve_supply_army(
                 p, world, node_id, target_army_id)
+            # v4.6.5：军团驻扎在己方/盟友据点时直接从当前据点补粮（不再
+            # 绕回最近己方据点派队）；只有野外/敌境驻军才回退到最近友方据点。
             origin = await self.get_node(world["id"], int(army["node_id"]))
-            if origin and int(origin.get("owner_faction", 0) or 0) == \
-                    int(p["faction_id"]) and \
+            ids = await self._friendly_ids(
+                int(world["id"]), int(p["faction_id"]))
+            if origin and int(origin.get("owner_faction", 0) or 0) in ids and \
                     str(origin.get("type") or "") in R.CHAR_DWELL_NODE_TYPES:
                 node = origin
             else:
-                src_id = await self._nearest_own_node(
+                src_id = await self._nearest_friendly_node(
                     world, p, int(army["node_id"]), dwell_only=True)
                 if src_id is None:
-                    raise StrategyError("没有可用的己方据点作为运粮起点")
+                    raise StrategyError(
+                        "没有可用的己方/盟友据点作为运粮起点")
                 node = await self.get_node(world["id"], int(src_id))
                 if not node:
                     raise StrategyError("运粮起点不存在")
@@ -3778,6 +3782,27 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
         ids = [int(r["id"]) for r in mine
                if not dwell_only or str(r.get("type") or "")
                in R.CHAR_DWELL_NODE_TYPES]
+        if not ids:
+            return None
+        best, best_len = ids[0], 10 ** 9
+        for nid in ids:
+            path = await self.find_path(world["id"], node_id, nid)
+            if path and len(path) < best_len:
+                best, best_len = nid, len(path)
+        return best
+
+    async def _nearest_friendly_node(self, world: dict, p: dict, node_id: int,
+                                     dwell_only: bool = False) -> Optional[int]:
+        """最近己方/盟友据点（v4.6.5：运粮起点允许落在盟友据点）。"""
+        rows = await self._fetchall(
+            "SELECT id, type, owner_faction FROM strategy_nodes WHERE world_id=?",
+            (world["id"],))
+        ids_f = await self._friendly_ids(
+            int(world["id"]), int(p["faction_id"]))
+        ids = [int(r["id"]) for r in rows
+               if int(r.get("owner_faction") or 0) in ids_f
+               and (not dwell_only or str(r.get("type") or "")
+                    in R.CHAR_DWELL_NODE_TYPES)]
         if not ids:
             return None
         best, best_len = ids[0], 10 ** 9
@@ -8974,6 +8999,9 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
             for meta in f_meta.values()]
         state: dict[str, Any] = {
             "joined": bool(p),
+            # v4.6.5：服务端时间基准，前端据此校准倒计时，
+            # 避免玩家设备时钟偏差导致「下次推进」提前归零/停滞。
+            "server_now": _now(),
             "world": {"id": wid, "season_no": world["season_no"],
                       "template_id": world["template_id"], "tick_no": world["tick_no"],
                       "last_tick_at": world["last_tick_at"],

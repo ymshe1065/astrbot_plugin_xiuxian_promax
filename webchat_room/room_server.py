@@ -303,6 +303,7 @@ async def start(host: str, port: int) -> None:
     app.router.add_post("/api/feedback", _api_feedback)
     app.router.add_post("/api/feedback/status", _api_feedback_status)
     app.router.add_get("/api/health", _api_health)
+    app.router.add_get("/api/server_time", _api_server_time)
     app.router.add_get("/api/app/version", _api_app_version)
     app.router.add_get("/download/{name}", _api_apk)
     app.router.add_post("/api/register", _api_register)
@@ -2427,6 +2428,11 @@ async def _api_health(_request: web.Request) -> web.Response:
             "rooms": {rid: online_players(rid) for rid in _rooms},
         }
     )
+
+
+async def _api_server_time(_request: web.Request) -> web.Response:
+    """服务端时间基准（v4.6.5）：前端倒计时兜底，避免设备时钟偏差导致冻结。"""
+    return web.json_response({"ok": True, "now": int(time.time())})
 
 
 # ---------- App 版本与安装包 ----------

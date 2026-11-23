@@ -17,6 +17,9 @@
 
   const $ = (id) => document.getElementById(id);
   const isMobile = () => window.matchMedia("(max-width: 900px)").matches;
+  // 服务端时间基准（v4.6.5）：clock.js 未加载/校准失败时退化为本地时间
+  const srvNowSec = () => (window.XiuXianClock
+    ? XiuXianClock.nowSec() : Math.floor(Date.now() / 1000));
   const CACHE_KEY = "xiuxian_room_cache_v1";
   const CACHE_MAX = 80;
   // 长消息折叠：字数或行数任一超标就折起来
@@ -6107,8 +6110,7 @@
     actionRow.className = "proxy-adv-row proxy-adv-actions";
     const hint = document.createElement("span");
     hint.className = "proxy-adv-hint";
-    const retreating =
-      Number(cfg.close_until || 0) > Math.floor(Date.now() / 1000);
+    const retreating = Number(cfg.close_until || 0) > srvNowSec();
     hint.textContent = retreating
       ? "路线休整中：修改会在本轮闭关结束后生效"
       : (cfg.route ? "修改后点击应用，下一轮生效" : "选择后点击应用");
