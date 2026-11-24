@@ -27,7 +27,7 @@
 
 ---
 
-> **插件版本:** v4.6.6 · **游戏版本:** v8.1.0 · **数据库:** v86 · **分支:** `feat/web-chatroom`
+> **插件版本:** v4.6.7 · **游戏版本:** v8.1.0 · **数据库:** v86 · **分支:** `feat/web-chatroom`
 >
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497) · [lan](https://github.com/lanxue0)
 
@@ -48,7 +48,23 @@
 <sub>点击展开对应版本查看详细变更；v3.44.3 之前的版本按游戏版本系列汇总在下方。</sub>
 
 <details open>
-<summary><b>本次更新 · 插件 v4.6.6（仙域争霸 · 持续任务倒计时卡在 0s 修复）</b></summary>
+<summary><b>本次更新 · 插件 v4.6.7（仙域争霸 · 俸禄待发薪/欠俸分离与驻地补粮免押运）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 版本与数据库 | 插件 **v4.6.7**；游戏版本 **v8.1.0** 不变；数据库结构不变（仍为 **v86**），无新增聊天指令、无 schema 变更（发薪结果仍存在 `strategy_factions.salary_json`） |
+| 问题现象 | 任免角色官职后立刻显示「欠俸·加成暂停」，但势力俸禄汇总 `short=0`、势力主钱包充足；要等 15 分钟后的 world tick 才恢复。排查实例：势力 #8 的「听雨道人」（中郎将）在 tick 412 发薪后被任命，`paid_role_char_ids=[32,70,94]` 不含他，前端即判欠俸 |
+| 根因 | `_salary_role_paid()` 用 `paid_role_char_ids` **白名单**判定，只要角色不在上次发薪名单里就返回 False，把「任免后尚未到发薪 tick」误当成「钱包不足欠俸」；任免动作本身只写官职、不标记待发薪 |
+| 俸禄状态 | 新增三态 `salary_state`：`paid`（已按当前官职发薪）/ `pending`（任免后待下一 tick 发薪）/ `unpaid`（钱包不足真正欠俸）。前端「待发薪·下个 tick 生效」与「欠俸·加成暂停」分开显示；军团主将、换将上限预览同步区分 |
+| 防跨档白嫖 | 发薪结果新增 `paid_roles`（角色 → 已付官职）；同 tick 内「已付中郎将 → 晋升太尉」按新官职判为 `pending`，带兵上限与全军攻加成延后到按太尉发薪后生效，避免只付低价却拿高级官职效果 |
+| 驻地补粮 | 军团驻扎在**己方/盟友据点**时，补粮改由驻地就地入库：**无需押运角色、无需空闲人物**，立即到账，不占人、不扣体力、不生成补粮任务与经验；行军/围城军团仍需选一名位于运粮起点的空闲角色押运，由 4 段/tick 补粮队追上交付 |
+| 文档与指引 | 网页指引「粮耗与补粮」「官职与俸禄」、玩家知识库、设计方案同步；版本号同步 `metadata.yaml` / README / `misc_handler.py` |
+| 回归 | `tests/test_strategy_*.py` **667 passed**；`test_strategy_salary.py` **12**（新增待发薪、跨档晋升、真实欠俸 3 例）；补粮用例改为「免押运/不占人/不给经验」；`tests/webchat_mobile_ui.test.cjs` **24**、`tests/webchat_clock.test.cjs` **8** 全绿 |
+
+</details>
+
+<details>
+<summary><b>插件 v4.6.6（仙域争霸 · 持续任务倒计时卡在 0s 修复）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |

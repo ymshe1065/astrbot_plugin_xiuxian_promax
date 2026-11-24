@@ -1818,6 +1818,23 @@ function tabChars() {
   return h;
 }
 
+// 角色官职俸禄三态（v4.6.7）：
+//   paid    上一次发薪已按当前官职发放
+//   pending 任免发生在上一次发薪之后，等下一 tick 发薪（不是欠俸）
+//   unpaid  上一次发薪因势力主钱包不足而停发
+// 旧快照没有 salary_state 时按 salary_paid 回退，保持兼容。
+function salaryStateOf(obj) {
+  const st = String((obj && obj.salary_state) || "");
+  if (st) return st;
+  return obj && obj.salary_paid ? "paid" : "unpaid";
+}
+
+function salaryStateText(state, shortText) {
+  if (state === "pending") return '<span class="sub">待发薪·下个 tick 生效</span>';
+  if (state === "unpaid") return '<span class="warn-text">' + shortText + "</span>";
+  return "";
+}
+
 function armyRosterText(a) {
   const ids = (a.character_ids || []).map(Number);
   const names = a.characters || [];
@@ -1826,11 +1843,14 @@ function armyRosterText(a) {
     (ids.length && Number(ids[0]) === leaderId ? (names[0] || "") : "");
   const members = ids.map((id, i) => ({ id: id, name: names[i] || ("#" + id) }))
     .filter((x) => x.id !== leaderId);
+  const payState = a.leader_position_state ||
+    (a.leader_position_paid === false ? "unpaid" : "paid");
+  const payNote = payState === "pending" ? "·待发薪，下个 tick 生效"
+    : (payState === "unpaid" ? "·俸禄未发，上限暂停" : "");
   let s = "主将：" + (leaderName
     ? esc(leaderName) + (a.leader_position_name
       ? "（" + esc(a.leader_position_name) +
-        (a.leader_position && a.leader_position_paid === false
-          ? "·俸禄未发，上限暂停" : "") + "）"
+        (a.leader_position ? payNote : "") + "）"
       : "")
     : "无可用主将");
   if (members.length) s += " · 随行：" + members.map((x) => esc(x.name)).join("、");
@@ -1933,26 +1953,30 @@ function openSupplyModal(armyId) {
   const at = nodeById(army.node_id);
   const originFriendly = !!(at && at.owner && factionIsFriendly(at.owner.id) &&
     canDwellAt(at));
+  const instant = army.state === "idle" && originFriendly;
   // 后端运粮起点：军团当前据点是己方/盟友就原地出发，否则取最近友方据点。
   // 此处必须同口径计算，否则下拉会列出异地角色，提交后才报“需先传送”。
   const originId = originFriendly ? Number(army.node_id) : nearestFriendlyNodeId(army.node_id);
   const originNode = nodeById(originId);
   const idle = originId ? charsAtNode(p, originId) : [];
-  if (!idle.length) {
+  // v4.6.7：驻扎在己方/盟友据点时由军团就地补粮，无需空闲角色押运
+  if (!instant && !idle.length) {
     toast(originNode
       ? "补粮起点「" + originNode.name + "」无空闲角色，请先传送"
       : "没有可用己方/盟友据点作为补粮起点", "err");
     return;
   }
   supplyArmyId = armyId;
+  const charRow = document.getElementById("supplyCharRow");
+  if (charRow) charRow.hidden = instant;
   document.getElementById("supplyArmyHint").textContent =
     "目标：" + army.name + "（" + (STATE_NAME[army.state] || army.state) + " · " +
     army.node_name + " · 携粮 " + fmtNum(army.grain) + "）" +
-    (army.state === "idle" && originFriendly
-      ? "，驻扎在己方/盟友据点，交付立即完成"
+    (instant
+      ? "，驻扎在己方/盟友据点，直接从据点补粮、立即到账（无需押运角色）"
       : "，补粮队速度高于普通行军，追上后交付（角色占用至交付或超时）") +
-    "；出发地：" + (originNode ? originNode.name : "最近友方据点") +
-    "，押运角色须位于出发地。";
+    (instant ? "" : "；出发地：" + (originNode ? originNode.name : "最近友方据点") +
+      "，押运角色须位于出发地。");
   document.getElementById("supplyChar").innerHTML = idle.map((c) =>
     '<option value="' + c.id + '">' + esc(c.name) + "（" + esc(c.role_name) + "·" +
     esc(charLocText(c)) + "）</option>").join("");
@@ -1961,7 +1985,11 @@ function openSupplyModal(armyId) {
     '<option value="' + h + '">' + h + "小时</option>").join("");
   document.getElementById("supplyCost").textContent =
     "运粮量 = 军团单 tick 粮耗 × 所选时长对应 tick（受携粮上限：统率×50，粮仓 +10%/级）；" +
-    "「折算时长」只决定运粮量，行军/围城军团由补粮队追上即交付，不代表角色占用时长。";
+    (instant
+      ? "驻扎军团直接由据点入库，立即到账，不消耗角色体力。"
+      : "「折算时长」只决定运粮量，行军/围城军团由补粮队追上即交付，不代表角色占用时长。");
+  const confirmBtn = document.getElementById("supplyConfirm");
+  if (confirmBtn) confirmBtn.textContent = instant ? "立即补粮" : "出发";
   document.getElementById("supplyOverlay").hidden = false;
 }
 
@@ -1970,8 +1998,12 @@ document.getElementById("supplyCancel").addEventListener("click", () => {
 });
 document.getElementById("supplyConfirm").addEventListener("click", () => {
   const army = (S.player.armies || []).find((a) => a.id === supplyArmyId);
+  const at = army ? nodeById(army.node_id) : null;
+  const instant = !!(army && army.state === "idle" && at && at.owner &&
+    factionIsFriendly(at.owner.id) && canDwellAt(at));
   doAction("dispatch_task", {
-    char_id: Number(document.getElementById("supplyChar").value),
+    // 驻扎友方据点：后端就地补粮，无需押运角色（char_id=0）
+    char_id: instant ? 0 : Number(document.getElementById("supplyChar").value || 0),
     node_id: army ? army.node_id : 0,
     task_type: "supply",
     hours: Number(document.getElementById("supplyHours").value),
@@ -2087,9 +2119,12 @@ async function refreshHandoverCap(seq) {
     const overlay = document.getElementById("handoverOverlay");
     if (!overlay || overlay.hidden || !r || !r.ok) return;
     const count = memberSel.selectedOptions.length + 1;
+    const payState = r.position_state ||
+      (r.position_paid === false ? "unpaid" : "paid");
+    const payNote = payState === "pending" ? "·待发薪"
+      : (payState === "unpaid" ? "·俸禄未发" : "");
     const label = "「" + (r.leader_name || "新主将") + "」（" +
-      (r.position_name || "无官职") +
-      (r.position_paid === false ? "·俸禄未发" : "") + "）实际";
+      (r.position_name || "无官职") + payNote + "）实际";
     renderHandoverCost(r.troop_cap, label, count);
   } catch (e) {
     // 预览失败保留官职基础估算；正式交接仍由后端硬校验
@@ -2727,10 +2762,13 @@ function appointmentCard(f) {
   const apps = f.appointments || [];
   if (apps.length) {
     h += '<div class="tbl-wrap" style="margin-top:8px"><table class="tbl"><tr><th>角色</th><th>官职</th><th>俸禄</th></tr>' +
-      apps.map((a) => "<tr><td>" + esc(a.name) + ' <span class="sub">(' + esc(a.owner_user_id) +
-        ")</span></td><td>" + esc(a.position_name) + "</td><td>" +
-        (a.salary_paid ? "🪙 " + fmtNum(a.salary_per_tick || 0)
-          : '<span class="warn-text">欠俸·加成暂停</span>') + "</td></tr>").join("") +
+      apps.map((a) => {
+        const st = salaryStateOf(a);
+        const pay = st === "paid" ? "🪙 " + fmtNum(a.salary_per_tick || 0)
+          : salaryStateText(st, "欠俸·加成暂停");
+        return "<tr><td>" + esc(a.name) + ' <span class="sub">(' + esc(a.owner_user_id) +
+          ")</span></td><td>" + esc(a.position_name) + "</td><td>" + pay + "</td></tr>";
+      }).join("") +
       "</table></div>";
   }
   if (f.can_appoint) {

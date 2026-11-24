@@ -2195,9 +2195,9 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
             positions: dict[str, list] = {}
             for c in chars:
                 owner = by_id.get(int(c.get("faction_id") or 0)) or fallback
-                if not self._salary_role_paid(owner, int(c["id"])):
-                    continue
                 pos = str(c.get("appointed_position") or "")
+                if not self._salary_role_paid(owner, int(c["id"]), pos):
+                    continue
                 if pos:
                     positions.setdefault(pos, []).append(c)
             return positions
@@ -2224,19 +2224,51 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
         return bonus
 
     @staticmethod
-    def _salary_role_paid(f: Optional[dict], char_id: int) -> bool:
-        """角色官职俸禄是否已支付；未支付则官职加成与官职带兵上限失效。
+    def _salary_role_state(f: Optional[dict], char_id: int,
+                           position: str = "") -> str:
+        """角色官职俸禄状态：``paid`` / ``pending`` / ``unpaid``。
 
-        有 ``paid_role_char_ids`` 时按白名单判定（任免后需等下一 tick 发薪
-        才生效）；旧存档或未结算状态按 ``unpaid_role_char_ids`` 黑名单兜底。
+        - ``paid``：上一次发薪已按**当前官职**足额支付；
+        - ``pending``：任免发生在上一次发薪之后，尚未到下一次发薪 tick。
+          这是正常等待状态，不是欠俸（v4.6.7 起与欠俸分开显示）；
+        - ``unpaid``：上一次发薪时势力主钱包不足，真正欠俸。
+
+        发薪结果同时写 ``paid_roles``（角色 → 官职），因此同一 tick 内
+        「已付中郎将 → 晋升太尉」会按新官职判为 pending，需等下一次
+        发薪后才生效，避免只付低价却拿高级官职加成。
         """
         state = (f or {}).get("salary") or {}
-        paid = state.get("paid_role_char_ids")
-        if state.get("enabled") and isinstance(paid, list):
-            return int(char_id) in {int(x) for x in paid}
+        cid = int(char_id)
+        pos = str(position or "")
+        if not state or not state.get("enabled"):
+            return "paid"
+        paid_roles = state.get("paid_roles")
+        if isinstance(paid_roles, dict):
+            paid_pos = str(paid_roles.get(str(cid)) or "")
+            if paid_pos:
+                # 旧档/异常值可能缺少官职，按成员命中兜底
+                if pos and paid_pos != pos:
+                    return "pending"
+                return "paid"
+        else:
+            paid = state.get("paid_role_char_ids")
+            if isinstance(paid, list) and cid in {int(x) for x in paid}:
+                return "paid"
         unpaid = {int(x) for x in (state.get("unpaid_role_char_ids") or [])
                   if str(x).lstrip("-").isdigit()}
-        return int(char_id) not in unpaid
+        if cid in unpaid:
+            return "unpaid"
+        return "pending"
+
+    @staticmethod
+    def _salary_role_paid(f: Optional[dict], char_id: int,
+                          position: str = "") -> bool:
+        """角色官职俸禄是否已支付；未支付则官职加成与官职带兵上限失效。
+
+        ``pending``（任免后尚未发薪）与 ``unpaid``（钱包不足停发）都会
+        让加成延后生效，但前端按 ``_salary_role_state`` 区分文案。
+        """
+        return StrategyManager._salary_role_state(f, char_id, position) == "paid"
 
     @staticmethod
     def _salary_governor_paid(f: Optional[dict], node_id: int) -> bool:
@@ -2293,8 +2325,9 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
             return R.troop_cap("leader")
         # 角色官职俸禄未发 → 官职带兵上限失效（太守按据点单独判定）。
         # 联盟不共享国库：只看主将所属势力自己的发薪状态。
-        role_paid = self._salary_role_paid(faction, int(leader["id"]))
-        pos = str(leader.get("appointed_position") or "") if role_paid else ""
+        pos_now = str(leader.get("appointed_position") or "")
+        role_paid = self._salary_role_paid(faction, int(leader["id"]), pos_now)
+        pos = pos_now if role_paid else ""
         cap = R.troop_cap(pos)
         # 兵营：本据点出征带兵上限 +5%/级（§6.6）；太守加成只作用于所辖据点。
         if node_id:
@@ -2310,6 +2343,126 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
     # ------------------------------------------------------------------
     # 任务（§6.2）
     # ------------------------------------------------------------------
+    async def _dispatch_supply(self, user_id: str, world: dict, p: dict,
+                               node_id: int, target_army_id: int,
+                               hours: int, char_id: int = 0) -> dict:
+        """补粮（§6.2）：驻扎在己方/盟友据点内直接到账，无需押运角色。
+
+        v4.6.7：驻扎军团（``state == 'idle'`` 且与运粮起点同一据点）直接
+        由据点补粮，不再校验/占用空闲角色，也不生成补粮任务；只有行军/
+        围城中的军团仍需挑选空闲角色押运，由补粮队追上交付。
+        """
+        tcfg = self.main_cfg().get("task") or {}
+        hours = int(hours)
+        if hours not in [int(h) for h in tcfg.get("hours_options", [1, 2, 4, 8])]:
+            raise StrategyError("时长须为 1/2/4/8 小时")
+        ticks = max(1, hours * int(tcfg.get("ticks_per_hour", 4)))
+        army = await self._resolve_supply_army(
+            p, world, int(node_id), int(target_army_id))
+        origin = await self.get_node(world["id"], int(army["node_id"]))
+        ids = await self._friendly_ids(int(world["id"]), int(p["faction_id"]))
+        if origin and int(origin.get("owner_faction", 0) or 0) in ids and \
+                str(origin.get("type") or "") in R.CHAR_DWELL_NODE_TYPES:
+            node = origin
+        else:
+            src_id = await self._nearest_friendly_node(
+                world, p, int(army["node_id"]), dwell_only=True)
+            if src_id is None:
+                raise StrategyError("没有可用的己方/盟友据点作为运粮起点")
+            node = await self.get_node(world["id"], int(src_id))
+            if not node:
+                raise StrategyError("运粮起点不存在")
+        cap = await self._army_grain_cap(army, node)
+        room = max(0, cap - int(army.get("grain", 0) or 0))
+        if room <= 0:
+            raise StrategyError(
+                f"「{army['name']}」携粮已满（{int(army.get('grain', 0))}/{cap}）")
+        per_tick = await self._army_upkeep_amount(
+            army, str(node.get("terrain") or "plain"),
+            army.get("state") != "idle")
+        need = min(max(1, per_tick) * ticks, room)
+        if int(p["grain"]) < need:
+            raise StrategyError(f"粮草不足：运粮需 {need}，现有 {int(p['grain'])}")
+        # v4.6.7：驻扎在己方/盟友据点——军团就地入库，无需空闲人员
+        if army.get("state") == "idle" and \
+                int(army.get("node_id", 0) or 0) == int(node["id"]):
+            p["grain"] = int(p["grain"]) - need
+            army["grain"] = int(army.get("grain", 0) or 0) + need
+            await self.save_army(army)
+            await self.save_player(p)
+            await self._commit()
+            return {
+                "ok": True, "task_id": 0,
+                "msg": (f"🚚 已从「{node['name']}」直接补粮 {need} 给"
+                        f"「{army['name']}」（现 {int(army['grain'])}/{cap}，"
+                        f"无需押运角色）"),
+            }
+        # 行军/围城：仍需空闲角色从运粮起点押运，由补粮队追上交付
+        if int(char_id or 0) <= 0:
+            raise StrategyError("行军/围城中的军团需先选择押运角色")
+        c = await self._own_char(p, int(char_id))
+        if c["status"] == "army":
+            raise StrategyError(
+                f"{c['name']} 随军行动中，不能押运（请选择空闲角色）")
+        if c["status"] != "idle":
+            raise StrategyError(
+                f"{c['name']} 状态为「"
+                f"{R.CHAR_STATUS_NAMES.get(c['status'], c['status'])}」，无法押运")
+        if R.injury_state(c["injury"]) in ("dying", "dead"):
+            raise StrategyError(f"{c['name']} 伤势过重")
+        scfg = self.main_cfg().get("stamina") or {}
+        task_cost = int(R.STAMINA_COST.get("task", 20))
+        if scfg.get("enabled", True) and int(c["stamina"]) < task_cost:
+            raise StrategyError(f"{c['name']} 体力不足（需 {task_cost}）")
+        if R.char_node_id(c) != int(node["id"]):
+            raise StrategyError(f"押运角色需先传送到「{node['name']}」")
+        ccfg = self.main_cfg().get("convoy") or {}
+        max_active = int(ccfg.get("army_supply_max_active", 20))
+        active = len((world.get("data") or {}).get("army_supplies") or [])
+        if active >= max_active:
+            raise StrategyError(
+                f"补粮队队列已满（{active}/{max_active}），请等待送达")
+        if not R.spend_stamina(c, "task", bool(scfg.get("enabled", True))):
+            raise StrategyError(f"{c['name']} 体力不足（需 {task_cost}）")
+        now = _now()
+        c["status"] = "task"
+        c["location"] = {"node_id": int(node["id"])}
+        await self.save_char(c)
+        p["grain"] = int(p["grain"]) - need
+        await self.save_player(p)
+        payload = {
+            "ticks": ticks, "exp_ticks": ticks, "partner_char_id": 0,
+            "supplied": need, "target_node_id": int(node["id"]),
+            "origin_node_id": int(node["id"]), "army_id": int(army["id"]),
+            "runner": 1, "delivered": 0,
+        }
+        tid = await self._execute("""
+            INSERT INTO strategy_tasks (world_id, faction_id, character_id, node_id,
+                task_type, start_at, end_at, payout_json, status)
+            VALUES (?,?,?,?,?,?,?,?, 'active')
+        """, (world["id"], p["faction_id"], c["id"], int(node["id"]), "supply",
+              now, now + hours * 3600, json.dumps(payload, ensure_ascii=False)))
+        pending = {
+            "id": f"as{now}_{time.time_ns() % 100000000:08d}",
+            "owner": p["user_id"], "faction": int(p["faction_id"]),
+            "army_id": int(army["id"]), "task_id": int(tid),
+            "node_id": int(node["id"]), "grain": need,
+            "cap": cap, "created_tick": int(world.get("tick_no", 0) or 0),
+            "wait_ticks": 0,
+        }
+        data = world.get("data") or {}
+        supplies = data.get("army_supplies") or []
+        supplies.append(pending)
+        data["army_supplies"] = supplies
+        world["data"] = data
+        await self.save_world(world)
+        await self._commit()
+        return {
+            "ok": True, "task_id": int(tid),
+            "msg": (f"🚚 补粮队已出发，追赶「{army['name']}」（粮草 {need}，"
+                    f"速度 {int(ccfg.get('army_supply_speed_edges', 4))} 段/tick）"),
+        }
+
     async def dispatch_task(self, user_id: str, char_id: int, node_id: int,
                             task_type: str, hours: int,
                             target_node_id: int = 0,
@@ -2323,6 +2476,11 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
         if task_type not in R.TASK_TYPES:
             raise StrategyError(
                 f"暂不支持该任务：{R.TASK_NAMES.get(task_type, task_type)}")
+        # 运粮单独走 _dispatch_supply：驻扎军团无需押运角色，也不占人/不建任务
+        if task_type == "supply":
+            return await self._dispatch_supply(
+                user_id, world, p, int(node_id or 0),
+                int(target_army_id or 0), int(hours), int(char_id or 0))
         # §4.5：普通任务改为持续性（每满 1h 结算一次，直至主动停止）；
         # 侦察/劫掠保留固定时长；运粮沿用原补给队逻辑。
         sustained_types = {str(x) for x in
@@ -2423,68 +2581,8 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
                 if not adj_ok:
                     raise StrategyError("劫掠目标须与己方/盟友据点相邻")
         elif task_type == "supply":
-            # 运粮：从玩家粮草扣，交付给指定军团（§6.2）
-            # v4.3.2：支持指定军团；驻扎军团立即到账；行军军团由补粮队
-            # 以高于普通行军的速度从后方追击，追上即交付。
-            army = await self._resolve_supply_army(
-                p, world, node_id, target_army_id)
-            # v4.6.5：军团驻扎在己方/盟友据点时直接从当前据点补粮（不再
-            # 绕回最近己方据点派队）；只有野外/敌境驻军才回退到最近友方据点。
-            origin = await self.get_node(world["id"], int(army["node_id"]))
-            ids = await self._friendly_ids(
-                int(world["id"]), int(p["faction_id"]))
-            if origin and int(origin.get("owner_faction", 0) or 0) in ids and \
-                    str(origin.get("type") or "") in R.CHAR_DWELL_NODE_TYPES:
-                node = origin
-            else:
-                src_id = await self._nearest_friendly_node(
-                    world, p, int(army["node_id"]), dwell_only=True)
-                if src_id is None:
-                    raise StrategyError(
-                        "没有可用的己方/盟友据点作为运粮起点")
-                node = await self.get_node(world["id"], int(src_id))
-                if not node:
-                    raise StrategyError("运粮起点不存在")
-            cap = await self._army_grain_cap(army, node)
-            room = max(0, cap - int(army.get("grain", 0) or 0))
-            if room <= 0:
-                raise StrategyError(
-                    f"「{army['name']}」携粮已满（{int(army.get('grain', 0))}/{cap}）")
-            per_tick = await self._army_upkeep_amount(
-                army, str(node.get("terrain") or "plain"),
-                army.get("state") != "idle")
-            need = min(max(1, per_tick) * ticks, room)
-            if int(p["grain"]) < need:
-                raise StrategyError(f"粮草不足：运粮需 {need}，现有 {int(p['grain'])}")
-            ccfg = self.main_cfg().get("convoy") or {}
-            if army.get("state") != "idle" or \
-                    int(army.get("node_id", 0) or 0) != int(node["id"]):
-                max_active = int(ccfg.get("army_supply_max_active", 20))
-                active = len((world.get("data") or {}).get("army_supplies") or [])
-                if active >= max_active:
-                    raise StrategyError(
-                        f"补粮队队列已满（{active}/{max_active}），请等待送达")
-            p["grain"] -= need
-            supplied = need
-            if army.get("state") == "idle" and \
-                    int(army.get("node_id", 0) or 0) == int(node["id"]):
-                army["grain"] = int(army.get("grain", 0) or 0) + need
-                await self.save_army(army)
-                supply_instant = True
-                supply_msg = (f"🚚 已将粮草 {need} 送入「{army['name']}」"
-                              f"（现 {int(army['grain'])}/{cap}）")
-            else:
-                pending_supply = {
-                    "id": f"as{_now()}_{time.time_ns() % 100000000:08d}",
-                    "owner": p["user_id"], "faction": int(p["faction_id"]),
-                    "army_id": int(army["id"]), "task_id": 0,
-                    "node_id": int(node["id"]), "grain": need,
-                    "cap": cap, "created_tick": int(world.get("tick_no", 0) or 0),
-                    "wait_ticks": 0,
-                }
-                supply_msg = (f"🚚 补粮队已出发，追赶「{army['name']}」"
-                              f"（粮草 {need}，速度 {int(ccfg.get('army_supply_speed_edges', 4))} 段/tick）")
-            await self.save_player(p)
+            # 运粮已在函数入口分流到 _dispatch_supply（v4.6.7），此处不会命中。
+            raise StrategyError("运粮请使用补粮入口")
         else:
             node = await self._friendly_owned_node(p, node_id)
         # §4：任务须“人在该据点”——本地任务=目标据点，远征任务=出发地
@@ -3213,7 +3311,8 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
             raise StrategyError("军团已无可用主将")
         cap = await self._leader_cap(leader, faction, int(a.get("node_id") or 0))
         pos = str(leader.get("appointed_position") or "")
-        pos_paid = self._salary_role_paid(faction, int(leader["id"]))
+        pos_state = self._salary_role_state(faction, int(leader["id"]), pos)
+        pos_paid = pos_state == "paid"
         troops = int(a.get("troops", 0) or 0)
         return {
             "ok": True, "army_id": int(a["id"]),
@@ -3221,6 +3320,7 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
             "leader_name": str(leader.get("name") or ""),
             "position": pos,
             "position_name": R.POSITION_NAMES.get(pos, "无官职"),
+            "position_state": pos_state,
             "position_paid": bool(pos_paid),
             "base_cap": int(R.troop_cap(pos if pos_paid else "")),
             "troop_cap": int(cap), "troops": troops,
@@ -9190,9 +9290,14 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
                 army_faction_cache[afid] = await self.get_faction(afid)
             leader, troop_cap = await self._army_effective_cap(
                 a, army_faction_cache[afid])
+            leader_pos = str(leader.get("appointed_position") or "") if leader else ""
             leader_paid = bool(
                 leader and self._salary_role_paid(
-                    army_faction_cache[afid], int(leader["id"])))
+                    army_faction_cache[afid], int(leader["id"]), leader_pos))
+            leader_pay_state = (
+                self._salary_role_state(
+                    army_faction_cache[afid], int(leader["id"]), leader_pos)
+                if leader else "paid")
             armies.append({
                 "id": a["id"], "name": a["name"], "node_id": a["node_id"],
                 "node_name": node_names.get(a["node_id"], ""),
@@ -9214,6 +9319,7 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
                     str(leader.get("appointed_position") or ""), "无官职")
                 if leader else "",
                 "leader_position_paid": leader_paid,
+                "leader_position_state": leader_pay_state,
                 "troop_cap": int(troop_cap),
                 "overstaff_limit": int(
                     (leader.get("stats") or {}).get("leadership", 0) or 0) * 20
@@ -9390,18 +9496,23 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
                     "salary_per_tick": int(salary_per.get(pos, 0) or 0),
                 }
                 for pos, cap in avail.items()}
-            appointments = [
-                {"char_id": c["id"], "name": c["name"],
-                 "owner_user_id": c.get("owner_user_id", ""),
-                 "position": str(c.get("appointed_position") or ""),
-                 "position_name": R.POSITION_NAMES.get(
-                     str(c.get("appointed_position") or ""), "无官职"),
-                 "salary_paid": self._salary_role_paid(
-                     af_by_id.get(int(c.get("faction_id") or 0)) or f,
-                     int(c["id"])),
-                 "salary_per_tick": int(salary_per.get(
-                     str(c.get("appointed_position") or ""), 0) or 0)}
-                for c in gov_chars if str(c.get("appointed_position") or "")]
+            appointments = []
+            for c in gov_chars:
+                pos = str(c.get("appointed_position") or "")
+                if not pos:
+                    continue
+                owner_f = af_by_id.get(int(c.get("faction_id") or 0)) or f
+                appointments.append({
+                    "char_id": c["id"], "name": c["name"],
+                    "owner_user_id": c.get("owner_user_id", ""),
+                    "position": pos,
+                    "position_name": R.POSITION_NAMES.get(pos, "无官职"),
+                    # v4.6.7：区分「待发薪（任免后等下一 tick）」与「欠俸（钱包不足）」
+                    "salary_state": self._salary_role_state(
+                        owner_f, int(c["id"]), pos),
+                    "salary_paid": self._salary_role_paid(
+                        owner_f, int(c["id"]), pos),
+                    "salary_per_tick": int(salary_per.get(pos, 0) or 0)})
             appoint_chars = [
                 {"id": c["id"], "name": c["name"],
                  "owner_user_id": c.get("owner_user_id", ""),
@@ -9885,7 +9996,8 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
                     int(params.get("node_id", 0) or 0))
             if action == "dispatch_task":
                 return await self.dispatch_task(
-                    user_id, int(params["char_id"]), int(params["node_id"]),
+                    user_id, int(params.get("char_id", 0) or 0),
+                    int(params["node_id"]),
                     str(params.get("task_type", "farm")), int(params.get("hours", 1)),
                     int(params.get("target_node_id", 0) or 0),
                     int(params.get("partner_char_id", 0) or 0),

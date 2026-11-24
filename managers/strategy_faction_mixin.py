@@ -2101,6 +2101,13 @@ class StrategyFactionMixin:
                 "paid_role_char_ids": sorted({
                     int(it["char_id"]) for it in items
                     if it.get("kind") == "role" and it.get("paid")}),
+                # v4.6.7：按「角色 → 已付官职」记录发薪结果，
+                # 同 tick 内升/降职或新任命都按当前官职重新判定 pending，
+                # 避免只付低价却拿高级官职加成。
+                "paid_roles": {
+                    str(int(it["char_id"])): str(it["position"])
+                    for it in items
+                    if it.get("kind") == "role" and it.get("paid")},
                 "unpaid_role_char_ids": sorted({
                     int(it["char_id"]) for it in unpaid
                     if it.get("kind") == "role"}),

@@ -378,3 +378,46 @@ test('手操战役提示不会被独立战略页漏掉', () => {
     '普通行军抵达触发的野战需要在战报页显示为「野战」'
   );
 });
+
+test('任免后的「待发薪」与真正「欠俸」分开显示', () => {
+  assert.ok(
+    strategyJs.includes('function salaryStateOf(') &&
+      strategyJs.includes('function salaryStateText('),
+    '战略页需要 salary_state 三态解析函数'
+  );
+  assert.ok(
+    strategyJs.includes('salary_state') && strategyJs.includes('待发薪·下个 tick 生效'),
+    '任免后未到发薪 tick 应显示「待发薪」，不能误报「欠俸」'
+  );
+  assert.match(
+    strategyJs,
+    /const st = salaryStateOf\(a\);[\s\S]{0,200}欠俸·加成暂停/,
+    '俸禄表需按 paid/pending/unpaid 三态渲染'
+  );
+  assert.ok(
+    strategyJs.includes('leader_position_state') &&
+      strategyJs.includes('position_state'),
+    '军团主将与换将预览也要区分待发薪/欠俸'
+  );
+});
+
+test('驻扎友方据点补粮无需押运角色', () => {
+  assert.ok(
+    strategyHtml.includes('id="supplyCharRow"'),
+    '补粮弹窗需要可隐藏的押运角色行'
+  );
+  assert.match(
+    strategyJs,
+    /const instant = army\.state === "idle" && originFriendly;/,
+    '需与后端同口径判断驻扎友方据点'
+  );
+  assert.ok(
+    strategyJs.includes('charRow.hidden = instant') &&
+      strategyJs.includes('char_id: instant ? 0 :'),
+    '就地补粮时应隐藏押运下拉并提交 char_id=0'
+  );
+  assert.ok(
+    strategyJs.includes('无需押运角色'),
+    '提示文案需说明驻扎据点补粮无需押运角色'
+  );
+});

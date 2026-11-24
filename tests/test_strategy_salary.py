@@ -364,5 +364,102 @@ class TestStrategySalary(unittest.IsolatedAsyncioTestCase):
                 cfg["faction"]["salary_enabled"] = old_switch
 
 
+    # ------------------------------------------------------------------
+    # v4.6.7：任免后未到发薪 tick =「待发薪」，不得显示成「欠俸」
+    # ------------------------------------------------------------------
+    async def _give_nodes(self, count: int):
+        f = await self.m.get_faction(int(self.f1["id"]))
+        nodes = [n for n in await self.m.get_nodes(self.wid)
+                 if int(n["owner_faction"]) == 0 and n["type"] != "ruin"]
+        for n in nodes[:count]:
+            n["owner_faction"] = int(f["id"])
+            await self.m.save_node(n)
+        await self.m._commit()
+
+    async def test_appoint_after_pay_is_pending_not_arrears(self):
+        a = await self._no_salary_mods(await self._char("u1", "general"))
+        b = await self._no_salary_mods(await self._char("u1", "official"))
+        await self._give_nodes(2)
+        await self._set_wallet(10000)
+        await self.m.faction_appoint_char("u1", int(a["id"]), "zhonglang")
+        await self._salary()
+        # 发薪后新任命：钱包充足、short=0，但尚未到下一次发薪
+        await self.m.faction_appoint_char("u1", int(b["id"]), "jijiu")
+        f = await self.m.get_faction(int(self.f1["id"]))
+        self.assertEqual(int(f["salary"]["short"]), 0)
+        self.assertNotIn(str(int(b["id"])), f["salary"].get("paid_roles") or {})
+        self.assertEqual(
+            self.m._salary_role_state(f, int(b["id"]), "jijiu"), "pending")
+        self.assertFalse(self.m._salary_role_paid(f, int(b["id"]), "jijiu"))
+        state = await self.m.get_state("u1")
+        row = next(x for x in state["player"]["faction"]["appointments"]
+                   if int(x["char_id"]) == int(b["id"]))
+        self.assertEqual(row["salary_state"], "pending")
+        self.assertFalse(row["salary_paid"])
+        # 待发薪期间加成仍延后（先付后享），上限回落
+        cap = await self.m._leader_cap(
+            await self.m.get_char(int(b["id"])), f, 0)
+        self.assertEqual(int(cap), 1500)
+        # 下一次发薪后转为 paid，上限恢复
+        await self._salary()
+        f = await self.m.get_faction(int(self.f1["id"]))
+        self.assertEqual(
+            self.m._salary_role_state(f, int(b["id"]), "jijiu"), "paid")
+        self.assertIn(str(int(b["id"])), f["salary"]["paid_roles"])
+        state = await self.m.get_state("u1")
+        row = next(x for x in state["player"]["faction"]["appointments"]
+                   if int(x["char_id"]) == int(b["id"]))
+        self.assertEqual(row["salary_state"], "paid")
+        cap = await self.m._leader_cap(
+            await self.m.get_char(int(b["id"])), f, 0)
+        self.assertEqual(int(cap), 2500)
+
+    async def test_promotion_same_tick_needs_new_salary(self):
+        """已付中郎将同 tick 晋升太尉：按新官职 pending，不能白拿 3000 上限。"""
+        c = await self._no_salary_mods(await self._char("u1", "general"))
+        await self._give_nodes(4)
+        await self._set_wallet(10000)
+        await self.m.faction_appoint_char("u1", int(c["id"]), "zhonglang")
+        await self._salary()
+        f = await self.m.get_faction(int(self.f1["id"]))
+        self.assertEqual(f["salary"]["paid_roles"].get(str(int(c["id"]))),
+                         "zhonglang")
+        self.assertEqual(
+            int(await self.m._leader_cap(await self.m.get_char(int(c["id"])), f, 0)),
+            2000)
+        await self.m.faction_appoint_char("u1", int(c["id"]), "taiwei")
+        f = await self.m.get_faction(int(self.f1["id"]))
+        self.assertEqual(
+            self.m._salary_role_state(f, int(c["id"]), "taiwei"), "pending")
+        self.assertEqual(
+            int(await self.m._leader_cap(await self.m.get_char(int(c["id"])), f, 0)),
+            1500)
+        bonus = await self.m._faction_position_bonus(f, include_alliance=False)
+        self.assertAlmostEqual(float(bonus["army_atk"]), 0.0)
+        # 下一 tick 按太尉发薪后才生效
+        await self._salary()
+        f = await self.m.get_faction(int(self.f1["id"]))
+        self.assertEqual(
+            self.m._salary_role_state(f, int(c["id"]), "taiwei"), "paid")
+        self.assertEqual(
+            int(await self.m._leader_cap(await self.m.get_char(int(c["id"])), f, 0)),
+            3000)
+        bonus = await self.m._faction_position_bonus(f, include_alliance=False)
+        self.assertAlmostEqual(float(bonus["army_atk"]), 0.03)
+
+    async def test_real_arrears_still_reported_as_unpaid(self):
+        c = await self._no_salary_mods(await self._char("u1", "general"))
+        await self.m.faction_appoint_char("u1", int(c["id"]), "zhonglang")
+        await self._set_wallet(0)
+        f = await self._salary()
+        self.assertEqual(
+            self.m._salary_role_state(f, int(c["id"]), "zhonglang"), "unpaid")
+        state = await self.m.get_state("u1")
+        row = next(x for x in state["player"]["faction"]["appointments"]
+                   if int(x["char_id"]) == int(c["id"]))
+        self.assertEqual(row["salary_state"], "unpaid")
+        self.assertFalse(row["salary_paid"])
+
+
 if __name__ == "__main__":
     unittest.main()

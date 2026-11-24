@@ -1923,34 +1923,35 @@ class TestStrategyManager(unittest.IsolatedAsyncioTestCase):
         a2 = await self.m.get_army(r2["army_id"])
         self.assertEqual(int(a1["grain"]), 0)
         self.assertGreater(int(a2["grain"]), 0)
-        task = (await self.m.get_tasks(self.wid, status="active"))[0]
-        self.assertEqual(int((task["payout"] or {}).get("army_id")),
-                         int(r2["army_id"]))
-        self.assertEqual(int((task["payout"] or {}).get("runner") or 0), 0)
-        # v4.3.3：立即补粮仅按 1 tick 折算经验，避免按所选时长刷经验
-        self.assertEqual(int((task["payout"] or {}).get("exp_ticks") or 0), 1)
+        # v4.6.7：驻扎据点就地补粮，不建任务、不占用角色
+        self.assertEqual(int(res.get("task_id") or 0), 0)
+        self.assertEqual(await self.m.get_tasks(self.wid, status="active"), [])
+        self.assertEqual((await self.m.get_char(off["id"]))["status"], "idle")
 
-    async def test_instant_supply_does_not_grant_full_duration_exp(self):
-        """v4.3.3：驻扎军团立即补粮，角色只占用约 0 tick，不应按时长给满经验。"""
+    async def test_instant_supply_needs_no_runner_or_exp(self):
+        """v4.6.7：驻扎军团就地补粮，无需空闲角色、不占人、不给任务经验。"""
         _p, gen, off, home, _target = await self._army_fixture()
         r = await self.m.create_army("u1", gen["id"], [], home["id"],
                                      "sword_shield", 500)
         army = await self.m.get_army(r["army_id"])
         army["grain"] = 0
         await self.m.save_army(army)
-        exp_per_tick = int((self.m.main_cfg().get("task") or {}).get(
-            "exp_per_tick", 5))
         before = int((await self.m.get_char(off["id"])).get("exp", 0))
-        res = await self.m.dispatch_task("u1", off["id"], home["id"], "supply", 8,
-                                        target_army_id=int(army["id"]))
+        res = await self.m.dispatch_task(
+            "u1", 0, home["id"], "supply", 8,   # char_id=0：不选押运角色
+            target_army_id=int(army["id"]))
         self.assertTrue(res["ok"])
+        self.assertEqual(int(res.get("task_id") or 0), 0)
+        self.assertIn("无需押运角色", res["msg"])
+        off2 = await self.m.get_char(off["id"])
+        self.assertEqual(off2["status"], "idle")
+        self.assertEqual(int(off2.get("exp", 0)), before)
         await self.m.tick()
         after = int((await self.m.get_char(off["id"])).get("exp", 0))
-        # 8 小时=32 tick，旧逻辑会给 32×exp_per_tick；修复后只按 1 tick 结算
-        self.assertLessEqual(after - before, exp_per_tick)
+        self.assertEqual(after, before)
 
     async def test_supply_at_allied_node_is_instant(self):
-        """v4.6.5：军团驻扎在盟友据点时，可从该据点直接补粮（无需补粮队）。"""
+        """v4.6.5/v4.6.7：驻扎盟友据点可就地补粮，无需押运角色或补粮队。"""
         R = _imp("core.strategy_rules")
         p, gen, off, _home, _target = await self._army_fixture()
         p2 = await self._enter("u2", "盟友道人")
@@ -1973,14 +1974,42 @@ class TestStrategyManager(unittest.IsolatedAsyncioTestCase):
         army["grain"] = 0
         await self.m.save_army(army)
         res = await self.m.dispatch_task(
-            "u1", off["id"], ally["id"], "supply", 1,
+            "u1", 0, ally["id"], "supply", 1,
             target_army_id=int(army["id"]))
         self.assertTrue(res["ok"])
-        # 立即到账，且任务不产生补粮队（runner=0）
+        self.assertEqual(int(res.get("task_id") or 0), 0)
         self.assertGreater(int((await self.m.get_army(r["army_id"]))["grain"]), 0)
+        self.assertEqual(await self.m.get_tasks(self.wid, status="active"), [])
+        self.assertEqual((await self.m.get_char(off["id"]))["status"], "idle")
+
+    async def test_marching_supply_still_requires_runner(self):
+        """v4.6.7：行军/围城军团仍必须选空闲角色押运补粮队。"""
+        p, gen, off, home, target = await self._army_fixture()
+        tnode = await self.m.get_node(self.wid, target)
+        tnode["owner_faction"] = p["faction_id"]
+        tnode["protect_until"] = 0
+        await self.m.save_node(tnode)
+        r = await self.m.create_army("u1", gen["id"], [], home["id"],
+                                     "sword_shield", 500)
+        army = await self.m.get_army(r["army_id"])
+        army["grain"] = 0
+        army["state"] = "march"
+        army["node_id"] = int(home["id"])
+        army["path"] = [int(target)]
+        army["edge_pos"] = 0.0
+        await self.m.save_army(army)
+        with self.assertRaises(self.StrategyError):
+            await self.m.dispatch_task(
+                "u1", 0, home["id"], "supply", 1,
+                target_army_id=int(army["id"]))
+        res = await self.m.dispatch_task(
+            "u1", off["id"], home["id"], "supply", 1,
+            target_army_id=int(army["id"]))
+        self.assertTrue(res["ok"])
+        self.assertGreater(int(res.get("task_id") or 0), 0)
         task = (await self.m.get_tasks(self.wid, status="active"))[0]
-        self.assertEqual(int((task["payout"] or {}).get("runner") or 0), 0)
-        self.assertEqual(int((task["payout"] or {}).get("exp_ticks") or 0), 1)
+        self.assertEqual(int((task["payout"] or {}).get("runner") or 0), 1)
+        self.assertEqual((await self.m.get_char(off["id"]))["status"], "task")
 
     async def test_supply_runner_chases_marching_army_and_delivers(self):
         """v4.3.2：行军军团由补粮队追击，追上即交付并结束任务。"""
