@@ -481,6 +481,41 @@ class TestStrategyManager(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(int(task["end_at"]), 0)
         self.assertEqual(int(task["sustained"]), 1)
         self.assertGreater(int(task["next_settle_at"]), 0)
+        # v4.6.6：展示用结算时刻对齐到 world tick（结算只在 tick 管线内发生），
+        # 避免「小时边界已到、tick 未到」期间前端倒计时长期停在 0s。
+        world = await self.m.get_world()
+        tick_sec = self.m.tick_seconds()
+        next_tick = int(world["last_tick_at"]) + tick_sec
+        expect = int(task["expect_settle_at"])
+        self.assertGreaterEqual(expect, int(task["next_settle_at"]))
+        self.assertEqual((expect - next_tick) % tick_sec, 0)
+
+    async def test_sustained_expect_settle_points_to_next_tick_when_overdue(self):
+        """小时边界已过、tick 未到时，下发时刻应指向下一个推进而不是停在 0s。"""
+        p = await self._enter()
+        gen = next(c for c in await self.m.get_chars(
+            owner_user_id="u1", world_id=self.wid) if c["role"] == "general")
+        node = next(n for n in await self.m.get_nodes(self.wid)
+                    if n["owner_faction"] == 0 and n["type"] == "grain")
+        node["owner_faction"] = p["faction_id"]
+        await self.m.save_node(node)
+        await self._place(gen, node["id"])
+        r = await self.m.dispatch_task("u1", gen["id"], node["id"], "farm", 1)
+        self.assertTrue(r["ok"])
+        row = next(t for t in await self.m.get_tasks(self.wid, status="active")
+                   if int(t["id"]) == int(r["task_id"]))
+        payout = dict(row["payout"])
+        payout["next_settle_at"] = int(time.time()) - 30   # 已到点，等 tick
+        await self.m._execute(
+            "UPDATE strategy_tasks SET payout_json=? WHERE id=?",
+            (json.dumps(payout, ensure_ascii=False), int(r["task_id"])))
+        state = await self.m.get_state("u1")
+        task = next(t for t in state["player"]["tasks"]
+                    if int(t["id"]) == int(r["task_id"]))
+        world = await self.m.get_world()
+        next_tick = int(world["last_tick_at"]) + self.m.tick_seconds()
+        self.assertGreaterEqual(int(task["expect_settle_at"]), next_tick)
+        self.assertGreater(int(task["expect_settle_at"]), int(time.time()))
 
     async def test_mining_task_settles_iron(self):
         """采矿任务：非矿据点也产精铁，结算后进账并累计成就进度。"""

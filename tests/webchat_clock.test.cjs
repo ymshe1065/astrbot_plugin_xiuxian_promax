@@ -91,6 +91,21 @@ test('strategy.js：顶栏推进/建造/拍卖等倒计时统一走 srvNowSec()'
   assert.equal(raw.length, 1, '仅允许 srvNowSec() 内的本地时间兜底');
 });
 
+test('strategy.js：持续任务倒计时对齐 world tick，到点显示结算中而非停在 0s', () => {
+  // 服务端下发 expect_settle_at（小时边界向上取整到推进时刻）
+  assert.match(strategyJs, /function taskSettleAt\(t\)/);
+  assert.match(strategyJs, /t\.expect_settle_at/);
+  assert.match(strategyJs, /S\.meta[\s\S]{0,80}tick_seconds/);
+  // 任务行使用对齐后的时刻，并带「结算中…」占位
+  assert.match(
+    strategyJs,
+    /data-expire="' \+ next \+[\s\S]{0,120}data-settle="1" data-pending="结算中…"/);
+  // 每秒刷新时过期不再固定写 0s，并主动重取一次快照
+  assert.match(
+    strategyJs,
+    /left <= 0 && node\.dataset\.pending[\s\S]{0,400}settleRefreshFor !== expiredSettle/);
+});
+
 test('battle.js / app.js：手操倒计时与休整判断也走服务端时间', () => {
   assert.match(battleJs, /function srvNowSec\(\)/);
   assert.match(

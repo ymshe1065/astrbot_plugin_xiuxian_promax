@@ -47,6 +47,7 @@ let activeTab = "overview";
 let lastRenderedTab = null;
 let pollTimer = null;
 let tickRefreshFor = 0;
+let settleRefreshFor = 0;   // 任务预期结算时刻去重：同一时间戳只主动重取一次快照
 let busyRetries = 0;
 
 // 倒计时统一走服务端时间基准（v4.6.5）：设备时钟偏差不再让倒计时提前归零/停滞。
@@ -351,6 +352,24 @@ function fmtRemain(sec) {
   return s + "s";
 }
 
+// 持续任务的小时边界由服务端 world tick 触发结算（_step_settle_tasks 只在
+// tick 管线内执行），边界到 tick 之间会空转一个 tick 周期。服务端下发
+// expect_settle_at（已对齐到首个不早于边界、且不早于下一个推进的时刻）；
+// 旧快照缺该字段时用 tick_seconds + next_tick_at 前端推算，避免倒计时
+// 在 tick 到来前一直停在 0s。
+function taskSettleAt(t) {
+  const next = Number((t && t.next_settle_at) || 0);
+  const expect = Number((t && t.expect_settle_at) || 0);
+  if (expect > 0) return expect;
+  const tickSec = Number(((S && S.meta) || {}).tick_seconds || 0);
+  const nextTickAt = Number(((S && S.world) || {}).next_tick_at || 0);
+  if (next > 0 && tickSec > 0 && nextTickAt > 0) {
+    const steps = Math.max(0, Math.ceil((next - nextTickAt) / tickSec));
+    return nextTickAt + steps * tickSec;
+  }
+  return next;
+}
+
 // ---------------------------------------------------------------------------
 // 进行中手操战役：顶部常驻横幅 + 战报页红点
 // 手操窗口只有 90 秒（野战 300 秒），toast 一闪而过很容易错过；这里把
@@ -629,10 +648,20 @@ function tickCountdown() {
     tickRefreshFor = nextAt;
     load();
   }
+  let expiredSettle = 0;
   document.querySelectorAll(".aucLeft").forEach((node) => {
     const exp = Number(node.dataset.expire || 0);
-    node.textContent = fmtRemain(exp - srvNowSec());
+    const left = exp - srvNowSec();
+    // 任务倒计时到点后服务端要等下一个 world tick 才结算，这里显示
+    // 「结算中…」而不是一直停在 0s；到期瞬间主动重取一次快照。
+    node.textContent = (left <= 0 && node.dataset.pending)
+      ? node.dataset.pending : fmtRemain(left);
+    if (node.dataset.settle && exp > 0 && left <= 0) expiredSettle = exp;
   });
+  if (expiredSettle && settleRefreshFor !== expiredSettle) {
+    settleRefreshFor = expiredSettle;
+    load();
+  }
   updateBattleAlertLeft();
 }
 
@@ -1606,14 +1635,16 @@ function tabOverview() {
         let progress;
         if (t.sustained) {
           const now = srvNowSec();
-          const next = Number(t.next_settle_at || 0);
+          const next = taskSettleAt(t);
           const left = Math.max(0, next - now);
           const startedAt = Number(t.started_at || 0);
           const elapsedH = startedAt > 0
             ? Math.max(0, Math.floor((now - startedAt) / 3600))
             : Number(t.settled_hours || 0);
           progress = "已执行 " + elapsedH + " 小时 · 下次结算 " +
-            '<span class="aucLeft" data-expire="' + next + '">' + fmtRemain(left) + "</span>";
+            '<span class="aucLeft" data-expire="' + next +
+            '" data-settle="1" data-pending="结算中…">' +
+            (left > 0 ? fmtRemain(left) : "结算中…") + "</span>";
         } else if (t.expedition) {
           progress = "剩余 " + fmtRemain(t.remain_sec) +
             (t.task_type === "supply"

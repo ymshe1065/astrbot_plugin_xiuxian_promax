@@ -27,7 +27,7 @@
 
 ---
 
-> **插件版本:** v4.6.5 · **游戏版本:** v8.1.0 · **数据库:** v86 · **分支:** `feat/web-chatroom`
+> **插件版本:** v4.6.6 · **游戏版本:** v8.1.0 · **数据库:** v86 · **分支:** `feat/web-chatroom`
 >
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497) · [lan](https://github.com/lanxue0)
 
@@ -48,7 +48,22 @@
 <sub>点击展开对应版本查看详细变更；v3.44.3 之前的版本按游戏版本系列汇总在下方。</sub>
 
 <details open>
-<summary><b>本次更新 · 插件 v4.6.5（仙域争霸 · 己方/盟友据点直接补粮与倒计时时钟兜底）</b></summary>
+<summary><b>本次更新 · 插件 v4.6.6（仙域争霸 · 持续任务倒计时卡在 0s 修复）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 版本与数据库 | 插件 **v4.6.6**；游戏版本 **v8.1.0** 不变；数据库结构不变（仍为 **v86**），无新增聊天指令、无 schema 变更 |
+| 问题现象 | 「总览 → 进行中任务」里持续任务的小时倒计时走到 `0s` 后不再滚动到下一轮，最长会停住一整个世界推进周期；「已执行 N 小时」照常增长，容易被误判为任务卡死 |
+| 根因 | 持续任务的 `next_settle_at` 是**派遣时刻 + N 小时**的墙上时钟边界，但结算只在 world tick 管线（`_step_settle_tasks`）里执行、默认 15 分钟一次；边界到 tick 之间前端按 `Math.max(0, next_settle_at - now)` 只能显示 `0s`，且任务倒计时到点不会主动重取快照（只有顶栏推进倒计时会） |
+| 后端修复 | 快照新增 `expect_settle_at`：把小时边界向上取整到**首个不早于它的世界推进时刻**（`next_tick_at + k × tick_seconds`）后下发，前端按真实入账时刻倒计时；`next_settle_at` 原字段保留，结算逻辑与旧存档不受影响 |
+| 前端修复 | 任务行改用 `expect_settle_at` 倒计时（旧快照缺字段时用 `tick_seconds + next_tick_at` 前端推算）；到点后显示「结算中…」并在到期瞬间主动重取一次快照，不再固定停在 `0s` |
+| 文档与指引 | 网页指引「任务派遣」补充「到点后随下一次世界推进入账」说明；版本号同步 `metadata.yaml` / README / `misc_handler.py` |
+| 回归 | 新增「`expect_settle_at` 对齐推进时刻」「边界已过时指向下一个 tick」两个后端用例，以及前端倒计时接线用例；`tests/test_strategy_manager.py` **91 项**、`tests/test_strategy_location.py + test_strategy_api.py` **89 项**、`tests/webchat_clock.test.cjs` **8 项** 全绿 |
+
+</details>
+
+<details>
+<summary><b>插件 v4.6.5（仙域争霸 · 己方/盟友据点直接补粮与倒计时时钟兜底）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |

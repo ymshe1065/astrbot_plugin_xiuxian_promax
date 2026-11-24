@@ -9235,6 +9235,19 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
             cv["army_role"], cv["army_id"] = info
             if info[0] == "leader" and str(cv.get("status") or "") == "army":
                 cv["status_name"] = "主将"
+        # v4.6.6：持续任务的小时边界由 world tick 触发结算（_step_settle_tasks
+        # 只在 tick 管线内执行），边界到 tick 之间最长会空转一个 tick 周期。
+        # 这里把边界向上取整到首个不早于它的推进时刻再下发，前端据此倒计时，
+        # 避免「已到点、tick 未到」期间任务倒计时长期停在 0s。
+        tick_sec = max(1, self.tick_seconds())
+        next_tick_at = int(world.get("last_tick_at") or 0) + tick_sec
+
+        def _expect_settle(next_settle_at: int) -> int:
+            if next_settle_at <= 0 or next_tick_at <= 0:
+                return next_settle_at
+            steps = max(0, (next_settle_at - next_tick_at + tick_sec - 1) // tick_sec)
+            return next_tick_at + steps * tick_sec
+
         tasks = []
         for t in active_tasks:
             c = next((x for x in chars if x["id"] == t["character_id"]), None)
@@ -9263,6 +9276,8 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
                 "expedition": bool(R.task_is_expedition(tt)),
                 "sustained": bool(int(payload.get("sustained") or 0)),
                 "next_settle_at": int(payload.get("next_settle_at") or 0),
+                "expect_settle_at": _expect_settle(
+                    int(payload.get("next_settle_at") or 0)),
                 "settled_hours": int(payload.get("settled_hours") or 0),
                 **preview,
             })
