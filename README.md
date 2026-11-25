@@ -27,7 +27,7 @@
 
 ---
 
-> **插件版本:** v4.6.8 · **游戏版本:** v8.1.0 · **数据库:** v86 · **分支:** `feat/web-chatroom`
+> **插件版本:** v4.6.9 · **游戏版本:** v8.1.0 · **数据库:** v86 · **分支:** `feat/web-chatroom`
 >
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497) · [lan](https://github.com/lanxue0)
 
@@ -48,7 +48,22 @@
 <sub>点击展开对应版本查看详细变更；v3.44.3 之前的版本按游戏版本系列汇总在下方。</sub>
 
 <details open>
-<summary><b>本次更新 · 插件 v4.6.8（仙域争霸 · 特技/个性详情弹窗与全端布局适配）</b></summary>
+<summary><b>本次更新 · 插件 v4.6.9（仙域争霸 · 计略/固定时长任务倒计时实时刷新）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 版本与数据库 | 插件 **v4.6.9**；游戏版本 **v8.1.0** 不变；数据库结构不变（仍为 **v86**），无新增聊天指令、无 schema 变更 |
+| 问题现象 | 「总览 → 进行中任务」里**计略类任务**（放火/离间/造谣/劝降/策应/营救）的剩余时间不随秒递减，看起来卡住；只有切回其他页签再回来才更新一次。实例：势力 #8「惊鸿道人」执行 `plot_arson`，快照 `remain_sec=777` 后长期不变 |
+| 根因 | 前端任务表只有**持续任务**用 `.aucLeft` 交给每秒 `tickCountdown` 刷新；固定时长任务（计略 / 侦察 / 劫掠）直接渲染快照里的 `remain_sec` **静态文本**，不重新渲染就永远不变 |
+| 前端修复 | 新增 `taskCountdownHtml()`：固定时长任务统一改用 `.aucLeft` + `data-expire` 每秒递减；倒计时终点优先 `expect_end_at`（旧快照回退 `end_at`） |
+| 后端修复 | 任务快照新增 `expect_end_at`：把 `end_at` 向上取整到**实际结算的 world tick**，避免倒计时归零后还要干等一个 tick 才出结果 |
+| 文档与版本 | README / `metadata.yaml` / `misc_handler.py` / 玩家知识库版本历史同步 v4.6.9；无新增指令，`/修仙帮助` 不变 |
+| 回归 | `tests/test_strategy_*.py` **668 passed**（`test_strategy_manager.py` 92，新增固定任务 `expect_end_at` 对齐断言）；`tests/webchat_mobile_ui.test.cjs` **27**（新增长倒计时接线用例）；`tests/webchat_clock.test.cjs` **8** 全绿 |
+
+</details>
+
+<details>
+<summary><b>插件 v4.6.8（仙域争霸 · 特技/个性详情弹窗与全端布局适配）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |

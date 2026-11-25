@@ -370,6 +370,17 @@ function taskSettleAt(t) {
   return next;
 }
 
+// 固定时长任务（计略 / 侦察 / 劫掠等）：用 .aucLeft 交给每秒刷新的
+// tickCountdown 实时递减；服务端下发 expect_end_at（对齐实际结算 tick），
+// 旧快照缺字段时回退 end_at，避免「切回页签才刷新一次」的假卡死。
+function taskCountdownHtml(t) {
+  const end = Number((t && (t.expect_end_at || t.end_at)) || 0);
+  if (!end) return fmtRemain(Number((t && t.remain_sec) || 0));
+  const left = Math.max(0, end - srvNowSec());
+  return '<span class="aucLeft" data-expire="' + end + '">' +
+    fmtRemain(left) + "</span>";
+}
+
 // ---------------------------------------------------------------------------
 // 进行中手操战役：顶部常驻横幅 + 战报页红点
 // 手操窗口只有 90 秒（野战 300 秒），toast 一闪而过很容易错过；这里把
@@ -1714,12 +1725,12 @@ function tabOverview() {
             '" data-settle="1" data-pending="结算中…">' +
             (left > 0 ? fmtRemain(left) : "结算中…") + "</span>";
         } else if (t.expedition) {
-          progress = "剩余 " + fmtRemain(t.remain_sec) +
+          progress = "剩余 " + taskCountdownHtml(t) +
             (t.task_type === "supply"
               ? ' <span class="sub">· 召回时未送达粮草退回</span>'
               : ' <span class="sub">· 中途停止无收益</span>');
         } else {
-          progress = "剩余 " + fmtRemain(t.remain_sec);
+          progress = "剩余 " + taskCountdownHtml(t);
         }
         // 运粮队走 recall_task 会退回未送达粮草，不能按「无收益」提示
         const supply = t.task_type === "supply";

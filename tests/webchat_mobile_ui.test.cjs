@@ -457,3 +457,27 @@ test('战略页移动端使用动态视口并避免输入框聚焦缩放', () =>
     /orientation:\s*landscape\)\s*and\s*\(max-height:\s*540px\)/,
     '横屏手机需要单独恢复左右分栏，避免地图/战场被压扁');
 });
+
+test('固定时长任务（计略/侦察/劫掠）倒计时每秒刷新', () => {
+  assert.ok(
+    strategyJs.includes('function taskCountdownHtml('),
+    '固定时长任务需要统一的实时倒计时渲染函数'
+  );
+  assert.ok(
+    strategyJs.includes('t.expect_end_at || t.end_at'),
+    '倒计时终点优先用对齐结算 tick 的 expect_end_at，并兼容旧快照 end_at'
+  );
+  assert.match(
+    strategyJs,
+    /progress = "剩余 " \+ taskCountdownHtml\(t\)/,
+    '计略/侦察等任务必须使用可每秒刷新的 .aucLeft 倒计时'
+  );
+  assert.ok(
+    !strategyJs.includes('progress = "剩余 " + fmtRemain(t.remain_sec)'),
+    '不得再用快照静态 remain_sec（只有切页签才更新，表现为卡住）'
+  );
+  assert.ok(
+    strategyJs.includes('data-expire="\' + end + \'"'),
+    '实时倒计时要带 data-expire，交给 tickCountdown 每秒刷新'
+  );
+});

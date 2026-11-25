@@ -9384,6 +9384,9 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
                 "next_settle_at": int(payload.get("next_settle_at") or 0),
                 "expect_settle_at": _expect_settle(
                     int(payload.get("next_settle_at") or 0)),
+                # v4.6.9：固定时长任务（计略/侦察/劫掠等）结算同样只在 world
+                # tick 内执行，展示倒计时对齐到实际结算 tick，前端每秒刷新。
+                "expect_end_at": _expect_settle(int(t["end_at"] or 0)),
                 "settled_hours": int(payload.get("settled_hours") or 0),
                 **preview,
             })

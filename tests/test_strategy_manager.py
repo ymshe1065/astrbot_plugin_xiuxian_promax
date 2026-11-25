@@ -1868,6 +1868,17 @@ class TestStrategyManager(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(int(task["node_id"]), int(far["id"]))
         self.assertEqual(int((task.get("payout") or {}).get("target_node_id")),
                          int(far["id"]))
+        # v4.6.9：固定时长任务也要下发「对齐结算 tick」的倒计时终点，
+        # 前端据此每秒刷新（此前只有快照里的 remain_sec，切页签才更新）。
+        st = await self.m.get_state("u1")
+        view = next(t for t in st["player"]["tasks"]
+                    if int(t["id"]) == int(r["task_id"]))
+        self.assertGreater(int(view["expect_end_at"]), 0)
+        self.assertGreaterEqual(int(view["expect_end_at"]), int(view["end_at"]))
+        world = await self.m.get_world()
+        next_tick = int(world["last_tick_at"]) + self.m.tick_seconds()
+        self.assertEqual(
+            (int(view["expect_end_at"]) - next_tick) % self.m.tick_seconds(), 0)
         # 非相邻目标劫掠
         nodes = await self.m.get_nodes(self.wid)
         own_adj = set(home.get("adj") or [])
