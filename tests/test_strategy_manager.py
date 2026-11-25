@@ -1563,6 +1563,10 @@ class TestStrategyManager(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(pv["coin"], p["coin"])
         self.assertEqual(len(pv["chars"]), 2)
         self.assertIn("troop_types", st["meta"])
+        # 网页端点击特技/个性徽标所需的说明表必须随快照下发
+        self.assertIn("fire_master", st["meta"]["trait_descs"])
+        self.assertIn("purple_qi", st["meta"]["personality_top_descs"])
+        self.assertIn("greedy", st["meta"]["personality_neg_descs"])
 
     async def test_busy_lock_blocks_actions(self):
         await self._enter()

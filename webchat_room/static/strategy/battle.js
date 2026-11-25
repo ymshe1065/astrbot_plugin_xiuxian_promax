@@ -1259,6 +1259,12 @@
   }
 
   window.addEventListener("resize", () => { if (isOpen()) resize(); });
+  // 移动端地址栏收放、横竖屏切换、侧栏尺寸变化不一定触发 window.resize，
+  // 但都会让 hexCanvas 的父容器尺寸改变；不重算会出现画面与点击坐标漂移。
+  if (window.ResizeObserver && canvas.parentElement) {
+    new ResizeObserver(() => { if (isOpen()) resize(); })
+      .observe(canvas.parentElement);
+  }
 
   window.BattleView = { open, close, isOpen, refresh };
 })();

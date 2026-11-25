@@ -21,19 +21,32 @@ body {
   background: var(--bg); color: var(--text);
   font: 14px/1.5 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
   display: flex; flex-direction: column; overflow: hidden;
+  /* 移动端地址栏收起/展开时 100vh 会跳变，优先用动态视口高度；老浏览器回退 100% */
+  height: 100dvh; min-height: 0;
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  -webkit-text-size-adjust: 100%; overscroll-behavior: none;
 }
+button, select, input, textarea { touch-action: manipulation; }
 
 /* ---------- 顶栏 ---------- */
 .topbar {
   flex: 0 0 auto; display: flex; align-items: center; gap: 14px;
   padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--line);
+  min-width: 0;
 }
-.brand { font-weight: 700; font-size: 16px; color: var(--accent); white-space: nowrap; }
-.res-bar { display: flex; gap: 12px; flex-wrap: wrap; font-size: 13px; }
+.brand { font-weight: 700; font-size: 16px; color: var(--accent); white-space: nowrap; flex: 0 0 auto; }
+.res-bar {
+  display: flex; gap: 12px; flex-wrap: nowrap; font-size: 13px;
+  /* 中等宽度桌面（900~1100px）资源条不能被挤出屏幕：允许自身横向滚动 */
+  flex: 0 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none;
+}
+.res-bar::-webkit-scrollbar { display: none; }
+.res-bar > span { flex: 0 0 auto; white-space: nowrap; }
 .res-bar b { color: var(--accent); font-weight: 600; }
-.tick-info { margin-left: auto; display: flex; gap: 10px; font-size: 12px; color: var(--dim); white-space: nowrap; }
+.tick-info { margin-left: auto; display: flex; gap: 10px; font-size: 12px; color: var(--dim); white-space: nowrap; flex: 0 0 auto; }
 .countdown { color: var(--blue); }
-.topbar-right { display: flex; gap: 8px; align-items: center; }
+.topbar-right { display: flex; gap: 8px; align-items: center; flex: 0 0 auto; }
 
 /* ---------- 手操战役常驻横幅 ---------- */
 .battle-alert {
@@ -87,17 +100,18 @@ body {
 .map-hint {
   position: absolute; left: 10px; bottom: 10px; font-size: 12px; color: var(--dim);
   background: rgba(13,17,23,.7); padding: 4px 10px; border-radius: 6px;
+  max-width: calc(100% - 20px);
 }
 
 /* ---------- 右侧面板 ---------- */
 .side-pane {
   /* min-width:0 必须显式声明：势力页的宽表格会把 flex 项撑破 400px，
    * 连带压缩大地图，而 canvas 命中坐标仍按旧尺寸计算，导致点击据点无效。 */
-  flex: 0 0 400px; display: flex; flex-direction: column; min-height: 0;
+  flex: 0 0 clamp(340px, 30vw, 420px); display: flex; flex-direction: column; min-height: 0;
   min-width: 0;
   background: var(--panel); border-left: 1px solid var(--line);
 }
-.tabs { flex: 0 0 auto; display: flex; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: thin; }
+.tabs { flex: 0 0 auto; display: flex; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: thin; -webkit-overflow-scrolling: touch; }
 .tab {
   flex: 1 0 auto; padding: 10px 8px; background: none; border: none; color: var(--dim);
   font-size: 13px; cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap;
@@ -105,7 +119,12 @@ body {
 .tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
 .tab-body {
   flex: 1 1 auto; overflow-y: auto; overflow-x: auto;
-  min-width: 0; padding: 12px;
+  min-width: 0; padding: 12px; overflow-wrap: anywhere;
+}
+/* 桌面侧栏足够高：页签换行展示，避免 12 个页签躲在横向滚动条里 */
+@media (min-width: 861px) {
+  .tabs { flex-wrap: wrap; overflow-x: visible; }
+  .tab { flex: 1 1 auto; }
 }
 
 /* ---------- 据点抽屉 ---------- */
@@ -124,7 +143,9 @@ body {
 .drawer-body { padding: 10px 12px; overflow-y: auto; font-size: 13px; }
 .drawer-body .kv { display: flex; gap: 8px; margin: 3px 0; }
 .drawer-body .kv .k { color: var(--dim); flex: 0 0 70px; }
+.drawer-body .kv > span:last-child { min-width: 0; overflow-wrap: anywhere; }
 .drawer-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.drawer-actions .btn { max-width: 100%; }
 
 /* ---------- 通用组件 ---------- */
 .btn {
@@ -177,6 +198,44 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .cost-line.warn { color: var(--text); }
 .empty { color: var(--dim); text-align: center; padding: 26px 0; font-size: 13px; }
 
+/* ---------- 特技 / 个性徽标与详情弹窗 ---------- */
+.trait-line { line-height: 1.9; }
+.trait-chip {
+  display: inline-flex; align-items: center; gap: 2px;
+  margin: 1px 4px 1px 0; padding: 1px 6px;
+  font: inherit; line-height: 1.4; color: #9fc2e8;
+  background: rgba(88,166,255,.08); border: 1px solid rgba(88,166,255,.45);
+  border-radius: 10px; cursor: pointer;
+}
+.trait-chip:hover, .trait-chip:focus-visible {
+  color: var(--accent); border-color: var(--accent); outline: none;
+  background: rgba(227,179,65,.10);
+}
+.trait-chip-top { color: #ffe9b0; border-color: rgba(227,179,65,.55); background: rgba(227,179,65,.10); }
+.trait-chip-neg { color: #ff9b95; border-color: rgba(248,81,73,.50); background: rgba(248,81,73,.10); }
+.trait-chip-i { font-size: 10px; opacity: .65; }
+.trait-cell { min-width: 0; overflow-wrap: anywhere; }
+.trait-overlay { z-index: 80; }
+.overlay-card.trait-card {
+  width: min(360px, calc(100vw - 32px)); text-align: left; padding: 18px 20px;
+}
+.trait-card-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; margin-bottom: 2px;
+}
+.trait-card-kind {
+  font-size: 11px; color: var(--dim); border: 1px solid var(--line);
+  border-radius: 10px; padding: 1px 8px;
+}
+.trait-card h2 { font-size: 16px; margin-bottom: 8px; }
+.trait-name { font-size: 18px; font-weight: 700; color: var(--accent); margin-bottom: 8px; }
+.trait-desc {
+  font-size: 13px; line-height: 1.7; color: var(--text);
+  background: var(--panel-2); border: 1px solid var(--line-soft);
+  border-radius: 8px; padding: 8px 10px; white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* ---------- 联盟：据点交接 / 联盟表 ---------- */
 .tbl-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .alliance-transfer { flex-wrap: wrap; }
@@ -217,6 +276,22 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .overlay-card p { color: var(--dim); font-size: 13px; }
 .overlay-card ul { text-align: left; margin: 10px 0 16px 18px; font-size: 13px; color: var(--text); }
 .overlay-card .btn { margin-top: 6px; }
+@media (max-width: 520px) {
+  .overlay { padding: 10px; }
+  .overlay-card {
+    width: 100%; padding: 16px; border-radius: 10px;
+    max-height: calc(100dvh - 20px);
+  }
+  .overlay-card h2 { font-size: 17px; }
+  .form-row { flex-wrap: wrap; align-items: flex-start; margin: 6px 0; }
+  .form-row label { flex: 1 1 100%; }
+  .form-row select, .form-row input[type="number"], .form-row input[type="text"],
+  .form-row textarea { flex: 1 1 100%; width: 100%; min-width: 0; }
+  .form-actions { flex-wrap: wrap; }
+  .form-actions .btn { flex: 1 1 auto; justify-content: center; }
+  .overlay-card.trait-card { width: 100%; }
+  .node-drawer { width: calc(100% - 16px); right: 8px; bottom: 8px; }
+}
 .toast-wrap {
   position: fixed; right: 16px; bottom: 16px; z-index: 99;
   display: flex; flex-direction: column; gap: 8px;
@@ -235,7 +310,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 
 @media (max-width: 860px) {
   .layout { flex-direction: column; }
-  .map-pane { flex: 0 0 46vh; }
+  .map-pane { flex: 0 0 46vh; flex-basis: 46dvh; }
   .side-pane { flex: 1 1 auto; border-left: none; border-top: 1px solid var(--line); }
   /* 顶栏单行排布：资源条不换行，放不下时横向滑动，按钮文案不竖排 */
   .topbar { gap: 8px; padding: 6px 10px; }
@@ -250,6 +325,9 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
   .topbar-right { flex: 0 0 auto; gap: 5px; }
   .topbar-right .btn.small { padding: 5px 8px; }
   .tick-info { display: none; }
+  /* iOS 聚焦 13px 输入框会自动放大页面，导致布局「漂移」 */
+  select, input[type="number"], input[type="text"], textarea { font-size: 16px; }
+  .tab-body { padding: 10px; }
   .notify-bar { flex-wrap: wrap; row-gap: 6px; padding: 7px 10px; }
   .notify-bar > span { flex: 1 1 100%; }
   .notify-bar .btn { margin-left: 0; }
@@ -345,7 +423,7 @@ input[type="color"] {
 
 @media (max-width: 860px) {
   .battle-main { flex-direction: column; }
-  .battle-board { flex: 0 0 52vh; }
+  .battle-board { flex: 0 0 52vh; flex-basis: 50dvh; }
   .battle-side { flex: 1 1 auto; border-left: none; border-top: 1px solid var(--line); }
   .battle-meta { gap: 8px; font-size: 12px; }
 }
@@ -545,4 +623,25 @@ input[type="color"] {
   text-underline-offset: 2px;
 }
 .captive-link:hover { color: #ffe9b0; }
+
+/* ---------- 横屏手机（如 844×390） ----------
+ * 仍按左右分栏，避免地图/战场被压成一条缝；必须放在所有
+ * max-width:860px 规则之后才能覆盖其竖排布局。 */
+@media (max-width: 900px) and (orientation: landscape) and (max-height: 540px) {
+  .layout { flex-direction: row; }
+  .map-pane { flex: 1 1 auto; }
+  .side-pane {
+    flex: 0 0 min(46vw, 360px);
+    border-left: 1px solid var(--line); border-top: none;
+  }
+  .battle-main { flex-direction: row; }
+  .battle-board { flex: 1 1 auto; flex-basis: auto; }
+  .battle-side {
+    flex: 0 0 min(42vw, 320px);
+    border-left: 1px solid var(--line); border-top: none;
+  }
+  .topbar { padding: 5px 10px; gap: 8px; }
+  .tick-info { display: none; }
+}
+
 

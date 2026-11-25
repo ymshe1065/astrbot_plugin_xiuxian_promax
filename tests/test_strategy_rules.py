@@ -601,6 +601,15 @@ class TestGapFixRules(unittest.TestCase):
         self.assertAlmostEqual(doctor["recover_pct"], 0.08)
         self.assertEqual(doctor["injury_reduce"], 1)
 
+    def test_trait_desc_covers_pool(self):
+        """网页端点击特技徽标展示的说明必须覆盖全部 14 条特技。"""
+        self.assertEqual(set(R.TRAIT_DESC), set(R.TRAIT_POOL))
+        for trait_id, desc in R.TRAIT_DESC.items():
+            self.assertTrue(desc.strip(), f"{trait_id} 缺少效果说明")
+            self.assertIn(trait_id, R.TRAIT_NAMES)
+        self.assertIn("+20%", R.TRAIT_DESC["fire_master"])
+        self.assertIn("+25%", R.TRAIT_DESC["farming"])
+
     def test_trait_defense_mult_stacks(self):
         both = R.trait_army_mods(["siege_expert", "ironwall"])["defense_mult"]
         self.assertAlmostEqual(both, 1.15 * 1.20)

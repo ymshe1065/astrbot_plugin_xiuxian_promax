@@ -176,6 +176,24 @@ TRAIT_NAMES = {
     "frugal": "节俭", "still_water": "止水", "composed": "泰然",
     "iron_body": "铁骨", "accumulate": "厚积", "good_karma": "善缘",
 }
+#: 特技 id → 效果说明（与 ``trait_army_mods`` / 各调用点实际数值同口径，
+#: 供网页端点击徽标时展示；文案改动需同步 docs/design 表）。
+TRAIT_DESC = {
+    "fire_master": "火攻伤害 +20%",
+    "siege_expert": "城防战防御 +15%",
+    "farming": "屯田任务产出 +25%",
+    "doctor": "战后伤兵回收 8%，角色伤势 -1",
+    "swift": "行军速度 +15%、行军粮耗 -10%、追击捕获 +10%",
+    "intimidate": "开战时敌方军团士气 -5",
+    "moneybag": "布政 / 贸易任务币产出 +15%",
+    "ironwall": "守城城防 +20%",
+    "frugal": "行军粮耗 -10%、俸禄 -15%",
+    "still_water": "免疫「混乱」状态",
+    "composed": "免疫「挑衅」状态",
+    "iron_body": "战后伤势 -1",
+    "accumulate": "阅历获取 +10%",
+    "good_karma": "招募高品质概率 +5%（每名在册善缘角色 +5%，最高 +15%）",
+}
 
 
 def trait_army_mods(traits: list[str] | None) -> dict[str, float | int]:

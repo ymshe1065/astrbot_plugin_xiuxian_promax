@@ -675,12 +675,17 @@ let view = { scale: 1, ox: 0, oy: 0 };
 function resizeCanvas() {
   const dpr = window.devicePixelRatio || 1;
   const rect = canvas.parentElement.getBoundingClientRect();
-  canvas.width = rect.width * dpr;
-  canvas.height = rect.height * dpr;
+  const width = Math.max(1, rect.width);
+  const height = Math.max(1, rect.height);
+  canvas.width = Math.round(width * dpr);
+  canvas.height = Math.round(height * dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  view.scale = Math.min(rect.width / WORLD_W, rect.height / WORLD_H) * 0.94;
-  view.ox = (rect.width - WORLD_W * view.scale) / 2;
-  view.oy = (rect.height - WORLD_H * view.scale) / 2;
+  // 容器尚未完成布局（宽/高为 0）时不要让 scale 变 0/NaN；
+  // 后续 ResizeObserver 会再次调用并恢复正确比例。
+  view.scale = Math.max(0.01,
+    Math.min(width / WORLD_W, height / WORLD_H) * 0.94);
+  view.ox = (width - WORLD_W * view.scale) / 2;
+  view.oy = (height - WORLD_H * view.scale) / 2;
   drawMap();
 }
 
@@ -887,6 +892,69 @@ function safeColor(c) {
   const v = String(c === null || c === undefined ? "" : c).trim();
   return /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(v) ? v : "#9e9e9e";
 }
+
+// ---------------------------------------------------------------------------
+// 特技 / 个性徽标：点击弹出详情
+// ---------------------------------------------------------------------------
+const TRAIT_KIND_LABELS = {
+  trait: "特技", top: "顶级个性", negative: "负面个性", personality: "个性",
+};
+
+function traitDescOf(id, name) {
+  const m = (S && S.meta) || {};
+  const descs = m.trait_descs || {};
+  if (id && descs[id]) return descs[id];
+  // 兼容旧快照：只有中文名、没有 id 时按名称反查
+  const names = m.trait_names || {};
+  if (name) {
+    for (const k of Object.keys(names)) {
+      if (names[k] === name) return descs[k] || "";
+    }
+  }
+  return "";
+}
+
+function traitChipHtml(name, desc, kind) {
+  const k = kind || "trait";
+  const label = TRAIT_KIND_LABELS[k] || "特技";
+  const cls = k === "negative" ? " trait-chip-neg"
+    : (k === "top" ? " trait-chip-top" : "");
+  return '<button type="button" class="trait-chip' + cls +
+    '" data-trait-kind="' + esc(label) +
+    '" data-trait-name="' + esc(name) +
+    '" data-trait-desc="' + esc(desc || "") +
+    '" title="点击查看效果详情" aria-label="' +
+    esc(name + "：点击查看效果详情") + '">' +
+    esc(name) + '<span class="trait-chip-i" aria-hidden="true">ⓘ</span></button>';
+}
+
+function traitChips(ids, names) {
+  const idList = Array.isArray(ids) ? ids : [];
+  const nameList = Array.isArray(names) ? names : [];
+  const m = (S && S.meta) || {};
+  const nameMap = m.trait_names || {};
+  const n = Math.max(idList.length, nameList.length);
+  const out = [];
+  for (let i = 0; i < n; i += 1) {
+    const id = idList[i] ? String(idList[i]) : "";
+    const name = nameList[i] || nameMap[id] || id;
+    if (!name) continue;
+    out.push(traitChipHtml(name, traitDescOf(id, name), "trait"));
+  }
+  return out.join("");
+}
+
+function personalityChipHtml(kind, id, name, desc) {
+  const m = (S && S.meta) || {};
+  const nameMap = kind === "top"
+    ? (m.personality_top_names || {}) : (m.personality_neg_names || {});
+  const descMap = kind === "top"
+    ? (m.personality_top_descs || {}) : (m.personality_neg_descs || {});
+  const label = name || nameMap[id] || id || "";
+  if (!label) return "";
+  return traitChipHtml(label, desc || descMap[id] || "", kind);
+}
+
 
 // ---------------------------------------------------------------------------
 // 据点抽屉
@@ -1700,14 +1768,21 @@ function charCard(c) {
   const canDuel = duelEligible(c);
   const locNode = nodeById(Number(c.location_node_id || 0));
   const trapped = nodeSieged(locNode);
+  const traitHtml = traitChips(c.traits, c.trait_names);
+  const pTop = c.personality_top_name
+    ? personalityChipHtml("top", (c.personality || {}).top,
+      c.personality_top_name, c.personality_top_desc) : "";
+  const pNeg = c.personality_neg_name
+    ? personalityChipHtml("negative", (c.personality || {}).negative,
+      c.personality_neg_name, c.personality_neg_desc) : "";
   return '<div class="card"><h3>' + esc(c.name) +
     ' <span class="tag ' + (["fine", "rare", "epic", "legend"].includes(c.rarity) ? c.rarity : "") + '">' + esc(c.rarity_name) + "</span>" +
     ' <span class="tag">' + esc(c.role_name) + "</span><span class='tag'>" + esc(c.profession_name) + "</span>" +
     " Lv" + c.level + "</h3>" +
     '<div class="sub">' + statGrid(c.stats) + "</div>" +
-    (c.trait_names && c.trait_names.length ? '<div class="sub">特技：' + c.trait_names.map(esc).join("、") + "</div>" : "") +
-    (c.personality_top_name ? '<div class="sub">🌟 个性：' + esc(c.personality_top_name) + "（" + esc(c.personality_top_desc) + "）</div>" : "") +
-    (c.personality_neg_name ? '<div class="sub">🔻 负面：' + esc(c.personality_neg_name) + "（" + esc(c.personality_neg_desc) + "）</div>" : "") +
+    (traitHtml ? '<div class="sub trait-line">特技：' + traitHtml + "</div>" : "") +
+    (pTop ? '<div class="sub trait-line">🌟 个性：' + pTop + "</div>" : "") +
+    (pNeg ? '<div class="sub trait-line">🔻 负面：' + pNeg + "</div>" : "") +
     (apt ? '<div class="sub">适性：' + esc(apt) + "</div>" : "") +
     (bonds ? '<div class="sub">羁绊：' + bonds + "</div>" : "") +
     '<div class="sub">阅历 ' + c.exp + "/" + c.exp_next +
@@ -2301,17 +2376,19 @@ function tabTavern() {
         '">招募（' + fmtNum(coinCost) + ' 币）</button>' +
         (lack ? '<span class="sub">铜钱不足</span>' : "");
     }
+    const candTraits = traitChips(c.traits, c.trait_names);
+    const candTop = personalityChipHtml("top",
+      (c.personality || {}).top, "", "");
+    const candNeg = personalityChipHtml("negative",
+      (c.personality || {}).negative, "", "");
     h += '<div class="card"><h3>' + esc(c.name) + ' <span class="tag ' + c.rarity + '">' +
       ((S.meta.rarity_names || {})[c.rarity] || c.rarity) + "</span><span class='tag'>" +
       ((S.meta.role_names || {})[c.role] || c.role) + "</span><span class='tag'>" +
       ((S.meta.profession_names || {})[c.profession] || c.profession) + "</span></h3>" +
       '<div class="sub">' + statGrid(c.stats || {}) + "</div>" +
-      (c.traits && c.traits.length ? '<div class="sub">特技：' + c.traits.map((t) => esc(((S.meta.trait_names || {})[t] || t))).join("、") + "</div>" : "") +
-      ((c.personality && (c.personality.top || c.personality.negative))
-        ? '<div class="sub">个性：' +
-          [((S.meta.personality_top_names || {})[c.personality.top] || ""),
-           ((S.meta.personality_neg_names || {})[c.personality.negative] || "")].filter(Boolean).join(" / ") +
-          "</div>" : "") +
+      (candTraits ? '<div class="sub trait-line">特技：' + candTraits + "</div>" : "") +
+      ((candTop || candNeg)
+        ? '<div class="sub trait-line">个性：' + candTop + candNeg + "</div>" : "") +
       '<div class="drawer-actions">' + action + "</div></div>";
   });
   return h;
@@ -3252,7 +3329,7 @@ function openCaptiveDetail(charId) {
     ((m.troop_types || {})[t] || {}).name + ":" + g).join(" · ");
   const rate = captiveRateText(c);
   const cd = captiveCdText(c);
-  const traits = (c.trait_names || []).join("、") || "无";
+  const traitHtml = traitChips(c.traits, c.trait_names);
   const statNames = m.stat_names || {};
   const statTotal = Number(c.stat_total || 0);
   const executeMerit = Number(c.execute_merit || 0);
@@ -3269,16 +3346,17 @@ function openCaptiveDetail(charId) {
   h += '<div class="stat-strip">' + Object.entries(statNames).map(([k, name]) =>
     "<span>" + esc(name) + " <b>" + Number((c.stats || {})[k] || 0) +
     "</b></span>").join("") + "</div>";
-  h += '<div class="kv"><span class="k">特技</span><span>' + esc(traits) + "</span></div>";
+  h += '<div class="kv"><span class="k">特技</span><span class="trait-cell">' +
+    (traitHtml || "无") + "</span></div>";
   if (c.personality_top_name) {
-    h += '<div class="kv"><span class="k">个性</span><span>🌟 ' +
-      esc(c.personality_top_name) + "（" + esc(c.personality_top_desc || "") +
-      "）</span></div>";
+    h += '<div class="kv"><span class="k">个性</span><span class="trait-cell">🌟 ' +
+      personalityChipHtml("top", (c.personality || {}).top,
+        c.personality_top_name, c.personality_top_desc) + "</span></div>";
   }
   if (c.personality_neg_name) {
-    h += '<div class="kv"><span class="k">负面</span><span>🔻 ' +
-      esc(c.personality_neg_name) + "（" + esc(c.personality_neg_desc || "") +
-      "）</span></div>";
+    h += '<div class="kv"><span class="k">负面</span><span class="trait-cell">🔻 ' +
+      personalityChipHtml("negative", (c.personality || {}).negative,
+        c.personality_neg_name, c.personality_neg_desc) + "</span></div>";
   }
   if (apt) h += '<div class="kv"><span class="k">适性</span><span>' + esc(apt) + "</span></div>";
   h += '<div class="kv"><span class="k">伤势</span><span>' +
@@ -3536,7 +3614,13 @@ function tabMarket() {
         ' · 剩余 <span class="aucLeft" data-expire="' + a.expire_at + '">' +
         fmtRemain(a.expire_at - srvNowSec()) + "</span></div>" +
         ((a.trait_names || []).length
-          ? '<div class="sub">特技：' + a.trait_names.map(esc).join("、") + "</div>" : "") +
+          ? '<div class="sub trait-line">特技：' +
+            traitChips(a.traits, a.trait_names) + "</div>" : "") +
+        ((((a.personality || {}).top) || ((a.personality || {}).negative))
+          ? '<div class="sub trait-line">个性：' +
+            personalityChipHtml("top", (a.personality || {}).top, "", "") +
+            personalityChipHtml("negative", (a.personality || {}).negative, "", "") +
+            "</div>" : "") +
         '<div class="sub">底价 ' + fmtNum(a.start_price) + " 战功 · 你的暗标 " +
         (own > 0 ? fmtNum(own) + "（仅你可见）" : "未出价") +
         " · " + (a.bidder_count > 0 ? a.bidder_count + " 人已出价" : "暂无人出价") + "</div>" +
@@ -4584,6 +4668,40 @@ function initCaptiveDetail() {
   });
 }
 
+// 特技 / 个性详情弹窗：徽标由 traitChips / personalityChipHtml 生成，
+// 这里统一做事件委托，20s 轮询重绘（页面、抽屉、弹窗）后无需重新绑定。
+function initTraitPopup() {
+  const overlay = document.getElementById("traitOverlay");
+  if (!overlay) return;
+  const hide = () => { overlay.hidden = true; };
+  ["traitClose", "traitOk"].forEach((id) => {
+    const btn = document.getElementById(id);
+    if (btn) btn.addEventListener("click", hide);
+  });
+  overlay.addEventListener("click", (ev) => {
+    if (ev.target === overlay) hide();
+  });
+  document.addEventListener("click", (ev) => {
+    const chip = ev.target && ev.target.closest
+      ? ev.target.closest(".trait-chip") : null;
+    if (!chip) return;
+    ev.preventDefault();
+    const kind = chip.getAttribute("data-trait-kind") || "特技";
+    const name = chip.getAttribute("data-trait-name") || "";
+    const desc = chip.getAttribute("data-trait-desc") || "";
+    document.getElementById("traitKind").textContent = kind;
+    document.getElementById("traitTitle").textContent = kind + "详情";
+    document.getElementById("traitName").textContent = name;
+    document.getElementById("traitDesc").textContent = desc || "暂无详细说明";
+    overlay.hidden = false;
+    const ok = document.getElementById("traitOk");
+    if (ok) ok.focus({ preventScroll: true });
+  });
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape" && !overlay.hidden) hide();
+  });
+}
+
 function initDrawerEvents() {
   const drawer = document.getElementById("nodeDrawer");
   if (!drawer) return;  drawer.addEventListener("click", (ev) => {
@@ -4640,6 +4758,7 @@ window.renderTab = renderTab;
   initLegend();
   initDrawerEvents();
   initCaptiveDetail();
+  initTraitPopup();
   resizeCanvas();
   await load();
   openBattleFromUrl();

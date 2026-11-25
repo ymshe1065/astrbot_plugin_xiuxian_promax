@@ -151,7 +151,7 @@ mark {
   .guide-cat.active { border-color: var(--accent); border-left-color: var(--accent); }
   .guide-search { flex-wrap: wrap; row-gap: 6px; }
   .guide-search .gs-icon { display: none; }
-  #guideSearch { flex: 1 1 100%; font-size: 13px; }
+  #guideSearch { flex: 1 1 100%; font-size: 16px; }
   .guide-count { margin-right: auto; }
   .guide-title { flex: 1 1 auto; }
   .guide-body { font-size: 12.5px; }

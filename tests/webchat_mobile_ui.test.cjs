@@ -421,3 +421,39 @@ test('驻扎友方据点补粮无需押运角色', () => {
     '提示文案需说明驻扎据点补粮无需押运角色'
   );
 });
+
+test('特技 / 个性徽标可点击查看详细加成', () => {
+  assert.ok(strategyHtml.includes('id="traitOverlay"'),
+    '战略页需要特技详情小弹窗容器');
+  assert.ok(strategyHtml.includes('id="traitClose"') &&
+    strategyHtml.includes('id="traitDesc"'),
+    '弹窗需要关闭按钮与效果说明节点');
+  assert.ok(strategyJs.includes('function traitChips(') &&
+    strategyJs.includes('function personalityChipHtml('),
+    '角色卡/酒馆/俘虏/流将需要统一的徽标渲染函数');
+  assert.ok(strategyJs.includes('data-trait-desc') &&
+    strategyJs.includes('data-trait-kind'),
+    '徽标需携带效果说明与类型，供点击弹窗读取');
+  assert.ok(strategyJs.includes('function initTraitPopup(') &&
+    strategyJs.includes('closest(".trait-chip")'),
+    '弹窗需用事件委托，轮询重绘后仍可点击');
+  assert.ok(strategyJs.includes('m.trait_descs') &&
+    strategyJs.includes('personality_top_descs'),
+    '前端需读取后端 meta 下发的特技/个性说明');
+});
+
+test('战略页移动端使用动态视口并避免输入框聚焦缩放', () => {
+  assert.match(strategyCss, /body\s*\{[^}]*height:\s*100dvh/s,
+    '移动端地址栏收放时不能继续用固定 100vh');
+  assert.match(
+    strategyCss,
+    /@media \(max-width:\s*860px\)[\s\S]*?select,\s*input\[type="number"\][^{]*\{[^}]*font-size:\s*16px/s,
+    'iOS 聚焦 13px 输入框会自动放大页面，窄屏需改为 16px'
+  );
+  assert.match(strategyCss, /\.res-bar\s*\{[^}]*overflow-x:\s*auto/s,
+    '中等宽度桌面资源条应自身横向滚动，不能把右侧按钮挤出屏幕'
+  );
+  assert.match(strategyCss,
+    /orientation:\s*landscape\)\s*and\s*\(max-height:\s*540px\)/,
+    '横屏手机需要单独恢复左右分栏，避免地图/战场被压扁');
+});

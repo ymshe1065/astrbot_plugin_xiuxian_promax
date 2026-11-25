@@ -194,6 +194,20 @@
     </div>
   </div>
 
+  <!-- 特技 / 个性详情小弹窗（点击角色徽标查看具体加成） -->
+  <div class="overlay trait-overlay" id="traitOverlay" hidden>
+    <div class="overlay-card trait-card" role="dialog" aria-modal="true" aria-labelledby="traitTitle">
+      <div class="trait-card-head">
+        <span class="trait-card-kind" id="traitKind">特技</span>
+        <button class="drawer-close" id="traitClose" type="button" aria-label="关闭">×</button>
+      </div>
+      <h2 id="traitTitle">特技详情</h2>
+      <div class="trait-name" id="traitName"></div>
+      <div class="trait-desc" id="traitDesc"></div>
+      <div class="form-actions"><button class="btn primary" id="traitOk" type="button">知道了</button></div>
+    </div>
+  </div>
+
   <!-- 通知授权引导条（§12.5 F：首次进面板请求授权） -->
   <div class="notify-bar" id="notifyBar" hidden>
     <span>🔔 开启浏览器通知，手操战役/围城警报不错过</span>

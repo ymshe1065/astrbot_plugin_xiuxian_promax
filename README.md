@@ -27,7 +27,7 @@
 
 ---
 
-> **插件版本:** v4.6.7 · **游戏版本:** v8.1.0 · **数据库:** v86 · **分支:** `feat/web-chatroom`
+> **插件版本:** v4.6.8 · **游戏版本:** v8.1.0 · **数据库:** v86 · **分支:** `feat/web-chatroom`
 >
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497) · [lan](https://github.com/lanxue0)
 
@@ -48,7 +48,22 @@
 <sub>点击展开对应版本查看详细变更；v3.44.3 之前的版本按游戏版本系列汇总在下方。</sub>
 
 <details open>
-<summary><b>本次更新 · 插件 v4.6.7（仙域争霸 · 俸禄待发薪/欠俸分离与驻地补粮免押运）</b></summary>
+<summary><b>本次更新 · 插件 v4.6.8（仙域争霸 · 特技/个性详情弹窗与全端布局适配）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 版本与数据库 | 插件 **v4.6.8**；游戏版本 **v8.1.0** 不变；数据库结构不变（仍为 **v86**），无新增聊天指令、无 schema 变更 |
+| 特性详情弹窗 | 后端新增 `TRAIT_DESC`（14 条特技效果说明）并经 `meta.trait_descs` / `personality_*_descs` 下发；角色名册、酒馆候选、俘虏详情、流将暗标中的特技与个性徽标改为可点击，小弹窗展示实际加成（火攻 +20%、屯田 +25%、疾行速度 +15% 等）；旧快照缺说明字段时按中文名反查，仍无结果则显示兜底提示 |
+| 电脑端适配 | 资源条在中等宽度改为自身横向滚动，不再把「入场 / 刷新 / 聊天室」按钮挤出屏幕；侧栏宽度改为 `clamp(340px, 30vw, 420px)`，大屏不过窄、小屏地图不被压扁；长据点名/长描述允许在卡片与抽屉内换行 |
+| 移动端适配 | 页面高度切到 `100dvh`，避免地址栏收放时底部页签/弹窗漂移；窄屏输入框统一 16px，修复 iOS 聚焦自动放大；≤520px 弹窗与表单改为单列，按钮等宽；横屏手机（如 844×390）恢复左右分栏，地图与 hex 战场不再被压成一条缝；补 `safe-area` 左右留白与按钮 `touch-action` |
+| 画布重算 | 大地图与 hex 战场在容器尺寸变化时用 `ResizeObserver` 重算，横竖屏切换/侧栏切页后点击坐标不再偏移；容器宽度为 0 时不让 `scale` 归零 |
+| 文档与版本 | README、`metadata.yaml`、`misc_handler.py` 版本注释同步；无新增指令，`/修仙帮助` 指令目录不变 |
+| 回归 | `tests/test_strategy_rules.py` **94**、`tests/test_strategy_manager.py` **92**、`tests/webchat_mobile_ui.test.cjs` **26** 全绿 |
+
+</details>
+
+<details>
+<summary><b>插件 v4.6.7（仙域争霸 · 俸禄待发薪/欠俸分离与驻地补粮免押运）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |
