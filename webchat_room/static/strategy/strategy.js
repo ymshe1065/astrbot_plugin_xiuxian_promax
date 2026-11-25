@@ -4225,6 +4225,8 @@ function tabSettings() {
     "</div>" + (perm === "default"
       ? '<div class="drawer-actions"><button class="btn small" data-act="notify-perm">请求授权</button></div>' : "") +
     "</div>";
+  h += '<div class="card"><h3>ℹ️ 前端版本</h3><div class="sub">v4.8.0（联军合军 / 酒馆错位修复）。' +
+    "若界面仍是旧版，请强制刷新：电脑 <b>Ctrl / Cmd + Shift + R</b>，手机下拉刷新或重开聊天室页面。</div></div>";
   return h;
 }
 
