@@ -1316,6 +1316,12 @@ class StrategyP3Mixin:
             # 护送期间军团被占用：随粮队移动，抵达/被截后释放（§5.6）
             # 出军护送前中断随军任务
             await self._interrupt_army_tasks(world, escort_army)
+            # v4.8.0：押运期间脱离联军（避免联军统一行动与粮队位置冲突）
+            esc_cid = int(escort_army.get("coalition_id") or 0)
+            if esc_cid > 0:
+                await self._dissolve_coalition(
+                    esc_cid, reason="军团转为押运，联军解散", world=world)
+                escort_army["coalition_id"] = 0
             escort_army["state"] = "escort"
             escort_army["path"] = []
             escort_army["edge_pos"] = 0.0

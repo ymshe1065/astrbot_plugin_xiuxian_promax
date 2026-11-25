@@ -116,6 +116,11 @@ async function doAction(action, params) {
     return r;
   } catch (e) {
     if (e && e.network) toast("🌐 网络异常，请检查连接后重试", "err");
+    else {
+      // v4.8.0：动作失败（如酒馆已刷新/候选失效）时拉回最新快照，
+      // 避免旧页面继续用失效候选反复点击。
+      try { await load(); } catch (err) { /* ignore */ }
+    }
     return null;
   }
 }
@@ -2027,7 +2032,7 @@ function armyRosterText(a) {
 
 function tabArmies() {
   const p = S.player || {};
-  let h = '<div class="card"><h3>🛡️ 我的军团</h3><div class="sub">带兵上限按当前主将的官职 / 据点太守 / 兵营实时计算（无官职 1500 ~ 势力主·太尉 3000）；换将后立即按新主将刷新。出征沿通路行军，粮尽则士气崩溃。</div></div>';
+  let h = '<div class="card"><h3>🛡️ 我的军团</h3><div class="sub">带兵上限按当前主将的官职 / 据点太守 / 兵营实时计算（无官职 1500 ~ 势力主·太尉 3000）；换将后立即按新主将刷新。出征沿通路行军，粮尽则士气崩溃。<br>两支同据点驻守的军团可「合军」为联军：兵力/携粮/士气仍各自独立结算，但行军与撤退由联军统一下达、同步推进同一 tick 抵达，便于协同作战。</div></div>';
   const armies = p.armies || [];
   if (!armies.length) return h + '<div class="empty">尚无军团：在己方/联盟成员势力据点抽屉中「在此编军」</div>';
   for (const a of armies) {
@@ -2036,7 +2041,12 @@ function tabArmies() {
     const capText = cap > 0
       ? " / 上限 " + fmtNum(cap) + (overCap ? " ⚠超编" : "")
       : "（无可用主将）";
+    const coTag = Number(a.coalition_id || 0) > 0
+      ? ' <span class="tag epic">🛡️ 联军' +
+        (a.coalition_role === "leader" ? "·主将" : "·协同") + "</span>"
+      : "";
     h += '<div class="card"><h3>' + esc(a.name) + ' <span class="tag">' + esc(a.troop_name) + "</span>" +
+      coTag +
       (a.siege_engine ? ' <span class="tag epic">破城槌</span>' : "") + "</h3>" +
       '<div class="sub">兵力 ' + fmtNum(a.troops) + capText + " · 士气 " + a.morale + " · 精锐 " +
       a.veteran + "（" + vetTierName(a.veteran) + "） · 携粮 " + fmtNum(a.grain) +
@@ -2046,15 +2056,61 @@ function tabArmies() {
       " · 状态：" + esc(STATE_NAME[a.state] || a.state) +
       (a.path && a.path.length ? " → " + a.path.map(esc).join(" → ") : "") +
       (a.on_road ? " · 🛣 友方道路（加速 / 免粮）" : "") + "</div>" +
+      (Number(a.coalition_id || 0) > 0
+        ? '<div class="sub">🛡️ 合军：' +
+          (a.coalition_role === "leader" ? "主将军团" : "协同军团") +
+          (a.coalition_partner ? " ｜ 协同：" + esc(a.coalition_partner) : "") +
+          " ｜ 统一行动：" + esc(COALITION_STATE_NAME[a.coalition_status] || "待命") +
+          "（单位仍各自结算兵力/携粮/士气，行军·撤退由联军统一下达）</div>"
+        : "") +
       '<div class="drawer-actions">' + armyButtons(a) + "</div></div>";
   }
   return h;
 }
 
+const COALITION_STATE_NAME = { idle: "待命", march: "统一行军", siege: "合围" };
+
+function coalitionCandidates(a) {
+  const p = S.player || {};
+  return (p.armies || []).filter((x) =>
+    Number(x.id) !== Number(a.id) &&
+    Number(x.coalition_id || 0) === 0 &&
+    String(x.state) === "idle" &&
+    Number(x.node_id) === Number(a.node_id) &&
+    Number(x.troops || 0) > 0);
+}
+
+function formCoalitionPrompt(armyId) {
+  const a = ((S.player || {}).armies || []).find(
+    (x) => Number(x.id) === Number(armyId));
+  if (!a) return;
+  const cands = coalitionCandidates(a);
+  if (!cands.length) {
+    toast("同据点没有可合军的驻守军团（需另一支空闲、未合军且有兵的军团）", "err");
+    return;
+  }
+  const lines = cands.map((x) =>
+    "· ID " + x.id + "｜" + (x.name || "军团") + "（" +
+    fmtNum(x.troops) + " 兵）").join("\n");
+  const raw = prompt(
+    "与「" + (a.name || "军团") + "」合军的军团 ID：\n" + lines +
+    "\n\n合军后两支军团仍各自独立结算，但行军/撤退统一行动、同一 tick 抵达。",
+    String(cands[0].id));
+  if (!raw) return;
+  const mid = Number(raw);
+  if (!cands.some((x) => Number(x.id) === mid)) {
+    toast("请输入上面列出的军团 ID", "err");
+    return;
+  }
+  doAction("form_coalition", { leader_army_id: Number(a.id), member_army_id: mid });
+}
+
 function armyButtons(a) {
   let b = "";
+  const inCoalition = Number(a.coalition_id || 0) > 0;
   if (a.state === "idle") {
-    b += '<button class="btn small primary" data-act="march-pick" data-id="' + a.id + '">⚔️ 选择目标出征</button>';
+    b += '<button class="btn small primary" data-act="march-pick" data-id="' + a.id + '">' +
+      (inCoalition ? "⚔️ 联军出征（统一行动）" : "⚔️ 选择目标出征") + '</button>';
     const at = nodeById(a.node_id);
     const atOwn = !!(at && at.owner && Number(at.owner.id) === myFactionId());
     if (atOwn) {
@@ -2063,6 +2119,13 @@ function armyButtons(a) {
     b += '<button class="btn small" onclick="openHandoverModal(' + a.id + ')">🔄 换将</button>';
     b += '<button class="btn small" onclick="openSupplyModal(' + a.id + ')">🚚 补粮</button>';
     b += '<button class="btn small" onclick="doAction(\'drill_army\',{army_id:' + a.id + '})">🎯 操练(500币)</button>';
+    if (inCoalition) {
+      b += '<button class="btn small danger" data-act="disband-coalition" data-id="' +
+        a.id + '">🛡️ 解除合军</button>';
+    } else if (coalitionCandidates(a).length) {
+      b += '<button class="btn small" data-act="form-coalition" data-id="' +
+        a.id + '">🛡️ 合军</button>';
+    }
     if (atOwn) {
       b += '<button class="btn small danger" onclick="doAction(\'disband_army\',{army_id:' + a.id + '})">解散</button>';
     } else {
@@ -2451,6 +2514,14 @@ function tabTavern() {
     ')</button></div></div>';
   const cands = t.candidates || [];
   if (!cands.length) return h + '<div class="empty">酒过三巡，客官请刷新</div>';
+  const roll = Number(t.roll_seq || 0);
+  const remain = Number(t.refresh_at || 0) - srvNowSec();
+  const expired = Number(t.refresh_at || 0) > 0 && remain <= 0;
+  if (expired) {
+    h += '<div class="card"><div class="sub warn-text">⏳ 候选已到刷新时点：' +
+      '列表会在下次读取时自动重掷。请先点上方「手动刷新」或刷新页面，' +
+      '否则点击招募可能选到新列表的同序号候选。</div></div>';
+  }
   cands.forEach((c, i) => {
     const isToken = tokenOnly.has(c.rarity);
     const coinCost = Number(coinCosts[c.rarity] || 0);
@@ -2460,13 +2531,15 @@ function tabTavern() {
     if (isToken) {
       const lack = heldToken < tokenCost;
       action = '<button class="btn small primary" data-act="recruit-premium" data-i="' +
-        i + '">募将令招募（' + fmtNum(tokenCost) + ' 枚 / 持有 ' +
+        i + '" data-roll="' + roll + '" data-name="' + esc(c.name) + '"' +
+        (expired ? " disabled" : "") + '>募将令招募（' + fmtNum(tokenCost) + ' 枚 / 持有 ' +
         fmtNum(heldToken) + '）</button>' +
         (lack ? '<span class="sub">募将令不足</span>' : "");
     } else {
       const lack = Number(p.coin || 0) < coinCost;
       action = '<button class="btn small" data-act="recruit" data-i="' + i +
-        '">招募（' + fmtNum(coinCost) + ' 币）</button>' +
+        '" data-roll="' + roll + '" data-name="' + esc(c.name) + '"' +
+        (expired ? " disabled" : "") + '>招募（' + fmtNum(coinCost) + ' 币）</button>' +
         (lack ? '<span class="sub">铜钱不足</span>' : "");
     }
     const candTraits = traitChips(c.traits, c.trait_names);
@@ -4179,6 +4252,16 @@ function bindTabEvents() {
         openCaptiveDetail(id);
         return;
       }
+      if (act === "form-coalition") {
+        formCoalitionPrompt(id);
+        return;
+      }
+      if (act === "disband-coalition") {
+        if (confirm("确认解除该军团的合军？解除后两支军团恢复各自独立行动（行军途中无法解除）。")) {
+          doAction("disband_coalition", { army_id: id });
+        }
+        return;
+      }
       if (act === "execute-captive") {
         if (confirm("确认处决该俘虏？将获得战功并威慑同牢俘虏，但会与原势力交恶（不可撤销）。")) {
           doAction("execute_captive", { char_id: id });
@@ -4191,8 +4274,16 @@ function bindTabEvents() {
         }
         return;
       }
-      if (act === "recruit") doAction("recruit", { index: Number(btn.dataset.i) });
-      else if (act === "recruit-premium") doAction("recruit", { index: Number(btn.dataset.i), premium: true });
+      if (act === "recruit") doAction("recruit", {
+        index: Number(btn.dataset.i),
+        roll: Number(btn.dataset.roll || 0),
+        name: btn.dataset.name || "",
+      });
+      else if (act === "recruit-premium") doAction("recruit", {
+        index: Number(btn.dataset.i), premium: true,
+        roll: Number(btn.dataset.roll || 0),
+        name: btn.dataset.name || "",
+      });
       else if (act === "dismiss-char") {
         const name = btn.dataset.name || "该角色";
         if (confirm("确认遣散 " + name + "？该操作不可撤销，将腾出 1 个名册名额。")) {
@@ -4237,7 +4328,11 @@ function bindTabEvents() {
       } else if (act === "march-pick") {
         marchArmyId = Number(btn.dataset.id);
         canvas.style.cursor = "pointer";
-        toast("🗺️ 已选中军团，点击地图上的目标据点出征");
+        const picked = ((S.player || {}).armies || []).find(
+          (x) => Number(x.id) === marchArmyId) || {};
+        toast(Number(picked.coalition_id || 0) > 0
+          ? "🛡️ 联军已进入出征选择：点击地图目标，两支军团将统一行军、同一 tick 抵达"
+          : "🗺️ 已选中军团，点击地图上的目标据点出征");
       }
       // --- P2 战役 ---
       else if (act === "enter-battle") {

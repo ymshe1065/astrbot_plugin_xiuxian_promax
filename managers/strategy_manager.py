@@ -736,6 +736,7 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
         "strategy_characters": ("stats_json", "traits_json", "personality_json",
                                 "aptitude_json", "bonds_json", "location_json"),
         "strategy_armies": ("characters_json", "path_json"),
+        "strategy_coalitions": ("member_ids_json",),
         "strategy_tasks": ("payout_json",),
         "strategy_battles": ("terrain_json", "armies_snapshot_json", "result_json",
                              "session_json"),
@@ -754,7 +755,7 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
             default = [] if col in ("buildings_json", "adj_json", "traits_json",
                                     "characters_json", "path_json",
                                     "rebuild_pay_log_json", "terrain_json",
-                                    "armies_snapshot_json") else {}
+                                    "armies_snapshot_json", "member_ids_json") else {}
             out[key] = _loads(out.pop(col, None), default)
         return out
 
@@ -998,7 +999,7 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
             UPDATE strategy_armies SET world_id=?, faction_id=?, owner_user_id=?, name=?,
                 node_id=?, edge_pos=?, characters_json=?, troop_type=?, veteran=?, troops=?,
                 grain=?, morale=?, state=?, path_json=?, arrive_tick=?, encircle_ticks=?,
-                siege_engine=?, reorganize_until_tick=?, starve_ticks=?
+                siege_engine=?, reorganize_until_tick=?, starve_ticks=?, coalition_id=?
             WHERE id=?
         """, (
             int(a.get("world_id", 0)), int(a.get("faction_id", 0)), a.get("owner_user_id", ""),
@@ -1011,27 +1012,83 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
             int(a.get("arrive_tick", 0)), int(a.get("encircle_ticks", 0)),
             int(a.get("siege_engine", 0)), int(a.get("reorganize_until_tick", 0)),
             int(a.get("starve_ticks", 0) or 0),
+            int(a.get("coalition_id", 0) or 0),
             int(a["id"]),
         ))
 
     async def insert_army(self, a: dict) -> int:
         aid = await self._execute("""
             INSERT INTO strategy_armies (world_id, faction_id, owner_user_id, name, node_id,
-                characters_json, troop_type, veteran, troops, grain, morale, state)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                characters_json, troop_type, veteran, troops, grain, morale, state,
+                coalition_id)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, (
             int(a.get("world_id", 0)), int(a.get("faction_id", 0)), a.get("owner_user_id", ""),
             a.get("name", ""), int(a.get("node_id", 0)),
             json.dumps(a.get("characters") or [], ensure_ascii=False),
             a.get("troop_type", "sword_shield"), int(a.get("veteran", 0)),
             int(a.get("troops", 0)), int(a.get("grain", 0)), int(a.get("morale", 100)),
-            a.get("state", "idle"),
+            a.get("state", "idle"), int(a.get("coalition_id", 0) or 0),
         ))
         a["id"] = aid
         return aid
 
     async def delete_army(self, army_id: int):
+        """删除军团；若其属于联军，先解散联军（避免悬挂成员）。"""
+        row = await self._fetchone(
+            "SELECT id, coalition_id FROM strategy_armies WHERE id=?", (int(army_id),))
+        cid = int((row or {}).get("coalition_id") or 0)
+        if cid > 0:
+            await self._dissolve_coalition(cid, reason="军团解散/覆没")
         await self.db.conn.execute("DELETE FROM strategy_armies WHERE id=?", (army_id,))
+
+    # ------------------------------------------------------------------
+    # 联军（合军）：两支己方军团统一行动，单位仍独立结算
+    # ------------------------------------------------------------------
+    async def get_coalition(self, coalition_id: int) -> Optional[dict]:
+        row = await self._fetchone(
+            "SELECT * FROM strategy_coalitions WHERE id=?", (int(coalition_id),))
+        return self._decode("strategy_coalitions", row)
+
+    async def get_coalitions(self, world_id: int,
+                             owner_user_id: str = "") -> list[dict]:
+        sql = "SELECT * FROM strategy_coalitions WHERE world_id=?"
+        params: list = [int(world_id)]
+        if owner_user_id:
+            sql += " AND owner_user_id=?"
+            params.append(owner_user_id)
+        return self._decode_all(
+            "strategy_coalitions", await self._fetchall(sql, tuple(params)))
+
+    async def save_coalition(self, c: dict):
+        await self.db.conn.execute("""
+            UPDATE strategy_coalitions SET world_id=?, faction_id=?,
+                owner_user_id=?, node_id=?, target_node_id=?, leader_army_id=?,
+                member_ids_json=?, status=?
+            WHERE id=?
+        """, (
+            int(c.get("world_id", 0)), int(c.get("faction_id", 0)),
+            str(c.get("owner_user_id") or ""), int(c.get("node_id", 0)),
+            int(c.get("target_node_id", 0) or 0), int(c.get("leader_army_id", 0)),
+            json.dumps(c.get("member_ids") or [], ensure_ascii=False),
+            str(c.get("status") or "idle"), int(c["id"]),
+        ))
+
+    async def insert_coalition(self, c: dict) -> int:
+        cid = await self._execute("""
+            INSERT INTO strategy_coalitions (world_id, faction_id, owner_user_id,
+                node_id, target_node_id, leader_army_id, member_ids_json, status,
+                created_at)
+            VALUES (?,?,?,?,?,?,?,?,?)
+        """, (
+            int(c.get("world_id", 0)), int(c.get("faction_id", 0)),
+            str(c.get("owner_user_id") or ""), int(c.get("node_id", 0)),
+            int(c.get("target_node_id", 0) or 0), int(c.get("leader_army_id", 0)),
+            json.dumps(c.get("member_ids") or [], ensure_ascii=False),
+            str(c.get("status") or "idle"), int(c.get("created_at") or _now()),
+        ))
+        c["id"] = cid
+        return cid
 
     async def get_tasks(self, world_id: int, character_id: int = 0,
                         status: str = "active") -> list[dict]:
@@ -1800,19 +1857,37 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
         return await self._tavern(player, world_id)
 
     async def recruit(self, player: dict, world_id: int, index: int,
-                      premium: bool = False) -> dict:
+                      premium: bool = False, expected_roll: int = 0,
+                      expected_name: str = "") -> dict:
         """招募酒馆候选。
 
         v4.3.5 起货币由候选稀有度固定：
         - 凡品/良品/珍品：铜钱（价格按稀有度梯度）
         - 极品/传世：募将令（铜钱不可招募）
+
+        v4.8.0 错位修复：候选列表会在 ``refresh_at`` 到期后于读取时**重掷**
+        （``_tavern``）。此前 ``recruit`` 直接按序号取新区列表的候选人，
+        若玩家看到的是旧列表，就会「点珍品武将、得良品内政官」。现在：
+        - 本次读取触发了重掷 → 直接拒绝并提示重新选择（不扣费）；
+        - 前端带来 ``roll``/``name`` 时，版本或候选身份不符同样拒绝。
         """
         cfg = self.main_cfg().get("recruit") or {}
+        prev_seq = int((player.get("tavern") or {}).get("roll_seq", 0) or 0)
         tavern = await self._tavern(player, world_id)
+        cur_seq = int(tavern.get("roll_seq", 0) or 0)
+        if cur_seq != prev_seq:
+            return {"ok": False, "refreshed": True,
+                    "msg": "酒馆候选刚刚刷新，原候选已失效，请重新选择（本次未扣费）"}
+        if int(expected_roll or 0) > 0 and int(expected_roll) != cur_seq:
+            return {"ok": False, "refreshed": True,
+                    "msg": "酒馆候选已刷新（页面数据过期），请重新选择（本次未扣费）"}
         cands = tavern.get("candidates") or []
         idx = int(index)
         if not (0 <= idx < len(cands)):
             raise StrategyError("候选序号无效")
+        if expected_name and str(cands[idx].get("name") or "") != expected_name:
+            return {"ok": False, "refreshed": True,
+                    "msg": "候选已变化，请重新选择（本次未扣费）"}
         cap_info = await self._char_cap_info(world_id, player)
         cap = int(cap_info["cap"])
         owned = await self._roster_count(player["user_id"], world_id)
@@ -3886,6 +3961,9 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
     async def march(self, user_id: str, army_id: int, target_node_id: int) -> dict:
         world, p = await self._require_player(user_id)
         a = await self._own_army(p, army_id)
+        if int(a.get("coalition_id") or 0) > 0:
+            # v4.8.0 合军：任一支成员下令，联军统一沿同一路线出征
+            return await self._march_coalition(world, p, a, target_node_id)
         if self._is_reorganizing(a, world):
             raise StrategyError(self._reorg_msg(a, world))
         if a["state"] == "escort":
@@ -3932,6 +4010,9 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
         """
         world, p = await self._require_player(user_id)
         a = await self._own_army(p, army_id)
+        if int(a.get("coalition_id") or 0) > 0:
+            # v4.8.0：联军统一撤退，避免两支军团拆散后失去协同
+            return await self._retreat_coalition(world, p, a)
         if a["state"] == "escort":
             raise StrategyError("护送运粮队期间无法撤退（抵达或被截后自动归队）")
         if a["state"] not in ("march", "siege", "idle"):
@@ -3977,6 +4058,316 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
                 world, await self.get_node(world["id"], a["node_id"]))
         await self._commit()
         return {"ok": True, "msg": msg}
+
+    # ------------------------------------------------------------------
+    # 联军合军（v4.8.0）
+    # ------------------------------------------------------------------
+    def _coalition_cfg(self) -> dict:
+        return self.main_cfg().get("coalition") or {}
+
+    async def _coalition_members(self, co: dict) -> list[dict]:
+        out: list[dict] = []
+        for aid in co.get("member_ids") or []:
+            try:
+                aid = int(aid)
+            except (TypeError, ValueError):
+                continue
+            if aid <= 0:
+                continue
+            a = await self.get_army(aid)
+            if a:
+                out.append(a)
+        return out
+
+    async def _dissolve_coalition(self, coalition_id: int, reason: str = "",
+                                  world: Optional[dict] = None) -> int:
+        """解散联军：清空成员 coalition_id 并删行（幂等，不抛异常）。"""
+        cid = int(coalition_id or 0)
+        if cid <= 0:
+            return 0
+        co = await self.get_coalition(cid)
+        if not co:
+            return 0
+        names: list[str] = []
+        ids: list[int] = []
+        for aid in co.get("member_ids") or []:
+            try:
+                aid = int(aid)
+            except (TypeError, ValueError):
+                continue
+            if aid <= 0:
+                continue
+            ids.append(aid)
+            a = await self.get_army(aid)
+            if a:
+                names.append(str(a.get("name") or f"#{aid}"))
+        for aid in ids:
+            await self.db.conn.execute(
+                "UPDATE strategy_armies SET coalition_id=0 WHERE id=?", (aid,))
+        await self.db.conn.execute(
+            "DELETE FROM strategy_coalitions WHERE id=?", (cid,))
+        if world is not None and names:
+            await self._log_action(
+                world, "coalition", "dissolve",
+                actor_faction=int(co.get("faction_id") or 0),
+                actor_name="、".join(names),
+                node_id=int(co.get("node_id") or 0),
+                success=1, detail={"reason": reason, "members": ids},
+                summary=f"🛡️ 联军解散：{'、'.join(names)}"
+                        + (f"（{reason}）" if reason else ""),
+                visibility="faction")
+        return len(ids)
+
+    async def form_coalition(self, user_id: str, leader_army_id: int,
+                             member_army_id: int) -> dict:
+        """两支己方军团结为联军（驻守同据点；单位仍独立结算）。"""
+        world, p = await self._require_player(user_id)
+        if not bool((self._coalition_cfg() or {}).get("enabled", True)):
+            raise StrategyError("合军玩法未开启")
+        if int(leader_army_id) == int(member_army_id):
+            raise StrategyError("请选择两支不同的军团")
+        lead = await self._own_army(p, int(leader_army_id))
+        mem = await self._own_army(p, int(member_army_id))
+        for a, label in ((lead, "主将军团"), (mem, "协同军团")):
+            if int(a.get("coalition_id") or 0) > 0:
+                raise StrategyError(f"{label}已在联军中，请先解除合军")
+            if int(a.get("faction_id") or 0) != int(p["faction_id"]):
+                raise StrategyError(f"{label}与你不在同一势力")
+            if self._is_reorganizing(a, world):
+                raise StrategyError(f"「{a['name']}」{self._reorg_msg(a, world)}")
+            if str(a.get("state") or "") != "idle":
+                raise StrategyError(
+                    f"「{a['name']}」状态为「"
+                    f"{R.ARMY_STATE_NAMES.get(a['state'], a['state'])}」，"
+                    "仅驻守军团可合军")
+            if int(a.get("troops") or 0) <= 0:
+                raise StrategyError(f"「{a['name']}」已无兵力")
+            if not await self._army_leader(a):
+                raise StrategyError(f"「{a['name']}」已无可用主将")
+        if int(lead.get("node_id") or 0) != int(mem.get("node_id") or 0):
+            raise StrategyError("两支军团需位于同一据点才能合军")
+        node = await self.get_node(world["id"], int(lead["node_id"]))
+        if not node:
+            raise StrategyError("军团所在地据点不存在")
+        active = await self.get_coalitions(world["id"], owner_user_id=p["user_id"])
+        if active:
+            raise StrategyError("你已有联军，请先解除现有合军再组建新的联军")
+        co = {
+            "world_id": world["id"], "faction_id": p["faction_id"],
+            "owner_user_id": p["user_id"],
+            "node_id": int(lead["node_id"]), "target_node_id": 0,
+            "leader_army_id": int(lead["id"]),
+            "member_ids": [int(lead["id"]), int(mem["id"])],
+            "status": "idle", "created_at": _now(),
+        }
+        await self.insert_coalition(co)
+        lead["coalition_id"] = int(co["id"])
+        mem["coalition_id"] = int(co["id"])
+        await self.save_army(lead)
+        await self.save_army(mem)
+        await self._commit()
+        await self._log_action(
+            world, "coalition", "form",
+            actor_faction=int(p["faction_id"]),
+            node_id=int(node["id"]), node_name=str(node.get("name") or ""),
+            success=1,
+            detail={"coalition_id": int(co["id"]),
+                    "leader_army": int(lead["id"]),
+                    "member_army": int(mem["id"])},
+            summary=(f"🛡️「{lead['name']}」与「{mem['name']}」在"
+                     f"「{node.get('name', '')}」合军，行动由联军统一调度"),
+            visibility="faction")
+        return {"ok": True, "coalition_id": int(co["id"]),
+                "msg": (f"合军成功：「{lead['name']}」+「{mem['name']}」\n"
+                        "两支军团仍各自独立结算兵力/携粮/士气，"
+                        "行军与撤退将统一行动、同一 tick 抵达。")}
+
+    async def disband_coalition(self, user_id: str, army_id: int) -> dict:
+        """解除合军（行军途中不允许拆军，避免半途失联）。"""
+        world, p = await self._require_player(user_id)
+        a = await self._own_army(p, int(army_id))
+        cid = int(a.get("coalition_id") or 0)
+        if cid <= 0:
+            raise StrategyError("该军团未处于合军状态")
+        co = await self.get_coalition(cid)
+        if not co:
+            a["coalition_id"] = 0
+            await self.save_army(a)
+            await self._commit()
+            return {"ok": True, "msg": "联军记录缺失，已自动解除合军"}
+        if str(co.get("status") or "") == "march":
+            raise StrategyError("联军统一行军途中无法解除合军（抵达或撤退后再解除）")
+        names = [str(m.get("name") or "") for m in await self._coalition_members(co)]
+        await self._dissolve_coalition(cid, reason="玩家解除合军", world=world)
+        await self._commit()
+        return {"ok": True,
+                "msg": "联军已解除：" + "、".join(n for n in names if n)}
+
+    async def _ensure_coalition_consistency(self, world: dict):
+        """每 tick 校正联军：成员缺失/异地/状态异常时自动解散。"""
+        allowed = {"idle", "march", "siege", "battle"}
+        for co in await self.get_coalitions(world["id"]):
+            ids = [int(x) for x in (co.get("member_ids") or [])]
+            members = await self._coalition_members(co)
+            if len(members) < 2 or len(members) != len(ids):
+                await self._dissolve_coalition(
+                    int(co["id"]), reason="成员缺失", world=world)
+                continue
+            nodes = {int(m.get("node_id") or 0) for m in members}
+            states = {str(m.get("state") or "") for m in members}
+            if len(nodes) > 1 or any(s not in allowed for s in states):
+                await self._dissolve_coalition(
+                    int(co["id"]), reason="成员所在地/状态不一致", world=world)
+                continue
+            status = ("march" if "march" in states else
+                      "siege" if "siege" in states else "idle")
+            node_id = next(iter(nodes))
+            if str(co.get("status") or "idle") != status or \
+                    int(co.get("node_id") or 0) != node_id:
+                co["status"] = status
+                co["node_id"] = node_id
+                if status != "march":
+                    co["target_node_id"] = 0
+                await self.save_coalition(co)
+
+    async def _march_coalition(self, world: dict, p: dict, a: dict,
+                               target_node_id: int) -> dict:
+        cid = int(a.get("coalition_id") or 0)
+        co = await self.get_coalition(cid)
+        if not co:
+            a["coalition_id"] = 0
+            await self.save_army(a)
+            await self._commit()
+            raise StrategyError("联军记录缺失，已自动解除合军，请重新出征")
+        members = await self._coalition_members(co)
+        if len(members) < 2:
+            await self._dissolve_coalition(cid, reason="成员不足", world=world)
+            await self._commit()
+            raise StrategyError("联军成员不足，已自动解除合军")
+        node_id = int(a.get("node_id") or 0)
+        for m in members:
+            if int(m.get("node_id") or 0) != node_id:
+                await self._dissolve_coalition(
+                    cid, reason="成员不在同一据点", world=world)
+                await self._commit()
+                raise StrategyError("联军成员已不在同一据点，自动解除合军")
+            if self._is_reorganizing(m, world):
+                raise StrategyError(f"「{m['name']}」{self._reorg_msg(m, world)}")
+            if str(m.get("state") or "") != "idle":
+                raise StrategyError(
+                    f"「{m['name']}」状态为「"
+                    f"{R.ARMY_STATE_NAMES.get(m['state'], m['state'])}」，"
+                    "联军无法统一出征")
+            if int(m.get("troops") or 0) <= 0:
+                raise StrategyError(f"「{m['name']}」已无兵力，请先补员或解散")
+            if not await self._army_leader(m):
+                raise StrategyError(f"「{m['name']}」已无可用主将")
+        target = await self.get_node(world["id"], int(target_node_id))
+        if not target:
+            raise StrategyError("目标据点不存在")
+        path = await self.find_path(world["id"], node_id, int(target["id"]))
+        if not path:
+            raise StrategyError("目标不连通（须沿通路行军）")
+        if len(path) < 2:
+            raise StrategyError("联军已在目标据点")
+        now = _now()
+        await self._check_attack_target(world, p, target, now)
+        interrupted = 0
+        tick_no = int(world.get("tick_no", 0) or 0)
+        for m in members:
+            interrupted += len(await self._interrupt_army_tasks(world, m))
+            m["state"] = "march"
+            m["path"] = path[1:]
+            m["edge_pos"] = 0.0
+            m["arrive_tick"] = tick_no + len(path)
+            m["coalition_id"] = cid
+            await self.save_army(m)
+        co["status"] = "march"
+        co["node_id"] = node_id
+        co["target_node_id"] = int(target["id"])
+        await self.save_coalition(co)
+        await self._commit()
+        hostile = int(target.get("owner_faction") or 0) not in (0, p["faction_id"])
+        await self._log_action(
+            world, "coalition", "march",
+            actor_faction=int(p["faction_id"]),
+            target_faction=int(target.get("owner_faction") or 0),
+            node_id=int(target["id"]), node_name=str(target.get("name") or ""),
+            success=1,
+            detail={"coalition_id": cid, "members": [int(m["id"]) for m in members],
+                    "path_len": len(path) - 1},
+            summary=(f"🛡️ 联军（{'、'.join(str(m['name']) for m in members)}）"
+                     f"统一出征 →「{target.get('name', '')}」"),
+            visibility="faction")
+        suffix = f"；已中断 {interrupted} 个随军任务" if interrupted else ""
+        return {"ok": True,
+                "msg": f"联军出征：{' + '.join(str(m['name']) for m in members)}"
+                       f" →「{target['name']}」（{len(path) - 1} 段路程，"
+                       f"{'敌对' if hostile else '和平'}目标）" + suffix}
+
+    async def _retreat_coalition(self, world: dict, p: dict, a: dict) -> dict:
+        cid = int(a.get("coalition_id") or 0)
+        co = await self.get_coalition(cid)
+        members = await self._coalition_members(co) if co else []
+        if len(members) < 2:
+            if co:
+                await self._dissolve_coalition(cid, reason="成员不足", world=world)
+            a["coalition_id"] = 0
+            await self.save_army(a)
+            await self._commit()
+            return await self.retreat_army(p["user_id"], int(a["id"]))
+        for m in members:
+            if str(m.get("state") or "") not in ("march", "siege", "idle"):
+                raise StrategyError(
+                    f"「{m['name']}」当前状态无法撤退")
+        node_id = int(a.get("node_id") or 0)
+        was_siege = any(m.get("state") == "siege" for m in members)
+        home = await self._nearest_own_node(
+            world, p, node_id, dwell_only=True)
+        if home is None:
+            for m in members:
+                await self._interrupt_army_tasks(world, m)
+                await self._auto_retreat(m)
+            if was_siege:
+                await self._clear_orphan_siege(
+                    world, await self.get_node(world["id"], node_id))
+            await self._commit()
+            return {"ok": True,
+                    "msg": "无己方据点可退，联军已就地解散（角色归还）"}
+        if home == node_id and all(m.get("state") == "idle" for m in members):
+            return {"ok": True, "msg": "联军已驻守己方据点，无需撤退"}
+        path = await self.find_path(world["id"], node_id, home)
+        if home != node_id and not path:
+            raise StrategyError("撤退路线不通（无己方据点可达）")
+        for m in members:
+            if home == node_id:
+                m["state"] = "idle"
+                m["path"] = []
+                m["edge_pos"] = 0.0
+            else:
+                if m.get("state") == "idle":
+                    await self._interrupt_army_tasks(world, m)
+                m["state"] = "march"
+                m["path"] = path[1:] if len(path) > 1 else []
+                m["edge_pos"] = 0.0
+                m["arrive_tick"] = int(world.get("tick_no", 0) or 0) + len(path)
+                if not m["path"]:
+                    m["state"] = "idle"
+            await self.save_army(m)
+        if co:
+            co["status"] = "idle" if home == node_id else "march"
+            co["node_id"] = node_id
+            co["target_node_id"] = 0 if home == node_id else int(home)
+            await self.save_coalition(co)
+        if was_siege:
+            await self._clear_orphan_siege(
+                world, await self.get_node(world["id"], node_id))
+        await self._commit()
+        names = "、".join(str(m.get("name") or "") for m in members)
+        return {"ok": True,
+                "msg": (f"联军（{names}）已就地转入驻守"
+                        if home == node_id else
+                        f"联军（{names}）统一撤退中（{max(0, len(path) - 1)} 段）")}
 
     async def _clear_orphan_siege(self, world: dict, node: Optional[dict]):
         """A-M11：节点已无围城军团时清除悬挂的 siege_state。
@@ -6370,6 +6761,11 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
         wid0 = int(army.get("world_id") or 0)
         if wid0 > 0:
             await self._interrupt_army_tasks({"id": wid0}, army)
+        # v4.8.0：联军成员溃散/断粮撤退时解散联军，避免留下单支“半联军”
+        cid0 = int(army.get("coalition_id") or 0)
+        if cid0 > 0:
+            await self._dissolve_coalition(cid0, reason="军团溃败/断粮，联军解散")
+            army["coalition_id"] = 0
         bcfg = self.main_cfg().get("battle") or {}
         if army.get("_routed") and not army.get("_rout_penalized"):
             # 只罚一次：同一次溃败可能在会战/围城/追击多处调用 _auto_retreat
@@ -6782,7 +7178,60 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
         return False
 
     # --- 步骤 4：行军推进 + 粮耗（§5.6）------------------------------------
+    async def _march_metrics(self, world: dict, a: dict, nodes: dict,
+                             friendly_cache: dict, tech_cache: dict,
+                             road_mult: float, road_free: bool,
+                             ally_free: bool, ally_speed: float) -> Optional[dict]:
+        """单个行军军团本 tick 的推进参数。
+
+        抽出口径供联军 lockstep 复用（取成员最小速度统一步进，避免
+        一快一慢把联军拉扯成两支孤立军团）。
+        """
+        nxt_id = (a.get("path") or [None])[0]
+        if not nxt_id:
+            return None
+        nxt = nodes.get(nxt_id)
+        if not nxt:
+            return None
+        own_fid = int(a.get("faction_id") or 0)
+        cur = nodes.get(int(a.get("node_id", 0) or 0))
+        friendly = await self._friendly_ids(
+            int(world["id"]), own_fid, friendly_cache)
+        on_road = R.is_friendly_road(cur, nxt, friendly)
+        terrain = nxt.get("terrain", "plain")
+        leader = None
+        cids = a.get("characters") or []
+        if cids:
+            leader = await self.get_char(int(cids[0]))
+        mods = R.trait_army_mods((leader or {}).get("traits"))
+        # 友方道路：相邻两个本方/盟友据点之间构成道路，额外加速。
+        speed_mult = road_mult if on_road else 1.0
+        # 同联盟额外行军加成（与道路加速叠乘）。
+        if len(friendly) > 1:
+            speed_mult *= 1.0 + ally_speed
+        # v4.3.13 军事 L4 精锐小队：带兵 ≤ 阈值时行军机动 +1 边当量
+        teff = tech_cache.get(own_fid)
+        if teff is None:
+            mf = await self.get_faction(own_fid) if own_fid > 0 else None
+            teff = R.tech_effects((mf or {}).get("tech") or {},
+                                  tcfg=self.main_cfg().get("tech") or {})
+            tech_cache[own_fid] = teff
+        a["move_bonus"] = (
+            int(teff.get("small_army_move_bonus", 0) or 0)
+            if int(a.get("troops", 0) or 0) <=
+            int(teff.get("small_army_threshold", 800) or 800) else 0)
+        advance = (R.march_speed(a, terrain) *
+                   float(mods.get("speed_mult", 1.0)) * speed_mult)
+        next_owner = int(nxt.get("owner_faction") or 0)
+        free = (on_road and road_free) or (
+            ally_free and next_owner in friendly and next_owner != own_fid)
+        return {"nxt_id": nxt_id, "advance": float(advance),
+                "terrain": terrain, "free": bool(free),
+                "cost": float(R.TERRAIN_MARCH_COST.get(terrain, 1.0))}
+
     async def _step_march(self, world: dict):
+        # v4.8.0：先校正联军（成员缺失/异地/状态异常自动解散）
+        await self._ensure_coalition_consistency(world)
         marching = await self.get_armies(world["id"], states=("march",))
         nodes = {n["id"]: n for n in await self.get_nodes(world["id"])}
         tcfg = self.main_cfg().get("territory") or {}
@@ -6793,76 +7242,73 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
         ally_speed = max(0.0, float(acfg.get("march_speed_bonus", 0.10) or 0))
         friendly_cache: dict[int, set[int]] = {}
         tech_cache: dict[int, dict] = {}
+        metrics: dict[int, dict] = {}
+        coalition_advance: dict[int, float] = {}
+        for a in marching:
+            mt = await self._march_metrics(
+                world, a, nodes, friendly_cache, tech_cache,
+                road_mult, road_free, ally_free, ally_speed)
+            if mt is None:
+                continue
+            metrics[int(a["id"])] = mt
+            cid = int(a.get("coalition_id") or 0)
+            if cid > 0:
+                coalition_advance[cid] = min(
+                    coalition_advance.get(cid, 1e18), mt["advance"])
         for a in marching:
             if not a["path"]:
                 a["state"] = "idle"
                 await self.save_army(a)
                 continue
-            nxt_id = a["path"][0]
-            nxt = nodes.get(nxt_id)
-            if not nxt:
+            mt = metrics.get(int(a["id"]))
+            if not mt:
                 a["path"] = []
                 a["state"] = "idle"
                 await self.save_army(a)
                 continue
-            own_fid = int(a.get("faction_id") or 0)
-            cur = nodes.get(int(a.get("node_id", 0) or 0))
-            friendly = await self._friendly_ids(
-                int(world["id"]), own_fid, friendly_cache)
-            on_road = R.is_friendly_road(cur, nxt, friendly)
-            terrain = nxt.get("terrain", "plain")
-            leader = None
-            cids = a.get("characters") or []
-            if cids:
-                leader = await self.get_char(int(cids[0]))
-            mods = R.trait_army_mods((leader or {}).get("traits"))
-            # 友方道路：相邻两个本方/盟友据点之间构成道路，额外加速。
-            speed_mult = road_mult if on_road else 1.0
-            # 同联盟额外行军加成（与道路加速叠乘）。
-            if len(friendly) > 1:
-                speed_mult *= 1.0 + ally_speed
-            # v4.3.13 军事 L4 精锐小队：带兵 ≤ 阈值时行军机动 +1 边当量
-            teff = tech_cache.get(own_fid)
-            if teff is None:
-                mf = await self.get_faction(own_fid) if own_fid > 0 else None
-                teff = R.tech_effects((mf or {}).get("tech") or {},
-                                      tcfg=self.main_cfg().get("tech") or {})
-                tech_cache[own_fid] = teff
-            a["move_bonus"] = (
-                int(teff.get("small_army_move_bonus", 0) or 0)
-                if int(a.get("troops", 0) or 0) <=
-                int(teff.get("small_army_threshold", 800) or 800) else 0)
-            a["edge_pos"] = float(a.get("edge_pos", 0)) + \
-                R.march_speed(a, terrain) * float(mods.get("speed_mult", 1.0)) * \
-                speed_mult
-            cost = R.TERRAIN_MARCH_COST.get(terrain, 1.0)
+            cid = int(a.get("coalition_id") or 0)
+            advance = (coalition_advance.get(cid, mt["advance"])
+                       if cid > 0 else mt["advance"])
+            a["edge_pos"] = float(a.get("edge_pos", 0)) + advance
+            cost = mt["cost"]
+            nxt_id = mt["nxt_id"]
             # 先推进再结算粮耗：断粮触发撤退时本 tick 的行军进度不会白费
             if a["edge_pos"] >= cost:
                 a["edge_pos"] -= cost
                 a["node_id"] = nxt_id
                 a["path"] = a["path"][1:]
                 # §4.2：军团成员 location 随军团 node_id 同步（抵达/推进后）
-                for cid in a.get("characters") or []:
-                    mc = await self.get_char(int(cid))
+                for cid_ch in a.get("characters") or []:
+                    mc = await self.get_char(int(cid_ch))
                     if not mc or mc.get("status") != "army":
                         continue
                     if R.char_node_id(mc) == int(a["node_id"]):
                         continue
                     mc["location"] = {"node_id": int(a["node_id"])}
                     await self.save_char(mc)
-            # 道路免粮；进入盟友据点所在边也免粮（盟友据点线路）。
-            next_owner = int(nxt.get("owner_faction") or 0)
-            free = (on_road and road_free) or (
-                ally_free and next_owner in friendly and next_owner != own_fid)
             # 粮耗（行军中每 tick；疾行 -10% / 动员令 / 农政科技 grain_cost_mult）
             far = len(a["path"]) > int((self.main_cfg().get("army") or {}).get(
                 "far_supply_steps", 2))
             starved = await self._consume_army_upkeep(
-                world, a, terrain, far, free=free)
+                world, a, mt["terrain"], far, free=mt["free"])
             if starved:
+                if cid > 0:
+                    # 联军断粮：整队撤回最近己方据点（避免一支断粮、另一支
+                    # 孤军深入），随后解散联军，回城后可重新合军。
+                    co = await self.get_coalition(cid)
+                    mates = await self._coalition_members(co) if co else []
+                    await self._dissolve_coalition(
+                        cid, reason="断粮撤退，联军解散", world=world)
+                    for m in mates:
+                        if int(m["id"]) == int(a["id"]):
+                            continue
+                        m["coalition_id"] = 0
+                        await self._auto_retreat(m)
                 await self._auto_retreat(a)
                 continue
             await self.save_army(a)
+        # v4.8.0：推进结束同步联军状态（全员抵达 → 待命）
+        await self._ensure_coalition_consistency(world)
         await self._commit()
 
     # --- 步骤 8：恢复（§4.6/§5.3）------------------------------------------
@@ -7179,6 +7625,8 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
             report = await self._attack_node(world, node, attackers)
             if report:
                 reports.append(report)
+        # v4.8.0：抵达后同步联军状态（统一行军 → 待命/合围）
+        await self._ensure_coalition_consistency(world)
         await self._commit()
         return reports
 
@@ -9521,7 +9969,28 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
                 if leader else 0,
                 "overstaffed": bool(R.is_overstaffed(
                     leader, int(a.get("troops", 0) or 0))) if leader else False,
+                # v4.8.0 合军：联军归属与协同军团（成员仍独立结算）
+                "coalition_id": int(a.get("coalition_id") or 0),
+                "coalition_role": "", "coalition_partner": "",
+                "coalition_status": "",
             })
+        if any(int(av.get("coalition_id") or 0) > 0 for av in armies):
+            co_by_id = {int(co["id"]): co for co in await self.get_coalitions(
+                world["id"], owner_user_id=p["user_id"])}
+            for av in armies:
+                cid = int(av.get("coalition_id") or 0)
+                co = co_by_id.get(cid)
+                if not co:
+                    continue
+                partners = [
+                    str(x.get("name") or "") for x in armies
+                    if int(x.get("coalition_id") or 0) == cid
+                    and int(x["id"]) != int(av["id"])]
+                av["coalition_role"] = (
+                    "leader" if int(co.get("leader_army_id") or 0) == int(av["id"])
+                    else "member")
+                av["coalition_partner"] = "、".join(n for n in partners if n)
+                av["coalition_status"] = str(co.get("status") or "idle")
         # 角色卡与任务派遣列表共用：把军团主将标成「主将」，随行保持「随军」
         char_army_role: dict[int, tuple[str, int]] = {}
         for av in armies:
@@ -9807,6 +10276,7 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
             "chars": chars, "armies": armies, "tasks": tasks,
             "tavern": {"candidates": tavern.get("candidates") or [],
                       "refresh_at": tavern.get("refresh_at", 0),
+                      "roll_seq": int(tavern.get("roll_seq", 0) or 0),
                       "daily_refresh_used": int(tavern.get("daily_refresh_used", 0))},
             "intel": int(tavern.get("intel", 0) or 0),
             "achievements": p.get("achievements") or {},
@@ -10024,6 +10494,7 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
             "duel_cfg": cfg.get("duel") or {},
             "hex_cfg": cfg.get("hex") or {},
             "recruit_cfg": cfg.get("recruit") or {},
+            "coalition_cfg": cfg.get("coalition") or {},
             "market_cfg": cfg.get("market") or {},
             "wanderer_auction_cfg": cfg.get("wanderer_auction") or {},
             "season_cfg": cfg.get("season") or {},
@@ -10060,6 +10531,8 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
         "govern_relief", "appoint_taishou", "dismiss_taishou",
         "upgrade_building", "create_army", "raid_bandit",
         "handover_army",
+        # v4.8.0：酒馆招募（记录 roll_seq/候选身份，便于回溯错位）
+        "recruit", "form_coalition", "disband_coalition",
         "dispatch_plot", "market_list", "market_buy", "persuade",
         # v4.3.0 补全：此前 11 个敏感动作落库无审计
         "faction_task_claim", "faction_task_refresh", "rebuild_donate",
@@ -10176,14 +10649,28 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
                 await self.refresh_tavern(p, wid, manual=bool(params.get("manual")))
                 return {"ok": True, "msg": "酒馆已刷新"}
             if action == "recruit":
-                char = await self.recruit(p, wid, int(params.get("index", 0)),
-                                          premium=bool(params.get("premium")))
+                char = await self.recruit(
+                    p, wid, int(params.get("index", 0)),
+                    premium=bool(params.get("premium")),
+                    expected_roll=int(params.get("roll", 0) or 0),
+                    expected_name=str(params.get("name") or ""))
+                if not char.get("ok", True):
+                    # v4.8.0：候选列表已在点击瞬间刷新 → 拒绝本次招募（不扣费）
+                    return char
                 unit = "募将令" if char.get("recruit_currency") == "token" else "铜钱"
                 msg = (f"招募成功：{char['name']}"
-                       f"（{R.RARITY_NAMES.get(char['rarity'])}）")
+                       f"（{R.RARITY_NAMES.get(char['rarity'])}·"
+                       f"{R.ROLE_NAMES.get(char['role'], char['role'])}）")
                 if int(char.get("recruit_cost", 0) or 0) > 0:
                     msg += f"，消耗 {int(char['recruit_cost'])} {unit}"
                 return {"ok": True, "msg": msg, "char": char}
+            if action == "form_coalition":
+                return await self.form_coalition(
+                    user_id, int(params.get("leader_army_id", 0) or 0),
+                    int(params.get("member_army_id", 0) or 0))
+            if action == "disband_coalition":
+                return await self.disband_coalition(
+                    user_id, int(params.get("army_id", 0) or 0))
             if action == "dismiss_char":
                 return await self.dismiss_char(user_id, int(params["char_id"]))
             if action == "reward_char":

@@ -2711,6 +2711,7 @@ WORLD_LOG_KINDS = {
     "event": ("🎲", "异象"),
     "season": ("🏆", "赛季"),
     "captive": ("⛓️", "俘虏"),
+    "coalition": ("🛡️", "合军"),
 }
 
 

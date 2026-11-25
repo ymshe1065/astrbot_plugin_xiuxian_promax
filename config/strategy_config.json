@@ -247,6 +247,11 @@
     "zhonglangjiang_bonus": 0.10
   },
 
+  "coalition": {
+    "enabled": true,
+    "note": "合军：同主同势力、同据点驻守的两支军团可结为联军；单位仍独立结算，行军/撤退统一行动"
+  },
+
   "army": {
     "min_troops": 100,
     "max_chars": 3,
