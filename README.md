@@ -27,7 +27,7 @@
 
 ---
 
-> **插件版本:** v4.6.9 · **游戏版本:** v8.1.0 · **数据库:** v86 · **分支:** `feat/web-chatroom`
+> **插件版本:** v4.7.0 · **游戏版本:** v8.1.0 · **数据库:** v87 · **分支:** `feat/web-chatroom`
 >
 > **原作者:** xiaojuwa · **二改:** [Zspor](https://github.com/Zspor/astrbot_plugin_monixiuxian2) · **三改:** [云兮](https://github.com/iqapi) · **四改维护:** [ymshe1065](https://github.com/ymshe1065) · [lsq3497](https://github.com/lsq3497) · [lan](https://github.com/lanxue0)
 
@@ -48,7 +48,24 @@
 <sub>点击展开对应版本查看详细变更；v3.44.3 之前的版本按游戏版本系列汇总在下方。</sub>
 
 <details open>
-<summary><b>本次更新 · 插件 v4.6.9（仙域争霸 · 计略/固定时长任务倒计时实时刷新）</b></summary>
+<summary><b>本次更新 · 插件 v4.7.0（仙域争霸 · 天下「江湖纪事」行动历史）</b></summary>
+
+| 范围 | 变更 |
+| --- | --- |
+| 版本与数据库 | 插件 **v4.7.0**；游戏版本 **v8.1.0** 不变；新增 **DB v87** 表 `strategy_world_log`（启动自动迁移，升级前请备份数据目录），无新增聊天指令 |
+| 问题现象 | 「天下」页只有威胁榜/风声，计略（如惊鸿道人的放火）是否成功、焚毁多少粮、是否走漏都查不到；其他玩家与 NPC 的历史行动同样无记录，错过个人 WS 通知后无法回看 |
+| 数据结构 | 新增结构化行动日志：`tick/created_at/publish_at/kind/action/actor_*/target_*/node_*/success/summary/detail_json/visibility`；势力/据点/角色名冗余存快照，改名或灭国后历史仍可读 |
+| 可见性 | `public`（公开）/ `faction`（仅当事势力，含联盟）。计略：施术方立即看完整结果；被针对方在成功或走漏后可见（未暴露不点名）；公开区在暴露时即时、未暴露成功延迟 24h 发模糊版。战事/据点易主/外交/NPC 行动默认公开 |
+| 接入范围 | 计略结算（成败/焚粮/城防/士气/走漏）、自动与手操战斗（胜负/双方损失/回合）、据点易主（原主→新主/强攻或受降）、玩家与 NPC 外交（宣战/停战/和谈赔款/结盟）、世界事件起止 |
+| 查询与前端 | 新增 `GET /api/strategy/logs`（鉴权 + 类别筛选 + `before_id` 分页）；快照首屏带最近 20 条；「天下」页新增「📜 江湖纪事」卡片：全部/计略/战事/据点/外交/NPC/异象筛选、时间线展示、加载更多 |
+| 保留策略 | 默认保留 **14 天 / 3000 条**，每 tick 回收；`config/strategy_config.json` 的 `world_log` 可调，0 表示不限 |
+| 文档与版本 | README / metadata / misc_handler / 网页指引 / 玩家知识库 / 设计方案同步 v4.7.0 |
+| 回归 | `tests/test_strategy_*.py` **675 passed**（新增 `test_strategy_world_log.py` 6 项：可见性/延迟/分页/保留/据点日志/风声回填）；`test_strategy_api.py` 38；`webchat_mobile_ui` **28**；`webchat_clock` 8 全绿 |
+
+</details>
+
+<details>
+<summary><b>插件 v4.6.9（仙域争霸 · 计略/固定时长任务倒计时实时刷新）</b></summary>
 
 | 范围 | 变更 |
 | --- | --- |

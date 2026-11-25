@@ -34,12 +34,15 @@ function extractStrategyFn(name) {
 function renderWorldTab(state) {
   const ctx = {
     S: state,
+    logState: { kind: "", items: [], hasMore: false },
     safeColor: (c) => (/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(String(c || ''))
       ? String(c) : '#9e9e9e'),
     myFactionId: () => Number(((state || {}).player || {}).faction_id || -999),
   };
   vm.createContext(ctx);
   vm.runInContext(extractStrategyFn('esc') + '\n' +
+    extractStrategyFn('logKindMeta') + '\n' +
+    extractStrategyFn('logCardHtml') + '\n' +
     extractStrategyFn('tabWorld') + '\nthis.__out = tabWorld();', ctx);
   return ctx.__out;
 }
@@ -479,5 +482,31 @@ test('固定时长任务（计略/侦察/劫掠）倒计时每秒刷新', () => 
   assert.ok(
     strategyJs.includes('data-expire="\' + end + \'"'),
     '实时倒计时要带 data-expire，交给 tickCountdown 每秒刷新'
+  );
+});
+
+test('天下页提供江湖纪事（筛选/分页/可见性说明）', () => {
+  assert.ok(
+    strategyJs.includes('function logCardHtml(') &&
+      strategyJs.includes('江湖纪事'),
+    '天下页需要「江湖纪事」行动历史卡片'
+  );
+  assert.ok(
+    strategyJs.includes('data-act="logs-filter"') &&
+      strategyJs.includes('data-act="logs-more"'),
+    '纪事需要类别筛选与加载更多'
+  );
+  assert.ok(
+    strategyJs.includes('/api/strategy/logs'),
+    '纪事分页需走独立接口，不能只靠 20s 快照'
+  );
+  assert.ok(
+    strategyJs.includes('world_log_kinds') &&
+      strategyJs.includes('logKindMeta'),
+    '类别图标/名称需读取服务端 meta，避免前后端两套口径'
+  );
+  assert.ok(
+    strategyJs.includes('未走漏的计略先只对当事方可见'),
+    '界面需提示纪事按可见性过滤'
   );
 });

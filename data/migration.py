@@ -11,7 +11,7 @@ from astrbot.api import logger
 if TYPE_CHECKING:
     from ..config_manager import ConfigManager
 
-LATEST_DB_VERSION = 86  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求；v49: 统一物品品阶名称；v50: 仙市投资系统（基金/股票）；v51: 符箓熟练度与符图习得；v52: 仙市 v6（16 盘 + 赌场级波动 + 不对称日熔断）；v53: 拍卖会未开拍拍品按固定品阶曲线重建（并兼容分叉旧库补授符图）；v54: 灵田肥力上限按等级分级（旧值按百分比换算）；v55: 生活职业更换费用峰值与时间衰减；v56: 误存进储物戒/溢出仓库的丹药迁回丹药背包；v57: 旧50/50装备改名迁移到混合倾向新装备；v58: 周常 Boss（周本）周期/队伍/成员/领奖/周榜/次数表；v59: 仙市分红/风声唯一索引（结算幂等，先去重再建索引）；v60: 功德机制重做，清空全服既有功德（业力）；v61: 秘境难度分级（rift_key/product/difficulty/duration）；v62: 活动状态位按槽位多行（本体 + 身外化身）；v63: 珠宝体系（珠囊字段 jewel_inventory）；v64: 通缉令改为每日悬赏榜（每日挑战次数表 bounty_daily）；v65: 高风险玩法（锦囊/暗标/藏宝图/矿脉/古方/盘口/杠杆）与灵田永久解锁；v66: 仙市投资代理人（委托/持仓/日志表）；v67: 代理人等级（经验表 / 委托经验字段）；v68: 风声可信度与新闻冲击成本；v69: 藏宝图肉鸽奇遇（临时效果 / 待处理事件字段）；v70: 仙域争霸战略玩法（strategy_* 11 表）；v71: 仙域争霸 P1~P3（势力外交 / hex 战役会话 / 英烈祠名将堂 / 赛季结算）；v72: 仙域争霸联盟体系（势力 alliance_id / 共同治理与据点交接）；v73: 矿脉到期自动结算消息通道（mine_veins/mine_partners.origin）；v74: 仙域争霸角色官职（strategy_characters.appointed_position / appointed_node_id）；v75: 仙域争霸流将限时竞拍（strategy_char_auctions）；v76: 流将战功暗标（暗标表/赛季名额/坊市地缘/属性上限 90）；v77: 仙域争霸补全（势力任务/动员令/审计/俘虏押运/匪寨与NPC重生状态位/主城迁都）；v78: 仙域争霸军团断粮计数（strategy_armies.starve_ticks，供农政 L5 断粮抵抗跨 tick 生效）；v79: 太守改为据点级职务（strategy_nodes.governor_char_id，可与角色官职并存）；v80: 仙域争霸坊市 NPC 收购报价（strategy_market_offers）；v81: 仙域争霸所在地机制（strategy_nodes.construction_json / develop_ready_at / potential）；v82: 仙域争霸俸禄结算（strategy_factions.salary_json）；v83: 仙域争霸角色个性（strategy_characters.personality_json）；v84: 仙域争霸遗迹转为常规可经营据点（潜力回填 3）；v85: 仙域争霸玩家势力存量武将忠诚统一置满（俘虏/押运/在野/NPC 除外）；v86: 势力任务「共襄国库」更名为「共襄重建」（进行中/历史任务行同步改名）
+LATEST_DB_VERSION = 87  # v44: 装备平衡货架失效；v45: 灵气与 mp 兼容同步；v46: 战斗小事件；v47: 拍卖会事件；v48: 每日切磋/决斗次数与切磋请求；v49: 统一物品品阶名称；v50: 仙市投资系统（基金/股票）；v51: 符箓熟练度与符图习得；v52: 仙市 v6（16 盘 + 赌场级波动 + 不对称日熔断）；v53: 拍卖会未开拍拍品按固定品阶曲线重建（并兼容分叉旧库补授符图）；v54: 灵田肥力上限按等级分级（旧值按百分比换算）；v55: 生活职业更换费用峰值与时间衰减；v56: 误存进储物戒/溢出仓库的丹药迁回丹药背包；v57: 旧50/50装备改名迁移到混合倾向新装备；v58: 周常 Boss（周本）周期/队伍/成员/领奖/周榜/次数表；v59: 仙市分红/风声唯一索引（结算幂等，先去重再建索引）；v60: 功德机制重做，清空全服既有功德（业力）；v61: 秘境难度分级（rift_key/product/difficulty/duration）；v62: 活动状态位按槽位多行（本体 + 身外化身）；v63: 珠宝体系（珠囊字段 jewel_inventory）；v64: 通缉令改为每日悬赏榜（每日挑战次数表 bounty_daily）；v65: 高风险玩法（锦囊/暗标/藏宝图/矿脉/古方/盘口/杠杆）与灵田永久解锁；v66: 仙市投资代理人（委托/持仓/日志表）；v67: 代理人等级（经验表 / 委托经验字段）；v68: 风声可信度与新闻冲击成本；v69: 藏宝图肉鸽奇遇（临时效果 / 待处理事件字段）；v70: 仙域争霸战略玩法（strategy_* 11 表）；v71: 仙域争霸 P1~P3（势力外交 / hex 战役会话 / 英烈祠名将堂 / 赛季结算）；v72: 仙域争霸联盟体系（势力 alliance_id / 共同治理与据点交接）；v73: 矿脉到期自动结算消息通道（mine_veins/mine_partners.origin）；v74: 仙域争霸角色官职（strategy_characters.appointed_position / appointed_node_id）；v75: 仙域争霸流将限时竞拍（strategy_char_auctions）；v76: 流将战功暗标（暗标表/赛季名额/坊市地缘/属性上限 90）；v77: 仙域争霸补全（势力任务/动员令/审计/俘虏押运/匪寨与NPC重生状态位/主城迁都）；v78: 仙域争霸军团断粮计数（strategy_armies.starve_ticks，供农政 L5 断粮抵抗跨 tick 生效）；v79: 太守改为据点级职务（strategy_nodes.governor_char_id，可与角色官职并存）；v80: 仙域争霸坊市 NPC 收购报价（strategy_market_offers）；v81: 仙域争霸所在地机制（strategy_nodes.construction_json / develop_ready_at / potential）；v82: 仙域争霸俸禄结算（strategy_factions.salary_json）；v83: 仙域争霸角色个性（strategy_characters.personality_json）；v84: 仙域争霸遗迹转为常规可经营据点（潜力回填 3）；v85: 仙域争霸玩家势力存量武将忠诚统一置满（俘虏/押运/在野/NPC 除外）；v86: 势力任务「共襄国库」更名为「共襄重建」（进行中/历史任务行同步改名）；v87: 仙域争霸江湖纪事（strategy_world_log 行动日志表）
 
 MIGRATION_TASKS: Dict[int, Callable[[aiosqlite.Connection, ConfigManager], Awaitable[None]]] = {}
 
@@ -906,6 +906,8 @@ async def _ensure_latest_columns(conn: aiosqlite.Connection):
     await _ensure_strategy_v83(conn)
     # v84：仙域争霸遗迹转为常规可经营据点（潜力回填 3）
     await _ensure_strategy_v84(conn)
+    # v87：仙域争霸江湖纪事（结构化行动日志）
+    await _ensure_strategy_world_log_v87(conn)
     await conn.commit()
 
 class MigrationManager:
@@ -3983,6 +3985,99 @@ async def _ensure_strategy_v86(conn: aiosqlite.Connection):
     await conn.execute(
         "UPDATE strategy_faction_tasks SET title='共襄重建' "
         "WHERE task_type='donate' AND title='共襄国库'")
+
+
+async def _ensure_strategy_world_log_v87(conn: aiosqlite.Connection):
+    """v87：仙域争霸「江湖纪事」结构化行动日志表。
+
+    计略/战事/据点易主/外交/NPC 行动/世界事件统一落表，供「天下」页
+    按可见性与时间线回看；``publish_at`` 支持延迟公开（未暴露的计略
+    先只给当事方看，走漏后再公开）。
+    """
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS strategy_world_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            world_id INTEGER NOT NULL DEFAULT 0,
+            tick INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL DEFAULT 0,
+            publish_at INTEGER NOT NULL DEFAULT 0,
+            kind TEXT NOT NULL DEFAULT 'event',
+            action TEXT NOT NULL DEFAULT '',
+            actor_faction INTEGER NOT NULL DEFAULT 0,
+            actor_name TEXT NOT NULL DEFAULT '',
+            target_faction INTEGER NOT NULL DEFAULT 0,
+            target_name TEXT NOT NULL DEFAULT '',
+            node_id INTEGER NOT NULL DEFAULT 0,
+            node_name TEXT NOT NULL DEFAULT '',
+            success INTEGER NOT NULL DEFAULT 0,
+            summary TEXT NOT NULL DEFAULT '',
+            detail_json TEXT NOT NULL DEFAULT '{}',
+            visibility TEXT NOT NULL DEFAULT 'public'
+        )
+    """)
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_strategy_world_log_world "
+        "ON strategy_world_log(world_id, publish_at, id)")
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_strategy_world_log_kind "
+        "ON strategy_world_log(world_id, kind, id)")
+    # 首次升级：把各世界现有最近 40 条「风声」回填为历史，避免天下页空白。
+    # 仅在日志表为空时执行，重复启动/迁移不会产生重复记录。
+    try:
+        kind_map = {"war": "diplomacy", "peace": "diplomacy",
+                    "battle": "battle", "event": "event",
+                    "season": "season", "plot": "plot"}
+        now = int(time.time())
+        async with conn.execute(
+                "SELECT id, data_json, tick_no FROM strategy_worlds") as cur:
+            worlds = await cur.fetchall()
+        for row in worlds:
+            wid = int(row[0])
+            async with conn.execute(
+                    "SELECT COUNT(*) FROM strategy_world_log WHERE world_id=?",
+                    (wid,)) as cur:
+                count = int((await cur.fetchone())[0] or 0)
+            if count > 0:
+                continue
+            try:
+                data = json.loads(row[1] or "{}")
+            except (TypeError, ValueError):
+                data = {}
+            winds = data.get("winds") if isinstance(data, dict) else None
+            if not isinstance(winds, list):
+                continue
+            for wind in winds[-40:]:
+                if isinstance(wind, dict):
+                    text = str(wind.get("text") or "").strip()
+                    kind = str(wind.get("kind") or "plot")
+                    tick_no = int(wind.get("tick") or row[2] or 0)
+                    publish_at = int(wind.get("visible_at") or now)
+                    created_at = int(wind.get("visible_at") or now)
+                else:
+                    text = str(wind or "").strip()
+                    kind, tick_no, publish_at = "plot", int(row[2] or 0), now
+                    created_at = now
+                if not text:
+                    continue
+                await conn.execute(
+                    "INSERT INTO strategy_world_log (world_id, tick, created_at, "
+                    "publish_at, kind, action, success, summary, detail_json, "
+                    "visibility) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    (wid, tick_no, created_at, publish_at,
+                     kind_map.get(kind, "event"), "wind", 1, text[:500],
+                     json.dumps({"backfill": True}, ensure_ascii=False),
+                     "public"))
+    except Exception:  # noqa: BLE001 - 回填失败不影响迁移
+        pass
+
+
+@migration(87)
+async def _migrate_to_v87(conn: aiosqlite.Connection, config_manager: ConfigManager):
+    """v87：仙域争霸江湖纪事（行动日志表）。"""
+    logger.info("开始迁移到 v87：仙域争霸江湖纪事（strategy_world_log）")
+    await _ensure_strategy_world_log_v87(conn)
+    await conn.commit()
+    logger.info("v87迁移完成：strategy_world_log 已就绪")
 
 
 @migration(86)

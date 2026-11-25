@@ -38,6 +38,7 @@ from .strategy_panel import (
     StrategyBusyError,
     StrategyError,
     strategy_action,
+    strategy_logs,
     strategy_state,
 )
 from .invest_agent_panel import (
@@ -291,6 +292,7 @@ async def start(host: str, port: int) -> None:
     app.router.add_post("/api/fate_shop/buy", _api_fate_shop_buy)
     app.router.add_post("/api/fate_shop/exchange", _api_fate_shop_exchange)
     app.router.add_get("/api/strategy/state", _api_strategy_state)
+    app.router.add_get("/api/strategy/logs", _api_strategy_logs)
     app.router.add_post("/api/strategy/action", _api_strategy_action)
     app.router.add_get("/api/strategy/memorial", _api_strategy_memorial)
     app.router.add_get("/api/strategy/guide", _api_strategy_guide)
@@ -1533,6 +1535,36 @@ def _strategy_enabled() -> bool:
         # REST/WS 写操作（fail-open 会绕过 strategy.enabled 配置）。
         logger.exception("[webroom] 读取仙域争霸开关失败，按未开启处理")
         return False
+
+
+async def _api_strategy_logs(request: web.Request) -> web.Response:
+    """仙域争霸「江湖纪事」：按势力/联盟可见性分页返回行动日志。"""
+    user = _token_user(request)
+    if user is None:
+        return web.json_response({"ok": False, "error": "登录已过期"}, status=401)
+    if _plugin is None:
+        return web.json_response({"ok": False, "error": "插件尚未就绪"}, status=503)
+    if not _strategy_enabled():
+        return web.json_response({"ok": False, "error": "仙域争霸未开启"}, status=400)
+    user_id = accounts_store.player_key_of(user)
+    try:
+        limit = max(1, min(100, int(request.query.get("limit", 20) or 20)))
+        data = await strategy_logs(
+            _plugin, user_id,
+            kind=str(request.query.get("kind") or ""),
+            before_id=int(request.query.get("before_id", 0) or 0),
+            limit=limit)
+    except StrategyError as exc:
+        return web.json_response({"ok": False, "error": str(exc)}, status=400)
+    except Exception:
+        logger.exception("[webroom] 读取江湖纪事失败")
+        return web.json_response({"ok": False, "error": "读取失败，请稍后重试"},
+                                 status=500)
+    return web.json_response({
+        "ok": True,
+        "logs": data.get("items") or [],
+        "has_more": bool(data.get("has_more")),
+    })
 
 
 async def _api_strategy_state(request: web.Request) -> web.Response:

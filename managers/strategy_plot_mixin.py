@@ -476,6 +476,68 @@ class StrategyPlotMixin:
             data["winds"] = winds[-30:]
             world["data"] = data
             await self.save_world(world)
+        # v4.7.0：计略结果写入「江湖纪事」
+        try:
+            actor_name = str((f or {}).get("name") or "?")
+            target_label = ""
+            node = await self.get_node(world["id"], int(target)) if target else None
+            if node:
+                target_label = str(node.get("name") or "")
+            elif plot == "alienate" and target:
+                tc = await self.get_char(int(target))
+                target_label = str((tc or {}).get("name") or "")
+            fn = R.PLOT_NAMES.get(plot, plot)
+            texts = "；".join(x for x in (out.get("texts") or []) if x)
+            summary = texts or f"{fn}未奏效"
+            head = f"🎴 {actor_name} 施展「{fn}」" + (
+                f"→「{target_label}」" if target_label else "")
+            full_text = head + ("：成功。" if out.get("success") else "：失败。") + summary
+            detail = {"plot": plot, "success": bool(out.get("success")),
+                      "exposed": bool(out.get("exposed")),
+                      "target_faction": target_fid, "texts": out.get("texts") or []}
+            node_id = int(target) if str(PLOT_TARGET_KIND.get(plot) or "") == "node" else 0
+            node_name = target_label if node_id else ""
+            # 施术方：立即可见完整结果
+            await self._log_action(
+                world, "plot", plot, actor_faction=fid, actor_name=actor_name,
+                target_faction=target_fid, target_name=target_label,
+                node_id=node_id, node_name=node_name,
+                success=1 if out.get("success") else 0, summary=full_text,
+                detail=detail, visibility="faction")
+            # 被针对方：成功或走漏时才察觉（不暴露时不点名施术者）
+            if target_fid and target_fid != fid and (
+                    out.get("success") or out.get("exposed")):
+                victim_text = (
+                    f"🎴 你方遭「{fn}」暗算：{summary}" if out.get("success")
+                    else f"🎴 察觉有人对你方施展「{fn}」，已被化解")
+                await self._log_action(
+                    world, "plot", plot, target_faction=target_fid,
+                    target_name=target_label, node_id=node_id,
+                    node_name=node_name,
+                    success=1 if out.get("success") else 0,
+                    summary=victim_text, detail=detail, visibility="faction")
+            # 公开：暴露立即公开；未暴露的成功按 wind_delay_hours 延迟模糊公开
+            if out.get("exposed"):
+                await self._log_action(
+                    world, "plot", plot, actor_faction=fid,
+                    actor_name=actor_name, target_faction=target_fid,
+                    target_name=target_label, node_id=node_id,
+                    node_name=node_name,
+                    success=1 if out.get("success") else 0,
+                    summary=full_text, detail=detail, visibility="public")
+            elif out.get("success"):
+                delay = int(pcfg.get("wind_delay_hours", 24) or 0)
+                await self._log_action(
+                    world, "plot", plot, actor_faction=fid,
+                    actor_name=actor_name, target_faction=target_fid,
+                    target_name=target_label, node_id=node_id,
+                    node_name=node_name, success=1,
+                    summary=(f"🎴 有风声传出：{actor_name}的「{fn}」之计"
+                             f"似已得手（{target_label}）"),
+                    detail={"plot": plot, "exposed": False},
+                    visibility="public", publish_at=_now() + delay * 3600)
+        except Exception:  # noqa: BLE001 - 纪事失败不影响计略结算
+            logger.debug("[strategy] 计略纪事写入失败", exc_info=True)
         await self._commit()
         return out
 

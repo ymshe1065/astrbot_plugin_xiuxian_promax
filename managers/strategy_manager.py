@@ -32,7 +32,7 @@ from ..data.migration import (
     _ensure_strategy_v74, _ensure_strategy_v75, _ensure_strategy_v76,
     _ensure_strategy_v77, _ensure_strategy_v79, _ensure_strategy_v80,
     _ensure_strategy_v81, _ensure_strategy_v82, _ensure_strategy_v83,
-    _ensure_strategy_v84,
+    _ensure_strategy_v84, _ensure_strategy_world_log_v87,
 )
 from .strategy_errors import StrategyBusyError, StrategyError
 from .strategy_faction_mixin import StrategyFactionMixin
@@ -497,6 +497,121 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
         except Exception:  # noqa: BLE001 - 审计失败不影响玩法
             pass
 
+    # ------------------------------------------------------------------
+    # 江湖纪事（v4.7.0）：结构化行动日志
+    # ------------------------------------------------------------------
+    async def _log_action(self, world: dict, kind: str, action: str,
+                          *, actor_faction: int = 0, actor_name: str = "",
+                          target_faction: int = 0, target_name: str = "",
+                          node_id: int = 0, node_name: str = "",
+                          success: int = 0, summary: str = "",
+                          detail: Optional[dict] = None,
+                          visibility: str = "public",
+                          publish_at: int = 0) -> int:
+        """写入一条江湖纪事；任何异常都静默，日志不得影响主流程。"""
+        try:
+            wid = int((world or {}).get("id") or 0)
+            text = str(summary or "").strip()
+            if wid <= 0 or not text:
+                return 0
+            now = _now()
+            return await self._execute(
+                "INSERT INTO strategy_world_log (world_id, tick, created_at, "
+                "publish_at, kind, action, actor_faction, actor_name, "
+                "target_faction, target_name, node_id, node_name, success, "
+                "summary, detail_json, visibility) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (wid, int((world or {}).get("tick_no", 0) or 0), now,
+                 int(publish_at or now), str(kind or "event"),
+                 str(action or ""), int(actor_faction or 0), str(actor_name or ""),
+                 int(target_faction or 0), str(target_name or ""),
+                 int(node_id or 0), str(node_name or ""),
+                 1 if success else 0, text[:500],
+                 json.dumps(detail or {}, ensure_ascii=False, default=str),
+                 str(visibility or "public")))
+        except Exception:  # noqa: BLE001 - 日志失败不影响玩法
+            logger.debug("[strategy] 江湖纪事写入失败", exc_info=True)
+            return 0
+
+    async def get_world_logs(self, world_id: int,
+                             viewer_fids: Optional[set[int]] = None,
+                             kind: str = "", before_id: int = 0,
+                             limit: int = 20) -> dict:
+        """按可见性分页读取江湖纪事（public + 本方/盟友/被针对的 faction）。"""
+        limit = max(1, min(100, int(limit or 20)))
+        where = ["world_id=?", "publish_at<=?"]
+        params: list = [int(world_id), _now()]
+        if kind:
+            where.append("kind=?")
+            params.append(str(kind))
+        if int(before_id or 0) > 0:
+            where.append("id<?")
+            params.append(int(before_id))
+        fids = sorted({int(x) for x in (viewer_fids or set()) if int(x or 0) > 0})
+        if fids:
+            ph = ",".join("?" for _ in fids)
+            where.append(
+                "(visibility='public' OR (visibility='faction' AND "
+                f"(actor_faction IN ({ph}) OR target_faction IN ({ph}))))")
+            params.extend(fids)
+            params.extend(fids)
+        else:
+            where.append("visibility='public'")
+        params.append(limit + 1)
+        rows = await self._fetchall(
+            "SELECT * FROM strategy_world_log WHERE " + " AND ".join(where) +
+            " ORDER BY id DESC LIMIT ?", tuple(params))
+        has_more = len(rows) > limit
+        items = []
+        for row in rows[:limit]:
+            item = self._decode("strategy_world_log", row) or {}
+            icon, name = R.WORLD_LOG_KINDS.get(
+                str(item.get("kind") or ""), ("📜", "纪事"))
+            item["icon"] = icon
+            item["kind_name"] = name
+            items.append(item)
+        return {"items": items, "has_more": has_more}
+
+    async def get_world_logs_for_user(self, user_id: str, kind: str = "",
+                                      before_id: int = 0,
+                                      limit: int = 20) -> dict:
+        """网页端入口：按玩家所属势力/联盟计算可见范围。"""
+        world = await self.get_world()
+        if not world:
+            return {"items": [], "has_more": False}
+        wid = int(world["id"])
+        p = await self.get_player(str(user_id), wid)
+        fids: set[int] = set()
+        fid = int((p or {}).get("faction_id") or 0)
+        if fid > 0:
+            fids.add(fid)
+            f = await self.get_faction(fid)
+            if f:
+                try:
+                    fids |= await self._alliance_ids(wid, f)
+                except Exception:  # noqa: BLE001 - 联盟解析失败只影响可见范围
+                    pass
+        return await self.get_world_logs(
+            wid, fids, kind=kind, before_id=before_id, limit=limit)
+
+    async def _step_world_log_cleanup(self, world: dict) -> int:
+        """江湖纪事保留策略：按天数 + 条数上限回收（可在配置中调整）。"""
+        cfg = self.main_cfg().get("world_log") or {}
+        keep_days = max(0, int(cfg.get("keep_days", 14) or 0))
+        keep_rows = max(0, int(cfg.get("keep_rows", 3000) or 0))
+        wid = int(world["id"])
+        removed = 0
+        if keep_days > 0:
+            removed += await self._exec_count(
+                "DELETE FROM strategy_world_log WHERE world_id=? AND created_at<?",
+                (wid, _now() - keep_days * 86400))
+        if keep_rows > 0:
+            removed += await self._exec_count(
+                "DELETE FROM strategy_world_log WHERE world_id=? AND id NOT IN "
+                "(SELECT id FROM strategy_world_log WHERE world_id=? "
+                "ORDER BY id DESC LIMIT ?)", (wid, wid, keep_rows))
+        return int(removed or 0)
+
     async def _bump_morale(self, node: dict, delta: int,
                            reason: str = "") -> int:
         """民心增减，返回新值；调用方负责 save_node。
@@ -602,6 +717,7 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
         await _ensure_strategy_v82(self.db.conn)
         await _ensure_strategy_v83(self.db.conn)
         await _ensure_strategy_v84(self.db.conn)
+        await _ensure_strategy_world_log_v87(self.db.conn)
         await self._commit()
         self._tables_ready = True
 
@@ -625,6 +741,7 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
                              "session_json"),
         "strategy_events": ("target_json", "data_json"),
         "strategy_worlds": ("data_json",),
+        "strategy_world_log": ("detail_json",),
     }
 
     @classmethod
@@ -4967,6 +5084,8 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
                 await self._step_winds(world)
                 # 8f. 战报归档清理（§18.4 result_keep_days）
                 await self._step_cleanup_battles(world)
+                # 8f-2. v4.7.0 江湖纪事保留策略（默认 14 天 / 3000 条）
+                await self._step_world_log_cleanup(world)
                 # 8g. 擂台过期清理（退还赌注，无交互也会回收）
                 await self._sweep_duel_arena(world)
             # 9. 落盘世界时钟 + 临时键 GC
@@ -6066,6 +6185,30 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
         await self._faction_task_progress(int(faction_id), "conquer", 1)
         if prev_owner:
             await self._faction_task_progress(int(prev_owner), "defend", 1)
+        # v4.7.0：据点易主写入江湖纪事
+        if prev_owner != int(faction_id):
+            try:
+                nf = await self.get_faction(int(faction_id)) if int(faction_id) > 0 else None
+                pf = await self.get_faction(prev_owner) if prev_owner > 0 else None
+                nf_name = str((nf or {}).get("name") or
+                              ("魔潮" if int(faction_id) == -1 else "无主"))
+                pf_name = str((pf or {}).get("name") or
+                              ("魔潮" if prev_owner == -1 else "无主"))
+                await self._log_action(
+                    world, "capture", "capture",
+                    actor_faction=int(faction_id), actor_name=nf_name,
+                    target_faction=prev_owner, target_name=pf_name,
+                    node_id=int(node["id"]), node_name=str(node.get("name") or ""),
+                    success=1,
+                    summary=(f"🏯「{node.get('name', '')}」易主：{pf_name} → {nf_name}"
+                             + ("（强攻破城）" if by_force else "（无血开城）")),
+                    detail={"by_force": bool(by_force),
+                            "prev_owner": prev_owner,
+                            "new_owner": int(faction_id),
+                            "level": int(node.get("level", 1) or 1)},
+                    visibility="public")
+            except Exception:  # noqa: BLE001 - 纪事失败不影响占城
+                logger.debug("[strategy] 据点易主纪事写入失败", exc_info=True)
         # 关押于此的俘虏解放（§7.9）
         return await self.liberate_captives_at_node(world, node, int(faction_id))
 
@@ -7448,6 +7591,45 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
             "armies_snapshot": snapshot, "result": slim,
             "report_text": report[:8000], "created_at": _now(),
         })
+        # v4.7.0：战斗结果写入江湖纪事
+        try:
+            af = await self.get_faction(int(atk_fid)) if int(atk_fid) > 0 else None
+            df = await self.get_faction(int(dfn_fid)) if int(dfn_fid) > 0 else None
+            atk_name = str((af or {}).get("name") or
+                           ("魔潮" if int(atk_fid) == -1 else "无主"))
+            dfn_name = str((df or {}).get("name") or
+                           ("魔潮" if int(dfn_fid) == -1 else "无主"))
+            winner = str(result.get("winner") or "")
+            won_atk = winner == "attacker"
+
+            def _loss(side: str) -> int:
+                total = 0
+                for row in result.get(side) or []:
+                    before = int(row.get("troops_before",
+                                         row.get("troops", 0)) or 0)
+                    after = int(row.get("troops", 0) or 0)
+                    total += max(0, before - after)
+                return total
+
+            kind_cn = "野战" if str(kind) == "field" else "会战"
+            await self._log_action(
+                world, "battle", str(kind),
+                actor_faction=int(atk_fid), actor_name=atk_name,
+                target_faction=int(dfn_fid), target_name=dfn_name,
+                node_id=int(node["id"]), node_name=str(node.get("name") or ""),
+                success=1 if won_atk else 0,
+                summary=(f"⚔️「{node.get('name', '')}」{kind_cn}："
+                         f"{atk_name} vs {dfn_name}，"
+                         f"{atk_name if won_atk else dfn_name}胜"
+                         f"（损失 {_loss('attackers')} / {_loss('defenders')}）"),
+                detail={"winner": winner,
+                        "rounds": int(result.get("rounds", 0) or 0),
+                        "attacker_losses": _loss("attackers"),
+                        "defender_losses": _loss("defenders"),
+                        "highlights": result.get("highlights") or []},
+                visibility="public")
+        except Exception:  # noqa: BLE001 - 纪事失败不影响战报
+            logger.debug("[strategy] 战斗纪事写入失败", exc_info=True)
 
     def _battle_highlights(self, result: dict,
                            session: Optional[dict] = None) -> list[str]:
@@ -9138,6 +9320,19 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
             "memorials": await self.get_memorials(wid),
             "transfers": await self.get_transfers_view(wid, p["faction_id"] if p else 0),
         }
+        # v4.7.0：天下页「江湖纪事」首屏（按势力/联盟可见性过滤）
+        viewer_fids: set[int] = set()
+        if p and int(p.get("faction_id") or 0) > 0:
+            viewer_fids.add(int(p["faction_id"]))
+            wf = await self.get_faction(int(p["faction_id"]))
+            if wf:
+                try:
+                    viewer_fids |= await self._alliance_ids(wid, wf)
+                except Exception:  # noqa: BLE001 - 失败仅影响己方日志可见范围
+                    pass
+        log_page = await self.get_world_logs(wid, viewer_fids, limit=20)
+        state["logs"] = log_page["items"]
+        state["log_has_more"] = bool(log_page["has_more"])
         if p:
             state["player"] = await self._player_view(p, world, nodes)
             state["battles"] = await self._battle_list(
@@ -9783,6 +9978,9 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
             "personality_neg_names": dict(R.NEGATIVE_PERSONALITY_NAMES),
             "personality_top_descs": dict(R.TOP_PERSONALITY_DESC),
             "personality_neg_descs": dict(R.NEGATIVE_PERSONALITY_DESC),
+            "world_log_kinds": {
+                str(k): {"icon": v[0], "name": v[1]}
+                for k, v in R.WORLD_LOG_KINDS.items()},
             "stat_names": dict(R.STAT_NAMES),
             "resource_names": dict(R.RESOURCE_NAMES),
             "tech_names": dict(R.TECH_NAMES),

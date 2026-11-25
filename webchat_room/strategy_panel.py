@@ -35,7 +35,8 @@ except ImportError:  # 测试以顶层包导入 webchat_room：按文件加载�
     StrategyError = _mod.StrategyError
     StrategyBusyError = _mod.StrategyBusyError
 
-__all__ = ["StrategyBusyError", "StrategyError", "strategy_action", "strategy_state"]
+__all__ = ["StrategyBusyError", "StrategyError", "strategy_action",
+           "strategy_state", "strategy_logs"]
 
 
 def _manager(plugin: "XiuXianPlugin"):
@@ -50,6 +51,13 @@ def _manager(plugin: "XiuXianPlugin"):
 
 async def strategy_state(plugin: "XiuXianPlugin", user_id: str) -> dict[str, Any]:
     return await _manager(plugin).get_state(user_id)
+
+
+async def strategy_logs(plugin: "XiuXianPlugin", user_id: str, kind: str = "",
+                        before_id: int = 0, limit: int = 20) -> dict[str, Any]:
+    """「天下 → 江湖纪事」分页查询（按所属势力/联盟过滤可见性）。"""
+    return await _manager(plugin).get_world_logs_for_user(
+        user_id, kind=kind, before_id=before_id, limit=limit)
 
 
 async def strategy_action(plugin: "XiuXianPlugin", user_id: str, action: str,

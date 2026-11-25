@@ -1571,6 +1571,20 @@ class StrategyFactionMixin:
             await self._sync_alliance_meta(tf)
             await self._commit()
             await self._favor_third_party(world["id"], f, tf, "war", fcfg)
+            try:
+                await self._log_action(
+                    world, "diplomacy", "war",
+                    actor_faction=int(f["id"]),
+                    actor_name=str(f.get("name") or ""),
+                    target_faction=int(tf["id"]),
+                    target_name=str(tf.get("name") or ""),
+                    success=1,
+                    summary=(f"⚔️ {f.get('name')} 向 {tf.get('name')} 宣战"
+                             f"（备战 {prep // 3600} 小时后开战）"),
+                    detail={"kind": "war", "prep_hours": prep // 3600},
+                    visibility="public")
+            except Exception:  # noqa: BLE001 - 纪事失败不影响宣战
+                logger.debug("[strategy] 宣战纪事写入失败", exc_info=True)
             return {"ok": True,
                     "msg": f"⚔️ 已向「{tf['name']}」宣战！备战期 {prep // 3600} 小时后全面开战"}
         # v4.5.7：和谈赔款由提案方**势力主钱包**支付（联盟提案由盟主支付）。
@@ -1762,6 +1776,30 @@ class StrategyFactionMixin:
             for uid in (f.get("leader_id"), tf.get("leader_id")):
                 if uid:
                     await self._award_achievement(uid, "social_ally")
+        # v4.7.0：外交结果写入江湖纪事
+        try:
+            world = await self.get_world()
+            if world:
+                label = {"truce": "停战", "peace": "和谈",
+                         "ally": "结盟", "war": "宣战"}.get(kind, kind)
+                extra = (f"（赔款 {int(indemnity)} 铜钱）"
+                         if kind == "peace" and int(indemnity) > 0 else "")
+                log_kind = ("npc" if "npc" in (
+                    str(f.get("kind") or ""), str(tf.get("kind") or ""))
+                    else "diplomacy")
+                await self._log_action(
+                    world, log_kind, str(kind),
+                    actor_faction=int(f["id"]),
+                    actor_name=str(f.get("name") or ""),
+                    target_faction=int(tf["id"]),
+                    target_name=str(tf.get("name") or ""),
+                    success=1,
+                    summary=(f"🤝 {f.get('name')} 与 {tf.get('name')} "
+                             f"达成{label}{extra}"),
+                    detail={"kind": kind, "indemnity": int(indemnity)},
+                    visibility="public")
+        except Exception:  # noqa: BLE001 - 纪事失败不影响外交结果
+            logger.debug("[strategy] 外交纪事写入失败", exc_info=True)
 
     async def diplomacy_gift(self, user_id: str, target_fid: int,
                              resource: str = "coin", amount: int = 0) -> dict:

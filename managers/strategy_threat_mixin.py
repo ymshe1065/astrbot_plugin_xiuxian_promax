@@ -480,6 +480,13 @@ class StrategyThreatMixin:
                     world,
                     f"「{info['name']}」之兆忽现，江湖坊间议论纷纷。",
                     "event")
+                await self._log_action(
+                    world, "event", "start", actor_name="天时",
+                    success=1,
+                    summary=f"🎲 异象「{info['name']}」降临，天下议论纷纷。",
+                    detail={"event_id": info.get("event_id"),
+                            "row_id": row_id},
+                    visibility="public")
         for row_id, info in previous.items():
             if row_id not in current:
                 self._add_wind(
@@ -487,6 +494,14 @@ class StrategyThreatMixin:
                     f"「{info.get('name') or '异象'}」之兆渐息，"
                     f"各地重归安宁。",
                     "event")
+                await self._log_action(
+                    world, "event", "end", actor_name="天时",
+                    success=1,
+                    summary=(f"🎲 异象「{info.get('name') or '异象'}」消散，"
+                             f"各地重归安宁。"),
+                    detail={"event_id": info.get("event_id"),
+                            "row_id": row_id},
+                    visibility="public")
         data["wind_events"] = current
 
     # ------------------------------------------------------------------

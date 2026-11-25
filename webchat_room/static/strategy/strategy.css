@@ -645,3 +645,11 @@ input[type="color"] {
 }
 
 
+
+/* v4.7.0 江湖纪事：行动历史时间线 */
+.log-filter { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.log-row { padding: 7px 0; border-top: 1px solid var(--line-soft); }
+.log-row:first-child { border-top: 0; }
+.log-meta { color: var(--dim); font-size: 12px; margin-bottom: 2px; }
+.log-text { color: var(--text); font-size: 13px; line-height: 1.55; white-space: normal; word-break: break-word; }
+.log-more { margin-top: 10px; text-align: center; }

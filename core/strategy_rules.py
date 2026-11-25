@@ -2700,6 +2700,19 @@ PLOT_NAMES = {
     "persuade_plot": "劝降", "sabotage": "策应", "rescue": "营救",
 }
 
+#: 「江湖纪事」日志类别：kind → (图标, 名称)。前端筛选与条目徽标共用，
+#: 服务端通过 meta / logs 接口下发，避免前后端两套口径。
+WORLD_LOG_KINDS = {
+    "plot": ("🎴", "计略"),
+    "battle": ("⚔️", "战事"),
+    "capture": ("🏯", "据点"),
+    "diplomacy": ("🤝", "外交"),
+    "npc": ("🏹", "NPC"),
+    "event": ("🎲", "异象"),
+    "season": ("🏆", "赛季"),
+    "captive": ("⛓️", "俘虏"),
+}
+
 
 def plot_success_rate(wisdom_self: int, wisdom_target: int,
                       bonus: float = 0.0, clamp: tuple = (10.0, 85.0)) -> float:

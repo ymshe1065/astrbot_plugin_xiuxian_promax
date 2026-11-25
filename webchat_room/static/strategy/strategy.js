@@ -48,6 +48,7 @@ let lastRenderedTab = null;
 let pollTimer = null;
 let tickRefreshFor = 0;
 let settleRefreshFor = 0;   // 任务预期结算时刻去重：同一时间戳只主动重取一次快照
+let logState = { kind: "", items: [], hasMore: false, beforeId: 0, inited: false };
 let busyRetries = 0;
 
 // 倒计时统一走服务端时间基准（v4.6.5）：设备时钟偏差不再让倒计时提前归零/停滞。
@@ -129,6 +130,19 @@ async function load() {
     S = r.state;
     // 每次快照都顺手对齐服务端时间（20s 轮询即持续校准，无需额外请求）
     if (window.XiuXianClock) XiuXianClock.syncFrom(S);
+    // 江湖纪事首屏：首次进入用快照填充；后续轮询只把新记录并到顶部
+    if (Array.isArray(S.logs)) {
+      if (!logState.inited) {
+        logState.items = S.logs.slice();
+        logState.hasMore = !!S.log_has_more;
+        logState.inited = true;
+      } else if (!logState.kind) {
+        const seen = new Set((logState.items || []).map((x) => x.id));
+        const fresh = S.logs.filter((x) => !seen.has(x.id));
+        if (fresh.length) logState.items = fresh.concat(logState.items || []);
+        if (S.log_has_more) logState.hasMore = true;
+      }
+    }
     busyRetries = 0;
     // 已入场 / 主动选择先看看时不遮罩；未入场默认弹出入场选择。
     document.getElementById("joinOverlay").hidden = !!S.joined || joinBrowse;
@@ -1596,6 +1610,73 @@ function guideCard() {
   return h;
 }
 
+// ---------------------------------------------------------------------------
+// 江湖纪事（v4.7.0）：计略/战事/据点/外交/NPC/事件 行动历史
+// ---------------------------------------------------------------------------
+function logKindMeta(kind) {
+  const kinds = ((S && S.meta) || {}).world_log_kinds || {};
+  return kinds[kind] || { icon: "📜", name: "纪事" };
+}
+
+function logCardHtml() {
+  const kinds = [["", "全部"]].concat(
+    Object.entries(((S && S.meta) || {}).world_log_kinds || {})
+      .map(([k, v]) => [k, v.name || k]));
+  let h = '<div class="card" id="worldLogCard"><h3>📜 江湖纪事</h3>' +
+    '<div class="sub">计略、战事、据点易主、外交与 NPC 行动按时间倒序；' +
+    '仅显示你有权知晓的记录（未走漏的计略先只对当事方可见）。</div>' +
+    '<div class="log-filter">' + kinds.map(([k, name]) =>
+      '<button class="btn small' + (logState.kind === k ? " primary" : "") +
+      '" data-act="logs-filter" data-kind="' + k + '">' + esc(name) +
+      "</button>").join("") + "</div>";
+  const items = logState.items || [];
+  if (!items.length) {
+    h += '<div class="sub">暂无记录。</div>';
+  } else {
+    h += '<div class="log-list">' + items.map((it) => {
+      const meta = logKindMeta(it.kind);
+      const when = it.created_at
+        ? new Date(Number(it.created_at) * 1000).toLocaleString() : "";
+      const detail = it.detail && Object.keys(it.detail).length
+        ? JSON.stringify(it.detail) : "";
+      return '<div class="log-row"' + (detail
+        ? ' title="' + esc(detail) + '"' : "") + ">" +
+        '<div class="log-meta">' + esc(meta.icon + " " + meta.name) +
+        " · tick " + Number(it.tick || 0) +
+        (when ? " · " + esc(when) : "") + "</div>" +
+        '<div class="log-text">' + esc(it.summary || "") + "</div></div>";
+    }).join("") + "</div>";
+  }
+  if (logState.hasMore) {
+    h += '<div class="log-more"><button class="btn small" ' +
+      'data-act="logs-more">加载更多</button></div>';
+  }
+  return h + "</div>";
+}
+
+async function loadWorldLogs(more) {
+  const q = new URLSearchParams({ limit: "20" });
+  if (logState.kind) q.set("kind", logState.kind);
+  if (more && logState.beforeId) q.set("before_id", String(logState.beforeId));
+  try {
+    const r = await api("/api/strategy/logs?" + q.toString(), {}, true);
+    if (!r || !r.ok) return;
+    const rows = Array.isArray(r.logs) ? r.logs : [];
+    logState.items = more ? (logState.items || []).concat(rows) : rows;
+    logState.hasMore = !!r.has_more;
+    if (rows.length) logState.beforeId = rows[rows.length - 1].id;
+    logState.inited = true;
+    refreshLogCard();
+  } catch (e) { /* 网络抖动时保留旧列表 */ }
+}
+
+function refreshLogCard() {
+  const box = document.getElementById("worldLogCard");
+  if (!box) return;
+  box.outerHTML = logCardHtml();
+  bindTabEvents();
+}
+
 function tabWorld() {
   const w = (S && S.npc_world) || {};
   // 兼容旧快照：数组字段缺失/为对象时按空数组处理，数值缺省为 0，
@@ -1671,6 +1752,7 @@ function tabWorld() {
     h += "</div>";
   }
   h += "</div>";
+  h += logCardHtml();
   const windList = asList(w.winds);
   const winds = windList.length ? windList : asList(S && S.winds);
   h += '<div class="card"><h3>🌬️ 风声</h3>';
@@ -4082,6 +4164,17 @@ function bindTabEvents() {
     btn.addEventListener("click", () => {
       const act = btn.dataset.act;
       const id = Number(btn.dataset.id);
+      if (act === "logs-filter") {
+        logState.kind = btn.dataset.kind || "";
+        logState.beforeId = 0;
+        logState.items = [];
+        loadWorldLogs(false);
+        return;
+      }
+      if (act === "logs-more") {
+        loadWorldLogs(true);
+        return;
+      }
       if (act === "captive-detail") {
         openCaptiveDetail(id);
         return;

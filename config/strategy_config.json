@@ -803,5 +803,10 @@
     "enabled": false,
     "chance": 0.3,
     "note": "v4.5.2 封存：遗迹首占的装备/图纸掉落默认关闭，改为常规据点持续产出；恢复时置 enabled=true"
+  },
+  "world_log": {
+    "keep_days": 14,
+    "keep_rows": 3000,
+    "note": "v4.7.0 江湖纪事保留策略：按天 + 条数上限回收，0 表示不限制"
   }
 }

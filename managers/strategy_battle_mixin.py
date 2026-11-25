@@ -1640,6 +1640,31 @@ class StrategyBattleMixin:
              json.dumps(sess, ensure_ascii=False, default=str),
              int(battle["id"])))
         await self._commit()
+        # v4.7.0：手操战役结果写入江湖纪事
+        try:
+            dfn_fid = int(battle.get("defender_faction", 0) or 0)
+            af = await self.get_faction(int(atk_fid)) if int(atk_fid) > 0 else None
+            df = await self.get_faction(dfn_fid) if dfn_fid > 0 else None
+            atk_name = str((af or {}).get("name") or "无主")
+            dfn_name = str((df or {}).get("name") or "无主")
+            won_atk = str(winner) == "attacker"
+            await self._log_action(
+                world, "battle", f"{kind}_manual",
+                actor_faction=int(atk_fid), actor_name=atk_name,
+                target_faction=dfn_fid, target_name=dfn_name,
+                node_id=int(node["id"]), node_name=str(node.get("name") or ""),
+                success=1 if won_atk else 0,
+                summary=(f"⚔️「{node.get('name', '')}」手操"
+                         f"{'围城战' if kind == 'siege' else '野战'}："
+                         f"{atk_name} vs {dfn_name}，"
+                         f"{atk_name if won_atk else dfn_name}胜"
+                         f"（{int(result.get('rounds', 0) or 0)} 回合）"),
+                detail={"winner": winner, "manual": True, "kind": kind,
+                        "rounds": int(result.get("rounds", 0) or 0),
+                        "battle_id": int(battle["id"])},
+                visibility="public")
+        except Exception:  # noqa: BLE001 - 纪事失败不影响终局通知
+            logger.debug("[strategy] 手操战役纪事写入失败", exc_info=True)
         # 终局通知：玩家可能没盯着战场页，至少要知道这场战役已经结束。
         await self._notify(world, self._battle_humans(sess), "battle_result", {
             "battle_id": int(battle["id"]),

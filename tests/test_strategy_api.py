@@ -236,6 +236,7 @@ class StrategyRestApiTest(_AccountsBase, _ManagerBase):
         app.router.add_get("/api/strategy/memorial", rs._api_strategy_memorial)
         app.router.add_get("/api/strategy/guide", rs._api_strategy_guide)
         app.router.add_get("/api/server_time", rs._api_server_time)
+        app.router.add_get("/api/strategy/logs", rs._api_strategy_logs)
         sel = TestServer(app)
         self.cli = TestClient(sel)
         await self.cli.start_server()
@@ -271,6 +272,28 @@ class StrategyRestApiTest(_AccountsBase, _ManagerBase):
         resp = await self.cli.post("/api/strategy/action",
                                    json={"action": "enter"})
         self.assertEqual(resp.status, 401)
+
+    async def test_logs_endpoint_visibility(self):
+        """v4.7.0：江湖纪事接口鉴权 + 公开记录可见。"""
+        resp = await self.cli.get("/api/strategy/logs")
+        self.assertEqual(resp.status, 401)
+        world = await self.m.get_world()
+        await self.m._log_action(
+            world, "plot", "arson", actor_name="测试军师",
+            summary="🎴 测试：纵火得手", visibility="public")
+        await self.m._commit()
+        resp = await self.cli.get("/api/strategy/logs",
+                                  headers=self._h("alice"))
+        self.assertEqual(resp.status, 200)
+        data = await resp.json()
+        self.assertTrue(data["ok"])
+        self.assertTrue(any(x["summary"] == "🎴 测试：纵火得手"
+                            for x in data["logs"]))
+        self.assertIn("kind_name", data["logs"][0])
+        # 类别过滤
+        resp = await self.cli.get("/api/strategy/logs?kind=battle",
+                                  headers=self._h("alice"))
+        self.assertEqual((await resp.json())["logs"], [])
 
     async def test_server_time_endpoint(self):
         """v4.6.5：前端时钟兜底接口，无需登录即返回服务端 epoch 秒。"""
