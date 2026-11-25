@@ -1004,5 +1004,56 @@ class PersonalityTests(unittest.TestCase):
         self.assertAlmostEqual(R.personality_recruit_bonus(many), 0.15)  # 封顶
 
 
+class TestTroopSelection(unittest.TestCase):
+    """v4.8.1：NPC/推荐编军按武将属性与适性挑兵种。"""
+
+    @staticmethod
+    def _char(**stats):
+        base = {"leadership": 10, "valor": 10, "wisdom": 10,
+                "admin": 10, "charm": 10, "luck": 10}
+        base.update(stats)
+        return {"stats": base, "aptitude": {t: "B" for t in R.TROOP_TYPES}}
+
+    def test_pick_by_primary_stat(self):
+        self.assertEqual(R.pick_troop_type(self._char(valor=80)), "flying_sword")
+        self.assertEqual(R.pick_troop_type(self._char(wisdom=80)), "spell_corps")
+        self.assertEqual(R.pick_troop_type(self._char(leadership=80)), "heavy_armor")
+        self.assertEqual(R.pick_troop_type(self._char(charm=80)), "beast_horde")
+
+    def test_aptitude_can_tip_close_scores(self):
+        c = self._char(leadership=40, valor=50)
+        self.assertEqual(R.pick_troop_type(c), "flying_sword")
+        c["aptitude"]["heavy_armor"] = "S"
+        self.assertEqual(R.pick_troop_type(c), "heavy_armor")
+
+    def test_demon_general_can_use_beast_horde(self):
+        # 妖修/兽修武将：武勇 + 兽群 S，能盖过同武勇的飞剑
+        c = self._char(valor=50, leadership=20, charm=20)
+        c["aptitude"]["beast_horde"] = "S"
+        self.assertEqual(R.pick_troop_type(c), "beast_horde")
+
+    def test_faction_pref_only_breaks_ties(self):
+        c = self._char()
+        self.assertEqual(R.pick_troop_type(c, preferred="heavy_armor"),
+                         "heavy_armor")
+        # 属性差距明显时，偏好不能压过主属性
+        self.assertEqual(R.pick_troop_type(
+            self._char(valor=90), preferred="spell_corps"), "flying_sword")
+
+    def test_deterministic(self):
+        c = self._char(leadership=60, valor=45, charm=30)
+        first = R.pick_troop_type(c)
+        for _ in range(5):
+            self.assertEqual(R.pick_troop_type(c), first)
+
+    def test_score_rewards_aptitude(self):
+        c = self._char(valor=50)
+        base = R.troop_type_score(c, "flying_sword")
+        c["aptitude"]["flying_sword"] = "S"
+        self.assertAlmostEqual(
+            R.troop_type_score(c, "flying_sword") - base,
+            R.TROOP_APTITUDE_SCORE["S"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

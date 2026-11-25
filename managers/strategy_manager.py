@@ -9170,10 +9170,14 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
 
         v4.6.1：``cost_mult`` / ``grain_mult`` / ``morale_min`` 供战争狂热
         与霸主远征覆盖默认值，缺省时行为与旧版一致。
+
+        v4.8.1：兵种不再固定取势力 ``troop_pref``（多数 NPC 都是剑盾步），
+        改为按主将六维 + 兵种适性挑选最合适兵种（``R.pick_troop_type``），
+        势力偏好仅作接近时的小加成。
         """
         fid = int(faction["id"])
         pers = faction.get("personality") or {}
-        troop_type = pers.get("troop_pref") or "sword_shield"
+        preferred_troop = str(pers.get("troop_pref") or "")
         ecfg = self._npc_economy_cfg()
         # §10.8 动员民心门槛：民心过低只允许小规模（≤ 守军上限 30%）
         level = max(1, int(node.get("level", 1) or 1))
@@ -9184,7 +9188,30 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
             troops = min(troops, max(1, int(R.garrison_cap(level) * 0.3)))
         if troops <= 0:
             return None
-        # 兵种价差：按 personality.troop_pref 对应兵种募兵价 / 剑盾价折算
+        rng = self._rng("npc_army", fid, node["id"], world["tick_no"])
+        # 主将先定：兵种要按主将属性/适性挑选（无空闲武将则临时生成，
+        # 但落库要等国库/路线校验通过，避免失败时留下孤儿角色）。
+        leader = None
+        for c in await self.get_chars(
+                faction_id=fid, world_id=world["id"], status="idle"):
+            if c["role"] == R.ROLE_GENERAL:
+                leader = c
+                break
+        generated = False
+        if not leader:
+            leader = R.generate_character(
+                rng, rarity=rng.choice(["fine", "rare"]),
+                role=R.ROLE_GENERAL,
+                name_pools=self.cfg.get("names") or {})
+            leader.update({"world_id": world["id"], "faction_id": fid,
+                           "owner_user_id": "", "loyalty": 100})
+            generated = True
+        troop_type = R.pick_troop_type(leader, preferred=preferred_troop)
+        logger.debug(
+            "[strategy] NPC 编军 %s：主将 %s 选 %s（势力偏好 %s）",
+            faction.get("name", fid), leader.get("name", ""), troop_type,
+            preferred_troop or "无")
+        # 兵种价差：按实际编成兵种募兵价 / 剑盾价折算
         tt = R.TROOP_TYPES.get(troop_type) or {}
         base_tt = R.TROOP_TYPES.get("sword_shield") or {}
         base_coin = max(1.0, float(base_tt.get("recruit_coin", 50) or 50))
@@ -9207,25 +9234,13 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
                     max(0, int(treasury["grain"]) - int(floor["grain"])))
         if carry > 0:
             self._treasury_spend(faction, grain=carry, floor=floor)
-        # 主将：势力空闲武将，否则临时生成
-        leader = None
-        for c in await self.get_chars(faction_id=fid, world_id=world["id"], status="idle"):
-            if c["role"] == R.ROLE_GENERAL:
-                leader = c
-                break
-        rng = self._rng("npc_army", fid, node["id"], world["tick_no"])
         path = await self.find_path(world["id"], node["id"], target["id"])
         if not path or len(path) < 2:
             # 无路可走：退回本 tick 已扣的动员费/携粮，避免资源凭空蒸发
             self._treasury_add(
                 faction, coin=coin_cost, grain=grain_cost + carry)
             return None
-        if not leader:
-            leader = R.generate_character(rng, rarity=rng.choice(["fine", "rare"]),
-                                          role=R.ROLE_GENERAL,
-                                          name_pools=self.cfg.get("names") or {})
-            leader.update({"world_id": world["id"], "faction_id": fid,
-                           "owner_user_id": "", "loyalty": 100})
+        if generated:
             await self.insert_char(leader)
         leader["status"] = "army"
         leader["location"] = {"node_id": node["id"]}

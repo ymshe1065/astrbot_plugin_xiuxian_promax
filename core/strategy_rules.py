@@ -606,6 +606,74 @@ def has_aptitude_skill(char: dict | None, troop_type: str) -> bool:
     return str((char.get("aptitude") or {}).get(troop_type, "B")) == "S"
 
 
+#: 兵种「主属性」权重（NPC 编军 / 推荐兵种用）
+#:
+#: 与兵种定位对应：剑盾=统率+武勇均衡；重甲=统率；法修=智谋；
+#: 飞剑=武勇；兽群=魅力+武勇（御兽亲和不排斥武勇，避免纯魅力武将
+#: 才带得动兽群）。
+TROOP_STAT_WEIGHTS: dict[str, dict[str, float]] = {
+    "sword_shield": {"leadership": 1.0, "valor": 1.0},
+    "heavy_armor": {"leadership": 1.6, "valor": 0.4},
+    "spell_corps": {"wisdom": 1.6, "leadership": 0.4},
+    "flying_sword": {"valor": 1.6, "leadership": 0.4},
+    "beast_horde": {"charm": 1.0, "valor": 1.0},
+}
+
+#: 兵种适性在「兵种评分」中的加值（单位=属性点，S 可弥补约 15 点属性差）
+TROOP_APTITUDE_SCORE: dict[str, float] = {
+    "S": 15.0, "A": 8.0, "B": 0.0, "C": -10.0,
+}
+
+#: 势力兵种偏好加值：仅作同分/接近时的倾向，不压过武将主属性
+TROOP_PREF_BONUS = 6.0
+
+
+def troop_type_score(char: dict | None, troop_type: str,
+                     preferred: str = "") -> float:
+    """武将带某兵种的适配评分（越高越合适）。
+
+    评分 = 该兵种主属性的加权均值 + 适性分（S/A/B/C）+ 势力偏好小加成。
+    NPC 编军用它替代「永远剑盾步」的固定选择；玩家端也可用于推荐。
+    """
+    if troop_type not in TROOP_TYPES:
+        return -1e9
+    char = char or {}
+    stats = char.get("stats") or {}
+    weights = TROOP_STAT_WEIGHTS.get(troop_type) or {"leadership": 1.0}
+    total = sum(weights.values()) or 1.0
+    base = sum(float(stats.get(k, 0) or 0) * w
+               for k, w in weights.items()) / total
+    grade = str((char.get("aptitude") or {}).get(troop_type, "B"))
+    score = base + TROOP_APTITUDE_SCORE.get(grade, 0.0)
+    if preferred and str(preferred) == troop_type:
+        score += TROOP_PREF_BONUS
+    return float(score)
+
+
+def pick_troop_type(char: dict | None, preferred: str = "",
+                    candidates: Iterable[str] | None = None) -> str:
+    """为武将挑选最合适的兵种（确定性：同输入同结果）。
+
+    规则优先级：兵种主属性评分 > 适性分 > 势力偏好 > 基础表顺序。
+    势力 ``troop_pref`` 只作 +6 的小加成，避免出现「武将武勇 80 仍被
+    拉去带法修营」的固定风格问题。
+    """
+    names = [t for t in (candidates if candidates is not None else TROOP_TYPES)
+             if t in TROOP_TYPES]
+    if not names:
+        names = list(TROOP_TYPES)
+    order = list(TROOP_TYPES)
+
+    def _key(t: str) -> tuple[float, int, int]:
+        return (
+            troop_type_score(char, t, preferred),
+            1 if preferred and str(preferred) == t else 0,
+            -order.index(t),
+        )
+
+    return max(names, key=_key)
+
+
 #: 精锐值上限（§7.5 三阶：普通 <100 ≤ 精锐 <300 ≤ 御林；999 为硬上限）
 VETERAN_MAX = 999
 

@@ -1053,9 +1053,13 @@ class TestStrategyLocation(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(army)
         self.assertEqual(int(army["grain"]), 1000)  # 100 粮/百兵
         f2 = await self.m.get_faction(fid)
-        pers = f.get("personality") or {}
-        tt = self.R.TROOP_TYPES.get(
-            pers.get("troop_pref") or "sword_shield") or {}
+        # v4.8.1：NPC 兵种按主将属性/适性自动挑选，价格按实际编成兵种折算
+        tt = self.R.TROOP_TYPES.get(army["troop_type"]) or {}
+        leader = await self.m.get_char(int(army["characters"][0]))
+        self.assertEqual(
+            army["troop_type"],
+            self.R.pick_troop_type(leader, preferred=str(
+                (f.get("personality") or {}).get("troop_pref") or "")))
         base_tt = self.R.TROOP_TYPES["sword_shield"]
         ratio = float(tt.get("recruit_coin", base_tt["recruit_coin"])) / \
             float(base_tt["recruit_coin"])
@@ -1070,6 +1074,50 @@ class TestStrategyLocation(unittest.IsolatedAsyncioTestCase):
         await self.m.save_faction(f2)
         self.assertIsNone(await self.m._spawn_npc_army(
             world, f2, n2, target, 500))
+
+    async def test_npc_army_picks_best_troop_for_leader(self):
+        """v4.8.1：NPC 编军按主将属性挑兵种，不再固定剑盾。"""
+        row = await self.m._fetchone(
+            "SELECT id FROM strategy_factions WHERE world_id=? AND kind='npc' "
+            "ORDER BY id LIMIT 1", (self.wid,))
+        fid = int(row["id"])
+        node = next(n for n in await self.m.get_nodes(self.wid)
+                    if int(n["owner_faction"]) == fid and n.get("adj"))
+        node["morale"] = 80
+        node["npc_garrison"] = {"troops": 1000, "morale": 80}
+        await self.m.save_node(node)
+        f = await self.m.get_faction(fid)
+        f["treasury"] = {"coin": 100_000, "grain": 50_000, "iron": 1000,
+                         "reserved_coin": 0}
+        await self.m.save_faction(f)
+        # 让现有闲置武将退出候选，只留一名武勇型主将
+        for c in await self.m.get_chars(
+                faction_id=fid, world_id=self.wid, status="idle"):
+            if c["role"] == self.R.ROLE_GENERAL:
+                c["status"] = "task"
+                await self.m.save_char(c)
+        hero = {
+            "world_id": self.wid, "faction_id": fid, "owner_user_id": "",
+            "name": "测试猛将", "role": "general", "rarity": "rare",
+            "profession": "sword",
+            "stats": {"leadership": 10, "valor": 90, "wisdom": 10,
+                      "admin": 10, "charm": 10, "luck": 10},
+            "traits": [], "personality": {},
+            "aptitude": {t: "B" for t in self.R.TROOP_TYPES},
+            "exp": 0, "level": 1, "loyalty": 100, "injury": 0, "stamina": 100,
+            "status": "idle", "bonds": {},
+            "location": {"node_id": int(node["id"])},
+        }
+        await self.m.insert_char(hero)
+        target = next(n for n in await self.m.get_nodes(self.wid)
+                      if int(n["id"]) != int(node["id"]))
+        world = await self.m.get_world()
+        f = await self.m.get_faction(fid)
+        army = await self.m._spawn_npc_army(world, f, node, target, 500)
+        self.assertIsNotNone(army)
+        self.assertEqual(army["troop_type"], "flying_sword")
+        self.assertEqual([int(x) for x in army["characters"]],
+                         [int(hero["id"])])
 
     async def test_npc_auto_retreat_refunds_grain(self):
         row = await self.m._fetchone(
