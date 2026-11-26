@@ -190,13 +190,15 @@ class TestAutoProxyRift(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(row["enabled"], 1)
         self.assertTrue(config["rift"]["enabled"])
 
-    async def test_enable_primary_closes_rift(self):
+    async def test_enable_primary_keeps_rift_running(self):
+        """押镖代理与秘境代理各占一个分身槽，不该再把秘境代理关掉。"""
         await self.manager.enable("u1", "umo://group", "秘境 1")
         await self.db.ext.set_user_free("u1")
         ok, msg = await self.manager.enable("u1", "umo://group", "押镖")
-        self.assertIn("秘境代理已关闭", msg)
+        self.assertTrue(ok)
+        self.assertIn("秘境代理同时在跑", msg)
         _row, config = await self._rift_cfg()
-        self.assertFalse(config["rift"]["enabled"])
+        self.assertTrue(config["rift"]["enabled"])
 
     async def test_status_shows_rift_target(self):
         await self.manager.enable("u1", "umo://group", "秘境 1")

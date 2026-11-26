@@ -240,14 +240,29 @@ class AutoProxyManager:
         config["adventure"] = adv
         return config
 
+    @classmethod
+    def _primary_running(cls, row: Optional[dict]) -> bool:
+        """押镖/宗门任务代理是否**真的在跑**。
+
+        ``task_type`` 是「上次跑的活动」，关闭代理时会特意保留（方便下次恢复），
+        所以「它有没有值」和「代理是否在运行」不是一回事。判断必须带上总开关
+        ``enabled``，否则 /关闭代理 之后残留的 task_type 会把秘境、历练代理
+        永久挡在门外——玩家再点 /关闭代理 也只会把同样的值写回去，形成死锁。
+        """
+        row = row or {}
+        return bool(row.get("enabled")) and bool(str(row.get("task_type") or "").strip())
+
     @staticmethod
-    def _any_proxy_active(task_type: Any, config: dict) -> bool:
+    def _any_proxy_active(primary_running: Any, config: dict) -> bool:
         """任一代理是否仍在运行：押镖/宗门任务、灵田、施肥、秘境。
 
         用于计算总开关 enabled，避免关闭其中一项时静默杀死其它代理。
+
+        第一个参数传的是「押镖/宗门任务代理是否真在跑」（见 ``_primary_running``），
+        不是裸的 task_type——残留值会让总开关误判成「还有代理在跑」。
         """
         return (
-            bool(task_type)
+            bool(primary_running)
             or bool((config.get("farm") or {}).get("enabled"))
             or bool((config.get("fertilize") or {}).get("enabled"))
             or bool((config.get("rift") or {}).get("enabled"))
@@ -405,6 +420,28 @@ class AutoProxyManager:
         except Exception as e:
             logger.warning(f"【自动代理】结算自动闭关失败: {e}")
             return ""
+
+    async def clear_stale_state(self, user_id: str) -> bool:
+        """清掉「已关闭的代理」残留的上次活动类型（解卡等自救场景用）。
+
+        关闭代理时会刻意保留 task_type 供下次一键恢复，但它同时也被当成
+        「当前代理目标」展示和判定。代理其实没开时留着它只会误导，
+        /解卡 这种强制重置指令顺手清掉最合适。
+
+        只动「总开关关着、且没有任何子代理在跑」的行——玩家正在用的代理一概不碰。
+        """
+        row = await self.get(user_id)
+        if not row:
+            return False
+        config = self._load_config(row)
+        if self._any_proxy_active(self._primary_running(row), config):
+            return False
+        if not str(row.get("task_type") or "").strip():
+            return False
+        await self._write_state(
+            user_id, False, "", "", row.get("last_error", "") or "", config
+        )
+        return True
 
     async def disable(self, user_id: str, reason: str = "") -> bool:
         """关闭全部代理；保留上次活动类型、灵田任务、秘境目标与施肥阈值，方便下次恢复。"""
@@ -774,7 +811,7 @@ class AutoProxyManager:
             farm_cfg["tasks"] = {}
             action = "灵田代理已关闭。"
 
-        keep_enabled = self._any_proxy_active(row.get("task_type"), config)
+        keep_enabled = self._any_proxy_active(self._primary_running(row), config)
         await self._write_state(
             user_id,
             keep_enabled,
@@ -854,7 +891,7 @@ class AutoProxyManager:
             farm_cfg["plots_mode"] = "explicit"
         if not remain:
             farm_cfg["enabled"] = False
-        keep_enabled = self._any_proxy_active(row.get("task_type"), config)
+        keep_enabled = self._any_proxy_active(self._primary_running(row), config)
         await self._write_state(
             user_id,
             keep_enabled,
@@ -1212,20 +1249,17 @@ class AutoProxyManager:
             )
 
         row = await self.get(user_id) or {}
-        if (row.get("task_type") or "").strip() or self._adv_enabled(row):
-            # 秘境与押镖/宗门任务、历练代理互斥：不再静默取消进行中的任务代理
-            return False, (
-                "❌ 当前有进行中的代理任务（押镖/宗门任务/历练），"
-                "请先 /关闭代理 后再开启秘境代理。"
-            )
         config = self._load_config(row)
         rift_cfg = config["rift"]
         rift_cfg["enabled"] = True
         rift_cfg["rift_id"] = int(rift.rift_id)
         origin = origin or row.get("origin", "")
 
-        # 秘境与押镖/宗门任务互斥：开启秘境代理时清空任务目标
-        await self._write_state(user_id, True, "", origin, "", config)
+        # 各代理各占一个分身槽，允许并行（历练、押镖、宗门任务可以同时代理）。
+        # 只保留「真在跑」的任务目标：残留的 last task 一旦被写回 enabled=1 的行，
+        # 会被 _primary_running 误判成押镖代理正在跑，tick 就去续押镖了。
+        keep_task = row.get("task_type", "") if self._primary_running(row) else ""
+        await self._write_state(user_id, True, keep_task, origin, "", config)
 
         header = (
             "🤖 秘境代理已开启\n"
@@ -1476,11 +1510,6 @@ class AutoProxyManager:
 
         row = await self.get(user_id) or {}
         config = self._load_config(row)
-        if (row.get("task_type") or "").strip():
-            return False, (
-                "❌ 当前有进行中的押镖/宗门任务代理，与历练代理互斥。\n"
-                "💡 请先 /关闭代理 押镖 或 /关闭代理 宗门任务。"
-            )
 
         parts = raw_task.strip().split(maxsplit=1)
         rest = parts[1].strip() if len(parts) > 1 else ""
@@ -1534,10 +1563,12 @@ class AutoProxyManager:
                     f"（需境界 {route.get('min_level', 0)}，你当前 {player.level_index}）。"
                 )
 
-        # 历练与秘境/押镖同属占用状态的活动代理，开启时关闭秘境代理
-        rift_closed = bool(config["rift"].get("enabled"))
-        config["rift"]["enabled"] = False
-        rift_note = "\n（秘境代理已关闭）" if rift_closed else ""
+        # 历练与秘境、押镖/宗门任务各占一个分身槽，允许并行代理：
+        # 这里不再关闭秘境代理，也不再拒绝正在跑的任务代理。
+        rift_note = (
+            "\n（秘境代理同时在跑，两条各占一个分身槽）"
+            if config["rift"].get("enabled") else ""
+        )
 
         adv["enabled"] = True
         adv["route"] = route_keys[0]
@@ -1552,7 +1583,10 @@ class AutoProxyManager:
                 return False, "❌ 奇遇固定选项编号不能为负数；奇遇0 表示智能选择。"
             adv["encounter_choice"] = encounter_choice
         origin = origin or row.get("origin", "")
-        await self._write_state(user_id, True, "", origin, "", config)
+        # 只保留「真在跑」的任务目标：押镖/宗门任务代理可以与本代理并行，
+        # 但残留的 last task 不能借这次写回被复活成在跑。
+        keep_task = row.get("task_type", "") if self._primary_running(row) else ""
+        await self._write_state(user_id, True, keep_task, origin, "", config)
 
         mode_text = (
             f"双线交叉（{self._adv_route_label(adv['route'])} ⇄ {self._adv_route_label(adv['route2'])}）"
@@ -1598,7 +1632,7 @@ class AutoProxyManager:
             # enabled 按「是否还有其它代理在跑」计算，避免误关灵田/秘境代理。
             await self._write_state(
                 user_id,
-                self._any_proxy_active("", config),
+                self._any_proxy_active(False, config),
                 "",
                 origin,
                 "",
@@ -1626,7 +1660,7 @@ class AutoProxyManager:
         adv["close_until"] = 0
         adv["close_route"] = ""
         adv["note"] = ""
-        keep_enabled = self._any_proxy_active(row.get("task_type"), config)
+        keep_enabled = self._any_proxy_active(self._primary_running(row), config)
         await self._write_state(
             user_id,
             keep_enabled,
@@ -2042,25 +2076,17 @@ class AutoProxyManager:
 
         row = await self.get(user_id) or {}
         config = self._load_config(row)
-        rift_closed = bool(config["rift"].get("enabled"))
-        if rift_closed:
-            config["rift"]["enabled"] = False
-        adv_closed = bool(config["adventure"].get("enabled"))
-        adv_settle_note = ""
-        if adv_closed:
-            adv_settle_note = await self._settle_auto_seclusion_if_any(
-                user_id, config["adventure"]
-            )
-            config["adventure"]["enabled"] = False
-            config["adventure"]["close_until"] = 0
-            config["adventure"]["close_route"] = ""
-        close_notes = []
-        if rift_closed:
-            close_notes.append("秘境代理已关闭")
-        if adv_closed:
-            close_notes.append("历练代理已关闭")
-        rift_note = f"\n（{'；'.join(close_notes)}）" if close_notes else ""
-        rift_note += adv_settle_note
+        # 各代理各占一个分身槽：押镖/宗门任务可以和秘境、历练代理同时跑。
+        # 以前这里会把秘境/历练代理静默关掉，多分身玩家等于白买了化身。
+        parallel_notes = []
+        if config["rift"].get("enabled"):
+            parallel_notes.append("秘境代理")
+        if config["adventure"].get("enabled"):
+            parallel_notes.append("历练代理")
+        rift_note = (
+            f"\n（{'、'.join(parallel_notes)}同时在跑，各占一个分身槽）"
+            if parallel_notes else ""
+        )
         # 省略参数时按「正在进行的押镖/宗门任务」补全（多槽位取最近开始的那项）
         current = None
         current_cd = None
@@ -2245,7 +2271,7 @@ class AutoProxyManager:
             elif adv_cfg.get("auto_encounter", True):
                 detail += "，奇遇自动"
             lines.append(f"历练代理：运行中（{detail}）")
-        if row.get("task_type"):
+        if self._primary_running(row):
             lines.append(f"目标活动：{self.task_name(row.get('task_type'))}")
         elif not farm_on and not rift_on and not fert_on and not adv_on:
             lines.append("目标活动：等待选择")
@@ -2264,7 +2290,7 @@ class AutoProxyManager:
                     text = f"当前进行：{self.task_name(task)}（剩余 {remaining // 60} 分 {remaining % 60} 秒）"
                 else:
                     text = f"当前进行：{self.task_name(task)}（可结算，等待代理处理）"
-                if row.get("task_type") and row.get("task_type") != task:
+                if self._primary_running(row) and row.get("task_type") != task:
                     text += f"，下一轮改跑【{self.task_name(row.get('task_type'))}】"
             elif cd_type == UserStatus.ADVENTURING:
                 route_key = ""
@@ -2539,7 +2565,7 @@ class AutoProxyManager:
                 user_id, player, config, origin
             )
             if changed or adv_dirty:
-                keep_enabled = self._any_proxy_active(row.get("task_type"), config)
+                keep_enabled = self._any_proxy_active(self._primary_running(row), config)
                 await self._write_state(
                     user_id,
                     keep_enabled,
