@@ -2337,6 +2337,61 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
             cache[fid] = ids
         return ids
 
+    async def _factions_at_war(self, faction_a: int, faction_b: int) -> bool:
+        """两势力是否处于交战（按联盟盟主外交口径，§5.5/§7）。"""
+        a, b = int(faction_a or 0), int(faction_b or 0)
+        if a <= 0 or b <= 0 or a == b:
+            return False
+        fa = await self.get_faction(a)
+        fb = await self.get_faction(b)
+        if not fa or not fb:
+            return False
+        ah = await self._alliance_host(fa) or fa
+        bh = await self._alliance_host(fb) or fb
+        if int(ah.get("id") or 0) == int(bh.get("id") or 0):
+            return False
+        return R.is_hostile(ah.get("diplomacy") or {}, int(bh["id"]), _now())
+
+    async def _siege_owner_alive(self, world: dict, node: dict,
+                                 owner_fid: int) -> bool:
+        """当前围城方是否仍有存活围城军团镇守城下。"""
+        owner_fid = int(owner_fid or 0)
+        if owner_fid <= 0:
+            return False
+        ids = await self._friendly_ids(int(world["id"]), owner_fid)
+        for a in await self.get_armies(
+                int(world["id"]), node_id=int(node["id"]), states=("siege",)):
+            if int(a.get("faction_id") or 0) in ids and \
+                    int(a.get("troops", 0) or 0) > 0:
+                return True
+        return False
+
+    async def _siege_side_ids(self, world: dict, node: dict,
+                              owner_fid: int) -> set[int]:
+        """围城参与方：原攻方及其盟友 + 与守方交战且不与攻方敌对的势力。
+
+        v4.8.2：同一据点已有围城方时，不允许其他势力「抢归属」。与守方
+        开战的第三方只能作为增援（破城方仍是原攻方），与攻方敌对的势力
+        需先打赢城下营地战才能接管。
+        """
+        owner_fid = int(owner_fid or 0)
+        if owner_fid <= 0:
+            return set()
+        ids = set(await self._friendly_ids(int(world["id"]), owner_fid))
+        defender = int((node or {}).get("owner_faction") or 0)
+        if defender <= 0:
+            return ids
+        for a in await self.get_armies(
+                int(world["id"]), node_id=int(node["id"]), states=("siege",)):
+            fid = int(a.get("faction_id") or 0)
+            if fid <= 0 or fid in ids:
+                continue
+            if await self._factions_at_war(fid, owner_fid):
+                continue  # 与围城方敌对：不算协战
+            if await self._factions_at_war(fid, defender):
+                ids.add(fid)
+        return ids
+
     async def _territory_bonus(self, world: dict, node: dict, faction_id: int,
                                nodes: Optional[dict[int, dict]] = None,
                                cache: Optional[dict[int, set[int]]] = None) -> dict:
@@ -6115,27 +6170,35 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
             if await self._active_manual_battle(world["id"], nid):
                 continue
             ss = node.get("siege_state") or {}
-            atk_fid = int(ss.get("attacker_faction") or 0)
-            atk_friendly = await self._friendly_ids(
-                int(world["id"]), atk_fid) if atk_fid > 0 else set()
+            owner_fid = int(ss.get("attacker_faction") or 0)
+            terrain = str(node.get("terrain") or "plain")
+            atk_friendly = await self._siege_side_ids(
+                world, node, owner_fid) if owner_fid > 0 else set()
             attackers = [a for a in siege_armies
-                         if atk_fid > 0 and
+                         if owner_fid > 0 and
                          int(a["faction_id"]) in atk_friendly]
-            # 归属缺失/归属方已无围城军：由现存围城军中兵力最多的势力
-            # 重新起算，避免旧势力残军与当前攻方混算（§7.2：单一主攻方）。
+            # v4.8.2：只有原围城方兵力被消灭后，围城归属才允许变更。
             if not attackers:
+                had_owner = owner_fid > 0
                 troops_by_fid: dict[int, int] = {}
                 for a in siege_armies:
                     fid = int(a["faction_id"])
+                    if int(a.get("troops", 0) or 0) <= 0:
+                        continue
                     troops_by_fid[fid] = troops_by_fid.get(fid, 0) + \
-                        max(0, int(a.get("troops", 0) or 0))
-                atk_fid = max(troops_by_fid, key=troops_by_fid.get) \
+                        int(a.get("troops", 0) or 0)
+                owner_fid = max(troops_by_fid, key=troops_by_fid.get) \
                     if troops_by_fid else 0
-                atk_friendly = await self._friendly_ids(
-                    int(world["id"]), atk_fid) if atk_fid > 0 else set()
+                atk_friendly = await self._siege_side_ids(
+                    world, node, owner_fid) if owner_fid > 0 else set()
                 attackers = [a for a in siege_armies
                              if int(a["faction_id"]) in atk_friendly]
                 ss = {}
+                if had_owner and owner_fid > 0:
+                    reports.append(
+                        f"🏳「{node['name']}」原围城方已溃散，"
+                        f"{await self._faction_name(owner_fid)} 接管围城")
+            atk_fid = owner_fid
             attacker_ids = {id(a) for a in attackers}
             stale = [a for a in siege_armies if id(a) not in attacker_ids]
             # 保护期（夺城免战 / 护山盾）：围城中途生效则攻方撤围
@@ -6159,13 +6222,17 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
                 reports.append(
                     f"🕊「{node['name']}」与守方处于「{block}」，攻方撤围")
                 continue
-            # 非当前归属势力的围城军撤围：同一节点只允许一个攻方结算
+            # v4.8.2：同一据点不允许「抢围城归属」。与攻方敌对的围城军
+            # 需在抵达时打城下营地战；此处仅排除结算，不再强制撤围回城。
             for a in stale:
-                await self._auto_retreat(a)
+                if await self._consume_army_upkeep(world, a, terrain, True):
+                    await self._auto_retreat(a)
+                else:
+                    await self.save_army(a)
             if stale:
                 reports.append(
-                    f"🔀「{node['name']}」围城归属已变更，"
-                    f"{len(stale)} 支旧围城军撤围")
+                    f"⛔「{node['name']}」已有围城方，"
+                    f"{len(stale)} 支敌对军团原地对峙（不计入围城结算）")
             if not ss:
                 ss = {"ticks": 0, "attacker_faction": atk_fid,
                       "choice": "auto", "since": _now()}
@@ -6173,7 +6240,6 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
             ss["ticks"] = int(ss.get("ticks", 0)) + 1
             # §7.2：围城期间双方粮耗照常。守军（据点的 idle 军团）与攻方
             # 都按自身携粮结算；断粮军团当 tick 撤离，避免零粮无限围城。
-            terrain = str(node.get("terrain") or "plain")
             defender_armies = [a for a in await self.get_armies(
                 world["id"], node_id=nid, states=("idle",))
                 if int(a["faction_id"]) not in atk_friendly]
@@ -6286,6 +6352,18 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
             for a in attackers:
                 await self.save_army(a)
             await self.save_node(node)
+        # v4.8.2：清理「没有围城军却仍挂着 siege_state」的悬挂状态。
+        # 旧实现只在有围城军的节点上遍历，攻方全灭后城防会被永久锁住。
+        for n in await self.get_nodes(world["id"]):
+            if not (n.get("siege_state") or {}):
+                continue
+            if await self._active_manual_battle(world["id"], int(n["id"])):
+                continue
+            left = await self.get_armies(world["id"], node_id=int(n["id"]),
+                                         states=("siege",))
+            if not left:
+                n["siege_state"] = {}
+                await self.save_node(n)
         await self._commit()
         return reports
 
@@ -6296,10 +6374,11 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
         ss = node.get("siege_state") or {}
         choice = ss.get("choice") or "auto"
         atk_fid = int(ss.get("attacker_faction") or 0)
-        # 只结算当前主攻势力 + 同联盟协战军团，避免多势力围城时由旧势力
-        # 残军决定受降/巷战/占城归属。
-        atk_friendly = await self._friendly_ids(
-            int(world["id"]), atk_fid) if atk_fid > 0 else set()
+        # 只结算当前主攻势力 + 协战军团（同联盟友方 / 与守方开战且不与
+        # 主攻方敌对的增援），避免多势力围城时由旧势力残军决定归属。
+        # v4.8.2：与 _step_sieges 的围城参与方口径保持一致。
+        atk_friendly = await self._siege_side_ids(
+            world, node, atk_fid) if atk_fid > 0 else set()
         attackers = [a for a in attackers
                      if atk_fid <= 0 or
                      int(a["faction_id"]) in atk_friendly]
@@ -6307,8 +6386,7 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
             return ""
         if atk_fid <= 0:
             atk_fid = int(attackers[0]["faction_id"])
-            atk_friendly = await self._friendly_ids(
-                int(world["id"]), atk_fid)
+            atk_friendly = await self._siege_side_ids(world, node, atk_fid)
         atk_sim = [await self._army_sim(a) for a in attackers]
         atk_sim = [s for s in atk_sim if s]
         atk_buff = await self._faction_buff(atk_fid, "attack_bonus")
@@ -7699,6 +7777,71 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
             for a in attackers:
                 await self._auto_retreat(a)
             return f"🛡️「{node['name']}」处于保护期，攻方撤军"
+        # v4.8.2：围城归属保护——已有势力围城时，其他势力不能直接抢归属。
+        #   友方 / 与守方开战 → 增援，破城方仍是原攻方；
+        #   与攻方敌对 → 先打城下营地战，原攻方被消灭后才可能易主。
+        ss = node.get("siege_state") or {}
+        siege_owner = int(ss.get("attacker_faction") or 0)
+        if siege_owner > 0 and siege_owner != atk_fid and \
+                await self._siege_owner_alive(world, node, siege_owner):
+            owner_ids = set(await self._friendly_ids(
+                int(world["id"]), siege_owner))
+            camp = [a for a in await self.get_armies(
+                world["id"], node_id=int(node["id"]), states=("siege",))
+                if int(a.get("faction_id") or 0) in owner_ids
+                and int(a.get("troops", 0) or 0) > 0]
+            defender_fid = int(node.get("owner_faction", 0) or 0)
+            if await self._factions_at_war(atk_fid, siege_owner):
+                camp_report = await self._siege_camp_battle(
+                    world, node, attackers, camp, atk_fid, siege_owner)
+                if await self._siege_owner_alive(world, node, siege_owner):
+                    # 原围城方未被消灭：围城归属不变，挑战方按战败撤退
+                    return camp_report
+                node["siege_state"] = {}
+                await self.save_node(node)
+                survivors = [a for a in attackers
+                             if int(a.get("troops", 0) or 0) > 0
+                             and not a.get("_destroyed")
+                             and not a.get("_routed")]
+                if not survivors:
+                    return camp_report + "\n🏳 原围城方被击溃，攻方亦无力再战"
+                attackers = survivors
+                atk_fids = {int(a.get("faction_id") or 0) for a in attackers}
+                atk_fid = max(
+                    atk_fids,
+                    key=lambda f: sum(int(x.get("troops", 0) or 0)
+                                      for x in attackers
+                                      if int(x.get("faction_id") or 0) == f))
+                atk_f = await self.get_faction(int(atk_fid))
+                atk_host = await self._alliance_host(atk_f) if atk_f else None
+                await self._log_action(
+                    world, "battle", "siege_takeover",
+                    actor_faction=int(atk_fid),
+                    target_faction=int(siege_owner),
+                    node_id=int(node["id"]),
+                    node_name=str(node.get("name") or ""), success=1,
+                    summary=(f"🏳「{node['name']}」城下营地战："
+                             f"{await self._faction_name(int(atk_fid))} "
+                             "击溃原围城方，围城归属空出"),
+                    visibility="public")
+            else:
+                reinforce = (atk_fid in owner_ids or
+                             await self._factions_at_war(atk_fid, defender_fid))
+                if not reinforce:
+                    for a in attackers:
+                        a["state"] = "idle"
+                        a["path"] = []
+                        a["edge_pos"] = 0.0
+                        await self.save_army(a)
+                    return (f"⛔「{node['name']}」已由"
+                            f"{await self._faction_name(siege_owner)}围城；"
+                            "你既非其友方，也未与该城守方开战，无法加入围城")
+                # 增援：破城方仍是原围城方，城防进度延续
+                atk_fid = siege_owner
+                atk_f = await self.get_faction(int(atk_fid))
+                atk_host = await self._alliance_host(atk_f) if atk_f else None
+                atk_fids = set(atk_fids) | owner_ids
+                attackers = list(attackers) + camp
         # 撕毁停战/背盟判定（§6.3）
         owner_fid = int(node.get("owner_faction", 0) or 0)
         # 外交关系按「联盟盟主势力」记账：成员国据点的归属方是其自身
@@ -7890,18 +8033,68 @@ class StrategyManager(StrategyThreatMixin, StrategyFactionMixin,
             report += f"\n🛡️「{node['name']}」守住了攻势"
         return report
 
+    async def _siege_camp_battle(self, world: dict, node: dict,
+                                 attackers: list[dict], camp: list[dict],
+                                 atk_fid: int, owner_fid: int) -> str:
+        """与围城方敌对：在城下先打一场营地战（决定围城归属是否易主）。
+
+        仅当原攻方营地军被全歼/溃散后，调用方才会清空 ``siege_state``
+        并让挑战方继续攻守。
+        """
+        atk_sim, dfn_sim = [], []
+        for a in attackers:
+            s = await self._army_sim(a)
+            if s:
+                atk_sim.append(s)
+        for a in camp:
+            s = await self._army_sim(a)
+            if s:
+                dfn_sim.append(s)
+        if not atk_sim or not dfn_sim:
+            return ""
+        cfg = self.main_cfg()
+        rng = self._rng("siege_camp", world["id"], node["id"],
+                        world.get("tick_no", 0),
+                        *[int(a["id"]) for a in attackers])
+        result = R.simulate_battle(
+            atk_sim, dfn_sim, rng,
+            max_rounds=int((cfg.get("battle") or {}).get("max_rounds", 30)),
+            night=R.is_night(time.localtime().tm_hour),
+            defending_node=False)
+        report = R.render_battle_report(result, title=f"{node['name']}城下营地战")
+        await self._apply_battle_aftermath(world, node, attackers, camp, result)
+        await self._persist_battle(world, node, atk_fid, owner_fid,
+                                   "field", result, report, atk_sim, dfn_sim)
+        await self._log_action(
+            world, "battle", "siege_camp",
+            actor_faction=int(atk_fid),
+            target_faction=int(owner_fid),
+            node_id=int(node["id"]),
+            node_name=str(node.get("name") or ""),
+            success=1 if result.get("winner") == "attacker" else 0,
+            summary=(f"⚔️「{node['name']}」围城权争夺："
+                     f"{await self._faction_name(int(atk_fid))} vs "
+                     f"{await self._faction_name(int(owner_fid))}，"
+                     f"{'挑战方' if result.get('winner') == 'attacker' else '原围城方'}胜"),
+            visibility="public")
+        return report
+
     async def _begin_siege(self, world: dict, node: dict, army: dict,
                            attacker_faction: int = 0):
         army["state"] = "siege"
         army["edge_pos"] = 0.0
         army["path"] = []
         ss = node.get("siege_state") or {}
+        old_fid = int(ss.get("attacker_faction") or 0)
         new_fid = int(attacker_faction or army.get("faction_id") or 0)
-        # 围城易手（原攻方被击溃、新势力接管）：重置进度与归属；
-        # 同一联盟的协战军团加入则沿用原主攻势力，不重置进度。
-        if ss and int(ss.get("attacker_faction") or 0) != new_fid:
-            friendly = await self._friendly_ids(int(world["id"]), new_fid)
-            if int(ss.get("attacker_faction") or 0) not in friendly:
+        # v4.8.2：围城归属只在原攻方被消灭后才可变。
+        # 友方增援 / 原攻方仍有驻军 → 沿用原攻方，围城进度不重置。
+        if ss and old_fid != new_fid:
+            friendly = await self._friendly_ids(int(world["id"]), old_fid)
+            if new_fid in friendly or await self._siege_owner_alive(
+                    world, node, old_fid):
+                new_fid = old_fid
+            else:
                 ss = {}
         fresh = not ss
         if fresh:

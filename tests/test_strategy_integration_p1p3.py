@@ -2413,7 +2413,7 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
         return world, target, a2, a3, fid2, fid3
 
     async def test_step_sieges_only_current_attacker_faction(self):
-        """多势力围城只推进当前归属势力，旧势力残军撤围。"""
+        """多势力围城只推进当前归属势力，非归属军团原地对峙（不撤围）。"""
         world, target, a2, a3, fid2, fid3 = await self._two_siege_armies()
         target["siege_state"] = {"attacker_faction": fid2, "ticks": 0,
                                  "choice": "auto", "since": _now()}
@@ -2422,12 +2422,15 @@ class TestStrategyP1P3Integration(unittest.IsolatedAsyncioTestCase):
         a2 = await self.m.get_army(a2["id"])
         a3 = await self.m.get_army(a3["id"])
         self.assertEqual(a2["state"], "siege")
-        self.assertTrue(a3 is None or a3["state"] != "siege")
+        # v4.8.2：非归属围城军不再被强制送回己方据点
+        self.assertIsNotNone(a3)
+        self.assertEqual(a3["state"], "siege")
+        self.assertEqual(int(a3["node_id"]), int(target["id"]))
         node = await self.m.get_node(self.wid, target["id"])
         self.assertEqual(
             int(node["siege_state"]["attacker_faction"]), fid2)
         self.assertEqual(int(node["siege_state"]["ticks"]), 1)
-        self.assertTrue(any("旧围城军" in r for r in reports))
+        self.assertTrue(any("原地对峙" in r for r in reports))
         self.assertNotEqual(fid2, fid3)
 
     async def test_step_sieges_lifts_on_truce(self):

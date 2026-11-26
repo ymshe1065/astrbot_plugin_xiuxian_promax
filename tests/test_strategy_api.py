@@ -470,8 +470,8 @@ class StrategyRestApiTest(_AccountsBase, _ManagerBase):
         self.assertEqual(resp.status, 200)
         body = await resp.json()
         self.assertTrue(body["ok"], body)
-        self.assertEqual(body["total"], 62)
-        self.assertEqual(body["count"], 62)
+        self.assertEqual(body["total"], 63)
+        self.assertEqual(body["count"], 63)
         self.assertEqual(len(body["categories"]), 20)
         self.assertEqual(body["categories"], list(rs._STRATEGY_GUIDE_CATS))
         ids = {e["id"] for e in body["items"]}
@@ -499,7 +499,7 @@ class StrategyRestApiTest(_AccountsBase, _ManagerBase):
         self.assertEqual(body["count"], 0)
         self.assertEqual(body["items"], [])
         self.assertEqual(body["sections"], [])
-        self.assertEqual(body["total"], 62)
+        self.assertEqual(body["total"], 63)
 
 
 class StrategyNotifyTest(_AccountsBase, _ManagerBase):

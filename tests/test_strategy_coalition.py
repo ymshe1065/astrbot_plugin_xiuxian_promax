@@ -121,7 +121,27 @@ class TestStrategyCoalition(unittest.IsolatedAsyncioTestCase):
                 await self.m.save_node(node)
                 await self.m._commit()
                 return node
-        self.fail("首都附近没有可用的无主据点")
+        # 地图生成含时间随机，个别轮次首都没有相邻无主据点：任取一处
+        # 无主据点并补一条通路，保证联军行军链路可测（夹具行为，不影响生产）。
+        nodes = [n for n in await self.m.get_nodes(self.wid)
+                 if int(n["owner_faction"]) == 0 and n["type"] != "ruin"
+                 and int(n["id"]) != int(home["id"])]
+        if not nodes:
+            self.fail("没有可用的无主据点")
+        node = nodes[0]
+        adj = [int(x) for x in (home.get("adj") or [])]
+        if int(node["id"]) not in adj:
+            adj.append(int(node["id"]))
+            home["adj"] = adj
+            await self.m.save_node(home)
+        n_adj = [int(x) for x in (node.get("adj") or [])]
+        if int(home["id"]) not in n_adj:
+            n_adj.append(int(home["id"]))
+            node["adj"] = n_adj
+        node["owner_faction"] = int(self.p["faction_id"])
+        await self.m.save_node(node)
+        await self.m._commit()
+        return node
 
     # ------------------------------------------------------------------
     # 合军：基础校验
