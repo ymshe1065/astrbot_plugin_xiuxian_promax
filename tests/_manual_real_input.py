@@ -200,6 +200,18 @@ def split_args(fn, rest: str) -> list:
     是桩失真，不是产品 bug。
     """
     if not rest:
+        # 形参没有默认值时，真 astrbot 会传空串（GreedyStr 尤其如此），
+        # 否则 `/飞升` 这类无参命令会 TypeError: missing 'args'
+        try:
+            params = [
+                p for p in inspect.signature(fn).parameters.values()
+                if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)
+            ]
+            extra = params[2:]
+        except (TypeError, ValueError):
+            return []
+        if extra and extra[0].default is inspect.Parameter.empty:
+            return [""]
         return []
     try:
         params = [
@@ -462,7 +474,11 @@ async def run(key, no_browser):
     await room_server.start("127.0.0.1", PORT)
     shot.URL_BASE = f"http://127.0.0.1:{PORT}/"
     accounts.register(ACCOUNT, PASSWORD, NICK)
-    proc = shot.start_chrome(1440, 900)
+    # 视口可用环境变量覆盖：手机端（SHOT_W=390 SHOT_H=844）才能暴露
+    # 「菜单贴着屏幕底边 → 按钮被裁掉」这类只在窄屏出现的问题
+    proc = shot.start_chrome(
+        int(os.environ.get("SHOT_W", 1440)), int(os.environ.get("SHOT_H", 900))
+    )
     try:
         shot.wait_devtools()
         page = shot.open_page(shot.URL_BASE)
@@ -502,6 +518,23 @@ async def run(key, no_browser):
                 print(f"  看板归位: {'✅' if good else '❌'} "
                       f"{stat.get('groups', 0)} 组 / {stat.get('cards', 0)} 张卡片", flush=True)
                 print(f"  晶块: {stat.get('pipsOn', 0)}/{stat.get('pips', 0)} 已点亮", flush=True)
+                # 点第一张卡片：菜单里必须同时有说明和「购买一层」入口
+                await c.js("(()=>{const v=document.getElementById('viewFate');"
+                           "const e=v&&[...v.querySelectorAll('.fate-card')]"
+                           ".find(x=>x.getClientRects().length);"
+                           "if(e)e.click()})()")
+                await asyncio.sleep(0.8)
+                print("  卡片菜单:", await c.js(
+                    "(()=>{const ms=[...document.querySelectorAll('div')]"
+                    ".filter(x=>x.style&&x.style.zIndex==='70'&&x.getClientRects().length);"
+                    "const m=ms[ms.length-1];"
+                    "if(!m)return '-';"
+                    "const r=m.getBoundingClientRect();"
+                    "return JSON.stringify({text:m.innerText.replace(/\\n+/g,' / '),"
+                    "btns:m.querySelectorAll('button').length,"
+                    "top:Math.round(r.top),h:Math.round(r.height),"
+                    "vw:innerWidth,vh:innerHeight,"
+                    "inView:r.top>=0&&r.bottom<=innerHeight})})()"), flush=True)
             print("  服务端派发:", router.log, flush=True)
             # 防回归：页面汇总的「共 N 条」必须等于后端给出的条目数。
             # v3.45.22 的 bug（默认落凡品）就是这两个数对不上——宗门 5 件只画 2 格。

@@ -3469,6 +3469,17 @@ class XiuXianPlugin(Star):
             note = await self._auto_proxy_manual_exit(event)
             if note:
                 yield event.plain_result(note.strip())
+        # 无论槽位是否健康都清一次残留：关闭代理时 task_type 会被保留，
+        # 曾经让秘境/历练代理显示「有进行中的代理任务」而开不起来。
+        try:
+            cleared = await self.auto_proxy_mgr.clear_stale_state(event.get_sender_id())
+        except Exception as e:
+            logger.warning(f"【自动代理】清理残留代理状态失败: {e}")
+            cleared = False
+        if cleared:
+            yield event.plain_result(
+                "🧹 已清掉上次关闭代理残留的目标活动，现在可以重新开启自动代理。"
+            )
 
     @filter.command("修仙诊断", "诊断修仙插件运行状态")
     @require_whitelist

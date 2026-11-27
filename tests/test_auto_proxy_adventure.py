@@ -370,20 +370,34 @@ class TestAutoProxyAdventure(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(row["enabled"], 1)
         self.assertTrue(config["adventure"]["enabled"])
 
-    async def test_enable_primary_closes_adventure(self):
+    async def test_enable_primary_keeps_adventure_running(self):
+        """押镖代理与历练代理各占一个分身槽，不该再把历练代理关掉。"""
         await self.manager.enable("u1", "umo://group", "历练 巡山问道")
         await self.db.ext.set_user_free("u1")
         ok, msg = await self.manager.enable("u1", "umo://group", "押镖")
-        self.assertIn("历练代理已关闭", msg)
+        self.assertTrue(ok)
+        self.assertIn("历练代理同时在跑", msg)
         _row, config = await self._config()
-        self.assertFalse(config["adventure"]["enabled"])
+        self.assertTrue(config["adventure"]["enabled"])
 
-    async def test_enable_rift_rejected_while_adventure_on(self):
+    async def test_enable_rift_keeps_adventure_running(self):
+        """秘境代理与历练代理可以同时开：各占一个槽。"""
+        class _Rift:
+            async def enter_rift(self, user_id, rift_id):
+                return True, "已进入秘境"
+
+            def _get_level_name(self, level):
+                return "炼气"
+
+        self.manager.rift_mgr = _Rift()
         await self.manager.enable("u1", "umo://group", "历练 巡山问道")
         await self.db.ext.set_user_free("u1")
         ok, msg = await self.manager.enable("u1", "umo://group", "秘境 1")
-        self.assertFalse(ok)
-        self.assertIn("进行中的代理任务", msg)
+        self.assertTrue(ok, msg)
+        self.assertIn("秘境代理已开启", msg)
+        _row, config = await self._config()
+        self.assertTrue(config["adventure"]["enabled"])
+        self.assertTrue(config["rift"]["enabled"])
 
     async def test_status_shows_adventure(self):
         await self.manager.enable("u1", "umo://group", "历练 巡山问道 灵谷采药 奇遇2")
